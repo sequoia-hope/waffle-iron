@@ -1,5 +1,5 @@
 {
-  "errored": 40,
+  "errored": 42,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
   "passed": 214,
@@ -167,10 +167,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(17) [curved lateral is a canonical or holed torus (full-circle rim / windowed band — Slice F sub-slice)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(32), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
       "id": "R0028",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -443,10 +443,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(1185) [curved lateral is a canonical or holed torus (full-circle rim / windowed band — Slice F sub-slice)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 0: CDT triangulation failed: CDT backend failed to triangulate\"). Body created as standalone.",
       "id": "R0074",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",

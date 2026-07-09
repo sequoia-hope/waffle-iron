@@ -3904,6 +3904,7 @@ fn band_seam_bridge<F: Fn(f64, f64) -> Point3>(
     span: f64,
     minor: f64,
     major: f64,
+    windows: &[(f64, f64)],
     eval: F,
 ) -> Option<Vec<(f64, f64, Point3)>> {
     let (m, mm) = (pc.su.len(), mc.su.len());
@@ -3989,6 +3990,18 @@ fn band_seam_bridge<F: Fn(f64, f64) -> Point3>(
         ));
         ring
     };
+    // A non-wrapping window straddles the seam cut (at u ≡ base_x mod span) iff a
+    // seam line falls strictly inside its u-interval [wlo, whi] — i.e. Slice F-2's
+    // "window on the seam" split (the R0063/cylinder wall on the torus). Prefer an
+    // anchor whose seam splits no window; if none exists, fall back to the first
+    // non-crossing anchor (a genuinely seam-crossing patch, out of scope).
+    let straddles_window = |base_x: f64| -> bool {
+        windows.iter().any(|&(wlo, whi)| {
+            let d = (base_x - wlo).rem_euclid(span);
+            d > 1e-12 && d < (whi - wlo) - 1e-12
+        })
+    };
+    let mut fallback: Option<(usize, usize, f64)> = None;
     // Pick the anchor pair (xi on pc, yi on mc) whose two seam-bridge SPANS
     // (validated as single segments, before subdivision) cross no boundary edge.
     for xi in 0..m {
@@ -4044,11 +4057,19 @@ fn band_seam_bridge<F: Fn(f64, f64) -> Point3>(
                 |chain: &[[f64; 2]]| chain.windows(2).any(|w| seg_cross(p, q, w[0], w[1]));
             chain_hit(&bottom) || chain_hit(&top)
         };
-        if !spans.iter().any(|&(p, q)| crosses(p, q)) {
+        if spans.iter().any(|&(p, q)| crosses(p, q)) {
+            continue;
+        }
+        // Non-crossing anchor: take it immediately if it also splits no window;
+        // otherwise remember it as the fallback and keep looking for a clean seam.
+        if !straddles_window(base_x) {
             return Some(build_ring(xi, yi, dpr));
         }
+        if fallback.is_none() {
+            fallback = Some((xi, yi, dpr));
+        }
     }
-    None
+    fallback.map(|(xi, yi, dpr)| build_ring(xi, yi, dpr))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4189,9 +4210,13 @@ pub fn tessellate_torus_patch(
             }
             o
         }
-        2 if ploops.len() == 2 => {
-            // BAND: two oppositely-meridian-wrapping loops, no holes (a holed
-            // band is out of this v1 scope). Universal-cover seam bridge.
+        2 => {
+            // BAND (KV14 Slice F/F-2): two oppositely-meridian-wrapping loops are
+            // the band's meridian edges; any REMAINING non-wrapping loops are
+            // window holes in the tube wall. The universal-cover seam bridge lays
+            // the outer ring across one meridian period; each window is then
+            // shifted by whole periods (in both scaled params) to land inside the
+            // band's unrolled (su, sv) region and carved as a CDT hole.
             let (a, b) = (wrapping[0], wrapping[1]);
             let (pc, mc) = if ploops[a].wu > 0 {
                 (&ploops[a], &ploops[b])
@@ -4201,16 +4226,47 @@ pub fn tessellate_torus_patch(
             if pc.wu + mc.wu != 0 {
                 return None;
             }
-            let ring = band_seam_bridge(pc, mc, span, minor, major, eval)?;
+            // Window u-intervals (the non-wrapping loops) so the seam bridge can
+            // place its cut where it splits no window (Slice F-2).
+            let windows: Vec<(f64, f64)> = ploops
+                .iter()
+                .filter(|l| l.wu == 0)
+                .map(|l| {
+                    (
+                        l.su.iter().cloned().fold(f64::INFINITY, f64::min),
+                        l.su.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+                    )
+                })
+                .collect();
+            let ring = band_seam_bridge(pc, mc, span, minor, major, &windows, eval)?;
             let mut o = Vec::with_capacity(ring.len());
+            let (mut umin, mut umax) = (f64::INFINITY, f64::NEG_INFINITY);
+            let (mut vmin, mut vmax) = (f64::INFINITY, f64::NEG_INFINITY);
             for (su, sv, p) in &ring {
+                umin = umin.min(*su);
+                umax = umax.max(*su);
+                vmin = vmin.min(*sv);
+                vmax = vmax.max(*sv);
                 o.push(verts2d.len() as u32);
                 verts2d.push(cad_primitives::Point2::new(*su, *sv));
                 vert3d.push(*p);
             }
+            // Window holes = the non-wrapping loops (band edges already consumed).
+            let (u_center, v_center) = (0.5 * (umin + umax), 0.5 * (vmin + vmax));
+            for l in ploops.iter().filter(|l| l.wu == 0) {
+                let du = ((umean(l) - u_center) / span).round() * span;
+                let dv = ((vmean(l) - v_center) / span_v).round() * span_v;
+                let mut hi = Vec::with_capacity(l.su.len());
+                for k in 0..l.su.len() {
+                    hi.push(verts2d.len() as u32);
+                    verts2d.push(cad_primitives::Point2::new(l.su[k] - du, l.sv[k] - dv));
+                    vert3d.push(l.pts[k]);
+                }
+                hole_idx.push(hi);
+            }
             o
         }
-        // 1 wrapping loop (degenerate), a holed band, or > 2 wraps: out of scope.
+        // 1 wrapping loop (degenerate) or > 2 wraps: out of scope.
         _ => return None,
     };
 
@@ -4246,8 +4302,9 @@ pub fn tessellate_torus_patch(
 /// recovers its EXISTING shared global (watertight with adjacent caps); a seam
 /// duplicate or Steiner vert welds by position (the two seam copies are one
 /// meridian, ULP-apart, so an exact key would leave a crack — Cherchi needs the
-/// band watertight). Holed bands (a window in the tube) and seam-crossing patches
-/// return `None` from the patch tessellator → a typed wall (a later sub-slice).
+/// band watertight). A holed band (a window in the tube, Slice F-2) carves each
+/// non-wrapping window as a CDT hole; only seam-crossing / longitude-wrapping
+/// patches return `None` from the patch tessellator → a typed wall.
 #[allow(clippy::too_many_arguments)]
 fn tessellate_torus_band(
     f_idx: usize,
@@ -4305,8 +4362,8 @@ fn tessellate_torus_band(
         tessellate_torus_patch(center, axis_dir, major, minor, &boundary, &holes, max_area)
     else {
         return Err(YangError::MalformedTopology(format!(
-            "face {f_idx}: torus band UV-CDT unsupported (holed band / seam-crossing \
-             patch — KV14 Slice F later sub-slice)"
+            "face {f_idx}: torus band UV-CDT unsupported (seam-crossing / \
+             longitude-wrapping patch — KV14 Slice F later sub-slice)"
         )));
     };
 
@@ -4614,6 +4671,221 @@ mod torus_patch_tests {
         assert!(
             area <= analytic * (1.0 + 1e-6) && area >= analytic * 0.97,
             "band area {area} vs analytic {analytic}"
+        );
+    }
+
+    /// KV14 Slice F-2: a seam-wrapping torus BAND with a WINDOW HOLE in the tube
+    /// wall — the two meridian-circle band edges wrap the full meridian, and a
+    /// small non-wrapping (u,v) window is excluded. The band's universal-cover
+    /// seam bridge must still triangulate the outer ring while the window is
+    /// carved as a CDT hole (placed into the band's unrolled u-period).
+    #[test]
+    fn torus_band_with_window_hole_render() {
+        let center = Point3::new(0.0, 0.0, 0.0);
+        let axis = Vector3::new(0.0, 0.0, 1.0);
+        let (major, minor) = (3.0_f64, 1.0_f64);
+        let ax = normalize3(axis.as_array());
+        let (e1, e2) = ortho_basis(axis);
+        let (e1a, e2a) = (e1.as_array(), e2.as_array());
+        // Band longitude slice v ∈ [0, π/2]; meridian wraps fully.
+        let (v0, v1) = (0.0_f64, std::f64::consts::FRAC_PI_2);
+        let nu = 24;
+        let mut c0: Vec<Point3> = Vec::new();
+        let mut c1: Vec<Point3> = Vec::new();
+        for k in 0..nu {
+            let u = std::f64::consts::TAU * (k as f64) / (nu as f64);
+            c0.push(eval(center, ax, e1a, e2a, major, minor, u, v0));
+            c1.push(eval(center, ax, e1a, e2a, major, minor, -u, v1));
+        }
+        // A small non-wrapping window inside the band: u ∈ [1.0, 2.0],
+        // v ∈ [0.4, 1.0] (both well inside the band's ranges, non-wrapping).
+        let (wu0, wu1, wv0, wv1) = (1.0_f64, 2.0_f64, 0.4_f64, 1.0_f64);
+        let nw = 6;
+        let mut win: Vec<Point3> = Vec::new();
+        let mut wpush = |u: f64, v: f64| win.push(eval(center, ax, e1a, e2a, major, minor, u, v));
+        for k in 0..nw {
+            wpush(wu0 + (wu1 - wu0) * (k as f64 / nw as f64), wv0);
+        }
+        for k in 0..nw {
+            wpush(wu1, wv0 + (wv1 - wv0) * (k as f64 / nw as f64));
+        }
+        for k in 0..nw {
+            wpush(wu1 - (wu1 - wu0) * (k as f64 / nw as f64), wv1);
+        }
+        for k in 0..nw {
+            wpush(wu0, wv1 - (wv1 - wv0) * (k as f64 / nw as f64));
+        }
+        let win_edges = win.len();
+
+        let (verts, tris) =
+            tessellate_torus_patch(center, axis, major, minor, &c0, &[c1, win], 0.05)
+                .expect("holed band tessellation");
+        assert!(!tris.is_empty(), "non-empty holed band mesh");
+
+        // Every vertex on the tube.
+        let surf = torus(major, minor);
+        for (i, &p) in verts.iter().enumerate() {
+            let d = signed_distance_to_surface(surf, p).unwrap();
+            assert!(d.abs() < 1e-9, "holed band vert {i} off tube: {d:e}");
+        }
+        // Manifold + watertight by 3D position; the three boundaries (2 meridian
+        // circles + 1 window) are count-1, everything else count-2, none > 2.
+        let key = |p: Point3| {
+            let a = p.as_array();
+            [
+                (a[0] * 1e7).round() as i64,
+                (a[1] * 1e7).round() as i64,
+                (a[2] * 1e7).round() as i64,
+            ]
+        };
+        let mut edges: BTreeMap<([i64; 3], [i64; 3]), u32> = BTreeMap::new();
+        for t in &tris {
+            for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                let (ka, kb) = (key(verts[a as usize]), key(verts[b as usize]));
+                let e = if ka < kb { (ka, kb) } else { (kb, ka) };
+                *edges.entry(e).or_insert(0) += 1;
+            }
+        }
+        assert!(
+            edges.values().all(|&c| c == 1 || c == 2),
+            "non-manifold edge (some positional edge in >2 tris)"
+        );
+        let boundary_edges = edges.values().filter(|&&c| c == 1).count();
+        assert_eq!(
+            boundary_edges,
+            2 * nu + win_edges,
+            "expected 2 meridian circles ({}) + 1 window ({win_edges}), got {boundary_edges}",
+            2 * nu
+        );
+
+        // Chorded area ≈ analytic band area MINUS the excluded window area.
+        //   band:   r·(v1−v0)·2π·R
+        //   window: r·(wv1−wv0)·[R·(wu1−wu0) + r·(sin wu1 − sin wu0)]
+        let band_area = minor * (v1 - v0) * std::f64::consts::TAU * major;
+        let win_area =
+            minor * (wv1 - wv0) * (major * (wu1 - wu0) + minor * (wu1.sin() - wu0.sin()));
+        let analytic = band_area - win_area;
+        let mut area = 0.0;
+        for t in &tris {
+            let a = verts[t[0] as usize].as_array();
+            let b = verts[t[1] as usize].as_array();
+            let c = verts[t[2] as usize].as_array();
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let cr = [
+                ab[1] * ac[2] - ab[2] * ac[1],
+                ab[2] * ac[0] - ab[0] * ac[2],
+                ab[0] * ac[1] - ab[1] * ac[0],
+            ];
+            area += 0.5 * (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
+        }
+        assert!(
+            area <= analytic * (1.0 + 1e-6) && area >= analytic * 0.97,
+            "holed band area {area} vs analytic {analytic} (band {band_area} − window {win_area})"
+        );
+    }
+
+    /// KV14 Slice F-2 seam-avoidance branch: the window straddles the DEFAULT
+    /// seam (meridian u=0, where both band edges are anchored). `band_seam_bridge`
+    /// must skip that anchor and cut the seam elsewhere, so the window projects as
+    /// a simple interior hole (not split across the seam → CDT self-intersection).
+    /// This is R0028's complement-band wall in miniature.
+    #[test]
+    fn torus_band_window_on_seam_render() {
+        let center = Point3::new(0.0, 0.0, 0.0);
+        let axis = Vector3::new(0.0, 0.0, 1.0);
+        let (major, minor) = (3.0_f64, 1.0_f64);
+        let ax = normalize3(axis.as_array());
+        let (e1, e2) = ortho_basis(axis);
+        let (e1a, e2a) = (e1.as_array(), e2.as_array());
+        let (v0, v1) = (0.0_f64, std::f64::consts::FRAC_PI_2);
+        let nu = 24;
+        // Band edges anchored at meridian u=0 (k=0), same as the default seam.
+        let mut c0: Vec<Point3> = Vec::new();
+        let mut c1: Vec<Point3> = Vec::new();
+        for k in 0..nu {
+            let u = std::f64::consts::TAU * (k as f64) / (nu as f64);
+            c0.push(eval(center, ax, e1a, e2a, major, minor, u, v0));
+            c1.push(eval(center, ax, e1a, e2a, major, minor, -u, v1));
+        }
+        // Window centred ON the u=0 seam: u ∈ [−0.3, 0.3], v ∈ [0.4, 1.0].
+        let (wu0, wu1, wv0, wv1) = (-0.3_f64, 0.3_f64, 0.4_f64, 1.0_f64);
+        let nw = 6;
+        let mut win: Vec<Point3> = Vec::new();
+        let mut wpush = |u: f64, v: f64| win.push(eval(center, ax, e1a, e2a, major, minor, u, v));
+        for k in 0..nw {
+            wpush(wu0 + (wu1 - wu0) * (k as f64 / nw as f64), wv0);
+        }
+        for k in 0..nw {
+            wpush(wu1, wv0 + (wv1 - wv0) * (k as f64 / nw as f64));
+        }
+        for k in 0..nw {
+            wpush(wu1 - (wu1 - wu0) * (k as f64 / nw as f64), wv1);
+        }
+        for k in 0..nw {
+            wpush(wu0, wv1 - (wv1 - wv0) * (k as f64 / nw as f64));
+        }
+        let win_edges = win.len();
+
+        let (verts, tris) =
+            tessellate_torus_patch(center, axis, major, minor, &c0, &[c1, win], 0.05)
+                .expect("seam-straddling window band tessellates (seam avoided)");
+
+        // Every vertex on the tube.
+        let surf = torus(major, minor);
+        for (i, &p) in verts.iter().enumerate() {
+            let d = signed_distance_to_surface(surf, p).unwrap();
+            assert!(d.abs() < 1e-9, "vert {i} off tube: {d:e}");
+        }
+        // Watertight/manifold by 3D position; the window survives as a boundary.
+        let key = |p: Point3| {
+            let a = p.as_array();
+            [
+                (a[0] * 1e7).round() as i64,
+                (a[1] * 1e7).round() as i64,
+                (a[2] * 1e7).round() as i64,
+            ]
+        };
+        let mut edges: BTreeMap<([i64; 3], [i64; 3]), u32> = BTreeMap::new();
+        for t in &tris {
+            for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                let (ka, kb) = (key(verts[a as usize]), key(verts[b as usize]));
+                let e = if ka < kb { (ka, kb) } else { (kb, ka) };
+                *edges.entry(e).or_insert(0) += 1;
+            }
+        }
+        assert!(
+            edges.values().all(|&c| c == 1 || c == 2),
+            "non-manifold edge (seam or window split)"
+        );
+        let boundary_edges = edges.values().filter(|&&c| c == 1).count();
+        assert_eq!(
+            boundary_edges,
+            2 * nu + win_edges,
+            "expected 2 meridian circles + 1 window, got {boundary_edges}"
+        );
+        // Area = band − window (a split window would leak area or fold).
+        let band_area = minor * (v1 - v0) * std::f64::consts::TAU * major;
+        let win_area =
+            minor * (wv1 - wv0) * (major * (wu1 - wu0) + minor * (wu1.sin() - wu0.sin()));
+        let analytic = band_area - win_area;
+        let mut area = 0.0;
+        for t in &tris {
+            let a = verts[t[0] as usize].as_array();
+            let b = verts[t[1] as usize].as_array();
+            let c = verts[t[2] as usize].as_array();
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let cr = [
+                ab[1] * ac[2] - ab[2] * ac[1],
+                ab[2] * ac[0] - ab[0] * ac[2],
+                ab[0] * ac[1] - ab[1] * ac[0],
+            ];
+            area += 0.5 * (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
+        }
+        assert!(
+            area <= analytic * (1.0 + 1e-6) && area >= analytic * 0.97,
+            "seam-window band area {area} vs analytic {analytic}"
         );
     }
 

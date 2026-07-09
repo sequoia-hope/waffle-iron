@@ -506,21 +506,24 @@ pub fn to_yang_brep_indexed(
                                 axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
                                 half_angle,
                             },
-                            // KV14 Slice F: a boolean-result torus lateral re-enters
-                            // via the UV-CDT path (`yang tessellate_torus_band` →
-                            // `tessellate_torus_patch`) as a POLOIDAL PERIODIC BAND —
-                            // two full profile boundaries (outer + ONE inner) bounding
-                            // the tube. A full-circle rim (`Curve::Circle`) is the
-                            // canonical structured torus (no CDT re-entry), and a HOLED
-                            // band (a window in the tube → ≥2 inner loops) is out of the
-                            // patch tessellator's scope — both stay the typed wall.
+                            // KV14 Slice F/F-2: a boolean-result torus lateral
+                            // re-enters via the UV-CDT path (`yang
+                            // tessellate_torus_band` → `tessellate_torus_patch`) as
+                            // a POLOIDAL PERIODIC BAND — two meridian-wrapping
+                            // profile boundaries (outer + ONE inner) bound the tube.
+                            // Slice F-2 additionally carves any REMAINING inner
+                            // loops as non-wrapping window holes in the tube wall,
+                            // so a band with ≥2 inner loops (other profile +
+                            // window(s)) now routes too. A full-circle rim
+                            // (`Curve::Circle`) is still the canonical structured
+                            // torus (no CDT re-entry) → stays the typed wall.
                             Some(Surface::Torus {
                                 center,
                                 axis_dir,
                                 major_radius,
                                 minor_radius,
                                 ..
-                            }) if !curved_full_rim && face.inner_loops.len() == 1 => {
+                            }) if !curved_full_rim && !face.inner_loops.is_empty() => {
                                 yang_rs::Surface::Torus {
                                     center,
                                     axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
@@ -533,8 +536,8 @@ pub fn to_yang_brep_indexed(
                                     "curved lateral is an apex/frustum cone (full-circle rim; \
                                      no CDT re-entry)"
                                 } else if matches!(face.surface, Some(Surface::Torus { .. })) {
-                                    "curved lateral is a canonical or holed torus (full-circle \
-                                     rim / windowed band — Slice F sub-slice)"
+                                    "curved lateral is a canonical full-rim torus (full-circle \
+                                     rim; no CDT re-entry)"
                                 } else if face.inner_loops.is_empty() {
                                     "curved lateral outer loop not 4 edges"
                                 } else {
