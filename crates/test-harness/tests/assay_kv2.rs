@@ -35,10 +35,15 @@
 //!   By default cases run as parallel killable subprocesses (`ASSAY_JOBS`,
 //!   default 4; each re-invokes this binary's `single_case`);
 //!   `ASSAY_JOBS=1` selects the historical in-process serial path. Verdicts
-//!   are per-case deterministic; only TIMEOUT is load-sensitive. Env-gated
-//!   stage probes print to the child's nulled stderr under parallel runs —
-//!   use `ASSAY_JOBS=1` or a manual `ASSAY_CASE=<id> ... single_case` run
-//!   when probing.
+//!   are per-case deterministic. The parallel path budgets each case on
+//!   **CPU time** (Linux `/proc/<pid>/stat`), so TIMEOUT no longer depends on
+//!   sibling load — a case starved by neighbours accrues wall time but not CPU
+//!   time and keeps its real verdict; only the serial (in-process) path and
+//!   non-Linux still budget on wall clock. Env-gated stage probes print to the
+//!   child's nulled stderr under parallel runs — use `ASSAY_JOBS=1` or a manual
+//!   `ASSAY_CASE=<id> ... single_case` run when probing. Every full run stamps
+//!   build mode / jobs / budget kind / wall time into the JSON report's `run`
+//!   block so a TIMEOUT count is interpretable after the fact.
 //!
 //!   A/B measured 2026-07-07 (24-core box, 120s cap): serial 76.5 min /
 //!   parallel(22) 5.8 min, categories identical except 8 borderline-slow
@@ -429,6 +434,38 @@ fn replay_case_with_timeout(case: &DiscoveredCase, timeout: Duration) -> CaseOut
     }
 }
 
+/// CPU seconds (user+system, summed across all threads) consumed so far by
+/// `pid`, read from `/proc/<pid>/stat` fields 14 (`utime`) + 15 (`stime`).
+/// Linux only; `None` when the file is gone (process exited) or unparseable.
+///
+/// This is what makes the parallel per-case budget load-INSENSITIVE: a case
+/// starved by siblings accrues wall time but not CPU time, so budgeting on CPU
+/// (below) gives it the same verdict whether it ran alone or under contention
+/// — killing the timeout-cascade false-positives (see the campaign that traced
+/// 20 "timeouts" to a debug/loaded-box run of correct-but-slow cases).
+///
+/// USER_HZ (`sysconf(_SC_CLK_TCK)`) is 100 on effectively every Linux config;
+/// std exposes no sysconf, so we assume 100 (Ref: `man 5 proc`, "utime").
+#[cfg(target_os = "linux")]
+fn child_cpu_secs(pid: u32) -> Option<f64> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // The `comm` field (2nd) may itself contain spaces and ')' — everything up
+    // to and including the LAST ')' is `pid (comm)`, so split there first.
+    let rest = stat.rsplit_once(')')?.1;
+    // `rest` now begins with " <state> <ppid> …"; after whitespace-splitting,
+    // index i holds stat field (i + 3). utime = field 14 → idx 11; stime =
+    // field 15 → idx 12.
+    let f: Vec<&str> = rest.split_whitespace().collect();
+    let utime: u64 = f.get(11)?.parse().ok()?;
+    let stime: u64 = f.get(12)?.parse().ok()?;
+    Some((utime + stime) as f64 / 100.0)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn child_cpu_secs(_pid: u32) -> Option<f64> {
+    None // no /proc → the caller falls back to a wall-clock deadline.
+}
+
 /// ASSAY_JOBS driver: replay one case in a KILLABLE subprocess — this test
 /// binary re-invoked with `--exact single_case` + `ASSAY_CASE=<id>` — and
 /// parse its `ASSAY_OUTCOME {json}` line. On deadline the child is KILLED:
@@ -436,7 +473,13 @@ fn replay_case_with_timeout(case: &DiscoveredCase, timeout: Duration) -> CaseOut
 /// parallel run cannot accumulate orphan CPU load (the timeout-cascade trap
 /// documented in `full_corpus_categorized`). Child stderr goes to null —
 /// env-gated probes need the serial path or a manual `single_case` run.
-fn replay_case_subprocess(id: &str, timeout: Duration) -> CaseOutcome {
+///
+/// `budget` is a **CPU-time** budget on Linux (the process's summed thread CPU
+/// from [`child_cpu_secs`]), with a generous wall-clock cap as a safety net for
+/// a genuinely blocked child that burns no CPU. On non-Linux the CPU probe is
+/// unavailable and `budget` degrades to a plain wall deadline (legacy). CPU
+/// budgeting is why parallel verdicts stop depending on box load.
+fn replay_case_subprocess(id: &str, budget: Duration) -> CaseOutcome {
     use std::io::Read as _;
     use std::process::{Command, Stdio};
     let err_outcome = |detail: String| CaseOutcome {
@@ -444,15 +487,22 @@ fn replay_case_subprocess(id: &str, timeout: Duration) -> CaseOutcome {
         category: Category::Error,
         detail,
     };
+    let cpu_budget = budget.as_secs_f64();
+    // Wall safety net: a BLOCKED child (deadlock / I/O wait) accrues no CPU and
+    // would never trip the CPU budget, so cap wall at a generous multiple to
+    // still terminate it. CPU-bound geometry — the norm — trips the CPU budget
+    // first, which is what decouples the verdict from box load.
+    let wall_cap = Duration::from_secs_f64((cpu_budget * 4.0).max(cpu_budget + 120.0));
     let exe = std::env::current_exe().expect("current_exe of the test binary");
     let mut child = match Command::new(&exe)
         .args(["--exact", "single_case", "--ignored", "--nocapture"])
         .env("ASSAY_CASE", id)
-        // The parent kill below is the real deadline; keep the child's own
-        // in-process guard strictly behind it (fallback only).
+        // The parent CPU/wall kill below is the real deadline; keep the child's
+        // own in-process (wall) guard strictly behind the parent's wall cap so
+        // the parent always decides first (fallback only).
         .env(
             "ASSAY_CASE_TIMEOUT_SECS",
-            (timeout.as_secs() + 60).to_string(),
+            (wall_cap.as_secs() + 60).to_string(),
         )
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -469,19 +519,39 @@ fn replay_case_subprocess(id: &str, timeout: Duration) -> CaseOutcome {
         let _ = stdout.read_to_string(&mut buf);
         buf
     });
-    let deadline = std::time::Instant::now() + timeout;
+    let pid = child.id();
+    // Whether the CPU probe works for this child (Linux + readable /proc). If
+    // not, `over_cpu` stays false and only the wall cap fires — legacy behaviour
+    // with `budget` acting as the wall deadline (wall_cap == budget on that
+    // path would be too tight, so non-Linux keeps the generous cap too; a
+    // non-CPU-budgeted parallel run there is simply the old load-sensitive
+    // behaviour, documented in the report's `budget_kind`).
+    let cpu_probe = child_cpu_secs(pid).is_some();
+    let wall_deadline = std::time::Instant::now() + if cpu_probe { wall_cap } else { budget };
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Ok(status),
-            Ok(None) if std::time::Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break Err(format!(
-                    "timeout after {}s (subprocess killed)",
-                    timeout.as_secs()
-                ));
+            Ok(None) => {
+                let over_cpu = cpu_probe && child_cpu_secs(pid).is_some_and(|c| c >= cpu_budget);
+                let over_wall = std::time::Instant::now() >= wall_deadline;
+                if over_cpu || over_wall {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    // Distinct detail strings so a wall-cap kill (possible
+                    // deadlock / non-CPU stall) is never confused with a genuine
+                    // CPU-budget overrun.
+                    break Err(if over_cpu {
+                        format!("timeout after {cpu_budget:.0}s CPU (subprocess killed)")
+                    } else {
+                        let cap = if cpu_probe { wall_cap } else { budget };
+                        format!(
+                            "wall cap {}s exceeded — child burned <{cpu_budget:.0}s CPU, likely stalled (subprocess killed)",
+                            cap.as_secs()
+                        )
+                    });
+                }
+                std::thread::sleep(Duration::from_millis(50));
             }
-            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
             Err(e) => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -1172,15 +1242,17 @@ fn full_corpus_categorized() {
     // jobs, sibling contention flips ~8 borderline-slow cases X→TIMEOUT;
     // 4 keeps near-cap verdicts stable while still cutting the wall clock
     // several-fold; raise explicitly for quick gates) runs each case as a
-    // KILLABLE subprocess (`replay_case_subprocess`) — kill-on-timeout
-    // leaves NO orphans, so parallel runs cannot cascade false timeouts the
-    // way the in-process thread model can. ASSAY_JOBS=1 keeps the
-    // historical in-process serial path (byte-identical), whose caveat
-    // stands: a timed-out case's worker thread is abandoned, not killed
-    // (heavy exact arithmetic can't be cancelled in-process), so it keeps
-    // burning a core and contending with later cases. Verdicts are per-case
-    // deterministic either way; only TIMEOUT is load-sensitive (already the
-    // documented environmental-noise category).
+    // KILLABLE subprocess (`replay_case_subprocess`) budgeted on CPU TIME
+    // (Linux) — kill-on-timeout leaves NO orphans, and CPU budgeting makes the
+    // TIMEOUT verdict load-INSENSITIVE: a case starved by siblings accrues wall
+    // time but not CPU time, so it is judged the same alone or under contention
+    // (this is the fix for the debug/loaded-box "20 false timeouts" episode).
+    // ASSAY_JOBS=1 keeps the historical in-process serial path (byte-identical
+    // verdicts), which budgets on WALL and whose caveat stands: a timed-out
+    // case's worker thread is abandoned, not killed (heavy exact arithmetic
+    // can't be cancelled in-process), so it keeps burning a core and contending
+    // with later cases — but with no siblings that is benign. Verdicts are
+    // per-case deterministic either way.
     let jobs: usize = std::env::var("ASSAY_JOBS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -1211,6 +1283,7 @@ fn full_corpus_categorized() {
         }
     );
 
+    let run_started = std::time::Instant::now();
     let mut outcomes: Vec<CaseOutcome>;
     if jobs <= 1 {
         outcomes = Vec::with_capacity(cases.len());
@@ -1283,6 +1356,35 @@ fn full_corpus_categorized() {
         }
     }
     assert_eq!(outcomes.len(), cases.len(), "driver lost a case outcome");
+    let wall_secs = run_started.elapsed().as_secs_f64();
+
+    // Run provenance — without this a bare "20 timeouts" number is
+    // uninterpretable after the fact (was it debug? a loaded box? a tight
+    // budget?). The serial path (jobs<=1, in-process) budgets on WALL; the
+    // parallel path budgets on CPU on Linux (load-insensitive) and degrades to
+    // wall elsewhere. Goes into the gitignored target report only — the
+    // committed UI results.json stays verdict-only to remain byte-stable.
+    let build_mode = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
+    let budget_kind = if jobs > 1 && cfg!(target_os = "linux") {
+        "cpu"
+    } else {
+        "wall"
+    };
+    let host_parallelism = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(0);
+    let generated_at_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    eprintln!(
+        "run: {build_mode} build, {jobs} job(s), {budget_kind}-budget {timeout_secs}s/case, \
+         {host_parallelism}-way host, wall {wall_secs:.1}s"
+    );
 
     // Persist the slow-list (union with prior — a FAST run leaves skipped
     // entries in place) so subsequent ASSAY_FAST runs stay quick.
@@ -1378,6 +1480,17 @@ fn full_corpus_categorized() {
     let report = serde_json::json!({
         "corpus": "app/tests/cases/assay",
         "kernel": "kernel-v2 (KernelV2Adapter)",
+        // Provenance for the timeout/perf verdicts — see the block above.
+        "run": {
+            "build_mode": build_mode,
+            "jobs": jobs,
+            "budget_kind": budget_kind,
+            "per_case_budget_secs": timeout_secs,
+            "wall_secs": (wall_secs * 10.0).round() / 10.0,
+            "host_parallelism": host_parallelism,
+            "fast": fast,
+            "generated_at_unix": generated_at_unix,
+        },
         "total": outcomes.len(),
         "supported_correct": count(&|c| *c == Category::SupportedCorrect),
         "supported_wrong": count(&|c| *c == Category::SupportedWrong),
