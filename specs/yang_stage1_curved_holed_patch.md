@@ -121,14 +121,46 @@ normal, matching `tessellate_lateral_face`'s `orient_target`.
   holes; covers the `reversed` branch, P4). yang-rs 204→206 lib tests green, no
   regression (structured hole-free arms untouched). NOT yet wired end-to-end —
   kernel-v2 `to_yang_brep` still walls these faces (Slice C).
-- **Slice B — branch-cut selection.** Cylinder patch whose OUTER loop is a
-  partial arc span (not full 2π) with a hole. Add largest-gap branch-cut. Oracle:
-  unrolled `u` range contiguous; CDT succeeds; back-mapped patch watertight.
-- **Slice C — wire kernel-v2 conversion.** `to_yang_brep` passes holed curved
-  faces (Line/Arc/Circle boundary only) through with their `inner_loops` instead
-  of walling. End-to-end kernel-v2 test: cyl − box_through_wall (holed lateral),
-  then a second boolean → CORRECT with volume oracle. Gate: assay must not
-  regress (re-run release, quiet box).
+- **Slice B — PERIODIC STRIP (model correction). ✅ DONE.** The census-real
+  cases are NOT Slice A's "non-wrapping partial patch with a small hole". They
+  are periodic wall STRIPS: a boolean OUTPUT cylinder wall is bounded by two
+  ENCIRCLING loops (a rim circle and/or an intersection ring, each winding ≈
+  2π), optionally with interior window holes. A full-2π encircling loop unrolls
+  to a zero-area horizontal line, so it CANNOT be a `cdt_polygon_with_holes`
+  hole — Slice A's model fails outright (`CDT backend failed to triangulate`,
+  proven on R0021/R0046 with the `KV14_PROBE` winding dump). Implementation in
+  `tessellate_lateral_holed_cdt`:
+  1. Classify every boundary loop by axial winding (`Σ Δθ`): `|Σ| > 1.5π` ⇒
+     encircling (a v-extent strip boundary); `≈ 0` ⇒ interior window.
+  2. `0` encircling ⇒ the Slice A partial-patch path (unchanged).
+  3. `2` encircling ⇒ periodic strip: open each encircling loop into a
+     u-ascending chain (anchor at min-u, walk toward the ascending neighbor —
+     orientation-agnostic since a −2π rim descends), lay the lower-v chain
+     forward and the upper-v chain reversed into ONE simple ribbon, and
+     DUPLICATE each chain's first vertex at `u += 2πr` so the ribbon spans the
+     full 2π (the seam wedge). Interior windows become CDT holes.
+  4. Seam placement avoids windows: the branch cut is chosen from the WINDOW
+     vertices' angular coverage (widest window-free wedge) so no window
+     straddles the seam and splits.
+  5. Any other encircling count ⇒ typed `MalformedTopology` (loud).
+  Unit tests: `periodic_strip_two_encircling_rims` (pure tube strip, exact
+  inscribed-area oracle) + the Slice A tests stay green.
+- **Slice C — wire kernel-v2 conversion. ✅ DONE.** `to_yang_brep` routes
+  CYLINDER holed laterals (Line/Arc/Circle boundary) through with their
+  `inner_loops` via the shared `convert_lateral_edge` converter (extracted from
+  the structured 4-edge path — no behavior change there). Non-cylinder holed
+  patches (cone/torus = Slice E/F) and degree-4 boundaries stay typed
+  `UnsupportedCurvedBoolean` with precise reasons. End-to-end kernel-v2 test
+  `curved_holed_lateral_reentry` (boolean_chains.rs): cyl − window box → holed
+  lateral, then a second boolean → CORRECT (analytic op1 volume + EXACT 0.18
+  planar-notch decrement). Assay delta (release, ASSAY_JOBS=6/240s): CORRECT
+  213 (unchanged), WRONG 0; UNSUPPORTED(curved-profile) 19→16 — R0021/R0046
+  advance to their next real wall `UNSUPPORTED(coplanar-boolean)` (M8), and
+  R0063 (a strip+window) passes the holed lateral but exposes a PRE-EXISTING
+  planar annular-cap CDT failure (`tessellate_planar_curved_cdt_face`, the
+  TessellationFailed ring-reject class — separate from KV14) → its only assay
+  transition is curved-profile → ERROR. No case regressed from CORRECT; the
+  strip capability is proven by the unit + end-to-end tests.
 - **Slice D — non-canonical outer loop (no holes).** Route `outer loop not 4
   edges` through the same unroll+CDT path (empty holes). Targets R0020, R0053,
   R0093, C0063.

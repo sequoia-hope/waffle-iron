@@ -204,6 +204,53 @@ fn curved_output_reentry_through_boss() {
     );
 }
 
+/// KV14 Slice B/C (spec `yang_stage1_curved_holed_patch`): a boolean OUTPUT
+/// whose cylinder lateral carries a HOLE (a window cut through the wall) now
+/// re-enters yang as an operand of a SECOND boolean — the former
+/// `UnsupportedCurvedBoolean { reason: "curved lateral has inner loops" }` wall.
+/// The window boolean produces a periodic wall strip (two encircling rim rings +
+/// an interior window loop); yang Stage 1 unrolls it to (u = r·θ, v) and
+/// triangulates the ribbon-with-hole. The second cut is a clean planar box, so
+/// its volume decrement is EXACT — the strong re-entry oracle.
+#[test]
+fn curved_holed_lateral_reentry() {
+    let mut a = BrepArena::new();
+    // Solid cylinder r=1, z∈[0,3]; window box through the +y wall at z∈[1,2]
+    // (clear of both rims), leaving a holed cylinder lateral.
+    let c = cyl(&mut a, 0.0, 0.0, 1.0, (0.0, 3.0));
+    let window = boxx(&mut a, (-0.4, 0.4), (0.3, 1.5), (1.0, 2.0));
+    let holed = boolean_op(&mut a, c, window, BoolOp::Subtract).expect("cyl - window");
+    validate_solid(&a, holed).expect("holed cylinder validates");
+    let v1 = volume_of(&a, holed);
+
+    // Analytic |cyl − window| = 3π − ∫∫ removed. The removed prism (z-height 1)
+    // has cross-section {0.3 ≤ x ≤ √(1−y²), −0.4 ≤ y ≤ 0.4}; its area is
+    // ∫_{-0.4}^{0.4} √(1−y²) dy − 0.3·0.8 = 0.7781228 − 0.24 = 0.5381228.
+    let removed = (0.4 * (1.0f64 - 0.16).sqrt() + 0.4f64.asin()) - 0.24;
+    let expect_v1 = 3.0 * std::f64::consts::PI - removed;
+    // Faceting inscribes the curved wall, so the tessellated volume sits just
+    // below analytic; 1% of the wall volume bounds the chord error.
+    assert!(
+        v1 <= expect_v1 + 1e-9 && v1 >= expect_v1 - 0.01 * 3.0 * std::f64::consts::PI,
+        "holed cylinder volume {v1} vs analytic {expect_v1}"
+    );
+
+    // Second boolean RE-ENTERS the holed cylinder: a clean planar notch at the
+    // top, inside the radius and clear of the window, removing exactly
+    // 0.6·0.6·0.5 = 0.18. (Was the UnsupportedCurvedBoolean re-entry wall.)
+    let notch = boxx(&mut a, (-0.3, 0.3), (-0.3, 0.3), (2.5, 3.5));
+    let out = boolean_op(&mut a, holed, notch, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("re-enter holed cylinder: {e:?}"));
+    validate_solid(&a, out).expect("re-entered result validates");
+    let v2 = volume_of(&a, out);
+    // The notch is planar and disjoint from the curved wall facets, so the
+    // decrement is exact (the shared curved facets cancel in the difference).
+    assert!(
+        (v1 - v2 - 0.18).abs() < 1e-9,
+        "second cut must remove exactly the 0.18 notch: v1={v1} v2={v2}"
+    );
+}
+
 /// Chains must stay deterministic (bit-identical arenas + meshes).
 #[test]
 fn chain_deterministic() {

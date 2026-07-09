@@ -2413,15 +2413,64 @@ fn tessellate_lateral_holed_cdt(
         inner_polys.push(loop_polyline(f_idx, inner, edges, chains)?);
     }
 
-    // Branch cut: place it in the largest angular gap of the boundary so the
-    // unrolled patch is contiguous in u. `angles` is every boundary vertex's θ.
-    let mut angles: Vec<f64> = outer_poly
-        .iter()
-        .chain(inner_polys.iter().flatten())
-        .map(|&g| raw(g).0)
-        .collect();
-    angles.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let two_pi = 2.0 * std::f64::consts::PI;
+
+    // Classify each boundary loop by axial winding BEFORE choosing the seam. An
+    // ENCIRCLING loop (|Σ Δθ| ≈ 2π) is a rim / v-extent boundary of the periodic
+    // cylindrical strip — unrolled it degenerates to a monotone u-chain with ~0
+    // enclosed area, so it cannot be a CDT "hole" (Slice A's polygon-with-holes
+    // model only fits a non-wrapping partial patch). A loop that nets ~0 winding
+    // is a genuine interior window. This is KV14 Slice B — the wrapping topology
+    // the corpus actually produces (spec `yang_stage1_curved_holed_patch`).
+    let winding = |poly: &[u32]| -> f64 {
+        let n = poly.len();
+        let mut sum = 0.0;
+        for i in 0..n {
+            let (t0, _) = raw(poly[i]);
+            let (t1, _) = raw(poly[(i + 1) % n]);
+            let mut d = t1 - t0;
+            while d > std::f64::consts::PI {
+                d -= two_pi;
+            }
+            while d < -std::f64::consts::PI {
+                d += two_pi;
+            }
+            sum += d;
+        }
+        sum
+    };
+    let encircles = |poly: &[u32]| winding(poly).abs() > 1.5 * std::f64::consts::PI;
+    let mut encircling: Vec<&Vec<u32>> = Vec::new();
+    let mut windows: Vec<&Vec<u32>> = Vec::new();
+    for poly in std::iter::once(&outer_poly).chain(inner_polys.iter()) {
+        if encircles(poly) {
+            encircling.push(poly);
+        } else {
+            windows.push(poly);
+        }
+    }
+
+    // Branch cut: place the seam in the largest angular gap so the unroll is
+    // contiguous AND — for a periodic strip — the seam AVOIDS the interior
+    // windows (a window straddling the cut would split into two u-fragments and
+    // break the CDT). When windows exist inside a wrapping strip, choose the cut
+    // from the WINDOW vertices' angular coverage (the seam lands in the widest
+    // window-free wedge); otherwise (a pure strip, or a Slice A partial patch)
+    // fall back to the full boundary.
+    let mut angles: Vec<f64> = if !windows.is_empty() && !encircling.is_empty() {
+        windows
+            .iter()
+            .flat_map(|w| w.iter())
+            .map(|&g| raw(g).0)
+            .collect()
+    } else {
+        std::iter::once(&outer_poly)
+            .chain(inner_polys.iter())
+            .flatten()
+            .map(|&g| raw(g).0)
+            .collect()
+    };
+    angles.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let mut cut = std::f64::consts::PI; // fallback (no vertices ⇒ unreachable)
     let mut max_gap = -1.0f64;
     for w in angles.windows(2) {
@@ -2467,19 +2516,121 @@ fn tessellate_lateral_holed_cdt(
         l
     };
 
-    let outer_local: Vec<u32> = outer_poly
-        .iter()
-        .map(|&g| intern(g, &mut local_verts, &mut global_of_local))
-        .collect();
-    let mut holes_local: Vec<Vec<u32>> = Vec::with_capacity(inner_polys.len());
-    for inner in &inner_polys {
-        holes_local.push(
-            inner
+    // `encircling` / `windows` were partitioned by axial winding above (before
+    // the seam was chosen). The kernel-v2 outer/inner labeling does not
+    // distinguish rims from windows, so dispatch on the encircling count.
+    let (outer_local, holes_local): (Vec<u32>, Vec<Vec<u32>>) = match encircling.len() {
+        // Non-wrapping partial patch (Slice A): the labeled outer bounds the
+        // patch, the labeled inners are genuine interior holes.
+        0 => {
+            let outer = outer_poly
                 .iter()
                 .map(|&g| intern(g, &mut local_verts, &mut global_of_local))
-                .collect(),
-        );
-    }
+                .collect();
+            let holes = inner_polys
+                .iter()
+                .map(|inner| {
+                    inner
+                        .iter()
+                        .map(|&g| intern(g, &mut local_verts, &mut global_of_local))
+                        .collect()
+                })
+                .collect();
+            (outer, holes)
+        }
+        // Periodic strip (Slice B): the two encircling loops are the strip's
+        // lower/upper v-boundaries. Open each at the seam into an ascending-u
+        // chain, then lay the lower one forward and the upper one reversed →
+        // ONE simple ribbon polygon. Any non-encircling loop is an interior
+        // window carried as a CDT hole.
+        2 => {
+            // Open a closed encircling loop into a u-ASCENDING chain. The loop
+            // is u-monotone with a single seam wrap, but its traversal sense
+            // depends on the winding sign (a +2π rim ascends in u, a −2π rim
+            // descends), so anchor at the global-min-u vertex and walk toward
+            // whichever neighbor continues upward — orientation-agnostic.
+            let open_chain = |poly: &[u32]| -> Vec<u32> {
+                let n = poly.len();
+                let us: Vec<f64> = poly.iter().map(|&g| project(g).x()).collect();
+                let m = (0..n)
+                    .min_by(|&a, &b| {
+                        us[a]
+                            .partial_cmp(&us[b])
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .unwrap_or(0);
+                let succ = us[(m + 1) % n];
+                let pred = us[(m + n - 1) % n];
+                if succ <= pred {
+                    // Successor continues the ascending run.
+                    (0..n).map(|k| poly[(m + k) % n]).collect()
+                } else {
+                    // Predecessor is the ascending run — walk backward from m.
+                    (0..n).map(|k| poly[(m + n - k) % n]).collect()
+                }
+            };
+            let mean_v = |poly: &[u32]| -> f64 {
+                poly.iter().map(|&g| raw(g).1).sum::<f64>() / poly.len() as f64
+            };
+            let (lower, upper) = if mean_v(encircling[0]) <= mean_v(encircling[1]) {
+                (encircling[0], encircling[1])
+            } else {
+                (encircling[1], encircling[0])
+            };
+            let bottom = open_chain(lower);
+            let top = open_chain(upper);
+            // Close the wrap: the ascending chain spans [u_min, u_max] but the
+            // strip is periodic, so the seam segment from u_max back to
+            // u_min+2πr is missing. Re-emit each chain's FIRST vertex as a
+            // param-space DUPLICATE at u += 2πr (same global vertex, so it maps
+            // back to the seam point) — the chain now spans a full 2π and the
+            // ribbon's final quad covers the seam wedge.
+            let seam_shift = two_pi * radius;
+            let push_seam_dup = |g: u32,
+                                 local_verts: &mut Vec<cad_primitives::Point2>,
+                                 global_of_local: &mut Vec<u32>|
+             -> u32 {
+                let p = project(g);
+                let l = local_verts.len() as u32;
+                local_verts.push(cad_primitives::Point2::new(p.x() + seam_shift, p.y()));
+                global_of_local.push(g);
+                l
+            };
+            let mut outer: Vec<u32> = Vec::with_capacity(bottom.len() + top.len() + 2);
+            for &g in &bottom {
+                outer.push(intern(g, &mut local_verts, &mut global_of_local));
+            }
+            outer.push(push_seam_dup(
+                bottom[0],
+                &mut local_verts,
+                &mut global_of_local,
+            ));
+            outer.push(push_seam_dup(
+                top[0],
+                &mut local_verts,
+                &mut global_of_local,
+            ));
+            for &g in top.iter().rev() {
+                outer.push(intern(g, &mut local_verts, &mut global_of_local));
+            }
+            let holes = windows
+                .iter()
+                .map(|window| {
+                    window
+                        .iter()
+                        .map(|&g| intern(g, &mut local_verts, &mut global_of_local))
+                        .collect()
+                })
+                .collect();
+            (outer, holes)
+        }
+        n => {
+            return Err(YangError::MalformedTopology(format!(
+                "face {f_idx}: holed cylinder strip has {n} encircling boundaries \
+                 (expected 0 for a partial patch or 2 for a periodic strip)"
+            )));
+        }
+    };
 
     let local_tris = cherchi_rs::triangulation::cdt_polygon_with_holes_floodfill(
         &local_verts,
@@ -16385,6 +16536,149 @@ mod tests {
                 (a[2] + b[2] + c[2]) / 3.0,
             ];
             // radial = centroid projected off the +z axis through origin.
+            let dot = n[0] * cen[0] + n[1] * cen[1];
+            assert!(dot > 0.0, "triangle must face radially outward, dot={dot}");
+        }
+    }
+
+    /// KV14 Slice B (spec `yang_stage1_curved_holed_patch`): a PERIODIC
+    /// cylinder-wall strip whose boundary loops each ENCIRCLE the axis (a full
+    /// 2π rim / intersection ring, |Σ Δθ| ≈ 2π). Real boolean outputs represent
+    /// a windowed cylinder wall this way — one encircling loop labeled `outer`,
+    /// the opposite rim labeled `inner`. Slice A's polygon-with-holes model
+    /// unrolls a full rim to a zero-area horizontal line, so the CDT fails
+    /// outright (RED before Slice B). Slice B classifies the two encircling
+    /// loops as the strip's v-boundaries and lays them into ONE simple ribbon.
+    #[test]
+    fn periodic_strip_two_encircling_rims() {
+        let r = 1.0_f64;
+        let h = 2.0_f64;
+        // Square cross-section sampling: 4 azimuths per rim (θ = 0, π/2, π,
+        // 3π/2) → the exact lateral area is a 4-gon prism wall = 4·(r√2)·h.
+        let bottom = [
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(-1.0, 0.0, 0.0),
+            Point3::new(0.0, -1.0, 0.0),
+        ];
+        let top = [
+            Point3::new(1.0, 0.0, h),
+            Point3::new(0.0, 1.0, h),
+            Point3::new(-1.0, 0.0, h),
+            Point3::new(0.0, -1.0, h),
+        ];
+        let verts = bottom
+            .iter()
+            .chain(top.iter())
+            .map(|&point| BRepVertex { point })
+            .collect::<Vec<_>>();
+        let arc = |start: u32, end: u32, z: f64| BRepEdge {
+            start,
+            end,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, z),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+        };
+        // Bottom rim (outer): 4 CCW arcs winding +2π. Top rim (inner): likewise.
+        let edges = vec![
+            arc(0, 1, 0.0),
+            arc(1, 2, 0.0),
+            arc(2, 3, 0.0),
+            arc(3, 0, 0.0),
+            arc(4, 5, h),
+            arc(5, 6, h),
+            arc(6, 7, h),
+            arc(7, 4, h),
+        ];
+        let faces = vec![BRepFace {
+            surface: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+            outer_loop: vec![0, 1, 2, 3],
+            inner_loops: vec![vec![4, 5, 6, 7]],
+            reversed: false,
+        }];
+        let t = stage1_tessellate(&verts, &edges, &faces).expect("periodic strip tessellation");
+        assert!(!t.tris.is_empty(), "must produce triangles");
+
+        // Oracle 1: total lateral area equals the exact 4-gon prism wall
+        // (proves the strip covers the FULL 2π, no seam gap, no double cover).
+        let tri_area = |tri: &[u32; 3]| -> f64 {
+            let a = t.verts[tri[0] as usize].as_array();
+            let b = t.verts[tri[1] as usize].as_array();
+            let c = t.verts[tri[2] as usize].as_array();
+            let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            0.5 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
+        };
+        let area: f64 = t.tris.iter().map(tri_area).sum();
+        // The strip is inscribed in the true cylinder wall (2π·r·h), so its area
+        // approaches that from BELOW as sampling refines. A missing seam wedge
+        // drops the area by a whole facet column (≈10% at this sampling), so a
+        // 97% floor cleanly separates a full wrap from a gap — independent of
+        // the exact arc-sample count.
+        let full_wall = 2.0 * std::f64::consts::PI * r * h;
+        assert!(
+            area > 0.97 * full_wall && area <= full_wall + 1e-9,
+            "strip area {area} must fill the full 2π wall (≈{full_wall}, inscribed)"
+        );
+
+        // Oracle 2: watertight ribbon — every mesh-boundary (count-1) edge lies
+        // ENTIRELY on a rim (both endpoints at z=0 or both at z=h), and no edge
+        // is covered more than twice. A seam gap leaves a vertical boundary edge
+        // spanning z=0→z=h; a fold double-covers. Sampling-independent.
+        let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+        for tri in &t.tris {
+            for k in 0..3 {
+                let (x, y) = (tri[k], tri[(k + 1) % 3]);
+                *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+            }
+        }
+        let on_rim = |z: f64| z.abs() < 1e-9 || (z - h).abs() < 1e-9;
+        let mut boundary_edges = 0usize;
+        for (&(x, y), &c) in &undirected {
+            assert!(
+                c <= 2,
+                "edge ({x},{y}) covered {c} times (fold/double cover)"
+            );
+            if c == 1 {
+                boundary_edges += 1;
+                let zx = t.verts[x as usize].as_array()[2];
+                let zy = t.verts[y as usize].as_array()[2];
+                assert!(
+                    on_rim(zx) && on_rim(zy) && (zx - zy).abs() < 1e-9,
+                    "boundary edge ({x},{y}) at z=({zx},{zy}) is not a rim edge — seam gap"
+                );
+            }
+        }
+        assert!(boundary_edges > 0, "the tube strip has open rims");
+
+        // Oracle 3: every triangle faces radially outward.
+        for tri in &t.tris {
+            let a = t.verts[tri[0] as usize].as_array();
+            let b = t.verts[tri[1] as usize].as_array();
+            let c = t.verts[tri[2] as usize].as_array();
+            let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            let cen = [
+                (a[0] + b[0] + c[0]) / 3.0,
+                (a[1] + b[1] + c[1]) / 3.0,
+                (a[2] + b[2] + c[2]) / 3.0,
+            ];
             let dot = n[0] * cen[0] + n[1] * cen[1];
             assert!(dot > 0.0, "triangle must face radially outward, dot={dot}");
         }

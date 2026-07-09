@@ -350,13 +350,160 @@ pub fn to_yang_brep_indexed(
                     // `reversed` passes through as yang BRepFace.reversed
                     // (KV6b-1 Stage-1 orients cavity walls inward).
                     // Anything else — boolean-OUTPUT patches whose curved
-                    // boundaries are chord polylines, holed laterals —
-                    // cannot re-enter yang Stage 1 (the remaining wall).
+                    // boundaries are chord polylines — cannot re-enter yang
+                    // Stage 1 as structured rim/strip pairs. HOLED cylinder
+                    // laterals now route through the KV14 Slice C path below.
+                    //
+                    // Per-edge converter shared by the holed-patch path (KV14
+                    // Slice C) and the structured 4-edge path below: Arc →
+                    // directional yang `Circle`, full `Circle` rim → cap-outward
+                    // (negated-normal) shared edge, LineSegment → endpoints;
+                    // degree-4 (ellipse/surface-pair) edges are the typed wall.
+                    // Twin-pair sharing (key = min half-edge id) keeps the
+                    // Stage-1 sample chains identical across adjacent faces.
+                    let convert_lateral_edge = |h: HalfEdgeId,
+                                                arena: &BrepArena,
+                                                vid_map: &mut BTreeMap<VertexId, u32>,
+                                                yverts: &mut Vec<yang_rs::BRepVertex>,
+                                                yedges: &mut Vec<yang_rs::BRepEdge>,
+                                                shared_edges: &mut BTreeMap<HalfEdgeId, u32>|
+                     -> Result<u32, KernelV2Error> {
+                        let he = arena.half_edge(h)?;
+                        let key = h.min(he.twin);
+                        if let Some(&idx) = shared_edges.get(&key) {
+                            return Ok(idx);
+                        }
+                        let idx = yedges.len() as u32;
+                        match he.curve {
+                            // PR-KV9 / M5 K11: no yang INPUT vocabulary for
+                            // ellipse arcs or surface-pair (degree-4) edges.
+                            Curve::EllipseArc { .. } | Curve::SurfacePair { .. } => {
+                                return Err(KernelV2Error::UnsupportedCurvedBoolean {
+                                        face: f,
+                                        reason: "curved lateral degree-4 boundary (ellipse/surface-pair edge)",
+                                    });
+                            }
+                            Curve::Arc {
+                                center,
+                                radius,
+                                normal,
+                            } => {
+                                // Shared directional arc: endpoints + normal
+                                // from THIS half-edge (the yang input-arc
+                                // convention; the twin denotes the same set).
+                                let start = map_vertex(he.origin, vid_map, yverts, arena)?;
+                                let dest = arena.half_edge(he.next)?.origin;
+                                let end = map_vertex(dest, vid_map, yverts, arena)?;
+                                yedges.push(yang_rs::BRepEdge {
+                                    start,
+                                    end,
+                                    curve: yang_rs::Curve::Circle {
+                                        center,
+                                        normal: Vector3::new(normal.x, normal.y, normal.z),
+                                        radius,
+                                    },
+                                });
+                            }
+                            Curve::Circle {
+                                center,
+                                radius,
+                                normal,
+                            } => {
+                                // Created from the lateral side: the shared
+                                // rim edge carries the CAP-outward normal =
+                                // the negation of the lateral half-edge's
+                                // directional normal (twins are exact
+                                // negations).
+                                let nu = neg_unit(normal);
+                                let anchor = map_vertex(he.origin, vid_map, yverts, arena)?;
+                                yedges.push(yang_rs::BRepEdge {
+                                    start: anchor,
+                                    end: anchor,
+                                    curve: yang_rs::Curve::Circle {
+                                        center,
+                                        normal: Vector3::new(nu.x, nu.y, nu.z),
+                                        radius,
+                                    },
+                                });
+                            }
+                            Curve::LineSegment => {
+                                let start = map_vertex(he.origin, vid_map, yverts, arena)?;
+                                let dest = arena.half_edge(he.next)?.origin;
+                                let end = map_vertex(dest, vid_map, yverts, arena)?;
+                                yedges.push(yang_rs::BRepEdge {
+                                    start,
+                                    end,
+                                    curve: yang_rs::Curve::LineSegment,
+                                });
+                            }
+                        }
+                        shared_edges.insert(key, idx);
+                        Ok(idx)
+                    };
+
+                    // KV14 Slice C (spec `yang_stage1_curved_holed_patch`): a
+                    // curved lateral carrying inner loops (a hole punched by a
+                    // prior boolean) re-enters yang Stage 1 through the unroll +
+                    // CDT holed path (yang `tessellate_lateral_holed_cdt`), which
+                    // lays the boundary chains flat in (u = r·θ, v = axial) param
+                    // space and triangulates the polygon-with-holes exactly. Only
+                    // CYLINDER holed patches are wired today — cone/torus unroll
+                    // is Slice E/F, so their holed laterals stay the typed wall.
                     if !face.inner_loops.is_empty() {
-                        return Err(KernelV2Error::UnsupportedCurvedBoolean {
-                            face: f,
-                            reason: "curved lateral has inner loops (holed patch)",
+                        let surface =
+                            match face.surface {
+                                Some(Surface::Cylinder {
+                                    axis_point,
+                                    axis_dir,
+                                    radius,
+                                    ..
+                                }) => yang_rs::Surface::Cylinder {
+                                    axis_point,
+                                    axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
+                                    radius,
+                                },
+                                _ => return Err(KernelV2Error::UnsupportedCurvedBoolean {
+                                    face: f,
+                                    reason:
+                                        "curved lateral has inner loops (non-cylinder holed patch)",
+                                }),
+                            };
+                        let outer_hes = arena.loop_half_edges(face.outer_loop)?;
+                        let mut outer = Vec::with_capacity(outer_hes.len());
+                        for &h in &outer_hes {
+                            outer.push(convert_lateral_edge(
+                                h,
+                                arena,
+                                &mut vid_map,
+                                &mut yverts,
+                                &mut yedges,
+                                &mut shared_edges,
+                            )?);
+                        }
+                        let mut inners = Vec::with_capacity(face.inner_loops.len());
+                        for &lid in &face.inner_loops {
+                            let hes = arena.loop_half_edges(lid)?;
+                            let mut loop_idx = Vec::with_capacity(hes.len());
+                            for &h in &hes {
+                                loop_idx.push(convert_lateral_edge(
+                                    h,
+                                    arena,
+                                    &mut vid_map,
+                                    &mut yverts,
+                                    &mut yedges,
+                                    &mut shared_edges,
+                                )?);
+                            }
+                            inners.push(loop_idx);
+                        }
+                        face_ids.push(f);
+                        yfaces.push(yang_rs::BRepFace {
+                            surface,
+                            outer_loop: outer,
+                            inner_loops: inners,
+                            reversed,
                         });
+                        continue;
                     }
                     let mut hes = arena.loop_half_edges(face.outer_loop)?;
                     if hes.len() != 4 {
@@ -431,102 +578,20 @@ pub fn to_yang_brep_indexed(
                         });
                     }
 
+                    // Same twin-pair-sharing conversion as the holed path above
+                    // (extracted to `convert_lateral_edge`): the structured
+                    // 4-edge rim/strip pattern and the holed patch differ only
+                    // in loop count, not per-edge semantics.
                     let mut loop_indices = Vec::with_capacity(4);
                     for &h in &hes {
-                        let he = arena.half_edge(h)?;
-                        let key = h.min(he.twin);
-                        let idx = match shared_edges.get(&key) {
-                            Some(&idx) => idx,
-                            None => {
-                                let idx = yedges.len() as u32;
-                                match he.curve {
-                                    // PR-KV9: no yang INPUT vocabulary for
-                                    // ellipse arcs — typed re-entry wall.
-                                    // M5 K11: same wall for surface-pair
-                                    // (degree-4) boundaries.
-                                    Curve::EllipseArc { .. } | Curve::SurfacePair { .. } => {
-                                        return Err(KernelV2Error::UnsupportedCurvedBoolean {
-                                            face: f,
-                                            reason: "curved lateral degree-4 boundary (ellipse/surface-pair edge)",
-                                        });
-                                    }
-                                    Curve::Arc {
-                                        center,
-                                        radius,
-                                        normal,
-                                    } => {
-                                        // Shared directional arc: endpoints +
-                                        // normal from THIS half-edge (the
-                                        // yang input-arc convention; the twin
-                                        // denotes the same point set).
-                                        let start = map_vertex(
-                                            he.origin,
-                                            &mut vid_map,
-                                            &mut yverts,
-                                            arena,
-                                        )?;
-                                        let dest = arena.half_edge(he.next)?.origin;
-                                        let end =
-                                            map_vertex(dest, &mut vid_map, &mut yverts, arena)?;
-                                        yedges.push(yang_rs::BRepEdge {
-                                            start,
-                                            end,
-                                            curve: yang_rs::Curve::Circle {
-                                                center,
-                                                normal: Vector3::new(normal.x, normal.y, normal.z),
-                                                radius,
-                                            },
-                                        });
-                                    }
-                                    Curve::Circle {
-                                        center,
-                                        radius,
-                                        normal,
-                                    } => {
-                                        // Created from the lateral side: the
-                                        // shared edge carries the CAP-outward
-                                        // normal = the negation of the
-                                        // lateral half-edge's directional
-                                        // normal (twins are exact negations).
-                                        let nu = neg_unit(normal);
-                                        let anchor = map_vertex(
-                                            he.origin,
-                                            &mut vid_map,
-                                            &mut yverts,
-                                            arena,
-                                        )?;
-                                        yedges.push(yang_rs::BRepEdge {
-                                            start: anchor,
-                                            end: anchor,
-                                            curve: yang_rs::Curve::Circle {
-                                                center,
-                                                normal: Vector3::new(nu.x, nu.y, nu.z),
-                                                radius,
-                                            },
-                                        });
-                                    }
-                                    Curve::LineSegment => {
-                                        let start = map_vertex(
-                                            he.origin,
-                                            &mut vid_map,
-                                            &mut yverts,
-                                            arena,
-                                        )?;
-                                        let dest = arena.half_edge(he.next)?.origin;
-                                        let end =
-                                            map_vertex(dest, &mut vid_map, &mut yverts, arena)?;
-                                        yedges.push(yang_rs::BRepEdge {
-                                            start,
-                                            end,
-                                            curve: yang_rs::Curve::LineSegment,
-                                        });
-                                    }
-                                }
-                                shared_edges.insert(key, idx);
-                                idx
-                            }
-                        };
-                        loop_indices.push(idx);
+                        loop_indices.push(convert_lateral_edge(
+                            h,
+                            arena,
+                            &mut vid_map,
+                            &mut yverts,
+                            &mut yedges,
+                            &mut shared_edges,
+                        )?);
                     }
 
                     let surface = match face.surface {
