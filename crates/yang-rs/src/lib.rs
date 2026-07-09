@@ -2863,6 +2863,29 @@ fn tessellate_lateral_face(
         return Ok(());
     }
 
+    // KV14 Slice D (spec `yang_stage1_curved_holed_patch`): a non-canonical
+    // outer loop — no full-circle rims, only Line + Arc edges, but NOT the
+    // structured 2-rim / 2-arc pattern (e.g. a partial patch bitten into an
+    // irregular boundary by a prior boolean: R0053 = [L,A,A,A,L,A,A,A]). Route
+    // it through the same general unroll + CDT path as the holed patch, with an
+    // empty hole set: `tessellate_lateral_holed_cdt` classifies the single outer
+    // loop by axial winding and lays it flat in (u = r·θ, v = axial) param space.
+    // Full-circle rims (start == end) and degree-4 edges are excluded — those
+    // are either the structured arms above or a loud later-slice wall.
+    if full_rims.is_empty()
+        && !f.outer_loop.is_empty()
+        && f.outer_loop.iter().all(|&e| {
+            matches!(
+                edges[e as usize].curve,
+                Curve::Circle { .. } | Curve::LineSegment
+            )
+        })
+    {
+        return tessellate_lateral_holed_cdt(
+            f_idx, f, edges, rim_rings, out_verts, axis_point, axis_dir, _radius, out_tris,
+        );
+    }
+
     Err(YangError::MalformedTopology(format!(
         "face {f_idx}: cylinder lateral must be bounded by exactly 2 full-circle rims          (canonical tube) or 2 arcs + ruling segments (partial patch); found {} full          rims and {} arcs",
         full_rims.len(),
@@ -16663,6 +16686,161 @@ mod tests {
         assert!(boundary_edges > 0, "the tube strip has open rims");
 
         // Oracle 3: every triangle faces radially outward.
+        for tri in &t.tris {
+            let a = t.verts[tri[0] as usize].as_array();
+            let b = t.verts[tri[1] as usize].as_array();
+            let c = t.verts[tri[2] as usize].as_array();
+            let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            let cen = [
+                (a[0] + b[0] + c[0]) / 3.0,
+                (a[1] + b[1] + c[1]) / 3.0,
+                (a[2] + b[2] + c[2]) / 3.0,
+            ];
+            let dot = n[0] * cen[0] + n[1] * cen[1];
+            assert!(dot > 0.0, "triangle must face radially outward, dot={dot}");
+        }
+    }
+
+    /// KV14 Slice D (spec `yang_stage1_curved_holed_patch`): a cylinder lateral
+    /// whose outer loop is NON-canonical — no full-circle rims and NOT the
+    /// structured 2-arc partial-patch pattern — with NO holes. Real boolean
+    /// outputs produce these when a prior op bites an irregular boundary into a
+    /// partial patch (R0053 = [L,A,A,A,L,A,A,A]: each rim split into 3 arcs +
+    /// 2 rulings). The pre-Slice-D dispatch walled these `MalformedTopology`
+    /// ("found 0 full rims and 6 arcs"); Slice D routes them to the same
+    /// unroll+CDT path (empty hole set), classifying the single winding-0 outer
+    /// loop as a bounded partial patch.
+    #[test]
+    fn lateral_partial_patch_multi_arc_no_holes() {
+        use std::f64::consts::PI;
+        let r = 1.0_f64;
+        let h = 2.0_f64;
+        let on = |theta: f64, z: f64| Point3::new(r * theta.cos(), r * theta.sin(), z);
+        // Sector theta in [0, PI] (a clean angular gap over (PI, 2PI) for the
+        // branch cut), z in [0, h]. Each rim split into 3 arcs at PI/3, 2PI/3.
+        // Outer loop: [A,A,A, L, A,A,A, L] = R0053's vocabulary (rotated).
+        let b0 = on(0.0, 0.0); // V0
+        let b1 = on(PI / 3.0, 0.0); // V1
+        let b2 = on(2.0 * PI / 3.0, 0.0); // V2
+        let b3 = on(PI, 0.0); // V3
+        let t3 = on(PI, h); // V4
+        let t2 = on(2.0 * PI / 3.0, h); // V5
+        let t1 = on(PI / 3.0, h); // V6
+        let t0 = on(0.0, h); // V7
+        let verts = [b0, b1, b2, b3, t3, t2, t1, t0]
+            .into_iter()
+            .map(|point| BRepVertex { point })
+            .collect::<Vec<_>>();
+        // Bottom arcs sweep CCW about +z; top arcs sweep CCW about −z (returning
+        // over [PI, 0]) so the loop nets zero axial winding (a bounded patch).
+        let bot_arc = |start: u32, end: u32| BRepEdge {
+            start,
+            end,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+        };
+        let top_arc = |start: u32, end: u32| BRepEdge {
+            start,
+            end,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, h),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                radius: r,
+            },
+        };
+        let ruling = |start: u32, end: u32| BRepEdge {
+            start,
+            end,
+            curve: Curve::LineSegment,
+        };
+        let edges = vec![
+            bot_arc(0, 1), // e0
+            bot_arc(1, 2), // e1
+            bot_arc(2, 3), // e2
+            ruling(3, 4),  // e3 (V3->V4, up)
+            top_arc(4, 5), // e4
+            top_arc(5, 6), // e5
+            top_arc(6, 7), // e6
+            ruling(7, 0),  // e7 (V7->V0, down)
+        ];
+        let faces = vec![BRepFace {
+            surface: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+            outer_loop: vec![0, 1, 2, 3, 4, 5, 6, 7],
+            inner_loops: vec![],
+            reversed: false,
+        }];
+        let t = stage1_tessellate(&verts, &edges, &faces)
+            .expect("Slice D multi-arc partial patch tessellation");
+        assert!(!t.tris.is_empty(), "must produce triangles");
+
+        // Oracle 1: total area equals the inscribed sector wall (r·PI)·h = PI·h.
+        // A CDT that dropped the seam wedge or double-covered would miss/exceed
+        // this; approached from BELOW since the arcs are chord-sampled.
+        let tri_area = |tri: &[u32; 3]| -> f64 {
+            let a = t.verts[tri[0] as usize].as_array();
+            let b = t.verts[tri[1] as usize].as_array();
+            let c = t.verts[tri[2] as usize].as_array();
+            let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            0.5 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
+        };
+        let area: f64 = t.tris.iter().map(tri_area).sum();
+        let sector_wall = r * PI * h;
+        assert!(
+            area > 0.97 * sector_wall && area <= sector_wall + 1e-9,
+            "patch area {area} must fill the PI sector wall (≈{sector_wall}, inscribed)"
+        );
+
+        // Oracle 2: watertight bounded patch — no interior holes, no fold. Every
+        // count-1 boundary edge lies on the OUTER boundary: a rim (both ends at
+        // z=0 or both at z=h) or a ruling (both ends at theta=0 or theta=PI).
+        let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+        for tri in &t.tris {
+            for k in 0..3 {
+                let (x, y) = (tri[k], tri[(k + 1) % 3]);
+                *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+            }
+        }
+        let theta_of = |p: [f64; 3]| p[1].atan2(p[0]);
+        for (&(x, y), &c) in &undirected {
+            assert!(
+                c <= 2,
+                "edge ({x},{y}) covered {c} times (fold/double cover)"
+            );
+            if c == 1 {
+                let px = t.verts[x as usize].as_array();
+                let py = t.verts[y as usize].as_array();
+                let on_rim = (px[2].abs() < 1e-9 && py[2].abs() < 1e-9)
+                    || ((px[2] - h).abs() < 1e-9 && (py[2] - h).abs() < 1e-9);
+                let (tx, ty) = (theta_of(px), theta_of(py));
+                let on_ruling = (tx.abs() < 1e-6 && ty.abs() < 1e-6)
+                    || ((tx - PI).abs() < 1e-6 && (ty - PI).abs() < 1e-6);
+                assert!(
+                    on_rim || on_ruling,
+                    "boundary edge ({x},{y}) is interior — hole or seam gap in a hole-free patch"
+                );
+            }
+        }
+
+        // Oracle 3: every triangle faces radially outward (reversed = false).
         for tri in &t.tris {
             let a = t.verts[tri[0] as usize].as_array();
             let b = t.verts[tri[1] as usize].as_array();

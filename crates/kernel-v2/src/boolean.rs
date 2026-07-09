@@ -441,34 +441,48 @@ pub fn to_yang_brep_indexed(
                         Ok(idx)
                     };
 
-                    // KV14 Slice C (spec `yang_stage1_curved_holed_patch`): a
-                    // curved lateral carrying inner loops (a hole punched by a
-                    // prior boolean) re-enters yang Stage 1 through the unroll +
-                    // CDT holed path (yang `tessellate_lateral_holed_cdt`), which
-                    // lays the boundary chains flat in (u = r·θ, v = axial) param
-                    // space and triangulates the polygon-with-holes exactly. Only
-                    // CYLINDER holed patches are wired today — cone/torus unroll
-                    // is Slice E/F, so their holed laterals stay the typed wall.
-                    if !face.inner_loops.is_empty() {
-                        let surface =
-                            match face.surface {
-                                Some(Surface::Cylinder {
-                                    axis_point,
-                                    axis_dir,
-                                    radius,
-                                    ..
-                                }) => yang_rs::Surface::Cylinder {
-                                    axis_point,
-                                    axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
-                                    radius,
-                                },
-                                _ => return Err(KernelV2Error::UnsupportedCurvedBoolean {
+                    // KV14 (spec `yang_stage1_curved_holed_patch`): a curved
+                    // lateral re-enters yang Stage 1 through the unroll + CDT
+                    // path (yang `tessellate_lateral_holed_cdt`) — which lays the
+                    // boundary chains flat in (u = r·θ, v = axial) param space and
+                    // triangulates the polygon-with-holes exactly — in two cases:
+                    //   * Slice B/C: it carries inner loops (a hole punched by a
+                    //     prior boolean).
+                    //   * Slice D: its outer loop is a non-canonical boundary
+                    //     (not the structured 4-edge rim/strip pattern the
+                    //     analytic `tessellate_lateral_face` path handles), e.g. a
+                    //     bounded partial patch bitten by a prior boolean. This
+                    //     runs the same CDT with an empty hole set.
+                    // Only CYLINDER is wired today — cone/torus unroll is Slice
+                    // E/F, so their non-4-edge / holed laterals stay the typed
+                    // wall. (Probe KV14_SLICED_PROBE: R0020/R0093/C0063 are CONE
+                    // partial patches — Slice E — not cylinders as an earlier
+                    // census assumed; R0053 is the cylinder Slice-D target.)
+                    let outer_hes = arena.loop_half_edges(face.outer_loop)?;
+                    if !face.inner_loops.is_empty() || outer_hes.len() != 4 {
+                        let surface = match face.surface {
+                            Some(Surface::Cylinder {
+                                axis_point,
+                                axis_dir,
+                                radius,
+                                ..
+                            }) => yang_rs::Surface::Cylinder {
+                                axis_point,
+                                axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
+                                radius,
+                            },
+                            _ => {
+                                let reason = if face.inner_loops.is_empty() {
+                                    "curved lateral outer loop not 4 edges (non-cylinder)"
+                                } else {
+                                    "curved lateral has inner loops (non-cylinder holed patch)"
+                                };
+                                return Err(KernelV2Error::UnsupportedCurvedBoolean {
                                     face: f,
-                                    reason:
-                                        "curved lateral has inner loops (non-cylinder holed patch)",
-                                }),
-                            };
-                        let outer_hes = arena.loop_half_edges(face.outer_loop)?;
+                                    reason,
+                                });
+                            }
+                        };
                         let mut outer = Vec::with_capacity(outer_hes.len());
                         for &h in &outer_hes {
                             outer.push(convert_lateral_edge(
@@ -505,13 +519,12 @@ pub fn to_yang_brep_indexed(
                         });
                         continue;
                     }
-                    let mut hes = arena.loop_half_edges(face.outer_loop)?;
-                    if hes.len() != 4 {
-                        return Err(KernelV2Error::UnsupportedCurvedBoolean {
-                            face: f,
-                            reason: "curved lateral outer loop not 4 edges",
-                        });
-                    }
+                    // Reaching here, the lateral has no inner loops and exactly
+                    // four outer edges (non-4-edge outer loops were routed to the
+                    // CDT path above). The structured analytic path below matches
+                    // the canonical / partial / torus rim-strip patterns.
+                    let mut hes = outer_hes;
+                    debug_assert_eq!(hes.len(), 4);
                     if matches!(arena.half_edge(hes[0])?.curve, Curve::LineSegment) {
                         hes.rotate_left(1);
                     }

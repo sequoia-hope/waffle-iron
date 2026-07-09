@@ -269,3 +269,62 @@ fn chain_deterministic() {
     assert_eq!(a1, a2);
     assert_eq!(m1, m2);
 }
+
+/// KV14 Slice D end-to-end (spec `yang_stage1_curved_holed_patch`): a cylinder
+/// lateral whose outer loop is NON-canonical (>4 edges) with NO holes must
+/// re-enter yang Stage 1 as a boolean operand. A slab cut (cyl − half-space)
+/// leaves a circular-segment prism whose curved wall is a 6-edge partial patch
+/// (probe KV14_D_PROBE: outer_edges=6, inners=0) — the pre-Slice-D
+/// `MalformedTopology` / `UnsupportedCurvedBoolean` re-entry wall. The second
+/// boolean is a clean planar pocket disjoint from the curved wall, so its
+/// volume decrement is EXACT (the shared curved facets cancel in the
+/// difference) — the strong re-entry oracle.
+#[test]
+fn curved_partial_patch_no_hole_reentry() {
+    let mut a = BrepArena::new();
+    // Solid cylinder r=1, z∈[0,3]; slab removes x ≥ 0.3 (through both rims,
+    // beyond the height), leaving the circular-segment {x < 0.3} prism. Its
+    // curved wall is a partial patch with a NON-4-edge outer loop (no holes).
+    let c = cyl(&mut a, 0.0, 0.0, 1.0, (0.0, 3.0));
+    let slab = boxx(&mut a, (0.3, 2.0), (-2.0, 2.0), (-1.0, 4.0));
+    let seg = boolean_op(&mut a, c, slab, BoolOp::Subtract).expect("cyl − slab");
+    validate_solid(&a, seg).expect("segment prism validates");
+    let v1 = volume_of(&a, seg);
+
+    // Analytic cross-section = disc − cap(x ≥ 0.3): π − (acos(0.3) − 0.3·√0.91).
+    let d = 0.3_f64;
+    let cap = d.acos() - d * (1.0 - d * d).sqrt();
+    let expect_v1 = (std::f64::consts::PI - cap) * 3.0;
+    // Curved wall inscribed → tessellated volume just below analytic; 1% of the
+    // full cylinder volume bounds the chord error.
+    assert!(
+        v1 <= expect_v1 + 1e-9 && v1 >= expect_v1 - 0.01 * 3.0 * std::f64::consts::PI,
+        "segment prism volume {v1} vs analytic {expect_v1}"
+    );
+
+    // Second boolean RE-ENTERS the segment prism (its curved wall now converts
+    // via the Slice D unroll+CDT path). A planar pocket open to the bottom face,
+    // fully clear of the r=1 curved wall and of the x=0.3 flat cut, removes
+    // exactly 0.5·0.6·1.5 = 0.45.
+    let pocket = boxx(&mut a, (-0.5, 0.0), (-0.3, 0.3), (-1.0, 1.5));
+    let out = boolean_op(&mut a, seg, pocket, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("re-enter segment prism (Slice D): {e:?}"));
+    validate_solid(&a, out).expect("re-entered result validates");
+    let v2 = volume_of(&a, out);
+    // The re-entry re-facets the curved wall (representation drift ~1e-3, not the
+    // exact-cancellation case), so the oracle is an analytic band on the FINAL
+    // solid = segment prism − 0.45 pocket, inscribed (curved wall below analytic).
+    let expect_v2 = expect_v1 - 0.45;
+    assert!(
+        v2 <= expect_v2 + 1e-9 && v2 >= expect_v2 - 0.01 * 3.0 * std::f64::consts::PI,
+        "re-entered volume {v2} vs analytic {expect_v2} (segment − 0.45 pocket)"
+    );
+    // The decrement is dominated by the exact planar pocket; the residual is
+    // bounded by the curved-wall re-facet drift (a whole extra/missing pocket
+    // would blow this by ~0.45, a gross-error tripwire).
+    assert!(
+        (v1 - v2 - 0.45).abs() < 0.01,
+        "pocket decrement {} must be ≈0.45 (planar + chord drift): v1={v1} v2={v2}",
+        v1 - v2
+    );
+}

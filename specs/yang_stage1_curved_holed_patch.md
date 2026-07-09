@@ -27,6 +27,13 @@ str` (this PR). Replaying the 21 partial-patch UNSUPPORTED cases through
 |---|---|---|
 | `curved lateral has inner loops (holed patch)` | 9+ | R0021, R0026, R0028(Torus), R0046, R0051, R0059(Torus), R0063, R0074, R0095 |
 | `curved lateral outer loop not 4 edges` | 4+ | R0020, R0053, R0093, C0063 |
+
+> **Census correction (2026-07-09, probe `KV14_SLICED_PROBE`).** Of the four
+> "not 4 edges" cases, only **R0053 is a CYLINDER** ([L,A,A,A,L,A,A,A],
+> winding ≈ 0 — a bounded partial patch, the true Slice-D target). **R0020,
+> R0093, C0063 are CONES** (R0020 [L,A,A,A,L,A,A,A], R0093 [L,A,A,L,A,A],
+> C0063 a single full Circle) → they belong to **Slice E (cone unroll)**, not
+> Slice D. The earlier row assumed all four were cylinders; that was wrong.
 | `planar-loop degree-4 boundary (ellipse/surface-pair edge)` | 2 | R0006, F0076 |
 | heavy/uncensused (big gear models, 455–2420 faces) | ~6 | R0061, F0081, F0082, F0083, F0084, F0085 |
 
@@ -161,10 +168,26 @@ normal, matching `tessellate_lateral_face`'s `orient_target`.
   TessellationFailed ring-reject class — separate from KV14) → its only assay
   transition is curved-profile → ERROR. No case regressed from CORRECT; the
   strip capability is proven by the unit + end-to-end tests.
-- **Slice D — non-canonical outer loop (no holes).** Route `outer loop not 4
-  edges` through the same unroll+CDT path (empty holes). Targets R0020, R0053,
-  R0093, C0063.
-- **Slice E — cone unroll.** Slant-radius-varying `u` scale.
+- **Slice D — non-canonical CYLINDER outer loop (no holes). ✅ DONE
+  (2026-07-09).** kernel-v2 `to_yang_brep` routes a cylinder lateral with no
+  inner loops but a non-4-edge outer loop through the CDT converter (the same
+  `convert_lateral_edge` path, empty inner set). yang-rs
+  `tessellate_lateral_face` now falls through its structured 2-rim / 2-arc arms
+  to `tessellate_lateral_holed_cdt` when the outer loop has no full-circle rims
+  and only Line/Arc edges — the winding-0 partial-patch (0-encircling) branch
+  triangulates it. Cone/torus non-4-edge laterals stay the typed wall
+  (`... not 4 edges (non-cylinder)`) → Slice E/F. Unit test
+  `lateral_partial_patch_multi_arc_no_holes` (yang-rs: R0053's [A,A,A,L,A,A,A,L]
+  sector, oracles: inscribed sector-wall area, watertight bounded patch,
+  radial-outward) + end-to-end `curved_partial_patch_no_hole_reentry`
+  (kernel-v2 boolean_chains: cyl − slab → 6-edge segment-prism wall, then a
+  planar pocket re-enters via Slice D; analytic-band volume oracle on the final
+  solid). Assay: **R0053 advances curved-profile → its next real wall M8
+  coplanar** (Stage 0); no CORRECT case regressed. Only R0053 was a cylinder in
+  this class (census correction above), so corpus movement is the single case.
+- **Slice E — cone unroll.** Slant-radius-varying `u` scale. Targets R0020,
+  R0093, C0063 (census correction: these are cones, not cylinders) + the
+  non-cylinder holed cone cases (R0026, R0051 …).
 - **Slice F — torus unroll.** Two wrapping params; targets R0028, R0059.
 
 Land each slice as its own commit. Do NOT bank unwired: Slice A/B may be

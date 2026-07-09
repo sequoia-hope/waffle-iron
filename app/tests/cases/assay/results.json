@@ -120,7 +120,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(11) [curved lateral outer loop not 4 edges] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "detail": "1 NotSupported boundary(ies); first: 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(11) [curved lateral outer loop not 4 edges (non-cylinder)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0020",
       "status": "unsupported"
     },
@@ -318,7 +318,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: Revolve 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(14) [curved lateral outer loop not 4 edges] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "detail": "1 NotSupported boundary(ies); first: Revolve 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "R0053",
       "status": "unsupported"
     },
@@ -558,7 +558,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 0af1f6a6-52d1-42e2-badf-2bcbcd271c7a: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(318) [curved lateral outer loop not 4 edges] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "detail": "1 NotSupported boundary(ies); first: 0af1f6a6-52d1-42e2-badf-2bcbcd271c7a: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(318) [curved lateral outer loop not 4 edges (non-cylinder)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0093",
       "status": "unsupported"
     },
@@ -1542,7 +1542,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 5042d61b-a8b6-4ce3-9963-0caf870bc313: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(1) [curved lateral outer loop not 4 edges] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "detail": "1 NotSupported boundary(ies); first: 5042d61b-a8b6-4ce3-9963-0caf870bc313: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(1) [curved lateral outer loop not 4 edges (non-cylinder)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "C0063",
       "status": "unsupported"
     },
