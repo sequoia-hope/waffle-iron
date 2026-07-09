@@ -212,8 +212,36 @@ normal, matching `tessellate_lateral_face`'s `orient_target`.
   **Census correction (probe single_case):** R0026/R0051 are TORUS holed
   patches (Slice F), not cyl/cone as an earlier census assumed. No CORRECT case
   regressed.
-- **Slice F — torus unroll.** Two wrapping params; targets R0028, R0059,
-  R0026, R0051 (torus holed patches — confirmed by probe).
+- **Slice F — torus band. ✅ DONE (2026-07-09).** Probe `KV14_TORUS_PROBE`
+  (kernel-v2, since removed) showed the corpus torus booleans are POLOIDAL
+  PERIODIC BANDS: the boundary wraps fully in the poloidal angle φ (around the
+  tube, `φwind ≈ ±2π`) while the toroidal angle θ is bounded — TWO full profile
+  boundaries (outer + one inner, oppositely wound) bounding the tube. A torus is
+  NOT ruled in the toroidal direction, so a flat unroll+CDT chords the sweep (a
+  systematic ~18% area loss — the toroidal seam edge, a single long constraint,
+  is not subdividable under `keep_constraint_edges`). The fix is NOT new code:
+  yang already had `tessellate_torus_patch` (the render-path UV-CDT consumer)
+  which projects the boundary into the (meridian, longitude) plane, SEAM-BRIDGES
+  the two profiles with ON-SURFACE subdivision (`band_seam_bridge` / `bridge_pts`
+  — exactly the missing piece), and refines interior Steiner points onto the
+  torus. New `tessellate_torus_band` (yang) gathers the face's boundary + hole
+  loops as 3D polylines, delegates to `tessellate_torus_patch`, and maps the
+  fresh pool back to global verts by QUANTIZED position (1e-9 m): a profile vert
+  recovers its shared global (watertight with the caps), a seam duplicate / Steiner
+  vert welds by position (the two seam copies are ULP-apart on the periodic
+  meridian — an exact key would crack the band, and Cherchi needs it watertight).
+  kernel-v2 `to_yang_brep` routes a torus lateral through iff `!curved_full_rim`
+  AND `inner_loops.len() == 1` (the clean 2-boundary band — the patch tessellator's
+  band branch). A HOLED band (a window in the tube → ≥2 inner loops, R0028) is out
+  of the patch tessellator's scope (`ploops.len() != 2` → None) and stays the typed
+  wall (a later sub-slice). Unit test `torus_poloidal_band_two_encircling_profiles`
+  (exact developable-area 2π·R·rm·Δθ + watertight-seam oracle; the RED that caught
+  the flat-unroll chording). **Assay: R0059/R0026/R0051 advance curved-profile →
+  their next real wall (M8 coplanar Stage 0 / revolve), R0028 stays curved-profile
+  (holed band). No CORRECT regressed; curved-profile UNSUPPORTED −3.**
+- **Slice F-2 (later) — HOLED torus band** (a window bitten into the tube:
+  R0028) needs the patch tessellator's band branch generalized to accept holes,
+  and the **cone 2-encircling periodic frustum band** (Slice E sub-slice).
 
 Land each slice as its own commit. Do NOT bank unwired: Slice A/B may be
 internal, but Slice C must WIRE and prove end-to-end before Slice A/B are

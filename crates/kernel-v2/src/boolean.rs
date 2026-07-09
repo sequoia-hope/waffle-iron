@@ -472,16 +472,16 @@ pub fn to_yang_brep_indexed(
                         // supply — so it stays the typed wall. (Cylinders route
                         // full rims through: their periodic strip, Slice B/C, is
                         // bounded by encircling rim circles.)
-                        let mut cone_full_rim = false;
+                        let mut curved_full_rim = false;
                         for &h in &outer_hes {
                             if matches!(arena.half_edge(h)?.curve, Curve::Circle { .. }) {
-                                cone_full_rim = true;
+                                curved_full_rim = true;
                             }
                         }
                         for &lid in &face.inner_loops {
                             for &h in &arena.loop_half_edges(lid)? {
                                 if matches!(arena.half_edge(h)?.curve, Curve::Circle { .. }) {
-                                    cone_full_rim = true;
+                                    curved_full_rim = true;
                                 }
                             }
                         }
@@ -501,19 +501,44 @@ pub fn to_yang_brep_indexed(
                                 axis_dir,
                                 half_angle,
                                 ..
-                            }) if !cone_full_rim => yang_rs::Surface::Cone {
+                            }) if !curved_full_rim => yang_rs::Surface::Cone {
                                 apex,
                                 axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
                                 half_angle,
                             },
+                            // KV14 Slice F: a boolean-result torus lateral re-enters
+                            // via the UV-CDT path (`yang tessellate_torus_band` →
+                            // `tessellate_torus_patch`) as a POLOIDAL PERIODIC BAND —
+                            // two full profile boundaries (outer + ONE inner) bounding
+                            // the tube. A full-circle rim (`Curve::Circle`) is the
+                            // canonical structured torus (no CDT re-entry), and a HOLED
+                            // band (a window in the tube → ≥2 inner loops) is out of the
+                            // patch tessellator's scope — both stay the typed wall.
+                            Some(Surface::Torus {
+                                center,
+                                axis_dir,
+                                major_radius,
+                                minor_radius,
+                                ..
+                            }) if !curved_full_rim && face.inner_loops.len() == 1 => {
+                                yang_rs::Surface::Torus {
+                                    center,
+                                    axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
+                                    major_radius,
+                                    minor_radius,
+                                }
+                            }
                             _ => {
                                 let reason = if matches!(face.surface, Some(Surface::Cone { .. })) {
                                     "curved lateral is an apex/frustum cone (full-circle rim; \
                                      no CDT re-entry)"
+                                } else if matches!(face.surface, Some(Surface::Torus { .. })) {
+                                    "curved lateral is a canonical or holed torus (full-circle \
+                                     rim / windowed band — Slice F sub-slice)"
                                 } else if face.inner_loops.is_empty() {
-                                    "curved lateral outer loop not 4 edges (torus)"
+                                    "curved lateral outer loop not 4 edges"
                                 } else {
-                                    "curved lateral has inner loops (torus holed patch)"
+                                    "curved lateral has inner loops"
                                 };
                                 return Err(KernelV2Error::UnsupportedCurvedBoolean {
                                     face: f,

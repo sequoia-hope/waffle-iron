@@ -3656,6 +3656,19 @@ fn tessellate_torus_face(
     use std::collections::BTreeSet;
     use std::f64::consts::PI;
     let malformed = |m: String| YangError::MalformedTopology(m);
+    // KV14 Slice F: a boolean-result torus lateral carrying inner loops is a
+    // POLOIDAL PERIODIC BAND — the boundary wraps fully around the tube (poloidal
+    // φ) while the toroidal θ is bounded (probe KV14_TORUS_PROBE:
+    // R0028/R0059/R0026/R0051). A torus is NOT ruled in the toroidal direction,
+    // so it needs interior toroidal rings sampled onto the surface — a STRUCTURED
+    // (θ × φ) grid, not a flat unroll+CDT (which would chord the sweep). The
+    // hole-free structured (2 profiles + seam) arm below is left untouched.
+    if !f.inner_loops.is_empty() {
+        return tessellate_torus_band(
+            f_idx, f, edges, rim_rings, center, axis_dir, major, minor, out_verts, sources,
+            out_tris,
+        );
+    }
     let cen = center.as_array();
     let ax = normalize3(axis_dir.as_array());
     let (e1v, e2v) = ortho_basis(axis_dir);
@@ -4218,6 +4231,157 @@ pub fn tessellate_torus_patch(
         }
     }
     Some((verts3d, tris))
+}
+
+/// KV14 Slice F: Stage-1 tessellation of a boolean-result TORUS lateral carrying
+/// inner loops — a POLOIDAL PERIODIC BAND (the boundary wraps the tube; the
+/// toroidal sweep is bounded). Delegates to [`tessellate_torus_patch`] (the same
+/// UV-CDT the render path uses: it projects the boundary into the (meridian,
+/// longitude) plane, seam-bridges the two meridian-wrapping profiles with
+/// on-surface subdivision, and refines interior Steiner points onto the torus —
+/// exactly what a non-developable band needs).
+///
+/// The patch returns a FRESH vertex pool (boundary verts bit-exact, seam/Steiner
+/// verts on-surface). Map back by QUANTIZED position: a profile-boundary vert
+/// recovers its EXISTING shared global (watertight with adjacent caps); a seam
+/// duplicate or Steiner vert welds by position (the two seam copies are one
+/// meridian, ULP-apart, so an exact key would leave a crack — Cherchi needs the
+/// band watertight). Holed bands (a window in the tube) and seam-crossing patches
+/// return `None` from the patch tessellator → a typed wall (a later sub-slice).
+#[allow(clippy::too_many_arguments)]
+fn tessellate_torus_band(
+    f_idx: usize,
+    f: &BRepFace,
+    edges: &[BRepEdge],
+    chains: &std::collections::BTreeMap<u32, Vec<u32>>,
+    center: Point3,
+    axis_dir: Vector3,
+    major: f64,
+    minor: f64,
+    out_verts: &mut Vec<Point3>,
+    sources: &mut Vec<TessellationSource>,
+    out_tris: &mut Vec<[u32; 3]>,
+) -> Result<(), YangError> {
+    // Gather boundary + hole loops as ordered global-vertex chains, then 3D.
+    let outer_g = loop_polyline(f_idx, &f.outer_loop, edges, chains)?;
+    let mut holes_g: Vec<Vec<u32>> = Vec::with_capacity(f.inner_loops.len());
+    for inner in &f.inner_loops {
+        holes_g.push(loop_polyline(f_idx, inner, edges, chains)?);
+    }
+    let boundary: Vec<Point3> = outer_g.iter().map(|&g| out_verts[g as usize]).collect();
+    let holes: Vec<Vec<Point3>> = holes_g
+        .iter()
+        .map(|h| h.iter().map(|&g| out_verts[g as usize]).collect())
+        .collect();
+
+    // Quantized position key (1e-9 m ≪ TAU_MODEL 1e-7 ≪ MIN_FEATURE_SIZE 1e-6):
+    // welds ULP-apart seam twins without merging distinct model features.
+    let q = 1e-9_f64;
+    let key = |p: Point3| -> (i64, i64, i64) {
+        let a = p.as_array();
+        (
+            (a[0] / q).round() as i64,
+            (a[1] / q).round() as i64,
+            (a[2] / q).round() as i64,
+        )
+    };
+    // Pre-seed with the EXISTING boundary/hole globals so they stay shared.
+    let mut pos_to_global: std::collections::HashMap<(i64, i64, i64), u32> =
+        std::collections::HashMap::new();
+    for &g in outer_g.iter().chain(holes_g.iter().flatten()) {
+        pos_to_global.entry(key(out_verts[g as usize])).or_insert(g);
+    }
+
+    // Triangle-area budget in arc-length² — a 1% chord tolerance on the tube
+    // sets the meridian spacing; the patch scales (u,v) to arc-length so this is
+    // a true area cap.
+    let d_eps = 1e-2 * (major + minor);
+    let dphi = (8.0 * d_eps / minor).sqrt().min(0.5);
+    let n_seg = ((2.0 * std::f64::consts::PI / dphi).ceil() as u32).max(12);
+    let seg = 2.0 * std::f64::consts::PI * minor / f64::from(n_seg);
+    let max_area = seg * seg;
+
+    let Some((verts, tris)) =
+        tessellate_torus_patch(center, axis_dir, major, minor, &boundary, &holes, max_area)
+    else {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: torus band UV-CDT unsupported (holed band / seam-crossing \
+             patch — KV14 Slice F later sub-slice)"
+        )));
+    };
+
+    // Map every patch vertex to a global index (existing boundary shared,
+    // seam/Steiner welded + freshly created with an on-surface source).
+    let au = normalize3(axis_dir.as_array());
+    let cen = center.as_array();
+    let (e1v, e2v) = ortho_basis(axis_dir);
+    let (e1a, e2a) = (e1v.as_array(), e2v.as_array());
+    let mut global_of_patch: Vec<u32> = Vec::with_capacity(verts.len());
+    for &p in &verts {
+        if let Some(&g) = pos_to_global.get(&key(p)) {
+            global_of_patch.push(g);
+            continue;
+        }
+        // Fresh vertex: invert to (φ poloidal, θ toroidal) for the source so
+        // `eval_source` round-trips through the torus arm.
+        let pa = p.as_array();
+        let w = [pa[0] - cen[0], pa[1] - cen[1], pa[2] - cen[2]];
+        let tau = w[0] * au[0] + w[1] * au[1] + w[2] * au[2];
+        let rv = [w[0] - tau * au[0], w[1] - tau * au[1], w[2] - tau * au[2]];
+        let wx = rv[0] * e1a[0] + rv[1] * e1a[1] + rv[2] * e1a[2];
+        let wy = rv[0] * e2a[0] + rv[1] * e2a[1] + rv[2] * e2a[2];
+        let rho = (wx * wx + wy * wy).sqrt();
+        let phi = tau.atan2(rho - major);
+        let theta = wy.atan2(wx);
+        let g = out_verts.len() as u32;
+        out_verts.push(p);
+        sources.push(TessellationSource::BRepFace {
+            face: f_idx as u32,
+            u: phi,
+            v: theta,
+        });
+        pos_to_global.insert(key(p), g);
+        global_of_patch.push(g);
+    }
+
+    // Emit, orienting each triangle by the analytic torus outward normal (inward
+    // if `reversed` — a cavity wall).
+    for t in &tris {
+        let mut tri = [
+            global_of_patch[t[0] as usize],
+            global_of_patch[t[1] as usize],
+            global_of_patch[t[2] as usize],
+        ];
+        // Outward = centroid − nearest tube-centre-circle point.
+        let cn = {
+            let a = out_verts[tri[0] as usize].as_array();
+            let b = out_verts[tri[1] as usize].as_array();
+            let c = out_verts[tri[2] as usize].as_array();
+            [
+                (a[0] + b[0] + c[0]) / 3.0,
+                (a[1] + b[1] + c[1]) / 3.0,
+                (a[2] + b[2] + c[2]) / 3.0,
+            ]
+        };
+        let w = [cn[0] - cen[0], cn[1] - cen[1], cn[2] - cen[2]];
+        let tau = w[0] * au[0] + w[1] * au[1] + w[2] * au[2];
+        let rv = [w[0] - tau * au[0], w[1] - tau * au[1], w[2] - tau * au[2]];
+        let rl = (rv[0] * rv[0] + rv[1] * rv[1] + rv[2] * rv[2])
+            .sqrt()
+            .max(1e-300);
+        let rhat = [rv[0] / rl, rv[1] / rl, rv[2] / rl];
+        let mut n = [
+            cn[0] - (cen[0] + major * rhat[0]),
+            cn[1] - (cen[1] + major * rhat[1]),
+            cn[2] - (cen[2] + major * rhat[2]),
+        ];
+        if f.reversed {
+            n = [-n[0], -n[1], -n[2]];
+        }
+        orient_tri(out_verts, &mut tri, n);
+        out_tris.push(tri);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -16684,6 +16848,117 @@ mod tests {
     /// KV14 Slice E (spec `yang_stage1_curved_holed_patch`): a CONE lateral
     /// PARTIAL patch (a frustum sector) carrying an interior hole re-enters via
     /// the shared unroll+CDT path (cone isometric development), and the hole is
+    /// KV14 Slice F: a POLOIDAL PERIODIC TORUS BAND (the corpus torus-boolean
+    /// shape — probe KV14_TORUS_PROBE) re-enters Stage 1 via `tessellate_torus_band`
+    /// → `tessellate_torus_patch`. Two full profile circles (at θ0, θ1) bound the
+    /// band, one labeled outer, the opposite inner. A torus is not ruled in the
+    /// toroidal direction, so the UV-CDT must sample interior toroidal rings onto
+    /// the surface. Exact-area oracle: a full-φ band over Δθ has developable area
+    /// 2π·R·rm·Δθ; watertightness oracle catches a cracked seam.
+    #[test]
+    fn torus_poloidal_band_two_encircling_profiles() {
+        use std::f64::consts::PI;
+        let major = 3.0_f64;
+        let minor = 1.0_f64;
+        let on = |theta: f64, phi: f64| {
+            let rad = major + minor * phi.cos();
+            Point3::new(rad * theta.cos(), rad * theta.sin(), minor * phi.sin())
+        };
+        let n = 24usize;
+        let (th0, th1) = (0.2_f64, 1.4_f64);
+        let mut verts: Vec<BRepVertex> = Vec::new();
+        let circle_at = |theta: f64, verts: &mut Vec<BRepVertex>| -> Vec<u32> {
+            let base = verts.len() as u32;
+            for k in 0..n {
+                let phi = 2.0 * PI * (k as f64) / (n as f64);
+                verts.push(BRepVertex {
+                    point: on(theta, phi),
+                });
+            }
+            (0..n as u32).map(|k| base + k).collect()
+        };
+        let ring0 = circle_at(th0, &mut verts);
+        let ring1 = circle_at(th1, &mut verts);
+        let mut edges: Vec<BRepEdge> = Vec::new();
+        let loop_of = |ring: &[u32], edges: &mut Vec<BRepEdge>| -> Vec<u32> {
+            let base = edges.len() as u32;
+            for k in 0..ring.len() {
+                edges.push(BRepEdge {
+                    start: ring[k],
+                    end: ring[(k + 1) % ring.len()],
+                    curve: Curve::LineSegment,
+                });
+            }
+            (0..ring.len() as u32).map(|k| base + k).collect()
+        };
+        // Outer winds +φ; the inner (a hole boundary) winds −φ — opposite
+        // poloidal wrap, as a real face's outer/inner loops are oriented (the
+        // band seam bridge requires the two profiles wrap oppositely).
+        let ring1_rev: Vec<u32> = ring1.iter().rev().copied().collect();
+        let outer = loop_of(&ring0, &mut edges);
+        let inner = loop_of(&ring1_rev, &mut edges);
+        let faces = vec![BRepFace {
+            surface: Surface::Torus {
+                center: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                major_radius: major,
+                minor_radius: minor,
+            },
+            outer_loop: outer,
+            inner_loops: vec![inner],
+            reversed: false,
+        }];
+        let t = stage1_tessellate(&verts, &edges, &faces).expect("torus band tessellation");
+        assert!(!t.tris.is_empty(), "must produce triangles");
+
+        let tri_area = |tri: &[u32; 3]| -> f64 {
+            let a = t.verts[tri[0] as usize].as_array();
+            let b = t.verts[tri[1] as usize].as_array();
+            let c = t.verts[tri[2] as usize].as_array();
+            let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let nx = e1[1] * e2[2] - e1[2] * e2[1];
+            let ny = e1[2] * e2[0] - e1[0] * e2[2];
+            let nz = e1[0] * e2[1] - e1[1] * e2[0];
+            0.5 * (nx * nx + ny * ny + nz * nz).sqrt()
+        };
+        let area: f64 = t.tris.iter().map(tri_area).sum();
+        let band = 2.0 * PI * major * minor * (th1 - th0);
+        assert!(
+            area > 0.97 * band && area <= band + 1e-9,
+            "torus band area {area} must fill 2π·R·rm·Δθ (≈{band}, inscribed)"
+        );
+
+        // Watertight: every undirected edge is shared by exactly 2 triangles OR
+        // lies on the two profile-circle boundaries (a shared-with-cap rim). A
+        // cracked seam would leave interior edges with count 1.
+        let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+        for tri in &t.tris {
+            for k in 0..3 {
+                let (x, y) = (tri[k], tri[(k + 1) % 3]);
+                *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+            }
+        }
+        let theta_of = |g: u32| {
+            let p = t.verts[g as usize].as_array();
+            p[1].atan2(p[0])
+        };
+        for (&(x, y), &c) in &undirected {
+            assert!(c <= 2, "edge ({x},{y}) covered {c} times (fold)");
+            if c == 1 {
+                // Only profile-rim edges (both ends at θ0 or both at θ1) may be
+                // single-count (they border the adjacent cap, absent here).
+                let (tx, ty) = (theta_of(x), theta_of(y));
+                let on_rim = ((tx - th0).abs() < 1e-6 && (ty - th0).abs() < 1e-6)
+                    || ((tx - th1).abs() < 1e-6 && (ty - th1).abs() < 1e-6);
+                assert!(
+                    on_rim,
+                    "interior edge ({x},{y}) is a boundary — cracked seam in the band"
+                );
+            }
+        }
+    }
+
     /// EXCLUDED. Covers the cone `inner_loops` → CDT route (P4).
     #[test]
     fn cone_holed_patch_excludes_hole() {
