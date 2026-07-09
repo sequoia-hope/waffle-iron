@@ -346,10 +346,10 @@ impl KernelV2Adapter {
             // PR-KV5b: a curved RESULT solid (partial cylinder patches from
             // a previous boolean) cannot re-enter yang-rs Stage 1 — a
             // declared boundary, not a bug (see kernel-v2 boolean.rs docs).
-            Err(KernelV2Error::UnsupportedCurvedBoolean { face }) => {
+            Err(KernelV2Error::UnsupportedCurvedBoolean { face, reason }) => {
                 Err(Self::not_supported(&format!(
-                    "{op_name}: curved partial-patch operand face {face:?} (a previous curved \
-                     boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch \
+                    "{op_name}: curved partial-patch operand face {face:?} [{reason}] (a previous \
+                     curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch \
                      tessellation yet)"
                 )))
             }

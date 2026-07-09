@@ -240,6 +240,7 @@ pub fn to_yang_brep_indexed(
                                 Curve::EllipseArc { .. } | Curve::SurfacePair { .. } => {
                                     return Err(KernelV2Error::UnsupportedCurvedBoolean {
                                         face: f,
+                                        reason: "planar-loop degree-4 boundary (ellipse/surface-pair edge)",
                                     });
                                 }
                                 Curve::LineSegment => {
@@ -352,11 +353,17 @@ pub fn to_yang_brep_indexed(
                     // boundaries are chord polylines, holed laterals —
                     // cannot re-enter yang Stage 1 (the remaining wall).
                     if !face.inner_loops.is_empty() {
-                        return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
+                        return Err(KernelV2Error::UnsupportedCurvedBoolean {
+                            face: f,
+                            reason: "curved lateral has inner loops (holed patch)",
+                        });
                     }
                     let mut hes = arena.loop_half_edges(face.outer_loop)?;
                     if hes.len() != 4 {
-                        return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
+                        return Err(KernelV2Error::UnsupportedCurvedBoolean {
+                            face: f,
+                            reason: "curved lateral outer loop not 4 edges",
+                        });
                     }
                     if matches!(arena.half_edge(hes[0])?.curve, Curve::LineSegment) {
                         hes.rotate_left(1);
@@ -409,13 +416,19 @@ pub fn to_yang_brep_indexed(
                         )
                     );
                     if !(canonical || partial || torus) {
-                        return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
+                        return Err(KernelV2Error::UnsupportedCurvedBoolean {
+                            face: f,
+                            reason: "curved lateral non-{canonical,partial,torus} edge pattern",
+                        });
                     }
                     // Canonical: the two segments must be the seam twin pair.
                     // Partial: two DISTINCT rulings (each twins with a cap edge).
                     // Torus: the two seam ARCS (positions 1, 3) are the twin pair.
                     if (canonical || torus) && arena.half_edge(hes[1])?.twin != hes[3] {
-                        return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
+                        return Err(KernelV2Error::UnsupportedCurvedBoolean {
+                            face: f,
+                            reason: "curved lateral seam edges not a twin pair",
+                        });
                     }
 
                     let mut loop_indices = Vec::with_capacity(4);
@@ -434,6 +447,7 @@ pub fn to_yang_brep_indexed(
                                     Curve::EllipseArc { .. } | Curve::SurfacePair { .. } => {
                                         return Err(KernelV2Error::UnsupportedCurvedBoolean {
                                             face: f,
+                                            reason: "curved lateral degree-4 boundary (ellipse/surface-pair edge)",
                                         });
                                     }
                                     Curve::Arc {

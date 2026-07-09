@@ -239,7 +239,10 @@ pub enum KernelV2Error {
     /// (`BRep::new` rejects laterals without exactly 2 full circle rims),
     /// so chained curved booleans are rejected loudly at conversion rather
     /// than mistranslated.
-    UnsupportedCurvedBoolean { face: FaceId },
+    /// `reason` names the specific partial-patch sub-branch that walled
+    /// (holed lateral, non-4-edge loop, non-canonical edge pattern, seam
+    /// twin mismatch, degree-4 boundary) for the assay census / diagnostics.
+    UnsupportedCurvedBoolean { face: FaceId, reason: &'static str },
 
     /// PR-KV7: a boolean operand solid has MULTIPLE shells (an internal
     /// void from a fully-contained subtraction, or disjoint bodies from a
