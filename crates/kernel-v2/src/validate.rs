@@ -249,6 +249,16 @@ pub fn validate_solid(arena: &BrepArena, solid: SolidId) -> Result<TopologyRepor
             continue;
         };
         let f = arena.loop_(he.loop_id)?.face;
+        // Placement rule (M5, K8): a transversal quadric-pair curve is degree-4
+        // and never planar — degenerate configs decompose into conics upstream.
+        // So a surface-pair edge must bound only the two curved surfaces it is
+        // the intersection of, never a PLANAR face.
+        if matches!(arena.face(f)?.surface, Some(Surface::Plane(_))) {
+            return Err(KernelV2Error::CurvedGeometryMismatch {
+                face: f,
+                reason: "surface-pair (degree-4) edge on a planar face",
+            });
+        }
         let p = arena.vertex(he.origin)?.point;
         for (s, which) in [
             (a, "surface-pair-endpoint-a"),
