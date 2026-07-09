@@ -217,6 +217,29 @@ the roadmap's remaining work:
    >    no mesh-level kept-set gate (`yang_kept_mesh_manifold_gate.md`
    >    §2b); kernel-v2's post-subdivision edge pairing stays the honest
    >    downstream wall.
+   > 3a. **MIXED Line+Arc planar faces SHIPPED 2026-07-09 (spec
+   >    `specs/m8_mixed_loop_coplanar_overlay.md`, ad88e942)** — the
+   >    2026-07-09 residue census's largest class (`face-unsupported`:
+   >    R0021 R0026 R0051 R0059 F0075). Planar faces mixing LineSegment +
+   >    Circle edges enter the general overlay: loops spliced from Stage 1's
+   >    own chains (`loop_polyline_attributed`), one `RimChordCtx` per
+   >    curved edge, `collect_mixed_crossings` propagating splits into the
+   >    arc chain AND the strip lateral's opposite arc (exact axial
+   >    projection), Stage-1 arc-chain `rim_overrides` insertion, and
+   >    straight-edge-only split keying (the semicircle-arc/diameter-chord
+   >    vertex-pair collision). `build_disc_pair` excludes mixed partners
+   >    (chord-geometry hazard closed). Amendment 1 P10 record in the spec:
+   >    the planned wall-on-curved-subdivision slice was dead on arrival
+   >    (the trapezoidal overlay subdivides curved chords at every partner
+   >    event column) — the full disc-stack generalization was required.
+   >    Assay 216 CORRECT / 0 WRONG, zero lost: F0075 → CORRECT, R0059 →
+   >    typed ring-reject ERROR. Remaining sub-walls (typed):
+   >    `mixed-arc-lateral-holed` (R0021 R0026 R0051 — the arc bounds a
+   >    WINDOWED lateral; its KV14 CDT boundary chains splice
+   >    `loop_polyline` directly, so insertion likely needs NO opposite
+   >    pairing — named next increment), `mixed-arc-lateral-not-cylinder`,
+   >    `mixed-arc-lateral-unpaired`, Ellipse edges (`face-unsupported`,
+   >    no ellipse mint).
    > 4. **Disc rim on a non-cylinder lateral** (`rim-lateral-none`: R0050,
    >    R0025 2nd wall) — `lateral_for_cap` is cylinder-only; R0025's rim
    >    lateral is a TORUS (circle-revolve), so crossing propagation +
