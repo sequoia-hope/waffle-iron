@@ -662,6 +662,12 @@ pub(crate) struct Stage1Tess {
     pub(crate) sources: Vec<TessellationSource>,
     pub(crate) tris: Vec<[u32; 3]>,
     pub(crate) face_tri_ranges: Vec<std::ops::Range<usize>>,
+    /// Per curved-edge sample chains (`rim_rings`): full-circle/full-ellipse
+    /// closed rings and open arc chains, keyed by B-Rep edge index — the
+    /// SHARED boundary sampling. Consumed by the Stage-0 mixed-face overlay
+    /// arm (spec `m8_mixed_loop_coplanar_overlay`) to splice loop polylines
+    /// bit-identical to this tessellation's own face boundaries.
+    pub(crate) chains: std::collections::BTreeMap<u32, Vec<u32>>,
 }
 
 /// Stage 1 tessellation (PR-YR7: planar Newell-fan + curved cylinder;
@@ -960,7 +966,8 @@ fn stage1_tessellate_inner(
                     // ---- ARC chain (PR-KV6b-1) ----
                     let phi0 = angle_of(e_start)?;
                     let phi1 = angle_of(e_end)?;
-                    let sweep = (phi1 - phi0).rem_euclid(2.0 * std::f64::consts::PI);
+                    let two_pi = 2.0 * std::f64::consts::PI;
+                    let sweep = (phi1 - phi0).rem_euclid(two_pi);
                     if sweep <= 0.0 || !sweep.is_finite() {
                         return Err(YangError::MalformedTopology(format!(
                             "circle edge {e_idx}: degenerate arc sweep {sweep}"
@@ -969,20 +976,92 @@ fn stage1_tessellate_inner(
                     // Same per-chord angle as the full-circle ring; floor 2
                     // segments so a π arc never degenerates to one diameter
                     // chord.
-                    let m = ((sweep * n_seg as f64) / (2.0 * std::f64::consts::PI)).ceil() as usize;
+                    let m = ((sweep * n_seg as f64) / two_pi).ceil() as usize;
                     let m = m.max(2);
-                    let mut chain: Vec<u32> = Vec::with_capacity(m + 1);
+                    // Interior slots: (start-relative angle offset, override
+                    // point or None = uniform Steiner). M8-mixed (spec
+                    // `m8_mixed_loop_coplanar_overlay` amendment 1): an ARC
+                    // takes chord-split overrides exactly like a full rim —
+                    // same on-chord radial band, same uniform-coincidence
+                    // refusal, same exact CCW ULP-twin tie-break. The mixed
+                    // propagation inserts matched points into BOTH arcs of a
+                    // partial strip, so its index-pairing stays conformal
+                    // (arcs are deliberately NOT added to `inserted_rims`,
+                    // which routes FULL-rim laterals only).
+                    let mut slots: Vec<(f64, Option<Point3>)> = (1..m)
+                        .map(|k| (sweep * (k as f64) / (m as f64), None))
+                        .collect();
+                    if let Some(extra) = rim_overrides.get(&(e_idx as u32)) {
+                        let uni_step = sweep / (m as f64);
+                        let merge_tol = uni_step * 1.0e-6;
+                        let sagitta = radius * (1.0 - (uni_step / 2.0).cos());
+                        let mut inserted_keys: Vec<[u64; 3]> = Vec::new();
+                        for &pt in extra {
+                            let sp = pt.as_array();
+                            let w = [sp[0] - c[0], sp[1] - c[1], sp[2] - c[2]];
+                            let nu = normalize3(normal.as_array());
+                            let along = w[0] * nu[0] + w[1] * nu[1] + w[2] * nu[2];
+                            let wx = w[0] * e1a[0] + w[1] * e1a[1] + w[2] * e1a[2];
+                            let wy = w[0] * e2a[0] + w[1] * e2a[1] + w[2] * e2a[2];
+                            let r = (wx * wx + wy * wy).sqrt();
+                            let band = 1e-9 * (1.0 + radius);
+                            if r - radius > band
+                                || radius - r > sagitta + band
+                                || along.abs() > band
+                            {
+                                return Err(YangError::MalformedTopology(format!(
+                                    "circle edge {e_idx}: arc-chord override ({},{},{}) is off the \
+                                     arc (radial {r} vs radius {radius} sagitta {sagitta}, axial \
+                                     {along})",
+                                    sp[0], sp[1], sp[2]
+                                )));
+                            }
+                            let off = (wy.atan2(wx) - phi0).rem_euclid(two_pi);
+                            if off >= sweep - merge_tol {
+                                return Err(YangError::MalformedTopology(format!(
+                                    "circle edge {e_idx}: arc-chord override at angle-offset {off} \
+                                     is outside the arc sweep {sweep}"
+                                )));
+                            }
+                            let k_near = (off / uni_step).round();
+                            if (off - k_near * uni_step).abs() <= merge_tol {
+                                return Err(YangError::MalformedTopology(format!(
+                                    "circle edge {e_idx}: arc-chord override at angle-offset {off} \
+                                     coincides with uniform sample k={k_near} (silent merge refused)"
+                                )));
+                            }
+                            let key = [sp[0].to_bits(), sp[1].to_bits(), sp[2].to_bits()];
+                            if inserted_keys.contains(&key) {
+                                continue;
+                            }
+                            inserted_keys.push(key);
+                            slots.push((off, Some(pt)));
+                        }
+                    }
+                    slots.sort_by(|a, b| match a.0.total_cmp(&b.0) {
+                        std::cmp::Ordering::Equal => match (&a.1, &b.1) {
+                            (Some(pa), Some(pb)) => exact_rim_ccw_tiebreak(c, e1a, e2a, *pa, *pb),
+                            _ => std::cmp::Ordering::Equal,
+                        },
+                        o => o,
+                    });
+                    let mut chain: Vec<u32> = Vec::with_capacity(slots.len() + 2);
                     chain.push(e_start);
-                    for k in 1..m {
-                        let theta = phi0 + sweep * (k as f64) / (m as f64);
-                        let (st, ct) = theta.sin_cos();
-                        let pt = [
-                            c[0] + radius * (ct * e1a[0] + st * e2a[0]),
-                            c[1] + radius * (ct * e1a[1] + st * e2a[1]),
-                            c[2] + radius * (ct * e1a[2] + st * e2a[2]),
-                        ];
+                    for &(off, ov) in &slots {
+                        let theta = phi0 + off;
+                        let pt = match ov {
+                            Some(p) => p,
+                            None => {
+                                let (st, ct) = theta.sin_cos();
+                                Point3::new(
+                                    c[0] + radius * (ct * e1a[0] + st * e2a[0]),
+                                    c[1] + radius * (ct * e1a[1] + st * e2a[1]),
+                                    c[2] + radius * (ct * e1a[2] + st * e2a[2]),
+                                )
+                            }
+                        };
                         let vi = out_verts.len() as u32;
-                        out_verts.push(Point3::new(pt[0], pt[1], pt[2]));
+                        out_verts.push(pt);
                         sources.push(TessellationSource::BRepEdge {
                             edge: e_idx as u32,
                             t: theta,
@@ -1450,6 +1529,7 @@ fn stage1_tessellate_inner(
                 sources,
                 tris: out_tris,
                 face_tri_ranges,
+                chains: rim_rings,
             },
             inserted_rims,
         ))
@@ -2107,6 +2187,23 @@ fn loop_polyline(
     edges: &[BRepEdge],
     chains: &std::collections::BTreeMap<u32, Vec<u32>>,
 ) -> Result<Vec<u32>, YangError> {
+    Ok(loop_polyline_attributed(f_idx, loop_edges, edges, chains)?
+        .into_iter()
+        .map(|(v, _)| v)
+        .collect())
+}
+
+/// [`loop_polyline`] with per-vertex EDGE ATTRIBUTION: each emitted polyline
+/// vertex is paired with the index of the loop edge that emitted it (so the
+/// polyline segment starting at vertex *i* lies on edge `out[i].1`). The
+/// Stage-0 mixed-face overlay arm uses this to mark curved sub-chords (spec
+/// `m8_mixed_loop_coplanar_overlay` §8).
+pub(crate) fn loop_polyline_attributed(
+    f_idx: usize,
+    loop_edges: &[u32],
+    edges: &[BRepEdge],
+    chains: &std::collections::BTreeMap<u32, Vec<u32>>,
+) -> Result<Vec<(u32, u32)>, YangError> {
     let malformed = |msg: String| YangError::MalformedTopology(format!("face {f_idx}: {msg}"));
 
     // Single full-circle / full-ellipse loop: the chain IS the (closed)
@@ -2116,7 +2213,7 @@ fn loop_polyline(
         if matches!(e.curve, Curve::Circle { .. } | Curve::Ellipse { .. }) && e.start == e.end {
             return chains
                 .get(&loop_edges[0])
-                .cloned()
+                .map(|c| c.iter().map(|&v| (v, loop_edges[0])).collect())
                 .ok_or_else(|| malformed(format!("chain for edge {} not built", loop_edges[0])));
         }
     }
@@ -2156,7 +2253,7 @@ fn loop_polyline(
     'attempt: for first_forward in [true, false] {
         let e0 = &edges[loop_edges[0] as usize];
         let mut cur = if first_forward { e0.start } else { e0.end };
-        let mut poly: Vec<u32> = Vec::new();
+        let mut poly: Vec<(u32, u32)> = Vec::new();
         for &e_idx in loop_edges {
             let e = &edges[e_idx as usize];
             let forward = if e.start == cur {
@@ -2166,11 +2263,11 @@ fn loop_polyline(
             } else {
                 continue 'attempt;
             };
-            poly.extend(expand(e_idx, forward)?);
+            poly.extend(expand(e_idx, forward)?.into_iter().map(|v| (v, e_idx)));
             cur = if forward { e.end } else { e.start };
         }
         // Closure: the walk must return to its origin.
-        if cur == poly[0] {
+        if cur == poly[0].0 {
             return Ok(poly);
         }
     }

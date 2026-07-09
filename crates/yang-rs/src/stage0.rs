@@ -368,10 +368,18 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 return Err(pair_err(p.face_a, p.face_b));
             }
         }
+        // A MIXED Line+Arc face is NOT eligible for the direct disc-pair
+        // builder: `build_disc_pair` rings the partner via `loop_vertex_ring`,
+        // which silently replaces arc edges by their chords (sagitta-wrong
+        // geometry in a convex-chord containment). Mixed partners route
+        // through the general overlay (spec `m8_mixed_loop_coplanar_overlay`
+        // §6, I4).
         let disc_pair = (disc_circle_edge(a, p.face_a).is_some()
             || disc_circle_edge(b, p.face_b).is_some())
             && annular_disc_face(a, p.face_a).is_none()
-            && annular_disc_face(b, p.face_b).is_none();
+            && annular_disc_face(b, p.face_b).is_none()
+            && !mixed_planar_face(a, p.face_a)
+            && !mixed_planar_face(b, p.face_b);
         if disc_pair {
             match build_disc_pair(a, b, p.face_a, p.face_b, &va, &vb, frame, opposite) {
                 DiscPair::Handled { tris_a, tris_b } => {
@@ -396,17 +404,17 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         }
 
         // Shared-frame 2D polygons (corner→vertex keys, plus rim→3D for a
-        // tessellated disc face).
-        let (mut poly_a, corners_a, rim_a) = face_polygon_2d_tessellated(a, p.face_a, &va, frame)
-            .ok_or_else(|| {
-            probe("polygon2d-a", &format!("pair=({},{})", p.face_a, p.face_b));
-            pair_err(p.face_a, p.face_b)
-        })?;
-        let (mut poly_b, corners_b, rim_b) = face_polygon_2d_tessellated(b, p.face_b, &vb, frame)
-            .ok_or_else(|| {
-            probe("polygon2d-b", &format!("pair=({},{})", p.face_a, p.face_b));
-            pair_err(p.face_a, p.face_b)
-        })?;
+        // tessellated disc face; curved sub-chord masks for a MIXED face).
+        let (mut poly_a, corners_a, rim_a, curved_masks_a) =
+            face_polygon_2d_tessellated(a, p.face_a, &va, frame).ok_or_else(|| {
+                probe("polygon2d-a", &format!("pair=({},{})", p.face_a, p.face_b));
+                pair_err(p.face_a, p.face_b)
+            })?;
+        let (mut poly_b, corners_b, rim_b, curved_masks_b) =
+            face_polygon_2d_tessellated(b, p.face_b, &vb, frame).ok_or_else(|| {
+                probe("polygon2d-b", &format!("pair=({},{})", p.face_a, p.face_b));
+                pair_err(p.face_a, p.face_b)
+            })?;
 
         // §2b in-frame coordinate clustering (spec `m8_shared_boundary_identity`
         // C1-C3/I7-I8): the f64 frame projection mints femto-split coordinates
@@ -583,9 +591,19 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // (a boss/recess whose rim crosses a coplanar polygon edge) by
         // propagating the crossing points into the cylinder lateral + opposite
         // cap (`collect_rim_crossings` below). SAME-normal crossings stay the
-        // loud residue (see the SCOPE GATE below).
-        let rim_cross_a = !rim_a.is_empty() && rim_subdivided(&poly_a, &overlay);
-        let rim_cross_b = !rim_b.is_empty() && rim_subdivided(&poly_b, &overlay);
+        // loud residue (see the SCOPE GATE below). A MIXED face's rim map
+        // holds arc-chain samples, not a disc rim — its curved sub-chord
+        // subdivision (partner crossings AND the overlay's own sweep-event
+        // columns) propagates through `collect_mixed_crossings` instead
+        // (spec `m8_mixed_loop_coplanar_overlay` amendment 1).
+        let rim_cross_a =
+            curved_masks_a.is_empty() && !rim_a.is_empty() && rim_subdivided(&poly_a, &overlay);
+        let rim_cross_b =
+            curved_masks_b.is_empty() && !rim_b.is_empty() && rim_subdivided(&poly_b, &overlay);
+        let mixed_cross_a = !curved_masks_a.is_empty()
+            && curved_chords_subdivided(&poly_a, &curved_masks_a, &overlay);
+        let mixed_cross_b = !curved_masks_b.is_empty()
+            && curved_chords_subdivided(&poly_b, &curved_masks_b, &overlay);
 
         // SAME-NORMAL disc∩polygon crossings now route through the SAME path as
         // opposite-normal (the M8 same-normal wall is LIFTED, 2b). Two things made
@@ -636,12 +654,18 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // chord positions — §4.5.5's "overlap boundaries become intersection
         // curves" carries exact curve geometry. Empty for a non-disc/
         // non-annular face (zero behavior change).
-        let rim_ctxs_a = if rim_a.is_empty() {
+        let rim_ctxs_a = if !curved_masks_a.is_empty() {
+            // M8-mixed: one ctx per curved EDGE of the mixed face — the same
+            // on-circle minting, over that edge's own chord subset.
+            mixed_chord_ctxs(a, &poly_a, &curved_masks_a, &poly_b, frame)
+        } else if rim_a.is_empty() {
             Vec::new()
         } else {
             rim_chord_ctxs(a, p.face_a, &poly_a, &poly_b, frame)
         };
-        let rim_ctxs_b = if rim_b.is_empty() {
+        let rim_ctxs_b = if !curved_masks_b.is_empty() {
+            mixed_chord_ctxs(b, &poly_b, &curved_masks_b, &poly_a, frame)
+        } else if rim_b.is_empty() {
             Vec::new()
         } else {
             rim_chord_ctxs(b, p.face_b, &poly_b, &poly_a, frame)
@@ -1156,6 +1180,41 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             }
         }
 
+        // M8-mixed (spec `m8_mixed_loop_coplanar_overlay` amendment 1): a
+        // mixed face whose curved sub-chords the overlay subdivided (sweep
+        // events or genuine crossings) propagates each on-circle split point
+        // into the curved edge's own chain AND its lateral's opposite arc /
+        // rim, exactly like the disc path — the adjacent partial strip pairs
+        // its two chains index-for-index, so both sides must gain the point.
+        if mixed_cross_a {
+            if let Err(tag) = collect_mixed_crossings(
+                a,
+                p.face_a,
+                &poly_a,
+                &curved_masks_a,
+                &overlay,
+                &coords,
+                &mut rim_overrides_a,
+            ) {
+                probe(tag, &format!("pair=({},{})", p.face_a, p.face_b));
+                return Err(pair_err(p.face_a, p.face_b));
+            }
+        }
+        if mixed_cross_b {
+            if let Err(tag) = collect_mixed_crossings(
+                b,
+                p.face_b,
+                &poly_b,
+                &curved_masks_b,
+                &overlay,
+                &coords,
+                &mut rim_overrides_b,
+            ) {
+                probe(tag, &format!("pair=({},{})", p.face_a, p.face_b));
+                return Err(pair_err(p.face_a, p.face_b));
+            }
+        }
+
         // M-C diagnosis (read-only observer, spec I6 pattern): with
         // `YANG_STAGE0_DUMP_DIR` set, dump this pair's classified overlay —
         // per-vertex resolution provenance + resolved 3D, per-triangle class
@@ -1304,6 +1363,13 @@ fn overlay_face_supported(brep: &BRep, fi: usize) -> bool {
     // — is overlay-eligible (its outer + hole rims sample into the exact
     // `PolygonWithHoles` the overlay already consumes).
     if annular_disc_face(brep, fi).is_some() {
+        return true;
+    }
+    // M8-mixed (spec `m8_mixed_loop_coplanar_overlay`): a planar face whose
+    // loops mix `LineSegment` and `Circle`/`Ellipse` edges samples its loops
+    // from the face's own Stage-1 chains. (Curved-chord subdivision by the
+    // overlap boundary walls later, at the slice-1 gate.)
+    if mixed_planar_face(brep, fi) {
         return true;
     }
     std::iter::once(&f.outer_loop)
@@ -1666,6 +1732,64 @@ fn rim_subdivided(poly: &PolygonWithHoles, overlay: &ClassifiedOverlay) -> bool 
                     );
                 }
                 return true;
+            }
+        }
+    }
+    false
+}
+
+/// M8-mixed (spec `m8_mixed_loop_coplanar_overlay`): does any overlay vertex
+/// lie strictly interior to a CURVED sub-chord of this mixed face — outer
+/// ring or hole rings, segments selected by `masks` (the
+/// [`face_polygon_2d_tessellated`] mixed-arm attribution)? Same exact
+/// predicate as [`rim_subdivided`] (rational collinearity + interior
+/// parameter with the ULP-reconstruction margin), restricted to curved
+/// segments: straight-edge subdivision is legitimate `collect_edge_splits`
+/// traffic. True triggers [`collect_mixed_crossings`] propagation.
+fn curved_chords_subdivided(
+    poly: &PolygonWithHoles,
+    masks: &[Vec<Option<u32>>],
+    overlay: &ClassifiedOverlay,
+) -> bool {
+    for (ring, mask) in std::iter::once(&poly.outer)
+        .chain(poly.holes.iter())
+        .zip(masks)
+    {
+        let n = ring.len();
+        if n < 2 || mask.len() != n {
+            continue;
+        }
+        for i in 0..n {
+            if mask[i].is_none() {
+                continue;
+            }
+            let s = &ring[i];
+            let e = &ring[(i + 1) % n];
+            let (Some(s2), Some(e2)) = (
+                ExactPoint2::from_f64(s.x(), s.y()),
+                ExactPoint2::from_f64(e.x(), e.y()),
+            ) else {
+                continue;
+            };
+            let dx = &e2.x - &s2.x;
+            let dy = &e2.y - &s2.y;
+            let len2 = &dx * &dx + &dy * &dy;
+            if len2 == RBig::ZERO {
+                continue;
+            }
+            for q in &overlay.exact_verts {
+                let wx = &q.x - &s2.x;
+                let wy = &q.y - &s2.y;
+                if &dx * &wy - &dy * &wx != RBig::ZERO {
+                    continue;
+                }
+                // Strictly interior with the same margin as `rim_subdivided`:
+                // a vertex a few ULPs off a chain sample is that sample
+                // reconstructed by the overlay, not a crossing.
+                let t = ((&dx * &wx + &dy * &wy) / &len2).to_f64().value();
+                if t > 1.0e-6 && t < 1.0 - 1.0e-6 {
+                    return true;
+                }
             }
         }
     }
@@ -2690,6 +2814,75 @@ fn rim_chord_ctxs(
     out
 }
 
+/// M8-mixed analog of [`rim_chord_ctxs`] (spec
+/// `m8_mixed_loop_coplanar_overlay` amendment 1): ONE [`RimChordCtx`] per
+/// curved EDGE of a mixed face, its chord set = the ring sub-chords `masks`
+/// attributes to that edge (an arc contributes its chain's chords; a
+/// full-circle loop its whole ring). The minting/resolution machinery is
+/// shared unchanged — each ctx carries its own exact circle.
+fn mixed_chord_ctxs(
+    brep: &BRep,
+    poly: &PolygonWithHoles,
+    masks: &[Vec<Option<u32>>],
+    other: &PolygonWithHoles,
+    frame: &Frame,
+) -> Vec<RimChordCtx> {
+    let exact_seg = |s: &Point2, e: &Point2| -> Option<(ExactPoint2, ExactPoint2)> {
+        Some((
+            ExactPoint2::from_f64(s.x(), s.y())?,
+            ExactPoint2::from_f64(e.x(), e.y())?,
+        ))
+    };
+    let other_segs = {
+        let mut segs = Vec::new();
+        for ring in std::iter::once(&other.outer).chain(other.holes.iter()) {
+            let n = ring.len();
+            for i in 0..n {
+                let Some(seg) = exact_seg(&ring[i], &ring[(i + 1) % n]) else {
+                    return Vec::new();
+                };
+                segs.push(seg);
+            }
+        }
+        segs
+    };
+    // Chords grouped per curved edge, in first-appearance order.
+    let mut edge_order: Vec<u32> = Vec::new();
+    let mut chords_of: BTreeMap<u32, Vec<(ExactPoint2, ExactPoint2)>> = BTreeMap::new();
+    for (ring, mask) in std::iter::once(&poly.outer)
+        .chain(poly.holes.iter())
+        .zip(masks)
+    {
+        let n = ring.len();
+        if n < 2 || mask.len() != n {
+            continue;
+        }
+        for i in 0..n {
+            let Some(e) = mask[i] else { continue };
+            let Some(seg) = exact_seg(&ring[i], &ring[(i + 1) % n]) else {
+                return Vec::new();
+            };
+            if !edge_order.contains(&e) {
+                edge_order.push(e);
+            }
+            chords_of.entry(e).or_default().push(seg);
+        }
+    }
+    let mut out = Vec::with_capacity(edge_order.len());
+    for e in edge_order {
+        let Curve::Circle { center, radius, .. } = brep.edges()[e as usize].curve else {
+            return Vec::new();
+        };
+        out.push(RimChordCtx {
+            chords: chords_of.remove(&e).unwrap_or_default(),
+            other_segs: other_segs.clone(),
+            center: frame.snap(center),
+            radius,
+        });
+    }
+    out
+}
+
 /// Outcome of [`resolve_rim_chord_vertex`].
 enum RimResolve {
     /// Not strictly interior to any rim sub-chord — resolve as before.
@@ -3122,14 +3315,212 @@ fn collect_ring_crossings(
     Ok(())
 }
 
+/// M8-mixed (spec `m8_mixed_loop_coplanar_overlay` amendment 1): propagate
+/// the overlay's curved-chord split points of a MIXED face into the curved
+/// edges' chains. Per curved edge:
+/// - a FULL-CIRCLE loop delegates to [`collect_ring_crossings`] (the disc
+///   machinery: own rim + opposite rim of the shared cylinder);
+/// - an ARC inserts each split point into its own chain AND, by the same
+///   exact axial projection the ring path uses, into the OPPOSITE arc of the
+///   shared partial-strip lateral — the strip pairs its two chains
+///   index-for-index, so both must gain the point.
+fn collect_mixed_crossings(
+    brep: &BRep,
+    fi: usize,
+    poly: &PolygonWithHoles,
+    seg_edges: &[Vec<Option<u32>>],
+    overlay: &ClassifiedOverlay,
+    coords: &[Point3],
+    rim_overrides: &mut RimSplitMap,
+) -> Result<(), &'static str> {
+    for (ring, mask) in std::iter::once(&poly.outer)
+        .chain(poly.holes.iter())
+        .zip(seg_edges)
+    {
+        let n = ring.len();
+        if n < 2 || mask.len() != n {
+            continue;
+        }
+        // Curved edges of this ring, first-appearance order (deterministic).
+        let mut curved: Vec<u32> = Vec::new();
+        for e in mask.iter().flatten() {
+            if !curved.contains(e) {
+                curved.push(*e);
+            }
+        }
+        for &e in &curved {
+            let be = &brep.edges()[e as usize];
+            if be.start == be.end {
+                // Full-circle loop: the ring IS this edge's polyline — the
+                // disc-rim propagation applies wholesale (own + opposite rim
+                // of the cylinder found via `lateral_for_cap`).
+                collect_ring_crossings(brep, e, ring, overlay, coords, rim_overrides)?;
+                continue;
+            }
+            // ARC: gather split points strictly interior to THIS edge's
+            // chords ((chord index, exact parameter) sorted — boundary order).
+            let mut found: Vec<(usize, RBig, Point3)> = Vec::new();
+            for i in 0..n {
+                if mask[i] != Some(e) {
+                    continue;
+                }
+                let s = &ring[i];
+                let ee = &ring[(i + 1) % n];
+                let (Some(s2), Some(e2)) = (
+                    ExactPoint2::from_f64(s.x(), s.y()),
+                    ExactPoint2::from_f64(ee.x(), ee.y()),
+                ) else {
+                    continue;
+                };
+                let dx = &e2.x - &s2.x;
+                let dy = &e2.y - &s2.y;
+                let len2 = &dx * &dx + &dy * &dy;
+                if len2 == RBig::ZERO {
+                    continue;
+                }
+                for (vi, q) in overlay.exact_verts.iter().enumerate() {
+                    let wx = &q.x - &s2.x;
+                    let wy = &q.y - &s2.y;
+                    if &dx * &wy - &dy * &wx != RBig::ZERO {
+                        continue;
+                    }
+                    let t = (&dx * &wx + &dy * &wy) / &len2;
+                    let tf = t.to_f64().value();
+                    if !(tf > 1.0e-6 && tf < 1.0 - 1.0e-6) {
+                        continue;
+                    }
+                    let pt = coords[vi];
+                    if found.iter().any(|(_, _, p)| *p == pt) {
+                        continue;
+                    }
+                    found.push((i, t, pt));
+                }
+            }
+            if found.is_empty() {
+                continue;
+            }
+            found.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+            let pts: Vec<Point3> = found.into_iter().map(|(_, _, p)| p).collect();
+
+            // The shared lateral's opposite arc + cylinder axis.
+            let (opp_edge, axis_point, axis_dir, opp_center, opp_radius) =
+                arc_lateral_opposite(brep, fi, e)?;
+
+            let cap_entry = rim_overrides.entry(e).or_default();
+            for &pt in &pts {
+                if !cap_entry.contains(&pt) {
+                    cap_entry.push(pt);
+                }
+            }
+            // Exact axial projection onto the opposite arc (the
+            // `collect_ring_crossings` map: strip the axial component,
+            // renormalise the radial offset to the opposite radius).
+            let oc = opp_center;
+            let opp_entry = rim_overrides.entry(opp_edge).or_default();
+            for &pt in &pts {
+                let p = pt.as_array();
+                let w = [
+                    p[0] - axis_point[0],
+                    p[1] - axis_point[1],
+                    p[2] - axis_point[2],
+                ];
+                let axial = w[0] * axis_dir[0] + w[1] * axis_dir[1] + w[2] * axis_dir[2];
+                let radial = [
+                    w[0] - axial * axis_dir[0],
+                    w[1] - axial * axis_dir[1],
+                    w[2] - axial * axis_dir[2],
+                ];
+                let rlen =
+                    (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+                if rlen < cad_primitives::TAU_WORK {
+                    continue;
+                }
+                let scale = opp_radius / rlen;
+                let opp_pt = Point3::new(
+                    oc[0] + radial[0] * scale,
+                    oc[1] + radial[1] * scale,
+                    oc[2] + radial[2] * scale,
+                );
+                if !opp_entry.contains(&opp_pt) {
+                    opp_entry.push(opp_pt);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Find the 2-arc partial-strip CYLINDER lateral adjacent to arc edge `e` of
+/// mixed face `fi`, and return its OPPOSITE arc: `(opp_edge, axis_point,
+/// axis_dir, opp_center, opp_radius)`. Loud typed tags for the unsupported
+/// shapes (non-cylinder lateral; a lateral that is not the structured 2-arc
+/// strip — those tessellate through the KV14 CDT path whose boundary chains
+/// cannot take insertions yet).
+#[allow(clippy::type_complexity)]
+fn arc_lateral_opposite(
+    brep: &BRep,
+    fi: usize,
+    e: u32,
+) -> Result<(u32, [f64; 3], [f64; 3], [f64; 3], f64), &'static str> {
+    for (gi, g) in brep.faces().iter().enumerate() {
+        if gi == fi {
+            continue;
+        }
+        let in_loops = std::iter::once(&g.outer_loop)
+            .chain(g.inner_loops.iter())
+            .flatten()
+            .any(|&ge| ge == e);
+        if !in_loops {
+            continue;
+        }
+        let Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            ..
+        } = g.surface
+        else {
+            return Err("mixed-arc-lateral-not-cylinder");
+        };
+        if !g.inner_loops.is_empty() {
+            return Err("mixed-arc-lateral-holed");
+        }
+        let arcs: Vec<u32> = g
+            .outer_loop
+            .iter()
+            .copied()
+            .filter(|&ge| {
+                let edge = &brep.edges()[ge as usize];
+                matches!(edge.curve, Curve::Circle { .. }) && edge.start != edge.end
+            })
+            .collect();
+        if arcs.len() != 2 || !arcs.contains(&e) {
+            return Err("mixed-arc-lateral-unpaired");
+        }
+        let opp = if arcs[0] == e { arcs[1] } else { arcs[0] };
+        let Curve::Circle { center, radius, .. } = brep.edges()[opp as usize].curve else {
+            return Err("mixed-arc-lateral-unpaired");
+        };
+        let ap = axis_point.as_array();
+        let ad = normalize3(axis_dir.as_array());
+        return Ok((opp, ap, ad, center.as_array(), radius));
+    }
+    Err("mixed-arc-no-lateral")
+}
+
 /// Like [`face_polygon_2d`], but a flat circular DISC face is tessellated to its
 /// Result of [`face_polygon_2d_tessellated`]: the in-frame 2D polygon, a
-/// corner→vertex-index key map, and a rim-key→3D-point map (empty for line
-/// loops).
+/// corner→vertex-index key map, a rim-key→3D-point map (empty for line
+/// loops), and — for a MIXED Line+Arc face only (spec
+/// `m8_mixed_loop_coplanar_overlay`) — per-ring sub-chord edge attribution
+/// (`segs[0]` = outer, `segs[1..]` = holes; `segs[r][i] = Some(e)` ⇔ the
+/// segment ring[i]→ring[i+1] lies on curved B-Rep edge `e`, `None` ⇔ a
+/// straight edge). Empty ⇔ not a mixed face — disc / annular / all-segment
+/// faces keep their existing paths.
 type TessellatedFacePolygon = (
     PolygonWithHoles,
     BTreeMap<ExactPoint2, u32>,
     BTreeMap<ExactPoint2, Point3>,
+    Vec<Vec<Option<u32>>>,
 );
 
 /// §2b in-frame coordinate clustering (spec `m8_shared_boundary_identity`
@@ -3237,6 +3628,7 @@ fn face_polygon_2d_tessellated(
             },
             BTreeMap::new(),
             rim_map,
+            Vec::new(),
         ));
     }
     // M8 holed-disc (spec `m8_holed_disc_coplanar_overlay`): an ANNULAR cap —
@@ -3261,10 +3653,110 @@ fn face_polygon_2d_tessellated(
         for hr in &hole_rings {
             holes.push(project_ring(hr)?);
         }
-        return Some((PolygonWithHoles { outer, holes }, BTreeMap::new(), rim_map));
+        return Some((
+            PolygonWithHoles { outer, holes },
+            BTreeMap::new(),
+            rim_map,
+            Vec::new(),
+        ));
+    }
+    // M8-mixed (spec `m8_mixed_loop_coplanar_overlay`): a planar face whose
+    // loops mix `LineSegment` and `Circle`/`Ellipse` edges (and full-circle
+    // loops in non-annular configurations). Splice each loop from Stage 1's
+    // OWN per-edge sample chains (§4.5.5 conformality with the adjacent
+    // curved laterals): polyline vertices that are B-Rep vertices → `corners`
+    // (resolved to the pair's snapped/welded coordinates); chain Steiner
+    // samples → `rim_map` (exact 3D points, bit-shared with the laterals).
+    // Per-ring masks mark which sub-chords lie on curved edges — the caller's
+    // slice-1 gate walls the pair if the overlap boundary subdivides one.
+    if mixed_planar_face(brep, fi) {
+        return mixed_face_polygon_2d(brep, fi, coords, frame);
     }
     let (poly, corners) = face_polygon_2d(brep, fi, coords, frame)?;
-    Some((poly, corners, BTreeMap::new()))
+    Some((poly, corners, BTreeMap::new(), Vec::new()))
+}
+
+/// Is `fi` a MIXED planar face (spec `m8_mixed_loop_coplanar_overlay` §2):
+/// `Surface::Plane`, not a disc, not annular, every loop edge's curve ∈
+/// {`LineSegment`, `Circle`}, at least one `Circle`? Ellipse edges stay the
+/// `face-unsupported` wall — chord-interior overlay vertices are minted onto
+/// the exact CIRCLE ([`RimChordCtx`]); there is no ellipse mint.
+fn mixed_planar_face(brep: &BRep, fi: usize) -> bool {
+    let f = &brep.faces()[fi];
+    if !matches!(f.surface, Surface::Plane { .. }) {
+        return false;
+    }
+    if disc_circle_edge(brep, fi).is_some() || annular_disc_face(brep, fi).is_some() {
+        return false;
+    }
+    let mut any_curved = false;
+    for &e in std::iter::once(&f.outer_loop)
+        .chain(f.inner_loops.iter())
+        .flatten()
+    {
+        match brep.edges()[e as usize].curve {
+            Curve::LineSegment => {}
+            Curve::Circle { .. } => any_curved = true,
+            _ => return false,
+        }
+    }
+    any_curved
+}
+
+/// The MIXED-face arm of [`face_polygon_2d_tessellated`]: loop polylines
+/// spliced from the face's own Stage-1 tessellation chains.
+fn mixed_face_polygon_2d(
+    brep: &BRep,
+    fi: usize,
+    coords: &[Point3],
+    frame: &Frame,
+) -> Option<TessellatedFacePolygon> {
+    let verts: Vec<BRepVertex> = coords.iter().map(|&p| BRepVertex { point: p }).collect();
+    let tess = crate::stage1_tessellate_min_segments(
+        &verts,
+        brep.edges(),
+        brep.faces(),
+        brep.forced_rim_n(),
+    )
+    .ok()?;
+    let n_brep_verts = brep.vertices().len() as u32;
+    let f = &brep.faces()[fi];
+    let is_curved = |e_idx: u32| matches!(brep.edges()[e_idx as usize].curve, Curve::Circle { .. });
+
+    let mut corners: BTreeMap<ExactPoint2, u32> = BTreeMap::new();
+    let mut rim_map: BTreeMap<ExactPoint2, Point3> = BTreeMap::new();
+    let mut masks: Vec<Vec<Option<u32>>> = Vec::with_capacity(1 + f.inner_loops.len());
+    let mut project_loop = |lp: &[u32]| -> Option<Vec<Point2>> {
+        let attributed =
+            crate::loop_polyline_attributed(fi, lp, brep.edges(), &tess.chains).ok()?;
+        let mut ring = Vec::with_capacity(attributed.len());
+        let mut mask = Vec::with_capacity(attributed.len());
+        for &(g, e_idx) in &attributed {
+            // Chain Steiner samples live in the tessellation pool; B-Rep
+            // vertices resolve through the pair's snapped `coords` (identical
+            // values — the tessellation ran on those same coordinates).
+            let pt = tess.verts.get(g as usize).copied()?;
+            let (u, v) = frame.project(pt);
+            let ex = ExactPoint2::from_f64(u, v)?;
+            if g < n_brep_verts {
+                corners.insert(ex, g);
+            } else {
+                rim_map.insert(ex, pt);
+            }
+            ring.push(Point2::new(u, v));
+            // The segment STARTING at this vertex lies on its emitting edge.
+            mask.push(is_curved(e_idx).then_some(e_idx));
+        }
+        masks.push(mask);
+        Some(ring)
+    };
+
+    let outer = project_loop(&f.outer_loop)?;
+    let mut holes = Vec::with_capacity(f.inner_loops.len());
+    for lp in &f.inner_loops {
+        holes.push(project_loop(lp)?);
+    }
+    Some((PolygonWithHoles { outer, holes }, corners, rim_map, masks))
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -4006,6 +4498,15 @@ fn collect_edge_splits(
         .flatten()
     {
         let edge = &brep.edges()[e_idx as usize];
+        // Splits are a STRAIGHT-edge mechanism. A full circle already
+        // self-skips below (start == end ⇒ zero length), but a mixed face's
+        // ARC edge would otherwise be treated as its secant segment — an
+        // exactly-on-secant vertex would register a bogus split
+        // (spec `m8_mixed_loop_coplanar_overlay` §6). Curved-chord
+        // subdivision walls at the slice-1 gate instead.
+        if !matches!(edge.curve, Curve::LineSegment) {
+            continue;
+        }
         let (lo, hi) = (edge.start.min(edge.end), edge.start.max(edge.end));
         // M-A (spec `m8_stage0_inputcheck_clean_emission` E7): the overlay's
         // vertices live in the CLUSTERED 2D domain; a raw endpoint projection
@@ -4150,7 +4651,11 @@ fn edge_split_curved_face(
         let key = (edge.start.min(edge.end), edge.start.max(edge.end));
         if let Some(pts) = splits.get(&key) {
             if !matches!(edge.curve, Curve::LineSegment) {
-                return None; // a curved (arc) subdivided edge — deferred
+                // Splits are collected on straight edges only; a curved edge
+                // matching this vertex-pair key merely SHARES both endpoints
+                // with the split straight edge (semicircle arc + diameter
+                // chord, M8-mixed) — it is not itself subdivided.
+                continue;
             }
             subdiv.insert(key, pts);
         }
@@ -4250,13 +4755,18 @@ fn build_stage0_mesh(
             continue;
         }
 
-        // Does this face's boundary carry propagated split points?
+        // Does this face's boundary carry propagated split points? Splits are
+        // collected on STRAIGHT edges only, and the map is keyed by vertex
+        // pair — a curved edge sharing BOTH endpoints with a split straight
+        // edge (a semicircle arc and its diameter chord, M8-mixed) must not
+        // be mistaken for subdivided.
         let face_split = std::iter::once(&f.outer_loop)
             .chain(f.inner_loops.iter())
             .flatten()
             .any(|&e| {
                 let edge = &brep.edges()[e as usize];
-                splits.contains_key(&(edge.start.min(edge.end), edge.start.max(edge.end)))
+                matches!(edge.curve, Curve::LineSegment)
+                    && splits.contains_key(&(edge.start.min(edge.end), edge.start.max(edge.end)))
             });
         if !face_split {
             tris.extend_from_slice(&tess.tris[tess.face_tri_ranges[f_idx].clone()]);
@@ -4314,28 +4824,63 @@ fn build_stage0_mesh(
             );
             return Err(BuildErr::Unsupported);
         }
-        let n = f.outer_loop.len();
         let mut ring: Vec<u32> = Vec::new();
-        for i in 0..n {
-            let e_idx = f.outer_loop[i];
-            let edge = &brep.edges()[e_idx as usize];
-            let next = &brep.edges()[f.outer_loop[(i + 1) % n] as usize];
-            if edge.end != next.start {
-                probe("build-mesh-noncontinuous", &format!("f={f_idx} i={i}"));
+        if mixed_planar_face(brep, f_idx) {
+            // M8-mixed neighbor: splice the loop from the (post-insertion)
+            // Stage-1 chains — chain Steiner indices are directly valid in
+            // this pool (seeded from `tess.verts`) — and insert straight-edge
+            // split points in traversal order. Curved edges take no splits
+            // (their subdivision arrives through the chains themselves).
+            let Ok(attributed) =
+                crate::loop_polyline_attributed(f_idx, &f.outer_loop, brep.edges(), &tess.chains)
+            else {
+                probe("build-mesh-noncontinuous", &format!("f={f_idx} mixed"));
                 return Err(BuildErr::Unsupported);
+            };
+            for &(g, e_idx) in &attributed {
+                let edge = &brep.edges()[e_idx as usize];
+                ring.push(g);
+                if !matches!(edge.curve, Curve::LineSegment) {
+                    continue;
+                }
+                let (lo, hi) = (edge.start.min(edge.end), edge.start.max(edge.end));
+                if let Some(pts) = splits.get(&(lo, hi)) {
+                    // A straight edge emits exactly its traversal origin `g`;
+                    // stored params run lo→hi.
+                    let forward = g == lo;
+                    let it: Box<dyn Iterator<Item = &(RBig, Point3)>> = if forward {
+                        Box::new(pts.iter())
+                    } else {
+                        Box::new(pts.iter().rev())
+                    };
+                    for (_, p) in it {
+                        ring.push(intern_vert(&mut verts, &mut intern, *p));
+                    }
+                }
             }
-            ring.push(edge.start);
-            let (lo, hi) = (edge.start.min(edge.end), edge.start.max(edge.end));
-            if let Some(pts) = splits.get(&(lo, hi)) {
-                // Stored params run lo→hi; traversal runs start→end.
-                let forward = edge.start == lo;
-                let it: Box<dyn Iterator<Item = &(RBig, Point3)>> = if forward {
-                    Box::new(pts.iter())
-                } else {
-                    Box::new(pts.iter().rev())
-                };
-                for (_, p) in it {
-                    ring.push(intern_vert(&mut verts, &mut intern, *p));
+        } else {
+            let n = f.outer_loop.len();
+            for i in 0..n {
+                let e_idx = f.outer_loop[i];
+                let edge = &brep.edges()[e_idx as usize];
+                let next = &brep.edges()[f.outer_loop[(i + 1) % n] as usize];
+                if edge.end != next.start {
+                    probe("build-mesh-noncontinuous", &format!("f={f_idx} i={i}"));
+                    return Err(BuildErr::Unsupported);
+                }
+                ring.push(edge.start);
+                let (lo, hi) = (edge.start.min(edge.end), edge.start.max(edge.end));
+                if let Some(pts) = splits.get(&(lo, hi)) {
+                    // Stored params run lo→hi; traversal runs start→end.
+                    let forward = edge.start == lo;
+                    let it: Box<dyn Iterator<Item = &(RBig, Point3)>> = if forward {
+                        Box::new(pts.iter())
+                    } else {
+                        Box::new(pts.iter().rev())
+                    };
+                    for (_, p) in it {
+                        ring.push(intern_vert(&mut verts, &mut intern, *p));
+                    }
                 }
             }
         }

@@ -166,10 +166,18 @@ fn z_cylinder(cx: f64, cy: f64, base_z: f64, radius: f64, height: f64) -> BRep {
 /// 2-arc partial-strip cylinder lateral.
 fn half_cylinder(r: f64, z0: f64, z1: f64) -> BRep {
     let verts = vec![
-        BRepVertex { point: p(r, 0.0, z0) },  // 0: bottom +x
-        BRepVertex { point: p(-r, 0.0, z0) }, // 1: bottom −x
-        BRepVertex { point: p(r, 0.0, z1) },  // 2: top +x
-        BRepVertex { point: p(-r, 0.0, z1) }, // 3: top −x
+        BRepVertex {
+            point: p(r, 0.0, z0),
+        }, // 0: bottom +x
+        BRepVertex {
+            point: p(-r, 0.0, z0),
+        }, // 1: bottom −x
+        BRepVertex {
+            point: p(r, 0.0, z1),
+        }, // 2: top +x
+        BRepVertex {
+            point: p(-r, 0.0, z1),
+        }, // 3: top −x
     ];
     // Arc parameterization is CCW about the circle `normal` starting at
     // `start`: bottom (normal −z) from vertex 1 sweeps (−r,0)→(0,r)→(r,0),
@@ -296,16 +304,36 @@ fn half_cylinder(r: f64, z0: f64, z1: f64) -> BRep {
 /// mixed (not annular: the hole is polygonal).
 fn square_bore_cylinder(r: f64, half: f64, z0: f64, z1: f64) -> BRep {
     let verts = vec![
-        BRepVertex { point: p(r, 0.0, z0) },       // 0: outer seam bottom
-        BRepVertex { point: p(r, 0.0, z1) },       // 1: outer seam top
-        BRepVertex { point: p(half, half, z0) },   // 2
-        BRepVertex { point: p(-half, half, z0) },  // 3
-        BRepVertex { point: p(-half, -half, z0) }, // 4
-        BRepVertex { point: p(half, -half, z0) },  // 5
-        BRepVertex { point: p(half, half, z1) },   // 6
-        BRepVertex { point: p(-half, half, z1) },  // 7
-        BRepVertex { point: p(-half, -half, z1) }, // 8
-        BRepVertex { point: p(half, -half, z1) },  // 9
+        BRepVertex {
+            point: p(r, 0.0, z0),
+        }, // 0: outer seam bottom
+        BRepVertex {
+            point: p(r, 0.0, z1),
+        }, // 1: outer seam top
+        BRepVertex {
+            point: p(half, half, z0),
+        }, // 2
+        BRepVertex {
+            point: p(-half, half, z0),
+        }, // 3
+        BRepVertex {
+            point: p(-half, -half, z0),
+        }, // 4
+        BRepVertex {
+            point: p(half, -half, z0),
+        }, // 5
+        BRepVertex {
+            point: p(half, half, z1),
+        }, // 6
+        BRepVertex {
+            point: p(-half, half, z1),
+        }, // 7
+        BRepVertex {
+            point: p(-half, -half, z1),
+        }, // 8
+        BRepVertex {
+            point: p(half, -half, z1),
+        }, // 9
     ];
     let seg = |start: u32, end: u32| BRepEdge {
         start,
@@ -594,20 +622,37 @@ fn mixed_cap_under_disc_union_succeeds() {
     );
 }
 
-/// SLICE BOUNDARY (branch 3, must stay loud): a box whose footprint edge
-/// CROSSES the semicircle arc. The crossing subdivides a curved sub-chord of
-/// the mixed face — out of slice-1 scope; Stage 0 must keep the loud
-/// `CoplanarFacesUnsupported` residue (P9), not silently emit chord geometry.
+/// ARC CROSSING (branch 3, spec amendment 1): a box whose footprint edge
+/// CROSSES the semicircle arc. The crossing subdivides curved sub-chords of
+/// the mixed face; `collect_mixed_crossings` propagates each on-circle split
+/// into the arc's chain AND the partial strip's opposite arc — the same
+/// machinery as the disc-rim crossing path. Originally pinned as a loud
+/// slice-1 wall; the amendment handles it, so the pin upgrades to the FULL
+/// correctness oracle (strictly stronger: watertight + outward + volume).
 #[test]
-fn mixed_cap_arc_crossing_stays_loud() {
+fn mixed_cap_arc_crossing_union_succeeds() {
     let hc = half_cylinder(1.0, 0.0, 1.0);
     // Footprint x∈[0.5,1.5], y∈[0.1,0.6]: corner (0.5,0.1) is inside the
     // half-disc (r≈0.51), the +x side is outside — the boundary crosses the arc.
     let lid = box_brep([0.5, 0.1, 1.0], [1.5, 0.6, 2.0]);
-    let res = boolean(&hc, &lid, BoolOp::Union, &nb());
+    let out = boolean(&hc, &lid, BoolOp::Union, &nb())
+        .expect("mixed-cap arc crossing must be handled (amendment 1 propagation)");
+    let mesh = out.as_mesh();
+    assert!(is_watertight(mesh), "union must be a closed 2-manifold");
+    assert!(is_outward_solid(mesh), "union must be outward-oriented");
+    let (min_z, max_z) = mesh.verts.iter().fold((f64::MAX, f64::MIN), |(lo, hi), v| {
+        (lo.min(v.z()), hi.max(v.z()))
+    });
     assert!(
-        res.is_err(),
-        "curved-chord crossing is out of slice-1 scope and must stay a loud \
-         residue, not silently produce geometry"
+        (max_z - 2.0).abs() < 1e-6 && min_z.abs() < 1e-6,
+        "union must span z∈[0,2] (min {min_z}, max {max_z})"
+    );
+    // The box sits entirely above the cap plane; interiors are disjoint, so
+    // volume = π/2 (half-cyl) + 1.0·0.5·1.0 (box) within the chord band.
+    let vol = signed_volume(mesh).abs();
+    let analytic = std::f64::consts::FRAC_PI_2 + 0.5;
+    assert!(
+        (vol - analytic).abs() / analytic < 0.05,
+        "union volume {vol} not within chord band of analytic {analytic}"
     );
 }

@@ -1,7 +1,47 @@
 # M8-mixed — Stage-0 overlay admission for mixed Line+Arc planar faces
 
 **Milestone tag:** `M8-mixed` (grep tag for quarantines/ignores)
-**Status:** spec (FIP Phase 1)
+**Status:** IMPLEMENTED (amendment 1 applied — see §0)
+
+## 0. Amendment 1 (2026-07-09, applied during Phase 3 — P10 record)
+
+The original slice-1 boundary — "wall whenever the overlap boundary subdivides
+a curved sub-chord" — was measured DEAD ON ARRIVAL: the exact overlay's
+trapezoidal decomposition subdivides curved chords at every partner sweep-event
+column, even in pure containment (the canonical flush-union RED test walled at
+the gate; probe `mixed-curved-chord-subdivided`). A gate on subdivision
+converts nothing. This is the same phenomenon the disc path already solves
+with `RimChordCtx` on-circle minting + rim-override propagation.
+
+Amended scope: mixed faces get the FULL disc-path stack, generalized to arcs —
+
+1. `mixed_chord_ctxs`: one `RimChordCtx` per curved EDGE of the mixed face
+   (the shared minting/resolution machinery is unchanged; chord subsets come
+   from the mixed arm's per-segment edge attribution).
+2. `collect_mixed_crossings`: per curved edge, split points propagate into the
+   edge's own chain AND — full-circle loops via `collect_ring_crossings`
+   (`lateral_for_cap`), arcs via the same exact axial projection onto the
+   opposite arc of the 2-arc partial-strip lateral (`arc_lateral_opposite`) —
+   so the strip's index-for-index chain pairing stays conformal.
+3. Stage-1 arc chains take `rim_overrides` insertions (angle-from-start sorted,
+   same radial sagitta band / uniform-coincidence refusal / exact CCW ULP-twin
+   tie-break as full rims; arcs are NOT added to `inserted_rims` — that set
+   routes full-rim laterals only).
+4. `build_stage0_mesh`: splits are straight-edge-only, and the vertex-pair
+   split key must not capture a curved edge sharing both endpoints with a
+   split straight edge (semicircle arc + its diameter chord); mixed neighbor
+   faces re-ring through `loop_polyline_attributed` over the post-insertion
+   chains.
+
+Consequently branch 3 below (loud wall on curved subdivision) is REPLACED by
+handled propagation; the RED pin `mixed_cap_arc_crossing_stays_loud` upgraded
+to `mixed_cap_arc_crossing_union_succeeds` with the full correctness oracle
+(watertight + outward + volume — strictly stronger than the err-assert).
+Remaining loud walls: Ellipse curved edges (`face-unsupported`, no ellipse
+mint), non-cylinder arc laterals (`mixed-arc-lateral-not-cylinder`), laterals
+that are not the structured 2-arc strip (`mixed-arc-lateral-unpaired` /
+`mixed-arc-lateral-holed` — their KV14 CDT boundary chains cannot take
+insertions yet), and no-lateral arcs (`mixed-arc-no-lateral`).
 **Owner crate:** `crates/yang-rs` (Stage 0), one guard in `collect_edge_splits`
 **Assay targets:** R0021 R0026 R0051 R0059 F0075 (probe class `face-unsupported`,
 the largest of the five 2026-07-09 M8 residue mechanisms; census in session log)
