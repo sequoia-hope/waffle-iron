@@ -1,8 +1,8 @@
 {
-  "errored": 39,
+  "errored": 40,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 213,
+  "passed": 214,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -119,10 +119,10 @@
       "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(11) [curved lateral outer loop not 4 edges (non-cylinder)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 44 is invalid: LocalRefinementRequired\")",
       "id": "R0020",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
@@ -156,7 +156,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(9) [curved lateral has inner loops (non-cylinder holed patch)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(9) [curved lateral has inner loops (torus holed patch)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "R0026",
       "status": "unsupported"
     },
@@ -168,7 +168,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(17) [curved lateral has inner loops (non-cylinder holed patch)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(17) [curved lateral has inner loops (torus holed patch)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "R0028",
       "status": "unsupported"
     },
@@ -306,7 +306,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: Revolve 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(10) [curved lateral has inner loops (non-cylinder holed patch)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "detail": "1 NotSupported boundary(ies); first: Revolve 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(10) [curved lateral has inner loops (torus holed patch)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "R0051",
       "status": "unsupported"
     },
@@ -354,7 +354,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(10) [curved lateral has inner loops (non-cylinder holed patch)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(10) [curved lateral has inner loops (torus holed patch)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "R0059",
       "status": "unsupported"
     },
@@ -444,7 +444,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(1185) [curved lateral has inner loops (non-cylinder holed patch)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(1185) [curved lateral has inner loops (torus holed patch)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "R0074",
       "status": "unsupported"
     },
@@ -557,10 +557,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 0af1f6a6-52d1-42e2-badf-2bcbcd271c7a: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(318) [curved lateral outer loop not 4 edges (non-cylinder)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0093",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1542,7 +1542,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 5042d61b-a8b6-4ce3-9963-0caf870bc313: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(1) [curved lateral outer loop not 4 edges (non-cylinder)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "detail": "1 NotSupported boundary(ies); first: 5042d61b-a8b6-4ce3-9963-0caf870bc313: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(1) [curved lateral is an apex/frustum cone (full-circle rim; no CDT re-entry)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "C0063",
       "status": "unsupported"
     },

@@ -185,10 +185,35 @@ normal, matching `tessellate_lateral_face`'s `orient_target`.
   solid). Assay: **R0053 advances curved-profile → its next real wall M8
   coplanar** (Stage 0); no CORRECT case regressed. Only R0053 was a cylinder in
   this class (census correction above), so corpus movement is the single case.
-- **Slice E — cone unroll.** Slant-radius-varying `u` scale. Targets R0020,
-  R0093, C0063 (census correction: these are cones, not cylinders) + the
-  non-cylinder holed cone cases (R0026, R0051 …).
-- **Slice F — torus unroll.** Two wrapping params; targets R0028, R0059.
+- **Slice E — cone unroll. ✅ DONE (2026-07-09).** A cone lateral develops via
+  its ISOMETRIC development — slant `ℓ = |v|/cosα` (v = axial-from-apex),
+  flattened angle `ψ = θ·sinα`, laid out Cartesian `(ℓ cosψ, ℓ sinψ)` — NOT the
+  naive `u = (v·tanα)·θ` rectangular map the spec table first proposed. The
+  rectangular map is anisotropic (u-scale grows with v), which makes the CDT
+  emit a skewed fan whose flat facets INFLATE the mapped 3D area (a Schwarz-
+  lantern artefact — proven: a frustum-sector unit test measured 7.70 vs the
+  true 7.02); the isometric development preserves the cone's intrinsic metric so
+  Delaunay yields well-shaped grid triangles. `tessellate_lateral_holed_cdt` is
+  now surface-generic (`LateralKind::{Cylinder,Cone}`): cylinder → rectangular
+  strip, cone → annular sector, with per-kind map-back normal
+  (`cone_outward_normal`). yang `tessellate_cone_face` routes inner-loop and
+  non-canonical (Line/Arc-only, no full rim) cone laterals to it; the
+  2-encircling periodic frustum band stays a typed wall (polar seam handling is
+  a later sub-slice). kernel-v2 `to_yang_brep` routes CONE non-4-edge / holed
+  laterals through, guarded to EXCLUDE full-circle-rim cones (apex fan / frustum
+  band = structured vocabulary, no CDT re-entry → stays the typed wall). Unit
+  tests: `cone_partial_patch_multi_arc_no_holes` (frustum-sector, exact
+  developable-area oracle) + `cone_holed_patch_excludes_hole` (isometric-param
+  hole exclusion). **Assay (release, JOBS=6/240s): 213→214 CORRECT, 0 WRONG,
+  UNSUPPORTED(curved-profile) 16→14.** R0093 UNSUPPORTED→CORRECT (a cone partial
+  patch, the clean win); R0020 advances curved-profile → its next real wall
+  (Stage-4 LocalRefinementRequired, the #1 ERROR class — a separate milestone);
+  C0063 stays walled (apex/frustum cone, full rim — correctly excluded).
+  **Census correction (probe single_case):** R0026/R0051 are TORUS holed
+  patches (Slice F), not cyl/cone as an earlier census assumed. No CORRECT case
+  regressed.
+- **Slice F — torus unroll.** Two wrapping params; targets R0028, R0059,
+  R0026, R0051 (torus holed patches — confirmed by probe).
 
 Land each slice as its own commit. Do NOT bank unwired: Slice A/B may be
 internal, but Slice C must WIRE and prove end-to-end before Slice A/B are

@@ -453,13 +453,38 @@ pub fn to_yang_brep_indexed(
                     //     analytic `tessellate_lateral_face` path handles), e.g. a
                     //     bounded partial patch bitten by a prior boolean. This
                     //     runs the same CDT with an empty hole set.
-                    // Only CYLINDER is wired today — cone/torus unroll is Slice
-                    // E/F, so their non-4-edge / holed laterals stay the typed
-                    // wall. (Probe KV14_SLICED_PROBE: R0020/R0093/C0063 are CONE
-                    // partial patches — Slice E — not cylinders as an earlier
-                    // census assumed; R0053 is the cylinder Slice-D target.)
+                    // CYLINDER (Slice C/D) and CONE (Slice E) are wired; the
+                    // TORUS unroll is Slice F, so a torus non-4-edge / holed
+                    // lateral stays the typed wall. (Probe KV14_SLICED_PROBE:
+                    // R0020/R0093/C0063 are CONE partial patches — Slice E; R0053
+                    // is the cylinder Slice-D target.) yang develops a cone via
+                    // its isometric development (slant ℓ = |v|/cosα, flattened
+                    // angle ψ = θ·sinα), the same unroll+CDT path as the cylinder.
                     let outer_hes = arena.loop_half_edges(face.outer_loop)?;
                     if !face.inner_loops.is_empty() || outer_hes.len() != 4 {
+                        // A CONE re-enters via the CDT path only when its
+                        // boundary is Line/Arc-only (a bounded partial patch or a
+                        // holed partial patch — the 0-encircling Slice-E cases).
+                        // A boundary carrying a FULL-circle rim (`Curve::Circle`,
+                        // start == end) is the apex-fan (1 rim) or frustum-band
+                        // (2 rims) vocabulary — the structured yang cone paths,
+                        // which need an apex/ring pairing the CDT converter cannot
+                        // supply — so it stays the typed wall. (Cylinders route
+                        // full rims through: their periodic strip, Slice B/C, is
+                        // bounded by encircling rim circles.)
+                        let mut cone_full_rim = false;
+                        for &h in &outer_hes {
+                            if matches!(arena.half_edge(h)?.curve, Curve::Circle { .. }) {
+                                cone_full_rim = true;
+                            }
+                        }
+                        for &lid in &face.inner_loops {
+                            for &h in &arena.loop_half_edges(lid)? {
+                                if matches!(arena.half_edge(h)?.curve, Curve::Circle { .. }) {
+                                    cone_full_rim = true;
+                                }
+                            }
+                        }
                         let surface = match face.surface {
                             Some(Surface::Cylinder {
                                 axis_point,
@@ -471,11 +496,24 @@ pub fn to_yang_brep_indexed(
                                 axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
                                 radius,
                             },
+                            Some(Surface::Cone {
+                                apex,
+                                axis_dir,
+                                half_angle,
+                                ..
+                            }) if !cone_full_rim => yang_rs::Surface::Cone {
+                                apex,
+                                axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
+                                half_angle,
+                            },
                             _ => {
-                                let reason = if face.inner_loops.is_empty() {
-                                    "curved lateral outer loop not 4 edges (non-cylinder)"
+                                let reason = if matches!(face.surface, Some(Surface::Cone { .. })) {
+                                    "curved lateral is an apex/frustum cone (full-circle rim; \
+                                     no CDT re-entry)"
+                                } else if face.inner_loops.is_empty() {
+                                    "curved lateral outer loop not 4 edges (torus)"
                                 } else {
-                                    "curved lateral has inner loops (non-cylinder holed patch)"
+                                    "curved lateral has inner loops (torus holed patch)"
                                 };
                                 return Err(KernelV2Error::UnsupportedCurvedBoolean {
                                     face: f,

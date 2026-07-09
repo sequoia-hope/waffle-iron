@@ -2358,6 +2358,17 @@ fn tessellate_cap_face(
     Ok(())
 }
 
+/// KV14: the analytic surface a holed/partial curved lateral lives on. It
+/// selects the param-space u-scale (`u = r·θ'`) and the outward normal used
+/// when [`tessellate_lateral_holed_cdt`] maps triangles back to 3D: a cylinder
+/// has a constant radius, a cone's radius grows linearly with the axial
+/// distance from its apex (`r = |v|·tan α`), so its u-scale is per-vertex.
+#[derive(Clone, Copy)]
+enum LateralKind {
+    Cylinder { radius: f64 },
+    Cone { half_angle: f64 },
+}
+
 /// KV14 Slice A (spec `yang_stage1_curved_holed_patch`): tessellate a cylinder
 /// lateral **holed patch** — a curved lateral whose boundary carries one or
 /// more inner loops (a hole punched by a previous boolean) — via an isometric
@@ -2376,6 +2387,11 @@ fn tessellate_cap_face(
 /// The θ **branch cut** is placed in the largest angular gap of the patch's
 /// boundary so the unroll is contiguous (Slice A handles bounded patches with a
 /// gap; a patch that wraps a full 2π has no gap and is a later slice).
+///
+/// KV14 Slice E: the same path serves CONES. A cone's radius grows linearly with
+/// axial distance from its apex, so the `u = r·θ'` scale is per-vertex
+/// (`r = |v|·tan α`, `v` = axial-from-apex) rather than constant, and the map-back
+/// normal is the tilted cone normal. [`LateralKind`] selects between the two.
 #[allow(clippy::too_many_arguments)]
 fn tessellate_lateral_holed_cdt(
     f_idx: usize,
@@ -2385,7 +2401,7 @@ fn tessellate_lateral_holed_cdt(
     out_verts: &[Point3],
     axis_point: Point3,
     axis_dir: Vector3,
-    radius: f64,
+    kind: LateralKind,
     out_tris: &mut Vec<[u32; 3]>,
 ) -> Result<(), YangError> {
     let au = normalize3(axis_dir.as_array());
@@ -2490,10 +2506,26 @@ fn tessellate_lateral_holed_cdt(
     }
 
     // Unroll into u = r·θ' where θ' ∈ [0, 2π) measured from the cut, v = axial.
+    // Unroll a boundary vertex to 2D parameter space. A CYLINDER develops to a
+    // rectangular strip (`u = r·θ'`, `v = axial`) — isometric, so the CDT sees
+    // isotropic geometry. A CONE develops to an annular sector via its ISOMETRIC
+    // development: slant `ℓ = |v|/cosα` (v = axial-from-apex), flattened angle
+    // `ψ = θ'·sinα`, laid out as Cartesian `(ℓ cos ψ, ℓ sin ψ)`. The naive
+    // `u = (v·tanα)·θ'` rectangular map is ANISOTROPIC (the u-scale grows with v),
+    // which makes the CDT emit a skewed fan whose flat facets inflate the mapped
+    // 3D area (a Schwarz-lantern artefact); the isometric development preserves
+    // the cone's intrinsic metric so Delaunay yields well-shaped grid triangles.
     let project = |g: u32| -> cad_primitives::Point2 {
         let (theta, v) = raw(g);
         let un = (theta - cut).rem_euclid(two_pi);
-        cad_primitives::Point2::new(radius * un, v)
+        match kind {
+            LateralKind::Cylinder { radius } => cad_primitives::Point2::new(radius * un, v),
+            LateralKind::Cone { half_angle } => {
+                let ell = v.abs() / half_angle.cos();
+                let psi = un * half_angle.sin();
+                cad_primitives::Point2::new(ell * psi.cos(), ell * psi.sin())
+            }
+        }
     };
 
     // Intern boundary vertices into a local param-space pool (each global vertex
@@ -2544,6 +2576,22 @@ fn tessellate_lateral_holed_cdt(
         // ONE simple ribbon polygon. Any non-encircling loop is an interior
         // window carried as a CDT hole.
         2 => {
+            // The ribbon unroll below assumes the CYLINDER's rectangular
+            // (u = r·θ') layout — the seam wedge is a fixed 2π·r u-shift and the
+            // strip is u-monotone. A cone develops to an annular sector where a
+            // full-2π rim closes on itself (ψ spans 2π·sinα), so its periodic
+            // frustum band (with an encircling window) needs polar seam handling
+            // — a later Slice-E sub-slice. Fail loud rather than lay a cone into
+            // the rectangular ribbon (which would fold).
+            let radius = match kind {
+                LateralKind::Cylinder { radius } => radius,
+                LateralKind::Cone { .. } => {
+                    return Err(YangError::MalformedTopology(format!(
+                        "face {f_idx}: cone periodic strip (2 encircling rims) not yet \
+                         supported (KV14 Slice E holed frustum band — later sub-slice)"
+                    )));
+                }
+            };
             // Open a closed encircling loop into a u-ASCENDING chain. The loop
             // is u-monotone with a single seam wrap, but its traversal sense
             // depends on the winding sign (a +2π rim ascends in u, a −2π rim
@@ -2649,7 +2697,12 @@ fn tessellate_lateral_holed_cdt(
             global_of_local[t[1] as usize],
             global_of_local[t[2] as usize],
         ];
-        let mut n = radial_outward_normal(out_verts, &tri, ap, au);
+        let mut n = match kind {
+            LateralKind::Cylinder { .. } => radial_outward_normal(out_verts, &tri, ap, au),
+            LateralKind::Cone { half_angle } => {
+                cone_outward_normal(out_verts, &tri, axis_point, axis_dir, half_angle)
+            }
+        };
         if f.reversed {
             n = [-n[0], -n[1], -n[2]];
         }
@@ -2691,7 +2744,15 @@ fn tessellate_lateral_face(
     // 100% untouched.
     if !f.inner_loops.is_empty() {
         return tessellate_lateral_holed_cdt(
-            f_idx, f, edges, rim_rings, out_verts, axis_point, axis_dir, _radius, out_tris,
+            f_idx,
+            f,
+            edges,
+            rim_rings,
+            out_verts,
+            axis_point,
+            axis_dir,
+            LateralKind::Cylinder { radius: _radius },
+            out_tris,
         );
     }
     // Dispatch on the boundary vocabulary:
@@ -2882,7 +2943,15 @@ fn tessellate_lateral_face(
         })
     {
         return tessellate_lateral_holed_cdt(
-            f_idx, f, edges, rim_rings, out_verts, axis_point, axis_dir, _radius, out_tris,
+            f_idx,
+            f,
+            edges,
+            rim_rings,
+            out_verts,
+            axis_point,
+            axis_dir,
+            LateralKind::Cylinder { radius: _radius },
+            out_tris,
         );
     }
 
@@ -3251,6 +3320,25 @@ fn tessellate_cone_face(
     _sources: &mut [TessellationSource],
     out_tris: &mut Vec<[u32; 3]>,
 ) -> Result<(), YangError> {
+    // KV14 Slice E (spec `yang_stage1_curved_holed_patch`): a cone lateral
+    // carrying inner loops (a hole from a previous boolean) has no structured
+    // rim/strip pairing — route it to the shared unroll+CDT path, which lays the
+    // boundary chains flat in (u = |v|·tanα·θ, v = axial-from-apex) parameter
+    // space and triangulates the polygon-with-holes exactly. The hole-free
+    // structured arms below are left 100% untouched.
+    if !f.inner_loops.is_empty() {
+        return tessellate_lateral_holed_cdt(
+            f_idx,
+            f,
+            edges,
+            rim_rings,
+            out_verts,
+            apex,
+            axis_dir,
+            LateralKind::Cone { half_angle },
+            out_tris,
+        );
+    }
     // ---- Find the base-rim Circle edges, split CLOSED rims (start == end)
     // from ARCS (start != end — a partial cone patch boundary, KV6c
     // increment 5). Treating an open arc chain as a closed rim would
@@ -3355,6 +3443,35 @@ fn tessellate_cone_face(
             }
         }
         return Ok(());
+    }
+    // KV14 Slice E (spec `yang_stage1_curved_holed_patch`): a non-canonical cone
+    // outer loop — no full-circle rims, only Line + Arc edges, but NOT the
+    // structured 2-arc strip above (e.g. a partial patch bitten into a multi-arc
+    // boundary by a prior boolean: R0020 = [L,A,A,A,L,A,A,A], R0093 =
+    // [L,A,A,L,A,A]). Route it through the shared unroll + CDT path with an empty
+    // hole set; the 0-encircling branch lays the single outer loop flat in cone
+    // param space. Degree-4 (ellipse/surface-pair) edges are rejected loudly by
+    // `loop_polyline` inside — those are a separate milestone.
+    if circle_edges.is_empty()
+        && !f.outer_loop.is_empty()
+        && f.outer_loop.iter().all(|&e| {
+            matches!(
+                edges[e as usize].curve,
+                Curve::Circle { .. } | Curve::LineSegment
+            )
+        })
+    {
+        return tessellate_lateral_holed_cdt(
+            f_idx,
+            f,
+            edges,
+            rim_rings,
+            out_verts,
+            apex,
+            axis_dir,
+            LateralKind::Cone { half_angle },
+            out_tris,
+        );
     }
     // Any other arc-bearing cone boundary (mixed arcs+rims, a single arc, a
     // trim-loop patch) is outside the strip vocabulary — typed and loud.
@@ -16564,6 +16681,193 @@ mod tests {
         }
     }
 
+    /// KV14 Slice E (spec `yang_stage1_curved_holed_patch`): a CONE lateral
+    /// PARTIAL patch (a frustum sector) carrying an interior hole re-enters via
+    /// the shared unroll+CDT path (cone isometric development), and the hole is
+    /// EXCLUDED. Covers the cone `inner_loops` → CDT route (P4).
+    #[test]
+    fn cone_holed_patch_excludes_hole() {
+        use std::f64::consts::PI;
+        let tan_a = 0.5_f64;
+        let half_angle = tan_a.atan();
+        let (sa, ca) = (half_angle.sin(), half_angle.cos());
+        let on = |theta: f64, z: f64| {
+            let rr = z * tan_a;
+            Point3::new(rr * theta.cos(), rr * theta.sin(), z)
+        };
+        // Sector theta in [0, PI], z in [1, 3] (a bounded frustum patch).
+        let z0 = 1.0_f64;
+        let z1 = 3.0_f64;
+        let a = on(0.0, z0); // V0
+        let b = on(PI, z0); // V1
+        let c = on(PI, z1); // V2
+        let d = on(0.0, z1); // V3
+                             // Interior triangular hole around theta=PI/2, z=2 (on-surface).
+        let h0 = on(PI / 2.0 - 0.4, 1.6); // V4
+        let h1 = on(PI / 2.0 + 0.4, 1.6); // V5
+        let h2 = on(PI / 2.0, 2.4); // V6
+        let verts = [a, b, c, d, h0, h1, h2]
+            .into_iter()
+            .map(|point| BRepVertex { point })
+            .collect::<Vec<_>>();
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, z0),
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    radius: z0 * tan_a,
+                },
+            }, // bottom arc A->B
+            BRepEdge {
+                start: 1,
+                end: 2,
+                curve: Curve::LineSegment,
+            }, // ruling B->C
+            BRepEdge {
+                start: 2,
+                end: 3,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, z1),
+                    normal: Vector3::new(0.0, 0.0, -1.0),
+                    radius: z1 * tan_a,
+                },
+            }, // top arc C->D
+            BRepEdge {
+                start: 3,
+                end: 0,
+                curve: Curve::LineSegment,
+            }, // ruling D->A
+            BRepEdge {
+                start: 4,
+                end: 5,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 5,
+                end: 6,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 6,
+                end: 4,
+                curve: Curve::LineSegment,
+            },
+        ];
+        let faces = vec![BRepFace {
+            surface: Surface::Cone {
+                apex: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                half_angle,
+            },
+            outer_loop: vec![0, 1, 2, 3],
+            inner_loops: vec![vec![4, 5, 6]],
+            reversed: false,
+        }];
+        let t = stage1_tessellate(&verts, &edges, &faces).expect("holed cone tessellation");
+        assert!(!t.tris.is_empty(), "must produce triangles");
+
+        // Cone isometric development (ℓ = v/cosα, ψ = θ·sinα) — the same 2D
+        // layout the tessellator uses (up to the branch-cut rotation, which does
+        // not affect a point-in-triangle test).
+        let param = |p: [f64; 3]| -> (f64, f64) {
+            let ell = p[2].abs() / ca;
+            let psi = p[1].atan2(p[0]) * sa;
+            (ell * psi.cos(), ell * psi.sin())
+        };
+        let huv = [
+            param(h0.as_array()),
+            param(h1.as_array()),
+            param(h2.as_array()),
+        ];
+        let inside_hole = |u: f64, v: f64| -> bool {
+            let (x0, y0) = huv[0];
+            let (x1, y1) = huv[1];
+            let (x2, y2) = huv[2];
+            let d1 = (u - x1) * (y0 - y1) - (x0 - x1) * (v - y1);
+            let d2 = (u - x2) * (y1 - y2) - (x1 - x2) * (v - y2);
+            let d3 = (u - x0) * (y2 - y0) - (x2 - x0) * (v - y0);
+            let has_neg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
+            let has_pos = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
+            !(has_neg && has_pos)
+        };
+
+        // Oracle 1: no triangle centroid lies inside the hole.
+        for tri in &t.tris {
+            let a = t.verts[tri[0] as usize].as_array();
+            let b = t.verts[tri[1] as usize].as_array();
+            let c = t.verts[tri[2] as usize].as_array();
+            let cen = [
+                (a[0] + b[0] + c[0]) / 3.0,
+                (a[1] + b[1] + c[1]) / 3.0,
+                (a[2] + b[2] + c[2]) / 3.0,
+            ];
+            let (u, v) = param(cen);
+            assert!(
+                !inside_hole(u, v),
+                "cone triangle centroid (u={u}, v={v}) lies inside the hole — hole paved over"
+            );
+        }
+
+        // Oracle 2: watertight — each hole boundary edge borders exactly one tri.
+        let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+        for tri in &t.tris {
+            for k in 0..3 {
+                let (x, y) = (tri[k], tri[(k + 1) % 3]);
+                *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+            }
+        }
+        let find = |p: [f64; 3]| -> u32 {
+            t.verts
+                .iter()
+                .position(|q| {
+                    let a = q.as_array();
+                    (a[0] - p[0]).abs() < 1e-9
+                        && (a[1] - p[1]).abs() < 1e-9
+                        && (a[2] - p[2]).abs() < 1e-9
+                })
+                .map(|i| i as u32)
+                .expect("hole vertex present in mesh")
+        };
+        let (gh0, gh1, gh2) = (
+            find(h0.as_array()),
+            find(h1.as_array()),
+            find(h2.as_array()),
+        );
+        for (x, y) in [(gh0, gh1), (gh1, gh2), (gh2, gh0)] {
+            let cnt = undirected.get(&(x.min(y), x.max(y))).copied().unwrap_or(0);
+            assert_eq!(
+                cnt, 1,
+                "hole boundary edge ({x},{y}) must be a mesh boundary (once), got {cnt}"
+            );
+        }
+
+        // Oracle 3: every triangle faces radially outward (reversed = false).
+        for tri in &t.tris {
+            let a = t.verts[tri[0] as usize].as_array();
+            let b = t.verts[tri[1] as usize].as_array();
+            let c = t.verts[tri[2] as usize].as_array();
+            let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            let cen = [
+                (a[0] + b[0] + c[0]) / 3.0,
+                (a[1] + b[1] + c[1]) / 3.0,
+                (a[2] + b[2] + c[2]) / 3.0,
+            ];
+            let dot = n[0] * cen[0] + n[1] * cen[1];
+            assert!(
+                dot > 0.0,
+                "cone triangle must face radially outward, dot={dot}"
+            );
+        }
+    }
+
     /// KV14 Slice B (spec `yang_stage1_curved_holed_patch`): a PERIODIC
     /// cylinder-wall strip whose boundary loops each ENCIRCLE the axis (a full
     /// 2π rim / intersection ring, |Σ Δθ| ≈ 2π). Real boolean outputs represent
@@ -16859,6 +17163,161 @@ mod tests {
             ];
             let dot = n[0] * cen[0] + n[1] * cen[1];
             assert!(dot > 0.0, "triangle must face radially outward, dot={dot}");
+        }
+    }
+
+    /// KV14 Slice E: a non-canonical CONE partial patch (multi-arc, no holes)
+    /// re-enters the unroll+CDT path. A cone frustum sector [A,A,A,L,A,A,A,L]
+    /// (R0020's vocabulary) with the u-scale varying by axial radius. Oracles:
+    /// the patch fills the exact developable sector-frustum area (from below —
+    /// chord-sampled), it is watertight and bounded (no interior hole), and it
+    /// faces radially outward.
+    #[test]
+    fn cone_partial_patch_multi_arc_no_holes() {
+        use std::f64::consts::PI;
+        // Cone: apex at origin, axis +z, half-angle atan(0.5) (tan α = 0.5).
+        let tan_a = 0.5_f64;
+        let half_angle = tan_a.atan();
+        let on = |theta: f64, z: f64| {
+            let r = z * tan_a;
+            Point3::new(r * theta.cos(), r * theta.sin(), z)
+        };
+        // Sector theta in [0, PI] (a clean gap over (PI, 2PI) for the branch
+        // cut), between z=1 (r=0.5) and z=3 (r=1.5). Each rim split into 3 arcs.
+        let z0 = 1.0_f64;
+        let z1 = 3.0_f64;
+        let b0 = on(0.0, z0);
+        let b1 = on(PI / 3.0, z0);
+        let b2 = on(2.0 * PI / 3.0, z0);
+        let b3 = on(PI, z0);
+        let t3 = on(PI, z1);
+        let t2 = on(2.0 * PI / 3.0, z1);
+        let t1 = on(PI / 3.0, z1);
+        let t0 = on(0.0, z1);
+        let verts = [b0, b1, b2, b3, t3, t2, t1, t0]
+            .into_iter()
+            .map(|point| BRepVertex { point })
+            .collect::<Vec<_>>();
+        // Bottom arcs sweep CCW about +z at radius r0; top arcs return over
+        // [PI, 0] about −z at radius r1 (nets zero axial winding = bounded).
+        let arc = |start: u32, end: u32, z: f64, up: bool| BRepEdge {
+            start,
+            end,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, z),
+                normal: Vector3::new(0.0, 0.0, if up { 1.0 } else { -1.0 }),
+                radius: z * tan_a,
+            },
+        };
+        let ruling = |start: u32, end: u32| BRepEdge {
+            start,
+            end,
+            curve: Curve::LineSegment,
+        };
+        let edges = vec![
+            arc(0, 1, z0, true),  // e0
+            arc(1, 2, z0, true),  // e1
+            arc(2, 3, z0, true),  // e2
+            ruling(3, 4),         // e3 (up generator)
+            arc(4, 5, z1, false), // e4
+            arc(5, 6, z1, false), // e5
+            arc(6, 7, z1, false), // e6
+            ruling(7, 0),         // e7 (down generator)
+        ];
+        let faces = vec![BRepFace {
+            surface: Surface::Cone {
+                apex: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                half_angle,
+            },
+            outer_loop: vec![0, 1, 2, 3, 4, 5, 6, 7],
+            inner_loops: vec![],
+            reversed: false,
+        }];
+        let t = stage1_tessellate(&verts, &edges, &faces)
+            .expect("Slice E cone multi-arc partial patch tessellation");
+        assert!(!t.tris.is_empty(), "must produce triangles");
+
+        let tri_area = |tri: &[u32; 3]| -> f64 {
+            let a = t.verts[tri[0] as usize].as_array();
+            let b = t.verts[tri[1] as usize].as_array();
+            let c = t.verts[tri[2] as usize].as_array();
+            let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            0.5 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
+        };
+        let area: f64 = t.tris.iter().map(tri_area).sum();
+        // Developable frustum-sector area over Δθ = PI:
+        // (Δθ/2)·(r0+r1)·L, L = (z1−z0)/cosα.
+        let r0 = z0 * tan_a;
+        let r1 = z1 * tan_a;
+        let cos_a = half_angle.cos();
+        let slant = (z1 - z0) / cos_a;
+        let sector_wall = (PI / 2.0) * (r0 + r1) * slant;
+        assert!(
+            area > 0.97 * sector_wall && area <= sector_wall + 1e-9,
+            "cone patch area {area} must fill the frustum sector wall (≈{sector_wall}, inscribed)"
+        );
+
+        // Watertight bounded patch: every count-1 edge lies on the OUTER
+        // boundary — a rim (both ends at z0 or both at z1) or a generator (both
+        // ends at theta=0 or theta=PI).
+        let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+        for tri in &t.tris {
+            for k in 0..3 {
+                let (x, y) = (tri[k], tri[(k + 1) % 3]);
+                *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+            }
+        }
+        let theta_of = |p: [f64; 3]| p[1].atan2(p[0]);
+        for (&(x, y), &c) in &undirected {
+            assert!(
+                c <= 2,
+                "edge ({x},{y}) covered {c} times (fold/double cover)"
+            );
+            if c == 1 {
+                let px = t.verts[x as usize].as_array();
+                let py = t.verts[y as usize].as_array();
+                let on_rim = ((px[2] - z0).abs() < 1e-9 && (py[2] - z0).abs() < 1e-9)
+                    || ((px[2] - z1).abs() < 1e-9 && (py[2] - z1).abs() < 1e-9);
+                let (tx, ty) = (theta_of(px), theta_of(py));
+                let on_gen = (tx.abs() < 1e-6 && ty.abs() < 1e-6)
+                    || ((tx - PI).abs() < 1e-6 && (ty - PI).abs() < 1e-6);
+                assert!(
+                    on_rim || on_gen,
+                    "boundary edge ({x},{y}) is interior — hole or seam gap in a hole-free patch"
+                );
+            }
+        }
+
+        // Every triangle faces radially outward (reversed = false): positive
+        // radial component (a cone normal is tilted but stays outward in r).
+        for tri in &t.tris {
+            let a = t.verts[tri[0] as usize].as_array();
+            let b = t.verts[tri[1] as usize].as_array();
+            let c = t.verts[tri[2] as usize].as_array();
+            let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            let cen = [
+                (a[0] + b[0] + c[0]) / 3.0,
+                (a[1] + b[1] + c[1]) / 3.0,
+                (a[2] + b[2] + c[2]) / 3.0,
+            ];
+            let dot = n[0] * cen[0] + n[1] * cen[1];
+            assert!(
+                dot > 0.0,
+                "cone triangle must face radially outward, dot={dot}"
+            );
         }
     }
 
