@@ -1139,6 +1139,123 @@ fn stage1_tessellate_inner(
             }
         }
 
+        // ---- Ellipse chain pre-pass (KV14 ellipse-arc re-entry, spec
+        // `kv14_ellipse_arc_reentry`). A `Curve::Ellipse` boundary edge (the
+        // oblique plane∩cylinder/cone section a prior boolean leaves on a
+        // re-entering body) builds a shared sample chain in `rim_rings`,
+        // mirroring the Circle block above: an ARC (`start != end` — the
+        // kernel-v2 input convention guarantees a MINOR arc, sweep < π, CCW
+        // around the stored `normal` from `start` to `end`) gets an open
+        // chain `[start, Steiner…, end]`; a FULL ellipse (`start == end`)
+        // gets the closed seam-anchored ring. The chord bound is
+        // self-contained (`d_ε = 1e-2 · major_radius`, the circle chord rule
+        // applied at the ellipse's worst-case curvature scale) because an
+        // ellipse-bounded cap may carry no Circle edge to derive a shared
+        // bound from. Chains are shared between the two incident faces — the
+        // watertightness mechanism, unchanged.
+        for (e_idx, e) in edges.iter().enumerate() {
+            let Curve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                major_radius,
+                minor_radius,
+            } = e.curve
+            else {
+                continue;
+            };
+            let d_eps = 1e-2 * major_radius;
+            let mut n_seg = 3usize;
+            if d_eps > 0.0 {
+                while major_radius * (1.0 - (std::f64::consts::PI / n_seg as f64).cos()) > d_eps {
+                    n_seg += 1;
+                }
+            }
+            let two_pi = 2.0 * std::f64::consts::PI;
+            // Param of an endpoint vertex + on-ellipse validation (the arc
+            // convention makes endpoints load-bearing, so off-ellipse
+            // endpoints are loud).
+            let param_of = |v: u32| -> Result<f64, YangError> {
+                let p = verts.get(v as usize).map(|vv| vv.point).ok_or_else(|| {
+                    YangError::MalformedTopology(format!(
+                        "ellipse edge {e_idx}: vertex {v} out of range"
+                    ))
+                })?;
+                let t = ellipse_param(p, center, normal, major_axis, major_radius, minor_radius);
+                let q = ellipse_point(center, normal, major_axis, major_radius, minor_radius, t);
+                let pa = p.as_array();
+                let qa = q.as_array();
+                let dist =
+                    ((pa[0] - qa[0]).powi(2) + (pa[1] - qa[1]).powi(2) + (pa[2] - qa[2]).powi(2))
+                        .sqrt();
+                let band = 1e-9 * (1.0 + major_radius);
+                if dist > band {
+                    return Err(YangError::MalformedTopology(format!(
+                        "ellipse edge {e_idx}: endpoint vertex {v} is not on the ellipse \
+                         (deviation {dist})"
+                    )));
+                }
+                Ok(t)
+            };
+            if e.start != e.end {
+                // ---- Minor-arc chain ----
+                let t0 = param_of(e.start)?;
+                let t1 = param_of(e.end)?;
+                let sweep = (t1 - t0).rem_euclid(two_pi);
+                if sweep <= 0.0 || !sweep.is_finite() {
+                    return Err(YangError::MalformedTopology(format!(
+                        "ellipse edge {e_idx}: degenerate arc sweep {sweep}"
+                    )));
+                }
+                let m = ((sweep * n_seg as f64) / two_pi).ceil() as usize;
+                let m = m.max(2);
+                let mut chain: Vec<u32> = Vec::with_capacity(m + 1);
+                chain.push(e.start);
+                for k in 1..m {
+                    let t = t0 + sweep * (k as f64) / (m as f64);
+                    let vi = out_verts.len() as u32;
+                    out_verts.push(ellipse_point(
+                        center,
+                        normal,
+                        major_axis,
+                        major_radius,
+                        minor_radius,
+                        t,
+                    ));
+                    sources.push(TessellationSource::BRepEdge {
+                        edge: e_idx as u32,
+                        t,
+                    });
+                    chain.push(vi);
+                }
+                chain.push(e.end);
+                rim_rings.insert(e_idx as u32, chain);
+            } else {
+                // ---- Full ellipse: closed seam-anchored ring ----
+                let t0 = param_of(e.start)?;
+                let mut ring: Vec<u32> = Vec::with_capacity(n_seg);
+                ring.push(e.start);
+                for k in 1..n_seg {
+                    let t = t0 + two_pi * (k as f64) / (n_seg as f64);
+                    let vi = out_verts.len() as u32;
+                    out_verts.push(ellipse_point(
+                        center,
+                        normal,
+                        major_axis,
+                        major_radius,
+                        minor_radius,
+                        t,
+                    ));
+                    sources.push(TessellationSource::BRepEdge {
+                        edge: e_idx as u32,
+                        t,
+                    });
+                    ring.push(vi);
+                }
+                rim_rings.insert(e_idx as u32, ring);
+            }
+        }
+
         // ---- Per-face dispatch.
         let mut face_tri_ranges: Vec<std::ops::Range<usize>> = Vec::with_capacity(faces.len());
         for (f_idx, f) in faces.iter().enumerate() {
@@ -1992,10 +2109,11 @@ fn loop_polyline(
 ) -> Result<Vec<u32>, YangError> {
     let malformed = |msg: String| YangError::MalformedTopology(format!("face {f_idx}: {msg}"));
 
-    // Single full-circle loop: the chain IS the (closed) polyline.
+    // Single full-circle / full-ellipse loop: the chain IS the (closed)
+    // polyline.
     if loop_edges.len() == 1 {
         let e = &edges[loop_edges[0] as usize];
-        if matches!(e.curve, Curve::Circle { .. }) && e.start == e.end {
+        if matches!(e.curve, Curve::Circle { .. } | Curve::Ellipse { .. }) && e.start == e.end {
             return chains
                 .get(&loop_edges[0])
                 .cloned()
@@ -2009,13 +2127,13 @@ fn loop_polyline(
         let e = &edges[e_idx as usize];
         match e.curve {
             Curve::LineSegment => Ok(vec![if forward { e.start } else { e.end }]),
-            Curve::Circle { .. } => {
+            Curve::Circle { .. } | Curve::Ellipse { .. } => {
                 let chain = chains
                     .get(&e_idx)
                     .ok_or_else(|| malformed(format!("chain for edge {e_idx} not built")))?;
                 if e.start == e.end {
                     return Err(malformed(format!(
-                        "full-circle edge {e_idx} inside a multi-edge loop"
+                        "full-circle/full-ellipse edge {e_idx} inside a multi-edge loop"
                     )));
                 }
                 let mut seq: Vec<u32> = if forward {
@@ -2378,11 +2496,12 @@ enum LateralKind {
 ///
 /// This is the general path: it makes no assumption about the outer loop being
 /// a canonical tube or a 2-arc strip. It requires only that every boundary edge
-/// (outer + inner) samples into a polyline via [`loop_polyline`] — i.e. Line
-/// and Arc (`Curve::Circle` with `start != end`) edges. A boundary containing a
-/// FULL-circle rim (`start == end`, a patch that wraps the whole seam) or a
-/// degree-4 (`EllipseArc`/`SurfacePair`) edge is a later slice and errors
-/// loudly here (`loop_polyline` rejects both).
+/// (outer + inner) samples into a polyline via [`loop_polyline`] — Line, Arc
+/// (`Curve::Circle` with `start != end`), Ellipse arc / full ellipse (KV14
+/// ellipse-arc re-entry; a single-edge full-circle or full-ellipse loop takes
+/// the closed-chain head case). A multi-edge loop containing a FULL-circle rim
+/// or a `SurfacePair` (true degree-4) edge is a later slice and errors loudly
+/// here (`loop_polyline` rejects both).
 ///
 /// The θ **branch cut** is placed in the largest angular gap of the patch's
 /// boundary so the unroll is contiguous (Slice A handles bounded patches with a
@@ -2931,14 +3050,16 @@ fn tessellate_lateral_face(
     // it through the same general unroll + CDT path as the holed patch, with an
     // empty hole set: `tessellate_lateral_holed_cdt` classifies the single outer
     // loop by axial winding and lays it flat in (u = r·θ, v = axial) param space.
-    // Full-circle rims (start == end) and degree-4 edges are excluded — those
-    // are either the structured arms above or a loud later-slice wall.
+    // Full-circle rims (start == end) are excluded — those are the structured
+    // arms above. Ellipse edges (the oblique-section boundary, KV14
+    // ellipse-arc re-entry) sample into chains like arcs and route through
+    // the same CDT; surface-pair (true degree-4) edges stay a loud wall.
     if full_rims.is_empty()
         && !f.outer_loop.is_empty()
         && f.outer_loop.iter().all(|&e| {
             matches!(
                 edges[e as usize].curve,
-                Curve::Circle { .. } | Curve::LineSegment
+                Curve::Circle { .. } | Curve::LineSegment | Curve::Ellipse { .. }
             )
         })
     {
@@ -3450,14 +3571,15 @@ fn tessellate_cone_face(
     // boundary by a prior boolean: R0020 = [L,A,A,A,L,A,A,A], R0093 =
     // [L,A,A,L,A,A]). Route it through the shared unroll + CDT path with an empty
     // hole set; the 0-encircling branch lays the single outer loop flat in cone
-    // param space. Degree-4 (ellipse/surface-pair) edges are rejected loudly by
-    // `loop_polyline` inside — those are a separate milestone.
+    // param space. Ellipse edges (oblique-section boundaries, KV14 ellipse-arc
+    // re-entry) sample into chains like arcs; surface-pair (true degree-4)
+    // edges are rejected loudly by `loop_polyline` inside.
     if circle_edges.is_empty()
         && !f.outer_loop.is_empty()
         && f.outer_loop.iter().all(|&e| {
             matches!(
                 edges[e as usize].curve,
-                Curve::Circle { .. } | Curve::LineSegment
+                Curve::Circle { .. } | Curve::LineSegment | Curve::Ellipse { .. }
             )
         })
     {
@@ -17555,6 +17677,292 @@ mod tests {
             ];
             let dot = n[0] * cen[0] + n[1] * cen[1];
             assert!(dot > 0.0, "triangle must face radially outward, dot={dot}");
+        }
+    }
+
+    /// KV14 ellipse-arc re-entry (spec `kv14_ellipse_arc_reentry`): a PLANAR
+    /// face whose loop mixes LineSegment + one `Curve::Ellipse` ARC (the
+    /// oblique plane∩cylinder section a prior boolean leaves on a cap —
+    /// R0006/F0076's planar-loop sub-kind) re-enters Stage 1 through the
+    /// generalized curved CDT. The ellipse chain pre-pass samples the arc at
+    /// the circle chord rule on `major_radius`; the sector tessellates
+    /// watertight with the chorded area approaching the analytic sector area
+    /// `½·a·b·Δt` from below.
+    #[test]
+    fn planar_ellipse_sector_reenters_stage1() {
+        use std::f64::consts::FRAC_PI_2;
+        let a = 2.0_f64; // major radius (along +x)
+        let b = 1.0_f64; // minor radius (along +y)
+                         // Quarter sector: ellipse arc from t=0 (2,0,0) to t=π/2 (0,1,0)
+                         // (sweep π/2 < π — the guaranteed-minor-arc input convention), then
+                         // two straight legs through the center.
+        let verts = vec![
+            BRepVertex {
+                point: Point3::new(a, 0.0, 0.0),
+            },
+            BRepVertex {
+                point: Point3::new(0.0, b, 0.0),
+            },
+            BRepVertex {
+                point: Point3::new(0.0, 0.0, 0.0),
+            },
+        ];
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::Ellipse {
+                    center: Point3::new(0.0, 0.0, 0.0),
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    major_axis: Vector3::new(1.0, 0.0, 0.0),
+                    major_radius: a,
+                    minor_radius: b,
+                },
+            },
+            BRepEdge {
+                start: 1,
+                end: 2,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 2,
+                end: 0,
+                curve: Curve::LineSegment,
+            },
+        ];
+        let faces = vec![BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: 0.0,
+            },
+            outer_loop: vec![0, 1, 2],
+            inner_loops: vec![],
+            reversed: false,
+        }];
+        let t = stage1_tessellate(&verts, &edges, &faces).expect("ellipse sector tessellation");
+        assert!(!t.tris.is_empty(), "must produce triangles");
+
+        // Oracle 1 (on-surface): every vertex lies in the z=0 plane, and every
+        // NON-endpoint vertex sourced from the ellipse edge satisfies the
+        // ellipse implicit (x/a)² + (y/b)² = 1.
+        let mut ellipse_steiner = 0usize;
+        for (i, v) in t.verts.iter().enumerate() {
+            let p = v.as_array();
+            assert!(p[2].abs() < 1e-12, "vertex {i} off the sector plane");
+            if let TessellationSource::BRepEdge { edge: 0, .. } = t.sources[i] {
+                let r = (p[0] / a).powi(2) + (p[1] / b).powi(2);
+                assert!(
+                    (r - 1.0).abs() < 1e-9,
+                    "ellipse sample {i} off the ellipse: implicit residual {r}"
+                );
+                ellipse_steiner += 1;
+            }
+        }
+        assert!(
+            ellipse_steiner >= 1,
+            "the arc must be subdivided (chord rule), got {ellipse_steiner} interior samples"
+        );
+
+        // Oracle 2 (area): the chorded sector area approaches the analytic
+        // `½·a·b·Δt` from BELOW (inscribed).
+        let analytic = 0.5 * a * b * FRAC_PI_2;
+        let area: f64 = t
+            .tris
+            .iter()
+            .map(|tri| {
+                let p0 = t.verts[tri[0] as usize].as_array();
+                let p1 = t.verts[tri[1] as usize].as_array();
+                let p2 = t.verts[tri[2] as usize].as_array();
+                let e1 = [p1[0] - p0[0], p1[1] - p0[1]];
+                let e2 = [p2[0] - p0[0], p2[1] - p0[1]];
+                0.5 * (e1[0] * e2[1] - e1[1] * e2[0]).abs()
+            })
+            .sum();
+        assert!(
+            area <= analytic + 1e-9 && area > 0.985 * analytic,
+            "sector area {area} vs analytic {analytic}"
+        );
+
+        // Oracle 3 (watertight cover): every undirected mesh edge is covered
+        // once (boundary) or twice (interior) — no T-junction, no fold.
+        let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+        for tri in &t.tris {
+            for k in 0..3 {
+                let (x, y) = (tri[k], tri[(k + 1) % 3]);
+                *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+            }
+        }
+        for (&(x, y), &c) in &undirected {
+            assert!(c <= 2, "edge ({x},{y}) covered {c} times");
+        }
+    }
+
+    /// KV14 ellipse-arc re-entry: a planar cap bounded by a single FULL
+    /// `Curve::Ellipse` loop (`start == end` — the complete oblique section)
+    /// tessellates through the same chain + CDT path, area → π·a·b from below.
+    #[test]
+    fn planar_full_ellipse_cap_reenters_stage1() {
+        let a = 2.0_f64;
+        let b = 1.0_f64;
+        let verts = vec![BRepVertex {
+            point: Point3::new(a, 0.0, 0.0),
+        }];
+        let edges = vec![BRepEdge {
+            start: 0,
+            end: 0,
+            curve: Curve::Ellipse {
+                center: Point3::new(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                major_axis: Vector3::new(1.0, 0.0, 0.0),
+                major_radius: a,
+                minor_radius: b,
+            },
+        }];
+        let faces = vec![BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: 0.0,
+            },
+            outer_loop: vec![0],
+            inner_loops: vec![],
+            reversed: false,
+        }];
+        let t = stage1_tessellate(&verts, &edges, &faces).expect("full ellipse cap tessellation");
+        let analytic = std::f64::consts::PI * a * b;
+        let area: f64 = t
+            .tris
+            .iter()
+            .map(|tri| {
+                let p0 = t.verts[tri[0] as usize].as_array();
+                let p1 = t.verts[tri[1] as usize].as_array();
+                let p2 = t.verts[tri[2] as usize].as_array();
+                let e1 = [p1[0] - p0[0], p1[1] - p0[1]];
+                let e2 = [p2[0] - p0[0], p2[1] - p0[1]];
+                0.5 * (e1[0] * e2[1] - e1[1] * e2[0]).abs()
+            })
+            .sum();
+        assert!(
+            area <= analytic + 1e-9 && area > 0.985 * analytic,
+            "cap area {area} vs analytic {analytic}"
+        );
+    }
+
+    /// KV14 ellipse-arc re-entry (curved-lateral sub-kind): a cylinder wall
+    /// bounded below by a full circle rim and above by the full OBLIQUE
+    /// ellipse (`plane ∩ cylinder`, R0095's vocabulary) routes through the
+    /// holed-CDT periodic strip: both loops encircle the axis, the ellipse
+    /// chain samples lie exactly ON the cylinder, and the wall area
+    /// approaches `r·∫(h + k·cosθ)dθ = 2π·r·h` from below.
+    #[test]
+    fn lateral_oblique_ellipse_tube_reenters_stage1() {
+        let r = 1.0_f64;
+        let h = 2.0_f64; // ellipse-plane height at the axis
+        let k = 0.5_f64; // slope: top plane z = h + k·x
+                         // Oblique plane through (0,0,h) with unit normal (−sinφ, 0, cosφ),
+                         // tanφ = k: section ellipse center (0,0,h), major axis (cosφ,0,sinφ),
+                         // a = r/cosφ, b = r. P(t) = (r·cos t, r·sin t, h + k·r·cos t) — every
+                         // sample is exactly on the cylinder.
+        let cphi = 1.0 / (1.0 + k * k).sqrt();
+        let sphi = k * cphi;
+        let verts = vec![
+            BRepVertex {
+                point: Point3::new(r, 0.0, 0.0),
+            },
+            BRepVertex {
+                point: Point3::new(r, 0.0, h + k * r),
+            },
+        ];
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 0,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, 0.0),
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    radius: r,
+                },
+            },
+            BRepEdge {
+                start: 1,
+                end: 1,
+                curve: Curve::Ellipse {
+                    center: Point3::new(0.0, 0.0, h),
+                    normal: Vector3::new(-sphi, 0.0, cphi),
+                    major_axis: Vector3::new(cphi, 0.0, sphi),
+                    major_radius: r / cphi,
+                    minor_radius: r,
+                },
+            },
+        ];
+        let faces = vec![BRepFace {
+            surface: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+            outer_loop: vec![0],
+            inner_loops: vec![vec![1]],
+            reversed: false,
+        }];
+        let t = stage1_tessellate(&verts, &edges, &faces).expect("oblique ellipse tube");
+        assert!(!t.tris.is_empty(), "must produce triangles");
+
+        // Oracle 1: every vertex lies exactly on the cylinder (the ellipse
+        // parameterization is on-surface by construction; the unroll must
+        // not displace it).
+        for (i, v) in t.verts.iter().enumerate() {
+            let p = v.as_array();
+            let rad = (p[0] * p[0] + p[1] * p[1]).sqrt();
+            assert!(
+                (rad - r).abs() < 1e-9,
+                "vertex {i} off the cylinder: radial {rad}"
+            );
+        }
+
+        // Oracle 2: wall area → 2π·r·h from below (the k·cosθ term integrates
+        // to zero over the full turn).
+        let analytic = 2.0 * std::f64::consts::PI * r * h;
+        let tri_area = |tri: &[u32; 3]| -> f64 {
+            let p0 = t.verts[tri[0] as usize].as_array();
+            let p1 = t.verts[tri[1] as usize].as_array();
+            let p2 = t.verts[tri[2] as usize].as_array();
+            let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+            let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+            let n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            0.5 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
+        };
+        let area: f64 = t.tris.iter().map(tri_area).sum();
+        assert!(
+            area > 0.97 * analytic && area <= analytic + 1e-9,
+            "wall area {area} vs analytic {analytic} (inscribed)"
+        );
+
+        // Oracle 3: watertight ribbon — every boundary (count-1) edge lies
+        // entirely on the bottom rim (z≈0) or on the ellipse plane
+        // (z ≈ h + k·x); no edge covered more than twice.
+        let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+        for tri in &t.tris {
+            for k3 in 0..3 {
+                let (x, y) = (tri[k3], tri[(k3 + 1) % 3]);
+                *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+            }
+        }
+        let on_boundary = |g: u32| -> bool {
+            let p = t.verts[g as usize].as_array();
+            p[2].abs() < 1e-9 || (p[2] - (h + k * p[0])).abs() < 1e-9
+        };
+        for (&(x, y), &c) in &undirected {
+            assert!(c <= 2, "edge ({x},{y}) covered {c} times (fold)");
+            if c == 1 {
+                assert!(
+                    on_boundary(x) && on_boundary(y),
+                    "boundary edge ({x},{y}) is not on a rim/ellipse — seam gap"
+                );
+            }
         }
     }
 

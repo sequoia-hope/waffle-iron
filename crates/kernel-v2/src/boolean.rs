@@ -224,24 +224,72 @@ pub fn to_yang_brep_indexed(
                         let mut indices = Vec::with_capacity(hes.len());
                         for &h in &hes {
                             let he = arena.half_edge(h)?;
-                            // PR-KV9: ellipse-arc boundaries (oblique
-                            // sections) have no yang Stage-1 INPUT
-                            // tessellation yet — boolean outputs carrying
-                            // them are terminal for chaining (typed wall).
                             match he.curve {
-                                // PR-KV9: ellipse-arc boundaries (oblique
-                                // sections) have no yang Stage-1 INPUT
-                                // tessellation yet — boolean outputs carrying
-                                // them are terminal for chaining (typed wall).
-                                // M5 K11: surface-pair (degree-4) boundaries
-                                // are the same wall — chained booleans on
-                                // quartic-bounded bodies are a later
-                                // milestone.
-                                Curve::EllipseArc { .. } | Curve::SurfacePair { .. } => {
+                                // M5 K11: surface-pair (true degree-4)
+                                // boundaries have no yang Stage-1 INPUT
+                                // tessellation — boolean outputs carrying
+                                // them are terminal for chaining (typed
+                                // wall; a later milestone).
+                                Curve::SurfacePair { .. } => {
                                     return Err(KernelV2Error::UnsupportedCurvedBoolean {
                                         face: f,
-                                        reason: "planar-loop degree-4 boundary (ellipse/surface-pair edge)",
+                                        reason: "planar-loop degree-4 boundary (surface-pair edge)",
                                     });
+                                }
+                                // KV14 ellipse-arc re-entry (spec
+                                // `kv14_ellipse_arc_reentry`): an oblique-
+                                // section ellipse arc maps field-for-field to
+                                // the yang input `Curve::Ellipse` (identical
+                                // CCW parameterization around the stored
+                                // forward normal; kernel-v2 constructs only
+                                // MINOR arcs, sweep < π, so the CCW sweep
+                                // from start to end is unambiguous). One
+                                // SHARED yang edge per twin pair — the
+                                // Stage-1 chain is sampled once, keeping the
+                                // cap∩lateral boundary watertight.
+                                Curve::EllipseArc {
+                                    center,
+                                    normal,
+                                    major_axis,
+                                    major_radius,
+                                    minor_radius,
+                                } => {
+                                    let key = h.min(he.twin);
+                                    let idx = match shared_edges.get(&key) {
+                                        Some(&idx) => idx,
+                                        None => {
+                                            let idx = yedges.len() as u32;
+                                            let start = map_vertex(
+                                                he.origin,
+                                                &mut vid_map,
+                                                &mut yverts,
+                                                arena,
+                                            )?;
+                                            let dest = arena.half_edge(he.next)?.origin;
+                                            let end =
+                                                map_vertex(dest, &mut vid_map, &mut yverts, arena)?;
+                                            yedges.push(yang_rs::BRepEdge {
+                                                start,
+                                                end,
+                                                curve: yang_rs::Curve::Ellipse {
+                                                    center,
+                                                    normal: Vector3::new(
+                                                        normal.x, normal.y, normal.z,
+                                                    ),
+                                                    major_axis: Vector3::new(
+                                                        major_axis.x,
+                                                        major_axis.y,
+                                                        major_axis.z,
+                                                    ),
+                                                    major_radius,
+                                                    minor_radius,
+                                                },
+                                            });
+                                            shared_edges.insert(key, idx);
+                                            idx
+                                        }
+                                    };
+                                    indices.push(idx);
                                 }
                                 Curve::LineSegment => {
                                     let start =
@@ -375,13 +423,45 @@ pub fn to_yang_brep_indexed(
                         }
                         let idx = yedges.len() as u32;
                         match he.curve {
-                            // PR-KV9 / M5 K11: no yang INPUT vocabulary for
-                            // ellipse arcs or surface-pair (degree-4) edges.
-                            Curve::EllipseArc { .. } | Curve::SurfacePair { .. } => {
+                            // M5 K11: no yang INPUT vocabulary for
+                            // surface-pair (true degree-4) edges.
+                            Curve::SurfacePair { .. } => {
                                 return Err(KernelV2Error::UnsupportedCurvedBoolean {
-                                        face: f,
-                                        reason: "curved lateral degree-4 boundary (ellipse/surface-pair edge)",
-                                    });
+                                    face: f,
+                                    reason: "curved lateral degree-4 boundary (surface-pair edge)",
+                                });
+                            }
+                            // KV14 ellipse-arc re-entry: shared directional
+                            // ellipse arc — endpoints + frame from the
+                            // FIRST-ENCOUNTERED half-edge (the yang input
+                            // convention: the point set is the CCW minor-arc
+                            // sweep around the stored normal from start to
+                            // end; the twin denotes the same set).
+                            Curve::EllipseArc {
+                                center,
+                                normal,
+                                major_axis,
+                                major_radius,
+                                minor_radius,
+                            } => {
+                                let start = map_vertex(he.origin, vid_map, yverts, arena)?;
+                                let dest = arena.half_edge(he.next)?.origin;
+                                let end = map_vertex(dest, vid_map, yverts, arena)?;
+                                yedges.push(yang_rs::BRepEdge {
+                                    start,
+                                    end,
+                                    curve: yang_rs::Curve::Ellipse {
+                                        center,
+                                        normal: Vector3::new(normal.x, normal.y, normal.z),
+                                        major_axis: Vector3::new(
+                                            major_axis.x,
+                                            major_axis.y,
+                                            major_axis.z,
+                                        ),
+                                        major_radius,
+                                        minor_radius,
+                                    },
+                                });
                             }
                             Curve::Arc {
                                 center,

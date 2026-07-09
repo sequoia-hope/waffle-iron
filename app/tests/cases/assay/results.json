@@ -1,8 +1,8 @@
 {
-  "errored": 42,
+  "errored": 50,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 214,
+  "passed": 215,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -35,10 +35,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(11) [planar-loop degree-4 boundary (ellipse/surface-pair edge)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0006",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
@@ -365,10 +365,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(455) [curved lateral degree-4 boundary (ellipse/surface-pair edge)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 2: holed lateral CDT failed: CDT backend failed to triangulate\"). Body created as standalone.",
       "id": "R0061",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -569,10 +569,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: ac392209-5719-4ea0-9e48-3d2680bc2542: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(287) [curved lateral degree-4 boundary (ellipse/surface-pair edge)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): ac392209-5719-4ea0-9e48-3d2680bc2542: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 2: holed lateral CDT failed: CDT backend failed to triangulate\")",
       "id": "R0095",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "ERROR",
@@ -1055,10 +1055,10 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 4: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(33) [planar-loop degree-4 boundary (ellipse/surface-pair edge)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 5: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.",
       "id": "F0076",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1085,34 +1085,34 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(11) [planar-loop degree-4 boundary (ellipse/surface-pair edge)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.",
       "id": "F0081",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: Extrude 7: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(1875) [planar-loop degree-4 boundary (ellipse/surface-pair edge)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "3 auto-union failure(s): Extrude 7: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (682, 737): AmbiguousCurve { candidates: 0, matched: 0 }\"). Body created as standalone.; Extrude 10: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (94, 139): AmbiguousCurve { candidates: 0, matched: 0 }\"). Body created as standalone.; Extrude 12: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 1: CDT triangulation failed: CDT backend failed to triangulate\"). Body created as standalone.",
       "id": "F0082",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(17) [planar-loop degree-4 boundary (ellipse/surface-pair edge)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "3 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (77, 86): AmbiguousCurve { candidates: 0, matched: 0 }\"). Body created as standalone.; Extrude 11: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.; Extrude 12: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.",
       "id": "F0083",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 15: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(2420) [curved lateral degree-4 boundary (ellipse/surface-pair edge)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "4 auto-union failure(s): Extrude 5: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.; Extrude 13: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.; Extrude 18: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.; Extrude 20: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.",
       "id": "F0084",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(13) [planar-loop degree-4 boundary (ellipse/surface-pair edge)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "3 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (52, 70): AmbiguousCurve { candidates: 0, matched: 0 }\"). Body created as standalone.; Extrude 12: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (4359, 4398): AmbiguousCurve { candidates: 0, matched: 0 }\"). Body created as standalone.; Extrude 19: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 645: CDT triangulation failed: CDT backend failed to triangulate\"). Body created as standalone.",
       "id": "F0085",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",

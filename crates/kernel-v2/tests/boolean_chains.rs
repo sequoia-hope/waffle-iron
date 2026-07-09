@@ -328,3 +328,78 @@ fn curved_partial_patch_no_hole_reentry() {
         v1 - v2
     );
 }
+
+/// KV14 ellipse-arc re-entry end-to-end (spec `kv14_ellipse_arc_reentry`):
+/// an OBLIQUE cylinder cut through a slab (the R0006 shape) leaves a
+/// genus-1 through-tunnel whose planar caps carry elliptical holes and
+/// whose tunnel wall is bounded by two encircling ellipse loops — all
+/// `EllipseArc` (degree-4 conic) edges, the former
+/// `UnsupportedCurvedBoolean { reason: "…degree-4 boundary (ellipse…)" }`
+/// re-entry wall. The output must convert to yang (ellipse chains sample
+/// into Stage-1 `rim_rings`) so a SECOND boolean succeeds; a planar notch
+/// disjoint from the tunnel gives a near-exact volume decrement.
+#[test]
+fn ellipse_bounded_tunnel_reentry() {
+    let mut a = BrepArena::new();
+    let slab = boxx(&mut a, (0.0, 4.0), (0.0, 4.0), (0.0, 2.0));
+    // Oblique drill: unit axis d = (sinφ, 0, cosφ), tanφ = 1/2 (so the
+    // plane∩cylinder sections on the z-caps are true ellipses, a = r/cosφ).
+    // Profile plane through (1, 2, −1) with in-plane basis
+    // x = (0,1,0), y = (−cosφ, 0, sinφ): x × y = d (right-handed).
+    let s5 = 5.0_f64.sqrt();
+    let (sphi, cphi) = (1.0 / s5, 2.0 / s5);
+    let r = 0.6_f64;
+    let p = Profile::circle(
+        Point3::new(1.0, 2.0, -1.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        Vector3::new(-cphi, 0.0, sphi),
+        Point2::new(0.0, 0.0),
+        r,
+    )
+    .unwrap();
+    let drill = extrude(&mut a, &p, Vector3::new(sphi, 0.0, cphi), 5.0)
+        .unwrap()
+        .solid;
+    let tunneled = boolean_op(&mut a, slab, drill, BoolOp::Subtract).expect("slab − oblique drill");
+    validate_solid(&a, tunneled).expect("tunneled slab validates");
+
+    // The re-entry wall was the ellipse vocabulary itself: the intermediate
+    // must actually CARRY EllipseArc edges (else this test pins nothing).
+    let ellipse_half_edges = a
+        .half_edges
+        .iter()
+        .flatten()
+        .filter(|h| matches!(h.curve, kernel_v2::Curve::EllipseArc { .. }))
+        .count();
+    assert!(
+        ellipse_half_edges >= 2,
+        "expected EllipseArc edges on the oblique tunnel, found {ellipse_half_edges} half-edges"
+    );
+
+    // Analytic |slab − drill| = 32 − π·r²·(2/cosφ) (slant length through the
+    // 2-thick slab; the tunnel is laterally clear of all four side faces).
+    let removed = std::f64::consts::PI * r * r * (2.0 / cphi);
+    let expect_v1 = 32.0 - removed;
+    let v1 = volume_of(&a, tunneled);
+    assert!(
+        (v1 - expect_v1).abs() <= 0.01 * removed,
+        "tunneled volume {v1} vs analytic {expect_v1} (removed {removed})"
+    );
+
+    // Second boolean RE-ENTERS the ellipse-bounded body: a planar notch in
+    // the top face, far from the tunnel (entry ellipse spans x∈[0.83,2.17],
+    // exit x∈[2.83,3.17]... both at y∈[1.4,2.6]; the notch sits at
+    // x,y ≤ 0.8), removing exactly 0.6·0.6·0.5 = 0.18.
+    let notch = boxx(&mut a, (0.2, 0.8), (0.2, 0.8), (1.5, 2.5));
+    let out = boolean_op(&mut a, tunneled, notch, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("re-enter ellipse-bounded tunnel: {e:?}"));
+    validate_solid(&a, out).expect("re-entered result validates");
+    let v2 = volume_of(&a, out);
+    // The notch decrement is planar-exact up to the tunnel wall's re-facet
+    // drift (the Slice D precedent bound).
+    assert!(
+        (v1 - v2 - 0.18).abs() < 0.01,
+        "notch decrement {} must be ≈0.18: v1={v1} v2={v2}",
+        v1 - v2
+    );
+}

@@ -1018,13 +1018,17 @@ fn smoke_corpus_boundary_categories() {
         ("F0040", Category::SupportedCorrect),
         // F0044: cylinder-boolean case passing the FULL oracle set
         // end-to-end. (R0006 was its companion until PR-ASSAY-NOOP.)
-        // PR-KV11: R0006's oblique section now resolves (ellipse junction
-        // relocation); its NEXT op hits the KV7 curved partial-patch
-        // re-entry wall — typed NotSupported, no longer ERROR.
-        (
-            "R0006",
-            Category::Unsupported(UnsupportedReason::CurvedProfile),
-        ),
+        // PR-KV11: R0006's oblique section resolved (ellipse junction
+        // relocation). KV14 ellipse-arc re-entry (spec
+        // `kv14_ellipse_arc_reentry`) lifted the degree-4 boundary wall its
+        // NEXT op used to hit: EllipseArc boundaries now convert to yang
+        // `Curve::Ellipse` chains, so the full 3-op chain replays. Its meta
+        // euler_target was ALSO corrected 2 → 0 (the oblique cut is a true
+        // through-tunnel: the void breaches two disjoint openings on
+        // opposite box faces → genus-1; the disjoint third boss adds the
+        // second shell — the R0099 authoring-error pattern, verified by
+        // slab/fiber analysis of the cut cylinder vs the box).
+        ("R0006", Category::SupportedCorrect),
         ("F0044", Category::SupportedCorrect),
         // F0046: oblique box plane × cylinder sections (ELLIPSE arcs meeting
         // at junctions). PR-KV11: junction relocation + the hybrid

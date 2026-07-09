@@ -1,32 +1,39 @@
 # KV14 — Ellipse-arc boundary re-entry (degree-4 sub-branch, conic case)
 
 **Milestone:** KV14 (curved partial-patch re-entry), degree-4 boundary sub-branch.
-**Status:** BLOCKED — prototyped 2026-07-09, reverted (P9/P10). The yang-rs Stage-1
-ellipse ingestion is correct in isolation (unit test `planar_ellipse_sector_
-reenters_stage1`: a planar elliptical sector re-enters and tessellates watertight,
-chorded area = analytic `½·a·b·Δt`). But **wiring it into kernel-v2 converts ZERO
-assay cases and introduces a WRONG**, so it was reverted:
+**Status:** SHIPPED 2026-07-09. The 2026-07-09 blocker ("wiring introduces a
+WRONG") was resolved by diagnosis, not by code: **R0006's `χ=2 vs 4` was an
+ORACLE AUTHORING ERROR (the R0099 pattern), not a kernel defect.** Slab/fiber
+analysis of the meta's exact operations proves the oblique circle cut is a true
+THROUGH-TUNNEL: the void (cut-cylinder ∩ box, convex ⇒ connected) breaches the
+box surface in two disjoint openings on opposite faces (`u+` at cut-axis
+t∈[0, 1.26], `u−` at t∈[29.65, 30.92]; both cut caps are only PARTIALLY
+embedded — ~60% of cut fibers have box material beyond each cap) ⇒ the cut body
+is genus-1 (χ=0). The third boss is fully disjoint (min distance 21.2) ⇒ second
+shell. True total χ = 0 + 2 = 2 over 2 shells — exactly what the kernel
+produced. `compute_euler_target` documents multi-plane cuts as unpredictable
+and returns the genus-0 default, so the meta carried euler_target=2; fixed to
+0 (R0006.meta.json), after which the euler oracle expects 2 + shell credit ⇒
+R0006 = **SUPPORTED_CORRECT** end-to-end.
 
-- **R0006 → SUPPORTED_WRONG** (was UNSUPPORTED). The boolean now COMPLETES but
-  produces `χ=2` (one closed shell) where the oracle expects `χ=4` (2 shells).
-  R0006 = rect boss + OBLIQUE circle cut (the ellipse) + oblique circle boss. The
-  degree-4 wall was MASKING a downstream boolean-assembly / shell-count defect on
-  ellipse-bounded bodies — re-entry unmasks it. Not diagnosed (deep; multi-body
-  connectivity). Per P9 a WRONG cannot ship.
-- **F0076, F0081, F0083 → ERROR** (InvalidBooleanOutput / BooleanFailed): route +
-  build but fail a later boolean/validation.
-- **R0095 (curved lateral) → ERROR**: routes but the unroll/assembly fails downstream.
+Shipped exactly per the design below (re-implemented, prototype was not
+retained): yang-rs ellipse chain pre-pass + `loop_polyline` Ellipse arms +
+lateral CDT gate admission; kernel-v2 EllipseArc→Ellipse conversion at both
+`to_yang_brep` sites (twin-shared). `SurfacePair` stays the typed wall.
+Tests: `planar_ellipse_sector_reenters_stage1`,
+`planar_full_ellipse_cap_reenters_stage1`,
+`lateral_oblique_ellipse_tube_reenters_stage1` (yang),
+`ellipse_bounded_tunnel_reentry` (kernel-v2 E2E, the R0006 shape).
 
-**The `shared_edges` map IS shared across the planar + lateral conversion sites**
-(boolean.rs:180) so a cap∩lateral ellipse arc is conformally shared (one yang edge,
-one chain) — NOT the cause of the WRONG. The wall is in the boolean/reassembly of
-ellipse-bounded topology, a SEPARATE milestone from Stage-1 ingestion.
-
-**Next session:** diagnose R0006's `χ=2 vs 4` on LIVE code (is it a genuine
-shell-merge bug, a non-conformal ellipse junction with the box faces, or an oracle
-authoring error like R0099?) BEFORE re-wiring. The Stage-1 ingestion code is in the
-git history of this session's exploration if needed. Do NOT re-wire kernel-v2 until
-a case converts CORRECT with 0 WRONG (P4/DoD).
+Downstream walls the other census cases advance to (UNSUPPORTED → typed
+ERROR, the Slice B/C blemish precedent):
+- F0076/F0084: `InvalidBooleanOutput("an undirected output edge is not used
+  by exactly two directed edges")` / non-2-manifold reassembly.
+- F0085: Stage-3 `AmbiguousCurve { candidates: 0, matched: 0 }` + heavy-model
+  CDT failure (face 645).
+- R0095: `holed lateral CDT failed: CDT backend failed to triangulate` —
+  the ellipse-bounded lateral routes but its real-geometry unroll fails; next
+  sub-wall of the holed-CDT path.
 
 ---
 Original plan (retained for the re-implementation):
