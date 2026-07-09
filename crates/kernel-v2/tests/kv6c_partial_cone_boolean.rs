@@ -363,3 +363,84 @@ fn oblique_section_stays_typed_or_exact_boundary_probe() {
         ),
     }
 }
+
+// =========================================================================
+// KV7 curved∩curved coaxial rim recovery. A profile whose OBLIQUE (cone)
+// edge is adjacent to a PARALLEL (cylinder) edge produces a coaxial
+// cone∩cylinder shared rim. The mesh boolean leaves that rim as a chord
+// polyline; `recover::recover_output_curves` must retag it to the exact
+// shared circle (neither face is a plane, so the ⊥-plane retag cannot).
+// Without the recovery a thin such band folds at render (the KV9-F2
+// "patch triangulation folded" class — assay R0034/R0065). Here the band
+// is not thin, so the oracle is structural: identity union round-trips
+// watertight at the exact partial-revolution volume with BOTH analytic
+// walls preserved.
+// =========================================================================
+
+/// Profile `(axial, radial)` = (0,1),(0,3),(1,2),(2,2),(2,1): an inner
+/// radius-1 cylinder, a cone (radius 3→2 over axial 0→1) whose top rim at
+/// (axial 1, radius 2) is SHARED with an outer radius-2 cylinder (axial
+/// 1→2), plus two annular caps. Full-turn volume = π·25/3.
+fn double_band_profile() -> Profile {
+    Profile::new(
+        AXIS_O,
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0, 1.0),
+            Point2::new(0.0, 3.0),
+            Point2::new(1.0, 2.0),
+            Point2::new(2.0, 2.0),
+            Point2::new(2.0, 1.0),
+        ],
+        vec![],
+    )
+    .expect("double-band profile")
+}
+
+fn has_cylinder_wall(arena: &BrepArena, solid: SolidId) -> bool {
+    arena.solid(solid).expect("solid").shells.iter().any(|&sh| {
+        arena.shell(sh).expect("shell").faces.iter().any(|&fc| {
+            matches!(
+                arena.face(fc).expect("face").surface,
+                Some(Surface::Cylinder { .. })
+            )
+        })
+    })
+}
+
+#[test]
+fn coaxial_cone_cylinder_rim_recovers_through_boolean() {
+    let angle = canon_angle();
+    let mut arena = BrepArena::new();
+    let band = revolve(&mut arena, &double_band_profile(), AXIS_O, AXIS_D, angle)
+        .expect("double-band partial revolve builds");
+    assert!(has_cone_wall(&arena, band.solid), "cone band built");
+    assert!(has_cylinder_wall(&arena, band.solid), "cylinder band built");
+
+    // Contained box (identical bracket to the single-cone identity test):
+    // radial ∈ [1.22,1.77] ⊂ (1, 3−x), azimuth ∈ [6.7°,22.6°] ⊂ (0,200°),
+    // x ⊂ [0.2,0.7] — fully interior, so A ∪ B = A. The union routes the
+    // two-band solid through the boolean, turning the coaxial cone∩cylinder
+    // rim into a chord polyline that recovery must restore.
+    let b = box_solid(&mut arena, (0.2, 0.7), (1.2, 1.7), (0.2, 0.5));
+    let out = boolean_op(&mut arena, band.solid, b, BoolOp::Union)
+        .unwrap_or_else(|e| panic!("double-band ∪ contained box: {e:?}"));
+
+    validate_solid(&arena, out).expect("identity union validates");
+    assert!(
+        has_cone_wall(&arena, out) && has_cylinder_wall(&arena, out),
+        "both analytic walls survive the boolean (surface tier preserved, A15.5)"
+    );
+
+    // The recovered coaxial rim lets the cone patch tessellate on-surface
+    // (no folded chord-midpoint sliver) — watertight at the exact volume.
+    let mesh = tessellate(&arena, out).expect("tessellate identity union");
+    assert_watertight(&mesh, "double-band identity union mesh");
+    let expect = angle * 25.0 / 6.0; // (angle/2π)·π·25/3
+    assert_volume_band(
+        mesh_signed_volume(&mesh),
+        expect,
+        "double-band identity volume",
+    );
+}

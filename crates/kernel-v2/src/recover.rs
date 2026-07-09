@@ -86,6 +86,37 @@ fn ortho_basis(n: [f64; 3]) -> ([f64; 3], [f64; 3]) {
     (e1, e2)
 }
 
+/// `(axis_point, axis_dir)` (raw, un-normalized) of a cylinder/cone lateral;
+/// `None` for any other surface. The cone reports its apex as the axis point.
+fn curved_axis(s: &Surface) -> Option<([f64; 3], [f64; 3])> {
+    match *s {
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            ..
+        } => Some((axis_point.as_array(), axis_dir.as_array())),
+        Surface::Cone { apex, axis_dir, .. } => Some((apex.as_array(), axis_dir.as_array())),
+        _ => None,
+    }
+}
+
+/// The on-surface rim radius of a cylinder/cone lateral at the axial foot
+/// `center` (assumed on the axis), measured with the UNIT axis `a`. Constant
+/// for a cylinder; `axial·tan(half_angle)` from the apex for a cone.
+fn curved_radius_at(s: &Surface, center: [f64; 3], a: [f64; 3]) -> Option<f64> {
+    match *s {
+        Surface::Cylinder { radius, .. } => Some(radius),
+        Surface::Cone {
+            apex, half_angle, ..
+        } => {
+            let ap = apex.as_array();
+            let w = [center[0] - ap[0], center[1] - ap[1], center[2] - ap[2]];
+            Some(dot3(w, a).abs() * half_angle.tan())
+        }
+        _ => None,
+    }
+}
+
 /// The effective exact curve carried by one undirected output edge.
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum EffCurve {
@@ -302,7 +333,92 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
         let (curved, pl) = match (s0, s1) {
             (Surface::Cylinder { .. } | Surface::Cone { .. }, Surface::Plane { .. }) => (s0, s1),
             (Surface::Plane { .. }, Surface::Cylinder { .. } | Surface::Cone { .. }) => (s1, s0),
-            _ => continue,
+            // KV7 extension — curved ∩ curved coaxial rim. Two coaxial
+            // cylinder/cone laterals (e.g. the stacked bands of a
+            // partial-revolve gear) meet at a shared rim CIRCLE. The mesh
+            // boolean leaves that rim as an untagged chord run; because
+            // neither face is a plane the ⊥-plane retag above never fires, so
+            // the coarse chord polyline survives into render — its chord-split
+            // midpoints (necessarily on-chord for watertightness) then fold
+            // against the on-surface interior in a thin band (the KV9-F2
+            // "patch triangulation folded" render failure). Recover the exact
+            // circle from the shared axis: the rim IS `surface0 ∩ surface1`, an
+            // exact circle on BOTH laterals (analytical primacy, A15).
+            //
+            // Guards (scale-relative `band`, matching the ⊥-plane path):
+            //   1. the two laterals are coaxial (parallel axis directions),
+            //   2. the chord endpoints share an axial coordinate — a
+            //      ruling/seam spans height and is correctly excluded,
+            //   3. both endpoints lie on the surface-0 rim circle,
+            //   4. the arc MIDPOINT lies on surface 1 — the definitive guard
+            //      that the recovered circle is genuinely SHARED (a skew or
+            //      laterally-offset pair fails here even if 1–3 pass).
+            _ => {
+                let (Some((ap0, ad0)), Some((_, ad1))) = (curved_axis(s0), curved_axis(s1)) else {
+                    continue;
+                };
+                let (Some(a), Some(a1)) = (normalize3(ad0), normalize3(ad1)) else {
+                    continue;
+                };
+                if (dot3(a, a1).abs() - 1.0).abs() > band {
+                    continue; // guard 1: not coaxial
+                }
+                let axial = |v: u32| {
+                    let p = yverts[v as usize].point.as_array();
+                    dot3([p[0] - ap0[0], p[1] - ap0[1], p[2] - ap0[2]], a)
+                };
+                let (h0, h1) = (axial(key.0), axial(key.1));
+                if (h0 - h1).abs() > band {
+                    continue; // guard 2: a ruling/seam, not a rim
+                }
+                let h = 0.5 * (h0 + h1);
+                let center = Point3::new(ap0[0] + h * a[0], ap0[1] + h * a[1], ap0[2] + h * a[2]);
+                let Some(radius) = curved_radius_at(s0, center.as_array(), a) else {
+                    continue;
+                };
+                if !radius.is_finite() || radius <= 0.0 {
+                    continue;
+                }
+                let on_circle = |v: u32| -> bool {
+                    let w = sub(yverts[v as usize].point, center);
+                    let ax = dot3(w, a);
+                    let radial = (dot3(w, w) - ax * ax).max(0.0).sqrt();
+                    ax.abs() <= band && (radial - radius).abs() <= band
+                };
+                if !(on_circle(key.0) && on_circle(key.1)) {
+                    continue; // guard 3
+                }
+                // Guard 4: arc midpoint (mean azimuth on the surface-0 circle)
+                // must lie on surface 1.
+                let (e1, e2) = ortho_basis(a);
+                let azimuth = |v: u32| {
+                    let w = sub(yverts[v as usize].point, center);
+                    dot3(w, e2).atan2(dot3(w, e1))
+                };
+                let tm = 0.5 * (azimuth(key.0) + azimuth(key.1));
+                let (sn, cs) = tm.sin_cos();
+                let m = [
+                    center.x() + radius * (cs * e1[0] + sn * e2[0]),
+                    center.y() + radius * (cs * e1[1] + sn * e2[1]),
+                    center.z() + radius * (cs * e1[2] + sn * e2[2]),
+                ];
+                let (Some(rm1), Some((ap1, _))) = (curved_radius_at(s1, m, a1), curved_axis(s1))
+                else {
+                    continue;
+                };
+                let w1 = [m[0] - ap1[0], m[1] - ap1[1], m[2] - ap1[2]];
+                let ax1 = dot3(w1, a1);
+                let radial1 = (dot3(w1, w1) - ax1 * ax1).max(0.0).sqrt();
+                if (radial1 - rm1).abs() > band {
+                    continue; // guard 4: circle not shared with surface 1
+                }
+                info.curve = EffCurve::Circle {
+                    center,
+                    normal: a,
+                    radius,
+                };
+                continue;
+            }
         };
         let Surface::Plane { normal, d } = *pl else {
             unreachable!()

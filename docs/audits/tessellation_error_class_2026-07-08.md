@@ -84,9 +84,58 @@ should have removed. R0088/R0098 are cases whose *boolean* was previously fixed
 (M-C band-scale / non-star ring) — the failure has since moved downstream to
 render, consistent with the sliver being upstream geometry.
 
-## Sub-family 3 — "patch triangulation folded (inverted triangle)" = in-crate unroll fold
+## Sub-family 3 — "patch triangulation folded (inverted triangle)" = upstream coaxial-rim recovery gap → FIXED 2026-07-09
 
-**Confirmed (R0034).** face 299, `r_unroll=519` (a large cylinder, coords
+**⚠️ The original "in-crate unroll fold" diagnosis below was WRONG on two
+counts** (corrected 2026-07-09 by full dissection of R0034):
+
+1. **FaceId(299) is a CONE, not a "large cylinder"** — the fold probe reports
+   `tan_a=1.010229` (half-angle ≈ 45.3°), so the outward normal is tilted ~45°
+   from radial (`n̂ = r̂ − 1.01·â`).
+2. **The root is UPSTREAM (yang boolean output), not the in-crate unroll.** The
+   folded triangle's three vertices are `w1` (on-surface, r=519.04), `w18`
+   (r=517.75 — a CHORD midpoint, 1.29 *inside* the surface), and `w12`
+   (on-surface, r=518.86). The full boundary dump shows **all 12 edges of the
+   cone patch are `LineSegment`** — the co-circular rim (constant r=519.0353,
+   constant axial height) is stored as a coarse **5-chord polyline** (each chord
+   spans ~8° at r=519 → sagitta ≈ 1.26, which *exceeds* the render chord
+   tolerance ≈ 0.52). Refinement bisects those chords keeping the split point on
+   the chord (necessarily — the neighbour face's copy of the chord stays
+   straight, so an on-chord split preserves watertightness), 1.29 inside the
+   surface, while the interior refinement points sit *on* the surface. In a band
+   only 0.34 thick that mismatch tilts the facet inward → `dot = −0.596` → the
+   KV9-F2 tripwire correctly fires. The tessellator is *right* to refuse it.
+
+**Where the coarse polyline comes from.** R0034's 3rd op is `revolve(gear)` — a
+partial revolve producing a nest of **560 coaxial cone bands** (the revolved
+gear teeth). `build_partial_revolve` gives each band clean `Curve::Arc` swept
+rims, but the union boolean re-tessellates everything and its mesh output
+carries the co-circular cone∩cone / cone∩cylinder rims as untagged chord
+polylines. `recover::recover_output_curves` (PR-KV7) is meant to retag such
+chord runs back to exact circles — but its retag only fired for a curved lateral
+meeting a **⊥ plane**; a rim between two coaxial *laterals* (neither a plane)
+was never recovered.
+
+**Fix (2026-07-09).** Extended the recover retag to the **curved ∩ curved
+coaxial rim** case: two coaxial cylinder/cone laterals sharing a co-height,
+co-radial chord run recover to their exact shared circle (A15 analytical
+primacy). Guards: parallel axes, endpoints co-axial-height (excludes
+rulings/seams), endpoints on the surface-0 rim, and the arc **midpoint on
+surface 1** (excludes skew/offset pairs). Measured on R0034: 500+ genuine
+candidates, max midpoint-on-surface-1 residual 1.9e-9, max radius disagreement
+9.6e-12 — all ~500× within the scale-relative `band` (1.03e-6). After recovery
+the rim is a shared `Arc`, sampled on-surface identically by both faces (no
+depressed chord midpoint) → no fold. **R0034 & R0065 ERROR → CORRECT; R0054's
+fold is likewise removed** (it now runs long enough to time out in-container —
+it was already 131 s at baseline; a heavier band-count case). Fix in
+`crates/kernel-v2/src/recover.rs`; regression test
+`kv6c_partial_cone_boolean::coaxial_cone_cylinder_rim_recovers_through_boolean`.
+
+---
+
+### Original (incorrect) diagnosis, retained for the trail
+
+**Claimed (R0034).** face 299, `r_unroll=519` (a large cylinder, coords
 ~500–590). The KV9-F2 fold tripwire (`tessellate.rs:3118`, unit dot < −0.1)
 fires on a **thin sliver** in the *unrolled* development:
 
@@ -96,25 +145,17 @@ b  p2=(-36.582297, 513.779593) 3D=(19.04, 100.62, 588.75)   (genuinely inverted)
 c  p2=(-36.582297, 513.608651) 3D=(18.70, 101.60, 589.19)
 ```
 
-Width ≈ 36.6, height ≈ 0.17 (aspect ~0.005) — a near-degenerate sliver at the
-patch rim whose 3D winding faces *into* the surface. This is an **in-crate**
-defect (the unrolled ear-clip/refinement pipeline, `tessellate.rs` ~2250–3160),
-NOT an upstream boolean artifact — the tripwire is correctly loud (P9: better
-than shipping inverted geometry), but the unroll triangulation should not
-produce the fold. Plausible mechanism: precision loss in the unroll→3D map at
-large `r_unroll`, or the refinement splitting a rim sliver against its own
-winding. R0054, R0065 share the reason string (not individually dumped; all
-three are heavy, ~20s/case). This sub-family is the most **in-scope for
-kernel-v2** and the best candidate for a self-contained fix.
+Width ≈ 36.6, height ≈ 0.17 (aspect ~0.005). Claimed to be an **in-crate**
+unroll-map precision fold — DISPROVEN above (the depressed vertex is an upstream
+coarse-chord rim midpoint, not an unroll-map artifact). R0054, R0065 share the
+reason string and the same coaxial-rim root.
 
 ## Recommended next steps (priority order)
 
-1. **Sub-family 3 (patch fold), in-crate, most tractable.** Investigate the
-   unrolled ear-clip/refinement at large `r_unroll` (R0034 canonical). Determine
-   whether the rim sliver is (a) an unroll-map precision fold — fix the map /
-   split direction — or (b) a refinement inserting a point against the local
-   winding. Red test: R0034 as an `#[ignore]` kernel-v2 tessellation unit that
-   asserts no folded triangle. This stays entirely inside the sub-project.
+1. ~~**Sub-family 3 (patch fold).**~~ **DONE 2026-07-09.** Root was the upstream
+   coaxial-rim recovery gap (not an in-crate unroll fold); fixed by extending
+   `recover::recover_output_curves` to curved∩curved coaxial rims. R0034 & R0065
+   ERROR → CORRECT. See the corrected sub-family 3 section above.
 2. **Sub-family 1 (ring reject) is the LRR wall in disguise** — the junction
    cluster (F0045) is `plane ∩ cylA ∩ cylB`, identical to the Stage-4
    `LocalRefinementRequired` root. Do NOT patch the tessellator to swallow the
