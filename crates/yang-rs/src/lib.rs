@@ -2358,6 +2358,156 @@ fn tessellate_cap_face(
     Ok(())
 }
 
+/// KV14 Slice A (spec `yang_stage1_curved_holed_patch`): tessellate a cylinder
+/// lateral **holed patch** — a curved lateral whose boundary carries one or
+/// more inner loops (a hole punched by a previous boolean) — via an isometric
+/// **unroll to (u = r·θ, v = axial) parameter space** followed by the same
+/// boundary-only constrained Delaunay triangulation the planar curved path uses
+/// (`cdt_polygon_with_holes_floodfill`).
+///
+/// This is the general path: it makes no assumption about the outer loop being
+/// a canonical tube or a 2-arc strip. It requires only that every boundary edge
+/// (outer + inner) samples into a polyline via [`loop_polyline`] — i.e. Line
+/// and Arc (`Curve::Circle` with `start != end`) edges. A boundary containing a
+/// FULL-circle rim (`start == end`, a patch that wraps the whole seam) or a
+/// degree-4 (`EllipseArc`/`SurfacePair`) edge is a later slice and errors
+/// loudly here (`loop_polyline` rejects both).
+///
+/// The θ **branch cut** is placed in the largest angular gap of the patch's
+/// boundary so the unroll is contiguous (Slice A handles bounded patches with a
+/// gap; a patch that wraps a full 2π has no gap and is a later slice).
+#[allow(clippy::too_many_arguments)]
+fn tessellate_lateral_holed_cdt(
+    f_idx: usize,
+    f: &BRepFace,
+    edges: &[BRepEdge],
+    chains: &std::collections::BTreeMap<u32, Vec<u32>>,
+    out_verts: &[Point3],
+    axis_point: Point3,
+    axis_dir: Vector3,
+    radius: f64,
+    out_tris: &mut Vec<[u32; 3]>,
+) -> Result<(), YangError> {
+    let au = normalize3(axis_dir.as_array());
+    let ap = axis_point.as_array();
+    // Frame ⟂ the axis for the azimuth angle. `ortho_basis` is deterministic.
+    let (e1, e2) = ortho_basis(axis_dir);
+    let e1a = e1.as_array();
+    let e2a = e2.as_array();
+    // Raw (θ, v) of a global vertex in the axis frame; θ ∈ (−π, π].
+    let raw = |g: u32| -> (f64, f64) {
+        let p = out_verts[g as usize].as_array();
+        let w = [p[0] - ap[0], p[1] - ap[1], p[2] - ap[2]];
+        let v = w[0] * au[0] + w[1] * au[1] + w[2] * au[2];
+        let x = w[0] * e1a[0] + w[1] * e1a[1] + w[2] * e1a[2];
+        let y = w[0] * e2a[0] + w[1] * e2a[1] + w[2] * e2a[2];
+        (y.atan2(x), v)
+    };
+
+    // Sample every boundary loop into a global-vertex polyline. `loop_polyline`
+    // handles Line + Arc (Circle start≠end); a full-circle rim or degree-4 edge
+    // is rejected there (loud, typed — the later-slice boundary).
+    let outer_poly = loop_polyline(f_idx, &f.outer_loop, edges, chains)?;
+    let mut inner_polys: Vec<Vec<u32>> = Vec::with_capacity(f.inner_loops.len());
+    for inner in &f.inner_loops {
+        inner_polys.push(loop_polyline(f_idx, inner, edges, chains)?);
+    }
+
+    // Branch cut: place it in the largest angular gap of the boundary so the
+    // unrolled patch is contiguous in u. `angles` is every boundary vertex's θ.
+    let mut angles: Vec<f64> = outer_poly
+        .iter()
+        .chain(inner_polys.iter().flatten())
+        .map(|&g| raw(g).0)
+        .collect();
+    angles.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let mut cut = std::f64::consts::PI; // fallback (no vertices ⇒ unreachable)
+    let mut max_gap = -1.0f64;
+    for w in angles.windows(2) {
+        let gap = w[1] - w[0];
+        if gap > max_gap {
+            max_gap = gap;
+            cut = 0.5 * (w[0] + w[1]);
+        }
+    }
+    if let (Some(&first), Some(&last)) = (angles.first(), angles.last()) {
+        // Wrap-around gap (across ±π): from the largest angle back to the
+        // smallest through the branch of atan2.
+        let wrap = (first + two_pi) - last;
+        if wrap > max_gap {
+            cut = last + 0.5 * wrap; // may exceed π; only used mod 2π below
+        }
+    }
+
+    // Unroll into u = r·θ' where θ' ∈ [0, 2π) measured from the cut, v = axial.
+    let project = |g: u32| -> cad_primitives::Point2 {
+        let (theta, v) = raw(g);
+        let un = (theta - cut).rem_euclid(two_pi);
+        cad_primitives::Point2::new(radius * un, v)
+    };
+
+    // Intern boundary vertices into a local param-space pool (each global vertex
+    // maps 1:1 — the CDT is boundary-only, no Steiner points, so map-back is
+    // just `global_of_local`). Mirrors `tessellate_planar_curved_cdt_face`.
+    let mut local_verts: Vec<cad_primitives::Point2> = Vec::new();
+    let mut global_of_local: Vec<u32> = Vec::new();
+    let mut local_of_global: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    let mut intern = |g: u32,
+                      local_verts: &mut Vec<cad_primitives::Point2>,
+                      global_of_local: &mut Vec<u32>|
+     -> u32 {
+        if let Some(&l) = local_of_global.get(&g) {
+            return l;
+        }
+        let l = local_verts.len() as u32;
+        local_verts.push(project(g));
+        global_of_local.push(g);
+        local_of_global.insert(g, l);
+        l
+    };
+
+    let outer_local: Vec<u32> = outer_poly
+        .iter()
+        .map(|&g| intern(g, &mut local_verts, &mut global_of_local))
+        .collect();
+    let mut holes_local: Vec<Vec<u32>> = Vec::with_capacity(inner_polys.len());
+    for inner in &inner_polys {
+        holes_local.push(
+            inner
+                .iter()
+                .map(|&g| intern(g, &mut local_verts, &mut global_of_local))
+                .collect(),
+        );
+    }
+
+    let local_tris = cherchi_rs::triangulation::cdt_polygon_with_holes_floodfill(
+        &local_verts,
+        &outer_local,
+        &holes_local,
+    )
+    .map_err(|e| {
+        YangError::MalformedTopology(format!("face {f_idx}: holed lateral CDT failed: {e}"))
+    })?;
+
+    // Map back to global 3D and orient by the analytic radial-outward normal
+    // (inward if `reversed` — a cavity wall), matching `tessellate_lateral_face`.
+    for t in &local_tris {
+        let mut tri = [
+            global_of_local[t[0] as usize],
+            global_of_local[t[1] as usize],
+            global_of_local[t[2] as usize],
+        ];
+        let mut n = radial_outward_normal(out_verts, &tri, ap, au);
+        if f.reversed {
+            n = [-n[0], -n[1], -n[2]];
+        }
+        orient_tri(out_verts, &mut tri, n);
+        out_tris.push(tri);
+    }
+    Ok(())
+}
+
 /// PR-YR7: tessellate the lateral tube of a cylinder (2 axial rings → `2N`
 /// triangles, watertight via the shared cached rim rings).
 ///
@@ -2381,6 +2531,18 @@ fn tessellate_lateral_face(
     _radius: f64,
     out_tris: &mut Vec<[u32; 3]>,
 ) -> Result<(), YangError> {
+    // KV14 Slice A (spec `yang_stage1_curved_holed_patch`): a curved lateral
+    // carrying inner loops (a hole from a previous boolean) has no structured
+    // rim/strip pairing — route it to the general unroll+CDT path, which lays
+    // the boundary chains flat in (u = r·θ, v = axial) parameter space and
+    // triangulates the polygon-with-holes exactly (reusing the same CDT the
+    // planar curved path uses). The hole-free structured arms below are left
+    // 100% untouched.
+    if !f.inner_loops.is_empty() {
+        return tessellate_lateral_holed_cdt(
+            f_idx, f, edges, rim_rings, out_verts, axis_point, axis_dir, _radius, out_tris,
+        );
+    }
     // Dispatch on the boundary vocabulary:
     // - 2 FULL-circle rims (+ seam rulings)         → the canonical tube
     // - 2 ARCS + ruling segments (PR-KV6b-1)        → the partial patch strip
@@ -16050,6 +16212,321 @@ mod tests {
             counts.values().all(|&c| c == 2),
             "dual-rim override must keep the cylinder a closed 2-manifold"
         );
+    }
+
+    /// KV14 Slice A (spec `yang_stage1_curved_holed_patch`): a cylinder lateral
+    /// PARTIAL patch (2 sweep arcs + 2 rulings) carrying an interior hole (an
+    /// on-surface inner loop) must tessellate via the unroll+CDT path so the
+    /// hole is EXCLUDED from the mesh. The pre-Slice-A partial-patch strip
+    /// ignored `inner_loops` and paved over the hole (RED before the fix).
+    #[test]
+    fn lateral_holed_patch_excludes_hole() {
+        use std::f64::consts::PI;
+        let r = 1.0_f64;
+        let on = |theta: f64, z: f64| Point3::new(r * theta.cos(), r * theta.sin(), z);
+        // Sector theta in [0, PI], z in [0, 2] (a bounded patch with a clean
+        // angular gap for the branch cut).
+        let a = on(0.0, 0.0); // V0
+        let b = on(PI, 0.0); // V1
+        let c = on(PI, 2.0); // V2
+        let d = on(0.0, 2.0); // V3
+                              // Interior triangular hole around theta=PI/2, z=1 (all verts on-surface).
+        let h0 = on(PI / 2.0 - 0.4, 0.7); // V4
+        let h1 = on(PI / 2.0 + 0.4, 0.7); // V5
+        let h2 = on(PI / 2.0, 1.3); // V6
+        let verts = [a, b, c, d, h0, h1, h2]
+            .into_iter()
+            .map(|point| BRepVertex { point })
+            .collect::<Vec<_>>();
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, 0.0),
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    radius: r,
+                },
+            }, // bottom arc A->B (CCW around +z, sweep PI)
+            BRepEdge {
+                start: 1,
+                end: 2,
+                curve: Curve::LineSegment,
+            }, // ruling B->C
+            BRepEdge {
+                start: 2,
+                end: 3,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, 2.0),
+                    normal: Vector3::new(0.0, 0.0, -1.0),
+                    radius: r,
+                },
+            }, // top arc C->D (CCW around -z, sweep PI back over [0,PI])
+            BRepEdge {
+                start: 3,
+                end: 0,
+                curve: Curve::LineSegment,
+            }, // ruling D->A
+            BRepEdge {
+                start: 4,
+                end: 5,
+                curve: Curve::LineSegment,
+            }, // hole H0->H1
+            BRepEdge {
+                start: 5,
+                end: 6,
+                curve: Curve::LineSegment,
+            }, // hole H1->H2
+            BRepEdge {
+                start: 6,
+                end: 4,
+                curve: Curve::LineSegment,
+            }, // hole H2->H0
+        ];
+        let faces = vec![BRepFace {
+            surface: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+            outer_loop: vec![0, 1, 2, 3],
+            inner_loops: vec![vec![4, 5, 6]],
+            reversed: false,
+        }];
+        let t = stage1_tessellate(&verts, &edges, &faces).expect("holed lateral tessellation");
+        assert!(!t.tris.is_empty(), "must produce triangles");
+
+        // Param unroll (u = r*theta, v = axial); the axis is +z through origin,
+        // so theta = atan2(y, x) is continuous over the [0, PI] sector.
+        let param = |p: [f64; 3]| -> (f64, f64) { (r * p[1].atan2(p[0]), p[2]) };
+        let huv = [
+            param(h0.as_array()),
+            param(h1.as_array()),
+            param(h2.as_array()),
+        ];
+        let inside_hole = |u: f64, v: f64| -> bool {
+            let (x0, y0) = huv[0];
+            let (x1, y1) = huv[1];
+            let (x2, y2) = huv[2];
+            let d1 = (u - x1) * (y0 - y1) - (x0 - x1) * (v - y1);
+            let d2 = (u - x2) * (y1 - y2) - (x1 - x2) * (v - y2);
+            let d3 = (u - x0) * (y2 - y0) - (x2 - x0) * (v - y0);
+            let has_neg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
+            let has_pos = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
+            !(has_neg && has_pos)
+        };
+
+        // Oracle 1: no triangle centroid lies inside the hole.
+        for tri in &t.tris {
+            let a = t.verts[tri[0] as usize].as_array();
+            let b = t.verts[tri[1] as usize].as_array();
+            let c = t.verts[tri[2] as usize].as_array();
+            let cen = [
+                (a[0] + b[0] + c[0]) / 3.0,
+                (a[1] + b[1] + c[1]) / 3.0,
+                (a[2] + b[2] + c[2]) / 3.0,
+            ];
+            let (u, v) = param(cen);
+            assert!(
+                !inside_hole(u, v),
+                "triangle centroid (u={u}, v={v}) lies inside the hole — hole was paved over"
+            );
+        }
+
+        // Oracle 2: watertight patch — each hole boundary edge borders exactly
+        // one triangle (a mesh boundary), never two.
+        let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+        for tri in &t.tris {
+            for k in 0..3 {
+                let (x, y) = (tri[k], tri[(k + 1) % 3]);
+                *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+            }
+        }
+        let find = |p: [f64; 3]| -> u32 {
+            t.verts
+                .iter()
+                .position(|q| {
+                    let a = q.as_array();
+                    (a[0] - p[0]).abs() < 1e-9
+                        && (a[1] - p[1]).abs() < 1e-9
+                        && (a[2] - p[2]).abs() < 1e-9
+                })
+                .map(|i| i as u32)
+                .expect("hole vertex present in mesh")
+        };
+        let (gh0, gh1, gh2) = (
+            find(h0.as_array()),
+            find(h1.as_array()),
+            find(h2.as_array()),
+        );
+        for (x, y) in [(gh0, gh1), (gh1, gh2), (gh2, gh0)] {
+            let cnt = undirected.get(&(x.min(y), x.max(y))).copied().unwrap_or(0);
+            assert_eq!(
+                cnt, 1,
+                "hole boundary edge ({x},{y}) must be a mesh boundary (appear once), got {cnt}"
+            );
+        }
+
+        // Oracle 3: every triangle faces radially outward (reversed = false).
+        for tri in &t.tris {
+            let a = t.verts[tri[0] as usize].as_array();
+            let b = t.verts[tri[1] as usize].as_array();
+            let c = t.verts[tri[2] as usize].as_array();
+            let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            let cen = [
+                (a[0] + b[0] + c[0]) / 3.0,
+                (a[1] + b[1] + c[1]) / 3.0,
+                (a[2] + b[2] + c[2]) / 3.0,
+            ];
+            // radial = centroid projected off the +z axis through origin.
+            let dot = n[0] * cen[0] + n[1] * cen[1];
+            assert!(dot > 0.0, "triangle must face radially outward, dot={dot}");
+        }
+    }
+
+    /// KV14 Slice A edge case: a `reversed` holed lateral (a cavity/bore wall)
+    /// excludes the hole AND faces radially INWARD, and a patch with TWO holes
+    /// excludes both. Covers the `f.reversed` branch (P4) + multi-hole input.
+    #[test]
+    fn lateral_holed_patch_reversed_and_multi_hole() {
+        use std::f64::consts::PI;
+        let r = 1.0_f64;
+        let on = |theta: f64, z: f64| Point3::new(r * theta.cos(), r * theta.sin(), z);
+        let a = on(0.0, 0.0);
+        let b = on(PI, 0.0);
+        let c = on(PI, 2.0);
+        let d = on(0.0, 2.0);
+        // Two disjoint triangular holes in the sector.
+        let h = |cz: f64| {
+            [
+                on(PI / 2.0 - 0.3, cz - 0.2),
+                on(PI / 2.0 + 0.3, cz - 0.2),
+                on(PI / 2.0, cz + 0.25),
+            ]
+        };
+        let hole_a = h(0.6);
+        let hole_b = h(1.4);
+        let verts = [a, b, c, d]
+            .into_iter()
+            .chain(hole_a)
+            .chain(hole_b)
+            .map(|point| BRepVertex { point })
+            .collect::<Vec<_>>();
+        let mut edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, 0.0),
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    radius: r,
+                },
+            },
+            BRepEdge {
+                start: 1,
+                end: 2,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 2,
+                end: 3,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, 2.0),
+                    normal: Vector3::new(0.0, 0.0, -1.0),
+                    radius: r,
+                },
+            },
+            BRepEdge {
+                start: 3,
+                end: 0,
+                curve: Curve::LineSegment,
+            },
+        ];
+        // Hole A verts = 4,5,6 ; hole B verts = 7,8,9.
+        for (base, _) in [(4u32, ()), (7u32, ())] {
+            edges.push(BRepEdge {
+                start: base,
+                end: base + 1,
+                curve: Curve::LineSegment,
+            });
+            edges.push(BRepEdge {
+                start: base + 1,
+                end: base + 2,
+                curve: Curve::LineSegment,
+            });
+            edges.push(BRepEdge {
+                start: base + 2,
+                end: base,
+                curve: Curve::LineSegment,
+            });
+        }
+        let faces = vec![BRepFace {
+            surface: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+            outer_loop: vec![0, 1, 2, 3],
+            inner_loops: vec![vec![4, 5, 6], vec![7, 8, 9]],
+            reversed: true,
+        }];
+        let t =
+            stage1_tessellate(&verts, &edges, &faces).expect("reversed multi-hole tessellation");
+        assert!(!t.tris.is_empty());
+
+        let param = |p: [f64; 3]| -> (f64, f64) { (r * p[1].atan2(p[0]), p[2]) };
+        let tri_of = |hole: &[Point3; 3]| {
+            [
+                param(hole[0].as_array()),
+                param(hole[1].as_array()),
+                param(hole[2].as_array()),
+            ]
+        };
+        let inside = |uv: &[(f64, f64); 3], u: f64, v: f64| -> bool {
+            let (x0, y0) = uv[0];
+            let (x1, y1) = uv[1];
+            let (x2, y2) = uv[2];
+            let d1 = (u - x1) * (y0 - y1) - (x0 - x1) * (v - y1);
+            let d2 = (u - x2) * (y1 - y2) - (x1 - x2) * (v - y2);
+            let d3 = (u - x0) * (y2 - y0) - (x2 - x0) * (v - y0);
+            !((d1 < 0.0 || d2 < 0.0 || d3 < 0.0) && (d1 > 0.0 || d2 > 0.0 || d3 > 0.0))
+        };
+        let uva = tri_of(&hole_a);
+        let uvb = tri_of(&hole_b);
+        for tri in &t.tris {
+            let a = t.verts[tri[0] as usize].as_array();
+            let b = t.verts[tri[1] as usize].as_array();
+            let c = t.verts[tri[2] as usize].as_array();
+            let cen = [
+                (a[0] + b[0] + c[0]) / 3.0,
+                (a[1] + b[1] + c[1]) / 3.0,
+                (a[2] + b[2] + c[2]) / 3.0,
+            ];
+            let (u, v) = param(cen);
+            assert!(
+                !inside(&uva, u, v) && !inside(&uvb, u, v),
+                "a hole was paved over"
+            );
+            // reversed ⇒ inward-facing: geometric normal · radial < 0.
+            let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            let dot = n[0] * cen[0] + n[1] * cen[1];
+            assert!(
+                dot < 0.0,
+                "reversed cavity wall must face inward, dot={dot}"
+            );
+        }
     }
 
     /// M-C RED (spec `m8_stage0_band_scale_crossing_verts` §4 E-C1): two

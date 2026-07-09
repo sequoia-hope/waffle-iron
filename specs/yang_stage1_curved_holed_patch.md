@@ -107,11 +107,20 @@ normal, matching `tessellate_lateral_face`'s `orient_target`.
 
 ## Implementation slices (TDD, each RED→GREEN, ordered by tractability)
 
-- **Slice A — cylinder, hole away from seam.** Synthetic: canonical cylinder
-  lateral (2 full rims + seam) + one `[A,A,A]` triangular hole not touching the
-  seam. Unit test in yang-rs on hand-built `BRepFace`. Oracle: triangle count > 0,
-  every boundary edge appears in exactly one triangle edge (watertight patch),
-  all triangles radial-outward. NO branch-cut logic needed (hole interior).
+- **Slice A — cylinder holed patch, bounded (non-wrapping) outer. ✅ DONE.**
+  `tessellate_lateral_holed_cdt` in `yang-rs/src/lib.rs`: dispatched from
+  `tessellate_lateral_face` when `!inner_loops.is_empty()`. Unrolls to
+  (u=r·θ, v=axial) with largest-angular-gap branch cut, samples every boundary
+  loop via `loop_polyline` (Line + Arc), CDTs via
+  `cdt_polygon_with_holes_floodfill`, maps back and orients radial (inward if
+  `reversed`). Full-circle / degree-4 boundary edges are rejected by
+  `loop_polyline` (loud) → later slices. Tests: `lateral_holed_patch_excludes_hole`
+  (partial-arc sector + triangular hole; oracles: hole excluded, hole boundary
+  edges are mesh boundaries, radial-outward) and
+  `lateral_holed_patch_reversed_and_multi_hole` (reversed cavity wall + two
+  holes; covers the `reversed` branch, P4). yang-rs 204→206 lib tests green, no
+  regression (structured hole-free arms untouched). NOT yet wired end-to-end —
+  kernel-v2 `to_yang_brep` still walls these faces (Slice C).
 - **Slice B — branch-cut selection.** Cylinder patch whose OUTER loop is a
   partial arc span (not full 2π) with a hole. Add largest-gap branch-cut. Oracle:
   unrolled `u` range contiguous; CDT succeeds; back-mapped patch watertight.
