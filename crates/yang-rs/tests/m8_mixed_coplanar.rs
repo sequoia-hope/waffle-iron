@@ -450,6 +450,237 @@ fn square_bore_cylinder(r: f64, half: f64, z0: f64, z1: f64) -> BRep {
     BRep::new(verts, edges, faces).expect("square_bore_cylinder BRep::new")
 }
 
+/// M8-mixed increment 2 (spec `m8_mixed_arc_lateral_holed`): a WINDOWED
+/// half-cylinder — the half-cylinder of [`half_cylinder`] (r=1, z ∈ [z0, z1])
+/// with a radial slot x ∈ [−a, a], z ∈ [w0, w1] cut clear through the flat
+/// wall. The curved wall becomes a HOLED cylinder lateral (2-arc strip outer
+/// loop + window inner loop of 2 arcs + 2 rulings — the KV14
+/// `tessellate_lateral_holed_cdt` shape); the flat wall becomes a rectangle
+/// with a rectangular hole; the slot adds two mixed notch faces + two
+/// all-segment side walls.
+fn windowed_half_cylinder(r: f64, z0: f64, z1: f64, a: f64, w0: f64, w1: f64) -> BRep {
+    let ya = (r * r - a * a).sqrt();
+    let verts = vec![
+        BRepVertex {
+            point: p(r, 0.0, z0),
+        }, // 0: bottom +x seam
+        BRepVertex {
+            point: p(-r, 0.0, z0),
+        }, // 1: bottom −x seam
+        BRepVertex {
+            point: p(r, 0.0, z1),
+        }, // 2: top +x seam
+        BRepVertex {
+            point: p(-r, 0.0, z1),
+        }, // 3: top −x seam
+        BRepVertex {
+            point: p(a, ya, w0),
+        }, // 4: window (+x, w0) — on the cylinder
+        BRepVertex {
+            point: p(-a, ya, w0),
+        }, // 5: window (−x, w0)
+        BRepVertex {
+            point: p(a, ya, w1),
+        }, // 6: window (+x, w1)
+        BRepVertex {
+            point: p(-a, ya, w1),
+        }, // 7: window (−x, w1)
+        BRepVertex {
+            point: p(a, 0.0, w0),
+        }, // 8: slot exit (+x, w0) — on the flat wall
+        BRepVertex {
+            point: p(-a, 0.0, w0),
+        }, // 9: slot exit (−x, w0)
+        BRepVertex {
+            point: p(a, 0.0, w1),
+        }, // 10: slot exit (+x, w1)
+        BRepVertex {
+            point: p(-a, 0.0, w1),
+        }, // 11: slot exit (−x, w1)
+    ];
+    let seg = |start: u32, end: u32| BRepEdge {
+        start,
+        end,
+        curve: Curve::LineSegment,
+    };
+    let edges = vec![
+        // 0: bottom semicircle arc v1→v0 through (0, r, z0) (CCW about −z).
+        BRepEdge {
+            start: 1,
+            end: 0,
+            curve: Curve::Circle {
+                center: p(0.0, 0.0, z0),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                radius: r,
+            },
+        },
+        // 1: top semicircle arc v2→v3 through (0, r, z1) (CCW about +z).
+        BRepEdge {
+            start: 2,
+            end: 3,
+            curve: Curve::Circle {
+                center: p(0.0, 0.0, z1),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+        },
+        // 2: bottom diameter (bottom cap), 3: top diameter (top cap).
+        seg(0, 1),
+        seg(2, 3),
+        // 4: +x full-height seam, 5: −x full-height seam (curved wall).
+        seg(0, 2),
+        seg(1, 3),
+        // 6: window bottom arc v5→v4 through (0, r, w0) (CCW about −z —
+        // the minor arc over the slot).
+        BRepEdge {
+            start: 5,
+            end: 4,
+            curve: Curve::Circle {
+                center: p(0.0, 0.0, w0),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                radius: r,
+            },
+        },
+        // 7: window top arc v6→v7 through (0, r, w1) (CCW about +z).
+        BRepEdge {
+            start: 6,
+            end: 7,
+            curve: Curve::Circle {
+                center: p(0.0, 0.0, w1),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+        },
+        // 8: window ruling +x, 9: window ruling −x.
+        seg(4, 6),
+        seg(5, 7),
+        // 10–12: notch TOP face segments v7→v11→v10→v6 (arc 7 closes it).
+        seg(7, 11),
+        seg(11, 10),
+        seg(10, 6),
+        // 13–15: notch BOTTOM face segments v4→v8→v9→v5 (arc 6 closes it).
+        seg(4, 8),
+        seg(8, 9),
+        seg(9, 5),
+        // 16–19: flat wall's OWN directed outer rectangle v1→v0→v2→v3→v1.
+        seg(1, 0),
+        seg(0, 2),
+        seg(2, 3),
+        seg(3, 1),
+        // 20–23: flat wall's OWN directed hole rectangle v8→v10→v11→v9→v8.
+        seg(8, 10),
+        seg(10, 11),
+        seg(11, 9),
+        seg(9, 8),
+        // 24–27: +x side wall's own directed rectangle v8→v4→v6→v10→v8.
+        seg(8, 4),
+        seg(4, 6),
+        seg(6, 10),
+        seg(10, 8),
+        // 28–31: −x side wall's own directed rectangle v9→v5→v7→v11→v9.
+        seg(9, 5),
+        seg(5, 7),
+        seg(7, 11),
+        seg(11, 9),
+    ];
+    let faces = vec![
+        // Bottom cap (normal −z): arc + diameter. MIXED loop.
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                d: z0,
+            },
+            outer_loop: vec![0, 2],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        // Top cap (normal +z): arc + diameter. MIXED loop — the face under
+        // test; its arc's lateral is the WINDOWED curved wall.
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: -z1,
+            },
+            outer_loop: vec![1, 3],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        // Flat wall (normal −y): own directed rectangle + rectangular hole.
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, -1.0, 0.0),
+                d: 0.0,
+            },
+            outer_loop: vec![16, 17, 18, 19],
+            inner_loops: vec![vec![20, 21, 22, 23]],
+            reversed: false,
+        },
+        // Curved wall: 2-arc strip outer loop + WINDOW inner loop — the
+        // holed lateral (KV14 unroll+CDT path).
+        BRepFace {
+            surface: Surface::Cylinder {
+                axis_point: p(0.0, 0.0, z0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+            outer_loop: vec![0, 4, 1, 5],
+            inner_loops: vec![vec![6, 8, 7, 9]],
+            reversed: false,
+        },
+        // Notch top face (z = w1, outward −z into the slot): arc + 3 segs.
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                d: w1,
+            },
+            outer_loop: vec![7, 10, 11, 12],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        // Notch bottom face (z = w0, outward +z into the slot): arc + 3 segs.
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: -w0,
+            },
+            outer_loop: vec![6, 13, 14, 15],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        // +x side wall (plane x = a, outward −x into the slot).
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(-1.0, 0.0, 0.0),
+                d: a,
+            },
+            outer_loop: vec![24, 25, 26, 27],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        // −x side wall (plane x = −a, outward +x into the slot).
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(1.0, 0.0, 0.0),
+                d: a,
+            },
+            outer_loop: vec![28, 29, 30, 31],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+    ];
+    BRep::new(verts, edges, faces).expect("windowed_half_cylinder BRep::new")
+}
+
+/// Analytic volume of [`windowed_half_cylinder`]: half-cylinder minus the
+/// slot prism (cross-section = circular segment region |x| ≤ a, 0 ≤ y ≤
+/// √(r²−x²); area = a·√(r²−a²) + r²·asin(a/r)).
+fn windowed_half_cylinder_volume(r: f64, z0: f64, z1: f64, a: f64, w0: f64, w1: f64) -> f64 {
+    let half_cyl = std::f64::consts::FRAC_PI_2 * r * r * (z1 - z0);
+    let ya = (r * r - a * a).sqrt();
+    let slot = (w1 - w0) * (a * ya + r * r * (a / r).asin());
+    half_cyl - slot
+}
+
 // ───────────────────────────── oracles ─────────────────────────────
 
 fn signed_volume(mesh: &Mesh) -> f64 {
@@ -654,5 +885,115 @@ fn mixed_cap_arc_crossing_union_succeeds() {
     assert!(
         (vol - analytic).abs() / analytic < 0.05,
         "union volume {vol} not within chord band of analytic {analytic}"
+    );
+}
+
+// ─────────── M8-mixed increment 2: holed (chain-consuming) laterals ───────────
+// Spec `m8_mixed_arc_lateral_holed` — R0021 R0026 R0051 wall at probe
+// `mixed-arc-lateral-holed`: the mixed cap's arc is subdivided by the overlap
+// boundary, but the arc's adjacent cylinder lateral carries a WINDOW (inner
+// loop), so it takes the KV14 unroll+CDT path instead of the 2-arc strip.
+// The CDT splices boundary chains via `loop_polyline` directly — a one-sided
+// chain insertion is conformal (no strip index-pairing constraint).
+
+/// Fixture validity (GREEN pre-change): the windowed half-cylinder itself
+/// must mesh — the holed lateral is exactly the KV14 Slice A/B shape — to a
+/// watertight outward solid. A failure here is a fixture bug, not the
+/// feature's RED.
+///
+/// VOLUME BAND (measured 2026-07-09, spec §5 amendment): the KV14 holed
+/// lateral is a BOUNDARY-ONLY earcut CDT with no triangle-quality bound —
+/// the unroll's seam rulings carry no intermediate samples, so the earcut
+/// fans wall triangles from the seam columns to the window corners (θ-span
+/// up to ~66° here, radial sag 1−cos(33°) ≈ 0.16 ≫ the one-chord sagitta
+/// 0.034). The mesh is topologically correct and watertight but under-fills
+/// the analytic solid by ~15%. The band below is fixture SANITY only (mesh
+/// must be the right solid, not a doubled sheet or a filled window); the
+/// feature oracle in the union tests is the tight DELTA volume, which the
+/// pre-existing fan sag cancels out of.
+#[test]
+fn windowed_half_cylinder_fixture_builds() {
+    let whc = windowed_half_cylinder(1.0, 0.0, 2.0, 0.4, 0.7, 1.3);
+    let mesh = whc.as_mesh();
+    assert!(
+        is_watertight(mesh),
+        "windowed half-cylinder mesh must be watertight"
+    );
+    assert!(
+        is_outward_solid(mesh),
+        "windowed half-cylinder must be outward"
+    );
+    let vol = signed_volume(mesh);
+    let analytic = windowed_half_cylinder_volume(1.0, 0.0, 2.0, 0.4, 0.7, 1.3);
+    assert!(
+        vol < analytic * 1.02 && vol > analytic * 0.75,
+        "windowed half-cylinder volume {vol} outside sanity band of {analytic} \
+         (inscribed mesh must under-fill, and by less than the fan-sag budget)"
+    );
+}
+
+/// CANONICAL (spec branch 2, RED → GREEN): a box flush on the windowed
+/// half-cylinder's mixed top cap whose footprint edge CROSSES the semicircle
+/// arc AWAY from the window's azimuth range (crossings at θ ≈ 5.7°/36.9°;
+/// the window spans θ ∈ [66.4°, 113.6°]). Today the split-point propagation
+/// finds the arc's lateral holed and stops typed
+/// (`CoplanarFacesUnsupported`, probe `mixed-arc-lateral-holed`); after the
+/// one-sided insertion lands the union must succeed with the full oracle.
+#[test]
+fn windowed_cap_arc_crossing_union_succeeds() {
+    let whc = windowed_half_cylinder(1.0, 0.0, 2.0, 0.4, 0.7, 1.3);
+    // Same footprint as `mixed_cap_arc_crossing_union_succeeds`, lifted to
+    // the z=2 cap: corner (0.5, 0.1) inside the half-disc, +x side outside.
+    let lid = box_brep([0.5, 0.1, 2.0], [1.5, 0.6, 3.0]);
+    let whc_mesh_vol = signed_volume(whc.as_mesh());
+    let out = boolean(&whc, &lid, BoolOp::Union, &nb())
+        .expect("arc crossing with a holed lateral must take one-sided chain insertion");
+    let mesh = out.as_mesh();
+    assert!(is_watertight(mesh), "union must be a closed 2-manifold");
+    assert!(is_outward_solid(mesh), "union must be outward-oriented");
+    let (min_z, max_z) = mesh.verts.iter().fold((f64::MAX, f64::MIN), |(lo, hi), v| {
+        (lo.min(v.z()), hi.max(v.z()))
+    });
+    assert!(
+        (max_z - 3.0).abs() < 1e-6 && min_z.abs() < 1e-6,
+        "union must span z∈[0,3] (min {min_z}, max {max_z})"
+    );
+    // DELTA oracle (spec §5): the box sits entirely above the cap plane, so
+    // the union adds exactly the box's volume to the fixture MESH's own
+    // volume — the pre-existing KV14 fan sag (see fixture test) is common to
+    // both sides and cancels; residual = chord realignment near the two
+    // inserted arc points (≪ 1%).
+    let vol = signed_volume(mesh).abs();
+    let expected = whc_mesh_vol + 0.5;
+    assert!(
+        (vol - expected).abs() / expected < 0.03,
+        "union volume {vol} not within delta band of expected {expected}"
+    );
+}
+
+/// ADVERSARY (spec branch 2 + §6 window-straddling azimuths): a box whose
+/// footprint crosses the arc at θ ≈ 78.5°/95.7° — both insertions land
+/// DIRECTLY ABOVE the window, so the holed lateral's CDT boundary takes chain
+/// vertices whose unrolled u-columns pierce the hole span. Success with the
+/// full oracle, or a typed failure — never a silently wrong volume.
+#[test]
+fn windowed_cap_arc_crossing_over_window_union_succeeds() {
+    let whc = windowed_half_cylinder(1.0, 0.0, 2.0, 0.4, 0.7, 1.3);
+    // Footprint x∈[−0.1, 0.2], y∈[0.5, 1.5]: corners (−0.1, 0.5)/(0.2, 0.5)
+    // are inside the half-disc; the +y side is outside — the boundary
+    // crosses the arc on both x edges, over the window.
+    let lid = box_brep([-0.1, 0.5, 2.0], [0.2, 1.5, 3.0]);
+    let whc_mesh_vol = signed_volume(whc.as_mesh());
+    let out = boolean(&whc, &lid, BoolOp::Union, &nb())
+        .expect("arc crossing over the window must take one-sided chain insertion");
+    let mesh = out.as_mesh();
+    assert!(is_watertight(mesh), "union must be a closed 2-manifold");
+    assert!(is_outward_solid(mesh), "union must be outward-oriented");
+    // DELTA oracle — see `windowed_cap_arc_crossing_union_succeeds`.
+    let vol = signed_volume(mesh).abs();
+    let expected = whc_mesh_vol + 0.3;
+    assert!(
+        (vol - expected).abs() / expected < 0.03,
+        "union volume {vol} not within delta band of expected {expected}"
     );
 }

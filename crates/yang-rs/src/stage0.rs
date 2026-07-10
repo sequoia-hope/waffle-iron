@@ -3402,9 +3402,11 @@ fn collect_mixed_crossings(
             found.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
             let pts: Vec<Point3> = found.into_iter().map(|(_, _, p)| p).collect();
 
-            // The shared lateral's opposite arc + cylinder axis.
-            let (opp_edge, axis_point, axis_dir, opp_center, opp_radius) =
-                arc_lateral_opposite(brep, fi, e)?;
+            // Classify the shared lateral (spec `m8_mixed_arc_lateral_holed`
+            // branch table): a structured 2-arc strip needs PAIRED insertion;
+            // a chain-consuming (holed CDT) lateral takes the point from the
+            // arc's own chain — one-sided.
+            let lateral = arc_lateral_opposite(brep, fi, e)?;
 
             let cap_entry = rim_overrides.entry(e).or_default();
             for &pt in &pts {
@@ -3412,6 +3414,21 @@ fn collect_mixed_crossings(
                     cap_entry.push(pt);
                 }
             }
+            let ArcLateral::Strip {
+                opp_edge,
+                axis_point,
+                axis_dir,
+                opp_center,
+                opp_radius,
+            } = lateral
+            else {
+                // Chain-consuming lateral (`tessellate_lateral_holed_cdt`
+                // splices every boundary loop from the shared per-edge
+                // chains via `loop_polyline`): the inserted point is
+                // consumed automatically and conformally — no strip
+                // index-pairing constraint, so no opposite-arc projection.
+                continue;
+            };
             // Exact axial projection onto the opposite arc (the
             // `collect_ring_crossings` map: strip the axial component,
             // renormalise the radial offset to the opposite radius).
@@ -3450,18 +3467,34 @@ fn collect_mixed_crossings(
     Ok(())
 }
 
-/// Find the 2-arc partial-strip CYLINDER lateral adjacent to arc edge `e` of
-/// mixed face `fi`, and return its OPPOSITE arc: `(opp_edge, axis_point,
-/// axis_dir, opp_center, opp_radius)`. Loud typed tags for the unsupported
-/// shapes (non-cylinder lateral; a lateral that is not the structured 2-arc
-/// strip — those tessellate through the KV14 CDT path whose boundary chains
-/// cannot take insertions yet).
-#[allow(clippy::type_complexity)]
-fn arc_lateral_opposite(
-    brep: &BRep,
-    fi: usize,
-    e: u32,
-) -> Result<(u32, [f64; 3], [f64; 3], [f64; 3], f64), &'static str> {
+/// Classification of the lateral adjacent to a mixed face's arc edge — how a
+/// crossing split point must be propagated into its tessellation (spec
+/// `m8_mixed_arc_lateral_holed` §2).
+enum ArcLateral {
+    /// Structured 2-arc partial strip: its tessellation pairs the two arc
+    /// chains index-for-index, so insertion must be PAIRED (own chain + exact
+    /// axial projection onto the opposite arc).
+    Strip {
+        opp_edge: u32,
+        axis_point: [f64; 3],
+        axis_dir: [f64; 3],
+        opp_center: [f64; 3],
+        opp_radius: f64,
+    },
+    /// Holed cylinder lateral routed through the KV14 unroll+CDT path
+    /// (`tessellate_lateral_holed_cdt`), which splices every boundary loop
+    /// from the shared per-edge chains via `loop_polyline`: an inserted chain
+    /// point is consumed automatically — one-sided insertion suffices.
+    ChainConsuming,
+}
+
+/// Find and classify the CYLINDER lateral adjacent to arc edge `e` of mixed
+/// face `fi` (see [`ArcLateral`]). Loud typed tags for the unsupported
+/// shapes: non-cylinder lateral; a holed lateral with a loop the CDT path
+/// cannot splice (multi-edge loop containing a full-circle rim, or a
+/// degree-4 `SurfacePair` edge); a hole-free lateral that is not the
+/// structured 2-arc strip.
+fn arc_lateral_opposite(brep: &BRep, fi: usize, e: u32) -> Result<ArcLateral, &'static str> {
     for (gi, g) in brep.faces().iter().enumerate() {
         if gi == fi {
             continue;
@@ -3482,7 +3515,33 @@ fn arc_lateral_opposite(
             return Err("mixed-arc-lateral-not-cylinder");
         };
         if !g.inner_loops.is_empty() {
-            return Err("mixed-arc-lateral-holed");
+            // Holed lateral → Stage 1 routes it to the unroll+CDT path,
+            // which consumes the arc's own chain — IF every loop is
+            // `loop_polyline`-spliceable (spec branch 2 vs 3). A loop it
+            // cannot splice would turn the typed capability wall into a
+            // Stage-1 `MalformedTopology` ERROR, so verify here.
+            let spliceable = std::iter::once(&g.outer_loop)
+                .chain(g.inner_loops.iter())
+                .all(|lp| {
+                    let closed_single = lp.len() == 1 && {
+                        let ed = &brep.edges()[lp[0] as usize];
+                        matches!(ed.curve, Curve::Circle { .. } | Curve::Ellipse { .. })
+                            && ed.start == ed.end
+                    };
+                    closed_single
+                        || lp.iter().all(|&ge| {
+                            let ed = &brep.edges()[ge as usize];
+                            match ed.curve {
+                                Curve::LineSegment => true,
+                                Curve::Circle { .. } | Curve::Ellipse { .. } => ed.start != ed.end,
+                                _ => false,
+                            }
+                        })
+                });
+            if !spliceable {
+                return Err("mixed-arc-lateral-holed");
+            }
+            return Ok(ArcLateral::ChainConsuming);
         }
         let arcs: Vec<u32> = g
             .outer_loop
@@ -3502,7 +3561,13 @@ fn arc_lateral_opposite(
         };
         let ap = axis_point.as_array();
         let ad = normalize3(axis_dir.as_array());
-        return Ok((opp, ap, ad, center.as_array(), radius));
+        return Ok(ArcLateral::Strip {
+            opp_edge: opp,
+            axis_point: ap,
+            axis_dir: ad,
+            opp_center: center.as_array(),
+            opp_radius: radius,
+        });
     }
     Err("mixed-arc-no-lateral")
 }
