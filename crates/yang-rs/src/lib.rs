@@ -8944,6 +8944,162 @@ fn phantom_min_rim_segments(a: &BRep, b: &BRep) -> Option<usize> {
     gated
 }
 
+/// N2/F0059 epic increment 2, BANKED-UNWIRED (spec
+/// `yang_rim_junction_insertion`): per full-circle rim edge of `x`, the
+/// exact points where that rim circle transversally CROSSES one of `y`'s
+/// cylinder laterals — the §4.3.3 Case-IV junction points that Stage-1
+/// must carry as rim samples so the mesh-level seam chains can terminate
+/// exactly at the junctions (the truncated-Steinmetz cap-lobe corners).
+///
+/// v1 closed-form scope (A13.3/P8 — no ad-hoc root finding): only
+/// laterals whose axis is PARALLEL to the rim plane contribute (their
+/// section in the rim plane is two lines ⇒ circle∩line quadratics; the
+/// F0059 class). Transversal-axis laterals (ellipse section, quartic) and
+/// non-cylinder surfaces are out of scope and keep today's loud walls.
+/// Tangent grazes are excluded by a DERIVED resolution gate: a root pair
+/// closer than `TAU_MODEL` along the section line is one model point
+/// (A14.2), i.e. the §4.3.3 tangency class — not a transversal crossing.
+///
+/// Returned points satisfy `|‖p−c‖−r| ≤ TAU_WORK` and lie on the
+/// contributing lateral to fp accuracy (unit-asserted). Deterministic:
+/// faces in index order, both section lines, roots in ascending-t order.
+fn rim_junctions_against(x: &BRep, y: &BRep) -> std::collections::BTreeMap<u32, Vec<Point3>> {
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let add = |a: [f64; 3], b: [f64; 3]| [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+    let scl = |a: [f64; 3], s: f64| [a[0] * s, a[1] * s, a[2] * s];
+    let crs = |a: [f64; 3], b: [f64; 3]| {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    };
+    // The lateral's axial extent, from the Circle edges its loops carry
+    // (both rims project onto the axis; a lateral without circle loop
+    // edges yields None → skipped, loud walls preserved).
+    let lateral_extent = |brep: &BRep, f: &BRepFace, ap: [f64; 3], d: [f64; 3]| {
+        let mut lo = f64::INFINITY;
+        let mut hi = f64::NEG_INFINITY;
+        for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+            if let Curve::Circle { center, .. } = brep.edges()[ei as usize].curve {
+                let z = dot(sub(center.as_array(), ap), d);
+                lo = lo.min(z);
+                hi = hi.max(z);
+            }
+        }
+        (lo < hi).then_some((lo, hi))
+    };
+
+    let mut out: std::collections::BTreeMap<u32, Vec<Point3>> = std::collections::BTreeMap::new();
+    for (ei, e) in x.edges().iter().enumerate() {
+        if e.start != e.end {
+            continue; // v1: full-circle rims only
+        }
+        let Curve::Circle {
+            center,
+            normal,
+            radius: r,
+        } = e.curve
+        else {
+            continue;
+        };
+        let n = normalize3(normal.as_array());
+        let c = center.as_array();
+        let mut pts: Vec<Point3> = Vec::new();
+        for f in y.faces() {
+            let Surface::Cylinder {
+                axis_point,
+                axis_dir,
+                radius: rb,
+            } = f.surface
+            else {
+                continue;
+            };
+            let d = normalize3(axis_dir.as_array());
+            // v1: axis parallel to the rim plane (same floor as the
+            // phantom guard's axis-parallel test).
+            if dot(n, d).abs() > 1e-12 {
+                continue;
+            }
+            let ap = axis_point.as_array();
+            let Some((z_lo, z_hi)) = lateral_extent(y, f, ap, d) else {
+                continue;
+            };
+            // Signed axis-to-rim-plane distance; |δ| ≥ r_b ⇒ empty or a
+            // plane-tangent lateral (the tangency class — skipped).
+            let delta = dot(n, sub(ap, c));
+            if delta.abs() >= rb {
+                continue;
+            }
+            // Section of the lateral in the rim plane: two lines parallel
+            // to the axis at in-plane offset ±√(r_b²−δ²) from the axis
+            // foot.
+            let w_half = (rb * rb - delta * delta).sqrt();
+            let foot = sub(ap, scl(n, delta));
+            let eo = normalize3(crs(d, n));
+            for sgn in [-1.0f64, 1.0] {
+                let q0 = add(foot, scl(eo, sgn * w_half));
+                // circle ∩ line (q0 + t·d) in-plane:
+                // t² + 2t·(q0−c)·d + |q0−c|² − r² = 0.
+                let m = sub(q0, c);
+                let bq = dot(m, d);
+                let cq = dot(m, m) - r * r;
+                let disc = bq * bq - cq;
+                if disc <= 0.0 {
+                    continue; // no crossing / exact tangent
+                }
+                let sq = disc.sqrt();
+                // Derived tangency gate (A14.2): roots closer than the
+                // model resolution are ONE point — a graze, not two
+                // transversal crossings.
+                if 2.0 * sq < cad_primitives::TAU_MODEL {
+                    continue;
+                }
+                for t in [-bq - sq, -bq + sq] {
+                    let pj = add(q0, scl(d, t));
+                    // Inside the lateral's axial extent; the ±TAU_WORK
+                    // slack keeps boundary-of-extent triple junctions
+                    // (rim ∩ lateral ∩ far cap — the F0059 corners).
+                    let z = dot(sub(pj, ap), d);
+                    if z < z_lo - cad_primitives::TAU_WORK || z > z_hi + cad_primitives::TAU_WORK {
+                        continue;
+                    }
+                    let pjp = Point3::new(pj[0], pj[1], pj[2]);
+                    // Cross-arm dedup at model resolution (two laterals /
+                    // both lines can meet the rim at one triple point).
+                    let dup = pts.iter().any(|q| {
+                        let qa = q.as_array();
+                        let dd = sub(qa, pj);
+                        dot(dd, dd) < cad_primitives::TAU_MODEL * cad_primitives::TAU_MODEL
+                    });
+                    if !dup {
+                        pts.push(pjp);
+                    }
+                }
+            }
+        }
+        if !pts.is_empty() {
+            out.insert(ei as u32, pts);
+        }
+    }
+    out
+}
+
+/// Increment-2 entry point (BANKED-UNWIRED — the `boolean()` wiring plus
+/// the Stage-0 override pass-through land with the full assay gate in the
+/// next increment; spec branch table row 3 records the pass-through trap).
+#[allow(dead_code)]
+fn rim_junction_overrides(
+    a: &BRep,
+    b: &BRep,
+) -> (
+    std::collections::BTreeMap<u32, Vec<Point3>>,
+    std::collections::BTreeMap<u32, Vec<Point3>>,
+) {
+    (rim_junctions_against(a, b), rim_junctions_against(b, a))
+}
+
 pub fn boolean(
     a: &BRep,
     b: &BRep,
@@ -14842,6 +14998,217 @@ mod tests {
         for ((a, b), n) in undirected_edge_counts(&mesh.tris) {
             assert_eq!(n, 2, "edge ({a},{b}) not manifold after clean collapse");
         }
+    }
+
+    // ── rim junction derivation (N2/F0059 increment 2, banked) ──────────
+    // Spec `specs/yang_rim_junction_insertion.md`. Fixture mirrors the
+    // integration cylinder fixture (seam-edge encoding).
+
+    fn rj_cylinder(axis_point: [f64; 3], axis_dir: [f64; 3], radius: f64, height: f64) -> BRep {
+        let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        let crs = |a: [f64; 3], b: [f64; 3]| {
+            [
+                a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0],
+            ]
+        };
+        let d = normalize3(axis_dir);
+        let bot = axis_point;
+        let top = [
+            bot[0] + d[0] * height,
+            bot[1] + d[1] * height,
+            bot[2] + d[2] * height,
+        ];
+        let abs = [d[0].abs(), d[1].abs(), d[2].abs()];
+        let world = if abs[0] <= abs[1] && abs[0] <= abs[2] {
+            [1.0, 0.0, 0.0]
+        } else if abs[1] <= abs[2] {
+            [0.0, 1.0, 0.0]
+        } else {
+            [0.0, 0.0, 1.0]
+        };
+        let e1 = normalize3(crs(d, world));
+        let verts = vec![
+            BRepVertex {
+                point: Point3::new(
+                    bot[0] + e1[0] * radius,
+                    bot[1] + e1[1] * radius,
+                    bot[2] + e1[2] * radius,
+                ),
+            },
+            BRepVertex {
+                point: Point3::new(
+                    top[0] + e1[0] * radius,
+                    top[1] + e1[1] * radius,
+                    top[2] + e1[2] * radius,
+                ),
+            },
+        ];
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 0,
+                curve: Curve::Circle {
+                    center: Point3::new(bot[0], bot[1], bot[2]),
+                    normal: Vector3::new(-d[0], -d[1], -d[2]),
+                    radius,
+                },
+            },
+            BRepEdge {
+                start: 1,
+                end: 1,
+                curve: Curve::Circle {
+                    center: Point3::new(top[0], top[1], top[2]),
+                    normal: Vector3::new(d[0], d[1], d[2]),
+                    radius,
+                },
+            },
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::LineSegment,
+            },
+        ];
+        let faces = vec![
+            BRepFace {
+                surface: Surface::Cylinder {
+                    axis_point: Point3::new(axis_point[0], axis_point[1], axis_point[2]),
+                    axis_dir: Vector3::new(axis_dir[0], axis_dir[1], axis_dir[2]),
+                    radius,
+                },
+                outer_loop: vec![0, 2, 1, 2],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(-d[0], -d[1], -d[2]),
+                    d: dot(d, bot),
+                },
+                outer_loop: vec![0],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(d[0], d[1], d[2]),
+                    d: -dot(d, top),
+                },
+                outer_loop: vec![1],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ];
+        BRep::new(verts, edges, faces).expect("rj cylinder fixture builds")
+    }
+
+    /// The truncated-Steinmetz pair (h/2 < r): axes x and y crossing at
+    /// each other's midpoints — the F0059 shape.
+    fn rj_truncated_pair(r: f64, h: f64) -> (BRep, BRep) {
+        (
+            rj_cylinder([0.0, -h / 2.0, 0.0], [0.0, 1.0, 0.0], r, h),
+            rj_cylinder([-h / 2.0, 0.0, 0.0], [1.0, 0.0, 0.0], r, h),
+        )
+    }
+
+    /// F0059 class: each cap rim of each operand carries exactly the four
+    /// lobe corners `(±h/2, ±√(r²−h²/4))`, exact on the rim circle AND on
+    /// the other operand's lateral (spec oracle 1 + I2).
+    #[test]
+    fn rim_junctions_truncated_steinmetz_four_corners_per_cap() {
+        let (r, h) = (0.35f64, 0.5f64);
+        let (a, b) = rj_truncated_pair(r, h);
+        let (map_a, map_b) = rim_junction_overrides(&a, &b);
+        let w = (r * r - h * h / 4.0).sqrt();
+        for (brep, map, other_axis_is_x) in [(&a, &map_a, true), (&b, &map_b, false)] {
+            assert_eq!(
+                map.keys().copied().collect::<Vec<_>>(),
+                vec![0, 1],
+                "both cap rims carry junctions"
+            );
+            for (&ei, pts) in map.iter() {
+                assert_eq!(pts.len(), 4, "four lobe corners per cap rim");
+                let Curve::Circle { center, radius, .. } = brep.edges()[ei as usize].curve else {
+                    panic!("rim edge is a circle");
+                };
+                for p in pts {
+                    let pa = p.as_array();
+                    let ca = center.as_array();
+                    let dd = [pa[0] - ca[0], pa[1] - ca[1], pa[2] - ca[2]];
+                    let dist = (dd[0] * dd[0] + dd[1] * dd[1] + dd[2] * dd[2]).sqrt();
+                    assert!(
+                        (dist - radius).abs() <= 1e-12,
+                        "I2: junction exactly on the rim circle"
+                    );
+                    // Exactly on the OTHER operand's lateral: distance to
+                    // its axis (x or y axis through the origin) equals r.
+                    let lat = if other_axis_is_x {
+                        (pa[1] * pa[1] + pa[2] * pa[2]).sqrt()
+                    } else {
+                        (pa[0] * pa[0] + pa[2] * pa[2]).sqrt()
+                    };
+                    assert!(
+                        (lat - r).abs() <= 1e-12,
+                        "I2: junction exactly on the crossing lateral"
+                    );
+                    // The corner coordinates are the analytic lobe corners.
+                    let along = if other_axis_is_x { pa[0] } else { pa[1] };
+                    assert!(
+                        (along.abs() - h / 2.0).abs() <= 1e-12,
+                        "corner sits at ±h/2 along the crossing axis"
+                    );
+                    assert!(
+                        (pa[2].abs() - w).abs() <= 1e-12,
+                        "corner sits at ±√(r²−h²/4) in z"
+                    );
+                }
+            }
+        }
+    }
+
+    /// kv9f1 class (h/2 > r): the seam never reaches the caps — no rim
+    /// junctions, both maps empty (spec oracle 2 / branch row 1).
+    #[test]
+    fn rim_junctions_empty_when_seam_clears_caps() {
+        let (a, b) = (
+            rj_cylinder([0.0, -0.45, 0.0], [0.0, 1.0, 0.0], 0.2, 0.9),
+            rj_cylinder([-0.45, 0.0, 0.0], [1.0, 0.0, 0.0], 0.2, 0.9),
+        );
+        let (map_a, map_b) = rim_junction_overrides(&a, &b);
+        assert!(map_a.is_empty() && map_b.is_empty());
+    }
+
+    /// h/2 == r: each cap plane is exactly TANGENT to the other lateral —
+    /// the tangency class is skipped (|δ| ≥ r_b), never inserted.
+    #[test]
+    fn rim_junctions_tangent_cap_plane_skipped() {
+        let (a, b) = rj_truncated_pair_tangent();
+        let (map_a, map_b) = rim_junction_overrides(&a, &b);
+        assert!(map_a.is_empty() && map_b.is_empty());
+    }
+
+    fn rj_truncated_pair_tangent() -> (BRep, BRep) {
+        let (r, h) = (0.35f64, 0.7f64);
+        (
+            rj_cylinder([0.0, -h / 2.0, 0.0], [0.0, 1.0, 0.0], r, h),
+            rj_cylinder([-h / 2.0, 0.0, 0.0], [1.0, 0.0, 0.0], r, h),
+        )
+    }
+
+    /// Candidates beyond the crossing lateral's axial extent are excluded
+    /// (spec candidate filter 2): shifting B along its axis so the
+    /// infinite-cylinder junctions fall outside both operands' extents
+    /// empties both maps.
+    #[test]
+    fn rim_junctions_respect_lateral_extent() {
+        let a = rj_cylinder([0.0, -0.25, 0.0], [0.0, 1.0, 0.0], 0.35, 0.5);
+        let b = rj_cylinder([0.3, 0.0, 0.0], [1.0, 0.0, 0.0], 0.35, 0.5);
+        let (map_a, map_b) = rim_junction_overrides(&a, &b);
+        assert!(
+            map_a.is_empty() && map_b.is_empty(),
+            "junctions outside the lateral extents must be excluded"
+        );
     }
 
     // ── M5 surface-pair plumbing (Y1–Y3) ─────────────────────────────────
