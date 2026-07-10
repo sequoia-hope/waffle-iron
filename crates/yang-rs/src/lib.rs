@@ -574,7 +574,28 @@ impl BRep {
         faces: Vec<BRepFace>,
         min_n_seg: Option<usize>,
     ) -> Result<Self, YangError> {
-        let tess = stage1_tessellate_min_segments(&verts, &edges, &faces, min_n_seg)?;
+        Self::from_topology_with_rim_overrides(
+            verts,
+            edges,
+            faces,
+            min_n_seg,
+            &std::collections::BTreeMap::new(),
+        )
+    }
+
+    /// Increment-2 constructor body (spec `yang_rim_junction_insertion`):
+    /// [`from_topology`] plus per-rim-edge exact junction points inserted
+    /// as extra Stage-1 rim samples. An empty map is byte-identical to
+    /// [`from_topology`] (the Stage-1 empty-override identity).
+    fn from_topology_with_rim_overrides(
+        verts: Vec<BRepVertex>,
+        edges: Vec<BRepEdge>,
+        faces: Vec<BRepFace>,
+        min_n_seg: Option<usize>,
+        rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    ) -> Result<Self, YangError> {
+        let tess =
+            stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, rim_overrides, min_n_seg)?;
         // N4: invert face_tri_ranges into a per-triangle owning-face map (1:1
         // with the mesh triangles), so kept arrangement triangles can be
         // attributed via cherchi provenance instead of geometric proximity.
@@ -613,6 +634,32 @@ impl BRep {
             self.edges.clone(),
             self.faces.clone(),
             Some(n),
+        )
+    }
+
+    /// Increment-2 (spec `yang_rim_junction_insertion`): rebuild this
+    /// B-Rep's Stage-1 mesh with exact rim junction points inserted as
+    /// extra rim samples. Preserves an existing phantom-guard boost
+    /// (`forced_rim_n`) so the two mechanisms COMPOSE. Topology is
+    /// unchanged; inserting a rim sample only shrinks sagittas (A14.3).
+    fn rebuilt_with_rim_overrides(
+        &self,
+        rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    ) -> Result<Self, YangError> {
+        if rim_overrides.is_empty() {
+            return Self::from_topology(
+                self.vertices.clone(),
+                self.edges.clone(),
+                self.faces.clone(),
+                self.forced_rim_n,
+            );
+        }
+        Self::from_topology_with_rim_overrides(
+            self.vertices.clone(),
+            self.edges.clone(),
+            self.faces.clone(),
+            self.forced_rim_n,
+            rim_overrides,
         )
     }
 
@@ -9086,10 +9133,10 @@ fn rim_junctions_against(x: &BRep, y: &BRep) -> std::collections::BTreeMap<u32, 
     out
 }
 
-/// Increment-2 entry point (BANKED-UNWIRED — the `boolean()` wiring plus
-/// the Stage-0 override pass-through land with the full assay gate in the
-/// next increment; spec branch table row 3 records the pass-through trap).
-#[allow(dead_code)]
+/// Increment-2 entry point: both operands' rim junction maps against each
+/// other (wired in `boolean()` behind the no-Stage-0-interaction scope
+/// gate; spec branch table row 3 records the pass-through trap that gate
+/// avoids).
 fn rim_junction_overrides(
     a: &BRep,
     b: &BRep,
@@ -9158,6 +9205,38 @@ pub fn boolean(
     // / mesh re-tessellation path (the coincident-cylinder meshes are already
     // bit-identical: both faces are the identical analytic cylinder).
     let cyl_pairs = stage0::detect_coincident_cylinder_pairs(a, b);
+
+    // Increment 2 (spec `yang_rim_junction_insertion`): insert the exact
+    // §4.3.3 Case-IV rim junction points as Stage-1 rim samples, so the
+    // mesh-level seam chains can terminate exactly at the junctions (the
+    // truncated-Steinmetz cap-lobe corners). SCOPE GATE (spec branch row
+    // 3): only for a pair with NO Stage-0 interaction — the Stage-0
+    // re-tessellation paths do not thread rim overrides yet (the M8
+    // incr-15 pass-through trap), and skipping keeps them byte-identical.
+    // Rim re-tessellation changes neither surfaces nor topology, so the
+    // Stage-0 detectors' verdicts (computed above) remain valid for the
+    // rebuilt operands.
+    let junction_boosted: Option<(BRep, BRep)> = if stage0.is_none() && cyl_pairs.is_empty() {
+        let (map_a, map_b) = rim_junction_overrides(a, b);
+        if map_a.is_empty() && map_b.is_empty() {
+            None
+        } else {
+            if std::env::var_os("YANG_RIM_JUNCTION_PROBE").is_some() {
+                eprintln!("[rim-junction] overrides a={map_a:?} b={map_b:?}");
+            }
+            Some((
+                a.rebuilt_with_rim_overrides(&map_a)?,
+                b.rebuilt_with_rim_overrides(&map_b)?,
+            ))
+        }
+    } else {
+        None
+    };
+    let (a, b): (&BRep, &BRep) = match &junction_boosted {
+        Some((ba, bb)) => (ba, bb),
+        None => (a, b),
+    };
+
     // Twin-origin probe (read-only, env-gated): `YANG_INPUT_VERT_PROBE=x,y,z,r`
     // dumps every INPUT B-Rep vertex and every Stage-0/1 mesh vertex within
     // radius r of the target point, per operand — to establish whether a
@@ -15163,6 +15242,34 @@ mod tests {
                         "corner sits at ±√(r²−h²/4) in z"
                     );
                 }
+            }
+        }
+    }
+
+    /// Rebuild plumbing (spec I1/I3): an empty override map rebuild is
+    /// byte-identical; a real map plants every junction as a bit-exact
+    /// Stage-1 mesh vertex.
+    #[test]
+    fn rebuilt_with_rim_overrides_identity_and_insertion() {
+        let (a, b) = rj_truncated_pair(0.35, 0.5);
+        let same = a
+            .rebuilt_with_rim_overrides(&std::collections::BTreeMap::new())
+            .expect("empty rebuild");
+        assert_eq!(
+            same.as_mesh(),
+            a.as_mesh(),
+            "I1: empty override map is byte-identical"
+        );
+        let (map_a, _) = rim_junction_overrides(&a, &b);
+        let boosted = a
+            .rebuilt_with_rim_overrides(&map_a)
+            .expect("boosted rebuild");
+        for pts in map_a.values() {
+            for p in pts {
+                assert!(
+                    boosted.as_mesh().verts.iter().any(|q| q == p),
+                    "junction {p:?} must be a bit-exact Stage-1 mesh vertex"
+                );
             }
         }
     }

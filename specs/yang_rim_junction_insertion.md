@@ -1,9 +1,17 @@
 # Spec: Stage-1 cap-rim junction insertion (§4.3.3 Case IV, N2/F0059 epic increment 2)
 
-> Status (2026-07-10): DESIGN — measured on F0059 (task #122). Successor to
-> increment 1 (`yang_collapse_membrane_cancellation`, SHIPPED) in the
-> N2/F0059 epic; plan of record in `yang_stage4_conic_triple_junction.md`'s
-> 2026-07-10 status block.
+> Status (2026-07-10): slices A (derivation) + B (wiring) IMPLEMENTED —
+> measured on F0059 (task #122). The wiring's scope gate: junction
+> insertion applies only to a pair with NO Stage-0 interaction (planar
+> stage0 None and no coincident-cylinder pairs), which keeps every Stage-0
+> re-tessellation path byte-identical (branch row 3's pass-through trap is
+> AVOIDED rather than threaded in v1). Verified on F0059: all 8 exact
+> corners per operand inserted; the wall moves to the inserted junction's
+> over-determined Stage-4 audit (vertex 6, LocalRefinementRequired) —
+> increment 3 (the exactness-first escape below) is the converter.
+> Successor to increment 1 (`yang_collapse_membrane_cancellation`,
+> SHIPPED) in the N2/F0059 epic; plan of record in
+> `yang_stage4_conic_triple_junction.md`'s 2026-07-10 status block.
 
 ## Goal
 
@@ -58,10 +66,10 @@ operand X against each face of operand Y:
 
 | Y face | section of Y's surface in plane P | junction solve | scope |
 |---|---|---|---|
-| Plane face (normal m) | line P∩plane | circle∩line in-plane (quadratic) | v1 |
-| Cylinder lateral, axis d ∥ P (`|n·d| ≤ tol_axis`) | two parallel lines | circle∩line ×2 (quadratic) | v1 |
-| Cylinder lateral, axis transversal | ellipse in P | circle∩ellipse (quartic) | LOUD-SKIP v1: no insertion, current behavior preserved |
-| Sphere / cone / torus | conic / quartic in P | — | LOUD-SKIP v1 |
+| Cylinder lateral, axis d ∥ P (`|n·d| ≤ 1e-12`, the phantom-guard axis floor) | two parallel lines | circle∩line ×2 (quadratic) | v1 (IMPLEMENTED — sufficient for the F0059 class: its corners are triple junctions, so the lateral arm alone finds them) |
+| Plane face (normal m) | line P∩plane | circle∩line in-plane (quadratic) | DEFERRED — would re-derive the same triple-junction points as the lateral arm through a different arithmetic path (ULP-twin risk); add only when a case demands a plane-only junction |
+| Cylinder lateral, axis transversal | ellipse in P | circle∩ellipse (quartic) | SKIP v1: no insertion, current loud walls preserved |
+| Sphere / cone / torus | conic / quartic in P | — | SKIP v1 |
 
 Each candidate point must pass ALL of:
 1. **On-arc**: the rim edge is a full circle (v1: partial arcs skipped).
