@@ -1331,6 +1331,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             frame,
             &splits_a,
             &splits_b,
+            [&poly_a, &poly_b],
         );
     }
 
@@ -4531,6 +4532,7 @@ fn dump_pair_overlay(
     frame: &Frame,
     splits_a: &SplitMap,
     splits_b: &SplitMap,
+    polys: [&PolygonWithHoles; 2],
 ) {
     let Some(dir) = std::env::var_os("YANG_STAGE0_DUMP_DIR") else {
         return;
@@ -4599,6 +4601,17 @@ fn dump_pair_overlay(
             "t {ti} [{},{},{}] class={c:?} e8drop={e8} kept_a={kept_a} kept_b={kept_b}\n",
             t[0], t[1], t[2]
         ));
+    }
+    for (name, poly) in [("poly_a", polys[0]), ("poly_b", polys[1])] {
+        for (li, lp) in std::iter::once(&poly.outer)
+            .chain(poly.holes.iter())
+            .enumerate()
+        {
+            out.push_str(&format!("{name} loop {li} n={}:\n", lp.len()));
+            for pt in lp {
+                out.push_str(&format!("  ({},{})\n", pt.x(), pt.y()));
+            }
+        }
     }
     for (name, splits) in [("splits_a", splits_a), ("splits_b", splits_b)] {
         out.push_str(&format!("{name}: {}\n", splits.len()));
@@ -5176,13 +5189,25 @@ fn triangulate_ring(
     let nu = normalize3(normal);
     let (e1, e2) = ortho_basis(cad_primitives::Vector3::new(nu[0], nu[1], nu[2]));
     let (e1, e2) = (e1.as_array(), e2.as_array());
+    // Exact frame projection (spec `m8_ring_exact_projection`): evaluate
+    // `u = p·e1`, `v = p·e2` over rationals. A rounded f64 dot product
+    // aliases consecutive femto-twin ring vertices (distinct exact 3D
+    // points from femto-tied overlay event columns) onto ONE bit-identical
+    // 2D point — a zero-length exact edge that stalls every fan/ear
+    // strategy below (I-EP1). The basis stays the fixed f64 pair — any
+    // nondegenerate fixed frame gives a faithful projection, and every
+    // orientation/coverage decision below is made inside this one frame.
+    let exact_e1 = [rat(e1[0]).ok()?, rat(e1[1]).ok()?, rat(e1[2]).ok()?];
+    let exact_e2 = [rat(e2[0]).ok()?, rat(e2[1]).ok()?, rat(e2[2]).ok()?];
     let pts: Vec<ExactPoint2> = ring
         .iter()
         .map(|&vi| {
             let p = verts[vi as usize].as_array();
-            let u = p[0] * e1[0] + p[1] * e1[1] + p[2] * e1[2];
-            let v = p[0] * e2[0] + p[1] * e2[1] + p[2] * e2[2];
-            ExactPoint2::from_f64(u, v)
+            let (px, py, pz) = (rat(p[0]).ok()?, rat(p[1]).ok()?, rat(p[2]).ok()?);
+            Some(ExactPoint2 {
+                x: &px * &exact_e1[0] + &py * &exact_e1[1] + &pz * &exact_e1[2],
+                y: &px * &exact_e2[0] + &py * &exact_e2[1] + &pz * &exact_e2[2],
+            })
         })
         .collect::<Option<_>>()?;
 
@@ -8461,5 +8486,117 @@ mod reloc_tests {
         };
         let total: f64 = tris.iter().map(|t| area(t)).sum();
         assert!((total - 6.4).abs() < 1e-12, "cover area {total} != 6.4");
+    }
+}
+
+#[cfg(test)]
+mod ring_exact_projection_tests {
+    use super::*;
+
+    /// Spec `m8_ring_exact_projection` B2 (RED 2026-07-10): the F0068
+    /// corpus ring (lateral f=207) carries a consecutive 1-ULP twin pair
+    /// (distinct exact 3D points from two femto-tied overlay sweep event
+    /// columns). The f64 frame projection aliases the twins onto ONE
+    /// bit-identical 2D point, so the exact 2D ring gets a zero-length
+    /// edge and every fan/ear candidate is rejected — `None`, walling
+    /// the whole coplanar pair (`build-mesh-triangulate`). With the
+    /// exact rational projection the twins stay distinct and the ring
+    /// triangulates like any subdivided chain.
+    #[test]
+    fn f0068_lateral_ring_femto_twins() {
+        let mut verts = vec![
+            Point3::new(
+                -0.09834728650612151,
+                0.22487103457140994,
+                1.2552358181232062,
+            ), // 207
+            Point3::new(
+                -0.09372779082604177,
+                0.22071665685042138,
+                1.2552358181232062,
+            ), // 206
+            Point3::new(
+                -0.09372779082604177,
+                0.22071665685042138,
+                1.0167700011240253,
+            ), // 468
+            Point3::new(
+                -0.09689736564471349,
+                0.22356710025888266,
+                1.0167700011240253,
+            ), // 881
+            Point3::new(-0.0968973656447135, 0.22356710025888268, 1.0167700011240253), // 878
+            Point3::new(
+                -0.09834728650612151,
+                0.22487103457140994,
+                1.0167700011240253,
+            ), // 467
+        ];
+        let ring: Vec<u32> = vec![0, 1, 2, 3, 4, 5];
+        let normal = [0.6686829267246631, 0.7435476739973965, 0.0];
+        let n_before = verts.len();
+        let tris = triangulate_ring(&ring, &mut verts, normal)
+            .expect("femto-twin ring must triangulate under the exact projection");
+
+        // I1 boundary tiling: every ring sub-segment is an edge of exactly
+        // one emitted triangle (directed occurrence count == 1).
+        let n = ring.len();
+        for i in 0..n {
+            let (a, b) = (ring[i], ring[(i + 1) % n]);
+            let count = tris
+                .iter()
+                .filter(|t| {
+                    (0..3).any(|k| {
+                        (t[k] == a && t[(k + 1) % 3] == b) || (t[k] == b && t[(k + 1) % 3] == a)
+                    })
+                })
+                .count();
+            assert_eq!(
+                count, 1,
+                "ring sub-segment ({a},{b}) tiled by {count} triangles"
+            );
+        }
+
+        // I2 strict exact positivity in the exact frame (independent
+        // re-check of the function's own certificate).
+        let nu = normalize3(normal);
+        let (e1, e2) = ortho_basis(cad_primitives::Vector3::new(nu[0], nu[1], nu[2]));
+        let (e1, e2) = (e1.as_array(), e2.as_array());
+        let proj = |vi: u32| -> ExactPoint2 {
+            let p = verts[vi as usize].as_array();
+            let dot = |e: &[f64; 3]| {
+                crate::coplanar_overlay::rat(p[0]).unwrap()
+                    * crate::coplanar_overlay::rat(e[0]).unwrap()
+                    + crate::coplanar_overlay::rat(p[1]).unwrap()
+                        * crate::coplanar_overlay::rat(e[1]).unwrap()
+                    + crate::coplanar_overlay::rat(p[2]).unwrap()
+                        * crate::coplanar_overlay::rat(e[2]).unwrap()
+            };
+            ExactPoint2 {
+                x: dot(&e1),
+                y: dot(&e2),
+            }
+        };
+        let mut covered = RBig::ZERO;
+        for t in &tris {
+            let (a, b, c) = (proj(t[0]), proj(t[1]), proj(t[2]));
+            let area2 = cross_r(&a, &b, &c);
+            assert!(area2 > RBig::ZERO, "triangle {t:?} not strictly positive");
+            covered += area2;
+        }
+        // I3 exact coverage: fan areas sum to the ring area.
+        let pts: Vec<ExactPoint2> = ring.iter().map(|&vi| proj(vi)).collect();
+        let mut ring_area2 = RBig::ZERO;
+        for i in 1..n - 1 {
+            ring_area2 += cross_r(&pts[0], &pts[i], &pts[i + 1]);
+        }
+        let ring_abs = if ring_area2 > RBig::ZERO {
+            ring_area2
+        } else {
+            -ring_area2
+        };
+        assert_eq!(covered, ring_abs, "exact coverage certificate");
+        // I4: no vertex minted beyond the optional centroid.
+        assert!(verts.len() <= n_before + 1, "at most one centroid vertex");
     }
 }

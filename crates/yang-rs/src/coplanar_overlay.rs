@@ -555,7 +555,21 @@ pub fn coplanar_overlay(
             RoundedTri::CoincidentNeedle => continue,
             // (b) genuine collinear sliver — loud.
             RoundedTri::CollinearSliver => {
-                return Err(CoplanarOverlayError::RoundingCollapse { tri: *tri })
+                // Diagnosis probe (read-only, env-gated): report the sliver's
+                // rounded coordinates so a femto-slab collapse can be joined
+                // back to its minting event columns.
+                if std::env::var_os("YANG_POLY_PROBE").is_some() {
+                    eprintln!(
+                        "[sliver-probe] tri {tri:?} verts ({},{}) ({},{}) ({},{})",
+                        a2.x(),
+                        a2.y(),
+                        b2.x(),
+                        b2.y(),
+                        c2.x(),
+                        c2.y()
+                    );
+                }
+                return Err(CoplanarOverlayError::RoundingCollapse { tri: *tri });
             }
         }
     }

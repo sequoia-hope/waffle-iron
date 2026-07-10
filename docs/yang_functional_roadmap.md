@@ -256,6 +256,44 @@ the roadmap's remaining work:
    >    triangles to window corners (radial sag ~5× the one-chord sagitta
    >    in the windowed-half-cylinder fixture, mesh under-fills ~15%
    >    watertight). Union oracles use delta-volume (sag cancels).
+   > 3c. **Exact frame projection in ring triangulation SHIPPED 2026-07-10
+   >    (spec `specs/m8_ring_exact_projection.md`).** The 2026-07-10
+   >    census of the 14 remaining coplanar walls (probe re-run): 8×
+   >    overlay-admitted-but-emission-fails + 3× `multi-pair` (R0046,
+   >    R0081, F0073) + 3× `rim-lateral-none` (row 4). The emission-8
+   >    decompose into THREE mechanisms, all downstream of ONE geometric
+   >    fact — mirrored disc-rim samples carry 1–2-ULP-split frame
+   >    projections (rim coords are §2c-excluded from clustering), and
+   >    the exact trapezoidal sweep faithfully builds femto event-column
+   >    slabs from them:
+   >    (i) `build-mesh-triangulate` (F0068/F0069/C0075) — the femto
+   >    Steiner twins propagate as splits into neighbor face rings, and
+   >    `triangulate_ring`'s **f64** frame projection ALIASED the twins
+   >    onto one bit-identical 2D point (zero-length exact edge → every
+   >    fan/ear rejected). FIXED: the ring projection is now evaluated
+   >    over exact rationals (fixed f64 basis; faithfulness I-EP1, no
+   >    tolerance). F0068+F0069 → SUPPORTED_CORRECT end-to-end; C0075 →
+   >    typed downstream edge-not-2-directed ERROR (KV15b/§4B family).
+   >    Assay 226 CORRECT / 0 WRONG / 53 ERROR / 15 UNSUPPORTED / 0
+   >    TIMEOUT, zero-lost (diff = exactly the three targets).
+   >    (ii) `overlay-failed RoundingCollapse` (F0067, C0048, R0053) —
+   >    femto-slab CELLS whose exact-positive triangles round to
+   >    f64-collinear slivers (measured: all three verts share one f64
+   >    x). Named follow-up `m8-overlay-femto-slab-emission`: the sliver
+   >    is a vertical-decomposition Steiner artifact, not input geometry
+   >    — candidate fix is exact T-subdivision repair at the emission
+   >    gate (N22 pattern) or per-region re-emission; input welding is
+   >    NOT the path (two P10-reverted variants, spec
+   >    `m8_shared_boundary_identity` §2b/2c scope limits).
+   >    (iii) `overlay-failed DegenerateLoop` (R0007, R0071) — MICRO-scale
+   >    models (~1e-4): chained inputs carry SUB-FLOOR (~7e-8 <
+   >    MIN_FEATURE_SIZE) corner twin pairs; the §2b/§2c band clustering
+   >    correctly welds them and the polygon then has bit-identical
+   >    consecutive vertices → loud `exact_loops` reject. This is the
+   >    KV15b mint-site class (collapse sub-floor twins at the EMITTING
+   >    boolean, A14.2) — fixing it here (consecutive-dup collapse) would
+   >    desynchronize the pair face from neighbors that still carry both
+   >    corners.
    > 4. **Disc rim on a non-cylinder lateral** (`rim-lateral-none`: R0050,
    >    R0025 2nd wall) — `lateral_for_cap` is cylinder-only; R0025's rim
    >    lateral is a TORUS (circle-revolve), so crossing propagation +
