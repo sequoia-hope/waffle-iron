@@ -188,42 +188,30 @@ fn truncated_bicylinder_volume(r: f64, h: f64) -> f64 {
     2.0 * z0 * h * h + 8.0 * (2.0 * r.powi(3) / 3.0 - r * r * z0 + z0.powi(3) / 3.0)
 }
 
-/// RED live pin: the documented wall TODAY is the Stage-4 over-determined
-/// ellipse×circle junction audit (`LocalRefinementRequired`) — the seam
-/// ellipses meet the cap rims at the four lobes' corners and Stage 4
-/// refuses to silently pick a curve. If the failure ever changes shape,
-/// this pin fails and the epic plan must be re-measured first (P10).
+/// Regression pin (was the increment-2 RED pin): the Stage-4
+/// over-determined junction STOP (`LocalRefinementRequired` at the lobe
+/// corners) must NEVER return for the truncated-Steinmetz operands — the
+/// increment-2 rim insertion + increment-3 exactness certificate resolve
+/// those junctions structurally.
 #[test]
-fn truncated_steinmetz_union_stops_at_stage4_overdetermined_junction() {
+fn truncated_steinmetz_union_never_stops_at_stage4_junction() {
     let Some(sb) = yang_rs::native_backend() else {
         eprintln!("[rim-junction] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let (a, b) = truncated_steinmetz_pair(0.35, 0.5);
-    match boolean(&a, &b, BoolOp::Union, &sb) {
-        Ok(_) => panic!(
-            "rim-junction: truncated Steinmetz union UNEXPECTEDLY completed — \
-             the increment-2 wall moved; re-measure and update the spec/pins"
-        ),
-        Err(YangError::Stage4RegionInvalid { reason, .. }) => {
-            assert_eq!(
-                format!("{reason:?}"),
-                "LocalRefinementRequired",
-                "rim-junction: expected the over-determined junction STOP"
-            );
-        }
-        Err(other) => panic!(
-            "rim-junction: expected Stage4RegionInvalid(LocalRefinementRequired), \
-             the wall moved to {other:?} — re-measure (P10)"
-        ),
+    if let Err(e) = boolean(&a, &b, BoolOp::Union, &sb) {
+        assert!(
+            !matches!(e, YangError::Stage4RegionInvalid { .. }),
+            "rim-junction: the Stage-4 junction STOP returned: {e:?}"
+        );
     }
 }
 
-/// GREEN target (un-ignore when increments 2+3 land): the union completes
+/// GREEN (increments 2+3 landed 2026-07-10): the union completes
 /// watertight with the exact truncated-Steinmetz volume
 /// V = 2·πr²h − V_common(r, h).
 #[test]
-#[ignore = "N2/F0059 epic increments 2+3 (rim junction insertion + Stage-4 exactness escape) — task #122"]
 fn truncated_steinmetz_union_green_target() {
     let Some(sb) = yang_rs::native_backend() else {
         eprintln!("[rim-junction] SKIP: native FFI shim not linked (stub build)");

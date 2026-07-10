@@ -10965,6 +10965,59 @@ fn stage4_relocate_and_correct(
             }
         }
     }
+    // Increment 3 (spec `yang_rim_junction_insertion` §Failure modes):
+    // PRE-SCAN EXACTNESS CERTIFICATE for over-determined junction vertices.
+    // A vertex whose incidence (inc0) carries ≥3 DISTINCT surfaces and whose
+    // position is ALREADY within TAU_WORK of EVERY one of them is a fully
+    // determined junction point that needs no relocation — the Stage-1 rim
+    // junction insertion (increment 2) mints exactly this population (the
+    // truncated-Steinmetz lobe corners, on 4 surfaces bit-exactly). Today
+    // such a vertex trips one of the scan's insert-time junction detectors
+    // (e.g. the line∩line "out of scope" STOP) or the post-scan
+    // over-determined audits. Certified vertices are skipped by EVERY map
+    // insertion below: they enter no conic map, no junction map, and no
+    // `endpoints`, so every detector, audit, and relocation loop is
+    // unchanged for all other vertices (the no-skip audit stays balanced).
+    // `surface_value_and_normal`'s F is a signed DISTANCE (shared with
+    // `signed_distance_to_surface`), so this is a genuine exactness
+    // certificate — never a silent pick (P9): anything inexact keeps
+    // today's loud walls. Ordinary 2-surface curve vertices are NOT
+    // certified (they keep their retag/`t` bookkeeping).
+    let exact_junctions: HashSet<u32> = {
+        let mut vert_surfs: BTreeMap<u32, Vec<Surface>> = BTreeMap::new();
+        for (&(s, e), entries) in &inc0 {
+            for v in [s, e] {
+                let list = vert_surfs.entry(v).or_default();
+                for &(_input, surf) in entries {
+                    if !list.contains(&surf) {
+                        list.push(surf);
+                    }
+                }
+            }
+        }
+        let mut set = HashSet::new();
+        for (&v, surfs) in &vert_surfs {
+            if surfs.len() < 3 {
+                continue;
+            }
+            let p = mesh.verts[v as usize].as_array();
+            let exact_on_all = surfs.iter().all(|&s| {
+                surface_value_and_normal(s, p)
+                    .is_some_and(|(f, _)| f.abs() <= cad_primitives::TAU_WORK)
+            });
+            if std::env::var_os("YANG_RIM_JUNCTION_PROBE").is_some() {
+                eprintln!(
+                    "[s4-exact-junction] v={v} surfs={} exact={exact_on_all}",
+                    surfs.len()
+                );
+            }
+            if exact_on_all {
+                set.insert(v);
+            }
+        }
+        set
+    };
+
     for (&(s, e), curve) in &curves0 {
         match *curve {
             Curve::Parabola {
@@ -11029,6 +11082,10 @@ fn stage4_relocate_and_correct(
                     cone_d_eps,
                 };
                 for v in [s, e] {
+                    // Increment 3: certified exact junction — enters no map (see above).
+                    if exact_junctions.contains(&v) {
+                        continue;
+                    }
                     vert_parabola.insert(v, cpr);
                     endpoints.push(v);
                 }
@@ -11097,6 +11154,10 @@ fn stage4_relocate_and_correct(
                     cone_d_eps,
                 };
                 for v in [s, e] {
+                    // Increment 3: certified exact junction — enters no map (see above).
+                    if exact_junctions.contains(&v) {
+                        continue;
+                    }
                     vert_cone_hyperbola.insert(v, chr);
                     endpoints.push(v);
                 }
@@ -11119,6 +11180,10 @@ fn stage4_relocate_and_correct(
                     }
                 }
                 for v in [s, e] {
+                    // Increment 3: certified exact junction — enters no map (see above).
+                    if exact_junctions.contains(&v) {
+                        continue;
+                    }
                     insert_circle_or_junction(
                         v,
                         (center, normal, radius, source_radius),
@@ -11189,6 +11254,10 @@ fn stage4_relocate_and_correct(
                             second_cyl: None,
                         };
                         for v in [s, e] {
+                            // Increment 3: certified exact junction — enters no map (see above).
+                            if exact_junctions.contains(&v) {
+                                continue;
+                            }
                             insert_ellipse_or_junction(
                                 v,
                                 er,
@@ -11233,6 +11302,10 @@ fn stage4_relocate_and_correct(
                             cone_d_eps,
                         };
                         for v in [s, e] {
+                            // Increment 3: certified exact junction — enters no map (see above).
+                            if exact_junctions.contains(&v) {
+                                continue;
+                            }
                             vert_cone_ellipse.insert(v, cer);
                             endpoints.push(v);
                         }
@@ -11273,6 +11346,10 @@ fn stage4_relocate_and_correct(
                             second_cyl: Some((ap2, ad2, budget)),
                         };
                         for v in [s, e] {
+                            // Increment 3: certified exact junction — enters no map (see above).
+                            if exact_junctions.contains(&v) {
+                                continue;
+                            }
                             insert_ellipse_or_junction(
                                 v,
                                 er,
@@ -11300,6 +11377,10 @@ fn stage4_relocate_and_correct(
             // pair here.
             Curve::SurfacePair { a, b } => {
                 for v in [s, e] {
+                    // Increment 3: certified exact junction — enters no map (see above).
+                    if exact_junctions.contains(&v) {
+                        continue;
+                    }
                     vert_surface_pair.insert(v, (a, b));
                 }
             }
@@ -11363,6 +11444,10 @@ fn stage4_relocate_and_correct(
                         if pp.len() == 2 {
                             let entry = (pp[0].0, pp[0].1, pp[1].0, pp[1].1);
                             for v in [s, e] {
+                                // Increment 3: certified exact junction — enters no map (see above).
+                                if exact_junctions.contains(&v) {
+                                    continue;
+                                }
                                 vert_pp_planes.entry(v).or_default().push(entry);
                             }
                         }
@@ -11437,6 +11522,10 @@ fn stage4_relocate_and_correct(
                     });
                 };
                 for v in [s, e] {
+                    // Increment 3: certified exact junction — enters no map (see above).
+                    if exact_junctions.contains(&v) {
+                        continue;
+                    }
                     // A vertex on TWO DIFFERENT lines (e.g. a box corner ruling
                     // piercing the cylinder) would need a line∩line junction —
                     // out of scope, loud STOP rather than silently overwriting
@@ -11549,96 +11638,6 @@ fn stage4_relocate_and_correct(
             let lr = vert_line.remove(&v).expect("key from vert_line");
             let circ = vert_circle.remove(&v).expect("checked contains_key");
             vert_junction.insert(v, (lr, circ));
-        }
-    }
-
-    // ── BANKED-UNWIRED (P4: no green reproduction yet — do NOT enable in
-    // production). Spec `yang_stage4_conic_triple_junction`: general conic
-    // triple-surface junction relocation, the twice-reverted prototype.
-    // Banked env-gated (YANG_TRIPLE_JUNCTION_EXPERIMENT) as the N2/F0059
-    // epic's measurement instrument: it moves F0059-class cases past the
-    // over-determined audit STOPs below so the downstream walls (membrane
-    // double-cover — now fixed at the collapse_vertex mint site — then the
-    // cap-rim junction-insertion class) can be measured without rebuilding
-    // the handler each session. Byte-identical when the env var is unset.
-    // Wiring it for real requires the spec's oracles (a converting corpus
-    // case) — see the spec status block for the fix order.
-    let mut triple_junction_moves: Vec<(u32, Point3, f64)> = Vec::new();
-    if std::env::var_os("YANG_TRIPLE_JUNCTION_EXPERIMENT").is_some() {
-        let mut multi: BTreeMap<u32, usize> = BTreeMap::new();
-        for v in vert_circle
-            .keys()
-            .chain(vert_ellipse.keys())
-            .chain(vert_cone_ellipse.keys())
-            .chain(vert_parabola.keys())
-            .chain(vert_cone_hyperbola.keys())
-            .chain(vert_line.keys())
-        {
-            *multi.entry(*v).or_default() += 1;
-        }
-        let multi_verts: Vec<u32> = multi
-            .iter()
-            .filter(|&(_, &n)| n >= 2)
-            .map(|(&v, _)| v)
-            .collect();
-        for v in multi_verts {
-            // Distinct incident surfaces, deduped structurally in incidence
-            // order (spec I5: BTreeMap iteration ⇒ deterministic triple).
-            let mut surfs: Vec<Surface> = Vec::new();
-            for (&(s, e), entries) in &inc0 {
-                if s != v && e != v {
-                    continue;
-                }
-                for &(_input, surf) in entries {
-                    if !surfs.contains(&surf) {
-                        surfs.push(surf);
-                    }
-                }
-            }
-            eprintln!(
-                "[triple-junction-exp] v={v} p={:?} maps={} distinct_surfs={}",
-                mesh.verts[v as usize],
-                multi[&v],
-                surfs.len()
-            );
-            if surfs.len() != 3 {
-                continue; // 2 / ≥4 surfaces: leave for the audit STOPs below
-            }
-            let p = mesh.verts[v as usize];
-            let stop = |reason| YangError::Stage4RegionInvalid { vertex: v, reason };
-            let proj = relocate_onto_implicit_triple(p, surfs[0], surfs[1], surfs[2])
-                .ok_or_else(|| stop(Stage4InvalidReason::LocalRefinementRequired))?;
-            let qa = proj.as_array();
-            let (_, n0) = surface_value_and_normal(surfs[0], qa)
-                .ok_or_else(|| stop(Stage4InvalidReason::LocalRefinementRequired))?;
-            let (_, n1) = surface_value_and_normal(surfs[1], qa)
-                .ok_or_else(|| stop(Stage4InvalidReason::LocalRefinementRequired))?;
-            let pa = p.as_array();
-            let rho = ((qa[0] - pa[0]).powi(2) + (qa[1] - pa[1]).powi(2) + (qa[2] - pa[2]).powi(2))
-                .sqrt();
-            let cx = [
-                n0[1] * n1[2] - n0[2] * n1[1],
-                n0[2] * n1[0] - n0[0] * n1[2],
-                n0[0] * n1[1] - n0[1] * n1[0],
-            ];
-            let sin_theta = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
-            let gate = if sin_theta > 0.0 {
-                2.0 * d_eps / sin_theta
-            } else {
-                f64::INFINITY
-            };
-            eprintln!("[triple-junction-exp] v={v} rho={rho:.3e} gate={gate:.3e}");
-            if rho > gate {
-                return Err(stop(Stage4InvalidReason::OffCurveBeyondChordBand));
-            }
-            vert_circle.remove(&v);
-            vert_ellipse.remove(&v);
-            vert_cone_ellipse.remove(&v);
-            vert_parabola.remove(&v);
-            vert_cone_hyperbola.remove(&v);
-            vert_line.remove(&v);
-            endpoints.retain(|&x| x != v);
-            triple_junction_moves.push((v, proj, rho));
         }
     }
 
@@ -11774,15 +11773,6 @@ fn stage4_relocate_and_correct(
     let mut processed: HashSet<u32> = HashSet::new();
     let mut moved: HashSet<u32> = HashSet::new();
     let mut relocations: Vec<(u32, f64)> = Vec::new();
-    // EXPERIMENTAL (task #121): apply the triple-junction moves collected
-    // above (spec I3: NOT added to processed/relocations; source stays
-    // BRepVertex, position exact). Empty unless the env gate is set.
-    for &(v, proj, rho) in &triple_junction_moves {
-        if rho > cad_primitives::TAU_WORK {
-            mesh.verts[v as usize] = proj;
-            moved.insert(v);
-        }
-    }
     // Deterministic order: BTreeMap iteration.
     for (&v, &(center, normal, radius, src_r)) in &vert_circle {
         let p = mesh.verts[v as usize];

@@ -1,17 +1,26 @@
 # Spec: Stage-1 cap-rim junction insertion (§4.3.3 Case IV, N2/F0059 epic increment 2)
 
-> Status (2026-07-10): slices A (derivation) + B (wiring) IMPLEMENTED —
-> measured on F0059 (task #122). The wiring's scope gate: junction
-> insertion applies only to a pair with NO Stage-0 interaction (planar
-> stage0 None and no coincident-cylinder pairs), which keeps every Stage-0
-> re-tessellation path byte-identical (branch row 3's pass-through trap is
-> AVOIDED rather than threaded in v1). Verified on F0059: all 8 exact
-> corners per operand inserted; the wall moves to the inserted junction's
-> over-determined Stage-4 audit (vertex 6, LocalRefinementRequired) —
-> increment 3 (the exactness-first escape below) is the converter.
+> **Status (2026-07-10): SHIPPED — increments 2 AND 3; F0059
+> ERROR→SUPPORTED_CORRECT end-to-end.** Slice A (derivation) + slice B
+> (wiring, scope-gated to pairs with NO Stage-0 interaction so every
+> Stage-0 re-tessellation path stays byte-identical) + increment 3, whose
+> FINAL FORM is a **pre-scan exactness certificate**, not the post-scan
+> escape sketched below: the corner junctions trip INSERT-TIME detectors
+> during the Stage-4 conic scan (measured: the line∩line "out of scope"
+> STOP — the corner terminates capA's and capB's trim lines), so the
+> certificate must run BEFORE the scan. `exact_junctions` = vertices whose
+> inc0 incidence carries ≥3 distinct surfaces with position within
+> TAU_WORK of every one; certified vertices are skipped by every map
+> insertion (no conic map, no junction map, no `endpoints`), leaving every
+> detector/audit unchanged for inexact vertices. F0059's 8 corners certify
+> on 4 surfaces each; union completes watertight; the truncated-Steinmetz
+> exact-volume green target is un-ignored GREEN
+> (`tests/rim_junction_insertion.rs`). The twice-reverted Newton
+> triple-junction handler is now UNNECESSARY for this class and its banked
+> copy was REMOVED (`yang_stage4_conic_triple_junction.md` remains the
+> design record should an INEXACT junction class ever demand relocation).
 > Successor to increment 1 (`yang_collapse_membrane_cancellation`,
-> SHIPPED) in the N2/F0059 epic; plan of record in
-> `yang_stage4_conic_triple_junction.md`'s 2026-07-10 status block.
+> SHIPPED) in the N2/F0059 epic.
 
 ## Goal
 

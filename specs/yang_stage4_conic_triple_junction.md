@@ -1,5 +1,16 @@
 # Spec: Stage-4 general conic triple-surface junction relocation
 
+> **Status (2026-07-10 EOD): SUPERSEDED for the F0059 class — the case is
+> SUPPORTED_CORRECT without this handler.** The epic's increments 2+3
+> (spec `yang_rim_junction_insertion`: Stage-1 rim junction insertion +
+> the pre-scan exactness certificate) resolve the over-determined
+> junctions STRUCTURALLY: the corners are minted exact at Stage 1, so no
+> Newton relocation is ever needed. The banked env-gated copy of this
+> handler was removed. This spec remains the design record for a future
+> class of INEXACT ≥3-surface junctions (chord-error vertices needing
+> genuine relocation) — none currently demands it (R0004/R0017/R0019
+> etc. fall outside its trigger; see the increment-1 census below).
+
 > **Status (2026-07-10, increment 1 of the N2/F0059 epic COMPLETE — task
 > #121): the Stage-6 "double-cover" origin is FOUND and FIXED, and both
 > candidate origins in the 2026-07-08 block below are WRONG.** Measured on

@@ -660,6 +660,33 @@ the roadmap's remaining work:
    junction insertion; increment 3 = wire the handler (green = F0059
    end-to-end). Probes banked: `YANG_DOUBLECOVER_PROBE` (dup-triple scans +
    collapse-site tags), wedge-dump under `NONMANIFOLD_SITE_PROBE`.
+   **N2/F0059 epic increments 2+3 SHIPPED 2026-07-10 (spec
+   `specs/yang_rim_junction_insertion.md`, task #122) — F0059
+   ERROR→SUPPORTED_CORRECT end-to-end; assay 232 CORRECT / 0 WRONG /
+   45 ERROR / 0 TIMEOUT, zero-lost (R0015 also advances: its junction
+   resolves and it lands on the TYPED M8 coplanar boundary,
+   ERROR→UNSUPPORTED).** Increment 2 = Stage-1 rim junction insertion:
+   `rim_junctions_against` derives the exact §4.3.3 Case-IV points where
+   a full-circle rim transversally crosses the other operand's
+   parallel-axis cylinder laterals (circle∩line closed forms; lateral
+   extent from loop circles ±TAU_WORK keeps boundary triple corners;
+   tangency gate = root pair < TAU_MODEL), wired via
+   `from_topology_with_rim_overrides` + the M8-incr-6
+   `stage1_tessellate_with_rim_overrides` vocabulary, scope-gated to
+   pairs with NO Stage-0 interaction (the incr-15 pass-through trap is
+   avoided, not threaded). Increment 3's final form is a **pre-scan
+   exactness certificate** (measured: the corners trip INSERT-TIME
+   detectors — the line∩line "out of scope" STOP — so the planned
+   post-scan escape can never run): `exact_junctions` = vertices with ≥3
+   distinct inc0 surfaces all within TAU_WORK, skipped by every Stage-4
+   map insertion; everything inexact keeps today's loud walls. The
+   twice-reverted Newton triple-junction handler is UNNECESSARY for this
+   class and was removed (its spec stays as the design record).
+   Green pins un-ignored: truncated-Steinmetz exact-volume union +
+   never-stops-at-Stage-4 (`yang-rs/tests/rim_junction_insertion.rs`).
+   Remaining named residue: quartic-class rim junctions (transversal
+   axis), partial-arc rims, the ring-reject family (F0045/R0011 — no rim
+   junctions, different mechanism), the 13 other Stage-4 LRR configs.
    **ERROR-census campaign 3 SHIPPED 2026-07-08 (spec
    `specs/cut_consumes_body.md`):** the EmptyBooleanResult cluster
    (R0023/R0027/R0058/R0088) is ONE mechanism — a cut whose tool ENGULFS
