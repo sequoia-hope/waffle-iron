@@ -279,11 +279,27 @@ the roadmap's remaining work:
    >    (ii) `overlay-failed RoundingCollapse` (F0067, C0048, R0053) —
    >    femto-slab CELLS whose exact-positive triangles round to
    >    f64-collinear slivers (measured: all three verts share one f64
-   >    x). Named follow-up `m8-overlay-femto-slab-emission`: the sliver
-   >    is a vertical-decomposition Steiner artifact, not input geometry
-   >    — candidate fix is exact T-subdivision repair at the emission
-   >    gate (N22 pattern) or per-region re-emission; input welding is
-   >    NOT the path (two P10-reverted variants, spec
+   >    x). **2026-07-10: the emission-gate T-subdivision candidate was
+   >    prototyped and REFUTED (P10 abort record in spec
+   >    `m8_overlay_femto_slab_emission` §8).** Clean slab needles ARE
+   >    locally repairable, but the measured walls are not: (ii-a)
+   >    C0048's twin corners mint crossing points EXACTLY collinear on
+   >    an input chord while every off-chord vertex rounds onto the same
+   >    f64 event column — every local apex is exactly degenerate or
+   >    f64-collinear; needs per-region re-emission fanning femto
+   >    boundary sub-segments to FAR apexes (constrained snap-rounding
+   >    grade). (ii-b) R0053 has twin mints on one input edge (union
+   >    boundary) whose ROUNDED order inverts their exact order — NO
+   >    triangulation over the fixed rounded vertex set exists; fix
+   >    belongs at the MINT SITE (sub-representable twin collapse at
+   >    emission = the KV15b/A14.2 class, increment-4 precedent), which
+   >    joins this sub-case to mechanism (iii) below. Free T-subdivision
+   >    chaining CYCLES (measured fixpoint churn); strict-progress
+   >    restores termination but cannot pass the two walls. Banked:
+   >    `[sliver-probe]`/`[pocket-probe]` structure census on the gate's
+   >    error path + corpus wall pins
+   >    (`yang-rs/tests/m8_overlay_femto_slab_emission.rs`). Input
+   >    welding remains NOT the path (two P10-reverted variants, spec
    >    `m8_shared_boundary_identity` §2b/2c scope limits).
    >    (iii) `overlay-failed DegenerateLoop` (R0007, R0071) — MICRO-scale
    >    models (~1e-4): chained inputs carry SUB-FLOOR (~7e-8 <

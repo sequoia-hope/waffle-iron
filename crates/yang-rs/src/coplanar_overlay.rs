@@ -540,6 +540,15 @@ pub fn coplanar_overlay(
     //   (b) three DISTINCT f64 verts that rounded into collinearity — a real
     //       sliver whose removal could leave a gap or whose retention flips a
     //       neighbour. This stays a LOUD reject (P9 — never silently dropped).
+    //       Emission-gate repair (T-subdivision + same-class quad flips) was
+    //       prototyped and REFUTED 2026-07-10 (spec
+    //       `m8_overlay_femto_slab_emission`, P10 abort record): the
+    //       measured corpus slivers include mint triples exactly collinear
+    //       on one input chord (every local apex is exactly degenerate) and
+    //       twin mints whose ROUNDED order inverts their exact order along
+    //       an input edge (no triangulation over the fixed rounded vertex
+    //       set can be positive) — the walls need per-region re-emission /
+    //       mint-site collapse, not local surgery.
     let mut kept_tris = Vec::with_capacity(overlay.tris.len());
     let mut kept_class = Vec::with_capacity(overlay.class.len());
     for (tri, cls) in overlay.tris.iter().zip(overlay.class.iter()) {
@@ -555,20 +564,7 @@ pub fn coplanar_overlay(
             RoundedTri::CoincidentNeedle => continue,
             // (b) genuine collinear sliver — loud.
             RoundedTri::CollinearSliver => {
-                // Diagnosis probe (read-only, env-gated): report the sliver's
-                // rounded coordinates so a femto-slab collapse can be joined
-                // back to its minting event columns.
-                if std::env::var_os("YANG_POLY_PROBE").is_some() {
-                    eprintln!(
-                        "[sliver-probe] tri {tri:?} verts ({},{}) ({},{}) ({},{})",
-                        a2.x(),
-                        a2.y(),
-                        b2.x(),
-                        b2.y(),
-                        c2.x(),
-                        c2.y()
-                    );
-                }
+                probe_sliver(&overlay, tri, &all_edges, "collapse");
                 return Err(CoplanarOverlayError::RoundingCollapse { tri: *tri });
             }
         }
@@ -577,6 +573,77 @@ pub fn coplanar_overlay(
     overlay.class = kept_class;
 
     Ok(overlay)
+}
+
+/// Diagnosis probe (read-only, env-gated on `YANG_POLY_PROBE`): report an
+/// irreparable sliver's rounded coordinates plus a per-edge structure
+/// census (on-input-segment flags, neighbour triangle + classes) so a
+/// femto-slab collapse can be joined back to its minting event columns.
+fn probe_sliver(
+    overlay: &ClassifiedOverlay,
+    tri: &[u32; 3],
+    input_edges: &[(ExactPoint2, ExactPoint2)],
+    why: &str,
+) {
+    if std::env::var_os("YANG_POLY_PROBE").is_none() {
+        return;
+    }
+    let v = |i: u32| overlay.verts[i as usize];
+    if let Some(pos) = overlay.tris.iter().position(|t| t == tri) {
+        eprintln!("[sliver-probe] {why} self-class={:?}", overlay.class[pos]);
+    }
+    eprintln!(
+        "[sliver-probe] {why} tri {tri:?} verts ({},{}) ({},{}) ({},{})",
+        v(tri[0]).x(),
+        v(tri[0]).y(),
+        v(tri[1]).x(),
+        v(tri[1]).y(),
+        v(tri[2]).x(),
+        v(tri[2]).y()
+    );
+    for k in 0..3 {
+        let (i, j) = (tri[k], tri[(k + 1) % 3]);
+        let (p, q) = (
+            &overlay.exact_verts[i as usize],
+            &overlay.exact_verts[j as usize],
+        );
+        let on_input = input_edges.iter().any(|(e0, e1)| {
+            cross_r(e0, e1, p) == RBig::ZERO
+                && cross_r(e0, e1, q) == RBig::ZERO
+                && between_box(e0, e1, p)
+                && between_box(e0, e1, q)
+        });
+        let nb = overlay
+            .tris
+            .iter()
+            .zip(&overlay.class)
+            .enumerate()
+            .find(|(_, (t, _))| *t != tri && t.contains(&i) && t.contains(&j));
+        eprintln!(
+            "[sliver-probe]   edge ({i},{j}) on-input={on_input} neighbor={:?}",
+            nb.map(|(ti, (_, c))| (ti, *c)),
+        );
+    }
+    // Local-complex census: every triangle touching the sliver's vertices,
+    // with rounded coords, class, and rounded disposition — joins a stuck
+    // sliver back to its femto cluster (chord-collinear mint triples,
+    // order-inverted twin pairs).
+    for (j, (t, c)) in overlay.tris.iter().zip(&overlay.class).enumerate() {
+        if t.iter().any(|vt| tri.contains(vt)) {
+            let d = rounded_tri_disposition(v(t[0]), v(t[1]), v(t[2]));
+            let vv = |i: u32| {
+                let p = v(i);
+                format!("{}@({},{})", i, p.x(), p.y())
+            };
+            eprintln!(
+                "[pocket-probe] tri {j} {:?} {c:?} {d:?}: {} {} {}",
+                t,
+                vv(t[0]),
+                vv(t[1]),
+                vv(t[2])
+            );
+        }
+    }
 }
 
 /// How a positively-oriented EXACT overlay triangle fares when its vertices are
@@ -617,6 +684,22 @@ fn rounded_tri_disposition(a: Point2, b: Point2, c: Point2) -> RoundedTri {
 /// (`pub(crate)` since PR-YR26 for the Stage-0 ring-orientation check.)
 pub(crate) fn cross_r(a: &ExactPoint2, b: &ExactPoint2, c: &ExactPoint2) -> RBig {
     (&b.x - &a.x) * (&c.y - &a.y) - (&b.y - &a.y) * (&c.x - &a.x)
+}
+
+/// `q` within the closed axis-aligned bounding box of `[a, b]` (used with
+/// exactly collinear `q` for on-segment tests).
+fn between_box(a: &ExactPoint2, b: &ExactPoint2, q: &ExactPoint2) -> bool {
+    let (xlo, xhi) = if a.x <= b.x {
+        (&a.x, &b.x)
+    } else {
+        (&b.x, &a.x)
+    };
+    let (ylo, yhi) = if a.y <= b.y {
+        (&a.y, &b.y)
+    } else {
+        (&b.y, &a.y)
+    };
+    &q.x >= xlo && &q.x <= xhi && &q.y >= ylo && &q.y <= yhi
 }
 
 /// Exact f64 → RBig; fails on NaN / infinity. (`pub(crate)` since N2-3a for
