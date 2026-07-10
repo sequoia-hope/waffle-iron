@@ -812,9 +812,13 @@ code today. The map:
 | `boolean.rs` | the `boolean()` driver, provenance, coplanar-scan glue |
 | `tests_unit/` | the former in-file `mod tests`, split by campaign group |
 
-Follow-ups (each needs its own spec): `stage0.rs` (8.6k lines) same
-treatment; tighten the `use crate::*` wildcard imports the move left in
-the stage modules.
+`stage0.rs` got the same treatment same-day (spec
+`specs/stage0_decomposition.md`): now `stage0/` — mod.rs (doc + structs +
+`stage0_preprocess`) with frame / reloc / rim_chords / disc_pair /
+mesh_build / cylinder siblings, test mods with their subject files.
+Remaining follow-ups: tighten the `use crate::*` / `use super::*` wildcard
+imports the moves left behind; `kernel-v2/src/boolean.rs` is the next
+god-module candidate.
 
 ## 1. Thesis: decouple "functional Yang" from "native arrangement complete"
 

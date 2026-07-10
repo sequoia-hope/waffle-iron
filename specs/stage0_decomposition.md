@@ -96,3 +96,22 @@ discipline).
 
 None required — no algorithm change (P8 n/a); boundaries follow the module's
 own campaign regions.
+
+## As executed (2026-07-10)
+
+All 7 increments landed same-day, each green (`cargo test -p yang-rs`
+641/0 + kernel-v2 check + clippy/fmt). Final layout: mod.rs 1,382
+(doc + structs + stage0_preprocess driver), cylinder.rs 1,305,
+disc_pair.rs 690, frame.rs 1,248, mesh_build.rs 1,629, reloc.rs 1,562,
+rim_chords.rs 866 — 53 stage0 tests conserved, test mods with their
+subject files. Notes:
+
+- stage0 uses `// ═══` (box-drawing) banners, not `// ===` — the region
+  census in this spec came from the item survey; banners were folded into
+  the matching cuts once discovered (the orphaned PR-5 banner was rehomed
+  to cylinder.rs).
+- Only two visibility promotions beyond the standard item/field sweep:
+  `Frame`'s impl methods and `LabelMockBackend`-style test seams — all
+  pub(crate).
+- Fast tier all-green at completion; assay byte-identity result recorded in
+  the session report.
