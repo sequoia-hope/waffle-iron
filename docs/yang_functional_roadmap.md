@@ -234,12 +234,28 @@ the roadmap's remaining work:
    >    event column) — the full disc-stack generalization was required.
    >    Assay 216 CORRECT / 0 WRONG, zero lost: F0075 → CORRECT, R0059 →
    >    typed ring-reject ERROR. Remaining sub-walls (typed):
-   >    `mixed-arc-lateral-holed` (R0021 R0026 R0051 — the arc bounds a
-   >    WINDOWED lateral; its KV14 CDT boundary chains splice
-   >    `loop_polyline` directly, so insertion likely needs NO opposite
-   >    pairing — named next increment), `mixed-arc-lateral-not-cylinder`,
-   >    `mixed-arc-lateral-unpaired`, Ellipse edges (`face-unsupported`,
-   >    no ellipse mint).
+   >    `mixed-arc-lateral-not-cylinder`, `mixed-arc-lateral-unpaired`
+   >    (hole-free Slice-D laterals — the increment-2 one-sided mechanism
+   >    plausibly applies, no corpus case targets it), Ellipse edges
+   >    (`face-unsupported`, no ellipse mint).
+   > 3b. **Increment 2 — HOLED (chain-consuming) laterals SHIPPED
+   >    2026-07-10 (spec `specs/m8_mixed_arc_lateral_holed.md`, 36ee1b88).**
+   >    `mixed-arc-lateral-holed` lifted: a holed cylinder lateral takes the
+   >    KV14 unroll+CDT path, which splices its boundary loops from the
+   >    shared per-edge chains (`loop_polyline`) — no strip index-pairing
+   >    constraint, so the crossing split point inserts ONE-SIDED into the
+   >    arc's own chain. `arc_lateral_opposite` classifies Strip vs
+   >    ChainConsuming and verifies loop spliceability before admitting
+   >    (a non-spliceable loop keeps the typed wall rather than degrading
+   >    to Stage-1 MalformedTopology). R0021 → CORRECT; R0026/R0051 →
+   >    typed downstream walls (Stage-3 AmbiguousCurve conic class,
+   >    Stage-6 Newell-normal validation). TEST-PHASE FINDING (spec
+   >    amendment 1, named follow-up `kv14-lateral-cdt-chord-bound`): the
+   >    KV14 holed-lateral CDT is boundary-only EARCUT with no
+   >    triangle-quality bound — unsampled seam rulings make it fan wall
+   >    triangles to window corners (radial sag ~5× the one-chord sagitta
+   >    in the windowed-half-cylinder fixture, mesh under-fills ~15%
+   >    watertight). Union oracles use delta-volume (sag cancels).
    > 4. **Disc rim on a non-cylinder lateral** (`rim-lateral-none`: R0050,
    >    R0025 2nd wall) — `lateral_for_cap` is cylinder-only; R0025's rim
    >    lateral is a TORUS (circle-revolve), so crossing propagation +
