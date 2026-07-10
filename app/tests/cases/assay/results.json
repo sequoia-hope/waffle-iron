@@ -1,8 +1,8 @@
 {
-  "errored": 53,
+  "errored": 55,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 217,
+  "passed": 221,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -209,10 +209,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(multi-shell)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: multi-shell operand (2 shells — an internal void or                      disjoint bodies cannot re-enter yang-rs reassembly yet). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 194 is invalid: LocalRefinementRequired\"). Body created as standalone.",
       "id": "R0035",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -455,10 +455,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(multi-shell)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: multi-shell operand (3 shells — an internal void or                      disjoint bodies cannot re-enter yang-rs reassembly yet). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.",
       "id": "R0076",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "ERROR",
@@ -1589,28 +1589,28 @@
       "status": "error"
     },
     {
-      "category": "UNSUPPORTED(multi-shell)",
-      "detail": "1 NotSupported boundary(ies); first: ef04b923-fde2-4ea5-b9d7-efb7dda93955: operation error: kernel error: operation not supported: boolean_subtract: multi-shell operand (2 shells — an internal void or                      disjoint bodies cannot re-enter yang-rs reassembly yet)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0071",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(multi-shell)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: multi-shell operand (2 shells — an internal void or                      disjoint bodies cannot re-enter yang-rs reassembly yet). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0072",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(multi-shell)",
-      "detail": "1 NotSupported boundary(ies); first: 01240724-0860-47e7-8bf6-bdb7e8265917: operation error: kernel error: operation not supported: boolean_subtract: multi-shell operand (2 shells — an internal void or                      disjoint bodies cannot re-enter yang-rs reassembly yet)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0073",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(multi-shell)",
-      "detail": "1 NotSupported boundary(ies); first: 1a7d0624-168d-40e2-a550-3cb7f6540b92: operation error: kernel error: operation not supported: boolean_intersect: multi-shell operand (2 shells — an internal void or                      disjoint bodies cannot re-enter yang-rs reassembly yet)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0074",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",

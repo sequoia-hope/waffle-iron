@@ -353,13 +353,6 @@ impl KernelV2Adapter {
                      tessellation yet)"
                 )))
             }
-            // PR-KV7: multi-shell operands (internal voids / disjoint
-            // bodies) cannot re-enter yang-rs — a declared boundary.
-            Err(KernelV2Error::UnsupportedMultiShellBoolean { shells }) => {
-                Err(Self::not_supported(&format!(
-                    "{op_name}: multi-shell operand ({shells} shells — an internal void or                      disjoint bodies cannot re-enter yang-rs reassembly yet)"
-                )))
-            }
             // Spec `cut_consumes_body`: an empty result is a CORRECT boolean
             // conclusion (the tool consumed all material), surfaced typed so
             // the engine can apply body-lifetime policy instead of recording

@@ -2960,6 +2960,33 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   re-entry of bodies with internal voids is the next chain wall (yang
   BRep input has no shell structure; reassembly cannot rebuild voids —
   the XOR-class limitation).
+  **KV7-F2 RESOLVED 2026-07-10 (spec `kv2_multishell_boolean_operands` +
+  amendment 1): the multi-shell operand wall is REMOVED.** Multi-shell
+  operands of every flavor — disjoint lumps (disjoint auto-unions /
+  multi-region extrudes), interlocking lumps (the
+  `split_solid_into_bodies` under-split shape, R0035), and INTERNAL VOIDS
+  (fully-enclosed subtracts, C0071) — re-enter `boolean_op`.
+  `to_yang_brep_indexed` always emitted every shell into one
+  multi-component BRep; only the guard blocked it. The pipeline is
+  component- and cavity-agnostic: Cherchi 2022 §2.4/§5 in/out labeling is
+  ray-cast parity against each whole input mesh (a cavity-interior point
+  crosses two boundaries → OUTSIDE), the Stage-4 Euler gate is per
+  connected shell, and `from_yang_brep` + `face_components` already
+  assemble multi-component outputs into multi-shell solids. The PR-KV7
+  "reassembly cannot rebuild voids" claim was measured STALE
+  (`KV2_MULTISHELL_PROBE` bypass: C0071's genuine void operand runs
+  SUPPORTED_CORRECT with exact volume);
+  `KernelV2Error::UnsupportedMultiShellBoolean` is deleted. Tests:
+  `kernel-v2/tests/multishell_boolean_operands.rs` (exact-volume
+  union/subtract/intersect on 2-lump operands, lump-consumed subtract,
+  voided-box suite incl. a tunnel that OPENS the cavity and an
+  intersect straddling the cavity wall); the kv6b re-entry pin flipped
+  to the positive `revolve_boolean_voided_output_reenters_boolean`.
+  Assay: the entire `UNSUPPORTED(multi-shell)` category (6 cases)
+  clears — C0071/C0072/C0073/C0074 → SUPPORTED_CORRECT, R0035 → typed
+  Stage-4 `LocalRefinementRequired` ERROR, R0076 → typed
+  `InvalidBooleanOutput` edge-pairing ERROR (both join their honest
+  shared error classes).
 
 - **KV6a — revolve (kernel-v2). ✅ COMPLETE (2026-06-11, PR-KV6a).**
   Partial angles (0,2π) AND full 360° for polygon profiles with

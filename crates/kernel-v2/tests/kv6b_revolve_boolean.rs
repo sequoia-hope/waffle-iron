@@ -354,31 +354,31 @@ fn revolve_boolean_deterministic() {
 }
 
 // =========================================================================
-// 8. What remains walled: OUTPUT re-entry (chord-polyline boundaries)
+// 8. OUTPUT re-entry of a voided solid (former PR-KV7 multi-shell wall,
+//    lifted by spec `kv2_multishell_boolean_operands` amendment 1)
 // =========================================================================
 
 #[test]
-fn revolve_boolean_output_reentry_stays_typed_wall() {
+fn revolve_boolean_voided_output_reenters_boolean() {
     let mut arena = BrepArena::new();
     let r = revolve_rect(&mut arena, PI / 2.0);
     let b = box_solid(&mut arena, (1.0, 1.8), (1.2, 1.7), (0.2, 0.7));
     let out = boolean_op(&mut arena, r.solid, b, BoolOp::Subtract)
         .unwrap_or_else(|e| panic!("first boolean: {e:?}"));
-    // PR-KV7: the pocket box is fully interior, so the first output is a
-    // TWO-SHELL solid (wedge + internal void). Output curve recovery
-    // removed the chord-polyline wall that used to shadow this, exposing
-    // the real boundary: yang's flat-face-list input has no shell
-    // structure and its reassembly cannot rebuild voids — the typed
-    // multi-shell wall.
+    // The pocket box is fully interior, so the first output is a TWO-SHELL
+    // solid (wedge + internal void). Formerly the typed
+    // `UnsupportedMultiShellBoolean` re-entry wall; the pipeline's parity
+    // in/out labeling is cavity-agnostic, so the voided solid re-enters a
+    // boolean and the void's volume deficit is preserved exactly.
+    assert_eq!(arena.solid(out).unwrap().shells.len(), 2, "wedge + void");
+    let v_before = geom::signed_volume(&arena, out).unwrap();
     let b2 = box_solid(&mut arena, (10.0, 11.0), (10.0, 11.0), (10.0, 11.0));
-    let err =
-        boolean_op(&mut arena, out, b2, BoolOp::Union).expect_err("output re-entry stays walled");
+    let out2 = boolean_op(&mut arena, out, b2, BoolOp::Union)
+        .unwrap_or_else(|e| panic!("voided output re-entry: {e:?}"));
+    let v_after = geom::signed_volume(&arena, out2).unwrap();
     assert!(
-        matches!(
-            err,
-            KernelV2Error::UnsupportedMultiShellBoolean { shells: 2 }
-        ),
-        "typed multi-shell wall, got {err:?}"
+        (v_after - (v_before + 1.0)).abs() < 1e-9,
+        "union with disjoint unit box adds exactly 1.0: {v_before} -> {v_after}"
     );
 }
 

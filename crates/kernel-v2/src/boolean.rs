@@ -2551,14 +2551,18 @@ pub fn boolean_op(
     b: SolidId,
     op: BoolOp,
 ) -> Result<SolidId, KernelV2Error> {
-    // PR-KV7: yang's input has no shell structure and its reassembly cannot
-    // rebuild voids — wall multi-shell operands loudly (typed).
-    for s in [a, b] {
-        let shells = arena.solid(s)?.shells.len();
-        if shells > 1 {
-            return Err(KernelV2Error::UnsupportedMultiShellBoolean { shells });
-        }
-    }
+    // Spec `kv2_multishell_boolean_operands` (KV7-F2): multi-shell operands
+    // — disjoint lumps, interlocking lumps, AND internal voids — are
+    // admitted. `to_yang_brep_indexed` emits every shell into one
+    // multi-component BRep, and the pipeline is component- and
+    // cavity-agnostic: the Cherchi 2022 §2.4/§5 in/out labeling is
+    // ray-cast parity against each whole input mesh (a cavity-interior
+    // point crosses two boundaries and classifies OUTSIDE), the Stage-4
+    // Euler gate is per connected shell, and `from_yang_brep` assembles
+    // multi-component outputs into multi-shell solids (production since
+    // the disjoint-union path). The former PR-KV7 wall
+    // (`UnsupportedMultiShellBoolean`) pinned a stale "reassembly cannot
+    // rebuild voids" claim and is deleted.
     let (ya, a_faces) = to_yang_brep_indexed(arena, a)?;
     let (yb, b_faces) = to_yang_brep_indexed(arena, b)?;
     let Some(backend) = yang_rs::native_backend() else {
@@ -2687,35 +2691,23 @@ fn record_boolean_evolution(
     });
 }
 
-/// Decompose a solid into separate body solids by grouping its shells into
-/// spatially-disjoint clusters. Two shells whose axis-aligned bounding boxes
-/// overlap go in the same cluster — so a void shell (its AABB nested inside the
-/// lump's) stays with its lump, while genuinely disjoint lumps (e.g. a union of
-/// far-apart bosses) separate. Returns the original `solid` first (rewritten to
-/// hold the first cluster's shells), then one fresh solid per additional
-/// cluster.
-///
-/// Returns `vec![solid]` unchanged when there is ≤1 shell or every shell
-/// clusters together (one body, possibly with internal voids). AABB-overlap
-/// clustering is deliberately conservative: it never over-splits (two truly
-/// disjoint lumps with overlapping boxes stay one body) — under-splitting is a
-/// benign display artifact, over-splitting would invent bodies.
-pub fn split_solid_into_bodies(
-    arena: &mut BrepArena,
-    solid: SolidId,
-) -> Result<Vec<SolidId>, KernelV2Error> {
-    let shells: Vec<ShellId> = arena.solid(solid)?.shells.clone();
-    if shells.len() <= 1 {
-        return Ok(vec![solid]);
-    }
-
+/// Cluster shells by AABB overlap (closed intervals — touching boxes also
+/// cluster; conservative). Returned in deterministic (union-find root)
+/// order. Shared by [`split_solid_into_bodies`] (body decomposition) and
+/// `boolean_op`'s operand admission (spec `kv2_multishell_boolean_operands`):
+/// a cluster of ≥2 shells is either a lump with an internal void (nested
+/// AABBs) or interlocking lumps — both stay behind the typed multi-shell
+/// wall, while singleton clusters are freely re-enterable disjoint lumps.
+fn shell_aabb_clusters(
+    arena: &BrepArena,
+    shells: &[ShellId],
+) -> Result<Vec<Vec<ShellId>>, KernelV2Error> {
     // Per-shell AABB over its faces' loop vertices.
     let mut boxes: Vec<([f64; 3], [f64; 3])> = Vec::with_capacity(shells.len());
-    for &sh in &shells {
+    for &sh in shells {
         let mut lo = [f64::INFINITY; 3];
         let mut hi = [f64::NEG_INFINITY; 3];
-        let faces = arena.shell(sh)?.faces.clone();
-        for f in faces {
+        for &f in &arena.shell(sh)?.faces {
             let face = arena.face(f)?;
             let mut loops = vec![face.outer_loop];
             loops.extend(face.inner_loops.iter().copied());
@@ -2764,13 +2756,39 @@ pub fn split_solid_into_bodies(
         let r = find(&mut parent, i);
         groups.entry(r).or_default().push(sh);
     }
+    Ok(groups.into_values().collect())
+}
+
+/// Decompose a solid into separate body solids by grouping its shells into
+/// spatially-disjoint clusters. Two shells whose axis-aligned bounding boxes
+/// overlap go in the same cluster — so a void shell (its AABB nested inside the
+/// lump's) stays with its lump, while genuinely disjoint lumps (e.g. a union of
+/// far-apart bosses) separate. Returns the original `solid` first (rewritten to
+/// hold the first cluster's shells), then one fresh solid per additional
+/// cluster.
+///
+/// Returns `vec![solid]` unchanged when there is ≤1 shell or every shell
+/// clusters together (one body, possibly with internal voids). AABB-overlap
+/// clustering is deliberately conservative: it never over-splits (two truly
+/// disjoint lumps with overlapping boxes stay one body) — under-splitting is a
+/// benign display artifact, over-splitting would invent bodies.
+pub fn split_solid_into_bodies(
+    arena: &mut BrepArena,
+    solid: SolidId,
+) -> Result<Vec<SolidId>, KernelV2Error> {
+    let shells: Vec<ShellId> = arena.solid(solid)?.shells.clone();
+    if shells.len() <= 1 {
+        return Ok(vec![solid]);
+    }
+
+    let groups = shell_aabb_clusters(arena, &shells)?;
     if groups.len() <= 1 {
         return Ok(vec![solid]);
     }
 
     // First cluster stays in the original solid; the rest get fresh solids.
     let mut result = Vec::with_capacity(groups.len());
-    let mut clusters = groups.into_values();
+    let mut clusters = groups.into_iter();
     let first = clusters.next().expect("groups.len() > 1");
     arena.solid_mut(solid)?.shells = first;
     result.push(solid);
