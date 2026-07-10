@@ -2988,6 +2988,41 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   `InvalidBooleanOutput` edge-pairing ERROR (both join their honest
   shared error classes).
 
+- **KV15 — per-vertex planar near-weld for MIXED operands. ✅ SHIPPED
+  2026-07-10 (spec `kv15_mixed_operand_planar_near_weld`).** The
+  edge-not-2-directed `InvalidBooleanOutput` class (6 chained-extrude
+  cases) measured to one choke point: upstream ops mint planar femto
+  twins (≤ ~3e-14; Stage-0 overlay `lift_or_snap` for the stacked-Z
+  subfamily, non-boolean machinery for the off-axis subfamily), and the
+  PR-KV10 near-weld that reconciles exactly this class was gated on the
+  WHOLE model being planar — one circle/gear profile anywhere in the
+  chain dropped it to bit-exact, leaving a femto membrane (measured:
+  odd 3-triangle edge uses) that makes Stage-6 patch walks disagree
+  (chord vs twin-stopover chain; the §4B T-subdivision can't repair it —
+  the twin projects AT the chord endpoint, t≈1). Fix: eligibility is now
+  PER VERTEX — near-weld (same band `TAU_WORK·(1+scale)`, same grid,
+  min-index survivor) unions only vertices whose every incident
+  arrangement triangle positively proves planar descent via `la.source`
+  + `tri_face`; curved-adjacent / empty-provenance / sentinel vertices
+  keep bit-exact (kv9 junction-duplicate protection, sidecar producer
+  unchanged; all-planar branch byte-identical). Tests:
+  `edge_pairing_twin_weld_campaign` corpus trackers (F0070/F0081
+  RED→GREEN) + `kv15_*` unit branch coverage, mutation-checked.
+  **Assay 224 CORRECT / 0 WRONG / 52 ERROR / 17 UNSUPPORTED / 0 TIMEOUT**
+  (was 221/0/55/17/0), zero-lost — F0070/F0076/F0081 ERROR→CORRECT, no
+  other movement. **Residue census (named follow-ups):** (1) KV15b —
+  R0076's twins arrive in the chained input at ~3.9e-8: genuinely
+  distinct near-parallel crossings, sub-floor but 8 orders above the
+  representability band; welding at the feature floor is the
+  reverted-R0091 hazard, so the fix belongs at the MINTING boolean
+  (A14.2 collapse at emission); tracker quarantined `#[ignore =
+  "KV15b …"]`. (2) F0079 (+ sites in F0083/F0084) — the residual
+  edge-pairing sites are NOT twins: three single-use edges over
+  COLLINEAR vertices at real scale (chord on one face vs 2-edge chain
+  on the neighbors) — the `yang_stage6_sliver_topology` §4B
+  T-subdivision domain (its `had_fold_sliver` gate / exact-betweenness
+  doesn't reach these sites).
+
 - **KV6a — revolve (kernel-v2). ✅ COMPLETE (2026-06-11, PR-KV6a).**
   Partial angles (0,2π) AND full 360° for polygon profiles with
   axis-parallel/perpendicular edges, axis in-plane, profile strictly one

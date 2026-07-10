@@ -8506,6 +8506,102 @@ fn provenance_face_reason(
     }
 }
 
+/// KV15 (spec `kv15_mixed_operand_planar_near_weld` §3): per-vertex weld
+/// eligibility for MIXED operands. A vertex is CURVED-ADJACENT (ineligible
+/// for the near-weld, `true` in the returned vec) when ANY incident
+/// arrangement triangle fails to prove planar descent: empty provenance
+/// (`source[t]` empty — e.g. the sidecar parity producer, spec W4),
+/// out-of-range / `u32::MAX`-sentinel `tri_face` entries, an out-of-range
+/// face index, or a face whose surface is not `Surface::Plane`
+/// (`face_planar` returns `Some(false)` — or `None` for a bad index).
+/// Conservative by construction: only positively-proven all-planar descent
+/// yields eligibility.
+fn kv15_curved_touch(
+    n_verts: usize,
+    tris: &[[u32; 3]],
+    source: &[Vec<(LaInputId, u32)>],
+    tri_face_a: &[u32],
+    tri_face_b: &[u32],
+    face_planar: impl Fn(u32, u32) -> Option<bool>,
+) -> Vec<bool> {
+    let mut curved = vec![false; n_verts];
+    for (t, tri) in tris.iter().enumerate() {
+        let src = source.get(t).map(Vec::as_slice).unwrap_or(&[]);
+        let tri_curved = src.is_empty()
+            || src.iter().any(|&(LaInputId(k), local)| {
+                let tf: &[u32] = if k == 0 { tri_face_a } else { tri_face_b };
+                match tf.get(local as usize).copied() {
+                    Some(fi) if fi != u32::MAX => !matches!(face_planar(k, fi), Some(true)),
+                    _ => true,
+                }
+            });
+        if tri_curved {
+            for &v in tri {
+                if let Some(slot) = curved.get_mut(v as usize) {
+                    *slot = true;
+                }
+            }
+        }
+    }
+    curved
+}
+
+/// KV15 (spec §3): near-union among planar-only weld roots — the identical
+/// grid, per-pair band `TAU_WORK·(1+max|coord|)`, and min-index-survivor
+/// rule as the all-planar KV10 weld (spec I2/I4). `weld` enters as the
+/// bit-exact weld map (each entry pointing at its cluster's original
+/// representative) and leaves fully resolved. Roots flagged in
+/// `root_curved` never participate (kv9 junction-duplicate protection).
+fn kv15_near_weld_pass(verts: &[Point3], weld: &mut [u32], root_curved: &[bool]) {
+    use std::collections::HashMap;
+    let mut parent: Vec<u32> = weld.to_vec();
+    fn find(parent: &mut [u32], mut x: u32) -> u32 {
+        while parent[x as usize] != x {
+            parent[x as usize] = parent[parent[x as usize] as usize];
+            x = parent[x as usize];
+        }
+        x
+    }
+    let scale = verts
+        .iter()
+        .flat_map(|v| v.as_array())
+        .fold(0.0f64, |m, c| m.max(c.abs()));
+    let band = cad_primitives::TAU_WORK * (1.0 + scale);
+    let cell = |c: f64| -> i64 { (c / band).floor() as i64 };
+    let mut grid: HashMap<[i64; 3], Vec<u32>> = HashMap::new();
+    for i in 0..verts.len() as u32 {
+        if weld[i as usize] != i || root_curved[i as usize] {
+            continue;
+        }
+        let p = verts[i as usize].as_array();
+        let key = [cell(p[0]), cell(p[1]), cell(p[2])];
+        for dx in -1..=1i64 {
+            for dy in -1..=1i64 {
+                for dz in -1..=1i64 {
+                    let Some(occ) = grid.get(&[key[0] + dx, key[1] + dy, key[2] + dz]) else {
+                        continue;
+                    };
+                    for &j in occ {
+                        let q = verts[j as usize].as_array();
+                        let pair_band = cad_primitives::TAU_WORK
+                            * (1.0 + p.iter().chain(q.iter()).fold(0.0f64, |m, c| m.max(c.abs())));
+                        if (0..3).all(|k| (p[k] - q[k]).abs() <= pair_band) {
+                            let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                            if ri != rj {
+                                parent[ri.max(rj) as usize] = ri.min(rj);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        grid.entry(key).or_default().push(i);
+    }
+    for w in weld.iter_mut() {
+        *w = find(&mut parent, *w);
+    }
+}
+
 /// M8 Stage-0 operand dump — diagnostic-only observer (spec
 /// `specs/m8_stage0_inputcheck_clean_emission.md` §6). Env-gated on
 /// `YANG_STAGE0_DUMP_DIR`; zero-cost when unset (never set in production or
@@ -8807,6 +8903,49 @@ pub fn boolean(
     // / mesh re-tessellation path (the coincident-cylinder meshes are already
     // bit-identical: both faces are the identical analytic cylinder).
     let cyl_pairs = stage0::detect_coincident_cylinder_pairs(a, b);
+    // Twin-origin probe (read-only, env-gated): `YANG_INPUT_VERT_PROBE=x,y,z,r`
+    // dumps every INPUT B-Rep vertex and every Stage-0/1 mesh vertex within
+    // radius r of the target point, per operand — to establish whether a
+    // downstream femto-twin pair arrives as two distinct input points
+    // (chained-output drift) or is minted inside this boolean.
+    if let Some(spec) = std::env::var_os("YANG_INPUT_VERT_PROBE") {
+        let nums: Vec<f64> = spec
+            .to_string_lossy()
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
+        if let [x, y, z, r] = nums[..] {
+            let near = |p: &Point3| {
+                let q = p.as_array();
+                let d = [q[0] - x, q[1] - y, q[2] - z];
+                (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() <= r
+            };
+            for (tag, brep) in [("A", a), ("B", b)] {
+                for (i, v) in brep.vertices().iter().enumerate() {
+                    if near(&v.point) {
+                        let q = v.point.as_array();
+                        eprintln!(
+                            "[input-vert-probe] input {tag} brep vert {i}: ({},{},{})",
+                            q[0], q[1], q[2]
+                        );
+                    }
+                }
+            }
+            if let Some(s0) = &stage0 {
+                for (tag, m) in [("A", &s0.mesh_a), ("B", &s0.mesh_b)] {
+                    for (i, v) in m.verts.iter().enumerate() {
+                        if near(v) {
+                            let q = v.as_array();
+                            eprintln!(
+                                "[input-vert-probe] stage0 mesh {tag} vert {i}: ({},{},{})",
+                                q[0], q[1], q[2]
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
     let (mesh_a, mesh_b): (&Mesh, &Mesh) = match &stage0 {
         Some(s0) => (&s0.mesh_a, &s0.mesh_b),
         // No coplanar pairs: the B-Reps' own Stage-1 meshes — byte-for-byte
@@ -8866,6 +9005,14 @@ pub fn boolean(
     // (the KV9 junction duplicate collapse); welding them at step (2)
     // collapses lens-tip seam edges into degenerate (<3-edge) output loops
     // — found by kv9_cyl_cyl_special RED on the first attempt.
+    // Per-triangle B-Rep face maps for the operand meshes — the inputs' OWN
+    // Stage-1 `tri_face` when Stage 0 did not re-tessellate, else the Stage-0
+    // re-tessellated meshes' maps. Consumed by the KV15 weld eligibility
+    // below and by the Stage-6 N4 provenance attribution.
+    let (tri_face_a, tri_face_b): (&[u32], &[u32]) = match &stage0 {
+        Some(s0) => (&s0.tri_face_a, &s0.tri_face_b),
+        None => (a.tri_face(), b.tri_face()),
+    };
     let all_planar = a
         .faces()
         .iter()
@@ -8942,6 +9089,48 @@ pub fn boolean(
                 *first.entry(key).or_insert(i as u32)
             })
             .collect();
+
+        // KV15 (spec `kv15_mixed_operand_planar_near_weld` §3): per-vertex
+        // planar near-weld for MIXED operands. The chained-extrude corpus
+        // mints planar femto twins whose reconciliation is exactly the KV10
+        // near-weld above — but one curved face ANYWHERE in either operand
+        // used to drop the whole model to bit-exact, leaving the twins'
+        // femto membrane to poison Stage-6 patch boundaries (the
+        // edge-not-2-directed InvalidBooleanOutput class). Eligibility is
+        // PER VERTEX: a vertex near-welds only when EVERY incident
+        // arrangement triangle descends, via `la.source` + the operand
+        // `tri_face` map, from a `Surface::Plane` face. Curved-adjacent
+        // vertices keep bit-exact (kv9: cyl×cyl junction duplicates are
+        // structurally distinct — one copy per incident surface's chord
+        // ring — and Stage-4 owns their collapse). Empty / out-of-range /
+        // sentinel provenance marks its vertices ineligible (conservative:
+        // the sidecar parity producer keeps today's behavior, spec W4).
+        {
+            let face_planar = |k: u32, fi: u32| -> Option<bool> {
+                let brep: &BRep = if k == 0 { a } else { b };
+                brep.faces()
+                    .get(fi as usize)
+                    .map(|f| matches!(f.surface, Surface::Plane { .. }))
+            };
+            let curved = kv15_curved_touch(
+                la.mesh.verts.len(),
+                &la.mesh.tris,
+                &la.source,
+                tri_face_a,
+                tri_face_b,
+                face_planar,
+            );
+            // Propagate ineligibility through bit-exact clusters: a root is
+            // curved if ANY member is (a bit-duplicate of a protected
+            // junction vertex must not drag it into a near-weld).
+            let mut root_curved = vec![false; la.mesh.verts.len()];
+            for (i, &c) in curved.iter().enumerate() {
+                if c {
+                    root_curved[weld[i] as usize] = true;
+                }
+            }
+            kv15_near_weld_pass(&la.mesh.verts, &mut weld, &root_curved);
+        }
 
         // PR-6 (coincident-cylinder rim conformal weld). The §4.5.5 planar
         // Stage-0 overlay makes two coincident PLANAR faces' shared loop
@@ -9241,16 +9430,11 @@ pub fn boolean(
     let kept_submesh = Mesh::new(compact_verts, compact_tris);
 
     // (5) Stage 6: face resolution → FULL attribution. PRIMARY path is N4
-    // provenance (cherchi `source` → B-Rep face via the per-triangle face map);
-    // the geometric resolution below is the fallback. The face map is the
-    // inputs' OWN Stage-1 `tri_face` when Stage 0 did not re-tessellate, else the
-    // Stage-0 re-tessellated meshes' `tri_face` (`stage0::Stage0`). Either may be
-    // empty (a Stage-0 path that does not emit provenance yet, or a lineage-less
-    // input) → that triangle falls back to geometric.
-    let (tri_face_a, tri_face_b): (&[u32], &[u32]) = match &stage0 {
-        Some(s0) => (&s0.tri_face_a, &s0.tri_face_b),
-        None => (a.tri_face(), b.tri_face()),
-    };
+    // provenance (cherchi `source` → B-Rep face via the per-triangle face map,
+    // `tri_face_a`/`tri_face_b` bound above the weld); the geometric
+    // resolution below is the fallback. Either map may be empty (a Stage-0
+    // path that does not emit provenance yet, or a lineage-less input) → that
+    // triangle falls back to geometric.
     let mut attributions: Vec<Option<TriangleAttribution>> = Vec::with_capacity(orig_tri.len());
     for (compact_t, &orig_t) in orig_tri.iter().enumerate() {
         let surf = &la.surface[orig_t];
@@ -13761,6 +13945,80 @@ fn subdivide_loops_at_shared_vertices(
     // C++ reference arrangement (which does not carry that vertex on the edge),
     // breaking reference parity. The vertex-loop map above still spans ALL
     // loops, so the sliver side splits at the foreign (fine-side) vertices.
+    // Diagnosis probe (read-only, env-gated): report every loop edge with a
+    // foreign vertex that is ULP-NEAR the open segment (f64 perpendicular
+    // distance < 1e-9) but NOT exactly collinear — the spec §5 S6 residue —
+    // plus whether the owning patch passes the fold-sliver gate at all.
+    if std::env::var_os("YANG_S6_SPLIT_PROBE").is_some() {
+        for (ii, info) in infos.iter().enumerate() {
+            for (ci, cycle) in info.cycles.iter().enumerate() {
+                let lid = cycle_loop_ids[ii][ci];
+                for &(s, e) in cycle {
+                    let pa = mesh.verts[s as usize].as_array();
+                    let pb = mesh.verts[e as usize].as_array();
+                    let ab = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+                    let len2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+                    if len2 == 0.0 {
+                        continue;
+                    }
+                    for (&v, luse) in &vertex_loops {
+                        if v == s || v == e || !luse.iter().any(|&l| l != lid) {
+                            continue;
+                        }
+                        let pv = mesh.verts[v as usize].as_array();
+                        let av = [pv[0] - pa[0], pv[1] - pa[1], pv[2] - pa[2]];
+                        let t = (av[0] * ab[0] + av[1] * ab[1] + av[2] * ab[2]) / len2;
+                        if t <= 0.0 || t >= 1.0 {
+                            continue;
+                        }
+                        let proj = [pa[0] + t * ab[0], pa[1] + t * ab[1], pa[2] + t * ab[2]];
+                        let d = [pv[0] - proj[0], pv[1] - proj[1], pv[2] - proj[2]];
+                        let dist = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                        if dist < 1e-9 && on_open_segment_param(pa, pb, pv).is_none() {
+                            eprintln!(
+                                "[s6-split-probe] info {ii} (face_idx {}) cycle {ci} edge ({s},{e}) \
+                                 near-vertex {v} dist={dist:e} t={t:.6} gate(had_fold_sliver)={}",
+                                info.face_idx, info.had_fold_sliver
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Companion probe: dump every mesh triangle touching a comma-separated
+    // vertex list (env `YANG_S6_VERT_PROBE=842,843,845`) with its area and
+    // which info/cycle (if any) carries each directed edge — to see whether
+    // the mesh is conformal at a suspect femto-twin site.
+    if let Some(list) = std::env::var_os("YANG_S6_VERT_PROBE") {
+        let want: std::collections::BTreeSet<u32> = list
+            .to_string_lossy()
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
+        for (t, tri) in mesh.tris.iter().enumerate() {
+            if !tri.iter().any(|v| want.contains(v)) {
+                continue;
+            }
+            let deg = triangle_is_degenerate(mesh, t as u32);
+            eprintln!(
+                "[s6-vert-probe] tri {t} ({},{},{}) degenerate={deg}",
+                tri[0], tri[1], tri[2]
+            );
+        }
+        for (ii, info) in infos.iter().enumerate() {
+            for (ci, cycle) in info.cycles.iter().enumerate() {
+                for &(s, e) in cycle {
+                    if want.contains(&s) || want.contains(&e) {
+                        eprintln!(
+                            "[s6-vert-probe] info {ii} face_idx {} cycle {ci} edge {s}->{e}",
+                            info.face_idx
+                        );
+                    }
+                }
+            }
+        }
+    }
     let mut out: Vec<Vec<Vec<(u32, u32)>>> = Vec::with_capacity(infos.len());
     for (ii, info) in infos.iter().enumerate() {
         if !info.had_fold_sliver {
@@ -14314,6 +14572,109 @@ mod tests {
             "a genuinely distinct rim point (≥ chord spacing) must lie OUTSIDE \
              the cluster band so the conformal weld never fuses it (no \
              tolerance-bucket masking)"
+        );
+    }
+
+    // KV15 (spec `kv15_mixed_operand_planar_near_weld` §4): the mixed-operand
+    // per-vertex near-weld. W2 — a planar-only femto pair (2 ULPs) fuses to
+    // the min index; W3 — a curved-adjacent root never near-welds (kv9
+    // junction-duplicate protection); W5 — genuinely distinct features
+    // (≥ MIN_FEATURE_SIZE) sit far outside the band and never fuse.
+    #[test]
+    fn kv15_planar_femto_pair_welds_to_min_index() {
+        let base = p(1.0, 0.0, 0.3);
+        let twin = p(1.0 + 2.0 * f64::EPSILON, 0.0, 0.3);
+        let verts = vec![base, twin];
+        let mut weld = vec![0u32, 1u32];
+        kv15_near_weld_pass(&verts, &mut weld, &[false, false]);
+        assert_eq!(
+            weld,
+            vec![0, 0],
+            "W2: a planar femto pair fuses, min-index survivor"
+        );
+    }
+
+    #[test]
+    fn kv15_curved_adjacent_root_never_near_welds() {
+        let base = p(1.0, 0.0, 0.3);
+        let twin = p(1.0 + 2.0 * f64::EPSILON, 0.0, 0.3);
+        let verts = vec![base, twin];
+        for flags in [[true, false], [false, true], [true, true]] {
+            let mut weld = vec![0u32, 1u32];
+            kv15_near_weld_pass(&verts, &mut weld, &flags);
+            assert_eq!(
+                weld,
+                vec![0, 1],
+                "W3: a curved-adjacent root (flags {flags:?}) must keep bit-exact \
+                 identity — Stage-4 owns junction-duplicate collapse"
+            );
+        }
+    }
+
+    #[test]
+    fn kv15_distinct_features_never_fuse() {
+        // 1e-4 apart at coordinate scale ~1 — eight orders beyond the
+        // TAU_WORK·(1+scale) band; the pair must never fuse (no
+        // tolerance-bucket masking, the reverted-F0057 hazard).
+        let verts = vec![p(1.0, 0.0, 0.3), p(1.0 + 1.0e-4, 0.0, 0.3)];
+        let mut weld = vec![0u32, 1u32];
+        kv15_near_weld_pass(&verts, &mut weld, &[false, false]);
+        assert_eq!(
+            weld,
+            vec![0, 1],
+            "W5: sub-floor is the mint-site's job; ≥-floor never fuses"
+        );
+    }
+
+    /// KV15 spec W4 + §3 eligibility: only positively-proven all-planar
+    /// descent yields an eligible (non-curved) vertex. Empty provenance,
+    /// sentinel / out-of-range `tri_face` entries, an unknown face, and a
+    /// non-planar face all mark every vertex of the triangle curved.
+    #[test]
+    fn kv15_eligibility_is_conservative() {
+        let tris = vec![[0u32, 1, 2]];
+        let planar_a = |k: u32, fi: u32| (k == 0 && fi == 7).then_some(true);
+        // Positively proven planar descent → eligible.
+        let src = vec![vec![(LaInputId(0), 0u32)]];
+        assert_eq!(
+            kv15_curved_touch(3, &tris, &src, &[7], &[], planar_a),
+            vec![false; 3],
+            "proven planar descent is eligible"
+        );
+        // Empty provenance (sidecar producer) → curved.
+        assert_eq!(
+            kv15_curved_touch(3, &tris, &[Vec::new()], &[7], &[], planar_a),
+            vec![true; 3],
+            "W4: empty provenance stays bit-exact"
+        );
+        // Sentinel tri_face entry → curved.
+        assert_eq!(
+            kv15_curved_touch(3, &tris, &src, &[u32::MAX], &[], planar_a),
+            vec![true; 3],
+            "sentinel face map entry stays bit-exact"
+        );
+        // Out-of-range local tri index → curved.
+        let src_oob = vec![vec![(LaInputId(0), 9u32)]];
+        assert_eq!(
+            kv15_curved_touch(3, &tris, &src_oob, &[7], &[], planar_a),
+            vec![true; 3],
+            "out-of-range provenance stays bit-exact"
+        );
+        // Non-planar face → curved; input B routes through tri_face_b.
+        let cyl_b = |k: u32, fi: u32| (k == 1 && fi == 3).then_some(false);
+        let src_b = vec![vec![(LaInputId(1), 0u32)]];
+        assert_eq!(
+            kv15_curved_touch(3, &tris, &src_b, &[], &[3], cyl_b),
+            vec![true; 3],
+            "a curved-face descendant marks its vertices ineligible"
+        );
+        // Multi-parent (coplanar overlap): ONE curved parent poisons the tri.
+        let mixed = vec![vec![(LaInputId(0), 0u32), (LaInputId(1), 0u32)]];
+        let planar_a_cyl_b = |k: u32, fi: u32| ((k, fi) == (0, 7)).then_some(true).or(Some(false));
+        assert_eq!(
+            kv15_curved_touch(3, &tris, &mixed, &[7], &[3], planar_a_cyl_b),
+            vec![true; 3],
+            "any curved parent of a multi-parent tri stays bit-exact"
         );
     }
 

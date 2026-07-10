@@ -764,6 +764,102 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             coords.push(pt);
         }
 
+        // Twin-origin probe (read-only, env-gated): `YANG_INPUT_VERT_PROBE=
+        // x,y,z,r` — report every RESOLVED overlay vertex within r of the
+        // target, with its resolution branch and this pair's frame, to
+        // localize femto-twin mints to a pair/branch.
+        if let Some(spec) = std::env::var_os("YANG_INPUT_VERT_PROBE") {
+            let nums: Vec<f64> = spec
+                .to_string_lossy()
+                .split(',')
+                .filter_map(|s| s.trim().parse().ok())
+                .collect();
+            if let [x, y, z, r] = nums[..] {
+                for (i, pt) in coords.iter().enumerate() {
+                    let q = pt.as_array();
+                    let d = [q[0] - x, q[1] - y, q[2] - z];
+                    if (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() > r {
+                        continue;
+                    }
+                    let exact = &overlay.exact_verts[i];
+                    let branch = if corners_a.contains_key(exact) {
+                        "corner_a"
+                    } else if corners_b.contains_key(exact) {
+                        "corner_b"
+                    } else if rim_a.contains_key(exact) {
+                        "rim_a"
+                    } else if rim_b.contains_key(exact) {
+                        "rim_b"
+                    } else if minted_mark[i] {
+                        "rim_mint"
+                    } else {
+                        "lift_or_snap"
+                    };
+                    eprintln!(
+                        "[stage0-twin-probe] pair=({},{}) overlay_vert {i} branch={branch} \
+                         pt=({},{},{}) frame.n=({},{},{}) frame.d={}",
+                        p.face_a,
+                        p.face_b,
+                        q[0],
+                        q[1],
+                        q[2],
+                        frame.n[0],
+                        frame.n[1],
+                        frame.n[2],
+                        frame.d
+                    );
+                }
+            }
+        }
+
+        // Twin-scan probe (read-only, env-gated `YANG_STAGE0_TWIN_SCAN`):
+        // report every pair of RESOLVED overlay vertices with distinct exact
+        // 2D coordinates whose 3D images are closer than MIN_FEATURE_SIZE —
+        // the sub-floor femto-twin census for this pair's overlay.
+        if std::env::var_os("YANG_STAGE0_TWIN_SCAN").is_some() {
+            for i in 0..coords.len() {
+                for j in (i + 1)..coords.len() {
+                    let (q, w) = (coords[i].as_array(), coords[j].as_array());
+                    let d = [q[0] - w[0], q[1] - w[1], q[2] - w[2]];
+                    let dist2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                    if dist2 == 0.0
+                        || dist2
+                            >= cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE
+                    {
+                        continue;
+                    }
+                    let branch = |k: usize| {
+                        let exact = &overlay.exact_verts[k];
+                        if corners_a.contains_key(exact) {
+                            "corner_a"
+                        } else if corners_b.contains_key(exact) {
+                            "corner_b"
+                        } else if rim_a.contains_key(exact) {
+                            "rim_a"
+                        } else if rim_b.contains_key(exact) {
+                            "rim_b"
+                        } else if minted_mark[k] {
+                            "rim_mint"
+                        } else {
+                            "lift_or_snap"
+                        }
+                    };
+                    eprintln!(
+                        "[stage0-twin-scan] pair=({},{}) verts {i}/{j} dist={:e} \
+                         branch=({},{}) pt_i=({},{},{})",
+                        p.face_a,
+                        p.face_b,
+                        dist2.sqrt(),
+                        branch(i),
+                        branch(j),
+                        q[0],
+                        q[1],
+                        q[2]
+                    );
+                }
+            }
+        }
+
         // ── Increment 4: sub-floor shared-mint collapse (spec
         // `m8_holed_disc_coplanar_overlay` §8, task #61; A14.2) ──────────
         // The trapezoidal overlay legitimately mints femto-twin split pairs
