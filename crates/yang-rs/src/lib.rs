@@ -1243,7 +1243,7 @@ fn stage1_tessellate_inner(
             else {
                 continue;
             };
-            let d_eps = 1e-2 * major_radius;
+            let d_eps = ellipse_chord_bound(major_radius);
             let mut n_seg = 3usize;
             if d_eps > 0.0 {
                 while major_radius * (1.0 - (std::f64::consts::PI / n_seg as f64).cos()) > d_eps {
@@ -5286,6 +5286,35 @@ fn orient_tri(verts: &[Point3], tri: &mut [u32; 3], target: [f64; 3]) {
     }
 }
 
+/// Stage-1 chord bound for an ELLIPSE rim chain (KV14 ellipse-arc re-entry):
+/// `d_ε = 1e-2 · major_radius` — the circle chord rule applied at the
+/// ellipse's worst-case curvature scale. SINGLE SOURCE (A14.3, spec
+/// `yang_s3_ellipse_rim_chord_bound` I3): the Stage-1 ellipse chain pre-pass
+/// derives its sampling from this, and Stage-3's
+/// `chord_tol_for_curved_owner` fallback reuses the SAME bound for owners
+/// whose only curved rims are ellipses.
+fn ellipse_chord_bound(major_radius: f64) -> f64 {
+    1e-2 * major_radius
+}
+
+/// Stage-3 fallback bound for a curved-owning input with NO Circle rim: the
+/// largest Stage-1 ellipse-chain bound over the owner's `Curve::Ellipse`
+/// edges (spec `yang_s3_ellipse_rim_chord_bound` T2 — an obliquely-trimmed
+/// cylinder re-entering from a prior boolean carries ellipse rims only).
+/// `None` when the owner has no ellipse edge either (T3 — the loud producer
+/// fault stands).
+fn ellipse_rim_chord_bound(edges: &[BRepEdge]) -> Option<f64> {
+    edges
+        .iter()
+        .filter_map(|e| match e.curve {
+            Curve::Ellipse { major_radius, .. } => Some(ellipse_chord_bound(major_radius)),
+            _ => None,
+        })
+        .fold(None, |acc: Option<f64>, b| {
+            Some(acc.map_or(b, |a| a.max(b)))
+        })
+}
+
 /// PR-YR8 (P2c): the Stage-1 chord-error bound `d_ε = 1e-2 × analytic-AABB-diag`
 /// for a solid, derived from its `Curve::Circle` rim edges (spec §4 Blocker 1).
 ///
@@ -7197,13 +7226,57 @@ fn chord_tol_for_curved_owner(
     };
     match curved_chord_bound(owner.edges()) {
         Some(t) => Ok(t),
-        None => Err(YangError::SsiRefinementFailed {
-            edge,
-            reason: SsiRefinementError::AmbiguousCurve {
-                candidates,
-                matched: 0,
-            },
-        }),
+        // Spec `yang_s3_ellipse_rim_chord_bound` T2: an owner with NO Circle
+        // rim but ellipse rims (obliquely-trimmed cylinder re-entering from a
+        // prior boolean, KV14 vocabulary) gets the Stage-1 ellipse-chain
+        // bound — the guarantee its samples actually carry, not a widening.
+        None => match ellipse_rim_chord_bound(owner.edges()) {
+            Some(t) => Ok(t),
+            None => {
+                // Stage-3 diagnosis probe (read-only, env-gated): the producer-
+                // fault census — a curved-owning edge whose owner B-Rep carries
+                // NO Circle or Ellipse rim. Prints the owner's censuses.
+                if std::env::var_os("YANG_S3_AMBIG_PROBE").is_some() {
+                    let mut surf_census: std::collections::BTreeMap<&'static str, usize> =
+                        std::collections::BTreeMap::new();
+                    for f in owner.faces() {
+                        let k = match f.surface {
+                            Surface::Plane { .. } => "plane",
+                            Surface::Cylinder { .. } => "cylinder",
+                            Surface::Cone { .. } => "cone",
+                            Surface::Sphere { .. } => "sphere",
+                            Surface::Torus { .. } => "torus",
+                        };
+                        *surf_census.entry(k).or_default() += 1;
+                    }
+                    let mut curve_census: std::collections::BTreeMap<&'static str, usize> =
+                        std::collections::BTreeMap::new();
+                    for e in owner.edges() {
+                        let k = match e.curve {
+                            Curve::LineSegment => "seg",
+                            Curve::Circle { .. } => "circle",
+                            Curve::Ellipse { .. } => "ellipse",
+                            Curve::Parabola { .. } => "parabola",
+                            Curve::Hyperbola { .. } => "hyperbola",
+                            Curve::SurfacePair { .. } => "surface-pair",
+                        };
+                        *curve_census.entry(k).or_default() += 1;
+                    }
+                    eprintln!(
+                        "[s3-ambig-probe] PRODUCER FAULT edge {edge:?}: cylinder-owning input \
+                     {input:?} has NO Circle or Ellipse rim; faces {surf_census:?} edges \
+                     {curve_census:?}"
+                    );
+                }
+                Err(YangError::SsiRefinementFailed {
+                    edge,
+                    reason: SsiRefinementError::AmbiguousCurve {
+                        candidates,
+                        matched: 0,
+                    },
+                })
+            }
+        },
     }
 }
 
@@ -7591,6 +7664,32 @@ fn build_intersection_curves(
         let idx = match (matched, matched_idx) {
             (1, Some(idx)) => idx,
             _ => {
+                // Stage-3 diagnosis probe (read-only, env-gated): full selector
+                // context at the loud stop — surfaces, band, candidates, and
+                // per-endpoint membership — for the AmbiguousCurve class census.
+                if std::env::var_os("YANG_S3_AMBIG_PROBE").is_some() {
+                    eprintln!(
+                        "[s3-ambig-probe] edge ({s},{e}) candidates={} matched={matched} \
+                         tol={tol:.3e}\n  surf0={surf0:?}\n  surf1={surf1:?}\n  p_s=({},{},{}) \
+                         p_e=({},{},{})",
+                        returned.len(),
+                        p_s.x(),
+                        p_s.y(),
+                        p_s.z(),
+                        p_e.x(),
+                        p_e.y(),
+                        p_e.z()
+                    );
+                    for (i, curve) in returned.iter().enumerate() {
+                        eprintln!(
+                            "  cand {i}: contains(s)={} contains(e)={} tol_s={:.3e} tol_e={:.3e} {curve:?}",
+                            curve_contains_point(curve, p_s, point_tol(p_s, curve), source_radius),
+                            curve_contains_point(curve, p_e, point_tol(p_e, curve), source_radius),
+                            point_tol(p_s, curve),
+                            point_tol(p_e, curve)
+                        );
+                    }
+                }
                 return Err(YangError::SsiRefinementFailed {
                     edge: (s, e),
                     reason: SsiRefinementError::AmbiguousCurve {
@@ -14865,6 +14964,53 @@ mod tests {
             mesh.tris,
             vec![[0, 3, 4]],
             "B5: both twins collapse onto the min index; degenerate tris drop"
+        );
+    }
+
+    // Spec `yang_s3_ellipse_rim_chord_bound` §7: the Stage-3 fallback bound
+    // for ellipse-rim-only curved owners.
+    #[test]
+    fn s3_ellipse_rim_bound_is_max_major_radius_scaled() {
+        // T2: mixed seg/ellipse edge list → 1e-2 · MAX major_radius (the
+        // largest Stage-1 chain bound; a mutation picking min or the
+        // minor_radius must fail).
+        let ell = |a: f64, b: f64| BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::Ellipse {
+                center: p(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                major_axis: Vector3::new(1.0, 0.0, 0.0),
+                major_radius: a,
+                minor_radius: b,
+            },
+        };
+        let seg = BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::LineSegment,
+        };
+        let edges = vec![seg.clone(), ell(0.25, 0.2), ell(0.5, 0.1), seg];
+        assert_eq!(
+            ellipse_rim_chord_bound(&edges),
+            Some(1e-2 * 0.5),
+            "T2: the fallback is the LARGEST ellipse-chain bound"
+        );
+    }
+
+    #[test]
+    fn s3_ellipse_rim_bound_none_without_ellipses() {
+        // T3: a seg-only owner has no fallback — the loud producer fault
+        // stands (a mutation returning Some(TAU_WORK) here must fail).
+        let seg = BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::LineSegment,
+        };
+        assert_eq!(
+            ellipse_rim_chord_bound(&[seg]),
+            None,
+            "T3: no Circle and no Ellipse → producer fault preserved"
         );
     }
 

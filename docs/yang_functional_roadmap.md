@@ -3117,6 +3117,43 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   ERROR→typed UNSUPPORTED(coplanar-boolean) (its chain now clears the
   twin wall and reaches the M8 boundary).
 
+- **S3 ellipse-rim chord bound — the `AmbiguousCurve {0,0}` producer
+  fault. ✅ SHIPPED 2026-07-10 (spec `yang_s3_ellipse_rim_chord_bound`).**
+  2026-07-10 census of the 8-case Stage-3 `AmbiguousCurve` ERROR class
+  (probe `YANG_S3_AMBIG_PROBE`, both the selector and the producer-fault
+  arms): the `{candidates: 0, matched: 0}` trio F0082/F0083/F0085 (5
+  fault sites, ALL in `chord_tol_for_curved_owner`'s cylinder arm) is a
+  re-entering body whose single cylinder face carries ONLY ellipse rims
+  (oblique plane∩cylinder trims from a prior boolean, KV14 vocabulary) —
+  zero `Curve::Circle` edges, so the Circle-rim-AABB bound lookup
+  returned `None` and blamed the producer. Fix: the Stage-1 ellipse
+  chain bound (`d_ε = 1e-2·major_radius`) factored into ONE source
+  (`ellipse_chord_bound`, consumed by the KV14 pre-pass AND a new
+  Stage-3 fallback `ellipse_rim_chord_bound` = max over the owner's
+  ellipse edges); owners with neither rim keep the loud fault. Trackers
+  `s3_ellipse_rim_chord_bound.rs` (3 cases) RED→GREEN + 2 unit tests,
+  mutation-checked (minor-radius swap kills the max test). All three
+  cases advance to typed Stage-4 `LocalRefinementRequired` — the honest
+  downstream wall (they are same-normal/oblique-cut chains, i.e. the N2
+  mesh-updating class where they belong). **Census of the remaining
+  AmbiguousCurve sub-classes (named follow-ups):** (1) C0043/C0056 —
+  INTERNALLY TANGENT cylinder pairs (0.6+0.4 = 1.0, 0.5+0.5 = 1.0):
+  exact surfaces touch along one generator, the chordal meshes cross in
+  a wide band → phantom intersection edges far off the tangent line;
+  this is the paper's §4.3.3 Case-IV/tangent-point machinery (C0058's
+  wall — the tangency campaign's standing follow-up). (2) R0026 —
+  near-tangent plane∥axis × cylinder secant: both parallel-generator
+  candidates exist but BOTH endpoints sit outside the amplified band
+  (sub-band chord sag; the R0072 position tie-break needs matched ≥ 1
+  and never engages). (3) R0003/R0008 — cone∩plane conic selection at
+  extreme cones (R0008 half-angle 88.95° blows `cone_chord_bound` to
+  3e1; R0003 one endpoint beyond the band) — the M5-corrected
+  "cone∩plane conic + Stage-4 N2" family. **Assay 229 CORRECT / 0
+  WRONG / 49 ERROR / 15 UNSUPPORTED / 0 TIMEOUT — unchanged totals,
+  zero-lost; the trio moved WITHIN ERROR from Stage-3 fault to Stage-4
+  LRR (LRR class now ~17, further consolidating the N2 epic as the top
+  target).**
+
 - **KV6a — revolve (kernel-v2). ✅ COMPLETE (2026-06-11, PR-KV6a).**
   Partial angles (0,2π) AND full 360° for polygon profiles with
   axis-parallel/perpendicular edges, axis in-plane, profile strictly one
