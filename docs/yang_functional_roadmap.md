@@ -3165,6 +3165,34 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   relocation-region cases — the N2 mesh-updating epic remains the top
   target.**
 
+- **S7 — the certainly-fatal chord split (§4B follow-up). ✅ SHIPPED
+  2026-07-10 (spec `yang_stage6_sliver_topology` amendment 1 + 1a).**
+  The F0079-class edge-not-2-directed residue (KV15 census follow-up 2)
+  measured at its site (`[s6-split-probe]`): a loop walks a spur+chord
+  over a vertex that is f64-collinear (perpendicular distance 0.0) but
+  sub-ULP OFF the exact segment, on a patch with NO fold sliver — both
+  the §4B eligibility gate and the exact collinearity test miss it, and
+  the chord's undirected use-count of 1 makes kernel-v2's rejection
+  CERTAIN. Fix: a second split arm in
+  `subdivide_loops_at_shared_vertices` on EVERY patch, gated on
+  certain-fatality (use(a,b)==1 AND both complementary sub-segments
+  walked AND v within TAU_WORK of the open segment, 0<t<1) — it can
+  never alter a passing output (valid outputs use every segment exactly
+  twice), so benign-T-junction reference parity is preserved
+  structurally. Amendment 1a: the split alone left χ odd (the spur
+  became a zero-width slit); S7 finishes by cancelling adjacent inverse
+  pairs with a split-inserted member (null-excursion removal, fixpoint).
+  Tracker `f0079_no_edge_pairing_wall` RED→GREEN; 4 `s7_*` unit tests,
+  mutation-checked (gate drop caught after the benign fixture was
+  strengthened to isolate the use==1 gate). **Assay 231 CORRECT / 0
+  WRONG / 47 ERROR / 15 UNSUPPORTED / 0 TIMEOUT** (was 229/0/49/15/0),
+  zero-lost: **F0079 AND F0083 ERROR→SUPPORTED_CORRECT** (F0083's
+  residual §4B sites were this same class — combined with the same-day
+  ellipse-rim chord-bound fixes its 12-op chain now completes
+  end-to-end). C0075 measured NOT this class (six unpaired vertical
+  seam segments, no on-segment vertex) — stays in the
+  edge-not-2-directed residue with F0084's sites.
+
 - **KV6a — revolve (kernel-v2). ✅ COMPLETE (2026-06-11, PR-KV6a).**
   Partial angles (0,2π) AND full 360° for polygon profiles with
   axis-parallel/perpendicular edges, axis in-plane, profile strictly one

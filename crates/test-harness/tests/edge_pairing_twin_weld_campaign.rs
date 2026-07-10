@@ -111,3 +111,15 @@ fn f0070_no_edge_pairing_wall() {
 fn f0081_no_edge_pairing_wall() {
     assert_no_edge_pairing_wall("F0081");
 }
+
+/// S7 certainly-fatal chord split (spec `yang_stage6_sliver_topology`
+/// amendment 1): NOT a twin site — vertex 1294 sits on chord (1293,1295)
+/// at t = 0.374, f64-collinear (dist 0.0) but sub-ULP off the exact
+/// segment, on a patch with no fold sliver, so both the §4B eligibility
+/// gate and the exact collinearity test miss it; the chord's undirected
+/// use-count is 1 (certain edge-pairing rejection). GREEN when the S7
+/// use-census split arm lands.
+#[test]
+fn f0079_no_edge_pairing_wall() {
+    assert_no_edge_pairing_wall("F0079");
+}

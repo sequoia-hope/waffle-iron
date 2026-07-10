@@ -14211,10 +14211,128 @@ fn subdivide_loops_at_shared_vertices(
             }
         }
     }
+    // Spec amendment 1 (S7): undirected segment-use census over ALL loops.
+    // A loop edge with use-count 1 is CERTAIN to fail kernel-v2's manifold
+    // edge pairing — the S7 split can therefore never alter a passing
+    // output (every valid output uses each undirected segment exactly
+    // twice), preserving reference parity structurally rather than via the
+    // fold-sliver scope.
+    let mut seg_use: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+    for info in infos {
+        for cycle in &info.cycles {
+            for &(s, e) in cycle {
+                *seg_use.entry((s.min(e), s.max(e))).or_default() += 1;
+            }
+        }
+    }
+
     let mut out: Vec<Vec<Vec<(u32, u32)>>> = Vec::with_capacity(infos.len());
     for (ii, info) in infos.iter().enumerate() {
         if !info.had_fold_sliver {
-            out.push(info.cycles.clone());
+            // S7 (spec `yang_stage6_sliver_topology` amendment 1): the
+            // certainly-fatal chord repair. Split a use-count-1 loop edge
+            // (a,b) at a foreign vertex v strictly inside it (0<t<1, within
+            // TAU_WORK of the open segment — the spec §4 "band for the
+            // last-ulp case"; F0079's site is f64-dist 0.0 but sub-ULP off
+            // the exact segment) when BOTH complementary sub-segments (a,v)
+            // and (v,b) are walked by some loop. Any currently-valid output
+            // has use == 2 everywhere → byte-identical (S1/S3).
+            let mut info_cycles: Vec<Vec<(u32, u32)>> = Vec::with_capacity(info.cycles.len());
+            for (ci, cycle) in info.cycles.iter().enumerate() {
+                let lid = cycle_loop_ids[ii][ci];
+                let mut new_cycle: Vec<(u32, u32)> = Vec::with_capacity(cycle.len());
+                let mut inserted: std::collections::BTreeSet<(u32, u32)> =
+                    std::collections::BTreeSet::new();
+                for &(s, e) in cycle {
+                    if seg_use.get(&(s.min(e), s.max(e))).copied() != Some(1) {
+                        new_cycle.push((s, e));
+                        continue;
+                    }
+                    let pa = mesh.verts[s as usize].as_array();
+                    let pb = mesh.verts[e as usize].as_array();
+                    let ab = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+                    let len2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+                    if len2 == 0.0 {
+                        new_cycle.push((s, e));
+                        continue;
+                    }
+                    let mut splits: Vec<(f64, u32)> = Vec::new();
+                    for (&v, luse) in &vertex_loops {
+                        if v == s || v == e || !luse.iter().any(|&l| l != lid) {
+                            continue;
+                        }
+                        if seg_use.get(&(s.min(v), s.max(v))).copied().unwrap_or(0) == 0
+                            || seg_use.get(&(e.min(v), e.max(v))).copied().unwrap_or(0) == 0
+                        {
+                            continue;
+                        }
+                        let pv = mesh.verts[v as usize].as_array();
+                        let av = [pv[0] - pa[0], pv[1] - pa[1], pv[2] - pa[2]];
+                        let t = (av[0] * ab[0] + av[1] * ab[1] + av[2] * ab[2]) / len2;
+                        if t <= 0.0 || t >= 1.0 {
+                            continue;
+                        }
+                        let proj = [pa[0] + t * ab[0], pa[1] + t * ab[1], pa[2] + t * ab[2]];
+                        let d = [pv[0] - proj[0], pv[1] - proj[1], pv[2] - proj[2]];
+                        let dist2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                        if dist2 <= cad_primitives::TAU_WORK * cad_primitives::TAU_WORK {
+                            splits.push((t, v));
+                        }
+                    }
+                    splits.sort_by(|x, y| {
+                        x.0.partial_cmp(&y.0)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then(x.1.cmp(&y.1))
+                    });
+                    let mut prev = s;
+                    for (_, v) in splits {
+                        inserted.insert((prev.min(v), prev.max(v)));
+                        new_cycle.push((prev, v));
+                        prev = v;
+                    }
+                    if prev != s {
+                        inserted.insert((prev.min(e), prev.max(e)));
+                    }
+                    new_cycle.push((prev, e));
+                }
+                // Amendment 1a: cancel null excursions (adjacent inverse
+                // directed pairs, wrap-around included) in which at least one
+                // member is a split-inserted segment — a spur made
+                // self-pairing by the split is a zero-width slit that leaves
+                // χ odd (E+1, no face). Restricting to split-inserted members
+                // keeps non-S7 loops byte-identical and legitimate bigons
+                // untouched. Iterate to a fixed point (cancellation can make
+                // a new pair adjacent).
+                if !inserted.is_empty() {
+                    loop {
+                        let m = new_cycle.len();
+                        let mut cancelled = false;
+                        'scan: for i in 0..m {
+                            let j = (i + 1) % m;
+                            if m < 2 {
+                                break;
+                            }
+                            let (a1, b1) = new_cycle[i];
+                            let (a2, b2) = new_cycle[j];
+                            if a1 == b2
+                                && b1 == a2
+                                && (inserted.contains(&(a1.min(b1), a1.max(b1))))
+                            {
+                                let (hi, lo) = if i < j { (j, i) } else { (i, j) };
+                                new_cycle.remove(hi);
+                                new_cycle.remove(lo);
+                                cancelled = true;
+                                break 'scan;
+                            }
+                        }
+                        if !cancelled {
+                            break;
+                        }
+                    }
+                }
+                info_cycles.push(new_cycle);
+            }
+            out.push(info_cycles);
             continue;
         }
         let mut info_cycles: Vec<Vec<(u32, u32)>> = Vec::with_capacity(info.cycles.len());
@@ -14981,6 +15099,97 @@ mod tests {
             vec![[0, 3, 4]],
             "B5: both twins collapse onto the min index; degenerate tris drop"
         );
+    }
+
+    // Spec `yang_stage6_sliver_topology` amendment 1 (S7): the
+    // certainly-fatal chord split + null-excursion cancellation.
+    fn s7_info(cycles: Vec<Vec<(u32, u32)>>) -> PatchInfo {
+        PatchInfo {
+            cycles,
+            input: InputId::A,
+            inherited: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: 0.0,
+            },
+            face_idx: 0,
+            input_reversed: false,
+            had_fold_sliver: false,
+        }
+    }
+
+    fn s7_mesh() -> Mesh {
+        Mesh::new(
+            vec![
+                p(0.0, 0.0, 0.0),   // 0: chord start
+                p(0.374, 0.0, 0.0), // 1: on the chord (exact)
+                p(1.0, 0.0, 0.0),   // 2: chord end
+                p(0.5, 1.0, 0.0),   // 3: apex of loop A
+                p(0.5, -1.0, 0.0),  // 4: apex of loop B
+                p(0.2, -1.0, 0.0),  // 5: apex of the second chord user (benign T)
+            ],
+            vec![[0, 2, 3], [1, 2, 4]],
+        )
+    }
+
+    #[test]
+    fn s7_fatal_chord_splits_and_spur_cancels() {
+        // Loop A walks a spur (1→0) + the chord (0,2) over vertex 1; loop B
+        // walks (2→1). Chord use-count 1, complementary {0,1}/{1,2} both
+        // present → split at 1; the spur then cancels (amendment 1a) and A
+        // emerges as the clean triangle 1→2→3→1.
+        let infos = vec![
+            s7_info(vec![vec![(1, 0), (0, 2), (2, 3), (3, 1)]]),
+            s7_info(vec![vec![(2, 1), (1, 4), (4, 2)]]),
+        ];
+        let out = subdivide_loops_at_shared_vertices(&infos, &s7_mesh());
+        assert_eq!(
+            out[0][0],
+            vec![(1, 2), (2, 3), (3, 1)],
+            "S7: chord split at the on-segment vertex, spur cancelled"
+        );
+        assert_eq!(out[1][0], infos[1].cycles[0], "loop B untouched");
+    }
+
+    #[test]
+    fn s7_benign_t_junction_untouched() {
+        // The chord (0,2) is walked by TWO loops (use 2) while the
+        // complementary chain {0,1}/{1,2} ALSO exists (loops A + C) — this
+        // isolates the use==1 gate: a mutation dropping it splits here and
+        // fails (the reference-parity guard for benign T-junctions).
+        let infos = vec![
+            s7_info(vec![vec![(1, 0), (0, 2), (2, 3), (3, 1)]]),
+            s7_info(vec![vec![(2, 0), (0, 5), (5, 2)]]),
+            s7_info(vec![vec![(2, 1), (1, 4), (4, 2)]]),
+        ];
+        let out = subdivide_loops_at_shared_vertices(&infos, &s7_mesh());
+        assert_eq!(out[0][0], infos[0].cycles[0], "use-2 chord never splits");
+        assert_eq!(out[1][0], infos[1].cycles[0]);
+    }
+
+    #[test]
+    fn s7_missing_complementary_chain_untouched() {
+        // No loop walks {1,2}: the complementary chain is absent, so the
+        // split cannot certify a repair — S6 residue, unchanged.
+        let infos = vec![
+            s7_info(vec![vec![(1, 0), (0, 2), (2, 3), (3, 1)]]),
+            s7_info(vec![vec![(0, 1), (1, 4), (4, 0)]]),
+        ];
+        let out = subdivide_loops_at_shared_vertices(&infos, &s7_mesh());
+        assert_eq!(out[0][0], infos[0].cycles[0]);
+    }
+
+    #[test]
+    fn s7_off_band_vertex_untouched() {
+        // Vertex 1 lifted 1e-9 off the segment (> TAU_WORK): outside the
+        // last-ulp band — no split (a mutation widening the band fails here).
+        let mut mesh = s7_mesh();
+        mesh.verts[1] = p(0.374, 1.0e-9, 0.0);
+        let infos = vec![
+            s7_info(vec![vec![(1, 0), (0, 2), (2, 3), (3, 1)]]),
+            s7_info(vec![vec![(2, 1), (1, 4), (4, 2)]]),
+        ];
+        let out = subdivide_loops_at_shared_vertices(&infos, &mesh);
+        assert_eq!(out[0][0], infos[0].cycles[0]);
     }
 
     // Spec `yang_s3_ellipse_rim_chord_bound` §7: the Stage-3 fallback bound

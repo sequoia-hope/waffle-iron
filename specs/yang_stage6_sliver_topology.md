@@ -91,6 +91,7 @@ Two Stage-6-local parts; no geometry is moved, no tolerance invented:
 | S4 | Loop edge with on-segment vertices used by other loops | Split at those vertices, parameter-ordered |
 | S5 | A patch that is ALL degenerate (no real triangles) | Loud `NonManifoldOutput` (cannot bound a face) |
 | S6 | Post-split loops that still fail kernel-v2 edge pairing | Loud (unchanged error) — the residue class, recorded |
+| S7 | ANY patch: loop edge with undirected use-count 1 whose complementary sub-segments (a,v)+(v,b) are each walked by some loop, v within TAU_WORK of the open segment, 0<t<1 | Split at v (amendment 1 — the certainly-fatal chord repair; see §8) |
 
 ## 6. Oracles
 
@@ -121,3 +122,47 @@ does not treat degenerate arrangement children).
 
 Index-level topology only; exact rational collinearity/betweenness for
 the split test. No SSI, no surface approximation, no vertex motion.
+
+## 8. Amendment 1 (2026-07-10): the S7 certainly-fatal chord split
+
+**Measured residue (F0079 Extrude-8 union, probe `[s6-split-probe]`):**
+face 642's loop walks a spur-and-chord `1294→1293, 1293→1295` while
+face 645 walks `1294→1295`; vertex 1294 sits on chord (1293,1295) at
+t = 0.374 with f64 perpendicular distance EXACTLY 0.0 — but the exact
+rational `on_open_segment_param` test says NOT collinear (sub-ULP off
+the segment), and the patch has no fold sliver, so BOTH the §4B
+eligibility gate and the exactness test miss it. The output chord is
+then used by exactly ONE loop → kernel-v2 edge pairing is CERTAIN to
+reject (`an undirected output edge is not used by exactly two directed
+edges`). Same class: sites in F0083/F0084 (KV15 residue census).
+
+**Design (S7):** a second, independent split arm in
+`subdivide_loops_at_shared_vertices`, applied to EVERY patch (no
+fold-sliver requirement), with a criterion that can ONLY fire where the
+un-split output is provably invalid:
+
+- undirected use census over all loops: `use(a,b) == 1` (the chord is
+  walked by exactly one loop — unpaired, certain rejection), AND
+- `use(a,v) ≥ 1` and `use(v,b) ≥ 1` (the complementary chain exists on
+  the other side), AND
+- `v` used by a loop other than the chord's, strictly interior
+  (0 < t < 1), within `TAU_WORK` of the open segment (the spec §4 "band
+  for the last-ulp case", now implemented; F0079's site is dist 0.0).
+
+Because any currently-VALID output has every undirected segment at
+use-count exactly 2, S7 cannot alter a passing case — reference parity
+for benign T-junctions is preserved structurally, not by the fold-sliver
+scope. The fold-sliver arm (S4, exact test) is byte-identical unchanged.
+Deeper chains (a→x→v→b with `use(a,v) = 0`) remain the S6 residue.
+
+**Amendment 1a (same day, measured):** the S7 split alone moved F0079 to
+`InvalidBooleanOutput("output component's Euler characteristic is not
+genus-representable")` — the chord's owner loop carried a pre-existing
+SPUR (`1294→1293` followed by the split-created `1293→1294`): pairing is
+now valid (a legitimate self-pair) but the slit contributes E+1 with no
+face, making χ odd. A null excursion `a→b, b→a` at adjacent loop
+positions is not a boundary feature; S7 therefore finishes by CANCELLING
+adjacent inverse pairs in which at least one member is a split-inserted
+segment (wrap-around included, iterated to a fixed point). Restricting
+cancellation to split-inserted members keeps every non-S7 loop
+byte-identical and cannot touch legitimate bigons/self-pairs elsewhere.
