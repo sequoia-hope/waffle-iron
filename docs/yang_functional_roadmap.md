@@ -3132,10 +3132,19 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   Stage-3 fallback `ellipse_rim_chord_bound` = max over the owner's
   ellipse edges); owners with neither rim keep the loud fault. Trackers
   `s3_ellipse_rim_chord_bound.rs` (3 cases) RED→GREEN + 2 unit tests,
-  mutation-checked (minor-radius swap kills the max test). All three
-  cases advance to typed Stage-4 `LocalRefinementRequired` — the honest
-  downstream wall (they are same-normal/oblique-cut chains, i.e. the N2
-  mesh-updating class where they belong). **Census of the remaining
+  mutation-checked (minor-radius swap kills the max test).
+  **Amendment 1 (same session): Stage-4's `input_curved_chord_bound`
+  had the IDENTICAL Circle-only gap** — with Stage-3 fixed the trio hit
+  the relocation ENTRY producer fault (`vertex u32::MAX` LRR; probe
+  `YANG_S4_MERGE_PROBE` proved the §4.4.1(b) merge budget guard never
+  fires). Fix = the same fallback composed fallback-only
+  (`curved_chord_bound(..).or_else(ellipse_rim_chord_bound)`),
+  byte-identical whenever a Circle rim or sphere exists; tracker
+  extension `*_no_stage4_band_fault` RED→GREEN. Net: the ellipse-rim
+  booleans now COMPLETE — the trio's remaining failures are their known
+  downstream classes (F0083 Extrude-11 edge-not-2-directed §4B site,
+  F0082 reassembled-non-2-manifold, F0085 late-chain CDT re-entry),
+  failing-op counts 3→2 / 3→2 / 3→1. **Census of the remaining
   AmbiguousCurve sub-classes (named follow-ups):** (1) C0043/C0056 —
   INTERNALLY TANGENT cylinder pairs (0.6+0.4 = 1.0, 0.5+0.5 = 1.0):
   exact surfaces touch along one generator, the chordal meshes cross in
@@ -3150,9 +3159,11 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   3e1; R0003 one endpoint beyond the band) — the M5-corrected
   "cone∩plane conic + Stage-4 N2" family. **Assay 229 CORRECT / 0
   WRONG / 49 ERROR / 15 UNSUPPORTED / 0 TIMEOUT — unchanged totals,
-  zero-lost; the trio moved WITHIN ERROR from Stage-3 fault to Stage-4
-  LRR (LRR class now ~17, further consolidating the N2 epic as the top
-  target).**
+  zero-lost (with amendment 1 the trio moved WITHIN ERROR from the
+  Stage-3 fault through the Stage-4 entry fault to their late-chain
+  downstream walls). The LRR class stands at 14 genuine
+  relocation-region cases — the N2 mesh-updating epic remains the top
+  target.**
 
 - **KV6a — revolve (kernel-v2). ✅ COMPLETE (2026-06-11, PR-KV6a).**
   Partial angles (0,2π) AND full 360° for polygon profiles with

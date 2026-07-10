@@ -10264,7 +10264,11 @@ fn merge_same_plane_patches(
 /// both `build_intersection_curves` (selection tol) and `stage4_chord_band`
 /// (relocation budget); it is NOT tolerance widening.
 fn input_curved_chord_bound(brep: &BRep) -> Option<f64> {
-    let rim = curved_chord_bound(brep.edges());
+    // Spec `yang_s3_ellipse_rim_chord_bound` amendment 1: an ellipse-rim-only
+    // input (obliquely-trimmed cylinder re-entering from a prior boolean)
+    // carries the Stage-1 ellipse chain bound — fallback-only composition,
+    // byte-identical whenever a Circle rim exists.
+    let rim = curved_chord_bound(brep.edges()).or_else(|| ellipse_rim_chord_bound(brep.edges()));
     let sphere = brep
         .faces()
         .iter()
@@ -12198,9 +12202,20 @@ fn stage4_relocate_and_correct(
         // Each pass collapses ≤1 sub-feature edge; bounded by the triangle count.
         let max_merge_passes = mesh.tris.len() + 1;
         let mut merge_passes = 0usize;
+        let mut last_merge: Option<(u32, u32, f64, usize)> = None;
         loop {
             merge_passes += 1;
             if merge_passes > max_merge_passes {
+                // §4.4.1(b) diagnosis probe (read-only, env-gated): the budget
+                // guard should be unreachable if every pass drops ≥1 triangle
+                // — print the terminal state to localize a livelock.
+                if std::env::var_os("YANG_S4_MERGE_PROBE").is_some() {
+                    eprintln!(
+                        "[s4-merge-probe] BUDGET EXHAUSTED: passes={merge_passes} \
+                         max={max_merge_passes} tris_now={} last_merge={last_merge:?}",
+                        mesh.tris.len()
+                    );
+                }
                 attribution.attributions = attr_vec;
                 return Err(YangError::Stage4RegionInvalid {
                     vertex: u32::MAX,
@@ -12258,7 +12273,8 @@ fn stage4_relocate_and_correct(
             }
             match to_merge {
                 Some((victim, survivor)) => {
-                    collapse_vertex(mesh, &mut attr_vec, victim, survivor);
+                    let dropped = collapse_vertex(mesh, &mut attr_vec, victim, survivor);
+                    last_merge = Some((victim, survivor, dropped as f64, mesh.tris.len()));
                     collapsed_any = true;
                 }
                 None => break,

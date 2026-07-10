@@ -88,6 +88,25 @@ already exists in the KV14 pre-pass; this change de-duplicates it.
   lost vs committed results.json; targets move ERROR→CORRECT or
   ERROR→downstream-typed (measured, not assumed).
 
+## 7a. Amendment 1 (2026-07-10, same session): Stage-4 chord band has the
+## identical gap
+
+With the Stage-3 fallback landed, the trio advanced to `Stage-4
+relocation region around vertex 4294967295 is invalid:
+LocalRefinementRequired`. Probe `YANG_S4_MERGE_PROBE` at the §4.4.1(b)
+merge budget guard proved that guard NEVER fires — the raise is
+`stage4_relocate_and_correct`'s ENTRY producer fault:
+`stage4_chord_band(a, b)` → `input_curved_chord_bound` consults only
+`curved_chord_bound` (Circle AABB) + the sphere bound, so an
+ellipse-rim-only pair yields `None` → the loud stop before any
+relocation. Fix (T2 dual): `curved_chord_bound(..).or_else(||
+ellipse_rim_chord_bound(..))` inside `input_curved_chord_bound` —
+fallback-only composition, byte-identical whenever a Circle rim or
+sphere exists (no band widening for existing paths). Oracles: tracker
+extension `*_no_stage4_band_fault` (the trio's failure must not be the
+vertex-`u32::MAX` `LocalRefinementRequired` entry fault) RED→GREEN;
+downstream verdicts measured, not assumed.
+
 ## 8. Failure modes
 
 - An owner with neither Circle nor Ellipse rims keeps today's loud
