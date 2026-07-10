@@ -1,0 +1,2470 @@
+#[allow(unused_imports)]
+use super::*;
+
+// ====================================================================
+// M3 — functional boolean via LabeledArrangement (Group A unit tests)
+//
+// These tests target the M3 rewire: boolean() must consume a real
+// `LabeledArrangement` from `backend.labeled_arrangement(..)`, select
+// result triangles via `keep_set(op)`, geometrically resolve each kept
+// triangle's source face (centroid-in-plane), and produce a FULL
+// attribution (every output triangle → Some). Spec:
+// specs/yang_m3_functional_boolean.md (I7 unique-face, F1/F2/F3).
+//
+// RED expectations until the Implementer lands M3:
+//   - `MeshBoolean::labeled_arrangement` trait method does not exist.
+//   - `YangError::FaceResolutionFailed { tri }` variant does not exist.
+//   - `LabeledArrangement` is not imported here yet.
+//   - current boolean() ignores labels → no full coverage.
+// ====================================================================
+
+use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
+
+/// Mock backend that returns a hand-built `LabeledArrangement` from
+/// the (M3) `labeled_arrangement` trait method. `boolean()` is still
+/// required (object-safe trait) but is unused on the M3 path.
+pub(crate) struct LabelMockBackend {
+    arrangement: LabeledArrangement,
+}
+impl LabelMockBackend {
+    pub(crate) fn new(arrangement: LabeledArrangement) -> Self {
+        Self { arrangement }
+    }
+}
+impl MeshBoolean for LabelMockBackend {
+    fn boolean(
+        &self,
+        _a: &Mesh,
+        _b: &Mesh,
+        _op: BoolOp,
+    ) -> Result<Mesh, Box<dyn Error + Send + Sync>> {
+        // Not exercised on the M3 path; return the arrangement mesh so
+        // a stray call is at least well-formed.
+        Ok(self.arrangement.mesh.clone())
+    }
+    // M3: the trait gains this method (default impl errors NotSupported);
+    // this mock overrides it with a hand-built arrangement.
+    fn labeled_arrangement(
+        &self,
+        _a: &Mesh,
+        _b: &Mesh,
+    ) -> Result<LabeledArrangement, Box<dyn Error + Send + Sync>> {
+        Ok(self.arrangement.clone())
+    }
+}
+
+/// Axis-aligned unit cube BRep at `origin` with correct OUTWARD face
+/// normals — minimal topology sufficient for geometric face
+/// resolution (centroid-in-plane). 8 verts, 24 edges, 6 quad faces.
+pub(crate) fn cube_brep(origin: [f64; 3]) -> BRep {
+    let [x, y, z] = origin;
+    let verts = vec![
+        BRepVertex { point: p(x, y, z) },
+        BRepVertex {
+            point: p(x + 1.0, y, z),
+        },
+        BRepVertex {
+            point: p(x + 1.0, y + 1.0, z),
+        },
+        BRepVertex {
+            point: p(x, y + 1.0, z),
+        },
+        BRepVertex {
+            point: p(x, y, z + 1.0),
+        },
+        BRepVertex {
+            point: p(x + 1.0, y, z + 1.0),
+        },
+        BRepVertex {
+            point: p(x + 1.0, y + 1.0, z + 1.0),
+        },
+        BRepVertex {
+            point: p(x, y + 1.0, z + 1.0),
+        },
+    ];
+    let face_verts: [[u32; 4]; 6] = [
+        [0, 1, 2, 3], // bottom (z)
+        [4, 7, 6, 5], // top (z+1)
+        [0, 4, 5, 1], // front (y)
+        [1, 5, 6, 2], // right (x+1)
+        [2, 6, 7, 3], // back (y+1)
+        [3, 7, 4, 0], // left (x)
+    ];
+    let mut edges = Vec::new();
+    let mut loops = Vec::new();
+    for vs in &face_verts {
+        let base = edges.len() as u32;
+        for i in 0..4 {
+            edges.push(BRepEdge {
+                start: vs[i],
+                end: vs[(i + 1) % 4],
+                curve: Curve::LineSegment,
+            });
+        }
+        loops.push(vec![base, base + 1, base + 2, base + 3]);
+    }
+    let normals = [
+        Vector3::new(0.0, 0.0, -1.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        Vector3::new(0.0, -1.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        Vector3::new(-1.0, 0.0, 0.0),
+    ];
+    // Plane convention n·x + d = 0. For a face on plane n·x = c the
+    // offset is d = -c — WITH n the face's OUTWARD normal, so the three
+    // negative-axis faces have c = -coord (e.g. bottom: n=(0,0,-1),
+    // n·p = -z ⇒ d = z). The pre-2026-07-03 array had the sign flipped
+    // on every face with a non-zero plane coordinate; it went unnoticed
+    // because the historical bottom-quad arrangement only ever resolved
+    // attribution against the origin cube's BOTTOM face (d = 0 either
+    // way). The closed-shell fixture (rule-4 gate cycle) exercises all
+    // six planes and unmasked it.
+    let offs = [z, -(z + 1.0), y, -(x + 1.0), -(y + 1.0), x];
+    let faces: Vec<BRepFace> = (0..6)
+        .map(|i| BRepFace {
+            surface: Surface::Plane {
+                normal: normals[i],
+                d: offs[i],
+            },
+            outer_loop: loops[i].clone(),
+            inner_loops: Vec::new(),
+            reversed: false,
+        })
+        .collect();
+    BRep::new(verts, edges, faces).unwrap()
+}
+
+// N4 (1b): `BRep::new` must populate the per-triangle → owning-face map
+// (`tri_face`) 1:1 with the Stage-1 mesh triangles, with valid face indices
+// and every face owning ≥1 triangle. This is the provenance substrate that
+// lets `boolean()` attribute kept triangles to faces directly from cherchi's
+// `source` instead of geometric proximity. (The end-to-end correctness of
+// provenance attribution is covered by the full boolean suite / box fuzz,
+// which now runs provenance as the PRIMARY path.)
+#[test]
+pub(crate) fn brep_new_populates_tri_face_provenance() {
+    let cube = cube_brep([0.0, 0.0, 0.0]);
+    let tf = cube.tri_face();
+    assert_eq!(
+        tf.len(),
+        cube.as_mesh().tris.len(),
+        "tri_face must be 1:1 with the Stage-1 mesh triangles"
+    );
+    let nf = cube.faces().len() as u32;
+    assert_eq!(nf, 6, "cube has 6 faces");
+    let mut owned = vec![false; nf as usize];
+    for (t, &f) in tf.iter().enumerate() {
+        assert!(f < nf, "tri {t} → face {f} out of range (faces = {nf})");
+        owned[f as usize] = true;
+    }
+    assert!(
+        owned.iter().all(|&o| o),
+        "every cube face must own ≥1 Stage-1 triangle"
+    );
+
+    // `from_mesh` has no Stage-1 face lineage → empty tri_face (→ geometric
+    // fallback in attribution).
+    let degenerate = BRep::from_mesh(cube.as_mesh().clone());
+    assert!(
+        degenerate.tri_face().is_empty(),
+        "from_mesh BRep carries no provenance map"
+    );
+}
+
+/// Centroid of a triangle.
+pub(crate) fn centroid(mesh: &Mesh, tri: [u32; 3]) -> Point3 {
+    let a = mesh.verts[tri[0] as usize].as_array();
+    let b = mesh.verts[tri[1] as usize].as_array();
+    let c = mesh.verts[tri[2] as usize].as_array();
+    Point3::new(
+        (a[0] + b[0] + c[0]) / 3.0,
+        (a[1] + b[1] + c[1]) / 3.0,
+        (a[2] + b[2] + c[2]) / 3.0,
+    )
+}
+
+/// Find the single face of `brep` whose plane contains `c` within
+/// TAU_WORK; panics if zero or >1 (the expected-attribution helper
+/// must be unambiguous for a well-posed fixture).
+pub(crate) fn resolve_face(brep: &BRep, c: Point3) -> u32 {
+    let mut hit: Option<u32> = None;
+    for (i, f) in brep.faces().iter().enumerate() {
+        let Surface::Plane { normal, d } = f.surface else {
+            continue;
+        };
+        let n = normal.as_array();
+        let cc = c.as_array();
+        let dist = (n[0] * cc[0] + n[1] * cc[1] + n[2] * cc[2] + d).abs();
+        if dist < cad_primitives::TAU_WORK {
+            assert!(hit.is_none(), "ambiguous: centroid on >1 face plane");
+            hit = Some(i as u32);
+        }
+    }
+    hit.expect("centroid lies on no face plane")
+}
+
+// ----- Group A.1: full attribution coverage + correctness -----
+
+/// Hand-built arrangement: cube A's full closed surface shell. The verts
+/// are A's exact 8 `BRepVertex` corners, so:
+/// - real-label path: each tri's centroid lies strictly inside exactly
+///   one A face plane → I7 unique-face → full Some(A, face) attribution;
+/// - every patch boundary closes (per-face manifold cycles) and the
+///   whole shell is watertight, matching the closed kept mesh a real
+///   boolean produces;
+/// - the verts coincide with A's `BRepVertex`es, so the M4 substitute's
+///   spatial matching also resolves each tri to its cube face
+///   (vertex-face incidence majority), letting the differential oracle
+///   agree.
+///
+/// All `inside` all-false ⇒ all 12 tris kept by Union.
+pub(crate) fn arrangement_a_cube_shell() -> LabeledArrangement {
+    // The full unit-cube SURFACE of `cube_brep([0,0,0])`: 12 outward-wound
+    // tris, 2 per face. Historically this fixture was A's bottom quad only
+    // (an open 2-tri sheet) — a mock shape no real boolean produces. The
+    // 2026-07-03 gate cycle (spec `yang_kept_mesh_manifold_gate`, aborted
+    // per P10 — see its §2b) closed it to model a real kept mesh; the
+    // closed form is kept: it is strictly more faithful and it unmasked
+    // the `cube_brep` plane-offset sign bug below. All consuming
+    // assertions are computed FROM the fixture (keep-set count, geometric
+    // face resolve, majority vote), so their intent is unchanged.
+    let verts = vec![
+        p(0.0, 0.0, 0.0), // 0
+        p(1.0, 0.0, 0.0), // 1
+        p(1.0, 1.0, 0.0), // 2
+        p(0.0, 1.0, 0.0), // 3
+        p(0.0, 0.0, 1.0), // 4
+        p(1.0, 0.0, 1.0), // 5
+        p(1.0, 1.0, 1.0), // 6
+        p(0.0, 1.0, 1.0), // 7
+    ];
+    // Outward winding per face (−z, +z, −y, +y, −x, +x); every directed
+    // edge pairs with its reverse ⇒ watertight 2-manifold (χ = 2).
+    let tris = vec![
+        [0u32, 3, 2],
+        [0, 2, 1], // bottom z=0
+        [4, 5, 6],
+        [4, 6, 7], // top z=1
+        [0, 1, 5],
+        [0, 5, 4], // front y=0
+        [2, 3, 7],
+        [2, 7, 6], // back y=1
+        [0, 4, 7],
+        [0, 7, 3], // left x=0
+        [1, 2, 6],
+        [1, 6, 5], // right x=1
+    ];
+    let mesh = Mesh::new(verts, tris);
+    // All on A's surface (solid 0), none on B; inside all-false ⇒ Union keeps.
+    let surface = vec![vec![LaInputId(0)]; 12];
+    let inside = vec![vec![false, false]; 12];
+    let patch = vec![0u32, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5];
+    LabeledArrangement {
+        mesh,
+        surface,
+        inside,
+        patch,
+        source: Vec::new(),
+        num_inputs: 2,
+    }
+}
+
+#[test]
+pub(crate) fn m3_union_full_attribution_coverage() {
+    // I7 + full-coverage: every kept output triangle resolves to Some.
+    let a = cube_brep([0.0, 0.0, 0.0]);
+    // PR-YR24: B offset on ALL axes — a [0.5,0,0] offset shares the
+    // y/z face planes with A (bit-exact coplanar input), which the
+    // near-coplanar input gate now rejects BEFORE the (mock) backend.
+    let b = cube_brep([0.5, 0.3, 0.4]);
+    let la = arrangement_a_cube_shell();
+    let backend = LabelMockBackend::new(la);
+    let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
+
+    let attr = r.triangle_attribution();
+    assert_eq!(
+        attr.len(),
+        r.num_tris(),
+        "attribution length must equal output triangle count"
+    );
+    assert!(r.num_tris() > 0, "expected non-empty kept sub-mesh");
+    for t in 0..attr.len() as u32 {
+        assert!(
+            attr.lookup(t).is_some(),
+            "M3 requires FULL attribution: tri {t} is None (skeleton, not closed)"
+        );
+    }
+}
+
+#[test]
+pub(crate) fn m3_union_attribution_matches_geometric_face() {
+    // F1: each kept tri attributes to the unique A-face plane its
+    // centroid lies on (one of the cube shell's six faces).
+    let a = cube_brep([0.0, 0.0, 0.0]);
+    // PR-YR24: B offset on ALL axes — a [0.5,0,0] offset shares the
+    // y/z face planes with A (bit-exact coplanar input), which the
+    // near-coplanar input gate now rejects BEFORE the (mock) backend.
+    let b = cube_brep([0.5, 0.3, 0.4]);
+    let la = arrangement_a_cube_shell();
+    let mesh = la.mesh.clone();
+    let backend = LabelMockBackend::new(la);
+    let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
+    let attr = r.triangle_attribution();
+
+    // The kept sub-mesh re-indexes verts but preserves triangle geometry.
+    // For each output triangle, its centroid must lie on A's face that
+    // the attribution names.
+    for t in 0..r.num_tris() as u32 {
+        let got = attr.lookup(t).expect("full coverage");
+        assert_eq!(got.input, InputId::A, "tris are all on solid A's surface");
+        let c = centroid(r.as_mesh(), r.as_mesh().tris[t as usize]);
+        let expected_face = resolve_face(&a, c);
+        assert_eq!(
+            got.face, expected_face,
+            "tri {t}: attributed face {} != geometric face {}",
+            got.face, expected_face
+        );
+    }
+    let _ = mesh; // keep capture explicit
+}
+
+#[test]
+pub(crate) fn m3_kept_submesh_is_keep_set_count() {
+    // Stage 4: the kept sub-mesh must contain exactly keep_set(op) tris.
+    let a = cube_brep([0.0, 0.0, 0.0]);
+    // PR-YR24: B offset on ALL axes — a [0.5,0,0] offset shares the
+    // y/z face planes with A (bit-exact coplanar input), which the
+    // near-coplanar input gate now rejects BEFORE the (mock) backend.
+    let b = cube_brep([0.5, 0.3, 0.4]);
+    let la = arrangement_a_cube_shell();
+    let expected_kept = la.keep_set(BoolOp::Union).len();
+    let backend = LabelMockBackend::new(la);
+    let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
+    assert_eq!(
+        r.num_tris(),
+        expected_kept,
+        "output mesh tri count must equal keep_set(Union) count"
+    );
+}
+
+// ----- Group A.2: F2 / F3 error cases (P9: loud, never None) -----
+
+#[test]
+pub(crate) fn m3_coplanar_surface_len_two_errors_f2() {
+    // F2: a kept tri whose surface label names BOTH solids (coplanar
+    // overlap, len==2) → FaceResolutionFailed (out of scope, M8).
+    let a = cube_brep([0.0, 0.0, 0.0]);
+    // PR-YR24: B must NOT be input-coplanar with A (the gate fires
+    // first, before the backend); the F2 condition under test is the
+    // ARRANGEMENT-level multi-solid surface label, which the mock
+    // fabricates below regardless of the input geometry.
+    let b = cube_brep([0.5, 0.3, 0.4]);
+    let verts = vec![p(0.0, 0.0, 0.0), p(0.5, 0.0, 0.0), p(0.0, 0.5, 0.0)];
+    let mesh = Mesh::new(verts, vec![[0u32, 1, 2]]);
+    let la = LabeledArrangement {
+        mesh,
+        // surface names BOTH A and B (coplanar multi-solid) — F2.
+        surface: vec![vec![LaInputId(0), LaInputId(1)]],
+        inside: vec![vec![false, false]], // kept by Union
+        patch: vec![0],
+        source: Vec::new(),
+        num_inputs: 2,
+    };
+    let backend = LabelMockBackend::new(la);
+    match boolean(&a, &b, BoolOp::Union, &backend) {
+        Err(YangError::FaceResolutionFailed { tri }) => {
+            assert_eq!(tri, 0, "F2 should name the offending tri index");
+        }
+        other => panic!("expected FaceResolutionFailed (F2), got {other:?}"),
+    }
+}
+
+#[test]
+pub(crate) fn m3_centroid_off_all_planes_errors_f3() {
+    // F3: a kept tri on solid A's surface whose centroid lies on NO
+    // A-face plane → FaceResolutionFailed (loud, never None).
+    let a = cube_brep([0.0, 0.0, 0.0]);
+    // PR-YR24: B offset on ALL axes — a [0.5,0,0] offset shares the
+    // y/z face planes with A (bit-exact coplanar input), which the
+    // near-coplanar input gate now rejects BEFORE the (mock) backend.
+    let b = cube_brep([0.5, 0.3, 0.4]);
+    // Triangle floating at z=0.5 (interior; off every cube face plane).
+    let verts = vec![p(0.25, 0.25, 0.5), p(0.5, 0.25, 0.5), p(0.25, 0.5, 0.5)];
+    let mesh = Mesh::new(verts, vec![[0u32, 1, 2]]);
+    let la = LabeledArrangement {
+        mesh,
+        surface: vec![vec![LaInputId(0)]], // claims solid A's surface
+        inside: vec![vec![false, false]],  // kept by Union
+        patch: vec![0],
+        source: Vec::new(),
+        num_inputs: 2,
+    };
+    let backend = LabelMockBackend::new(la);
+    match boolean(&a, &b, BoolOp::Union, &backend) {
+        Err(YangError::FaceResolutionFailed { tri }) => {
+            assert_eq!(tri, 0, "F3 should name the offending tri index");
+        }
+        other => panic!("expected FaceResolutionFailed (F3), got {other:?}"),
+    }
+}
+
+/// N4 retirement (task #53, spec `specs/n4_retire_stage6_fallback.md`):
+/// on a provenance-CARRYING arrangement, a triangle whose provenance
+/// MISSES must fail loudly — never a silent geometric guess. The
+/// triangle lies ON A's bottom face plane, so the old geometric
+/// fallback would happily (mis)attribute it; the miss is a
+/// `NoSourceEntry` (its source names only input B while the surface
+/// label says A).
+#[test]
+pub(crate) fn n4_provenance_miss_errors_loudly() {
+    let a = cube_brep([0.0, 0.0, 0.0]);
+    let b = cube_brep([0.5, 0.3, 0.4]);
+    let verts = vec![p(0.1, 0.1, 0.0), p(0.4, 0.1, 0.0), p(0.1, 0.4, 0.0)];
+    let mesh = Mesh::new(verts, vec![[0u32, 1, 2]]);
+    let la = LabeledArrangement {
+        mesh,
+        surface: vec![vec![LaInputId(0)]], // claims solid A's surface…
+        inside: vec![vec![false, false]],  // kept by Union
+        patch: vec![0],
+        // …but provenance names only input B: a NoSourceEntry miss.
+        source: vec![vec![(LaInputId(1), 0)]],
+        num_inputs: 2,
+    };
+    let backend = LabelMockBackend::new(la);
+    match boolean(&a, &b, BoolOp::Union, &backend) {
+        Err(YangError::FaceResolutionFailed { tri }) => {
+            assert_eq!(tri, 0, "the miss should name the offending tri");
+        }
+        other => panic!("provenance miss must be loud (FaceResolutionFailed), got {other:?}"),
+    }
+}
+
+/// N4 retirement: the `NoMap` miss reason (parent index beyond the
+/// input's `tri_face` map) is equally loud.
+#[test]
+pub(crate) fn n4_provenance_out_of_range_parent_errors_loudly() {
+    let a = cube_brep([0.0, 0.0, 0.0]);
+    let b = cube_brep([0.5, 0.3, 0.4]);
+    let verts = vec![p(0.1, 0.1, 0.0), p(0.4, 0.1, 0.0), p(0.1, 0.4, 0.0)];
+    let mesh = Mesh::new(verts, vec![[0u32, 1, 2]]);
+    let la = LabeledArrangement {
+        mesh,
+        surface: vec![vec![LaInputId(0)]],
+        inside: vec![vec![false, false]],
+        patch: vec![0],
+        // Parent index far beyond A's 12-triangle Stage-1 map: NoMap.
+        source: vec![vec![(LaInputId(0), 9999)]],
+        num_inputs: 2,
+    };
+    let backend = LabelMockBackend::new(la);
+    match boolean(&a, &b, BoolOp::Union, &backend) {
+        Err(YangError::FaceResolutionFailed { tri }) => {
+            assert_eq!(tri, 0, "the miss should name the offending tri");
+        }
+        other => panic!("provenance miss must be loud (FaceResolutionFailed), got {other:?}"),
+    }
+}
+
+// ----- Group C: M4 differential oracle (real label vs substitute) -----
+
+#[test]
+pub(crate) fn m4_real_label_and_substitute_agree_on_pure_a() {
+    // The (now test-only) substitute attribution and the real-label
+    // path must agree on a pure-A fixture. Disagreement localizes a
+    // label-path bug. The substitute is exercised here via the M4
+    // test-only helpers (`match_with_input`/`face_candidates`/
+    // `majority_vote`), which the Implementer relocates into the test
+    // module. If those are not yet callable, this is a compile RED.
+    let a = cube_brep([0.0, 0.0, 0.0]);
+    // PR-YR24: B offset on ALL axes — a [0.5,0,0] offset shares the
+    // y/z face planes with A (bit-exact coplanar input), which the
+    // near-coplanar input gate now rejects BEFORE the (mock) backend.
+    let b = cube_brep([0.5, 0.3, 0.4]);
+    let la = arrangement_a_cube_shell();
+    let mesh = la.mesh.clone();
+    let backend = LabelMockBackend::new(la);
+
+    // Real-label path:
+    let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
+    let attr = r.triangle_attribution();
+
+    // Substitute path (vertex provenance + majority vote) over the
+    // SAME kept sub-mesh:
+    for t in 0..r.num_tris() {
+        let tri = r.as_mesh().tris[t];
+        let mut inputs = [None; 3];
+        let mut sources = [TessellationSource::Unknown; 3];
+        for (k, &vi) in tri.iter().enumerate() {
+            let target = r.as_mesh().verts[vi as usize];
+            let (inp, src) = match_with_input(&a, &b, target);
+            inputs[k] = inp;
+            sources[k] = src;
+        }
+        let sets = [
+            face_candidates(inputs[0], sources[0], &a, &b),
+            face_candidates(inputs[1], sources[1], &a, &b),
+            face_candidates(inputs[2], sources[2], &a, &b),
+        ];
+        let substitute = majority_vote(&sets);
+        let real = attr.lookup(t as u32);
+        assert_eq!(
+            real, substitute,
+            "M4 differential: real-label tri {t} attribution {real:?} \
+                 disagrees with substitute {substitute:?}"
+        );
+    }
+    let _ = mesh;
+}
+
+// ───────────────────────────────────────────────────────────────────
+// PR-M8 disc-rim crossing — rim-override Stage-1 unit tests
+// ───────────────────────────────────────────────────────────────────
+
+/// A z-axis cylinder B-Rep: bottom cap (−z) at `z=base`, top cap (+z) at
+/// `z=base+h`, seam at +x, radius `r`. Two full-circle rims + one seam
+/// segment (mirrors the m8 test fixture).
+pub(crate) fn rt_cylinder(
+    base: f64,
+    h: f64,
+    r: f64,
+) -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>) {
+    let v0 = Point3::new(r, 0.0, base);
+    let v1 = Point3::new(r, 0.0, base + h);
+    let verts = vec![BRepVertex { point: v0 }, BRepVertex { point: v1 }];
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 0,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, base),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                radius: r,
+            },
+        },
+        BRepEdge {
+            start: 1,
+            end: 1,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, base + h),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+        },
+        BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::LineSegment,
+        },
+    ];
+    let faces = vec![
+        BRepFace {
+            surface: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, base),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+            outer_loop: vec![0, 2, 1, 2],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                d: base,
+            },
+            outer_loop: vec![0],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: -(base + h),
+            },
+            outer_loop: vec![1],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+    ];
+    (verts, edges, faces)
+}
+
+/// An EMPTY rim-override map yields byte-identical verts AND tris to the
+/// plain `stage1_tessellate` for a plain cylinder — the uniform-rim path is
+/// 100% untouched.
+#[test]
+pub(crate) fn rim_override_empty_is_byte_identical() {
+    let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+    let plain = stage1_tessellate(&verts, &edges, &faces).expect("plain");
+    let empty: std::collections::BTreeMap<u32, Vec<Point3>> = std::collections::BTreeMap::new();
+    let overridden =
+        stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &empty, None).expect("empty");
+    assert_eq!(
+        plain.verts.len(),
+        overridden.verts.len(),
+        "empty override must not add verts"
+    );
+    for (a, b) in plain.verts.iter().zip(&overridden.verts) {
+        assert_eq!(a.as_array(), b.as_array(), "verts must be byte-identical");
+    }
+    assert_eq!(plain.tris, overridden.tris, "tris must be byte-identical");
+}
+
+/// Inserting a crossing point on BOTH rims (at the same geometric azimuth):
+/// both points appear bit-exactly on the top AND bottom rim rings, and the
+/// resulting cylinder mesh (caps + lateral) stays a closed 2-manifold.
+#[test]
+pub(crate) fn rim_override_inserts_into_both_rims_no_t_junction() {
+    let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+    // A point on each rim at azimuth 0.3 rad (NOT a uniform sample): radius
+    // 0.5 in the rim's plane.
+    let az = 0.3_f64;
+    let (s, c) = az.sin_cos();
+    let bottom_pt = Point3::new(0.5 * c, 0.5 * s, 0.0);
+    let top_pt = Point3::new(0.5 * c, 0.5 * s, 1.0);
+    let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> = std::collections::BTreeMap::new();
+    ov.insert(0, vec![bottom_pt]); // bottom rim = circle edge 0
+    ov.insert(1, vec![top_pt]); // top rim = circle edge 1
+    let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov, None)
+        .expect("dual-rim override");
+
+    // Both inserted points present bit-exactly in the vertex pool.
+    let has = |p: Point3| t.verts.iter().any(|q| q.as_array() == p.as_array());
+    assert!(has(bottom_pt), "bottom crossing point missing from mesh");
+    assert!(has(top_pt), "top crossing point missing from mesh");
+
+    // The mesh stays a closed 2-manifold (every undirected edge shared by
+    // exactly two triangles).
+    let mut counts: std::collections::BTreeMap<(u32, u32), u32> = std::collections::BTreeMap::new();
+    for tri in &t.tris {
+        for k in 0..3 {
+            let (a, b) = (tri[k], tri[(k + 1) % 3]);
+            *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+        }
+    }
+    assert!(!counts.is_empty());
+    assert!(
+        counts.values().all(|&c| c == 2),
+        "dual-rim override must keep the cylinder a closed 2-manifold"
+    );
+}
+
+/// KV14 Slice A (spec `yang_stage1_curved_holed_patch`): a cylinder lateral
+/// PARTIAL patch (2 sweep arcs + 2 rulings) carrying an interior hole (an
+/// on-surface inner loop) must tessellate via the unroll+CDT path so the
+/// hole is EXCLUDED from the mesh. The pre-Slice-A partial-patch strip
+/// ignored `inner_loops` and paved over the hole (RED before the fix).
+#[test]
+pub(crate) fn lateral_holed_patch_excludes_hole() {
+    use std::f64::consts::PI;
+    let r = 1.0_f64;
+    let on = |theta: f64, z: f64| Point3::new(r * theta.cos(), r * theta.sin(), z);
+    // Sector theta in [0, PI], z in [0, 2] (a bounded patch with a clean
+    // angular gap for the branch cut).
+    let a = on(0.0, 0.0); // V0
+    let b = on(PI, 0.0); // V1
+    let c = on(PI, 2.0); // V2
+    let d = on(0.0, 2.0); // V3
+                          // Interior triangular hole around theta=PI/2, z=1 (all verts on-surface).
+    let h0 = on(PI / 2.0 - 0.4, 0.7); // V4
+    let h1 = on(PI / 2.0 + 0.4, 0.7); // V5
+    let h2 = on(PI / 2.0, 1.3); // V6
+    let verts = [a, b, c, d, h0, h1, h2]
+        .into_iter()
+        .map(|point| BRepVertex { point })
+        .collect::<Vec<_>>();
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+        }, // bottom arc A->B (CCW around +z, sweep PI)
+        BRepEdge {
+            start: 1,
+            end: 2,
+            curve: Curve::LineSegment,
+        }, // ruling B->C
+        BRepEdge {
+            start: 2,
+            end: 3,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, 2.0),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                radius: r,
+            },
+        }, // top arc C->D (CCW around -z, sweep PI back over [0,PI])
+        BRepEdge {
+            start: 3,
+            end: 0,
+            curve: Curve::LineSegment,
+        }, // ruling D->A
+        BRepEdge {
+            start: 4,
+            end: 5,
+            curve: Curve::LineSegment,
+        }, // hole H0->H1
+        BRepEdge {
+            start: 5,
+            end: 6,
+            curve: Curve::LineSegment,
+        }, // hole H1->H2
+        BRepEdge {
+            start: 6,
+            end: 4,
+            curve: Curve::LineSegment,
+        }, // hole H2->H0
+    ];
+    let faces = vec![BRepFace {
+        surface: Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: r,
+        },
+        outer_loop: vec![0, 1, 2, 3],
+        inner_loops: vec![vec![4, 5, 6]],
+        reversed: false,
+    }];
+    let t = stage1_tessellate(&verts, &edges, &faces).expect("holed lateral tessellation");
+    assert!(!t.tris.is_empty(), "must produce triangles");
+
+    // Param unroll (u = r*theta, v = axial); the axis is +z through origin,
+    // so theta = atan2(y, x) is continuous over the [0, PI] sector.
+    let param = |p: [f64; 3]| -> (f64, f64) { (r * p[1].atan2(p[0]), p[2]) };
+    let huv = [
+        param(h0.as_array()),
+        param(h1.as_array()),
+        param(h2.as_array()),
+    ];
+    let inside_hole = |u: f64, v: f64| -> bool {
+        let (x0, y0) = huv[0];
+        let (x1, y1) = huv[1];
+        let (x2, y2) = huv[2];
+        let d1 = (u - x1) * (y0 - y1) - (x0 - x1) * (v - y1);
+        let d2 = (u - x2) * (y1 - y2) - (x1 - x2) * (v - y2);
+        let d3 = (u - x0) * (y2 - y0) - (x2 - x0) * (v - y0);
+        let has_neg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
+        let has_pos = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
+        !(has_neg && has_pos)
+    };
+
+    // Oracle 1: no triangle centroid lies inside the hole.
+    for tri in &t.tris {
+        let a = t.verts[tri[0] as usize].as_array();
+        let b = t.verts[tri[1] as usize].as_array();
+        let c = t.verts[tri[2] as usize].as_array();
+        let cen = [
+            (a[0] + b[0] + c[0]) / 3.0,
+            (a[1] + b[1] + c[1]) / 3.0,
+            (a[2] + b[2] + c[2]) / 3.0,
+        ];
+        let (u, v) = param(cen);
+        assert!(
+            !inside_hole(u, v),
+            "triangle centroid (u={u}, v={v}) lies inside the hole — hole was paved over"
+        );
+    }
+
+    // Oracle 2: watertight patch — each hole boundary edge borders exactly
+    // one triangle (a mesh boundary), never two.
+    let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+    for tri in &t.tris {
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+        }
+    }
+    let find = |p: [f64; 3]| -> u32 {
+        t.verts
+            .iter()
+            .position(|q| {
+                let a = q.as_array();
+                (a[0] - p[0]).abs() < 1e-9
+                    && (a[1] - p[1]).abs() < 1e-9
+                    && (a[2] - p[2]).abs() < 1e-9
+            })
+            .map(|i| i as u32)
+            .expect("hole vertex present in mesh")
+    };
+    let (gh0, gh1, gh2) = (
+        find(h0.as_array()),
+        find(h1.as_array()),
+        find(h2.as_array()),
+    );
+    for (x, y) in [(gh0, gh1), (gh1, gh2), (gh2, gh0)] {
+        let cnt = undirected.get(&(x.min(y), x.max(y))).copied().unwrap_or(0);
+        assert_eq!(
+            cnt, 1,
+            "hole boundary edge ({x},{y}) must be a mesh boundary (appear once), got {cnt}"
+        );
+    }
+
+    // Oracle 3: every triangle faces radially outward (reversed = false).
+    for tri in &t.tris {
+        let a = t.verts[tri[0] as usize].as_array();
+        let b = t.verts[tri[1] as usize].as_array();
+        let c = t.verts[tri[2] as usize].as_array();
+        let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let cen = [
+            (a[0] + b[0] + c[0]) / 3.0,
+            (a[1] + b[1] + c[1]) / 3.0,
+            (a[2] + b[2] + c[2]) / 3.0,
+        ];
+        // radial = centroid projected off the +z axis through origin.
+        let dot = n[0] * cen[0] + n[1] * cen[1];
+        assert!(dot > 0.0, "triangle must face radially outward, dot={dot}");
+    }
+}
+
+/// KV14 Slice E (spec `yang_stage1_curved_holed_patch`): a CONE lateral
+/// PARTIAL patch (a frustum sector) carrying an interior hole re-enters via
+/// the shared unroll+CDT path (cone isometric development), and the hole is
+/// KV14 Slice F: a POLOIDAL PERIODIC TORUS BAND (the corpus torus-boolean
+/// shape — probe KV14_TORUS_PROBE) re-enters Stage 1 via `tessellate_torus_band`
+/// → `tessellate_torus_patch`. Two full profile circles (at θ0, θ1) bound the
+/// band, one labeled outer, the opposite inner. A torus is not ruled in the
+/// toroidal direction, so the UV-CDT must sample interior toroidal rings onto
+/// the surface. Exact-area oracle: a full-φ band over Δθ has developable area
+/// 2π·R·rm·Δθ; watertightness oracle catches a cracked seam.
+#[test]
+pub(crate) fn torus_poloidal_band_two_encircling_profiles() {
+    use std::f64::consts::PI;
+    let major = 3.0_f64;
+    let minor = 1.0_f64;
+    let on = |theta: f64, phi: f64| {
+        let rad = major + minor * phi.cos();
+        Point3::new(rad * theta.cos(), rad * theta.sin(), minor * phi.sin())
+    };
+    let n = 24usize;
+    let (th0, th1) = (0.2_f64, 1.4_f64);
+    let mut verts: Vec<BRepVertex> = Vec::new();
+    let circle_at = |theta: f64, verts: &mut Vec<BRepVertex>| -> Vec<u32> {
+        let base = verts.len() as u32;
+        for k in 0..n {
+            let phi = 2.0 * PI * (k as f64) / (n as f64);
+            verts.push(BRepVertex {
+                point: on(theta, phi),
+            });
+        }
+        (0..n as u32).map(|k| base + k).collect()
+    };
+    let ring0 = circle_at(th0, &mut verts);
+    let ring1 = circle_at(th1, &mut verts);
+    let mut edges: Vec<BRepEdge> = Vec::new();
+    let loop_of = |ring: &[u32], edges: &mut Vec<BRepEdge>| -> Vec<u32> {
+        let base = edges.len() as u32;
+        for k in 0..ring.len() {
+            edges.push(BRepEdge {
+                start: ring[k],
+                end: ring[(k + 1) % ring.len()],
+                curve: Curve::LineSegment,
+            });
+        }
+        (0..ring.len() as u32).map(|k| base + k).collect()
+    };
+    // Outer winds +φ; the inner (a hole boundary) winds −φ — opposite
+    // poloidal wrap, as a real face's outer/inner loops are oriented (the
+    // band seam bridge requires the two profiles wrap oppositely).
+    let ring1_rev: Vec<u32> = ring1.iter().rev().copied().collect();
+    let outer = loop_of(&ring0, &mut edges);
+    let inner = loop_of(&ring1_rev, &mut edges);
+    let faces = vec![BRepFace {
+        surface: Surface::Torus {
+            center: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            major_radius: major,
+            minor_radius: minor,
+        },
+        outer_loop: outer,
+        inner_loops: vec![inner],
+        reversed: false,
+    }];
+    let t = stage1_tessellate(&verts, &edges, &faces).expect("torus band tessellation");
+    assert!(!t.tris.is_empty(), "must produce triangles");
+
+    let tri_area = |tri: &[u32; 3]| -> f64 {
+        let a = t.verts[tri[0] as usize].as_array();
+        let b = t.verts[tri[1] as usize].as_array();
+        let c = t.verts[tri[2] as usize].as_array();
+        let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let nx = e1[1] * e2[2] - e1[2] * e2[1];
+        let ny = e1[2] * e2[0] - e1[0] * e2[2];
+        let nz = e1[0] * e2[1] - e1[1] * e2[0];
+        0.5 * (nx * nx + ny * ny + nz * nz).sqrt()
+    };
+    let area: f64 = t.tris.iter().map(tri_area).sum();
+    let band = 2.0 * PI * major * minor * (th1 - th0);
+    assert!(
+        area > 0.97 * band && area <= band + 1e-9,
+        "torus band area {area} must fill 2π·R·rm·Δθ (≈{band}, inscribed)"
+    );
+
+    // Watertight: every undirected edge is shared by exactly 2 triangles OR
+    // lies on the two profile-circle boundaries (a shared-with-cap rim). A
+    // cracked seam would leave interior edges with count 1.
+    let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+    for tri in &t.tris {
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+        }
+    }
+    let theta_of = |g: u32| {
+        let p = t.verts[g as usize].as_array();
+        p[1].atan2(p[0])
+    };
+    for (&(x, y), &c) in &undirected {
+        assert!(c <= 2, "edge ({x},{y}) covered {c} times (fold)");
+        if c == 1 {
+            // Only profile-rim edges (both ends at θ0 or both at θ1) may be
+            // single-count (they border the adjacent cap, absent here).
+            let (tx, ty) = (theta_of(x), theta_of(y));
+            let on_rim = ((tx - th0).abs() < 1e-6 && (ty - th0).abs() < 1e-6)
+                || ((tx - th1).abs() < 1e-6 && (ty - th1).abs() < 1e-6);
+            assert!(
+                on_rim,
+                "interior edge ({x},{y}) is a boundary — cracked seam in the band"
+            );
+        }
+    }
+}
+
+/// EXCLUDED. Covers the cone `inner_loops` → CDT route (P4).
+#[test]
+pub(crate) fn cone_holed_patch_excludes_hole() {
+    use std::f64::consts::PI;
+    let tan_a = 0.5_f64;
+    let half_angle = tan_a.atan();
+    let (sa, ca) = (half_angle.sin(), half_angle.cos());
+    let on = |theta: f64, z: f64| {
+        let rr = z * tan_a;
+        Point3::new(rr * theta.cos(), rr * theta.sin(), z)
+    };
+    // Sector theta in [0, PI], z in [1, 3] (a bounded frustum patch).
+    let z0 = 1.0_f64;
+    let z1 = 3.0_f64;
+    let a = on(0.0, z0); // V0
+    let b = on(PI, z0); // V1
+    let c = on(PI, z1); // V2
+    let d = on(0.0, z1); // V3
+                         // Interior triangular hole around theta=PI/2, z=2 (on-surface).
+    let h0 = on(PI / 2.0 - 0.4, 1.6); // V4
+    let h1 = on(PI / 2.0 + 0.4, 1.6); // V5
+    let h2 = on(PI / 2.0, 2.4); // V6
+    let verts = [a, b, c, d, h0, h1, h2]
+        .into_iter()
+        .map(|point| BRepVertex { point })
+        .collect::<Vec<_>>();
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, z0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: z0 * tan_a,
+            },
+        }, // bottom arc A->B
+        BRepEdge {
+            start: 1,
+            end: 2,
+            curve: Curve::LineSegment,
+        }, // ruling B->C
+        BRepEdge {
+            start: 2,
+            end: 3,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, z1),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                radius: z1 * tan_a,
+            },
+        }, // top arc C->D
+        BRepEdge {
+            start: 3,
+            end: 0,
+            curve: Curve::LineSegment,
+        }, // ruling D->A
+        BRepEdge {
+            start: 4,
+            end: 5,
+            curve: Curve::LineSegment,
+        },
+        BRepEdge {
+            start: 5,
+            end: 6,
+            curve: Curve::LineSegment,
+        },
+        BRepEdge {
+            start: 6,
+            end: 4,
+            curve: Curve::LineSegment,
+        },
+    ];
+    let faces = vec![BRepFace {
+        surface: Surface::Cone {
+            apex: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            half_angle,
+        },
+        outer_loop: vec![0, 1, 2, 3],
+        inner_loops: vec![vec![4, 5, 6]],
+        reversed: false,
+    }];
+    let t = stage1_tessellate(&verts, &edges, &faces).expect("holed cone tessellation");
+    assert!(!t.tris.is_empty(), "must produce triangles");
+
+    // Cone isometric development (ℓ = v/cosα, ψ = θ·sinα) — the same 2D
+    // layout the tessellator uses (up to the branch-cut rotation, which does
+    // not affect a point-in-triangle test).
+    let param = |p: [f64; 3]| -> (f64, f64) {
+        let ell = p[2].abs() / ca;
+        let psi = p[1].atan2(p[0]) * sa;
+        (ell * psi.cos(), ell * psi.sin())
+    };
+    let huv = [
+        param(h0.as_array()),
+        param(h1.as_array()),
+        param(h2.as_array()),
+    ];
+    let inside_hole = |u: f64, v: f64| -> bool {
+        let (x0, y0) = huv[0];
+        let (x1, y1) = huv[1];
+        let (x2, y2) = huv[2];
+        let d1 = (u - x1) * (y0 - y1) - (x0 - x1) * (v - y1);
+        let d2 = (u - x2) * (y1 - y2) - (x1 - x2) * (v - y2);
+        let d3 = (u - x0) * (y2 - y0) - (x2 - x0) * (v - y0);
+        let has_neg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
+        let has_pos = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
+        !(has_neg && has_pos)
+    };
+
+    // Oracle 1: no triangle centroid lies inside the hole.
+    for tri in &t.tris {
+        let a = t.verts[tri[0] as usize].as_array();
+        let b = t.verts[tri[1] as usize].as_array();
+        let c = t.verts[tri[2] as usize].as_array();
+        let cen = [
+            (a[0] + b[0] + c[0]) / 3.0,
+            (a[1] + b[1] + c[1]) / 3.0,
+            (a[2] + b[2] + c[2]) / 3.0,
+        ];
+        let (u, v) = param(cen);
+        assert!(
+            !inside_hole(u, v),
+            "cone triangle centroid (u={u}, v={v}) lies inside the hole — hole paved over"
+        );
+    }
+
+    // Oracle 2: watertight — each hole boundary edge borders exactly one tri.
+    let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+    for tri in &t.tris {
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+        }
+    }
+    let find = |p: [f64; 3]| -> u32 {
+        t.verts
+            .iter()
+            .position(|q| {
+                let a = q.as_array();
+                (a[0] - p[0]).abs() < 1e-9
+                    && (a[1] - p[1]).abs() < 1e-9
+                    && (a[2] - p[2]).abs() < 1e-9
+            })
+            .map(|i| i as u32)
+            .expect("hole vertex present in mesh")
+    };
+    let (gh0, gh1, gh2) = (
+        find(h0.as_array()),
+        find(h1.as_array()),
+        find(h2.as_array()),
+    );
+    for (x, y) in [(gh0, gh1), (gh1, gh2), (gh2, gh0)] {
+        let cnt = undirected.get(&(x.min(y), x.max(y))).copied().unwrap_or(0);
+        assert_eq!(
+            cnt, 1,
+            "hole boundary edge ({x},{y}) must be a mesh boundary (once), got {cnt}"
+        );
+    }
+
+    // Oracle 3: every triangle faces radially outward (reversed = false).
+    for tri in &t.tris {
+        let a = t.verts[tri[0] as usize].as_array();
+        let b = t.verts[tri[1] as usize].as_array();
+        let c = t.verts[tri[2] as usize].as_array();
+        let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let cen = [
+            (a[0] + b[0] + c[0]) / 3.0,
+            (a[1] + b[1] + c[1]) / 3.0,
+            (a[2] + b[2] + c[2]) / 3.0,
+        ];
+        let dot = n[0] * cen[0] + n[1] * cen[1];
+        assert!(
+            dot > 0.0,
+            "cone triangle must face radially outward, dot={dot}"
+        );
+    }
+}
+
+/// KV14 Slice B (spec `yang_stage1_curved_holed_patch`): a PERIODIC
+/// cylinder-wall strip whose boundary loops each ENCIRCLE the axis (a full
+/// 2π rim / intersection ring, |Σ Δθ| ≈ 2π). Real boolean outputs represent
+/// a windowed cylinder wall this way — one encircling loop labeled `outer`,
+/// the opposite rim labeled `inner`. Slice A's polygon-with-holes model
+/// unrolls a full rim to a zero-area horizontal line, so the CDT fails
+/// outright (RED before Slice B). Slice B classifies the two encircling
+/// loops as the strip's v-boundaries and lays them into ONE simple ribbon.
+#[test]
+pub(crate) fn periodic_strip_two_encircling_rims() {
+    let r = 1.0_f64;
+    let h = 2.0_f64;
+    // Square cross-section sampling: 4 azimuths per rim (θ = 0, π/2, π,
+    // 3π/2) → the exact lateral area is a 4-gon prism wall = 4·(r√2)·h.
+    let bottom = [
+        Point3::new(1.0, 0.0, 0.0),
+        Point3::new(0.0, 1.0, 0.0),
+        Point3::new(-1.0, 0.0, 0.0),
+        Point3::new(0.0, -1.0, 0.0),
+    ];
+    let top = [
+        Point3::new(1.0, 0.0, h),
+        Point3::new(0.0, 1.0, h),
+        Point3::new(-1.0, 0.0, h),
+        Point3::new(0.0, -1.0, h),
+    ];
+    let verts = bottom
+        .iter()
+        .chain(top.iter())
+        .map(|&point| BRepVertex { point })
+        .collect::<Vec<_>>();
+    let arc = |start: u32, end: u32, z: f64| BRepEdge {
+        start,
+        end,
+        curve: Curve::Circle {
+            center: Point3::new(0.0, 0.0, z),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: r,
+        },
+    };
+    // Bottom rim (outer): 4 CCW arcs winding +2π. Top rim (inner): likewise.
+    let edges = vec![
+        arc(0, 1, 0.0),
+        arc(1, 2, 0.0),
+        arc(2, 3, 0.0),
+        arc(3, 0, 0.0),
+        arc(4, 5, h),
+        arc(5, 6, h),
+        arc(6, 7, h),
+        arc(7, 4, h),
+    ];
+    let faces = vec![BRepFace {
+        surface: Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: r,
+        },
+        outer_loop: vec![0, 1, 2, 3],
+        inner_loops: vec![vec![4, 5, 6, 7]],
+        reversed: false,
+    }];
+    let t = stage1_tessellate(&verts, &edges, &faces).expect("periodic strip tessellation");
+    assert!(!t.tris.is_empty(), "must produce triangles");
+
+    // Oracle 1: total lateral area equals the exact 4-gon prism wall
+    // (proves the strip covers the FULL 2π, no seam gap, no double cover).
+    let tri_area = |tri: &[u32; 3]| -> f64 {
+        let a = t.verts[tri[0] as usize].as_array();
+        let b = t.verts[tri[1] as usize].as_array();
+        let c = t.verts[tri[2] as usize].as_array();
+        let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        0.5 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
+    };
+    let area: f64 = t.tris.iter().map(tri_area).sum();
+    // The strip is inscribed in the true cylinder wall (2π·r·h), so its area
+    // approaches that from BELOW as sampling refines. A missing seam wedge
+    // drops the area by a whole facet column (≈10% at this sampling), so a
+    // 97% floor cleanly separates a full wrap from a gap — independent of
+    // the exact arc-sample count.
+    let full_wall = 2.0 * std::f64::consts::PI * r * h;
+    assert!(
+        area > 0.97 * full_wall && area <= full_wall + 1e-9,
+        "strip area {area} must fill the full 2π wall (≈{full_wall}, inscribed)"
+    );
+
+    // Oracle 2: watertight ribbon — every mesh-boundary (count-1) edge lies
+    // ENTIRELY on a rim (both endpoints at z=0 or both at z=h), and no edge
+    // is covered more than twice. A seam gap leaves a vertical boundary edge
+    // spanning z=0→z=h; a fold double-covers. Sampling-independent.
+    let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+    for tri in &t.tris {
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+        }
+    }
+    let on_rim = |z: f64| z.abs() < 1e-9 || (z - h).abs() < 1e-9;
+    let mut boundary_edges = 0usize;
+    for (&(x, y), &c) in &undirected {
+        assert!(
+            c <= 2,
+            "edge ({x},{y}) covered {c} times (fold/double cover)"
+        );
+        if c == 1 {
+            boundary_edges += 1;
+            let zx = t.verts[x as usize].as_array()[2];
+            let zy = t.verts[y as usize].as_array()[2];
+            assert!(
+                on_rim(zx) && on_rim(zy) && (zx - zy).abs() < 1e-9,
+                "boundary edge ({x},{y}) at z=({zx},{zy}) is not a rim edge — seam gap"
+            );
+        }
+    }
+    assert!(boundary_edges > 0, "the tube strip has open rims");
+
+    // Oracle 3: every triangle faces radially outward.
+    for tri in &t.tris {
+        let a = t.verts[tri[0] as usize].as_array();
+        let b = t.verts[tri[1] as usize].as_array();
+        let c = t.verts[tri[2] as usize].as_array();
+        let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let cen = [
+            (a[0] + b[0] + c[0]) / 3.0,
+            (a[1] + b[1] + c[1]) / 3.0,
+            (a[2] + b[2] + c[2]) / 3.0,
+        ];
+        let dot = n[0] * cen[0] + n[1] * cen[1];
+        assert!(dot > 0.0, "triangle must face radially outward, dot={dot}");
+    }
+}
+
+/// KV14 ellipse-arc re-entry (spec `kv14_ellipse_arc_reentry`): a PLANAR
+/// face whose loop mixes LineSegment + one `Curve::Ellipse` ARC (the
+/// oblique plane∩cylinder section a prior boolean leaves on a cap —
+/// R0006/F0076's planar-loop sub-kind) re-enters Stage 1 through the
+/// generalized curved CDT. The ellipse chain pre-pass samples the arc at
+/// the circle chord rule on `major_radius`; the sector tessellates
+/// watertight with the chorded area approaching the analytic sector area
+/// `½·a·b·Δt` from below.
+#[test]
+pub(crate) fn planar_ellipse_sector_reenters_stage1() {
+    use std::f64::consts::FRAC_PI_2;
+    let a = 2.0_f64; // major radius (along +x)
+    let b = 1.0_f64; // minor radius (along +y)
+                     // Quarter sector: ellipse arc from t=0 (2,0,0) to t=π/2 (0,1,0)
+                     // (sweep π/2 < π — the guaranteed-minor-arc input convention), then
+                     // two straight legs through the center.
+    let verts = vec![
+        BRepVertex {
+            point: Point3::new(a, 0.0, 0.0),
+        },
+        BRepVertex {
+            point: Point3::new(0.0, b, 0.0),
+        },
+        BRepVertex {
+            point: Point3::new(0.0, 0.0, 0.0),
+        },
+    ];
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::Ellipse {
+                center: Point3::new(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                major_axis: Vector3::new(1.0, 0.0, 0.0),
+                major_radius: a,
+                minor_radius: b,
+            },
+        },
+        BRepEdge {
+            start: 1,
+            end: 2,
+            curve: Curve::LineSegment,
+        },
+        BRepEdge {
+            start: 2,
+            end: 0,
+            curve: Curve::LineSegment,
+        },
+    ];
+    let faces = vec![BRepFace {
+        surface: Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: 0.0,
+        },
+        outer_loop: vec![0, 1, 2],
+        inner_loops: vec![],
+        reversed: false,
+    }];
+    let t = stage1_tessellate(&verts, &edges, &faces).expect("ellipse sector tessellation");
+    assert!(!t.tris.is_empty(), "must produce triangles");
+
+    // Oracle 1 (on-surface): every vertex lies in the z=0 plane, and every
+    // NON-endpoint vertex sourced from the ellipse edge satisfies the
+    // ellipse implicit (x/a)² + (y/b)² = 1.
+    let mut ellipse_steiner = 0usize;
+    for (i, v) in t.verts.iter().enumerate() {
+        let p = v.as_array();
+        assert!(p[2].abs() < 1e-12, "vertex {i} off the sector plane");
+        if let TessellationSource::BRepEdge { edge: 0, .. } = t.sources[i] {
+            let r = (p[0] / a).powi(2) + (p[1] / b).powi(2);
+            assert!(
+                (r - 1.0).abs() < 1e-9,
+                "ellipse sample {i} off the ellipse: implicit residual {r}"
+            );
+            ellipse_steiner += 1;
+        }
+    }
+    assert!(
+        ellipse_steiner >= 1,
+        "the arc must be subdivided (chord rule), got {ellipse_steiner} interior samples"
+    );
+
+    // Oracle 2 (area): the chorded sector area approaches the analytic
+    // `½·a·b·Δt` from BELOW (inscribed).
+    let analytic = 0.5 * a * b * FRAC_PI_2;
+    let area: f64 = t
+        .tris
+        .iter()
+        .map(|tri| {
+            let p0 = t.verts[tri[0] as usize].as_array();
+            let p1 = t.verts[tri[1] as usize].as_array();
+            let p2 = t.verts[tri[2] as usize].as_array();
+            let e1 = [p1[0] - p0[0], p1[1] - p0[1]];
+            let e2 = [p2[0] - p0[0], p2[1] - p0[1]];
+            0.5 * (e1[0] * e2[1] - e1[1] * e2[0]).abs()
+        })
+        .sum();
+    assert!(
+        area <= analytic + 1e-9 && area > 0.985 * analytic,
+        "sector area {area} vs analytic {analytic}"
+    );
+
+    // Oracle 3 (watertight cover): every undirected mesh edge is covered
+    // once (boundary) or twice (interior) — no T-junction, no fold.
+    let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+    for tri in &t.tris {
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+        }
+    }
+    for (&(x, y), &c) in &undirected {
+        assert!(c <= 2, "edge ({x},{y}) covered {c} times");
+    }
+}
+
+/// KV14 ellipse-arc re-entry: a planar cap bounded by a single FULL
+/// `Curve::Ellipse` loop (`start == end` — the complete oblique section)
+/// tessellates through the same chain + CDT path, area → π·a·b from below.
+#[test]
+pub(crate) fn planar_full_ellipse_cap_reenters_stage1() {
+    let a = 2.0_f64;
+    let b = 1.0_f64;
+    let verts = vec![BRepVertex {
+        point: Point3::new(a, 0.0, 0.0),
+    }];
+    let edges = vec![BRepEdge {
+        start: 0,
+        end: 0,
+        curve: Curve::Ellipse {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            major_axis: Vector3::new(1.0, 0.0, 0.0),
+            major_radius: a,
+            minor_radius: b,
+        },
+    }];
+    let faces = vec![BRepFace {
+        surface: Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: 0.0,
+        },
+        outer_loop: vec![0],
+        inner_loops: vec![],
+        reversed: false,
+    }];
+    let t = stage1_tessellate(&verts, &edges, &faces).expect("full ellipse cap tessellation");
+    let analytic = std::f64::consts::PI * a * b;
+    let area: f64 = t
+        .tris
+        .iter()
+        .map(|tri| {
+            let p0 = t.verts[tri[0] as usize].as_array();
+            let p1 = t.verts[tri[1] as usize].as_array();
+            let p2 = t.verts[tri[2] as usize].as_array();
+            let e1 = [p1[0] - p0[0], p1[1] - p0[1]];
+            let e2 = [p2[0] - p0[0], p2[1] - p0[1]];
+            0.5 * (e1[0] * e2[1] - e1[1] * e2[0]).abs()
+        })
+        .sum();
+    assert!(
+        area <= analytic + 1e-9 && area > 0.985 * analytic,
+        "cap area {area} vs analytic {analytic}"
+    );
+}
+
+/// KV14 ellipse-arc re-entry (curved-lateral sub-kind): a cylinder wall
+/// bounded below by a full circle rim and above by the full OBLIQUE
+/// ellipse (`plane ∩ cylinder`, R0095's vocabulary) routes through the
+/// holed-CDT periodic strip: both loops encircle the axis, the ellipse
+/// chain samples lie exactly ON the cylinder, and the wall area
+/// approaches `r·∫(h + k·cosθ)dθ = 2π·r·h` from below.
+#[test]
+pub(crate) fn lateral_oblique_ellipse_tube_reenters_stage1() {
+    let r = 1.0_f64;
+    let h = 2.0_f64; // ellipse-plane height at the axis
+    let k = 0.5_f64; // slope: top plane z = h + k·x
+                     // Oblique plane through (0,0,h) with unit normal (−sinφ, 0, cosφ),
+                     // tanφ = k: section ellipse center (0,0,h), major axis (cosφ,0,sinφ),
+                     // a = r/cosφ, b = r. P(t) = (r·cos t, r·sin t, h + k·r·cos t) — every
+                     // sample is exactly on the cylinder.
+    let cphi = 1.0 / (1.0 + k * k).sqrt();
+    let sphi = k * cphi;
+    let verts = vec![
+        BRepVertex {
+            point: Point3::new(r, 0.0, 0.0),
+        },
+        BRepVertex {
+            point: Point3::new(r, 0.0, h + k * r),
+        },
+    ];
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 0,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+        },
+        BRepEdge {
+            start: 1,
+            end: 1,
+            curve: Curve::Ellipse {
+                center: Point3::new(0.0, 0.0, h),
+                normal: Vector3::new(-sphi, 0.0, cphi),
+                major_axis: Vector3::new(cphi, 0.0, sphi),
+                major_radius: r / cphi,
+                minor_radius: r,
+            },
+        },
+    ];
+    let faces = vec![BRepFace {
+        surface: Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: r,
+        },
+        outer_loop: vec![0],
+        inner_loops: vec![vec![1]],
+        reversed: false,
+    }];
+    let t = stage1_tessellate(&verts, &edges, &faces).expect("oblique ellipse tube");
+    assert!(!t.tris.is_empty(), "must produce triangles");
+
+    // Oracle 1: every vertex lies exactly on the cylinder (the ellipse
+    // parameterization is on-surface by construction; the unroll must
+    // not displace it).
+    for (i, v) in t.verts.iter().enumerate() {
+        let p = v.as_array();
+        let rad = (p[0] * p[0] + p[1] * p[1]).sqrt();
+        assert!(
+            (rad - r).abs() < 1e-9,
+            "vertex {i} off the cylinder: radial {rad}"
+        );
+    }
+
+    // Oracle 2: wall area → 2π·r·h from below (the k·cosθ term integrates
+    // to zero over the full turn).
+    let analytic = 2.0 * std::f64::consts::PI * r * h;
+    let tri_area = |tri: &[u32; 3]| -> f64 {
+        let p0 = t.verts[tri[0] as usize].as_array();
+        let p1 = t.verts[tri[1] as usize].as_array();
+        let p2 = t.verts[tri[2] as usize].as_array();
+        let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+        let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        0.5 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
+    };
+    let area: f64 = t.tris.iter().map(tri_area).sum();
+    assert!(
+        area > 0.97 * analytic && area <= analytic + 1e-9,
+        "wall area {area} vs analytic {analytic} (inscribed)"
+    );
+
+    // Oracle 3: watertight ribbon — every boundary (count-1) edge lies
+    // entirely on the bottom rim (z≈0) or on the ellipse plane
+    // (z ≈ h + k·x); no edge covered more than twice.
+    let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+    for tri in &t.tris {
+        for k3 in 0..3 {
+            let (x, y) = (tri[k3], tri[(k3 + 1) % 3]);
+            *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+        }
+    }
+    let on_boundary = |g: u32| -> bool {
+        let p = t.verts[g as usize].as_array();
+        p[2].abs() < 1e-9 || (p[2] - (h + k * p[0])).abs() < 1e-9
+    };
+    for (&(x, y), &c) in &undirected {
+        assert!(c <= 2, "edge ({x},{y}) covered {c} times (fold)");
+        if c == 1 {
+            assert!(
+                on_boundary(x) && on_boundary(y),
+                "boundary edge ({x},{y}) is not on a rim/ellipse — seam gap"
+            );
+        }
+    }
+}
+
+/// KV14 Slice D (spec `yang_stage1_curved_holed_patch`): a cylinder lateral
+/// whose outer loop is NON-canonical — no full-circle rims and NOT the
+/// structured 2-arc partial-patch pattern — with NO holes. Real boolean
+/// outputs produce these when a prior op bites an irregular boundary into a
+/// partial patch (R0053 = [L,A,A,A,L,A,A,A]: each rim split into 3 arcs +
+/// 2 rulings). The pre-Slice-D dispatch walled these `MalformedTopology`
+/// ("found 0 full rims and 6 arcs"); Slice D routes them to the same
+/// unroll+CDT path (empty hole set), classifying the single winding-0 outer
+/// loop as a bounded partial patch.
+#[test]
+pub(crate) fn lateral_partial_patch_multi_arc_no_holes() {
+    use std::f64::consts::PI;
+    let r = 1.0_f64;
+    let h = 2.0_f64;
+    let on = |theta: f64, z: f64| Point3::new(r * theta.cos(), r * theta.sin(), z);
+    // Sector theta in [0, PI] (a clean angular gap over (PI, 2PI) for the
+    // branch cut), z in [0, h]. Each rim split into 3 arcs at PI/3, 2PI/3.
+    // Outer loop: [A,A,A, L, A,A,A, L] = R0053's vocabulary (rotated).
+    let b0 = on(0.0, 0.0); // V0
+    let b1 = on(PI / 3.0, 0.0); // V1
+    let b2 = on(2.0 * PI / 3.0, 0.0); // V2
+    let b3 = on(PI, 0.0); // V3
+    let t3 = on(PI, h); // V4
+    let t2 = on(2.0 * PI / 3.0, h); // V5
+    let t1 = on(PI / 3.0, h); // V6
+    let t0 = on(0.0, h); // V7
+    let verts = [b0, b1, b2, b3, t3, t2, t1, t0]
+        .into_iter()
+        .map(|point| BRepVertex { point })
+        .collect::<Vec<_>>();
+    // Bottom arcs sweep CCW about +z; top arcs sweep CCW about −z (returning
+    // over [PI, 0]) so the loop nets zero axial winding (a bounded patch).
+    let bot_arc = |start: u32, end: u32| BRepEdge {
+        start,
+        end,
+        curve: Curve::Circle {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: r,
+        },
+    };
+    let top_arc = |start: u32, end: u32| BRepEdge {
+        start,
+        end,
+        curve: Curve::Circle {
+            center: Point3::new(0.0, 0.0, h),
+            normal: Vector3::new(0.0, 0.0, -1.0),
+            radius: r,
+        },
+    };
+    let ruling = |start: u32, end: u32| BRepEdge {
+        start,
+        end,
+        curve: Curve::LineSegment,
+    };
+    let edges = vec![
+        bot_arc(0, 1), // e0
+        bot_arc(1, 2), // e1
+        bot_arc(2, 3), // e2
+        ruling(3, 4),  // e3 (V3->V4, up)
+        top_arc(4, 5), // e4
+        top_arc(5, 6), // e5
+        top_arc(6, 7), // e6
+        ruling(7, 0),  // e7 (V7->V0, down)
+    ];
+    let faces = vec![BRepFace {
+        surface: Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: r,
+        },
+        outer_loop: vec![0, 1, 2, 3, 4, 5, 6, 7],
+        inner_loops: vec![],
+        reversed: false,
+    }];
+    let t = stage1_tessellate(&verts, &edges, &faces)
+        .expect("Slice D multi-arc partial patch tessellation");
+    assert!(!t.tris.is_empty(), "must produce triangles");
+
+    // Oracle 1: total area equals the inscribed sector wall (r·PI)·h = PI·h.
+    // A CDT that dropped the seam wedge or double-covered would miss/exceed
+    // this; approached from BELOW since the arcs are chord-sampled.
+    let tri_area = |tri: &[u32; 3]| -> f64 {
+        let a = t.verts[tri[0] as usize].as_array();
+        let b = t.verts[tri[1] as usize].as_array();
+        let c = t.verts[tri[2] as usize].as_array();
+        let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        0.5 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
+    };
+    let area: f64 = t.tris.iter().map(tri_area).sum();
+    let sector_wall = r * PI * h;
+    assert!(
+        area > 0.97 * sector_wall && area <= sector_wall + 1e-9,
+        "patch area {area} must fill the PI sector wall (≈{sector_wall}, inscribed)"
+    );
+
+    // Oracle 2: watertight bounded patch — no interior holes, no fold. Every
+    // count-1 boundary edge lies on the OUTER boundary: a rim (both ends at
+    // z=0 or both at z=h) or a ruling (both ends at theta=0 or theta=PI).
+    let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+    for tri in &t.tris {
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+        }
+    }
+    let theta_of = |p: [f64; 3]| p[1].atan2(p[0]);
+    for (&(x, y), &c) in &undirected {
+        assert!(
+            c <= 2,
+            "edge ({x},{y}) covered {c} times (fold/double cover)"
+        );
+        if c == 1 {
+            let px = t.verts[x as usize].as_array();
+            let py = t.verts[y as usize].as_array();
+            let on_rim = (px[2].abs() < 1e-9 && py[2].abs() < 1e-9)
+                || ((px[2] - h).abs() < 1e-9 && (py[2] - h).abs() < 1e-9);
+            let (tx, ty) = (theta_of(px), theta_of(py));
+            let on_ruling = (tx.abs() < 1e-6 && ty.abs() < 1e-6)
+                || ((tx - PI).abs() < 1e-6 && (ty - PI).abs() < 1e-6);
+            assert!(
+                on_rim || on_ruling,
+                "boundary edge ({x},{y}) is interior — hole or seam gap in a hole-free patch"
+            );
+        }
+    }
+
+    // Oracle 3: every triangle faces radially outward (reversed = false).
+    for tri in &t.tris {
+        let a = t.verts[tri[0] as usize].as_array();
+        let b = t.verts[tri[1] as usize].as_array();
+        let c = t.verts[tri[2] as usize].as_array();
+        let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let cen = [
+            (a[0] + b[0] + c[0]) / 3.0,
+            (a[1] + b[1] + c[1]) / 3.0,
+            (a[2] + b[2] + c[2]) / 3.0,
+        ];
+        let dot = n[0] * cen[0] + n[1] * cen[1];
+        assert!(dot > 0.0, "triangle must face radially outward, dot={dot}");
+    }
+}
+
+/// KV14 Slice E: a non-canonical CONE partial patch (multi-arc, no holes)
+/// re-enters the unroll+CDT path. A cone frustum sector [A,A,A,L,A,A,A,L]
+/// (R0020's vocabulary) with the u-scale varying by axial radius. Oracles:
+/// the patch fills the exact developable sector-frustum area (from below —
+/// chord-sampled), it is watertight and bounded (no interior hole), and it
+/// faces radially outward.
+#[test]
+pub(crate) fn cone_partial_patch_multi_arc_no_holes() {
+    use std::f64::consts::PI;
+    // Cone: apex at origin, axis +z, half-angle atan(0.5) (tan α = 0.5).
+    let tan_a = 0.5_f64;
+    let half_angle = tan_a.atan();
+    let on = |theta: f64, z: f64| {
+        let r = z * tan_a;
+        Point3::new(r * theta.cos(), r * theta.sin(), z)
+    };
+    // Sector theta in [0, PI] (a clean gap over (PI, 2PI) for the branch
+    // cut), between z=1 (r=0.5) and z=3 (r=1.5). Each rim split into 3 arcs.
+    let z0 = 1.0_f64;
+    let z1 = 3.0_f64;
+    let b0 = on(0.0, z0);
+    let b1 = on(PI / 3.0, z0);
+    let b2 = on(2.0 * PI / 3.0, z0);
+    let b3 = on(PI, z0);
+    let t3 = on(PI, z1);
+    let t2 = on(2.0 * PI / 3.0, z1);
+    let t1 = on(PI / 3.0, z1);
+    let t0 = on(0.0, z1);
+    let verts = [b0, b1, b2, b3, t3, t2, t1, t0]
+        .into_iter()
+        .map(|point| BRepVertex { point })
+        .collect::<Vec<_>>();
+    // Bottom arcs sweep CCW about +z at radius r0; top arcs return over
+    // [PI, 0] about −z at radius r1 (nets zero axial winding = bounded).
+    let arc = |start: u32, end: u32, z: f64, up: bool| BRepEdge {
+        start,
+        end,
+        curve: Curve::Circle {
+            center: Point3::new(0.0, 0.0, z),
+            normal: Vector3::new(0.0, 0.0, if up { 1.0 } else { -1.0 }),
+            radius: z * tan_a,
+        },
+    };
+    let ruling = |start: u32, end: u32| BRepEdge {
+        start,
+        end,
+        curve: Curve::LineSegment,
+    };
+    let edges = vec![
+        arc(0, 1, z0, true),  // e0
+        arc(1, 2, z0, true),  // e1
+        arc(2, 3, z0, true),  // e2
+        ruling(3, 4),         // e3 (up generator)
+        arc(4, 5, z1, false), // e4
+        arc(5, 6, z1, false), // e5
+        arc(6, 7, z1, false), // e6
+        ruling(7, 0),         // e7 (down generator)
+    ];
+    let faces = vec![BRepFace {
+        surface: Surface::Cone {
+            apex: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            half_angle,
+        },
+        outer_loop: vec![0, 1, 2, 3, 4, 5, 6, 7],
+        inner_loops: vec![],
+        reversed: false,
+    }];
+    let t = stage1_tessellate(&verts, &edges, &faces)
+        .expect("Slice E cone multi-arc partial patch tessellation");
+    assert!(!t.tris.is_empty(), "must produce triangles");
+
+    let tri_area = |tri: &[u32; 3]| -> f64 {
+        let a = t.verts[tri[0] as usize].as_array();
+        let b = t.verts[tri[1] as usize].as_array();
+        let c = t.verts[tri[2] as usize].as_array();
+        let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        0.5 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
+    };
+    let area: f64 = t.tris.iter().map(tri_area).sum();
+    // Developable frustum-sector area over Δθ = PI:
+    // (Δθ/2)·(r0+r1)·L, L = (z1−z0)/cosα.
+    let r0 = z0 * tan_a;
+    let r1 = z1 * tan_a;
+    let cos_a = half_angle.cos();
+    let slant = (z1 - z0) / cos_a;
+    let sector_wall = (PI / 2.0) * (r0 + r1) * slant;
+    assert!(
+        area > 0.97 * sector_wall && area <= sector_wall + 1e-9,
+        "cone patch area {area} must fill the frustum sector wall (≈{sector_wall}, inscribed)"
+    );
+
+    // Watertight bounded patch: every count-1 edge lies on the OUTER
+    // boundary — a rim (both ends at z0 or both at z1) or a generator (both
+    // ends at theta=0 or theta=PI).
+    let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+    for tri in &t.tris {
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+        }
+    }
+    let theta_of = |p: [f64; 3]| p[1].atan2(p[0]);
+    for (&(x, y), &c) in &undirected {
+        assert!(
+            c <= 2,
+            "edge ({x},{y}) covered {c} times (fold/double cover)"
+        );
+        if c == 1 {
+            let px = t.verts[x as usize].as_array();
+            let py = t.verts[y as usize].as_array();
+            let on_rim = ((px[2] - z0).abs() < 1e-9 && (py[2] - z0).abs() < 1e-9)
+                || ((px[2] - z1).abs() < 1e-9 && (py[2] - z1).abs() < 1e-9);
+            let (tx, ty) = (theta_of(px), theta_of(py));
+            let on_gen = (tx.abs() < 1e-6 && ty.abs() < 1e-6)
+                || ((tx - PI).abs() < 1e-6 && (ty - PI).abs() < 1e-6);
+            assert!(
+                on_rim || on_gen,
+                "boundary edge ({x},{y}) is interior — hole or seam gap in a hole-free patch"
+            );
+        }
+    }
+
+    // Every triangle faces radially outward (reversed = false): positive
+    // radial component (a cone normal is tilted but stays outward in r).
+    for tri in &t.tris {
+        let a = t.verts[tri[0] as usize].as_array();
+        let b = t.verts[tri[1] as usize].as_array();
+        let c = t.verts[tri[2] as usize].as_array();
+        let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let cen = [
+            (a[0] + b[0] + c[0]) / 3.0,
+            (a[1] + b[1] + c[1]) / 3.0,
+            (a[2] + b[2] + c[2]) / 3.0,
+        ];
+        let dot = n[0] * cen[0] + n[1] * cen[1];
+        assert!(
+            dot > 0.0,
+            "cone triangle must face radially outward, dot={dot}"
+        );
+    }
+}
+
+/// KV14 Slice A edge case: a `reversed` holed lateral (a cavity/bore wall)
+/// excludes the hole AND faces radially INWARD, and a patch with TWO holes
+/// excludes both. Covers the `f.reversed` branch (P4) + multi-hole input.
+#[test]
+pub(crate) fn lateral_holed_patch_reversed_and_multi_hole() {
+    use std::f64::consts::PI;
+    let r = 1.0_f64;
+    let on = |theta: f64, z: f64| Point3::new(r * theta.cos(), r * theta.sin(), z);
+    let a = on(0.0, 0.0);
+    let b = on(PI, 0.0);
+    let c = on(PI, 2.0);
+    let d = on(0.0, 2.0);
+    // Two disjoint triangular holes in the sector.
+    let h = |cz: f64| {
+        [
+            on(PI / 2.0 - 0.3, cz - 0.2),
+            on(PI / 2.0 + 0.3, cz - 0.2),
+            on(PI / 2.0, cz + 0.25),
+        ]
+    };
+    let hole_a = h(0.6);
+    let hole_b = h(1.4);
+    let verts = [a, b, c, d]
+        .into_iter()
+        .chain(hole_a)
+        .chain(hole_b)
+        .map(|point| BRepVertex { point })
+        .collect::<Vec<_>>();
+    let mut edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+        },
+        BRepEdge {
+            start: 1,
+            end: 2,
+            curve: Curve::LineSegment,
+        },
+        BRepEdge {
+            start: 2,
+            end: 3,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, 2.0),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                radius: r,
+            },
+        },
+        BRepEdge {
+            start: 3,
+            end: 0,
+            curve: Curve::LineSegment,
+        },
+    ];
+    // Hole A verts = 4,5,6 ; hole B verts = 7,8,9.
+    for (base, _) in [(4u32, ()), (7u32, ())] {
+        edges.push(BRepEdge {
+            start: base,
+            end: base + 1,
+            curve: Curve::LineSegment,
+        });
+        edges.push(BRepEdge {
+            start: base + 1,
+            end: base + 2,
+            curve: Curve::LineSegment,
+        });
+        edges.push(BRepEdge {
+            start: base + 2,
+            end: base,
+            curve: Curve::LineSegment,
+        });
+    }
+    let faces = vec![BRepFace {
+        surface: Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: r,
+        },
+        outer_loop: vec![0, 1, 2, 3],
+        inner_loops: vec![vec![4, 5, 6], vec![7, 8, 9]],
+        reversed: true,
+    }];
+    let t = stage1_tessellate(&verts, &edges, &faces).expect("reversed multi-hole tessellation");
+    assert!(!t.tris.is_empty());
+
+    let param = |p: [f64; 3]| -> (f64, f64) { (r * p[1].atan2(p[0]), p[2]) };
+    let tri_of = |hole: &[Point3; 3]| {
+        [
+            param(hole[0].as_array()),
+            param(hole[1].as_array()),
+            param(hole[2].as_array()),
+        ]
+    };
+    let inside = |uv: &[(f64, f64); 3], u: f64, v: f64| -> bool {
+        let (x0, y0) = uv[0];
+        let (x1, y1) = uv[1];
+        let (x2, y2) = uv[2];
+        let d1 = (u - x1) * (y0 - y1) - (x0 - x1) * (v - y1);
+        let d2 = (u - x2) * (y1 - y2) - (x1 - x2) * (v - y2);
+        let d3 = (u - x0) * (y2 - y0) - (x2 - x0) * (v - y0);
+        !((d1 < 0.0 || d2 < 0.0 || d3 < 0.0) && (d1 > 0.0 || d2 > 0.0 || d3 > 0.0))
+    };
+    let uva = tri_of(&hole_a);
+    let uvb = tri_of(&hole_b);
+    for tri in &t.tris {
+        let a = t.verts[tri[0] as usize].as_array();
+        let b = t.verts[tri[1] as usize].as_array();
+        let c = t.verts[tri[2] as usize].as_array();
+        let cen = [
+            (a[0] + b[0] + c[0]) / 3.0,
+            (a[1] + b[1] + c[1]) / 3.0,
+            (a[2] + b[2] + c[2]) / 3.0,
+        ];
+        let (u, v) = param(cen);
+        assert!(
+            !inside(&uva, u, v) && !inside(&uvb, u, v),
+            "a hole was paved over"
+        );
+        // reversed ⇒ inward-facing: geometric normal · radial < 0.
+        let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let dot = n[0] * cen[0] + n[1] * cen[1];
+        assert!(
+            dot < 0.0,
+            "reversed cavity wall must face inward, dot={dot}"
+        );
+    }
+}
+
+/// M-C RED (spec `m8_stage0_band_scale_crossing_verts` §4 E-C1): two
+/// DISTINCT override points whose angular separation is far below the
+/// legacy merge_tol (band-close genuine crossings — the R0088/R0070
+/// twin population) must BOTH be inserted into the rim ring. Silently
+/// keeping only one desynchronizes the ring from the cap override that
+/// carries both points (T-junction holes, the measured M-C class). A
+/// bit-identical duplicate must still be deduplicated (E-C1b).
+#[test]
+pub(crate) fn rim_override_band_close_distinct_points_both_inserted() {
+    let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+    let r = 0.5_f64;
+    let mk = |az: f64, z: f64| {
+        let (s, c) = az.sin_cos();
+        Point3::new(r * c, r * s, z)
+    };
+    // Two on-circle points ~2e-13 rad apart (distinct f64 coordinates,
+    // far below uni_step·1e-6), on both rims for lateral balance.
+    let (az1, az2) = (0.3_f64, 0.3_f64 + 2.0e-13);
+    let (b1, b2) = (mk(az1, 0.0), mk(az2, 0.0));
+    let (t1, t2) = (mk(az1, 1.0), mk(az2, 1.0));
+    assert_ne!(b1.as_array(), b2.as_array(), "twin construction degenerate");
+    let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> = std::collections::BTreeMap::new();
+    ov.insert(0, vec![b1, b2]);
+    ov.insert(1, vec![t1, t2]);
+    let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov, None)
+        .expect("band-close distinct overrides must be accepted");
+    for (name, p) in [("b1", b1), ("b2", b2), ("t1", t1), ("t2", t2)] {
+        assert!(
+            t.verts.iter().any(|q| q.as_array() == p.as_array()),
+            "M-C RED — distinct band-close override {name} missing from the \
+                 rim ring (silent merge_tol drop, spec §2)"
+        );
+    }
+    // Ring stays a closed 2-manifold with the band-thin segments present.
+    let mut counts: std::collections::BTreeMap<(u32, u32), u32> = std::collections::BTreeMap::new();
+    for tri in &t.tris {
+        for k in 0..3 {
+            let (a, b) = (tri[k], tri[(k + 1) % 3]);
+            *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+        }
+    }
+    assert!(
+        counts.values().all(|&c| c == 2),
+        "band-close override insertion must keep the cylinder closed"
+    );
+
+    // E-C1b: a bit-identical duplicate is still dropped (no double vertex).
+    // Balanced across both rims (the lateral azimuth-merge expectation).
+    let mut dup: std::collections::BTreeMap<u32, Vec<Point3>> = std::collections::BTreeMap::new();
+    dup.insert(0, vec![b1, b1]);
+    dup.insert(1, vec![t1, t1]);
+    let td = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &dup, None)
+        .expect("bit-identical duplicate override must be accepted");
+    assert_eq!(
+        td.verts
+            .iter()
+            .filter(|q| q.as_array() == t1.as_array())
+            .count(),
+        1,
+        "bit-identical duplicate override must be deduplicated exactly once"
+    );
+}
+
+/// Chained swiss-cheese wall 1 RED (task #62, spec
+/// `m8_holed_disc_coplanar_overlay` §8 increment 5): the azimuth-merge
+/// lateral pairing must be WRAP-AWARE. A RECOVERED B-Rep (boolean output
+/// re-entering a boolean) can carry one rim's seam vertex at azimuth
+/// exactly 0 while the other rim's sits a femto BELOW the +x axis
+/// (y = −ε): `atan2(…).rem_euclid(2π)` maps the latter to 2π−ε, sorting
+/// it LAST instead of FIRST, and the positional `bot[k] ↔ top[k]` pairing
+/// shifts by one slot — the F0086 step-2 wall
+/// (`azimuth-merge rims disagree at index 0 (bottom 0 vs top 0.4488)`).
+/// The two sorted rings are CIRCULAR sequences: pairing must align them
+/// by cyclic shift, not by absolute sort position.
+///
+/// Fixture: rt-style cylinder whose TOP seam vertex is rotated a femto
+/// below the +x axis (y = −r·5e−16, on-circle within band), with one
+/// same-azimuth override pair on both rims to force the azimuth-merge
+/// path. Oracle: tessellation SUCCEEDS and stays a closed 2-manifold.
+/// RED today: MalformedTopology "rims disagree at index 0".
+#[test]
+pub(crate) fn rim_override_wrap_seam_cyclic_alignment() {
+    let r = 0.5_f64;
+    let eps_y = -r * 5.0e-16; // top seam vertex a femto BELOW the +x axis
+    let v0 = Point3::new(r, 0.0, 0.0);
+    let v1 = Point3::new(r, eps_y, 1.0);
+    let verts = vec![BRepVertex { point: v0 }, BRepVertex { point: v1 }];
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 0,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                radius: r,
+            },
+        },
+        BRepEdge {
+            start: 1,
+            end: 1,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, 1.0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+        },
+        BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::LineSegment,
+        },
+    ];
+    let faces = vec![
+        BRepFace {
+            surface: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+            outer_loop: vec![0, 2, 1, 2],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                d: 0.0,
+            },
+            outer_loop: vec![0],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: -1.0,
+            },
+            outer_loop: vec![1],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+    ];
+    // One override pair at the same geometric azimuth on both rims (not
+    // near a uniform sample) — forces the azimuth-merge lateral path.
+    let az = 0.3_f64;
+    let (s, c) = az.sin_cos();
+    let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> = std::collections::BTreeMap::new();
+    ov.insert(0, vec![Point3::new(r * c, r * s, 0.0)]);
+    ov.insert(1, vec![Point3::new(r * c, r * s, 1.0)]);
+    let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov, None).expect(
+        "wrap-seam cylinder must tessellate — the azimuth-merge pairing \
+             must align the rings cyclically, not by absolute sort position",
+    );
+    let mut counts: std::collections::BTreeMap<(u32, u32), u32> = std::collections::BTreeMap::new();
+    for tri in &t.tris {
+        for k in 0..3 {
+            let (a, b) = (tri[k], tri[(k + 1) % 3]);
+            *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+        }
+    }
+    assert!(
+        !counts.is_empty() && counts.values().all(|&c| c == 2),
+        "wrap-seam cylinder must stay a closed 2-manifold"
+    );
+}
+
+/// M8 holed-disc increment 3 RED (spec `m8_holed_disc_coplanar_overlay`
+/// §8): ULP-TWIN override points — two distinct points 1 ULP apart in x
+/// whose f64 seam-relative rim angles COLLIDE — must be ring-ordered by
+/// their EXACT angular order on BOTH rims, regardless of the caller's
+/// insertion order, and the lateral strip must pair each bottom twin with
+/// its same-azimuth top partner (no twisted quad). Today the slot sort
+/// falls back to insertion order on the f64 tie, and the two rims' frames
+/// have OPPOSITE orientations, so one rim always comes out mis-ordered →
+/// the cap fan walks U_lo–twinB–twinA–U_hi on one cap (wrong adjacency)
+/// and the wall strip twists (a self-intersecting Stage-0 mesh — the
+/// `annular_cap_under_disc` cherchi `SegmentNotLocatable` wall).
+///
+/// Oracles (frame-independent, structural):
+/// - on each cap, the uniform sample at the LOWER global azimuth is
+///   ring-adjacent to the LOWER-azimuth twin (and not to the other);
+/// - the lateral contains BOTH vertical edges (A_bot,A_top), (B_bot,B_top);
+/// - the full mesh stays a closed 2-manifold;
+/// - both insertion orders ([A,B] and [B,A]) yield the same triangle SET.
+#[test]
+pub(crate) fn rim_override_ulp_twins_exact_order_both_rims() {
+    let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+
+    // Pick the bottom-rim chord whose midpoint has the smallest |x| (near
+    // the ±y axis, far from the seam at +x): there the azimuth derivative
+    // dθ/dx = |y|/r² is maximal while ULP(θ-offset) is fixed, so a 1-ULP
+    // x perturbation moves the angle by far LESS than one ULP of the
+    // seam-relative offset → the f64 angles of the twins collide.
+    let plain = stage1_tessellate(&verts, &edges, &faces).expect("plain");
+    let mut rim0: Vec<(f64, Point3)> = plain
+        .sources
+        .iter()
+        .enumerate()
+        .filter_map(|(i, src)| match src {
+            TessellationSource::BRepEdge { edge: 0, t } => Some((*t, plain.verts[i])),
+            _ => None,
+        })
+        .collect();
+    rim0.sort_by(|a, b| a.0.total_cmp(&b.0));
+    assert!(rim0.len() >= 4, "bottom rim must have >=4 Steiner samples");
+    let mut best: Option<([f64; 2], [f64; 2])> = None;
+    for w in rim0.windows(2) {
+        let (p0, p1) = (w[0].1.as_array(), w[1].1.as_array());
+        let mid_x = 0.5 * (p0[0] + p1[0]);
+        if best.is_none_or(|(a, b)| mid_x.abs() < 0.5 * (a[0] + b[0]).abs()) {
+            best = Some(([p0[0], p0[1]], [p1[0], p1[1]]));
+        }
+    }
+    let (e0, e1) = best.unwrap();
+    let mx = 0.5 * (e0[0] + e1[0]);
+    let my = 0.5 * (e0[1] + e1[1]);
+    // The ULP twins: same y, x one ULP apart (the real Stage-0 twin shape:
+    // two sweep-event columns from 1-ULP-different rim-sample x's).
+    let xa = mx;
+    let xb = f64::from_bits(mx.to_bits() + 1);
+    assert_ne!(xa, xb, "twin construction degenerate");
+    // Exact global-azimuth order: cross(A,B) = xa·my − my·xb = my·(xa−xb),
+    // exact in f64 (adjacent-float subtraction is exact). Positive cross
+    // means B is CCW of A, i.e. A has the LOWER azimuth.
+    let a_first = my * (xa - xb) > 0.0;
+    let (x_lo, x_hi) = if a_first { (xa, xb) } else { (xb, xa) };
+    let tw_lo_b = Point3::new(x_lo, my, 0.0); // lower-azimuth twin, bottom
+    let tw_hi_b = Point3::new(x_hi, my, 0.0);
+    let tw_lo_t = Point3::new(x_lo, my, 1.0); // same azimuths on top rim
+    let tw_hi_t = Point3::new(x_hi, my, 1.0);
+    // Twin global azimuth (for locating each cap's bracketing uniform
+    // samples — the top rim's samples are NOT bit-identical in (x,y) to
+    // the bottom's, its frame flips, so each cap is searched on its own).
+    let az_of = |x: f64, y: f64| y.atan2(x).rem_euclid(2.0 * std::f64::consts::PI);
+    let az_tw = az_of(mx, my);
+
+    let run = |first: Point3, second: Point3, tfirst: Point3, tsecond: Point3| {
+        let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> =
+            std::collections::BTreeMap::new();
+        ov.insert(0, vec![first, second]);
+        ov.insert(1, vec![tfirst, tsecond]);
+        stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov, None)
+            .expect("ULP-twin overrides must be accepted")
+    };
+
+    let check = |t: &Stage1Tess, tag: &str| {
+        let vid = |p: Point3| -> u32 {
+            t.verts
+                .iter()
+                .position(|q| q.as_array() == p.as_array())
+                .unwrap_or_else(|| panic!("{tag}: point {p:?} missing from mesh"))
+                as u32
+        };
+        // The rim-E uniform samples bracketing the twin azimuth (the
+        // twins' ring neighbours on that rim).
+        let brackets = |edge: u32| -> (u32, u32) {
+            let mut lo: Option<(f64, u32)> = None;
+            let mut hi: Option<(f64, u32)> = None;
+            for (i, src) in t.sources.iter().enumerate() {
+                if !matches!(src, TessellationSource::BRepEdge { edge: e, .. } if *e == edge) {
+                    continue;
+                }
+                let a = t.verts[i].as_array();
+                // Skip the inserted twins themselves (also BRepEdge-tagged).
+                if a[1] == my && (a[0] == xa || a[0] == xb) {
+                    continue;
+                }
+                let az = az_of(a[0], a[1]);
+                if az < az_tw {
+                    if lo.is_none_or(|(b, _)| az > b) {
+                        lo = Some((az, i as u32));
+                    }
+                } else if hi.is_none_or(|(b, _)| az < b) {
+                    hi = Some((az, i as u32));
+                }
+            }
+            (
+                lo.unwrap_or_else(|| panic!("{tag}: no uniform below twin on rim {edge}"))
+                    .1,
+                hi.unwrap_or_else(|| panic!("{tag}: no uniform above twin on rim {edge}"))
+                    .1,
+            )
+        };
+        // Undirected edge sets: bottom cap (all z==0), top cap (all z==1),
+        // lateral (z-spanning).
+        let mut cap_b = std::collections::BTreeSet::new();
+        let mut cap_t = std::collections::BTreeSet::new();
+        let mut lat = std::collections::BTreeSet::new();
+        let mut counts: std::collections::BTreeMap<(u32, u32), u32> =
+            std::collections::BTreeMap::new();
+        for tri in &t.tris {
+            let zs: Vec<f64> = tri
+                .iter()
+                .map(|&v| t.verts[v as usize].as_array()[2])
+                .collect();
+            let bucket: &mut std::collections::BTreeSet<(u32, u32)> =
+                if zs.iter().all(|&z| z == 0.0) {
+                    &mut cap_b
+                } else if zs.iter().all(|&z| z == 1.0) {
+                    &mut cap_t
+                } else {
+                    &mut lat
+                };
+            for k in 0..3 {
+                let (a, b) = (tri[k], tri[(k + 1) % 3]);
+                let e = (a.min(b), a.max(b));
+                bucket.insert(e);
+                *counts.entry(e).or_insert(0) += 1;
+            }
+        }
+        let e = |a: u32, b: u32| (a.min(b), a.max(b));
+        for (cap, lo, hi, edge, z) in [
+            (&cap_b, tw_lo_b, tw_hi_b, 0u32, 0.0),
+            (&cap_t, tw_lo_t, tw_hi_t, 1u32, 1.0),
+        ] {
+            let (vlo, vhi) = (vid(lo), vid(hi));
+            let (ulo, uhi) = brackets(edge);
+            assert!(
+                cap.contains(&e(ulo, vlo)),
+                "{tag}: cap z={z} — lower uniform must be ring-adjacent to \
+                     the LOWER-azimuth twin (exact order), edge missing"
+            );
+            assert!(
+                !cap.contains(&e(ulo, vhi)),
+                "{tag}: cap z={z} — lower uniform adjacent to the HIGHER \
+                     twin: ring is in WRONG (insertion/tie) order"
+            );
+            assert!(
+                cap.contains(&e(uhi, vhi)),
+                "{tag}: cap z={z} — upper uniform must be ring-adjacent to \
+                     the HIGHER-azimuth twin, edge missing"
+            );
+            assert!(
+                !cap.contains(&e(uhi, vlo)),
+                "{tag}: cap z={z} — upper uniform adjacent to the LOWER \
+                     twin: ring is in WRONG (insertion/tie) order"
+            );
+        }
+        // Untwisted wall: both same-azimuth vertical edges exist.
+        let (blo, bhi) = (vid(tw_lo_b), vid(tw_hi_b));
+        let (tlo, thi) = (vid(tw_lo_t), vid(tw_hi_t));
+        assert!(
+            lat.contains(&e(blo, tlo)),
+            "{tag}: lateral misses vertical edge at the lower twin column \
+                 (twisted quad — bottom twin paired with the WRONG top twin)"
+        );
+        assert!(
+            lat.contains(&e(bhi, thi)),
+            "{tag}: lateral misses vertical edge at the higher twin column \
+                 (twisted quad — bottom twin paired with the WRONG top twin)"
+        );
+        assert!(
+            counts.values().all(|&c| c == 2),
+            "{tag}: mesh must stay a closed 2-manifold"
+        );
+        let mut tris: Vec<[[u64; 3]; 3]> = t
+            .tris
+            .iter()
+            .map(|tri| {
+                let mut ps: [[u64; 3]; 3] = [[0; 3]; 3];
+                for (k, &v) in tri.iter().enumerate() {
+                    let a = t.verts[v as usize].as_array();
+                    ps[k] = [a[0].to_bits(), a[1].to_bits(), a[2].to_bits()];
+                }
+                ps.sort();
+                ps
+            })
+            .collect();
+        tris.sort();
+        tris
+    };
+
+    // Insertion order 1: exact order (lo, hi). Insertion order 2: reversed.
+    // BOTH must produce the exact ring order (the sort may not fall back
+    // to insertion order on the f64 angle tie) and the same geometry.
+    let t1 = run(tw_lo_b, tw_hi_b, tw_lo_t, tw_hi_t);
+    let g1 = check(&t1, "insertion (lo,hi)");
+    let t2 = run(tw_hi_b, tw_lo_b, tw_hi_t, tw_lo_t);
+    let g2 = check(&t2, "insertion (hi,lo)");
+    assert_eq!(
+        g1, g2,
+        "ring order must be insertion-order independent (exact, not stable-tie)"
+    );
+}
+
+/// A rim-crossing override lies on the tessellated rim POLYGON (a CHORD
+/// between two on-circle samples), so it sits radially INSIDE the analytic
+/// circle by up to the Stage-1 chord sagitta. The override validation must
+/// ACCEPT such a point (it is the same point the cap overlay uses — snapping
+/// it to the circle would mint a T-junction), while still rejecting a point
+/// that is OUTSIDE the circle or inside by MORE than the sagitta (a genuine
+/// off-rim fault). Regression for task #21 (the `is not on the circle`
+/// rejection that masked the same-normal crossing path).
+#[test]
+pub(crate) fn rim_override_accepts_chord_point_rejects_off_rim() {
+    let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+    let r = 0.5_f64;
+    let az = 0.3_f64; // not a uniform sample
+    let (s, c) = az.sin_cos();
+    // Derive a point GUARANTEED on a chord of the actual tessellated top
+    // rim (circle edge 1): the midpoint of two consecutive rim samples — its
+    // radial deficit equals the exact Stage-1 chord sagitta for this N.
+    let plain = stage1_tessellate(&verts, &edges, &faces).expect("plain");
+    let mut rim1: Vec<(f64, Point3)> = plain
+        .sources
+        .iter()
+        .enumerate()
+        .filter_map(|(i, src)| match src {
+            TessellationSource::BRepEdge { edge: 1, t } => Some((*t, plain.verts[i])),
+            _ => None,
+        })
+        .collect();
+    rim1.sort_by(|a, b| a.0.total_cmp(&b.0));
+    assert!(rim1.len() >= 2, "top rim must have >=2 samples");
+    let (p0, p1) = (rim1[0].1.as_array(), rim1[1].1.as_array());
+    let mx = 0.5 * (p0[0] + p1[0]);
+    let my = 0.5 * (p0[1] + p1[1]);
+    let top_chord = Point3::new(mx, my, 1.0);
+    // Same (x,y) on the BOTTOM rim plane (z=0): same global azimuth + same
+    // radial deficit (the cylinder is axis-aligned), so inserting on BOTH
+    // rims keeps the lateral azimuth-merge balanced.
+    let bot_chord = Point3::new(mx, my, 0.0);
+    let single = |e: u32, p: Point3| {
+        let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> =
+            std::collections::BTreeMap::new();
+        ov.insert(e, vec![p]);
+        ov
+    };
+
+    // (1) chord point (radial deficit = chord sagitta) → ACCEPTED + present.
+    let mut both: std::collections::BTreeMap<u32, Vec<Point3>> = std::collections::BTreeMap::new();
+    both.insert(0, vec![bot_chord]);
+    both.insert(1, vec![top_chord]);
+    let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &both, None)
+        .expect("a rim point on the tessellated chord must be accepted");
+    assert!(
+        t.verts.iter().any(|q| q.as_array() == top_chord.as_array()),
+        "accepted chord point must appear in the mesh"
+    );
+
+    // (2) far INSIDE the circle (deficit 0.1 ≫ sagitta) → loud reject
+    // (the off-rim validation fires before the lateral merge).
+    let too_deep = Point3::new((r - 0.1) * c, (r - 0.1) * s, 1.0);
+    assert!(
+        matches!(
+            stage1_tessellate_with_rim_overrides(
+                &verts,
+                &edges,
+                &faces,
+                &single(1, too_deep),
+                None
+            ),
+            Err(YangError::MalformedTopology(_))
+        ),
+        "a point far inside the rim circle must be rejected (off-rim fault)"
+    );
+
+    // (3) OUTSIDE the circle → loud reject.
+    let outside = Point3::new((r + 0.01) * c, (r + 0.01) * s, 1.0);
+    assert!(
+        matches!(
+            stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &single(1, outside), None),
+            Err(YangError::MalformedTopology(_))
+        ),
+        "a point outside the rim circle must be rejected"
+    );
+}
