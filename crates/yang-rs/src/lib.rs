@@ -1537,6 +1537,7 @@ fn stage1_tessellate_inner(
                         f,
                         edges,
                         &rim_rings,
+                        &inserted_rims,
                         verts,
                         apex,
                         axis_dir,
@@ -3250,6 +3251,47 @@ fn tessellate_lateral_azimuth_merge(
     axis_dir: Vector3,
     out_tris: &mut Vec<[u32; 3]>,
 ) -> Result<(), YangError> {
+    // Orientation target (outward radial; inward for a cavity wall) — the
+    // only cylinder-specific piece; the strip itself is shared with the
+    // cone frustum band (increment 4 §4c).
+    let au = normalize3(axis_dir.as_array());
+    let ap = axis_point.as_array();
+    let reversed = f.reversed;
+    let orient = move |verts: &[Point3], tri: &[u32; 3]| -> [f64; 3] {
+        let nrm = radial_outward_normal(verts, tri, ap, au);
+        if reversed {
+            [-nrm[0], -nrm[1], -nrm[2]]
+        } else {
+            nrm
+        }
+    };
+    tessellate_band_azimuth_merge(
+        f_idx, rim_rings, bottom_e, top_e, out_verts, axis_point, axis_dir, &orient, out_tris,
+    )
+}
+
+/// Increment 4 §4c: per-triangle orientation target for the shared
+/// azimuth-merge band strip (outward radial for a cylinder tube, tilted
+/// cone normal for a frustum band; negated for a cavity wall).
+type OrientTarget<'a> = &'a dyn Fn(&[Point3], &[u32; 3]) -> [f64; 3];
+
+/// Increment 4 §4c: the shared azimuth-merge band strip — the cylinder
+/// tube's inserted-rim pairing generalized over the orientation target so
+/// the cone frustum band reuses it verbatim (multiset verification
+/// included). Byte-identical for the cylinder path (dispatch-only
+/// refactor, spec I6).
+#[allow(clippy::too_many_arguments)]
+fn tessellate_band_azimuth_merge(
+    f_idx: usize,
+    rim_rings: &std::collections::BTreeMap<u32, Vec<u32>>,
+    bottom_e: u32,
+    top_e: u32,
+    out_verts: &[Point3],
+    axis_point: Point3,
+    axis_dir: Vector3,
+    orient_target: OrientTarget<'_>,
+    out_tris: &mut Vec<[u32; 3]>,
+) -> Result<(), YangError> {
     let bottom_ring = rim_rings.get(&bottom_e).ok_or_else(|| {
         YangError::MalformedTopology(format!(
             "face {f_idx}: bottom rim ring {bottom_e} not built (azimuth merge)"
@@ -3351,16 +3393,6 @@ fn tessellate_lateral_azimuth_merge(
             )));
         }
     }
-
-    // Orientation target (outward radial; inward for a cavity wall).
-    let orient_target = |verts: &[Point3], tri: &[u32; 3]| -> [f64; 3] {
-        let nrm = radial_outward_normal(verts, tri, ap, au);
-        if f.reversed {
-            [-nrm[0], -nrm[1], -nrm[2]]
-        } else {
-            nrm
-        }
-    };
 
     for k in 0..n {
         let kn = (k + 1) % n;
@@ -3577,6 +3609,7 @@ fn tessellate_cone_face(
     f: &BRepFace,
     edges: &[BRepEdge],
     rim_rings: &std::collections::BTreeMap<u32, Vec<u32>>,
+    inserted_rims: &std::collections::BTreeSet<u32>,
     verts: &[BRepVertex],
     apex: Point3,
     axis_dir: Vector3,
@@ -3799,7 +3832,17 @@ fn tessellate_cone_face(
             Ok(())
         }
         [rim_a, rim_b] => tessellate_cone_frustum_band(
-            f_idx, f, edges, *rim_a, *rim_b, rim_rings, apex, axis_dir, half_angle, out_verts,
+            f_idx,
+            f,
+            edges,
+            *rim_a,
+            *rim_b,
+            rim_rings,
+            inserted_rims,
+            apex,
+            axis_dir,
+            half_angle,
+            out_verts,
             out_tris,
         ),
         other => Err(YangError::MalformedTopology(format!(
@@ -3825,12 +3868,47 @@ fn tessellate_cone_frustum_band(
     rim_a: u32,
     rim_b: u32,
     rim_rings: &std::collections::BTreeMap<u32, Vec<u32>>,
+    inserted_rims: &std::collections::BTreeSet<u32>,
     apex: Point3,
     axis_dir: Vector3,
     half_angle: f64,
     out_verts: &[Point3],
     out_tris: &mut Vec<[u32; 3]>,
 ) -> Result<(), YangError> {
+    // Increment 4 §4c: a frustum band with inserted rim-crossing points
+    // routes through the shared azimuth-merge strip (multiset-verified),
+    // exactly as the cylinder tube does — the uniform index-pairing below
+    // assumes uniform sampling. The hole-free uniform path stays
+    // byte-identical.
+    if inserted_rims.contains(&rim_a) || inserted_rims.contains(&rim_b) {
+        let reversed = f.reversed;
+        let orient = move |verts: &[Point3], tri: &[u32; 3]| -> [f64; 3] {
+            let mut n = cone_outward_normal(verts, tri, apex, axis_dir, half_angle);
+            if reversed {
+                n = [-n[0], -n[1], -n[2]];
+            }
+            n
+        };
+        // Order the rims by axial coordinate so bottom/top is
+        // deterministic (mirrors the uniform arm's rim_param swap).
+        let au0 = normalize3(axis_dir.as_array());
+        let ap0 = apex.as_array();
+        let rim_z = |e: u32| -> f64 {
+            if let Curve::Circle { center, .. } = edges[e as usize].curve {
+                let c = center.as_array();
+                (c[0] - ap0[0]) * au0[0] + (c[1] - ap0[1]) * au0[1] + (c[2] - ap0[2]) * au0[2]
+            } else {
+                0.0
+            }
+        };
+        let (mut bottom_e, mut top_e) = (rim_a, rim_b);
+        if rim_z(bottom_e) > rim_z(top_e) {
+            std::mem::swap(&mut bottom_e, &mut top_e);
+        }
+        return tessellate_band_azimuth_merge(
+            f_idx, rim_rings, bottom_e, top_e, out_verts, apex, axis_dir, &orient, out_tris,
+        );
+    }
     let au = normalize3(axis_dir.as_array());
     let ap = apex.as_array();
     // Axial coordinate (from the apex) and stored-normal sense of a rim.
@@ -5656,6 +5734,46 @@ fn project_onto_circle(
 /// undefined — a point on a cylinder/torus axis, a cone apex, a sphere centre,
 /// or (torus) a point on the tube centre circle — which the caller treats as a
 /// loud STOP, never a guess (P9).
+/// Increment 4 §4d (spec `yang_rim_junction_insertion`): scale-aware
+/// exactness certificate band for a signed surface distance evaluated at
+/// `p`. f64 evaluation of `surface_value_and_normal` at coordinate
+/// magnitude L carries O(ε·L) rounding, so an ABSOLUTE `TAU_WORK = 1e-12`
+/// is ~2 ULP at magnitude 4000 — unreachable by ANY correct evaluation
+/// (R0017's already-exact junctions measured 1.36e-12 ≈ 1.2·ε·L). The
+/// band certifies "exact to evaluation precision": `max(TAU_WORK,
+/// 8·ε·L)` with L = |p|∞ + |surface reference|∞ — never narrower than the
+/// shipped increment-3 band (spec I7), and ≥10 orders below the Stage-1
+/// chord bound (d_ε = 1e-2·diag) at the same scale, so chord-sagitta
+/// inexactness can never certify. NOT a tolerance widening (P9): the
+/// property witnessed is the strongest float arithmetic can express.
+fn junction_certificate_band(p: [f64; 3], s: Surface) -> f64 {
+    let mag3 = |v: [f64; 3]| v[0].abs().max(v[1].abs()).max(v[2].abs());
+    let refmag = match s {
+        Surface::Plane { normal, d } => {
+            let n = normal.as_array();
+            let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            if nl > 0.0 {
+                d.abs() / nl
+            } else {
+                d.abs()
+            }
+        }
+        Surface::Sphere { center, radius } => mag3(center.as_array()) + radius.abs(),
+        Surface::Cylinder {
+            axis_point, radius, ..
+        } => mag3(axis_point.as_array()) + radius.abs(),
+        Surface::Cone { apex, .. } => mag3(apex.as_array()),
+        Surface::Torus {
+            center,
+            major_radius,
+            minor_radius,
+            ..
+        } => mag3(center.as_array()) + major_radius.abs() + minor_radius.abs(),
+    };
+    let l = mag3(p) + refmag;
+    cad_primitives::TAU_WORK.max(8.0 * f64::EPSILON * l)
+}
+
 fn surface_value_and_normal(s: Surface, x: [f64; 3]) -> Option<(f64, [f64; 3])> {
     let eps = cad_primitives::MIN_FEATURE_SIZE;
     match s {
@@ -5818,8 +5936,15 @@ fn relocate_onto_implicit_triple(
     const MAX_ITERS: usize = 32;
     // Converge tightly (well below the 1e-12 on-surface validation band; the
     // torus residual is ~2·minor·|F|): Newton is quadratic so this is a few
-    // extra cheap steps. Absolute tol suits the unit-scale model corpus.
-    let tau = 1e-13_f64;
+    // extra cheap steps. Increment 5 (spec `yang_stage4_conic_triple_junction`
+    // wiring amendment): the absolute 1e-13 floor is sub-ULP at coordinate
+    // magnitude ~4000 (the R0017 corpus scale) and could never converge
+    // there — take the max with the same 8·ε·L evaluation-precision term as
+    // the increment-4 certificate band. At unit scale 8·ε·L ≈ 5e-15 < 1e-13,
+    // so the shipped torus-block behavior is byte-identical.
+    let mag3 = |v: [f64; 3]| v[0].abs().max(v[1].abs()).max(v[2].abs());
+    let l = mag3(p.as_array());
+    let tau = 1e-13_f64.max(8.0 * f64::EPSILON * l);
     let rank_eps = cad_primitives::MIN_FEATURE_SIZE;
     let cross = |a: [f64; 3], b: [f64; 3]| {
         [
@@ -9038,11 +9163,54 @@ fn rim_junctions_against(x: &BRep, y: &BRep) -> std::collections::BTreeMap<u32, 
         (lo < hi).then_some((lo, hi))
     };
 
-    let mut out: std::collections::BTreeMap<u32, Vec<Point3>> = std::collections::BTreeMap::new();
-    for (ei, e) in x.edges().iter().enumerate() {
-        if e.start != e.end {
-            continue; // v1: full-circle rims only
+    let probe = std::env::var_os("YANG_RIM_JUNCTION_PROBE").is_some();
+    if probe {
+        let full_rims = x
+            .edges()
+            .iter()
+            .filter(|e| e.start == e.end && matches!(e.curve, Curve::Circle { .. }))
+            .count();
+        let mut kinds: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+        for f in y.faces() {
+            let k = match f.surface {
+                Surface::Plane { .. } => "plane",
+                Surface::Cylinder { .. } => "cyl",
+                Surface::Cone { .. } => "cone",
+                Surface::Sphere { .. } => "sphere",
+                Surface::Torus { .. } => "torus",
+            };
+            *kinds.entry(k).or_default() += 1;
         }
+        eprintln!(
+            "[rim-junction] x: edges={} full_circle_rims={full_rims}; y faces: {kinds:?}",
+            x.edges().len()
+        );
+        let mut ekinds: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        for e in x.edges() {
+            let k = match e.curve {
+                Curve::Circle { .. } => {
+                    if e.start == e.end {
+                        "circle-closed".to_string()
+                    } else {
+                        "circle-arc".to_string()
+                    }
+                }
+                Curve::LineSegment => "line".to_string(),
+                ref other => format!("{other:?}")
+                    .split([' ', '{'])
+                    .next()
+                    .unwrap_or("?")
+                    .to_string(),
+            };
+            *ekinds.entry(k).or_default() += 1;
+        }
+        eprintln!("[rim-junction] x edge kinds: {ekinds:?}");
+    }
+    let mut out: std::collections::BTreeMap<u32, Vec<Point3>> = std::collections::BTreeMap::new();
+    // Rim geometry retained for the §4b coaxial propagation post-pass.
+    let mut rims: Vec<RimDesc> = Vec::new();
+    for (ei, e) in x.edges().iter().enumerate() {
         let Curve::Circle {
             center,
             normal,
@@ -9053,84 +9221,504 @@ fn rim_junctions_against(x: &BRep, y: &BRep) -> std::collections::BTreeMap<u32, 
         };
         let n = normalize3(normal.as_array());
         let c = center.as_array();
+        // Increment 4 (measured scope correction): partial-revolve rims are
+        // ARC edges — candidates are filtered to the CCW sweep window
+        // (stage-1 arc-chain convention) by `point_in_rim_sweep`, which
+        // also rejects candidates coinciding with the rim's own B-Rep
+        // vertices (arc endpoints / the closed rim's seam): such a
+        // junction already IS a mesh vertex, and inserting its twin would
+        // trip the uniform-coincidence stop (the seam sits at ring slot 0).
+        let arc = if e.start != e.end {
+            Some((
+                x.vertices()[e.start as usize].point.as_array(),
+                x.vertices()[e.end as usize].point.as_array(),
+            ))
+        } else {
+            None
+        };
+        let rim = RimDesc {
+            edge: ei as u32,
+            c,
+            n,
+            r,
+            seam: x.vertices()[e.start as usize].point.as_array(),
+            arc,
+        };
+        // Increment 4 v1 scope (demonstrated need — the whole measured
+        // class is CONE-band lathes): the PLANE arm fires only on rims
+        // flanked by ≥1 cone face. Cylinder-rim × plane-face junctions
+        // have no demanding case, and the corpus proves that population
+        // healthy without insertion (F0047/R0006/R0075/F0081 were CORRECT
+        // pre-arm and regressed under it; R0091's cut-tool rim insertions
+        // unmask the banked-§3b unverifiable-χ path). The LATERAL arm
+        // (the F0059 cylinder class) is independent and unchanged.
+        let cone_flanked = x.faces().iter().any(|f| {
+            matches!(f.surface, Surface::Cone { .. })
+                && f.outer_loop
+                    .iter()
+                    .chain(f.inner_loops.iter().flatten())
+                    .any(|&le| le == ei as u32)
+        });
         let mut pts: Vec<Point3> = Vec::new();
+        // Shared circle∩line quadratic for a line (q0 + t·u) in the rim
+        // plane: t² + 2t·(q0−c)·u + |q0−c|² − r² = 0. `None` = miss or
+        // graze (derived tangency gate, A14.2: roots closer than model
+        // resolution are ONE point, not two transversal crossings).
+        let circle_line_roots = |q0: [f64; 3], u: [f64; 3]| -> Option<[f64; 2]> {
+            let m = sub(q0, c);
+            let bq = dot(m, u);
+            let cq = dot(m, m) - r * r;
+            let disc = bq * bq - cq;
+            if disc <= 0.0 {
+                return None; // no crossing / exact tangent
+            }
+            let sq = disc.sqrt();
+            if 2.0 * sq < cad_primitives::TAU_MODEL {
+                return None;
+            }
+            Some([-bq - sq, -bq + sq])
+        };
         for f in y.faces() {
-            let Surface::Cylinder {
-                axis_point,
-                axis_dir,
-                radius: rb,
-            } = f.surface
-            else {
-                continue;
-            };
-            let d = normalize3(axis_dir.as_array());
-            // v1: axis parallel to the rim plane (same floor as the
-            // phantom guard's axis-parallel test).
-            if dot(n, d).abs() > 1e-12 {
-                continue;
-            }
-            let ap = axis_point.as_array();
-            let Some((z_lo, z_hi)) = lateral_extent(y, f, ap, d) else {
-                continue;
-            };
-            // Signed axis-to-rim-plane distance; |δ| ≥ r_b ⇒ empty or a
-            // plane-tangent lateral (the tangency class — skipped).
-            let delta = dot(n, sub(ap, c));
-            if delta.abs() >= rb {
-                continue;
-            }
-            // Section of the lateral in the rim plane: two lines parallel
-            // to the axis at in-plane offset ±√(r_b²−δ²) from the axis
-            // foot.
-            let w_half = (rb * rb - delta * delta).sqrt();
-            let foot = sub(ap, scl(n, delta));
-            let eo = normalize3(crs(d, n));
-            for sgn in [-1.0f64, 1.0] {
-                let q0 = add(foot, scl(eo, sgn * w_half));
-                // circle ∩ line (q0 + t·d) in-plane:
-                // t² + 2t·(q0−c)·d + |q0−c|² − r² = 0.
-                let m = sub(q0, c);
-                let bq = dot(m, d);
-                let cq = dot(m, m) - r * r;
-                let disc = bq * bq - cq;
-                if disc <= 0.0 {
-                    continue; // no crossing / exact tangent
-                }
-                let sq = disc.sqrt();
-                // Derived tangency gate (A14.2): roots closer than the
-                // model resolution are ONE point — a graze, not two
-                // transversal crossings.
-                if 2.0 * sq < cad_primitives::TAU_MODEL {
-                    continue;
-                }
-                for t in [-bq - sq, -bq + sq] {
-                    let pj = add(q0, scl(d, t));
-                    // Inside the lateral's axial extent; the ±TAU_WORK
-                    // slack keeps boundary-of-extent triple junctions
-                    // (rim ∩ lateral ∩ far cap — the F0059 corners).
-                    let z = dot(sub(pj, ap), d);
-                    if z < z_lo - cad_primitives::TAU_WORK || z > z_hi + cad_primitives::TAU_WORK {
+            match f.surface {
+                Surface::Cylinder {
+                    axis_point,
+                    axis_dir,
+                    radius: rb,
+                } => {
+                    let d = normalize3(axis_dir.as_array());
+                    // v1: axis parallel to the rim plane (same floor as the
+                    // phantom guard's axis-parallel test).
+                    if dot(n, d).abs() > 1e-12 {
                         continue;
                     }
-                    let pjp = Point3::new(pj[0], pj[1], pj[2]);
-                    // Cross-arm dedup at model resolution (two laterals /
-                    // both lines can meet the rim at one triple point).
-                    let dup = pts.iter().any(|q| {
-                        let qa = q.as_array();
-                        let dd = sub(qa, pj);
-                        dot(dd, dd) < cad_primitives::TAU_MODEL * cad_primitives::TAU_MODEL
-                    });
-                    if !dup {
-                        pts.push(pjp);
+                    let ap = axis_point.as_array();
+                    let Some((z_lo, z_hi)) = lateral_extent(y, f, ap, d) else {
+                        continue;
+                    };
+                    // Signed axis-to-rim-plane distance; |δ| ≥ r_b ⇒ empty
+                    // or a plane-tangent lateral (the tangency class —
+                    // skipped).
+                    let delta = dot(n, sub(ap, c));
+                    if delta.abs() >= rb {
+                        continue;
+                    }
+                    // Section of the lateral in the rim plane: two lines
+                    // parallel to the axis at in-plane offset ±√(r_b²−δ²)
+                    // from the axis foot.
+                    let w_half = (rb * rb - delta * delta).sqrt();
+                    let foot = sub(ap, scl(n, delta));
+                    let eo = normalize3(crs(d, n));
+                    for sgn in [-1.0f64, 1.0] {
+                        let q0 = add(foot, scl(eo, sgn * w_half));
+                        let Some(roots) = circle_line_roots(q0, d) else {
+                            continue;
+                        };
+                        for t in roots {
+                            let pj = add(q0, scl(d, t));
+                            // Inside the lateral's axial extent; the
+                            // ±TAU_WORK slack keeps boundary-of-extent
+                            // triple junctions (rim ∩ lateral ∩ far cap —
+                            // the F0059 corners).
+                            let z = dot(sub(pj, ap), d);
+                            if z < z_lo - cad_primitives::TAU_WORK
+                                || z > z_hi + cad_primitives::TAU_WORK
+                            {
+                                continue;
+                            }
+                            if !point_in_rim_sweep(&rim, pj) {
+                                continue;
+                            }
+                            let pjp = Point3::new(pj[0], pj[1], pj[2]);
+                            // Cross-arm dedup at model resolution (two
+                            // laterals / both lines can meet the rim at one
+                            // triple point).
+                            let dup = pts.iter().any(|q| {
+                                let qa = q.as_array();
+                                let dd = sub(qa, pj);
+                                dot(dd, dd) < cad_primitives::TAU_MODEL * cad_primitives::TAU_MODEL
+                            });
+                            if !dup {
+                                pts.push(pjp);
+                            }
+                        }
                     }
                 }
+                // Increment 4 §4a (spec v1 table row 2, promoted): a PLANE
+                // face sections the rim plane in a single line — the
+                // coaxial cone-band junction class (R0017 et al.).
+                Surface::Plane { normal: m, d } => {
+                    if !cone_flanked {
+                        continue; // v1 scope: cone-band rims only (see above)
+                    }
+                    let ma = m.as_array();
+                    let mlen = dot(ma, ma).sqrt();
+                    if mlen <= 0.0 {
+                        continue;
+                    }
+                    let mh = scl(ma, 1.0 / mlen);
+                    let dh = d / mlen;
+                    let ndm = dot(n, mh);
+                    let denom = 1.0 - ndm * ndm;
+                    // Parallel/coincident planes have no transversal
+                    // section line (same 1e-12 floor class as the lateral
+                    // arm's axis test).
+                    if denom <= 1e-12 {
+                        continue;
+                    }
+                    // v1: polygonal faces only — every loop edge a
+                    // LineSegment (arc-bounded caps keep today's walls).
+                    let Some(face2d) = planar_face_segments(y, f, mh) else {
+                        continue;
+                    };
+                    // Line P∩F: q0 lies in BOTH planes, direction u = n×m̂.
+                    let alpha = -(dot(mh, c) + dh) / denom;
+                    let mperp = sub(mh, scl(n, ndm));
+                    let q0 = add(c, scl(mperp, alpha));
+                    let u = normalize3(crs(n, mh));
+                    let Some(roots) = circle_line_roots(q0, u) else {
+                        continue;
+                    };
+                    for t in roots {
+                        let pj = add(q0, scl(u, t));
+                        // Within the face extents: boundary-inclusive
+                        // (±TAU_WORK) 2D containment — the plane analog of
+                        // the lateral arm's z-extent slack.
+                        if !point_in_planar_face(&face2d, pj) {
+                            continue;
+                        }
+                        if !point_in_rim_sweep(&rim, pj) {
+                            continue;
+                        }
+                        let pjp = Point3::new(pj[0], pj[1], pj[2]);
+                        let dup = pts.iter().any(|q| {
+                            let qa = q.as_array();
+                            let dd = sub(qa, pj);
+                            dot(dd, dd) < cad_primitives::TAU_MODEL * cad_primitives::TAU_MODEL
+                        });
+                        if !dup {
+                            pts.push(pjp);
+                        }
+                    }
+                }
+                _ => continue,
             }
         }
         if !pts.is_empty() {
             out.insert(ei as u32, pts);
         }
+        rims.push(rim);
+    }
+
+    // §4b coaxial azimuth propagation: Stage-1 band strips
+    // (`tessellate_cone_frustum_band`, the cylinder tube, the partial-arc
+    // strips) pair rims ring-for-ring, so a junction azimuth inserted on
+    // ONE rim of a coaxial stack must exist on ALL of them (where their
+    // sweep covers it) — otherwise the stack's sample counts diverge and
+    // the strip stops loudly.
+    if !out.is_empty() {
+        // Group rims by axis line: parallel normals (1e-12 floor) with
+        // centers on one line (TAU_MODEL off-axis budget).
+        let mut groups: Vec<Vec<usize>> = Vec::new();
+        for i in 0..rims.len() {
+            let (ci, ni) = (rims[i].c, rims[i].n);
+            let mut placed = false;
+            for g in groups.iter_mut() {
+                let (cj, nj) = (rims[g[0]].c, rims[g[0]].n);
+                let cx = crs(ni, nj);
+                if dot(cx, cx).sqrt() > 1e-12 {
+                    continue;
+                }
+                let w = sub(ci, cj);
+                let along = dot(w, nj);
+                let off = sub(w, scl(nj, along));
+                if dot(off, off).sqrt() > cad_primitives::TAU_MODEL {
+                    continue;
+                }
+                g.push(i);
+                placed = true;
+                break;
+            }
+            if !placed {
+                groups.push(vec![i]);
+            }
+        }
+        for g in &groups {
+            if !g.iter().any(|&i| out.contains_key(&rims[i].edge)) {
+                continue;
+            }
+            // Vocabulary gate: every operand face touching a group rim
+            // must be a Cone/Cylinder/Plane — the surfaces whose Stage-1
+            // tessellation consumes shared rim rings. A torus/sphere band
+            // stack keeps today's loud walls (never a half-inserted
+            // stack).
+            let rim_set: std::collections::BTreeSet<u32> =
+                g.iter().map(|&i| rims[i].edge).collect();
+            let vocab_ok = x.faces().iter().all(|f| {
+                let touches = f
+                    .outer_loop
+                    .iter()
+                    .chain(f.inner_loops.iter().flatten())
+                    .any(|e| rim_set.contains(e));
+                !touches
+                    || matches!(
+                        f.surface,
+                        Surface::Cone { .. } | Surface::Cylinder { .. } | Surface::Plane { .. }
+                    )
+            });
+            if !vocab_ok {
+                for &i in g {
+                    out.remove(&rims[i].edge);
+                }
+                continue;
+            }
+            // One shared frame about the group axis (g[0] is the
+            // lowest-index rim — deterministic, I4). ALL window / dedup
+            // decisions below are made in ANGLE space with ONE shared
+            // tolerance `th_eps = TAU_MODEL / r_min` — per-radius chord
+            // tolerances would let band-partner arcs (which share their
+            // sweep window) disagree by a point and stop the Stage-1
+            // strip loudly on a count mismatch (the R0019 161-vs-162
+            // wall). Angle-space decisions are conformal by construction.
+            let (c0, axis) = (rims[g[0]].c, rims[g[0]].n);
+            let (b1v, b2v) = ortho_basis(Vector3::new(axis[0], axis[1], axis[2]));
+            let (b1, b2) = (b1v.as_array(), b2v.as_array());
+            let two_pi = 2.0 * std::f64::consts::PI;
+            let group_az = |p: [f64; 3]| -> f64 {
+                let w = sub(p, c0);
+                dot(w, b2).atan2(dot(w, b1)).rem_euclid(two_pi)
+            };
+            let r_min = g
+                .iter()
+                .map(|&i| rims[i].r)
+                .fold(f64::INFINITY, f64::min)
+                .max(cad_primitives::MIN_FEATURE_SIZE);
+            let th_eps = cad_primitives::TAU_MODEL / r_min;
+            // A rim's admissible azimuth window, with the ±th_eps margin
+            // excluding its own B-Rep vertices (arc endpoints / seam).
+            let in_window = |rim: &RimDesc, th: f64| -> bool {
+                match rim.arc {
+                    Some((sp, ep)) => {
+                        // Own-orientation sweep mapped through the GROUP
+                        // frame: the CCW window about rim.n runs start->end;
+                        // in the group frame it runs the same way when
+                        // rim.n aligns with the group axis, reversed when
+                        // anti-aligned.
+                        let a0 = group_az(sp);
+                        let a1 = group_az(ep);
+                        let aligned = dot(rim.n, axis) >= 0.0;
+                        let (w0, w1) = if aligned { (a0, a1) } else { (a1, a0) };
+                        let sweep = (w1 - w0).rem_euclid(two_pi);
+                        let off = (th - w0).rem_euclid(two_pi);
+                        off > th_eps && off < sweep - th_eps
+                    }
+                    None => {
+                        let off = (th - group_az(rim.seam)).rem_euclid(two_pi);
+                        off > th_eps && off < two_pi - th_eps
+                    }
+                }
+            };
+            // Cluster ALL direct-junction azimuths at th_eps. Each cluster
+            // is one physical junction column; its representative azimuth
+            // is the smallest member (deterministic).
+            let mut annotated: Vec<(f64, usize, Point3)> = Vec::new();
+            for &i in g {
+                if let Some(pts) = out.get(&rims[i].edge) {
+                    for pt in pts {
+                        annotated.push((group_az(pt.as_array()), i, *pt));
+                    }
+                }
+            }
+            annotated.sort_by(|x, y| x.0.total_cmp(&y.0));
+            let mut clusters: Vec<Vec<(f64, usize, Point3)>> = Vec::new();
+            for a in annotated {
+                match clusters.last_mut() {
+                    Some(cl) if (a.0 - cl.last().unwrap().0).abs() <= th_eps => cl.push(a),
+                    _ => clusters.push(vec![a]),
+                }
+            }
+            // Wrap-around: the first and last clusters may be one junction
+            // column split at the 0/2pi cut.
+            if clusters.len() > 1 {
+                let lo = clusters.first().unwrap().first().unwrap().0;
+                let hi = clusters.last().unwrap().last().unwrap().0;
+                if (lo + two_pi - hi).abs() <= th_eps {
+                    let merged = clusters.pop().unwrap();
+                    clusters[0].extend(merged);
+                }
+            }
+            // Rebuild every rim's list from the clusters: the rim's own
+            // direct point where it has one (the exact junction position),
+            // else the on-circle point at the cluster representative.
+            for &i in g {
+                let rim = &rims[i];
+                let mut pts: Vec<Point3> = Vec::new();
+                for cl in &clusters {
+                    let th = cl.first().unwrap().0;
+                    if !in_window(rim, th) {
+                        continue;
+                    }
+                    if let Some(own) = cl.iter().find(|(_, ri, _)| *ri == i) {
+                        pts.push(own.2);
+                    } else {
+                        let (st, ct) = th.sin_cos();
+                        let pj = add(rim.c, add(scl(b1, rim.r * ct), scl(b2, rim.r * st)));
+                        pts.push(Point3::new(pj[0], pj[1], pj[2]));
+                    }
+                }
+                if pts.is_empty() {
+                    out.remove(&rim.edge);
+                } else {
+                    out.insert(rim.edge, pts);
+                }
+            }
+        }
     }
     out
+}
+
+/// Increment 4: rim descriptor for `rim_junctions_against` — a full-circle
+/// rim or a partial ARC (the corpus partial-revolve shape). For an arc,
+/// the sweep runs CCW about `n` from `arc.0` to `arc.1` (the stage-1
+/// arc-chain convention).
+struct RimDesc {
+    edge: u32,
+    c: [f64; 3],
+    n: [f64; 3],
+    r: f64,
+    /// The edge's start vertex — the seam of a closed rim (ring slot 0).
+    seam: [f64; 3],
+    arc: Option<([f64; 3], [f64; 3])>,
+}
+
+/// Increment 4: candidate filter — never within TAU_MODEL of the rim's
+/// own B-Rep vertices (arc endpoints / the closed rim's seam: a boundary
+/// junction IS the existing vertex; inserting its ULP twin would trip the
+/// uniform-coincidence stop or desynchronize the chain), and for an ARC,
+/// inside the CCW sweep window. Full-circle rims accept everything else.
+fn point_in_rim_sweep(rim: &RimDesc, pj: [f64; 3]) -> bool {
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    {
+        let dd = sub(pj, rim.seam);
+        if dot(dd, dd) < cad_primitives::TAU_MODEL * cad_primitives::TAU_MODEL {
+            return false;
+        }
+    }
+    let Some((sp, ep)) = rim.arc else {
+        return true;
+    };
+    for q in [sp, ep] {
+        let dd = sub(pj, q);
+        if dot(dd, dd) < cad_primitives::TAU_MODEL * cad_primitives::TAU_MODEL {
+            return false;
+        }
+    }
+    let (e1v, e2v) = ortho_basis(Vector3::new(rim.n[0], rim.n[1], rim.n[2]));
+    let (e1, e2) = (e1v.as_array(), e2v.as_array());
+    let ang = |q: [f64; 3]| -> f64 {
+        let w = sub(q, rim.c);
+        dot(w, e2).atan2(dot(w, e1))
+    };
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let phi0 = ang(sp);
+    let sweep = (ang(ep) - phi0).rem_euclid(two_pi);
+    let off = (ang(pj) - phi0).rem_euclid(two_pi);
+    off < sweep
+}
+
+/// Increment 4 §4a: a planar face's loops as 2D segments + full circles in
+/// the plane's own frame (frame returned alongside so containment projects
+/// identically) — `None` when any loop edge is neither a `LineSegment` nor
+/// a closed `Circle` (arc-bounded faces keep today's loud walls). Inner
+/// loops (holes) are included: even-odd containment handles both segment
+/// and circle boundaries by parity, so discs, annuli, polygons, and mixed
+/// forms all work.
+type PlanarFace2d = (
+    [[f64; 3]; 2],
+    Vec<([f64; 2], [f64; 2])>,
+    Vec<([f64; 2], f64)>,
+);
+
+fn planar_face_segments(
+    brep: &BRep,
+    f: &BRepFace,
+    plane_unit_normal: [f64; 3],
+) -> Option<PlanarFace2d> {
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let nh = plane_unit_normal;
+    let (e1v, e2v) = ortho_basis(Vector3::new(nh[0], nh[1], nh[2]));
+    let (e1, e2) = (e1v.as_array(), e2v.as_array());
+    let mut segs: Vec<([f64; 2], [f64; 2])> = Vec::new();
+    let mut circles: Vec<([f64; 2], f64)> = Vec::new();
+    for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+        let e = &brep.edges()[ei as usize];
+        match e.curve {
+            Curve::LineSegment => {
+                let a3 = brep.vertices()[e.start as usize].point.as_array();
+                let b3 = brep.vertices()[e.end as usize].point.as_array();
+                segs.push(([dot(a3, e1), dot(a3, e2)], [dot(b3, e1), dot(b3, e2)]));
+            }
+            Curve::Circle { center, radius, .. } if e.start == e.end => {
+                let c3 = center.as_array();
+                circles.push(([dot(c3, e1), dot(c3, e2)], radius));
+            }
+            _ => return None,
+        }
+    }
+    Some(([e1, e2], segs, circles))
+}
+
+/// Increment 4 §4a: boundary-inclusive (±TAU_WORK) even-odd containment of
+/// a 3D point (assumed ON the face plane) in the planar face's boundary
+/// set. The TAU_WORK boundary band keeps triple junctions at face edges —
+/// the plane analog of the lateral arm's z-extent slack. Holes are
+/// excluded by parity (segment ray crossings + circle inside-count).
+fn point_in_planar_face(face2d: &PlanarFace2d, p3: [f64; 3]) -> bool {
+    let dot3 = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let ([e1, e2], segs, circles) = face2d;
+    let p = [dot3(p3, *e1), dot3(p3, *e2)];
+    // Boundary band first (a point within TAU_WORK of any loop boundary is
+    // IN — never lose a face-edge triple junction to parity jitter).
+    for &(a, b) in segs {
+        let ab = [b[0] - a[0], b[1] - a[1]];
+        let ap = [p[0] - a[0], p[1] - a[1]];
+        let len2 = ab[0] * ab[0] + ab[1] * ab[1];
+        let t = if len2 > 0.0 {
+            ((ap[0] * ab[0] + ap[1] * ab[1]) / len2).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let dx = ap[0] - t * ab[0];
+        let dy = ap[1] - t * ab[1];
+        if (dx * dx + dy * dy).sqrt() <= cad_primitives::TAU_WORK {
+            return true;
+        }
+    }
+    for &(cc, r) in circles {
+        let d = ((p[0] - cc[0]).powi(2) + (p[1] - cc[1]).powi(2)).sqrt();
+        if (d - r).abs() <= cad_primitives::TAU_WORK {
+            return true;
+        }
+    }
+    // Even-odd parity: +x-ray crossings over segments (half-open on each
+    // segment's y-range so shared loop vertices count once) + one toggle
+    // per enclosing circle.
+    let mut inside = false;
+    for &(a, b) in segs {
+        if (a[1] > p[1]) != (b[1] > p[1]) {
+            let xi = a[0] + (p[1] - a[1]) / (b[1] - a[1]) * (b[0] - a[0]);
+            if xi > p[0] {
+                inside = !inside;
+            }
+        }
+    }
+    for &(cc, r) in circles {
+        let d = ((p[0] - cc[0]).powi(2) + (p[1] - cc[1]).powi(2)).sqrt();
+        if d < r {
+            inside = !inside;
+        }
+    }
+    inside
 }
 
 /// Increment-2 entry point: both operands' rim junction maps against each
@@ -9216,7 +9804,19 @@ pub fn boolean(
     // Rim re-tessellation changes neither surfaces nor topology, so the
     // Stage-0 detectors' verdicts (computed above) remain valid for the
     // rebuilt operands.
-    let junction_boosted: Option<(BRep, BRep)> = if stage0.is_none() && cyl_pairs.is_empty() {
+    if std::env::var_os("YANG_RIM_JUNCTION_PROBE").is_some() {
+        eprintln!(
+            "[rim-junction] gate: stage0_none={} cyl_pairs_empty={}",
+            stage0.is_none(),
+            cyl_pairs.is_empty()
+        );
+    }
+    let junction_boosted: Option<(BRep, BRep)> = if stage0.is_none()
+        && cyl_pairs.is_empty()
+        // Diagnostic kill-switch (read-only, env-gated): bisect whether a
+        // downstream behavior change is enabled by the insertion.
+        && std::env::var_os("YANG_RIM_JUNCTION_DISABLE").is_none()
+    {
         let (map_a, map_b) = rim_junction_overrides(a, b);
         if map_a.is_empty() && map_b.is_empty() {
             None
@@ -10983,7 +11583,10 @@ fn stage4_relocate_and_correct(
     // certificate — never a silent pick (P9): anything inexact keeps
     // today's loud walls. Ordinary 2-surface curve vertices are NOT
     // certified (they keep their retag/`t` bookkeeping).
-    let exact_junctions: HashSet<u32> = {
+    // Per-vertex DISTINCT incident surfaces (inc0 dedup) — shared by the
+    // increment-3 exactness certificate below and the increment-5 conic
+    // triple-junction relocation (spec `yang_stage4_conic_triple_junction`).
+    let vert_surfs: BTreeMap<u32, Vec<Surface>> = {
         let mut vert_surfs: BTreeMap<u32, Vec<Surface>> = BTreeMap::new();
         for (&(s, e), entries) in &inc0 {
             for v in [s, e] {
@@ -10995,21 +11598,32 @@ fn stage4_relocate_and_correct(
                 }
             }
         }
+        vert_surfs
+    };
+    let exact_junctions: HashSet<u32> = {
         let mut set = HashSet::new();
         for (&v, surfs) in &vert_surfs {
             if surfs.len() < 3 {
                 continue;
             }
             let p = mesh.verts[v as usize].as_array();
+            // Increment 4 §4d: scale-aware band (was the absolute
+            // TAU_WORK, ~2 ULP at coordinate magnitude 4000 — see
+            // `junction_certificate_band`).
             let exact_on_all = surfs.iter().all(|&s| {
                 surface_value_and_normal(s, p)
-                    .is_some_and(|(f, _)| f.abs() <= cad_primitives::TAU_WORK)
+                    .is_some_and(|(f, _)| f.abs() <= junction_certificate_band(p, s))
             });
             if std::env::var_os("YANG_RIM_JUNCTION_PROBE").is_some() {
                 eprintln!(
-                    "[s4-exact-junction] v={v} surfs={} exact={exact_on_all}",
-                    surfs.len()
+                    "[s4-exact-junction] v={v} surfs={} exact={exact_on_all} p={:?}",
+                    surfs.len(),
+                    p,
                 );
+                for &s in surfs {
+                    let f = surface_value_and_normal(s, p).map(|(f, _)| f);
+                    eprintln!("[s4-exact-junction]   v={v} f={f:?} surf={s:?}");
+                }
             }
             if exact_on_all {
                 set.insert(v);
@@ -11641,6 +12255,108 @@ fn stage4_relocate_and_correct(
         }
     }
 
+    // Increment 5 (spec `yang_stage4_conic_triple_junction`, WIRED): a
+    // vertex on ≥2 of the six single-curve conic maps whose inc0 incidence
+    // dedups to EXACTLY 3 distinct surfaces is NOT ambiguous — it is the
+    // unique transversal common point of those surfaces (the R0017-class
+    // prism-edge × cone-lateral junction: exact on both planes,
+    // chord-inexact on the cone). Relocate it onto all three via the
+    // torus-block triple primitive instead of letting the over-determined
+    // audits below STOP. Newton failure leaves the vertex in its maps —
+    // the audits then STOP exactly as today (spec branch table). 2- or
+    // ≥4-surface configurations are untouched (spec I2).
+    let mut triple_moved: Vec<u32> = Vec::new();
+    {
+        let mut cand: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        for v in vert_circle
+            .keys()
+            .chain(vert_ellipse.keys())
+            .chain(vert_cone_ellipse.keys())
+            .chain(vert_parabola.keys())
+            .chain(vert_cone_hyperbola.keys())
+            .chain(vert_line.keys())
+        {
+            cand.insert(*v);
+        }
+        for v in cand {
+            let n_maps = [
+                vert_circle.contains_key(&v),
+                vert_ellipse.contains_key(&v),
+                vert_cone_ellipse.contains_key(&v),
+                vert_parabola.contains_key(&v),
+                vert_cone_hyperbola.contains_key(&v),
+                vert_line.contains_key(&v),
+            ]
+            .iter()
+            .filter(|b| **b)
+            .count();
+            if n_maps < 2 {
+                continue;
+            }
+            let Some(surfs) = vert_surfs.get(&v) else {
+                continue;
+            };
+            if surfs.len() != 3 {
+                continue; // 2 / ≥4 surfaces keep the loud audits (I2)
+            }
+            let p = mesh.verts[v as usize];
+            let Some(proj) = relocate_onto_implicit_triple(p, surfs[0], surfs[1], surfs[2]) else {
+                continue; // Newton diverged → the audits STOP loudly
+            };
+            let qa = proj.as_array();
+            let (Some((_, n0)), Some((_, n1))) = (
+                surface_value_and_normal(surfs[0], qa),
+                surface_value_and_normal(surfs[1], qa),
+            ) else {
+                continue; // evaluation failed → the audits STOP loudly
+            };
+            // Derived displacement gate: a chord vertex moves to the exact
+            // junction by ≤ 2·d_ε / sin θ (the torus-block metric — NOT a
+            // tolerance widening). Beyond it is a real off-curve error.
+            let pa = p.as_array();
+            let rho = ((qa[0] - pa[0]).powi(2) + (qa[1] - pa[1]).powi(2) + (qa[2] - pa[2]).powi(2))
+                .sqrt();
+            let cx = [
+                n0[1] * n1[2] - n0[2] * n1[1],
+                n0[2] * n1[0] - n0[0] * n1[2],
+                n0[0] * n1[1] - n0[1] * n1[0],
+            ];
+            let sin_theta = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+            let gate = if sin_theta > 0.0 {
+                2.0 * d_eps / sin_theta
+            } else {
+                f64::INFINITY
+            };
+            if rho > gate {
+                return Err(YangError::Stage4RegionInvalid {
+                    vertex: v,
+                    reason: Stage4InvalidReason::OffCurveBeyondChordBand,
+                });
+            }
+            if std::env::var_os("YANG_RIM_JUNCTION_PROBE").is_some() {
+                eprintln!(
+                    "[s4-triple-junction] v={v} rho={rho:.4e} gate={gate:.4e} surfs=3 relocated"
+                );
+            }
+            // Bookkeeping (spec I3/I4): out of every single-curve map and
+            // out of `endpoints` (all occurrences — one push per incident
+            // curve), so the audits and the no-skip balance never see it;
+            // NOT added to `processed`/`relocations` (source stays
+            // `BRepVertex`, position now exact).
+            vert_circle.remove(&v);
+            vert_ellipse.remove(&v);
+            vert_cone_ellipse.remove(&v);
+            vert_parabola.remove(&v);
+            vert_cone_hyperbola.remove(&v);
+            vert_line.remove(&v);
+            endpoints.retain(|&u| u != v);
+            if rho > cad_primitives::TAU_WORK {
+                mesh.verts[v as usize] = proj;
+                triple_moved.push(v);
+            }
+        }
+    }
+
     // M8 disc∩disc no-skip audit (P10): a circle∩circle lens corner that is ALSO
     // on any OTHER curve type (a line, ellipse, cone conic, or line+circle
     // junction) is an over-determined junction this arm does not resolve — loud
@@ -11772,6 +12488,11 @@ fn stage4_relocate_and_correct(
     }
     let mut processed: HashSet<u32> = HashSet::new();
     let mut moved: HashSet<u32> = HashSet::new();
+    // Increment 5: triple-junction relocations count as moved (their
+    // incident triangles get the Stage-4 fold validation) but are NOT in
+    // `processed`/`relocations` — the no-skip audit balance is untouched
+    // because they left `endpoints` too (spec I3).
+    moved.extend(triple_moved.iter().copied());
     let mut relocations: Vec<(u32, f64)> = Vec::new();
     // Deterministic order: BTreeMap iteration.
     for (&v, &(center, normal, radius, src_r)) in &vert_circle {
@@ -12694,6 +13415,37 @@ fn stage4_relocate_and_correct(
             }
         }
         attribution.attributions = attr_vec;
+    }
+
+    // Twin-scan probe (read-only, env-gated `YANG_TWIN_SCAN`): dump every
+    // sub-feature-floor mesh edge surviving the §4.4.1(b) merge, with
+    // eligibility flags — self-localizes a surviving ULP-twin pair (the
+    // F0047 render-collapse diagnosis tool).
+    if std::env::var_os("YANG_TWIN_SCAN").is_some() {
+        let floor = cad_primitives::MIN_FEATURE_SIZE;
+        let mut seen: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
+        for tri in &mesh.tris {
+            for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                let (u, v) = (tri[i].min(tri[j]), tri[i].max(tri[j]));
+                if u == v || !seen.insert((u, v)) {
+                    continue;
+                }
+                let pu = mesh.verts[u as usize].as_array();
+                let pv = mesh.verts[v as usize].as_array();
+                let d = [pu[0] - pv[0], pu[1] - pv[1], pu[2] - pv[2]];
+                let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                if len < floor {
+                    eprintln!(
+                        "[twin-scan] edge ({u},{v}) len={len:.3e} \
+                         exact_j=({},{}) moved=({},{}) pu={pu:?}",
+                        exact_junctions.contains(&u),
+                        exact_junctions.contains(&v),
+                        moved.contains(&u),
+                        moved.contains(&v),
+                    );
+                }
+            }
+        }
     }
 
     // KV9-F1 Increment 0c census: post-merge junction-twin state — coincident
@@ -15294,9 +16046,13 @@ mod tests {
     }
 
     /// Candidates beyond the crossing lateral's axial extent are excluded
-    /// (spec candidate filter 2): shifting B along its axis so the
-    /// infinite-cylinder junctions fall outside both operands' extents
-    /// empties both maps.
+    /// (spec candidate filter 2): shifting B along its axis puts every
+    /// infinite-LATERAL junction outside both operands' extents
+    /// (a-rim × b-lateral would sit at x = ±0.245, outside b's
+    /// [0.3, 0.65]; b-rim × a-lateral at y = ±0.302, outside a's
+    /// [−0.25, 0.25]). The PLANE arm never fires here: cylinder rims are
+    /// outside its cone-flanked v1 scope (the demonstrated-need gate —
+    /// this population is proven healthy without insertion).
     #[test]
     fn rim_junctions_respect_lateral_extent() {
         let a = rj_cylinder([0.0, -0.25, 0.0], [0.0, 1.0, 0.0], 0.35, 0.5);
@@ -15304,8 +16060,663 @@ mod tests {
         let (map_a, map_b) = rim_junction_overrides(&a, &b);
         assert!(
             map_a.is_empty() && map_b.is_empty(),
-            "junctions outside the lateral extents must be excluded"
+            "lateral out-of-extent candidates excluded; cylinder rims outside \
+             the plane arm's cone-flanked scope"
         );
+    }
+
+    // ── Increment 4: plane-face arm + coaxial azimuth propagation ────────
+    // Spec `specs/yang_rim_junction_insertion.md` §4a/§4b — the
+    // cone-hyperbola junction class (R0004/R0017/R0019/R0044/R0047/R0049):
+    // coaxial cone-band rim circles crossing a PLANE face of the other
+    // operand.
+
+    /// Coaxial double-frustum lathe on the z-axis: rims (z=0, r0),
+    /// (z=1, r1), (z=2, r2), two cone bands sharing the middle rim, planar
+    /// caps at both ends. Adjacent radii must differ (genuine cones).
+    fn rj_lathe(r0: f64, r1: f64, r2: f64) -> BRep {
+        assert!(r0 != r1 && r1 != r2, "bands must be genuine cones");
+        let verts = vec![
+            BRepVertex {
+                point: Point3::new(r0, 0.0, 0.0),
+            },
+            BRepVertex {
+                point: Point3::new(r1, 0.0, 1.0),
+            },
+            BRepVertex {
+                point: Point3::new(r2, 0.0, 2.0),
+            },
+        ];
+        let circle = |cz: f64, nz: f64, radius: f64| Curve::Circle {
+            center: Point3::new(0.0, 0.0, cz),
+            normal: Vector3::new(0.0, 0.0, nz),
+            radius,
+        };
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 0,
+                curve: circle(0.0, -1.0, r0),
+            },
+            BRepEdge {
+                start: 1,
+                end: 1,
+                curve: circle(1.0, 1.0, r1),
+            },
+            BRepEdge {
+                start: 2,
+                end: 2,
+                curve: circle(2.0, 1.0, r2),
+            },
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 1,
+                end: 2,
+                curve: Curve::LineSegment,
+            },
+        ];
+        // Cone through profile points (ra, za)-(rb, zb): apex on the axis
+        // where the linear radius profile reaches 0; axis_dir points from
+        // the apex toward the band.
+        let cone = |ra: f64, za: f64, rb: f64, zb: f64| -> Surface {
+            let slope = (rb - ra) / (zb - za);
+            let z_apex = za - ra / slope;
+            let dir = if slope > 0.0 { 1.0 } else { -1.0 };
+            Surface::Cone {
+                apex: Point3::new(0.0, 0.0, z_apex),
+                axis_dir: Vector3::new(0.0, 0.0, dir),
+                half_angle: slope.abs().atan(),
+            }
+        };
+        let faces = vec![
+            BRepFace {
+                surface: cone(r0, 0.0, r1, 1.0),
+                outer_loop: vec![0, 3, 1, 3],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: cone(r1, 1.0, r2, 2.0),
+                outer_loop: vec![1, 4, 2, 4],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, -1.0),
+                    d: 0.0,
+                },
+                outer_loop: vec![0],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    d: -2.0,
+                },
+                outer_loop: vec![2],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ];
+        BRep::new(verts, edges, faces).expect("rj lathe fixture builds")
+    }
+
+    /// Axis-aligned box (the slab operand): 6 polygonal plane faces.
+    fn rj_box(lo: [f64; 3], hi: [f64; 3]) -> BRep {
+        let v = |x: f64, y: f64, z: f64| BRepVertex {
+            point: Point3::new(x, y, z),
+        };
+        let vertices = vec![
+            v(lo[0], lo[1], lo[2]),
+            v(hi[0], lo[1], lo[2]),
+            v(hi[0], hi[1], lo[2]),
+            v(lo[0], hi[1], lo[2]),
+            v(hi[0], hi[1], hi[2]),
+            v(hi[0], lo[1], hi[2]),
+            v(lo[0], lo[1], hi[2]),
+            v(lo[0], hi[1], hi[2]),
+        ];
+        const EDGE_PAIRS: [(u32, u32); 24] = [
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 0),
+            (4, 5),
+            (5, 6),
+            (6, 7),
+            (7, 4),
+            (2, 1),
+            (1, 5),
+            (5, 4),
+            (4, 2),
+            (3, 2),
+            (2, 4),
+            (4, 7),
+            (7, 3),
+            (0, 3),
+            (3, 7),
+            (7, 6),
+            (6, 0),
+            (1, 0),
+            (0, 6),
+            (6, 5),
+            (5, 1),
+        ];
+        let edges: Vec<BRepEdge> = EDGE_PAIRS
+            .iter()
+            .map(|&(start, end)| BRepEdge {
+                start,
+                end,
+                curve: Curve::LineSegment,
+            })
+            .collect();
+        let planes: [([f64; 3], f64); 6] = [
+            ([0.0, 0.0, -1.0], lo[2]),
+            ([0.0, 0.0, 1.0], -hi[2]),
+            ([1.0, 0.0, 0.0], -hi[0]),
+            ([0.0, 1.0, 0.0], -hi[1]),
+            ([-1.0, 0.0, 0.0], lo[0]),
+            ([0.0, -1.0, 0.0], lo[1]),
+        ];
+        let faces: Vec<BRepFace> = planes
+            .iter()
+            .enumerate()
+            .map(|(i, &(n, d))| BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(n[0], n[1], n[2]),
+                    d,
+                },
+                outer_loop: (4 * i as u32..4 * i as u32 + 4).collect(),
+                inner_loops: Vec::new(),
+                reversed: false,
+            })
+            .collect();
+        BRep::new(vertices, edges, faces).expect("rj box fixture builds")
+    }
+
+    /// §4a+§4b class oracle: every lathe rim crosses the slab's x = c face
+    /// plane transversally → per rim, TWO direct junctions
+    /// `(c, ±√(r²−c²), z)` PLUS the other rims' azimuths propagated
+    /// exactly onto its own circle. All three rims present the SAME
+    /// azimuth multiset (the Stage-1 band-strip alignment invariant I5).
+    #[test]
+    fn rim_junctions_plane_arm_lathe_slab_all_rims() {
+        let (r0, r1, r2) = (1.0f64, 2.0, 0.8);
+        let c = 0.75f64;
+        let lathe = rj_lathe(r0, r1, r2);
+        let slab = rj_box([c, -4.0, -0.5], [4.0, 4.0, 2.5]);
+        let (map_l, map_s) = rim_junction_overrides(&lathe, &slab);
+        assert!(map_s.is_empty(), "the slab has no circle rims");
+        assert_eq!(
+            map_l.keys().copied().collect::<Vec<_>>(),
+            vec![0, 1, 2],
+            "all three rims carry insertions"
+        );
+        let mut az_sets: Vec<Vec<f64>> = Vec::new();
+        for (&ei, pts) in map_l.iter() {
+            let Curve::Circle { center, radius, .. } = lathe.edges()[ei as usize].curve else {
+                panic!("rim edge is a circle");
+            };
+            let cz = center.as_array()[2];
+            // 2 direct junctions per rim + 2 propagated from each other rim.
+            assert_eq!(pts.len(), 6, "rim {ei}: 2 direct + 4 propagated");
+            let mut on_plane = 0usize;
+            let mut azimuths: Vec<f64> = Vec::new();
+            for pt in pts {
+                let pa = pt.as_array();
+                let rad = (pa[0] * pa[0] + pa[1] * pa[1]).sqrt();
+                assert!(
+                    (rad - radius).abs() <= 1e-12,
+                    "I2/I5: point exactly on rim {ei}'s circle"
+                );
+                assert!((pa[2] - cz).abs() <= 1e-12, "point in rim {ei}'s plane");
+                if (pa[0] - c).abs() <= 1e-12 {
+                    on_plane += 1;
+                    let w = (radius * radius - c * c).sqrt();
+                    assert!(
+                        (pa[1].abs() - w).abs() <= 1e-12,
+                        "direct junction at (c, ±√(r²−c²), z)"
+                    );
+                }
+                azimuths.push(pa[1].atan2(pa[0]).rem_euclid(2.0 * std::f64::consts::PI));
+            }
+            assert_eq!(on_plane, 2, "rim {ei}: exactly two direct junctions");
+            azimuths.sort_by(f64::total_cmp);
+            az_sets.push(azimuths);
+        }
+        for k in 1..az_sets.len() {
+            assert_eq!(az_sets[k].len(), az_sets[0].len());
+            for (a, b) in az_sets[k].iter().zip(az_sets[0].iter()) {
+                assert!(
+                    (a - b).abs() <= 1e-12,
+                    "azimuth multisets align across coaxial rims"
+                );
+            }
+        }
+    }
+
+    /// §4a containment: the slab shifted so its x-face plane still crosses
+    /// the rim circles but OUTSIDE the face polygon → no insertion.
+    #[test]
+    fn rim_junctions_plane_arm_containment_outside_face() {
+        let lathe = rj_lathe(1.0, 2.0, 0.8);
+        let slab = rj_box([0.75, 2.5, -0.5], [4.0, 5.0, 2.5]);
+        let (map_l, map_s) = rim_junction_overrides(&lathe, &slab);
+        assert!(
+            map_l.is_empty() && map_s.is_empty(),
+            "crossings outside the face polygon must not insert"
+        );
+    }
+
+    /// §4a parallel skip: a box whose only near face is PARALLEL to the rim
+    /// planes (top face containing the middle rim's plane) → no section
+    /// line, no insertion; its transversal side faces miss the circles.
+    #[test]
+    fn rim_junctions_plane_arm_parallel_plane_skipped() {
+        let lathe = rj_lathe(1.0, 2.0, 0.8);
+        let slab = rj_box([-4.0, -4.0, -1.0], [4.0, 4.0, 1.0]);
+        let (map_l, map_s) = rim_junction_overrides(&lathe, &slab);
+        assert!(
+            map_l.is_empty() && map_s.is_empty(),
+            "parallel planes have no transversal section line"
+        );
+    }
+
+    /// §4b vocabulary gate: a full-circle rim owned by a TORUS face (the
+    /// kv6d bent-tube profile rim) must never receive insertions — the
+    /// band-strip propagation vocabulary covers Cone/Cylinder/Plane only.
+    #[test]
+    fn rim_junctions_group_gate_drops_torus_rims() {
+        // 90° bent tube: torus center origin, axis +z, R=3, r=1 (the kv6d
+        // fixture), profile rim e0 at center (3,0,0), normal +y, radius 1.
+        let verts = vec![
+            BRepVertex {
+                point: Point3::new(4.0, 0.0, 0.0),
+            },
+            BRepVertex {
+                point: Point3::new(0.0, 4.0, 0.0),
+            },
+        ];
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 0,
+                curve: Curve::Circle {
+                    center: Point3::new(3.0, 0.0, 0.0),
+                    normal: Vector3::new(0.0, 1.0, 0.0),
+                    radius: 1.0,
+                },
+            },
+            BRepEdge {
+                start: 1,
+                end: 1,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 3.0, 0.0),
+                    normal: Vector3::new(1.0, 0.0, 0.0),
+                    radius: 1.0,
+                },
+            },
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, 0.0),
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    radius: 4.0,
+                },
+            },
+        ];
+        let faces = vec![
+            BRepFace {
+                surface: Surface::Torus {
+                    center: Point3::new(0.0, 0.0, 0.0),
+                    axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                    major_radius: 3.0,
+                    minor_radius: 1.0,
+                },
+                outer_loop: vec![0, 2, 1, 2],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, -1.0, 0.0),
+                    d: 0.0,
+                },
+                outer_loop: vec![0],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(-1.0, 0.0, 0.0),
+                    d: 0.0,
+                },
+                outer_loop: vec![1],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ];
+        let tube = BRep::new(verts, edges, faces).expect("kv6d bent tube builds");
+        // The slab's x = 3 face plane crosses profile rim e0 (center
+        // (3,0,0), r=1, plane y=0) at (3, 0, ±1) — transversal, contained.
+        let slab = rj_box([3.0, -0.5, -2.0], [5.0, 0.5, 2.0]);
+        let (map_t, map_s) = rim_junction_overrides(&tube, &slab);
+        assert!(
+            map_t.is_empty() && map_s.is_empty(),
+            "torus-owned rim groups must be dropped by the vocabulary gate"
+        );
+    }
+
+    /// §4a arc extension (the measured corpus shape — partial revolves):
+    /// a half-turn washer sector's OUTER arcs cross the slab plane at ONE
+    /// in-sweep azimuth (the mirror root lies in the missing half); the
+    /// junction is inserted there and NEVER at the out-of-sweep root, and
+    /// §4b propagates the azimuth onto the INNER arcs exactly on-circle.
+    #[test]
+    fn rim_junctions_plane_arm_partial_arc_rims() {
+        // Half-turn CONE-walled washer sector about +x (the plane arm's
+        // v1 scope demands cone-flanked rims): trapezoid profile
+        // (0,1.0)-(1,1.3)-(1,2.3)-(0,2.0), swept z ≥ 0 (angle π). Arcs:
+        // e8 (r=1.0 @ x=0), e9 (r=1.3 @ x=1), e10 (r=2.3 @ x=1),
+        // e11 (r=2.0 @ x=0), all centered on the x-axis with normal +x̂.
+        let angle = std::f64::consts::PI;
+        let prof = [(0.0, 1.0), (1.0, 1.3), (1.0, 2.3), (0.0, 2.0)];
+        let mut verts: Vec<BRepVertex> = prof
+            .iter()
+            .map(|&(x, y)| BRepVertex {
+                point: Point3::new(x, y, 0.0),
+            })
+            .collect();
+        for &(x, y) in &prof {
+            // Rotation by π about +x̂: (y, z) → (−y, z sign-flipped ≈ 0).
+            let (c, s) = (angle.cos(), angle.sin());
+            verts.push(BRepVertex {
+                point: Point3::new(x, y * c, y * s),
+            });
+        }
+        let seg = |a: u32, b: u32| BRepEdge {
+            start: a,
+            end: b,
+            curve: Curve::LineSegment,
+        };
+        let mut edges = vec![
+            seg(0, 1),
+            seg(1, 2),
+            seg(2, 3),
+            seg(3, 0),
+            seg(4, 5),
+            seg(5, 6),
+            seg(6, 7),
+            seg(7, 4),
+        ];
+        for i in 0..4u32 {
+            let (x, y) = prof[i as usize];
+            edges.push(BRepEdge {
+                start: i,
+                end: i + 4,
+                curve: Curve::Circle {
+                    center: Point3::new(x, 0.0, 0.0),
+                    normal: Vector3::new(1.0, 0.0, 0.0),
+                    radius: y,
+                },
+            });
+        }
+        let (a0, a1, a2, a3) = (8u32, 9u32, 10u32, 11u32);
+        let faces = vec![
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, -1.0),
+                    d: 0.0,
+                },
+                outer_loop: vec![0, 1, 2, 3],
+                inner_loops: vec![],
+                reversed: false,
+            },
+            // End cap after a π sweep: the z = 0 plane again, outward −ẑ
+            // rotated → +ẑ... outward normal is R_x(π)·ẑ = −ẑ → (0,0,-1)?
+            // The kv6b fixture computes (0, −sin α, cos α) = (0, 0, −1).
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, -1.0),
+                    d: 0.0,
+                },
+                outer_loop: vec![4, 5, 6, 7],
+                inner_loops: vec![],
+                reversed: false,
+            },
+            BRepFace {
+                // Inner CONE wall (cavity sense): r = 1.0 @ x=0 → 1.3 @
+                // x=1, slope 0.3, apex on the axis at x = −1.0/0.3.
+                surface: Surface::Cone {
+                    apex: Point3::new(-1.0 / 0.3, 0.0, 0.0),
+                    axis_dir: Vector3::new(1.0, 0.0, 0.0),
+                    half_angle: 0.3f64.atan(),
+                },
+                outer_loop: vec![0, a1, 4, a0],
+                inner_loops: vec![],
+                reversed: true,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(1.0, 0.0, 0.0),
+                    d: -1.0,
+                },
+                outer_loop: vec![1, a2, 5, a1],
+                inner_loops: vec![],
+                reversed: false,
+            },
+            BRepFace {
+                // Outer CONE wall: r = 2.0 @ x=0 → 2.3 @ x=1, slope 0.3,
+                // apex at x = −2.0/0.3.
+                surface: Surface::Cone {
+                    apex: Point3::new(-2.0 / 0.3, 0.0, 0.0),
+                    axis_dir: Vector3::new(1.0, 0.0, 0.0),
+                    half_angle: 0.3f64.atan(),
+                },
+                outer_loop: vec![2, a3, 6, a2],
+                inner_loops: vec![],
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(-1.0, 0.0, 0.0),
+                    d: 0.0,
+                },
+                outer_loop: vec![3, a0, 7, a3],
+                inner_loops: vec![],
+                reversed: false,
+            },
+        ];
+        let sector = BRep::new(verts, edges, faces).expect("washer sector builds");
+        // Slab beyond y = −1.5: its y = −1.5 face plane crosses the OUTER
+        // arcs (r = 2.3, 2.0) at z = +√(r² − 2.25) — only z > 0 is in the
+        // sweep (the mirror root lies in the missing half). The inner arcs
+        // (r = 1.0, 1.3) never reach y = −1.5 and receive only the
+        // propagated cluster azimuths.
+        let slab = rj_box([-1.0, -4.0, -4.0], [2.0, -1.5, 4.0]);
+        let (map_x, map_s) = rim_junction_overrides(&sector, &slab);
+        assert!(map_s.is_empty(), "the slab has no circle rims");
+        assert_eq!(
+            map_x.keys().copied().collect::<Vec<_>>(),
+            vec![8, 9, 10, 11],
+            "outer arcs carry direct junctions; inner arcs the propagated azimuths"
+        );
+        for (&ei, pts) in map_x.iter() {
+            let Curve::Circle { center, radius, .. } = sector.edges()[ei as usize].curve else {
+                panic!("arc edge is a circle");
+            };
+            // TWO clusters (one per outer arc's distinct junction azimuth),
+            // both inside every arc's sweep window.
+            assert_eq!(pts.len(), 2, "arc {ei}: both cluster azimuths inserted");
+            let ca = center.as_array();
+            for pt in pts {
+                let pa = pt.as_array();
+                assert!(pa[2] > 0.0, "arc {ei}: insertion inside the sweep window");
+                let rad = ((pa[1] - ca[1]).powi(2) + (pa[2] - ca[2]).powi(2)).sqrt();
+                assert!(
+                    (rad - radius).abs() <= 1e-12,
+                    "I2/I5: insertion exactly on arc {ei}'s circle"
+                );
+                assert!(
+                    (pa[0] - ca[0]).abs() <= 1e-12,
+                    "insertion in arc {ei}'s plane"
+                );
+            }
+            if ei >= 10 {
+                // Outer arcs contain their own DIRECT junction at
+                // (x, −1.5, √(r²−2.25)) bit-near exactly.
+                let w = (radius * radius - 2.25).sqrt();
+                assert!(
+                    pts.iter().any(|pt| {
+                        let pa = pt.as_array();
+                        (pa[1] + 1.5).abs() <= 1e-12 && (pa[2] - w).abs() <= 1e-12
+                    }),
+                    "outer arc {ei}: direct junction at (x, −1.5, √(r²−2.25)) missing"
+                );
+            }
+        }
+    }
+
+    /// §4a disc containment: a cylinder's cap DISC (circle-bounded loop)
+    /// admits only junctions within its radius — the R0019/R0044 shape.
+    #[test]
+    fn rim_junctions_plane_arm_disc_cap_containment() {
+        let lathe = rj_lathe(1.0, 2.0, 0.8);
+        // Cylinder along +x from x = 0.75, radius 1.3, centered at z = 1:
+        // its x = 0.75 cap disc admits rim0's junction (distance 1.20 from
+        // the cap center) and rim2's (1.04) but NOT rim1's (1.854 > 1.3).
+        let cyl = rj_cylinder([0.75, 0.0, 1.0], [1.0, 0.0, 0.0], 1.3, 3.25);
+        let (map_l, _map_c) = rim_junction_overrides(&lathe, &cyl);
+        let c = 0.75f64;
+        let cap_center = [0.75f64, 0.0, 1.0];
+        // Every on-cap-plane insertion respects the disc radius.
+        for pts in map_l.values() {
+            for pt in pts {
+                let pa = pt.as_array();
+                if (pa[0] - c).abs() <= 1e-9 {
+                    let dd = [
+                        pa[0] - cap_center[0],
+                        pa[1] - cap_center[1],
+                        pa[2] - cap_center[2],
+                    ];
+                    let dist = (dd[0] * dd[0] + dd[1] * dd[1] + dd[2] * dd[2]).sqrt();
+                    assert!(
+                        dist <= 1.3 + 1e-9,
+                        "on-cap junction outside the disc: {pa:?} (dist {dist})"
+                    );
+                }
+            }
+        }
+        // The in-disc junctions on rim0 ARE inserted (red oracle).
+        let w0 = (1.0f64 - c * c).sqrt();
+        let rim0 = map_l.get(&0).expect("rim0 carries junctions");
+        for sy in [-1.0f64, 1.0] {
+            assert!(
+                rim0.iter().any(|p| {
+                    let pa = p.as_array();
+                    (pa[0] - c).abs() <= 1e-9
+                        && (pa[1] - sy * w0).abs() <= 1e-9
+                        && pa[2].abs() <= 1e-9
+                }),
+                "rim0 in-disc junction (c, {sy}·√(1−c²), 0) missing"
+            );
+        }
+        // And rim1's on-cap-plane candidates (outside the disc) are NOT.
+        if let Some(rim1) = map_l.get(&1) {
+            assert!(
+                rim1.iter().all(|p| (p.as_array()[0] - c).abs() > 1e-9),
+                "rim1 candidates on the cap plane must be rejected by the disc"
+            );
+        }
+    }
+
+    /// §4d: the certificate band is the TAU_WORK floor at unit scale,
+    /// covers the measured ~1.2·ε·L ULP noise at the R0017 magnitude, and
+    /// stays orders below every measured junction sagitta at its own
+    /// scale (band monotonicity, spec I7).
+    #[test]
+    fn junction_certificate_band_is_scale_aware() {
+        // Unit scale: the floor.
+        let plane_unit = Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: -0.5,
+        };
+        assert_eq!(
+            junction_certificate_band([0.1, 0.2, 0.5], plane_unit),
+            cad_primitives::TAU_WORK
+        );
+        // R0017 magnitude (~4e3 coords, cone apex ~3e3): the measured
+        // already-exact junction residual 1.36e-12 must certify, while
+        // the measured chord sagitta 10.7 must stay ≥ 1e6× above.
+        let cone_large = Surface::Cone {
+            apex: Point3::new(-3216.2, -1481.6, 1664.5),
+            axis_dir: Vector3::new(0.7596, 0.0, -0.6504),
+            half_angle: 1.0477,
+        };
+        let band = junction_certificate_band([-3901.5, -2954.8, -2747.5], cone_large);
+        assert!(
+            band >= 1.36e-12,
+            "covers evaluation-precision noise: {band}"
+        );
+        assert!(band <= 1e-10, "stays sub-sagitta by ≥6 orders: {band}");
+        // R0047 micro magnitude (~3e-4): the floor rules, and the measured
+        // 1.35e-7 sagitta can never certify.
+        let cone_micro = Surface::Cone {
+            apex: Point3::new(2.68e-4, -2.09e-4, 2.76e-4),
+            axis_dir: Vector3::new(-0.4092, 0.0, -0.9124),
+            half_angle: 0.5959,
+        };
+        let band_micro = junction_certificate_band([1.02e-4, -1.53e-4, 1.59e-4], cone_micro);
+        assert_eq!(band_micro, cad_primitives::TAU_WORK);
+        assert!(band_micro < 1.35e-7 / 1e4, "micro sagitta stays loud");
+    }
+
+    /// §4c: a group-consistent insertion (one azimuth on all three coaxial
+    /// rims) tessellates the double-frustum watertight, with every inserted
+    /// point a bit-exact Stage-1 mesh vertex.
+    #[test]
+    fn cone_bands_with_inserted_shared_rim_tessellate_watertight() {
+        let lathe = rj_lathe(1.0, 2.0, 0.8);
+        let th = 0.6f64;
+        let mut map: std::collections::BTreeMap<u32, Vec<Point3>> =
+            std::collections::BTreeMap::new();
+        for (ei, r, z) in [(0u32, 1.0f64, 0.0f64), (1, 2.0, 1.0), (2, 0.8, 2.0)] {
+            map.insert(ei, vec![Point3::new(r * th.cos(), r * th.sin(), z)]);
+        }
+        let boosted = lathe
+            .rebuilt_with_rim_overrides(&map)
+            .expect("group-consistent insertion tessellates");
+        let mesh = boosted.as_mesh();
+        for pts in map.values() {
+            for pt in pts {
+                assert!(
+                    mesh.verts.iter().any(|q| q == pt),
+                    "inserted point {pt:?} must be a bit-exact mesh vertex"
+                );
+            }
+        }
+        // Watertight: every directed edge pairs with its reverse.
+        let mut counts: std::collections::HashMap<(u32, u32), i64> =
+            std::collections::HashMap::new();
+        for tri in &mesh.tris {
+            for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                *counts.entry((tri[i], tri[j])).or_insert(0) += 1;
+            }
+        }
+        for (&(s, e), &fwd) in &counts {
+            let rev = counts.get(&(e, s)).copied().unwrap_or(0);
+            assert_eq!(
+                fwd, rev,
+                "unpaired half-edge ({s},{e}) after shared-rim insertion"
+            );
+        }
     }
 
     // ── M5 surface-pair plumbing (Y1–Y3) ─────────────────────────────────

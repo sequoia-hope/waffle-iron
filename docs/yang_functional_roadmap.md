@@ -687,6 +687,67 @@ the roadmap's remaining work:
    Remaining named residue: quartic-class rim junctions (transversal
    axis), partial-arc rims, the ring-reject family (F0045/R0011 — no rim
    junctions, different mechanism), the 13 other Stage-4 LRR configs.
+   **N2/F0059 epic increments 4+5 SHIPPED 2026-07-10 (specs
+   `yang_rim_junction_insertion` §4 + `yang_stage4_conic_triple_junction`
+   now WIRED, task #123) — the 6-case cone-hyperbola Stage-4 LRR family
+   (R0004/R0017/R0019/R0044/R0047/R0049) measured and its junction wall
+   retired; every case advances to a distinct deeper wall. Assay 232
+   CORRECT / 0 WRONG / 45 ERROR / 0 TIMEOUT — totals byte-identical to
+   the pre-increment baseline, ZERO category flips (zero-lost held).**
+   Measured
+   shape (per-surface signed-distance probe): coaxial cone-band lathe rims
+   (PARTIAL-ARC edges — the operands are partial revolves) crossing a
+   plane face of the other operand; the junction vertex is exact on the
+   plane and rim-chord-sagitta INSIDE both cones (identical f on both =
+   the rim-chord signature). Increment 4 = the spec's deferred plane-face
+   arm: rim×plane circle∩line closed form with polygon AND disc/annulus
+   containment (even-odd over segments + circle parity), arc-rim in-sweep
+   filtering (endpoint/seam duplication guards), coaxial azimuth
+   propagation rebuilt as ANGLE-SPACE cluster reconciliation (one shared
+   th_eps = TAU_MODEL/r_min per coaxial group — per-radius chord
+   tolerances desynchronize band-partner arcs by one point: the R0019
+   161-vs-162 strip stop), a cone frustum-band azimuth-merge route
+   (shared `tessellate_band_azimuth_merge`, cylinder path byte-identical),
+   and the §4d SCALE-AWARE exactness certificate band max(TAU_WORK,
+   8·ε·L) (absolute 1e-12 is ~2 ULP at the R0017 coordinate magnitude
+   4000 — measured already-exact junctions failing certification on
+   evaluation noise). Increment 5 = the design-record ≥3-surface conic
+   triple-junction relocation WIRED (trigger: vertex in ≥2 single-curve
+   conic maps, inc0 dedups to exactly 3 surfaces — the prism-EDGE ×
+   cone-lateral interior junction, R0017 v101, which has no rim to insert
+   into), reusing `relocate_onto_implicit_triple` with the same
+   scale-aware Newton tolerance (byte-identical at unit scale) + the
+   torus-block 2·d_ε/sinθ displacement gate. Regression trail (the
+   plane arm's final v1 scope): ungated, the arm fired on CYLINDER rims
+   corpus-wide and (a) regressed F0047/R0006/R0075/F0081 — the inserted
+   rim vertex ULP-twins the arrangement's own crossing vertex (incl.
+   plane∩plane `vert_pp_planes` vertices whose 2-surface incidence
+   certifies nothing) into a render-precision sliver, invisible to the
+   §4.4.1(b) merge because certificate/triple handling REMOVES resolved
+   vertices from every map (the KV9-F3 scan-exemption trap) — and (b)
+   unmasked R0091's banked-§3b unverifiable-χ path (ERROR→WRONG χ=−4).
+   A merge-eligibility + scale-derived ULP-band fix recovered (a) but
+   its floor-based first draft broke the micro-scale adversary
+   (`extreme_magnitudes_valid_or_loud` — the KV15b sub-floor lesson,
+   re-proven), a sub-resolution-pair gate for (b) was REFUTED (the
+   disc-cap fixture has R0091's same relative spacing, legitimately),
+   and after scoping the plane arm to CONE-FLANKED rims (the entire
+   measured class; the cylinder population is proven healthy without
+   insertion) the eligibility machinery lost its demanding case and
+   its pins (P4) — REMOVED; the trail + `YANG_TWIN_SCAN` probe make
+   reintroduction cheap when a cone-class twin demands it. Green pins:
+   `rim_junction_insertion.rs` lathe∖tilted-slab (hyperbola×ellipse
+   junction, unit + ×4000 scale, Simpson-referenced volume) +
+   frustum∖corner-notch (edge-pierce triple junction, both scales) +
+   axis-parallel same-type sibling. Case walls after: R0017 → kernel-v2
+   `UnsupportedBooleanOutputCurve(Hyperbola)` (output-vocabulary),
+   R0019 → input-B-Rep-not-2-manifold (chained), R0044 → a different
+   Stage-4 junction config (v265), R0047 → §4.4.1(b) merge-pass budget
+   exhausted (u32::MAX sentinel), R0049 → Stage-6 non-2-manifold,
+   R0004 → its separate RevolveAxisIntersectsProfile engine error.
+   Probes kept: enriched `[s4-exact-junction]` per-surface distances,
+   `[s4-triple-junction]`, `YANG_TWIN_SCAN`, `[rim-junction]` operand
+   dumps, kernel-v2 ring dump under `KV2_RENDER_GATE_PROBE`.
    **ERROR-census campaign 3 SHIPPED 2026-07-08 (spec
    `specs/cut_consumes_body.md`):** the EmptyBooleanResult cluster
    (R0023/R0027/R0058/R0088) is ONE mechanism — a cut whose tool ENGULFS

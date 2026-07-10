@@ -3334,6 +3334,16 @@ fn tessellate_planar_face(
                     pos_of(tri[1]),
                     pos_of(tri[2]),
                 );
+                eprintln!(
+                    "[render-gate-probe] outer ring ({} nodes):",
+                    outer_cdt.len()
+                );
+                for (k, &pi) in outer_cdt.iter().enumerate() {
+                    eprintln!(
+                        "[render-gate-probe]   ring[{k}] vid={} p={:?}",
+                        pool_vid[pi as usize], pool_p3[pi as usize]
+                    );
+                }
             }
             return Err(KernelV2Error::TessellationFailed {
                 face: fid,

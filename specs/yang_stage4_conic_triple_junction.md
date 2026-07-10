@@ -1,5 +1,26 @@
 # Spec: Stage-4 general conic triple-surface junction relocation
 
+> **Status (2026-07-10, N2 epic increment 5): WIRED — the inexact
+> ≥3-surface junction class this design record anticipated has arrived.**
+> After increment 4 (spec `yang_rim_junction_insertion` §4: plane-arm rim
+> junction insertion) converted the rim-junction sub-shape, the 6-case
+> cone-hyperbola family's REMAINING wall is the OTHER measured sub-shape:
+> a prism EDGE (two adjacent plane faces) piercing a cone LATERAL's
+> interior (R0017 v101: {plane, plane, cone}, exact on both planes,
+> chord-inexact on the cone by the facet sagitta — no rim to insert into).
+> That is precisely this spec's trigger (vertex in ≥2 single-curve conic
+> maps, inc0 dedups to EXACTLY 3 surfaces). The two historical blockers
+> are gone: (a) the downstream Stage-6 walls (double-cover membrane, wedge
+> walk) were fixed by increments 1–3; (b) the trigger now FIRES because
+> increment 4's insertions resolve the rim-junction vertices that
+> previously stopped the scan first. Amendments at wiring time:
+> `relocate_onto_implicit_triple`'s absolute Newton tolerance (1e-13) and
+> the exactness re-check gain the SAME scale-aware max(abs, 8·ε·L) form as
+> the increment-4 §4d certificate band (byte-identical at unit scale where
+> 8·ε·L ≈ 5e-15 < 1e-13; reachable at the R0017 coordinate magnitude
+> ~4000 where 1e-13 is sub-ULP). Handler runs BEFORE the over-determined
+> audits; branch table below unchanged.
+
 > **Status (2026-07-10 EOD): SUPERSEDED for the F0059 class — the case is
 > SUPPORTED_CORRECT without this handler.** The epic's increments 2+3
 > (spec `yang_rim_junction_insertion`: Stage-1 rim junction insertion +

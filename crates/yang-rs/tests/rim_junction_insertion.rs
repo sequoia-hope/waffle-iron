@@ -208,6 +208,706 @@ fn truncated_steinmetz_union_never_stops_at_stage4_junction() {
     }
 }
 
+// ── Increment 4: the cone-hyperbola junction class ───────────────────────
+// Spec `specs/yang_rim_junction_insertion.md` §4 — coaxial cone-band rim
+// circles crossing a PLANE face of the other operand (the
+// R0004/R0017/R0019/R0044/R0047/R0049 shape).
+
+/// Coaxial double-frustum lathe on the z-axis, uniformly scaled by `s`:
+/// rims (0, s·r0), (s, s·r1), (2s, s·r2), two cone bands + planar caps.
+fn lathe_brep(r0: f64, r1: f64, r2: f64, s: f64) -> BRep {
+    let verts = vec![
+        BRepVertex {
+            point: p(s * r0, 0.0, 0.0),
+        },
+        BRepVertex {
+            point: p(s * r1, 0.0, s),
+        },
+        BRepVertex {
+            point: p(s * r2, 0.0, 2.0 * s),
+        },
+    ];
+    let circle = |cz: f64, nz: f64, radius: f64| Curve::Circle {
+        center: p(0.0, 0.0, cz),
+        normal: Vector3::new(0.0, 0.0, nz),
+        radius,
+    };
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 0,
+            curve: circle(0.0, -1.0, s * r0),
+        },
+        BRepEdge {
+            start: 1,
+            end: 1,
+            curve: circle(s, 1.0, s * r1),
+        },
+        BRepEdge {
+            start: 2,
+            end: 2,
+            curve: circle(2.0 * s, 1.0, s * r2),
+        },
+        BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::LineSegment,
+        },
+        BRepEdge {
+            start: 1,
+            end: 2,
+            curve: Curve::LineSegment,
+        },
+    ];
+    let cone = |ra: f64, za: f64, rb: f64, zb: f64| -> Surface {
+        let slope = (rb - ra) / (zb - za);
+        let z_apex = za - ra / slope;
+        let dir = if slope > 0.0 { 1.0 } else { -1.0 };
+        Surface::Cone {
+            apex: p(0.0, 0.0, z_apex),
+            axis_dir: Vector3::new(0.0, 0.0, dir),
+            half_angle: slope.abs().atan(),
+        }
+    };
+    let faces = vec![
+        BRepFace {
+            surface: cone(s * r0, 0.0, s * r1, s),
+            outer_loop: vec![0, 3, 1, 3],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        BRepFace {
+            surface: cone(s * r1, s, s * r2, 2.0 * s),
+            outer_loop: vec![1, 4, 2, 4],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                d: 0.0,
+            },
+            outer_loop: vec![0],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: -2.0 * s,
+            },
+            outer_loop: vec![2],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+    ];
+    BRep::new(verts, edges, faces).expect("lathe fixture builds")
+}
+
+/// Axis-aligned box (the slab operand).
+fn box_brep(lo: [f64; 3], hi: [f64; 3]) -> BRep {
+    let v = |x: f64, y: f64, z: f64| BRepVertex { point: p(x, y, z) };
+    let vertices = vec![
+        v(lo[0], lo[1], lo[2]),
+        v(hi[0], lo[1], lo[2]),
+        v(hi[0], hi[1], lo[2]),
+        v(lo[0], hi[1], lo[2]),
+        v(hi[0], hi[1], hi[2]),
+        v(hi[0], lo[1], hi[2]),
+        v(lo[0], lo[1], hi[2]),
+        v(lo[0], hi[1], hi[2]),
+    ];
+    const EDGE_PAIRS: [(u32, u32); 24] = [
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 0),
+        (4, 5),
+        (5, 6),
+        (6, 7),
+        (7, 4),
+        (2, 1),
+        (1, 5),
+        (5, 4),
+        (4, 2),
+        (3, 2),
+        (2, 4),
+        (4, 7),
+        (7, 3),
+        (0, 3),
+        (3, 7),
+        (7, 6),
+        (6, 0),
+        (1, 0),
+        (0, 6),
+        (6, 5),
+        (5, 1),
+    ];
+    let edges: Vec<BRepEdge> = EDGE_PAIRS
+        .iter()
+        .map(|&(start, end)| BRepEdge {
+            start,
+            end,
+            curve: Curve::LineSegment,
+        })
+        .collect();
+    let planes: [([f64; 3], f64); 6] = [
+        ([0.0, 0.0, -1.0], lo[2]),
+        ([0.0, 0.0, 1.0], -hi[2]),
+        ([1.0, 0.0, 0.0], -hi[0]),
+        ([0.0, 1.0, 0.0], -hi[1]),
+        ([-1.0, 0.0, 0.0], lo[0]),
+        ([0.0, -1.0, 0.0], lo[1]),
+    ];
+    let faces: Vec<BRepFace> = planes
+        .iter()
+        .enumerate()
+        .map(|(i, &(n, d))| BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(n[0], n[1], n[2]),
+                d,
+            },
+            outer_loop: (4 * i as u32..4 * i as u32 + 4).collect(),
+            inner_loops: Vec::new(),
+            reversed: false,
+        })
+        .collect();
+    BRep::new(vertices, edges, faces).expect("box fixture builds")
+}
+
+/// Lathe radii for the class pair: band 1 at half-angle 60°, band 2 at 30°
+/// (descending), so a 45°-tilted plane sections band 1 in a HYPERBOLA and
+/// band 2 in an ELLIPSE — the mixed-conic over-determined junction the
+/// PR-YR21/23 audits stop on (the R0017 v43 shape).
+fn class_radii() -> (f64, f64, f64) {
+    let r0 = 1.0f64;
+    let r1 = r0 + (std::f64::consts::PI / 3.0).tan(); // 60° band
+    let r2 = r1 - (std::f64::consts::PI / 6.0).tan(); // 30° band, descending
+    (r0, r1, r2)
+}
+
+/// Slab whose near face is the 45°-tilted plane x + z = c + s (normal
+/// (1,0,1)/√2), covering the whole far side of the lathe: an axis-aligned
+/// box in the (u,v,w) frame u=(x+z)/√2, v=y, w=(z−x)/√2, rotated back.
+fn tilted_slab_brep(c: f64, s: f64) -> BRep {
+    let iso = std::f64::consts::FRAC_1_SQRT_2;
+    // Box in rotated frame: u ∈ [u0, u1], v ∈ [±v1], w ∈ [±w1].
+    let u0 = (c + s) * iso;
+    let (u1, v1, w1) = (8.0 * s * iso, 4.0 * s, 8.0 * s * iso);
+    // Rotated-frame basis vectors in world coordinates.
+    let bu = [iso, 0.0, iso];
+    let bv = [0.0, 1.0, 0.0];
+    let bw = [-iso, 0.0, iso];
+    let corner = |u: f64, v: f64, w: f64| -> [f64; 3] {
+        [
+            u * bu[0] + v * bv[0] + w * bw[0],
+            u * bu[1] + v * bv[1] + w * bw[1],
+            u * bu[2] + v * bv[2] + w * bw[2],
+        ]
+    };
+    let lo = [u0, -v1, -w1];
+    let hi = [u1, v1, w1];
+    let v = |uu: [f64; 3]| BRepVertex {
+        point: p(uu[0], uu[1], uu[2]),
+    };
+    let vertices = vec![
+        v(corner(lo[0], lo[1], lo[2])),
+        v(corner(hi[0], lo[1], lo[2])),
+        v(corner(hi[0], hi[1], lo[2])),
+        v(corner(lo[0], hi[1], lo[2])),
+        v(corner(hi[0], hi[1], hi[2])),
+        v(corner(hi[0], lo[1], hi[2])),
+        v(corner(lo[0], lo[1], hi[2])),
+        v(corner(lo[0], hi[1], hi[2])),
+    ];
+    const EDGE_PAIRS: [(u32, u32); 24] = [
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 0),
+        (4, 5),
+        (5, 6),
+        (6, 7),
+        (7, 4),
+        (2, 1),
+        (1, 5),
+        (5, 4),
+        (4, 2),
+        (3, 2),
+        (2, 4),
+        (4, 7),
+        (7, 3),
+        (0, 3),
+        (3, 7),
+        (7, 6),
+        (6, 0),
+        (1, 0),
+        (0, 6),
+        (6, 5),
+        (5, 1),
+    ];
+    let edges: Vec<BRepEdge> = EDGE_PAIRS
+        .iter()
+        .map(|&(start, end)| BRepEdge {
+            start,
+            end,
+            curve: Curve::LineSegment,
+        })
+        .collect();
+    // Face planes in the rotated frame (same order as box_brep's), with
+    // n·p + d = 0 in world coordinates.
+    let planes: [([f64; 3], f64); 6] = [
+        ([-bw[0], -bw[1], -bw[2]], lo[2]),
+        (bw, -hi[2]),
+        (bu, -hi[0]),
+        (bv, -hi[1]),
+        ([-bu[0], -bu[1], -bu[2]], lo[0]),
+        ([-bv[0], -bv[1], -bv[2]], lo[1]),
+    ];
+    let faces: Vec<BRepFace> = planes
+        .iter()
+        .enumerate()
+        .map(|(i, &(n, d))| BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(n[0], n[1], n[2]),
+                d,
+            },
+            outer_loop: (4 * i as u32..4 * i as u32 + 4).collect(),
+            inner_loops: Vec::new(),
+            reversed: false,
+        })
+        .collect();
+    BRep::new(vertices, edges, faces).expect("tilted slab fixture builds")
+}
+
+/// The class pair at scale `s`: 60°/30° lathe ∖ 45°-tilted slab through
+/// x + z = (c + 1)·s with c = 2.0 — the shared rim (z = s, r = r1·s)
+/// crosses the tilted face plane transversally at x = c·s.
+fn lathe_tilted_slab_pair(s: f64) -> (BRep, BRep) {
+    let (r0, r1, r2) = class_radii();
+    (lathe_brep(r0, r1, r2, s), tilted_slab_brep(2.0 * s, s))
+}
+
+/// Analytic reference volume of lathe ∖ tilted slab at scale `s`.
+///
+/// V_lathe = Σ_bands (π·h/3)(R² + R·r + r²). The tilted plane x + z =
+/// c + 1 removes, per z slice, the circular segment beyond the chord
+/// x = (c+1) − z: A = r²·acos(q/r) − q·√(r² − q²) for q < r (q stays > 0
+/// over the lathe's z-range, so the segment is always the minor one).
+/// Composite Simpson at 4096 intervals per band — deterministic and
+/// orders more accurate than the assertion band.
+fn lathe_tilted_slab_reference_volume(s: f64) -> f64 {
+    let (r0, r1, r2) = class_radii();
+    let c = 2.0f64;
+    let v_lathe = std::f64::consts::PI / 3.0
+        * ((r0 * r0 + r0 * r1 + r1 * r1) + (r1 * r1 + r1 * r2 + r2 * r2));
+    let seg = |r: f64, q: f64| -> f64 {
+        if r <= q {
+            0.0
+        } else {
+            r * r * (q / r).acos() - q * (r * r - q * q).sqrt()
+        }
+    };
+    // Band from (ra @ za) to (rb @ za+1): r(z) linear, q(z) = (c+1) − z.
+    let simpson = |ra: f64, rb: f64, za: f64| -> f64 {
+        let n = 4096usize;
+        let h = 1.0 / n as f64;
+        let mut acc = 0.0f64;
+        for k in 0..=n {
+            let w = if k == 0 || k == n {
+                1.0
+            } else if k % 2 == 1 {
+                4.0
+            } else {
+                2.0
+            };
+            let t = k as f64 * h;
+            let r = ra + (rb - ra) * t;
+            let q = (c + 1.0) - (za + t);
+            acc += w * seg(r, q);
+        }
+        acc * h / 3.0
+    };
+    let v_cut = simpson(r0, r1, 0.0) + simpson(r1, r2, 1.0);
+    (v_lathe - v_cut) * s * s * s
+}
+
+/// Regression pin (increment-4 RED): the Stage-4 over-determined junction
+/// STOP (`LocalRefinementRequired` at the mixed hyperbola×ellipse cone-band
+/// rim junctions) must never return for the lathe ∖ tilted-slab operands.
+#[test]
+fn lathe_tilted_slab_subtract_never_stops_at_stage4_junction() {
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[rim-junction] SKIP: native FFI shim not linked (stub build)");
+        return;
+    };
+    let (a, b) = lathe_tilted_slab_pair(1.0);
+    if let Err(e) = boolean(&a, &b, BoolOp::Subtract, &sb) {
+        assert!(
+            !matches!(e, YangError::Stage4RegionInvalid { .. }),
+            "rim-junction incr 4: the Stage-4 junction STOP returned: {e:?}"
+        );
+    }
+}
+
+/// GREEN target (increment 4): the subtract completes watertight with the
+/// analytic lathe-minus-tilted-slab volume at unit scale.
+#[test]
+fn lathe_tilted_slab_subtract_green_target() {
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[rim-junction] SKIP: native FFI shim not linked (stub build)");
+        return;
+    };
+    let (a, b) = lathe_tilted_slab_pair(1.0);
+    let out = boolean(&a, &b, BoolOp::Subtract, &sb)
+        .unwrap_or_else(|e| panic!("incr-4 green target: subtract failed with {e:?}"));
+    assert_eq!(
+        unpaired_half_edges(out.as_mesh()),
+        0,
+        "incr-4: subtract output must be watertight"
+    );
+    let vol = mesh_signed_volume(out.as_mesh());
+    let expect = lathe_tilted_slab_reference_volume(1.0);
+    assert!(
+        vol <= expect * 1.005 && vol >= 0.90 * expect,
+        "incr-4: subtract volume {vol} vs analytic {expect} (chord under-fill band only)"
+    );
+}
+
+/// GREEN target at coordinate scale 4000 (the R0017/R0044 magnitude):
+/// exercises the §4d scale-aware exactness certificate — the ABSOLUTE
+/// 1e-12 band is ~2 ULP here and can never certify a junction.
+#[test]
+fn lathe_tilted_slab_subtract_green_target_large_scale() {
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[rim-junction] SKIP: native FFI shim not linked (stub build)");
+        return;
+    };
+    let s = 4000.0f64;
+    let (a, b) = lathe_tilted_slab_pair(s);
+    let out = boolean(&a, &b, BoolOp::Subtract, &sb)
+        .unwrap_or_else(|e| panic!("incr-4 large-scale green target: subtract failed with {e:?}"));
+    assert_eq!(
+        unpaired_half_edges(out.as_mesh()),
+        0,
+        "incr-4 large-scale: subtract output must be watertight"
+    );
+    let vol = mesh_signed_volume(out.as_mesh());
+    let expect = lathe_tilted_slab_reference_volume(s);
+    assert!(
+        vol <= expect * 1.005 && vol >= 0.90 * expect,
+        "incr-4 large-scale: subtract volume {vol} vs analytic {expect}"
+    );
+}
+
+// ── Increment 5: the prism-edge × cone-lateral junction (R0017 v101) ────
+// Spec `specs/yang_stage4_conic_triple_junction.md` (wired): a box EDGE
+// pierces a cone band's interior — the junction vertex sits exactly on
+// both box planes but a facet-sagitta off the true cone, with NO rim to
+// insert into. Stage 4 must relocate it onto all three surfaces.
+
+/// 30° frustum band (apex z = −√3, r(0) = 1, r(2) = 2.155…) at scale `s`.
+fn frustum30_brep(s: f64) -> BRep {
+    let tan30 = (std::f64::consts::PI / 6.0).tan();
+    let (r0, r1) = (1.0 * s, (2.0 + 1.0 / tan30) * tan30 * s);
+    let verts = vec![
+        BRepVertex {
+            point: p(r0, 0.0, 0.0),
+        },
+        BRepVertex {
+            point: p(r1, 0.0, 2.0 * s),
+        },
+    ];
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 0,
+            curve: Curve::Circle {
+                center: p(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                radius: r0,
+            },
+        },
+        BRepEdge {
+            start: 1,
+            end: 1,
+            curve: Curve::Circle {
+                center: p(0.0, 0.0, 2.0 * s),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: r1,
+            },
+        },
+        BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::LineSegment,
+        },
+    ];
+    let faces = vec![
+        BRepFace {
+            surface: Surface::Cone {
+                apex: p(0.0, 0.0, -s / tan30),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                half_angle: std::f64::consts::PI / 6.0,
+            },
+            outer_loop: vec![0, 2, 1, 2],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                d: 0.0,
+            },
+            outer_loop: vec![0],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: -2.0 * s,
+            },
+            outer_loop: vec![1],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+    ];
+    BRep::new(verts, edges, faces).expect("frustum30 fixture builds")
+}
+
+/// Corner-notch slab at scale `s`: {x + z ≥ 2s} ∩ {y ≥ 0.2s} — its
+/// interior edge {x + z = 2s, y = 0.2s} pierces the 30° cone lateral near
+/// z ≈ 0.63s. The tilted face sections the cone in an ELLIPSE (45° > 30°)
+/// and the off-axis axis-parallel y-face in a HYPERBOLA — the mixed-conic
+/// over-determined junction (PR-YR21/23 audit shape, the R0017 v101
+/// class). The y-face deliberately misses the axis: a through-axis plane
+/// would section generator LINES instead (a separate cone-bearing
+/// line-edge vocabulary wall, out of this increment's scope).
+fn corner_notch_brep(s: f64) -> BRep {
+    let iso = std::f64::consts::FRAC_1_SQRT_2;
+    let u0 = 2.0 * s * iso;
+    let (u1, w1) = (8.0 * s * iso, 8.0 * s * iso);
+    let bu = [iso, 0.0, iso];
+    let bv = [0.0, 1.0, 0.0];
+    let bw = [-iso, 0.0, iso];
+    let corner = |u: f64, v: f64, w: f64| -> [f64; 3] {
+        [
+            u * bu[0] + v * bv[0] + w * bw[0],
+            u * bu[1] + v * bv[1] + w * bw[1],
+            u * bu[2] + v * bv[2] + w * bw[2],
+        ]
+    };
+    let lo = [u0, 0.2 * s, -w1];
+    let hi = [u1, 4.0 * s, w1];
+    let v = |uu: [f64; 3]| BRepVertex {
+        point: p(uu[0], uu[1], uu[2]),
+    };
+    let vertices = vec![
+        v(corner(lo[0], lo[1], lo[2])),
+        v(corner(hi[0], lo[1], lo[2])),
+        v(corner(hi[0], hi[1], lo[2])),
+        v(corner(lo[0], hi[1], lo[2])),
+        v(corner(hi[0], hi[1], hi[2])),
+        v(corner(hi[0], lo[1], hi[2])),
+        v(corner(lo[0], lo[1], hi[2])),
+        v(corner(lo[0], hi[1], hi[2])),
+    ];
+    const EDGE_PAIRS: [(u32, u32); 24] = [
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 0),
+        (4, 5),
+        (5, 6),
+        (6, 7),
+        (7, 4),
+        (2, 1),
+        (1, 5),
+        (5, 4),
+        (4, 2),
+        (3, 2),
+        (2, 4),
+        (4, 7),
+        (7, 3),
+        (0, 3),
+        (3, 7),
+        (7, 6),
+        (6, 0),
+        (1, 0),
+        (0, 6),
+        (6, 5),
+        (5, 1),
+    ];
+    let edges: Vec<BRepEdge> = EDGE_PAIRS
+        .iter()
+        .map(|&(start, end)| BRepEdge {
+            start,
+            end,
+            curve: Curve::LineSegment,
+        })
+        .collect();
+    let planes: [([f64; 3], f64); 6] = [
+        ([-bw[0], -bw[1], -bw[2]], lo[2]),
+        (bw, -hi[2]),
+        (bu, -hi[0]),
+        (bv, -hi[1]),
+        ([-bu[0], -bu[1], -bu[2]], lo[0]),
+        ([-bv[0], -bv[1], -bv[2]], lo[1]),
+    ];
+    let faces: Vec<BRepFace> = planes
+        .iter()
+        .enumerate()
+        .map(|(i, &(n, d))| BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(n[0], n[1], n[2]),
+                d,
+            },
+            outer_loop: (4 * i as u32..4 * i as u32 + 4).collect(),
+            inner_loops: Vec::new(),
+            reversed: false,
+        })
+        .collect();
+    BRep::new(vertices, edges, faces).expect("corner notch fixture builds")
+}
+
+/// Analytic reference volume of frustum30 ∖ corner-notch at scale `s`:
+/// per z slice the notch removes {x ≥ q(z) = 2 − z} ∩ {y ≥ y0 = 0.2} of
+/// the r(z) disc — the corner integral
+/// ∫_{y0}^{ymax} (√(r²−y²) − q) dy with ymax = √(r² − q²), via the
+/// antiderivative G(y) = (y·√(r²−y²) + r²·asin(y/r))/2 − q·y. Composite
+/// Simpson over z at 4096 intervals (deterministic, orders more accurate
+/// than the assertion band).
+fn frustum30_notch_reference_volume(s: f64) -> f64 {
+    let tan30 = (std::f64::consts::PI / 6.0).tan();
+    let r_of = |z: f64| (z + 1.0 / tan30) * tan30;
+    let (ra, rb) = (r_of(0.0), r_of(2.0));
+    let v_frustum = std::f64::consts::PI * 2.0 / 3.0 * (ra * ra + ra * rb + rb * rb);
+    let y0 = 0.2f64;
+    let corner_area = |r: f64, q: f64| -> f64 {
+        if q >= r {
+            return 0.0;
+        }
+        let ymax = (r * r - q * q).sqrt();
+        if ymax <= y0 {
+            return 0.0;
+        }
+        let g = |y: f64| (y * (r * r - y * y).sqrt() + r * r * (y / r).asin()) / 2.0 - q * y;
+        g(ymax) - g(y0)
+    };
+    let n = 4096usize;
+    let h = 2.0 / n as f64;
+    let mut acc = 0.0f64;
+    for k in 0..=n {
+        let w = if k == 0 || k == n {
+            1.0
+        } else if k % 2 == 1 {
+            4.0
+        } else {
+            2.0
+        };
+        let z = k as f64 * h;
+        acc += w * corner_area(r_of(z), 2.0 - z);
+    }
+    let v_cut = acc * h / 3.0;
+    (v_frustum - v_cut) * s * s * s
+}
+
+/// Regression pin (increment-5 RED): the Stage-4 over-determined junction
+/// STOP at the pierced-lateral junction must never return.
+#[test]
+fn frustum_corner_notch_subtract_never_stops_at_stage4_junction() {
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[rim-junction] SKIP: native FFI shim not linked (stub build)");
+        return;
+    };
+    let (a, b) = (frustum30_brep(1.0), corner_notch_brep(1.0));
+    if let Err(e) = boolean(&a, &b, BoolOp::Subtract, &sb) {
+        assert!(
+            !matches!(e, YangError::Stage4RegionInvalid { .. }),
+            "incr 5: the Stage-4 junction STOP returned: {e:?}"
+        );
+    }
+}
+
+/// GREEN target (increment 5): the subtract completes watertight with the
+/// analytic notched-frustum volume — and the notch is REALLY cut (the
+/// volume sits well below the un-notched frustum).
+#[test]
+fn frustum_corner_notch_subtract_green_target() {
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[rim-junction] SKIP: native FFI shim not linked (stub build)");
+        return;
+    };
+    let (a, b) = (frustum30_brep(1.0), corner_notch_brep(1.0));
+    let out = boolean(&a, &b, BoolOp::Subtract, &sb)
+        .unwrap_or_else(|e| panic!("incr-5 green target: subtract failed with {e:?}"));
+    assert_eq!(
+        unpaired_half_edges(out.as_mesh()),
+        0,
+        "incr-5: subtract output must be watertight"
+    );
+    let vol = mesh_signed_volume(out.as_mesh());
+    let expect = frustum30_notch_reference_volume(1.0);
+    assert!(
+        vol <= expect * 1.005 && vol >= 0.90 * expect,
+        "incr-5: subtract volume {vol} vs analytic {expect} (chord under-fill band only)"
+    );
+    let tan30 = (std::f64::consts::PI / 6.0).tan();
+    let (ra, rb) = (1.0, (2.0 + 1.0 / tan30) * tan30);
+    let v_frustum = std::f64::consts::PI * 2.0 / 3.0 * (ra * ra + ra * rb + rb * rb);
+    assert!(
+        vol < 0.97 * v_frustum,
+        "incr-5: the notch must actually be cut ({vol} vs full {v_frustum})"
+    );
+}
+
+/// GREEN target at coordinate scale 4000 (the R0017 magnitude): exercises
+/// the scale-aware Newton tolerance in the triple relocation.
+#[test]
+fn frustum_corner_notch_subtract_green_target_large_scale() {
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[rim-junction] SKIP: native FFI shim not linked (stub build)");
+        return;
+    };
+    let s = 4000.0f64;
+    let (a, b) = (frustum30_brep(s), corner_notch_brep(s));
+    let out = boolean(&a, &b, BoolOp::Subtract, &sb)
+        .unwrap_or_else(|e| panic!("incr-5 large-scale green target: subtract failed with {e:?}"));
+    assert_eq!(
+        unpaired_half_edges(out.as_mesh()),
+        0,
+        "incr-5 large-scale: subtract output must be watertight"
+    );
+    let vol = mesh_signed_volume(out.as_mesh());
+    let expect = frustum30_notch_reference_volume(s);
+    assert!(
+        vol <= expect * 1.005 && vol >= 0.90 * expect,
+        "incr-5 large-scale: subtract volume {vol} vs analytic {expect}"
+    );
+}
+
+/// Same-type-junction sibling (hyperbola×hyperbola — the axis-parallel
+/// slab): passes TODAY without insertion (the single-map junction never
+/// trips the mixed-conic audits) and must KEEP passing once the plane arm
+/// starts inserting these junctions too.
+#[test]
+fn lathe_axis_parallel_slab_subtract_stays_green() {
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[rim-junction] SKIP: native FFI shim not linked (stub build)");
+        return;
+    };
+    let a = lathe_brep(1.0, 2.0, 0.8, 1.0);
+    let b = box_brep([0.75, -4.0, -0.5], [4.0, 4.0, 2.5]);
+    let out = boolean(&a, &b, BoolOp::Subtract, &sb)
+        .unwrap_or_else(|e| panic!("axis-parallel sibling: subtract failed with {e:?}"));
+    assert_eq!(
+        unpaired_half_edges(out.as_mesh()),
+        0,
+        "axis-parallel sibling: subtract output must be watertight"
+    );
+}
+
 /// GREEN (increments 2+3 landed 2026-07-10): the union completes
 /// watertight with the exact truncated-Steinmetz volume
 /// V = 2·πr²h − V_common(r, h).
