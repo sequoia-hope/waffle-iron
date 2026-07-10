@@ -787,6 +787,35 @@ The shortest honest path to a first functional boolean was the M0–M8 milestone
 roadmap (§4b) — both now largely DONE. The path to a kernel that is **faithful to
 Yang** is closing the deviations above, led by the general Stage-0 program.
 
+### 0.3 yang-rs module layout (2026-07-10 decomposition)
+
+`crates/yang-rs/src/lib.rs` (22.6k lines) was split move-only into
+stage-aligned modules (spec `specs/yang_rs_lib_decomposition.md`, 10
+commits, zero behavior change; public API unchanged via `lib.rs`
+re-exports). Historical `lib.rs:<line>` references in the milestone
+logs below remain valid as history — grep the FUNCTION NAME to find
+code today. The map:
+
+| Module | Contents |
+|---|---|
+| `lib.rs` (~160 lines) | mod decls + `pub use` re-exports + `native_backend()` |
+| `geom.rs` | `Surface`/`Curve` + conic evaluators, `signed_distance_to_surface` |
+| `brep.rs` | B-Rep topology types, `TessellationMap`, attribution, `BRep` |
+| `errors.rs` | `YangError`, `Stage4InvalidReason`, `SsiRefinementError` |
+| `stage0.rs`, `coplanar_overlay.rs` | (pre-existing) Stage-0 coplanar preprocessing |
+| `stage1_tessellate.rs` | Stage-1 tessellators, chord bounds, rim/band builders |
+| `stage3_ssi.rs` | Stage-3 SSI refinement (`build_intersection_curves`) |
+| `stage4_relocate.rs` | relocation primitives (`relocate_onto_implicit_pair/triple`, Reloc types) |
+| `stage4_correct.rs` | Phase-A census, `collapse_vertex`, `stage4_relocate_and_correct`, sweeps |
+| `stage4_dt.rs`, `stage4_update.rs` | (pre-existing) N2 CDT + mesh updating |
+| `stage5_topology.rs` | `reconstruct_topology(_stage4)`, `emit_topology`, patches/loops |
+| `boolean.rs` | the `boolean()` driver, provenance, coplanar-scan glue |
+| `tests_unit/` | the former in-file `mod tests`, split by campaign group |
+
+Follow-ups (each needs its own spec): `stage0.rs` (8.6k lines) same
+treatment; tighten the `use crate::*` wildcard imports the move left in
+the stage modules.
+
 ## 1. Thesis: decouple "functional Yang" from "native arrangement complete"
 
 The prior roadmap gated real Yang Stage 5/6 on a *complete native `cherchi-rs`

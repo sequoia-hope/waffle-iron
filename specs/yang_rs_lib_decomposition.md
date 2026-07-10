@@ -203,3 +203,30 @@ Not an algorithm change — no external references required (P8 n/a). The
 module boundaries are the Yang 2025 pipeline stage boundaries (§4.1–§4.5),
 which is the same decomposition the roadmap (`docs/yang_functional_roadmap.md`)
 and the existing sibling files (`stage0.rs`, `stage4_*.rs`) already use.
+
+## As executed (2026-07-10)
+
+All 10 increments landed same-day (commits `6bada34d`..`HEAD`), each green.
+Deviations from the plan, none touching I1–I3/I5–I6:
+
+- **O1 cadence:** the per-increment gate was the full `cargo test -p yang-rs`
+  suite (641 tests: 246 in-crate + integration) plus `cargo check -p
+  kernel-v2`, not the whole rewrite tier; the fast tier (superset of rewrite)
+  ran once at completion — all green. Rationale: every increment touches only
+  yang-rs internals; the frozen public API is compile-checked against
+  kernel-v2 each step.
+- **Imports:** stage modules were extracted with a single
+  `#[allow(clippy::wildcard_imports)] use crate::*;` — exactly reproducing
+  the old flat namespace. Tightening to explicit imports is a recorded
+  follow-up, deliberately NOT done in-flight (I1).
+- **tests_unit/** landed as 9 group files (n2_junction, m5_case_iv,
+  m4_substitute, construction_stage1, matching, attribution, topology,
+  boolean_functional, adversary); shared fixtures stayed where they were and
+  reach across files via pub(crate) promotions + `mod.rs` glob re-exports —
+  no separate helpers file was needed.
+- **Sizes:** `stage1_tessellate.rs` is 4,412 raw lines but ~3,500 production
+  (it carries the embedded ~900-line `torus_patch_tests`) — at the I5
+  ceiling, split further only if it grows.
+- `merge_same_plane_patches`/`compute_phase_a`/`PatchInfo` (shared by
+  Stage 4 and Stage 5) landed in `stage4_correct.rs` per the earlier-stage
+  rule.
