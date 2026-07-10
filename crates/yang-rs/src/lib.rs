@@ -10241,6 +10241,64 @@ fn collapse_vertex(
     dropped
 }
 
+/// KV15b (spec `kv15b_mint_site_subresolution_collapse`): collapse
+/// sub-resolution intersection segments before Phase-B emission.
+///
+/// The exact arrangement legitimately mints two crossings of near-parallel
+/// geometry closer than the model tolerance (R0076: gear flank grazing a box
+/// edge, 3.999e-8 / 6.472e-8 pairs). Emitted as two distinct output vertices,
+/// the pair is POISON downstream: the Stage-0 coplanar clustering band floor
+/// is exactly `TAU_MODEL`, and Stage-6 patch walks of the next boolean
+/// disagree over the twin (the measured F0070/KV15 mechanism at sub-floor
+/// scale). Per A8.1/A14 `TAU_MODEL` is the single central vertex-merge
+/// resolution — two points closer than it ARE one model point — so emission
+/// hygiene collapses the segment at the mint site.
+///
+/// Eligibility is FULL-PROVENANCE (I3): only consecutive intersection-curve
+/// vertices — keys of `intersection_curves` — are candidates; inherited
+/// operand geometry (e.g. legitimately sub-floor micro-profile corners) is
+/// never touched. This is one order TIGHTER than the reverted-R0091
+/// `MIN_FEATURE_SIZE` global widening and scoped to the increment-4
+/// provenance pattern. One sweep over the ORIGINAL segment set in
+/// deterministic `BTreeMap` order; endpoints resolve through prior collapses
+/// (min-index survivor, I1 — the survivor keeps its own exact coordinates,
+/// never an average), and a segment whose RESOLVED length is ≥ `TAU_MODEL`
+/// stays (I2/B5 — no chain drift). Exact-zero pairs are the M-B
+/// emission-identification class and stay untouched here (B3).
+fn collapse_subresolution_intersection_segments(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    intersection_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+) -> bool {
+    let mut redirect: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
+    fn resolve(redirect: &std::collections::BTreeMap<u32, u32>, mut v: u32) -> u32 {
+        while let Some(&n) = redirect.get(&v) {
+            v = n;
+        }
+        v
+    }
+    let tau2 = cad_primitives::TAU_MODEL * cad_primitives::TAU_MODEL;
+    let mut any = false;
+    for &(u, v) in intersection_curves.keys() {
+        let (ru, rv) = (resolve(&redirect, u), resolve(&redirect, v));
+        if ru == rv {
+            continue;
+        }
+        let p = mesh.verts[ru as usize].as_array();
+        let q = mesh.verts[rv as usize].as_array();
+        let d2 = (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2);
+        if d2 == 0.0 || d2 >= tau2 {
+            continue;
+        }
+        let survivor = ru.min(rv);
+        let victim = ru.max(rv);
+        collapse_vertex(mesh, attribution, victim, survivor);
+        redirect.insert(victim, survivor);
+        any = true;
+    }
+    any
+}
+
 /// PR-YR11 helper: drop mesh vertices no surviving triangle references and remap
 /// triangle indices + the Stage-4 `relocations` keys to the dense vertex set.
 ///
@@ -13173,6 +13231,25 @@ fn reconstruct_topology_stage4(
         }
     }
 
+    // KV15b (spec `kv15b_mint_site_subresolution_collapse`): emission
+    // hygiene — collapse sub-`TAU_MODEL` intersection segments so the
+    // emitted B-Rep never carries a sub-resolution twin pair (I5). Runs on
+    // EVERY path (the R0076 minting subtract is all-planar, so the Stage-4
+    // §4.4.1(b) merge above never sees it). Byte-identical no-op when no
+    // such segment exists (B6).
+    {
+        let mut attr_vec = std::mem::take(&mut attribution.attributions);
+        let kv15b_collapsed =
+            collapse_subresolution_intersection_segments(mesh, &mut attr_vec, &intersection_curves);
+        attribution.attributions = attr_vec;
+        if kv15b_collapsed {
+            compact_unreferenced_verts(mesh, &mut relocations);
+            let (i3, _inc3, cv3) = compute_phase_a(mesh, attribution, a, b)?;
+            infos = i3;
+            intersection_curves = cv3;
+        }
+    }
+
     emit_topology(mesh, &infos, &intersection_curves, &relocations, op)
 }
 
@@ -14675,6 +14752,145 @@ mod tests {
             kv15_curved_touch(3, &tris, &mixed, &[7], &[3], planar_a_cyl_b),
             vec![true; 3],
             "any curved parent of a multi-parent tri stays bit-exact"
+        );
+    }
+
+    // KV15b (spec `kv15b_mint_site_subresolution_collapse` §7): the
+    // emission collapse of sub-`TAU_MODEL` intersection segments.
+    fn kv15b_map(segs: &[(u32, u32)]) -> std::collections::BTreeMap<(u32, u32), Curve> {
+        segs.iter()
+            .map(|&(a, b)| ((a.min(b), a.max(b)), Curve::LineSegment))
+            .collect()
+    }
+
+    #[test]
+    fn kv15b_subresolution_intersection_segment_collapses() {
+        // B1/I1: a 5e-8 intersection segment (0,1) collapses; min index
+        // survives with its original bits; the degenerate tri drops.
+        let twin = p(5.0e-8, 0.0, 0.0);
+        let mut mesh = Mesh::new(
+            vec![p(0.0, 0.0, 0.0), twin, p(1.0, 0.0, 0.0), p(0.0, 1.0, 0.0)],
+            vec![[0, 1, 3], [1, 2, 3]],
+        );
+        let mut attr = vec![None; 2];
+        let map = kv15b_map(&[(0, 1)]);
+        assert!(collapse_subresolution_intersection_segments(
+            &mut mesh, &mut attr, &map
+        ));
+        assert_eq!(
+            mesh.tris,
+            vec![[0, 2, 3]],
+            "degenerate tri dropped, twin remapped"
+        );
+        assert_eq!(
+            mesh.verts[0],
+            p(0.0, 0.0, 0.0),
+            "I1: the survivor keeps its own exact coordinates"
+        );
+        assert_eq!(attr.len(), 1, "attribution stays in lockstep with tris");
+    }
+
+    #[test]
+    fn kv15b_supraresolution_segment_untouched() {
+        // B2/I2: 2e-7 ≥ TAU_MODEL — never collapses (a mutation widening the
+        // band to MIN_FEATURE_SIZE must fail here: 2e-7 < 1e-6).
+        let mut mesh = Mesh::new(
+            vec![
+                p(0.0, 0.0, 0.0),
+                p(2.0e-7, 0.0, 0.0),
+                p(1.0, 0.0, 0.0),
+                p(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 3], [1, 2, 3]],
+        );
+        let mut attr = vec![None; 2];
+        let map = kv15b_map(&[(0, 1)]);
+        assert!(!collapse_subresolution_intersection_segments(
+            &mut mesh, &mut attr, &map
+        ));
+        assert_eq!(
+            mesh.tris,
+            vec![[0, 1, 3], [1, 2, 3]],
+            "B2: ≥ TAU_MODEL stays"
+        );
+    }
+
+    #[test]
+    fn kv15b_non_intersection_edge_untouched() {
+        // B4/I3: the sub-TAU pair (0,1) is NOT an intersection segment —
+        // inherited operand geometry (micro-profile corners) never collapses
+        // (a mutation dropping the intersection-membership gate fails here).
+        let mut mesh = Mesh::new(
+            vec![
+                p(0.0, 0.0, 0.0),
+                p(5.0e-8, 0.0, 0.0),
+                p(1.0, 0.0, 0.0),
+                p(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 3], [1, 2, 3]],
+        );
+        let mut attr = vec![None; 2];
+        let map = kv15b_map(&[(1, 2)]); // only the LONG edge is intersection
+        assert!(!collapse_subresolution_intersection_segments(
+            &mut mesh, &mut attr, &map
+        ));
+        assert_eq!(
+            mesh.tris,
+            vec![[0, 1, 3], [1, 2, 3]],
+            "B4: a sub-TAU NON-intersection edge is inherited geometry — untouched"
+        );
+    }
+
+    #[test]
+    fn kv15b_twin_chain_resolves_to_single_survivor() {
+        // B5: chain 0–1–2 with both links sub-TAU (5e-8 + 4e-8): both
+        // collapse onto vertex 0 through the redirect (no chain drift beyond
+        // the original twin cluster; exact-zero pairs B3 are never touched).
+        let mut mesh = Mesh::new(
+            vec![
+                p(0.0, 0.0, 0.0),
+                p(5.0e-8, 0.0, 0.0),
+                p(9.0e-8, 0.0, 0.0),
+                p(1.0, 0.0, 0.0),
+                p(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 4], [1, 2, 4], [2, 3, 4]],
+        );
+        let mut attr = vec![None; 3];
+        let map = kv15b_map(&[(0, 1), (1, 2)]);
+        assert!(collapse_subresolution_intersection_segments(
+            &mut mesh, &mut attr, &map
+        ));
+        assert_eq!(
+            mesh.tris,
+            vec![[0, 3, 4]],
+            "B5: both twins collapse onto the min index; degenerate tris drop"
+        );
+    }
+
+    #[test]
+    fn kv15b_resolved_length_regrows_past_band_stays() {
+        // B5 second half: after 1→0, segment (1,2) resolves to (0,2) at
+        // 1.2e-7 ≥ TAU_MODEL — it must NOT collapse (single-sweep, no drift).
+        let mut mesh = Mesh::new(
+            vec![
+                p(0.0, 0.0, 0.0),
+                p(5.0e-8, 0.0, 0.0),
+                p(1.2e-7, 0.0, 0.0),
+                p(1.0, 0.0, 0.0),
+                p(0.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 4], [1, 2, 4], [2, 3, 4]],
+        );
+        let mut attr = vec![None; 3];
+        let map = kv15b_map(&[(0, 1), (1, 2)]);
+        assert!(collapse_subresolution_intersection_segments(
+            &mut mesh, &mut attr, &map
+        ));
+        assert_eq!(
+            mesh.tris,
+            vec![[0, 2, 4], [2, 3, 4]],
+            "a segment whose RESOLVED length is ≥ TAU_MODEL stays (I2)"
         );
     }
 

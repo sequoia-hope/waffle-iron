@@ -1,8 +1,8 @@
 {
-  "errored": 53,
+  "errored": 49,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 226,
+  "passed": 229,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -455,10 +455,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0076",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -527,10 +527,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(492), reason: \"patch triangle collapsed at render precision\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0088",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1067,10 +1067,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(2997), reason: \"planar triangle collapsed at render precision\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0078",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -1103,14 +1103,14 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "3 auto-union failure(s): Extrude 5: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.; Extrude 13: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.; Extrude 20: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 5: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0084",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "ERROR",
-      "detail": "3 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (51, 69): AmbiguousCurve { candidates: 0, matched: 0 }\"). Body created as standalone.; Extrude 12: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (4358, 4397): AmbiguousCurve { candidates: 0, matched: 0 }\"). Body created as standalone.; Extrude 19: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 645: CDT triangulation failed: CDT backend failed to triangulate\"). Body created as standalone.",
+      "detail": "3 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (51, 69): AmbiguousCurve { candidates: 0, matched: 0 }\"). Body created as standalone.; Extrude 12: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (4359, 4398): AmbiguousCurve { candidates: 0, matched: 0 }\"). Body created as standalone.; Extrude 19: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 645: CDT triangulation failed: CDT backend failed to triangulate\"). Body created as standalone.",
       "id": "F0085",
       "status": "error"
     },

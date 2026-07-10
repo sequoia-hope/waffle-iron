@@ -86,16 +86,16 @@ fn assert_no_edge_pairing_wall(case_id: &str) {
     );
 }
 
-/// KV15b residue subfamily: R0076's failing twins arrive in the chained
-/// input at ~3.9e-8 apart (measured: input A brep verts 22/23 of the
-/// Extrude-3 union) — genuinely distinct exact crossings of near-parallel
-/// geometry, SUB-FLOOR (< MIN_FEATURE_SIZE) but eight orders ABOVE the
-/// representability band, so the KV15 weld correctly excludes them
-/// (welding at the feature floor is the reverted-R0091 hazard). Needs its
-/// own cycle at the MINTING boolean (the gear-cut op emits the sub-floor
-/// twin pair; A14.2 says one feature). Un-ignore when KV15b lands.
+/// KV15b (spec `kv15b_mint_site_subresolution_collapse`): R0076's failing
+/// twins arrive in the chained input at ~3.9e-8 apart — two exact
+/// crossings of near-parallel geometry (gear flank grazing a box edge)
+/// that the MINTING gear-cut subtract emitted as a sub-`TAU_MODEL`
+/// intersection segment (measured `KV2_SUBFLOOR_TWIN_PROBE`:
+/// `boolean_subtract OUTPUT` pairs at 3.999e-8 / 6.472e-8, both
+/// edge-connected). The KV15 representability weld correctly excludes
+/// them (welding at the feature floor is the reverted-R0091 hazard); the
+/// KV15b emission collapse retires the pair at the mint site.
 #[test]
-#[ignore = "KV15b — sub-floor (3.9e-8) near-parallel crossing twins in the chained input; representability weld correctly excludes them; fix belongs at the minting op"]
 fn r0076_no_edge_pairing_wall() {
     assert_no_edge_pairing_wall("R0076");
 }

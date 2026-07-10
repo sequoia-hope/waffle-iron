@@ -297,6 +297,52 @@ impl KernelV2Adapter {
         }
     }
 
+    /// KV15b diagnosis probe (read-only, env-gated `KV2_SUBFLOOR_TWIN_PROBE`):
+    /// census DISTINCT vertex pairs of `solid` closer than MIN_FEATURE_SIZE,
+    /// flagging sub-TAU_MODEL pairs and direct edge connections — localizes
+    /// which op MINTS a sub-floor twin pair into a chained B-Rep (the
+    /// R0076/R0007/R0071/R0053 class). Never set in production/WASM.
+    fn subfloor_twin_probe(&self, solid: SolidId, label: &str) {
+        if std::env::var_os("KV2_SUBFLOOR_TWIN_PROBE").is_none() {
+            return;
+        }
+        let verts = self.solid_vertices(solid);
+        let pts: Vec<(VertexId, Point3)> = verts
+            .iter()
+            .filter_map(|&v| self.arena.vertex(v).ok().map(|vr| (v, vr.point)))
+            .collect();
+        let floor2 = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
+        let tau2 = cad_primitives::TAU_MODEL * cad_primitives::TAU_MODEL;
+        for i in 0..pts.len() {
+            for j in (i + 1)..pts.len() {
+                let (p, q) = (pts[i].1.as_array(), pts[j].1.as_array());
+                let d2 = (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2);
+                if d2 == 0.0 || d2 >= floor2 {
+                    continue;
+                }
+                let connected = self.solid_canonical_edges(solid).iter().any(|&h| {
+                    self.edge_endpoints(h).is_some_and(|(s, e)| {
+                        (s == pts[i].1 && e == pts[j].1) || (s == pts[j].1 && e == pts[i].1)
+                    })
+                });
+                eprintln!(
+                    "[subfloor-twin-probe] {label}: verts {:?}/{:?} dist={:e} sub_tau={} edge={}\n  ({},{},{})\n  ({},{},{})",
+                    pts[i].0,
+                    pts[j].0,
+                    d2.sqrt(),
+                    d2 < tau2,
+                    connected,
+                    p[0],
+                    p[1],
+                    p[2],
+                    q[0],
+                    q[1],
+                    q[2]
+                );
+            }
+        }
+    }
+
     fn run_boolean(
         &mut self,
         a: &KernelSolidHandle,
@@ -338,8 +384,13 @@ impl KernelV2Adapter {
     ) -> Result<SolidId, KernelError> {
         let sa = self.solid_of(a)?;
         let sb = self.solid_of(b)?;
+        self.subfloor_twin_probe(sa, &format!("{op_name} operand A"));
+        self.subfloor_twin_probe(sb, &format!("{op_name} operand B"));
         match crate::boolean_op(&mut self.arena, sa, sb, op) {
-            Ok(result) => Ok(result),
+            Ok(result) => {
+                self.subfloor_twin_probe(result, &format!("{op_name} OUTPUT"));
+                Ok(result)
+            }
             Err(KernelV2Error::UnsupportedCoplanar) => Err(Self::not_supported(&format!(
                 "{op_name}: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)"
             ))),
@@ -407,6 +458,7 @@ impl Kernel for KernelV2Adapter {
         .map_err(|e| KernelError::Other {
             message: format!("kernel-v2 extrude failed: {e}"),
         })?;
+        self.subfloor_twin_probe(result.solid, "extrude OUTPUT");
         Ok(self.alloc_handle(result.solid))
     }
 
@@ -448,6 +500,7 @@ impl Kernel for KernelV2Adapter {
                 message: format!("kernel-v2 revolve failed: {other}"),
             },
         })?;
+        self.subfloor_twin_probe(result.solid, "revolve OUTPUT");
         Ok(self.alloc_handle(result.solid))
     }
 

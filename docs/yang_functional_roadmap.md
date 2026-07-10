@@ -3077,6 +3077,46 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   T-subdivision domain (its `had_fold_sliver` gate / exact-betweenness
   doesn't reach these sites).
 
+- **KV15b — sub-resolution intersection-segment collapse at boolean
+  emission. ✅ SHIPPED 2026-07-10 (spec
+  `kv15b_mint_site_subresolution_collapse`).** The KV15 residue (1)
+  measured to its mint site: R0076's gear-cut subtract is ALL-PLANAR, so
+  `has_conic` is false and the Stage-4 §4.4.1(b) merge — the only
+  existing collapse pass — never runs; the exact arrangement's two
+  near-parallel crossings (gear flank grazing a box edge; measured
+  `KV2_SUBFLOOR_TWIN_PROBE` pairs at 3.999e-8/6.472e-8, edge-connected)
+  are emitted verbatim and poison the next union (Stage-6 patch walks
+  disagree, kernel-v2 edge pairing rejects). Fix: one pass in
+  `reconstruct_topology_stage4` before Phase-B emission, on EVERY path —
+  collapse intersection segments (keys of `intersection_curves`, full
+  provenance) whose resolved length is in (0, `TAU_MODEL`), min-index
+  survivor keeping its own bits, single sweep (no chain drift), then
+  compact + Phase-A recompute (the §4.5.3 machinery). `TAU_MODEL` (1e-7,
+  the central A8.1/A14 vertex-merge resolution — NOT the 10×-coarser
+  `MIN_FEATURE_SIZE` floor of the reverted-R0091 hazard) is forced by
+  consistency: the Stage-0 clustering band floor downstream is exactly
+  `TAU_MODEL`, so an emitted sub-`TAU_MODEL` pair is guaranteed to weld
+  into a degenerate loop at the next coplanar op. Tests: tracker
+  `r0076_no_edge_pairing_wall` un-quarantined RED→GREEN + 5 `kv15b_*`
+  unit branch tests, mutation-checked (band widening and gate drop each
+  kill their test). **PLAN-CORRECTION RECORD (mini-P10): the roadmap's
+  "KV15b class" was FOUR cases; measurement splits it.** New probe
+  `KV2_SUBFLOOR_TWIN_PROBE` (adapter-level sub-floor twin census after
+  every op) shows R0007/R0071's sub-TAU pairs are PROFILE-CONGENITAL —
+  emitted by the extrude/revolve constructors from micro-scale gear
+  profiles (96/36 pairs at bit-identical spacing 7.790e-8/9.460e-8
+  BEFORE any boolean; the models also carry hundreds of LEGITIMATE
+  sub-`MIN_FEATURE_SIZE` profile features, so any absolute-floor weld
+  stays dead) — and R0053's twins are sub-representable overlay mints
+  inside its failing op (zero sub-floor pairs in any chained B-Rep).
+  Neither is a boolean-emission miss; both need their own cycles
+  (profile-ingestion hygiene vs overlay mint-site collapse). **Assay 229
+  CORRECT / 0 WRONG / 49 ERROR / 15 UNSUPPORTED / 0 TIMEOUT** (was
+  226/0/53/15/0), zero-lost — R0076 + F0078 + R0088 ERROR→CORRECT (the
+  same emitted-twin mechanism sat in all three chains) and F0084
+  ERROR→typed UNSUPPORTED(coplanar-boolean) (its chain now clears the
+  twin wall and reaches the M8 boundary).
+
 - **KV6a — revolve (kernel-v2). ✅ COMPLETE (2026-06-11, PR-KV6a).**
   Partial angles (0,2π) AND full 360° for polygon profiles with
   axis-parallel/perpendicular edges, axis in-plane, profile strictly one
