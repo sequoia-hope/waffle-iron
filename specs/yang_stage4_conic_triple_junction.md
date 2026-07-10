@@ -1,5 +1,52 @@
 # Spec: Stage-4 general conic triple-surface junction relocation
 
+> **Status (2026-07-10, increment 1 of the N2/F0059 epic COMPLETE — task
+> #121): the Stage-6 "double-cover" origin is FOUND and FIXED, and both
+> candidate origins in the 2026-07-08 block below are WRONG.** Measured on
+> live code (KV15/KV15b/S7 landed) via the banked env-gated handler
+> (`YANG_TRIPLE_JUNCTION_EXPERIMENT`, kept in `stage4_relocate_and_correct`)
+> plus the `YANG_DOUBLECOVER_PROBE` chain:
+>
+> 1. The coincident opposite-winding triangle pair is **minted by Stage-4's
+>    own PR-KV9 junction-twin collapse**, not by the Stage-2 arrangement or
+>    Stage-5 flood-fill (the kept submesh is I6-guarded duplicate-free). When
+>    the two arrangement vertices minted for ONE Steinmetz seam apex are
+>    identified (F0059: victims 96→82 and 128→120), the two-triangle pleat
+>    spanning the twin gap maps to an exact duplicate pair with opposite
+>    windings — a zero-volume flap that put count-4 edges under the Stage-6
+>    wedge walk (`s6-wedge-walk-not-outgoing`).
+> 2. **FIXED at the mint site**: `collapse_vertex` membrane cancellation
+>    (spec `yang_collapse_membrane_cancellation`, SHIPPED 2026-07-10) drops
+>    both copies; unit red→green.
+> 3. **The χ=4 "two-shell stitching gap" (layer 2 of the old diagnosis) does
+>    NOT exist** with the mint-site fix — it was an artifact of the old
+>    experiment's exclusion-style workaround (excluding the membrane from
+>    boundary derivation while keeping it in the mesh). With handler +
+>    cancellation, F0059's boolean COMPLETES and emits a valid B-Rep.
+> 4. **F0059's remaining wall (the epic's next increment)** is downstream in
+>    kernel-v2 render tessellation: `TessellationFailed FaceId(7) ring
+>    rejected by CDT`. Face 7 is a cap disc whose kept material is four
+>    circular-segment lobes meeting the trim chords EXACTLY at four rim
+>    junction points (`(±0.25, ±0.245)` in cap frame; the four corners lie
+>    exactly on the r=0.35 rim). The chord-sampled rim polyline cuts inside
+>    the exact circle and crosses the trim chords near those junctions → the
+>    emitted single loop self-intersects. This is the §4.3.3 Case-IV /
+>    rim-junction-insertion class (M8 increment-15 `forced_rim_n` machinery
+>    is the precedent; S7's §4B split arm cannot catch it — the junction sits
+>    a full sagitta off the chord, far beyond TAU_WORK).
+> 5. Census re-confirmed: the OTHER 13 Stage-4 LRR cases do NOT convert with
+>    the handler (junction configs outside the ≥2-maps + exactly-3-surfaces
+>    trigger; R0019 resolves v25 then bails at v61, R0047 at v38, R0070
+>    advances to OffCurveBeyondChordBand at v1028). F0059 is the only case
+>    in the class this handler + cancellation unblocks, and it still needs
+>    increment 2 (rim junction insertion) to go green — so the handler STAYS
+>    banked-unwired per P4.
+>
+> **Fix order (revised): (1) ~~double-cover origin~~ DONE (mint-site
+> cancellation, shipped); (2) cap-rim junction insertion (the ring-reject
+> class — also the F0045/R0011 TessellationFailed family's suspected wall);
+> (3) wire this handler (its green reproduction becomes F0059 end-to-end).**
+
 > **Status (2026-07-08, REVISED): DESIGN — prototyped twice, reverted twice.
 > The original "land WITH N2 CDT" plan is DISPROVEN.** The handler below is
 > correct (0 WRONG, no CORRECT lost; F0059's 8 corner ellipse×circle junctions

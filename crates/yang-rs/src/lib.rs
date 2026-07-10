@@ -10316,7 +10316,11 @@ fn stage4_chord_band(a: &BRep, b: &BRep) -> Option<f64> {
 /// and the attribution in lockstep. A proper edge-collapse preserves the
 /// watertight half-edge pairing (the two collapsed slivers' surviving directed
 /// edges are mutual opposites that cancel — spec §4.5.3 / boolean() sliver rule
-/// at the compaction step). Returns the number of triangles dropped.
+/// at the compaction step). The cancellation also covers the COINCIDENT-PAIR
+/// form (spec `yang_collapse_membrane_cancellation`): an exact duplicate
+/// triangle pair with opposite windings — the pleat spanning the twin gap —
+/// is a zero-volume flap whose directed edges pair with each other; both
+/// copies are dropped. Returns the number of triangles dropped.
 fn collapse_vertex(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
@@ -10339,8 +10343,80 @@ fn collapse_vertex(
         new_tris.push(mapped);
         new_attr.push(attribution.get(t).copied().flatten());
     }
+    // Membrane cancellation (spec `yang_collapse_membrane_cancellation`):
+    // identifying `victim` with `survivor` can turn the two-triangle pleat
+    // that spanned the twin gap into an EXACT duplicate pair with OPPOSITE
+    // windings — a zero-volume doubled flap whose 6 directed edges are 3
+    // mutual-reverse pairs (they pair with EACH OTHER). Dropping BOTH
+    // preserves the watertight half-edge pairing and restores manifold
+    // count-2 on the shared fan edges (the measured F0059 mint: the PR-KV9
+    // junction-twin collapse at the Steinmetz seam apex derailed the Stage-6
+    // wedge walk). Same-winding duplicates and ≥3-copy groups are genuine
+    // non-manifold configurations — left untouched for the downstream loud
+    // STOPs (P9: never silently pick).
+    {
+        let mut by_triple: std::collections::HashMap<[u32; 3], Vec<usize>> =
+            std::collections::HashMap::new();
+        for (t, tri) in new_tris.iter().enumerate() {
+            let mut s = *tri;
+            s.sort_unstable();
+            by_triple.entry(s).or_default().push(t);
+        }
+        // Cyclic-winding key: rotate the smallest index to the front; equal
+        // keys ⇔ same winding.
+        let winding_key = |tri: [u32; 3]| -> [u32; 3] {
+            let k = (0..3).min_by_key(|&i| tri[i]).expect("3 verts");
+            [tri[k], tri[(k + 1) % 3], tri[(k + 2) % 3]]
+        };
+        let mut cancel: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+        for ts in by_triple.values() {
+            if ts.len() != 2 {
+                continue;
+            }
+            let (x, y) = (ts[0], ts[1]);
+            if winding_key(new_tris[x]) != winding_key(new_tris[y]) {
+                cancel.insert(x);
+                cancel.insert(y);
+                if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
+                    eprintln!(
+                        "[membrane-cancel] dropping opposite-winding dup pair tris {x},{y} = \
+                         {:?}/{:?} (victim={victim} survivor={survivor})",
+                        new_tris[x], new_tris[y]
+                    );
+                }
+            }
+        }
+        if !cancel.is_empty() {
+            let keep: Vec<usize> = (0..new_tris.len())
+                .filter(|t| !cancel.contains(t))
+                .collect();
+            new_tris = keep.iter().map(|&t| new_tris[t]).collect();
+            new_attr = keep.iter().map(|&t| new_attr[t]).collect();
+            dropped += cancel.len();
+        }
+    }
     *mesh = Mesh::new(std::mem::take(&mut mesh.verts), new_tris);
     *attribution = new_attr;
+    // EXPERIMENTAL probe (task #121, read-only, env-gated): did THIS collapse
+    // mint a duplicate (double-cover) triangle pair?
+    if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
+        use std::collections::HashMap;
+        let mut by_triple: HashMap<[u32; 3], Vec<usize>> = HashMap::new();
+        for (t, tri) in mesh.tris.iter().enumerate() {
+            let mut s = *tri;
+            s.sort_unstable();
+            by_triple.entry(s).or_default().push(t);
+        }
+        for (key, ts) in &by_triple {
+            if ts.len() > 1 {
+                eprintln!(
+                    "[doublecover-collapse] victim={victim} survivor={survivor} \
+                     dup triple {key:?} tris {ts:?} windings {:?}",
+                    ts.iter().map(|&t| mesh.tris[t]).collect::<Vec<_>>()
+                );
+            }
+        }
+    }
     dropped
 }
 
@@ -10395,6 +10471,9 @@ fn collapse_subresolution_intersection_segments(
         }
         let survivor = ru.min(rv);
         let victim = ru.max(rv);
+        if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
+            eprintln!("[collapse-site] kv15b victim={victim} survivor={survivor}");
+        }
         collapse_vertex(mesh, attribution, victim, survivor);
         redirect.insert(victim, survivor);
         any = true;
@@ -11238,6 +11317,96 @@ fn stage4_relocate_and_correct(
         }
     }
 
+    // ── BANKED-UNWIRED (P4: no green reproduction yet — do NOT enable in
+    // production). Spec `yang_stage4_conic_triple_junction`: general conic
+    // triple-surface junction relocation, the twice-reverted prototype.
+    // Banked env-gated (YANG_TRIPLE_JUNCTION_EXPERIMENT) as the N2/F0059
+    // epic's measurement instrument: it moves F0059-class cases past the
+    // over-determined audit STOPs below so the downstream walls (membrane
+    // double-cover — now fixed at the collapse_vertex mint site — then the
+    // cap-rim junction-insertion class) can be measured without rebuilding
+    // the handler each session. Byte-identical when the env var is unset.
+    // Wiring it for real requires the spec's oracles (a converting corpus
+    // case) — see the spec status block for the fix order.
+    let mut triple_junction_moves: Vec<(u32, Point3, f64)> = Vec::new();
+    if std::env::var_os("YANG_TRIPLE_JUNCTION_EXPERIMENT").is_some() {
+        let mut multi: BTreeMap<u32, usize> = BTreeMap::new();
+        for v in vert_circle
+            .keys()
+            .chain(vert_ellipse.keys())
+            .chain(vert_cone_ellipse.keys())
+            .chain(vert_parabola.keys())
+            .chain(vert_cone_hyperbola.keys())
+            .chain(vert_line.keys())
+        {
+            *multi.entry(*v).or_default() += 1;
+        }
+        let multi_verts: Vec<u32> = multi
+            .iter()
+            .filter(|&(_, &n)| n >= 2)
+            .map(|(&v, _)| v)
+            .collect();
+        for v in multi_verts {
+            // Distinct incident surfaces, deduped structurally in incidence
+            // order (spec I5: BTreeMap iteration ⇒ deterministic triple).
+            let mut surfs: Vec<Surface> = Vec::new();
+            for (&(s, e), entries) in &inc0 {
+                if s != v && e != v {
+                    continue;
+                }
+                for &(_input, surf) in entries {
+                    if !surfs.contains(&surf) {
+                        surfs.push(surf);
+                    }
+                }
+            }
+            eprintln!(
+                "[triple-junction-exp] v={v} p={:?} maps={} distinct_surfs={}",
+                mesh.verts[v as usize],
+                multi[&v],
+                surfs.len()
+            );
+            if surfs.len() != 3 {
+                continue; // 2 / ≥4 surfaces: leave for the audit STOPs below
+            }
+            let p = mesh.verts[v as usize];
+            let stop = |reason| YangError::Stage4RegionInvalid { vertex: v, reason };
+            let proj = relocate_onto_implicit_triple(p, surfs[0], surfs[1], surfs[2])
+                .ok_or_else(|| stop(Stage4InvalidReason::LocalRefinementRequired))?;
+            let qa = proj.as_array();
+            let (_, n0) = surface_value_and_normal(surfs[0], qa)
+                .ok_or_else(|| stop(Stage4InvalidReason::LocalRefinementRequired))?;
+            let (_, n1) = surface_value_and_normal(surfs[1], qa)
+                .ok_or_else(|| stop(Stage4InvalidReason::LocalRefinementRequired))?;
+            let pa = p.as_array();
+            let rho = ((qa[0] - pa[0]).powi(2) + (qa[1] - pa[1]).powi(2) + (qa[2] - pa[2]).powi(2))
+                .sqrt();
+            let cx = [
+                n0[1] * n1[2] - n0[2] * n1[1],
+                n0[2] * n1[0] - n0[0] * n1[2],
+                n0[0] * n1[1] - n0[1] * n1[0],
+            ];
+            let sin_theta = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+            let gate = if sin_theta > 0.0 {
+                2.0 * d_eps / sin_theta
+            } else {
+                f64::INFINITY
+            };
+            eprintln!("[triple-junction-exp] v={v} rho={rho:.3e} gate={gate:.3e}");
+            if rho > gate {
+                return Err(stop(Stage4InvalidReason::OffCurveBeyondChordBand));
+            }
+            vert_circle.remove(&v);
+            vert_ellipse.remove(&v);
+            vert_cone_ellipse.remove(&v);
+            vert_parabola.remove(&v);
+            vert_cone_hyperbola.remove(&v);
+            vert_line.remove(&v);
+            endpoints.retain(|&x| x != v);
+            triple_junction_moves.push((v, proj, rho));
+        }
+    }
+
     // M8 disc∩disc no-skip audit (P10): a circle∩circle lens corner that is ALSO
     // on any OTHER curve type (a line, ellipse, cone conic, or line+circle
     // junction) is an over-determined junction this arm does not resolve — loud
@@ -11370,6 +11539,15 @@ fn stage4_relocate_and_correct(
     let mut processed: HashSet<u32> = HashSet::new();
     let mut moved: HashSet<u32> = HashSet::new();
     let mut relocations: Vec<(u32, f64)> = Vec::new();
+    // EXPERIMENTAL (task #121): apply the triple-junction moves collected
+    // above (spec I3: NOT added to processed/relocations; source stays
+    // BRepVertex, position exact). Empty unless the env gate is set.
+    for &(v, proj, rho) in &triple_junction_moves {
+        if rho > cad_primitives::TAU_WORK {
+            mesh.verts[v as usize] = proj;
+            moved.insert(v);
+        }
+    }
     // Deterministic order: BTreeMap iteration.
     for (&v, &(center, normal, radius, src_r)) in &vert_circle {
         let p = mesh.verts[v as usize];
@@ -12136,6 +12314,11 @@ fn stage4_relocate_and_correct(
             }
             let survivor = *group.iter().min().expect("non-empty");
             for &victim in group.iter().filter(|&&v| v != survivor) {
+                if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
+                    eprintln!(
+                        "[collapse-site] PR-KV9 junction-twin victim={victim} survivor={survivor}"
+                    );
+                }
                 collapse_vertex(mesh, &mut attr_vec, victim, survivor);
                 collapsed_any = true;
             }
@@ -12273,6 +12456,11 @@ fn stage4_relocate_and_correct(
             }
             match to_merge {
                 Some((victim, survivor)) => {
+                    if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
+                        eprintln!(
+                            "[collapse-site] s4.4.1b-merge victim={victim} survivor={survivor}"
+                        );
+                    }
                     let dropped = collapse_vertex(mesh, &mut attr_vec, victim, survivor);
                     last_merge = Some((victim, survivor, dropped as f64, mesh.tris.len()));
                     collapsed_any = true;
@@ -12685,6 +12873,11 @@ fn sweep_reversed_intersections(
                              victim={victim} survivor={survivor} at {:?} <- {:?}",
                             mesh.verts.get(survivor as usize),
                             mesh.verts.get(victim as usize),
+                        );
+                    }
+                    if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
+                        eprintln!(
+                            "[collapse-site] s4.5.3-reversal victim={victim} survivor={survivor}"
                         );
                     }
                     let dropped = collapse_vertex(mesh, attribution, victim, survivor);
@@ -13346,6 +13539,61 @@ fn reconstruct_topology_stage4(
         }
     }
 
+    // EXPERIMENTAL probe (task #121 increment 1, read-only, env-gated):
+    // post-Stage-4 duplicate-triangle scan. The I6 guard proves the kept
+    // submesh entered Stage 3/4 with no duplicate sorted vertex triple, so
+    // any duplicate found HERE was minted by Stage-4 collapse machinery —
+    // localizes the F0059 double-cover origin. Also reports POSITION-level
+    // coincidence (distinct indices, bit-identical coordinates).
+    if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
+        use std::collections::HashMap;
+        let mut by_triple: HashMap<[u32; 3], Vec<usize>> = HashMap::new();
+        let mut by_pos: HashMap<[[u64; 3]; 3], Vec<usize>> = HashMap::new();
+        for (t, tri) in mesh.tris.iter().enumerate() {
+            let mut s = *tri;
+            s.sort_unstable();
+            by_triple.entry(s).or_default().push(t);
+            let mut ps: [[u64; 3]; 3] = [[0; 3]; 3];
+            for (k, &v) in s.iter().enumerate() {
+                let p = mesh.verts[v as usize];
+                ps[k] = [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
+            }
+            ps.sort_unstable();
+            by_pos.entry(ps).or_default().push(t);
+        }
+        for (key, ts) in &by_triple {
+            if ts.len() > 1 {
+                eprintln!("[doublecover] INDEX dup triple {key:?} tris {ts:?}");
+                for &t in ts {
+                    eprintln!(
+                        "[doublecover]   tri {t} = {:?} coords {:?}",
+                        mesh.tris[t],
+                        mesh.tris[t]
+                            .iter()
+                            .map(|&v| mesh.verts[v as usize])
+                            .collect::<Vec<_>>()
+                    );
+                }
+            }
+        }
+        for ts in by_pos.values() {
+            if ts.len() > 1 {
+                let mut idx: Vec<[u32; 3]> = ts
+                    .iter()
+                    .map(|&t| {
+                        let mut s = mesh.tris[t];
+                        s.sort_unstable();
+                        s
+                    })
+                    .collect();
+                idx.dedup();
+                if idx.len() > 1 {
+                    eprintln!("[doublecover] POSITION dup (distinct indices) tris {ts:?}");
+                }
+            }
+        }
+    }
+
     // KV15b (spec `kv15b_mint_site_subresolution_collapse`): emission
     // hygiene — collapse sub-`TAU_MODEL` intersection segments so the
     // emitted B-Rep never carries a sub-resolution twin pair (I5). Runs on
@@ -13362,6 +13610,26 @@ fn reconstruct_topology_stage4(
             let (i3, _inc3, cv3) = compute_phase_a(mesh, attribution, a, b)?;
             infos = i3;
             intersection_curves = cv3;
+        }
+        // EXPERIMENTAL probe (task #121): duplicate-triple scan AFTER the
+        // KV15b collapse — if a dup appears here but not post-Stage-4, the
+        // KV15b collapse is the mint site.
+        if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
+            use std::collections::HashMap;
+            let mut by_triple: HashMap<[u32; 3], Vec<usize>> = HashMap::new();
+            for (t, tri) in mesh.tris.iter().enumerate() {
+                let mut s = *tri;
+                s.sort_unstable();
+                by_triple.entry(s).or_default().push(t);
+            }
+            for (key, ts) in &by_triple {
+                if ts.len() > 1 {
+                    eprintln!(
+                        "[doublecover-postkv15b] INDEX dup triple {key:?} tris {ts:?} \
+                         (kv15b_collapsed={kv15b_collapsed})"
+                    );
+                }
+            }
         }
     }
 
@@ -13949,6 +14217,36 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<Vec<(u32, u32)
                     // Ambiguous crossing: take the wedge-consistent edge.
                     let cont = wedge_continuation(current, p)?;
                     let Some(pos) = next_vec.iter().position(|&e| e == cont) else {
+                        // EXPERIMENTAL dump (task #121): full local state at the
+                        // failed crossing, env-gated with the site probe.
+                        if std::env::var_os("NONMANIFOLD_SITE_PROBE").is_some() {
+                            eprintln!(
+                                "[wedge-dump] current={current} prev={p} cont={cont} \
+                                 next_vec={next_vec:?} cycle_len={}",
+                                cycle.len()
+                            );
+                            eprintln!("[wedge-dump] cycle so far: {cycle:?}");
+                            for &(s, e) in &directed_boundary {
+                                if s == current || e == current || s == cont || e == cont {
+                                    eprintln!(
+                                        "[wedge-dump] dir boundary ({s},{e}) tri {:?}",
+                                        dir_tri.get(&(s, e))
+                                    );
+                                }
+                            }
+                            for &t in &patch.tri_indices {
+                                let tri = &mesh.tris[t as usize];
+                                if tri.contains(&current) {
+                                    eprintln!(
+                                        "[wedge-dump] patch tri {t} = {tri:?} sliver={} coords {:?}",
+                                        excluded_slivers.contains(&t),
+                                        tri.iter()
+                                            .map(|&v| mesh.verts[v as usize])
+                                            .collect::<Vec<_>>()
+                                    );
+                                }
+                            }
+                        }
                         return Err(non_manifold_at(
                             "s6-wedge-walk-not-outgoing",
                             format_args!(
@@ -14378,6 +14676,173 @@ fn subdivide_loops_at_shared_vertices(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── collapse_vertex membrane cancellation ────────────────────────────
+    // Spec `specs/yang_collapse_membrane_cancellation.md` (task #121, the
+    // N2/F0059 Stage-6 double-cover origin). A twin collapse can turn the
+    // two-triangle pleat spanning the twin gap into an EXACT duplicate pair
+    // with OPPOSITE windings — a zero-volume doubled flap that must cancel
+    // (drop BOTH), restoring manifold edge counts.
+
+    /// The minimal closed pleat: a sliver tetra {a,b,u,v} whose two large
+    /// walls (a,b,u)/(a,v,b) become the opposite-winding duplicate after the
+    /// twin collapse v→u. Indices 0..=3; positions are irrelevant to the
+    /// combinatorial collapse but kept realistic (near-twin apexes).
+    fn pleat_tetra_tris() -> Vec<[u32; 3]> {
+        vec![[0, 1, 2], [1, 3, 2], [0, 2, 3], [0, 3, 1]]
+    }
+
+    fn membrane_fixture_verts() -> Vec<Point3> {
+        vec![
+            Point3::new(0.0, 0.0, 0.0),       // 0 = a
+            Point3::new(1.0, 0.0, 0.0),       // 1 = b
+            Point3::new(0.5, 0.4, 0.1),       // 2 = u (survivor twin)
+            Point3::new(0.5, 0.4, 0.1000001), // 3 = v (victim twin)
+            // Bystander tetra (a separate closed component that must be
+            // preserved byte-for-byte through the cancellation).
+            Point3::new(3.0, 0.0, 0.0), // 4
+            Point3::new(4.0, 0.0, 0.0), // 5
+            Point3::new(3.5, 1.0, 0.0), // 6
+            Point3::new(3.5, 0.5, 1.0), // 7
+        ]
+    }
+
+    fn bystander_tetra_tris() -> Vec<[u32; 3]> {
+        vec![[4, 5, 6], [4, 6, 7], [4, 7, 5], [5, 7, 6]]
+    }
+
+    fn undirected_edge_counts(tris: &[[u32; 3]]) -> std::collections::BTreeMap<(u32, u32), u32> {
+        let mut counts = std::collections::BTreeMap::new();
+        for tri in tris {
+            for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                let (a, b) = (tri[i], tri[j]);
+                let key = if a < b { (a, b) } else { (b, a) };
+                *counts.entry(key).or_insert(0u32) += 1;
+            }
+        }
+        counts
+    }
+
+    /// Cancellation branch: the pleat annihilates (both duplicate copies
+    /// dropped), the bystander survives byte-identically, every remaining
+    /// undirected edge is manifold count-2, and attribution stays lockstep.
+    #[test]
+    fn collapse_membrane_pleat_cancels_both_copies() {
+        let mut tris = pleat_tetra_tris();
+        tris.extend(bystander_tetra_tris());
+        let mut mesh = Mesh::new(membrane_fixture_verts(), tris);
+        let mut attribution: Vec<Option<TriangleAttribution>> = (0..mesh.tris.len())
+            .map(|i| {
+                Some(TriangleAttribution {
+                    input: InputId::A,
+                    face: i as u32,
+                })
+            })
+            .collect();
+        collapse_vertex(&mut mesh, &mut attribution, 3, 2);
+        // The pleat's two gap slivers drop as degenerate; its two walls map
+        // to the SAME sorted triple {0,1,2} with opposite windings — the
+        // zero-volume flap — and must BOTH cancel. Only the bystander stays.
+        assert_eq!(
+            mesh.tris,
+            bystander_tetra_tris(),
+            "pleat must annihilate; bystander byte-identical"
+        );
+        assert_eq!(
+            attribution
+                .iter()
+                .map(|a| a.expect("bystander attribution").face)
+                .collect::<Vec<_>>(),
+            vec![4, 5, 6, 7],
+            "attribution must drop the cancelled pair in lockstep"
+        );
+        for ((a, b), n) in undirected_edge_counts(&mesh.tris) {
+            assert_eq!(n, 2, "edge ({a},{b}) not manifold after cancellation");
+        }
+    }
+
+    /// Same-winding branch: a genuine same-winding double cover is NOT a
+    /// cancellable flap — both copies stay for the downstream loud STOPs.
+    #[test]
+    fn collapse_same_winding_duplicate_is_kept() {
+        let mut tris = pleat_tetra_tris();
+        // Flip the second wall so the post-collapse duplicates share one
+        // winding: (0,3,1) → (0,1,3) maps to (0,1,2) — same cycle as wall 1.
+        tris[3] = [0, 1, 3];
+        tris.extend(bystander_tetra_tris());
+        let mut mesh = Mesh::new(membrane_fixture_verts(), tris);
+        let mut attribution: Vec<Option<TriangleAttribution>> = vec![None; mesh.tris.len()];
+        collapse_vertex(&mut mesh, &mut attribution, 3, 2);
+        let dup_count = mesh
+            .tris
+            .iter()
+            .filter(|t| {
+                let mut s = **t;
+                s.sort_unstable();
+                s == [0, 1, 2]
+            })
+            .count();
+        assert_eq!(
+            dup_count, 2,
+            "same-winding duplicates must be left for downstream loudness"
+        );
+        assert_eq!(mesh.tris.len(), 6, "2 kept duplicates + 4 bystander tris");
+    }
+
+    /// No-duplicate branch: a clean twin collapse (split-pole octahedron —
+    /// the twins own DISJOINT fan sectors) is byte-identical to the plain
+    /// index-mapping semantics: seam tents drop as degenerate, fans merge,
+    /// nothing cancels.
+    #[test]
+    fn collapse_without_duplicate_is_byte_identical() {
+        // Equator 0..=3, south pole 4, north twins u=5 / v=6.
+        let verts: Vec<Point3> = vec![
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(-1.0, 0.0, 0.0),
+            Point3::new(0.0, -1.0, 0.0),
+            Point3::new(0.0, 0.0, -1.0),
+            Point3::new(0.0, 0.0, 1.0),
+            Point3::new(0.0, 0.0, 1.0000001),
+        ];
+        let tris: Vec<[u32; 3]> = vec![
+            // south fans
+            [1, 0, 4],
+            [2, 1, 4],
+            [3, 2, 4],
+            [0, 3, 4],
+            // north: u covers sectors 01/12, v covers 23/30
+            [0, 1, 5],
+            [1, 2, 5],
+            [2, 3, 6],
+            [3, 0, 6],
+            // seam tents at equator verts 2 and 0
+            [5, 2, 6],
+            [6, 0, 5],
+        ];
+        let mut mesh = Mesh::new(verts.clone(), tris);
+        let mut attribution: Vec<Option<TriangleAttribution>> = vec![None; mesh.tris.len()];
+        let dropped = collapse_vertex(&mut mesh, &mut attribution, 6, 5);
+        assert_eq!(dropped, 2, "exactly the two seam tents drop as degenerate");
+        let expected: Vec<[u32; 3]> = vec![
+            [1, 0, 4],
+            [2, 1, 4],
+            [3, 2, 4],
+            [0, 3, 4],
+            [0, 1, 5],
+            [1, 2, 5],
+            [2, 3, 5],
+            [3, 0, 5],
+        ];
+        assert_eq!(
+            mesh.tris, expected,
+            "clean collapse must not cancel anything"
+        );
+        assert_eq!(mesh.verts, verts, "collapse never touches vertex storage");
+        for ((a, b), n) in undirected_edge_counts(&mesh.tris) {
+            assert_eq!(n, 2, "edge ({a},{b}) not manifold after clean collapse");
+        }
+    }
 
     // ── M5 surface-pair plumbing (Y1–Y3) ─────────────────────────────────
 

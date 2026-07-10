@@ -638,6 +638,28 @@ the roadmap's remaining work:
    `s453_line_run_reversal.rs`: R0072/F0045 documented `#[ignore]` RED
    (F0045 = MACRO self-intersection at FaceId(9), a different mechanism).
    New probes kept: `YANG_S6_CYCLE_DUMP`, `annular-hole-rim-crossing`.
+   **N2/F0059 epic increment 1 SHIPPED 2026-07-10 (spec
+   `specs/yang_collapse_membrane_cancellation.md`, task #121):** the F0059
+   "Stage-6 double-cover" origin is the Stage-4 **PR-KV9 junction-twin
+   collapse itself** — identifying the two arrangement vertices minted for
+   ONE Steinmetz seam apex turns the pleat spanning the twin gap into an
+   exact opposite-winding duplicate pair (zero-volume flap, count-4 fan
+   edges, `s6-wedge-walk-not-outgoing`). Fixed at the mint site:
+   `collapse_vertex` now cancels opposite-winding exact-duplicate pairs
+   (both copies; unit red→green ×3 branches). The 2026-07-08 diagnosis's
+   deeper layers are corrected: the χ=4 "two-shell stitching gap" was an
+   artifact of that experiment's exclusion-style workaround and does NOT
+   exist; with the (still banked-unwired, `YANG_TRIPLE_JUNCTION_EXPERIMENT`)
+   conic triple-junction handler + this fix, F0059's boolean COMPLETES and
+   the wall moves to kernel-v2 render CDT `FaceId(7)` ring-reject — the
+   cap-disc's four segment lobes meet the trim chords exactly ON the rim
+   circle and the chord-sampled rim crosses the trim chords near those
+   junctions (§4.3.3 Case-IV **rim-junction-insertion class**, suspected
+   same wall as the F0045/R0011 ring-reject family; M8 incr-15
+   `forced_rim_n` is the precedent machinery). Epic increment 2 = rim
+   junction insertion; increment 3 = wire the handler (green = F0059
+   end-to-end). Probes banked: `YANG_DOUBLECOVER_PROBE` (dup-triple scans +
+   collapse-site tags), wedge-dump under `NONMANIFOLD_SITE_PROBE`.
    **ERROR-census campaign 3 SHIPPED 2026-07-08 (spec
    `specs/cut_consumes_body.md`):** the EmptyBooleanResult cluster
    (R0023/R0027/R0058/R0088) is ONE mechanism — a cut whose tool ENGULFS
