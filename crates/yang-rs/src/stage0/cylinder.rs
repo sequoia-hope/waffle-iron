@@ -5,6 +5,10 @@
 #[allow(clippy::wildcard_imports)]
 use super::*;
 
+// ════════════════════════════════════════════════════════════════════════
+// PR-5 — coincident-cylinder pair detector (the membrane analog of PairPlane)
+// ════════════════════════════════════════════════════════════════════════
+
 /// Detect coincident-cylinder A×B face pairs: one `Surface::Cylinder` face from
 /// A and one from B that share the SAME cylindrical surface (collinear axes,
 /// equal radius) with overlapping axial extent. Each becomes a [`PairCylinder`]
