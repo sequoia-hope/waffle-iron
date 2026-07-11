@@ -324,6 +324,14 @@ fn auto_add_on_datum_sketch_is_standalone_new_body() {
         !engine.consumed_features.contains(&e0),
         "Auto Add with no shared face must not consume the prior body"
     );
+    // §4.1 (amended 2026-07-11): Add-into-nothing is SILENT. The dialog
+    // defaults to Add, so every first extrude on an empty document takes this
+    // branch and a warning here re-toasts on every rebuild — pure noise.
+    assert!(
+        engine.warnings.iter().all(|w| !w.contains("standalone")),
+        "Add resolving to ∅ targets must not warn; warnings: {:?}",
+        engine.warnings
+    );
     assert_eq!(
         renderable_body_count(&engine),
         2,

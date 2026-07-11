@@ -4,6 +4,53 @@
  */
 import { test, expect } from './helpers/waffle-test.js';
 
+/**
+ * Sketch a closed square on the XY plane and finish the sketch.
+ * API entity creation is test SETUP (per GUI test rules), not drawing-mode
+ * coverage — these tests exercise toast behavior, not pointer drawing.
+ */
+async function drawSquare(page, x0, y0, x1, y1) {
+	const before = await page.evaluate(() => window.__waffle?.getFeatureTree()?.features?.length ?? 0);
+	await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+	await page.waitForFunction(
+		() => window.__waffle?.getState()?.sketchMode?.active === true,
+		{ timeout: 5000 }
+	);
+	await page.evaluate(([ax0, ay0, ax1, ay1]) => {
+		const w = window.__waffle;
+		w.addSketchEntity({ type: 'Point', id: 1, x: ax0, y: ay0, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 2, x: ax1, y: ay0, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 3, x: ax1, y: ay1, construction: false });
+		w.addSketchEntity({ type: 'Point', id: 4, x: ax0, y: ay1, construction: false });
+		w.addSketchEntity({ type: 'Line', id: 5, start_id: 1, end_id: 2, construction: false });
+		w.addSketchEntity({ type: 'Line', id: 6, start_id: 2, end_id: 3, construction: false });
+		w.addSketchEntity({ type: 'Line', id: 7, start_id: 3, end_id: 4, construction: false });
+		w.addSketchEntity({ type: 'Line', id: 8, start_id: 4, end_id: 1, construction: false });
+	}, [x0, y0, x1, y1]);
+	await page.waitForTimeout(200);
+	await page.evaluate(() => window.__waffle.finishSketch());
+	await page.waitForFunction(
+		(n) => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) > n,
+		before,
+		{ timeout: 10000 }
+	);
+	await page.waitForTimeout(200);
+}
+
+/** Extrude the last sketch with combine=Add (plus optional extras, e.g. targets). */
+async function applyAddExtrude(page, depth, extraOpts = {}) {
+	const before = await page.evaluate(() => window.__waffle.getFeatureTree().features.length);
+	await page.evaluate(() => window.__waffle.showExtrudeDialog());
+	await page.waitForTimeout(100);
+	await page.evaluate(([d, opts]) => window.__waffle.applyExtrude(d, 0, false, { combine: 'Add', ...opts }), [depth, extraOpts]);
+	await page.waitForFunction(
+		(n) => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) > n,
+		before,
+		{ timeout: 10000 }
+	);
+	await page.waitForTimeout(200);
+}
+
 test.describe('toast notifications', () => {
 	test('toast container present', async ({ waffle }) => {
 		const container = waffle.page.locator('[data-testid="toast-container"]');
@@ -130,47 +177,73 @@ test.describe('toast notifications', () => {
 		await expect(toast).not.toBeAttached({ timeout: 1500 });
 	});
 
-	test('persisted rebuild warning toasts once, not on every rebuild', async ({ waffle }) => {
+	test('first extrude with default Add is silent — no standalone toast, ever', async ({ waffle }) => {
 		const page = waffle.page;
 
 		await page.evaluate(() => window.__waffle.dismissAllToasts());
 
 		// First extrude with combine=Add on an empty document: ShareAFace finds
-		// no target body, so the engine bakes the "body created as standalone"
-		// warning into the feature's diagnostics. It must toast ONCE here.
+		// no target body → benign standalone. Spec §4.1 (amended 2026-07-11):
+		// this must be SILENT — Add is the dialog default, so this is the most
+		// common flow in the app.
+		await drawSquare(page, -30, -30, 30, 30);
+		await applyAddExtrude(page, 60);
+
+		// Watch for any standalone toast for a beat, then sketch on the same
+		// document (rebuild replays the extrude) and watch again.
+		await page.waitForTimeout(1000);
+		let toasts = await page.evaluate(() => window.__waffle.getToasts());
+		expect(toasts.filter(t => t.message.includes('standalone')).length).toBe(0);
+
+		const before = await page.evaluate(() => window.__waffle.getFeatureTree().features.length);
 		await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }
 		);
 		await page.evaluate(() => {
-			const w = window.__waffle;
-			w.addSketchEntity({ type: 'Point', id: 1, x: -30, y: -30, construction: false });
-			w.addSketchEntity({ type: 'Point', id: 2, x: 30, y: -30, construction: false });
-			w.addSketchEntity({ type: 'Point', id: 3, x: 30, y: 30, construction: false });
-			w.addSketchEntity({ type: 'Point', id: 4, x: -30, y: 30, construction: false });
-			w.addSketchEntity({ type: 'Line', id: 5, start_id: 1, end_id: 2, construction: false });
-			w.addSketchEntity({ type: 'Line', id: 6, start_id: 2, end_id: 3, construction: false });
-			w.addSketchEntity({ type: 'Line', id: 7, start_id: 3, end_id: 4, construction: false });
-			w.addSketchEntity({ type: 'Line', id: 8, start_id: 4, end_id: 1, construction: false });
+			window.__waffle.addSketchEntity({ type: 'Point', id: 1, x: 5, y: 5, construction: false });
 		});
 		await page.waitForTimeout(200);
 		await page.evaluate(() => window.__waffle.finishSketch());
 		await page.waitForFunction(
-			() => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) >= 1,
+			(n) => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) > n,
+			before,
 			{ timeout: 10000 }
 		);
-		await page.evaluate(() => window.__waffle.showExtrudeDialog());
-		await page.waitForTimeout(100);
-		await page.evaluate(() => window.__waffle.applyExtrude(60, 0, false, { combine: 'Add' }));
-		await page.waitForFunction(
-			() => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) >= 2,
-			{ timeout: 10000 }
-		);
+		await page.waitForTimeout(1000);
 
-		// The warning surfaces as a toast on first appearance.
+		toasts = await page.evaluate(() => window.__waffle.getToasts());
+		expect(toasts.filter(t => t.message.includes('standalone')).length).toBe(0);
+	});
+
+	test('persisted rebuild warning toasts once, not on every rebuild', async ({ waffle }) => {
+		const page = waffle.page;
+
+		await page.evaluate(() => window.__waffle.dismissAllToasts());
+
+		// Box A at the origin.
+		await drawSquare(page, -30, -30, 30, 30);
+		await applyAddExtrude(page, 60);
+		const extrudeId = await page.evaluate(() => {
+			const feats = window.__waffle.getFeatureTree().features;
+			return feats.find(f => f.operation?.type === 'Extrude').id;
+		});
+
+		// Box B far away, explicitly targeting body A with Add. The disjoint
+		// union keeps both bodies and bakes a "remain disjoint" warning into
+		// the feature's diagnostics. It must toast ONCE here.
+		await drawSquare(page, 200, 200, 260, 260);
+		await applyAddExtrude(page, 60, {
+			targets: [{
+				kind: { type: 'Solid' },
+				anchor: { type: 'FeatureOutput', feature_id: extrudeId, output_key: { type: 'Main' } },
+				selector: { type: 'Role', role: { type: 'EndCapPositive' }, index: 0 },
+				policy: { type: 'BestEffort' }
+			}]
+		});
 		await page.waitForFunction(
-			() => window.__waffle.getToasts().some(t => t.message.includes('standalone')),
+			() => window.__waffle.getToasts().some(t => t.message.includes('disjoint')),
 			{ timeout: 5000 }
 		);
 
@@ -200,8 +273,8 @@ test.describe('toast notifications', () => {
 		await page.waitForTimeout(1000);
 
 		const toasts = await page.evaluate(() => window.__waffle.getToasts());
-		const standaloneToasts = toasts.filter(t => t.message.includes('standalone'));
-		expect(standaloneToasts.length).toBe(0);
+		const disjointToasts = toasts.filter(t => t.message.includes('disjoint'));
+		expect(disjointToasts.length).toBe(0);
 	});
 
 	test('engine error triggers toast', async ({ waffle }) => {

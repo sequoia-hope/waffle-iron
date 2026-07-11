@@ -1216,17 +1216,12 @@ fn dispatch_combine(
         // Union the tool into every target, folding them into one body.
         CombineMode::Add => {
             if combine_targets.is_empty() {
-                // Add-into-nothing is a benign no-op union → standalone. Legacy
-                // (`merge`) stays silent to preserve byte-identical behavior; an
-                // explicit Add with no targets warns.
-                let mut result = tool_result;
-                if !matches!(eff.targets, TargetStrategy::MostRecentLegacy) {
-                    result
-                        .diagnostics
-                        .warnings
-                        .push("Add: no target body; body created as standalone.".to_string());
-                }
-                return Ok(result);
+                // Add-into-nothing is a benign no-op union → standalone,
+                // SILENTLY (spec §4.1, amended 2026-07-11): the dialog
+                // defaults to Add, so every first extrude on an empty
+                // document takes this branch, and a warning baked into the
+                // feature's diagnostics replays on every rebuild.
+                return Ok(tool_result);
             }
             // Spec §4.2: the result is the SET union `(b0 ∪ b1 ∪ …) ∪ tool`,
             // order-independent, with every resulting body emitted. A pairwise

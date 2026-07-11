@@ -58,8 +58,12 @@ set. It maps to `modeling_ops::BooleanKind` as: `Add→Union`, `Cut→Subtract`,
   ("Cut/Intersect requires at least one target body") — a loud STOP, never a
   silent new-body fallback (that would be silently-wrong: a cut that cuts
   nothing must not masquerade as a boss). `Add` with an empty resolved set ⇒
-  standalone body + a diagnostic warning (Add-into-nothing is a benign no-op
-  union, matching today's `merge` fallback at `rebuild.rs:578`).
+  standalone body, **silently** (Add-into-nothing is a benign no-op union,
+  matching today's `merge` fallback at `rebuild.rs:578`). *Amended 2026-07-11
+  (user directive): this case originally warned, but the dialog defaults to
+  `Add`, so every first extrude on an empty document hit the warning, which is
+  baked into the feature's diagnostics and replayed as a toast on every
+  rebuild — pure noise for the most common flow.*
 
 ## 3. Normalization (Constitution §7 — early, once)
 
@@ -101,7 +105,7 @@ consumes `EffectiveCombine` only.
 | `combine` | `targets` | Resolved target set | Behavior |
 |---|---|---|---|
 | `Some(NewBody)` | (ignored) | ∅ | standalone body, no boolean |
-| `Some(Add)` | `None` | share-a-face bodies | union tool into each; ∅ ⇒ standalone + warn |
+| `Some(Add)` | `None` | share-a-face bodies | union tool into each; ∅ ⇒ standalone, silent (amended 2026-07-11) |
 | `Some(Add)` | `Some([])` | ∅ | standalone body, no boolean |
 | `Some(Add)` | `Some([b..])` | those bodies | union tool into each |
 | `Some(Cut)` | `None` | share-a-face bodies | subtract tool from each; ∅ ⇒ **error** |
