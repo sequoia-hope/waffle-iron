@@ -9,7 +9,7 @@ import { base } from '$app/paths';
 import { INFERENCE_SOURCES_MAX } from '$lib/config.js';
 import { EngineBridge } from './bridge.js';
 import { log, getLogs, exportLogs, clearLogs } from './logger.js';
-import { showToast, getToasts, dismissToast, initLoggerToasts } from '$lib/ui/toast.svelte.js';
+import { showToast, getToasts, dismissToast, dismissAllToasts, initLoggerToasts } from '$lib/ui/toast.svelte.js';
 import { extractProfiles } from '$lib/sketch/profiles.js';
 import { sampleBSpline } from '$lib/sketch/bspline.js';
 import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates } from '$lib/sketch/sketchToolState.svelte.js';
@@ -48,6 +48,9 @@ let lastError = $state(null);
 
 /** @type {Map<string, string>} featureId -> error message */
 let featureErrors = $state(new Map());
+// Warnings carried by the previous modelUpdated — used to toast only warnings
+// that are NEW on this rebuild (persisted diagnostics replay on every rebuild).
+let lastRebuildWarnings = new Set();
 
 let rebuildTime = $state(0);
 
@@ -453,24 +456,37 @@ export async function initEngine() {
 		scheduleAutoSave();
 		log('engine', 'Model updated', { meshCount: meshes.length, featureCount: featureTree?.features?.length ?? 0 });
 
-		// Track feature errors for tree display
+		// Track feature errors for tree display. Persisted feature diagnostics
+		// replay on EVERY rebuild (each sketch edit triggers one), so only
+		// errors that are new or changed since the previous rebuild are logged
+		// and toasted — the tree badge carries the persistent state. The gate
+		// must cover log('error') too: initLoggerToasts turns every error log
+		// entry into a second toast.
+		const prevErrors = featureErrors;
 		const newErrors = new Map();
 		if (msg.errors && msg.errors.length > 0) {
 			for (const [featureId, errorMsg] of msg.errors) {
 				newErrors.set(featureId, errorMsg);
-				log('error', `Feature ${featureId} failed: ${errorMsg}`);
-				showToast('error', `Feature failed: ${errorMsg}`);
+				if (prevErrors.get(featureId) !== errorMsg) {
+					log('error', `Feature ${featureId} failed: ${errorMsg}`);
+					showToast('error', `Feature failed: ${errorMsg}`);
+				}
 			}
 		}
 		featureErrors = newErrors;
 
-		// Surface non-fatal warnings (e.g. auto-union fallback)
-		if (msg.warnings && msg.warnings.length > 0) {
-			for (const warning of msg.warnings) {
+		// Surface non-fatal warnings (e.g. auto-union fallback) — again only
+		// when new relative to the previous rebuild, so a warning baked into a
+		// persisted feature (e.g. "body created as standalone") toasts once
+		// when it first appears, not on every rebuild thereafter.
+		const warnings = new Set(msg.warnings ?? []);
+		for (const warning of warnings) {
+			if (!lastRebuildWarnings.has(warning)) {
 				log('warning', warning);
 				showToast('warning', warning);
 			}
 		}
+		lastRebuildWarnings = warnings;
 	});
 
 	bridge.on('sketchSolved', (msg) => {
@@ -931,7 +947,7 @@ export async function initEngine() {
 			clearLogs: () => clearLogs(),
 			showToast: (level, message, durationMs) => showToast(level, message, durationMs),
 			getToasts: () => getToasts(),
-			dismissAllToasts: () => { for (const t of getToasts()) dismissToast(t.id); },
+			dismissAllToasts: () => dismissAllToasts(),
 			diagnose: () => {
 				const d = {
 					engineReady,
@@ -5155,6 +5171,8 @@ export async function switchTab(tabId) {
 	// Load target tab's features
 	const targetTab = documentTabs.find(t => t.id === tabId);
 	activeTabId = tabId;
+	// New document context: its rebuild warnings are "new" again.
+	lastRebuildWarnings = new Set();
 
 	if (bridge && engineReady && targetTab?.kind?.features) {
 		// Deep-clone to unwrap Svelte 5 proxies (they can't be postMessage'd)
@@ -5226,6 +5244,8 @@ export function initDocumentState(docId, parsed) {
 	activeDocId = docId;
 	documentName = parsed.document?.name || 'Untitled';
 	projectName = documentName;
+	// New document context: its rebuild warnings are "new" again.
+	lastRebuildWarnings = new Set();
 
 	if (parsed.tabs && parsed.tabs.length > 0) {
 		documentTabs = parsed.tabs.map(t => ({

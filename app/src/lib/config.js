@@ -30,6 +30,14 @@ export const TOAST_DISMISS_MS = {
 	success: 2500,
 };
 
+// Toast rate limiting: an identical (level, message) toast is suppressed while
+// one is visible and for this window after it was last shown, so a repeating
+// problem toasts at most once per window instead of once per firing.
+export const TOAST_REPEAT_SUPPRESS_MS = 5000;
+// When a burst pushes the visible stack past this cap, the older toasts are
+// auto-cleared and only the newest is kept.
+export const TOAST_STACK_MAX = 4;
+
 // Long-press (mobile context menu)
 export const LONG_PRESS_DURATION_MS = 500;
 export const LONG_PRESS_THRESHOLD_PX = 10;
