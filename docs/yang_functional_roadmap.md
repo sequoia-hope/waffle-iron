@@ -2674,6 +2674,25 @@ swapped every consumer to `predicates::indirect`).
     pocket floor arc-chain non-conformality (plain-path NonManifoldOutput),
     and chained disjoint-lump unions losing `Curve::Circle` rim vocabulary
     (Stage-3 producer fault).
+  - **M8 torus-profile rim crossings SHIPPED 2026-07-11 (task #131,
+    b0f0c8e4, spec `specs/m8_torus_profile_rim_crossing.md`):** the
+    `rim-lateral-none` mechanism is retired. `lateral_for_cap` → typed
+    `CapLateral` (cylinder arm byte-identical + torus arm);
+    `collect_ring_crossings` projects a torus-cap rim crossing onto the
+    OPPOSITE profile circle at the same intrinsic poloidal angle
+    φ = atan2(τ, ρ−R); `tessellate_torus_face` keeps the uniform slot grid
+    as the first arm (bit-identical) and adds a φ-value column path for
+    rings with inserted crossing samples (index-wise pairing of sorted
+    seam-anchored offsets, fixed 1e-9 band — a min-gap tolerance collapses
+    under femto-close crossing twins). Corpus: R0046
+    UNSUPPORTED→SUPPORTED_CORRECT, R0025/R0050 → the Stage-4
+    LocalRefinementRequired class (N2 epic), R0085's UNSUPPORTED(revolve)
+    verdict was hiding this wall → the pre-existing CDT wall. Assay
+    **237 CORRECT / 0 WRONG / 49 ERROR / 9 UNSUPPORTED / 0 TIMEOUT**.
+    The UNSUPPORTED(coplanar) tail is now 4 cases / 2 mechanisms, both
+    design increments: KV15b DegenerateLoop micro twins (R0007/R0071,
+    scale/floor policy) + femto-slab RoundingCollapse (F0067/C0048,
+    per-region re-emission).
   - **KV4-F1 ✅ RESOLVED (PR-KV4-F1, 2026-06-12): the rational-ray
     fallback** — `rational_ray_inner_label` in cherchi-rs
     `labeling/inside_out.rs` implements the branch the C++ reference
