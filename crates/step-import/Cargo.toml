@@ -1,0 +1,21 @@
+[package]
+name = "step-import"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+# STEP import (task #138, docs/step_import_roadmap.md §1/§3.1).
+#
+# The truck-* dependencies (Apache-2.0) are git-pinned to a specific rev of
+# ricosjp/truck master: the published truck-stepio 0.3.0 lacks the
+# `manifold_solid_brep` table and the assembly walk (`step_assy`), both of
+# which a KiCad/OpenCascade board export requires. Re-pin deliberately when
+# upstream releases; never track master. truck types MUST NOT leak past this
+# crate's API — consumers see only `waffle_types` contract types.
+
+[dependencies]
+waffle-types = { path = "../waffle-types" }
+truck-stepio = { git = "https://github.com/ricosjp/truck", rev = "baf8cd5fb7b1c495169d902745f8b42427df66f9" }
+truck-meshalgo = { git = "https://github.com/ricosjp/truck", rev = "baf8cd5fb7b1c495169d902745f8b42427df66f9", default-features = false, features = ["tessellation"] }
+truck-topology = { git = "https://github.com/ricosjp/truck", rev = "baf8cd5fb7b1c495169d902745f8b42427df66f9" }
+thiserror = "1"

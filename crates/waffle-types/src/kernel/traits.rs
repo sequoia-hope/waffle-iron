@@ -1,3 +1,4 @@
+use super::import::ImportedBodyData;
 use super::types::*;
 use std::collections::HashMap;
 
@@ -109,6 +110,17 @@ pub trait Kernel {
         solid: &KernelSolidHandle,
         tolerance: f64,
     ) -> Result<EdgeRenderData, KernelError>;
+
+    /// Ingest an externally-imported mesh-backed body (STEP import, task
+    /// #138 — `docs/step_import_roadmap.md`). The data is already placed in
+    /// world coordinates (meters). The body is first-class for rendering,
+    /// introspection, and signatures; operations the kernel cannot perform
+    /// on it (booleans in SI1) return typed `NotSupported`.
+    fn import_body(&mut self, _data: &ImportedBodyData) -> Result<KernelSolidHandle, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "import_body".to_string(),
+        })
+    }
 
     /// Export a solid to STEP AP203 format string.
     fn export_step(

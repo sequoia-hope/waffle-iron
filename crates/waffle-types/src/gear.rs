@@ -497,7 +497,7 @@ fn generate_internal_gear_profile(params: &GearParams) -> GearProfileResult {
     let mut boundary: Vec<(f64, f64)> = Vec::new();
     fn push(b: &mut Vec<(f64, f64)>, p: (f64, f64)) {
         if b.last()
-            .map_or(true, |&l| (l.0 - p.0).hypot(l.1 - p.1) > 1e-12)
+            .is_none_or(|&l| (l.0 - p.0).hypot(l.1 - p.1) > 1e-12)
         {
             b.push(p);
         }

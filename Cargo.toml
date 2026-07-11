@@ -23,6 +23,12 @@ members = [
     "crates/yang-rs",
     "crates/kernel-v2",
 
+    # STEP import (task #138, docs/step_import_roadmap.md). OUTSIDE the
+    # kernel layering: a file-format-level crate that converts STEP text into
+    # the neutral `waffle_types` ImportedBodyData contract. Its truck-*
+    # dependencies (Apache-2.0, git-pinned) must never leak past its API.
+    "crates/step-import",
+
     # Dev tooling, OUTSIDE the kernel layering (no workspace deps, never
     # shipped): generates cherchi-rs's clean-room indirect-predicate
     # instances (M7) into src/predicates/indirect/generated.rs.
