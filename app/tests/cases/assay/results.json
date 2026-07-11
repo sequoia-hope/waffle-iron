@@ -1,8 +1,8 @@
 {
-  "errored": 49,
+  "errored": 48,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 236,
+  "passed": 237,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1583,10 +1583,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): f80d6024-031b-4c98-82e0-96b7e2e21748: operation error: kernel error: kernel error: kernel-v2 revolve failed: NotImplemented(\"PR-KV6a full-turn revolve of non-alternating profiles\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0070",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

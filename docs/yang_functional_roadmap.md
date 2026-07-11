@@ -3194,7 +3194,9 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   F=4 R=0 G=1 χ=0, 2+2 outward/reversed cones, capless, Pappus 8π at
   1e-12, watertight mesh), staircase pentagon with a wall-wall junction
   (V=5 E=8 F=5 R=2, caps ∓â, 20π), consecutive-annuli rejection,
-  determinism. **Corpus: C0070 ERROR → SUPPORTED_CORRECT.** Its meta
+  determinism. **Corpus: C0070 ERROR → SUPPORTED_CORRECT; assay
+  238 CORRECT / 0 WRONG / 48 ERROR / 9 UNSUPPORTED / 0 TIMEOUT,
+  zero-lost (verified per-case against the 2026-07-11 baseline).** Its meta
   `euler_target` 2→0 was an R0099-class authoring correction (a
   full-turn revolve of a simple profile strictly off-axis is a
   solid-torus ring, genus 1 — forced by `validate_revolve_geometry`);
