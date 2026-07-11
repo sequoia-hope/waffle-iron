@@ -249,11 +249,9 @@ fn red_r0024_stage6_planar_tol() {
 // reason below).
 
 #[test]
-#[ignore = "M8 same-normal RED (Stage-1 partial-patch re-entry wall): R0021's Extrude 3 auto-union \
-            fails loudly with `boolean_union: curved partial-patch operand face FaceId(19)` (a \
-            previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch \
-            tessellation yet), plus 1 degenerate render triangle; GREEN when partial-patch \
-            re-entry tessellation lands"]
+// PIN MOVED 2026-07-11: R0021 completes CORRECT (committed release baseline
+// agrees); the stale ignore sat unseen behind the debug tier's fail-fast
+// (the C0036 gate red, task #128).
 fn red_r0021_stage4_relocation() {
     assert_correct("R0021");
 }
@@ -283,7 +281,7 @@ fn red_r0072_stage3_ambiguous_parallel_lines() {
 // ── Mode 4: kernel-v2 azimuth-merge rims disagree (reassembly) ──────────────
 
 #[test]
-#[ignore = "M8 same-normal RED (kernel-v2 azimuth-merge rims disagree): GREEN when reassembly rim-merge tolerates the same-normal rim split"]
+// PIN MOVED 2026-07-11: R0078 completes CORRECT (release baseline agrees).
 fn red_r0078_kernel_azimuth_merge() {
     assert_correct("R0078");
 }
@@ -300,19 +298,19 @@ fn red_r0078_kernel_azimuth_merge() {
 // ── Mode 6: residual 2nd coplanar pair ─────────────────────────────────────
 
 #[test]
-#[ignore = "M8 same-normal RED (residual 2nd coplanar pair): GREEN when the second coplanar pair's gate (not lifted by the same-normal env) is also resolved"]
+// PIN MOVED 2026-07-11: completes CORRECT (release baseline agrees).
 fn red_r0076_residual_pair() {
     assert_correct("R0076");
 }
 
 #[test]
-#[ignore = "M8 same-normal RED (residual 2nd coplanar pair): GREEN when the second coplanar pair's gate (not lifted by the same-normal env) is also resolved"]
+// PIN MOVED 2026-07-11: completes CORRECT (release baseline agrees).
 fn red_r0088_residual_pair() {
     assert_correct("R0088");
 }
 
 #[test]
-#[ignore = "M8 same-normal RED (residual 2nd coplanar pair): GREEN when the second coplanar pair's gate (not lifted by the same-normal env) is also resolved"]
+// PIN MOVED 2026-07-11: completes CORRECT (release baseline agrees).
 fn red_f0061_residual_pair() {
     assert_correct("F0061");
 }
@@ -327,11 +325,14 @@ fn red_f0061_residual_pair() {
 /// gone. (If R0021 starts passing, repoint this to another still-RED case.)
 #[test]
 fn wall_is_lifted_for_same_normal() {
-    let failures = replay_failures("R0021");
+    // Repointed R0021 → R0072 (2026-07-11): R0021 now passes; R0072 is the
+    // campaign's remaining RED (kernel-v2 TessellationFailed, downstream of
+    // Stage 0).
+    let failures = replay_failures("R0072");
     assert!(
         !failures.is_empty(),
-        "expected R0021 to still be RED (Stage-4 relocation); if it now passes, \
-         un-ignore red_r0021_stage4_relocation and repoint this check"
+        "expected R0072 to still be RED (kernel-v2 tessellation); if it now passes, \
+         un-ignore red_r0072_stage3_ambiguous_parallel_lines and repoint this check"
     );
     assert!(
         !failures

@@ -1066,12 +1066,14 @@ fn smoke_corpus_boundary_categories() {
         // the M8 coplanar auto-union wall.
         ("F0073", Category::Unsupported(UnsupportedReason::Revolve)),
         ("F0074", Category::ExpectedError),
-        // F0075 is a VALID offset-rectangle revolve — the solid builds; the
-        // case then hits the KV6b wall (auto-union over an arc-bearing
-        // operand → UnsupportedCurvedBoolean; the warning text leads with
-        // the feature name "Revolve Offset", so the reason classifier reads
-        // it as the revolve label).
-        ("F0075", Category::Unsupported(UnsupportedReason::Revolve)),
+        // F0075 PIN MOVED at the M8 mixed Line+Arc coplanar overlay
+        // (2026-07-09, spec `m8_mixed_loop_coplanar_overlay`): the
+        // arc-bearing auto-union re-enters Stage 1 through the mixed-loop
+        // overlay and the case completes CORRECT (the committed release
+        // baseline agrees). The stale UNSUPPORTED(revolve) pin sat unseen
+        // behind the debug tier's fail-fast (the C0036 gate red, task #128)
+        // until 2026-07-11.
+        ("F0075", Category::SupportedCorrect),
         // R0008 marched past the partial-cone revolve wall (KV6c increment 5,
         // spec kv6c_partial_revolve_cone_patch.md) to its next honest
         // boundary: an auto-union whose Stage-3 SSI refinement stops loud at
@@ -1139,10 +1141,11 @@ fn smoke_corpus_boundary_categories() {
             Category::Unsupported(UnsupportedReason::CurvedProfile),
         ), // [KV6c] oblique cone cut
         ("C0065", Category::Unsupported(UnsupportedReason::Revolve)), // [KV6d] torus boolean
-        (
-            "C0071",
-            Category::Unsupported(UnsupportedReason::MultiShell),
-        ), // [KV7] void breach
+        // C0071 PIN MOVED at KV7-F2 (2026-07-10): the multi-shell operand
+        // wall was REMOVED (lumps and voids re-enter booleans) and the case
+        // completes CORRECT; the stale pin sat unseen behind the debug
+        // tier's fail-fast (the C0036 gate red, task #128).
+        ("C0071", Category::SupportedCorrect), // [KV7] void breach
     ];
     for (id, expect) in expected {
         let case = cases
