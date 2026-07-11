@@ -390,6 +390,13 @@ function gearDisplayIdBase(gearId) {
 let gearDialogState = $state(null);
 
 /**
+ * Import-STEP edit dialog state — null when closed, else `{ featureId }`.
+ * The dialog reads the feature's current ImportedBody params from the tree.
+ * @type {object | null}
+ */
+let importDialogState = $state(null);
+
+/**
  * Planetary dialog state — null when closed, else an object seeded by the
  * placement tool: `{ centerX, centerY }` (internal sketch coords). Mirrors
  * `gearDialogState`.
@@ -720,6 +727,12 @@ export async function initEngine() {
 			// sets the revolve dialog's axis as a viewport pick would.
 			setRevolveAxis: (origin, direction, label) => setRevolveAxis(origin, direction, label),
 			loadProject: (jsonData) => loadProject(jsonData),
+			// Test SETUP: real file pickers can't be driven from Playwright.
+			importStepFromText: (fileName, text) => importStepFromText(fileName, text),
+			getImportDialogState: () => importDialogState,
+			showImportDialogForEdit: (featureId) => showImportDialogForEdit(featureId),
+			hideImportDialog: () => hideImportDialog(),
+			applyImportPlacement: (featureId, placement) => applyImportPlacement(featureId, placement),
 			exportStl: () => exportStl(),
 			exportBodyStl: (bodyId, name) => exportBodyStl(bodyId, name),
 			exportStep: () => exportStep(),
@@ -4055,7 +4068,7 @@ export function showBooleanDialog() {
 
 	// Find features that produce solid bodies
 	const bodies = tree.features
-		.filter(f => ['Extrude', 'Revolve', 'BooleanCombine', 'Chamfer', 'Fillet', 'Shell'].includes(f.operation?.type))
+		.filter(f => ['Extrude', 'Revolve', 'BooleanCombine', 'Chamfer', 'Fillet', 'Shell', 'ImportedBody'].includes(f.operation?.type))
 		.map(f => ({ featureId: f.id, name: f.name }));
 
 	log('ui', 'Show boolean dialog', { bodyCount: bodies.length });
@@ -5778,6 +5791,7 @@ export function showEditFeatureDialog(featureId) {
 	const opType = feature.operation?.type;
 	if (opType === 'Extrude') showExtrudeDialogForEdit(featureId);
 	else if (opType === 'Revolve') showRevolveDialogForEdit(featureId);
+	else if (opType === 'ImportedBody') showImportDialogForEdit(featureId);
 }
 
 /**
@@ -6104,6 +6118,81 @@ function extractDisplayUnit(jsonData) {
 	} catch {
 		documentDisplayUnit = 'mm';
 	}
+}
+
+/**
+ * Import a STEP file as a new ImportedBody feature (task #138). Sends the raw
+ * STEP text; the engine compresses and embeds it in the feature. Used by the
+ * file picker AND directly by tests (real file pickers can't be driven).
+ * @param {string} fileName - e.g. 'minihexa.step'
+ * @param {string} text - raw STEP text
+ * @returns {Promise<boolean>}
+ */
+export async function importStepFromText(fileName, text) {
+	if (!bridge || !engineReady) return false;
+	log('action', 'Import STEP', { fileName, bytes: text.length });
+	try {
+		await sendRebuild({ type: 'ImportStep', file_name: fileName, data: text });
+		showToast('info', `Imported ${fileName}`);
+		return true;
+	} catch (err) {
+		log('error', `STEP import failed: ${err.message || err}`);
+		showToast('error', `STEP import failed: ${err.message || err}`);
+		return false;
+	}
+}
+
+/**
+ * Open a file picker for a .step/.stp file and import it.
+ * @returns {Promise<boolean>} True if an import was initiated
+ */
+export async function importStep() {
+	if (!bridge || !engineReady) return false;
+	return new Promise((resolve) => {
+		const input = document.createElement('input');
+		input.type = 'file';
+		input.accept = '.step,.stp,.STEP,.STP';
+		input.onchange = async () => {
+			const file = input.files?.[0];
+			if (!file) { resolve(false); return; }
+			const text = await file.text();
+			resolve(await importStepFromText(file.name, text));
+		};
+		input.click();
+	});
+}
+
+/** @returns {object | null} */
+export function getImportDialogState() { return importDialogState; }
+
+/** Open the placement dialog for an existing ImportedBody feature. */
+export function showImportDialogForEdit(featureId) {
+	importDialogState = { featureId };
+}
+
+export function hideImportDialog() {
+	importDialogState = null;
+}
+
+/**
+ * Apply new placement values to an ImportedBody feature. The embedded STEP
+ * payload is passed through UNTOUCHED — only the transform fields change.
+ * @param {string} featureId
+ * @param {{translation_m: number[], rotation_deg: number[], scale: number}} placement
+ */
+export async function applyImportPlacement(featureId, placement) {
+	const feature = featureTree?.features?.find(f => f.id === featureId);
+	if (!feature || feature.operation?.type !== 'ImportedBody') return false;
+	const params = {
+		...feature.operation.params,
+		translation_m: placement.translation_m,
+		rotation_deg: placement.rotation_deg,
+		scale: placement.scale ?? 1.0,
+	};
+	log('action', 'Edit STEP import placement', { featureId });
+	await editFeature(featureId, { type: 'ImportedBody', params });
+	hideImportDialog();
+	return true;
 }
 
 /**

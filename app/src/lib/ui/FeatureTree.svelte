@@ -319,6 +319,7 @@
 			case 'Chamfer': return '\u25C6';
 			case 'Shell': return '\u25A1';
 			case 'BooleanCombine': return '\u2229';
+			case 'ImportedBody': return '\u2913';
 			default: return '\u2022';
 		}
 	}

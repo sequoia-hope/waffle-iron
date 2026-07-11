@@ -23,6 +23,7 @@
 		showShellDialog,
 		showBooleanDialog,
 		showDatumPlaneDialog,
+		importStep,
 		saveProject,
 		saveToStorage,
 		loadProject,
@@ -163,6 +164,7 @@
 		{ id: 'shell', label: 'Shell', shortcut: '' },
 		{ id: 'boolean', label: 'Boolean', shortcut: '' },
 		{ id: 'datum-plane', label: 'Plane', shortcut: '' },
+		{ id: 'import-step', label: 'Import', shortcut: '' },
 	];
 
 	const sketchTools = [
@@ -229,6 +231,10 @@
 		}
 		if (toolId === 'datum-plane' && !inSketch) {
 			showDatumPlaneDialog();
+			return;
+		}
+		if (toolId === 'import-step' && !inSketch) {
+			importStep();
 			return;
 		}
 		if (toolId === 'construction') {
