@@ -1183,7 +1183,14 @@ fn smoke_corpus_boundary_categories() {
             "C0063",
             Category::Unsupported(UnsupportedReason::CurvedProfile),
         ), // [KV6c] oblique cone cut
-        ("C0065", Category::Unsupported(UnsupportedReason::Revolve)), // [KV6d] torus boolean
+        // C0065 PIN MOVED at KV6d (2026-07-11, ada0dc42, task #136): the
+        // full-turn circle-revolve wall was RETIRED (the closed torus now
+        // BUILDS); the case's boundary moved downstream to the boolean's
+        // typed Stage-4 relocation error (near-tangent shaft containment
+        // guard — see the KV6d roadmap ledger entry and task #137). The
+        // stale UNSUPPORTED(revolve) pin sat unseen behind the debug tier's
+        // fail-fast, exactly like C0071's below.
+        ("C0065", Category::Error), // [KV6d] torus boolean → Stage-4 typed ERROR
         // C0071 PIN MOVED at KV7-F2 (2026-07-10): the multi-shell operand
         // wall was REMOVED (lumps and voids re-enter booleans) and the case
         // completes CORRECT; the stale pin sat unseen behind the debug
