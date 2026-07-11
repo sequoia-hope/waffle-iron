@@ -93,6 +93,22 @@ tolerance is introduced).
 
 - I1: survivor of every collapse is the minimum resolved vertex index;
   its coordinates are bit-unchanged.
+- I1b (C0036 amendment, 2026-07-11): AMENDS I1's coordinate clause —
+  the surviving INDEX stays minimum (determinism unchanged), but its
+  COORDINATES adopt the pair's plane-incidence-RICHER endpoint when one
+  endpoint lies on strictly more distinct carried input planes (residual
+  ≤ TAU_WORK·(1+‖p‖∞), planes deduped bit-exactly, incidence via
+  triangle attribution). Rationale: a sub-floor pair often joins the
+  TRUE junction of k carried planes with a near-degenerate crossing OFF
+  one of them by the sub-floor gap — C0036's near-coplanar seam corner
+  (the exact 3-plane corner vs a crossing 1.75e-8 off the 0.001°-tilted
+  wall). Keeping the min-index position blindly evicted a face-loop
+  vertex off its carried analytic plane, twisting the loop so the fitted
+  Newell missed the exact input corners: the debug-tier NonPlanarFace
+  red that broke `assay_complexity_gen` from this increment's landing
+  until 2026-07-11 (and, via fail-fast, hid three suites' stale pins).
+  Ties (equal counts) keep the survivor's own coordinates —
+  byte-identical to the shipped behavior.
 - I2: no vertex pair whose resolved distance is ≥ TAU_MODEL is ever
   collapsed by this pass.
 - I3: only vertex pairs that appear (after resolution) as CONSECUTIVE

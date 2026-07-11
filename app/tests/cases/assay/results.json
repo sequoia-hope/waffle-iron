@@ -2,7 +2,7 @@
   "errored": 45,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 232,
+  "passed": 233,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1103,10 +1103,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 5: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0084",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "ERROR",

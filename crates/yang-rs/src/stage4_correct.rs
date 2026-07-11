@@ -537,6 +537,8 @@ pub(crate) fn collapse_subresolution_intersection_segments(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
     intersection_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    a: &BRep,
+    b: &BRep,
 ) -> bool {
     let mut redirect: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
     fn resolve(redirect: &std::collections::BTreeMap<u32, u32>, mut v: u32) -> u32 {
@@ -545,6 +547,54 @@ pub(crate) fn collapse_subresolution_intersection_segments(
         }
         v
     }
+    // C0036 amendment (spec `kv15b_mint_site_subresolution_collapse` I1b):
+    // the surviving POSITION is the pair's plane-incidence-richer endpoint.
+    // A sub-floor pair often joins the TRUE junction of k carried planes
+    // with a near-degenerate crossing OFF one of them by the sub-floor gap
+    // (the C0036 near-coplanar seam corner: the exact 3-plane corner vs a
+    // crossing 1.75e-8 off the tilted wall). Keeping the min-index position
+    // blindly evicts a face-loop vertex off its carried analytic plane,
+    // twisting the loop (the fitted Newell then misses the exact input
+    // corners — the debug-tier NonPlanarFace red). The topological survivor
+    // stays min-index (I1 determinism); only its COORDINATES may adopt the
+    // strictly richer endpoint. Ties keep the survivor's own coordinates
+    // (byte-identical to the shipped behavior).
+    let plane_count = |mesh: &Mesh,
+                       attribution: &[Option<TriangleAttribution>],
+                       vi: u32,
+                       pos: [f64; 3]|
+     -> usize {
+        let mut seen: Vec<[u64; 4]> = Vec::new();
+        let band =
+            cad_primitives::TAU_WORK * (1.0 + pos[0].abs().max(pos[1].abs()).max(pos[2].abs()));
+        for (t, tri) in mesh.tris.iter().enumerate() {
+            if !tri.contains(&vi) {
+                continue;
+            }
+            let Some(att) = attribution.get(t).copied().flatten() else {
+                continue;
+            };
+            let faces = match att.input {
+                InputId::A => a.faces(),
+                InputId::B => b.faces(),
+            };
+            let Some(face) = faces.get(att.face as usize) else {
+                continue;
+            };
+            let Surface::Plane { normal, d } = face.surface else {
+                continue;
+            };
+            let n = normal.as_array();
+            if (n[0] * pos[0] + n[1] * pos[1] + n[2] * pos[2] + d).abs() > band {
+                continue;
+            }
+            let key = [n[0].to_bits(), n[1].to_bits(), n[2].to_bits(), d.to_bits()];
+            if !seen.contains(&key) {
+                seen.push(key);
+            }
+        }
+        seen.len()
+    };
     let tau2 = cad_primitives::TAU_MODEL * cad_primitives::TAU_MODEL;
     let mut any = false;
     for &(u, v) in intersection_curves.keys() {
@@ -560,8 +610,29 @@ pub(crate) fn collapse_subresolution_intersection_segments(
         }
         let survivor = ru.min(rv);
         let victim = ru.max(rv);
+        // I1b: adopt the plane-incidence-richer position onto the surviving
+        // index (strictly richer only).
+        {
+            let sp = mesh.verts[survivor as usize].as_array();
+            let vp = mesh.verts[victim as usize].as_array();
+            let cs = plane_count(mesh, attribution, survivor, sp);
+            let cv = plane_count(mesh, attribution, victim, vp);
+            if cv > cs {
+                mesh.verts[survivor as usize] = mesh.verts[victim as usize];
+            }
+        }
         if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
-            eprintln!("[collapse-site] kv15b victim={victim} survivor={survivor}");
+            eprintln!(
+                "[collapse-site] kv15b victim={victim} p=({:.17e},{:.17e},{:.17e}) \
+                 survivor={survivor} q=({:.17e},{:.17e},{:.17e}) dist={:.3e}",
+                mesh.verts[victim as usize].as_array()[0],
+                mesh.verts[victim as usize].as_array()[1],
+                mesh.verts[victim as usize].as_array()[2],
+                mesh.verts[survivor as usize].as_array()[0],
+                mesh.verts[survivor as usize].as_array()[1],
+                mesh.verts[survivor as usize].as_array()[2],
+                d2.sqrt(),
+            );
         }
         collapse_vertex(mesh, attribution, victim, survivor);
         redirect.insert(victim, survivor);

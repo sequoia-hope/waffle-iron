@@ -699,6 +699,25 @@ fn validate_planar_face(
         loops.extend(face.inner_loops.iter().copied());
         for lid in loops {
             // Every loop vertex (incl. circle anchors) on the plane.
+            if std::env::var_os("KV2_PLANARITY_PROBE").is_some() {
+                for p in arena.loop_points(lid)? {
+                    let d = (p.x() - plane.point.x()) * plane.normal.x
+                        + (p.y() - plane.point.y()) * plane.normal.y
+                        + (p.z() - plane.point.z()) * plane.normal.z;
+                    eprintln!(
+                        "[planarity-probe] face={f:?} loop={lid:?} p=({:.17e},{:.17e},{:.17e}) \
+                         d={d:.3e} band={:.3e} viol={} plane n=({:.17},{:.17},{:.17})",
+                        p.x(),
+                        p.y(),
+                        p.z(),
+                        planarity_band(p),
+                        d.abs() > planarity_band(p),
+                        plane.normal.x,
+                        plane.normal.y,
+                        plane.normal.z,
+                    );
+                }
+            }
             for p in arena.loop_points(lid)? {
                 let d = (p.x() - plane.point.x()) * plane.normal.x
                     + (p.y() - plane.point.y()) * plane.normal.y

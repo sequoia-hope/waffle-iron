@@ -630,7 +630,11 @@ pub(crate) fn kv15b_subresolution_intersection_segment_collapses() {
     let mut attr = vec![None; 2];
     let map = kv15b_map(&[(0, 1)]);
     assert!(collapse_subresolution_intersection_segments(
-        &mut mesh, &mut attr, &map
+        &mut mesh,
+        &mut attr,
+        &map,
+        &guard_cyl(0.0, 0.0, 1.0, 1.0),
+        &guard_cyl(0.0, 0.0, 1.0, 1.0),
     ));
     assert_eq!(
         mesh.tris,
@@ -661,7 +665,11 @@ pub(crate) fn kv15b_supraresolution_segment_untouched() {
     let mut attr = vec![None; 2];
     let map = kv15b_map(&[(0, 1)]);
     assert!(!collapse_subresolution_intersection_segments(
-        &mut mesh, &mut attr, &map
+        &mut mesh,
+        &mut attr,
+        &map,
+        &guard_cyl(0.0, 0.0, 1.0, 1.0),
+        &guard_cyl(0.0, 0.0, 1.0, 1.0),
     ));
     assert_eq!(
         mesh.tris,
@@ -687,7 +695,11 @@ pub(crate) fn kv15b_non_intersection_edge_untouched() {
     let mut attr = vec![None; 2];
     let map = kv15b_map(&[(1, 2)]); // only the LONG edge is intersection
     assert!(!collapse_subresolution_intersection_segments(
-        &mut mesh, &mut attr, &map
+        &mut mesh,
+        &mut attr,
+        &map,
+        &guard_cyl(0.0, 0.0, 1.0, 1.0),
+        &guard_cyl(0.0, 0.0, 1.0, 1.0),
     ));
     assert_eq!(
         mesh.tris,
@@ -714,7 +726,11 @@ pub(crate) fn kv15b_twin_chain_resolves_to_single_survivor() {
     let mut attr = vec![None; 3];
     let map = kv15b_map(&[(0, 1), (1, 2)]);
     assert!(collapse_subresolution_intersection_segments(
-        &mut mesh, &mut attr, &map
+        &mut mesh,
+        &mut attr,
+        &map,
+        &guard_cyl(0.0, 0.0, 1.0, 1.0),
+        &guard_cyl(0.0, 0.0, 1.0, 1.0),
     ));
     assert_eq!(
         mesh.tris,
@@ -878,7 +894,11 @@ pub(crate) fn kv15b_resolved_length_regrows_past_band_stays() {
     let mut attr = vec![None; 3];
     let map = kv15b_map(&[(0, 1), (1, 2)]);
     assert!(collapse_subresolution_intersection_segments(
-        &mut mesh, &mut attr, &map
+        &mut mesh,
+        &mut attr,
+        &map,
+        &guard_cyl(0.0, 0.0, 1.0, 1.0),
+        &guard_cyl(0.0, 0.0, 1.0, 1.0),
     ));
     assert_eq!(
         mesh.tris,

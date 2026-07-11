@@ -2831,6 +2831,19 @@ pub fn boolean_op(
     // rebuild voids" claim and is deleted.
     let (ya, a_faces) = to_yang_brep_indexed(arena, a)?;
     let (yb, b_faces) = to_yang_brep_indexed(arena, b)?;
+    if std::env::var_os("KV2_PLANE_TRACE").is_some() {
+        for (tag, y) in [("A", &ya), ("B", &yb)] {
+            for (i, f) in y.faces().iter().enumerate() {
+                if let yang_rs::Surface::Plane { normal, d } = f.surface {
+                    let n = normal.as_array();
+                    eprintln!(
+                        "[plane-trace] input {tag} face {i} n=({:.17e},{:.17e},{:.17e}) d={d:.17e}",
+                        n[0], n[1], n[2]
+                    );
+                }
+            }
+        }
+    }
     let Some(backend) = yang_rs::native_backend() else {
         // Unreachable since cherchi-rs M7c (the backend is always available),
         // kept as a loud arm rather than an unwrap (P9, no-panic rule).
@@ -2839,6 +2852,17 @@ pub fn boolean_op(
         ));
     };
     let out = yang_rs::boolean(&ya, &yb, op, &backend).map_err(map_yang_error)?;
+    if std::env::var_os("KV2_PLANE_TRACE").is_some() {
+        for (i, f) in out.faces().iter().enumerate() {
+            if let yang_rs::Surface::Plane { normal, d } = f.surface {
+                let n = normal.as_array();
+                eprintln!(
+                    "[plane-trace] OUTPUT face {i} n=({:.17e},{:.17e},{:.17e}) d={d:.17e}",
+                    n[0], n[1], n[2]
+                );
+            }
+        }
+    }
     // KV9-F3 diagnosis probe (read-only, env-gated): census near-twin
     // vertex pairs in yang's OUTPUT B-Rep, with incident-edge context —
     // localizes output-identity defects to the yang side vs the assembler.

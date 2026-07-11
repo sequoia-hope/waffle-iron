@@ -239,8 +239,13 @@ pub(crate) fn reconstruct_topology_stage4(
     // such segment exists (B6).
     {
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        let kv15b_collapsed =
-            collapse_subresolution_intersection_segments(mesh, &mut attr_vec, &intersection_curves);
+        let kv15b_collapsed = collapse_subresolution_intersection_segments(
+            mesh,
+            &mut attr_vec,
+            &intersection_curves,
+            a,
+            b,
+        );
         attribution.attributions = attr_vec;
         if kv15b_collapsed {
             compact_unreferenced_verts(mesh, &mut relocations);
