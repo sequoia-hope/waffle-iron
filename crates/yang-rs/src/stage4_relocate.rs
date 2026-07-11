@@ -274,11 +274,28 @@ pub(crate) fn relocate_onto_implicit_triple(
             a[0] * b[1] - a[1] * b[0],
         ]
     };
+    // KV16: the Newton system pairs each residual with the UNIT surface
+    // normal, so every residual must be the TRUE signed distance along it.
+    // `surface_value_and_normal`'s cone arm returns the radial-deviation
+    // form `l − |h|·tanα` = distance × sec α — fine for its band-audit
+    // consumers (conservative) but an overshooting Newton step here: at
+    // half-angle 60° (sec α ≈ 2) the iteration bounces without converging
+    // (the R0017 v47 prism-edge × 60°-band pierce). Rescale the cone
+    // residual to the true distance `l·cosα − |h|·sinα` (the kernel-v2
+    // `pair_surface_residual_gradient` convention; plane/sphere/cylinder
+    // residuals are already true distances along their unit gradients).
+    let dist_and_normal = |s: Surface, x: [f64; 3]| -> Option<(f64, [f64; 3])> {
+        let (f, n) = surface_value_and_normal(s, x)?;
+        match s {
+            Surface::Cone { half_angle, .. } => Some((f * half_angle.cos(), n)),
+            _ => Some((f, n)),
+        }
+    };
     let mut x = p.as_array();
     for _ in 0..=MAX_ITERS {
-        let (f0, n0) = surface_value_and_normal(s0, x)?;
-        let (f1, n1) = surface_value_and_normal(s1, x)?;
-        let (f2, n2) = surface_value_and_normal(s2, x)?;
+        let (f0, n0) = dist_and_normal(s0, x)?;
+        let (f1, n1) = dist_and_normal(s1, x)?;
+        let (f2, n2) = dist_and_normal(s2, x)?;
         let c12 = cross(n1, n2);
         let det = n0[0] * c12[0] + n0[1] * c12[1] + n0[2] * c12[2];
         if det.abs() <= rank_eps {

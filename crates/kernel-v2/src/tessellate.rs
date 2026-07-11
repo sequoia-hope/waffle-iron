@@ -370,6 +370,107 @@ pub(crate) fn ellipse_interior_samples(
     Ok(samples)
 }
 
+/// Interior sample points of a HYPERBOLA-arc half-edge (KV16, spec
+/// `kv16_hyperbola_arc_vocabulary`), endpoints excluded, in the half-edge's
+/// walk direction. Twin-canonical exactly like [`arc_interior_samples`]
+/// (computed on the lower-id half-edge, reversed for the other side).
+///
+/// Sampling is closed-form recursive parameter bisection (the
+/// [`surface_pair_interior_samples`] shape with exact evaluation instead of
+/// Newton): split `[t0, t1]` while the parametric midpoint deviates from the
+/// chord midpoint by more than the sag tolerance
+/// `max(a,b)·(1 − cos(π/n_seg))` — the same circle-step sag contract the
+/// surface-pair sampling uses, at the hyperbola's own scale. Depth-capped
+/// with a typed failure (never a silent chord fallback, P9).
+pub(crate) fn hyperbola_interior_samples(
+    arena: &BrepArena,
+    h: crate::arena::HalfEdgeId,
+    n_seg: u32,
+) -> Result<Vec<Point3>, KernelV2Error> {
+    let he = arena.half_edge(h)?;
+    if !matches!(he.curve, Curve::HyperbolaArc { .. }) {
+        return Ok(Vec::new());
+    }
+    let canon = h.min(he.twin);
+    let che = arena.half_edge(canon)?;
+    let Curve::HyperbolaArc {
+        center,
+        normal,
+        major_axis,
+        semi_transverse,
+        semi_conjugate,
+    } = che.curve
+    else {
+        return Err(KernelV2Error::CurveTwinMismatch { half_edge: canon });
+    };
+    let fid = arena.loop_(che.loop_id)?.face;
+    let start = arena.vertex(che.origin)?.point;
+    let end = arena.vertex(arena.half_edge(che.next)?.origin)?.point;
+    let nu = [normal.x, normal.y, normal.z];
+    let mr = [major_axis.x, major_axis.y, major_axis.z];
+    let (Some(t0), Some(t1)) = (
+        crate::geom::hyperbola_param(center, nu, mr, semi_conjugate, start),
+        crate::geom::hyperbola_param(center, nu, mr, semi_conjugate, end),
+    ) else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "degenerate hyperbola arc (endpoint has no parameter)",
+        });
+    };
+    let step = std::f64::consts::PI / f64::from(n_seg);
+    let tol = semi_transverse.max(semi_conjugate) * (1.0 - step.cos());
+    #[allow(clippy::too_many_arguments)]
+    fn refine(
+        center: Point3,
+        nu: [f64; 3],
+        mr: [f64; 3],
+        a: f64,
+        b: f64,
+        seg: (f64, Point3, f64, Point3),
+        tol: f64,
+        depth: u32,
+        out: &mut Vec<Point3>,
+    ) -> Result<(), &'static str> {
+        let (ta, pa, tb, pb) = seg;
+        let tm = 0.5 * (ta + tb);
+        let pm = crate::geom::hyperbola_point_at(center, nu, mr, a, b, tm);
+        let mid = [
+            0.5 * (pa.x() + pb.x()),
+            0.5 * (pa.y() + pb.y()),
+            0.5 * (pa.z() + pb.z()),
+        ];
+        let sag =
+            ((pm.x() - mid[0]).powi(2) + (pm.y() - mid[1]).powi(2) + (pm.z() - mid[2]).powi(2))
+                .sqrt();
+        if sag <= tol {
+            return Ok(());
+        }
+        if depth == 0 || sag.is_nan() {
+            return Err("hyperbola-arc refinement depth cap exceeded");
+        }
+        refine(center, nu, mr, a, b, (ta, pa, tm, pm), tol, depth - 1, out)?;
+        out.push(pm);
+        refine(center, nu, mr, a, b, (tm, pm, tb, pb), tol, depth - 1, out)
+    }
+    let mut samples = Vec::new();
+    refine(
+        center,
+        nu,
+        mr,
+        semi_transverse,
+        semi_conjugate,
+        (t0, start, t1, end),
+        tol,
+        SURFACE_PAIR_REFINE_DEPTH,
+        &mut samples,
+    )
+    .map_err(|reason| KernelV2Error::TessellationFailed { face: fid, reason })?;
+    if h != canon {
+        samples.reverse();
+    }
+    Ok(samples)
+}
+
 /// Convergence tolerance of the surface-pair Newton projection — mirrors
 /// yang-rs's tested `relocate_onto_implicit_pair` contract (both residuals
 /// ≤ 1e-13; meters-scale models).
@@ -564,6 +665,10 @@ fn sampled_loop_points(
             }
         } else if matches!(he.curve, Curve::EllipseArc { .. }) {
             pts.extend(ellipse_interior_samples(arena, h, n_seg)?);
+        } else if matches!(he.curve, Curve::HyperbolaArc { .. }) {
+            // KV16: the plane∩cone section arc IS planar — expand to its
+            // sag-bound samples exactly like the ellipse arc.
+            pts.extend(hyperbola_interior_samples(arena, h, n_seg)?);
         } else if matches!(he.curve, Curve::SurfacePair { .. }) {
             // M5 K8: a transversal quadric-pair curve is never planar —
             // loud, not an empty-sample fall-through.
@@ -2401,13 +2506,31 @@ fn tessellate_developable_patch(
                     // is the radius-r circle: Δθ = s_w·Δt, s_w the frame
                     // handedness sign — see geom::cylinder_arc_patch_flux).
                     // A cone-section ellipse has NO such constant-radius
-                    // projection — the oblique conic-cut vocabulary is a
-                    // later slice, typed and loud.
+                    // projection — KV16 routes it through the per-sample
+                    // wrapped-Δθ walk (the SurfacePair/HyperbolaArc
+                    // mechanism below); the cylinder path stays
+                    // byte-identical.
                     if matches!(dev, DevSurface::Cone { .. }) {
-                        return Err(fail(
-                            "cone patch ellipse arcs (oblique cone sections) are outside \
-                             the KV6c increment-5 vocabulary",
-                        ));
+                        let samples = ellipse_interior_samples(arena, h, n_seg)?;
+                        let mut theta_prev = theta_p;
+                        entries.push((origin_node, PatchEdgeKind::ArcSample));
+                        for sp in &samples {
+                            let (theta_s, sh) = theta_h(*sp, e1, e2)?;
+                            let delta = crate::geom::wrap_to_pi(theta_s - theta_prev);
+                            u_cur += sense * delta * r_unroll;
+                            total_theta += delta;
+                            theta_prev = theta_s;
+                            entries.push((nodes.len(), PatchEdgeKind::ArcSample));
+                            nodes.push(PatchNode {
+                                p2: Point2::new(u_cur, sh),
+                                pos: [sp.x(), sp.y(), sp.z()],
+                            });
+                        }
+                        let (theta_q, _) = theta_h(q, e1, e2)?;
+                        let delta = crate::geom::wrap_to_pi(theta_q - theta_prev);
+                        u_cur += sense * delta * r_unroll;
+                        total_theta += delta;
+                        continue;
                     }
                     let nu = [normal.x, normal.y, normal.z];
                     let mr = [major_axis.x, major_axis.y, major_axis.z];
@@ -2467,6 +2590,35 @@ fn tessellate_developable_patch(
                 }
                 Curve::Circle { .. } => {
                     return Err(fail("full-circle edge inside a partial cylinder patch"))
+                }
+                // KV16: hyperbola-arc boundary piece (the axis-steep
+                // plane∩cone section). Same mechanism as the SurfacePair
+                // arm below: each closed-form sample advances the unroll
+                // azimuth by its own small wrapped Δθ (samples are sag-bound
+                // dense, every step far below π; the hyperbola's azimuth
+                // advance is non-uniform in its parameter, so the
+                // uniform-fraction shortcut of the circle/ellipse arms does
+                // not apply).
+                Curve::HyperbolaArc { .. } => {
+                    let samples = hyperbola_interior_samples(arena, h, n_seg)?;
+                    let mut theta_prev = theta_p;
+                    entries.push((origin_node, PatchEdgeKind::ArcSample));
+                    for sp in &samples {
+                        let (theta_s, sh) = theta_h(*sp, e1, e2)?;
+                        let delta = crate::geom::wrap_to_pi(theta_s - theta_prev);
+                        u_cur += sense * delta * r_unroll;
+                        total_theta += delta;
+                        theta_prev = theta_s;
+                        entries.push((nodes.len(), PatchEdgeKind::ArcSample));
+                        nodes.push(PatchNode {
+                            p2: Point2::new(u_cur, sh),
+                            pos: [sp.x(), sp.y(), sp.z()],
+                        });
+                    }
+                    let (theta_q, _) = theta_h(q, e1, e2)?;
+                    let delta = crate::geom::wrap_to_pi(theta_q - theta_prev);
+                    u_cur += sense * delta * r_unroll;
+                    total_theta += delta;
                 }
                 // M5: quartic boundary piece. Each certified sample advances
                 // the unroll azimuth by its own small wrapped Δθ (samples

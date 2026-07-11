@@ -87,6 +87,18 @@ pub fn extract_edges_with_chord_tolerance(
                 pl.push(end);
                 out.push(pl);
             }
+            Curve::HyperbolaArc { .. } => {
+                // KV16: same contract as Arc — the render-identical
+                // sample polyline.
+                let start = arena.vertex(he.origin)?.point;
+                let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+                let mut pl = vec![start];
+                pl.extend(crate::tessellate::hyperbola_interior_samples(
+                    arena, h, n_seg,
+                )?);
+                pl.push(end);
+                out.push(pl);
+            }
             Curve::SurfacePair { .. } => {
                 // M5: same contract as Arc — endpoints + the render-identical
                 // certified sample polyline (Newton-projected onto both
@@ -178,6 +190,7 @@ pub fn surface_area(arena: &BrepArena, solid: SolidId) -> Result<f64, KernelV2Er
                         // a silent polygonal sum over arc chords.
                         Curve::Arc { .. }
                         | Curve::EllipseArc { .. }
+                        | Curve::HyperbolaArc { .. }
                         | Curve::SurfacePair { .. } => {
                             return Err(KernelV2Error::CurvedGeometryMismatch {
                                 face: f,

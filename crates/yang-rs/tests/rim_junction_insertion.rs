@@ -934,3 +934,157 @@ fn truncated_steinmetz_union_green_target() {
          under-fill band only)"
     );
 }
+
+// ── KV16: the SAME-TYPE hyperbola×hyperbola band junction (R0017) ────────
+// Spec `specs/kv16_hyperbola_arc_vocabulary.md` + the
+// `yang_stage4_conic_triple_junction` residue: an AXIS-PARALLEL slab face
+// sections BOTH coaxial cone bands in hyperbolas; the two hyperbolas meet
+// where the shared band rim crosses the plane — a {coneA, coneB, plane}
+// junction. Both curves land in the SAME single-curve conic map
+// (`vert_cone_hyperbola`), so the ≥2-maps triple trigger cannot see the
+// junction: the second insert silently overwrites the first and the vertex
+// is relocated onto only ONE band's hyperbola, leaving an off-curve
+// endpoint on the other band's output edge.
+
+/// First-order distance of `pt` from the `u > 0` branch of an output
+/// `Curve::Hyperbola` (in-plane |g|/|∇g| + out-of-plane), mirroring the
+/// kernel-v2 import certification.
+fn hyperbola_endpoint_residual(curve: &Curve, pt: Point3) -> f64 {
+    let Curve::Hyperbola {
+        center,
+        normal,
+        major_axis,
+        semi_transverse,
+        semi_conjugate,
+    } = curve
+    else {
+        panic!("not a hyperbola edge");
+    };
+    let n = normal.as_array();
+    let m = major_axis.as_array();
+    let w = [
+        n[1] * m[2] - n[2] * m[1],
+        n[2] * m[0] - n[0] * m[2],
+        n[0] * m[1] - n[1] * m[0],
+    ];
+    let c = center.as_array();
+    let pa = pt.as_array();
+    let d = [pa[0] - c[0], pa[1] - c[1], pa[2] - c[2]];
+    let u = dot(d, m);
+    let v = dot(d, w);
+    let oop = dot(d, n);
+    let (a, b) = (*semi_transverse, *semi_conjugate);
+    let g = (u / a).powi(2) - (v / b).powi(2) - 1.0;
+    let grad = 2.0 * (u / (a * a)).hypot(v / (b * b));
+    let in_plane = if grad > 0.0 {
+        (g / grad).abs()
+    } else {
+        f64::INFINITY
+    };
+    if u <= 0.0 {
+        return f64::INFINITY;
+    }
+    in_plane.max(oop.abs())
+}
+
+/// GREEN target: lathe ∖ corner-notch box whose VERTICAL EDGE (x = 2.5,
+/// y = 0.5, ∥ the axis) pierces BOTH cone bands' interiors. Each pierce
+/// vertex sits on {planeX, planeY, coneN} with BOTH incident section
+/// curves hyperbolas (axis-parallel planes) — the same-map collision. The
+/// subtract must complete with EVERY output hyperbola edge's endpoints ON
+/// their own branch (the pierce vertex relocated onto the exact triple
+/// point, not onto just one plane's hyperbola).
+#[test]
+fn same_type_hyperbola_edge_pierce_endpoints_on_curve() {
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[rim-junction] SKIP: native FFI shim not linked (stub build)");
+        return;
+    };
+    let (r0, r1, r2) = class_radii();
+    let lathe = lathe_brep(r0, r1, r2, 1.0);
+    // Notch corner edge at (2.5, 0.5): radial distance √6.5 ≈ 2.5495 < r1 ≈
+    // 2.732 — pierces band 1 at z ≈ 0.895 and band 2 at z ≈ 1.316. The box
+    // clears the caps (z ∈ [−0.5, 2.5]) and the far side (x, y to 4 > r1).
+    let (xa, yb) = (2.5f64, 0.5f64);
+    let slab = box_brep([xa, yb, -0.5], [4.0, 4.0, 2.5]);
+    let out = boolean(&lathe, &slab, BoolOp::Subtract, &sb)
+        .unwrap_or_else(|e| panic!("edge-pierce same-type subtract failed with {e:?}"));
+    assert_eq!(
+        unpaired_half_edges(out.as_mesh()),
+        0,
+        "edge-pierce same-type: subtract output must be watertight"
+    );
+
+    // Volume: V_lathe − ∫ A(r(z)) dz, where A(r) = disc ∩ {x ≥ xa, y ≥ yb}
+    // (nonempty exactly when r ≥ √(xa²+yb²); closed form via the circular
+    // antiderivative), piecewise per band; Simpson within each band.
+    let tan60 = (std::f64::consts::PI / 3.0).tan();
+    let tan30 = (std::f64::consts::PI / 6.0).tan();
+    let v_lathe = std::f64::consts::PI / 3.0
+        * ((r0 * r0 + r0 * r1 + r1 * r1) + (r1 * r1 + r1 * r2 + r2 * r2));
+    let corner_r = (xa * xa + yb * yb).sqrt();
+    let corner_area = |r: f64| {
+        if r <= corner_r {
+            return 0.0;
+        }
+        let y_max = (r * r - xa * xa).sqrt();
+        let anti = |y: f64| (y * (r * r - y * y).sqrt() + r * r * (y / r).asin()) / 2.0 - xa * y;
+        anti(y_max) - anti(yb)
+    };
+    let simpson = |f: &dyn Fn(f64) -> f64, lo: f64, hi: f64| {
+        let n = 2000usize;
+        let h = (hi - lo) / n as f64;
+        let mut s = f(lo) + f(hi);
+        for k in 1..n {
+            s += if k % 2 == 1 { 4.0 } else { 2.0 } * f(lo + k as f64 * h);
+        }
+        s * h / 3.0
+    };
+    let z1_lo = (corner_r - r0) / tan60; // band-1 radius reaches the corner
+    let z2_hi = 1.0 + (r1 - corner_r) / tan30; // band-2 falls back to it
+    let cut = simpson(&|z| corner_area(r0 + tan60 * z), z1_lo, 1.0)
+        + simpson(&|z| corner_area(r1 - tan30 * (z - 1.0)), 1.0, z2_hi);
+    let expect = v_lathe - cut;
+    let vol = mesh_signed_volume(out.as_mesh());
+    assert!(
+        vol <= expect * 1.005 && vol >= 0.90 * expect,
+        "edge-pierce same-type: volume {vol} vs analytic {expect}"
+    );
+
+    // The discriminating oracle: every output hyperbola edge endpoint lies
+    // on ITS OWN branch at the kernel import band (the R0017 auto-union
+    // certification). A pierce vertex relocated onto only ONE plane's
+    // hyperbola fails this by a facet-sagitta-scale residual.
+    let verts = out.vertices();
+    let mut hyperbola_edges = 0usize;
+    for (i, e) in out.edges().iter().enumerate() {
+        if !matches!(e.curve, Curve::Hyperbola { .. }) {
+            continue;
+        }
+        hyperbola_edges += 1;
+        let Curve::Hyperbola {
+            semi_transverse,
+            semi_conjugate,
+            ..
+        } = e.curve
+        else {
+            unreachable!();
+        };
+        let scale = semi_transverse.max(semi_conjugate);
+        for v in [e.start, e.end] {
+            let pt = verts[v as usize].point;
+            let mag = pt.as_array().iter().fold(0.0f64, |acc, c| acc.max(c.abs()));
+            let band = 1e-9 * (1.0 + scale.max(mag));
+            let resid = hyperbola_endpoint_residual(&e.curve, pt);
+            assert!(
+                resid <= band,
+                "hyperbola edge {i} endpoint {v} off its branch: residual {resid:.3e} \
+                 > band {band:.3e}"
+            );
+        }
+    }
+    assert!(
+        hyperbola_edges >= 2,
+        "expected hyperbola output edges from both planes, found {hyperbola_edges}"
+    );
+}

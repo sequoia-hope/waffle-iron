@@ -689,6 +689,158 @@ pub(crate) fn stage1_tessellate_inner(
             }
         }
 
+        // ---- Hyperbola chain pre-pass (KV16 hyperbola-arc re-entry, spec
+        // `kv16_hyperbola_arc_vocabulary`). A `Curve::Hyperbola` boundary
+        // edge (the axis-steep plane∩cone section a prior boolean leaves on
+        // a re-entering body) builds a shared OPEN sample chain
+        // `[start, Steiner…, end]` in `rim_rings`, mirroring the Ellipse
+        // block above. The branch is unbounded, so `start == end` is
+        // impossible and loud. Sampling is closed-form recursive parameter
+        // bisection to the chord-sag bound `d_ε = 1e-2·max(a,b)` (the KV14
+        // self-contained rule at the conic's scale); each Steiner vertex is
+        // tagged with its exact parameter for the eval_source round-trip.
+        for (e_idx, e) in edges.iter().enumerate() {
+            let Curve::Hyperbola {
+                center,
+                normal,
+                major_axis,
+                semi_transverse,
+                semi_conjugate,
+            } = e.curve
+            else {
+                continue;
+            };
+            if e.start == e.end {
+                return Err(YangError::MalformedTopology(format!(
+                    "hyperbola edge {e_idx}: a closed hyperbola loop edge is impossible \
+                     (the branch is unbounded)"
+                )));
+            }
+            let d_eps = 1e-2 * semi_transverse.max(semi_conjugate);
+            let param_of = |v: u32| -> Result<f64, YangError> {
+                let p = verts.get(v as usize).map(|vv| vv.point).ok_or_else(|| {
+                    YangError::MalformedTopology(format!(
+                        "hyperbola edge {e_idx}: vertex {v} out of range"
+                    ))
+                })?;
+                let t = hyperbola_param(p, center, normal, major_axis, semi_conjugate);
+                let q = hyperbola_point(
+                    center,
+                    normal,
+                    major_axis,
+                    semi_transverse,
+                    semi_conjugate,
+                    t,
+                );
+                let pa = p.as_array();
+                let qa = q.as_array();
+                let dist =
+                    ((pa[0] - qa[0]).powi(2) + (pa[1] - qa[1]).powi(2) + (pa[2] - qa[2]).powi(2))
+                        .sqrt();
+                let band = 1e-9 * (1.0 + semi_transverse.max(semi_conjugate));
+                if dist > band {
+                    return Err(YangError::MalformedTopology(format!(
+                        "hyperbola edge {e_idx}: endpoint vertex {v} is not on the branch \
+                         (deviation {dist})"
+                    )));
+                }
+                Ok(t)
+            };
+            let t0 = param_of(e.start)?;
+            let t1 = param_of(e.end)?;
+            // Recursive chord-sag bisection (endpoints excluded, in
+            // t0 → t1 order). Depth 12 ⇒ ≤ 4096 sub-chords — far beyond any
+            // sane arc at the 1e-2 bound; exceeding it is loud.
+            #[allow(clippy::too_many_arguments)]
+            fn refine(
+                e_idx: usize,
+                center: Point3,
+                normal: Vector3,
+                major_axis: Vector3,
+                a: f64,
+                b: f64,
+                seg: (f64, Point3, f64, Point3),
+                d_eps: f64,
+                depth: u32,
+                out: &mut Vec<(f64, Point3)>,
+            ) -> Result<(), YangError> {
+                let (ta, pa, tb, pb) = seg;
+                let tm = 0.5 * (ta + tb);
+                let pm = hyperbola_point(center, normal, major_axis, a, b, tm);
+                let mid = [
+                    0.5 * (pa.as_array()[0] + pb.as_array()[0]),
+                    0.5 * (pa.as_array()[1] + pb.as_array()[1]),
+                    0.5 * (pa.as_array()[2] + pb.as_array()[2]),
+                ];
+                let pma = pm.as_array();
+                let sag = ((pma[0] - mid[0]).powi(2)
+                    + (pma[1] - mid[1]).powi(2)
+                    + (pma[2] - mid[2]).powi(2))
+                .sqrt();
+                if sag <= d_eps {
+                    return Ok(());
+                }
+                if depth == 0 || sag.is_nan() {
+                    return Err(YangError::MalformedTopology(format!(
+                        "hyperbola edge {e_idx}: chain refinement depth cap exceeded"
+                    )));
+                }
+                refine(
+                    e_idx,
+                    center,
+                    normal,
+                    major_axis,
+                    a,
+                    b,
+                    (ta, pa, tm, pm),
+                    d_eps,
+                    depth - 1,
+                    out,
+                )?;
+                out.push((tm, pm));
+                refine(
+                    e_idx,
+                    center,
+                    normal,
+                    major_axis,
+                    a,
+                    b,
+                    (tm, pm, tb, pb),
+                    d_eps,
+                    depth - 1,
+                    out,
+                )
+            }
+            let p0 = verts[e.start as usize].point;
+            let p1 = verts[e.end as usize].point;
+            let mut steiner: Vec<(f64, Point3)> = Vec::new();
+            refine(
+                e_idx,
+                center,
+                normal,
+                major_axis,
+                semi_transverse,
+                semi_conjugate,
+                (t0, p0, t1, p1),
+                d_eps,
+                12,
+                &mut steiner,
+            )?;
+            let mut chain: Vec<u32> = Vec::with_capacity(steiner.len() + 2);
+            chain.push(e.start);
+            for (t, p) in steiner {
+                let vi = out_verts.len() as u32;
+                out_verts.push(p);
+                sources.push(TessellationSource::BRepEdge {
+                    edge: e_idx as u32,
+                    t,
+                });
+                chain.push(vi);
+            }
+            chain.push(e.end);
+            rim_rings.insert(e_idx as u32, chain);
+        }
+
         // ---- Per-face dispatch.
         let mut face_tri_ranges: Vec<std::ops::Range<usize>> = Vec::with_capacity(faces.len());
         for (f_idx, f) in faces.iter().enumerate() {
@@ -1164,7 +1316,7 @@ pub(crate) fn loop_polyline_attributed(
         let e = &edges[e_idx as usize];
         match e.curve {
             Curve::LineSegment => Ok(vec![if forward { e.start } else { e.end }]),
-            Curve::Circle { .. } | Curve::Ellipse { .. } => {
+            Curve::Circle { .. } | Curve::Ellipse { .. } | Curve::Hyperbola { .. } => {
                 let chain = chains
                     .get(&e_idx)
                     .ok_or_else(|| malformed(format!("chain for edge {e_idx} not built")))?;
@@ -2096,7 +2248,10 @@ pub(crate) fn tessellate_lateral_face(
         && f.outer_loop.iter().all(|&e| {
             matches!(
                 edges[e as usize].curve,
-                Curve::Circle { .. } | Curve::LineSegment | Curve::Ellipse { .. }
+                Curve::Circle { .. }
+                    | Curve::LineSegment
+                    | Curve::Ellipse { .. }
+                    | Curve::Hyperbola { .. }
             )
         })
     {
@@ -2648,7 +2803,10 @@ pub(crate) fn tessellate_cone_face(
         && f.outer_loop.iter().all(|&e| {
             matches!(
                 edges[e as usize].curve,
-                Curve::Circle { .. } | Curve::LineSegment | Curve::Ellipse { .. }
+                Curve::Circle { .. }
+                    | Curve::LineSegment
+                    | Curve::Ellipse { .. }
+                    | Curve::Hyperbola { .. }
             )
         })
     {
@@ -4325,6 +4483,14 @@ pub(crate) fn ellipse_rim_chord_bound(edges: &[BRepEdge]) -> Option<f64> {
         .iter()
         .filter_map(|e| match e.curve {
             Curve::Ellipse { major_radius, .. } => Some(ellipse_chord_bound(major_radius)),
+            // KV16: hyperbola rims use the same 1e-2 rule at the conic's
+            // scale (the S3 tol-lookup vocabulary lesson — a curved owner
+            // whose only curved rims are hyperbolas must resolve a bound).
+            Curve::Hyperbola {
+                semi_transverse,
+                semi_conjugate,
+                ..
+            } => Some(ellipse_chord_bound(semi_transverse.max(semi_conjugate))),
             _ => None,
         })
         .fold(None, |acc: Option<f64>, b| {

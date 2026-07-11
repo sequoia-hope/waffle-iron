@@ -113,7 +113,9 @@ pub(crate) use stage4_correct::*;
 pub(crate) use stage4_relocate::*;
 pub mod stage4_update;
 pub use errors::{SsiRefinementError, Stage4InvalidReason, YangError};
-pub(crate) use geom::{ellipse_param, ellipse_point, ellipse_tangent, surface_normal_at};
+pub(crate) use geom::{
+    ellipse_param, ellipse_point, ellipse_tangent, hyperbola_param, surface_normal_at,
+};
 pub use geom::{hyperbola_point, parabola_point, signed_distance_to_surface, Curve, Surface};
 
 pub use cad_primitives::{BoolOp, Point3, Vector3};

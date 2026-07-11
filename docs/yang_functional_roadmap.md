@@ -748,6 +748,37 @@ the roadmap's remaining work:
    Probes kept: enriched `[s4-exact-junction]` per-surface distances,
    `[s4-triple-junction]`, `YANG_TWIN_SCAN`, `[rim-junction]` operand
    dumps, kernel-v2 ring dump under `KV2_RENDER_GATE_PROBE`.
+   **N2/R0017 epic increment 6 SHIPPED 2026-07-11 (spec
+   `specs/kv16_hyperbola_arc_vocabulary.md`, task #124) — the
+   `UnsupportedBooleanOutputCurve(Hyperbola)` output-vocabulary wall is
+   GONE, plus two Stage-4 root causes and the cone-patch EllipseArc
+   extension found by driving R0017 through it.** kernel-v2 gains
+   `Curve::HyperbolaArc` end-to-end (classify with on-branch endpoint
+   certification, bit-identical twins — the open-branch/SurfacePair
+   traversal convention, not the ellipse's directional one; sag-bisection
+   render sampling; planar + developable-patch tessellation arms; planar
+   winding midpoints; exact `ab·(Δt − sinh Δt)` planar segment area;
+   `to_yang_brep` re-entry at both conversion sites) and yang-rs Stage 1
+   ingests `Curve::Hyperbola` chains (asinh param, sag bisection,
+   `loop_polyline` + both lateral CDT gates + the S3
+   `ellipse_rim_chord_bound` vocabulary). Stage-4 fixes: (a) SAME-TYPE
+   hyperbola×hyperbola junctions (prism-edge × cone pierce — both curves
+   in the ONE `vert_cone_hyperbola` slot) are detected at insert and
+   routed to the increment-5 triple relocation (`same_type_junction`);
+   (b) `relocate_onto_implicit_triple` now feeds Newton TRUE cone
+   distances (`f·cosα`) — the radial-deviation form diverges at 60°
+   half-angles (sec α ≈ 2 overshoot; why 30° fixtures never saw it).
+   Both mutation-verified on R0017. kernel-v2 cone patches also admit
+   EllipseArc boundaries (endpoint-azimuth walk + sampled unroll — the
+   KV6c increment-5 "later slice" reject retired; `signed_volume` conic
+   flux stays typed). R0017's auto-union now SUCCEEDS; the case stops at
+   its op-3 cut's Stage-3 `AmbiguousCurve{0,0}` (the R0003/R0008 class).
+   Tests: `kv16_hyperbola_boolean.rs` (exact-volume union + re-entry
+   chain), geom round-trips, rim_junction same-type pierce pin. Named
+   residue: sibling conic maps (`vert_cone_ellipse`/`vert_parabola`) have
+   the same latent overwrite trap (no corpus driver); d>1 wrapping-loop
+   cone patches still can't re-enter Stage 1 (KV14 Slice E). Probes:
+   `KV_HYPERBOLA_PROBE`, `YANG_SAMETYPE_PROBE` (+ `[triple-bail]`).
    **ERROR-census campaign 3 SHIPPED 2026-07-08 (spec
    `specs/cut_consumes_body.md`):** the EmptyBooleanResult cluster
    (R0023/R0027/R0058/R0088) is ONE mechanism — a cut whose tool ENGULFS

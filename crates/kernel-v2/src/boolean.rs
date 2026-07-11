@@ -291,6 +291,58 @@ pub fn to_yang_brep_indexed(
                                     };
                                     indices.push(idx);
                                 }
+                                // KV16 hyperbola-arc re-entry: maps
+                                // field-for-field to the yang input
+                                // `Curve::Hyperbola` (identical cosh/sinh
+                                // branch parameterization; traversal is
+                                // endpoint-determined). One SHARED yang edge
+                                // per twin pair — the Stage-1 chain is
+                                // sampled once, keeping the boundary
+                                // watertight.
+                                Curve::HyperbolaArc {
+                                    center,
+                                    normal,
+                                    major_axis,
+                                    semi_transverse,
+                                    semi_conjugate,
+                                } => {
+                                    let key = h.min(he.twin);
+                                    let idx = match shared_edges.get(&key) {
+                                        Some(&idx) => idx,
+                                        None => {
+                                            let idx = yedges.len() as u32;
+                                            let start = map_vertex(
+                                                he.origin,
+                                                &mut vid_map,
+                                                &mut yverts,
+                                                arena,
+                                            )?;
+                                            let dest = arena.half_edge(he.next)?.origin;
+                                            let end =
+                                                map_vertex(dest, &mut vid_map, &mut yverts, arena)?;
+                                            yedges.push(yang_rs::BRepEdge {
+                                                start,
+                                                end,
+                                                curve: yang_rs::Curve::Hyperbola {
+                                                    center,
+                                                    normal: Vector3::new(
+                                                        normal.x, normal.y, normal.z,
+                                                    ),
+                                                    major_axis: Vector3::new(
+                                                        major_axis.x,
+                                                        major_axis.y,
+                                                        major_axis.z,
+                                                    ),
+                                                    semi_transverse,
+                                                    semi_conjugate,
+                                                },
+                                            });
+                                            shared_edges.insert(key, idx);
+                                            idx
+                                        }
+                                    };
+                                    indices.push(idx);
+                                }
                                 Curve::LineSegment => {
                                     let start =
                                         map_vertex(he.origin, &mut vid_map, &mut yverts, arena)?;
@@ -460,6 +512,36 @@ pub fn to_yang_brep_indexed(
                                         ),
                                         major_radius,
                                         minor_radius,
+                                    },
+                                });
+                            }
+                            // KV16 hyperbola-arc re-entry: shared
+                            // endpoint-determined hyperbola piece (twin
+                            // carries bit-identical fields — either side's
+                            // descriptor denotes the same point set).
+                            Curve::HyperbolaArc {
+                                center,
+                                normal,
+                                major_axis,
+                                semi_transverse,
+                                semi_conjugate,
+                            } => {
+                                let start = map_vertex(he.origin, vid_map, yverts, arena)?;
+                                let dest = arena.half_edge(he.next)?.origin;
+                                let end = map_vertex(dest, vid_map, yverts, arena)?;
+                                yedges.push(yang_rs::BRepEdge {
+                                    start,
+                                    end,
+                                    curve: yang_rs::Curve::Hyperbola {
+                                        center,
+                                        normal: Vector3::new(normal.x, normal.y, normal.z),
+                                        major_axis: Vector3::new(
+                                            major_axis.x,
+                                            major_axis.y,
+                                            major_axis.z,
+                                        ),
+                                        semi_transverse,
+                                        semi_conjugate,
                                     },
                                 });
                             }
@@ -1109,6 +1191,7 @@ fn edge_kind_tag(e: &EdgeKind) -> &'static str {
         EdgeKind::Full { .. } => "Full",
         EdgeKind::Arc { .. } => "Arc",
         EdgeKind::EllipseArc { .. } => "EllipseArc",
+        EdgeKind::HyperbolaArc { .. } => "HyperbolaArc",
         EdgeKind::SurfacePair { .. } => "SurfacePair",
     }
 }
@@ -1141,6 +1224,18 @@ enum EdgeKind {
         major_radius: f64,
         minor_radius: f64,
     },
+    /// Hyperbola arc (KV16, `start != end`): the axis-steep plane∩cone
+    /// section piece between the endpoints, on the `+major_axis` branch.
+    /// No directional normal (the open branch is injective — traversal is
+    /// endpoint-determined, like `SurfacePair`); twins carry BIT-IDENTICAL
+    /// fields.
+    HyperbolaArc {
+        center: Point3,
+        normal: [f64; 3],
+        major_axis: [f64; 3],
+        semi_transverse: f64,
+        semi_conjugate: f64,
+    },
     /// Procedural surface-pair curve piece (M5, `start != end`): the general
     /// degree-4 cyl×cyl intersection between the endpoints, defined implicitly
     /// by its two `PairSurface`s. No directional normal (traversal is
@@ -1172,6 +1267,15 @@ enum CurveKey {
         major: [u64; 3],
         major_r: u64,
         minor_r: u64,
+    },
+    /// KV16: bit-exact hyperbola frame identity — distinct hyperbolas on
+    /// the same vertex pair key separately; genuine twins share the
+    /// descriptor exactly (bit-identical fields).
+    Hyperbola {
+        center: [u64; 3],
+        major: [u64; 3],
+        semi_t: u64,
+        semi_c: u64,
     },
     /// M5: the ordered pair of defining-surface bit patterns. Distinct
     /// quartics on the same vertex pair (different cylinder pairs) key
@@ -1254,6 +1358,18 @@ fn curve_key(ek: &EdgeKind) -> CurveKey {
             major: vb(*major_axis),
             major_r: major_radius.to_bits(),
             minor_r: minor_radius.to_bits(),
+        },
+        EdgeKind::HyperbolaArc {
+            center,
+            major_axis,
+            semi_transverse,
+            semi_conjugate,
+            ..
+        } => CurveKey::Hyperbola {
+            center: pb(*center),
+            major: vb(*major_axis),
+            semi_t: semi_transverse.to_bits(),
+            semi_c: semi_conjugate.to_bits(),
         },
         EdgeKind::SurfacePair { a, b } => CurveKey::SurfacePair {
             a: pair_surface_key(a),
@@ -1663,6 +1779,7 @@ pub fn from_yang_brep_indexed(
                     EdgeKind::Full { .. } => "Full",
                     EdgeKind::Arc { .. } => "Arc",
                     EdgeKind::EllipseArc { .. } => "EllArc",
+                    EdgeKind::HyperbolaArc { .. } => "HypArc",
                     EdgeKind::SurfacePair { .. } => "SurfPair",
                 };
                 let p = yverts[va as usize].point.as_array();
@@ -1756,6 +1873,31 @@ pub fn from_yang_brep_indexed(
                     if a0 != a1 || b0 != b1 {
                         return Err(KernelV2Error::InvalidBooleanOutput(
                             "twin output edges carry inconsistent surface-pair curves",
+                        ));
+                    }
+                }
+                (
+                    EdgeKind::HyperbolaArc {
+                        center: c0,
+                        normal: n0,
+                        major_axis: m0,
+                        semi_transverse: a0,
+                        semi_conjugate: b0,
+                    },
+                    EdgeKind::HyperbolaArc {
+                        center: c1,
+                        normal: n1,
+                        major_axis: m1,
+                        semi_transverse: a1,
+                        semi_conjugate: b1,
+                    },
+                ) => {
+                    // KV16: hyperbola twins carry BIT-IDENTICAL fields (the
+                    // SurfacePair convention — endpoint-determined traversal,
+                    // both uses copy the same yang edge descriptor).
+                    if c0 != c1 || n0 != n1 || m0 != m1 || a0 != a1 || b0 != b1 {
+                        return Err(KernelV2Error::InvalidBooleanOutput(
+                            "twin output edges carry inconsistent hyperbola-arc curves",
                         ));
                     }
                 }
@@ -1932,6 +2074,32 @@ pub fn from_yang_brep_indexed(
                         major_radius,
                         minor_radius,
                         t0 + sweep / 2.0,
+                    ));
+                }
+            }
+            // KV16: the HyperbolaArc analog — parametric midpoint (the
+            // arc dips toward the hyperbola center relative to its chord;
+            // same winding-restoration role as the arc/ellipse midpoints).
+            if let EdgeKind::HyperbolaArc {
+                center,
+                normal,
+                major_axis,
+                semi_transverse,
+                semi_conjugate,
+            } = spec.edges[k]
+            {
+                let p1 = yverts[spec.cycle[(k + 1) % m] as usize].point;
+                if let (Some(t0), Some(t1)) = (
+                    geom::hyperbola_param(center, normal, major_axis, semi_conjugate, p0),
+                    geom::hyperbola_param(center, normal, major_axis, semi_conjugate, p1),
+                ) {
+                    pts.push(geom::hyperbola_point_at(
+                        center,
+                        normal,
+                        major_axis,
+                        semi_transverse,
+                        semi_conjugate,
+                        0.5 * (t0 + t1),
                     ));
                 }
             }
@@ -2188,6 +2356,27 @@ pub fn from_yang_brep_indexed(
                     major_radius,
                     minor_radius,
                 },
+                EdgeKind::HyperbolaArc {
+                    center,
+                    normal,
+                    major_axis,
+                    semi_transverse,
+                    semi_conjugate,
+                } => Curve::HyperbolaArc {
+                    center,
+                    normal: UnitVector3 {
+                        x: normal[0],
+                        y: normal[1],
+                        z: normal[2],
+                    },
+                    major_axis: UnitVector3 {
+                        x: major_axis[0],
+                        y: major_axis[1],
+                        z: major_axis[2],
+                    },
+                    semi_transverse,
+                    semi_conjugate,
+                },
                 EdgeKind::Full { center, radius, .. } => {
                     let nu = full_normals[&(si, k)];
                     Curve::Circle {
@@ -2391,8 +2580,85 @@ fn classify_edge(
         yang_rs::Curve::Parabola { .. } => {
             Err(KernelV2Error::UnsupportedBooleanOutputCurve { curve: "Parabola" })
         }
-        yang_rs::Curve::Hyperbola { .. } => {
-            Err(KernelV2Error::UnsupportedBooleanOutputCurve { curve: "Hyperbola" })
+        // KV16 (spec `kv16_hyperbola_arc_vocabulary`): the axis-steep
+        // plane∩cone section piece. Endpoint-determined traversal (the open
+        // branch is injective — no minor-arc derivation, no directional
+        // normal); each use copies the yang edge descriptor verbatim, so
+        // twins come out BIT-IDENTICAL. K-checks: positive finite semi-axes,
+        // unit frame, open (`start != end`), both endpoints ON the branch
+        // (`u > 0`, first-order residual within the import band).
+        yang_rs::Curve::Hyperbola {
+            center,
+            normal,
+            major_axis,
+            semi_transverse,
+            semi_conjugate,
+        } => {
+            if !(semi_transverse.is_finite()
+                && semi_conjugate.is_finite()
+                && semi_transverse > 0.0
+                && semi_conjugate > 0.0)
+            {
+                return Err(KernelV2Error::InvalidBooleanOutput(
+                    "output hyperbola edge with non-positive semi-axes",
+                ));
+            }
+            let n = normalize3_arr(normal.as_array());
+            let m = normalize3_arr(major_axis.as_array());
+            if e.start == e.end {
+                return Err(KernelV2Error::UnsupportedBooleanOutputCurve {
+                    curve: "closed hyperbola loop edge (the branch is unbounded — impossible)",
+                });
+            }
+            let ps = yverts[from as usize].point;
+            let pe = yverts[to as usize].point;
+            let scale = semi_transverse.max(semi_conjugate);
+            for p in [ps, pe] {
+                let (in_plane, out_of_plane, u) = crate::geom::hyperbola_branch_residual(
+                    center,
+                    n,
+                    m,
+                    semi_transverse,
+                    semi_conjugate,
+                    p,
+                );
+                let mag = p.x().abs().max(p.y().abs()).max(p.z().abs());
+                let band = 1e-9 * (1.0 + scale.max(mag));
+                if std::env::var("KV_HYPERBOLA_PROBE").is_ok() {
+                    eprintln!(
+                        "KV_HYPERBOLA_PROBE edge ({},{}) p=({:.6},{:.6},{:.6}) u={u:.3e} \
+                         in_plane={in_plane:.3e} oop={out_of_plane:.3e} band={band:.3e} ok={}",
+                        e.start,
+                        e.end,
+                        p.x(),
+                        p.y(),
+                        p.z(),
+                        !(u <= 0.0 || in_plane > band || out_of_plane.abs() > band),
+                    );
+                }
+                if u <= 0.0 || in_plane > band || out_of_plane.abs() > band {
+                    if std::env::var("KV_HYPERBOLA_PROBE").is_ok() {
+                        eprintln!(
+                            "KV_HYPERBOLA_PROBE reject: from={from} to={to} start={} end={} \
+                             p={p:?} center={center:?} n={n:?} m={m:?} \
+                             a={semi_transverse:.17e} b={semi_conjugate:.17e} \
+                             u={u:.3e} in_plane={in_plane:.3e} oop={out_of_plane:.3e} \
+                             band={band:.3e}",
+                            e.start, e.end,
+                        );
+                    }
+                    return Err(KernelV2Error::InvalidBooleanOutput(
+                        "output hyperbola-arc endpoint does not lie on the +major-axis branch",
+                    ));
+                }
+            }
+            Ok(EdgeKind::HyperbolaArc {
+                center,
+                normal: n,
+                major_axis: m,
+                semi_transverse,
+                semi_conjugate,
+            })
         }
         // M5 (K1–K3): the procedural surface-pair curve. Operands are cylinders
         // and/or cones (the cyl×cyl and cone-pair producers); K2 rejects a

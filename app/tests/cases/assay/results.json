@@ -24,7 +24,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "2 engine error(s): 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile; f3f795d7-4b9d-4d45-8fd7-93be32b6585b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 89 is invalid: LocalRefinementRequired\")",
+      "detail": "2 engine error(s): 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile; f3f795d7-4b9d-4d45-8fd7-93be32b6585b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\")",
       "id": "R0004",
       "status": "error"
     },
@@ -102,7 +102,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: UnsupportedBooleanOutputCurve { curve: \"Hyperbola\" }. Body created as standalone.",
+      "detail": "1 engine error(s): 05ca6f07-b307-4b9e-9be3-51420a177d1c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (64, 65): AmbiguousCurve { candidates: 0, matched: 0 }\")",
       "id": "R0017",
       "status": "error"
     },
@@ -192,7 +192,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 089554e1-2746-405d-9c0d-70e00e9097a2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 23 is invalid: LocalRefinementRequired\")",
+      "detail": "1 engine error(s): 089554e1-2746-405d-9c0d-70e00e9097a2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 32 is invalid: LocalRefinementRequired\")",
       "id": "R0032",
       "status": "error"
     },
@@ -264,7 +264,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 244 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 11 is invalid: LocalRefinementRequired\"). Body created as standalone.",
       "id": "R0044",
       "status": "error"
     },
@@ -600,7 +600,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 35e46b10-8cdb-4b75-9d20-ea5fa0fc337c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: UnsupportedBooleanOutputCurve { curve: \"Hyperbola\" }",
+      "detail": "1 engine error(s): 35e46b10-8cdb-4b75-9d20-ea5fa0fc337c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\")",
       "id": "R0100",
       "status": "error"
     },

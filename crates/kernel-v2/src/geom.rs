@@ -215,6 +215,7 @@ pub fn signed_volume(
                         } => circles.push((center, normal, radius)),
                         Curve::Arc { .. }
                         | Curve::EllipseArc { .. }
+                        | Curve::HyperbolaArc { .. }
                         | Curve::SurfacePair { .. } => has_arcs = true,
                         Curve::LineSegment => {}
                     }
@@ -482,6 +483,40 @@ pub(crate) fn planar_face_signed_area2(
                     };
                     area2 += sign * major_radius * minor_radius * (sweep - sweep.sin());
                 }
+                Curve::HyperbolaArc {
+                    center,
+                    normal,
+                    major_axis,
+                    semi_transverse,
+                    semi_conjugate,
+                } => {
+                    // KV16: hyperbolic-segment correction. Sector (center to
+                    // arc) = (ab/2)·Δt and the inscribed triangle's cross is
+                    // (ab/2)·sinh Δt, so the chord-to-arc correction to TWICE
+                    // the area is `ab·(Δt − sinh Δt)` — the hyperbolic analog
+                    // of the ellipse's `ab·(Δt − sin Δt)`. `Δt` is signed in
+                    // the STORED frame (traversal is endpoint-determined) and
+                    // the correction is odd in Δt, so the frame-agreement
+                    // sign multiplies through exactly as for the ellipse.
+                    let nu = [normal.x, normal.y, normal.z];
+                    let mr = [major_axis.x, major_axis.y, major_axis.z];
+                    let (Some(t0), Some(t1)) = (
+                        hyperbola_param(center, nu, mr, semi_conjugate, p0),
+                        hyperbola_param(center, nu, mr, semi_conjugate, p1),
+                    ) else {
+                        return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
+                            face: f,
+                            reason: "signed_volume: degenerate hyperbola-arc endpoints",
+                        });
+                    };
+                    let dt = t1 - t0;
+                    let sign = if nu[0] * n[0] + nu[1] * n[1] + nu[2] * n[2] >= 0.0 {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    area2 += sign * semi_transverse * semi_conjugate * (dt - dt.sinh());
+                }
                 Curve::Circle { .. } => {
                     return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
                         face: f,
@@ -571,6 +606,99 @@ pub(crate) fn ellipse_point_at(
         center.y() + major_radius * c * m[1] + minor_radius * s * w[1],
         center.z() + major_radius * c * m[2] + minor_radius * s * w[2],
     )
+}
+
+/// Point of the hyperbola branch at parameter `t` (KV16, spec
+/// `kv16_hyperbola_arc_vocabulary`): `P(t) = c + a·cosh t·m̂ + b·sinh t·(n̂×m̂)`
+/// — the single `+major_axis` (`u > 0`) branch, matching
+/// `yang_rs::geom::hyperbola_point` / `ssi_rs::SsiCurve::Hyperbola`
+/// field-for-field ([#1] Patrikalakis Ch.5 conic sections).
+pub(crate) fn hyperbola_point_at(
+    center: Point3,
+    normal: [f64; 3],
+    major_axis: [f64; 3],
+    semi_transverse: f64,
+    semi_conjugate: f64,
+    t: f64,
+) -> Point3 {
+    let m = major_axis;
+    let w = [
+        normal[1] * m[2] - normal[2] * m[1],
+        normal[2] * m[0] - normal[0] * m[2],
+        normal[0] * m[1] - normal[1] * m[0],
+    ];
+    let (ch, sh) = (t.cosh(), t.sinh());
+    Point3::new(
+        center.x() + semi_transverse * ch * m[0] + semi_conjugate * sh * w[0],
+        center.y() + semi_transverse * ch * m[1] + semi_conjugate * sh * w[1],
+        center.z() + semi_transverse * ch * m[2] + semi_conjugate * sh * w[2],
+    )
+}
+
+/// Parameter of an (on-branch) point of the hyperbola frame:
+/// `t = asinh(v/b)` with `v = (p−c)·(n̂×m̂)`. `sinh` is injective along the
+/// branch, so — unlike the ellipse's `atan2` — no quadrant or branch
+/// reconciliation is needed. `None` for a non-positive conjugate semi-axis.
+/// (Being ON the branch is validated separately via
+/// [`hyperbola_branch_residual`]; this projection alone does not certify it.)
+pub(crate) fn hyperbola_param(
+    center: Point3,
+    normal: [f64; 3],
+    major_axis: [f64; 3],
+    semi_conjugate: f64,
+    p: Point3,
+) -> Option<f64> {
+    if !(semi_conjugate > 0.0 && semi_conjugate.is_finite()) {
+        return None;
+    }
+    let m = major_axis;
+    let w = [
+        normal[1] * m[2] - normal[2] * m[1],
+        normal[2] * m[0] - normal[0] * m[2],
+        normal[0] * m[1] - normal[1] * m[0],
+    ];
+    let d = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
+    let v = (d[0] * w[0] + d[1] * w[1] + d[2] * w[2]) / semi_conjugate;
+    if !v.is_finite() {
+        return None;
+    }
+    Some(v.asinh())
+}
+
+/// On-branch residual of `p` against the `u > 0` hyperbola branch (KV16):
+/// `(in_plane_dist, out_of_plane, u)`, where `in_plane_dist` is the
+/// first-order distance `|g| / |∇g|` of the in-plane implicit
+/// `g = (u/a)² − (v/b)² − 1` (`∇g` in the scaled in-plane coordinates —
+/// the honest length conversion of a signless quadric residual), and `u`
+/// lets the caller reject the wrong nappe (`u ≤ 0`). `in_plane_dist` is
+/// `+∞` at the center (gradient degenerate — certainly off-branch).
+pub(crate) fn hyperbola_branch_residual(
+    center: Point3,
+    normal: [f64; 3],
+    major_axis: [f64; 3],
+    semi_transverse: f64,
+    semi_conjugate: f64,
+    p: Point3,
+) -> (f64, f64, f64) {
+    let m = major_axis;
+    let w = [
+        normal[1] * m[2] - normal[2] * m[1],
+        normal[2] * m[0] - normal[0] * m[2],
+        normal[0] * m[1] - normal[1] * m[0],
+    ];
+    let d = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
+    let u = d[0] * m[0] + d[1] * m[1] + d[2] * m[2];
+    let v = d[0] * w[0] + d[1] * w[1] + d[2] * w[2];
+    let out_of_plane = d[0] * normal[0] + d[1] * normal[1] + d[2] * normal[2];
+    let (a, b) = (semi_transverse, semi_conjugate);
+    let g = (u / a).powi(2) - (v / b).powi(2) - 1.0;
+    let grad = 2.0 * (u / (a * a)).hypot(v / (b * b));
+    let in_plane = if grad > 0.0 && grad.is_finite() {
+        (g / grad).abs()
+    } else {
+        f64::INFINITY
+    };
+    (in_plane, out_of_plane, u)
 }
 
 /// Divergence-theorem flux through a CYLINDER patch whose loops consist of
@@ -779,6 +907,15 @@ fn cylinder_arc_patch_flux(
                         "signed_volume: cylinder patch mixes full circles with arcs",
                     ));
                 }
+                // KV16: a plane∩cylinder section is never a hyperbola — its
+                // presence on a cylinder patch is a defect, not a missing
+                // closed form.
+                Curve::HyperbolaArc { .. } => {
+                    return Err(mismatch(
+                        "signed_volume: hyperbola arc on a cylinder patch (a plane∩cylinder \
+                         section is never a hyperbola)",
+                    ));
+                }
                 // M5: the degree-4 surface-pair boundary has NO closed-form
                 // flux (that is the point of the procedural representation)
                 // — loud, never a chord-polyline approximation (P9).
@@ -927,6 +1064,14 @@ fn cone_arc_patch_flux(
                     return Err(mismatch(
                         "signed_volume: cone-patch ellipse arcs have no closed form yet \
                          (oblique cone sections)",
+                    ));
+                }
+                // KV16: same conic-bounded-cone-patch wall as EllipseArc —
+                // typed and loud; the render mesh carries the volume oracle.
+                Curve::HyperbolaArc { .. } => {
+                    return Err(mismatch(
+                        "signed_volume: cone-patch hyperbola arcs have no closed form yet \
+                         (axis-steep cone sections)",
                     ));
                 }
                 Curve::Circle { .. } => {
@@ -1112,6 +1257,50 @@ mod tests {
             "got {v}, want {}",
             7.0 * PI / 3.0
         );
+    }
+
+    #[test]
+    fn hyperbola_point_param_round_trip() {
+        // KV16: a tilted frame (unit, orthogonal), a = 1.5, b = 0.7.
+        let n = {
+            let l = (1.0f64 + 4.0 + 9.0).sqrt();
+            [1.0 / l, 2.0 / l, 3.0 / l]
+        };
+        // m ⟂ n via Gram–Schmidt of x̂.
+        let mut m = [1.0 - n[0] * n[0], -n[0] * n[1], -n[0] * n[2]];
+        let ml = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt();
+        m = [m[0] / ml, m[1] / ml, m[2] / ml];
+        let c = Point3::new(0.3, -0.8, 2.1);
+        let (a, b) = (1.5, 0.7);
+        for &t in &[-2.0, -0.6, 0.0, 0.35, 1.9] {
+            let p = hyperbola_point_at(c, n, m, a, b, t);
+            let tr = hyperbola_param(c, n, m, b, p).expect("param");
+            assert!((tr - t).abs() < 1e-12, "t={t} round-trips to {tr}");
+            let (in_plane, out_of_plane, u) = hyperbola_branch_residual(c, n, m, a, b, p);
+            assert!(in_plane < 1e-12, "t={t}: in-plane residual {in_plane}");
+            assert!(out_of_plane.abs() < 1e-12, "t={t}: oop {out_of_plane}");
+            assert!(u > 0.0, "t={t}: on the +m̂ branch");
+        }
+    }
+
+    #[test]
+    fn hyperbola_branch_residual_flags_off_branch_points() {
+        let n = [0.0, 0.0, 1.0];
+        let m = [1.0, 0.0, 0.0];
+        let c = Point3::new(0.0, 0.0, 0.0);
+        let (a, b) = (2.0, 1.0);
+        // The WRONG nappe (u < 0): mirrored vertex.
+        let (_, _, u) = hyperbola_branch_residual(c, n, m, a, b, Point3::new(-2.0, 0.0, 0.0));
+        assert!(u < 0.0);
+        // Off-curve in-plane: the center (gradient-degenerate) → +∞.
+        let (d, _, _) = hyperbola_branch_residual(c, n, m, a, b, c);
+        assert!(d.is_infinite());
+        // A point 1e-3 outside the vertex measures ≈ 1e-3.
+        let (d, _, _) = hyperbola_branch_residual(c, n, m, a, b, Point3::new(2.001, 0.0, 0.0));
+        assert!((d - 1e-3).abs() < 1e-6, "near-vertex distance {d}");
+        // Out-of-plane offset reported directly.
+        let (_, oop, _) = hyperbola_branch_residual(c, n, m, a, b, Point3::new(2.0, 0.0, 0.5));
+        assert!((oop - 0.5).abs() < 1e-12);
     }
 
     #[test]

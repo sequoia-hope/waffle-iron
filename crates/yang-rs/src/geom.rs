@@ -250,6 +250,33 @@ pub(crate) fn ellipse_point(
 /// the ellipse), in the SAME frame as [`ellipse_point`]:
 /// `u = (x−C)·major`, `v = (x−C)·minor_dir`,
 /// `t = atan2(v / minor_radius, u / major_radius)`.
+/// KV16: parameter of an (on-branch) point of the hyperbola frame:
+/// `t = asinh(v / semi_conjugate)` with `v = (x − center)·(normal ×
+/// major_axis)` — mirrors [`hyperbola_point`]'s raw (unit-by-contract) frame
+/// exactly, so `hyperbola_point(…, hyperbola_param(x, …))` reproduces an
+/// on-branch `x`. `sinh` is injective along the branch: no quadrant or
+/// branch reconciliation (unlike [`ellipse_param`]'s `atan2`).
+pub(crate) fn hyperbola_param(
+    x: Point3,
+    center: Point3,
+    normal: Vector3,
+    major_axis: Vector3,
+    semi_conjugate: f64,
+) -> f64 {
+    let maj = major_axis.as_array();
+    let n = normal.as_array();
+    let conj = [
+        n[1] * maj[2] - n[2] * maj[1],
+        n[2] * maj[0] - n[0] * maj[2],
+        n[0] * maj[1] - n[1] * maj[0],
+    ];
+    let c = center.as_array();
+    let xa = x.as_array();
+    let w = [xa[0] - c[0], xa[1] - c[1], xa[2] - c[2]];
+    let v = (w[0] * conj[0] + w[1] * conj[1] + w[2] * conj[2]) / semi_conjugate;
+    v.asinh()
+}
+
 pub(crate) fn ellipse_param(
     x: Point3,
     center: Point3,

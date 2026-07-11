@@ -227,11 +227,16 @@ pub fn validate_solid(arena: &BrepArena, solid: SolidId) -> Result<TopologyRepor
         }
         if matches!(
             he.curve,
-            Curve::Arc { .. } | Curve::EllipseArc { .. } | Curve::SurfacePair { .. }
+            Curve::Arc { .. }
+                | Curve::EllipseArc { .. }
+                | Curve::HyperbolaArc { .. }
+                | Curve::SurfacePair { .. }
         ) && closes
         {
             // A closed single-edge surface-pair loop has no producer (M5
-            // outputs are per-mesh-edge chains) — rejected like a closed arc.
+            // outputs are per-mesh-edge chains) — rejected like a closed
+            // arc. A closed hyperbola edge is IMPOSSIBLE (the branch is
+            // unbounded, KV16).
             return Err(KernelV2Error::CurveTwinMismatch { half_edge: h });
         }
     }
@@ -433,6 +438,27 @@ fn curves_twin_consistent(a: Curve, b: Curve) -> bool {
             // to negate (traversal is endpoint-determined).
             a1 == a2 && b1 == b2
         }
+        (
+            Curve::HyperbolaArc {
+                center: c1,
+                normal: n1,
+                major_axis: m1,
+                semi_transverse: a1,
+                semi_conjugate: b1,
+            },
+            Curve::HyperbolaArc {
+                center: c2,
+                normal: n2,
+                major_axis: m2,
+                semi_transverse: a2,
+                semi_conjugate: b2,
+            },
+        ) => {
+            // KV16: twins carry BIT-IDENTICAL fields (the open-branch arc
+            // between two endpoints is unique — traversal is
+            // endpoint-determined, like SurfacePair; no normal negation).
+            c1 == c2 && n1 == n2 && m1 == m2 && a1 == a2 && b1 == b2
+        }
         _ => false,
     }
 }
@@ -525,6 +551,34 @@ fn winding_points(arena: &BrepArena, hes: &[HalfEdgeId]) -> Result<Vec<Point3>, 
                     major_radius,
                     minor_radius,
                     t0 + sweep / 2.0,
+                ));
+            }
+        }
+        if let Curve::HyperbolaArc {
+            center,
+            normal,
+            major_axis,
+            semi_transverse,
+            semi_conjugate,
+        } = he.curve
+        {
+            // KV16: parametric midpoint — the hyperbola arc dips toward its
+            // center relative to the chord, the same winding-bulge role as
+            // the arc/ellipse midpoints.
+            let p1 = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+            let nu = [normal.x, normal.y, normal.z];
+            let mr = [major_axis.x, major_axis.y, major_axis.z];
+            if let (Some(t0), Some(t1)) = (
+                geom::hyperbola_param(center, nu, mr, semi_conjugate, p0),
+                geom::hyperbola_param(center, nu, mr, semi_conjugate, p1),
+            ) {
+                pts.push(geom::hyperbola_point_at(
+                    center,
+                    nu,
+                    mr,
+                    semi_transverse,
+                    semi_conjugate,
+                    0.5 * (t0 + t1),
                 ));
             }
         }
@@ -714,11 +768,66 @@ fn validate_planar_face(
                     }
                     continue;
                 }
+                // KV16: hyperbola arcs check center-on-plane + endpoints on
+                // the branch (first-order in-plane distance + out-of-plane
+                // component, `geom::hyperbola_branch_residual`) at the
+                // import band, then continue.
+                if let Curve::HyperbolaArc {
+                    center,
+                    normal,
+                    major_axis,
+                    semi_transverse,
+                    semi_conjugate,
+                } = he.curve
+                {
+                    let band = import_band(semi_transverse.max(semi_conjugate), center);
+                    let d = (center.x() - plane.point.x()) * plane.normal.x
+                        + (center.y() - plane.point.y()) * plane.normal.y
+                        + (center.z() - plane.point.z()) * plane.normal.z;
+                    if d.abs() > band {
+                        return Err(KernelV2Error::NonPlanarFace { face: f });
+                    }
+                    let nu = [normal.x, normal.y, normal.z];
+                    let mr = [major_axis.x, major_axis.y, major_axis.z];
+                    for p in [
+                        arena.vertex(he.origin)?.point,
+                        arena.vertex(arena.half_edge(he.next)?.origin)?.point,
+                    ] {
+                        let (in_plane, out_of_plane, u) = geom::hyperbola_branch_residual(
+                            center,
+                            nu,
+                            mr,
+                            semi_transverse,
+                            semi_conjugate,
+                            p,
+                        );
+                        let band = import_band(semi_transverse.max(semi_conjugate), p);
+                        if u <= 0.0 || in_plane > band || out_of_plane.abs() > band {
+                            return Err(vertex_off_surface(
+                                f,
+                                "planar-hyperbola-arc-endpoint",
+                                p,
+                                in_plane.max(out_of_plane.abs()),
+                                band,
+                                &format!(
+                                    "plane; hyperbola center=({:.17e},{:.17e},{:.17e}) \
+                                     a={semi_transverse:.17e} b={semi_conjugate:.17e} u={u:.3e}",
+                                    center.x(),
+                                    center.y(),
+                                    center.z()
+                                ),
+                            ));
+                        }
+                    }
+                    continue;
+                }
                 let (center, radius, is_arc) = match he.curve {
                     Curve::Circle { center, radius, .. } => (center, radius, false),
                     Curve::Arc { center, radius, .. } => (center, radius, true),
-                    // EllipseArc handled (and continued) above.
-                    Curve::LineSegment | Curve::EllipseArc { .. } => continue,
+                    // EllipseArc/HyperbolaArc handled (and continued) above.
+                    Curve::LineSegment | Curve::EllipseArc { .. } | Curve::HyperbolaArc { .. } => {
+                        continue
+                    }
                     // M5 K8: a transversal quadric-pair curve is never
                     // planar — degenerate configurations produce conics
                     // upstream in ssi-rs. Placement on a plane face is a
@@ -1282,13 +1391,20 @@ fn validate_cone_patch(
                         -sweep
                     }
                 }
-                Curve::EllipseArc { .. } => {
-                    // Oblique cone sections (conic-bounded patches) are a
-                    // later slice — typed, never a silent acceptance.
-                    return Err(mismatch(
-                        "cone patch ellipse arcs (oblique cone sections) are outside the \
-                         KV6c increment-5 vocabulary",
-                    ));
+                // KV16: a conic section piece ON this cone (EllipseArc =
+                // the oblique plane∩cone section, HyperbolaArc = the
+                // axis-steep one) advances the walk by its endpoint
+                // azimuths, exactly like the SurfacePair arm below —
+                // boolean-output pieces are sub-facet sized (Δθ far below
+                // π). A cone-section ellipse has no constant-radius axis-⊥
+                // projection (unlike the cylinder-section ellipse above),
+                // so the parametric-sweep shortcut does NOT apply — the
+                // endpoint-azimuth walk is the honest advance.
+                Curve::EllipseArc { .. } | Curve::HyperbolaArc { .. } => {
+                    let Some((theta_q, _)) = radial_theta_tau(q, e1, e2) else {
+                        return Err(mismatch("cone patch vertex lies on the axis"));
+                    };
+                    geom::wrap_to_pi(theta_q - theta_p)
                 }
                 Curve::Circle { .. } => {
                     // Unreachable: the dispatcher sends full-circle faces to
@@ -1704,6 +1820,15 @@ fn validate_cylinder_patch(
                     // Unreachable: the dispatcher sends full-circle faces to
                     // the canonical path. Loud, defensively.
                     return Err(mismatch("full-circle edge inside a partial cylinder patch"));
+                }
+                // KV16: a plane∩cylinder section is never a hyperbola — its
+                // presence on a cylinder patch is a defect (no producer),
+                // typed and loud.
+                Curve::HyperbolaArc { .. } => {
+                    return Err(mismatch(
+                        "hyperbola arc on a cylinder patch (a plane∩cylinder section is \
+                         never a hyperbola)",
+                    ));
                 }
                 // M5: a surface-pair boundary piece advances the walk by its
                 // endpoint azimuths (endpoint-determined traversal; on-curve

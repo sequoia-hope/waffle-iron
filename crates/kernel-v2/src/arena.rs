@@ -362,6 +362,35 @@ pub enum Curve {
         /// Semi-minor radius (meters, > 0, ≤ `major_radius`).
         minor_radius: f64,
     },
+    /// Hyperbola arc (KV16, spec `kv16_hyperbola_arc_vocabulary`): the exact
+    /// axis-steep `plane ∩ cone` section piece between the half-edge's origin
+    /// and destination. Parameterized
+    /// `P(t) = center + a·cosh t·m̂ + b·sinh t·(n̂ × m̂)` — the single
+    /// `+major_axis` (`u > 0`) branch, matching `yang_rs::Curve::Hyperbola` /
+    /// `ssi_rs::SsiCurve::Hyperbola` field-for-field.
+    ///
+    /// Conventions (the M5 `SurfacePair` OPEN-curve conventions, NOT the
+    /// ellipse's CCW-directional ones):
+    /// - One branch is open and injective in `t`, so the arc between two
+    ///   distinct on-branch endpoints is UNIQUE: traversal is
+    ///   endpoint-determined, there is no minor-arc ambiguity and no
+    ///   directional normal. Twins carry BIT-IDENTICAL fields.
+    /// - A closed (`origin == dest`) hyperbola half-edge is impossible (the
+    ///   branch is unbounded) and rejected by the assembler.
+    /// - Both endpoints lie ON the branch (`u > 0`, residual within the
+    ///   import band — validated at `from_yang_brep` and in the debug tier).
+    HyperbolaArc {
+        /// Hyperbola center (in the section plane; NOT on the curve).
+        center: Point3,
+        /// Unit section-plane normal.
+        normal: UnitVector3,
+        /// Unit transverse-axis direction (in-plane, toward the branch).
+        major_axis: UnitVector3,
+        /// Transverse semi-axis `a` (meters, > 0).
+        semi_transverse: f64,
+        /// Conjugate semi-axis `b` (meters, > 0).
+        semi_conjugate: f64,
+    },
 }
 
 /// Unsigned analytic surface descriptor for [`Curve::SurfacePair`] — the

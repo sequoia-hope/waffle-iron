@@ -696,6 +696,15 @@ pub(crate) fn stage4_relocate_and_correct(
     // axis-parallel (HYPE) section. Kept separate from the other conic maps so
     // the ellipse/cylinder/parabola paths stay byte-identical.
     let mut vert_cone_hyperbola: BTreeMap<u32, ConeHyperbolaReloc> = BTreeMap::new();
+    // KV16 (spec `kv16_hyperbola_arc_vocabulary`): a vertex receiving TWO
+    // DIFFERENT cone-hyperbola descriptors (the prism-edge × cone-lateral
+    // pierce — same cone, two steep planes, BOTH sections hyperbolas; R0017
+    // v47) collapses into the ONE map above, so the increment-5 "≥2 maps"
+    // trigger cannot see the junction and the vertex would be relocated
+    // onto only one curve (an off-branch endpoint on the other's output
+    // edge). Detected at insert time — the vert_ell_junction precedent —
+    // and force-fed to the triple-junction relocation below.
+    let mut same_type_junction: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     // PR-F3: per-vertex ruling-LINE relocation data for a plane∥axis ×
     // cylinder intersection edge (ssi C3a/C3b). A `Curve::LineSegment`
     // intersection edge whose incidence carries a CYLINDER is such a line; its
@@ -1025,6 +1034,39 @@ pub(crate) fn stage4_relocate_and_correct(
                     // Increment 3: certified exact junction — enters no map (see above).
                     if exact_junctions.contains(&v) {
                         continue;
+                    }
+                    // KV16: a SECOND, DIFFERENT descriptor for the same
+                    // vertex is a same-type conic junction (two hyperbolas
+                    // meeting) — never silently overwrite-and-relocate onto
+                    // one curve; route to the triple-junction pass.
+                    if let Some(prev) = vert_cone_hyperbola.get(&v) {
+                        let differs = prev.apex != chr.apex
+                            || prev.cone_axis_dir != chr.cone_axis_dir
+                            || prev.half_angle != chr.half_angle
+                            || prev.plane_n != chr.plane_n
+                            || prev.plane_d != chr.plane_d;
+                        if differs {
+                            same_type_junction.insert(v);
+                            if std::env::var_os("YANG_SAMETYPE_PROBE").is_some() {
+                                let pv = mesh.verts[v as usize].as_array();
+                                eprintln!(
+                                    "[sametype-probe] v={v} p=({:.6},{:.6},{:.6}) hyperbola \
+                                     junction: prev apex={:?} ha={:.6} plane_n={:?} d={:.6} \
+                                     -> new apex={:?} ha={:.6} plane_n={:?} d={:.6}",
+                                    pv[0],
+                                    pv[1],
+                                    pv[2],
+                                    prev.apex,
+                                    prev.half_angle,
+                                    prev.plane_n,
+                                    prev.plane_d,
+                                    chr.apex,
+                                    chr.half_angle,
+                                    chr.plane_n,
+                                    chr.plane_d,
+                                );
+                            }
+                        }
                     }
                     vert_cone_hyperbola.insert(v, chr);
                     endpoints.push(v);
@@ -1544,17 +1586,30 @@ pub(crate) fn stage4_relocate_and_correct(
             .iter()
             .filter(|b| **b)
             .count();
-            if n_maps < 2 {
+            // KV16: a same-type conic junction (two hyperbolas in the ONE
+            // `vert_cone_hyperbola` slot) counts as multi-curve even though
+            // only one map sees the vertex.
+            if n_maps < 2 && !same_type_junction.contains(&v) {
                 continue;
             }
+            let probe_v = std::env::var_os("YANG_SAMETYPE_PROBE").is_some();
             let Some(surfs) = vert_surfs.get(&v) else {
+                if probe_v {
+                    eprintln!("[triple-bail] v={v} no vert_surfs entry");
+                }
                 continue;
             };
             if surfs.len() != 3 {
+                if probe_v {
+                    eprintln!("[triple-bail] v={v} surfs={}", surfs.len());
+                }
                 continue; // 2 / ≥4 surfaces keep the loud audits (I2)
             }
             let p = mesh.verts[v as usize];
             let Some(proj) = relocate_onto_implicit_triple(p, surfs[0], surfs[1], surfs[2]) else {
+                if probe_v {
+                    eprintln!("[triple-bail] v={v} newton diverged");
+                }
                 continue; // Newton diverged → the audits STOP loudly
             };
             let qa = proj.as_array();
