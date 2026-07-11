@@ -1639,6 +1639,110 @@ pub(crate) fn rim_junction_overrides(
     (rim_junctions_against(a, b), rim_junctions_against(b, a))
 }
 
+/// Task #134: conservative world AABB of a B-Rep — the vertex hull expanded
+/// by every periodic curve's full-circle bounds (center ± radius on every
+/// axis; ellipse by its major radius) and by the bulging closed surfaces
+/// (sphere: center ± r; torus: center ± (R + r)). Plane / cylinder / cone
+/// faces are inside the hull of their boundary bounds (planar faces by hull
+/// convexity; laterals by the hull of their rim circles + apex vertices).
+/// `None` when an edge carries an open unbounded-bulge curve (hyperbola /
+/// parabola / surface-pair) — no fast path.
+fn conservative_aabb(brep: &BRep) -> Option<([f64; 3], [f64; 3])> {
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    let mut grow = |p: [f64; 3], r: f64| {
+        for k in 0..3 {
+            lo[k] = lo[k].min(p[k] - r);
+            hi[k] = hi[k].max(p[k] + r);
+        }
+    };
+    for v in brep.vertices() {
+        grow(v.point.as_array(), 0.0);
+    }
+    for e in brep.edges() {
+        match e.curve {
+            Curve::LineSegment => {}
+            Curve::Circle { center, radius, .. } => grow(center.as_array(), radius),
+            Curve::Ellipse {
+                center,
+                major_radius,
+                ..
+            } => grow(center.as_array(), major_radius),
+            Curve::Parabola { .. } | Curve::Hyperbola { .. } | Curve::SurfacePair { .. } => {
+                return None
+            }
+        }
+    }
+    for f in brep.faces() {
+        match f.surface {
+            Surface::Sphere { center, radius } => grow(center.as_array(), radius),
+            Surface::Torus {
+                center,
+                major_radius,
+                minor_radius,
+                ..
+            } => grow(center.as_array(), major_radius + minor_radius),
+            _ => {}
+        }
+    }
+    lo[0].is_finite().then_some((lo, hi))
+}
+
+/// Task #134: are the operands' conservative AABBs strictly disjoint on
+/// some axis, beyond the YR24 near-coplanar weld band? Public so kernel-v2
+/// can apply the SAME predicate for its arena-level disjoint-union merge
+/// (the yang passthrough output is INPUT-convention topology, which
+/// `from_yang_brep` does not ingest — kernel-v2 merges shells natively
+/// instead).
+pub fn union_operands_strictly_disjoint(a: &BRep, b: &BRep) -> bool {
+    let (Some((lo_a, hi_a)), Some((lo_b, hi_b))) = (conservative_aabb(a), conservative_aabb(b))
+    else {
+        return false;
+    };
+    let scale = hi_a
+        .iter()
+        .chain(lo_a.iter())
+        .chain(hi_b.iter())
+        .chain(lo_b.iter())
+        .fold(0.0_f64, |m, &v| m.max(v.abs()));
+    // The margin must EXCEED the YR24 near-coplanar weld band
+    // (`near_coplanar_band` = max(TAU_MODEL, scale·TAU_WORK)): a pair whose
+    // gap is inside that band is welded by Stage-0 (the yr27 near-partial
+    // r=1e-8 class) and must NOT take the disjoint fast path. Factor 2 for
+    // comfort.
+    let band = 2.0 * cad_primitives::TAU_MODEL.max(scale * cad_primitives::TAU_WORK);
+    (0..3).any(|k| lo_a[k] > hi_b[k] + band || lo_b[k] > hi_a[k] + band)
+}
+
+/// Task #134: the disjoint sum — both inputs concatenated verbatim (B's
+/// vertex / edge indices offset), every curve and surface tag bit-identical.
+fn concat_breps(a: &BRep, b: &BRep) -> Result<BRep, YangError> {
+    let mut verts: Vec<BRepVertex> = a.vertices().to_vec();
+    verts.extend_from_slice(b.vertices());
+    let vo = a.vertices().len() as u32;
+    let eo = a.edges().len() as u32;
+    let mut edges: Vec<BRepEdge> = a.edges().to_vec();
+    edges.extend(b.edges().iter().map(|e| BRepEdge {
+        start: e.start + vo,
+        end: e.end + vo,
+        curve: e.curve,
+    }));
+    let mut faces: Vec<BRepFace> = a.faces().to_vec();
+    faces.extend(b.faces().iter().map(|f| {
+        BRepFace {
+            surface: f.surface,
+            outer_loop: f.outer_loop.iter().map(|&e| e + eo).collect(),
+            inner_loops: f
+                .inner_loops
+                .iter()
+                .map(|lp| lp.iter().map(|&e| e + eo).collect())
+                .collect(),
+            reversed: f.reversed,
+        }
+    }));
+    BRep::new(verts, edges, faces)
+}
+
 pub fn boolean(
     a: &BRep,
     b: &BRep,
@@ -1656,6 +1760,20 @@ pub fn boolean(
             b.faces().len()
         );
     }
+    // Task #134 (spec `yang_disjoint_union_passthrough` B1): a UNION whose
+    // operands' conservative AABBs are strictly disjoint is the DISJOINT
+    // SUM — emit the concatenated B-Rep verbatim (every curve/surface tag
+    // preserved bit-for-bit). The mesh pipeline would re-emit all the
+    // untouched geometry from mesh patches, degrading every full rim to a
+    // LineSegment chord polyline: the output then carries NO Circle
+    // vocabulary and a LATER boolean dies at the Stage-3 producer fault
+    // (`chord_tol_for_curved_owner` → AmbiguousCurve{0,0}). Subtract /
+    // Intersect keep the pipeline (B3 — their disjoint outputs are
+    // byte-load-bearing for existing corpus verdicts).
+    if op == BoolOp::Union && union_operands_strictly_disjoint(a, b) {
+        return concat_breps(a, b);
+    }
+
     // Case-IV phantom guard (spec `yang_case_iv_phantom_guard`): rebuild
     // both operands at the pair-derived rim density BEFORE any Stage-0/1
     // machinery samples their meshes, so analytically-disjoint cylinder

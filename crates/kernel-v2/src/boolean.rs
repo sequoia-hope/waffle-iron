@@ -2831,6 +2831,41 @@ pub fn boolean_op(
     // rebuild voids" claim and is deleted.
     let (ya, a_faces) = to_yang_brep_indexed(arena, a)?;
     let (yb, b_faces) = to_yang_brep_indexed(arena, b)?;
+    // Task #134 (spec `yang_disjoint_union_passthrough`): a UNION of
+    // strictly AABB-disjoint operands (yang's own predicate — beyond the
+    // YR24 weld band, conservative curved bounds) is the DISJOINT SUM.
+    // Merge the shells at the ARENA level: every face/edge/curve of both
+    // operands is preserved bit-for-bit (yang's passthrough output is
+    // INPUT-convention topology, which `from_yang_brep` does not ingest,
+    // so the merge happens here instead). Lineage: every operand face is
+    // `Same` (identity — the faces ARE the output faces).
+    if op == BoolOp::Union && yang_rs::union_operands_strictly_disjoint(&ya, &yb) {
+        let mut shells = arena.solid(a)?.shells.clone();
+        shells.extend(arena.solid(b)?.shells.iter().copied());
+        let new_id = SolidId(arena.solids.len() as u32);
+        arena.solids.push(Some(Solid {
+            shells: shells.clone(),
+        }));
+        for sh in shells {
+            arena.shell_mut(sh)?.solid = new_id;
+        }
+        {
+            use crate::journal::{EvoKind, Evolution, OpTag};
+            let modified: Vec<_> = a_faces
+                .iter()
+                .chain(b_faces.iter())
+                .filter_map(|&fid| arena.face_pid(fid))
+                .map(|pid| (pid, pid, EvoKind::Same))
+                .collect();
+            arena.journal.push(Evolution {
+                op: OpTag::Boolean(op),
+                generated: Vec::new(),
+                modified,
+                deleted: Vec::new(),
+            });
+        }
+        return Ok(new_id);
+    }
     if std::env::var_os("KV2_PLANE_TRACE").is_some() {
         for (tag, y) in [("A", &ya), ("B", &yb)] {
             for (i, f) in y.faces().iter().enumerate() {

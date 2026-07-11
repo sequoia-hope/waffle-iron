@@ -92,8 +92,8 @@ pub mod stage4_dt;
 // that is N2-3. Spec: `specs/n2_stage4_mesh_updating.md`.
 mod boolean;
 mod brep;
-pub use boolean::boolean;
 pub(crate) use boolean::*;
+pub use boolean::{boolean, union_operands_strictly_disjoint};
 mod errors;
 mod geom;
 mod stage1_tessellate;

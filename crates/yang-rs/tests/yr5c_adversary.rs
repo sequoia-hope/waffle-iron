@@ -873,8 +873,12 @@ mod tjunction {
         let a = cube();
         // B is unused by the mock arrangement, but yang needs a B BRep — and
         // (PR-YR24) it must not be input-coplanar with A or the near-coplanar
-        // gate rejects the pair before the mock backend runs. Diagonal offset.
-        let b = OrientedBox::aligned([5.5, 5.5, 5.5], [0.5, 0.5, 0.5])
+        // gate rejects the pair before the mock backend runs. It must also
+        // AABB-OVERLAP A: task #134's disjoint-union passthrough returns the
+        // concatenated inputs without ever calling the backend, so a far-away
+        // dummy B would bypass the adversarial arrangement entirely. Offset
+        // fractions keep every plane distinct (no coplanarity).
+        let b = OrientedBox::aligned([0.3, 0.3, 0.3], [0.2, 0.2, 0.2])
             .to_brep()
             .expect("cube b");
         let backend = TJunctionBackend {

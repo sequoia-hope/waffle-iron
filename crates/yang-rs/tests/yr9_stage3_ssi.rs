@@ -988,9 +988,11 @@ fn hand_built_single_input_tube() -> LabeledArrangement {
 #[test]
 fn t2_same_input_edges_stay_line_segments() {
     let a = single_input_cylinder();
-    // Input B is irrelevant to the all-A arrangement; a far-away box keeps the
-    // pipeline's B branch valid without contributing any kept triangle.
-    let b = unit_cube_brep_offset_at([100.0, 100.0, 100.0]);
+    // Input B is irrelevant to the all-A arrangement; it must AABB-OVERLAP A
+    // (task #134's disjoint-union passthrough would otherwise concatenate the
+    // REAL inputs without calling the mock backend) while staying
+    // non-coplanar with every A face. Fractional offsets inside the tube.
+    let b = unit_cube_brep_offset_at([0.3, 0.3, 0.3]);
     let mock = LabelMock {
         arrangement: hand_built_single_input_tube(),
     };
