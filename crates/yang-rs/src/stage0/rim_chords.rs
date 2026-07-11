@@ -27,11 +27,13 @@ pub(crate) struct RimChordCtx {
 
 /// Build the N2-3a mint contexts for face `fi` of `brep` — ONE
 /// [`RimChordCtx`] per rim circle (`poly` is the face's in-frame polygon,
-/// `other` the partner face's). A plain disc yields exactly one (the outer
+/// `others` the partner faces' — ONE for a 1×1 pair, every other-side
+/// polygon of the plane group for the n-ary path, spec
+/// `m8_nary_tessellated_faces`). A plain disc yields exactly one (the outer
 /// rim — byte-identical to the historical single-ctx path); an annular face
 /// (M8 holed-disc increment 6, task #62) yields outer + one PER HOLE rim,
 /// each with its own chord ring and exact circle, sharing the partner
-/// polygon's boundary sub-segments. Empty for a non-disc/non-annular face
+/// polygons' boundary sub-segments. Empty for a non-disc/non-annular face
 /// or a non-finite coordinate (→ the caller falls through to the raw lift,
 /// byte-identical to the pre-N2-3a path). Without the annular arm, crossing
 /// vertices on an annular face's rim chords resolved to raw CHORD lifts —
@@ -42,7 +44,7 @@ pub(crate) fn rim_chord_ctxs(
     brep: &BRep,
     fi: usize,
     poly: &PolygonWithHoles,
-    other: &PolygonWithHoles,
+    others: &[PolygonWithHoles],
     frame: &Frame,
 ) -> Vec<RimChordCtx> {
     let ring_exact = |ring: &[Point2]| -> Option<Vec<(ExactPoint2, ExactPoint2)>> {
@@ -74,14 +76,18 @@ pub(crate) fn rim_chord_ctxs(
         return Vec::new();
     }
     let other_segs = {
-        let Some(mut segs) = ring_exact(&other.outer) else {
-            return Vec::new();
-        };
-        for h in &other.holes {
-            let Some(hs) = ring_exact(h) else {
+        let mut segs = Vec::new();
+        for other in others {
+            let Some(os) = ring_exact(&other.outer) else {
                 return Vec::new();
             };
-            segs.extend(hs);
+            segs.extend(os);
+            for h in &other.holes {
+                let Some(hs) = ring_exact(h) else {
+                    return Vec::new();
+                };
+                segs.extend(hs);
+            }
         }
         segs
     };
@@ -113,7 +119,7 @@ pub(crate) fn mixed_chord_ctxs(
     brep: &BRep,
     poly: &PolygonWithHoles,
     masks: &[Vec<Option<u32>>],
-    other: &PolygonWithHoles,
+    others: &[PolygonWithHoles],
     frame: &Frame,
 ) -> Vec<RimChordCtx> {
     let exact_seg = |s: &Point2, e: &Point2| -> Option<(ExactPoint2, ExactPoint2)> {
@@ -124,7 +130,10 @@ pub(crate) fn mixed_chord_ctxs(
     };
     let other_segs = {
         let mut segs = Vec::new();
-        for ring in std::iter::once(&other.outer).chain(other.holes.iter()) {
+        for ring in others
+            .iter()
+            .flat_map(|other| std::iter::once(&other.outer).chain(other.holes.iter()))
+        {
             let n = ring.len();
             for i in 0..n {
                 let Some(seg) = exact_seg(&ring[i], &ring[(i + 1) % n]) else {

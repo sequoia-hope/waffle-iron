@@ -161,6 +161,47 @@ pub(crate) fn annular_disc_face(brep: &BRep, fi: usize) -> Option<(u32, Vec<u32>
     Some((outer, holes))
 }
 
+/// M8 holed-disc increment boundary (spec `m8_holed_disc_coplanar_overlay`;
+/// pinned by `annular_cap_hole_crossing_stays_loud`): does `disc_fi`'s rim
+/// circle STRICTLY cross a hole rim of the annular face `ann_fi`? Such a
+/// pair needs arc∩arc crossing + hole-rim split propagation into the bore
+/// lateral — out of scope; both the 1×1 path and the n-ary group path wall
+/// it loudly. Two coplanar circles cross iff |r1 − r2| < d(centers) < r1+r2
+/// strictly. `false` when either face is not of the required shape.
+pub(crate) fn annular_hole_rim_crossing(
+    ann: &BRep,
+    ann_fi: usize,
+    disc: &BRep,
+    disc_fi: usize,
+) -> bool {
+    let rim_circle = |brep: &BRep, e: u32| -> Option<([f64; 3], f64)> {
+        match brep.edges()[e as usize].curve {
+            Curve::Circle { center, radius, .. } => Some((center.as_array(), radius)),
+            _ => None,
+        }
+    };
+    let Some((_, holes)) = annular_disc_face(ann, ann_fi) else {
+        return false;
+    };
+    let Some(rim_e) = disc_circle_edge(disc, disc_fi) else {
+        return false;
+    };
+    let Some((rc, rr)) = rim_circle(disc, rim_e) else {
+        return false;
+    };
+    for &he in &holes {
+        let Some((hc, hr)) = rim_circle(ann, he) else {
+            continue;
+        };
+        let d =
+            ((rc[0] - hc[0]).powi(2) + (rc[1] - hc[1]).powi(2) + (rc[2] - hc[2]).powi(2)).sqrt();
+        if (rr - hr).abs() < d && d < rr + hr {
+            return true;
+        }
+    }
+    false
+}
+
 /// Extract a disc face's rim ring (ordered CCW in the pair `frame`) by
 /// re-running Stage 1 on this solid with the current (snapped) `coords` and
 /// reading the cap fan's vertices. Returns the ring as ordered 3D points.

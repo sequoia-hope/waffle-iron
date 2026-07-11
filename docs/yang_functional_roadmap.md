@@ -2646,6 +2646,34 @@ swapped every consumer to `predicates::indirect`).
     `nary-face-unsupported` — a disc/mixed face inside a multi-pair plane
     group (slice f's pure-polygon scope gate) → **task #132** (slice g:
     n-ary admission for disc/annular/mixed faces).
+  - **M8 slice g SHIPPED 2026-07-11 (task #132, spec
+    `specs/m8_nary_tessellated_faces.md`): disc/annular/mixed faces in
+    n-ary plane groups.** `overlay_nary_group` runs the 1×1 tessellated
+    machinery per group face: `face_polygon_2d_tessellated` polygons +
+    merged corner/rim key maps, rim-aware §2c clustering, per-face mint
+    ctxs (`rim_chord_ctxs`/`mixed_chord_ctxs` generalized to take ALL
+    other-side polygons — 1×1 call sites pass `slice::from_ref`,
+    byte-identical), the shared-mint collapse, a REDUCED fold gate
+    (amendment-4 flips constrained to same class AND same `poly_a`/`poly_b`
+    attribution — a face-boundary edge is as immovable as a class boundary
+    — plus amendment-2 revert; NO cavity relocation yet), and per-face
+    crossing collectors threading NEW `rim_overrides` params. The 1×1
+    `annular-hole-rim-crossing` wall ports pairwise
+    (`annular_hole_rim_crossing` factored into stage0/frame.rs); crossing
+    full-circle rims are NOT walled (the 1×1 path already resolves them —
+    `disc_disc_crossing_union_succeeds`). Oracles:
+    `yang-rs/tests/m8_nary_tessellated_overlay.rs` ({mixed,mixed}×{disc}
+    flush-pocket subtract/union with a partition cross-oracle
+    (removed+added = tool volume within rim-sag band), disc×disc group
+    with one crossing + one contained pair, 1×1 canaries) + stage0 unit
+    `nary_tessellated_group_stage0_meshes` (watertight emission, I3
+    bit-identical overlap triangles). R0046 now clears admission and lands
+    on `rim-lateral-none` — its disc's lateral is the revolve TORUS, i.e.
+    it JOINS task #131's class (R0025/R0050/R0046). Two pre-existing gaps
+    found by fixture probing (out of scope, tasks #133/#134): partial-depth
+    pocket floor arc-chain non-conformality (plain-path NonManifoldOutput),
+    and chained disjoint-lump unions losing `Curve::Circle` rim vocabulary
+    (Stage-3 producer fault).
   - **KV4-F1 ✅ RESOLVED (PR-KV4-F1, 2026-06-12): the rational-ray
     fallback** — `rational_ray_inner_label` in cherchi-rs
     `labeling/inside_out.rs` implements the branch the C++ reference

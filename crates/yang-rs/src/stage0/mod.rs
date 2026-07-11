@@ -323,6 +323,8 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 &mut overrides_b,
                 &mut splits_a,
                 &mut splits_b,
+                &mut rim_overrides_a,
+                &mut rim_overrides_b,
                 &probe,
             )?;
             continue;
@@ -366,50 +368,14 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // downstream repair machinery risks converting them into silent
         // geometry). Two coplanar circles (both in the pair plane) cross iff
         // |r1 − r2| < d(centers) < r1 + r2 strictly.
+        if annular_hole_rim_crossing(a, p.face_a, b, p.face_b)
+            || annular_hole_rim_crossing(b, p.face_b, a, p.face_a)
         {
-            let rim_circle = |brep: &BRep, fi: usize, e: u32| -> Option<([f64; 3], f64)> {
-                match brep.edges()[e as usize].curve {
-                    Curve::Circle { center, radius, .. } => {
-                        let _ = fi;
-                        Some((center.as_array(), radius))
-                    }
-                    _ => None,
-                }
-            };
-            let wall_on_hole_crossing =
-                |ann: &BRep, ann_fi: usize, disc: &BRep, disc_fi: usize| -> bool {
-                    let Some((_, holes)) = annular_disc_face(ann, ann_fi) else {
-                        return false;
-                    };
-                    let Some(rim_e) = disc_circle_edge(disc, disc_fi) else {
-                        return false;
-                    };
-                    let Some((rc, rr)) = rim_circle(disc, disc_fi, rim_e) else {
-                        return false;
-                    };
-                    for &he in &holes {
-                        let Some((hc, hr)) = rim_circle(ann, ann_fi, he) else {
-                            continue;
-                        };
-                        let d = ((rc[0] - hc[0]).powi(2)
-                            + (rc[1] - hc[1]).powi(2)
-                            + (rc[2] - hc[2]).powi(2))
-                        .sqrt();
-                        if (rr - hr).abs() < d && d < rr + hr {
-                            return true;
-                        }
-                    }
-                    false
-                };
-            if wall_on_hole_crossing(a, p.face_a, b, p.face_b)
-                || wall_on_hole_crossing(b, p.face_b, a, p.face_a)
-            {
-                probe(
-                    "annular-hole-rim-crossing",
-                    &format!("pair=({},{})", p.face_a, p.face_b),
-                );
-                return Err(pair_err(p.face_a, p.face_b));
-            }
+            probe(
+                "annular-hole-rim-crossing",
+                &format!("pair=({},{})", p.face_a, p.face_b),
+            );
+            return Err(pair_err(p.face_a, p.face_b));
         }
         // A MIXED Line+Arc face is NOT eligible for the direct disc-pair
         // builder: `build_disc_pair` rings the partner via `loop_vertex_ring`,
@@ -700,18 +666,30 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         let rim_ctxs_a = if !curved_masks_a.is_empty() {
             // M8-mixed: one ctx per curved EDGE of the mixed face — the same
             // on-circle minting, over that edge's own chord subset.
-            mixed_chord_ctxs(a, &poly_a, &curved_masks_a, &poly_b, frame)
+            mixed_chord_ctxs(
+                a,
+                &poly_a,
+                &curved_masks_a,
+                std::slice::from_ref(&poly_b),
+                frame,
+            )
         } else if rim_a.is_empty() {
             Vec::new()
         } else {
-            rim_chord_ctxs(a, p.face_a, &poly_a, &poly_b, frame)
+            rim_chord_ctxs(a, p.face_a, &poly_a, std::slice::from_ref(&poly_b), frame)
         };
         let rim_ctxs_b = if !curved_masks_b.is_empty() {
-            mixed_chord_ctxs(b, &poly_b, &curved_masks_b, &poly_a, frame)
+            mixed_chord_ctxs(
+                b,
+                &poly_b,
+                &curved_masks_b,
+                std::slice::from_ref(&poly_a),
+                frame,
+            )
         } else if rim_b.is_empty() {
             Vec::new()
         } else {
-            rim_chord_ctxs(b, p.face_b, &poly_b, &poly_a, frame)
+            rim_chord_ctxs(b, p.face_b, &poly_b, std::slice::from_ref(&poly_a), frame)
         };
         // Mint-collapse slot space: one slot per rim circle across the pair
         // (a shared collapse target cannot lie on two circles).

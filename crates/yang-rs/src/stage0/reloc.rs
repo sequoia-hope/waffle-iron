@@ -1,6 +1,6 @@
 //! Stage-0 minted-vertex relocation (M8 increments 8–11): exact
-//! ear-clip cavity repair, region relocation, ring-crossing seed
-//! + reloc_tests (extracted verbatim from stage0/mod.rs — spec
+//! ear-clip cavity repair, region relocation, ring-crossing seed, and
+//! reloc_tests (extracted verbatim from stage0/mod.rs — spec
 //! `specs/stage0_decomposition.md`, increment 6).
 
 #[allow(clippy::wildcard_imports)]
@@ -280,6 +280,7 @@ pub(crate) fn earclip_cavity_polygon(
 /// step adds one of each; a (k+2)-gon ear-clips to k triangles), so the
 /// replacement overwrites the cavity slots in place and `edge_map` is
 /// maintained incrementally.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn relocate_minted_vertex(
     tris: &mut [[u32; 3]],
     class: &mut [RegionClass],
