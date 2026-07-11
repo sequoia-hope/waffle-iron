@@ -171,8 +171,19 @@ fn assay_dir() -> PathBuf {
 
 /// Classify a `NotSupported` message (engine error or auto-union warning
 /// text) into the adapter's declared unsupported boundaries.
+///
+/// Classification runs on the text AFTER the `operation not supported:`
+/// marker — the adapter's typed reason — never on the failing feature's
+/// name. An auto-union warning reads "Revolve 3: Auto-union failed: …
+/// operation not supported: boolean_union: coplanar input face pair …";
+/// matching the whole message keyed on "Revolve" and mislabeled coplanar
+/// walls as UNSUPPORTED(revolve) (R0015/R0053; the same mislabel hid
+/// R0085's coplanar wall until task #131).
 fn unsupported_reason(msg: &str) -> UnsupportedReason {
-    let m = msg.to_lowercase();
+    let reason = msg
+        .split_once(NOT_SUPPORTED_MARKER)
+        .map_or(msg, |(_, after)| after);
+    let m = reason.to_lowercase();
     if m.contains("revolve") {
         UnsupportedReason::Revolve
     } else if m.contains("circle") || m.contains("curved") || m.contains("arc") {
@@ -192,6 +203,36 @@ fn unsupported_reason(msg: &str) -> UnsupportedReason {
 }
 
 const NOT_SUPPORTED_MARKER: &str = "operation not supported:";
+
+/// The auto-union message shape embeds the FAILING FEATURE's name before
+/// the marker; the reason bucket must come from the adapter's typed text
+/// after it (R0015/R0053 were mislabeled UNSUPPORTED(revolve) for their
+/// coplanar wall).
+#[test]
+fn unsupported_reason_ignores_feature_name_prefix() {
+    assert_eq!(
+        unsupported_reason(
+            "Revolve 3: Auto-union failed: kernel error: operation not supported: \
+             boolean_union: coplanar input face pair (Yang Stage 0 coplanar \
+             preprocessing — roadmap M8 — not yet implemented)"
+        ),
+        UnsupportedReason::CoplanarBoolean
+    );
+    // A genuine revolve wall still classifies as revolve (marker present).
+    assert_eq!(
+        unsupported_reason(
+            "abc-123: operation error: kernel error: operation not supported: \
+             revolve_face: full-turn circle profile sweeps a CLOSED torus \
+             (kernel-v2 roadmap KV6d; PARTIAL-turn circle revolve → torus is supported)"
+        ),
+        UnsupportedReason::Revolve
+    );
+    // Marker-less text (defensive): falls back to whole-message matching.
+    assert_eq!(
+        unsupported_reason("coplanar input face pair"),
+        UnsupportedReason::CoplanarBoolean
+    );
+}
 
 /// Replay one corpus case through feature-engine + `KernelV2Adapter` and
 /// categorize the outcome. Mirrors the legacy randomized runner's replay

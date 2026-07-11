@@ -89,7 +89,7 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
       "detail": "1 NotSupported boundary(ies); first: Revolve 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "R0015",
       "status": "unsupported"
@@ -317,7 +317,7 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
       "detail": "1 NotSupported boundary(ies); first: Revolve 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "R0053",
       "status": "unsupported"
