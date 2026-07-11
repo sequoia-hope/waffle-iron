@@ -8,10 +8,11 @@
 //! strictly on one side), rectangle profiles whose edges are exactly
 //! parallel/perpendicular to the axis, partial angles 30–360° exclusive.
 //! Full 360° is additionally in scope because the app's revolve dialog
-//! defaults to it. Out of scope, typed and loud: oblique edges (cones —
-//! KV6c), circle profiles (torus — KV6d), holed profiles, axis touching or
-//! crossing the profile (an ERROR, not NotSupported — F0073/F0074 pin
-//! `expect_rebuild_error`).
+//! defaults to it. Since KV6c (cones) and KV6a-tilted (§8 below,
+//! non-alternating full-turn profiles) the remaining typed walls are:
+//! full-turn circle profiles (closed torus — KV6d), holed profiles,
+//! consecutive annular edges, and axis touching or crossing the profile
+//! (an ERROR, not NotSupported — F0073/F0074 pin `expect_rebuild_error`).
 //!
 //! ## Output vocabulary
 //!
@@ -190,7 +191,7 @@ fn surface_census(
 }
 
 fn all_faces(_arena: &BrepArena, r: &RevolveResult) -> Vec<kernel_v2::FaceId> {
-    let mut v = vec![r.start_cap, r.end_cap];
+    let mut v = vec![r.start_cap.expect("start cap"), r.end_cap.expect("end cap")];
     v.extend(r.walls.iter().copied());
     v
 }
@@ -286,7 +287,11 @@ fn partial_revolve_topology_census() {
 
         // Cap planes: start cap outward normal opposes the sweep velocity
         // (−ẑ for this fixture); end cap normal = R_x(angle)·(+ẑ).
-        let Some(Surface::Plane(p_start)) = arena.face(r.start_cap).expect("start").surface else {
+        let Some(Surface::Plane(p_start)) = arena
+            .face(r.start_cap.expect("start cap"))
+            .expect("start")
+            .surface
+        else {
             panic!("start cap not planar");
         };
         assert_eq!(
@@ -294,7 +299,11 @@ fn partial_revolve_topology_census() {
             (0.0, 0.0, -1.0),
             "start cap outward normal at {angle}"
         );
-        let Some(Surface::Plane(p_end)) = arena.face(r.end_cap).expect("end").surface else {
+        let Some(Surface::Plane(p_end)) = arena
+            .face(r.end_cap.expect("end cap"))
+            .expect("end")
+            .surface
+        else {
             panic!("end cap not planar");
         };
         let expect = (0.0, -angle.sin(), angle.cos());
@@ -342,17 +351,18 @@ fn full_revolve_topology_census_genus_one_washer() {
     }
 
     // Caps are the annuli at the axial extremes, normals exactly ∓â.
-    let mut cap_normals: Vec<(f64, f64, f64)> = [r.start_cap, r.end_cap]
-        .iter()
-        .map(|&f| {
-            let face = arena.face(f).expect("cap");
-            assert_eq!(face.inner_loops.len(), 1, "annular cap has one ring");
-            let Some(Surface::Plane(p)) = face.surface else {
-                panic!("cap not planar");
-            };
-            (p.normal.x, p.normal.y, p.normal.z)
-        })
-        .collect();
+    let mut cap_normals: Vec<(f64, f64, f64)> =
+        [r.start_cap.expect("start cap"), r.end_cap.expect("end cap")]
+            .iter()
+            .map(|&f| {
+                let face = arena.face(f).expect("cap");
+                assert_eq!(face.inner_loops.len(), 1, "annular cap has one ring");
+                let Some(Surface::Plane(p)) = face.surface else {
+                    panic!("cap not planar");
+                };
+                (p.normal.x, p.normal.y, p.normal.z)
+            })
+            .collect();
     cap_normals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
     assert_eq!(cap_normals, vec![(-1.0, 0.0, 0.0), (1.0, 0.0, 0.0)]);
 }
@@ -1405,4 +1415,193 @@ fn on_axis_partial_oblique_quad_builds_frustum_wedge() {
         )
     });
     assert!(has_cone, "the frustum wedge carries a Surface::Cone wall");
+}
+
+// =========================================================================
+// 8. KV6a-tilted: non-alternating full-turn profiles
+//    (spec `kv6a_nonalternating_full_revolve.md`, driver C0070)
+// =========================================================================
+
+/// Square rotated 45° to the axis (half-diagonal 1, centred at (0, 2) in
+/// the (x=axial, y=radial) profile plane, CCW): all four edges are OBLIQUE
+/// to the x-axis — four cone frusta, zero annuli. The C0070 tilted-axis
+/// shape.
+fn diamond_profile() -> Profile {
+    Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(1.0, 2.0),
+            Point2::new(0.0, 3.0),
+            Point2::new(-1.0, 2.0),
+            Point2::new(0.0, 1.0),
+        ],
+        vec![],
+    )
+    .expect("diamond profile")
+}
+
+/// Staircase pentagon (CCW): parallel r=1 → +x annulus → oblique cone →
+/// parallel r=3 → −x annulus. Exactly one wall-wall junction (oblique →
+/// parallel at (1.5, 3)) plus both annular caps.
+fn staircase_profile() -> Profile {
+    Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0, 1.0),
+            Point2::new(3.0, 1.0),
+            Point2::new(3.0, 2.0),
+            Point2::new(1.5, 3.0),
+            Point2::new(0.0, 3.0),
+        ],
+        vec![],
+    )
+    .expect("staircase profile")
+}
+
+/// Branch 2: the all-oblique diamond ring builds — census, cone vocabulary,
+/// capless result, Pappus volume (V = 2π·R̄·A = 2π·2·2 = 8π).
+#[test]
+fn full_revolve_all_oblique_diamond_ring_builds() {
+    let mut arena = BrepArena::new();
+    let profile = diamond_profile();
+    let r = revolve(&mut arena, &profile, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect("all-oblique full revolve builds the cone-frustum ring");
+
+    let report = validate_solid(&arena, r.solid).expect("diamond ring validates");
+    assert_eq!(report.vertices, 4, "one seam vertex per rim circle");
+    assert_eq!(report.edges, 8, "4 rim circles + 4 seam rulings");
+    assert_eq!(report.faces, 4, "four cone frusta");
+    assert_eq!(report.rings, 0, "no annulus, no ring loop");
+    assert_eq!(report.genus, 1, "the ring is a topological torus");
+    assert_eq!(report.euler_lhs, 0);
+    assert_eq!(report.euler_rhs, 0);
+
+    // Vocabulary: 4 cones (2 outward, 2 reversed toward-axis), no planes.
+    let (mut cones, mut rev) = (0, 0);
+    for &f in &r.walls {
+        match arena.face(f).expect("wall").surface {
+            Some(Surface::Cone { reversed, .. }) => {
+                cones += 1;
+                if reversed {
+                    rev += 1;
+                }
+            }
+            other => panic!("diamond ring face must be a cone, got {other:?}"),
+        }
+    }
+    assert_eq!((cones, rev), (4, 2), "2 outward + 2 reversed cones");
+
+    // No planar face exists to name.
+    assert_eq!(r.start_cap, None, "capless ring: no start cap");
+    assert_eq!(r.end_cap, None, "capless ring: no end cap");
+    assert_eq!(r.walls.len(), 4, "all four faces are walls");
+
+    // Pappus, tessellation-independent.
+    let vol = geom::signed_volume(&arena, r.solid).expect("analytic diamond-ring volume");
+    assert_rel_eq(vol, 8.0 * PI, 1e-12, "diamond ring Pappus volume");
+
+    // Render mesh: watertight, volume in the chord band.
+    let mesh = tessellate(&arena, r.solid).expect("tessellate diamond ring");
+    assert_mesh_sane(&mesh, "diamond ring mesh");
+    assert_watertight(&mesh, "diamond ring mesh");
+    let v = mesh_signed_volume(&mesh);
+    assert!(v > 0.0, "positive mesh volume");
+    assert_rel_eq(v, 8.0 * PI, 2e-2, "diamond ring mesh volume band");
+}
+
+/// Branch 3: staircase with one wall-wall junction — census, caps at the
+/// axial extremes, Pappus volume (Cȳ·A = 10 ⇒ V = 20π).
+#[test]
+fn full_revolve_staircase_wall_wall_junction_builds() {
+    let mut arena = BrepArena::new();
+    let profile = staircase_profile();
+    let r = revolve(&mut arena, &profile, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect("staircase full revolve builds");
+
+    let report = validate_solid(&arena, r.solid).expect("staircase ring validates");
+    assert_eq!(report.vertices, 5, "one seam vertex per rim circle");
+    assert_eq!(report.edges, 8, "5 rim circles + 3 seam rulings");
+    assert_eq!(report.faces, 5, "2 annuli + 2 cylinders + 1 cone");
+    assert_eq!(report.rings, 2, "one ring per annular cap");
+    assert_eq!(report.genus, 1);
+    assert_eq!(report.euler_lhs, 0);
+    assert_eq!(report.euler_rhs, 0);
+
+    // Caps are the two annuli, outward exactly ∓x̂.
+    let cap = |f: Option<kernel_v2::FaceId>, what: &str| {
+        let face = arena
+            .face(f.unwrap_or_else(|| panic!("{what} present")))
+            .expect(what);
+        let Some(Surface::Plane(p)) = face.surface else {
+            panic!("{what} not planar");
+        };
+        (p.normal.x, p.normal.y, p.normal.z)
+    };
+    assert_eq!(cap(r.start_cap, "start cap"), (-1.0, 0.0, 0.0));
+    assert_eq!(cap(r.end_cap, "end cap"), (1.0, 0.0, 0.0));
+
+    // Pappus.
+    let vol = geom::signed_volume(&arena, r.solid).expect("analytic staircase volume");
+    assert_rel_eq(vol, 20.0 * PI, 1e-12, "staircase Pappus volume");
+
+    // Render mesh.
+    let mesh = tessellate(&arena, r.solid).expect("tessellate staircase ring");
+    assert_mesh_sane(&mesh, "staircase mesh");
+    assert_watertight(&mesh, "staircase mesh");
+    assert_rel_eq(
+        mesh_signed_volume(&mesh),
+        20.0 * PI,
+        2e-2,
+        "staircase mesh volume band",
+    );
+}
+
+/// Branch 4: consecutive ANNULAR edges (a subdivided radial edge via a
+/// collinear straight-through vertex) keep a typed, pre-mutation wall —
+/// two coplanar adjacent annuli are out of scope.
+#[test]
+fn full_revolve_consecutive_annular_edges_stay_rejected() {
+    let profile = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0, 1.0),
+            Point2::new(3.0, 1.0),
+            Point2::new(3.0, 1.5),
+            Point2::new(3.0, 2.0),
+            Point2::new(0.0, 2.0),
+        ],
+        vec![],
+    )
+    .expect("subdivided-radial-edge profile");
+    let mut arena = BrepArena::new();
+    let err = revolve(&mut arena, &profile, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect_err("consecutive annular edges stay walled");
+    assert!(
+        matches!(err, KernelV2Error::NotImplemented(_)),
+        "typed NotImplemented, got {err:?}"
+    );
+    assert_eq!(arena, BrepArena::new(), "arena untouched");
+}
+
+/// Determinism: two identical diamond-ring revolves produce bit-identical
+/// arenas.
+#[test]
+fn full_revolve_diamond_ring_deterministic() {
+    let build = || {
+        let mut arena = BrepArena::new();
+        let profile = diamond_profile();
+        revolve(&mut arena, &profile, AXIS_O, AXIS_D, 2.0 * PI).expect("diamond ring");
+        arena
+    };
+    assert_eq!(
+        build(),
+        build(),
+        "diamond-ring revolve must be deterministic"
+    );
 }

@@ -275,11 +275,15 @@ pub struct RevolveResult {
     pub shell: ShellId,
     /// The profile face at sweep angle 0. For a partial revolve its outward
     /// normal opposes the sweep velocity; for the 360° branch it is the
-    /// annular cap at the axial minimum (outward normal `−â`).
-    pub start_cap: FaceId,
+    /// annular cap at the axial minimum (outward normal `−â`). `None` for a
+    /// capless 360° ring (a non-alternating wall-only profile — e.g. the
+    /// tilted-axis all-oblique rectangle — has no planar face to name; spec
+    /// `kv6a_nonalternating_full_revolve.md`).
+    pub start_cap: Option<FaceId>,
     /// The profile face at the sweep angle (partial) / the annular cap at
-    /// the axial maximum (360°, outward normal `+â`).
-    pub end_cap: FaceId,
+    /// the axial maximum (360°, outward normal `+â`). `None` exactly when
+    /// `start_cap` is (the capless full-turn ring).
+    pub end_cap: Option<FaceId>,
     /// Lateral faces, one per profile edge, in loop walk order: cylinder
     /// patches for axis-parallel edges, planar annular sectors for
     /// axis-perpendicular edges (partial); the outer + inner full cylinders
@@ -871,8 +875,8 @@ fn build_partial_revolve(
     Ok(RevolveResult {
         solid,
         shell,
-        start_cap: f_start,
-        end_cap: f_end,
+        start_cap: Some(f_start),
+        end_cap: Some(f_end),
         walls,
     })
 }
@@ -1102,8 +1106,8 @@ fn on_axis_revolve(
     Ok(RevolveResult {
         solid: ex.solid,
         shell: ex.shell,
-        start_cap: ex.base,
-        end_cap: ex.top,
+        start_cap: Some(ex.base),
+        end_cap: Some(ex.top),
         walls: ex.walls,
     })
 }
@@ -1287,8 +1291,8 @@ fn build_on_axis_frustum(
     Ok(RevolveResult {
         solid,
         shell,
-        start_cap: f_base,
-        end_cap: f_top,
+        start_cap: Some(f_base),
+        end_cap: Some(f_top),
         walls: vec![f_lat],
     })
 }
@@ -1505,8 +1509,8 @@ fn build_on_axis_wedge(
     Ok(RevolveResult {
         solid,
         shell,
-        start_cap: f_cap0,
-        end_cap: f_cap1,
+        start_cap: Some(f_cap0),
+        end_cap: Some(f_cap1),
         walls: vec![f_wl, f_sb, f_st],
     })
 }
@@ -1648,8 +1652,8 @@ fn build_on_axis_apex_cone(
     Ok(RevolveResult {
         solid,
         shell,
-        start_cap: f_cap,
-        end_cap: f_cap,
+        start_cap: Some(f_cap),
+        end_cap: Some(f_cap),
         walls: vec![f_lat],
     })
 }
@@ -1660,10 +1664,19 @@ fn build_on_axis_apex_cone(
 /// lateral shape). Rectangle: V=4, E=6 (4 rims + 2 seams), F=4, R=2,
 /// G=1 ⇒ χ = 0 = 2(S − G).
 ///
-/// KV6a builds the alternating case (every vertex joins one parallel and
-/// one perpendicular edge — every rectangle, the whole corpus). A
-/// rectilinear profile with consecutive same-class edges is typed
-/// [`KernelV2Error::NotImplemented`] rather than guessed.
+/// KV6a-tilted (spec `kv6a_nonalternating_full_revolve.md`): every vertex
+/// pairing of wall (Parallel cylinder / Oblique cone) and annulus
+/// (Perpendicular) edges is supported EXCEPT two consecutive annuli. The
+/// twin arithmetic (`rim_on_edge`) is class-agnostic, and the wall rim
+/// normals are consistent at wall-wall junctions by construction: with
+/// `toward = sign(Δt)·â` and `reversed ⟺ sign(Δt)` fixed by the CCW
+/// profile's outward side, every wall rim half-edge carries one sign of
+/// `â` at its head vertex and the opposite at its tail — adjacent walls
+/// meet head-to-tail, so twin rims always traverse oppositely (the
+/// alternating washer is the special case where one neighbour is an
+/// annulus). Two consecutive ANNULI (a subdivided radial edge through a
+/// collinear vertex — coplanar adjacent faces) stay typed
+/// [`KernelV2Error::NotImplemented`].
 fn build_full_revolve(
     arena: &mut BrepArena,
     fr: &RevolveFrame,
@@ -1674,16 +1687,12 @@ fn build_full_revolve(
         y: -u.y,
         z: -u.z,
     };
-    // Walls (Parallel cylinders and Oblique cones) must alternate with
-    // Perpendicular annuli: each shared vertex pairs one wall rim with one
-    // annulus rim (the twin structure). Two consecutive walls — or two
-    // consecutive annuli — break that pairing.
     let is_wall =
         |c: EdgeClass| matches!(c, EdgeClass::Parallel { .. } | EdgeClass::Oblique { .. });
     for i in 0..k {
-        if is_wall(fr.edges[i]) == is_wall(fr.edges[(i + 1) % k]) {
+        if !is_wall(fr.edges[i]) && !is_wall(fr.edges[(i + 1) % k]) {
             return Err(KernelV2Error::NotImplemented(
-                "PR-KV6a full-turn revolve of non-alternating profiles",
+                "PR-KV6a full-turn revolve with consecutive annular (axis-perpendicular) edges",
             ));
         }
     }
@@ -1720,11 +1729,11 @@ fn build_full_revolve(
     let face_of = |i: usize| FaceId(fb + (i % k) as u32);
 
     // Rim circle half-edge ids at a VERTEX: vertex i is shared by edge
-    // (i−1) and edge i; exactly one of them is parallel (the wall side) and
-    // the other perpendicular (the annulus side) — the alternating
-    // guarantee. Wall-side rim at vertex i: slot 0 if the wall is edge i
-    // (rim_w), slot 2 if the wall is edge i−1 (rim_w2). Annulus-side rim:
-    // slot 0/2 on the perpendicular edge analogously.
+    // (i−1) and edge i, and the rim at i twins between those two edges'
+    // faces whatever their classes (wall-wall junctions included —
+    // KV6a-tilted). Rim at vertex i: slot 0 if the owning edge is edge i
+    // (rim_w / annulus at its first vertex), slot 2 if it is edge i−1
+    // (rim_w2 / annulus at its second vertex).
     let rim_on_edge = |edge: usize, vertex: usize| -> HalfEdgeId {
         if vertex % k == edge % k {
             he(edge, 0)
@@ -1911,10 +1920,10 @@ fn build_full_revolve(
         }));
         match *cls {
             EdgeClass::Perpendicular { outward_plus_axis } => {
-                // The −â annulus is the start cap, the +â one the end cap
-                // (extremes for the rectangle; extra annuli of a staircase
-                // would join `walls`, but non-alternating profiles were
-                // rejected above so each class appears alternately).
+                // The first −â annulus is the start cap, the first +â one
+                // the end cap; a staircase's extra annuli join `walls`. An
+                // all-wall profile (KV6a-tilted diamond ring) has none —
+                // both caps stay `None`.
                 if !outward_plus_axis && start_cap.is_none() {
                     start_cap = Some(face_of(i));
                 } else if outward_plus_axis && end_cap.is_none() {
@@ -1926,14 +1935,6 @@ fn build_full_revolve(
             EdgeClass::Parallel { .. } | EdgeClass::Oblique { .. } => walls.push(face_of(i)),
         }
     }
-    let (Some(start_cap), Some(end_cap)) = (start_cap, end_cap) else {
-        // A closed rectilinear profile strictly off the axis always has
-        // both a +â and a −â perpendicular extreme.
-        return Err(KernelV2Error::NotImplemented(
-            "PR-KV6a full-turn revolve without two opposite annular caps",
-        ));
-    };
-
     arena.shells.push(Some(Shell {
         solid,
         faces: (0..k).map(face_of).collect(),
@@ -2204,8 +2205,8 @@ fn build_torus_revolve(
     Ok(RevolveResult {
         solid,
         shell,
-        start_cap: f_base,
-        end_cap: f_top,
+        start_cap: Some(f_base),
+        end_cap: Some(f_top),
         walls: vec![f_lat],
     })
 }

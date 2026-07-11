@@ -2221,7 +2221,11 @@ fn family_revolve(dir: &Path) -> Vec<ManifestEntry> {
             "revolve composition",
             "full revolve about the tilted axis (1,1,1)/√3 (axis-alignment probe) [KV6a-tilted]",
         );
-        e.push(write_c_case(dir, c, d, Knobs::tracker(2, 4.0)));
+        // euler_target = 0 (R0099-precedent authoring rule): a full-turn
+        // revolve of a simple profile strictly off-axis is a solid-torus
+        // ring — genus 1, χ = 0. The original χ=2 was an authoring error;
+        // the profile sits 0.6..1.0 off the axis, so no spindle forms.
+        e.push(write_c_case(dir, c, d, Knobs::tracker(0, 4.0)));
     }
     e
 }

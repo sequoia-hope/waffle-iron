@@ -3174,6 +3174,36 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   R0004 partial on-axis revolve (a KV6 gap: the on-axis recovery is
   full-turn-only) behind a second boolean failure.
 
+- **KV6a-tilted — full-turn revolve of non-alternating profiles (C0070).
+  ✅ SHIPPED (2026-07-11, task #135, spec
+  `specs/kv6a_nonalternating_full_revolve.md`).** C0070 (rectangle
+  revolved 360° about the tilted in-plane axis (1,1,1)/√3 — all four
+  edges OBLIQUE, four cone frusta, zero annuli) died at
+  `build_full_revolve`'s wall/annulus alternation gate. Analysis: the
+  gate was protecting nothing — `rim_on_edge`'s twin arithmetic is
+  class-agnostic, and the wall rim-normal rule is wall-wall consistent
+  by construction (`reversed ⟺ sign(Δt)` along the CCW profile, so every
+  wall rim carries one sign of `â` at its head vertex and the opposite
+  at its tail; adjacent walls meet head-to-tail → twin rims always
+  traverse oppositely, at t-monotone junctions AND t-extreme crests).
+  The gate narrowed to the one real residual (consecutive ANNULAR edges
+  — a subdivided radial edge → coplanar adjacent faces, typed
+  `NotImplemented`); `RevolveResult.start_cap`/`end_cap` became
+  `Option<FaceId>` (an all-wall ring has no planar face to name).
+  Red→green in `kv6a_revolve.rs` §8: all-oblique diamond ring (V=4 E=8
+  F=4 R=0 G=1 χ=0, 2+2 outward/reversed cones, capless, Pappus 8π at
+  1e-12, watertight mesh), staircase pentagon with a wall-wall junction
+  (V=5 E=8 F=5 R=2, caps ∓â, 20π), consecutive-annuli rejection,
+  determinism. **Corpus: C0070 ERROR → SUPPORTED_CORRECT.** Its meta
+  `euler_target` 2→0 was an R0099-class authoring correction (a
+  full-turn revolve of a simple profile strictly off-axis is a
+  solid-torus ring, genus 1 — forced by `validate_revolve_geometry`);
+  fixed in `gen_complexity.rs` + the committed meta (hand-edit, no
+  regen). Remaining KV6 revolve stock: KV6d closed torus (C0065) +
+  sphere via on-axis circle revolve (C0067), oblique cone sections
+  (ellipse-arc vocabulary), boolean-output partial-patch re-entry
+  (R0051 class).
+
 - **Tangency pinch-vertex split + figure-eight wedge walk (the KV9-F1
   union follow-up). ✅ SHIPPED at yang unit level (2026-07-08, task #86,
   spec `specs/yang_tangency_pinch_split.md`); C0058 corpus residual
