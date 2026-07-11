@@ -215,3 +215,10 @@ depend on them are `#[ignore]`-tagged with reason `refs-fixture`.
 ## 7. Ledger
 
 - 2026-07-11 — document created; SI1 implementation started (task #138).
+- 2026-07-11 — **SI1 SHIPPED** (a0db078a, 3ea13658, 01a9782a, 3257c94d):
+  step-import crate + contract; kernel-v2 mesh-backed bodies; ImportedBody
+  feature + ImportStep message + persistence; app UI (toolbar Import,
+  placement dialog, tree icon, boolean-candidate listing). Verified: full
+  Rust fast tier green; GUI step-import.spec.js 4/4 (render, body list,
+  sketch-plane resolution on all imported planar faces, placement edit);
+  WASM bundle 1.51→1.92MB gzipped. NEXT = SI2 mesh-path booleans.
