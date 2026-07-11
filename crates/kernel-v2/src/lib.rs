@@ -74,6 +74,7 @@ pub mod error;
 pub mod euler;
 pub(crate) mod exact2d;
 pub mod geom;
+pub mod imported;
 pub mod introspect;
 pub mod journal;
 pub mod profile;

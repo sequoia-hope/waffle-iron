@@ -89,6 +89,30 @@ fn decode(id: KernelId) -> (u64, u32) {
     (id.0 & TAG_MASK, (id.0 & IDX_MASK) as u32)
 }
 
+// Imported (STEP) mesh-backed bodies live beside the arena (module docs in
+// `crate::imported`). Their entities get their own tag namespace so they can
+// never collide with arena ids; the 32-bit index packs the body slot (upper
+// 12 bits) with the entity index (lower 20 bits).
+const TAG_IMPORTED_FACE: u64 = 5 << TAG_SHIFT;
+const TAG_IMPORTED_EDGE: u64 = 6 << TAG_SHIFT;
+const TAG_IMPORTED_VERTEX: u64 = 7 << TAG_SHIFT;
+const IMPORTED_SLOT_SHIFT: u32 = 20;
+/// Max entities per imported body (2^20) and max imported bodies per
+/// session (2^12) — enforced loudly at `import_body`.
+const IMPORTED_MAX_ENTITIES: usize = 1 << IMPORTED_SLOT_SHIFT;
+const IMPORTED_MAX_BODIES: usize = 1 << (32 - IMPORTED_SLOT_SHIFT);
+
+fn encode_imported(tag: u64, slot: usize, idx: usize) -> KernelId {
+    KernelId(tag | ((slot as u64) << IMPORTED_SLOT_SHIFT) | idx as u64)
+}
+
+fn decode_imported(idx: u32) -> (usize, usize) {
+    (
+        (idx >> IMPORTED_SLOT_SHIFT) as usize,
+        (idx & ((1 << IMPORTED_SLOT_SHIFT) - 1)) as usize,
+    )
+}
+
 // ── Adapter ────────────────────────────────────────────────────────────────
 
 /// Legacy-trait adapter over a kernel-v2 `BrepArena`. See module docs.
@@ -100,6 +124,10 @@ pub struct KernelV2Adapter {
     staged: HashMap<u64, crate::Profile>,
     /// Live solids by legacy handle raw id.
     solids: HashMap<u64, SolidId>,
+    /// Imported (STEP) mesh-backed bodies, appended-only; a handle maps to
+    /// its slot here via `imported_handles`.
+    imported: Vec<crate::imported::ImportedBody>,
+    imported_handles: HashMap<u64, usize>,
     next_staged: u64,
     next_handle: u64,
 }
@@ -121,6 +149,64 @@ impl KernelV2Adapter {
         self.next_handle += 1;
         self.solids.insert(raw, solid);
         KernelSolidHandle::from_raw(raw)
+    }
+
+    fn imported_slot_of(&self, handle: &KernelSolidHandle) -> Option<usize> {
+        self.imported_handles.get(&handle.raw()).copied()
+    }
+
+    /// Concatenate an imported body's per-face meshes into one `RenderMesh`
+    /// with per-face pick ranges.
+    fn imported_render_mesh(&self, slot: usize) -> RenderMesh {
+        let body = &self.imported[slot];
+        let mut mesh = RenderMesh {
+            vertices: Vec::new(),
+            normals: Vec::new(),
+            indices: Vec::new(),
+            face_ranges: Vec::new(),
+        };
+        for (fi, face) in body.faces.iter().enumerate() {
+            let base = (mesh.vertices.len() / 3) as u32;
+            let start = mesh.indices.len() as u32;
+            mesh.vertices
+                .extend(face.positions.iter().map(|&c| c as f32));
+            mesh.normals.extend(face.normals.iter().map(|&c| c as f32));
+            mesh.indices.extend(face.indices.iter().map(|&i| base + i));
+            mesh.face_ranges.push(FaceRange {
+                face_id: encode_imported(TAG_IMPORTED_FACE, slot, fi),
+                start_index: start,
+                end_index: mesh.indices.len() as u32,
+            });
+        }
+        mesh
+    }
+
+    /// Imported edges as pair-expanded polyline segments (the render layer
+    /// draws edge ranges as line segments two vertices at a time).
+    fn imported_edge_render(&self, slot: usize) -> EdgeRenderData {
+        let body = &self.imported[slot];
+        let mut vertices: Vec<f32> = Vec::new();
+        let mut edge_ranges: Vec<EdgeRange> = Vec::new();
+        for (ei, edge) in body.edges.iter().enumerate() {
+            let start_vertex = (vertices.len() / 3) as u32;
+            for w in edge.polyline.windows(2) {
+                for p in w {
+                    vertices.extend_from_slice(&[p[0] as f32, p[1] as f32, p[2] as f32]);
+                }
+            }
+            let end_vertex = (vertices.len() / 3) as u32;
+            if end_vertex > start_vertex {
+                edge_ranges.push(EdgeRange {
+                    edge_id: encode_imported(TAG_IMPORTED_EDGE, slot, ei),
+                    start_vertex,
+                    end_vertex,
+                });
+            }
+        }
+        EdgeRenderData {
+            vertices,
+            edge_ranges,
+        }
     }
 
     fn solid_of(&self, handle: &KernelSolidHandle) -> Result<SolidId, KernelError> {
@@ -382,6 +468,15 @@ impl KernelV2Adapter {
         op: BoolOp,
         op_name: &str,
     ) -> Result<SolidId, KernelError> {
+        // STEP-import SI1 wall: imported bodies are mesh-backed and cannot
+        // enter the exact boolean pipeline. The mesh-path boolean is
+        // roadmapped (docs/step_import_roadmap.md SI2).
+        if self.imported_slot_of(a).is_some() || self.imported_slot_of(b).is_some() {
+            return Err(Self::not_supported(&format!(
+                "{op_name}: imported (STEP) body operand — booleans with imported bodies are \
+                 STEP-import roadmap SI2 (mesh-path boolean, docs/step_import_roadmap.md)"
+            )));
+        }
         let sa = self.solid_of(a)?;
         let sb = self.solid_of(b)?;
         self.subfloor_twin_probe(sa, &format!("{op_name} operand A"));
@@ -591,11 +686,51 @@ impl Kernel for KernelV2Adapter {
         ))
     }
 
+    fn import_body(
+        &mut self,
+        data: &waffle_types::kernel::ImportedBodyData,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        if data.is_empty() {
+            return Err(KernelError::Other {
+                message: "import_body: no faces to import".to_string(),
+            });
+        }
+        if self.imported.len() >= IMPORTED_MAX_BODIES {
+            return Err(KernelError::Other {
+                message: format!(
+                    "import_body: imported-body slots exhausted ({IMPORTED_MAX_BODIES} per session)"
+                ),
+            });
+        }
+        let body = crate::imported::ImportedBody::from_data(data);
+        let entities = body
+            .faces
+            .len()
+            .max(body.edges.len())
+            .max(body.vertices.len());
+        if entities >= IMPORTED_MAX_ENTITIES {
+            return Err(KernelError::Other {
+                message: format!(
+                    "import_body: body has {entities} entities of one kind (max {IMPORTED_MAX_ENTITIES})"
+                ),
+            });
+        }
+        let slot = self.imported.len();
+        self.imported.push(body);
+        let raw = self.next_handle;
+        self.next_handle += 1;
+        self.imported_handles.insert(raw, slot);
+        Ok(KernelSolidHandle::from_raw(raw))
+    }
+
     fn tessellate(
         &mut self,
         solid: &KernelSolidHandle,
         _tolerance: f64, // planar tessellation is exact; tolerance is moot
     ) -> Result<RenderMesh, KernelError> {
+        if let Some(slot) = self.imported_slot_of(solid) {
+            return Ok(self.imported_render_mesh(slot));
+        }
         let sid = self.solid_of(solid)?;
         // Defense in depth: a solid that fails kernel-v2 validation must
         // never be silently rendered.
@@ -627,6 +762,9 @@ impl Kernel for KernelV2Adapter {
         solid: &KernelSolidHandle,
         _tolerance: f64,
     ) -> Result<EdgeRenderData, KernelError> {
+        if let Some(slot) = self.imported_slot_of(solid) {
+            return Ok(self.imported_edge_render(slot));
+        }
         let sid = self.solid_of(solid)?;
         let mut vertices: Vec<f32> = Vec::new();
         let mut edge_ranges: Vec<EdgeRange> = Vec::new();
@@ -1314,6 +1452,11 @@ fn reconstruct_arc_polygon_edges(
 
 impl KernelIntrospect for KernelV2Adapter {
     fn list_faces(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
+        if let Some(slot) = self.imported_slot_of(solid) {
+            return (0..self.imported[slot].faces.len())
+                .map(|i| encode_imported(TAG_IMPORTED_FACE, slot, i))
+                .collect();
+        }
         let Ok(sid) = self.solid_of(solid) else {
             return Vec::new();
         };
@@ -1321,6 +1464,11 @@ impl KernelIntrospect for KernelV2Adapter {
     }
 
     fn list_edges(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
+        if let Some(slot) = self.imported_slot_of(solid) {
+            return (0..self.imported[slot].edges.len())
+                .map(|i| encode_imported(TAG_IMPORTED_EDGE, slot, i))
+                .collect();
+        }
         let Ok(sid) = self.solid_of(solid) else {
             return Vec::new();
         };
@@ -1331,6 +1479,11 @@ impl KernelIntrospect for KernelV2Adapter {
     }
 
     fn list_vertices(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
+        if let Some(slot) = self.imported_slot_of(solid) {
+            return (0..self.imported[slot].vertices.len())
+                .map(|i| encode_imported(TAG_IMPORTED_VERTEX, slot, i))
+                .collect();
+        }
         let Ok(sid) = self.solid_of(solid) else {
             return Vec::new();
         };
@@ -1342,6 +1495,17 @@ impl KernelIntrospect for KernelV2Adapter {
 
     fn face_edges(&self, face: KernelId) -> Vec<KernelId> {
         let (tag, idx) = decode(face);
+        if tag == TAG_IMPORTED_FACE {
+            let (slot, fi) = decode_imported(idx);
+            return match self.imported.get(slot).and_then(|b| b.faces.get(fi)) {
+                Some(f) => f
+                    .edge_indices
+                    .iter()
+                    .map(|&e| encode_imported(TAG_IMPORTED_EDGE, slot, e as usize))
+                    .collect(),
+                None => Vec::new(),
+            };
+        }
         if tag != TAG_FACE {
             return Vec::new();
         }
@@ -1356,6 +1520,17 @@ impl KernelIntrospect for KernelV2Adapter {
 
     fn edge_faces(&self, edge: KernelId) -> Vec<KernelId> {
         let (tag, idx) = decode(edge);
+        if tag == TAG_IMPORTED_EDGE {
+            let (slot, ei) = decode_imported(idx);
+            return match self.imported.get(slot).and_then(|b| b.edges.get(ei)) {
+                Some(e) => e
+                    .face_indices
+                    .iter()
+                    .map(|&f| encode_imported(TAG_IMPORTED_FACE, slot, f as usize))
+                    .collect(),
+                None => Vec::new(),
+            };
+        }
         if tag != TAG_EDGE {
             return Vec::new();
         }
@@ -1378,6 +1553,16 @@ impl KernelIntrospect for KernelV2Adapter {
 
     fn edge_vertices(&self, edge: KernelId) -> (KernelId, KernelId) {
         let (tag, idx) = decode(edge);
+        if tag == TAG_IMPORTED_EDGE {
+            let (slot, ei) = decode_imported(idx);
+            return match self.imported.get(slot).and_then(|b| b.edges.get(ei)) {
+                Some(e) => (
+                    encode_imported(TAG_IMPORTED_VERTEX, slot, e.endpoints.0 as usize),
+                    encode_imported(TAG_IMPORTED_VERTEX, slot, e.endpoints.1 as usize),
+                ),
+                None => (KernelId(0), KernelId(0)),
+            };
+        }
         if tag != TAG_EDGE {
             return (KernelId(0), KernelId(0));
         }
@@ -1393,6 +1578,29 @@ impl KernelIntrospect for KernelV2Adapter {
 
     fn face_neighbors(&self, face: KernelId) -> Vec<KernelId> {
         let (tag, idx) = decode(face);
+        if tag == TAG_IMPORTED_FACE {
+            let (slot, fi) = decode_imported(idx);
+            let Some(body) = self.imported.get(slot) else {
+                return Vec::new();
+            };
+            let Some(f) = body.faces.get(fi) else {
+                return Vec::new();
+            };
+            let mut neighbors = BTreeSet::new();
+            for &e in &f.edge_indices {
+                if let Some(edge) = body.edges.get(e as usize) {
+                    for &other in &edge.face_indices {
+                        if other as usize != fi {
+                            neighbors.insert(other as usize);
+                        }
+                    }
+                }
+            }
+            return neighbors
+                .into_iter()
+                .map(|n| encode_imported(TAG_IMPORTED_FACE, slot, n))
+                .collect();
+        }
         if tag != TAG_FACE {
             return Vec::new();
         }
@@ -1418,6 +1626,27 @@ impl KernelIntrospect for KernelV2Adapter {
             (TopoKind::Vertex, TAG_VERTEX) => self.vertex_signature(VertexId(idx)),
             (TopoKind::Edge, TAG_EDGE) => self.edge_signature(HalfEdgeId(idx)),
             (TopoKind::Face, TAG_FACE) => self.face_signature(FaceId(idx)),
+            (TopoKind::Face, TAG_IMPORTED_FACE) => {
+                let (slot, fi) = decode_imported(idx);
+                self.imported
+                    .get(slot)
+                    .map(|b| b.face_signature(fi))
+                    .unwrap_or_else(TopoSignature::empty)
+            }
+            (TopoKind::Edge, TAG_IMPORTED_EDGE) => {
+                let (slot, ei) = decode_imported(idx);
+                self.imported
+                    .get(slot)
+                    .map(|b| b.edge_signature(ei))
+                    .unwrap_or_else(TopoSignature::empty)
+            }
+            (TopoKind::Vertex, TAG_IMPORTED_VERTEX) => {
+                let (slot, vi) = decode_imported(idx);
+                self.imported
+                    .get(slot)
+                    .map(|b| b.vertex_signature(vi))
+                    .unwrap_or_else(TopoSignature::empty)
+            }
             _ => TopoSignature::empty(),
         }
     }
@@ -1427,6 +1656,36 @@ impl KernelIntrospect for KernelV2Adapter {
         solid: &KernelSolidHandle,
         kind: TopoKind,
     ) -> Vec<(KernelId, TopoSignature)> {
+        if let Some(slot) = self.imported_slot_of(solid) {
+            let body = &self.imported[slot];
+            return match kind {
+                TopoKind::Face => (0..body.faces.len())
+                    .map(|i| {
+                        (
+                            encode_imported(TAG_IMPORTED_FACE, slot, i),
+                            body.face_signature(i),
+                        )
+                    })
+                    .collect(),
+                TopoKind::Edge => (0..body.edges.len())
+                    .map(|i| {
+                        (
+                            encode_imported(TAG_IMPORTED_EDGE, slot, i),
+                            body.edge_signature(i),
+                        )
+                    })
+                    .collect(),
+                TopoKind::Vertex => (0..body.vertices.len())
+                    .map(|i| {
+                        (
+                            encode_imported(TAG_IMPORTED_VERTEX, slot, i),
+                            body.vertex_signature(i),
+                        )
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+        }
         let Ok(sid) = self.solid_of(solid) else {
             return Vec::new();
         };
@@ -1514,6 +1773,97 @@ mod tests {
                 )
             })
             .count()
+    }
+
+    /// Two-triangle-faced imported test body sharing one boundary edge.
+    fn imported_test_data() -> waffle_types::kernel::ImportedBodyData {
+        use waffle_types::kernel::{
+            ImportedBodyData, ImportedEdgeData, ImportedFaceData, ImportedShellData,
+            ImportedSurface,
+        };
+        let face = |z: f64| ImportedFaceData {
+            surface: ImportedSurface::Plane {
+                origin: [0.0, 0.0, z],
+                normal: [0.0, 0.0, 1.0],
+            },
+            positions: vec![0.0, 0.0, z, 1.0, 0.0, z, 0.0, 1.0, z],
+            normals: vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
+            indices: vec![0, 1, 2],
+            edge_indices: vec![0],
+        };
+        ImportedBodyData {
+            source_name: "test-import".into(),
+            shells: vec![ImportedShellData {
+                faces: vec![face(0.0), face(2.0)],
+                edges: vec![ImportedEdgeData {
+                    polyline: vec![[0.0, 0.0, 0.0], [0.5, 0.0, 1.0], [1.0, 0.0, 2.0]],
+                }],
+            }],
+            warnings: vec![],
+        }
+    }
+
+    #[test]
+    fn imported_body_is_first_class_for_render_and_introspection() {
+        let mut adapter = KernelV2Adapter::new();
+        let handle = adapter
+            .import_body(&imported_test_data())
+            .expect("import succeeds");
+
+        // Render: one range per face, indices offset per face.
+        let mesh = adapter.tessellate(&handle, 0.001).expect("tessellates");
+        assert_eq!(mesh.face_ranges.len(), 2);
+        assert_eq!(mesh.indices.len(), 6);
+        assert_eq!(mesh.vertices.len(), 18);
+        assert_eq!(mesh.face_ranges[1].start_index, 3);
+        assert!(mesh.indices[3..].iter().all(|&i| i >= 3));
+
+        // Edge overlay: 3-point polyline pair-expands to 4 vertices.
+        let edges = adapter.extract_edges(&handle, 0.001).expect("edges");
+        assert_eq!(edges.edge_ranges.len(), 1);
+        assert_eq!(edges.vertices.len(), 12);
+
+        // Introspection round-trip.
+        let faces = adapter.list_faces(&handle);
+        assert_eq!(faces.len(), 2);
+        let face_edges = adapter.face_edges(faces[0]);
+        assert_eq!(face_edges.len(), 1);
+        let ef = adapter.edge_faces(face_edges[0]);
+        assert_eq!(ef.len(), 2, "shared edge bounds both faces");
+        assert_eq!(adapter.face_neighbors(faces[0]), vec![faces[1]]);
+        let (v0, v1) = adapter.edge_vertices(face_edges[0]);
+        assert_ne!(v0, v1);
+
+        // Signatures: planar vocabulary + geometry, matching the sketch-plane
+        // resolver's expectations (surface_type == "planar", unit normal).
+        let sig = adapter.compute_signature(faces[0], TopoKind::Face);
+        assert_eq!(sig.surface_type.as_deref(), Some("planar"));
+        assert_eq!(sig.normal, Some([0.0, 0.0, 1.0]));
+        assert!((sig.area.unwrap() - 0.5).abs() < 1e-12);
+        let all = adapter.compute_all_signatures(&handle, TopoKind::Face);
+        assert_eq!(all.len(), 2);
+
+        // No collision with arena ids: an arena solid built afterwards keeps
+        // working through the same adapter.
+        let face = stage_unit_square(&mut adapter);
+        let solid = adapter
+            .extrude_face(face, [0.0, 0.0, 1.0], 1.0)
+            .expect("arena extrude beside imported body");
+        assert_eq!(adapter.list_faces(&solid).len(), 6);
+
+        // Booleans with an imported operand: typed NotSupported wall (SI2).
+        let err = adapter.boolean_union(&handle, &solid).unwrap_err();
+        assert!(
+            matches!(&err, KernelError::NotSupported { operation } if operation.contains("SI2")),
+            "want typed SI2 wall, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn import_body_rejects_empty_data() {
+        let mut adapter = KernelV2Adapter::new();
+        let empty = waffle_types::kernel::ImportedBodyData::default();
+        assert!(adapter.import_body(&empty).is_err());
     }
 
     #[test]
