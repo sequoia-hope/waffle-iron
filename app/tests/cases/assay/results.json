@@ -1,8 +1,8 @@
 {
-  "errored": 45,
+  "errored": 46,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 233,
+  "passed": 235,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -485,10 +485,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: Revolve 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 589 is invalid: LocalRefinementRequired\"). Body created as standalone.",
       "id": "R0081",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1037,10 +1037,10 @@
       "status": "error"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: Revolve Center: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0073",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "EXPECTED_ERROR",
@@ -1767,7 +1767,13 @@
       "detail": "all checks passed",
       "id": "C0100",
       "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "C0101",
+      "status": "pass"
     }
   ],
-  "total": 294
+  "total": 295
 }

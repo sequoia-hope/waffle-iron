@@ -177,6 +177,13 @@ pub struct ClassifiedOverlay {
     pub tris: Vec<[u32; 3]>,
     /// Per-triangle region class, 1:1 with `tris`.
     pub class: Vec<RegionClass>,
+    /// Per-triangle index of the containing side-A input polygon
+    /// (`u32::MAX` when the triangle is not inside A), 1:1 with `tris` —
+    /// the M8 n-ary attribution ([`coplanar_overlay_multi`]). Always `0`
+    /// for `AOnly`/`Overlap` triangles of a single-polygon overlay.
+    pub poly_a: Vec<u32>,
+    /// Side-B analog of `poly_a`.
+    pub poly_b: Vec<u32>,
 }
 
 /// Typed errors of the coplanar overlay engine. Every failure is loud; no
@@ -352,16 +359,50 @@ fn chain_polylines(edges: Vec<[u32; 2]>) -> Vec<Vec<u32>> {
 
 /// Build the exact classified overlay of two polygons-with-holes on a
 /// shared plane. See the module docs for the full contract, method, and
-/// rounding-boundary design.
+/// rounding-boundary design. Delegates to [`coplanar_overlay_multi`] with
+/// one polygon per side (bit-identical output).
 pub fn coplanar_overlay(
     a: &PolygonWithHoles,
     b: &PolygonWithHoles,
 ) -> Result<ClassifiedOverlay, CoplanarOverlayError> {
-    // ── 0. Validate + lift to exact rationals. ──────────────────────────
-    let loops_a = exact_loops(a)?;
-    let loops_b = exact_loops(b)?;
-    let edges_a = loop_edges(&loops_a);
-    let edges_b = loop_edges(&loops_b);
+    coplanar_overlay_multi(std::slice::from_ref(a), std::slice::from_ref(b))
+}
+
+/// N-ary form of [`coplanar_overlay`] (M8 plane groups, spec
+/// `m8_plane_group_nary_overlay`): each side is a set of
+/// polygons-with-holes with pairwise-disjoint interiors (the faces of ONE
+/// solid lying on one plane with a common orientation). Side membership is
+/// exact even-odd parity over the side's combined edge set — the union of
+/// disjoint simple regions — and every inside triangle is additionally
+/// attributed to its (unique) containing polygon (`poly_a` / `poly_b`).
+/// The exact coverage identity is enforced PER POLYGON:
+/// `Σ area(tris attributed to polyᵢ, class ∈ {XOnly, Overlap}) == area(polyᵢ)`
+/// — overlapping same-side inputs (a contract violation) fail loudly as
+/// [`CoplanarOverlayError::CoverageMismatch`].
+pub fn coplanar_overlay_multi(
+    a: &[PolygonWithHoles],
+    b: &[PolygonWithHoles],
+) -> Result<ClassifiedOverlay, CoplanarOverlayError> {
+    // ── 0. Validate + lift to exact rationals (per polygon). ────────────
+    let polys_a: Vec<Vec<Vec<ExactPoint2>>> = a
+        .iter()
+        .map(exact_loops)
+        .collect::<Result<_, CoplanarOverlayError>>()?;
+    let polys_b: Vec<Vec<Vec<ExactPoint2>>> = b
+        .iter()
+        .map(exact_loops)
+        .collect::<Result<_, CoplanarOverlayError>>()?;
+    if polys_a.is_empty() || polys_b.is_empty() {
+        return Err(CoplanarOverlayError::DegenerateLoop("empty polygon set"));
+    }
+    let per_poly_edges_a: Vec<Vec<(ExactPoint2, ExactPoint2)>> =
+        polys_a.iter().map(|lp| loop_edges(lp)).collect();
+    let per_poly_edges_b: Vec<Vec<(ExactPoint2, ExactPoint2)>> =
+        polys_b.iter().map(|lp| loop_edges(lp)).collect();
+    let edges_a: Vec<(ExactPoint2, ExactPoint2)> =
+        per_poly_edges_a.iter().flatten().cloned().collect();
+    let edges_b: Vec<(ExactPoint2, ExactPoint2)> =
+        per_poly_edges_b.iter().flatten().cloned().collect();
 
     // ── 1. Exact arrangement: split all edges at all incidences. ────────
     let mut all_edges = edges_a.clone();
@@ -403,6 +444,8 @@ pub fn coplanar_overlay(
     let mut exact_verts: Vec<ExactPoint2> = Vec::new();
     let mut tris: Vec<[u32; 3]> = Vec::new();
     let mut class: Vec<RegionClass> = Vec::new();
+    let mut poly_a: Vec<u32> = Vec::new();
+    let mut poly_b: Vec<u32> = Vec::new();
     let two = RBig::from(2);
 
     for w in 0..xs.len().saturating_sub(1) {
@@ -426,13 +469,19 @@ pub fn coplanar_overlay(
 
             // Exact parity classification at the cell's midline centroid —
             // strictly interior to the cell, hence never ON any input edge.
+            // Per-polygon parity gives both side membership (inside ANY of
+            // the side's disjoint polygons) and the n-ary attribution index.
             let centroid = ExactPoint2 {
                 x: xm.clone(),
                 y: (ylo_m + yhi_m) / &two,
             };
-            let in_a = point_in_even_odd(&centroid, &edges_a);
-            let in_b = point_in_even_odd(&centroid, &edges_b);
-            let cls = match (in_a, in_b) {
+            let pa = per_poly_edges_a
+                .iter()
+                .position(|es| point_in_even_odd(&centroid, es));
+            let pb = per_poly_edges_b
+                .iter()
+                .position(|es| point_in_even_odd(&centroid, es));
+            let cls = match (pa.is_some(), pb.is_some()) {
                 (true, true) => RegionClass::Overlap,
                 (true, false) => RegionClass::AOnly,
                 (false, true) => RegionClass::BOnly,
@@ -440,6 +489,10 @@ pub fn coplanar_overlay(
                 // identity below.
                 (false, false) => continue,
             };
+            let (pa, pb) = (
+                pa.map_or(u32::MAX, |i| i as u32),
+                pb.map_or(u32::MAX, |i| i as u32),
+            );
 
             // CCW cell ring: bottom-left → bottom-right → up the right side
             // (subdivided) → top-right → top-left → down the left side
@@ -489,6 +542,8 @@ pub fn coplanar_overlay(
                 ];
                 tris.push(gi);
                 class.push(cls);
+                poly_a.push(pa);
+                poly_b.push(pb);
             }
         }
     }
@@ -510,19 +565,35 @@ pub fn coplanar_overlay(
         exact_verts,
         tris,
         class,
+        poly_a,
+        poly_b,
     };
 
     // ── 5. Exact coverage post-conditions (P9/P10 — loud). Run on the FULL
     // (pre-filter) overlay: the exact areas include every triangle, so this
     // validates the exact 2D boolean is correct BEFORE the f64-collapse filter
-    // below ever drops anything. ──────────────────────────────────────────
-    let area_a = overlay.area_exact(RegionClass::AOnly) + overlay.area_exact(RegionClass::Overlap);
-    if area_a != input_area(&loops_a) {
-        return Err(CoplanarOverlayError::CoverageMismatch { side: 'A' });
-    }
-    let area_b = overlay.area_exact(RegionClass::BOnly) + overlay.area_exact(RegionClass::Overlap);
-    if area_b != input_area(&loops_b) {
-        return Err(CoplanarOverlayError::CoverageMismatch { side: 'B' });
+    // below ever drops anything. Enforced PER POLYGON: the area of the
+    // triangles attributed to polyᵢ (class XOnly/Overlap) must equal polyᵢ's
+    // exact input area — this is both the side identity (summed) and the
+    // n-ary attribution oracle; overlapping same-side inputs fail here. ────
+    for (side, polys, attribution, own_class) in [
+        ('A', &polys_a, &overlay.poly_a, RegionClass::AOnly),
+        ('B', &polys_b, &overlay.poly_b, RegionClass::BOnly),
+    ] {
+        for (pi, loops) in polys.iter().enumerate() {
+            let mut sum = RBig::ZERO;
+            for ((tri, c), &attr) in overlay.tris.iter().zip(&overlay.class).zip(attribution) {
+                if attr == pi as u32 && (*c == own_class || *c == RegionClass::Overlap) {
+                    let a2 = &overlay.exact_verts[tri[0] as usize];
+                    let b2 = &overlay.exact_verts[tri[1] as usize];
+                    let c2 = &overlay.exact_verts[tri[2] as usize];
+                    sum += cross_r(a2, b2, c2);
+                }
+            }
+            if sum / RBig::from(2) != input_area(loops) {
+                return Err(CoplanarOverlayError::CoverageMismatch { side });
+            }
+        }
     }
 
     // ── 6. Sliver-collapse gate: every triangle is exactly CCW-positive by
@@ -551,7 +622,9 @@ pub fn coplanar_overlay(
     //       mint-site collapse, not local surgery.
     let mut kept_tris = Vec::with_capacity(overlay.tris.len());
     let mut kept_class = Vec::with_capacity(overlay.class.len());
-    for (tri, cls) in overlay.tris.iter().zip(overlay.class.iter()) {
+    let mut kept_pa = Vec::with_capacity(overlay.poly_a.len());
+    let mut kept_pb = Vec::with_capacity(overlay.poly_b.len());
+    for (i, (tri, cls)) in overlay.tris.iter().zip(overlay.class.iter()).enumerate() {
         let a2 = overlay.verts[tri[0] as usize];
         let b2 = overlay.verts[tri[1] as usize];
         let c2 = overlay.verts[tri[2] as usize];
@@ -559,6 +632,8 @@ pub fn coplanar_overlay(
             RoundedTri::Positive => {
                 kept_tris.push(*tri);
                 kept_class.push(*cls);
+                kept_pa.push(overlay.poly_a[i]);
+                kept_pb.push(overlay.poly_b[i]);
             }
             // (a) benign coincident-pair needle — drop (zero f64 extent).
             RoundedTri::CoincidentNeedle => continue,
@@ -571,6 +646,8 @@ pub fn coplanar_overlay(
     }
     overlay.tris = kept_tris;
     overlay.class = kept_class;
+    overlay.poly_a = kept_pa;
+    overlay.poly_b = kept_pb;
 
     Ok(overlay)
 }

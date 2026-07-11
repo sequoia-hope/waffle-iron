@@ -2370,7 +2370,8 @@ swapped every consumer to `predicates::indirect`).
   >    from in/out classification, not by special-casing the normal at Stage 0.
   >
   > **Done generally, this subsumes** same-normal overlaps, holed/multi-loop faces,
-  > a face in >1 pair (n-ary overlay), and curved coplanar pairs — all currently
+  > a face in >1 pair (n-ary overlay — LIFTED for the pure-polygon class at
+  > slice f, 2026-07-11), and curved coplanar pairs — the rest currently
   > walled. **Co-requisite: deviation N4** (§4.2.3 barycentric per-triangle
   > provenance). The current `tol_for` centroid-proximity attribution is the
   > structural reason coplanar overlaps are fragile (multi-attributed overlap
@@ -2558,6 +2559,47 @@ swapped every consumer to `predicates::indirect`).
     case pinned to stay `CoplanarFacesUnsupported`). Next M8 disc lever:
     **disc∩disc containment** (coaxial caps — the same direct construction
     with two rims instead of a rim + polygon), then disc×polygon crossing.
+  - **M8 slice f ✅ (task #129, 2026-07-11): the plane-grouped n-ary
+    overlay — "face in >1 pair" LIFTED for the pure-polygon class** (spec
+    `specs/m8_plane_group_nary_overlay.md`). Driver: user case
+    `error_coplanar.waffle` — a bridge slab whose bottom face is flush with
+    BOTH tower tops of a U-shaped solid (2 pairs sharing one B face + 4
+    zero-overlap corner-flush side pairs). Design: cross pairs are grouped
+    into PLANE GROUPS (connected components over shared faces,
+    `stage0::nary::build_plane_groups`); a singleton group runs the
+    historical 1×1 path byte-identically, a multi-pair group runs ONE
+    n-ary exact overlay — `coplanar_overlay_multi`, side = a SET of
+    interior-disjoint polygons, parity over the side's combined edge set,
+    per-triangle containing-polygon attribution (`poly_a`/`poly_b`), and
+    the coverage identity enforced PER POLYGON (overlapping same-side
+    inputs = loud `CoverageMismatch`). Snap/cross-weld/§2b clustering run
+    per GROUP on one canonical plane (lowest A face); per-face overrides
+    are attribution-scoped; `collect_edge_splits` runs per group face.
+    Scope walls (typed residue): a multi-pair group carrying a
+    disc/annular/mixed face (`nary-face-unsupported`) or mixed per-side
+    orientation (`nary-mixed-orientation`). Oracles:
+    `yang-rs/tests/m8_bridge_nary_overlay.rs` (4 e2e: union χ=0 frame with
+    exact volume for both the round-number inset fixture AND the user's
+    exact mm geometry, subtract-leaves-A, intersect-empty),
+    yr25 n-ary engine tests (exact per-class + per-polygon attributed
+    areas, 1×1 delegation bit-identity, loud overlapping-inputs), and a
+    stage0-level attribution oracle (`nary_overrides_are_disjoint_and_owned`
+    — added after a FIP §6.3 mutation check proved the mesh-level e2e
+    oracles are INSENSITIVE to a dropped/swapped attribution filter:
+    downstream duplicate welding + same-plane merge mask it). Corpus
+    (full assay 2026-07-11, release JOBS=6, 240s cap): **235 CORRECT /
+    0 WRONG / 46 ERROR / 13 UNSUPPORTED / 1 EXPECTED_ERROR / 0 TIMEOUT**
+    (295 cases) — NEW case **C0101** (user-exact geometry, exact chain
+    volume, χ=0) SUPPORTED_CORRECT; **F0073** UNSUPPORTED→SUPPORTED_CORRECT
+    (its wedge auto-union sat on this wall, mislabeled UNSUPPORTED(revolve)
+    by the failing-feature name); **R0081** lateral wall-to-wall move —
+    same mislabeled coplanar wall lifted, the case now marches to the
+    pre-existing Stage-4 `LocalRefinementRequired` class (N2 epic). Zero
+    CORRECT→worse. Residue finding: the ROUND-NUMBER corner-flush variant
+    of the TOWER unions (tower sharing three side planes with the base at
+    x=−end) dies earlier at the pre-existing chiral `edge-not-2-directed`
+    output wall — the user's irregular coordinates do not; C0101 pins the
+    user's actual boundary.
   - **KV4-F1 ✅ RESOLVED (PR-KV4-F1, 2026-06-12): the rational-ray
     fallback** — `rational_ray_inner_label` in cherchi-rs
     `labeling/inside_out.rs` implements the branch the C++ reference

@@ -1,0 +1,104 @@
+{
+  "id": "C0101",
+  "description": "4 ops, scale=2.42e-2, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — user-reported: flush bridge across two tower tops — bridge bottom in TWO coplanar pairs (frame, g=1, chi=0) [M8 n-ary]",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.024155844177585095,
+  "log_scale": -1.6169777805636882,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.024155844177585095,
+      "depth_or_angle": 0.002,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        -0.002
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.008314932289067656,
+      "depth_or_angle": 0.01,
+      "is_cut": false,
+      "plane_origin": [
+        0.00792045594425872,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.006347404589178041,
+      "depth_or_angle": 0.01,
+      "is_cut": false,
+      "plane_origin": [
+        -0.008904219794203527,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.024155844177585095,
+      "depth_or_angle": 0.001,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.01
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 0,
+    "expect_watertight": true,
+    "max_bbox_extent": 0.1,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "increase",
+      "increase",
+      "increase"
+    ],
+    "expect_rebuild_error": false,
+    "expected_volume": 2.4555249525997365e-6
+  },
+  "generator_version": 4,
+  "featured": true
+}

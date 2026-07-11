@@ -559,3 +559,119 @@ fn degenerate_loop_rejected() {
     let err = coplanar_overlay(&nan, &b).expect_err("NaN input must be rejected");
     assert!(matches!(err, CoplanarOverlayError::NonFiniteInput));
 }
+
+// ═══════════════════════ n-ary (multi-polygon) overlay ═══════════════════
+// M8 plane groups (spec `m8_plane_group_nary_overlay`): each side is a SET
+// of interior-disjoint polygons-with-holes; classification is parity over
+// the side's combined edge set and every inside triangle carries its
+// containing polygon's index (`poly_a` / `poly_b`).
+
+/// The bridge configuration in 2D: side A = two disjoint tower-top squares,
+/// side B = one spanning rectangle. Exact per-class + per-polygon areas.
+#[test]
+fn nary_two_towers_vs_spanning_bridge() {
+    use yang_rs::coplanar_overlay::coplanar_overlay_multi;
+    let tower1 = rect(-1.2, -0.4, -0.4, 0.4);
+    let tower2 = rect(0.4, -0.4, 1.2, 0.4);
+    let bridge = rect(-1.0, -0.3, 1.0, 0.3);
+    let ov = coplanar_overlay_multi(
+        &[tower1.clone(), tower2.clone()],
+        std::slice::from_ref(&bridge),
+    )
+    .expect("n-ary overlay");
+
+    // Exact class areas in the rationals of the f64 inputs: overlap = two
+    // 0.6×0.6 patches; AOnly = towers minus their patches; BOnly = bridge
+    // minus both patches.
+    let dy = rb(0.3) - rb(-0.3);
+    let overlap_exact = (rb(-0.4) - rb(-1.0)) * dy.clone() + (rb(1.0) - rb(0.4)) * dy;
+    let ov_area = ov.area_exact(RegionClass::Overlap);
+    assert_eq!(ov_area, overlap_exact, "overlap area");
+    assert_eq!(
+        ov.area_exact(RegionClass::AOnly),
+        input_area_exact(&tower1) + input_area_exact(&tower2) - overlap_exact.clone(),
+        "AOnly area"
+    );
+    assert_eq!(
+        ov.area_exact(RegionClass::BOnly),
+        input_area_exact(&bridge) - overlap_exact,
+        "BOnly area"
+    );
+
+    // Attribution: every inside-A triangle names tower 0 or 1; the exact
+    // per-tower area of the attributed triangles equals that tower's area.
+    let mut per_tower = [RBig::ZERO, RBig::ZERO];
+    for ((tri, c), &pa) in ov.tris.iter().zip(&ov.class).zip(&ov.poly_a) {
+        match *c {
+            RegionClass::AOnly | RegionClass::Overlap => {
+                assert!(
+                    pa == 0 || pa == 1,
+                    "inside-A tri must name a tower, got {pa}"
+                );
+                let area2 = cross_e(
+                    &ov.exact_verts[tri[0] as usize],
+                    &ov.exact_verts[tri[1] as usize],
+                    &ov.exact_verts[tri[2] as usize],
+                );
+                per_tower[pa as usize] += area2;
+            }
+            RegionClass::BOnly => assert_eq!(pa, u32::MAX, "BOnly tri must not name a tower"),
+        }
+    }
+    for (i, sum2) in per_tower.into_iter().enumerate() {
+        assert_eq!(
+            sum2 / RBig::from(2),
+            input_area_exact(if i == 0 { &tower1 } else { &tower2 }),
+            "tower {i} attributed area"
+        );
+    }
+    // Overlap triangles also carry the B polygon index (the only one).
+    for (c, &pb) in ov.class.iter().zip(&ov.poly_b) {
+        match *c {
+            RegionClass::BOnly | RegionClass::Overlap => assert_eq!(pb, 0),
+            RegionClass::AOnly => assert_eq!(pb, u32::MAX),
+        }
+    }
+}
+
+/// B7: the 1×1 delegation is bit-identical to the historical entry point.
+#[test]
+fn nary_singleton_delegation_is_bit_identical() {
+    use yang_rs::coplanar_overlay::coplanar_overlay_multi;
+    let a = pwh(
+        &[(0.0, 0.0), (3.0, 0.0), (3.0, 2.0), (0.0, 2.0)],
+        &[&[(1.0, 0.5), (2.0, 0.5), (2.0, 1.5), (1.0, 1.5)]],
+    );
+    let b = rect(2.5, -0.5, 4.0, 1.0);
+    let single = coplanar_overlay(&a, &b).expect("single");
+    let multi =
+        coplanar_overlay_multi(std::slice::from_ref(&a), std::slice::from_ref(&b)).expect("multi");
+    assert_eq!(single.verts, multi.verts);
+    assert_eq!(single.exact_verts, multi.exact_verts);
+    assert_eq!(single.tris, multi.tris);
+    assert_eq!(single.class, multi.class);
+    // Single-polygon attribution: 0 on the inside side, MAX outside.
+    for ((c, &pa), &pb) in single.class.iter().zip(&single.poly_a).zip(&single.poly_b) {
+        match *c {
+            RegionClass::AOnly => assert_eq!((pa, pb), (0, u32::MAX)),
+            RegionClass::BOnly => assert_eq!((pa, pb), (u32::MAX, 0)),
+            RegionClass::Overlap => assert_eq!((pa, pb), (0, 0)),
+        }
+    }
+}
+
+/// B8: OVERLAPPING same-side polygons violate the interior-disjoint
+/// contract — the per-polygon coverage identity fails LOUDLY.
+#[test]
+fn nary_overlapping_same_side_inputs_are_loud() {
+    use yang_rs::coplanar_overlay::coplanar_overlay_multi;
+    let a1 = rect(0.0, 0.0, 2.0, 1.0);
+    let a2 = rect(1.0, 0.0, 3.0, 1.0); // overlaps a1 on [1,2]×[0,1]
+    let b = rect(0.5, 0.25, 2.5, 0.75);
+    let err = coplanar_overlay_multi(&[a1, a2], &[b])
+        .expect_err("overlapping same-side inputs must be LOUD");
+    assert!(
+        matches!(err, CoplanarOverlayError::CoverageMismatch { side: 'A' }),
+        "expected CoverageMismatch(A), got {err:?}"
+    );
+}

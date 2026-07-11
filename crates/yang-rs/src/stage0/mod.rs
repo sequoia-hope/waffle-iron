@@ -40,13 +40,18 @@
 //!
 //! ## Scope (unsupported residue keeps the loud YR24 error)
 //!
-//! Handled: A×B pairs of PLANAR faces with all-`LineSegment` loops, each
-//! face in at most ONE pair. Everything else stays
+//! Handled: A×B pairs of PLANAR faces with all-`LineSegment` loops (plus
+//! the disc/annular/mixed extensions of the 1×1 path). Pairs are processed
+//! in PLANE GROUPS (spec `m8_plane_group_nary_overlay`, `stage0::nary`): a
+//! face in MULTIPLE pairs joins its partners in one n-ary overlay when
+//! every group face is a pure line-loop polygon with per-side uniform
+//! orientation. Everything else stays
 //! `YangError::CoplanarFacesUnsupported`: intra-solid near pairs (the
 //! chained-output class — with only A×B pairs overlaid, intra-solid
 //! near-coplanarity has no Stage-0 resolution and would still build femto
-//! sliver patches), curved faces, faces in multiple pairs, and overlay
-//! engine failures (e.g. `RoundingCollapse` on sub-ulp in-plane slivers).
+//! sliver patches), curved faces, multi-pair groups carrying a
+//! disc/annular/mixed face, and overlay engine failures (e.g.
+//! `RoundingCollapse` on sub-ulp in-plane slivers).
 //!
 //! ## What the caller gets
 //!
@@ -76,6 +81,9 @@ pub(crate) use mesh_build::*;
 mod cylinder;
 #[allow(unused_imports)]
 pub(crate) use cylinder::*;
+mod nary;
+#[allow(unused_imports)]
+pub(crate) use nary::*;
 
 use cad_primitives::Point3;
 use dashu::rational::RBig;
@@ -165,8 +173,8 @@ pub(crate) struct Stage0 {
 }
 
 /// Diagnostic probe for M8 residue-distribution surveys: tags which
-/// unsupported-residue sub-class fired (`intra-solid` / `multi-pair` /
-/// `face-unsupported` / `polygon2d-*` / `overlay-failed` / `build-mesh-*`).
+/// unsupported-residue sub-class fired (`intra-solid` / `face-unsupported`
+/// / `polygon2d-*` / `overlay-failed` / `build-mesh-*` / `nary-*`).
 /// Env-gated (`YANG_COPLANAR_PROBE=1`), zero-cost when unset; used by the
 /// corpus-survey workflow to size the remaining M8 sub-classes.
 fn probe(tag: &str, detail: &str) {
@@ -212,29 +220,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         input_b: InputId::B,
         face_b,
     };
-    let mut count_a = vec![0usize; a.faces().len()];
-    let mut count_b = vec![0usize; b.faces().len()];
     for p in &scan.cross {
-        count_a[p.face_a] += 1;
-        count_b[p.face_b] += 1;
-    }
-    for p in &scan.cross {
-        // A face in MORE than one pair would need an n-ary overlay —
-        // unsupported residue.
-        if count_a[p.face_a] > 1 || count_b[p.face_b] > 1 {
-            probe(
-                "multi-pair",
-                &format!(
-                    "pair=({},{}) count_a={} count_b={} total_pairs={}",
-                    p.face_a,
-                    p.face_b,
-                    count_a[p.face_a],
-                    count_b[p.face_b],
-                    scan.cross.len()
-                ),
-            );
-            return Err(pair_err(p.face_a, p.face_b));
-        }
         for (brep, fi) in [(a, p.face_a), (b, p.face_b)] {
             if !overlay_face_supported(brep, fi) {
                 let f = &brep.faces()[fi];
@@ -255,23 +241,36 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         }
     }
 
-    // ── Snap phase (canonical plane per pair, deterministic pair order) ─
+    // ── Plane groups (spec `m8_plane_group_nary_overlay`): connected
+    // components of the pair graph over shared faces. Singleton groups run
+    // the historical 1×1 path byte-identically; multi-pair groups run the
+    // n-ary overlay (`overlay_nary_group`). ─────────────────────────────
+    let groups = build_plane_groups(&scan.cross);
+
+    // ── Snap phase (ONE canonical plane per group, deterministic order) ─
     let mut va: Vec<Point3> = a.vertices().iter().map(|v| v.point).collect();
     let mut vb: Vec<Point3> = b.vertices().iter().map(|v| v.point).collect();
-    let mut frames: Vec<Frame> = Vec::with_capacity(scan.cross.len());
-    for p in &scan.cross {
-        let frame = canonical_frame(a, p.face_a).ok_or_else(|| {
+    let mut frames: Vec<Frame> = Vec::with_capacity(groups.len());
+    for g in &groups {
+        let first = &scan.cross[g.pair_idxs[0]];
+        // Group canonical plane: the LOWEST participating A face (for a
+        // singleton group this IS the pair's face_a — the historical frame).
+        let frame = canonical_frame(a, g.faces_a[0]).ok_or_else(|| {
             probe(
                 "frame-degenerate",
-                &format!("pair=({},{})", p.face_a, p.face_b),
+                &format!("pair=({},{})", first.face_a, first.face_b),
             );
-            pair_err(p.face_a, p.face_b)
+            pair_err(first.face_a, first.face_b)
         })?;
-        for vi in face_loop_verts(a, p.face_a) {
-            va[vi as usize] = frame.snap(va[vi as usize]);
+        for &fa in &g.faces_a {
+            for vi in face_loop_verts(a, fa) {
+                va[vi as usize] = frame.snap(va[vi as usize]);
+            }
         }
-        for vi in face_loop_verts(b, p.face_b) {
-            vb[vi as usize] = frame.snap(vb[vi as usize]);
+        for &fb in &g.faces_b {
+            for vi in face_loop_verts(b, fb) {
+                vb[vi as usize] = frame.snap(vb[vi as usize]);
+            }
         }
         // Cross-weld: a B loop vertex landing on the SAME in-plane (u,v)
         // as an A loop vertex takes A's coordinates — the §4.5.5 symbolic
@@ -281,13 +280,17 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             let (u, v) = f.project(p);
             (u.to_bits(), v.to_bits())
         };
-        let a_keys: BTreeMap<(u64, u64), u32> = face_loop_verts(a, p.face_a)
-            .into_iter()
+        let a_keys: BTreeMap<(u64, u64), u32> = g
+            .faces_a
+            .iter()
+            .flat_map(|&fa| face_loop_verts(a, fa))
             .map(|vi| (key(va[vi as usize], &frame), vi))
             .collect();
-        for vi in face_loop_verts(b, p.face_b) {
-            if let Some(&ai) = a_keys.get(&key(vb[vi as usize], &frame)) {
-                vb[vi as usize] = va[ai as usize];
+        for &fb in &g.faces_b {
+            for vi in face_loop_verts(b, fb) {
+                if let Some(&ai) = a_keys.get(&key(vb[vi as usize], &frame)) {
+                    vb[vi as usize] = va[ai as usize];
+                }
             }
         }
         frames.push(frame);
@@ -302,7 +305,29 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
     let mut rim_overrides_b: RimSplitMap = BTreeMap::new();
     let mut pairs: Vec<PairPlane> = Vec::with_capacity(scan.cross.len());
 
-    for (p, frame) in scan.cross.iter().zip(&frames) {
+    for (g, frame) in groups.iter().zip(&frames) {
+        // Multi-pair plane group → the n-ary overlay path (spec
+        // `m8_plane_group_nary_overlay` B2–B5); its scope walls keep the
+        // typed residue for disc/annular/mixed faces and mixed orientation.
+        if g.pair_idxs.len() > 1 {
+            overlay_nary_group(
+                a,
+                b,
+                g,
+                &scan.cross,
+                frame,
+                &va,
+                &vb,
+                &mut pairs,
+                &mut overrides_a,
+                &mut overrides_b,
+                &mut splits_a,
+                &mut splits_b,
+                &probe,
+            )?;
+            continue;
+        }
+        let p = &scan.cross[g.pair_idxs[0]];
         // Normal agreement: face B's outward vs the canonical normal.
         let nb = match b.faces()[p.face_b].surface {
             Surface::Plane { normal, .. } => normalize3(normal.as_array()),

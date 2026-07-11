@@ -14,7 +14,7 @@ mod construction_stage1;
 mod m4_substitute;
 mod m5_case_iv;
 mod matching;
-mod n2_junction;
+pub(crate) mod n2_junction;
 mod topology;
 
 #[allow(unused_imports)]

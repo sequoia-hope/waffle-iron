@@ -1,6 +1,6 @@
 {
   "master_seed": 42,
-  "count": 294,
+  "count": 295,
   "generator_version": 4,
   "cases": [
     {
@@ -2059,6 +2059,13 @@
       "filename": "C0100.waffle",
       "meta_filename": "C0100.meta.json",
       "description": "1 ops, scale=1.00e0, extrude(rectangle,boss) — region extrude: two adjacent sub-regions extruded as ONE body (2D-union regions path, chi=2)",
+      "featured": true
+    },
+    {
+      "id": "C0101",
+      "filename": "C0101.waffle",
+      "meta_filename": "C0101.meta.json",
+      "description": "4 ops, scale=2.42e-2, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — user-reported: flush bridge across two tower tops — bridge bottom in TWO coplanar pairs (frame, g=1, chi=0) [M8 n-ary]",
       "featured": true
     }
   ]

@@ -201,7 +201,10 @@ impl CCase {
         let mut bytes = [0u8; 16];
         // Two independent FNV-1a streams (offset-basis tweaked for the
         // second half) fill the 16 bytes deterministically.
-        for (half, seed) in [(0usize, 0xcbf2_9ce4_8422_2325u64), (1, 0x9e37_79b9_7f4a_7c15)] {
+        for (half, seed) in [
+            (0usize, 0xcbf2_9ce4_8422_2325u64),
+            (1, 0x9e37_79b9_7f4a_7c15),
+        ] {
             let mut h = seed;
             for b in key.bytes() {
                 h ^= u64::from(b);
@@ -3376,6 +3379,60 @@ fn family_regions(dir: &Path) -> Vec<ManifestEntry> {
 
 /// Generate all 100 C-series cases into `output_dir`. Returns manifest
 /// entries in id order (C0001–C0100, dense).
+// ── Group 6: user-reported drivers (C0101–) ────────────────────────────────
+
+/// Minimal deterministic replicas of user-reported failure configurations
+/// (each cites its fixture + task). Unlike Groups 1/3 these may pin CURRENT
+/// capability walls; their categories are tracked in `assay_kv2.rs`.
+fn family_user_reported(dir: &Path) -> Vec<ManifestEntry> {
+    let mut e = Vec::new();
+    // C0101: flush bridge across two tower tops (user `error_coplanar.waffle`,
+    // task #129, spec `m8_plane_group_nary_overlay`). The user's EXACT world
+    // geometry (mm scale, unequal towers, all side planes corner-flush): a
+    // 24.2×11.2×2 mm base slab extruded DOWN from z=0, two full-width towers
+    // extruded 10 mm UP from base-top regions at the slab's ends, then a
+    // 1 mm bridge slab spanning the full base footprint, its bottom flush
+    // with BOTH tower tops — the bridge bottom face lands in TWO Stage-0
+    // coplanar pairs (plus zero-area-overlap side-plane pairs), the M8
+    // n-ary plane-group class. Result is a rectangular frame: g=1, chi=0.
+    // (Round-number corner-flush variants of the TOWER unions trip the
+    // separate pre-existing chiral `edge-not-2-directed` output wall; the
+    // user's coordinates do not — the case pins the user's actual boundary.)
+    {
+        let mut c = CCase::new("C0101");
+        c.scale = 0.024155844177585096;
+        let x_lo = -0.012077922088792548;
+        let x_hi = 0.012077922088792548;
+        let y_half = 0.005603895318927243;
+        let ta_lo = 0.003762989799724892; // tower A (+x end) inner wall
+        let tb_hi = -0.005730517499614507; // tower B (−x end) inner wall
+        let w = x_hi - x_lo;
+        let h = 2.0 * y_half;
+        // CENTERED profiles only (each sketch origin at its tool's center):
+        // the independent `assay_noop_guard` models every sketch as a
+        // centered box (hw = max |u|), so an off-center boss rectangle reads
+        // as a full-span box and false-positives as `swallowed_boss`. The
+        // ±ULP drift of the computed centers vs the user's raw corners is
+        // immaterial — the near-coplanar scan band absorbs it (the user's
+        // own bridge plane sat 2.2e-10 off the tower tops).
+        // Base slab below z=0 (the user extruded the base downward).
+        c.vboss([0.0, 0.0, -0.002], Z, w, h, 0.002);
+        // Towers up from the shared z=0 plane (base-top regions).
+        c.vboss([(ta_lo + x_hi) / 2.0, 0.0, 0.0], Z, x_hi - ta_lo, h, 0.01);
+        c.vboss([(x_lo + tb_hi) / 2.0, 0.0, 0.0], Z, tb_hi - x_lo, h, 0.01);
+        // Bridge slab flush on both tower tops.
+        c.vboss([0.0, 0.0, 0.01], Z, w, h, 0.001);
+        let vol = c.chain_vol();
+        let d = desc(
+            &c,
+            "user-reported",
+            "flush bridge across two tower tops — bridge bottom in TWO coplanar pairs (frame, g=1, chi=0) [M8 n-ary]",
+        );
+        e.push(write_c_case(dir, c, d, Knobs::solid(0, vol, 0.1)));
+    }
+    e
+}
+
 pub fn generate_complexity_cases(output_dir: &Path) -> Vec<ManifestEntry> {
     let mut entries = Vec::new();
     entries.extend(family_genus(output_dir));
@@ -3391,7 +3448,8 @@ pub fn generate_complexity_cases(output_dir: &Path) -> Vec<ManifestEntry> {
     entries.extend(family_depth_modes(output_dir));
     entries.extend(family_holed_profiles(output_dir));
     entries.extend(family_regions(output_dir));
-    assert_eq!(entries.len(), 100, "C-series must be exactly 100 cases");
+    entries.extend(family_user_reported(output_dir));
+    assert_eq!(entries.len(), 101, "C-series must be exactly 101 cases");
     for (i, en) in entries.iter().enumerate() {
         assert_eq!(
             en.id,
@@ -3482,7 +3540,7 @@ mod tests {
     fn generate_all_hundred_into_tempdir() {
         let dir = tempfile::tempdir().unwrap();
         let entries = generate_complexity_cases(dir.path());
-        assert_eq!(entries.len(), 100);
+        assert_eq!(entries.len(), 101);
         // C0001 meta: plate volume 8 − 2·(0.4·0.4·0.5) = 7.84, chi = −2.
         let meta: AssayMeta = serde_json::from_str(
             &std::fs::read_to_string(dir.path().join("C0001.meta.json")).unwrap(),

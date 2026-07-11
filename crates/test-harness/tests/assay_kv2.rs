@@ -1062,9 +1062,11 @@ fn smoke_corpus_boundary_categories() {
         // profile boundary — the on-axis lathe wedge class, now a SUPPORTED
         // construction (the meta's expected-error is stale the same way
         // C0035-F1's was: authored against a since-closed capability gap).
-        // The case builds its wedge and marches to the next honest boundary,
-        // the M8 coplanar auto-union wall.
-        ("F0073", Category::Unsupported(UnsupportedReason::Revolve)),
+        // PIN MOVED AGAIN at the M8 plane-group n-ary overlay (task #129,
+        // spec `m8_plane_group_nary_overlay`): the wedge's auto-union used
+        // to stop at the multi-pair coplanar wall; the plane-grouped
+        // overlay takes the case end-to-end — all mesh oracles pass.
+        ("F0073", Category::SupportedCorrect),
         ("F0074", Category::ExpectedError),
         // F0075 PIN MOVED at the M8 mixed Line+Arc coplanar overlay
         // (2026-07-09, spec `m8_mixed_loop_coplanar_overlay`): the
@@ -1146,6 +1148,11 @@ fn smoke_corpus_boundary_categories() {
         // completes CORRECT; the stale pin sat unseen behind the debug
         // tier's fail-fast (the C0036 gate red, task #128).
         ("C0071", Category::SupportedCorrect), // [KV7] void breach
+        // Group 6: user-reported drivers. C0101 = flush bridge across two
+        // tower tops (user `error_coplanar.waffle`, task #129) — the bridge
+        // bottom face lands in TWO Stage-0 coplanar pairs; handled by the
+        // plane-grouped n-ary overlay (spec `m8_plane_group_nary_overlay`).
+        ("C0101", Category::SupportedCorrect), // [M8 n-ary] flush bridge frame
     ];
     for (id, expect) in expected {
         let case = cases
@@ -1224,8 +1231,8 @@ fn full_corpus_categorized() {
     let cases = discover_cases(&dir);
     assert_eq!(
         cases.len(),
-        294,
-        "expected the 294-case assay corpus (194 legacy + 100 C-series)"
+        295,
+        "expected the 295-case assay corpus (194 legacy + 101 C-series)"
     );
 
     // Per-case timeout (default 30s, env-overridable) so no single case can

@@ -58,7 +58,8 @@ pub(crate) fn flip_for_op(op: BoolOp, la: &LabeledArrangement, t: usize) -> bool
 /// `CoplanarFacesUnsupported` wall; PR-YR26 (M8 slice b) HANDLES the
 /// cross-pair planar class via the §4.5.5 overlay (`stage0_preprocess`) and
 /// keeps the wall only for the residue (intra pairs, unsupported face
-/// shapes, multi-pair faces).
+/// shapes; multi-pair faces route through the plane-grouped n-ary overlay,
+/// spec `m8_plane_group_nary_overlay`).
 ///
 /// **The band.** For a candidate pair, with unit normals `n̂a`, `n̂b`
 /// (orientation-aligned: `s = sign(n̂a·n̂b)`) and unit-normal plane offsets
@@ -1667,9 +1668,11 @@ pub fn boolean(
     // onto one canonical shared plane, segmented by the exact 2D overlay,
     // and re-tessellated so the overlap region carries IDENTICAL meshes on
     // both solids (see `stage0::stage0_preprocess`). Unsupported residue
-    // (intra-solid near pairs — the chained-output class — plus curved /
-    // multi-pair faces and overlay failures) keeps the loud typed PR-YR24
-    // wall (`CoplanarFacesUnsupported`).
+    // (intra-solid near pairs — the chained-output class — plus curved
+    // faces in a multi-pair group and overlay failures) keeps the loud
+    // typed PR-YR24 wall (`CoplanarFacesUnsupported`); multi-pair PLANAR
+    // groups route through the n-ary overlay (`stage0::nary`, spec
+    // `m8_plane_group_nary_overlay`).
     let stage0 = stage0::stage0_preprocess(a, b)?;
     // M8-cyl Increment 1 (§4.5.5 curved analog): when the planar scan found NO
     // cross pairs, a COINCIDENT-CYLINDER pair (the gear's bore wall ∩ a coaxial
