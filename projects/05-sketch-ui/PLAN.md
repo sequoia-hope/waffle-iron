@@ -186,6 +186,39 @@ outline by 0.5 mm to build a printed housing.
   hard-coded pixel size = ~8 mm merge radius (small fillets degenerate to
   start==end arcs); offset constraint linkage (parametric offset distance).
 
+### M15b: Ring-profile extrude fix (2026-07-11, user case step_extrude.waffle)
+
+Offset rings exposed a pre-existing failure class: extruding a sketch
+containing a closed line/arc ring stored in CW walk order failed with
+`kernel-v2 profile rejected: ProfileRepeatedVertex` (and, once past that,
+`NewellMismatch`) — even when the extruded profile itself was clean, because
+`make_faces_from_profiles` stages ALL profiles. Three root causes, all fixed:
+
+- [x] **Twin profiles**: an isolated degree-2 ring yields TWO minimal faces
+      over the same entity set (one per traversal direction); with arcs
+      reduced to chords the extractor cannot tell bounded from unbounded, so
+      both survived. Dedup by entity-id set keeping the CCW twin — in BOTH
+      `app/src/lib/sketch/profiles.js` and
+      `crates/waffle-types/src/profiles.rs` (rebuild/solve path), + red→green
+      `crates/waffle-types/tests/profile_ring_twin_dedup.rs`.
+- [x] **Densifier first-entity direction** (`finishSketch`,
+      store.svelte.js): the first entity was always sampled forward; a
+      reversed-first walk pushed the shared vertex twice → the kernel's
+      exact-equality ProfileRepeatedVertex. Direction now derived from
+      connectivity with the second entity (bigons keep forward).
+- [x] **Densifier reversed-arc sampling**: arcs were always sampled CCW from
+      the traversal start, so reversed arcs sampled the COMPLEMENT arc.
+      Reversed traversal now samples with decreasing angles.
+- [x] Offset tool now emits closed rings with deterministic CCW winding
+      (offset.js normalization) so new geometry never enters the CW-ring
+      regime in the first place.
+- Repair for existing broken saves: open the sketch (edit) and Finish — the
+  profiles are re-authored by the fixed densifier. Persisted profiles are
+  otherwise preserved on load (`recompute_derived` fills only when empty).
+- Tests: `sketch-ring-profile-extrude.spec.js` (2, verified red pre-fix),
+  Rust `profile_ring_twin_dedup.rs` (2, red pre-fix); user file verified
+  load→edit→finish→extrude green end-to-end.
+
 ## Implementation Summary
 
 ### New files created

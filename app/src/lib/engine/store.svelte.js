@@ -4400,7 +4400,15 @@ export async function finishSketch() {
 					const radius = Math.hypot(sPos.x - center.x, sPos.y - center.y);
 					let startAngle = Math.atan2(sPos.y - center.y, sPos.x - center.x);
 					let endAngle = Math.atan2(ePos.y - center.y, ePos.x - center.x);
-					if (endAngle <= startAngle) endAngle += Math.PI * 2;
+					// Arc entities are CCW start→end. A forward traversal samples
+					// CCW; a REVERSED traversal walks the same physical arc
+					// clockwise, so angles must DECREASE — forcing CCW here used
+					// to sample the complement arc (wrong side of the circle).
+					if (forward) {
+						if (endAngle <= startAngle) endAngle += Math.PI * 2;
+					} else if (endAngle >= startAngle) {
+						endAngle -= Math.PI * 2;
+					}
 
 					const arcStartIdx = pointIds.length;
 					pointIds.push(sId); // start point
@@ -4436,9 +4444,20 @@ export async function finishSketch() {
 			}
 		}
 
-		// First entity
-		addEntityPoints(edgeEntities[0], true);
-		let prevEnd = firstEnd;
+		// First entity: derive its traversal direction from connectivity with
+		// the second entity — the profile walk can enter it either way. Always
+		// assuming forward pushed the shared vertex twice (the kernel rejects
+		// the loop with ProfileRepeatedVertex) and misdirected the whole chain.
+		// A 2-entity loop (bigon) connects at both ends; keep forward for it.
+		let firstForward = true;
+		if (edgeEntities.length > 2) {
+			const [s2, e2] = entityEndpoints(edgeEntities[1]);
+			const endConnects = firstEnd === s2 || firstEnd === e2;
+			const startConnects = firstStart === s2 || firstStart === e2;
+			if (!endConnects && startConnects) firstForward = false;
+		}
+		addEntityPoints(edgeEntities[0], firstForward);
+		let prevEnd = firstForward ? firstEnd : firstStart;
 
 		for (let i = 1; i < edgeEntities.length; i++) {
 			const entity = edgeEntities[i];

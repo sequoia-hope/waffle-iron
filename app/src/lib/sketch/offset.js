@@ -288,6 +288,19 @@ export function offsetChainSegments(segments, closed, d) {
 		}
 	}
 	if (!result.length) return { error: 'degenerate' };
+	// Deterministic winding: closed output is always CCW. The chain walk's
+	// direction is arbitrary, and downstream profile extraction (outer-face
+	// classification, kernel loop staging) assumes drawn-geometry winding —
+	// CW rings scramble it (NewellMismatch class).
+	if (closed && chainSignedArea(result) < 0) {
+		result.reverse();
+		for (let i = 0; i < result.length; i++) {
+			const s = result[i];
+			result[i] = s.type === 'line'
+				? { type: 'line', p0: s.p1, p1: s.p0 }
+				: { ...s, a0: s.a1, a1: s.a0, ccw: !s.ccw };
+		}
+	}
 	return { segments: result, closed };
 }
 

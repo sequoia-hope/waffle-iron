@@ -180,6 +180,33 @@ pub fn extract_profiles(
         }
     }
 
+    // Isolated-ring twin dedup: a closed degree-2 ring yields TWO faces over
+    // the SAME entity set (one per traversal direction) — with arcs reduced
+    // to chords the walk cannot tell the bounded face from the unbounded
+    // one, and the CW twin scrambles downstream profile staging (kernel
+    // ProfileRepeatedVertex / NewellMismatch class). Keep the CCW twin.
+    // Mirrors app/src/lib/sketch/profiles.js.
+    if profiles.len() > 1 {
+        let mut by_key: HashMap<Vec<u32>, usize> = HashMap::new();
+        let mut deduped: Vec<ClosedProfile> = Vec::with_capacity(profiles.len());
+        for p in profiles.drain(..) {
+            let mut key = p.entity_ids.clone();
+            key.sort_unstable();
+            match by_key.get(&key) {
+                None => {
+                    by_key.insert(key, deduped.len());
+                    deduped.push(p);
+                }
+                Some(&idx) => {
+                    if !deduped[idx].is_outer && p.is_outer {
+                        deduped[idx] = p;
+                    }
+                }
+            }
+        }
+        profiles = deduped;
+    }
+
     // Filter: remove the unbounded outer face (largest absolute area, CW winding)
     // The unbounded face is the one wrapping the entire sketch
     if profiles.len() > 1 {

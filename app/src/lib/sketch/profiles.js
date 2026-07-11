@@ -110,6 +110,28 @@ export function extractProfiles(entities, positions) {
 		}
 	}
 
+	// Isolated-ring twin dedup: a closed degree-2 ring yields TWO faces over
+	// the SAME entity set (one per traversal direction) — with arcs reduced
+	// to chords the walk cannot tell the bounded face from the unbounded one,
+	// and the CW twin scrambles downstream profile staging (kernel
+	// ProfileRepeatedVertex / NewellMismatch class). Keep the CCW twin.
+	if (profiles.length > 1) {
+		const byKey = new Map();
+		const deduped = [];
+		for (const p of profiles) {
+			const key = [...p.entityIds].sort((a, b) => a - b).join(',');
+			const prev = byKey.get(key);
+			if (prev == null) {
+				byKey.set(key, deduped.length);
+				deduped.push(p);
+			} else if (!deduped[prev].isOuter && p.isOuter) {
+				deduped[prev] = p;
+			}
+		}
+		profiles.length = 0;
+		profiles.push(...deduped);
+	}
+
 	// Remove unbounded outer face (largest absolute area, CW winding)
 	if (profiles.length > 1) {
 		let maxArea = 0;
