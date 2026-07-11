@@ -1065,20 +1065,30 @@ fn oracle2_offcurve_relocate_on_ellipse_watertight() {
     let mesh = r.as_mesh();
     let mut saw_relocated_edge_source = false;
     for e in &ellipses {
-        let Curve::Ellipse {
-            center,
-            normal,
-            major_axis,
-            major_radius,
-            minor_radius,
-        } = e.curve
-        else {
+        if !matches!(e.curve, Curve::Ellipse { .. }) {
             continue;
-        };
+        }
         for vid in [e.start, e.end] {
             match tmap.lookup(vid) {
-                TessellationSource::BRepEdge { edge: _, t } => {
+                TessellationSource::BRepEdge { edge, t } => {
                     saw_relocated_edge_source = true;
+                    // Task #133: `t` is parameterized in the RECORDED edge's
+                    // stored frame (Stage 6 orients each directed copy's
+                    // normal for its own traversal — a twin copy's frame is
+                    // the mirror), so the inversion reads that edge's curve.
+                    let Curve::Ellipse {
+                        center,
+                        normal,
+                        major_axis,
+                        major_radius,
+                        minor_radius,
+                    } = r.edges()[edge as usize].curve
+                    else {
+                        panic!(
+                            "yr21 §4.5: relocated vertex {vid} source edge {edge} must be an \
+                             Ellipse"
+                        );
+                    };
                     let inverted = eval_ellipse_point(
                         center.as_array(),
                         normal.as_array(),

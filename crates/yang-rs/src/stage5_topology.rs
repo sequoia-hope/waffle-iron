@@ -287,6 +287,77 @@ pub(crate) fn reconstruct_topology_stage4(
 /// `cycles` / `signed_areas`, never the per-edge curve). The per-edge `curve`
 /// comes from `intersection_curves` (an intersection edge gets its exact conic;
 /// all others stay `LineSegment`).
+/// Task #133 (spec `yang_stage6_arc_orientation` B1–B3): orient a periodic
+/// intersection curve for one DIRECTED edge copy `s → e`. The Stage-1 input
+/// convention is "the arc is the CCW sweep around the stored normal from
+/// start to end"; the undirected curve map carries ONE normal, so the copy
+/// whose face-loop traversal is CLOCKWISE around it would declare the
+/// COMPLEMENTARY (≈ 2π) arc. Every Stage-6 output edge spans a single mesh
+/// chord — the geometric piece is always the minor side — so a CCW sweep
+/// exceeding π means THIS copy needs the negated normal (the kernel-v2
+/// twin convention: same point set, opposite traversal). A sweep within
+/// 1e-6 of π is left unchanged (the kernel-v2 `ARC_MINOR_AMBIGUITY_BAND`
+/// posture; mesh chords are orders of magnitude below π).
+fn orient_directed_curve(curve: Curve, s: u32, e: u32, verts: &[Point3]) -> Curve {
+    let sweep_ccw = |center: Point3, normal: Vector3| -> Option<f64> {
+        let (e1, e2) = ortho_basis(normal);
+        let (e1, e2, c) = (e1.as_array(), e2.as_array(), center.as_array());
+        let ang = |vi: u32| -> Option<f64> {
+            let q = verts.get(vi as usize)?.as_array();
+            let w = [q[0] - c[0], q[1] - c[1], q[2] - c[2]];
+            let x = w[0] * e1[0] + w[1] * e1[1] + w[2] * e1[2];
+            let y = w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2];
+            Some(y.atan2(x))
+        };
+        Some((ang(e)? - ang(s)?).rem_euclid(2.0 * std::f64::consts::PI))
+    };
+    let needs_flip = |sweep: Option<f64>| -> bool {
+        matches!(sweep, Some(sw) if sw > std::f64::consts::PI && (sw - std::f64::consts::PI).abs() > 1e-6)
+    };
+    match curve {
+        Curve::Circle {
+            center,
+            normal,
+            radius,
+        } if s != e => {
+            if needs_flip(sweep_ccw(center, normal)) {
+                let n = normal.as_array();
+                Curve::Circle {
+                    center,
+                    normal: Vector3::new(-n[0], -n[1], -n[2]),
+                    radius,
+                }
+            } else {
+                curve
+            }
+        }
+        Curve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } if s != e => {
+            // Same test in the ellipse's own angular parameterization: the
+            // param angle is measured CCW around the stored normal, so the
+            // frame-angle sweep sign matches the param sweep sign.
+            if needs_flip(sweep_ccw(center, normal)) {
+                let n = normal.as_array();
+                Curve::Ellipse {
+                    center,
+                    normal: Vector3::new(-n[0], -n[1], -n[2]),
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                }
+            } else {
+                curve
+            }
+        }
+        _ => curve,
+    }
+}
+
 pub(crate) fn emit_topology(
     mesh: &Mesh,
     infos: &[PatchInfo],
@@ -342,13 +413,16 @@ pub(crate) fn emit_topology(
             let push_loop = |edges: &mut Vec<BRepEdge>, cycle: &[(u32, u32)]| -> Vec<u32> {
                 let start_idx = edges.len() as u32;
                 for &(s, e) in cycle {
+                    let curve = intersection_curves
+                        .get(&if s < e { (s, e) } else { (e, s) })
+                        .copied()
+                        .unwrap_or(Curve::LineSegment);
                     edges.push(BRepEdge {
                         start: s,
                         end: e,
-                        curve: intersection_curves
-                            .get(&if s < e { (s, e) } else { (e, s) })
-                            .copied()
-                            .unwrap_or(Curve::LineSegment),
+                        // Task #133: the undirected curve's normal oriented
+                        // for THIS traversal (spec `yang_stage6_arc_orientation`).
+                        curve: orient_directed_curve(curve, s, e, &mesh.verts),
                     });
                 }
                 (start_idx..edges.len() as u32).collect()
@@ -542,13 +616,16 @@ pub(crate) fn emit_topology(
         let push_loop = |edges: &mut Vec<BRepEdge>, cycle: &[(u32, u32)]| -> Vec<u32> {
             let start_idx = edges.len() as u32;
             for &(s, e) in cycle {
+                let curve = intersection_curves
+                    .get(&if s < e { (s, e) } else { (e, s) })
+                    .copied()
+                    .unwrap_or(Curve::LineSegment);
                 edges.push(BRepEdge {
                     start: s,
                     end: e,
-                    curve: intersection_curves
-                        .get(&if s < e { (s, e) } else { (e, s) })
-                        .copied()
-                        .unwrap_or(Curve::LineSegment),
+                    // Task #133: the undirected curve's normal oriented for
+                    // THIS traversal (spec `yang_stage6_arc_orientation`).
+                    curve: orient_directed_curve(curve, s, e, &mesh.verts),
                 });
             }
             (start_idx..edges.len() as u32).collect()
@@ -592,7 +669,44 @@ pub(crate) fn emit_topology(
             ) && (e.start == vid || e.end == vid)
         });
         if let Some(ei) = edge_idx {
-            sources[vid as usize] = TessellationSource::BRepEdge { edge: ei as u32, t };
+            // Task #133 (spec `yang_stage6_arc_orientation`): Stage 4
+            // computed `t` in the intersection curve's ORIGINAL frame; the
+            // emitted copy's normal may be the per-traversal negation
+            // (`orient_directed_curve`), which MIRRORS the angular
+            // parameterization. Recompute `t` against the CHOSEN edge's
+            // stored curve from the relocated mesh position, so the
+            // `eval_source` round-trip holds by construction. Parabola /
+            // Hyperbola frames are never flipped — keep Stage-4's `t`.
+            let t_edge = match edges[ei].curve {
+                Curve::Circle { center, normal, .. } => {
+                    let (e1, e2) = ortho_basis(normal);
+                    let (c, e1a, e2a) = (center.as_array(), e1.as_array(), e2.as_array());
+                    let q = mesh.verts[vid as usize].as_array();
+                    let w = [q[0] - c[0], q[1] - c[1], q[2] - c[2]];
+                    let x = w[0] * e1a[0] + w[1] * e1a[1] + w[2] * e1a[2];
+                    let y = w[0] * e2a[0] + w[1] * e2a[1] + w[2] * e2a[2];
+                    y.atan2(x)
+                }
+                Curve::Ellipse {
+                    center,
+                    normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                } => ellipse_param(
+                    mesh.verts[vid as usize],
+                    center,
+                    normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                ),
+                _ => t,
+            };
+            sources[vid as usize] = TessellationSource::BRepEdge {
+                edge: ei as u32,
+                t: t_edge,
+            };
         }
     }
 

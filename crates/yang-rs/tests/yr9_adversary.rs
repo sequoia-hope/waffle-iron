@@ -381,7 +381,18 @@ fn distinct_circle_bits(brep: &BRep) -> Vec<([u64; 3], [u64; 3], u64)> {
     let mut set: BTreeMap<([u64; 3], [u64; 3], u64), ()> = BTreeMap::new();
     for (c, n, r) in conic_circles(brep) {
         let cb = c.as_array().map(|v| v.to_bits());
-        let nb = n.as_array().map(|v| v.to_bits());
+        // A circle's POINT SET is invariant under normal negation; Stage 6
+        // orients each directed edge copy's normal for its own traversal
+        // (task #133, spec `yang_stage6_arc_orientation`), so twin copies
+        // legitimately carry opposite signs. Canonicalize the sign (first
+        // nonzero component positive) so "distinct circle" means distinct
+        // geometry, not distinct traversal.
+        let na = n.as_array();
+        let flip = match na.iter().find(|v| **v != 0.0) {
+            Some(v) => *v < 0.0,
+            None => false,
+        };
+        let nb = na.map(|v| if flip { (-v).to_bits() } else { v.to_bits() });
         set.insert((cb, nb, r.to_bits()), ());
     }
     set.into_keys().collect()

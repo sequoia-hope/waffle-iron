@@ -1988,6 +1988,25 @@ pub(crate) fn tessellate_lateral_holed_cdt(
         }
     };
 
+    // T133 diagnosis probe (read-only, env-gated): dump the unrolled ribbon
+    // polygon + holes for offline simplicity analysis.
+    if std::env::var_os("YANG_T133_PROBE").is_some() {
+        let dump = |tag: &str, lp: &[u32]| {
+            let pts: Vec<(f64, f64, u32)> = lp
+                .iter()
+                .map(|&l| {
+                    let p = local_verts[l as usize];
+                    (p.x(), p.y(), global_of_local[l as usize])
+                })
+                .collect();
+            eprintln!("[t133] face {f_idx} {tag}: {pts:?}");
+        };
+        dump("outer", &outer_local);
+        for (k, h) in holes_local.iter().enumerate() {
+            dump(&format!("hole{k}"), h);
+        }
+    }
+
     let local_tris = cherchi_rs::triangulation::cdt_polygon_with_holes_floodfill(
         &local_verts,
         &outer_local,

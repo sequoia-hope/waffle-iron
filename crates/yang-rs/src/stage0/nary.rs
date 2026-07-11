@@ -761,6 +761,44 @@ mod tests {
     use cad_primitives::BoolOp;
     use std::collections::BTreeSet;
 
+    /// Task #133 regression (spec `yang_stage6_arc_orientation`): the
+    /// partial-depth pocket operand's Stage-0 emission is watertight. Was
+    /// ~92 unbalanced edges along the split z=1 arcs — the CW-traversing
+    /// per-face arc copies declared the COMPLEMENTARY (≈2π) arcs before
+    /// `orient_directed_curve` fixed the Stage-6 emission.
+    #[test]
+    fn t133_pocket_floor_emission_watertight() {
+        let nb = crate::native_backend().expect("native backend");
+        let cyl = rj_cylinder([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 2.0, 2.0);
+        let channel = rj_box([-0.5, -3.0, 1.0], [0.5, 3.0, 3.0]);
+        let solid = crate::boolean(&cyl, &channel, BoolOp::Subtract, &nb).expect("cyl − channel");
+        let va: Vec<Point3> = solid.vertices().iter().map(|v| v.point).collect();
+        let (mesh, _) = build_stage0_mesh(
+            &solid,
+            &va,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+        )
+        .unwrap_or_else(|_| panic!("emission failed"));
+        let key = |v: u32| {
+            let p = mesh.verts[v as usize];
+            [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()]
+        };
+        let mut m: BTreeMap<([u64; 3], [u64; 3]), (usize, i64)> = BTreeMap::new();
+        for t in &mesh.tris {
+            for k in 0..3 {
+                let (a, b) = (key(t[k]), key(t[(k + 1) % 3]));
+                let (lo, hi, dir) = if a <= b { (a, b, 1) } else { (b, a, -1) };
+                let e = m.entry((lo, hi)).or_insert((0, 0));
+                e.0 += 1;
+                e.1 += dir;
+            }
+        }
+        let bad = m.values().filter(|&&(c, bal)| c != 2 || bal != 0).count();
+        assert_eq!(bad, 0, "pocket operand Stage-0 emission must be watertight");
+    }
+
     /// Slice g structural oracle (spec `m8_nary_tessellated_faces` §5):
     /// the {mixed, mixed} × {disc} flush-pocket group emits watertight
     /// Stage-0 meshes, and every tool-cap OVERLAP triangle is bit-identical

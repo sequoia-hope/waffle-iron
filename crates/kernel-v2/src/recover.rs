@@ -289,11 +289,28 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
                     center,
                     normal,
                     radius,
-                } => EffCurve::Circle {
-                    center,
-                    normal: normalize3(normal.as_array())?,
-                    radius,
-                },
+                } => {
+                    // Sign-canonicalize (first nonzero component positive):
+                    // a circle's POINT SET is normal-sign-invariant, and
+                    // yang Stage 6 orients each directed edge copy's normal
+                    // for its own traversal (task #133, spec
+                    // `yang_stage6_arc_orientation`) — so twin copies carry
+                    // NEGATED normals and the exact twin-consistency check
+                    // below must compare canonical forms. Negation is exact
+                    // in f64; downstream chain marches are sign-robust and
+                    // `from_yang` re-derives every arc's directional sense.
+                    let n = normalize3(normal.as_array())?;
+                    let flip = match n.iter().find(|v| **v != 0.0) {
+                        Some(v) => *v < 0.0,
+                        None => false,
+                    };
+                    let n = if flip { [-n[0], -n[1], -n[2]] } else { n };
+                    EffCurve::Circle {
+                        center,
+                        normal: n,
+                        radius,
+                    }
+                }
                 _ => EffCurve::Other,
             };
             let info = vpairs.entry(key).or_insert_with(|| VpairInfo {

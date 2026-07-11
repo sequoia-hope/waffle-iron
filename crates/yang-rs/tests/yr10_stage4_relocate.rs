@@ -856,19 +856,31 @@ fn t1_relocate_on_curve_chord_decreases_watertight() {
     let mesh = r.as_mesh();
     let mut saw_relocated_edge_source = false;
     for e in &conics {
-        let Curve::Circle {
-            center,
-            normal,
-            radius,
-        } = e.curve
-        else {
+        if !matches!(e.curve, Curve::Circle { .. }) {
             continue;
-        };
+        }
         for vid in [e.start, e.end] {
             let src = tmap.lookup(vid);
             match src {
-                TessellationSource::BRepEdge { edge: _, t } => {
+                TessellationSource::BRepEdge { edge, t } => {
                     saw_relocated_edge_source = true;
+                    // Task #133: `t` is parameterized in the RECORDED edge's
+                    // stored frame — since Stage 6 orients each directed
+                    // copy's normal for its own traversal (spec
+                    // `yang_stage6_arc_orientation`), a twin copy's frame is
+                    // the mirror, so the inversion must use the recorded
+                    // edge's curve, not any incident copy's.
+                    let Curve::Circle {
+                        center,
+                        normal,
+                        radius,
+                    } = r.edges()[edge as usize].curve
+                    else {
+                        panic!(
+                            "yr10 §5.5: relocated vertex {vid} source edge {edge} must be a \
+                             Circle"
+                        );
+                    };
                     let inverted =
                         eval_circle_source(center.as_array(), normal.as_array(), radius, t);
                     let mesh_pos = mesh.verts[vid as usize].as_array();
