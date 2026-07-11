@@ -27,14 +27,24 @@ const CUBE_STEP = fs.readFileSync(
 	'utf8'
 );
 
-/** Import the cube fixture and wait for the feature to land. */
-async function importCube(page) {
+/**
+ * Import the cube fixture and wait for the feature to land. The import
+ * opens the placement modal with a ghost preview; pass `confirm: true`
+ * to Apply it away (most tests want a placed body).
+ */
+async function importCube(page, { confirm = true } = {}) {
 	const ok = await page.evaluate(
 		(text) => window.__waffle.importStepFromText('cube.step', text),
 		CUBE_STEP
 	);
 	expect(ok).toBe(true);
 	await waitForFeatureCount(page, 1, 10000);
+	const dialog = page.locator('[data-testid="import-step-dialog"]');
+	await dialog.waitFor({ state: 'visible', timeout: 5000 });
+	if (confirm) {
+		await page.locator('[data-testid="import-apply"]').click();
+		await dialog.waitFor({ state: 'hidden', timeout: 10000 });
+	}
 }
 
 /** Axis-aligned bounding box over all rendered meshes ([min,max] triples). */
@@ -95,12 +105,49 @@ test.describe('STEP import', () => {
 		expectNoAnyCrash(crashes);
 	});
 
+	test('import opens the placement modal with a ghost preview; cancel discards the import', async ({ waffle }) => {
+		const crashes = collectCrashErrors(waffle.page);
+		await importCube(waffle.page, { confirm: false });
+
+		// Modal is open on the fresh feature and the body renders as a ghost.
+		const ghost = await waffle.page.evaluate(() => ({
+			ghostId: window.__waffle.getGhostFeatureId(),
+			featureId: window.__waffle.getFeatureTree().features[0].id,
+		}));
+		expect(ghost.ghostId).toBe(ghost.featureId);
+		await expect(
+			waffle.page.locator('[data-testid="import-ghost-hint"]')
+		).toBeVisible();
+
+		// Live preview: typing an offset moves the (ghost) body WITHOUT Apply.
+		await waffle.page.locator('[data-testid="import-tx"]').fill('30');
+		await waffle.page.waitForFunction(() => {
+			const f = window.__waffle.getFeatureTree()?.features?.[0];
+			return Math.abs((f?.operation?.params?.translation_m?.[0] ?? 0) - 0.03) < 1e-9;
+		}, { timeout: 10000 });
+
+		// Cancel: the fresh import is discarded entirely — even after a live
+		// preview edit.
+		await waffle.page.locator('[data-testid="import-cancel"]').click();
+		await expect(
+			waffle.page.locator('[data-testid="import-step-dialog"]')
+		).toBeHidden({ timeout: 10000 });
+		await waffle.page.waitForFunction(
+			() => window.__waffle.getFeatureTree()?.features?.length === 0,
+			{ timeout: 10000 }
+		);
+		const ghostAfter = await waffle.page.evaluate(() => window.__waffle.getGhostFeatureId());
+		expect(ghostAfter).toBeNull();
+
+		expectNoAnyCrash(crashes);
+	});
+
 	test('placement dialog repositions the imported body via EditFeature', async ({ waffle }) => {
 		const crashes = collectCrashErrors(waffle.page);
 		await importCube(waffle.page);
 		const before = await meshBBox(waffle.page);
 
-		// Open the placement dialog for the feature and move +20mm in X.
+		// Re-open the placement dialog for the feature and move +20mm in X.
 		await waffle.page.evaluate(() => {
 			const tree = window.__waffle.getFeatureTree();
 			window.__waffle.showImportDialogForEdit(tree.features[0].id);

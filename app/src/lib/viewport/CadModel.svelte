@@ -19,6 +19,7 @@
 		toggleExtrudeTargetId,
 		isProjectToolActive,
 		getSelectedBodyId,
+		getGhostFeatureId,
 		getHoveredBodyId,
 		getSelectedFeatureId,
 		getSectionState,
@@ -57,6 +58,7 @@
 	const SELECTED_COLOR = new THREE.Color(0x44aaff);
 	const PICK_HOVER_COLOR = new THREE.Color(0x55cc88);
 	const BODY_SELECTED_COLOR = new THREE.Color(0x44aaff);
+	const GHOST_PREVIEW_COLOR = new THREE.Color(0x4aa3ff);
 	const BODY_HOVER_COLOR = new THREE.Color(0x6fc0ff);
 	// KV13 F6c: faces whose CREATING feature is the one selected in the tree
 	// (the inverse of click-face→feature). Green, matching the tree's
@@ -292,6 +294,24 @@
 		];
 	}
 
+	/**
+	 * Ghost-preview material for a body being placed by the STEP import
+	 * modal: translucent so the user sees it against existing geometry.
+	 */
+	function makeGhostMaterial() {
+		return [
+			new THREE.MeshStandardMaterial({
+				color: GHOST_PREVIEW_COLOR,
+				metalness: 0.2,
+				roughness: 0.5,
+				transparent: true,
+				opacity: 0.45,
+				depthWrite: false,
+				side: THREE.DoubleSide
+			})
+		];
+	}
+
 	// Build material arrays reactively based on hover/selection/sketch-mode.
 	// A whole-body selection/hover (from the Bodies list) overrides per-face
 	// materials for the matching mesh, but never while in sketch mode.
@@ -302,7 +322,10 @@
 		const selectedBody = getSelectedBodyId();
 		const hoveredBody = getHoveredBodyId();
 		const selFeature = getSelectedFeatureId();
+		const ghostFeature = getGhostFeatureId();
 		return engineMeshes.map((m) => {
+			// Import-placement ghost preview wins over hover/selection.
+			if (ghostFeature && m.featureId === ghostFeature) return makeGhostMaterial();
 			if (!inSketch && m.bodyId) {
 				if (m.bodyId === selectedBody) return makeBodyMaterial(BODY_SELECTED_COLOR);
 				if (m.bodyId === hoveredBody) return makeBodyMaterial(BODY_HOVER_COLOR);

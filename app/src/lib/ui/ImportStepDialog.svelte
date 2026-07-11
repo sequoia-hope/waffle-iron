@@ -1,8 +1,8 @@
 <script>
 	import {
 		getImportDialogState,
-		hideImportDialog,
 		applyImportPlacement,
+		cancelImportPlacement,
 		getFeatureTree,
 		getDocumentDisplayUnit
 	} from '$lib/engine/store.svelte.js';
@@ -57,56 +57,83 @@
 		return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
 	});
 
-	function handleApply() {
+	function currentPlacement() {
 		const translation_m = [
 			parseAndConvert(tx, unit),
 			parseAndConvert(ty, unit),
 			parseAndConvert(tz, unit),
 		];
-		if (translation_m.some(v => v == null || Number.isNaN(v))) {
-			log('error', 'Import placement: invalid translation value');
-			return;
-		}
-		applyImportPlacement(dialogState.featureId, {
+		if (translation_m.some(v => v == null || Number.isNaN(v))) return null;
+		return {
 			translation_m,
 			rotation_deg: [Number(rx) || 0, Number(ry) || 0, Number(rz) || 0],
 			scale: Number(scale) || 1.0,
-		}).catch(err => log('error', `Import placement apply failed: ${err}`));
+		};
+	}
+
+	// Live ghost preview: debounce field edits into a non-closing apply so
+	// the (translucent) body follows the numbers.
+	let previewTimer = null;
+	function schedulePreview() {
+		if (!dialogState) return;
+		clearTimeout(previewTimer);
+		previewTimer = setTimeout(() => {
+			const placement = currentPlacement();
+			if (!placement) return;
+			applyImportPlacement(dialogState.featureId, placement, { close: false })
+				.catch(err => log('error', `Import ghost preview failed: ${err}`));
+		}, 350);
+	}
+
+	function handleApply() {
+		clearTimeout(previewTimer);
+		const placement = currentPlacement();
+		if (!placement) {
+			log('error', 'Import placement: invalid translation value');
+			return;
+		}
+		applyImportPlacement(dialogState.featureId, placement)
+			.catch(err => log('error', `Import placement apply failed: ${err}`));
 	}
 
 	function handleCancel() {
-		hideImportDialog();
+		clearTimeout(previewTimer);
+		cancelImportPlacement()
+			.catch(err => log('error', `Import placement cancel failed: ${err}`));
 	}
 </script>
 
 {#if dialogState}
 	<div class="import-panel" data-testid="import-step-dialog">
 		<div class="dialog-header">
-			<span class="dialog-title">Position {fileName}</span>
+			<span class="dialog-title">{dialogState.isNew ? 'Import' : 'Position'} {fileName}</span>
 			<button class="close-btn" onclick={handleCancel}>&times;</button>
 		</div>
 		<div class="dialog-body">
+			<div class="ghost-hint" data-testid="import-ghost-hint">
+				Ghost preview — Apply to place the body{dialogState.isNew ? ', Cancel to discard the import' : ''}.
+			</div>
 			<span class="group-label">Offset ({unit})</span>
 			<div class="field-row">
 				<label for="import-tx">X</label>
-				<input id="import-tx" data-testid="import-tx" type="text" bind:value={tx} />
+				<input id="import-tx" data-testid="import-tx" type="text" bind:value={tx} oninput={schedulePreview} />
 				<label for="import-ty">Y</label>
-				<input id="import-ty" data-testid="import-ty" type="text" bind:value={ty} />
+				<input id="import-ty" data-testid="import-ty" type="text" bind:value={ty} oninput={schedulePreview} />
 				<label for="import-tz">Z</label>
-				<input id="import-tz" data-testid="import-tz" type="text" bind:value={tz} />
+				<input id="import-tz" data-testid="import-tz" type="text" bind:value={tz} oninput={schedulePreview} />
 			</div>
 			<span class="group-label">Rotation (deg)</span>
 			<div class="field-row">
 				<label for="import-rx">X</label>
-				<input id="import-rx" data-testid="import-rx" type="number" step="1" bind:value={rx} />
+				<input id="import-rx" data-testid="import-rx" type="number" step="1" bind:value={rx} oninput={schedulePreview} />
 				<label for="import-ry">Y</label>
-				<input id="import-ry" data-testid="import-ry" type="number" step="1" bind:value={ry} />
+				<input id="import-ry" data-testid="import-ry" type="number" step="1" bind:value={ry} oninput={schedulePreview} />
 				<label for="import-rz">Z</label>
-				<input id="import-rz" data-testid="import-rz" type="number" step="1" bind:value={rz} />
+				<input id="import-rz" data-testid="import-rz" type="number" step="1" bind:value={rz} oninput={schedulePreview} />
 			</div>
 			<div class="field-row scale-row">
 				<label for="import-scale">Scale</label>
-				<input id="import-scale" data-testid="import-scale" type="number" step="0.001" min="0.000001" bind:value={scale} />
+				<input id="import-scale" data-testid="import-scale" type="number" step="0.001" min="0.000001" bind:value={scale} oninput={schedulePreview} />
 			</div>
 		</div>
 		<div class="dialog-footer">
@@ -182,6 +209,16 @@
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
+	}
+
+	.ghost-hint {
+		padding: 6px 8px;
+		background: rgba(74, 163, 255, 0.10);
+		border: 1px solid rgba(74, 163, 255, 0.3);
+		border-radius: 4px;
+		font-size: 11px;
+		color: var(--text-secondary, #aaa);
+		line-height: 1.4;
 	}
 
 	.group-label {

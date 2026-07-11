@@ -732,7 +732,9 @@ export async function initEngine() {
 			getImportDialogState: () => importDialogState,
 			showImportDialogForEdit: (featureId) => showImportDialogForEdit(featureId),
 			hideImportDialog: () => hideImportDialog(),
-			applyImportPlacement: (featureId, placement) => applyImportPlacement(featureId, placement),
+			applyImportPlacement: (featureId, placement, opts) => applyImportPlacement(featureId, placement, opts),
+			cancelImportPlacement: () => cancelImportPlacement(),
+			getGhostFeatureId: () => getGhostFeatureId(),
 			exportStl: () => exportStl(),
 			exportBodyStl: (bodyId, name) => exportBodyStl(bodyId, name),
 			exportStep: () => exportStep(),
@@ -6134,6 +6136,12 @@ export async function importStepFromText(fileName, text) {
 	try {
 		await sendRebuild({ type: 'ImportStep', file_name: fileName, data: text });
 		showToast('info', `Imported ${fileName}`);
+		// Open the placement modal on the freshly-imported feature: the body
+		// renders as a ghost preview until the user confirms (Apply) or
+		// cancels (which removes the feature again).
+		const features = featureTree?.features ?? [];
+		const feature = [...features].reverse().find(f => f.operation?.type === 'ImportedBody');
+		if (feature) showImportDialog(feature.id, { isNew: true });
 		return true;
 	} catch (err) {
 		log('error', `STEP import failed: ${err.message || err}`);
@@ -6165,9 +6173,38 @@ export async function importStep() {
 /** @returns {object | null} */
 export function getImportDialogState() { return importDialogState; }
 
-/** Open the placement dialog for an existing ImportedBody feature. */
+/**
+ * While the import placement dialog is open, its feature's body renders as a
+ * translucent ghost preview. @returns {string | null}
+ */
+export function getGhostFeatureId() {
+	return importDialogState?.featureId ?? null;
+}
+
+/**
+ * Open the placement modal for an ImportedBody feature. Snapshots the
+ * current placement so Cancel can restore (edit) or remove (fresh import).
+ * @param {string} featureId
+ * @param {{isNew?: boolean}} [opts]
+ */
+export function showImportDialog(featureId, opts = {}) {
+	const feature = featureTree?.features?.find(f => f.id === featureId);
+	if (!feature || feature.operation?.type !== 'ImportedBody') return;
+	const p = feature.operation.params;
+	importDialogState = {
+		featureId,
+		isNew: opts.isNew === true,
+		original: {
+			translation_m: [...(p.translation_m ?? [0, 0, 0])],
+			rotation_deg: [...(p.rotation_deg ?? [0, 0, 0])],
+			scale: p.scale ?? 1.0,
+		},
+	};
+}
+
+/** Legacy name kept for the feature-tree edit path. */
 export function showImportDialogForEdit(featureId) {
-	importDialogState = { featureId };
+	showImportDialog(featureId, { isNew: false });
 }
 
 export function hideImportDialog() {
@@ -6177,10 +6214,12 @@ export function hideImportDialog() {
 /**
  * Apply new placement values to an ImportedBody feature. The embedded STEP
  * payload is passed through UNTOUCHED — only the transform fields change.
+ * Used by the dialog's live ghost preview (`close: false`) and by Apply.
  * @param {string} featureId
  * @param {{translation_m: number[], rotation_deg: number[], scale: number}} placement
+ * @param {{close?: boolean}} [opts]
  */
-export async function applyImportPlacement(featureId, placement) {
+export async function applyImportPlacement(featureId, placement, opts = {}) {
 	const feature = featureTree?.features?.find(f => f.id === featureId);
 	if (!feature || feature.operation?.type !== 'ImportedBody') return false;
 	const params = {
@@ -6189,10 +6228,39 @@ export async function applyImportPlacement(featureId, placement) {
 		rotation_deg: placement.rotation_deg,
 		scale: placement.scale ?? 1.0,
 	};
-	log('action', 'Edit STEP import placement', { featureId });
+	log('action', 'Edit STEP import placement', { featureId, live: opts.close === false });
 	await editFeature(featureId, { type: 'ImportedBody', params });
-	hideImportDialog();
+	if (opts.close !== false) hideImportDialog();
 	return true;
+}
+
+/**
+ * Cancel the placement modal: a fresh import is REMOVED (the user declined
+ * it), an edit reverts to the placement snapshotted at open.
+ */
+export async function cancelImportPlacement() {
+	const state = importDialogState;
+	importDialogState = null;
+	if (!state) return;
+	if (state.isNew) {
+		log('action', 'Cancel STEP import (remove fresh feature)', { featureId: state.featureId });
+		await sendRebuild({ type: 'DeleteFeature', feature_id: state.featureId });
+		return;
+	}
+	const feature = featureTree?.features?.find(f => f.id === state.featureId);
+	if (!feature || feature.operation?.type !== 'ImportedBody') return;
+	const current = feature.operation.params;
+	const o = state.original;
+	const dirty =
+		JSON.stringify([current.translation_m, current.rotation_deg, current.scale ?? 1.0]) !==
+		JSON.stringify([o.translation_m, o.rotation_deg, o.scale]);
+	if (dirty) {
+		log('action', 'Cancel STEP placement edit (revert)', { featureId: state.featureId });
+		await editFeature(state.featureId, {
+			type: 'ImportedBody',
+			params: { ...current, ...o },
+		});
+	}
 }
 
 /**
