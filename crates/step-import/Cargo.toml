@@ -19,3 +19,6 @@ truck-stepio = { git = "https://github.com/ricosjp/truck", rev = "baf8cd5fb7b1c4
 truck-meshalgo = { git = "https://github.com/ricosjp/truck", rev = "baf8cd5fb7b1c495169d902745f8b42427df66f9", default-features = false, features = ["tessellation"] }
 truck-topology = { git = "https://github.com/ricosjp/truck", rev = "baf8cd5fb7b1c495169d902745f8b42427df66f9" }
 thiserror = "1"
+base64 = "0.22"
+# Default rust_backend (miniz_oxide) — WASM-clean, no C.
+flate2 = "1"

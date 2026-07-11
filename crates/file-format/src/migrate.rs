@@ -80,6 +80,10 @@ fn migrate_feature_v1_to_v2(feature: &mut Feature) {
         Operation::BooleanCombine { .. } => {
             // No length fields
         }
+        Operation::ImportedBody { .. } => {
+            // Cannot exist in v1 files (the variant postdates v3); nothing to
+            // migrate. translation_m is meters by definition.
+        }
     }
 }
 

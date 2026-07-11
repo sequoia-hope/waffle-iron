@@ -89,6 +89,22 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
+        UiToEngine::ImportStep { file_name, data } => {
+            let params = feature_engine::types::ImportedBodyParams {
+                file_name: file_name.clone(),
+                blob_encoding: step_import::STEP_BLOB_ENCODING.to_string(),
+                blob: step_import::encode_step_blob(&data),
+                translation_m: [0.0; 3],
+                rotation_deg: [0.0; 3],
+                scale: 1.0,
+            };
+            let op = Operation::ImportedBody { params };
+            state
+                .engine
+                .add_feature(format!("Import {file_name}"), op, kb)?;
+            Ok(model_updated_response(state))
+        }
+
         // -- Feature operations --
         UiToEngine::AddFeature { operation } => {
             let name = operation_name(&operation);
@@ -433,5 +449,6 @@ fn operation_name(op: &Operation) -> String {
         Operation::Shell { .. } => "Shell".to_string(),
         Operation::BooleanCombine { .. } => "Boolean Combine".to_string(),
         Operation::DatumPlane { params } => params.name.clone(),
+        Operation::ImportedBody { params } => format!("Import {}", params.file_name),
     }
 }

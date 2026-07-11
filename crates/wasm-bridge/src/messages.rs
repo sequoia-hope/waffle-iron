@@ -161,6 +161,14 @@ pub enum UiToEngine {
     LoadProject {
         data: String,
     },
+    /// Import a STEP file as a new ImportedBody feature (task #138). `data`
+    /// is the raw STEP text from the file picker; the engine compresses it
+    /// into the feature's embedded payload. Placement starts at identity —
+    /// edit the feature to position it.
+    ImportStep {
+        file_name: String,
+        data: String,
+    },
     ExportStep,
     ExportStl,
     /// Export a single body to STL. `body_id` is the persistent body identity

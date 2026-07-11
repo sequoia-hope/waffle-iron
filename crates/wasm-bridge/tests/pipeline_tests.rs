@@ -1506,7 +1506,10 @@ fn extrude_combine_survives_json_boundary() {
     };
     let msg = UiToEngine::AddFeature { operation: op };
     let json = serde_json::to_string(&msg).expect("serialize");
-    assert!(json.contains("\"combine\""), "combine must be in JSON: {json}");
+    assert!(
+        json.contains("\"combine\""),
+        "combine must be in JSON: {json}"
+    );
     assert!(json.contains("Cut"), "combine mode must survive: {json}");
     let back: UiToEngine = serde_json::from_str(&json).expect("deserialize");
     match back {

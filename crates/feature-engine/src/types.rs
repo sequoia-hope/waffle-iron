@@ -122,6 +122,35 @@ pub enum Operation {
     Shell { params: ShellParams },
     BooleanCombine { params: BooleanParams },
     DatumPlane { params: DatumPlaneParams },
+    ImportedBody { params: ImportedBodyParams },
+}
+
+/// Parameters for an imported (STEP) body feature — task #138,
+/// `docs/step_import_roadmap.md` §3.3. The source STEP text is embedded
+/// (compressed) so the `.waffle` file is self-contained; the import replays
+/// on every rebuild (a process-wide parse cache makes transform edits cheap).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportedBodyParams {
+    /// Source file name (display + diagnostics), e.g. `minihexa.step`.
+    pub file_name: String,
+    /// Payload encoding tag (`step_import::STEP_BLOB_ENCODING`).
+    pub blob_encoding: String,
+    /// The STEP text, encoded per `blob_encoding`.
+    pub blob: String,
+    /// Placement: translation in METERS, applied after rotation.
+    #[serde(default)]
+    pub translation_m: [f64; 3],
+    /// Placement: intrinsic X→Y→Z Euler angles in DEGREES, about the
+    /// imported model's origin.
+    #[serde(default)]
+    pub rotation_deg: [f64; 3],
+    /// Extra uniform scale on top of the file's unit conversion (1.0 = none).
+    #[serde(default = "default_scale")]
+    pub scale: f64,
+}
+
+fn default_scale() -> f64 {
+    1.0
 }
 
 /// Depth mode for extrude operations.

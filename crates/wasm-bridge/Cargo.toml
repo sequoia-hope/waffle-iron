@@ -14,6 +14,7 @@ default = []
 feature-engine = { path = "../feature-engine" }
 kernel-v2 = { path = "../kernel-v2" }
 modeling-ops = { path = "../modeling-ops" }
+step-import = { path = "../step-import" }
 sketch-solver = { path = "../sketch-solver" }
 file-format = { path = "../file-format" }
 waffle-types = { path = "../waffle-types" }

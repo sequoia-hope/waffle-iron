@@ -612,6 +612,96 @@ impl Kernel for MockKernel {
         Ok(handle)
     }
 
+    /// Mock ingest of an imported (STEP) body: mirrors the contract data as
+    /// synthetic topology — one MockFace per imported face (surface_type and
+    /// plane normal from the descriptor, centroid/area from the mesh), one
+    /// MockEdge per imported edge, deduplicated endpoint vertices.
+    fn import_body(
+        &mut self,
+        data: &super::import::ImportedBodyData,
+    ) -> Result<KernelSolidHandle, KernelError> {
+        if data.is_empty() {
+            return Err(KernelError::Other {
+                message: "import_body: no faces to import".to_string(),
+            });
+        }
+        let mut vertices: Vec<MockVertex> = Vec::new();
+        let mut edges: Vec<MockEdge> = Vec::new();
+        let mut faces: Vec<MockFace> = Vec::new();
+        for shell in &data.shells {
+            let edge_base = edges.len();
+            for e in &shell.edges {
+                let first = *e.polyline.first().unwrap_or(&[0.0; 3]);
+                let last = *e.polyline.last().unwrap_or(&[0.0; 3]);
+                let mut endpoint = |p: [f64; 3]| -> KernelId {
+                    if let Some(v) = vertices.iter().find(|v| v.position == p) {
+                        return v.id;
+                    }
+                    let id = KernelId(self.next_id);
+                    self.next_id += 1;
+                    vertices.push(MockVertex { id, position: p });
+                    id
+                };
+                let (start, end) = (endpoint(first), endpoint(last));
+                let length = e
+                    .polyline
+                    .windows(2)
+                    .map(|w| {
+                        ((w[1][0] - w[0][0]).powi(2)
+                            + (w[1][1] - w[0][1]).powi(2)
+                            + (w[1][2] - w[0][2]).powi(2))
+                        .sqrt()
+                    })
+                    .sum();
+                edges.push(MockEdge {
+                    id: KernelId(self.next_id),
+                    start,
+                    end,
+                    length,
+                });
+                self.next_id += 1;
+            }
+            for f in &shell.faces {
+                let normal = match f.surface {
+                    super::import::ImportedSurface::Plane { normal, .. } => normal,
+                    _ => [0.0, 0.0, 1.0],
+                };
+                // Centroid/area straight off the mesh vertices (uniform
+                // average is fine for a test double).
+                let n = (f.positions.len() / 3).max(1) as f64;
+                let mut centroid = [0.0; 3];
+                for chunk in f.positions.chunks_exact(3) {
+                    for k in 0..3 {
+                        centroid[k] += chunk[k] / n;
+                    }
+                }
+                faces.push(MockFace {
+                    id: KernelId(self.next_id),
+                    edges: f
+                        .edge_indices
+                        .iter()
+                        .filter_map(|&ei| edges.get(edge_base + ei as usize).map(|e| e.id))
+                        .collect(),
+                    normal,
+                    centroid,
+                    area: (f.indices.len() / 3) as f64, // deterministic proxy
+                    surface_type: f.surface.surface_type_str().to_string(),
+                });
+                self.next_id += 1;
+            }
+        }
+        let handle = self.alloc_handle();
+        self.solids.insert(
+            handle.raw(),
+            MockSolid {
+                vertices,
+                edges,
+                faces,
+            },
+        );
+        Ok(handle)
+    }
+
     fn boolean_union(
         &mut self,
         a: &KernelSolidHandle,

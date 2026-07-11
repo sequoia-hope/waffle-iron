@@ -1283,14 +1283,25 @@ fn v3_non_uuid_tab_id_loads() {
 fn point_pair_hv_constraints_roundtrip() {
     let plane_ref = GeomRef {
         kind: TopoKind::Face,
-        anchor: Anchor::Datum { datum_id: Uuid::nil() },
-        selector: Selector::Role { role: Role::EndCapPositive, index: 0 },
+        anchor: Anchor::Datum {
+            datum_id: Uuid::nil(),
+        },
+        selector: Selector::Role {
+            role: Role::EndCapPositive,
+            index: 0,
+        },
         policy: ResolvePolicy::BestEffort,
     };
     let constraints = vec![
         SketchConstraint::Horizontal { entity: 5 },
-        SketchConstraint::HorizontalPoints { point_a: 1, point_b: 3 },
-        SketchConstraint::VerticalPoints { point_a: 2, point_b: 4 },
+        SketchConstraint::HorizontalPoints {
+            point_a: 1,
+            point_b: 3,
+        },
+        SketchConstraint::VerticalPoints {
+            point_a: 2,
+            point_b: 4,
+        },
     ];
     let sketch = Sketch {
         id: Uuid::new_v4(),
@@ -1298,11 +1309,36 @@ fn point_pair_hv_constraints_roundtrip() {
         plane_origin: [0.0, 0.0, 0.0],
         plane_normal: [0.0, 0.0, 1.0],
         entities: vec![
-            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
-            SketchEntity::Point { id: 2, x: 10.0, y: 0.0, construction: false },
-            SketchEntity::Point { id: 3, x: 10.0, y: 10.0, construction: false },
-            SketchEntity::Point { id: 4, x: 0.0, y: 10.0, construction: false },
-            SketchEntity::Line { id: 5, start_id: 1, end_id: 2, construction: false },
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 10.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 10.0,
+                y: 10.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 4,
+                x: 0.0,
+                y: 10.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 5,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
         ],
         constraints: constraints.clone(),
         solve_status: SolveStatus::UnderConstrained { dof: 1 },
@@ -1329,13 +1365,30 @@ fn point_pair_hv_constraints_roundtrip() {
         other => panic!("Expected Sketch, got {:?}", other),
     };
     assert_eq!(loaded.len(), 3, "all three constraints preserved");
-    assert!(matches!(loaded[0], SketchConstraint::Horizontal { entity: 5 }));
+    assert!(matches!(
+        loaded[0],
+        SketchConstraint::Horizontal { entity: 5 }
+    ));
     assert!(
-        matches!(loaded[1], SketchConstraint::HorizontalPoints { point_a: 1, point_b: 3 }),
-        "HorizontalPoints should roundtrip, got {:?}", loaded[1]
+        matches!(
+            loaded[1],
+            SketchConstraint::HorizontalPoints {
+                point_a: 1,
+                point_b: 3
+            }
+        ),
+        "HorizontalPoints should roundtrip, got {:?}",
+        loaded[1]
     );
     assert!(
-        matches!(loaded[2], SketchConstraint::VerticalPoints { point_a: 2, point_b: 4 }),
-        "VerticalPoints should roundtrip, got {:?}", loaded[2]
+        matches!(
+            loaded[2],
+            SketchConstraint::VerticalPoints {
+                point_a: 2,
+                point_b: 4
+            }
+        ),
+        "VerticalPoints should roundtrip, got {:?}",
+        loaded[2]
     );
 }

@@ -154,6 +154,7 @@ impl ModelBuilder {
                 Operation::Shell { .. } => "Shell",
                 Operation::BooleanCombine { .. } => "Boolean",
                 Operation::DatumPlane { .. } => "DatumPlane",
+                Operation::ImportedBody { .. } => "ImportedBody",
             };
 
             let detail = describe_operation(&feature.operation);
@@ -330,6 +331,15 @@ fn describe_operation(op: &Operation) -> String {
         }
         Operation::DatumPlane { params } => {
             format!("Params: name={}", params.name)
+        }
+        Operation::ImportedBody { params } => {
+            format!(
+                "Params: file={}, translation=({:.3},{:.3},{:.3})m, rotation=({:.1},{:.1},{:.1})deg, scale={:.3}",
+                params.file_name,
+                params.translation_m[0], params.translation_m[1], params.translation_m[2],
+                params.rotation_deg[0], params.rotation_deg[1], params.rotation_deg[2],
+                params.scale,
+            )
         }
     }
 }

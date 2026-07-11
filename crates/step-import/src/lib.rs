@@ -10,11 +10,14 @@
 //! (Apache-2.0, git-pinned — see Cargo.toml). truck types must never leak
 //! past this crate's API.
 
+pub mod blob;
 mod convert;
 mod units;
 
+pub use blob::{decode_step_blob, encode_step_blob, STEP_BLOB_ENCODING};
 pub use units::scan_length_unit_scale;
 
+use std::sync::{Arc, Mutex, OnceLock};
 use waffle_types::kernel::ImportedBodyData;
 
 /// Errors from STEP import. `Parse` means the exchange structure itself was
@@ -37,6 +40,45 @@ pub enum StepImportError {
 /// derived per shell from its bounding box (diameter / 1000).
 pub fn parse_step(step_text: &str, source_name: &str) -> Result<ImportedBodyData, StepImportError> {
     convert::parse_step_impl(step_text, source_name)
+}
+
+/// `parse_step` behind a small process-wide cache keyed by the text's hash,
+/// so a parametric rebuild (transform edits replay the import feature) does
+/// not re-parse and re-tessellate an unchanged file. Callers clone the Arc'd
+/// canonical result and apply their own scale/placement to the clone.
+pub fn parse_step_cached(
+    step_text: &str,
+    source_name: &str,
+) -> Result<Arc<ImportedBodyData>, StepImportError> {
+    // Keep the last few DISTINCT imports (a session rarely juggles more).
+    const CACHE_CAP: usize = 4;
+    type CacheEntries = Vec<(u64, Arc<ImportedBodyData>)>;
+    static CACHE: OnceLock<Mutex<CacheEntries>> = OnceLock::new();
+
+    let key = fnv1a(step_text.as_bytes());
+    let cache = CACHE.get_or_init(|| Mutex::new(Vec::new()));
+    if let Ok(guard) = cache.lock() {
+        if let Some((_, data)) = guard.iter().find(|(k, _)| *k == key) {
+            return Ok(Arc::clone(data));
+        }
+    }
+    let parsed = Arc::new(parse_step(step_text, source_name)?);
+    if let Ok(mut guard) = cache.lock() {
+        if guard.len() >= CACHE_CAP {
+            guard.remove(0);
+        }
+        guard.push((key, Arc::clone(&parsed)));
+    }
+    Ok(parsed)
+}
+
+fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in bytes {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    hash
 }
 
 #[cfg(test)]
@@ -115,6 +157,13 @@ mod tests {
         let body = parse_step(&text, "USB_C").expect("USB_C parses");
         assert_eq!(body.shells.len(), 34, "34 solids wrap into one composite");
         assert!(body.face_count() >= 500);
+    }
+
+    #[test]
+    fn parse_cached_returns_shared_result() {
+        let a = parse_step_cached(CUBE, "cube").unwrap();
+        let b = parse_step_cached(CUBE, "cube").unwrap();
+        assert!(Arc::ptr_eq(&a, &b), "second parse must hit the cache");
     }
 
     #[test]

@@ -104,6 +104,31 @@ impl ImportedBodyData {
         self.shells.iter().all(|s| s.faces.is_empty())
     }
 
+    /// Uniform scale about the model origin (normals unchanged). Used for
+    /// the user's per-import scale factor; must be applied BEFORE
+    /// `apply_placement`.
+    pub fn apply_scale(&mut self, scale: f64) {
+        if scale == 1.0 {
+            return;
+        }
+        for shell in &mut self.shells {
+            for face in &mut shell.faces {
+                face.positions.iter_mut().for_each(|c| *c *= scale);
+                if let ImportedSurface::Plane { origin, normal } = face.surface {
+                    face.surface = ImportedSurface::Plane {
+                        origin: origin.map(|c| c * scale),
+                        normal,
+                    };
+                }
+            }
+            for edge in &mut shell.edges {
+                for p in &mut edge.polyline {
+                    *p = p.map(|c| c * scale);
+                }
+            }
+        }
+    }
+
     /// Apply a rigid placement: rotate by intrinsic X→Y→Z Euler angles
     /// (degrees) about the model origin, then translate (meters). Plane
     /// descriptors transform exactly; mesh vertices/normals numerically.

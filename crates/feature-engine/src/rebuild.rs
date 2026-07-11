@@ -299,6 +299,25 @@ fn execute_feature(
             })
         }
 
+        Operation::ImportedBody { params } => {
+            // STEP import (task #138, docs/step_import_roadmap.md §3): decode
+            // the embedded payload, parse (process-wide cache makes transform
+            // edits cheap), then bake scale + placement into a clone and
+            // ingest as one composite body.
+            let fail = |reason: String| EngineError::RebuildFailed {
+                feature_name: feature.name.clone(),
+                reason,
+            };
+            let step_text =
+                step_import::decode_step_blob(&params.blob_encoding, &params.blob).map_err(fail)?;
+            let parsed = step_import::parse_step_cached(&step_text, &params.file_name)
+                .map_err(|e| fail(e.to_string()))?;
+            let mut data = (*parsed).clone();
+            data.apply_scale(params.scale);
+            data.apply_placement(params.rotation_deg, params.translation_m);
+            Ok(modeling_ops::execute_import(kb, &data)?)
+        }
+
         Operation::Extrude { params } => {
             let _sketch_result = find_sketch_result(params.sketch_id, feature_results)?;
             let sketch_ref = find_sketch_in_tree(params.sketch_id, tree)?;
