@@ -176,6 +176,12 @@ pub enum KernelV2Error {
     /// surface vocabulary (roadmap KV6d).
     RevolveCircleProfileUnsupported,
 
+    /// A full-turn revolve of a circle CENTERED ON the axis sweeps a
+    /// SPHERE (C0067) — KV6d increment 2, after the closed ring torus.
+    /// Typed capability wall, distinct from the off-center crossing case
+    /// (which stays [`KernelV2Error::RevolveAxisIntersectsProfile`]).
+    RevolveOnAxisCircleUnsupported,
+
     /// Revolving a holed polygon needs nested lateral shells per hole —
     /// deferred beyond KV6a (the assay corpus has no holed revolve
     /// profiles).

@@ -8,9 +8,10 @@
 //! strictly on one side), rectangle profiles whose edges are exactly
 //! parallel/perpendicular to the axis, partial angles 30–360° exclusive.
 //! Full 360° is additionally in scope because the app's revolve dialog
-//! defaults to it. Since KV6c (cones) and KV6a-tilted (§8 below,
-//! non-alternating full-turn profiles) the remaining typed walls are:
-//! full-turn circle profiles (closed torus — KV6d), holed profiles,
+//! defaults to it. Since KV6c (cones), KV6a-tilted (§8 below,
+//! non-alternating full-turn profiles), and KV6d closed torus
+//! (`tests/kv6d_closed_torus.rs`) the remaining typed walls are: ON-AXIS
+//! full-turn circle profiles (sphere — KV6d increment 2), holed profiles,
 //! consecutive annular edges, and axis touching or crossing the profile
 //! (an ERROR, not NotSupported — F0073/F0074 pin `expect_rebuild_error`).
 //!
@@ -581,19 +582,21 @@ fn partial_oblique_edge_builds_cone_patch() {
 fn circle_profiles_and_holes_rejected_typed() {
     let mut arena = BrepArena::new();
 
-    // FULL-turn circle profile → closed torus (KV6d full-turn, still walled;
-    // partial-turn circle revolve → torus is supported, tested separately).
-    let circle = Profile::circle(
+    // FULL-turn circle profile builds the CLOSED torus since KV6d (spec
+    // `kv6d_closed_torus_revolve.md`, `tests/kv6d_closed_torus.rs`). The
+    // remaining full-turn circle wall is the ON-AXIS center (a sphere,
+    // KV6d increment 2, C0067).
+    let on_axis = Profile::circle(
         Point3::new(0.0, 0.0, 0.0),
         Vector3::new(1.0, 0.0, 0.0),
         Vector3::new(0.0, 1.0, 0.0),
-        Point2::new(1.5, 5.0),
+        Point2::new(1.5, 0.0),
         0.5,
     )
-    .expect("circle profile");
-    let err = revolve(&mut arena, &circle, AXIS_O, AXIS_D, 2.0 * PI)
-        .expect_err("full-turn circle profile → closed torus");
-    assert_eq!(err, KernelV2Error::RevolveCircleProfileUnsupported);
+    .expect("on-axis circle profile");
+    let err = revolve(&mut arena, &on_axis, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect_err("on-axis full-turn circle profile → sphere, walled");
+    assert_eq!(err, KernelV2Error::RevolveOnAxisCircleUnsupported);
 
     // Holed polygon.
     let holed = Profile::new(

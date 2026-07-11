@@ -940,6 +940,100 @@ pub(crate) fn torus_poloidal_band_two_encircling_profiles() {
     }
 }
 
+/// KV6d closed torus (spec `kv6d_closed_torus_revolve.md`): the CLOSED
+/// `Surface::Torus` face — 1 seam anchor vertex, 2 closed seam circles
+/// (poloidal profile radius r + toroidal outer equator radius R+r), outer
+/// loop `[prof, eq, prof, eq]` (both twin traversals, as kernel-v2's
+/// `to_yang_brep` emits) — tessellates via the doubly periodic grid.
+/// Oracles: CLOSED watertight (every undirected edge count exactly 2 — a
+/// crack OR a double cover both fail), single cover by total area
+/// (4π²·R·r, inscribed), and χ = V − E + F = 0 (genus 1).
+#[test]
+pub(crate) fn torus_closed_full_turn_doubly_periodic() {
+    use std::f64::consts::PI;
+    let major = 3.0_f64;
+    let minor = 1.0_f64;
+    let v0 = Point3::new(major + minor, 0.0, 0.0);
+    let verts = vec![BRepVertex { point: v0 }];
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 0,
+            curve: Curve::Circle {
+                center: Point3::new(major, 0.0, 0.0),
+                normal: Vector3::new(0.0, 1.0, 0.0),
+                radius: minor,
+            },
+        },
+        BRepEdge {
+            start: 0,
+            end: 0,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: major + minor,
+            },
+        },
+    ];
+    let faces = vec![BRepFace {
+        surface: Surface::Torus {
+            center: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            major_radius: major,
+            minor_radius: minor,
+        },
+        outer_loop: vec![0, 1, 0, 1],
+        inner_loops: vec![],
+        reversed: false,
+    }];
+    let t = stage1_tessellate(&verts, &edges, &faces).expect("closed torus tessellation");
+    assert!(!t.tris.is_empty(), "must produce triangles");
+
+    // Every undirected edge exactly twice: watertight AND single-cover.
+    let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+    for tri in &t.tris {
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+        }
+    }
+    for (&(x, y), &c) in &undirected {
+        assert_eq!(c, 2, "edge ({x},{y}) covered {c} times (crack or fold)");
+    }
+
+    // χ = V − E + F = 0 for the torus.
+    let used: std::collections::BTreeSet<u32> = t.tris.iter().flatten().copied().collect();
+    let chi = used.len() as i64 - undirected.len() as i64 + t.tris.len() as i64;
+    assert_eq!(chi, 0, "closed grid must be genus 1");
+
+    // Single cover: total area fills the torus area 4π²Rr from below.
+    let tri_area = |tri: &[u32; 3]| -> f64 {
+        let a = t.verts[tri[0] as usize].as_array();
+        let b = t.verts[tri[1] as usize].as_array();
+        let c = t.verts[tri[2] as usize].as_array();
+        let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let nx = e1[1] * e2[2] - e1[2] * e2[1];
+        let ny = e1[2] * e2[0] - e1[0] * e2[2];
+        let nz = e1[0] * e2[1] - e1[1] * e2[0];
+        0.5 * (nx * nx + ny * ny + nz * nz).sqrt()
+    };
+    let area: f64 = t.tris.iter().map(tri_area).sum();
+    let full = 4.0 * PI * PI * major * minor;
+    assert!(
+        area > 0.95 * full && area <= full + 1e-9,
+        "closed torus area {area} must fill 4π²Rr (≈{full}, inscribed)"
+    );
+
+    // Bijective sources: seam-ring verts map to the two B-Rep edges, the
+    // anchor to the B-Rep vertex, interior to the face.
+    assert!(matches!(t.sources[0], TessellationSource::BRepVertex(0)));
+    assert!(t
+        .sources
+        .iter()
+        .any(|s| matches!(s, TessellationSource::BRepFace { .. })));
+}
+
 /// EXCLUDED. Covers the cone `inner_loops` → CDT route (P4).
 #[test]
 pub(crate) fn cone_holed_patch_excludes_hole() {

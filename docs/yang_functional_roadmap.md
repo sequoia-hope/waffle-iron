@@ -3206,6 +3206,56 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   (ellipse-arc vocabulary), boolean-output partial-patch re-entry
   (R0051 class).
 
+- **KV6d closed torus — full-turn circle revolve (C0065). ✅ SHIPPED
+  (2026-07-11, task #136, spec `specs/kv6d_closed_torus_revolve.md`).**
+  A strictly-off-axis circle profile revolved exactly 360° now builds
+  the CLOSED ring torus: the minimal CW structure of T² (Stroud §3.1.4
+  seam representation) — 1 seam anchor at the outer equator, 2 closed
+  seam circles (poloidal profile + toroidal outer equator), 1
+  `Surface::Torus` face whose outer loop is the aba⁻¹b⁻¹ square with
+  BOTH twin pairs internal (`assemble_closed_torus`, validated by the
+  existing arena invariants unchanged; V−E+F−R = 0 = 2(S−G), G=1).
+  Render: `tessellate_torus_lateral` grew a `closed` arm (θ rows wrap;
+  seam recovered from the equator CIRCLE when no seam ARC exists).
+  Boolean re-entry: `to_yang` gained the all-Circle `closed_torus`
+  4-edge pattern (twin checks on both pairs); yang Stage 1 gained
+  `tessellate_torus_closed` — a doubly periodic (θ × φ) grid over the
+  two seam rings (φ-value column convention from #131; unit oracle
+  `torus_closed_full_turn_doubly_periodic`: every undirected edge
+  exactly 2, χ = 0, area fills 4π²Rr). Red→green in
+  `kv6d_closed_torus.rs`: census (V=1 E=2 F=1 G=1), Pappus 2π²Rr²,
+  watertight, determinism, on-axis sphere wall
+  (`RevolveOnAxisCircleUnsupported`, C0067's honest message), crossing
+  circle stays `RevolveAxisIntersectsProfile`, and a meridian-plane
+  half-cut boolean (exactly half Pappus volume, χ=2). **Stage-4
+  hardening discovered by the C0065 e2e:** the shaft's outer wall
+  (x=1.45) is near-tangent to the outer equator (ρ=1.5, gap ≈ the
+  Stage-1 sagitta), so the inscribed mesh's intersection oval closes
+  EARLY — entirely inside the bounded wall — minting a phantom lens
+  lump; the torus implicit-pair relocation then dragged that loop onto
+  the infinite-surface curve OUTSIDE the wall face (|y| = 0.384 vs the
+  wall's 0.25) and the output carried a silent overlapping double cover
+  (10 penetrations, SUPPORTED_WRONG). Fix: a **bounded-face containment
+  guard** after the wedge displacement gate — a relocated torus-edge
+  vertex must stay inside every matching PLANE partner face's hull
+  (loop vertices + curve extents, the t134 closed-loop lesson) + d_ε;
+  escape = typed `OffCurveBeyondChordBand` STOP (mutation-checked;
+  adversary pin `closed_torus_near_tangent_shaft_stays_loud`). The
+  honest conversion of that configuration is the §4.3.3 near-tangency
+  increment (C0058 resolution-neck class — mesh topology ≠ exact
+  topology when a face gap dips under the sagitta). **Corpus: C0065
+  UNSUPPORTED(revolve) → typed ERROR (Stage-4 OffCurveBeyondChordBand);
+  C0067 UNSUPPORTED(revolve) with the new SPHERE message (KV6d
+  increment 2 = the remaining closed-surface revolve gap); C0066 and
+  the torus classes byte-stable. Assay 238 CORRECT / 0 WRONG /
+  49 ERROR / 8 UNSUPPORTED / 0 TIMEOUT — zero-lost (C0065 is the only
+  category mover; R0074's failure moved one op EARLIER, its Revolve-2
+  auto-union output previously fed a downstream CDT death and now stops
+  typed at the relocation wall).** Probe `kv6d_c0065_probe.rs` banked
+  (replica + partial-torus control: the SAME shaft against a 350° tube
+  dies at the same Stage-4 wall — the near-tangency gap pre-dates the
+  closed torus).
+
 - **Tangency pinch-vertex split + figure-eight wedge walk (the KV9-F1
   union follow-up). ✅ SHIPPED at yang unit level (2026-07-08, task #86,
   spec `specs/yang_tangency_pinch_split.md`); C0058 corpus residual

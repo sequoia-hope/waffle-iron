@@ -1477,9 +1477,14 @@ fn tessellate_torus_lateral(
     let ax = [axis_dir.x, axis_dir.y, axis_dir.z];
     let c = [center.x(), center.y(), center.z()];
 
-    // Recover (w0, α) from the +axis seam arc (radius major+minor).
+    // Recover (w0, α) from the +axis seam arc (radius major+minor). The
+    // CLOSED torus (KV6d full turn, spec `kv6d_closed_torus_revolve.md`)
+    // has no seam ARC — its toroidal seam is the closed outer-equator
+    // CIRCLE; anchor θ = 0 at its seam vertex and sweep the full 2π with
+    // wrapped θ rows.
     let hes = arena.loop_half_edges(face.outer_loop)?;
     let mut seam = None;
+    let mut closed = false;
     for &h in &hes {
         let he = arena.half_edge(h)?;
         if let Curve::Arc { radius, normal, .. } = he.curve {
@@ -1490,6 +1495,21 @@ fn tessellate_torus_lateral(
                 let dest = arena.half_edge(he.next)?.origin;
                 seam = Some((v0, arena.vertex(dest)?.point));
                 break;
+            }
+        }
+    }
+    if seam.is_none() {
+        for &h in &hes {
+            let he = arena.half_edge(h)?;
+            if let Curve::Circle { radius, normal, .. } = he.curve {
+                if (radius - (r_maj + r_min)).abs() <= 1e-9 * (1.0 + r_maj + r_min)
+                    && (normal.x * ax[0] + normal.y * ax[1] + normal.z * ax[2]) > 0.0
+                {
+                    let v0 = arena.vertex(he.origin)?.point;
+                    seam = Some((v0, v0));
+                    closed = true;
+                    break;
+                }
             }
         }
     }
@@ -1508,8 +1528,11 @@ fn tessellate_torus_lateral(
         return Err(fail("degenerate torus θ=0 reference"));
     }
     let w0 = [wr[0] / wl, wr[1] / wl, wr[2] / wl];
-    let alpha =
-        crate::geom::ccw_sweep(center, ax, v0, valpha).ok_or(fail("degenerate torus sweep"))?;
+    let alpha = if closed {
+        2.0 * PI
+    } else {
+        crate::geom::ccw_sweep(center, ax, v0, valpha).ok_or(fail("degenerate torus sweep"))?
+    };
     let m0 = [
         ax[1] * w0[2] - ax[2] * w0[1],
         ax[2] * w0[0] - ax[0] * w0[2],
@@ -1520,8 +1543,11 @@ fn tessellate_torus_lateral(
     let n_phi = n_seg.max(3) as usize;
     let n_theta = {
         let per = (2.0 * PI / n_seg as f64) * r_min / (r_maj + r_min);
-        ((alpha / per).ceil() as usize).max(2)
+        ((alpha / per).ceil() as usize).max(if closed { 3 } else { 2 })
     };
+    // Closed torus: the θ = 2π row IS the θ = 0 row — emit n_theta rows and
+    // wrap the row index instead of duplicating the seam ring.
+    let n_rows = if closed { n_theta } else { n_theta + 1 };
     let range_start = out.indices.len() as u32;
     let base = out.num_vertices() as u32;
     let point = |theta: f64, phi: f64| -> ([f64; 3], [f64; 3]) {
@@ -1548,7 +1574,7 @@ fn tessellate_torus_lateral(
         }
         (p, nrm)
     };
-    for i in 0..=n_theta {
+    for i in 0..n_rows {
         let theta = alpha * (i as f64) / (n_theta as f64);
         for j in 0..n_phi {
             let phi = 2.0 * PI * (j as f64) / (n_phi as f64);
@@ -1557,7 +1583,7 @@ fn tessellate_torus_lateral(
             out.normals.extend_from_slice(&nrm);
         }
     }
-    let idx = |i: usize, j: usize| base + (i * n_phi + (j % n_phi)) as u32;
+    let idx = |i: usize, j: usize| base + ((i % n_rows) * n_phi + (j % n_phi)) as u32;
     let pos = |out: &RenderMesh, vi: u32| {
         let k = vi as usize * 3;
         [out.positions[k], out.positions[k + 1], out.positions[k + 2]]

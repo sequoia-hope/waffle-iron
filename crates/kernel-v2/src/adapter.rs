@@ -491,6 +491,9 @@ impl Kernel for KernelV2Adapter {
             KernelV2Error::RevolveCircleProfileUnsupported => Self::not_supported(
                 "revolve_face: full-turn circle profile sweeps a CLOSED torus (kernel-v2 roadmap KV6d; PARTIAL-turn circle revolve → torus is supported)",
             ),
+            KernelV2Error::RevolveOnAxisCircleUnsupported => Self::not_supported(
+                "revolve_face: full-turn ON-AXIS circle profile sweeps a SPHERE (kernel-v2 roadmap KV6d increment 2; the closed ring torus and partial-turn tube are supported)",
+            ),
             KernelV2Error::RevolveProfileHolesUnsupported => Self::not_supported(
                 "revolve_face: holed profile revolve not implemented (kernel-v2)",
             ),

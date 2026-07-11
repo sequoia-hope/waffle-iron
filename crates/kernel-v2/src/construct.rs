@@ -392,11 +392,10 @@ pub fn revolve(
 
     // A circle profile sweeps a TORUS (KV6d). Partial revolves build a bent
     // solid tube (2 disk caps + a toroidal lateral with longitude-arc seams);
-    // the full-turn case (a closed genus-1 torus) is a later increment.
+    // the full-turn case builds the CLOSED genus-1 ring torus (spec
+    // `specs/kv6d_closed_torus_revolve.md`). The on-axis full-turn circle
+    // (a SPHERE, C0067) stays a typed wall — KV6d increment 2.
     if let ProfileRegion::Circle { center, radius } = profile.region() {
-        if full_turn {
-            return Err(KernelV2Error::RevolveCircleProfileUnsupported);
-        }
         return build_torus_revolve(
             arena,
             profile,
@@ -405,6 +404,7 @@ pub fn revolve(
             axis_origin,
             axis_direction,
             angle_rad,
+            full_turn,
         );
     }
 
@@ -1954,13 +1954,26 @@ fn build_full_revolve(
     })
 }
 
-/// Revolve a circle [`Profile`] by `angle ∈ (0, 2π)` into a PARTIAL torus
-/// (KV6d): a bent solid tube. Topology mirrors [`extrude_circle`] — 2 seam
-/// vertices, 6 half-edges, 3 faces — but the caps are the profile disks at
-/// `θ = 0` and `θ = α` (meridian planes), the rims are the profile circles
-/// (minor radius), the seams are longitude ARCS (the φ = 0 latitude, radius
-/// `R + r`), and the lateral is a [`Surface::Torus`]. Direct assembler; the
-/// safety obligation is discharged by `validate_solid` at exit.
+/// Revolve a circle [`Profile`] about an in-plane axis (KV6d).
+///
+/// Partial angles `∈ (0, 2π)` build a bent solid tube: topology mirrors
+/// [`extrude_circle`] — 2 seam vertices, 6 half-edges, 3 faces — but the
+/// caps are the profile disks at `θ = 0` and `θ = α` (meridian planes), the
+/// rims are the profile circles (minor radius), the seams are longitude
+/// ARCS (the φ = 0 latitude, radius `R + r`), and the lateral is a
+/// [`Surface::Torus`].
+///
+/// The full turn (`full_turn`) builds the CLOSED ring torus (spec
+/// `specs/kv6d_closed_torus_revolve.md`): the minimal CW structure of T²
+/// (Stroud 2006 §3.1.4 seam representation) — 1 seam anchor vertex at the
+/// outer equator, 2 closed seam circles (poloidal profile + toroidal outer
+/// equator), 1 torus face whose outer loop is the aba⁻¹b⁻¹ square with
+/// BOTH twin pairs internal. `V − E + F − R = 0 = 2(S − G)`, genus 1. The
+/// on-axis circle (a sphere) is a typed wall; the off-center crossing
+/// circle is invalid input, exactly like the partial branch.
+///
+/// Direct assembler; the safety obligation is discharged by
+/// `validate_solid` at exit.
 #[allow(clippy::too_many_arguments)]
 fn build_torus_revolve(
     arena: &mut BrepArena,
@@ -1970,6 +1983,7 @@ fn build_torus_revolve(
     axis_origin: Point3,
     axis_direction: Vector3,
     angle: f64,
+    full_turn: bool,
 ) -> Result<RevolveResult, KernelV2Error> {
     // ---- frame + validation (ALL before the first mutation) ----------------
     let d = [axis_direction.x(), axis_direction.y(), axis_direction.z()];
@@ -2042,6 +2056,11 @@ fn build_torus_revolve(
     let r = minor_radius;
     // Ring torus: the circle's closest approach to the axis is R − r > 0.
     let clearance = REVOLVE_MIN_AXIS_CLEARANCE_REL * (1.0 + mag.max(major));
+    // Full-turn on-axis circle sweeps a SPHERE — KV6d increment 2, typed
+    // wall (C0067) distinct from the off-center crossing (invalid input).
+    if full_turn && major.abs() <= clearance {
+        return Err(KernelV2Error::RevolveOnAxisCircleUnsupported);
+    }
     if major - r <= clearance {
         return Err(KernelV2Error::RevolveAxisIntersectsProfile);
     }
@@ -2060,6 +2079,9 @@ fn build_torus_revolve(
             center_torus.z() + cw * w.z + cm * m.z,
         )
     };
+    if full_turn {
+        return assemble_closed_torus(arena, c3, center_torus, a, w, m, major, r);
+    }
     let (ca, sa) = (snap_trig(angle.cos()), snap_trig(angle.sin()));
     let c_alpha = lin(major * ca, major * sa); // end-cap circle center
     let v0 = lin(major + r, 0.0); // seam anchor at θ=0, φ=0 (outer)
@@ -2207,6 +2229,136 @@ fn build_torus_revolve(
         shell,
         start_cap: Some(f_base),
         end_cap: Some(f_top),
+        walls: vec![f_lat],
+    })
+}
+
+/// Assemble the CLOSED ring torus (KV6d full turn, spec
+/// `specs/kv6d_closed_torus_revolve.md`): the minimal CW structure of T².
+///
+/// - 1 vertex: the seam anchor `v0` at the outer equator (θ = 0, φ = 0).
+/// - 2 closed edges through `v0`: the poloidal PROFILE circle at θ = 0
+///   (radius `r`, center `c3`) and the toroidal OUTER-EQUATOR circle
+///   (radius `R + r`, center `center_torus`).
+/// - 1 face: the torus, outer loop = `[prof_fwd, eq_fwd, prof_back,
+///   eq_back]` — the aba⁻¹b⁻¹ square of the cut torus; BOTH twin pairs are
+///   internal to the loop (the partial-tube seam twin pair precedent,
+///   closed in the second direction too).
+///
+/// Directional normals follow the partial-tube conventions continuously:
+/// the θ = 0 rim traversal carries `+m̂` (the sweep velocity — the θ = 2π
+/// return carries `−m̂`), the equator pair carries `±â` exactly like the
+/// longitude seam arcs. Euler–Poincaré: `1 − 2 + 1 − 0 = 0 = 2(S − G)`,
+/// genus 1.
+#[allow(clippy::too_many_arguments)]
+fn assemble_closed_torus(
+    arena: &mut BrepArena,
+    c3: Point3,
+    center_torus: Point3,
+    a: UnitVector3,
+    w: UnitVector3,
+    m: UnitVector3,
+    major: f64,
+    r: f64,
+) -> Result<RevolveResult, KernelV2Error> {
+    let v0 = Point3::new(
+        center_torus.x() + (major + r) * w.x,
+        center_torus.y() + (major + r) * w.y,
+        center_torus.z() + (major + r) * w.z,
+    );
+    let neg_m = neg(m);
+
+    let vid0 = VertexId(arena.vertices.len() as u32);
+    arena.vertices.push(Some(Vertex { point: v0 }));
+
+    let hb = arena.half_edges.len() as u32;
+    let (prof_fwd, eq_fwd, prof_back, eq_back) = (
+        HalfEdgeId(hb),
+        HalfEdgeId(hb + 1),
+        HalfEdgeId(hb + 2),
+        HalfEdgeId(hb + 3),
+    );
+    let loop_lat = LoopId(arena.loops.len() as u32);
+    let f_lat = FaceId(arena.faces.len() as u32);
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    let profile_rim = |normal: UnitVector3| Curve::Circle {
+        center: c3,
+        normal,
+        radius: r,
+    };
+    let equator_rim = |normal: UnitVector3| Curve::Circle {
+        center: center_torus,
+        normal,
+        radius: major + r,
+    };
+    // Loop cycle prof_fwd → eq_fwd → prof_back → eq_back (aba⁻¹b⁻¹).
+    arena.half_edges.push(Some(HalfEdge {
+        twin: prof_back,
+        next: eq_fwd,
+        prev: eq_back,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: profile_rim(m),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: eq_back,
+        next: prof_back,
+        prev: prof_fwd,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: equator_rim(a),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: prof_fwd,
+        next: eq_back,
+        prev: eq_fwd,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: profile_rim(neg_m),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: eq_fwd,
+        next: prof_fwd,
+        prev: prof_back,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: equator_rim(neg(a)),
+    }));
+
+    arena.loops.push(Some(Loop {
+        face: f_lat,
+        boundary: LoopBoundary::Edges(prof_fwd),
+        kind: LoopKind::Outer,
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Torus {
+            center: center_torus,
+            axis_dir: a,
+            major_radius: major,
+            minor_radius: r,
+            reversed: false,
+        }),
+        outer_loop: loop_lat,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: vec![f_lat],
+        genus: 1,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    finalize_solid(arena, solid)?;
+    Ok(RevolveResult {
+        solid,
+        shell,
+        start_cap: None,
+        end_cap: None,
         walls: vec![f_lat],
     })
 }

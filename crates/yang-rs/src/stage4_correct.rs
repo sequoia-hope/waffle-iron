@@ -2643,6 +2643,116 @@ pub(crate) fn stage4_relocate_and_correct(
                     reason: Stage4InvalidReason::OffCurveBeyondChordBand,
                 });
             }
+            // Bounded-face containment (KV6d closed torus, spec
+            // `kv6d_closed_torus_revolve.md` failure modes): the wedge gate
+            // bounds the TRANSVERSAL chord error but balloons (2d_ε/sinθ)
+            // when the pair is near-tangential — exactly where an inscribed
+            // mesh can close an intersection loop EARLY (entirely inside the
+            // partner's bounded face) and the implicit-pair Newton then drags
+            // the loop onto the infinite-surface curve, OUTSIDE the partner
+            // FACE (C0065: wall x=1.45 vs outer equator 1.5, gap ≈ sagitta —
+            // relocated points at |y| = 0.384 vs the wall's |y| ≤ 0.25). A
+            // correctly resolved intersection vertex lies on both BOUNDED
+            // faces, so a relocation escaping every matching partner face's
+            // vertex hull (+d_ε) is a mesh-resolution artifact, not a chord
+            // correction → loud STOP (the §4.3.3 near-tangency increment owns
+            // the honest fix). Planes only: a planar face's loop hull bounds
+            // the face (curved hulls under-bound — closed seam loops).
+            for partner in partners {
+                let Surface::Plane { .. } = partner else {
+                    continue;
+                };
+                // Per matching face: an AABB that BOUNDS the face — loop
+                // vertices plus each boundary CURVE's own extent (a disk's
+                // loop is one closed circle through a single anchor vertex,
+                // so vertex hulls under-bound curved loops — the t134 trap).
+                // A loop curve without a cheap conservative bound makes the
+                // face unbounded → the whole partner check is skipped
+                // (defensive: no verdict, never a false wall).
+                let mut hull: Option<[f64; 6]> = None;
+                let mut unbounded = false;
+                'faces: for brep in [a, b] {
+                    for face in brep.faces() {
+                        if face.surface != *partner {
+                            continue;
+                        }
+                        let mut lo = [f64::MAX; 3];
+                        let mut hi = [f64::MIN; 3];
+                        for &e in face
+                            .outer_loop
+                            .iter()
+                            .chain(face.inner_loops.iter().flatten())
+                        {
+                            let ed = &brep.edges()[e as usize];
+                            for vid in [ed.start, ed.end] {
+                                let q = brep.vertices()[vid as usize].point.as_array();
+                                for k in 0..3 {
+                                    lo[k] = lo[k].min(q[k]);
+                                    hi[k] = hi[k].max(q[k]);
+                                }
+                            }
+                            match ed.curve {
+                                Curve::LineSegment => {}
+                                Curve::Circle {
+                                    center,
+                                    normal,
+                                    radius,
+                                } => {
+                                    let c = center.as_array();
+                                    let n = normalize3(normal.as_array());
+                                    for k in 0..3 {
+                                        let ext = radius * (1.0 - n[k] * n[k]).max(0.0).sqrt();
+                                        lo[k] = lo[k].min(c[k] - ext);
+                                        hi[k] = hi[k].max(c[k] + ext);
+                                    }
+                                }
+                                Curve::Ellipse {
+                                    center,
+                                    major_radius,
+                                    ..
+                                } => {
+                                    let c = center.as_array();
+                                    for k in 0..3 {
+                                        lo[k] = lo[k].min(c[k] - major_radius);
+                                        hi[k] = hi[k].max(c[k] + major_radius);
+                                    }
+                                }
+                                _ => {
+                                    unbounded = true;
+                                    break 'faces;
+                                }
+                            }
+                        }
+                        let h = hull.get_or_insert([
+                            f64::MAX,
+                            f64::MAX,
+                            f64::MAX,
+                            f64::MIN,
+                            f64::MIN,
+                            f64::MIN,
+                        ]);
+                        for k in 0..3 {
+                            h[k] = h[k].min(lo[k]);
+                            h[3 + k] = h[3 + k].max(hi[k]);
+                        }
+                    }
+                }
+                if unbounded {
+                    continue;
+                }
+                let Some(h) = hull else {
+                    continue; // no matching input face (defensive): no verdict
+                };
+                let inside = (0..3).all(|k| {
+                    proj.as_array()[k] >= h[k] - d_eps && proj.as_array()[k] <= h[3 + k] + d_eps
+                });
+                if !inside {
+                    return Err(YangError::Stage4RegionInvalid {
+                        vertex: v,
+                        reason: Stage4InvalidReason::OffCurveBeyondChordBand,
+                    });
+                }
+            }
             if rho > cad_primitives::TAU_WORK {
                 mesh.verts[v as usize] = proj;
                 moved.insert(v);

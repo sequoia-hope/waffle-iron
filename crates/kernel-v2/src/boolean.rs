@@ -803,7 +803,21 @@ pub fn to_yang_brep_indexed(
                             Curve::Arc { .. }
                         )
                     );
-                    if !(canonical || partial || torus) {
+                    // KV6d closed torus (spec `kv6d_closed_torus_revolve.md`):
+                    // both seam circles are CLOSED and both twin pairs are
+                    // internal to the loop — [prof, eq, prof⁻¹, eq⁻¹], the
+                    // aba⁻¹b⁻¹ square of the cut torus.
+                    let closed_torus = matches!(face.surface, Some(Surface::Torus { .. }))
+                        && matches!(
+                            pattern,
+                            (
+                                Curve::Circle { .. },
+                                Curve::Circle { .. },
+                                Curve::Circle { .. },
+                                Curve::Circle { .. }
+                            )
+                        );
+                    if !(canonical || partial || torus || closed_torus) {
                         return Err(KernelV2Error::UnsupportedCurvedBoolean {
                             face: f,
                             reason: "curved lateral non-{canonical,partial,torus} edge pattern",
@@ -812,7 +826,16 @@ pub fn to_yang_brep_indexed(
                     // Canonical: the two segments must be the seam twin pair.
                     // Partial: two DISTINCT rulings (each twins with a cap edge).
                     // Torus: the two seam ARCS (positions 1, 3) are the twin pair.
-                    if (canonical || torus) && arena.half_edge(hes[1])?.twin != hes[3] {
+                    // Closed torus: BOTH pairs (0, 2) and (1, 3) are twins.
+                    if (canonical || torus || closed_torus)
+                        && arena.half_edge(hes[1])?.twin != hes[3]
+                    {
+                        return Err(KernelV2Error::UnsupportedCurvedBoolean {
+                            face: f,
+                            reason: "curved lateral seam edges not a twin pair",
+                        });
+                    }
+                    if closed_torus && arena.half_edge(hes[0])?.twin != hes[2] {
                         return Err(KernelV2Error::UnsupportedCurvedBoolean {
                             face: f,
                             reason: "curved lateral seam edges not a twin pair",
