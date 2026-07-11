@@ -875,6 +875,23 @@ pub(crate) fn build_intersection_curves(
                 edge: (s, e),
                 reason,
             })?;
+        if std::env::var_os("YANG_S3_ELLIPSE_PROBE").is_some() {
+            if let Curve::Ellipse {
+                center,
+                normal,
+                major_radius,
+                minor_radius,
+                ..
+            } = curve
+            {
+                eprintln!(
+                    "[s3-ellipse] edge ({s},{e}) center={:?} n={:?} a={major_radius:.6} \
+                     b={minor_radius:.6}\n  surf0={surf0:?}\n  surf1={surf1:?}",
+                    center.as_array(),
+                    normal.as_array(),
+                );
+            }
+        }
         out.insert((s, e), curve);
     }
     Ok(out)

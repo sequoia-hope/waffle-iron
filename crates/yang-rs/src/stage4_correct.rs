@@ -1287,6 +1287,42 @@ pub(crate) fn stage4_relocate_and_correct(
                             if exact_junctions.contains(&v) {
                                 continue;
                             }
+                            // KV16b (spec `kv16b_cone_ellipse_same_type_junction`):
+                            // a SECOND, DIFFERENT descriptor for the same vertex
+                            // is a same-type conic junction (two cone-ellipses
+                            // meeting) — never silently overwrite-and-relocate
+                            // onto one curve; route to the triple-junction pass
+                            // (the KV16 hyperbola recipe, sibling map).
+                            if let Some(prev) = vert_cone_ellipse.get(&v) {
+                                let differs = prev.apex != cer.apex
+                                    || prev.axis_dir != cer.axis_dir
+                                    || prev.half_angle != cer.half_angle
+                                    || prev.plane_n != cer.plane_n
+                                    || prev.plane_d != cer.plane_d;
+                                if differs {
+                                    same_type_junction.insert(v);
+                                    if std::env::var_os("YANG_SAMETYPE_PROBE").is_some() {
+                                        let pv = mesh.verts[v as usize].as_array();
+                                        eprintln!(
+                                            "[sametype-probe] v={v} p=({:.6},{:.6},{:.6}) \
+                                             cone-ellipse junction: prev apex={:?} ha={:.6} \
+                                             plane_n={:?} d={:.6} -> new apex={:?} ha={:.6} \
+                                             plane_n={:?} d={:.6}",
+                                            pv[0],
+                                            pv[1],
+                                            pv[2],
+                                            prev.apex,
+                                            prev.half_angle,
+                                            prev.plane_n,
+                                            prev.plane_d,
+                                            cer.apex,
+                                            cer.half_angle,
+                                            cer.plane_n,
+                                            cer.plane_d,
+                                        );
+                                    }
+                                }
+                            }
                             vert_cone_ellipse.insert(v, cer);
                             endpoints.push(v);
                         }

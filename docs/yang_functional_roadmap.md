@@ -779,6 +779,33 @@ the roadmap's remaining work:
    the same latent overwrite trap (no corpus driver); d>1 wrapping-loop
    cone patches still can't re-enter Stage 1 (KV14 Slice E). Probes:
    `KV_HYPERBOLA_PROBE`, `YANG_SAMETYPE_PROBE` (+ `[triple-bail]`).
+   **N2 epic increment 7 SHIPPED 2026-07-11 (spec
+   `specs/kv16b_cone_ellipse_same_type_junction.md`, task #127) — the
+   `vert_cone_ellipse` same-type overwrite residue is FIXED (the ellipse
+   sibling of increment 6's item 1; it turned out to have FOUR corpus
+   drivers, all failing kernel-v2's `"output ellipse-arc endpoint does not
+   lie on its ellipse"` certification).** Measured on R0004: a narrow cone
+   (2.53° half-angle, far apex) sectioned by two prism facet planes, both
+   ellipses, meeting at a chord vertex (off-cone 1.06e-3) → second
+   `vert_cone_ellipse.insert` silently overwrote the first → single-curve
+   relocation onto the surviving ellipse → 8e-5 off the other. Fix =
+   insert-time differing-descriptor detection into `same_type_junction`
+   (the KV16 recipe verbatim; the existing increment-5 triple relocation
+   consumes it). Unit fixture
+   `same_type_ellipse_edge_pierce_endpoints_on_curve` (30° frustum ∖
+   45°-rotated diamond prism — all four prism faces section the cone in
+   ellipses; corner edges pierce the lateral): RED at unit scale (9.77e-4
+   residual — unlike KV16's benign hyperbola pierce) → GREEN. Case walls
+   after: R0004 → cone-patch "exactly one material-CCW loop" (FaceId 517),
+   R0100 → holed-lateral CDT (the F0072/R0061 class). R0009/R0091 keep the
+   ellipse-endpoint MESSAGE but are a DIFFERENT mechanism — micro-scale
+   ellipses (a≈1e-4, b≈1e-5, coords at the 100µm floor, residuals 2-8e-8
+   vs the 1e-9 band; no junction involved) — the KV15b sub-floor
+   mint-accuracy family, NOT the junction class. `vert_parabola` keeps the
+   latent trap (still no driver). New probes: `YANG_RUN_PROBE`
+   (boolean-call separator for multi-op probe streams),
+   `YANG_S3_ELLIPSE_PROBE` (Stage-3 ellipse assignment census with
+   surface pair).
    **ERROR-census campaign 3 SHIPPED 2026-07-08 (spec
    `specs/cut_consumes_body.md`):** the EmptyBooleanResult cluster
    (R0023/R0027/R0058/R0088) is ONE mechanism — a cut whose tool ENGULFS

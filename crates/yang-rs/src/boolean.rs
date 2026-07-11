@@ -1645,6 +1645,17 @@ pub fn boolean(
     op: BoolOp,
     backend: &dyn MeshBoolean,
 ) -> Result<BRep, YangError> {
+    // Run separator for env-gated probe streams: which boolean call a probe
+    // line belongs to (multi-op corpus cases interleave several runs).
+    if std::env::var_os("YANG_RUN_PROBE").is_some() {
+        eprintln!(
+            "[yang-run] op={op:?} a: {}v/{}f b: {}v/{}f",
+            a.vertices().len(),
+            a.faces().len(),
+            b.vertices().len(),
+            b.faces().len()
+        );
+    }
     // Case-IV phantom guard (spec `yang_case_iv_phantom_guard`): rebuild
     // both operands at the pair-derived rim density BEFORE any Stage-0/1
     // machinery samples their meshes, so analytically-disjoint cylinder

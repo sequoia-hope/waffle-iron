@@ -24,7 +24,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "2 engine error(s): 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile; f3f795d7-4b9d-4d45-8fd7-93be32b6585b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\")",
+      "detail": "2 engine error(s): 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile; f3f795d7-4b9d-4d45-8fd7-93be32b6585b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: CurvedGeometryMismatch { face: FaceId(517), reason: \"bounded cone patch must have exactly one material-CCW loop\" }",
       "id": "R0004",
       "status": "error"
     },
@@ -600,7 +600,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 35e46b10-8cdb-4b75-9d20-ea5fa0fc337c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\")",
+      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 4: holed lateral CDT failed: CDT backend failed to triangulate\"). Body created as standalone.",
       "id": "R0100",
       "status": "error"
     },

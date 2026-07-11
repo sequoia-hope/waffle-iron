@@ -1088,3 +1088,243 @@ fn same_type_hyperbola_edge_pierce_endpoints_on_curve() {
         "expected hyperbola output edges from both planes, found {hyperbola_edges}"
     );
 }
+
+// ─── KV16b (spec `kv16b_cone_ellipse_same_type_junction`): the ELLIPSE
+// sibling of the same-type hyperbola junction above. A 45°-rotated square
+// prism ("diamond prism" along x) subtracted from the 30° frustum: every
+// prism face is 45° to the cone axis (> the 30° half-angle) so ALL its cone
+// sections are ELLIPSES; the prism's four corner edges (∥ x) pierce the
+// cone lateral, so each pierce vertex sits on {coneN, planeA, planeB} with
+// BOTH incident section curves ellipses — the `vert_cone_ellipse` same-map
+// collision (R0004/R0009/R0091/R0100 class).
+
+/// First-order distance of `pt` from an output `Curve::Ellipse` (in-plane
+/// residual scaled by the minor radius + out-of-plane), mirroring the
+/// kernel-v2 import certification.
+fn ellipse_endpoint_residual(curve: &Curve, pt: Point3) -> f64 {
+    let Curve::Ellipse {
+        center,
+        normal,
+        major_axis,
+        major_radius,
+        minor_radius,
+    } = curve
+    else {
+        panic!("not an ellipse edge");
+    };
+    let n = normal.as_array();
+    let m = major_axis.as_array();
+    let w = [
+        n[1] * m[2] - n[2] * m[1],
+        n[2] * m[0] - n[0] * m[2],
+        n[0] * m[1] - n[1] * m[0],
+    ];
+    let c = center.as_array();
+    let pa = pt.as_array();
+    let d = [pa[0] - c[0], pa[1] - c[1], pa[2] - c[2]];
+    let u = dot(d, m) / major_radius;
+    let v = dot(d, w) / minor_radius;
+    let oop = dot(d, n);
+    let in_plane = (u.hypot(v) - 1.0).abs() * minor_radius;
+    in_plane.max(oop.abs())
+}
+
+/// Square prism along x, cross-section a square rotated 45° in (y, z):
+/// center (yc, zc), half-diagonal `d`, x ∈ [−len, len]. All four lateral
+/// faces have normals (0, ±1/√2, ±1/√2) — 45° to the z-axis.
+fn diamond_prism_brep(yc: f64, zc: f64, d: f64, len: f64) -> BRep {
+    let iso = std::f64::consts::FRAC_1_SQRT_2;
+    // Rotated frame: u = x, v = (y − yc + z − zc)/√2, w = (z − zc − y + yc)/√2.
+    // Box in (u, v, w): u ∈ [±len], v ∈ [±d/√2 ·√2 = ±d·iso·√2]… use half-side
+    // h = d·iso (the square's half-SIDE) so the corners land at (±d, 0)/(0, ±d).
+    let h = d * iso;
+    let bv = [0.0, iso, iso];
+    let bw = [0.0, -iso, iso];
+    let corner = |u: f64, v: f64, w: f64| -> [f64; 3] {
+        [u, yc + v * bv[1] + w * bw[1], zc + v * bv[2] + w * bw[2]]
+    };
+    let lo = [-len, -h, -h];
+    let hi = [len, h, h];
+    let vx = |uu: [f64; 3]| BRepVertex {
+        point: p(uu[0], uu[1], uu[2]),
+    };
+    let vertices = vec![
+        vx(corner(lo[0], lo[1], lo[2])),
+        vx(corner(hi[0], lo[1], lo[2])),
+        vx(corner(hi[0], hi[1], lo[2])),
+        vx(corner(lo[0], hi[1], lo[2])),
+        vx(corner(hi[0], hi[1], hi[2])),
+        vx(corner(hi[0], lo[1], hi[2])),
+        vx(corner(lo[0], lo[1], hi[2])),
+        vx(corner(lo[0], hi[1], hi[2])),
+    ];
+    const EDGE_PAIRS: [(u32, u32); 24] = [
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 0),
+        (4, 5),
+        (5, 6),
+        (6, 7),
+        (7, 4),
+        (2, 1),
+        (1, 5),
+        (5, 4),
+        (4, 2),
+        (3, 2),
+        (2, 4),
+        (4, 7),
+        (7, 3),
+        (0, 3),
+        (3, 7),
+        (7, 6),
+        (6, 0),
+        (1, 0),
+        (0, 6),
+        (6, 5),
+        (5, 1),
+    ];
+    let edges: Vec<BRepEdge> = EDGE_PAIRS
+        .iter()
+        .map(|&(start, end)| BRepEdge {
+            start,
+            end,
+            curve: Curve::LineSegment,
+        })
+        .collect();
+    // Plane offsets: n·p + d_off = 0. For a face at rotated-frame coordinate
+    // v = t along unit direction bv through (0, yc, zc):
+    // n = bv ⇒ d_off = −(bv·(0, yc, zc) + t).
+    let base_v = yc * bv[1] + zc * bv[2];
+    let base_w = yc * bw[1] + zc * bw[2];
+    let planes: [([f64; 3], f64); 6] = [
+        ([-bw[0], -bw[1], -bw[2]], base_w + lo[2]),
+        (bw, -(base_w + hi[2])),
+        ([1.0, 0.0, 0.0], -hi[0]),
+        (bv, -(base_v + hi[1])),
+        ([-1.0, 0.0, 0.0], lo[0]),
+        ([-bv[0], -bv[1], -bv[2]], base_v + lo[1]),
+    ];
+    let faces: Vec<BRepFace> = planes
+        .iter()
+        .enumerate()
+        .map(|(i, &(n, d_off))| BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(n[0], n[1], n[2]),
+                d: d_off,
+            },
+            outer_loop: (4 * i as u32..4 * i as u32 + 4).collect(),
+            inner_loops: Vec::new(),
+            reversed: false,
+        })
+        .collect();
+    BRep::new(vertices, edges, faces).expect("diamond prism fixture builds")
+}
+
+/// GREEN target: 30° frustum ∖ diamond prism whose corner edges (∥ x)
+/// pierce the cone lateral. Each pierce vertex sits on {coneN, planeA,
+/// planeB} with BOTH incident section curves ELLIPSES of the same cone —
+/// the `vert_cone_ellipse` same-map collision. The subtract must complete
+/// with EVERY output ellipse edge's endpoints ON their own ellipse (the
+/// pierce vertex relocated onto the exact triple point, not onto just one
+/// plane's ellipse).
+#[test]
+fn same_type_ellipse_edge_pierce_endpoints_on_curve() {
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[rim-junction] SKIP: native FFI shim not linked (stub build)");
+        return;
+    };
+    let s = 1.0f64;
+    let frustum = frustum30_brep(s);
+    // Diamond center (y=0.4, z=1.0), half-diagonal 0.3: corners at
+    // y ∈ {0.1, 0.7} (z=1.0) and z ∈ {0.7, 1.3} (y=0.4). Cone radius
+    // r(z) = (z + √3)·tan30 ∈ [1.375, 1.779] over z ∈ [0.65, 1.35], so all
+    // four corner lines lie radially inside the lateral and pierce it at
+    // x = ±√(r² − y²); the prism (len 6) tunnels clear through.
+    let (yc, zc, d) = (0.4 * s, 1.0 * s, 0.3 * s);
+    let prism = diamond_prism_brep(yc, zc, d, 6.0 * s);
+    let out = boolean(&frustum, &prism, BoolOp::Subtract, &sb)
+        .unwrap_or_else(|e| panic!("diamond-prism same-type subtract failed with {e:?}"));
+    assert_eq!(
+        unpaired_half_edges(out.as_mesh()),
+        0,
+        "diamond-prism same-type: subtract output must be watertight"
+    );
+
+    // Volume: V_frustum − ∫ A_band(z) dz where A_band = disc(r(z)) ∩
+    // {|y − yc| ≤ d − |z − zc|} (the prism covers the disc in x). Closed
+    // form per slice via the circular area-below-chord antiderivative;
+    // composite Simpson across z.
+    let tan30 = (std::f64::consts::PI / 6.0).tan();
+    let (r0, r1) = (1.0 * s, (2.0 + 1.0 / tan30) * tan30 * s);
+    let v_frustum = std::f64::consts::PI * 2.0 * s / 3.0 * (r0 * r0 + r0 * r1 + r1 * r1);
+    // Area of disc radius r below the chord y = t.
+    let below = |r: f64, t: f64| -> f64 {
+        let tc = t.clamp(-r, r);
+        std::f64::consts::PI * r * r / 2.0 + tc * (r * r - tc * tc).sqrt() + r * r * (tc / r).asin()
+    };
+    let slice = |z: f64| -> f64 {
+        let w = d - (z - zc).abs();
+        if w <= 0.0 {
+            return 0.0;
+        }
+        let r = (z / tan30 + s / (tan30 * tan30)) * tan30 * tan30; // r(z) = (z + s/tan30)·tan30
+        below(r, yc + w) - below(r, yc - w)
+    };
+    let simpson = |lo: f64, hi: f64| -> f64 {
+        let n = 4096usize;
+        let h = (hi - lo) / n as f64;
+        let mut acc = 0.0f64;
+        for k in 0..=n {
+            let wgt = if k == 0 || k == n {
+                1.0
+            } else if k % 2 == 1 {
+                4.0
+            } else {
+                2.0
+            };
+            acc += wgt * slice(lo + k as f64 * h);
+        }
+        acc * h / 3.0
+    };
+    let expect = v_frustum - simpson(zc - d, zc + d);
+    let vol = mesh_signed_volume(out.as_mesh());
+    assert!(
+        vol <= expect * 1.005 && vol >= 0.95 * expect,
+        "diamond-prism same-type: volume {vol} vs analytic {expect}"
+    );
+
+    // The discriminating oracle: every output ellipse edge endpoint lies on
+    // ITS OWN ellipse at the kernel import band (the R0004-class
+    // certification). A pierce vertex relocated onto only ONE plane's
+    // ellipse fails this by a facet-sagitta-scale residual.
+    let verts = out.vertices();
+    let mut ellipse_edges = 0usize;
+    for (i, e) in out.edges().iter().enumerate() {
+        let Curve::Ellipse {
+            major_radius,
+            minor_radius,
+            ..
+        } = e.curve
+        else {
+            continue;
+        };
+        ellipse_edges += 1;
+        let scale = major_radius.max(minor_radius);
+        for v in [e.start, e.end] {
+            let pt = verts[v as usize].point;
+            let mag = pt.as_array().iter().fold(0.0f64, |acc, c| acc.max(c.abs()));
+            let band = 1e-9 * (1.0 + scale.max(mag));
+            let resid = ellipse_endpoint_residual(&e.curve, pt);
+            assert!(
+                resid <= band,
+                "ellipse edge {i} endpoint {v} off its ellipse: residual {resid:.3e} \
+                 > band {band:.3e}"
+            );
+        }
+    }
+    assert!(
+        ellipse_edges >= 4,
+        "expected ellipse output edges from the pierced prism faces, found {ellipse_edges}"
+    );
+}
