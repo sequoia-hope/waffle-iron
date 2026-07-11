@@ -52,7 +52,10 @@ fn assert_dumbbell(b: &mut ModelBuilder, label: &str) {
     let errors = b.engine_errors().to_vec();
     assert!(errors.is_empty(), "{label}: engine errors: {errors:?}");
     let warnings = b.engine_warnings().to_vec();
-    assert!(warnings.is_empty(), "{label}: unexpected warnings: {warnings:?}");
+    assert!(
+        warnings.is_empty(),
+        "{label}: unexpected warnings: {warnings:?}"
+    );
     assert_eq!(
         b.distinct_solid_count(),
         1,
@@ -75,7 +78,11 @@ fn assert_dumbbell(b: &mut ModelBuilder, label: &str) {
     );
     let last = b.tessellate_last_with_tol(0.01).expect("tessellate last");
     let chi = oracle::check_mesh_euler_characteristic(&last, 2);
-    assert!(chi.passed, "{label}: dumbbell must have χ = 2: {}", chi.detail);
+    assert!(
+        chi.passed,
+        "{label}: dumbbell must have χ = 2: {}",
+        chi.detail
+    );
 }
 
 /// Canonical case: Add with explicit disjoint targets [A, B], tool bridging
@@ -125,7 +132,10 @@ fn add_with_unreachable_target_keeps_it_as_separate_body_with_warning() {
         assert!(moved, "fixture drift: no sketch anchored at x=1.5");
     });
     let errors = b.engine_errors().to_vec();
-    assert!(errors.is_empty(), "unreachable target: engine errors: {errors:?}");
+    assert!(
+        errors.is_empty(),
+        "unreachable target: engine errors: {errors:?}"
+    );
     // The Add feature itself must emit TWO bodies: the A∪tool component as
     // Main and the untouched B as Body{1}. (`distinct_solid_count` counts
     // solid-bearing FEATURES, so it cannot see feature-internal extra bodies —
