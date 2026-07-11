@@ -13,11 +13,13 @@ import { showToast, getToasts, dismissToast, dismissAllToasts, initLoggerToasts 
 import { extractProfiles } from '$lib/sketch/profiles.js';
 import { sampleBSpline } from '$lib/sketch/bspline.js';
 import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates } from '$lib/sketch/sketchToolState.svelte.js';
-import { resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog } from '$lib/sketch/tools.js';
+import { resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog, getOffsetToolState as _getOffsetToolState } from '$lib/sketch/tools.js';
 import { buildSketchPlane, sketchToScreen } from '$lib/sketch/sketchCoords.js';
 import { computeConstraintBadges } from '$lib/sketch/constraintBadges.js';
 import { stepConstraintModal, modalInstruction, isModalConstraint } from '$lib/sketch/constraintModalEngine.js';
 import { classifyDimension } from '$lib/sketch/dimensionHeuristic.js';
+import { findConnectedChain, orderChain } from '$lib/sketch/chain.js';
+import { resolveChainSegments, offsetChainSegments } from '$lib/sketch/offset.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
 import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, deleteTestCase as apiDeleteTestCase } from './testCaseApi.js';
 
@@ -677,6 +679,11 @@ export async function initEngine() {
 					end_index: r.end_index,
 					created_by_feature: r.created_by_feature ?? null,
 				})),
+				edgeRanges: (m.edges?.ranges || []).map(r => ({
+					geom_ref: r.geom_ref,
+					start_index: r.start_index,
+					end_index: r.end_index,
+				})),
 			})),
 			getRenderedOverlayCounts: () => ({
 				edgeBodies: renderedEdgeBodyCount,
@@ -907,6 +914,28 @@ export async function initEngine() {
 			toggleAxisVisibility: (axisId) => toggleAxisVisibility(axisId),
 			getSketchSelection: () => [...sketchSelection],
 			setSketchSelection: (ids) => { sketchSelection = new Set(ids); },
+			// Pure chain/offset queries for branch-coverage tests (the tool
+			// flows themselves are driven with real pointer events).
+			findConnectedChain: (id) => findConnectedChain(id, sketchEntities, sketchPositions),
+			getOffsetToolState: () => _getOffsetToolState(),
+			// Sketch-plane 2D → client-pixel position (the DimensionInput
+			// mapping). Lets tests aim real pointer events at sketch geometry
+			// whose screen position depends on the camera.
+			sketchPointToScreen: (x, y) => {
+				if (!sketchMode.active) return null;
+				const camera = getCameraObject();
+				const canvas = document.querySelector('[data-testid="viewport"] canvas') || document.querySelector('canvas');
+				if (!camera || !canvas) return null;
+				const plane = buildSketchPlane(sketchMode.origin, sketchMode.normal);
+				return sketchToScreen(x, y, plane, camera, canvas);
+			},
+			computeChainOffset: (ids, d) => {
+				const ordered = orderChain(ids, sketchEntities, sketchPositions);
+				if (ordered.error) return { error: ordered.error };
+				const resolved = resolveChainSegments(ordered.items, sketchEntities, sketchPositions);
+				if (resolved.error) return { error: resolved.error };
+				return offsetChainSegments(resolved.segments, ordered.closed, d);
+			},
 			getSelectedConstraintIndex: () => getSelectedConstraintIndex(),
 			setSelectedConstraintIndex: (idx) => setSelectedConstraintIndex(idx),
 			deleteSelectedConstraint: () => deleteSelectedConstraint(),
@@ -1899,9 +1928,9 @@ export function projectFace(faceGeomRef) {
 		for (const range of mesh.edges.ranges) {
 			const si = range.start_index;
 			const ei = range.end_index;
-			if (ei - si !== 2) continue; // straight edges only
+			if (ei - si < 2) continue;
 
-			// Both endpoints must lie in the face plane.
+			// Every point of the edge must lie in the face plane.
 			let inPlane = true;
 			for (let k = si; k < ei; k++) {
 				const dx = verts[k * 3] - plane3.origin[0];
@@ -1914,8 +1943,45 @@ export function projectFace(faceGeomRef) {
 
 			const a = getCorner(verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]);
 			const b = getCorner(verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2]);
-			if (a !== b) {
-				addLocalEntity({ type: 'Line', id: allocEntityId(), start_id: a, end_id: b, construction: true });
+
+			if (ei - si === 2) {
+				// Straight edge: one bound construction line.
+				if (a !== b) {
+					addLocalEntity({ type: 'Line', id: allocEntityId(), start_id: a, end_id: b, construction: true });
+					lines++;
+				}
+				continue;
+			}
+
+			// Curved in-plane edge (e.g. a rounded board corner): endpoints are
+			// model vertices — bound and deduped through the shared corners map
+			// so the projected boundary stays ONE connected loop (invariant O4,
+			// specs/sketch_chain_offset.md). Interior points are not vertices, so
+			// they become a static construction polyline — the same snapshot
+			// contract as the Project tool's curved-edge path.
+			const CURVE_SIMPLIFY_TOL = 1e-5;
+			const end2 = worldToSketch2D(verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2]);
+			let last2 = worldToSketch2D(verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]);
+			const kept = [];
+			for (let k = si + 1; k < ei - 1; k++) {
+				const p2 = worldToSketch2D(verts[k * 3], verts[k * 3 + 1], verts[k * 3 + 2]);
+				if (Math.hypot(p2.u - last2.u, p2.v - last2.v) < CURVE_SIMPLIFY_TOL) continue;
+				kept.push(p2);
+				last2 = p2;
+			}
+			while (kept.length && Math.hypot(kept[kept.length - 1].u - end2.u, kept[kept.length - 1].v - end2.v) < CURVE_SIMPLIFY_TOL) {
+				kept.pop();
+			}
+			let prevId = a;
+			for (const p2 of kept) {
+				const pid = allocEntityId();
+				addLocalEntity({ type: 'Point', id: pid, x: p2.u, y: p2.v, construction: true });
+				addLocalEntity({ type: 'Line', id: allocEntityId(), start_id: prevId, end_id: pid, construction: true });
+				lines++;
+				prevId = pid;
+			}
+			if (prevId !== b) {
+				addLocalEntity({ type: 'Line', id: allocEntityId(), start_id: prevId, end_id: b, construction: true });
 				lines++;
 			}
 		}

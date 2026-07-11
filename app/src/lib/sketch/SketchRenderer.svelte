@@ -429,6 +429,23 @@
 			return { type: 'line-segments', geometry: new THREE.BufferGeometry().setFromPoints(segPoints) };
 		}
 
+		if (preview.type === 'offset-preview') {
+			// Chain ghost / offset result: disjoint polylines, drawn like the
+			// planetary preview as one LineSegments geometry (vertex pairs).
+			const { polylines } = preview.data;
+			if (!polylines || polylines.length === 0) return null;
+			const segPoints = [];
+			for (const poly of polylines) {
+				if (!poly || poly.length < 2) continue;
+				const w = poly.map(p => sketchToWorld(p[0], p[1], plane));
+				for (let i = 0; i + 1 < w.length; i++) {
+					segPoints.push(w[i], w[i + 1]);
+				}
+			}
+			if (segPoints.length < 2) return null;
+			return { type: 'line-segments', geometry: new THREE.BufferGeometry().setFromPoints(segPoints) };
+		}
+
 		if (preview.type === 'trim-highlight') {
 			const { points: pts } = preview.data;
 			const worldPoints = pts.map(p => sketchToWorld(p.x, p.y, plane));

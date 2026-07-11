@@ -227,3 +227,15 @@ depend on them are `#[ignore]`-tagged with reason `refs-fixture`.
   preview via non-closing EditFeature; Cancel discards fresh imports.
   Also 1af33fdc: stale C0065 smoke pin moved to the KV6d typed-ERROR
   verdict (pre-existing baseline red, task #136's ship).
+- 2026-07-11 — **SI3 slice: project + offset** (task #139, user driver =
+  "offset a board outline by 500 µm for a printed housing"). `projectFace`
+  now projects curved in-plane boundary edges as static construction
+  polylines sharing the bound corner points, so an imported face with
+  rounded/curved outline projects as ONE connected loop (was: straight
+  edges only → gaps/nothing). New sketch tooling on top: chain select
+  (double-click) + Offset tool (chain offset with exact-distance popup;
+  clicking hovered body geometry projects-then-arms). Spec
+  `specs/sketch_chain_offset.md`; GUI specs sketch-chain-select /
+  sketch-offset-tool / project-face-offset (imported-cylinder e2e).
+  SI3 remainder: exact arcs where the STEP edge was a circle, datum axis
+  from an imported cylinder axis.

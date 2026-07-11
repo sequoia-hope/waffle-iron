@@ -69,6 +69,15 @@ import { log } from '$lib/engine/logger.js';
 import { detectSnaps, collectSnapCandidates } from './snap.js';
 import { computeConstraintBadges } from './constraintBadges.js';
 import { profileToPolygon, pointInPolygon } from './profiles.js';
+import { findConnectedChain, orderChain } from './chain.js';
+import {
+	resolveChainSegments,
+	offsetChainSegments,
+	signedDistanceToChain,
+	segmentsToPolylines,
+	RADIUS_EPS
+} from './offset.js';
+import { showToast } from '$lib/ui/toast.svelte.js';
 import { setPreview, setSnapIndicator, setSnapCandidates, getPreview as _getPreview, getSnapIndicator as _getSnapIndicator, getSnapCandidates as _getSnapCandidates } from './sketchToolState.svelte.js';
 import { buildSketchPlane } from './sketchCoords.js';
 import { projectEdgeToSketch, simplifyPolyline } from './projectGeometry.js';
@@ -150,6 +159,17 @@ let trimHighlight = null;
 // -- Sketch Fillet tool state --
 /** @type {{ pointId: number, lines: Array<any> } | null} */
 let filletCorner = null;
+
+// -- Offset tool state --
+/**
+ * Armed chain awaiting a distance. `segments` are traversal segments from
+ * offset.js (or a single {type:'circle'} for circles); `currentD` is the
+ * signed cursor distance driving the preview (sign = side).
+ * @type {{ segments: Array<object>, closed: boolean, circleId: number | null, currentD: number } | null}
+ */
+let offsetArmed = null;
+/** @type {{ seed: number, polylines: Array<Array<[number,number]>> | null } | null} */
+let offsetHoverCache = null;
 
 // -- Drag-to-reposition state --
 /** @type {number | null} Point ID being dragged */
@@ -261,6 +281,8 @@ export function resetTool() {
 	slotSecondCenterPos = null;
 	trimHighlight = null;
 	filletCorner = null;
+	offsetArmed = null;
+	offsetHoverCache = null;
 	lastSelectClickTime = null;
 	lastSelectClickEntity = null;
 	setPreview(null);
@@ -395,6 +417,9 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 			break;
 		case 'trim':
 			handleTrimTool(eventType, sketchX, sketchY, screenPixelSize);
+			break;
+		case 'offset':
+			handleOffsetTool(eventType, sketchX, sketchY, screenPixelSize);
 			break;
 		case 'sketch-fillet':
 			handleSketchFilletTool(eventType, sketchX, sketchY, screenPixelSize);
@@ -1254,6 +1279,20 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 			lastSelectClickEntity = null;
 			return;
 		}
+
+		// Double-click on a non-gear entity → select its connected chain
+		// (shift: union into the existing selection). Branch table rows 1-3 in
+		// specs/sketch_chain_offset.md; gears keep their edit-dialog gesture.
+		if (gearId == null && lastSelectClickEntity === hitId && lastSelectClickTime && (now - lastSelectClickTime) < 400) {
+			const chain = findConnectedChain(hitId, getSketchEntities(), getSketchPositions());
+			const next = shiftKey ? new Set(selection) : new Set();
+			for (const id of chain) next.add(id);
+			setSketchSelection(next);
+			log('sketch', 'Chain select', { seed: hitId, size: chain.length });
+			lastSelectClickTime = null;
+			lastSelectClickEntity = null;
+			return;
+		}
 		lastSelectClickTime = now;
 		lastSelectClickEntity = hitId;
 
@@ -1679,6 +1718,290 @@ function createConstructionLinesFromPoints(points, closed) {
 			construction: true,
 		});
 	}
+}
+
+// ---- Offset Tool ----
+// Chain offset: click a chain (or model geometry, which projects first), move
+// the cursor to pick side + distance, click to open the exact-value popup.
+// See specs/sketch_chain_offset.md.
+
+/**
+ * Build traversal segments for a set of entity ids. A lone Circle becomes a
+ * single {type:'circle'} segment; anything else must order into a simple
+ * open/closed chain of lines and arcs.
+ * @param {number[]} ids
+ * @returns {{ segments: Array<object>, closed: boolean, circleId: number | null } | null} null after toasting the reason.
+ */
+function buildOffsetChain(ids) {
+	const entities = getSketchEntities();
+	const positions = getSketchPositions();
+
+	if (ids.length === 1) {
+		const e = entities.find((en) => en.id === ids[0]);
+		if (e?.type === 'Circle') {
+			const c = positions.get(e.center_id);
+			if (!c) return null;
+			return {
+				segments: [{ type: 'circle', center: { ...c }, r: e.radius }],
+				closed: true,
+				circleId: e.id,
+			};
+		}
+	}
+
+	const ordered = orderChain(ids, entities, positions);
+	if (ordered.error) {
+		if (ordered.error === 'branching') {
+			showToast('info', 'Offset needs a simple chain (no branches)');
+		} else if (ordered.error === 'unsupported') {
+			showToast('info', 'Offset supports lines, arcs, and circles');
+		} else {
+			showToast('info', 'Selection is not a connected chain');
+		}
+		return null;
+	}
+	const resolved = resolveChainSegments(ordered.items, entities, positions);
+	if (resolved.error) {
+		showToast('info', resolved.error === 'unsupported-entity'
+			? 'Offset supports lines, arcs, and circles (not splines)'
+			: 'Offset could not resolve the chain geometry');
+		return null;
+	}
+	return { segments: resolved.segments, closed: ordered.closed, circleId: null };
+}
+
+/**
+ * Arm the offset tool with the chain containing `seedId` (or an explicit
+ * multi-entity selection). Returns true when armed.
+ * @param {number[]} ids
+ */
+function armOffset(ids) {
+	const chain = buildOffsetChain(ids);
+	if (!chain) return false;
+	offsetArmed = { ...chain, currentD: 0 };
+	offsetHoverCache = null;
+	log('sketch', 'Offset armed', { entities: ids.length, closed: chain.closed });
+	return true;
+}
+
+/**
+ * Select-first entry (Toolbar `o` / Offset button with a live selection):
+ * seed from the current sketch selection — a single chainable entity expands
+ * to its whole chain, an explicit multi-selection is offset as-is.
+ * @returns {boolean} true when the tool armed from the selection.
+ */
+export function seedOffsetFromSelection() {
+	const sel = [...getSketchSelection()];
+	if (!sel.length) return false;
+	const entities = getSketchEntities();
+	// Points in the selection are chain endpoints, not offset subjects.
+	const ids = sel.filter((id) => entities.find((e) => e.id === id)?.type !== 'Point');
+	if (!ids.length) return false;
+	const expanded = ids.length === 1
+		? findConnectedChain(ids[0], entities, getSketchPositions())
+		: ids;
+	return armOffset(expanded);
+}
+
+/**
+ * Test/debug probe: the offset tool's armed-chain state.
+ * @returns {{ armed: boolean, closed: boolean | null, segmentCount: number, currentD: number | null }}
+ */
+export function getOffsetToolState() {
+	return offsetArmed
+		? { armed: true, closed: offsetArmed.closed, segmentCount: offsetArmed.segments.length, currentD: offsetArmed.currentD }
+		: { armed: false, closed: null, segmentCount: 0, currentD: null };
+}
+
+/** Signed cursor distance for the armed chain (circle: + grows outward). */
+function offsetCursorDistance(x, y) {
+	const seg = offsetArmed.segments[0];
+	if (seg.type === 'circle') {
+		return Math.hypot(x - seg.center.x, y - seg.center.y) - seg.r;
+	}
+	return signedDistanceToChain(offsetArmed.segments, { x, y });
+}
+
+/**
+ * Offset result segments for the armed chain at signed distance d, or null
+ * (radius collapse / degenerate).
+ */
+function computeArmedOffset(d) {
+	const seg = offsetArmed.segments[0];
+	if (seg.type === 'circle') {
+		const r = seg.r + d;
+		if (r <= RADIUS_EPS) return null;
+		return { segments: [{ type: 'circle', center: seg.center, r }], closed: true };
+	}
+	const result = offsetChainSegments(offsetArmed.segments, offsetArmed.closed, d);
+	return result.error ? null : result;
+}
+
+function handleOffsetTool(eventType, x, y, screenPixelSize) {
+	setSnapIndicator(null);
+
+	if (eventType === 'pointermove') {
+		if (offsetArmed) {
+			const d = offsetCursorDistance(x, y);
+			offsetArmed.currentD = d;
+			const result = Math.abs(d) > RADIUS_EPS ? computeArmedOffset(d) : null;
+			setPreview(result
+				? { type: 'offset-preview', data: { polylines: segmentsToPolylines(result.segments, result.closed) } }
+				: null);
+			return;
+		}
+		// Unarmed: ghost the chain under the cursor so the pick target is
+		// visible. The chain walk is cached per hovered entity — recomputing
+		// connectivity on every pointermove is wasted work on big projected
+		// outlines.
+		const hitId = hitTest(x, y, screenPixelSize);
+		setSketchHover(hitId);
+		if (hitId != null) {
+			setHoveredRef(null);
+			if (offsetHoverCache?.seed !== hitId) {
+				const chainIds = findConnectedChain(hitId, getSketchEntities(), getSketchPositions());
+				const ordered = orderChain(chainIds, getSketchEntities(), getSketchPositions());
+				const resolved = ordered.error ? null : resolveChainSegments(ordered.items, getSketchEntities(), getSketchPositions());
+				offsetHoverCache = {
+					seed: hitId,
+					polylines: resolved && !resolved.error
+						? segmentsToPolylines(resolved.segments, ordered.closed)
+						: null,
+				};
+			}
+			if (offsetHoverCache.polylines) {
+				setPreview({ type: 'offset-preview', data: { polylines: offsetHoverCache.polylines } });
+				return;
+			}
+		} else {
+			offsetHoverCache = null;
+		}
+		setPreview(null);
+		return;
+	}
+
+	if (eventType !== 'pointerdown') return;
+
+	if (!offsetArmed) {
+		const hitId = hitTest(x, y, screenPixelSize);
+		if (hitId != null) {
+			armOffset(findConnectedChain(hitId, getSketchEntities(), getSketchPositions()));
+			return;
+		}
+		// No sketch entity — a hovered model edge/face projects first, then the
+		// projected chain arms the offset (branch 6: project-with-offset).
+		const ref = getHoveredRef();
+		if (ref && (ref.kind?.type === 'Edge' || ref.kind?.type === 'Face')) {
+			const before = new Set(getSketchEntities().map((e) => e.id));
+			projectRef(ref);
+			const created = getSketchEntities().filter((e) => !before.has(e.id) && entityChainable(e));
+			if (created.length) {
+				armOffset(findConnectedChain(created[0].id, getSketchEntities(), getSketchPositions()));
+			} else {
+				showToast('info', 'Nothing offsettable was projected from that geometry');
+			}
+		}
+		return;
+	}
+
+	// Armed + click: freeze side/magnitude from the cursor and open the exact
+	// value popup. Enter commits via customApply; Escape/blur just dismisses.
+	const d = offsetArmed.currentD;
+	if (Math.abs(d) < RADIUS_EPS) return;
+	const side = Math.sign(d);
+	showDimensionPopup({
+		entityA: null,
+		entityB: null,
+		sketchX: x,
+		sketchY: y,
+		dimType: 'distance',
+		defaultValue: parseFloat(Math.abs(d).toPrecision(6)),
+		customApply: (value) => commitOffset(side * value),
+	});
+}
+
+/** True for entity types that can participate in an offset chain. */
+function entityChainable(e) {
+	return e.type === 'Line' || e.type === 'Arc' || e.type === 'Circle';
+}
+
+/**
+ * Create real sketch entities for the armed chain offset at signed distance
+ * d, as one undo action. Keeps the tool armed on typed radius collapse so
+ * the user can retry with a smaller value.
+ * @param {number} d
+ */
+function commitOffset(d) {
+	if (!offsetArmed) return;
+	const result = computeArmedOffset(d);
+	if (!result) {
+		showToast('warning', 'Offset too large: an arc radius would collapse');
+		return;
+	}
+
+	beginSketchAction();
+	const seg0 = result.segments[0];
+	if (seg0.type === 'circle') {
+		const centerId = allocEntityId();
+		addLocalEntity({ type: 'Point', id: centerId, x: seg0.center.x, y: seg0.center.y, construction: false });
+		addLocalEntity({ type: 'Circle', id: allocEntityId(), center_id: centerId, radius: seg0.r, construction: false });
+	} else {
+		createEntitiesFromSegments(result.segments, result.closed);
+	}
+	endSketchAction();
+
+	const n = result.segments.length;
+	log('sketch', 'Offset committed', { d, segments: n });
+	setPreview(null);
+	offsetArmed = null;
+	offsetHoverCache = null;
+}
+
+/**
+ * Materialize offset segments as Points + Lines/Arcs. Consecutive segments
+ * share their joint Point; a closed chain also shares last→first. Arc
+ * entities are CCW start→end (O2), so CW-traversal segments swap endpoints.
+ * @param {Array<object>} segments
+ * @param {boolean} closed
+ */
+function createEntitiesFromSegments(segments, closed) {
+	const newPoint = (p) => {
+		const id = allocEntityId();
+		addLocalEntity({ type: 'Point', id, x: p.x, y: p.y, construction: false });
+		return id;
+	};
+	const startOf = (seg) => (seg.type === 'line'
+		? seg.p0
+		: { x: seg.center.x + seg.r * Math.cos(seg.a0), y: seg.center.y + seg.r * Math.sin(seg.a0) });
+	const endOf = (seg) => (seg.type === 'line'
+		? seg.p1
+		: { x: seg.center.x + seg.r * Math.cos(seg.a1), y: seg.center.y + seg.r * Math.sin(seg.a1) });
+
+	const jointIds = [];
+	jointIds.push(newPoint(startOf(segments[0])));
+	for (let i = 0; i < segments.length; i++) {
+		const isLast = i === segments.length - 1;
+		const endId = isLast && closed ? jointIds[0] : newPoint(endOf(segments[i]));
+		jointIds.push(endId);
+	}
+
+	segments.forEach((seg, i) => {
+		const sId = jointIds[i];
+		const eId = jointIds[i + 1];
+		if (seg.type === 'line') {
+			addLocalEntity({ type: 'Line', id: allocEntityId(), start_id: sId, end_id: eId, construction: false });
+		} else {
+			const centerId = newPoint(seg.center);
+			addLocalEntity({
+				type: 'Arc',
+				id: allocEntityId(),
+				center_id: centerId,
+				start_id: seg.ccw ? sId : eId,
+				end_id: seg.ccw ? eId : sId,
+				construction: false,
+			});
+		}
+	});
 }
 
 // ---- Slot Tool ----
@@ -2385,13 +2708,13 @@ function executeSketchFillet(corner, radius) {
 	const line1 = corner.lines[0];
 	const line2 = corner.lines[1];
 
-	// Remove old lines and recreate with new endpoints
+	// Recreate the lines with tangent-point endpoints BEFORE removing the old
+	// ones: removeSketchEntities cascade-deletes points that no surviving
+	// entity references, so removing first orphaned the far endpoints and left
+	// the new lines dangling on deleted point ids.
 	const l1OtherId = line1.start_id === corner.pointId ? line1.end_id : line1.start_id;
 	const l2OtherId = line2.start_id === corner.pointId ? line2.end_id : line2.start_id;
 
-	removeSketchEntities(new Set([line1.id, line2.id]));
-
-	// Recreate lines with tangent point endpoints
 	const newLine1Id = allocEntityId();
 	addLocalEntity({
 		type: 'Line', id: newLine1Id,
@@ -2405,6 +2728,8 @@ function executeSketchFillet(corner, radius) {
 		start_id: l2OtherId, end_id: tp2Pt.id,
 		construction: false
 	});
+
+	removeSketchEntities(new Set([line1.id, line2.id]));
 
 	// Add tangent constraints
 	addLocalConstraint({ type: 'Tangent', line: newLine1Id, curve: arcId });

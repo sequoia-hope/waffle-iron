@@ -59,8 +59,8 @@
 	import { base } from '$app/paths';
 	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { getApplicableConstraints } from '$lib/sketch/constraintLogic.js';
-	import { resetTool, projectRef, isProjectableRef } from '$lib/sketch/tools.js';
-	import { onMount } from 'svelte';
+	import { resetTool, projectRef, isProjectableRef, seedOffsetFromSelection } from '$lib/sketch/tools.js';
+	import { onMount, flushSync } from 'svelte';
 
 	let ready = $derived(isEngineReady());
 	let tool = $derived(getActiveTool());
@@ -176,6 +176,7 @@
 		{ id: 'circle', label: 'Circle', shortcut: 'C' },
 		{ id: 'arc', label: 'Arc', shortcut: 'A' },
 		{ id: 'project', label: 'Proj', shortcut: 'J' },
+		{ id: 'offset', label: 'Offset', shortcut: 'O' },
 		{ id: 'slot', label: 'Slot', shortcut: 'T' },
 		{ id: 'gear', label: 'Gear', shortcut: 'G' },
 		{ id: 'planetary', label: 'Planet', shortcut: '' },
@@ -282,6 +283,26 @@
 		setActiveTool('project');
 	}
 
+	/**
+	 * Offset button / O shortcut. Select-first: with the Select tool active and
+	 * sketch entities already selected, seed the offset chain from the selection
+	 * (a lone entity expands to its chain; a multi-selection is offset as-is).
+	 * Otherwise just activate the tool for click-first picking. Mirrors
+	 * activateOrRunProject; see specs/sketch_chain_offset.md branch 12.
+	 */
+	function activateOrRunOffset() {
+		if (inSketch && getActiveTool() === 'select' && getSketchSelection().size > 0) {
+			setActiveTool('offset');
+			// SketchInteraction resets tool state in an $effect on tool change;
+			// flush it NOW so the reset runs before seeding, not after (which
+			// would silently disarm the seeded chain).
+			flushSync();
+			seedOffsetFromSelection();
+			return;
+		}
+		setActiveTool('offset');
+	}
+
 	async function handleFinishSketch() {
 		try {
 			await finishSketch();
@@ -355,6 +376,7 @@
 				case 'a': if (inSketch) setActiveTool('arc'); break;
 				case 'x': if (inSketch) handleToggleConstruction(); break;
 				case 'j': if (inSketch) activateOrRunProject(); break;
+				case 'o': if (inSketch) activateOrRunOffset(); break;
 				case 't': if (inSketch) setActiveTool('slot'); break;
 				case 'f': if (inSketch) setActiveTool('sketch-fillet'); break;
 				case 'd': if (inSketch) setActiveTool('dimension'); break;
@@ -448,7 +470,7 @@
 								disabled={!ready}
 								title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
 								data-testid="toolbar-btn-{t.id}"
-								onclick={() => { t.id === 'construction' ? handleToggleConstruction() : t.id === 'project' ? activateOrRunProject() : setActiveTool(t.id); showSketchTools = false; }}
+								onclick={() => { t.id === 'construction' ? handleToggleConstruction() : t.id === 'project' ? activateOrRunProject() : t.id === 'offset' ? activateOrRunOffset() : setActiveTool(t.id); showSketchTools = false; }}
 							>{t.label}</button>
 							{#if t.id === 'rectangle'}
 								<!-- Center-rectangle variant as its own entry on mobile. -->
@@ -513,7 +535,7 @@
 							disabled={!ready}
 							title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
 							data-testid="toolbar-btn-{t.id}"
-							onclick={() => t.id === 'construction' ? handleToggleConstruction() : t.id === 'project' ? activateOrRunProject() : setActiveTool(t.id)}
+							onclick={() => t.id === 'construction' ? handleToggleConstruction() : t.id === 'project' ? activateOrRunProject() : t.id === 'offset' ? activateOrRunOffset() : setActiveTool(t.id)}
 						>{t.label}</button>
 					{/if}
 				{/each}

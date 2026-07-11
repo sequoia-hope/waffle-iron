@@ -146,6 +146,46 @@ role-separated Test Author / Implementer / Adversary.
   `sketch-snap-click-regression.spec.js:292` (DOM layer-stack class,
   "Canvas not found in elements at point"). Needs its own cycle.
 
+### M15: Chain Select + Offset Tool + Project-with-Offset ✅ (2026-07-11)
+
+Spec: `specs/sketch_chain_offset.md` (task #139; SI3 slice of
+`docs/step_import_roadmap.md`). User driver: offset an imported board
+outline by 0.5 mm to build a printed housing.
+
+- [x] Chain select: double-click selects the connected run (shared or
+      coincident endpoints, `chain.js` union-find weld @1e-6 m); shift
+      unions. Gear double-click precedence preserved.
+- [x] Offset tool (`O`): click chain (or seed from the selection via
+      select-first `O`) → cursor picks side/magnitude → click → exact-value
+      popup (dimensionPopup `customApply`) → real Line/Arc/Circle entities.
+      Pure math in `offset.js`: tangent-weld joints (|d|-scaled tolerance),
+      outside corners = true offset arcs (miter under 30° line-line turns),
+      inside corners = carrier-intersection trim, arcs r∓d with typed
+      radius-collapse error. d>0 = left-of-traversal; the cursor side picks
+      the sign so users never see the convention.
+- [x] Project-with-offset: with Offset active, clicking hovered body
+      Edge/Face runs `projectRef` and arms the projected chain (branch 6).
+- [x] `projectFace` curved in-plane edges → static construction polylines
+      sharing the bound corner points (O4: one connected loop; was
+      straight-edges-only, so rounded outlines projected with gaps).
+- [x] Fillet-tool latent bug FIXED en route: `executeSketchFillet` removed
+      the old lines before creating replacements, so the far endpoints were
+      orphan-cascade-deleted and the new lines dangled on dead point ids.
+      Create the new lines first. (Surfaced by chain resolve
+      `missing-point`; fillet chains were never offsettable/chainable.)
+- Tests: `sketch-chain-select.spec.js` (3), `sketch-offset-tool.spec.js`
+  (8), `project-face-offset.spec.js` (imported-STEP-cylinder e2e). New
+  hooks: `__waffle.findConnectedChain` / `computeChainOffset` /
+  `getOffsetToolState` / `sketchPointToScreen`; `getMeshes().edgeRanges`.
+- Known limits (documented in the spec): no global self-intersection
+  removal (offset larger than local feature size); splines chain-select but
+  don't offset; native kernel-v2 bodies export rim circles as degenerate
+  2-point edge polylines, so face projection of curved rims is currently
+  mesh-import (SI1) territory until the kernel emits rim polylines.
+- Follow-up candidates: fillet tool's `findOrCreatePoint(…, 0.001)`
+  hard-coded pixel size = ~8 mm merge radius (small fillets degenerate to
+  start==end arcs); offset constraint linkage (parametric offset distance).
+
 ## Implementation Summary
 
 ### New files created
