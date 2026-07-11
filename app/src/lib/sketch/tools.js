@@ -54,7 +54,11 @@ import {
 	getConstraintModal,
 	projectVertex,
 	projectEdge,
-	projectFace
+	projectFace,
+	projectEdgeChain,
+	faceBoundaryPreview,
+	setToolHint,
+	getActiveTool
 } from '$lib/engine/store.svelte.js';
 import {
 	findLineLineIntersection,
@@ -70,6 +74,7 @@ import { detectSnaps, collectSnapCandidates } from './snap.js';
 import { computeConstraintBadges } from './constraintBadges.js';
 import { profileToPolygon, pointInPolygon } from './profiles.js';
 import { findConnectedChain, orderChain } from './chain.js';
+import { findBodyEdgeChain, bodyChainPolylines2D } from './bodyChain.js';
 import {
 	resolveChainSegments,
 	offsetChainSegments,
@@ -283,9 +288,11 @@ export function resetTool() {
 	filletCorner = null;
 	offsetArmed = null;
 	offsetHoverCache = null;
+	bodyHoverCache = null;
 	lastSelectClickTime = null;
 	lastSelectClickEntity = null;
 	setPreview(null);
+	setToolHint(null);
 	setSnapIndicator(null);
 	setSnapCandidates([]);
 	isDragging = false;
@@ -364,7 +371,7 @@ function findOrCreatePoint(x, y, screenPixelSize, snapPointId) {
  * @param {number} screenPixelSize - Sketch units per screen pixel
  * @param {boolean} shiftKey - Whether shift is held
  */
-export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenPixelSize, shiftKey) {
+export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenPixelSize, shiftKey, altKey = false) {
 	// Event instrumentation for test diagnostics
 	toolEventLog.push({
 		tool: activeTool, event: eventType,
@@ -410,7 +417,7 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 			handlePolylineTool(eventType, sketchX, sketchY, screenPixelSize);
 			break;
 		case 'project':
-			handleProjectTool(eventType, sketchX, sketchY, screenPixelSize);
+			handleProjectTool(eventType, sketchX, sketchY, screenPixelSize, altKey);
 			break;
 		case 'slot':
 			handleSlotTool(eventType, sketchX, sketchY, screenPixelSize);
@@ -419,7 +426,7 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 			handleTrimTool(eventType, sketchX, sketchY, screenPixelSize);
 			break;
 		case 'offset':
-			handleOffsetTool(eventType, sketchX, sketchY, screenPixelSize);
+			handleOffsetTool(eventType, sketchX, sketchY, screenPixelSize, altKey);
 			break;
 		case 'sketch-fillet':
 			handleSketchFilletTool(eventType, sketchX, sketchY, screenPixelSize);
@@ -1608,15 +1615,163 @@ function showRadiusPopupFor(entity) {
 	});
 }
 
+// ---- Body-geometry chain targets (shared by Project + Offset) ----
+// Explicit chains: while hovering body geometry the tools ghost EXACTLY what
+// a click will act on (a connected coplanar edge chain, or a face boundary)
+// and say so in the status bar. Alt limits an edge pick to the single edge.
+
+/** @type {{ key: string, kind: 'edge'|'face', ref: any, mesh: object|null, indices: number[], closed: boolean, polylines: Array<Array<[number,number]>> } | null} */
+let bodyHoverCache = null;
+
+/** Resolve a hovered body Edge ref to its mesh + range index. */
+function findEdgeRange(ref) {
+	for (const mesh of getMeshes() ?? []) {
+		if (!mesh.edges?.ranges) continue;
+		for (let i = 0; i < mesh.edges.ranges.length; i++) {
+			if (geomRefEquals(mesh.edges.ranges[i].geom_ref, ref)) return { mesh, index: i };
+		}
+	}
+	return null;
+}
+
+/**
+ * The body-geometry target under the cursor: an edge CHAIN (connected +
+ * lying in one plane parallel to the sketch, see bodyChain.js) or a face
+ * boundary. Cached per (ref, alt); null when nothing projectable is hovered.
+ * @param {boolean} alt - Alt held: single edge instead of the chain.
+ */
+function bodyChainTarget(alt) {
+	const ref = getHoveredRef();
+	const kind = ref?.kind?.type;
+	if (kind !== 'Edge' && kind !== 'Face') return null;
+	const sm = getSketchMode();
+	if (!sm?.active) return null;
+	const key = `${kind}|${alt ? 1 : 0}|${JSON.stringify(ref)}`;
+	if (bodyHoverCache?.key === key) return bodyHoverCache;
+
+	const plane = buildSketchPlane(sm.origin, sm.normal);
+	if (kind === 'Edge') {
+		const found = findEdgeRange(ref);
+		if (!found) return null;
+		const chain = alt
+			? { indices: [found.index], closed: false }
+			: findBodyEdgeChain(found.mesh, found.index, sm.normal);
+		bodyHoverCache = {
+			key,
+			kind: 'edge',
+			ref,
+			mesh: found.mesh,
+			indices: chain.indices,
+			closed: chain.closed,
+			polylines: bodyChainPolylines2D(found.mesh, chain.indices, plane),
+		};
+		return bodyHoverCache;
+	}
+	// Face: ghost the boundary projectFace would create (no entities made).
+	bodyHoverCache = {
+		key,
+		kind: 'face',
+		ref,
+		mesh: null,
+		indices: [],
+		closed: true,
+		polylines: faceBoundaryPreview(ref),
+	};
+	return bodyHoverCache;
+}
+
+/** Ghost + status hint for a body target. False (and cleared) when empty. */
+function showBodyTargetPreview(target, verb) {
+	if (target && target.polylines.length) {
+		setPreview({ type: 'offset-preview', data: { polylines: target.polylines } });
+		const what = target.kind === 'face'
+			? `face boundary (${target.polylines.length} edge${target.polylines.length === 1 ? '' : 's'})`
+			: `${target.closed ? 'closed loop' : 'chain'} of ${target.indices.length} edge${target.indices.length === 1 ? '' : 's'}`;
+		const altHint = target.kind === 'edge' && target.indices.length > 1 ? ' · Alt-click: this edge only' : '';
+		setToolHint(`${verb} ${what}${altHint}`);
+		return true;
+	}
+	setPreview(null);
+	setToolHint(null);
+	return false;
+}
+
+/**
+ * Project a body target into the sketch; returns the created chainable
+ * entities. Single edges keep the classic projectRef path (bindings
+ * byte-identical to the select-first Proj button, invariant I4); multi-edge
+ * chains project as one connected run with shared bound corners.
+ */
+function projectBodyTarget(target) {
+	const before = new Set(getSketchEntities().map((e) => e.id));
+	if (target.kind === 'edge' && target.indices.length > 1) {
+		projectEdgeChain(target.mesh, target.indices, target.ref.anchor);
+	} else {
+		projectRef(target.ref);
+	}
+	return getSketchEntities().filter((e) => !before.has(e.id) && entityChainable(e));
+}
+
+/**
+ * Tool-first FACE click, called by CadModel.handleClick — the only place a
+ * face ref resolves reliably at click time (the Threlte face hover only
+ * settles by click, so the window-pointerdown tool handlers never see a
+ * trustworthy face ref). Returns true when the active tool consumed it.
+ * @param {any} ref - resolved (canonicalized) Face GeomRef.
+ */
+export function handleBodyFaceClick(ref) {
+	const sm = getSketchMode();
+	if (!sm?.active || ref?.kind?.type !== 'Face') return false;
+	const tool = getActiveTool();
+	if (tool === 'project') {
+		const n = projectFace(ref);
+		log('sketch', 'Projected face boundary (tool-first)', { lines: n });
+		if (n === 0) showToast('info', 'No boundary edges lie in that face’s plane');
+		bodyHoverCache = null;
+		setToolHint(null);
+		return true;
+	}
+	if (tool === 'offset' && !offsetArmed) {
+		const created = projectBodyTarget({ kind: 'face', ref, mesh: null, indices: [] });
+		if (created.length) {
+			armOffset(findConnectedChain(created[0].id, getSketchEntities(), getSketchPositions()));
+		} else {
+			showToast('info', 'Nothing offsettable was projected from that face');
+		}
+		bodyHoverCache = null;
+		return true;
+	}
+	return false;
+}
+
 // ---- Project Tool ----
 
-function handleProjectTool(eventType, x, y, screenPixelSize) {
-	setPreview(null);
+function handleProjectTool(eventType, x, y, screenPixelSize, altKey) {
 	setSnapIndicator(null);
 
+	if (eventType === 'pointermove') {
+		// Explicit chain preview: ghost exactly what a click will project.
+		const target = bodyChainTarget(altKey);
+		if (!showBodyTargetPreview(target, 'Project:')) {
+			const ref = getHoveredRef();
+			setToolHint(ref?.kind?.type === 'Vertex' ? 'Project: bound point from this vertex' : null);
+		}
+		return;
+	}
 	if (eventType !== 'pointerdown') return;
 
-	projectRef(getHoveredRef());
+	const ref = getHoveredRef();
+	if (ref?.kind?.type === 'Vertex') {
+		projectRef(ref);
+		return;
+	}
+	const target = bodyChainTarget(altKey);
+	// Faces resolve via CadModel.handleClick (handleBodyFaceClick) — the
+	// pointerdown-time face hover is not trustworthy.
+	if (!target || target.kind !== 'edge') return;
+	const created = projectBodyTarget(target);
+	log('sketch', 'Projected body edge chain', { edges: target.indices.length, entities: created.length });
+	bodyHoverCache = null;
 }
 
 /**
@@ -1780,6 +1935,7 @@ function armOffset(ids) {
 	if (!chain) return false;
 	offsetArmed = { ...chain, currentD: 0 };
 	offsetHoverCache = null;
+	setToolHint('Offset armed: move to choose the side, click, then type the exact distance');
 	log('sketch', 'Offset armed', { entities: ids.length, closed: chain.closed });
 	return true;
 }
@@ -1837,7 +1993,7 @@ function computeArmedOffset(d) {
 	return result.error ? null : result;
 }
 
-function handleOffsetTool(eventType, x, y, screenPixelSize) {
+function handleOffsetTool(eventType, x, y, screenPixelSize, altKey) {
 	setSnapIndicator(null);
 
 	if (eventType === 'pointermove') {
@@ -1850,20 +2006,24 @@ function handleOffsetTool(eventType, x, y, screenPixelSize) {
 				: null);
 			return;
 		}
-		// Unarmed: ghost the chain under the cursor so the pick target is
-		// visible. The chain walk is cached per hovered entity — recomputing
-		// connectivity on every pointermove is wasted work on big projected
-		// outlines.
+		// Unarmed: ghost the SKETCH chain under the cursor (cached per hovered
+		// entity — recomputing connectivity on every pointermove is wasted
+		// work on big projected outlines)…
 		const hitId = hitTest(x, y, screenPixelSize);
 		setSketchHover(hitId);
 		if (hitId != null) {
 			setHoveredRef(null);
-			if (offsetHoverCache?.seed !== hitId) {
-				const chainIds = findConnectedChain(hitId, getSketchEntities(), getSketchPositions());
+			if (offsetHoverCache?.seed !== hitId || offsetHoverCache?.alt !== !!altKey) {
+				const chainIds = altKey
+					? [hitId]
+					: findConnectedChain(hitId, getSketchEntities(), getSketchPositions());
 				const ordered = orderChain(chainIds, getSketchEntities(), getSketchPositions());
 				const resolved = ordered.error ? null : resolveChainSegments(ordered.items, getSketchEntities(), getSketchPositions());
 				offsetHoverCache = {
 					seed: hitId,
+					alt: !!altKey,
+					size: chainIds.length,
+					closed: !ordered.error && ordered.closed,
 					polylines: resolved && !resolved.error
 						? segmentsToPolylines(resolved.segments, ordered.closed)
 						: null,
@@ -1871,12 +2031,18 @@ function handleOffsetTool(eventType, x, y, screenPixelSize) {
 			}
 			if (offsetHoverCache.polylines) {
 				setPreview({ type: 'offset-preview', data: { polylines: offsetHoverCache.polylines } });
+				const altHint = !altKey && offsetHoverCache.size > 1 ? ' · Alt-click: this entity only' : '';
+				setToolHint(`Offset: click to pick this ${offsetHoverCache.closed ? 'closed loop' : 'chain'} (${offsetHoverCache.size} entities)${altHint}`);
 				return;
 			}
 		} else {
 			offsetHoverCache = null;
+			// …or the BODY chain/face boundary (projects on click, then offsets).
+			const target = bodyChainTarget(altKey);
+			if (showBodyTargetPreview(target, 'Offset: click to project + offset this')) return;
 		}
 		setPreview(null);
+		setToolHint(null);
 		return;
 	}
 
@@ -1885,21 +2051,24 @@ function handleOffsetTool(eventType, x, y, screenPixelSize) {
 	if (!offsetArmed) {
 		const hitId = hitTest(x, y, screenPixelSize);
 		if (hitId != null) {
-			armOffset(findConnectedChain(hitId, getSketchEntities(), getSketchPositions()));
+			armOffset(altKey
+				? [hitId]
+				: findConnectedChain(hitId, getSketchEntities(), getSketchPositions()));
 			return;
 		}
-		// No sketch entity — a hovered model edge/face projects first, then the
-		// projected chain arms the offset (branch 6: project-with-offset).
-		const ref = getHoveredRef();
-		if (ref && (ref.kind?.type === 'Edge' || ref.kind?.type === 'Face')) {
-			const before = new Set(getSketchEntities().map((e) => e.id));
-			projectRef(ref);
-			const created = getSketchEntities().filter((e) => !before.has(e.id) && entityChainable(e));
+		// No sketch entity — a hovered body EDGE chain projects first, then
+		// the projected chain arms the offset (project-with-offset). Faces
+		// arm via CadModel.handleClick → handleBodyFaceClick (the face ref
+		// only resolves reliably there).
+		const target = bodyChainTarget(altKey);
+		if (target && target.kind === 'edge') {
+			const created = projectBodyTarget(target);
 			if (created.length) {
 				armOffset(findConnectedChain(created[0].id, getSketchEntities(), getSketchPositions()));
 			} else {
-				showToast('info', 'Nothing offsettable was projected from that geometry');
+				showToast('info', 'Nothing offsettable was projected from that edge');
 			}
+			bodyHoverCache = null;
 		}
 		return;
 	}
@@ -1953,8 +2122,10 @@ function commitOffset(d) {
 	const n = result.segments.length;
 	log('sketch', 'Offset committed', { d, segments: n });
 	setPreview(null);
+	setToolHint(null);
 	offsetArmed = null;
 	offsetHoverCache = null;
+	bodyHoverCache = null;
 }
 
 /**

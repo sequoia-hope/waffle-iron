@@ -30,6 +30,7 @@
 		getFreshHoveredRef
 	} from '$lib/engine/store.svelte.js';
 	import { SIDE_FACE_GROUP_THRESHOLD } from '$lib/config.js';
+	import { handleBodyFaceClick } from '$lib/sketch/tools.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
 	import { getTheme } from '$lib/ui/theme.svelte.js';
 
@@ -518,6 +519,14 @@
 		// Canonicalize SideFace refs when grouping
 		if (shouldGroupSideFaces(mesh.faceRanges)) {
 			ref = canonicalizeSideFaceRef(ref, mesh.faceRanges);
+		}
+
+		// Tool-first Project/Offset on faces: the face ref only resolves
+		// reliably HERE (Threlte raycast at click time — the tools'
+		// window-pointerdown handlers see a stale/absent face hover), so the
+		// sketch tools delegate face clicks to this path. Consumes the click.
+		if (getSketchMode()?.active && handleBodyFaceClick(ref)) {
+			return;
 		}
 
 		// Check if this is a "same position" click for Select Other cycling

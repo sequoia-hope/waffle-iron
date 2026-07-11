@@ -1,6 +1,7 @@
 <script>
 	import {
 		getStatusMessage,
+		getToolHint,
 		isEngineReady,
 		isRebuilding,
 		getLastError,
@@ -74,7 +75,7 @@
 
 <div class="statusbar" class:error={!!error} data-testid="statusbar">
 	<div class="status-left">
-		<span class="status-text" data-testid="status-message">{getStatusMessage()}</span>
+		<span class="status-text" data-testid="status-message">{getToolHint() ?? getStatusMessage()}</span>
 		{#if modeText}
 			<span class="status-sep">│</span>
 			<span class="status-mode">{modeText}</span>

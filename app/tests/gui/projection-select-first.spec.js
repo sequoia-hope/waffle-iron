@@ -339,6 +339,10 @@ test.describe('Cycle 2 — select-first projection (real pointer)', () => {
 	});
 
 	// ---- O6: tool-first edge projection in the straight-on view (F2 fix).
+	// Since task #140, a plain click projects the CONNECTED coplanar edge
+	// chain (here the front face's closed 4-edge rim); Alt-click keeps the
+	// single-edge behavior. The F2 oracle is unchanged: the edge is hoverable
+	// straight-on and the click acts on it.
 	test('O6: project-tool edge hover+click works straight-on (F2)', async ({ waffle }) => {
 		const page = waffle.page;
 		const crashes = collectCrashErrors(page);
@@ -358,14 +362,29 @@ test.describe('Cycle 2 — select-first projection (real pointer)', () => {
 		await page.waitForTimeout(120);
 		expect(refKind(await hoveredRef(page)), 'straight-on edge hover → Edge').toBe('Edge');
 
-		// Click to project the edge → 2 endpoints + 1 line + 2 bindings.
+		// Click projects the closed 4-edge rim → 4 corners + 4 lines + 4 bindings.
 		await page.mouse.click(s.x, s.y);
 		await page.waitForTimeout(250);
 
 		const after = await entities(page);
-		expect(countType(after, 'Point') - countType(before, 'Point'), '+2 projected points').toBe(2);
-		expect(countType(after, 'Line') - countType(before, 'Line'), '+1 projected line').toBe(1);
-		expect((await bindings(page)).length - bBefore, '+2 bindings').toBe(2);
+		expect(countType(after, 'Point') - countType(before, 'Point'), '+4 projected corners').toBe(4);
+		expect(countType(after, 'Line') - countType(before, 'Line'), '+4 projected lines').toBe(4);
+		expect((await bindings(page)).length - bBefore, '+4 bindings').toBe(4);
+
+		// Alt-click on the same edge chain limits to the single hovered edge
+		// (its 2 endpoints dedupe against the already-projected corners is NOT
+		// expected — a fresh single-edge projection makes its own 2 points).
+		await resetHover(page);
+		const s2 = await moveToWorld(page, t.edgeMidWorld);
+		await page.waitForTimeout(120);
+		await page.keyboard.down('Alt');
+		await page.mouse.move(s2.x + 1, s2.y);
+		await page.waitForTimeout(100);
+		await page.mouse.click(s2.x + 1, s2.y);
+		await page.keyboard.up('Alt');
+		await page.waitForTimeout(250);
+		const after2 = await entities(page);
+		expect(countType(after2, 'Line') - countType(after, 'Line'), 'Alt-click: +1 line').toBe(1);
 
 		expectNoAnyCrash(crashes);
 	});

@@ -88,7 +88,7 @@
 				setSketchCursorPos({ x: coords.x, y: coords.y });
 			}
 
-			handleToolEvent(tool, e.type, coords.x, coords.y, screenPixelSize, shiftKey);
+			handleToolEvent(tool, e.type, coords.x, coords.y, screenPixelSize, shiftKey, e.altKey);
 		}
 
 		// All pointer events on window — pointerdown includes a canvas bounds

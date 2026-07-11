@@ -219,6 +219,31 @@ containing a closed line/arc ring stored in CW walk order failed with
   Rust `profile_ring_twin_dedup.rs` (2, red pre-fix); user file verified
   load→edit→finish→extrude green end-to-end.
 
+### M16: Explicit body-geometry chains for Project + Offset ✅ (2026-07-11)
+
+Task #140, spec `specs/sketch_chain_offset.md` cycle 2. User asks: offset on
+projectable geometry, explicit chain selection for both tools, tool-first
+face projection.
+
+- [x] Hovering body geometry with Project/Offset ghosts EXACTLY what a
+      click will act on + a status-bar hint (`setToolHint`, shown over the
+      engine status). Body edges expand to the connected coplanar chain
+      (`bodyChain.js`; plane-parallel gate = board outlines chain, box
+      wireframes don't); faces ghost their boundary
+      (`faceBoundaryPreview`). **Alt-click = single entity/edge.**
+- [x] Offset on body geometry: edge-chain or face click projects
+      (construction, bound corners via `projectEdgeChain` — the corner
+      allocator factored out of projectFace into `projectEdgeRange`) and
+      arms immediately. Root enabler: `isBodyPickingEnabled` excluded the
+      offset tool from body hover entirely.
+- [x] Tool-first FACE clicks: `CadModel.handleClick` (the only reliable
+      face-resolution point) delegates to `handleBodyFaceClick` in tools.js
+      before selection; the tools' pointerdown paths ignore Face refs.
+- [x] altKey plumbed through `handleToolEvent` (SketchInteraction).
+- Tests: `project-offset-body-chain.spec.js` (5); O6 in
+  `projection-select-first.spec.js` updated to the chain-by-default
+  contract (its F2 straight-on-hover oracle unchanged).
+
 ## Implementation Summary
 
 ### New files created

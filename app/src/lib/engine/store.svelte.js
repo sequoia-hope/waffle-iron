@@ -1237,6 +1237,18 @@ export function getStatusMessage() {
 	return statusMessage;
 }
 
+// Transient tool hint: shown in the status bar (over the engine status)
+// while a sketch tool wants to say what the next click will do — e.g. the
+// project/offset chain preview. Cleared on tool reset.
+let toolHint = $state(null);
+export function getToolHint() {
+	return toolHint;
+}
+/** @param {string | null} text */
+export function setToolHint(text) {
+	toolHint = text;
+}
+
 export function getHoveredRef() {
 	return hoveredRef;
 }
@@ -1304,7 +1316,8 @@ export function setHoveredRef(ref) {
  */
 export function isBodyPickingEnabled() {
 	if (!sketchMode?.active) return true;
-	return activeTool === 'select' || activeTool === 'project';
+	// Offset projects-then-offsets body geometry, so it picks bodies too.
+	return activeTool === 'select' || activeTool === 'project' || activeTool === 'offset';
 }
 
 // Invariant I3: deterministic hover/selection priority Vertex ≻ Edge ≻ Face at
@@ -1898,16 +1911,110 @@ export function projectEdge(anchor, p0, p1) {
  */
 export function projectFace(faceGeomRef) {
 	if (!sketchMode.active) return 0;
-	const plane3 = computeFacePlane(faceGeomRef);
-	if (!plane3) return 0;
 	const anchor = faceGeomRef.anchor;
+	const found = faceBoundaryRanges(faceGeomRef);
+	if (!found) return 0;
+
+	const corners = makeCornerAllocator(anchor);
+	let lines = 0;
+	beginSketchAction();
+	for (const { mesh, index } of found) {
+		lines += projectEdgeRange(mesh, mesh.edges.ranges[index], corners);
+	}
+	endSketchAction();
+	if (lines > 0) triggerSolve();
+	return lines;
+}
+
+/**
+ * Project an explicit set of edge ranges from ONE mesh as a connected run:
+ * shared corner vertices are deduped across the ranges so the projected
+ * construction geometry chains (the Project/Offset tools' body-edge-chain
+ * click). Returns the number of construction lines created.
+ * @param {object} mesh - internal mesh object (with .edges)
+ * @param {number[]} rangeIndices - indices into mesh.edges.ranges
+ * @param {object} anchor - source body GeomRef anchor for vertex bindings
+ * @returns {number}
+ */
+export function projectEdgeChain(mesh, rangeIndices, anchor) {
+	if (!sketchMode.active || !mesh?.edges?.ranges) return 0;
+	const corners = makeCornerAllocator(anchor);
+	let lines = 0;
+	beginSketchAction();
+	for (const i of rangeIndices) {
+		const range = mesh.edges.ranges[i];
+		if (range) lines += projectEdgeRange(mesh, range, corners);
+	}
+	endSketchAction();
+	if (lines > 0) triggerSolve();
+	return lines;
+}
+
+/**
+ * The face-boundary edge ranges projectFace would project: every edge (of
+ * any mesh) whose points ALL lie in the face's plane. Null when the face
+ * has no resolvable plane. Shared by projectFace and the hover preview.
+ * @param {object} faceGeomRef
+ * @returns {Array<{ mesh: object, index: number }> | null}
+ */
+function faceBoundaryRanges(faceGeomRef) {
+	const plane3 = computeFacePlane(faceGeomRef);
+	if (!plane3) return null;
 	const meshData = getMeshes();
-	if (!meshData) return 0;
+	if (!meshData) return null;
 
 	const PLANE_TOL = 1e-5; // model units: edge must lie in the face plane
-	/** @type {Map<string, number>} quantized "x,y,z" → projected Point id */
+	const found = [];
+	for (const mesh of meshData) {
+		if (!mesh.edges || !mesh.edges.ranges || !mesh.edges.vertices) continue;
+		const verts = mesh.edges.vertices;
+		mesh.edges.ranges.forEach((range, index) => {
+			const si = range.start_index;
+			const ei = range.end_index;
+			if (ei - si < 2) return;
+			for (let k = si; k < ei; k++) {
+				const dx = verts[k * 3] - plane3.origin[0];
+				const dy = verts[k * 3 + 1] - plane3.origin[1];
+				const dz = verts[k * 3 + 2] - plane3.origin[2];
+				const d = dx * plane3.normal[0] + dy * plane3.normal[1] + dz * plane3.normal[2];
+				if (Math.abs(d) > PLANE_TOL) return;
+			}
+			found.push({ mesh, index });
+		});
+	}
+	return found;
+}
+
+/**
+ * Sketch-2D polylines of the boundary projectFace would create for a face —
+ * the tools' hover ghost, with no entities created. Empty when nothing
+ * would project.
+ * @param {object} faceGeomRef
+ * @returns {Array<Array<[number, number]>>}
+ */
+export function faceBoundaryPreview(faceGeomRef) {
+	if (!sketchMode.active) return [];
+	const found = faceBoundaryRanges(faceGeomRef);
+	if (!found) return [];
+	const polylines = [];
+	for (const { mesh, index } of found) {
+		const verts = mesh.edges.vertices;
+		const r = mesh.edges.ranges[index];
+		const poly = [];
+		for (let k = r.start_index; k < r.end_index; k++) {
+			const p2 = worldToSketch2D(verts[k * 3], verts[k * 3 + 1], verts[k * 3 + 2]);
+			poly.push([p2.u, p2.v]);
+		}
+		if (poly.length >= 2) polylines.push(poly);
+	}
+	return polylines;
+}
+
+/** Corner allocator: quantized world position → ONE bound projected Point. */
+function makeCornerAllocator(anchor) {
+	/** @type {Map<string, number>} */
 	const corners = new Map();
-	const getCorner = (x, y, z) => {
+	return (x, y, z) => {
 		const key = `${quantize6(x)},${quantize6(y)},${quantize6(z)}`;
 		let id = corners.get(key);
 		if (id == null) {
@@ -1919,75 +2026,63 @@ export function projectFace(faceGeomRef) {
 		}
 		return id;
 	};
+}
 
+/**
+ * Project ONE edge range as construction geometry. Endpoints go through the
+ * shared corner allocator (bound, deduped → adjacent ranges chain);
+ * curved-edge interiors become a static polyline (invariant O4 + the
+ * curved-edge snapshot contract in specs/projected_sketch_geometry.md).
+ * Caller wraps in begin/endSketchAction. Returns lines created.
+ */
+function projectEdgeRange(mesh, range, getCorner) {
+	const verts = mesh.edges.vertices;
+	const si = range.start_index;
+	const ei = range.end_index;
+	if (ei - si < 2) return 0;
+
+	const a = getCorner(verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]);
+	const b = getCorner(verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2]);
 	let lines = 0;
-	beginSketchAction();
-	for (const mesh of meshData) {
-		if (!mesh.edges || !mesh.edges.ranges || !mesh.edges.vertices) continue;
-		const verts = mesh.edges.vertices;
-		for (const range of mesh.edges.ranges) {
-			const si = range.start_index;
-			const ei = range.end_index;
-			if (ei - si < 2) continue;
 
-			// Every point of the edge must lie in the face plane.
-			let inPlane = true;
-			for (let k = si; k < ei; k++) {
-				const dx = verts[k * 3] - plane3.origin[0];
-				const dy = verts[k * 3 + 1] - plane3.origin[1];
-				const dz = verts[k * 3 + 2] - plane3.origin[2];
-				const d = dx * plane3.normal[0] + dy * plane3.normal[1] + dz * plane3.normal[2];
-				if (Math.abs(d) > PLANE_TOL) { inPlane = false; break; }
-			}
-			if (!inPlane) continue;
-
-			const a = getCorner(verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]);
-			const b = getCorner(verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2]);
-
-			if (ei - si === 2) {
-				// Straight edge: one bound construction line.
-				if (a !== b) {
-					addLocalEntity({ type: 'Line', id: allocEntityId(), start_id: a, end_id: b, construction: true });
-					lines++;
-				}
-				continue;
-			}
-
-			// Curved in-plane edge (e.g. a rounded board corner): endpoints are
-			// model vertices — bound and deduped through the shared corners map
-			// so the projected boundary stays ONE connected loop (invariant O4,
-			// specs/sketch_chain_offset.md). Interior points are not vertices, so
-			// they become a static construction polyline — the same snapshot
-			// contract as the Project tool's curved-edge path.
-			const CURVE_SIMPLIFY_TOL = 1e-5;
-			const end2 = worldToSketch2D(verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2]);
-			let last2 = worldToSketch2D(verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]);
-			const kept = [];
-			for (let k = si + 1; k < ei - 1; k++) {
-				const p2 = worldToSketch2D(verts[k * 3], verts[k * 3 + 1], verts[k * 3 + 2]);
-				if (Math.hypot(p2.u - last2.u, p2.v - last2.v) < CURVE_SIMPLIFY_TOL) continue;
-				kept.push(p2);
-				last2 = p2;
-			}
-			while (kept.length && Math.hypot(kept[kept.length - 1].u - end2.u, kept[kept.length - 1].v - end2.v) < CURVE_SIMPLIFY_TOL) {
-				kept.pop();
-			}
-			let prevId = a;
-			for (const p2 of kept) {
-				const pid = allocEntityId();
-				addLocalEntity({ type: 'Point', id: pid, x: p2.u, y: p2.v, construction: true });
-				addLocalEntity({ type: 'Line', id: allocEntityId(), start_id: prevId, end_id: pid, construction: true });
-				lines++;
-				prevId = pid;
-			}
-			if (prevId !== b) {
-				addLocalEntity({ type: 'Line', id: allocEntityId(), start_id: prevId, end_id: b, construction: true });
-				lines++;
-			}
+	if (ei - si === 2) {
+		// Straight edge: one bound construction line.
+		if (a !== b) {
+			addLocalEntity({ type: 'Line', id: allocEntityId(), start_id: a, end_id: b, construction: true });
+			lines++;
 		}
+		return lines;
 	}
-	endSketchAction();
-	if (lines > 0) triggerSolve();
+
+	// Curved edge (e.g. a rounded board corner): endpoints are model
+	// vertices — bound and deduped through the shared corners map so the
+	// projected boundary stays ONE connected loop. Interior points are not
+	// vertices, so they become a static construction polyline.
+	const CURVE_SIMPLIFY_TOL = 1e-5;
+	const end2 = worldToSketch2D(verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2]);
+	let last2 = worldToSketch2D(verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]);
+	const kept = [];
+	for (let k = si + 1; k < ei - 1; k++) {
+		const p2 = worldToSketch2D(verts[k * 3], verts[k * 3 + 1], verts[k * 3 + 2]);
+		if (Math.hypot(p2.u - last2.u, p2.v - last2.v) < CURVE_SIMPLIFY_TOL) continue;
+		kept.push(p2);
+		last2 = p2;
+	}
+	while (kept.length && Math.hypot(kept[kept.length - 1].u - end2.u, kept[kept.length - 1].v - end2.v) < CURVE_SIMPLIFY_TOL) {
+		kept.pop();
+	}
+	let prevId = a;
+	for (const p2 of kept) {
+		const pid = allocEntityId();
+		addLocalEntity({ type: 'Point', id: pid, x: p2.u, y: p2.v, construction: true });
+		addLocalEntity({ type: 'Line', id: allocEntityId(), start_id: prevId, end_id: pid, construction: true });
+		lines++;
+		prevId = pid;
+	}
+	if (prevId !== b) {
+		addLocalEntity({ type: 'Line', id: allocEntityId(), start_id: prevId, end_id: b, construction: true });
+		lines++;
+	}
 	return lines;
 }
 

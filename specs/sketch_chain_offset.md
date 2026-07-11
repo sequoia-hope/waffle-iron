@@ -134,3 +134,46 @@ sense), `{type:'circle', center, r}`.
    (branch 6).
 5. `projectFace` curved-edge polylines (O4).
 6. GUI specs `sketch-chain-select.spec.js`, `sketch-offset.spec.js`.
+
+# Cycle 2 (2026-07-11, task #140): explicit body-geometry chains
+
+User asks: offset must apply to any projectable geometry; chain selection
+must be explicit for Project and Offset; Project must work on faces
+tool-first.
+
+## Behavior
+
+- **Chain by default, explicitly previewed.** Hovering body geometry with
+  Project or Offset ghosts EXACTLY what a click will act on and states it in
+  the status bar (`setToolHint`): a body edge expands to its connected
+  coplanar edge chain (`bodyChain.js`: endpoint-welded BFS gated to edges
+  whose points lie within CHAIN_PLANE_TOL of the seed edge's plane parallel
+  to the sketch — a board outline chains, a box wireframe does not); a face
+  ghosts its boundary (`faceBoundaryPreview`). **Alt-click limits an edge
+  pick to the single hovered edge.** Hovering a sketch entity with Offset
+  ghosts the sketch chain as before (Alt: single entity).
+- **Offset on body geometry**: clicking a hovered body edge chain (or face)
+  with Offset projects it (construction, bound corners) and immediately arms
+  the offset on the projected chain. Root enabler: `isBodyPickingEnabled`
+  previously allowed body hover only for select/project in sketch mode — the
+  offset tool never saw a body ref at all.
+- **Tool-first faces**: face refs only resolve reliably in
+  `CadModel.handleClick` (Threlte raycast at click time; the tools'
+  window-pointerdown handlers see a stale/absent face hover). handleClick now
+  delegates to `handleBodyFaceClick(ref)` in tools.js — Project projects the
+  face boundary, Offset projects-and-arms — before any selection happens.
+  The tools' own pointerdown paths deliberately ignore Face refs.
+- **Multi-edge chains project connected**: `projectEdgeChain` (store) shares
+  bound corner points across the ranges (same corner allocator as
+  projectFace, now factored into `projectEdgeRange`). Single edges keep the
+  classic `projectRef` path so bindings stay byte-identical to the
+  select-first Proj button (invariant I4).
+
+## Oracles
+
+- `project-offset-body-chain.spec.js`: edge-chain ghost + hint text, chain
+  click (4 lines, one connected chain), Alt-click single edge, tool-first
+  face projection (click consumed, nothing selected), offset arm on body
+  edge chain + commit (4 lines + 4 arcs real), offset arm on face click.
+- `projection-select-first.spec.js` O6 updated to the chain-by-default
+  contract (F2 straight-on hover oracle unchanged).
