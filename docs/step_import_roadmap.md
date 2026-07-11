@@ -222,3 +222,8 @@ depend on them are `#[ignore]`-tagged with reason `refs-fixture`.
   Rust fast tier green; GUI step-import.spec.js 4/4 (render, body list,
   sketch-plane resolution on all imported planar faces, placement edit);
   WASM bundle 1.51→1.92MB gzipped. NEXT = SI2 mesh-path booleans.
+- 2026-07-11 — **placement modal + ghost preview** (96396bb6, user request):
+  import auto-opens the modal; ghost material while open; debounced live
+  preview via non-closing EditFeature; Cancel discards fresh imports.
+  Also 1af33fdc: stale C0065 smoke pin moved to the KV6d typed-ERROR
+  verdict (pre-existing baseline red, task #136's ship).
