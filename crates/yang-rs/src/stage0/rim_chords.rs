@@ -364,21 +364,34 @@ pub(crate) fn resolve_rim_chord_vertex(
 /// does not have exactly two full-circle rims).
 pub(crate) type LateralForCap = (usize, u32, [f64; 3], [f64; 3], f64);
 
-pub(crate) fn lateral_for_cap(brep: &BRep, cap_edge: u32) -> Result<LateralForCap, &'static str> {
-    for (fi, f) in brep.faces().iter().enumerate() {
-        let Surface::Cylinder {
-            axis_point,
-            axis_dir,
-            radius,
-        } = f.surface
-        else {
-            continue;
-        };
-        if !f.outer_loop.contains(&cap_edge) {
-            continue;
-        }
-        // Full-circle rims of this lateral.
-        let rims: Vec<u32> = f
+/// Classified lateral incident to a cap's full-circle rim edge — how a rim
+/// crossing propagates to the OPPOSITE rim (task #131, spec
+/// `m8_torus_profile_rim_crossing` §2).
+pub(crate) enum CapLateral {
+    /// Cylinder lateral (2 full-circle rims): exact AXIAL projection.
+    Cylinder(LateralForCap),
+    /// Torus lateral (2 minor-radius full-circle PROFILE rims — a
+    /// revolved-circle body's seam discs): exact POLOIDAL-angle projection
+    /// onto the opposite profile circle.
+    Torus {
+        /// The opposite profile rim edge.
+        opp_edge: u32,
+        /// Torus center (on the axis) and unit axis direction.
+        center: [f64; 3],
+        axis_dir: [f64; 3],
+        /// Major radius (the poloidal angle is atan2(τ, ρ − major)).
+        major: f64,
+    },
+}
+
+pub(crate) fn lateral_for_cap(brep: &BRep, cap_edge: u32) -> Result<CapLateral, &'static str> {
+    // Full-circle rims of a lateral's outer loop, deduped (the loop lists
+    // the seam twice but each rim once). For a torus lateral, restrict to
+    // PROFILE circles (radius ≈ minor) — the loop also carries seam arcs on
+    // the outer-equator circle (radius ≈ major + minor), which are open
+    // arcs (start != end) and thus already excluded.
+    let full_circle_rims = |f: &crate::BRepFace| -> Vec<u32> {
+        let mut rims: Vec<u32> = f
             .outer_loop
             .iter()
             .copied()
@@ -387,23 +400,71 @@ pub(crate) fn lateral_for_cap(brep: &BRep, cap_edge: u32) -> Result<LateralForCa
                 matches!(ed.curve, Curve::Circle { .. }) && ed.start == ed.end
             })
             .collect();
-        // Dedup (the lateral loop lists the seam twice but each rim once).
-        let mut uniq = rims.clone();
-        uniq.sort_unstable();
-        uniq.dedup();
-        if uniq.len() != 2 {
-            return Err("rim-lateral-not-2rim");
+        rims.sort_unstable();
+        rims.dedup();
+        rims
+    };
+    for (fi, f) in brep.faces().iter().enumerate() {
+        match f.surface {
+            Surface::Cylinder {
+                axis_point,
+                axis_dir,
+                radius,
+            } => {
+                if !f.outer_loop.contains(&cap_edge) {
+                    continue;
+                }
+                let uniq = full_circle_rims(f);
+                if uniq.len() != 2 {
+                    return Err("rim-lateral-not-2rim");
+                }
+                let Some(&opposite) = uniq.iter().find(|&&e| e != cap_edge) else {
+                    return Err("rim-lateral-no-opposite");
+                };
+                return Ok(CapLateral::Cylinder((
+                    fi,
+                    opposite,
+                    axis_point.as_array(),
+                    normalize3(axis_dir.as_array()),
+                    radius,
+                )));
+            }
+            Surface::Torus {
+                center,
+                axis_dir,
+                major_radius,
+                minor_radius,
+            } => {
+                if !f.outer_loop.contains(&cap_edge) {
+                    continue;
+                }
+                // Profile rims: closed circles of radius ≈ minor.
+                let band = 1e-9 * (1.0 + major_radius + minor_radius);
+                let profiles: Vec<u32> = full_circle_rims(f)
+                    .into_iter()
+                    .filter(|&e| {
+                        matches!(brep.edges()[e as usize].curve,
+                            Curve::Circle { radius, .. } if (radius - minor_radius).abs() <= band)
+                    })
+                    .collect();
+                if profiles.len() != 2 || !profiles.contains(&cap_edge) {
+                    return Err("rim-lateral-torus-not-2profile");
+                }
+                let Some(&opposite) = profiles.iter().find(|&&e| e != cap_edge) else {
+                    return Err("rim-lateral-no-opposite");
+                };
+                if !matches!(brep.edges()[opposite as usize].curve, Curve::Circle { .. }) {
+                    return Err("rim-lateral-no-opposite");
+                }
+                return Ok(CapLateral::Torus {
+                    opp_edge: opposite,
+                    center: center.as_array(),
+                    axis_dir: normalize3(axis_dir.as_array()),
+                    major: major_radius,
+                });
+            }
+            _ => continue,
         }
-        let Some(&opposite) = uniq.iter().find(|&&e| e != cap_edge) else {
-            return Err("rim-lateral-no-opposite");
-        };
-        return Ok((
-            fi,
-            opposite,
-            axis_point.as_array(),
-            normalize3(axis_dir.as_array()),
-            radius,
-        ));
     }
     if std::env::var_os("YANG_RIMLAT_PROBE").is_some() {
         for (fi, f) in brep.faces().iter().enumerate() {
@@ -475,8 +536,19 @@ pub(crate) fn collect_ring_crossings(
     rim_overrides: &mut RimSplitMap,
 ) -> Result<(), &'static str> {
     // The cap circle's own geometry is not needed (crossing points come from
-    // the resolved `coords`); only the OPPOSITE rim + the cylinder axis are.
-    let (_lat_fi, opp_edge, axis_point, axis_dir, _r) = lateral_for_cap(brep, cap_edge)?;
+    // the resolved `coords`); only the OPPOSITE rim + the lateral's frame are.
+    let lateral = lateral_for_cap(brep, cap_edge)?;
+    let (opp_edge, axis_point, axis_dir) = match &lateral {
+        CapLateral::Cylinder((_, opp_edge, axis_point, axis_dir, _)) => {
+            (*opp_edge, *axis_point, *axis_dir)
+        }
+        CapLateral::Torus {
+            opp_edge,
+            center,
+            axis_dir,
+            ..
+        } => (*opp_edge, *center, *axis_dir),
+    };
     let Curve::Circle {
         center: opp_center,
         normal: opp_normal,
@@ -560,16 +632,20 @@ pub(crate) fn collect_ring_crossings(
         }
     }
 
-    // Place each cap crossing onto the OPPOSITE rim by EXACT AXIAL PROJECTION:
-    // strip the point's axial component and re-attach the radial offset at the
-    // opposite rim's plane/radius. This is a direct 1:1 map (NO azimuth grid
-    // search) — so it preserves the cap set's cardinality EXACTLY, including
-    // femto-close split pairs, giving the two rims of the shared lateral matched
-    // sample counts (the azimuth-merge conformality requirement). The old
-    // 720-step f64 grid search collapsed femto-close azimuths to a single theta,
-    // desynchronising the rims (18 cap → 12 opp — the M8 holed-disc `24 vs 30`
-    // azimuth-merge wall). Radial magnitude is renormalised to `opp_radius`, so
-    // this is exact for equal AND unequal cap/opposite radii.
+    // Place each cap crossing onto the OPPOSITE rim by an exact 1:1 map (NO
+    // azimuth grid search) — preserving the cap set's cardinality EXACTLY,
+    // including femto-close split pairs, so the two rims of the shared
+    // lateral keep matched sample counts (the azimuth-merge conformality
+    // requirement; the old 720-step f64 grid search collapsed femto-close
+    // azimuths — the M8 holed-disc `24 vs 30` wall).
+    // - CYLINDER: AXIAL projection — strip the axial component, re-attach
+    //   the radial offset at the opposite rim's plane/radius (renormalised
+    //   to `opp_radius`, exact for equal AND unequal radii).
+    // - TORUS (task #131): POLOIDAL projection — the crossing's intrinsic
+    //   poloidal angle φ = atan2(τ, ρ − R) (the `tessellate_torus_face`
+    //   `phi_slot` convention) evaluated on the OPPOSITE profile circle:
+    //   c₁ + r₁(cos φ · û + sin φ · â), û = the outward radial unit at the
+    //   opposite meridian.
     let oc = opp_center.as_array();
     let _ = opp_normal; // opposite plane is fixed by `oc`; normal no longer used
     let opp_entry = rim_overrides.entry(opp_edge).or_default();
@@ -592,12 +668,47 @@ pub(crate) fn collect_ring_crossings(
             // is degenerate — skip rather than mint a NaN (P9: no silent bad pt).
             continue;
         }
-        let scale = opp_radius / rlen;
-        let opp_pt = Point3::new(
-            oc[0] + radial[0] * scale,
-            oc[1] + radial[1] * scale,
-            oc[2] + radial[2] * scale,
-        );
+        let opp_pt = match &lateral {
+            CapLateral::Cylinder(_) => {
+                let scale = opp_radius / rlen;
+                Point3::new(
+                    oc[0] + radial[0] * scale,
+                    oc[1] + radial[1] * scale,
+                    oc[2] + radial[2] * scale,
+                )
+            }
+            CapLateral::Torus { center, major, .. } => {
+                // φ from the crossing point (axis frame at the torus center).
+                let wc = [p[0] - center[0], p[1] - center[1], p[2] - center[2]];
+                let tau = wc[0] * axis_dir[0] + wc[1] * axis_dir[1] + wc[2] * axis_dir[2];
+                let rad = [
+                    wc[0] - tau * axis_dir[0],
+                    wc[1] - tau * axis_dir[1],
+                    wc[2] - tau * axis_dir[2],
+                ];
+                let rho = (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
+                let phi = tau.atan2(rho - major);
+                // Outward radial unit at the OPPOSITE meridian.
+                let co = [oc[0] - center[0], oc[1] - center[1], oc[2] - center[2]];
+                let co_ax = co[0] * axis_dir[0] + co[1] * axis_dir[1] + co[2] * axis_dir[2];
+                let u = [
+                    co[0] - co_ax * axis_dir[0],
+                    co[1] - co_ax * axis_dir[1],
+                    co[2] - co_ax * axis_dir[2],
+                ];
+                let ulen = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt();
+                if ulen < cad_primitives::TAU_WORK {
+                    return Err("rim-lateral-torus-degenerate-meridian");
+                }
+                let (sp, cp) = phi.sin_cos();
+                let s = opp_radius * cp / ulen;
+                Point3::new(
+                    oc[0] + u[0] * s + opp_radius * sp * axis_dir[0],
+                    oc[1] + u[1] * s + opp_radius * sp * axis_dir[1],
+                    oc[2] + u[2] * s + opp_radius * sp * axis_dir[2],
+                )
+            }
+        };
         if !opp_entry.contains(&opp_pt) {
             opp_entry.push(opp_pt);
         }

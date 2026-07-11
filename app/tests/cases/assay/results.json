@@ -1,8 +1,8 @@
 {
-  "errored": 46,
+  "errored": 49,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 235,
+  "passed": 236,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -149,10 +149,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 1760 is invalid: LocalRefinementRequired\")",
       "id": "R0025",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "ERROR",
@@ -275,10 +275,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: 81386d33-9388-425f-b09f-5dc1c63a818b: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0046",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -299,10 +299,10 @@
       "status": "error"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "2 NotSupported boundary(ies); first: 7dd12f24-2b78-4a8a-a386-70c24e43a7f8: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 7dd12f24-2b78-4a8a-a386-70c24e43a7f8: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 58 is invalid: LocalRefinementRequired\")",
       "id": "R0050",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "ERROR",
@@ -509,10 +509,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: Revolve 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 1: CDT triangulation failed: CDT backend failed to triangulate\"). Body created as standalone.",
       "id": "R0085",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",

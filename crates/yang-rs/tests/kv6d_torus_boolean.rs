@@ -161,6 +161,20 @@ fn assert_watertight(mesh: &yang_rs::Mesh, what: &str) {
     }
 }
 
+fn signed_volume(mesh: &yang_rs::Mesh) -> f64 {
+    mesh.tris
+        .iter()
+        .map(|t| {
+            let a = mesh.verts[t[0] as usize];
+            let b = mesh.verts[t[1] as usize];
+            let c = mesh.verts[t[2] as usize];
+            (a.x() * (b.y() * c.z() - b.z() * c.y()) - a.y() * (b.x() * c.z() - b.z() * c.x())
+                + a.z() * (b.x() * c.y() - b.y() * c.x()))
+                / 6.0
+        })
+        .sum()
+}
+
 fn has_torus_face(b: &BRep) -> bool {
     b.faces()
         .iter()
@@ -195,4 +209,48 @@ fn torus_minus_box_traverses_pipeline_and_reassembles_torus_face() {
         has_torus_face(&uni),
         "the torus lateral must survive the union as a Surface::Torus face"
     );
+}
+
+// M8 torus-profile rim crossing (task #131, spec
+// `specs/m8_torus_profile_rim_crossing.md`): the bent tube's θ=0 seam disc
+// is flush (same-normal) with a box face whose rectangle CROSSES the
+// profile rim. Stage-0 must propagate the rim crossings into the torus
+// lateral's profile rings (poloidal opposite-rim projection) — was the
+// loud `rim-lateral-none` wall. The contained variant below pins the
+// already-green baseline.
+#[test]
+fn flush_box_crossing_seam_disc_union() {
+    let torus = partial_torus_brep();
+    let bx = box_brep([2.5, 0.0, -0.4], [2.0, 2.0, 1.0]);
+    let nb = yang_rs::native_backend().expect("native backend");
+    let out = yang_rs::boolean(&torus, &bx, cad_primitives::BoolOp::Union, &nb)
+        .expect("flush crossing union must be handled (task #131)");
+    let mesh = out.as_mesh();
+    assert_watertight(mesh, "flush crossing union");
+    assert!(
+        has_torus_face(&out),
+        "the torus lateral must survive the union"
+    );
+    let vol = signed_volume(mesh);
+    // 90° tube volume (Pappus): π r² R · π/2 = 3π²/2 ≈ 14.804; box = 4.
+    let vt = 3.0 * std::f64::consts::PI * std::f64::consts::PI / 2.0;
+    assert!(
+        vol > vt && vol < vt + 4.0,
+        "union volume {vol} must sit strictly between the tube ({vt}) and tube+box"
+    );
+}
+
+/// Contained-variant canary: the flush box footprint strictly INSIDE the
+/// seam disc (no rim crossing) was already green before task #131 — the
+/// disc-pair containment path plus the KV6d downstream. Pins the baseline
+/// the crossing slice builds on.
+#[test]
+fn flush_box_contained_in_seam_disc_union() {
+    let torus = partial_torus_brep();
+    let bx = box_brep([2.5, 0.0, -0.4], [0.9, 2.0, 0.9]);
+    let nb = yang_rs::native_backend().expect("native backend");
+    let out = yang_rs::boolean(&torus, &bx, cad_primitives::BoolOp::Union, &nb)
+        .expect("contained flush union (pre-#131 baseline)");
+    assert_watertight(out.as_mesh(), "contained flush union");
+    assert!(has_torus_face(&out), "torus face survives");
 }

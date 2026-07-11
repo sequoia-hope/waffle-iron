@@ -3145,29 +3145,106 @@ pub(crate) fn tessellate_torus_face(
         )));
     }
 
-    // Intrinsic profile angle φ of a mesh vertex → its φ grid slot.
-    let phi_slot = |out_verts: &[Point3], vi: u32| -> usize {
+    // Intrinsic profile angle φ of a mesh vertex (the shared poloidal
+    // convention — also `collect_ring_crossings`' torus projection).
+    let phi_of = |out_verts: &[Point3], vi: u32| -> f64 {
         let p = out_verts[vi as usize].as_array();
         let d = [p[0] - cen[0], p[1] - cen[1], p[2] - cen[2]];
         let tau = dot(d, ax);
         let radial = [d[0] - tau * ax[0], d[1] - tau * ax[1], d[2] - tau * ax[2]];
         let rho = dot(radial, radial).sqrt();
-        let phi = tau.atan2(rho - major).rem_euclid(2.0 * PI);
+        tau.atan2(rho - major)
+    };
+    // Historical UNIFORM path first, byte-identical (spec
+    // `m8_torus_profile_rim_crossing` B5): both rings slot-align on uniform
+    // 2π/n_phi rounding ⇒ the pre-#131 grid, bit-for-bit. Only when a ring
+    // carries NON-uniform samples (a Stage-0 rim-crossing override) does
+    // the φ-value column path below take over (B6).
+    let phi_slot = |out_verts: &[Point3], vi: u32| -> usize {
+        let phi = phi_of(out_verts, vi).rem_euclid(2.0 * PI);
         ((phi / (2.0 * PI / n_phi as f64)).round() as usize) % n_phi
     };
-    let mut row0 = vec![u32::MAX; n_phi];
-    for &v in ring0 {
-        row0[phi_slot(out_verts, v)] = v;
-    }
-    let mut rowa = vec![u32::MAX; n_phi];
-    for &v in ringa {
-        rowa[phi_slot(out_verts, v)] = v;
-    }
-    if row0.contains(&u32::MAX) || rowa.contains(&u32::MAX) {
-        return Err(malformed(format!(
-            "face {f_idx}: torus profile ring φ sampling is not slot-aligned"
-        )));
-    }
+    let uniform_rows: Option<(Vec<u32>, Vec<u32>)> = {
+        let assign = |ring: &[u32]| -> Option<Vec<u32>> {
+            let mut row = vec![u32::MAX; n_phi];
+            for &v in ring {
+                let s = phi_slot(out_verts, v);
+                if row[s] != u32::MAX {
+                    return None; // slot collision — non-uniform sampling
+                }
+                row[s] = v;
+            }
+            (!row.contains(&u32::MAX)).then_some(row)
+        };
+        match (assign(ring0), assign(ringa)) {
+            (Some(r0), Some(ra)) => Some((r0, ra)),
+            _ => None,
+        }
+    };
+    let (row0, rowa, interior_phi): (Vec<u32>, Vec<u32>, Vec<f64>) =
+        if let Some((row0, rowa)) = uniform_rows {
+            // Historical interior column angles (bit-identical to pre-#131).
+            let phis = (0..n_phi)
+                .map(|j| 2.0 * PI * (j as f64) / (n_phi as f64))
+                .collect();
+            (row0, rowa, phis)
+        } else {
+            // Task #131 (spec `m8_torus_profile_rim_crossing` §1.3): the grid
+            // columns are ring0's ACTUAL intrinsic φ values, anchored at the
+            // seam (ring0[0] — the seam-arc endpoint on the outer equator,
+            // offset 0 by construction) — a Stage-0 rim-crossing override
+            // inserts non-uniform profile samples the uniform slots cannot
+            // represent.
+            let base = phi_of(out_verts, ring0[0]);
+            let offset_of =
+                |out_verts: &[Point3], vi: u32| (phi_of(out_verts, vi) - base).rem_euclid(2.0 * PI);
+            let mut cols: Vec<(f64, u32)> = ring0
+                .iter()
+                .map(|&v| (offset_of(out_verts, v), v))
+                .collect();
+            cols.sort_by(|a, b| a.0.total_cmp(&b.0));
+            if cols[0].1 != ring0[0] || cols[0].0 != 0.0 {
+                return Err(malformed(format!(
+                    "face {f_idx}: torus profile ring seam anchor is not at φ-offset 0"
+                )));
+            }
+            let col_angles: Vec<f64> = cols.iter().map(|&(o, _)| o).collect();
+            let row0: Vec<u32> = cols.iter().map(|&(_, v)| v).collect();
+            // Match the θ=α ring to the columns INDEX-WISE on the sorted
+            // offsets: both rings are seam-anchored (`ring[0]` is the seam-arc
+            // endpoint — force ITS offset to exactly 0, since its own atan2
+            // can compute 2π−ε across the wrap) and carry one sample per
+            // column (the paired Stage-0 insertion), so the sorted sequences
+            // correspond 1:1. A fixed ULP band guards each pair — NOT a
+            // min-gap-derived tolerance, which a femto-close crossing twin
+            // pair would collapse below legitimate cross-ring rounding
+            // (R0050: Δφ ≈ 9e-16 vs a 4e-16 twin gap).
+            let band = 1e-9 * (1.0 + 2.0 * PI);
+            let mut a_off: Vec<(f64, u32)> = ringa
+                .iter()
+                .enumerate()
+                .map(|(k, &v)| {
+                    let o = if k == 0 { 0.0 } else { offset_of(out_verts, v) };
+                    (o, v)
+                })
+                .collect();
+            a_off.sort_by(|x, y| x.0.total_cmp(&y.0));
+            let mut rowa: Vec<u32> = Vec::with_capacity(n_phi);
+            for (j, &(o, v)) in a_off.iter().enumerate() {
+                let d0 = (o - col_angles[j]).abs();
+                let d = d0.min(2.0 * PI - d0);
+                if d > band {
+                    return Err(malformed(format!(
+                        "face {f_idx}: torus profile rings are not φ-aligned \
+                     (vertex offset {o} vs column {} beyond band {band})",
+                        col_angles[j]
+                    )));
+                }
+                rowa.push(v);
+            }
+            let phis = col_angles.iter().map(|&o| base + o).collect();
+            (row0, rowa, phis)
+        };
 
     // Build the full (n_theta+1) × n_phi grid of vertex indices.
     let mut grid: Vec<Vec<u32>> = Vec::with_capacity(n_theta + 1);
@@ -3186,7 +3263,7 @@ pub(crate) fn tessellate_torus_face(
             let mut row = vec![0u32; n_phi];
             row[0] = s; // φ=0 column reuses the seam chain
             for (j, slot) in row.iter_mut().enumerate().skip(1) {
-                let phi = 2.0 * PI * (j as f64) / (n_phi as f64);
+                let phi = interior_phi[j];
                 let rad = major + minor * phi.cos();
                 let sp = minor * phi.sin();
                 let pt = [
