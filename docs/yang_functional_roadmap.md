@@ -2627,6 +2627,25 @@ swapped every consumer to `predicates::indirect`).
     x=−end) dies earlier at the pre-existing chiral `edge-not-2-directed`
     output wall — the user's irregular coordinates do not; C0101 pins the
     user's actual boundary.
+  - **M8 residue census 2026-07-11 (task #130): the 7-case
+    UNSUPPORTED(coplanar) tail = 4 named mechanisms** (probe re-run,
+    `YANG_COPLANAR_PROBE` per case): (1) R0007+R0071
+    `overlay-failed DegenerateLoop("zero-length edge")` — the KV15b
+    profile-congenital micro-twin class (floor welds ruled out; needs a
+    scale/floor POLICY decision, not a local fix); (2) F0067+C0048
+    `overlay-failed RoundingCollapse` — the femto-slab class whose local
+    emission surgery is P10-REFUTED (`m8_overlay_femto_slab_emission` §8;
+    needs per-region re-emission / constrained snap-rounding grade);
+    (3) R0025+R0050 `rim-lateral-none` — their coplanar disc caps' rims
+    are TORUS profile circles (revolved-circle profiles;
+    `YANG_RIMLAT_PROBE` shows the incident lateral is `Surface::Torus` in
+    both), and `lateral_for_cap` is cylinder-only → **task #131** (torus
+    admission + poloidal opposite-rim projection + profile-chain grid
+    conformality in `tessellate_torus_face`/`_band`; downstream is
+    KV6d-torus-gated, expect a deeper typed wall); (4) R0046
+    `nary-face-unsupported` — a disc/mixed face inside a multi-pair plane
+    group (slice f's pure-polygon scope gate) → **task #132** (slice g:
+    n-ary admission for disc/annular/mixed faces).
   - **KV4-F1 ✅ RESOLVED (PR-KV4-F1, 2026-06-12): the rational-ray
     fallback** — `rational_ray_inner_label` in cherchi-rs
     `labeling/inside_out.rs` implements the branch the C++ reference
