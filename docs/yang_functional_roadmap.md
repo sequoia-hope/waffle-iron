@@ -2766,6 +2766,39 @@ swapped every consumer to `predicates::indirect`).
     merge-mirroring, exact-order-consistent, cross-cap bit-absorbing) — five
     constraints banked in the spec. Probes + unit pins banked; the
     azimuth-merge count wall stays the honest LOUD verdict.
+  - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
+    post-#143), with two fresh class diagnoses:**
+    (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —
+    `TessellationFailed("ring rejected by CDT")` on a SUCCESSFUL solid;
+    R0072's FaceId(11) ring (probe `KV2_RING_REJECT_PROBE`) is a 167-vertex
+    micro-scale loop with overlapping collinear SPURS along a mid-line (the
+    ring doubles back on itself) — the known F0045 near-coincident-junction
+    family (N2/LRR-adjacent).
+    (2) **3× Newell-normal disagreement** (F0064 ×2 ops, R0051; F0067 ×2
+    ops on top of its #144 wall) — `KV11_PROBE` on F0064 shows the output
+    "planar" faces carry loop vertices OFF-PLANE at REAL scale (1.7e-3 and
+    4.5e-3, alternating between two nearby parallel planes 4.5e-3 apart) —
+    an output loop-assembly / junction-relocation defect (N2 family), NOT a
+    winding-midpoint issue; the wall is honest.
+    (3) **4× re-entry CDT failure** (R0061 R0095 `holed lateral CDT
+    failed`; R0063 F0085 `CDT triangulation failed`) — a SUCCESSFUL op's
+    output B-Rep fails conversion at the NEXT op. R0061 face 2 (probe
+    `YANG_T133_PROBE`): the unrolled ribbon polygon zigzags — the loop
+    chain ALTERNATES between original edge-polyline samples (globals
+    128/129/130) and chain-inserted override samples (261-264); sorted by
+    unroll-u the point set is cleanly monotone, but the ORIGINAL samples
+    128/129 are geometrically SWAPPED relative to their stored order.
+    Suspects: chained-output edge_polyline sample order (Stage-6 emission)
+    vs the conversion's arc-chain angular re-sort on mixed
+    on-circle/on-chord samples (the F0087/88/90 VertexOffSurface note in
+    `rim_chords.rs`). Next probe: dump the PREVIOUS op's stored
+    edge_polyline for the zigzag edge and compare with the rebuilt chain.
+    (4) Remainder: 3× Stage-3 AmbiguousCurve conic (C0043 R0008 R0026, M5
+    class), Stage-4 LRR/OffCurve (R0044 R0074 R0081 + subtract-chain
+    singletons), 3× non-2-manifold reassembly (C0044 C0058 F0082, §4.3.3
+    tangency family), 2× planar-triangle render collapse (R0012 R0098),
+    C0046 NonManifoldVertex, C0075 edge-not-2-directed, R0091
+    ellipse-endpoint, R0004 revolve-axis, singleton Stage-N walls.
   - **KV4-F1 ✅ RESOLVED (PR-KV4-F1, 2026-06-12): the rational-ray
     fallback** — `rational_ray_inner_label` in cherchi-rs
     `labeling/inside_out.rs` implements the branch the C++ reference
