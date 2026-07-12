@@ -2750,6 +2750,22 @@ swapped every consumer to `predicates::indirect`).
     KV15b incident): a `git checkout <file>` used to revert a mutation
     probe wiped the uncommitted implementation — mutations are now
     applied/reverted via scratchpad `cp` backups only.
+  - **Task #144 P10 REFUTATION (2026-07-12, 6ab839e3, spec
+    `m8_exact_opposite_rim_projection.md`): the "exact opposite-rim
+    projection" follow-up (C0048 66v69 / F0067 572v571) is measured to its
+    root and the planned fix is REFUTED.** Mechanism: same-ray radial twin
+    pairs (a #142 chord-depth fused survivor + its on-circle twin at
+    bit-identical exact azimuth) collapse to ONE image in
+    `collect_ring_crossings`' radial renormalisation; merge counts are
+    SYMMETRIC (`[ring-build]` probe, 3=3) — precision cannot help (the exact
+    on-circle images coincide). The exact-translation arm fixed counts but
+    mirrored chord-deep samples off-surface onto rims with no own crossings
+    (unrelocated scaffolding) — caught by `n2_rim_mint_adversary`
+    (SILENT-WRONG), reverted per P10. The real fix is snap-rounding grade
+    (deterministic tangential separation, on-circle within the stage1 band,
+    merge-mirroring, exact-order-consistent, cross-cap bit-absorbing) — five
+    constraints banked in the spec. Probes + unit pins banked; the
+    azimuth-merge count wall stays the honest LOUD verdict.
   - **KV4-F1 ✅ RESOLVED (PR-KV4-F1, 2026-06-12): the rational-ray
     fallback** — `rational_ray_inner_label` in cherchi-rs
     `labeling/inside_out.rs` implements the branch the C++ reference
