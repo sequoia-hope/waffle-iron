@@ -1,318 +1,341 @@
 # SSI Solver Matrix
 
-Authoritative enumeration of all 15 quadric surface–surface intersection (SSI)
-pairs, their sub-cases, implementation status, and acceptance criteria.
+Authoritative enumeration of the analytical surface–surface intersection (SSI)
+solvers in **`crates/ssi-rs`**, their sub-cases, implementation status, and
+acceptance criteria. Consumed by `yang-rs` Stage 3 (refinement of
+mesh-approximate intersection curves to surface-exact analytic curves).
 
-This is a **living document**. Update it as solvers are implemented.
+> **Rewritten 2026-07-12** to describe the live `crates/ssi-rs` crate at current
+> HEAD. **Supersedes the pre-Phase-6 legacy matrix**, which described the deleted
+> `crates/kernel/src/ssi/` solvers (the `Degree4*` parametric-curve variants,
+> `plane_torus_ssi`, `torus_torus_ssi`, etc. — all gone with the Phase-6 kernel
+> deletion, 2026-06-11). Every file:line anchor below points at
+> `crates/ssi-rs/src/lib.rs`.
+
+This is a **living document**. Update it as solvers land.
 
 ## Goal
 
-Define exactly what "done" means for each SSI pair and track progress toward
-full analytical coverage per A15.1 (exact SSI for analytical surface pairs).
+Define exactly what "done" means for each SSI pair and track progress toward full
+analytical coverage per A15.1 (exact SSI for analytical surface pairs). The
+governance A15.4 status table links here for the detailed sub-case breakdown.
 
-## References
+## What the crate covers
 
-- [#1] Patrikalakis et al. Ch.5 — exact SSI algorithms for all quadric pairs
-- [#25] Yang et al. (2023) — topology-guaranteed SSI via Dixon resultant
-- [#27] Li et al. (2026) — hybrid SSI architecture survey
+`ssi-rs` operates on the natural-quadric surfaces in
+`QuadricSurface` (`lib.rs:97`):
 
-## Sub-case dimensions
+```
+QuadricSurface = { Plane, Sphere, Cylinder, Cone }
+```
 
-For each of the 15 pairs, sub-cases arise from:
+**Torus is deliberately NOT a `QuadricSurface`** — a torus is a degree-4 surface,
+not a quadric, and its doc note (`lib.rs:95-96`) records that it "arrives with
+its solver." That means the crate implements **10 unique pairs** (the 6
+off-diagonal + 4 same-type pairs among 4 surfaces), not the legacy matrix's 15.
+The 5 torus-bearing pairs are handled one tier up (see
+[§ Torus routing](#torus-not-in-quadricsurface)).
 
-- **Orientation**: parallel, perpendicular, oblique, general
-- **Position**: coaxial, offset, tangent, disjoint, enclosed
-- **Size**: equal radii/angles, unequal
+Intersection curves are returned as `SsiCurve` (`lib.rs:135`), an exact analytic
+representation — **never a polyline or sampled point set**:
+
+```
+SsiCurve = { Line, Circle, Ellipse, Parabola, Hyperbola, SurfacePair }
+```
+
+`SurfacePair { a, b }` (`lib.rs:214`) is the M5 procedural degree-4 curve: the
+general-position quadric-pair intersection that has no conic closed form is
+represented **implicitly and exactly by its two defining surfaces** (P8 degree-4
+clarification; [#24] Yang §4.1.2/§4.3). Concrete points are certified downstream
+by Newton projection onto both surfaces (yang-rs `relocate_onto_implicit_pair`),
+never carried on the curve — `SsiCurve::eval` on a `SurfacePair` returns NaN by
+design (`lib.rs:337`, a loud wrong answer, never a plausible-but-wrong one, P9).
+
+The public dispatcher `intersect(a, b)` (`lib.rs:381`) is symmetric (I4: both
+argument orders route to the same solver) and returns:
+
+- `Ok(vec![...])` — the analytic curve(s), or an empty `Vec` when the surfaces
+  do not meet in a curve (disjoint / tangent-point / parallel).
+- `Err(SsiError::DegenerateInput)` — degenerate configuration (coincident,
+  zero/negative radius, concentric, zero/non-finite direction).
+- `Err(SsiError::AnalyticalSolutionNotAvailable)` — a pair with no analytic
+  solver **and no `SurfacePair` producer yet** (A15.2: loud `Err`, never a
+  silent mesh/grid fallback). Today this fires **only** on the two general-
+  position sphere pairs (see [§ Open item F10](#open-item-f10)).
+
+## Error status vocabulary
+
+| Status | Meaning |
+|--------|---------|
+| `done` | Closed-form analytic `SsiCurve` (Line/Circle/Ellipse/Parabola/Hyperbola) for every geometrically-real sub-case; tested. |
+| `done-via-SurfacePair` | Special configs are closed-form conics; the general-position degree-4 arm returns the exact procedural `SurfacePair` (M5). Tested. |
+| `gap-Err` | Special configs are closed-form; the general-position degree-4 arm returns `Err(AnalyticalSolutionNotAvailable)` — a staged gap, not a fallback. See [F10](#open-item-f10). |
+| `not-in-crate` | Pair involves `Torus`, which is not a `QuadricSurface`; handled above `ssi-rs`. |
 
 ## Acceptance criteria (per sub-case)
 
 A sub-case is "done" when:
 
-1. Returns analytical `SSICurve` (Circle, Ellipse, Line, or future Conic — never a polyline approximation)
-2. Unit test with geometric oracle (curve lies on both surfaces within `TAU_MODEL`)
-3. Integration test via boolean op (watertight result, correct volume)
-4. No sampling loops or `SSI_SAMPLE_ON_SURFACE_TOL` usage in that code path
+1. Returns an exact analytic `SsiCurve` (or the `SurfacePair` implicit curve for
+   general-position degree-4) — never a polyline or sampled approximation.
+2. Unit test with a geometric oracle (returned curve lies on both surfaces
+   within `TAU_MODEL`; `SurfacePair` operands verified by on-surface Newton in
+   yang-rs).
+3. Determinism (I5): byte-identical output across runs; emission order fixed
+   (e.g. `+ŵ` / `+h` / larger-`t` first).
+4. No sampling loops, no grid scans, no ad-hoc epsilons — tolerances come from
+   `cad-primitives` (`TAU_MODEL`), per A14.3.
+
+Test files: `crates/ssi-rs/tests/ssi<N>.rs` + `ssi<N>_adversary.rs`. The
+`ssi<N>` numbering follows the PR-SSI implementation order, not the pair-index
+column below:
+
+| Test file | Covers |
+|-----------|--------|
+| `ssi1` | plane∩plane, plane∩sphere, sphere∩sphere foundation + `intersect`/`eval`/symmetry |
+| `ssi2` | plane∩cylinder |
+| `ssi3` | plane∩cone bounded (circle + ellipse) |
+| `ssi4` | plane∩cone unbounded (parabola + hyperbola) |
+| `ssi5` | plane∩cone through-apex degenerate conics (point / 1 line / 2 lines) |
+| `ssi6` | sphere∩cylinder (coaxial circles) |
+| `ssi7` | sphere∩cone (coaxial circles) |
+| `ssi8` | cylinder∩cone (coaxial circles + general SurfacePair) |
+| `ssi9` | cone∩cone (coaxial circles + general SurfacePair) |
+| `ssi10`–`ssi12` | cylinder∩cylinder (parallel lines, equal-R ellipses, general SurfacePair) |
 
 ---
 
-## Status matrix
+## The 10 implemented pairs
 
-### Legend
+### 1. Plane–Plane — `done`
 
-| Method | Meaning |
-|--------|---------|
-| `analytical` | Closed-form, returns exact Circle/Ellipse/Line SSICurve |
-| `sampling` | Grid scan + zero-crossing, returns polyline Line approximation |
-| `not-supported` | Returns `KernelError::NotSupported` |
+Solver `plane_plane` (`lib.rs:440`).
 
-| Status | Meaning |
-|--------|---------|
-| `done` | Analytical, tested, all orientations |
-| `partial` | Analytical for some sub-cases, NotSupported or sampling for others |
-| `stub` | Sampling-based approximation exists — violates A15.1 |
-| `missing` | Not implemented at all |
+| Sub-case | Representation | Status | Tests |
+|----------|----------------|--------|-------|
+| Transverse (`\|n_a × n_b\| > TAU`) | `Line` (dir `n_a × n_b`, point via 2×2 solve) | done | ssi1 |
+| Parallel, distinct | `Ok([])` | done | ssi1 |
+| Coincident (same plane) | `Err(DegenerateInput)` — 2D overlap | done | ssi1 |
 
----
+### 2. Plane–Sphere — `done`
 
-### 1. Plane–Plane
+Solver `plane_sphere` (`lib.rs:506`). Signed distance `d = n·(center − p)`.
 
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Intersecting | analytical | done | Returns `SSICurve::Line` — handled in `boolean.rs` via plane normal cross-product |
-| Parallel (disjoint) | analytical | done | Returns empty |
-| Coplanar | analytical | done | Returns overlap indicator |
+| Sub-case | Representation | Status | Tests |
+|----------|----------------|--------|-------|
+| Cutting (`\|d\| < r`) | `Circle` radius `√(r²−d²)` at foot of perpendicular | done | ssi1 |
+| Tangent (`\|d\| ≈ r`) | `Ok([])` (point contact) | done | ssi1 |
+| Disjoint (`\|d\| > r`) | `Ok([])` | done | ssi1 |
+| `radius ≤ 0` / non-finite | `Err(DegenerateInput)` | done | ssi1 |
 
-**Implementation**: `boolean.rs` plane-plane logic. All sub-cases covered.
+### 3. Plane–Cylinder — `done`
 
----
+Solver `plane_cylinder` (`lib.rs:573`). `c = n̂·â`, in-plane axis projection
+`proj = â − c·n̂`.
 
-### 2. Plane–Cylinder
+| Sub-case | Representation | Status | Tests |
+|----------|----------------|--------|-------|
+| C1 — perpendicular (`\|proj\| < TAU`) | `Circle` radius `r`, normal `â` | done | ssi2 |
+| C2 — oblique | `Ellipse` `minor=r`, `major=r/\|c\|`, major axis `= proj` | done | ssi2 |
+| C3a — parallel secant (`d < r`) | two `Line`s ∥ `â` at `c₀ ± √(r²−d²)·ŵ` | done | ssi2 |
+| C3b — parallel tangent (`d ≈ r`) | one `Line` at the foot | done | ssi2 |
+| C3c — parallel disjoint (`d > r`) | `Ok([])` | done | ssi2 |
+| `r ≤ 0` / zero axis or normal | `Err(DegenerateInput)` | done | ssi2 |
 
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Perpendicular (plane ⊥ axis) | analytical | done | Returns `Circle` (`plane_cylinder_perp`) |
-| Parallel (plane ∥ axis) | analytical | done | Returns 0 or 2 `Line` segments (`plane_cylinder_parallel`) |
-| Oblique | analytical | done | Returns `Ellipse` with semi_minor=R, semi_major=R/sin(γ) (`plane_cylinder_oblique`) |
-| Disjoint (parallel, no contact) | analytical | done | Returns empty |
-| Tangent (parallel, grazing) | analytical | done | Returns empty (within TOL) |
-| Arbitrary axis orientation | analytical | done | General-position solver accepts any axis direction |
+### 4. Plane–Cone — `done`
 
-**Implementation**: `ssi.rs:plane_cylinder_ssi` (lines 91–132). Fully analytical.
+Solver `plane_cone` (`lib.rs:736`). The full proper-conic family plus the
+through-apex degenerate conics. `k = n̂·â`; symmetry-plane generators
+`g_± = cosα·â ± sinα·û`, generator/plane dots `gd_± = n̂·g_±`.
 
----
+| Sub-case | Representation | Status | Tests |
+|----------|----------------|--------|-------|
+| C1 — perpendicular | `Circle` radius `\|h\|·tanα` | done | ssi3 |
+| C2 — oblique, both generators same nappe | `Ellipse` (vertex method) | done | ssi3 |
+| PARA — exactly one generator ∥ plane | `Parabola` (vertex + focal length) | done | ssi4 |
+| HYPE — generators on opposite nappes | **two** `Hyperbola` (one per branch, `+m̂` / `−m̂`) | done | ssi4 |
+| AP-pt — through apex, plane steeper than cone | `Ok([])` (apex point) | done | ssi5 |
+| AP-line — through apex, one generator tangent | one `Line` (`dir = m̂`) | done | ssi5 |
+| AP-lines — through apex, opposite nappes | two crossed `Line`s | done | ssi5 |
+| E1 — `α ≤ TAU` / `α ≥ π/2−TAU` / non-finite / zero axis-or-normal | `Err(DegenerateInput)` | done | ssi3–5 |
 
-### 3. Plane–Cone
+### 5. Sphere–Sphere — `done`
 
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Perpendicular (plane ⊥ axis) | analytical | done | Returns `Circle` at cut height (`plane_cone_ssi`) |
-| Oblique (ellipse, γ > β) | analytical | done | Returns `Ellipse` with exact semi-axes |
-| Oblique (parabola, γ ≈ β) | analytical | done | Returns `SSICurve::Parabola` with vertex, axis, focal_length |
-| Oblique (hyperbola, γ < β) | analytical | done | Returns `SSICurve::Hyperbola` with center, axes, semi-transverse/conjugate |
-| Through apex (γ < β) | analytical | done | Returns 2 `Line` generator segments |
-| Through apex (γ > β) | analytical | done | Returns empty (degenerate point) |
+Solver `sphere_sphere` (`lib.rs:945`). Center distance `D`, chord offset
+`a = (D²+r_a²−r_b²)/(2D)`.
 
-**Implementation**: `ssi.rs:plane_cone_ssi`. All six sub-cases: perpendicular (circle), oblique ellipse, oblique parabola, oblique hyperbola, through-apex (lines), and no-intersection (empty).
+| Sub-case | Representation | Status | Tests |
+|----------|----------------|--------|-------|
+| Overlapping (`\|r_a−r_b\| < D < r_a+r_b`) | `Circle` radius `√(r_a²−a²)`, normal along center line | done | ssi1 |
+| Tangent (external or internal) | `Ok([])` (point contact) | done | ssi1 |
+| Disjoint / contained | `Ok([])` | done | ssi1 |
+| Concentric (`D < TAU`) or `radius ≤ 0` | `Err(DegenerateInput)` | done | ssi1 |
 
----
+### 6. Sphere–Cylinder — `gap-Err`
 
-### 4. Plane–Sphere
+Solver `sphere_cylinder` (`lib.rs:1029`). Coaxial ::= cylinder axis passes
+through the sphere center (`d_ax < TAU`).
 
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Cutting | analytical | done | Returns `Circle` (`plane_sphere_ssi`) |
-| Tangent | analytical | done | Returns empty (within TOL) |
-| Disjoint | analytical | done | Returns empty |
+| Sub-case | Representation | Status | Tests |
+|----------|----------------|--------|-------|
+| X2 — coaxial, `r_s − r_c > TAU` | two `Circle`s at `C ± √(r_s²−r_c²)·â`, `+h` first | done | ssi6 |
+| X1 — coaxial tangent (`\|r_s−r_c\| ≤ TAU`) | one great `Circle` at `C` | done | ssi6 |
+| X0 — coaxial, cylinder wider than sphere | `Ok([])` | done | ssi6 |
+| **NC — non-coaxial general degree-4** (`d_ax ≥ TAU`) | **`Err(AnalyticalSolutionNotAvailable)` at `lib.rs:1063-1064`** | **gap-Err** ([F10](#open-item-f10)) | ssi6 |
+| E1 — `r_s ≤ 0` / `r_c ≤ 0` / zero axis | `Err(DegenerateInput)` | done | ssi6 |
 
-**Implementation**: `ssi.rs:plane_sphere_ssi` (lines 528–549). Fully analytical.
+### 7. Sphere–Cone — `gap-Err`
 
----
+Solver `sphere_cone` (`lib.rs:1141`). Coaxial ::= sphere center on the cone axis
+line. Linear branch gate `g = r_s − \|h₀\|·sinα` (`sign(D) = sign(g)`).
 
-### 5. Cylinder–Cylinder
+| Sub-case | Representation | Status | Tests |
+|----------|----------------|--------|-------|
+| X2 — coaxial, `g > TAU` | two `Circle`s at `h_± = (h₀ ± √D)·cos²α`, `+√D` first | done | ssi7 |
+| X1 — coaxial tangent (`\|g\| ≤ TAU`) | one `Circle` at `h₀·cos²α` | done | ssi7 |
+| X0 — coaxial, sphere too small (`g < −TAU`) | `Ok([])` | done | ssi7 |
+| **NC — non-coaxial general degree-4** (`d_ax ≥ TAU`) | **`Err(AnalyticalSolutionNotAvailable)` at `lib.rs:1185-1186`** | **gap-Err** ([F10](#open-item-f10)) | ssi7 |
+| E1 — `r_s ≤ 0` / bad α / zero axis | `Err(DegenerateInput)` | done | ssi7 |
 
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Parallel, offset (overlapping) | analytical | done | Returns 2 `Line` segments (`cylinder_cylinder_ssi`) |
-| Parallel, coaxial (same axis) | analytical | done | Returns empty (coaxial) |
-| Parallel, disjoint | analytical | done | Returns empty |
-| Non-parallel, equal-R, ≥15° | analytical | done | Returns 2 `Ellipse` (`cylinder_cylinder_ssi_non_parallel`). Extended from ≥60° to ≥15° (Sprint 69). |
-| Non-parallel, equal-R, <15° | not-supported | missing | Returns `KernelError::NotSupported` (near-parallel, eccentricity > 0.99) |
-| Non-parallel, unequal-R, ≥15° | analytical | done | Returns 2 `Degree4CylCyl` parametric curves. Formula: z(θ) = (R_A sin θ cos α ± √(R_B² − R_A² cos²θ)) / sin α. 10 tests with on-surface oracle. |
-| Skew axes (non-intersecting) | not-supported | missing | Returns `KernelError::NotSupported` |
+### 8. Cylinder–Cone — `done-via-SurfacePair`
 
-**Implementation**: `ssi.rs:cylinder_cylinder_ssi` (lines 292–359) and
-`cylinder_cylinder_ssi_non_parallel` (lines 374–522). Partial coverage.
+Solver `cylinder_cone` (`lib.rs:1272`). Coaxial ::= axes parallel AND cylinder
+axis-point on the cone axis line.
 
----
+| Sub-case | Representation | Status | Tests |
+|----------|----------------|--------|-------|
+| X2 — coaxial | **exactly two** `Circle`s at `h = ± r_c·cotα` (no discriminant, P9/P10) | done | ssi8 |
+| NC — non-coaxial general degree-4 | `SurfacePair { cylinder, cone }` (M5), returned at `lib.rs:1323-1327` | done-via-SurfacePair | ssi8 |
+| E1 — `r_c ≤ 0` / bad α / zero axis (either) | `Err(DegenerateInput)` | done | ssi8 |
 
-### 6. Plane–Torus
+### 9. Cone–Cone — `done-via-SurfacePair`
 
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Perpendicular (normal ∥ axis) | analytical | done | Returns 1–2 `Circle` (`plane_torus_ssi`) |
-| Perpendicular, tangent (|d|=r) | analytical | done | Returns 1 `Circle` at radius R |
-| Perpendicular, disjoint | analytical | done | Returns empty |
-| Axial plane (n_a ≈ 0, d' ≈ 0) | analytical | done | Returns 2 `Circle` (tube cross-sections) |
-| Oblique (general) | analytical | done | Returns 2 `Degree4PlaneTorus` parametric curves via harmonic equation φ(θ) |
-| Oblique, tangent | analytical | done | Filtered by MIN_FEATURE_SIZE extent check |
-| Oblique, disjoint | analytical | done | Returns empty (discriminant negative) |
+Solver `cone_cone` (`lib.rs:1397`). Coaxial ::= axes parallel AND apex₂ on cone₁
+axis line. Perfect-square discriminant `(2·m₁·m₂·δ)²` ⇒ no synthetic √ sign gate.
 
-**Implementation**: `ssi/mod.rs:plane_torus_ssi`. Perpendicular path returns circles.
-Axial-plane degenerate case returns 2 tube cross-section circles at θ values where A(θ)=0.
-General oblique path returns `Degree4PlaneTorus` parametric curves via harmonic equation:
-p·cos φ + q·sin φ = c, solved as φ = atan2(q,p) ± acos(c/√(p²+q²)).
-25 tests with on-surface oracle + 7 adversarial (pathological inputs).
+| Sub-case | Representation | Status | Tests |
+|----------|----------------|--------|-------|
+| X2 — coaxial, unequal α, `\|δ\| > TAU` | two `Circle`s (larger-`t` first) | done | ssi9 |
+| X1 — coaxial, equal α, `\|δ\| > TAU` | one `Circle` at bisector `t = δ/2` | done | ssi9 |
+| X0 — coaxial, unequal α, `\|δ\| ≤ TAU` | `Ok([])` (shared apex, radius-0 point) | done | ssi9 |
+| CO — coaxial, equal α, `\|δ\| ≤ TAU` | `Err(DegenerateInput)` (identical cone, 2D overlap) | done | ssi9 |
+| NC — non-coaxial general degree-4 | `SurfacePair { a, b }` (M5), returned at `lib.rs:1450-1452` | done-via-SurfacePair | ssi9 |
+| E1 — bad α (either) / zero axis (either) | `Err(DegenerateInput)` | done | ssi9 |
 
----
+### 10. Cylinder–Cylinder — `done-via-SurfacePair`
 
-### 7. Cylinder–Cone
+Solver `cylinder_cylinder` (`lib.rs:1532`); equal-R ellipse helper
+`cyl_cyl_equal_radius_ellipses` (`lib.rs:1663`); axis-crossing point
+`line_line_intersection` (`lib.rs:1704`).
 
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Coaxial | analytical | done | Returns `Circle` where cone radius = cyl radius (`cylinder_cone_ssi`) |
-| Non-coaxial, parallel offset | analytical | done | Returns `Degree4CylCone` parametric curves via quadratic-in-z solve |
-| Non-coaxial, general | analytical | done | Returns `Degree4CylCone` parametric curves via cylinder θ-parameterization |
-| Same-apex (degenerate) | analytical | done | Handled by general solver; tangent filter removes sub-feature-size results |
-| Tangent (grazing) | analytical | done | Filtered by MIN_FEATURE_SIZE extent check |
-| Disjoint | analytical | done | Bounding-sphere reject + discriminant check |
-
-**Implementation**: `ssi/mod.rs:cylinder_cone_ssi`.
-Coaxial path returns exact circles. General path returns `Degree4CylCone` parametric curves
-via cylinder angle parameterization into cone implicit equation:
-(1−sec²α·a²)·z² + 2·(A·cyl_axis−sec²α·a·H₀(θ))·z + (|A|²+R²+2R·f(θ)−sec²α·H₀²) = 0.
-12 new tests with on-surface oracle + 7 adversarial (pathological inputs).
-
----
-
-### 8. Cylinder–Sphere
-
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Coaxial (sphere center on axis) | analytical | done | Returns 0–2 `Circle` (`cylinder_sphere_ssi`) |
-| Coaxial, tangent | analytical | done | Returns empty |
-| Offset, overlapping | analytical | done | Returns 2 `Degree4CylSphere` parametric curves (upper/lower branches) |
-| Disjoint | analytical | done | Returns empty |
-| Enclosed (sphere inside cyl) | analytical | done | Returns empty |
-
-**Implementation**: `ssi.rs:cylinder_sphere_ssi`.
-Coaxial path returns exact circles. Offset path returns exact `Degree4CylSphere`
-parametric curves via cylinder parameterization into sphere equation:
-z(θ) = z_center ± √(R_s² − d² − R_c² + 2·R_c·d·cos θ). 11 tests with on-surface oracle.
+| Sub-case | Representation | Status | Tests |
+|----------|----------------|--------|-------|
+| Parallel secant (`\|r₁−r₂\| < d < r₁+r₂`) | two `Line`s ∥ `û` at `center ± h·p̂`, `+h` first | done | ssi10 |
+| Parallel tangent (external or internal) | one `Line` | done | ssi10 |
+| Parallel disjoint / contained | `Ok([])` | done | ssi10 |
+| Parallel coincident axes, unequal R | `Ok([])` (concentric) | done | ssi10 |
+| Parallel coincident axes, equal R | `Err(DegenerateInput)` (2D overlap) | done | ssi10 |
+| Non-parallel, equal-R, coplanar (intersecting axes) | **two** `Ellipse` in the angle-bisecting planes | done | ssi11 |
+| Non-parallel general (unequal-R, or equal-R skew) | `SurfacePair { a, b }` (M5), returned at `lib.rs:1596` | done-via-SurfacePair | ssi12 |
+| E1 — `r ≤ 0` (either) / non-finite axis-point / zero axis | `Err(DegenerateInput)` | done | ssi10 |
 
 ---
 
-### 9. Cone–Cone
+## Torus (not in `QuadricSurface`)
 
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Coaxial, different apices | analytical | done | Returns `Circle` where radii match (`cone_cone_ssi`) |
-| Same apex | analytical | done | Returns `Degree4ConeCone` parametric curves via θ-parameterization + quadratic h solve |
-| General position | analytical | done | Returns `Degree4ConeCone` parametric curves via cone A θ-parameterization into cone B implicit |
-| Parallel generators (same angle+direction) | analytical | done | Returns empty |
+The 5 torus-bearing pairs — Plane–Torus, Cylinder–Torus, Cone–Torus,
+Sphere–Torus, Torus–Torus — have **no solver in `ssi-rs`**. A torus is degree-4,
+not a quadric, so it is excluded from `QuadricSurface` (`lib.rs:95-96`). Torus
+intersection geometry is produced **above `ssi-rs`**, by two mechanisms:
 
-**Implementation**: `ssi/mod.rs:cone_cone_ssi`.
-Coaxial path returns exact circles. Same-apex and general paths return `Degree4ConeCone`
-parametric curves via cone A angle parameterization into cone B implicit equation:
-a(θ)·h² + b(θ)·h + c = 0 where a, b depend on θ and c is constant.
-14 tests with on-surface oracle + 8 adversarial (pathological inputs).
+1. **Coaxial curved rims → exact `Circle`** — in kernel-v2
+   `recover.rs` (`crates/kernel-v2/src/recover.rs:353` onward, the "KV7
+   extension — curved ∩ curved coaxial rim"). When two coaxial curved laterals
+   (torus/cylinder/cone about a shared axis) meet, the retag step mints the rim
+   as an exact `Circle` directly, bypassing SSI. This is how coaxial torus
+   booleans keep circular-rim vocabulary.
 
----
+2. **General-position torus edges → Stage-4 implicit relocation** — yang-rs
+   Stage 3 refuses a torus to the quadric solver: `surface_to_quadric` maps
+   `Surface::Torus` to `Err(UnsupportedSurfaceForSsi)`
+   (`crates/yang-rs/src/stage3_ssi.rs:52`), and the Stage-3 refinement loop
+   explicitly skips any edge touching a torus
+   (`crates/yang-rs/src/stage3_ssi.rs:688`), leaving it as the
+   `Curve::LineSegment` mesh fallback. **Stage 4** then relocates that edge's
+   vertices onto the exact torus∩surface curve via the implicit-pair /
+   implicit-triple Newton projection (`relocate_onto_implicit_pair` /
+   `_triple`) — the same machinery that certifies `SurfacePair` points. The
+   torus itself survives as `Surface::Torus` through to the tessellator
+   (`crates/kernel-v2/src/tessellate.rs:1654`).
 
-### 10. Cylinder–Torus
-
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Coaxial | analytical | done | Returns 0–2 `Circle` (`cylinder_torus_ssi`) |
-| Coaxial, tangent | analytical | done | Returns empty |
-| General position | sampling | **stub** | 360×200 grid scan with sign-change detection |
-| Disjoint | analytical | done | Bounding-sphere reject |
-
-**Implementation**: `ssi.rs:cylinder_torus_ssi` (lines 1964–2132).
-Coaxial path is exact. General path uses `torus_signed_distance` + 360×200 grid.
-
----
-
-### 11. Cone–Sphere
-
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Coaxial (sphere center on axis) | analytical | done | Returns 0–2 `Circle` via quadratic (`cone_sphere_ssi`) |
-| Coaxial, tangent | analytical | done | Returns empty |
-| Offset, overlapping | analytical | done | Exact `Degree4ConeSphere` parametric curve via coplanar circle intersection at each axial height |
-| Disjoint | analytical | done | Returns empty |
-
-**Implementation**: `ssi.rs:cone_sphere_ssi`.
-Coaxial path is exact (quadratic in h). Offset path uses an exact
-`Degree4ConeSphere` parametric curve — no sampling or mesh fallback.
+A native torus SSI solver (adding `QuadricSurface::Torus` and the degree-4
+torus curve vocabulary) is a future increment; until then the two mechanisms
+above are the production path and there is **no `NotSupported` wall** for the
+common (coaxial revolve, KV6d) torus configurations.
 
 ---
 
-### 12. Sphere–Sphere
+## Open item F10 — sphere general-position degree-4 gap
 
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Overlapping | analytical | done | Returns `Circle` (`sphere_sphere_ssi`) |
-| Tangent | analytical | done | Returns empty |
-| Disjoint | analytical | done | Returns empty |
-| Enclosed | analytical | done | Returns empty |
-| Coincident | analytical | done | Returns empty (degenerate) |
+Design review `docs/review/design_review_2026-07-12_kernel.md` §F10 (MEDIUM):
+the degree-4 representation is inconsistent inside `ssi-rs`. Three general-
+position degree-4 arms (cyl×cyl `lib.rs:1596`, cyl×cone `lib.rs:1323`, cone×cone
+`lib.rs:1450`) return the blessed M5 `SurfacePair`, but the two **sphere** pairs
+still return `Err(AnalyticalSolutionNotAvailable)`:
 
-**Implementation**: `ssi.rs:sphere_sphere_ssi` (lines 605–650). Fully analytical.
+- **sphere×cylinder NC** — `lib.rs:1063-1064`
+- **sphere×cone NC** — `lib.rs:1185-1186`
 
----
-
-### 13. Cone–Torus
-
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Coaxial | analytical | done | Returns 0–2 `Circle` via quadratic (`cone_torus_ssi`) |
-| Coaxial, tangent | analytical | done | Returns single `Circle` |
-| General position | sampling | **stub** | 360×200 grid scan with sign-change detection |
-| Disjoint | analytical | done | Bounding-sphere reject |
-
-**Implementation**: `ssi.rs:cone_torus_ssi` (lines 2141–2314).
-Coaxial path solves sec²(α)·h² + … = 0. General path scans cone surface with
-`torus_signed_distance`.
-
----
-
-### 14. Sphere–Torus
-
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Axial (sphere center on torus axis) | analytical | done | Returns 0–2 `Circle` via quadratic (`sphere_torus_ssi`) |
-| Axial, tangent | analytical | done | Returns single `Circle` |
-| Off-axis, overlapping | analytical | done | Returns 2 `Degree4SphereTorus` parametric curves via harmonic equation φ(θ) |
-| Disjoint | analytical | done | Distance check |
-| Enclosed | analytical | done | Returns empty |
-
-**Implementation**: `ssi/mod.rs:sphere_torus_ssi`.
-Axial path returns exact circles. Off-axis path returns `Degree4SphereTorus` parametric
-curves via harmonic equation: p(θ)·cos φ + q·sin φ = c(θ), where p(θ) = 2r·(R - D(θ)),
-q = -2r·d_a, c(θ) = s² - R² - r² - |d|² + 2R·D(θ). 19 tests with on-surface oracle
-+ 5 adversarial (near-tangent, extreme radii, symmetry, no-NaN sweep).
-
----
-
-### 15. Torus–Torus
-
-| Sub-case | Method | Status | Notes |
-|----------|--------|--------|-------|
-| Coaxial | analytical | done | Returns 0–2 `Circle` via quadratic (`torus_torus_ssi`) |
-| Coaxial, identical geometry | analytical | done | Returns empty (degenerate) |
-| General position | sampling | **stub** | 360×36 grid scan with `SSI_SAMPLE_ON_SURFACE_TOL` |
-| Disjoint | analytical | done | Bounding-sphere reject |
-
-**Implementation**: `ssi.rs:torus_torus_ssi` (lines 2323–2517).
-Coaxial path is exact. General path scans 360 θ × 36 φ samples on torus A surface.
+Consequence: an offset (non-coaxial) sphere×cylinder or sphere×cone boolean
+loudly fails where the mathematically equivalent cyl×cyl / cyl×cone succeeds —
+the hole is exactly the pairs a sphere touches. yang-rs / kernel-v2 already carry
+a `PairSurface::Sphere` operand, so the fix is to promote both sphere NC branches
+to `SurfacePair { a, b }` (and update `quadric_to_surface` at
+`crates/yang-rs/src/stage3_ssi.rs:82-85`, which currently rejects `Sphere`
+operands). **Open** — tracked as F10 remediation, not scheduled in this task.
 
 ---
 
 ## Summary
 
-| # | Pair | Overall Status | Analytical sub-cases | Sampling/missing sub-cases |
-|---|------|----------------|---------------------|---------------------------|
-| 1 | Plane–Plane | **done** | All | — |
-| 2 | Plane–Cylinder | **done** | All (perp, parallel, oblique) | — |
-| 3 | Plane–Cone | **done** | All (perp, oblique ellipse/parabola/hyperbola, through-apex) | — |
-| 4 | Plane–Sphere | **done** | All | — |
-| 5 | Cylinder–Cylinder | **done** | Parallel lines + dual-ellipse (equal-R) + Degree4CylCyl (unequal-R), all angles | Skew axes (returns NotSupported) |
-| 6 | Plane–Torus | **done** | All (perpendicular circles + axial-plane circles + oblique Degree4PlaneTorus parametric) | — |
-| 7 | Cylinder–Cone | **done** | All (coaxial circles + general Degree4CylCone parametric) | — |
-| 8 | Cylinder–Sphere | **done** | All (coaxial circles + offset Degree4CylSphere parametric) | — |
-| 9 | Cone–Cone | **done** | All (coaxial circles + same-apex/general Degree4ConeCone parametric) | — |
-| 10 | Cylinder–Torus | **partial** | Coaxial circles | General position (returns NotSupported) |
-| 11 | Cone–Sphere | **done** | All (coaxial circles + offset Degree4ConeSphere parametric) | — |
-| 12 | Sphere–Sphere | **done** | All | — |
-| 13 | Cone–Torus | **partial** | Coaxial circles | General position (returns NotSupported) |
-| 14 | Sphere–Torus | **done** | All (axial circles + off-axis Degree4SphereTorus parametric) | — |
-| 15 | Torus–Torus | **partial** | Coaxial circles | General position (returns NotSupported) |
+| # | Pair | Status | Analytic sub-cases | Degree-4 general position |
+|---|------|--------|--------------------|---------------------------|
+| 1 | Plane–Plane | done | Line / empty / degenerate | — |
+| 2 | Plane–Cylinder | done | Circle + Ellipse + Lines | — (plane section is a conic) |
+| 3 | Plane–Cone | done | Circle + Ellipse + Parabola + 2·Hyperbola + through-apex lines | — |
+| 4 | Plane–Sphere | done | Circle | — |
+| 5 | Sphere–Sphere | done | Circle | — |
+| 6 | Sphere–Cylinder | **gap-Err** | coaxial 0–2 Circle | `Err(ASNA)` (`:1063`) — F10 |
+| 7 | Sphere–Cone | **gap-Err** | coaxial 0–2 Circle | `Err(ASNA)` (`:1185`) — F10 |
+| 8 | Cylinder–Cone | done-via-SurfacePair | coaxial 2 Circle | `SurfacePair` (`:1323`) |
+| 9 | Cone–Cone | done-via-SurfacePair | coaxial 0–2 Circle | `SurfacePair` (`:1450`) |
+| 10 | Cylinder–Cylinder | done-via-SurfacePair | parallel Lines + equal-R 2 Ellipse | `SurfacePair` (`:1596`) |
+| — | Plane–Torus | not-in-crate | — | torus routes above ssi-rs |
+| — | Cylinder–Torus | not-in-crate | — | torus routes above ssi-rs |
+| — | Cone–Torus | not-in-crate | — | torus routes above ssi-rs |
+| — | Sphere–Torus | not-in-crate | — | torus routes above ssi-rs |
+| — | Torus–Torus | not-in-crate | — | torus routes above ssi-rs |
 
-**Fully analytical**: 12 of 15 pairs (Plane–Plane, Plane–Cylinder, Plane–Cone, Plane–Sphere, Cyl–Cyl, Plane–Torus, Cylinder–Cone, Cylinder–Sphere, Cone–Cone, Cone–Sphere, Sphere–Sphere, Sphere–Torus)
-**Partial (coaxial only)**: 3 of 15 pairs (Cyl–Torus, Cone–Torus, Torus–Torus) — general position returns NotSupported per A15.2
+**Closed form for every geometrically-real sub-case**: 8 of the 10 crate pairs
+(all but the two sphere general-position gaps). The three cone/cylinder
+general-position pairs reach exactness via the M5 `SurfacePair` procedural curve;
+the two sphere pairs are the one remaining `Err` gap (F10). Torus pairs are
+handled one tier up (coaxial-rim recovery + Stage-4 implicit relocation), not in
+`ssi-rs`.
+
+## References
+
+- [#1] Patrikalakis & Maekawa 2002, *Shape Interrogation for CAD/M*, Ch.5 — exact
+  SSI algorithms for quadric pairs (cited per-solver in `lib.rs`).
+- [#24] Yang, Jia & Yan 2025 — hybrid B-Rep/mesh boolean; §4.1.2/§4.3 procedural
+  implicit intersection curves (the `SurfacePair` representation).
+- `specs/m5_surface_pair_curve.md` — the M5 procedural surface-pair curve.
+- `governance/ARCHITECTURAL_INVARIANTS.md` A15.1/A15.2/A15.4 — analytical primacy
+  invariant + the status table that links here.
 
 ---
 
-*Created: Sprint 68, 2026-03-25*
-*Updated: 2026-03-31 — Pair #5 (Cyl–Cyl) upgraded to done (angle guard removed); pairs #10, #13, #15 sampling stubs replaced with NotSupported.*
-*Source of truth for SSI solver status. Governance table (A15.4) links here.*
+*Created: Sprint 68, 2026-03-25 (legacy `crates/kernel` matrix).*
+*Rewritten: 2026-07-12 — describes the live `crates/ssi-rs` crate; supersedes the
+pre-Phase-6 legacy matrix. Torus dropped from the quadric set; `SurfacePair`
+(M5) added; sphere general-position gap (F10) called out.*

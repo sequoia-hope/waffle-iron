@@ -437,37 +437,47 @@ compounding problems:
 
 ### A15.4 Implementation sequence
 
-The 15 quadric surface pairs ordered by CAD frequency, with implementation status:
+The 15 quadric surface pairs ordered by CAD frequency, with implementation
+status in the live `crates/ssi-rs` crate. `Torus` is **not** a
+`QuadricSurface` (it is degree-4, not a quadric), so the 5 torus-bearing pairs
+are handled one tier up (see the note below); `ssi-rs` implements the 10
+non-torus pairs.
 
 | # | Pair | SSI Curve Type | Status |
 |---|------|----------------|--------|
 | 1 | Plane–Plane | Line (or overlap) | done |
 | 2 | Plane–Cylinder | Ellipse/circle/lines | done |
-| 3 | Plane–Cone | Conic section | done — all six sub-cases (circle, ellipse, parabola, hyperbola, through-apex lines, empty) |
+| 3 | Plane–Cone | Conic section | done — all sub-cases (circle, ellipse, parabola, 2·hyperbola, through-apex point/1 line/2 lines) |
 | 4 | Plane–Sphere | Circle | done |
-| 5 | Cylinder–Cylinder | Line or degree-4 | done — parallel lines + dual-ellipse (equal-R) + Degree4CylCyl (unequal-R), all angles |
-| 6 | Plane–Torus | Degree-4 curve | done — perpendicular circles + axial circles + oblique Degree4PlaneTorus parametric |
-| 7 | Cylinder–Cone | Degree ≤ 4 curve | done — coaxial circles + general Degree4CylCone parametric |
-| 8 | Cylinder–Sphere | Degree ≤ 4 curve | done — coaxial circles + offset Degree4CylSphere parametric |
-| 9 | Cone–Cone | Degree ≤ 4 curve | done — coaxial circles + Degree4ConeCone parametric |
-| 10 | Cylinder–Torus | Degree ≤ 8 curve | partial — coaxial analytical, general returns NotSupported |
-| 11 | Cone–Sphere | Degree ≤ 4 curve | done — coaxial circles + offset Degree4ConeSphere parametric |
+| 5 | Cylinder–Cylinder | Line / Ellipse / degree-4 | done — parallel lines + equal-R coplanar ellipses + general-position `SurfacePair` (M5) |
+| 6 | Plane–Torus | Degree-4 curve | not-in-crate — Torus is not a `QuadricSurface`; routed above `ssi-rs` |
+| 7 | Cylinder–Cone | Degree-4 curve | done — coaxial circles + general-position `SurfacePair` (M5) |
+| 8 | Cylinder–Sphere | Degree-4 curve | gap — coaxial circles analytical; general position returns `Err(AnalyticalSolutionNotAvailable)` (F10) |
+| 9 | Cone–Cone | Degree-4 curve | done — coaxial circles + general-position `SurfacePair` (M5) |
+| 10 | Cylinder–Torus | Degree-4 curve | not-in-crate — Torus is not a `QuadricSurface`; routed above `ssi-rs` |
+| 11 | Cone–Sphere | Degree-4 curve | gap — coaxial circles analytical; general position returns `Err(AnalyticalSolutionNotAvailable)` (F10) |
 | 12 | Sphere–Sphere | Circle | done |
-| 13 | Cone–Torus | Degree ≤ 8 curve | partial — coaxial analytical, general returns NotSupported |
-| 14 | Sphere–Torus | Degree ≤ 4 curve | done — axial circles + off-axis Degree4SphereTorus parametric |
-| 15 | Torus–Torus | Degree ≤ 8 curve | partial — coaxial analytical, general returns NotSupported |
+| 13 | Cone–Torus | Degree-4 curve | not-in-crate — Torus is not a `QuadricSurface`; routed above `ssi-rs` |
+| 14 | Sphere–Torus | Degree-4 curve | not-in-crate — Torus is not a `QuadricSurface`; routed above `ssi-rs` |
+| 15 | Torus–Torus | Degree-4 curve | not-in-crate — Torus is not a `QuadricSurface`; routed above `ssi-rs` |
 
-Detailed sub-case enumeration and acceptance criteria in `/specs/ssi_solver_matrix.md`.
-Status `partial` indicates coaxial sub-cases are analytical but general position
-returns `NotSupported` per A15.2; analytical degree-8 solver required.
+Detailed sub-case enumeration, file:line anchors, and acceptance criteria in
+`/specs/ssi_solver_matrix.md`. `done` = closed-form conic for every geometrically
+real sub-case, or the M5 procedural `SurfacePair` for the general-position
+degree-4 arm (exact, certified by yang-rs Newton projection). `gap` = the
+general-position degree-4 arm returns `Err(AnalyticalSolutionNotAvailable)` (loud,
+per A15.2 — never a mesh fallback), pending promotion to `SurfacePair`.
 
-**Table provenance note (2026-07-08):** the `Degree4*` parametric statuses above
-describe the LEGACY `crates/kernel/` solvers, deleted at the Phase-6 migration.
-The live `crates/ssi-rs` matrix is behind this table — its general-position
-degree-4 arms return `AnalyticalSolutionNotAvailable` today. The M5 milestone
-(plan of record: Option B, the procedural surface-pair curve per the A15.1
-amendment above) closes pair #5 first; the table should be re-audited against
-`ssi-rs` as M5 lands.
+**Table provenance note (2026-07-12):** this table now reflects `crates/ssi-rs`
+at current HEAD. `Torus` is not part of `QuadricSurface`, so torus-pair
+intersection geometry is produced **above `ssi-rs`** — coaxial curved rims are
+minted as exact circles in kernel-v2 `recover.rs` (KV7 curved∩curved coaxial
+retag), and general-position torus edges are relocated onto the exact
+torus∩surface curve by yang-rs Stage-4 implicit-pair/triple Newton (Stage 3
+skips torus edges as `Curve::LineSegment`). The M5 procedural surface-pair curve
+(Option B, per the A15.1 amendment above) is live for cyl×cyl, cyl×cone, and
+cone×cone; the two general-position **sphere** pairs (#8, #11) are the one
+remaining `Err` gap (design review F10).
 
 ### A15.5 Surface tier preservation
 

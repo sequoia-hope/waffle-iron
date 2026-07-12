@@ -222,9 +222,13 @@ pub enum SsiCurve {
 /// Error categories for SSI. Both variants are part of the public API.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SsiError {
-    /// The requested surface pair has no analytical solver (A15.2: no mesh
-    /// or grid fallback — the caller decides). Reserved; not triggerable in
-    /// PR-SSI1 because all `Plane`/`Sphere` pairs are implemented.
+    /// The requested surface pair has no analytical solver AND no procedural
+    /// `SurfacePair` producer yet (A15.2: no mesh or grid fallback — the caller
+    /// decides). Triggerable today by the two general-position (non-coaxial)
+    /// sphere pairs — `sphere_cylinder` NC (see below) and `sphere_cone` NC —
+    /// which are staged behind this error pending promotion to `SurfacePair`
+    /// (design review F10). The cyl×cyl / cyl×cone / cone×cone general-position
+    /// arms already return `SurfacePair` and never reach this variant.
     AnalyticalSolutionNotAvailable,
     /// Degenerate input: coincident planes, zero/negative radius, concentric
     /// spheres, or a zero/non-finite normal.

@@ -21,7 +21,7 @@ The system has four layers:
 
 ### Kernel Layer (Rust, compiled to WASM)
 
-**`crates/kernel/`** — Clean-sheet B-Rep geometry kernel informed by published research (see `REFERENCES.md` and `/docs/SYSTEM_DESIGN.md`). Half-edge topology with Euler operators [Ref #16: Mantyla, #33: Stroud Ch.4], analytic and NURBS geometry, hybrid B-Rep/mesh boolean pipeline [Ref #24: Barton et al.], exact adaptive predicates [Ref #4: Shewchuk], generalized winding numbers [Ref #7: Jacobson et al.], and topology-guaranteed SSI [Ref #25]. **Analytical primacy**: boolean operations on quadric surfaces (plane, cylinder, cone, sphere, torus) use exact SSI — the mesh/polygon path is reserved for freeform surfaces only (see governance/ARCHITECTURAL_INVARIANTS.md A15). Exposes `Kernel` and `KernelIntrospect` traits — no kernel internals leak to other layers. Progress tracked via assay score (see assay runner; target: 190/190 on Yang pipeline). The previous truck-based kernel served through Sprint 67 (see git history).
+**`crates/kernel/`** — Clean-sheet B-Rep geometry kernel informed by published research (see `REFERENCES.md` and `/docs/SYSTEM_DESIGN.md`). Half-edge topology with Euler operators [Ref #16: Mantyla, #33: Stroud Ch.4], analytic and NURBS geometry, hybrid B-Rep/mesh boolean pipeline [Ref #24: Yang et al. 2025], exact adaptive predicates [Ref #4: Shewchuk], generalized winding numbers [Ref #7: Jacobson et al.], and topology-guaranteed SSI [Ref #25]. **Analytical primacy**: boolean operations on quadric surfaces (plane, cylinder, cone, sphere, torus) use exact SSI — the mesh/polygon path is reserved for freeform surfaces only (see governance/ARCHITECTURAL_INVARIANTS.md A15). Exposes `Kernel` and `KernelIntrospect` traits — no kernel internals leak to other layers. Progress tracked via assay score (see assay runner; target: 190/190 on Yang pipeline). The previous truck-based kernel served through Sprint 67 (see git history).
 
 ### Engine Layer (Rust, compiled to WASM, runs in Web Worker)
 
@@ -184,7 +184,7 @@ The clean-sheet kernel (`crates/kernel/`) is under active development. **980 ker
 - Half-edge B-Rep topology data structure with arena-based storage
 - Euler operators (mvfs, mev, mef, kemr, kfmrh) with invariant validation
 - Analytic geometry types (Point3, Vector3, Plane, Cylinder, Cone, Sphere, Torus)
-- SSI solvers for all 15 quadric surface pairs (Ref: Patrikalakis Ch.5); all 15 integrated into Yang pipeline Phase 4 (SSI refinement). Analytical boolean dispatch handles box, cylinder, sphere primitives; cone/torus operand dispatch deferred pending primitive creation ops
+- SSI solvers in `crates/ssi-rs` (Ref: Patrikalakis Ch.5) for the 10 non-torus quadric pairs (Plane/Sphere/Cylinder/Cone — Torus is degree-4, not a `QuadricSurface`), integrated into Yang pipeline Stage 3 (SSI refinement). Closed-form conics + the M5 procedural `SurfacePair` for general-position cyl×cyl / cyl×cone / cone×cone; the two general-position sphere pairs still return `Err(AnalyticalSolutionNotAvailable)` (design review F10). Torus-pair geometry is produced above `ssi-rs` (coaxial-rim recovery + Stage-4 implicit relocation). See `/specs/ssi_solver_matrix.md` for the full status matrix
 - Analytical boolean pipeline: box×box, box×cyl, cyl×cyl (parallel + non-parallel), planar-planar, enclosed-hole
 - Geometry-driven tessellation for planar, cylindrical, conical, spherical, and toroidal faces
 - `MockKernel` (full deterministic test double, ~2,100 lines)
