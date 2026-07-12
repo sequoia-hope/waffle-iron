@@ -2766,6 +2766,55 @@ swapped every consumer to `predicates::indirect`).
     merge-mirroring, exact-order-consistent, cross-cap bit-absorbing) — five
     constraints banked in the spec. Probes + unit pins banked; the
     azimuth-merge count wall stays the honest LOUD verdict.
+  - **Task #145 SHIPPED 2026-07-12 (spec
+    `specs/yang_453_mixed_cycle_conic_backtrack.md`): the re-entry CDT
+    zigzag class is retired — R0061 ERROR → SUPPORTED_CORRECT; R0063 /
+    R0095 / F0085 leave the CDT wall for distinct deeper typed walls.**
+    Two stacked mechanisms, each measured RED before its fix:
+    (1) **§4.5.3 shared-conic sites in MIXED cycles were structurally
+    unsweepable** (§3c scoped conic sites out after the angle-band P10
+    disproofs). New arm: exact conic PARAMETER-ORDER reversal — deltas
+    `d1 = t_r−t_b, d2 = t_n−t_r` wrapped to (−π, π] on the shared
+    Circle/Ellipse (identity up to normal SIGN, exact bit-negation);
+    reversal ⟺ d1·d2 < 0; victim = p_r onto its parameter-NEARER
+    neighbor (the actual overshoot — `reversal_collapse_direction`'s
+    junction rule picks the FAR junction here and the 2·d_ε gate rightly
+    refuses whole arcs); angle band never consulted (the corner_in_band
+    7-gon turns 51° < 90° and stays healthy; a legit steep sinusoid peak
+    on a near-tangent ellipse turns ~160° in 3D but progresses in
+    parameter — the I2 adversary pin that kills a turn-angle mutant).
+    (2) **Azimuth-slide relocation on near-tangent sections**
+    (`project_onto_ellipse_via_cylinder` preserves cylinder azimuth; the
+    axial solve amplifies by 1/(n·â) — R0061's gear-graze facets at
+    |n·â| = 0.0084 slid corridor vertices 3.4e-3…1.03e-1 ALONG their
+    ellipses while every surface residual passed its band). Fix: when
+    the azimuth move exceeds the per-site gate, relocate to the IN-PLANE
+    nearest point ([#1] point-to-curve Newton from the atan2 seed),
+    accepted against the derived corridor budget `2·gate/sin θ` at the
+    relocated point (θ = cylinder-radial vs plane-normal angle — the
+    KV9/KV11 gradient-band pattern; a FLAT move gate is the wrong metric:
+    the kv11 box∪cylinder pin measures a LEGIT 2.7e-2 move at
+    sin θ ≈ 0.55 against a 1.8e-2 band). Cyl×cyl arm byte-identical
+    (its gate already carries per-point amplification). The repair is
+    R2's REPLACEMENT, not rejection: corridor vertices land beside their
+    ~1e-4-distant junctions and the macro spikes vanish at source;
+    residual sub-band overshoots are exactly what the new sweep arm
+    collapses — both mechanisms required. The nearest-point solver is
+    BISECTION on the first-quadrant bracket (`f(0) ≥ 0 ≥ f(π/2)`
+    unconditionally), NOT Newton from the atan2 seed — the first full
+    assay caught F0047 CORRECT→ERROR (vertex 42: Newton diverged to a
+    stationary point 2.6 away on an eccentric ellipse; bisection fixed
+    it and F0047 returned CORRECT). Probes banked:
+    `YANG_T145_SWEEP_PROBE` (site/arm/gate), `YANG_T145_RELOC_PROBE`
+    (azimuth vs nearest move). Corpus movers: **R0061 + R0059 + R0072
+    ERROR → CORRECT** (R0059/R0072 were the ring-reject census members
+    whose FaceId walls were this same producer defect; R0072's
+    `red_r0072_stage3_ambiguous_parallel_lines` tracker un-ignored,
+    `wall_is_lifted_for_same_normal` repointed → R0063);
+    R0063 → Newell-normal disagreement (JOINS the F0064/R0051/F0067
+    class, task #146); R0095 / F0085 → NonManifoldOutput reassembly.
+    Assay: **241 CORRECT / 0 WRONG / 50 ERROR / 4 UNSUPPORTED /
+    0 TIMEOUT** — zero-lost (exactly the 3 movers up).
   - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
     post-#143), with two fresh class diagnoses:**
     (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —

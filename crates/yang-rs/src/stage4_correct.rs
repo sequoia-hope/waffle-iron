@@ -2033,6 +2033,75 @@ pub(crate) fn stage4_relocate_and_correct(
         }
         let (proj, t) = project_onto_ellipse_via_cylinder(p, er)
             .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+        // Task #145 mechanism 2 (spec `yang_453_mixed_cycle_conic_backtrack`
+        // §3b, I6): the azimuth projection amplifies by 1/(n·â) ALONG a
+        // near-tangent section — a §4.4.1 relocation is bounded by the same
+        // band the ρ gate uses. Move within band → keep the closed form
+        // byte-identically (R1); beyond → in-plane nearest point (R2);
+        // still beyond → loud STOP (R3), never a silent macro slide.
+        let move_len = |q: Point3| -> f64 {
+            let qa = q.as_array();
+            let pa = p.as_array();
+            ((qa[0] - pa[0]).powi(2) + (qa[1] - pa[1]).powi(2) + (qa[2] - pa[2]).powi(2)).sqrt()
+        };
+        let (proj, t) = if er.second_cyl.is_some() || move_len(proj) <= gate {
+            // R1 (and the cyl×cyl arm, whose per-point-amplified `gate`
+            // already carries the KV9 gradient machinery): byte-identical
+            // closed-form azimuth projection.
+            (proj, t)
+        } else {
+            let (near_proj, near_t) = project_onto_ellipse_nearest(p, er)
+                .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+            // R2/R3 budget: the vertex's surface residuals are ≤ `gate` each,
+            // and distance-to-curve amplifies by 1/sin θ (θ = angle between
+            // the two surface normals AT the relocated point) — the same
+            // derived gradient-band the circle-junction and pp-plane gates
+            // use (never widening). Evaluated at `near_proj`, where the
+            // transversality of the accepted position is what matters.
+            let budget = {
+                let np = near_proj.as_array();
+                let q = er.axis_point.as_array();
+                let a_hat = normalize3(er.axis_dir.as_array());
+                let w = [np[0] - q[0], np[1] - q[1], np[2] - q[2]];
+                let along = w[0] * a_hat[0] + w[1] * a_hat[1] + w[2] * a_hat[2];
+                let radial = normalize3([
+                    w[0] - along * a_hat[0],
+                    w[1] - along * a_hat[1],
+                    w[2] - along * a_hat[2],
+                ]);
+                let n_pl = normalize3(er.plane_n.as_array());
+                let cr = [
+                    radial[1] * n_pl[2] - radial[2] * n_pl[1],
+                    radial[2] * n_pl[0] - radial[0] * n_pl[2],
+                    radial[0] * n_pl[1] - radial[1] * n_pl[0],
+                ];
+                let sin_theta = (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
+                if sin_theta > 0.0 {
+                    2.0 * gate / sin_theta
+                } else {
+                    // Exact tangency at the relocated point: the corridor
+                    // metric is unbounded (the circle-junction gate's
+                    // INFINITY precedent); the projection is still the
+                    // local nearest point.
+                    f64::INFINITY
+                }
+            };
+            if std::env::var_os("YANG_T145_RELOC_PROBE").is_some() {
+                eprintln!(
+                    "[t145-reloc] v={v} rho={rho:.3e} gate={gate:.3e} budget={budget:.3e} \
+                     az_move={:.3e} near_move={:.3e} p={p:?} az={proj:?} near={near_proj:?}",
+                    move_len(proj),
+                    move_len(near_proj),
+                );
+            }
+            if move_len(near_proj) > budget {
+                return Err(YangError::Stage4RegionInvalid {
+                    vertex: v,
+                    reason: Stage4InvalidReason::OffCurveBeyondChordBand,
+                });
+            }
+            (near_proj, near_t)
+        };
         if rho > cad_primitives::TAU_WORK {
             mesh.verts[v as usize] = proj;
             moved.insert(v);
@@ -3326,27 +3395,104 @@ pub(crate) fn sweep_reversed_intersections(
                 let p_r = verts[i];
                 let p_n = verts[(i + 1) % m];
                 // Spec §3c site rule: in a MIXED cycle only straight-run
-                // sites (both incident edges LineSegment) are eligible;
-                // `is_reversed` additionally enforces the per-site guards.
+                // sites (both incident edges LineSegment) are eligible for
+                // `is_reversed`; task #145 (spec
+                // `yang_453_mixed_cycle_conic_backtrack`) adds SHARED-CONIC
+                // sites, tested by exact parameter order instead of the
+                // P10-disproven angle band.
+                let mut conic_backtrack: Option<(u32, u32)> = None;
                 if !all_conic {
                     let key_n = if p_r < p_n { (p_r, p_n) } else { (p_n, p_r) };
                     let key_b = if p_b < p_r { (p_b, p_r) } else { (p_r, p_b) };
                     let both_line = matches!(curves.get(&key_n), Some(Curve::LineSegment))
                         && matches!(curves.get(&key_b), Some(Curve::LineSegment));
                     if !both_line {
-                        continue;
+                        // Task #145 diagnosis probe (read-only, env-gated): a
+                        // conic site skipped by the mixed-cycle rule whose two
+                        // incident edges carry the SAME conic AND whose discrete
+                        // tangent U-turns (backtrack along the curve).
+                        if std::env::var_os("YANG_T145_SWEEP_PROBE").is_some() {
+                            if let (Some(cn), Some(cb)) = (curves.get(&key_n), curves.get(&key_b)) {
+                                if cn == cb || conics_equal_up_to_normal_sign(cn, cb) {
+                                    let pb = mesh.verts[p_b as usize].as_array();
+                                    let pr = mesh.verts[p_r as usize].as_array();
+                                    let pn = mesh.verts[p_n as usize].as_array();
+                                    let v1 =
+                                        normalize3([pr[0] - pb[0], pr[1] - pb[1], pr[2] - pb[2]]);
+                                    let v2 =
+                                        normalize3([pn[0] - pr[0], pn[1] - pr[1], pn[2] - pr[2]]);
+                                    let tt = [v1[0] + v2[0], v1[1] + v2[1], v1[2] + v2[2]];
+                                    let ttl =
+                                        (tt[0] * tt[0] + tt[1] * tt[1] + tt[2] * tt[2]).sqrt();
+                                    if ttl < 0.5 {
+                                        eprintln!(
+                                            "[t145-sweep] mixed-cycle conic U-turn skip: \
+                                             p_b={p_b} p_r={p_r} p_n={p_n} |t~|={ttl:.3e} \
+                                             same_struct={} cn={cn:?}",
+                                            cn == cb
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        // Task #145 branches 9–12: a shared-conic site in a
+                        // mixed cycle is a §4.5.3 site iff the three points
+                        // fail to progress along the conic in PARAMETER
+                        // order (the paper's criterion, tested exactly —
+                        // never the angle band, whose coarse-chord false
+                        // positives are P10-disproven here). Victim
+                        // selection and the 2·d_ε resolution gate below are
+                        // the existing shared path.
+                        let Some(shared) = mixed_cycle_shared_conic(&curves, key_b, key_n) else {
+                            continue;
+                        };
+                        let Some((d1, d2)) = conic_param_deltas(
+                            &shared,
+                            mesh.verts[p_b as usize],
+                            mesh.verts[p_r as usize],
+                            mesh.verts[p_n as usize],
+                        ) else {
+                            continue;
+                        };
+                        let reversed = d1 * d2 < 0.0;
+                        if std::env::var_os("YANG_T145_SWEEP_PROBE").is_some() {
+                            eprintln!(
+                                "[t145-arm] site p_b={p_b} p_r={p_r} p_n={p_n} \
+                                 d1={d1:.3e} d2={d2:.3e} reversed={reversed} \
+                                 pos_b={:?} pos_r={:?} pos_n={:?}",
+                                mesh.verts[p_b as usize],
+                                mesh.verts[p_r as usize],
+                                mesh.verts[p_n as usize],
+                            );
+                        }
+                        if !reversed {
+                            continue;
+                        }
+                        // Victim = p_r (the same-conic site vertex whose
+                        // relocation overshot); survivor = the parameter-
+                        // NEARER bracketing neighbor, so the collapse length
+                        // equals the actual overshoot and the 2·d_ε gate
+                        // bounds it honestly (spec branches 9a/9b).
+                        let survivor = if d1.abs() <= d2.abs() { p_b } else { p_n };
+                        conic_backtrack = Some((p_r, survivor));
                     }
                 }
-                if is_reversed(mesh, &curves, &incidence, p_b, p_r, p_n, lo, hi) {
+                if conic_backtrack.is_some()
+                    || is_reversed(mesh, &curves, &incidence, p_b, p_r, p_n, lo, hi)
+                {
                     // Spec `yang_453_junction_protected_collapse` §3: pick the
                     // collapse victim so a curve-junction vertex (the exact
                     // endpoint shared by two different conic sections, or the
                     // §3c surface-pair change on a straight run) always
                     // survives — Yang §4.5.3 removes points progressing along
-                    // ONE curve C, never C's endpoints.
+                    // ONE curve C, never C's endpoints. The task-#145
+                    // shared-conic arm carries its own (victim, survivor):
+                    // p_r onto its parameter-nearer neighbor (spec
+                    // `yang_453_mixed_cycle_conic_backtrack` branches 9a/9b).
                     let p_after = verts[(i + 2) % m];
-                    let (victim, survivor) =
-                        reversal_collapse_direction(&curves, &incidence, p_r, p_n, p_after);
+                    let (victim, survivor) = conic_backtrack.unwrap_or_else(|| {
+                        reversal_collapse_direction(&curves, &incidence, p_r, p_n, p_after)
+                    });
                     // Spec §3c resolution gate: §4.5.3 corrects RESOLUTION
                     // artifacts ("the mesh resolution is not sufficient to
                     // maintain a one-to-one mapping") — both the reversed
@@ -3367,6 +3513,13 @@ pub(crate) fn sweep_reversed_intersections(
                         let d = [pv[0] - ps[0], pv[1] - ps[1], pv[2] - ps[2]];
                         let dist = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
                         if dist > 2.0 * d_eps {
+                            if std::env::var_os("YANG_T145_SWEEP_PROBE").is_some() {
+                                eprintln!(
+                                    "[t145-gate] REFUSED victim={victim} survivor={survivor} \
+                                     dist={dist:.3e} 2d_eps={:.3e}",
+                                    2.0 * d_eps
+                                );
+                            }
                             continue;
                         }
                     }
@@ -3403,6 +3556,151 @@ pub(crate) fn sweep_reversed_intersections(
             // Fixed point: no reversal remains.
             return Ok(collapsed_any);
         }
+    }
+}
+
+/// Task #145: are two conic curve payloads the SAME geometric point set,
+/// differing only by the SIGN of the stored plane `normal`? A conic's normal
+/// sign is a frame choice, not geometry: negating `normal` flips the derived
+/// minor direction (`normal × major_axis`) with it, tracing the identical
+/// ellipse/circle point set (the parameterization runs the other way). Exact
+/// field comparison — f64 negation is exact, so no tolerance is involved.
+pub(crate) fn conics_equal_up_to_normal_sign(a: &Curve, b: &Curve) -> bool {
+    let neg = |v: Vector3| Vector3::new(-v.as_array()[0], -v.as_array()[1], -v.as_array()[2]);
+    match (a, b) {
+        (
+            Curve::Circle {
+                center: c0,
+                normal: n0,
+                radius: r0,
+            },
+            Curve::Circle {
+                center: c1,
+                normal: n1,
+                radius: r1,
+            },
+        ) => c0 == c1 && r0 == r1 && (*n0 == *n1 || *n0 == neg(*n1)),
+        (
+            Curve::Ellipse {
+                center: c0,
+                normal: n0,
+                major_axis: m0,
+                major_radius: a0,
+                minor_radius: b0,
+            },
+            Curve::Ellipse {
+                center: c1,
+                normal: n1,
+                major_axis: m1,
+                major_radius: a1,
+                minor_radius: b1,
+            },
+        ) => c0 == c1 && m0 == m1 && a0 == a1 && b0 == b1 && (*n0 == *n1 || *n0 == neg(*n1)),
+        _ => false,
+    }
+}
+
+/// Task #145 (spec `yang_453_mixed_cycle_conic_backtrack`): the exact conic
+/// parameter of `pt` on a `Circle`/`Ellipse`, in the shared PR-YR11 frame
+/// (`project_onto_circle` / `ellipse_param` — the same parameterization
+/// Stage-4 relocation and `is_reversed` use). `None` for non-conic payloads
+/// or a degenerate projection (branch 11 — cannot diagnose).
+fn conic_param(curve: &Curve, pt: Point3) -> Option<f64> {
+    match curve {
+        Curve::Circle {
+            center,
+            normal,
+            radius,
+        } => project_onto_circle(pt, *center, *normal, *radius)
+            .ok()
+            .map(|(_, t)| t),
+        Curve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } => Some(ellipse_param(
+            pt,
+            *center,
+            *normal,
+            *major_axis,
+            *major_radius,
+            *minor_radius,
+        )),
+        _ => None,
+    }
+}
+
+/// Task #145 branch 9/10: do `p_b`, `p_r`, `p_n` FAIL to progress along the
+/// shared conic in parameter order? Yang §4.5.3's criterion is "points
+/// progressing along the intersection curve in sequence"; for closed-form
+/// conics the curve parameter tests this directly (the paper's discrete
+/// tangent test is the general-surface proxy, whose 45° band is P10-disproven
+/// at coarse-chord conic sites — spec §3c records). Consecutive deltas are
+/// wrapped to (−π, π] (each Stage-1 chord subtends < π); reversal ⟺ the two
+/// deltas have opposite signs. A zero delta (coincident parameters) and a
+/// degenerate projection are healthy — cannot diagnose (branch 11).
+/// (The sweep consumes `conic_param_deltas` directly — it also needs the
+/// survivor side; this equivalent boolean form is the branch-table oracle.)
+#[cfg(test)]
+pub(crate) fn conic_param_reversed(curve: &Curve, p_b: Point3, p_r: Point3, p_n: Point3) -> bool {
+    conic_param_deltas(curve, p_b, p_r, p_n).is_some_and(|(d1, d2)| d1 * d2 < 0.0)
+}
+
+/// Task #145: the wrapped conic-parameter deltas `(t_r − t_b, t_n − t_r)` of a
+/// shared-conic site, each in (−π, π]. `None` when any parameter is undefined
+/// (branch 11). The reversal test is `d1·d2 < 0`; the collapse survivor is the
+/// parameter-NEARER bracketing neighbor (the endpoint `p_r` overshot — its
+/// distance is the actual overshoot, which the 2·d_ε resolution gate can
+/// honestly bound; the FAR neighbor is a whole arc away and never a resolution
+/// artifact).
+pub(crate) fn conic_param_deltas(
+    curve: &Curve,
+    p_b: Point3,
+    p_r: Point3,
+    p_n: Point3,
+) -> Option<(f64, f64)> {
+    let (t_b, t_r, t_n) = (
+        conic_param(curve, p_b)?,
+        conic_param(curve, p_r)?,
+        conic_param(curve, p_n)?,
+    );
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let wrap = |mut d: f64| -> f64 {
+        while d > std::f64::consts::PI {
+            d -= two_pi;
+        }
+        while d <= -std::f64::consts::PI {
+            d += two_pi;
+        }
+        d
+    };
+    Some((wrap(t_r - t_b), wrap(t_n - t_r)))
+}
+
+/// Task #145 branch 12 (site eligibility): the shared conic of a mixed-cycle
+/// site — `Some` iff BOTH incident edges carry the SAME `Circle`/`Ellipse`
+/// (exact struct equality or equality up to the stored normal's sign, I5).
+/// Junctions (different conics), conic/LineSegment boundaries, and straight
+/// runs (the §3c both-line arm) return `None`.
+pub(crate) fn mixed_cycle_shared_conic(
+    curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    key_b: (u32, u32),
+    key_n: (u32, u32),
+) -> Option<Curve> {
+    let cb = curves.get(&key_b)?;
+    let cn = curves.get(&key_n)?;
+    if !matches!(cn, Curve::Circle { .. } | Curve::Ellipse { .. }) {
+        return None;
+    }
+    if cn == cb || conics_equal_up_to_normal_sign(cn, cb) {
+        // Either storage is a valid frame for the parameter test (a normal
+        // flip negates BOTH deltas, leaving their product invariant); return
+        // the `key_b` representative deterministically.
+        Some(*cb)
+    } else {
+        None
     }
 }
 
@@ -3554,6 +3852,17 @@ pub(crate) fn is_reversed(
         match (curves.get(&key_n), curves.get(&key_b)) {
             (Some(cn), Some(cb)) => {
                 if cn != cb {
+                    // Task #145 diagnosis probe (read-only, env-gated): does the
+                    // junction guard skip a site whose two curves are the SAME
+                    // geometric conic up to normal sign?
+                    if std::env::var_os("YANG_T145_SWEEP_PROBE").is_some()
+                        && conics_equal_up_to_normal_sign(cn, cb)
+                    {
+                        eprintln!(
+                            "[t145-sweep] sign-flip junction skip: p_b={p_b} p_r={p_r} p_n={p_n} \
+                             cn={cn:?} cb={cb:?}"
+                        );
+                    }
                     return false;
                 }
             }

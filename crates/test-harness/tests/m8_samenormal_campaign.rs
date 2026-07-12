@@ -263,17 +263,17 @@ fn red_r0021_stage4_relocation() {
 // `AmbiguousCurve` to a Stage-4 `DegenerateTriangle` / `VertexOffSurface`
 // class, which N2-3a's Stage-0 exact rim mint closed in turn (pinned by
 // `n2_junction_cluster_campaign.rs::red_r0072_vertex_off_surface`, now green).
-// Kept `#[ignore]` because R0072 end-to-end still fails on a THIRD wall; the
-// ignore reason names the current blocker so the harness stays honest. The
-// Mode-3 fix has its own dedicated regression test in yang-rs
+// UN-IGNORED 2026-07-12 (task #145, spec
+// `yang_453_mixed_cycle_conic_backtrack`): the THIRD wall (kernel-v2
+// TessellationFailed on face 19, previously "inverted final triangle" /
+// "ring rejected by CDT") was the §4.5.3 conic-site gap in mixed cycles —
+// R0072's FaceId(11) reversal sat on exactly the sites the §3c scope
+// excluded. The parameter-order sweep arm + nearest-point ellipse
+// relocation retire it; R0072 completes SUPPORTED_CORRECT end-to-end. The
+// Mode-3 fix keeps its own dedicated regression test in yang-rs
 // (`tests::r0072_parallel_line_position_tiebreak`).
 
 #[test]
-#[ignore = "M8 same-normal RED (kernel-v2 TessellationFailed): R0072 now builds past Stage-3 \
-            AmbiguousCurve (parallel-line tie-break) and past the VertexOffSurface class \
-            (N2-3a exact rim mint), but render tessellation fails loudly with \
-            `TessellationFailed { face: FaceId(19), reason: \"inverted final triangle\" }`; \
-            GREEN when that face-19 tessellation mode is fixed"]
 fn red_r0072_stage3_ambiguous_parallel_lines() {
     assert_correct("R0072");
 }
@@ -325,20 +325,22 @@ fn red_f0061_residual_pair() {
 /// gone. (If R0021 starts passing, repoint this to another still-RED case.)
 #[test]
 fn wall_is_lifted_for_same_normal() {
-    // Repointed R0021 → R0072 (2026-07-11): R0021 now passes; R0072 is the
-    // campaign's remaining RED (kernel-v2 TessellationFailed, downstream of
-    // Stage 0).
-    let failures = replay_failures("R0072");
+    // Repointed R0072 → R0063 (2026-07-12, task #145): R0072 now completes
+    // CORRECT; R0063 is the campaign's remaining RED (kernel-v2
+    // InvalidBooleanOutput Newell-normal disagreement — the task-#146 class,
+    // downstream of Stage 0). The old Mode-5 "hangs cherchi" note is stale:
+    // R0063 completes with a typed error in the current assay.
+    let failures = replay_failures("R0063");
     assert!(
         !failures.is_empty(),
-        "expected R0072 to still be RED (kernel-v2 tessellation); if it now passes, \
-         un-ignore red_r0072_stage3_ambiguous_parallel_lines and repoint this check"
+        "expected R0063 to still be RED (Newell-normal disagreement, task #146); \
+         if it now passes, repoint this check to another still-RED same-normal case"
     );
     assert!(
         !failures
             .iter()
             .any(|f| f.contains("coplanar input face pair")),
-        "the same-normal Stage-0 wall has re-appeared — R0021 hit the Stage-0 \
+        "the same-normal Stage-0 wall has re-appeared — R0063 hit the Stage-0 \
          coplanar wall instead of its downstream mode:\n  {}",
         failures.join("\n  ")
     );

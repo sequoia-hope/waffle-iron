@@ -1064,6 +1064,310 @@ pub(crate) fn s453c_line_run_reversal_branches() {
     );
 }
 
+// ── Task #145: spec `yang_453_mixed_cycle_conic_backtrack` branches 9–12 ──
+
+/// Branch 9/10: exact conic parameter-order reversal on a shared circle.
+/// A backtrack (t runs 10° → 5° → 20°) is a reversal; a monotone coarse
+/// 7-gon corner (51.4° chords — the `corner_in_band` P10 shape) is healthy.
+#[test]
+pub(crate) fn s453d_shared_circle_backtrack_reversed() {
+    let circle = Curve::Circle {
+        center: p(0.0, 0.0, 0.0),
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let at = |deg: f64| {
+        let t = deg.to_radians();
+        p(t.cos(), t.sin(), 0.0)
+    };
+    assert!(
+        conic_param_reversed(&circle, at(10.0), at(5.0), at(20.0)),
+        "parameter runs backward then forward — a §4.5.3 reversal (branch 9)"
+    );
+    assert!(
+        !conic_param_reversed(&circle, at(0.0), at(51.4), at(102.9)),
+        "coarse 7-gon chords progress monotonically — healthy (branch 10, I3)"
+    );
+    // Branch-cut robustness: the atan2 parameter wraps at ±π; monotone
+    // progression across the cut must stay healthy, a backtrack across it
+    // must still be detected.
+    assert!(
+        !conic_param_reversed(&circle, at(170.0), at(180.0), at(-170.0)),
+        "monotone progression across the ±π branch cut is healthy"
+    );
+    assert!(
+        conic_param_reversed(&circle, at(175.0), at(180.0), at(178.0)),
+        "a backtrack straddling the branch cut is still a reversal"
+    );
+    // Branches 9a/9b: the deltas drive the survivor choice — the collapse
+    // must target the parameter-NEARER neighbor (the one p_r overshot), so
+    // the 2·d_ε gate bounds the ACTUAL overshoot, never a whole arc.
+    let (d1, d2) = conic_param_deltas(&circle, at(10.0), at(5.0), at(20.0))
+        .expect("parameters defined on the circle");
+    assert!(
+        d1 < 0.0 && d2 > 0.0 && d1.abs() < d2.abs(),
+        "backward overshoot past p_b: |d1| (5°) is the overshoot, p_b survives (9a)"
+    );
+    let (d1, d2) = conic_param_deltas(&circle, at(0.0), at(22.0), at(20.0))
+        .expect("parameters defined on the circle");
+    assert!(
+        d1 > 0.0 && d2 < 0.0 && d2.abs() < d1.abs(),
+        "forward overshoot past p_n: |d2| (2°) is the overshoot, p_n survives (9b)"
+    );
+}
+
+/// I2 adversary: a near-tangent plane∩cylinder ellipse (a = 2.4, b = 0.02 —
+/// the R0061 scale) turns nearly 180° in 3D at its major-axis tip even for
+/// a LEGIT monotone traversal. The discriminator must be parameter order,
+/// never the 3D turn angle — this test kills a `v1·v2 < 0` mutant.
+#[test]
+pub(crate) fn s453d_steep_ellipse_peak_monotone_is_healthy() {
+    let ell = Curve::Ellipse {
+        center: p(0.0, 0.0, 0.0),
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        major_axis: Vector3::new(1.0, 0.0, 0.0),
+        major_radius: 2.4,
+        minor_radius: 0.02,
+    };
+    let at = |deg: f64| {
+        let t = deg.to_radians();
+        p(2.4 * t.cos(), 0.02 * t.sin(), 0.0)
+    };
+    let (pb, pr, pn) = (at(-5.0), at(0.0), at(5.0));
+    // Precondition: the 3D turn at the tip genuinely exceeds 90° (otherwise
+    // this adversary would not discriminate the mutant).
+    let v1 = [pr.x() - pb.x(), pr.y() - pb.y(), pr.z() - pb.z()];
+    let v2 = [pn.x() - pr.x(), pn.y() - pr.y(), pn.z() - pr.z()];
+    assert!(
+        v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2] < 0.0,
+        "fixture precondition: the tip traversal turns more than 90° in 3D"
+    );
+    assert!(
+        !conic_param_reversed(&ell, pb, pr, pn),
+        "monotone parameter progression around a steep tip is healthy (I2)"
+    );
+    // And the mirrored genuine backtrack on the SAME ellipse is detected.
+    assert!(
+        conic_param_reversed(&ell, at(2.0), at(-1.0), at(4.0)),
+        "a genuine parameter backtrack on the eccentric ellipse is a reversal"
+    );
+}
+
+/// I5: conic identity up to the stored normal's SIGN (a frame choice, not
+/// geometry) — exact field comparison, never tolerance-based.
+#[test]
+pub(crate) fn s453d_conic_identity_up_to_normal_sign() {
+    let e = Curve::Ellipse {
+        center: p(1.0, 2.0, 3.0),
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        major_axis: Vector3::new(1.0, 0.0, 0.0),
+        major_radius: 2.0,
+        minor_radius: 0.5,
+    };
+    let e_flip = Curve::Ellipse {
+        center: p(1.0, 2.0, 3.0),
+        normal: Vector3::new(0.0, 0.0, -1.0),
+        major_axis: Vector3::new(1.0, 0.0, 0.0),
+        major_radius: 2.0,
+        minor_radius: 0.5,
+    };
+    let e_other = Curve::Ellipse {
+        center: p(9.0, 2.0, 3.0),
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        major_axis: Vector3::new(1.0, 0.0, 0.0),
+        major_radius: 2.0,
+        minor_radius: 0.5,
+    };
+    assert!(conics_equal_up_to_normal_sign(&e, &e));
+    assert!(conics_equal_up_to_normal_sign(&e, &e_flip));
+    assert!(!conics_equal_up_to_normal_sign(&e, &e_other));
+    let c = Curve::Circle {
+        center: p(0.0, 0.0, 0.0),
+        normal: Vector3::new(0.0, 1.0, 0.0),
+        radius: 1.0,
+    };
+    let c_flip = Curve::Circle {
+        center: p(0.0, 0.0, 0.0),
+        normal: Vector3::new(0.0, -1.0, 0.0),
+        radius: 1.0,
+    };
+    let c_r2 = Curve::Circle {
+        center: p(0.0, 0.0, 0.0),
+        normal: Vector3::new(0.0, 1.0, 0.0),
+        radius: 2.0,
+    };
+    assert!(conics_equal_up_to_normal_sign(&c, &c_flip));
+    assert!(!conics_equal_up_to_normal_sign(&c, &c_r2));
+    assert!(!conics_equal_up_to_normal_sign(&c, &e));
+    assert!(!conics_equal_up_to_normal_sign(
+        &Curve::LineSegment,
+        &Curve::LineSegment
+    ));
+}
+
+/// Branch 12 eligibility: a mixed-cycle site is a shared-conic site iff BOTH
+/// incident edges carry the same conic (exact or up-to-normal-sign). A
+/// junction (different conics), a conic/LineSegment boundary, and a straight
+/// run (the §3c arm's turf) are all ineligible.
+#[test]
+pub(crate) fn s453d_shared_conic_site_eligibility() {
+    use std::collections::BTreeMap;
+    let e = Curve::Ellipse {
+        center: p(0.0, 0.0, 0.0),
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        major_axis: Vector3::new(1.0, 0.0, 0.0),
+        major_radius: 2.0,
+        minor_radius: 0.5,
+    };
+    let e_flip = Curve::Ellipse {
+        center: p(0.0, 0.0, 0.0),
+        normal: Vector3::new(0.0, 0.0, -1.0),
+        major_axis: Vector3::new(1.0, 0.0, 0.0),
+        major_radius: 2.0,
+        minor_radius: 0.5,
+    };
+    let other = Curve::Circle {
+        center: p(5.0, 0.0, 0.0),
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let mut curves: BTreeMap<(u32, u32), Curve> = BTreeMap::new();
+    curves.insert((1, 2), e);
+    curves.insert((2, 3), e);
+    assert_eq!(mixed_cycle_shared_conic(&curves, (1, 2), (2, 3)), Some(e));
+    curves.insert((2, 3), e_flip);
+    assert_eq!(
+        mixed_cycle_shared_conic(&curves, (1, 2), (2, 3)),
+        Some(e),
+        "sign-flipped storage of the same conic is ONE curve (I5)"
+    );
+    curves.insert((2, 3), other);
+    assert_eq!(
+        mixed_cycle_shared_conic(&curves, (1, 2), (2, 3)),
+        None,
+        "a junction between two different conics is not a site"
+    );
+    curves.insert((2, 3), Curve::LineSegment);
+    assert_eq!(
+        mixed_cycle_shared_conic(&curves, (1, 2), (2, 3)),
+        None,
+        "a conic/LineSegment boundary is not a site"
+    );
+    let mut lines: BTreeMap<(u32, u32), Curve> = BTreeMap::new();
+    lines.insert((1, 2), Curve::LineSegment);
+    lines.insert((2, 3), Curve::LineSegment);
+    assert_eq!(
+        mixed_cycle_shared_conic(&lines, (1, 2), (2, 3)),
+        None,
+        "straight runs belong to the §3c both-line arm, not this one"
+    );
+}
+
+/// Spec `yang_453_mixed_cycle_conic_backtrack` §3b (mechanism 2): on a
+/// near-tangent section the azimuth-preserving projection slides a vertex
+/// ~1/(n·â) ALONG the ellipse; the in-plane nearest-point projection must
+/// stay within a small multiple of the actual off-curve residual (I6).
+#[test]
+pub(crate) fn s453e_near_tangent_ellipse_nearest_projection_bounded() {
+    // Cylinder: axis z through origin, r = 0.02. Plane: n ≈ (0.99995, 0, 0.01),
+    // n·x = 0.01 → |n·â| = 0.01, section ellipse a = r/|n·â| = 2, b = r.
+    let r = 0.02_f64;
+    let n_dot_a = 0.01_f64;
+    let nx = (1.0 - n_dot_a * n_dot_a).sqrt();
+    let plane_n = Vector3::new(nx, 0.0, n_dot_a);
+    let plane_d = -0.01_f64; // n·x + d = 0 passes 0.01/nx ≈ 0.01 from the axis
+                             // Ellipse frame of this section (center = plane ∩ axis, major along the
+                             // in-plane steepest direction = normalize(â − (n·â)n)).
+    let cz = -plane_d / n_dot_a; // z where the axis meets the plane
+    let center = p(0.0, 0.0, cz);
+    let maj = normalize3([-n_dot_a * nx, 0.0, 1.0 - n_dot_a * n_dot_a]);
+    let major_axis = Vector3::new(maj[0], maj[1], maj[2]);
+    let er = EllipseReloc {
+        axis_point: p(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: r,
+        plane_n,
+        plane_d,
+        center,
+        normal: plane_n,
+        major_axis,
+        major_radius: r / n_dot_a,
+        minor_radius: r,
+        second_cyl: None,
+    };
+    // Exact curve point at azimuth θ = π/2: (0, r, z(θ)) with
+    // z = −(d + nx·r·cosθ)/n_dot_a; displace it AZIMUTHALLY by 1e-4.
+    let theta = std::f64::consts::FRAC_PI_2;
+    let exact = p(
+        r * theta.cos(),
+        r * theta.sin(),
+        -(plane_d + nx * r * theta.cos()) / n_dot_a,
+    );
+    let delta = 1.0e-4_f64;
+    let displaced = p(exact.x() - delta, exact.y(), exact.z());
+    let rho = ellipse_residual(displaced, &er);
+    assert!(
+        rho < 2.0 * delta,
+        "fixture: residual is O(delta), got {rho:.3e}"
+    );
+    // The azimuth projection slides ~delta/n_dot_a along the curve — the
+    // documented mechanism-2 defect magnitude.
+    let (az_proj, _) =
+        project_onto_ellipse_via_cylinder(displaced, &er).expect("azimuth projection");
+    let az_move = {
+        let a = az_proj.as_array();
+        let b = displaced.as_array();
+        ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+    };
+    assert!(
+        az_move > 50.0 * delta,
+        "fixture: the azimuth slide is macro (≈100·delta), got {az_move:.3e}"
+    );
+    // The nearest-point projection stays local and lands ON the ellipse.
+    let (near_proj, t) =
+        project_onto_ellipse_nearest(displaced, &er).expect("nearest projection converges");
+    let near_move = {
+        let a = near_proj.as_array();
+        let b = displaced.as_array();
+        ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+    };
+    assert!(
+        near_move < 4.0 * delta,
+        "I6: nearest-point move is a small multiple of the residual, got {near_move:.3e}"
+    );
+    assert!(
+        ellipse_residual(near_proj, &er) < 1.0e-9,
+        "the nearest projection lands on the exact ellipse"
+    );
+    // The returned parameter matches the projected point's own frame angle.
+    let t_check = ellipse_param(
+        near_proj,
+        er.center,
+        er.normal,
+        er.major_axis,
+        er.major_radius,
+        er.minor_radius,
+    );
+    assert!(
+        (t - t_check).abs() < 1.0e-9,
+        "returned parameter is the projected point's frame angle"
+    );
+    // Degenerate seed: the ellipse CENTER has no local nearest point within
+    // any band — the projection lands a macro distance away (≥ b), which the
+    // relocation loop's R3 gate must reject.
+    if let Ok((c_proj, _)) = project_onto_ellipse_nearest(center, &er) {
+        let c_move = {
+            let a = c_proj.as_array();
+            let b = center.as_array();
+            ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+        };
+        assert!(
+            c_move >= 0.9 * r,
+            "center projection moves ~the minor radius (R3 territory)"
+        );
+    }
+}
+
 #[test]
 pub(crate) fn s453c_surface_normal_at_canonical() {
     let n = surface_normal_at(

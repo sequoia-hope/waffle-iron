@@ -845,6 +845,83 @@ pub(crate) fn project_onto_ellipse_via_cylinder(
     Ok((proj, t))
 }
 
+/// Task #145 mechanism 2 (spec `yang_453_mixed_cycle_conic_backtrack` §3b):
+/// the IN-PLANE nearest point on the section ellipse. Unlike
+/// [`project_onto_ellipse_via_cylinder`] — which preserves the vertex's
+/// cylinder azimuth and amplifies any azimuthal offset by `1/(n·â)` ALONG a
+/// near-tangent section — this projection is intrinsic to the ellipse and
+/// stays a small multiple of the true off-curve residual everywhere (I6).
+///
+/// Method ([#1] Patrikalakis-Maekawa-Cho, point-to-curve projection, with the
+/// standard first-quadrant symmetry reduction): drop `p` onto the section
+/// plane, express it in the shared PR-YR11 ellipse frame as `(u, v)`, reduce
+/// to `(|u|, |v|)` where the nearest parameter is UNIQUE on `[0, π/2]`, and
+/// BISECT the distance stationarity
+/// `f(t) = (a² − b²)·cos t·sin t − |u|·a·sin t + |v|·b·cos t`
+/// (`f(0) = |v|·b ≥ 0`, `f(π/2) = −|u|·a ≤ 0` — a guaranteed bracket, so
+/// convergence is unconditional; a plain Newton from the `atan2` seed
+/// DIVERGES to a far stationary point on eccentric ellipses — the F0047
+/// vertex-42 RED measurement). Signs map the solution back to the quadrant.
+pub(crate) fn project_onto_ellipse_nearest(
+    p: Point3,
+    er: &EllipseReloc,
+) -> Result<(Point3, f64), Stage4InvalidReason> {
+    let n_raw = er.plane_n.as_array();
+    let n_len = (n_raw[0] * n_raw[0] + n_raw[1] * n_raw[1] + n_raw[2] * n_raw[2]).sqrt();
+    if n_len < cad_primitives::TAU_WORK {
+        return Err(Stage4InvalidReason::LocalRefinementRequired);
+    }
+    let n = [n_raw[0] / n_len, n_raw[1] / n_len, n_raw[2] / n_len];
+    let d = er.plane_d / n_len;
+    let x = p.as_array();
+    // Drop onto the section plane (move = the out-of-plane residual component).
+    let h = n[0] * x[0] + n[1] * x[1] + n[2] * x[2] + d;
+    let q = [x[0] - h * n[0], x[1] - h * n[1], x[2] - h * n[2]];
+    // Shared PR-YR11 ellipse frame (byte-identical to `ellipse_param`).
+    let maj = normalize3(er.major_axis.as_array());
+    let mindir = crate::geom::ellipse_frame(er.normal, er.major_axis);
+    let c = er.center.as_array();
+    let w = [q[0] - c[0], q[1] - c[1], q[2] - c[2]];
+    let u = w[0] * maj[0] + w[1] * maj[1] + w[2] * maj[2];
+    let v = w[0] * mindir[0] + w[1] * mindir[1] + w[2] * mindir[2];
+    let a = er.major_radius;
+    let b = er.minor_radius;
+    let (au, av) = (u.abs(), v.abs());
+    let f = |t: f64| -> f64 {
+        let (st, ct) = (t.sin(), t.cos());
+        (a * a - b * b) * ct * st - au * a * st + av * b * ct
+    };
+    // Bisection on the guaranteed bracket [0, π/2]; ~80 halvings reach the
+    // f64 resolution of the interval unconditionally (deterministic).
+    // `f(0) = |v|·b ≥ 0` and `f(π/2) = −|u|·a ≤ 0` hold unconditionally, so
+    // the bracket never needs a validity check; the axis-degenerate cases
+    // (|u| = 0 or |v| = 0) converge to the correct endpoint or the interior
+    // evolute root by the same iteration.
+    let mut lo = 0.0_f64;
+    let mut hi = std::f64::consts::FRAC_PI_2;
+    for _ in 0..80 {
+        let mid = 0.5 * (lo + hi);
+        if f(mid) >= 0.0 {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let tq = 0.5 * (lo + hi);
+    // Map the first-quadrant solution back through the sign symmetry (an
+    // exactly-zero coordinate keeps the +quadrant representative).
+    let ct = tq.cos().copysign(if u == 0.0 { 1.0 } else { u });
+    let st = tq.sin().copysign(if v == 0.0 { 1.0 } else { v });
+    let proj = Point3::new(
+        c[0] + a * ct * maj[0] + b * st * mindir[0],
+        c[1] + a * ct * maj[1] + b * st * mindir[1],
+        c[2] + a * ct * maj[2] + b * st * mindir[2],
+    );
+    // Parameter in the `ellipse_param` convention (−π, π].
+    let t_out = st.atan2(ct);
+    Ok((proj, t_out))
+}
+
 /// PR-YR21 (spec §3.1/§3.2): per-vertex Ellipse relocation data for a
 /// `cone ∩ plane` oblique section — the cone analog of [`EllipseReloc`]. Carries
 /// the true cone (apex / axis / half-angle), the cutting plane (`plane_n` /
