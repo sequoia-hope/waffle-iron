@@ -5,6 +5,10 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
+# Single owner of the numeric tolerance constants (TAU_MODEL, TAU_WORK,
+# MIN_FEATURE_SIZE) — kernel/units.rs re-exports them so both sides of the
+# kernel trait boundary see ONE definition (A14.3; design review 2026-07-12 F3).
+cad-primitives = { path = "../cad-primitives" }
 serde = { version = "1", features = ["derive"] }
 thiserror = "1"
 uuid = { version = "1", features = ["v4", "serde"] }

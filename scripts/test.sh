@@ -46,6 +46,11 @@ RUST_REWRITE_CRATES=(
   kernel-v2
   cherchi-sidecar-rs
   indirect-predicates-sidecar-rs
+  # predicate-gen guards the clean-room predicate core: its suite asserts
+  # cherchi-rs/src/predicates/indirect/generated.rs is byte-identical to
+  # generator output and that the filter constants match the published
+  # FPG/Cherchi values (design review 2026-07-12 F2). 14 tests, <1s.
+  predicate-gen
 )
 
 # (PR-CR-M7c) The former cherchi-rs `--features indirect-predicates` FFI tier
@@ -278,10 +283,48 @@ run_rust_fast() {
 }
 
 # ---------------------------------------------------------------------------
+# Tier: Parity — the #[ignore]d "binding reference" sidecar oracles
+# (design review 2026-07-12 F2: these were dormant — no tier ever passed
+# --ignored, so the C++-reference diffs ran only when a human remembered).
+# Requires the sidecar binaries (scripts/build_sidecars.sh); the tests
+# themselves loud-panic if a binary is missing (P9 — no silent skip).
+# ~20s total. Runs standalone via `parity` and as part of `full`.
+# ---------------------------------------------------------------------------
+PARITY_IGNORED_BINS=(
+  r0046_patch_label_parity
+  stage0_operand_inputcheck
+)
+
+run_parity() {
+  header "Parity Tier (ignored sidecar reference oracles)"
+  local tier_start
+  tier_start=$(timer_start)
+
+  for binary in "${PARITY_IGNORED_BINS[@]}"; do
+    local start rc=0
+    start=$(timer_start)
+    mem_guard cargo test -p cherchi-rs --release --test "$binary" -- --ignored --test-threads="$TEST_THREADS" || rc=$?
+    local elapsed
+    elapsed=$(timer_elapsed "$start")
+    if [[ $rc -eq 0 ]]; then
+      pass "cherchi-rs --test $binary [--ignored] (${elapsed}s)"
+    else
+      fail "cherchi-rs --test $binary [--ignored] (${elapsed}s)"
+    fi
+  done
+
+  local elapsed
+  elapsed=$(timer_elapsed "$tier_start")
+  echo ""
+  echo -e "${CYAN}  Parity tier completed in ${elapsed}s${NC}"
+}
+
+# ---------------------------------------------------------------------------
 # Tier: Rust Full (~910 tests)
 # ---------------------------------------------------------------------------
 run_rust_full() {
   run_rust_rewrite
+  run_parity
 
   header "Rust Full Tier"
   local tier_start
@@ -451,7 +494,8 @@ print_help() {
   echo -e "${BOLD}Subcommands:${NC}"
   echo -e "  ${GREEN}rewrite${NC}      Kernel-rewrite crates only (new-crate suites)"
   echo -e "  ${GREEN}fast${NC}         Rust fast tier       (rewrite crates + legacy fast, <60s target)"
-  echo -e "  ${GREEN}full${NC}         Rust full tier        (~910 tests)"
+  echo -e "  ${GREEN}full${NC}         Rust full tier        (~910 tests, includes parity)"
+  echo -e "  ${GREEN}parity${NC}       Ignored sidecar reference oracles (~20s, needs sidecars)"
   echo -e "  ${GREEN}gui-fast${NC}     GUI fast tier         (~260 tests, 35 spec files)"
   echo -e "  ${GREEN}gui-full${NC}     GUI full tier         (~425 tests, all spec files)"
   echo -e "  ${GREEN}all-fast${NC}     fast + gui-fast"
@@ -499,6 +543,9 @@ main() {
       ;;
     full)
       run_rust_full
+      ;;
+    parity)
+      run_parity
       ;;
     gui-fast)
       run_gui_fast

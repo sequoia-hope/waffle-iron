@@ -1,27 +1,50 @@
 # Waffle Iron — Testing Guide
 
+*(Tier list updated 2026-07-12 to match `scripts/test.sh` — the previous
+version predated the Phase 6 migration and described the deleted legacy
+`kernel` crate; design review G10.)*
+
 ## Test Tiers
 
-### Rust Fast (~500 tests, <30s)
+### Kernel Rewrite (`rewrite`, ~70s)
 
-Fast unit and integration tests using MockKernel and pure logic. Covers:
+The kernel-stack inner loop — run after every meaningful kernel change:
 
-- **waffle-types** — Shared type definitions
+- **cad-primitives, cherchi-rs, ssi-rs, yang-rs, kernel-v2** — the live
+  kernel stack
+- **cherchi-sidecar-rs, indirect-predicates-sidecar-rs** — dev-only parity
+  oracle shims
+- **predicate-gen** — guards that `generated.rs` (the clean-room exact
+  predicate core) is byte-identical to generator output and that filter
+  constants match the published FPG/Cherchi values
+
+Note: the cherchi-rs suite includes the flagship reference-parity test
+(`parity_native_vs_sidecar`), which **panics loudly if the C++ sidecar
+binary is missing** — build it once with `scripts/build_sidecars.sh`.
+
+### Parity (`parity`, ~20s)
+
+The `#[ignore]`d "binding reference" sidecar oracles
+(`r0046_patch_label_parity`, `stage0_operand_inputcheck`), run with
+`--ignored`. Included in `full`; run standalone when touching cherchi-rs
+coplanar/inputcheck paths.
+
+### Rust Fast (`fast`, ~80s)
+
+Rewrite tier + consumer crates:
+
+- **waffle-types** (with `mock-kernel` feature) — kernel contract + MockKernel
 - **sketch-solver** — Constraint solver logic
 - **feature-engine** — Feature tree and rebuild pipeline
 - **modeling-ops** — Modeling operation dispatching
-- **wasm-bridge** — WASM API surface
+- **wasm-bridge** (`--no-default-features`) — WASM API surface
 - **file-format** — Serialization/deserialization
-- **kernel** — Mock/types/primitives/tessellation modules
 - **test-harness** — Fast binaries: `scenarios_mock`, `workflow_tests`, `oracle_tests`, `report_tests`, `scenarios_advanced`, `stl_tests`
 
-### Rust Full (~1200 tests, <5min)
+### Rust Full (`full`, ~2min)
 
-All Rust crates including slow tests:
-
-- Everything in Rust Fast, plus:
-- **kernel** — Full crate including all kernel tests
-- **test-harness** — All binaries including `advanced_scenarios`, `extrude_chains`, `boolean_workflows`, `boolean_failures`
+Everything: rewrite + parity + all consumer crates + the complete
+test-harness suite.
 
 ### GUI Fast (~36 spec files, <2min)
 
@@ -46,12 +69,15 @@ Everything in GUI Fast, plus heavy workflow and infrastructure specs:
 ## Running Tests
 
 ```bash
-./scripts/test.sh fast       # Rust fast tier (~30s)
-./scripts/test.sh full       # All Rust tests (~5min)
+./scripts/test.sh rewrite    # Kernel-stack inner loop (~70s)
+./scripts/test.sh parity     # Ignored sidecar reference oracles (~20s)
+./scripts/test.sh fast       # Rewrite + consumer crates (~80s)
+./scripts/test.sh full       # All Rust tests incl. parity (~2min)
 ./scripts/test.sh gui-fast   # Quick GUI smoke tests
 ./scripts/test.sh gui-full   # All GUI tests
 ./scripts/test.sh all-fast   # Rust fast + GUI fast
 ./scripts/test.sh all        # Everything
+./scripts/test.sh assay      # Corpus replay + proptest assays
 ./scripts/test.sh profile    # Run timing profiler
 ```
 
@@ -61,9 +87,10 @@ Everything in GUI Fast, plus heavy workflow and infrastructure specs:
 
 | Condition | Tier |
 |-----------|------|
+| Kernel-stack crate (`cad-primitives`…`kernel-v2`, sidecars, `predicate-gen`) | Rewrite (and fast/full) |
 | Uses `ModelBuilder::mock()` or `MockKernel` | Fast |
-| Uses `ModelBuilder::kernel()` or `WaffleKernel` | Full (slow) |
-| test-harness binary with "advanced", "chains", "boolean_workflows", "boolean_failures" | Full |
+| Uses the real kernel (`KernelV2Adapter`) via test-harness heavy binaries | Full (slow) |
+| `#[ignore]`d sidecar reference oracle | Parity (and full) |
 | Pure type/logic tests (no kernel) | Fast |
 
 ### GUI Tests
@@ -113,17 +140,32 @@ These files are gitignored and not committed.
 
 ## WASM Crash Detection in GUI Tests
 
-### `catch_unwind` works with panic=unwind
+### The WASM build is panic=abort — `catch_unwind` does NOT catch kernel panics
 
-The WASM binary is built with `cargo +nightly` and `-Zbuild-std`, which enables
-`panic=unwind` on `wasm32-unknown-unknown` (see `.cargo/config.toml`). This makes
-`std::panic::catch_unwind` actually catch kernel panics instead of killing the
-module. The boolean cascade wraps each attempt in `catch_unwind`, and
-a WASM-specific attempt limit (`MAX_WASM_CASCADE_ATTEMPTS`) prevents stack exhaustion.
+**(Updated 2026-07-12, design review G1. The section this replaces described
+the pre-Phase-6 nightly + `-Zbuild-std` + `panic=unwind` build, which was
+retired with the legacy kernel on 2026-06-11. Do not write tests assuming
+`catch_unwind` works in WASM — it does not.)**
 
-**Without nightly + -Zbuild-std**, `panic="abort"` is forced and `catch_unwind` is a
-no-op — panics emit WASM `unreachable` traps that kill the module. The worker has
-auto-restart logic as a safety net, but the primary defense is `catch_unwind`.
+Since the Phase 6 migration the WASM bundle is built with standard **stable**
+`wasm-pack` (see `rust-toolchain.toml` and the note in `.cargo/config.toml`).
+On `wasm32-unknown-unknown` this forces `panic="abort"`: a panic emits a WASM
+`unreachable` trap that kills the module, and `std::panic::catch_unwind` is a
+no-op. (`Cargo.toml`'s `panic = "unwind"` profile setting applies to NATIVE
+test targets only, where `catch_unwind` still works.)
+
+The kernel-v2 stack is designed for this: it is **Result-based end to end** —
+errors surface as typed `KernelError`/`YangError` values, not panics, so a
+WASM trap indicates a genuine kernel bug, not a routine failure path. The
+defenses, in order:
+
+1. **Primary: typed errors.** Operations that fail return errors that cross
+   the bridge as structured diagnostics (error toasts in the app).
+2. **Safety net: worker auto-restart.** A trap raises
+   `WebAssembly.RuntimeError` in the worker's `processMessage()`; the worker
+   re-fetches the module and re-inits (see flow below).
+3. **Test oracle: `collectCrashErrors` + `expectNoAnyCrash`** — any trap,
+   recovered or not, fails the test.
 
 ### DO NOT use `engineReady` as a crash oracle
 
@@ -155,7 +197,8 @@ for new tests. `expectNoCrash` (tolerant of recovered crashes) exists for legacy
 
 ### Worker crash recovery flow (safety net)
 
-If `catch_unwind` ever fails (e.g., stack overflow beyond the 4MB limit):
+When the module traps (any kernel panic, or stack overflow beyond the 4MB
+limit):
 
 1. Boolean operation panics → WASM `unreachable` trap
 2. Worker catches `WebAssembly.RuntimeError` in `processMessage()`
@@ -164,7 +207,11 @@ If `catch_unwind` ever fails (e.g., stack overflow beyond the 4MB limit):
 5. Worker calls `init()` to create fresh engine state
 6. Response includes `needsRestart: false` (recovery succeeded) or `true` (failed)
 
-## Measured Timings (2026-02-21)
+## Measured Timings (2026-02-21) — HISTORICAL
+
+**This table predates the Phase 6 migration; the `kernel` rows refer to the
+deleted legacy crate.** Re-run `./scripts/test.sh profile` for current
+numbers; current tier ballparks are in the tier list above.
 
 Baseline timing data from `profile-rust.sh` run:
 
