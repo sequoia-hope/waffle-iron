@@ -1375,6 +1375,12 @@ enum PairSurfaceKey {
         axis_dir: [u64; 3],
         half_angle: u64,
     },
+    /// F10: sphere operand of a general-position sphere×cyl / sphere×cone
+    /// degree-4 pair.
+    Sphere {
+        center: [u64; 3],
+        radius: u64,
+    },
 }
 
 fn pair_surface_key(s: &crate::arena::PairSurface) -> PairSurfaceKey {
@@ -1408,6 +1414,14 @@ fn pair_surface_key(s: &crate::arena::PairSurface) -> PairSurfaceKey {
                 axis_dir.z.to_bits(),
             ],
             half_angle: half_angle.to_bits(),
+        },
+        crate::arena::PairSurface::Sphere { center, radius } => PairSurfaceKey::Sphere {
+            center: [
+                center.x().to_bits(),
+                center.y().to_bits(),
+                center.z().to_bits(),
+            ],
+            radius: radius.to_bits(),
         },
     }
 }
@@ -2854,8 +2868,17 @@ fn yang_surface_to_pair_surface(s: yang_rs::Surface) -> Result<PairSurface, Kern
                 half_angle,
             })
         }
+        yang_rs::Surface::Sphere { center, radius } => {
+            // F10: general-position sphere×cyl / sphere×cone degree-4 pairs.
+            if !(radius.is_finite() && radius > 0.0) {
+                return Err(KernelV2Error::InvalidBooleanOutput(
+                    "surface-pair sphere operand has a non-positive radius",
+                ));
+            }
+            Ok(PairSurface::Sphere { center, radius })
+        }
         _ => Err(KernelV2Error::UnsupportedBooleanOutputCurve {
-            curve: "surface-pair with a plane/sphere/torus operand (only cyl/cone are produced)",
+            curve: "surface-pair with a plane/torus operand (only cyl/cone/sphere are produced)",
         }),
     }
 }

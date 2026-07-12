@@ -450,6 +450,15 @@ pub enum PairSurface {
         /// Half-angle (radians, ∈ (0, π/2)).
         half_angle: f64,
     },
+    /// Sphere: the zero set of `|x − center| − radius`. Operand of the F10
+    /// general-position sphere×cylinder / sphere×cone degree-4 pairs (design
+    /// review 2026-07-12).
+    Sphere {
+        /// Sphere center.
+        center: Point3,
+        /// Sphere radius (meters, > 0).
+        radius: f64,
+    },
 }
 
 // ---------------------------------------------------------------------------

@@ -59,9 +59,10 @@ argument orders route to the same solver) and returns:
 - `Err(SsiError::DegenerateInput)` — degenerate configuration (coincident,
   zero/negative radius, concentric, zero/non-finite direction).
 - `Err(SsiError::AnalyticalSolutionNotAvailable)` — a pair with no analytic
-  solver **and no `SurfacePair` producer yet** (A15.2: loud `Err`, never a
-  silent mesh/grid fallback). Today this fires **only** on the two general-
-  position sphere pairs (see [§ Open item F10](#open-item-f10)).
+  solver and no `SurfacePair` producer (A15.2: loud `Err`, never a silent
+  mesh/grid fallback). Since F10 (2026-07-12) NO pair returns this as a staged
+  capability gap; it survives only as the documented absolute-band
+  scale-sensitivity fallback in the sphere solvers' coaxial discriminant.
 
 ## Error status vocabulary
 
@@ -69,7 +70,6 @@ argument orders route to the same solver) and returns:
 |--------|---------|
 | `done` | Closed-form analytic `SsiCurve` (Line/Circle/Ellipse/Parabola/Hyperbola) for every geometrically-real sub-case; tested. |
 | `done-via-SurfacePair` | Special configs are closed-form conics; the general-position degree-4 arm returns the exact procedural `SurfacePair` (M5). Tested. |
-| `gap-Err` | Special configs are closed-form; the general-position degree-4 arm returns `Err(AnalyticalSolutionNotAvailable)` — a staged gap, not a fallback. See [F10](#open-item-f10). |
 | `not-in-crate` | Pair involves `Torus`, which is not a `QuadricSurface`; handled above `ssi-rs`. |
 
 ## Acceptance criteria (per sub-case)
@@ -171,7 +171,7 @@ Solver `sphere_sphere` (`lib.rs:945`). Center distance `D`, chord offset
 | Disjoint / contained | `Ok([])` | done | ssi1 |
 | Concentric (`D < TAU`) or `radius ≤ 0` | `Err(DegenerateInput)` | done | ssi1 |
 
-### 6. Sphere–Cylinder — `gap-Err`
+### 6. Sphere–Cylinder — `done-via-SurfacePair`
 
 Solver `sphere_cylinder` (`lib.rs:1029`). Coaxial ::= cylinder axis passes
 through the sphere center (`d_ax < TAU`).
@@ -181,10 +181,10 @@ through the sphere center (`d_ax < TAU`).
 | X2 — coaxial, `r_s − r_c > TAU` | two `Circle`s at `C ± √(r_s²−r_c²)·â`, `+h` first | done | ssi6 |
 | X1 — coaxial tangent (`\|r_s−r_c\| ≤ TAU`) | one great `Circle` at `C` | done | ssi6 |
 | X0 — coaxial, cylinder wider than sphere | `Ok([])` | done | ssi6 |
-| **NC — non-coaxial general degree-4** (`d_ax ≥ TAU`) | **`Err(AnalyticalSolutionNotAvailable)` at `lib.rs:1063-1064`** | **gap-Err** ([F10](#open-item-f10)) | ssi6 |
+| NC — non-coaxial general degree-4 (`d_ax ≥ TAU`) | `SurfacePair { a: cyl, b: sphere }` at `lib.rs:1063-1064` | done-via-SurfacePair ([F10](#f10--sphere-general-position-degree-4-closed-2026-07-12)) | ssi6 |
 | E1 — `r_s ≤ 0` / `r_c ≤ 0` / zero axis | `Err(DegenerateInput)` | done | ssi6 |
 
-### 7. Sphere–Cone — `gap-Err`
+### 7. Sphere–Cone — `done-via-SurfacePair`
 
 Solver `sphere_cone` (`lib.rs:1141`). Coaxial ::= sphere center on the cone axis
 line. Linear branch gate `g = r_s − \|h₀\|·sinα` (`sign(D) = sign(g)`).
@@ -194,7 +194,7 @@ line. Linear branch gate `g = r_s − \|h₀\|·sinα` (`sign(D) = sign(g)`).
 | X2 — coaxial, `g > TAU` | two `Circle`s at `h_± = (h₀ ± √D)·cos²α`, `+√D` first | done | ssi7 |
 | X1 — coaxial tangent (`\|g\| ≤ TAU`) | one `Circle` at `h₀·cos²α` | done | ssi7 |
 | X0 — coaxial, sphere too small (`g < −TAU`) | `Ok([])` | done | ssi7 |
-| **NC — non-coaxial general degree-4** (`d_ax ≥ TAU`) | **`Err(AnalyticalSolutionNotAvailable)` at `lib.rs:1185-1186`** | **gap-Err** ([F10](#open-item-f10)) | ssi7 |
+| NC — non-coaxial general degree-4 (`d_ax ≥ TAU`) | `SurfacePair { a: cone, b: sphere }` at `lib.rs:1185-1186` | done-via-SurfacePair ([F10](#f10--sphere-general-position-degree-4-closed-2026-07-12)) | ssi7 |
 | E1 — `r_s ≤ 0` / bad α / zero axis | `Err(DegenerateInput)` | done | ssi7 |
 
 ### 8. Cylinder–Cone — `done-via-SurfacePair`
@@ -275,24 +275,21 @@ common (coaxial revolve, KV6d) torus configurations.
 
 ---
 
-## Open item F10 — sphere general-position degree-4 gap
+## F10 — sphere general-position degree-4: CLOSED (2026-07-12)
 
-Design review `docs/review/design_review_2026-07-12_kernel.md` §F10 (MEDIUM):
-the degree-4 representation is inconsistent inside `ssi-rs`. Three general-
-position degree-4 arms (cyl×cyl `lib.rs:1596`, cyl×cone `lib.rs:1323`, cone×cone
-`lib.rs:1450`) return the blessed M5 `SurfacePair`, but the two **sphere** pairs
-still return `Err(AnalyticalSolutionNotAvailable)`:
-
-- **sphere×cylinder NC** — `lib.rs:1063-1064`
-- **sphere×cone NC** — `lib.rs:1185-1186`
-
-Consequence: an offset (non-coaxial) sphere×cylinder or sphere×cone boolean
-loudly fails where the mathematically equivalent cyl×cyl / cyl×cone succeeds —
-the hole is exactly the pairs a sphere touches. yang-rs / kernel-v2 already carry
-a `PairSurface::Sphere` operand, so the fix is to promote both sphere NC branches
-to `SurfacePair { a, b }` (and update `quadric_to_surface` at
-`crates/yang-rs/src/stage3_ssi.rs:82-85`, which currently rejects `Sphere`
-operands). **Open** — tracked as F10 remediation, not scheduled in this task.
+Design review `docs/review/design_review_2026-07-12_kernel.md` §F10 flagged the
+degree-4 representation as inconsistent: the cyl×cyl / cyl×cone / cone×cone
+general-position arms returned the M5 `SurfacePair` while the two **sphere**
+pairs returned `Err(AnalyticalSolutionNotAvailable)`. **Now closed** (deviations
+ledger N37): both sphere NC arms return `SurfacePair` (structured surface first,
+sphere second). The end-to-end plumbing needed more than the review assumed —
+`quadric_to_surface` (`crates/yang-rs/src/stage3_ssi.rs`) rejected `Sphere`, and
+kernel-v2 had **no `PairSurface::Sphere` variant at all** — so F10 also added:
+the arena `PairSurface::Sphere` variant, its `pair_surface_residual_gradient`
+arm (`f = |x−c|−r`, unit radial gradient), `pair_surface_scale`,
+`PairSurfaceKey::Sphere`, and the `yang_surface_to_pair_surface` sphere arm.
+`ssi-rs` now has NO staged capability gap; `AnalyticalSolutionNotAvailable`
+survives only as the documented absolute-band scale-sensitivity fallback.
 
 ---
 
@@ -305,8 +302,8 @@ operands). **Open** — tracked as F10 remediation, not scheduled in this task.
 | 3 | Plane–Cone | done | Circle + Ellipse + Parabola + 2·Hyperbola + through-apex lines | — |
 | 4 | Plane–Sphere | done | Circle | — |
 | 5 | Sphere–Sphere | done | Circle | — |
-| 6 | Sphere–Cylinder | **gap-Err** | coaxial 0–2 Circle | `Err(ASNA)` (`:1063`) — F10 |
-| 7 | Sphere–Cone | **gap-Err** | coaxial 0–2 Circle | `Err(ASNA)` (`:1185`) — F10 |
+| 6 | Sphere–Cylinder | done-via-SurfacePair | coaxial 0–2 Circle | `SurfacePair` (`:1063`) — F10 |
+| 7 | Sphere–Cone | done-via-SurfacePair | coaxial 0–2 Circle | `SurfacePair` (`:1185`) — F10 |
 | 8 | Cylinder–Cone | done-via-SurfacePair | coaxial 2 Circle | `SurfacePair` (`:1323`) |
 | 9 | Cone–Cone | done-via-SurfacePair | coaxial 0–2 Circle | `SurfacePair` (`:1450`) |
 | 10 | Cylinder–Cylinder | done-via-SurfacePair | parallel Lines + equal-R 2 Ellipse | `SurfacePair` (`:1596`) |
@@ -316,10 +313,11 @@ operands). **Open** — tracked as F10 remediation, not scheduled in this task.
 | — | Sphere–Torus | not-in-crate | — | torus routes above ssi-rs |
 | — | Torus–Torus | not-in-crate | — | torus routes above ssi-rs |
 
-**Closed form for every geometrically-real sub-case**: 8 of the 10 crate pairs
-(all but the two sphere general-position gaps). The three cone/cylinder
-general-position pairs reach exactness via the M5 `SurfacePair` procedural curve;
-the two sphere pairs are the one remaining `Err` gap (F10). Torus pairs are
+**Closed form for every geometrically-real sub-case**: all 10 crate pairs. The
+five general-position degree-4 pairs (cyl×cyl, cyl×cone, cone×cone, and — since
+F10, 2026-07-12 — sphere×cyl, sphere×cone) reach exactness via the M5
+`SurfacePair` procedural curve; there is no remaining staged `Err` gap. Torus
+pairs are
 handled one tier up (coaxial-rim recovery + Stage-4 implicit relocation), not in
 `ssi-rs`.
 

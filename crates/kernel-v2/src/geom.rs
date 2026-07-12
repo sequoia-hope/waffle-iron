@@ -1162,6 +1162,22 @@ pub(crate) fn pair_surface_residual_gradient(
             ];
             Some((residual, g))
         }
+        // Sphere (F10): the exact signed distance `|x − center| − radius`,
+        // whose gradient is the unit radial `(x − center)/|x − center|` — so
+        // the shared Gauss-Newton step is exact, exactly as for the cylinder.
+        // `None` at the center (radial direction undefined).
+        crate::arena::PairSurface::Sphere { center, radius } => {
+            let d = [
+                p[0] - center.x(),
+                p[1] - center.y(),
+                p[2] - center.z(),
+            ];
+            let dl = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+            if !(dl.is_finite() && dl > 0.0) {
+                return None;
+            }
+            Some((dl - radius, [d[0] / dl, d[1] / dl, d[2] / dl]))
+        }
     }
 }
 
@@ -1175,6 +1191,8 @@ pub(crate) fn pair_surface_scale(s: &crate::arena::PairSurface) -> f64 {
     match *s {
         crate::arena::PairSurface::Cylinder { radius, .. } => radius,
         crate::arena::PairSurface::Cone { .. } => 0.0,
+        // A sphere has a constant radius, like the cylinder (F10).
+        crate::arena::PairSurface::Sphere { radius, .. } => radius,
     }
 }
 
@@ -1360,5 +1378,39 @@ mod tests {
         let pts = [Point3::new(0.3, 0.7, 0.1), Point3::new(1.9, -2.3, 4.4)];
         assert_eq!(newell(&pts), [0.0, 0.0, 0.0]);
         assert!(newell_unit(&pts).is_none());
+    }
+
+    #[test]
+    fn sphere_pair_surface_residual_and_gradient() {
+        // F10: PairSurface::Sphere residual = |x − c| − r, gradient = unit
+        // radial. A point exactly on the surface has ~0 residual; a point at
+        // radius+d has residual d; the gradient is the outward unit radial and
+        // the Gauss-Newton step (x -= f·ĝ) lands back on the surface.
+        use crate::arena::PairSurface;
+        let s = PairSurface::Sphere {
+            center: Point3::new(1.0, -2.0, 0.5),
+            radius: 3.0,
+        };
+        // On surface: point at center + 3·x̂.
+        let on = [4.0, -2.0, 0.5];
+        let (res_on, g_on) = pair_surface_residual_gradient(&s, on).unwrap();
+        assert!(res_on.abs() < 1e-12, "on-surface residual {res_on:e}");
+        assert!((g_on[0] - 1.0).abs() < 1e-12 && g_on[1].abs() < 1e-12 && g_on[2].abs() < 1e-12);
+        // Off surface by +0.5 along −ŷ from center: point = c + 3.5·(−ŷ).
+        let off = [1.0, -5.5, 0.5];
+        let (res_off, g_off) = pair_surface_residual_gradient(&s, off).unwrap();
+        assert!((res_off - 0.5).abs() < 1e-12, "off residual {res_off}");
+        // Gauss-Newton step returns to the surface.
+        let stepped = [
+            off[0] - res_off * g_off[0],
+            off[1] - res_off * g_off[1],
+            off[2] - res_off * g_off[2],
+        ];
+        let (res2, _) = pair_surface_residual_gradient(&s, stepped).unwrap();
+        assert!(res2.abs() < 1e-12, "post-step residual {res2:e}");
+        // Center is degenerate (radial undefined).
+        assert!(pair_surface_residual_gradient(&s, [1.0, -2.0, 0.5]).is_none());
+        // Scale is the radius.
+        assert_eq!(pair_surface_scale(&s), 3.0);
     }
 }

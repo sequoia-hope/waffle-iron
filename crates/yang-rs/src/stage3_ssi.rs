@@ -79,10 +79,19 @@ pub(crate) fn quadric_to_surface(q: ssi_rs::QuadricSurface) -> Result<Surface, S
             axis_dir,
             half_angle,
         }),
-        // No surface-pair producer emits these operands (M5 = cyl×cyl + cone-pair).
-        ssi_rs::QuadricSurface::Plane { .. } | ssi_rs::QuadricSurface::Sphere { .. } => {
-            Err(SsiRefinementError::UnsupportedSurfaceForSsi)
+        // F10 (design review 2026-07-12): the sphere×cylinder / sphere×cone
+        // general-position arms now emit a `SurfacePair` with a `Sphere`
+        // operand, so this conversion must carry it through to the yang
+        // `Surface::Sphere` (kernel-v2 has the matching `PairSurface::Sphere`,
+        // and Stage-4 relocation has the sphere gradient arm). Without this
+        // the F10 promotion would only move the wall from ssi-rs's ASNA to
+        // here.
+        ssi_rs::QuadricSurface::Sphere { center, radius } => {
+            Ok(Surface::Sphere { center, radius })
         }
+        // No producer emits a bare `Plane` as a surface-pair operand (a
+        // plane section is always a conic, never a degree-4 pair).
+        ssi_rs::QuadricSurface::Plane { .. } => Err(SsiRefinementError::UnsupportedSurfaceForSsi),
     }
 }
 

@@ -452,10 +452,10 @@ non-torus pairs.
 | 5 | Cylinder–Cylinder | Line / Ellipse / degree-4 | done — parallel lines + equal-R coplanar ellipses + general-position `SurfacePair` (M5) |
 | 6 | Plane–Torus | Degree-4 curve | not-in-crate — Torus is not a `QuadricSurface`; routed above `ssi-rs` |
 | 7 | Cylinder–Cone | Degree-4 curve | done — coaxial circles + general-position `SurfacePair` (M5) |
-| 8 | Cylinder–Sphere | Degree-4 curve | gap — coaxial circles analytical; general position returns `Err(AnalyticalSolutionNotAvailable)` (F10) |
+| 8 | Cylinder–Sphere | Degree-4 curve | done — coaxial circles + general-position `SurfacePair` (M5/F10) |
 | 9 | Cone–Cone | Degree-4 curve | done — coaxial circles + general-position `SurfacePair` (M5) |
 | 10 | Cylinder–Torus | Degree-4 curve | not-in-crate — Torus is not a `QuadricSurface`; routed above `ssi-rs` |
-| 11 | Cone–Sphere | Degree-4 curve | gap — coaxial circles analytical; general position returns `Err(AnalyticalSolutionNotAvailable)` (F10) |
+| 11 | Cone–Sphere | Degree-4 curve | done — coaxial circles + general-position `SurfacePair` (M5/F10) |
 | 12 | Sphere–Sphere | Circle | done |
 | 13 | Cone–Torus | Degree-4 curve | not-in-crate — Torus is not a `QuadricSurface`; routed above `ssi-rs` |
 | 14 | Sphere–Torus | Degree-4 curve | not-in-crate — Torus is not a `QuadricSurface`; routed above `ssi-rs` |
@@ -476,8 +476,10 @@ retag), and general-position torus edges are relocated onto the exact
 torus∩surface curve by yang-rs Stage-4 implicit-pair/triple Newton (Stage 3
 skips torus edges as `Curve::LineSegment`). The M5 procedural surface-pair curve
 (Option B, per the A15.1 amendment above) is live for cyl×cyl, cyl×cone, and
-cone×cone; the two general-position **sphere** pairs (#8, #11) are the one
-remaining `Err` gap (design review F10).
+cone×cone, and (since design-review F10, 2026-07-12) the two general-position
+**sphere** pairs (#8, #11). `ssi-rs` now has NO staged `Err` capability gap —
+`AnalyticalSolutionNotAvailable` remains only as the documented absolute-band
+scale-sensitivity fallback.
 
 ### A15.5 Surface tier preservation
 

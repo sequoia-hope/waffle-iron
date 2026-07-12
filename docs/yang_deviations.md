@@ -2111,9 +2111,21 @@ structured surface first (cylinder / cone), sphere second, matching the
 cyl×cone producer's convention. Same M5 contract (Constitution P8 degree-4
 clarification; A15.1 amendment): exact, defined implicitly by the two
 surfaces, each concrete point certified by yang-rs Newton projection onto
-BOTH. The downstream plumbing already carried `PairSurface::Sphere`
-(kernel-v2 arena) and `quadric_to_surface`/`surface_to_quadric` sphere arms,
-so no seam change was needed.
+BOTH.
+
+**CORRECTION (same-day):** the review's premise that "yang-rs / kernel-v2
+already carry a `PairSurface::Sphere` operand" was WRONG, so the ssi-rs flip
+alone only moved the wall. The end-to-end closure additionally required:
+(a) yang-rs `quadric_to_surface` (`stage3_ssi.rs`) — was rejecting `Sphere`
+with `UnsupportedSurfaceForSsi`; now maps to `Surface::Sphere`; (b) kernel-v2
+`arena::PairSurface` — had NO `Sphere` variant; added `Sphere { center,
+radius }`; (c) kernel-v2 `geom::pair_surface_residual_gradient` sphere arm
+(`f = |x−c|−r`, unit radial gradient — the simplest quadric, a clean mirror
+of the cylinder radial form; unit-tested `sphere_pair_surface_residual_and_gradient`);
+(d) `geom::pair_surface_scale` → radius; (e) `boolean::PairSurfaceKey::Sphere`
++ `pair_surface_key` arm; (f) `boolean::yang_surface_to_pair_surface` sphere
+arm. The wall message for a non-cyl/cone/sphere pair operand is retained
+(only plane/torus reject now).
 
 **Paper basis:** §4.1.2 / §4.3 procedural surface-pair curve. **Deviation:**
 none from the paper — this REMOVES a deviation (the staged gap).

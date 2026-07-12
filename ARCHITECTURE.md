@@ -21,7 +21,35 @@ The system has four layers:
 
 ### Kernel Layer (Rust, compiled to WASM)
 
-**`crates/kernel/`** — Clean-sheet B-Rep geometry kernel informed by published research (see `REFERENCES.md` and `/docs/SYSTEM_DESIGN.md`). Half-edge topology with Euler operators [Ref #16: Mantyla, #33: Stroud Ch.4], analytic and NURBS geometry, hybrid B-Rep/mesh boolean pipeline [Ref #24: Yang et al. 2025], exact adaptive predicates [Ref #4: Shewchuk], generalized winding numbers [Ref #7: Jacobson et al.], and topology-guaranteed SSI [Ref #25]. **Analytical primacy**: boolean operations on quadric surfaces (plane, cylinder, cone, sphere, torus) use exact SSI — the mesh/polygon path is reserved for freeform surfaces only (see governance/ARCHITECTURAL_INVARIANTS.md A15). Exposes `Kernel` and `KernelIntrospect` traits — no kernel internals leak to other layers. Progress tracked via assay score (see assay runner; target: 190/190 on Yang pipeline). The previous truck-based kernel served through Sprint 67 (see git history).
+**The kernel is a layered Rust stack** (the monolithic `crates/kernel/` was deleted at the Phase-6 migration, 2026-06-11):
+
+```
+cad-primitives  — shared geometry types & constants (Point3, Vector3, BoolOp, …)
+      │
+waffle-types    — public types + the Kernel/KernelIntrospect contract (traits, units, MockKernel)
+      │
+cherchi-rs      — Cherchi 2020+2022 exact mesh boolean (clean-room predicates, WASM-clean)
+ssi-rs          — analytical SSI solvers (Patrikalakis Ch.5)
+      │
+yang-rs         — Yang 2025 hybrid B-Rep/mesh boolean pipeline (deps cherchi-rs + ssi-rs)
+      │
+kernel-v2       — clean B-Rep + Euler ops + tessellation + the trait adapter (deps yang-rs)
+```
+
+The app, feature-engine, and all tests reach geometry through the `Kernel` /
+`KernelIntrospect` traits in `waffle_types::kernel`, implemented by
+`kernel_v2::KernelV2Adapter`. Dependency layering is compiler-enforced per
+`Cargo.toml`; no kernel internals leak to other layers. **Analytical primacy**:
+boolean operations on quadric surfaces (plane, cylinder, cone, sphere, torus)
+survive as exact analytical geometry through the hybrid pipeline [Ref #24: Yang
+et al. 2025] — the mesh path is an *exact computational tool* for deriving
+correct B-Rep topology, not a degradation (see
+governance/ARCHITECTURAL_INVARIANTS.md A15). The two non-WASM C++ sidecar
+crates (`cherchi-sidecar-rs`, `indirect-predicates-sidecar-rs`) are dev-only
+reference-parity oracles, never shipped. Progress is tracked via the
+categorized kernel-v2 assay; see "Current Kernel Status" below. The previous
+truck-based kernel and the clean-sheet `crates/kernel/` that replaced it both
+served historically (see git history).
 
 ### Engine Layer (Rust, compiled to WASM, runs in Web Worker)
 
@@ -102,12 +130,13 @@ User Input
 ┌─────────────────────────────────────────────────────────────┐
 │  KERNEL LAYER (WASM)                                        │
 │                                                             │
-│  kernel (clean-sheet)                                       │
+│  kernel-v2 (via KernelV2Adapter → yang-rs → cherchi/ssi)    │
 │    ├── Topology: Euler operators (half-edge B-Rep)          │
-│    ├── Boolean operations (union, subtract, intersect)      │
+│    ├── Boolean operations (Yang hybrid B-Rep/mesh pipeline) │
 │    ├── Topology introspection (faces, edges, vertices)      │
 │    ├── Tessellation → RenderMesh with face-range metadata   │
-│    └── STEP I/O (AP203, limited)                            │
+│    └── STEP import: separate crates/step-import (truck as   │
+│        parser only); STEP export: NotSupported (roadmap)    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -127,7 +156,7 @@ wasm-bridge → sketch-ui (update display, color by status)
 
 | # | Project | Purpose | Technology | Dependencies | Status |
 |---|---------|---------|------------|-------------|--------|
-| 01 | kernel | Clean-sheet B-Rep geometry kernel | Rust | None | In progress (980 tests, 28 ignored; assay 190 cases) |
+| 01 | kernel-v2 stack | Layered B-Rep kernel: `cad-primitives` + `waffle-types` → `cherchi-rs` / `ssi-rs` → `yang-rs` → `kernel-v2` (adapter `KernelV2Adapter`) | Rust | None | Live (Yang M0–M2/M6/M7 + Phase-6 migration COMPLETE 2026-06-11; assay 240/295 CORRECT, 0 WRONG; remaining walls M8 coplanar / §4.3.3 near-tangency / non-convex CDT) |
 | 02 | sketch-solver | 2D constraint solving via slvs | Rust + C (libslvs) | None | Complete (M1-M10 + Emscripten WASM) |
 | 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
 | 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |
@@ -162,7 +191,7 @@ Same inputs must always produce the same results. This is critical for testing a
 
 ### Mock-Driven Development
 
-Every Rust crate can be tested against mock implementations of its dependencies. The `MockKernel` (which implements the `Kernel` and `KernelIntrospect` traits with deterministic synthetic topology) is as important as `WaffleKernel`. Agents can develop and test feature-engine and modeling-ops without a working kernel build.
+Every Rust crate can be tested against mock implementations of its dependencies. The `MockKernel` (which implements the `Kernel` and `KernelIntrospect` traits with deterministic synthetic topology, behind the `mock-kernel` feature) is as important as the real `KernelV2Adapter`. Agents can develop and test feature-engine and modeling-ops without a working kernel build.
 
 ### Session-Independent
 
@@ -178,29 +207,73 @@ All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. 
 
 ## Current Kernel Status
 
-The clean-sheet kernel (`crates/kernel/`) is under active development. **980 kernel tests pass** (28 ignored — 20 A15.2 polygon-fallback tests awaiting SSI sub-cases, 3 Yang Phase 5 topology issues, 2 straddling box-cyl watertight tests, 2 deprecated S-H pipeline geometry failures, 1 known SSI edge case). 190-case randomized assay corpus (seed 42) with analytical ground truth and Euler characteristic oracles. Position-based vertex canonicalization fix enables Yang pipeline to process per-face vertex meshes from WaffleKernel tessellation. Yang path score is the target metric per A15.6.
+The live kernel is the layered `kernel-v2` stack (see "Kernel Layer" above);
+the monolithic `crates/kernel/` was deleted at the Phase-6 migration
+(2026-06-11). The app, feature-engine, and every test run on this stack
+through the `Kernel` / `KernelIntrospect` traits on stable Rust with standard
+`wasm-pack`. The plan of record is **`docs/yang_functional_roadmap.md`**.
 
-### What exists:
-- Half-edge B-Rep topology data structure with arena-based storage
-- Euler operators (mvfs, mev, mef, kemr, kfmrh) with invariant validation
-- Analytic geometry types (Point3, Vector3, Plane, Cylinder, Cone, Sphere, Torus)
-- SSI solvers in `crates/ssi-rs` (Ref: Patrikalakis Ch.5) for the 10 non-torus quadric pairs (Plane/Sphere/Cylinder/Cone — Torus is degree-4, not a `QuadricSurface`), integrated into Yang pipeline Stage 3 (SSI refinement). Closed-form conics + the M5 procedural `SurfacePair` for general-position cyl×cyl / cyl×cone / cone×cone; the two general-position sphere pairs still return `Err(AnalyticalSolutionNotAvailable)` (design review F10). Torus-pair geometry is produced above `ssi-rs` (coaxial-rim recovery + Stage-4 implicit relocation). See `/specs/ssi_solver_matrix.md` for the full status matrix
-- Analytical boolean pipeline: box×box, box×cyl, cyl×cyl (parallel + non-parallel), planar-planar, enclosed-hole
-- Geometry-driven tessellation for planar, cylindrical, conical, spherical, and toroidal faces
-- `MockKernel` (full deterministic test double, ~2,100 lines)
-- `WaffleKernel` — extrude, revolve, and boolean operations functional
-- 190-case randomized assay test suite (seed 42) with analytical ground truth and Euler characteristic oracle
+The correctness oracle is the categorized kernel-v2 assay
+(`cargo test -p test-harness --test assay_kv2 -- --ignored --nocapture`) plus
+reference parity against the Cherchi C++ sidecars. The assay corpus is
+**295 cases** with analytical ground truth and Euler-characteristic oracles,
+scored in five exhaustive buckets:
 
-### What's next (in priority order):
-1. **Yang hybrid boolean pipeline** — Phases 1–4 complete (bijective tessellation, exact mesh boolean, topology extraction, SSI refinement). Phase 5 (switchover) in progress: env-gated integration (5a) and assay comparison (5b) done; deprecated S-H code removal (5c–5f) pending. See `specs/yang_hybrid_migration.md`
-2. Remove A15.2 violation: eliminate polygon_approx_boolean fallback for quadric pairs that return NotSupported (propagate error instead)
-3. Enable cone/torus as boolean operand primitives in analytical dispatch (all 15 SSI solvers already integrated in Yang pipeline Phase 4 refinement)
-4. Fix enclosed-hole boolean for coaxial multi-hole patterns (swiss cheese disc — F0086)
-5. Improve chained extrude reliability (F0063-F0090 cases)
+**240 CORRECT · 0 WRONG · 51 ERROR · 4 UNSUPPORTED · 0 TIMEOUT** (2026-07-12).
+
+### What exists (live):
+- Half-edge B-Rep topology (arena-based storage, tombstoned ids) with Euler
+  operators (mvfs, mev, mef, kemr, kfmrh) and whole-arena invariant validation
+  at every op exit (`kernel-v2`)
+- Yang 2025 hybrid B-Rep/mesh boolean pipeline (`yang-rs`): coplanar
+  preprocessing (Stage 0) → bijective tessellation → exact mesh boolean
+  (`cherchi-rs`: Cherchi 2020 indirect predicates + 2022 ray-cast in/out) →
+  topology extraction → SSI refinement → B-Rep assembly. **Milestones M0, M1,
+  M2, M6, M7 and the Phase-6 migration are COMPLETE**; the kernel is live in
+  the app
+- Analytical SSI solvers (`ssi-rs`, Ref: Patrikalakis Ch.5) for the non-torus
+  quadric pairs, feeding Stage-4 geometry refinement; closed-form conics + the
+  M5 procedural `SurfacePair` for general-position cyl×cyl / cyl×cone /
+  cone×cone. Torus-pair geometry is produced above `ssi-rs` (coaxial-rim
+  recovery + Stage-4 implicit relocation). See `/specs/ssi_solver_matrix.md`
+- Extrude, revolve (incl. sphere/torus profiles), and boolean union/subtract/
+  intersect over box/cyl/cone/sphere/torus operands
+- Geometry-driven tessellation for planar, cylindrical, conical, spherical,
+  and toroidal faces
+- `MockKernel` (deterministic test double, `waffle-types` `mock-kernel` feature)
+  for consumer-crate unit tests; `KernelV2Adapter` for real-geometry tests
+
+### Remaining capability walls (typed `NotSupported`/error, loud — ROADMAP, not bugs):
+- **M8 coplanar-boolean tail** — the last flush/stacked-face coplanar cases
+  (Stage 0); the bulk of the class has shipped, a small residue remains
+- **§4.3.3 near-tangency** — face-gap-under-sagitta cases where mesh topology
+  can diverge from exact topology
+- **Non-convex CDT profile tail** — gear / arc-segment profiles
+- **STEP export** — trait-default `NotSupported` (STEP *import* is the separate
+  `crates/step-import`, truck pinned as parser only)
+
+The dominant remaining ERROR class is Stage-4 `LocalRefinementRequired` (the N2
+mesh-updating gap). When a milestone lands, its `#[ignore]`/`test.skip`
+quarantines are un-gated in the same PR (grep the milestone tag, e.g. `KV6`,
+`M8`, `M5`).
 
 ### Deferred indefinitely:
 - Fillet, chamfer, shell operations
 - Assembly support
+
+---
+
+### HISTORICAL (pre-2026-06-11, `crates/kernel/` — retained for context)
+
+The deleted clean-sheet kernel (`crates/kernel/`) tracked a **980-test** suite
+(28 ignored) against a **190-case** randomized assay corpus (seed 42) with a
+`WaffleKernel` implementation and an S-H clipping + tolerance-escalation
+boolean path. That path — and its failure mode of masking classification
+errors with tolerance widening and synthetic fill triangles — was deleted with
+the crate at the Phase-6 migration and is the cautionary tale behind
+Constitution P9/P10. The Yang "Phase 1–5 switchover" language that used to
+live here is superseded by the milestone roadmap above. Before it,
+`crates/kernel/` had itself replaced a truck-based kernel (through Sprint 67).
 
 ## Architectural Precedent: CADmium
 
