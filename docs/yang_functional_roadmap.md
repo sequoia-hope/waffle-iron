@@ -2824,11 +2824,27 @@ swapped every consumer to `predicates::indirect`).
     ring doubles back on itself) — the known F0045 near-coincident-junction
     family (N2/LRR-adjacent).
     (2) **3× Newell-normal disagreement** (F0064 ×2 ops, R0051; F0067 ×2
-    ops on top of its #144 wall) — `KV11_PROBE` on F0064 shows the output
-    "planar" faces carry loop vertices OFF-PLANE at REAL scale (1.7e-3 and
-    4.5e-3, alternating between two nearby parallel planes 4.5e-3 apart) —
-    an output loop-assembly / junction-relocation defect (N2 family), NOT a
-    winding-midpoint issue; the wall is honest.
+    ops on top of its #144 wall; + R0063 post-#145) — `KV11_PROBE` on F0064
+    shows the output "planar" faces carry loop vertices OFF-PLANE at REAL
+    scale (1.7e-3 and 4.5e-3, alternating between two nearby parallel
+    planes 4.5e-3 apart) — an output loop-assembly / junction-relocation
+    defect (N2 family), NOT a winding-midpoint issue; the wall is honest.
+    **ROOT LOCALIZED 2026-07-12 (task #146, probe `YANG_T146_PROBE` in
+    `emit_topology` planar emission + `YANG_V_PROBE` map dump):** F0064's
+    offenders (mesh verts 57/62/82/83 op-3, 1198/1219 op-4) sit BIT-EXACTLY
+    on their side plane pre-relocation and are registered in BOTH
+    `vert_circle` AND `vert_pp_planes` — a CIRCLE × (plane∩plane line)
+    triple point. PR-KV11 fix 3 reroutes only the ELLIPSE × pp-line
+    combination into the junction closed form; the CIRCLE arm has NO
+    analog, so the plain circle relocation wins and slides the vertex
+    along the circle off the pp-line's planes by the observed 1.7–4.5e-3.
+    Fix shape: mirror the KV11 block — for `vert_circle ∩ vert_pp_planes`,
+    dedup to exactly ONE distinct pp-line (else loud LRR, the KV11 rule),
+    build a `LineReloc` from the two planes' closed-form line (band_budget
+    per the F3 cylinder×plane derivation) and move the vertex into the
+    existing PR-F3 `vert_junction` map, whose relocation already lands
+    exactly on `line ∩ circle-plane`. R0051 (revolve chain) / F0067 to be
+    verified against the same mechanism after the fix.
     (3) **4× re-entry CDT failure** (R0061 R0095 `holed lateral CDT
     failed`; R0063 F0085 `CDT triangulation failed`) — a SUCCESSFUL op's
     output B-Rep fails conversion at the NEXT op. R0061 face 2 (probe

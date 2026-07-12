@@ -637,6 +637,24 @@ pub(crate) fn emit_topology(
             inner_loops.push(push_loop(&mut edges, inner));
         }
 
+        // Task #146 diagnosis probe (read-only, env-gated): a planar output
+        // face whose loop vertices sit off the inherited plane at real scale
+        // — dump the offenders so the producing relocation can be identified.
+        if std::env::var_os("YANG_T146_PROBE").is_some() {
+            for cycle in cycles {
+                for &(s, _) in cycle {
+                    let p = mesh.verts[s as usize].as_array();
+                    let dist = (p[0] * n[0] + p[1] * n[1] + p[2] * n[2] + d).abs();
+                    if dist > 1.0e-6 {
+                        eprintln!(
+                            "[t146] face {face_idx} ({:?}) off-plane vert {s} dist={dist:.3e} \
+                             p={p:?} plane_n={n:?} d={d}",
+                            info.input
+                        );
+                    }
+                }
+            }
+        }
         face_attribution.push(info_attr);
         faces.push(BRepFace {
             surface,
