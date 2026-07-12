@@ -79,6 +79,15 @@ pub fn torus_residual(tau: f64, rho: f64, major: f64, minor: f64) -> f64 {
     d * d + tau * tau - minor * minor
 }
 
+/// Signed radial residual of a point on/near a sphere (KV6d increment 2):
+/// `|p − center| − radius` — zero on the surface, negative inside, positive
+/// outside (plain length units, unlike the length² [`torus_residual`]).
+/// `validate_sphere_face` and the sphere tessellators use it.
+pub fn sphere_residual(p: Point3, center: Point3, radius: f64) -> f64 {
+    let d = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
+    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() - radius
+}
+
 /// Wrap an angle to the principal interval `(−π, π]`.
 pub(crate) fn wrap_to_pi(mut x: f64) -> f64 {
     use std::f64::consts::PI;

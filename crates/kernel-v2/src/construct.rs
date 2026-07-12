@@ -2056,10 +2056,17 @@ fn build_torus_revolve(
     let r = minor_radius;
     // Ring torus: the circle's closest approach to the axis is R − r > 0.
     let clearance = REVOLVE_MIN_AXIS_CLEARANCE_REL * (1.0 + mag.max(major));
-    // Full-turn on-axis circle sweeps a SPHERE — KV6d increment 2, typed
-    // wall (C0067) distinct from the off-center crossing (invalid input).
+    // Full-turn on-axis circle sweeps a SPHERE (KV6d increment 2, spec
+    // `kv6d_sphere_revolve.md`): the ball of radius `r` about the profile
+    // center's axis projection (the sub-clearance off-axis component is
+    // snapped away). Distinct from the off-center crossing (invalid input).
     if full_turn && major.abs() <= clearance {
-        return Err(KernelV2Error::RevolveOnAxisCircleUnsupported);
+        let center_sphere = Point3::new(
+            axis_origin.x() + t_c * a.x,
+            axis_origin.y() + t_c * a.y,
+            axis_origin.z() + t_c * a.z,
+        );
+        return assemble_closed_sphere(arena, center_sphere, r);
     }
     if major - r <= clearance {
         return Err(KernelV2Error::RevolveAxisIntersectsProfile);
@@ -2360,6 +2367,105 @@ fn assemble_closed_torus(
         start_cap: None,
         end_cap: None,
         walls: vec![f_lat],
+    })
+}
+
+/// Assemble the CLOSED solid sphere (KV6d increment 2, spec
+/// `kv6d_sphere_revolve.md`): the full-turn revolve of an on-axis circle.
+///
+/// Minimal seam structure of S² (the PR-YR12 yang contract mirrored into
+/// the arena): V = 2 (south/north poles), E = 1 (a meridian seam Arc twin
+/// pair), F = 1 (`Surface::Sphere`), genus 0 —
+/// `V − E + F − R = 2 = 2(S − G)` ✓.
+///
+/// The seam frame is CANONICAL world-z-up regardless of the revolve axis
+/// (the sphere is isotropic; the fixed frame matches yang's fixed z-up
+/// lat/long parameterization so `to_yang_brep` is a direct emission):
+/// poles at `center ± r·ẑ`, seam on the X–Z great circle through
+/// `center + r·x̂`. The forward (south → north) half-edge sweeps CCW
+/// around `−ŷ` (tangent `+x̂` at the south pole — through the `+x̂`
+/// meridian); its twin carries the negated normal (the existing
+/// curve-twin sign-canonicalized consistency rule).
+fn assemble_closed_sphere(
+    arena: &mut BrepArena,
+    center: Point3,
+    r: f64,
+) -> Result<RevolveResult, KernelV2Error> {
+    let v_south = Point3::new(center.x(), center.y(), center.z() - r);
+    let v_north = Point3::new(center.x(), center.y(), center.z() + r);
+
+    let vid_s = VertexId(arena.vertices.len() as u32);
+    let vid_n = VertexId(vid_s.0 + 1);
+    arena.vertices.push(Some(Vertex { point: v_south }));
+    arena.vertices.push(Some(Vertex { point: v_north }));
+
+    let hb = arena.half_edges.len() as u32;
+    let (seam_fwd, seam_back) = (HalfEdgeId(hb), HalfEdgeId(hb + 1));
+    let loop_sph = LoopId(arena.loops.len() as u32);
+    let f_sph = FaceId(arena.faces.len() as u32);
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    let meridian = |normal: UnitVector3| Curve::Arc {
+        center,
+        normal,
+        radius: r,
+    };
+    let neg_y = UnitVector3 {
+        x: 0.0,
+        y: -1.0,
+        z: 0.0,
+    };
+    // Loop cycle seam_fwd → seam_back (the twin pair internal to one loop —
+    // closed-torus precedent).
+    arena.half_edges.push(Some(HalfEdge {
+        twin: seam_back,
+        next: seam_back,
+        prev: seam_back,
+        origin: vid_s,
+        loop_id: loop_sph,
+        curve: meridian(neg_y),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: seam_fwd,
+        next: seam_fwd,
+        prev: seam_fwd,
+        origin: vid_n,
+        loop_id: loop_sph,
+        curve: meridian(neg(neg_y)),
+    }));
+
+    arena.loops.push(Some(Loop {
+        face: f_sph,
+        boundary: LoopBoundary::Edges(seam_fwd),
+        kind: LoopKind::Outer,
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Sphere {
+            center,
+            radius: r,
+            reversed: false,
+        }),
+        outer_loop: loop_sph,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: vec![f_sph],
+        genus: 0,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    finalize_solid(arena, solid)?;
+    Ok(RevolveResult {
+        solid,
+        shell,
+        start_cap: None,
+        end_cap: None,
+        walls: vec![f_sph],
     })
 }
 

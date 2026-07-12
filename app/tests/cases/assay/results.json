@@ -1,5 +1,5 @@
 {
-  "errored": 49,
+  "errored": 50,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
   "passed": 237,
@@ -1565,10 +1565,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 2c202d1b-93d3-4f00-b6f3-63af7399c9b0: operation error: kernel error: operation not supported: revolve_face: full-turn ON-AXIS circle profile sweeps a SPHERE (kernel-v2 roadmap KV6d increment 2; the closed ring torus and partial-turn tube are supported)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 2c20321b-93d3-477f-b6f3-68af7399d22f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 128 is invalid: LocalRefinementRequired\")",
       "id": "C0067",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",

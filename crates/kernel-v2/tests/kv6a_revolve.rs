@@ -582,21 +582,10 @@ fn partial_oblique_edge_builds_cone_patch() {
 fn circle_profiles_and_holes_rejected_typed() {
     let mut arena = BrepArena::new();
 
-    // FULL-turn circle profile builds the CLOSED torus since KV6d (spec
-    // `kv6d_closed_torus_revolve.md`, `tests/kv6d_closed_torus.rs`). The
-    // remaining full-turn circle wall is the ON-AXIS center (a sphere,
-    // KV6d increment 2, C0067).
-    let on_axis = Profile::circle(
-        Point3::new(0.0, 0.0, 0.0),
-        Vector3::new(1.0, 0.0, 0.0),
-        Vector3::new(0.0, 1.0, 0.0),
-        Point2::new(1.5, 0.0),
-        0.5,
-    )
-    .expect("on-axis circle profile");
-    let err = revolve(&mut arena, &on_axis, AXIS_O, AXIS_D, 2.0 * PI)
-        .expect_err("on-axis full-turn circle profile → sphere, walled");
-    assert_eq!(err, KernelV2Error::RevolveOnAxisCircleUnsupported);
+    // FULL-turn circle profiles build the CLOSED torus (off-axis, spec
+    // `kv6d_closed_torus_revolve.md`) or the CLOSED sphere (on-axis, spec
+    // `kv6d_sphere_revolve.md`, `tests/kv6d_sphere_revolve.rs`) since
+    // KV6d — no circle-profile full-turn wall remains.
 
     // Holed polygon.
     let holed = Profile::new(

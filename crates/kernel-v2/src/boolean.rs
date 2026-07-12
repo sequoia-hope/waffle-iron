@@ -903,6 +903,58 @@ pub fn to_yang_brep_indexed(
                         reversed,
                     });
                 }
+                Some(Surface::Sphere {
+                    center,
+                    radius,
+                    reversed,
+                }) => {
+                    // KV6d increment 2 (spec `kv6d_sphere_revolve.md`): only
+                    // the PRISTINE closed modeling sphere re-enters yang
+                    // Stage 1 — its seam-Arc twin pair is emitted as the
+                    // PR-YR12 fixture (2 pole verts + 1 meridian seam Circle,
+                    // start = south / end = north, X–Z seam plane). The
+                    // constructor authors the canonical z-up seam, so this is
+                    // a direct emission. A boolean-OUTPUT sphere patch has no
+                    // structured Stage-1 tessellation yet — typed wall.
+                    let hes = arena.loop_half_edges(face.outer_loop)?;
+                    let closed = face.inner_loops.is_empty()
+                        && hes.len() == 2
+                        && arena.half_edge(hes[0])?.twin == hes[1]
+                        && matches!(arena.half_edge(hes[0])?.curve, Curve::Arc { .. })
+                        && matches!(arena.half_edge(hes[1])?.curve, Curve::Arc { .. });
+                    if !closed {
+                        return Err(KernelV2Error::UnsupportedCurvedBoolean {
+                            face: f,
+                            reason: "boolean-output sphere patch cannot re-enter yang \
+                                     Stage 1 (closed modeling sphere only — later slice)",
+                        });
+                    }
+                    let (va, vb) = (
+                        arena.half_edge(hes[0])?.origin,
+                        arena.half_edge(hes[1])?.origin,
+                    );
+                    let (pa, pb) = (arena.vertex(va)?.point, arena.vertex(vb)?.point);
+                    let (v_south, v_north) = if pa.z() <= pb.z() { (va, vb) } else { (vb, va) };
+                    let south = map_vertex(v_south, &mut vid_map, &mut yverts, arena)?;
+                    let north = map_vertex(v_north, &mut vid_map, &mut yverts, arena)?;
+                    let seam = yedges.len() as u32;
+                    yedges.push(yang_rs::BRepEdge {
+                        start: south,
+                        end: north,
+                        curve: yang_rs::Curve::Circle {
+                            center,
+                            normal: Vector3::new(0.0, -1.0, 0.0),
+                            radius,
+                        },
+                    });
+                    face_ids.push(f);
+                    yfaces.push(yang_rs::BRepFace {
+                        surface: yang_rs::Surface::Sphere { center, radius },
+                        outer_loop: vec![seam],
+                        inner_loops: Vec::new(),
+                        reversed,
+                    });
+                }
                 None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
             }
         }
@@ -1435,6 +1487,11 @@ enum FaceSurf {
         minor_radius: f64,
         reversed: bool,
     },
+    Sphere {
+        center: Point3,
+        radius: f64,
+        reversed: bool,
+    },
 }
 
 /// Reassemble a yang-rs *output* `BRep` into a kernel-v2 solid.
@@ -1486,7 +1543,7 @@ pub fn from_yang_brep_indexed(
     // 1a. Surface vocabulary. Planar output faces never carry `reversed`
     //     (sense belongs in the plane normal); cylinder faces may.
     let mut surfs: Vec<FaceSurf> = Vec::with_capacity(yfaces.len());
-    for (i, f) in yfaces.iter().enumerate() {
+    for f in yfaces.iter() {
         match f.surface {
             yang_rs::Surface::Plane { normal, .. } => {
                 if f.reversed {
@@ -1582,7 +1639,18 @@ pub fn from_yang_brep_indexed(
                     reversed: f.reversed,
                 });
             }
-            _ => return Err(KernelV2Error::UnsupportedBooleanOutputSurface { face: i }),
+            yang_rs::Surface::Sphere { center, radius } => {
+                if !(radius.is_finite() && radius > 0.0) {
+                    return Err(KernelV2Error::InvalidBooleanOutput(
+                        "output sphere radius is not finite and positive",
+                    ));
+                }
+                surfs.push(FaceSurf::Sphere {
+                    center,
+                    radius,
+                    reversed: f.reversed,
+                });
+            }
         }
     }
 
@@ -1986,7 +2054,10 @@ pub fn from_yang_brep_indexed(
                 }
                 if matches!(
                     surfs[loops[u.loop_idx].face],
-                    FaceSurf::Cylinder { .. } | FaceSurf::Cone { .. } | FaceSurf::Torus { .. }
+                    FaceSurf::Cylinder { .. }
+                        | FaceSurf::Cone { .. }
+                        | FaceSurf::Torus { .. }
+                        | FaceSurf::Sphere { .. }
                 ) {
                     if let Some(nu) = derive_planar(partner) {
                         return Ok(neg_unit(nu));
@@ -2304,6 +2375,15 @@ pub fn from_yang_brep_indexed(
                         },
                         major_radius: *major_radius,
                         minor_radius: *minor_radius,
+                        reversed: *reversed,
+                    },
+                    FaceSurf::Sphere {
+                        center,
+                        radius,
+                        reversed,
+                    } => Surface::Sphere {
+                        center: *center,
+                        radius: *radius,
                         reversed: *reversed,
                     },
                 };

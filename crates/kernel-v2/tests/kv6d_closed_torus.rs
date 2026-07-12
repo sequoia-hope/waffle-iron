@@ -257,11 +257,12 @@ fn closed_torus_deterministic() {
 // 4. Rejection branches
 // =========================================================================
 
-/// A full-turn circle CENTERED ON the axis sweeps a SPHERE — KV6d
-/// increment 2, still a typed capability wall (C0067), distinct from the
-/// retired closed-torus wall.
+/// A full-turn circle CENTERED ON the axis sweeps a SPHERE — supported
+/// since KV6d increment 2 (spec `kv6d_sphere_revolve.md`, detailed census
+/// in `tests/kv6d_sphere_revolve.rs`); here just pin that the branch
+/// BUILDS and validates (it was this suite's typed wall before).
 #[test]
-fn on_axis_circle_full_turn_stays_walled_sphere() {
+fn on_axis_circle_full_turn_builds_sphere() {
     let mut arena = BrepArena::new();
     let circle = Profile::circle(
         Point3::new(0.0, 0.0, 0.0),
@@ -271,10 +272,14 @@ fn on_axis_circle_full_turn_stays_walled_sphere() {
         1.0,
     )
     .expect("on-axis circle profile");
-    let err = revolve(&mut arena, &circle, AXIS_O, AXIS_D, 2.0 * PI)
-        .expect_err("on-axis full-turn circle → sphere, walled");
-    assert_eq!(err, KernelV2Error::RevolveOnAxisCircleUnsupported);
-    assert_eq!(arena, BrepArena::new(), "arena untouched");
+    let r = revolve(&mut arena, &circle, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect("on-axis full-turn circle builds a closed sphere");
+    assert_eq!(r.walls.len(), 1, "one sphere face");
+    assert!(matches!(
+        arena.face(r.walls[0]).unwrap().surface,
+        Some(Surface::Sphere { .. })
+    ));
+    validate_solid(&arena, r.solid).expect("closed sphere validates");
 }
 
 /// A full-turn circle CROSSING the axis off-center stays invalid input

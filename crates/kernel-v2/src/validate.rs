@@ -348,6 +348,9 @@ pub fn validate_solid(arena: &BrepArena, solid: SolidId) -> Result<TopologyRepor
             }) => {
                 validate_torus_face(arena, f, face, center, axis_dir, major_radius, minor_radius)?
             }
+            Some(Surface::Sphere { center, radius, .. }) => {
+                validate_sphere_face(arena, f, face, center, radius)?
+            }
             None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
         }
     }
@@ -1626,6 +1629,64 @@ fn validate_torus_face(
     Ok(())
 }
 
+/// Validate a [`Surface::Sphere`] face (KV6d increment 2, spec
+/// `kv6d_sphere_revolve.md`).
+///
+/// Checks the analytic parameters (finite `radius > 0`, finite center) and,
+/// in debug builds, that every loop vertex (outer + inner) lies on the
+/// sphere via [`geom::sphere_residual`]. Deliberately topology-agnostic
+/// (the torus-validator precedent): it accepts both the closed seam-arc
+/// loop the revolve constructor builds and boolean-output trimmed patches.
+fn validate_sphere_face(
+    arena: &BrepArena,
+    f: FaceId,
+    face: &crate::arena::Face,
+    center: Point3,
+    radius: f64,
+) -> Result<(), KernelV2Error> {
+    let mismatch = |reason: &'static str| KernelV2Error::CurvedGeometryMismatch { face: f, reason };
+    if !radius.is_finite() || radius <= 0.0 {
+        return Err(mismatch("sphere radius must be finite and positive"));
+    }
+    if !(center.x().is_finite() && center.y().is_finite() && center.z().is_finite()) {
+        return Err(mismatch("sphere center must be finite"));
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        // `sphere_residual` is a plain length; scale the band by the radius
+        // (a length·length tolerance, matching the torus convention).
+        let band = CURVED_SURFACE_DEBUG_TOLERANCE * radius.max(1.0);
+        let mut loops = vec![face.outer_loop];
+        loops.extend(face.inner_loops.iter().copied());
+        for lid in loops {
+            for p in arena.loop_points(lid)? {
+                let res = geom::sphere_residual(p, center, radius).abs();
+                if res > band {
+                    return Err(vertex_off_surface(
+                        f,
+                        "sphere-vertex",
+                        p,
+                        res,
+                        band,
+                        &format!(
+                            "sphere center=({:.17e},{:.17e},{:.17e}) radius={radius:.17e}",
+                            center.x(),
+                            center.y(),
+                            center.z()
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = (arena, face);
+    }
+    Ok(())
+}
+
 /// Per-loop unrolled measurements over a cylinder patch (PR-KV5b): net
 /// axis wrap, mean axial height, and (for non-wrapping loops) twice the
 /// signed shoelace area in the unrolled `(θ, h)` frame.
@@ -2073,6 +2134,9 @@ pub(crate) fn debug_check_arena(arena: &BrepArena) -> Result<(), KernelV2Error> 
             // Torus faces (KV6d) likewise have no polygonal walk;
             // `validate_torus_face` validates the surface geometry.
             (Some(Surface::Torus { .. }), false) => {}
+            // Sphere faces (KV6d increment 2) likewise have no polygonal
+            // walk; `validate_sphere_face` validates the surface geometry.
+            (Some(Surface::Sphere { .. }), false) => {}
             (Some(Surface::Plane(plane)), false) => match geom::newell_unit(&pts) {
                 Some(newell) => {
                     if geom::dot(plane.normal, newell) < 1.0 - NORMAL_AGREEMENT_TOLERANCE {

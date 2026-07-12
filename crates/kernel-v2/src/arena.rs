@@ -251,6 +251,32 @@ pub enum Surface {
         /// (solid ring), `true` = outward toward it (a toroidal groove wall).
         reversed: bool,
     },
+    /// Sphere surface (KV6d increment 2, spec `kv6d_sphere_revolve.md`):
+    /// `|p − center| = radius`. The field shape mirrors
+    /// `yang_rs::Surface::Sphere` (`center` / `radius`) so the boolean
+    /// conversion is a field-for-field copy, plus the `reversed` cavity flag
+    /// every kernel-v2 curved surface carries (see [`Surface::Cylinder`]).
+    ///
+    /// A point `p` lies on the surface when
+    /// [`crate::geom::sphere_residual`]`(p, center, radius)` is zero. With
+    /// `reversed == false` the outward side is radially **away from the
+    /// center** (a solid ball); `reversed == true` is the cavity sense — the
+    /// wall of a spherical dimple / pocket carved by a Subtract.
+    ///
+    /// The closed solid sphere's seam is CANONICAL world-z-up (poles at
+    /// `center ± radius·ẑ`, meridian seam arc through `center + radius·x̂`)
+    /// regardless of how it was constructed — the sphere is isotropic, and
+    /// the fixed frame makes the yang Stage-1 conversion (PR-YR12, a
+    /// fixed z-up lat/long parameterization) a direct emission.
+    Sphere {
+        /// Sphere center.
+        center: Point3,
+        /// Sphere radius (meters, > 0).
+        radius: f64,
+        /// Cavity sense: `false` = outward away from the center (solid
+        /// ball), `true` = outward toward it (a spherical dimple wall).
+        reversed: bool,
+    },
 }
 
 /// Curve descriptor carried by a half-edge, AS TRAVERSED by that half-edge.

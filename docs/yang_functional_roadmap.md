@@ -3256,6 +3256,58 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   dies at the same Stage-4 wall — the near-tangency gap pre-dates the
   closed torus).
 
+- **KV6d increment 2 — on-axis full-turn circle revolve → SPHERE
+  (C0067). ✅ SHIPPED (2026-07-12, task #136, spec
+  `specs/kv6d_sphere_revolve.md`).** A full-turn revolve of a circle
+  profile centered ON the axis now builds the CLOSED solid sphere —
+  the `RevolveOnAxisCircleUnsupported` typed wall is REMOVED (variant
+  deleted), and with it the LAST revolve capability gap: the assay's
+  UNSUPPORTED(revolve) bucket is EMPTY. New kernel-v2 vocabulary:
+  `Surface::Sphere { center, radius, reversed }` +
+  `geom::sphere_residual` + `validate_sphere_face` (topology-agnostic,
+  torus-validator precedent). Topology (`assemble_closed_sphere`):
+  minimal seam structure of S² mirroring the PR-YR12 yang contract —
+  V=2 poles at `center ± r·ẑ` (CANONICAL world z-up regardless of the
+  revolve axis; the sphere is isotropic and yang's lat/long
+  parameterization is fixed z-up), E=1 meridian seam `Curve::Arc` twin
+  pair through `center + r·x̂` (normals ∓ŷ), F=1, χ = 2 = 2(S−G) with
+  G=0. Render: `tessellate_sphere_closed` (z-up lat/long grid, poles
+  single-vertex fans, modular longitude wrap) +
+  `tessellate_sphere_patch` for boolean outputs — a new PUBLIC yang-rs
+  UV-CDT consumer (the torus-patch recipe on the (lon, lat) plane):
+  non-wrapping loops → disk + period-shifted holes (with an
+  orientation gate — a complement-bounding loop, sphere minus a side
+  cap with both poles inside the region, returns None instead of
+  silently rendering the cap); a single-wrap outer loop → pole-cap
+  bridge (wu·reversed picks the contained pole; the two meridian seam
+  copies and the subdivided UV pole line carry BIT-IDENTICAL 3D points,
+  welded post-CDT into a watertight fan). **Trap (measured):** the UV
+  pole line as ONE 2π·r constraint edge has a diametral circle covering
+  most of the domain — spade's `keep_constraint_edges` refinement then
+  refuses nearly every Steiner insertion (19% area deficit, hemisphere
+  rendered at 1.32 vs 2.09 fan volume); subdividing the pole line at
+  the chord budget restores full refinement. Full-circle patch rims
+  densify with BITWISE the adjacent cap's `circle_frame` samples (the
+  cylinder-lateral recipe) — shared-rim watertightness by construction.
+  Boolean re-entry: `to_yang` emits the pristine closed sphere as the
+  PR-YR12 fixture (2 pole verts + 1 seam Circle, start=south); a
+  boolean-OUTPUT sphere patch re-entering a second boolean stays a
+  typed `UnsupportedCurvedBoolean` wall (later slice, same shipping
+  order as the torus); `from_yang` gained `FaceSurf::Sphere` (+ sphere
+  in the full-circle-edge sense derivation — a cap-cut sphere shares
+  its rim with a planar cap). Stages 1–5 needed NOTHING (PR-YR12/YR15
+  were already sphere-capable). Red→green: `kv6d_sphere_revolve.rs`
+  (census, ball volume 4/3·π·r³, watertight, determinism, partial-angle
+  on-axis and crossing rejections unchanged, and an equatorial half-cut
+  boolean e2e — exactly half the ball, the wrapping pole-cap render
+  path); yang `kv6d_sphere_patch.rs` (hemisphere coverage + boundary
+  watertightness + bit-exact boundary passthrough; complement-loop
+  rejection). **Corpus: C0067 UNSUPPORTED(revolve) → typed ERROR — the
+  notch-corner {sphere, wall, wall} triple junctions hit the Stage-4
+  `LocalRefinementRequired` wall (the N2 conic-junction class, F0059
+  family). Assay 238 CORRECT / 0 WRONG / 50 ERROR / 7 UNSUPPORTED /
+  0 TIMEOUT — zero-lost (C0067 is the only category mover).**
+
 - **Tangency pinch-vertex split + figure-eight wedge walk (the KV9-F1
   union follow-up). ✅ SHIPPED at yang unit level (2026-07-08, task #86,
   spec `specs/yang_tangency_pinch_split.md`); C0058 corpus residual

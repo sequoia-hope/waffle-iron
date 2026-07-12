@@ -2092,8 +2092,11 @@ fn family_revolve(dir: &Path) -> Vec<ManifestEntry> {
         e.push(write_c_case(dir, c, d, Knobs::tracker(2, 4.0)));
     }
     // C0067: sphere-degenerate revolve (circle centered ON the axis) + notch.
-    // The revolve axis passes through the profile — the F0073/F0074 canary
-    // class; a typed rejection is an acceptable boundary answer.
+    // The on-axis full-turn circle builds the CLOSED sphere since KV6d
+    // increment 2 (spec `kv6d_sphere_revolve.md`); the polar notch cut then
+    // hits the Stage-4 LocalRefinementRequired wall at the notch-corner
+    // {sphere, wall, wall} triple junctions (the N2 conic-junction class,
+    // F0059 family) — a typed ERROR, no longer UNSUPPORTED(revolve).
     {
         let mut c = CCase::new("C0067");
         c.revolve(

@@ -3968,6 +3968,342 @@ pub fn tessellate_torus_patch(
     Some((verts3d, tris))
 }
 
+/// KV6d increment 2 (spec `kv6d_sphere_revolve.md`): UV-CDT tessellation of a
+/// boolean-output SPHERE patch — the render consumer for a trimmed
+/// `Surface::Sphere` face (the sphere analog of [`tessellate_torus_patch`]).
+///
+/// Projects every loop into the scaled `(u·r, v·r)` longitude/latitude plane
+/// (the FIXED z-up sphere frame of `tessellate_sphere_face`: `u = atan2`
+/// about `ẑ`, `v = asin((z − c_z)/r)`), then:
+///
+/// - **all loops non-wrapping** → disk + period-shifted holes → refined CDT
+///   (boundary vertices pass through bit-for-bit — conformal with the
+///   neighboring planar patches);
+/// - **the OUTER loop wraps longitude once (`wu = ±1`)** → the patch
+///   contains exactly one pole (`wu = +1` → north for an outward face,
+///   flipped when `reversed` — the region lies LEFT of a loop traversed CCW
+///   around the face's outward normal): bridge the unwrapped boundary to
+///   the pole with a two-sided meridian seam whose two copies carry
+///   BIT-IDENTICAL 3D sample points, plus a UV bottom edge that degenerates
+///   to the single 3D pole point; after the CDT, bit-identical positions
+///   are WELDED and 3D-degenerate triangles dropped, closing the seam and
+///   the pole fan watertight;
+/// - anything else (multi-wrap, wrapping holes, boundary within band of a
+///   pole) → `None` (the caller's typed wall; later slice).
+///
+/// Steiner refinement is interior-only (`keep_constraint_edges`), budgeted
+/// by `max_3d_area` in arc-length² (the caller matches its structured-grid
+/// chord spacing).
+pub fn tessellate_sphere_patch(
+    center: Point3,
+    radius: f64,
+    reversed: bool,
+    boundary: &[Point3],
+    holes: &[Vec<Point3>],
+    max_3d_area: f64,
+) -> Option<(Vec<Point3>, Vec<[u32; 3]>)> {
+    use std::f64::consts::{FRAC_PI_2, TAU};
+    if boundary.len() < 3 || !(radius.is_finite() && radius > 0.0) {
+        return None;
+    }
+    let c = center.as_array();
+    let r = radius;
+    let eval = |u: f64, v: f64| -> Point3 {
+        let (su, cu) = u.sin_cos();
+        let (sv, cv) = v.sin_cos();
+        Point3::new(c[0] + r * cv * cu, c[1] + r * cv * su, c[2] + r * sv)
+    };
+    let snap = |a: f64| (a / 1e-12).round() * 1e-12;
+    // A boundary vertex too close to a pole makes its longitude meaningless
+    // (atan2 of a sub-tolerance radial) — out of scope, loud upstream.
+    let polar_band = 1e-9 * r;
+
+    // Invert ONE loop into unwrapped, snapped, SCALED (su, sv) + net u-wrap.
+    let invert = |pts: &[Point3]| -> Option<(Vec<f64>, Vec<f64>, i64)> {
+        if pts.len() < 3 {
+            return None;
+        }
+        let mut us = Vec::with_capacity(pts.len());
+        let mut vs = Vec::with_capacity(pts.len());
+        for p in pts {
+            let pa = p.as_array();
+            let w = [pa[0] - c[0], pa[1] - c[1], pa[2] - c[2]];
+            let rho = (w[0] * w[0] + w[1] * w[1]).sqrt();
+            if rho < polar_band {
+                return None; // boundary touches a pole — later slice
+            }
+            us.push(w[1].atan2(w[0]));
+            vs.push((w[2] / r).clamp(-1.0, 1.0).asin());
+        }
+        unwrap_seq(&mut us);
+        let raw_closure = {
+            // wrap_to_pi of the closing step; nonzero net ⇒ longitude wrap.
+            let mut cl = (us[0] - us[us.len() - 1]) % TAU;
+            if cl > std::f64::consts::PI {
+                cl -= TAU;
+            } else if cl <= -std::f64::consts::PI {
+                cl += TAU;
+            }
+            cl
+        };
+        let wu = (((us[us.len() - 1] - us[0]) + raw_closure) / TAU).round() as i64;
+        for a in us.iter_mut().chain(vs.iter_mut()) {
+            *a = snap(*a);
+        }
+        Some((
+            us.iter().map(|u| u * r).collect(),
+            vs.iter().map(|v| v * r).collect(),
+            wu,
+        ))
+    };
+
+    let (b_su, b_sv, b_wu) = invert(boundary)?;
+    let mut h_loops: Vec<(Vec<f64>, Vec<f64>)> = Vec::with_capacity(holes.len());
+    for h in holes {
+        let (hu, hv, hwu) = invert(h)?;
+        if hwu != 0 {
+            return None; // a wrapping HOLE — later slice
+        }
+        h_loops.push((hu, hv));
+    }
+    let span = TAU * r;
+
+    let mut verts2d: Vec<cad_primitives::Point2> = Vec::new();
+    let mut vert3d: Vec<Point3> = Vec::new();
+    let mut hole_idx: Vec<Vec<u32>> = Vec::new();
+    let umean = |su: &[f64]| su.iter().sum::<f64>() / su.len() as f64;
+
+    let outer: Vec<u32> = match b_wu {
+        0 => {
+            // DISK: boundary is the outer loop; holes shift by whole u-periods
+            // into its period (latitude does not wrap — no v shift).
+            //
+            // The face region must be the polygon INTERIOR (the CDT
+            // triangulates inside the outer ring): a walk with the region on
+            // its LEFT is CCW in the right-handed (u, v) frame for an
+            // outward face and CW for a cavity (`reversed`) face. A
+            // non-wrapping boundary bounding the COMPLEMENT (a sphere minus
+            // a small side cap — both poles inside the region) fails this
+            // test — out of scope, loud at the caller (later slice).
+            let area2: f64 = (0..b_su.len())
+                .map(|k| {
+                    let j = (k + 1) % b_su.len();
+                    b_su[k] * b_sv[j] - b_su[j] * b_sv[k]
+                })
+                .sum();
+            if area2 == 0.0 || (area2 > 0.0) == reversed {
+                return None;
+            }
+            let u_ref = umean(&b_su);
+            let mut o = Vec::with_capacity(b_su.len());
+            for k in 0..b_su.len() {
+                o.push(verts2d.len() as u32);
+                verts2d.push(cad_primitives::Point2::new(b_su[k], b_sv[k]));
+                vert3d.push(boundary[k]);
+            }
+            for (li, (hu, hv)) in h_loops.iter().enumerate() {
+                let du = ((umean(hu) - u_ref) / span).round() * span;
+                let mut hi = Vec::with_capacity(hu.len());
+                for k in 0..hu.len() {
+                    hi.push(verts2d.len() as u32);
+                    verts2d.push(cad_primitives::Point2::new(hu[k] - du, hv[k]));
+                    vert3d.push(holes[li][k]);
+                }
+                hole_idx.push(hi);
+            }
+            o
+        }
+        1 | -1 => {
+            // POLE CAP (possibly the complement — most of the sphere): the
+            // wrapping outer loop encloses exactly one pole. Region-left of a
+            // CCW-around-outward-normal loop: wu = +1 → north, flipped for a
+            // cavity (reversed) face.
+            let north = (b_wu > 0) != reversed;
+            let pole_sv = if north { FRAC_PI_2 * r } else { -FRAC_PI_2 * r };
+            let pole_3d = eval(0.0, if north { FRAC_PI_2 } else { -FRAC_PI_2 });
+            let wsign = b_wu as f64;
+            let m = b_su.len();
+
+            // Hole u-extents (shifted near the boundary period below) so the
+            // seam can avoid splitting one; and a segment-crossing test
+            // against every boundary + hole edge.
+            let seg_cross = |p: [f64; 2], q: [f64; 2], a: [f64; 2], b: [f64; 2]| -> bool {
+                let d = [q[0] - p[0], q[1] - p[1]];
+                let e = [b[0] - a[0], b[1] - a[1]];
+                let denom = d[0] * e[1] - d[1] * e[0];
+                if denom == 0.0 {
+                    return false; // parallel: endpoint contact is handled by candidate choice
+                }
+                let w = [a[0] - p[0], a[1] - p[1]];
+                let t = (w[0] * e[1] - w[1] * e[0]) / denom;
+                let s = (w[0] * d[1] - w[1] * d[0]) / denom;
+                let eps = 1e-12;
+                t > eps && t < 1.0 - eps && s > eps && s < 1.0 - eps
+            };
+
+            // Unwrapped boundary chain starting at candidate xi (index copy
+            // of xi appended at +wu·span).
+            let chain_at = |xi: usize| -> Vec<[f64; 2]> {
+                (0..=m)
+                    .map(|j| {
+                        let idx = (xi + j) % m;
+                        let off = if xi + j >= m { wsign * span } else { 0.0 };
+                        [b_su[idx] + off, b_sv[idx]]
+                    })
+                    .collect()
+            };
+
+            let mut choice: Option<usize> = None;
+            'candidates: for xi in 0..m {
+                let chain = chain_at(xi);
+                let left = [chain[0][0], pole_sv];
+                let right = [chain[m][0], pole_sv];
+                // The two seam verticals and the pole bottom edge must cross
+                // no boundary edge (interior crossings only; the shared
+                // chain endpoints are excluded by the open interval).
+                let seam_segs = [(chain[0], left), (chain[m], right), (left, right)];
+                for w in chain.windows(2) {
+                    for &(p, q) in &seam_segs {
+                        if seg_cross(p, q, w[0], w[1]) {
+                            continue 'candidates;
+                        }
+                    }
+                }
+                // Holes sit inside the region; the seam must not split one.
+                // (Hole u-extents are compared in the chain's period.)
+                let u_lo = chain[0][0].min(chain[m][0]);
+                let u_hi = chain[0][0].max(chain[m][0]);
+                let u_center = 0.5 * (u_lo + u_hi);
+                let splits_hole = h_loops.iter().any(|(hu, _)| {
+                    let du = ((umean(hu) - u_center) / span).round() * span;
+                    let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+                    for &u in hu {
+                        lo = lo.min(u - du);
+                        hi = hi.max(u - du);
+                    }
+                    for &x in &[chain[0][0], chain[m][0]] {
+                        if x > lo && x < hi {
+                            return true;
+                        }
+                    }
+                    false
+                });
+                if splits_hole {
+                    continue 'candidates;
+                }
+                choice = Some(xi);
+                break;
+            }
+            let xi = choice?;
+            let chain = chain_at(xi);
+
+            // Meridian seam subdivision: shared 3D samples for BOTH copies
+            // (bit-identical — the weld below closes the seam watertight).
+            let seg = max_3d_area.sqrt().max(1e-9 * r);
+            let v_top = chain[0][1];
+            let k_sub = (((v_top - pole_sv).abs() / seg).ceil() as usize).max(1);
+            let u_seam = b_su[xi] / r; // seam meridian angle (period-agnostic)
+            let seam_pts: Vec<(f64, Point3)> = (1..k_sub)
+                .map(|k| {
+                    let sv = v_top + (pole_sv - v_top) * (k as f64) / (k_sub as f64);
+                    (sv, eval(u_seam, sv / r))
+                })
+                .collect();
+            // The UV pole line must ALSO be subdivided at `seg`: as a single
+            // 2π·r-long constraint edge its diametral (encroachment) circle
+            // covers most of the domain, and spade's `keep_constraint_edges`
+            // refinement then refuses nearly every Steiner insertion —
+            // leaving equator-to-pole chord triangles (measured: 19% area
+            // deficit on a hemisphere). Every subdivision point carries the
+            // SAME 3D pole point; the weld collapses them into the fan apex.
+            let k_bot = (((chain[m][0] - chain[0][0]).abs() / seg).ceil() as usize).max(1);
+
+            // Ring: B_0..B_m (unwrapped, B_m = B_0's period copy), seam down
+            // at u = chain[m][0], the subdivided pole line (right → left, one
+            // 3D point), seam up at u = chain[0][0].
+            let mut o: Vec<u32> = Vec::with_capacity(m + 2 + k_bot + 2 * seam_pts.len());
+            for (j, uv) in chain.iter().enumerate() {
+                o.push(verts2d.len() as u32);
+                verts2d.push(cad_primitives::Point2::new(uv[0], uv[1]));
+                vert3d.push(boundary[(xi + j) % m]);
+            }
+            for &(sv, p3) in &seam_pts {
+                o.push(verts2d.len() as u32);
+                verts2d.push(cad_primitives::Point2::new(chain[m][0], sv));
+                vert3d.push(p3);
+            }
+            for k in 0..=k_bot {
+                let u = chain[m][0] + (chain[0][0] - chain[m][0]) * (k as f64) / (k_bot as f64);
+                o.push(verts2d.len() as u32);
+                verts2d.push(cad_primitives::Point2::new(u, pole_sv));
+                vert3d.push(pole_3d);
+            }
+            for &(sv, p3) in seam_pts.iter().rev() {
+                o.push(verts2d.len() as u32);
+                verts2d.push(cad_primitives::Point2::new(chain[0][0], sv));
+                vert3d.push(p3);
+            }
+
+            // Holes, period-shifted into the unwrapped chain's u-window.
+            let u_center = 0.5 * (chain[0][0] + chain[m][0]);
+            for (li, (hu, hv)) in h_loops.iter().enumerate() {
+                let du = ((umean(hu) - u_center) / span).round() * span;
+                let mut hi = Vec::with_capacity(hu.len());
+                for k in 0..hu.len() {
+                    hi.push(verts2d.len() as u32);
+                    verts2d.push(cad_primitives::Point2::new(hu[k] - du, hv[k]));
+                    vert3d.push(holes[li][k]);
+                }
+                hole_idx.push(hi);
+            }
+            o
+        }
+        _ => return None, // |wu| ≥ 2: multi-wrap — out of scope
+    };
+
+    let (ref_verts, tris) =
+        cherchi_rs::cdt_polygon_with_holes_refined(&verts2d, &outer, &hole_idx, max_3d_area)
+            .ok()?;
+
+    // Map back: ring/hole verts → EXACT input 3D (seam copies and pole
+    // corners repeat one bit-identical Point3); Steiner verts → `eval`.
+    let n = vert3d.len();
+    let mut verts3d: Vec<Point3> = Vec::with_capacity(ref_verts.len());
+    for (i, sp) in ref_verts.iter().enumerate() {
+        if i < n {
+            verts3d.push(vert3d[i]);
+        } else {
+            verts3d.push(eval(sp.x() / r, sp.y() / r));
+        }
+    }
+
+    // Weld bit-identical positions (the two seam copies + the two pole
+    // corners) and drop triangles that degenerate under the weld — this is
+    // what closes the pole fan and the seam watertight.
+    let mut first_at: std::collections::BTreeMap<[u64; 3], u32> = std::collections::BTreeMap::new();
+    let mut remap: Vec<u32> = Vec::with_capacity(verts3d.len());
+    for p in &verts3d {
+        let key = [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
+        let id = *first_at.entry(key).or_insert(remap.len() as u32);
+        remap.push(id);
+    }
+    let welded: Vec<[u32; 3]> = tris
+        .iter()
+        .map(|t| {
+            [
+                remap[t[0] as usize],
+                remap[t[1] as usize],
+                remap[t[2] as usize],
+            ]
+        })
+        .filter(|t| t[0] != t[1] && t[1] != t[2] && t[2] != t[0])
+        .collect();
+    if welded.is_empty() {
+        return None;
+    }
+    Some((verts3d, welded))
+}
+
 /// KV14 Slice F: Stage-1 tessellation of a boolean-result TORUS lateral carrying
 /// inner loops — a POLOIDAL PERIODIC BAND (the boundary wraps the tube; the
 /// toroidal sweep is bounded). Delegates to [`tessellate_torus_patch`] (the same
