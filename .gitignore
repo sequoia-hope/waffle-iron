@@ -40,3 +40,8 @@ app/tests/*.png
 scripts/auto-waffle/logs/
 app/static/assay/
 crates/kernel-v2/target/
+
+# Ad-hoc .waffle repro/save scratch files at the repo root (design review F17).
+# These are local working documents, not fixtures — keep them out of the tree.
+# (Committed test fixtures live under app/tests/ / crates/*/tests/, not root.)
+/*.waffle

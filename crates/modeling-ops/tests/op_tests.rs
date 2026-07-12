@@ -302,7 +302,7 @@ fn revolve_invalid_face_returns_error() {
 // ── Boolean Tests ──────────────────────────────────────────────────────────
 
 #[test]
-#[ignore = "pre-existing red (MockKernel union face-count drift, fails on pre-migration HEAD too) — needs separate triage, NOT a Phase 6 regression"]
+#[ignore = "MockKernel union face-count drift — tracked as task #157 (pre-existing, fails on pre-migration HEAD too; NOT a Phase 6 regression)"]
 fn boolean_union_produces_combined_result() {
     let mut kernel = MockKernel::new();
 
@@ -719,7 +719,7 @@ fn pipeline_extrude_then_shell() {
 
 /// Extrude → Boolean Union pipeline.
 #[test]
-#[ignore = "pre-existing red (MockKernel union face-count drift, fails on pre-migration HEAD too) — needs separate triage, NOT a Phase 6 regression"]
+#[ignore = "MockKernel union face-count drift — tracked as task #157 (pre-existing, fails on pre-migration HEAD too; NOT a Phase 6 regression)"]
 fn pipeline_extrude_boolean_union() {
     let mut kernel = MockKernel::new();
     let face_a = make_face(&mut kernel);
@@ -1090,7 +1090,7 @@ fn revolve_full_side_face_indices_sequential() {
 
 /// GAP M8: Boolean mode distinction — different modes produce different results.
 #[test]
-#[ignore = "pre-existing red (MockKernel union face-count drift, fails on pre-migration HEAD too) — needs separate triage, NOT a Phase 6 regression"]
+#[ignore = "MockKernel union face-count drift — tracked as task #157 (pre-existing, fails on pre-migration HEAD too; NOT a Phase 6 regression)"]
 fn boolean_modes_produce_distinct_results() {
     let mut kernel = MockKernel::new();
 

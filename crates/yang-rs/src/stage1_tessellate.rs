@@ -270,6 +270,7 @@ pub(crate) fn stage1_tessellate_inner(
             // YANG_SHIFT_NEUTER — never set in production or tests.
             if let Some(floor) = std::env::var("YANG_NSEG_FLOOR")
                 .ok()
+                .filter(|_| cfg!(debug_assertions)) // dev-only, gated out of release (F12)
                 .and_then(|s| s.parse::<usize>().ok())
             {
                 n_seg = n_seg.max(floor);
@@ -1254,7 +1255,10 @@ pub(crate) fn exact_rim_ccw_tiebreak(
 ) -> std::cmp::Ordering {
     use crate::coplanar_overlay::rat;
     use dashu::rational::RBig;
-    if std::env::var_os("TIEBREAK_NEUTER").is_some() {
+    // Dev-only bisection neuter — gated out of release (F12): the env var is
+    // read only under debug_assertions, so the release/WASM build always takes
+    // the real tiebreak path.
+    if cfg!(debug_assertions) && std::env::var_os("TIEBREAK_NEUTER").is_some() {
         return std::cmp::Ordering::Equal;
     }
     let frame_coords = |p: Point3| -> Option<(RBig, RBig)> {
@@ -2579,8 +2583,8 @@ pub(crate) fn tessellate_band_azimuth_merge(
             shift = j;
         }
     }
-    if std::env::var_os("YANG_SHIFT_NEUTER").is_some() {
-        shift = 0;
+    if cfg!(debug_assertions) && std::env::var_os("YANG_SHIFT_NEUTER").is_some() {
+        shift = 0; // dev-only neuter, gated out of release (F12)
     }
 
     // Verify the SAME azimuth multiset (no silent fudge): pairwise within tol.

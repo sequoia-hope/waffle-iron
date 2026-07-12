@@ -1848,9 +1848,10 @@ pub fn boolean(
     }
     let junction_boosted: Option<(BRep, BRep)> = if stage0.is_none()
         && cyl_pairs.is_empty()
-        // Diagnostic kill-switch (read-only, env-gated): bisect whether a
-        // downstream behavior change is enabled by the insertion.
-        && std::env::var_os("YANG_RIM_JUNCTION_DISABLE").is_none()
+        // Diagnostic kill-switch, dev-only — gated out of release (F12): in
+        // release the junction is always enabled (the correct default); the
+        // env var is honored only under debug_assertions.
+        && (!cfg!(debug_assertions) || std::env::var_os("YANG_RIM_JUNCTION_DISABLE").is_none())
     {
         let (map_a, map_b) = rim_junction_overrides(a, b);
         if map_a.is_empty() && map_b.is_empty() {
