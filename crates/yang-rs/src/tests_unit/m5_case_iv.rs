@@ -1263,6 +1263,107 @@ pub(crate) fn s453d_shared_conic_site_eligibility() {
     );
 }
 
+// ── Task #146: spec `yang_stage4_circle_pp_line_junction` branches 1–5 ──
+
+/// Branch 4/5: the line∩circle junction closed form — in-plane crossing
+/// (the F0064 configuration: the pp-line lies IN the circle's plane),
+/// transversal crossing, and a clean miss.
+#[test]
+pub(crate) fn s146_pp_line_circle_junction_closed_form() {
+    let center = p(0.0, 0.0, 0.0);
+    let normal = Vector3::new(0.0, 0.0, 1.0);
+    let r = 1.0;
+    // In-plane line y = 0.6, z = 0 crosses the unit circle at x = ±0.8; the
+    // current position near (0.79, 0.61) must pick the +x root.
+    let j = pp_line_circle_junction(
+        p(0.0, 0.6, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        center,
+        normal,
+        r,
+        p(0.79, 0.61, 0.0),
+        1.0e-9,
+    )
+    .expect("in-plane crossing resolves");
+    assert!((j.x() - 0.8).abs() < 1.0e-12 && (j.y() - 0.6).abs() < 1.0e-12);
+    // Transversal line through (0.8, 0.6, −1) along +z pierces the circle
+    // plane exactly on the circle.
+    let j2 = pp_line_circle_junction(
+        p(0.8, 0.6, -1.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        center,
+        normal,
+        r,
+        p(0.8, 0.6, -0.001),
+        1.0e-9,
+    )
+    .expect("transversal crossing resolves");
+    assert!((j2.z()).abs() < 1.0e-12 && (j2.x() - 0.8).abs() < 1.0e-12);
+    // A line missing the circle (y = 2) has no junction (branch 5).
+    assert!(pp_line_circle_junction(
+        p(0.0, 2.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        center,
+        normal,
+        r,
+        p(0.0, 2.0, 0.0),
+        1.0e-9,
+    )
+    .is_none());
+    // A transversal line piercing the plane INSIDE the circle: both sphere
+    // roots are off the plane at real scale — no junction (branch 5).
+    assert!(pp_line_circle_junction(
+        p(0.0, 0.0, -1.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        center,
+        normal,
+        r,
+        p(0.0, 0.0, 0.0),
+        1.0e-9,
+    )
+    .is_none());
+}
+
+/// The pp-line closed form: point on both planes, direction along their
+/// cross product; parallel planes have no unique line.
+#[test]
+pub(crate) fn s146_pp_line_closed_form() {
+    let (pt, dir) = pp_line(
+        Vector3::new(0.0, 0.0, 1.0),
+        -0.5,
+        Vector3::new(0.0, 1.0, 0.0),
+        -0.25,
+    )
+    .expect("transversal planes intersect in a line");
+    assert!((pt.z() - 0.5).abs() < 1.0e-12 && (pt.y() - 0.25).abs() < 1.0e-12);
+    let d = normalize3(dir.as_array());
+    assert!(d[0].abs() > 0.999, "line runs along x");
+    assert!(pp_line(
+        Vector3::new(0.0, 0.0, 1.0),
+        -0.5,
+        Vector3::new(0.0, 0.0, 1.0),
+        -0.75,
+    )
+    .is_none());
+}
+
+/// Branches 1–3: entry dedup — duplicated entries (either plane order)
+/// collapse to one line; two DISTINCT lines refuse.
+#[test]
+pub(crate) fn s146_dedup_single_pp_line() {
+    let za = (Vector3::new(0.0, 0.0, 1.0), -0.5);
+    let ya = (Vector3::new(0.0, 1.0, 0.0), -0.25);
+    let yb = (Vector3::new(0.0, 1.0, 0.0), -0.75);
+    let e1 = (za.0, za.1, ya.0, ya.1);
+    let e1_swapped = (ya.0, ya.1, za.0, za.1);
+    let e2 = (za.0, za.1, yb.0, yb.1);
+    assert!(dedup_single_pp_line(&[e1, e1, e1_swapped]).is_some());
+    assert!(
+        dedup_single_pp_line(&[e1, e2]).is_none(),
+        "two distinct pp-lines are over-determined (branch 3)"
+    );
+}
+
 /// Spec `yang_453_mixed_cycle_conic_backtrack` §3b (mechanism 2): on a
 /// near-tangent section the azimuth-preserving projection slides a vertex
 /// ~1/(n·â) ALONG the ellipse; the in-plane nearest-point projection must

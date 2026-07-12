@@ -2838,13 +2838,26 @@ swapped every consumer to `predicates::indirect`).
     combination into the junction closed form; the CIRCLE arm has NO
     analog, so the plain circle relocation wins and slides the vertex
     along the circle off the pp-line's planes by the observed 1.7–4.5e-3.
-    Fix shape: mirror the KV11 block — for `vert_circle ∩ vert_pp_planes`,
-    dedup to exactly ONE distinct pp-line (else loud LRR, the KV11 rule),
-    build a `LineReloc` from the two planes' closed-form line (band_budget
-    per the F3 cylinder×plane derivation) and move the vertex into the
-    existing PR-F3 `vert_junction` map, whose relocation already lands
-    exactly on `line ∩ circle-plane`. R0051 (revolve chain) / F0067 to be
-    verified against the same mechanism after the fix.
+    **Increment 1 SHIPPED same day (spec
+    `specs/yang_stage4_circle_pp_line_junction.md`):** new Stage-4 pass
+    reroutes `vert_circle ∩ vert_pp_planes` into
+    `vert_pp_circle_junction` (dedup to exactly ONE distinct pp-line as
+    UNORDERED plane pairs, else loud LRR — the KV11 rule) with its own
+    relocation arm: junction = pp-line ∩ SPHERE(C, r) quadratic + a
+    circle-plane residual certificate (exact for BOTH the in-plane
+    configuration this class exhibits — the pp-line lies IN the circle's
+    plane, where PR-F3's transversal plane-piercing form is degenerate —
+    and the transversal one; no inclination tolerance branch), gated by
+    the derived crossing amplification `2·d_ε/sin θ` (θ = line direction
+    vs circle tangent at the junction). PR-F3 / KV11 arms byte-identical;
+    the five over-determined audits treat the new map like the existing
+    junction maps. Oracles: `s146_*` unit trio (closed form in-plane /
+    transversal / miss / inside-circle piercing; pp_line; unordered
+    dedup). Corpus: **F0064's and R0051's Newell walls RETIRED** (both
+    move to a deeper NonManifoldOutput reassembly wall; F0064 2→1 failing
+    unions); R0063 still Newell (DIFFERENT sub-mechanism — next
+    increment's diagnosis); F0067 moves to a face-272 re-entry CDT wall
+    (#145-adjacent, on top of its #144 wall).
     (3) **4× re-entry CDT failure** (R0061 R0095 `holed lateral CDT
     failed`; R0063 F0085 `CDT triangulation failed`) — a SUCCESSFUL op's
     output B-Rep fails conversion at the NEXT op. R0061 face 2 (probe

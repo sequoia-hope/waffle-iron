@@ -1658,6 +1658,46 @@ pub(crate) fn stage4_relocate_and_correct(
         }
     }
 
+    // Task #146 (spec `yang_stage4_circle_pp_line_junction` branches 1–3):
+    // resolve CIRCLE × (plane∩plane line) TRIPLE points — the circle analog
+    // of the PR-KV11 ellipse×pp pass above. A vertex on both a section
+    // circle and an exact pp-line is their junction; relocating onto the
+    // circle alone slides it off the line's planes at real scale (the F0064
+    // Newell-normal class). Exactly ONE distinct pp-line reroutes; zero or
+    // several distinct lines (or an ellipse junction already claimed) is
+    // over-determined — loud STOP, never a silent pick (P9/P10).
+    let mut vert_pp_circle_junction: BTreeMap<u32, ((Point3, Vector3), CircleAssign)> =
+        BTreeMap::new();
+    {
+        let shared: Vec<u32> = vert_circle
+            .keys()
+            .filter(|v| vert_pp_planes.contains_key(v))
+            .copied()
+            .collect();
+        for v in shared {
+            if vert_ell_junction.contains_key(&v) {
+                return Err(YangError::Stage4RegionInvalid {
+                    vertex: v,
+                    reason: Stage4InvalidReason::LocalRefinementRequired,
+                });
+            }
+            let Some((n1, d1, n2, d2)) = dedup_single_pp_line(&vert_pp_planes[&v]) else {
+                return Err(YangError::Stage4RegionInvalid {
+                    vertex: v,
+                    reason: Stage4InvalidReason::LocalRefinementRequired,
+                });
+            };
+            let Some((lp, ld)) = pp_line(n1, d1, n2, d2) else {
+                return Err(YangError::Stage4RegionInvalid {
+                    vertex: v,
+                    reason: Stage4InvalidReason::LocalRefinementRequired,
+                });
+            };
+            let circ = vert_circle.remove(&v).expect("checked contains_key");
+            vert_pp_circle_junction.insert(v, ((lp, ld), circ));
+        }
+    }
+
     // Increment 5 (spec `yang_stage4_conic_triple_junction`, WIRED): a
     // vertex on ≥2 of the six single-curve conic maps whose inc0 incidence
     // dedups to EXACTLY 3 distinct surfaces is NOT ambiguous — it is the
@@ -1785,6 +1825,7 @@ pub(crate) fn stage4_relocate_and_correct(
             || vert_parabola.contains_key(v)
             || vert_cone_hyperbola.contains_key(v)
             || vert_junction.contains_key(v)
+            || vert_pp_circle_junction.contains_key(v)
         {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: *v,
@@ -1800,7 +1841,10 @@ pub(crate) fn stage4_relocate_and_correct(
     // PR-F3: the line+circle junction is HANDLED (vert_junction above); a line
     // meeting any OTHER conic is still a loud STOP, folded into each audit.
     for v in vert_ellipse.keys() {
-        if vert_circle.contains_key(v) || vert_line.contains_key(v) || vert_junction.contains_key(v)
+        if vert_circle.contains_key(v)
+            || vert_line.contains_key(v)
+            || vert_junction.contains_key(v)
+            || vert_pp_circle_junction.contains_key(v)
         {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: *v,
@@ -1816,6 +1860,7 @@ pub(crate) fn stage4_relocate_and_correct(
             || vert_ellipse.contains_key(v)
             || vert_line.contains_key(v)
             || vert_junction.contains_key(v)
+            || vert_pp_circle_junction.contains_key(v)
         {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: *v,
@@ -1833,6 +1878,7 @@ pub(crate) fn stage4_relocate_and_correct(
             || vert_cone_hyperbola.contains_key(v)
             || vert_line.contains_key(v)
             || vert_junction.contains_key(v)
+            || vert_pp_circle_junction.contains_key(v)
         {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: *v,
@@ -1851,6 +1897,7 @@ pub(crate) fn stage4_relocate_and_correct(
             || vert_parabola.contains_key(v)
             || vert_line.contains_key(v)
             || vert_junction.contains_key(v)
+            || vert_pp_circle_junction.contains_key(v)
         {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: *v,
@@ -1886,7 +1933,7 @@ pub(crate) fn stage4_relocate_and_correct(
             eprintln!(
                 "YANG_V_PROBE v={v} p={:?} circle={} ellipse={} cone_ell={} parab={} hyp={} \
                  line={} ell_junction={} circle_junction={} line_circle_junction={} \
-                 pp_planes={} endpoint={}",
+                 pp_planes={} pp_circle_junction={} endpoint={}",
                 mesh.verts.get(v as usize),
                 vert_circle.contains_key(&v),
                 vert_ellipse.contains_key(&v),
@@ -1898,6 +1945,7 @@ pub(crate) fn stage4_relocate_and_correct(
                 vert_circle_junction.contains_key(&v),
                 vert_junction.contains_key(&v),
                 vert_pp_planes.contains_key(&v),
+                vert_pp_circle_junction.contains_key(&v),
                 endpoints.contains(&v),
             );
         }
@@ -2521,6 +2569,68 @@ pub(crate) fn stage4_relocate_and_correct(
                 reason: Stage4InvalidReason::OffCurveBeyondChordBand,
             });
         }
+        let (proj, t) = project_onto_circle(j, center, normal, radius)
+            .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+        if rho > cad_primitives::TAU_WORK {
+            mesh.verts[v as usize] = proj;
+            moved.insert(v);
+        }
+        relocations.push((v, t));
+        processed.insert(v);
+    }
+
+    // Task #146 (spec `yang_stage4_circle_pp_line_junction` branches 4–6):
+    // relocate each circle×pp-line junction vertex onto the exact
+    // line∩circle point (line∩sphere quadratic + circle-plane residual
+    // certificate — valid for the in-plane AND transversal configurations).
+    for (&v, &((lp, ld), (center, normal, radius, _src_r))) in &vert_pp_circle_junction {
+        let p = mesh.verts[v as usize];
+        let Some(j) = pp_line_circle_junction(lp, ld, center, normal, radius, p, d_eps) else {
+            // Branch 5: the line misses the circle (or no root is on the
+            // circle's plane) — not a resolvable junction here.
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
+        };
+        let pa = p.as_array();
+        let ja = j.as_array();
+        let rho =
+            ((ja[0] - pa[0]).powi(2) + (ja[1] - pa[1]).powi(2) + (ja[2] - pa[2]).powi(2)).sqrt();
+        // Branch 6: crossing amplification — the vertex sits within its
+        // chord bands of BOTH curves; the displacement to their junction is
+        // amplified by 1/sin θ, θ = angle between the line direction and the
+        // circle tangent at the junction (the vert_circle_junction pattern;
+        // derived, not widening).
+        let n = normalize3(normal.as_array());
+        let dh = normalize3(ld.as_array());
+        let c = center.as_array();
+        let rvec = normalize3([ja[0] - c[0], ja[1] - c[1], ja[2] - c[2]]);
+        let tangent = [
+            n[1] * rvec[2] - n[2] * rvec[1],
+            n[2] * rvec[0] - n[0] * rvec[2],
+            n[0] * rvec[1] - n[1] * rvec[0],
+        ];
+        let cross = [
+            dh[1] * tangent[2] - dh[2] * tangent[1],
+            dh[2] * tangent[0] - dh[0] * tangent[2],
+            dh[0] * tangent[1] - dh[1] * tangent[0],
+        ];
+        let sin_theta = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
+        let gate = if sin_theta > 0.0 {
+            2.0 * d_eps / sin_theta
+        } else {
+            f64::INFINITY
+        };
+        if rho > gate {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
+            });
+        }
+        // Branch 4: `j` is exactly on the line and on the circle's sphere;
+        // the circle projection yields the frame angle `t` for the retag
+        // (positionally a no-op up to f64 — `j` is on the circle).
         let (proj, t) = project_onto_circle(j, center, normal, radius)
             .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
         if rho > cad_primitives::TAU_WORK {
@@ -3556,6 +3666,33 @@ pub(crate) fn sweep_reversed_intersections(
             // Fixed point: no reversal remains.
             return Ok(collapsed_any);
         }
+    }
+}
+
+/// Task #146 (spec `yang_stage4_circle_pp_line_junction` branches 1–3): the
+/// SINGLE distinct pp-line among a vertex's `vert_pp_planes` entries —
+/// entries compare as UNORDERED plane pairs (exact bit equality, both plane
+/// orders). `Some` iff exactly one distinct line remains after dedup.
+pub(crate) fn dedup_single_pp_line(
+    entries: &[(Vector3, f64, Vector3, f64)],
+) -> Option<(Vector3, f64, Vector3, f64)> {
+    let plane_eq =
+        |a: &(Vector3, f64), b: &(Vector3, f64)| a.0.as_array() == b.0.as_array() && a.1 == b.1;
+    let entry_eq = |x: &(Vector3, f64, Vector3, f64), y: &(Vector3, f64, Vector3, f64)| {
+        let (x1, x2) = ((x.0, x.1), (x.2, x.3));
+        let (y1, y2) = ((y.0, y.1), (y.2, y.3));
+        (plane_eq(&x1, &y1) && plane_eq(&x2, &y2)) || (plane_eq(&x1, &y2) && plane_eq(&x2, &y1))
+    };
+    let mut distinct: Vec<(Vector3, f64, Vector3, f64)> = Vec::new();
+    for e in entries {
+        if !distinct.iter().any(|d| entry_eq(d, e)) {
+            distinct.push(*e);
+        }
+    }
+    if distinct.len() == 1 {
+        Some(distinct[0])
+    } else {
+        None
     }
 }
 

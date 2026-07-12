@@ -922,6 +922,99 @@ pub(crate) fn project_onto_ellipse_nearest(
     Ok((proj, t_out))
 }
 
+/// Task #146 (spec `yang_stage4_circle_pp_line_junction`): the closed-form
+/// LINE of two intersecting planes `n1·x + d1 = 0`, `n2·x + d2 = 0` —
+/// `dir = n1 × n2`, `point = ((−d1)(n2 × dir) + (−d2)(dir × n1)) / |dir|²`.
+/// `None` for (near-)parallel planes (`|n1 × n2|² < TAU_WORK²` — no unique
+/// line; the caller STOPs loudly).
+pub(crate) fn pp_line(n1: Vector3, d1: f64, n2: Vector3, d2: f64) -> Option<(Point3, Vector3)> {
+    let a = normalize3(n1.as_array());
+    let b = normalize3(n2.as_array());
+    // Normalize the offsets with the same scale as the unit normals.
+    let l1 = {
+        let r = n1.as_array();
+        (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt()
+    };
+    let l2 = {
+        let r = n2.as_array();
+        (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt()
+    };
+    if l1 < cad_primitives::TAU_WORK || l2 < cad_primitives::TAU_WORK {
+        return None;
+    }
+    let (e1, e2) = (d1 / l1, d2 / l2);
+    let dir = [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ];
+    let dd = dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2];
+    if dd < cad_primitives::TAU_WORK * cad_primitives::TAU_WORK {
+        return None;
+    }
+    let bxd = [
+        b[1] * dir[2] - b[2] * dir[1],
+        b[2] * dir[0] - b[0] * dir[2],
+        b[0] * dir[1] - b[1] * dir[0],
+    ];
+    let dxa = [
+        dir[1] * a[2] - dir[2] * a[1],
+        dir[2] * a[0] - dir[0] * a[2],
+        dir[0] * a[1] - dir[1] * a[0],
+    ];
+    let point = Point3::new(
+        ((-e1) * bxd[0] + (-e2) * dxa[0]) / dd,
+        ((-e1) * bxd[1] + (-e2) * dxa[1]) / dd,
+        ((-e1) * bxd[2] + (-e2) * dxa[2]) / dd,
+    );
+    Some((point, Vector3::new(dir[0], dir[1], dir[2])))
+}
+
+/// Task #146 (spec `yang_stage4_circle_pp_line_junction` branches 4–5): the
+/// junction of an exact line with a circle — the line∩SPHERE(C, r) quadratic
+/// (exact for BOTH the in-plane and the transversal configuration; a junction
+/// point on the circle is on that sphere regardless of the line's
+/// inclination), then the circle-plane residual certifies circle membership.
+/// Returns the root nearest `current` whose plane residual is within `band`;
+/// `None` when the line misses the sphere or no root is on the plane
+/// (branch 5 — the caller STOPs loudly).
+pub(crate) fn pp_line_circle_junction(
+    point: Point3,
+    dir: Vector3,
+    center: Point3,
+    normal: Vector3,
+    radius: f64,
+    current: Point3,
+    band: f64,
+) -> Option<Point3> {
+    let d = normalize3(dir.as_array());
+    let n = normalize3(normal.as_array());
+    let p = point.as_array();
+    let c = center.as_array();
+    let w = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+    let b_half = w[0] * d[0] + w[1] * d[1] + w[2] * d[2];
+    let c0 = w[0] * w[0] + w[1] * w[1] + w[2] * w[2] - radius * radius;
+    let disc = b_half * b_half - c0;
+    if disc < 0.0 {
+        return None;
+    }
+    let sq = disc.sqrt();
+    let cur = current.as_array();
+    let mut best: Option<(f64, Point3)> = None;
+    for t in [-b_half - sq, -b_half + sq] {
+        let j = [p[0] + t * d[0], p[1] + t * d[1], p[2] + t * d[2]];
+        let plane_res = (n[0] * (j[0] - c[0]) + n[1] * (j[1] - c[1]) + n[2] * (j[2] - c[2])).abs();
+        if plane_res > band {
+            continue;
+        }
+        let dist2 = (j[0] - cur[0]).powi(2) + (j[1] - cur[1]).powi(2) + (j[2] - cur[2]).powi(2);
+        if best.is_none_or(|(bd, _)| dist2 < bd) {
+            best = Some((dist2, Point3::new(j[0], j[1], j[2])));
+        }
+    }
+    best.map(|(_, j)| j)
+}
+
 /// PR-YR21 (spec §3.1/§3.2): per-vertex Ellipse relocation data for a
 /// `cone ∩ plane` oblique section — the cone analog of [`EllipseReloc`]. Carries
 /// the true cone (apex / axis / half-angle), the cutting plane (`plane_n` /
