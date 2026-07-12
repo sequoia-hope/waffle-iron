@@ -337,9 +337,13 @@ experiment). Tracking: `docs/yang_functional_roadmap.md` M6/M7.
 
 ### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
 
-**Code location:** `crates/yang-rs/src/lib.rs` — no CDT call sites;
-`stage4_relocate_and_correct` (~2260-2479) relocates existing intersection
-vertices only.
+**Code location (refreshed 2026-07-12 — the god-module was decomposed; `lib.rs`
+is now 161 lines):** the production Stage-4 path is
+`crates/yang-rs/src/stage4_correct.rs::stage4_relocate_and_correct` (`:723`) plus
+the relocation helpers in `crates/yang-rs/src/stage4_relocate.rs`. It relocates
+existing intersection vertices only — there is still NO CDT/mesh-update call in
+the production path (see "Increment status" below for the built-but-unwired
+primitives and the partial closed-form remediation).
 
 **Paper section:** §4.4.1 — mesh updating via CDT + split/merge/insert +
 per-triangle `d(T)` recalculation.
@@ -356,7 +360,11 @@ gates the output.
 
 **Remediation:** roadmap milestone for real Stage-4 remesh; in the interim, add a
 doc note (or a loud `YangError`) so the stage list is not mistaken for a running
-CDT. **Sign-off:** pending.
+CDT. **Status (2026-07-12): PARTIALLY REMEDIATED, still OPEN.** The general CDT
+mesh-update remains unwired, but a series of exact CLOSED-FORM junction handlers
+has shipped that resolves the specific over-determined-junction sub-family that
+was the dominant Stage-4 ERROR class (enumerated under "Partial remediation"
+below). No user sign-off — the core §4.4.1 CDT deviation is not closed.
 
 **Increment N2-1 landed (2026-07-01):** the faithful §4.4.1 mesh-updating
 *primitive* now exists, unit-tested in isolation, but is **not yet wired** into
@@ -452,6 +460,61 @@ incident patch in the parametric domain so Stage 6 sees T-junction-free topology
 (3) recompute `d(T)` via `stage4_dt::d_of_t` for the new boundary triangles.
 F0059 (cyl×cyl 90° union, ~0.4s, single clean junction family) is the canonical
 red→green target. Oracle: assay 0 WRONG + F0059/R0019 ERROR→CORRECT.
+
+**PARTIAL REMEDIATION — shipped closed-form junction handlers (2026-07-12
+refresh).** The "junction handler + CDT must land together" conclusion above held
+for the GENERAL mesh update, but the specific over-determined-junction sub-family
+(a vertex lying on ≥3 exact surfaces, formerly the largest LRR sub-class) turned
+out to be resolvable WITHOUT a local re-CDT, by relocating the vertex exactly onto
+all its incident surfaces in closed form. These handlers shipped between tasks
+#131–#146 and each converted its target cases to CORRECT with 0 WRONG. They
+constitute the "partially remediated" status; the general §4.4.1 CDT remains
+absent (see below):
+
+- **Rim-junction insertion (Stage-1)** — `boolean.rs::rim_junctions_against`
+  (`:1039`), dispatcher `rim_junction_overrides` (`:1632`), wired at
+  `boolean.rs:1832`/`1855`, BRep constructors `brep.rs:322`/`:376`. Inserts exact
+  lobe-corner junction vertices into the Stage-1 mesh before tessellation
+  (spec `yang_rim_junction_insertion`).
+- **circle∩line closed form** — `boolean.rs::circle_line_roots` (`:1171`,
+  consumed `:1217`/`:1282`). The exact rim-plane quadratic for the junction point.
+- **Triple relocation** — `stage4_relocate.rs::relocate_onto_implicit_triple`
+  (`:251`): the torus-block Newton generalized to relocate a ≥3-surface vertex
+  onto all constraints simultaneously (the reinstated general handler the 2026-07-08
+  note prototyped; spec `yang_stage4_conic_triple_junction`).
+- **circle × parallel-plane-line junction** — `stage4_relocate.rs::pp_line`
+  (`:930`) + `pp_line_circle_junction` (`:981`), dedup `dedup_single_pp_line`
+  (`stage4_correct.rs:3676`), map `vert_pp_circle_junction` (`stage4_correct.rs:1669`).
+  See N30 (task #146).
+- **cone-hyperbola junction (KV16)** — `stage4_relocate.rs::ConeHyperbolaReloc`
+  (`:1076`), map `vert_cone_hyperbola` (`stage4_correct.rs:769`); geometry
+  `geom.rs::{hyperbola_point,hyperbola_param}` (`:206`/`:259`).
+- **cone-ellipse same-type junction (KV16/KV16b)** —
+  `stage4_relocate.rs::ConeEllipseReloc` (`:1026`), `cone_ellipse_residual`
+  (`:1210`), map `vert_cone_ellipse` (`stage4_correct.rs:761`), `same_type_junction`
+  routing (`stage4_correct.rs:778`/`1739`). See N31 (task #127).
+
+These share the exactness certificate `junction_certificate_band`
+(`stage4_relocate.rs:70`/`:95`, `TAU_WORK.max(8·ε·L)`) and the scale-aware Newton
+work floor `1e-13.max(8·ε·L)` (`stage4_relocate.rs:268`) — both documented as
+tolerance decisions in N31.
+
+**STILL OPEN — the general §4.4.1 CDT mesh-update remains UNWIRED.** The
+faithful Fig-11 primitives built under N2-1/N2-2 —
+`stage4_update::stage4_mesh_update` (`stage4_update.rs:89`) and
+`stage4_dt::{eval_uv (:69), d_of_t (:101)}` — have NO production call sites at
+HEAD; every caller is a `#[test]` (`stage4_update.rs` tests L469+, `stage4_dt.rs`
+tests L649+, `tests/n2_dt_adversary.rs`). Stage-4 remains relocation-only: when
+relocation + §4.5.3 correction cannot converge, the pipeline loudly STOPs with
+`YangError::Stage4RegionInvalid { reason: LocalRefinementRequired }`
+(`errors.rs:69`/`:123`) rather than doing the local CDT the paper prescribes —
+~45 return sites across `stage4_correct.rs` plus `stage4_relocate.rs`
+(`:826`/`:872`/`:1159`/`:1166`). The residual LRR cases (e.g. the true-degenerate
+R0015 line∥circle-plane, torus∩torus R0096, and the mixed-curve junctions whose
+relocation succeeds but whose incident patch then needs a T-junction-free
+re-triangulation) are the remaining N2 work. Paper basis: §4.4.1 "Mesh updating"
+(`refs/text/yang2025_hybrid_boolean.txt:605+`) + §4.5.2 "Local refinement"
+(`:659+`).
 
 ### N3 — §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion)
 
@@ -1434,3 +1497,562 @@ diverges from the C++ only where the C++ is unsound under underflow).
 **Oracles:** `orient.rs` group-0 unit tests (measured 4-point fixture +
 2D analog + true-coplanar guard); full cherchi suite + 18/18 sidecar
 arrangement parity + fuzz differentials + full assay unchanged.
+
+---
+
+<!-- 2026-07-12 catch-up (task #150): entries N25–N35 backfill the M8 coplanar,
+KV6 revolve, and Stage-4 junction campaign (tasks #131–#146) that landed between
+commit d7da34ae and HEAD 3568db09. Per the 2026-07-12 governance amendment,
+deviation entries are MERGE BLOCKERS per increment; these are the retroactive
+records for increments that shipped before the amendment. Anchors verified by
+`grep -n` at HEAD; any anchor that could not be confirmed is flagged inline as
+"(anchor unverified — flagged in 2026-07-12 catch-up)". Several of these are
+faithfulness *improvements* or new-capability constructors, not divergences —
+each entry states its deviation status explicitly. -->
+
+### N25 — Stage-0 §4.5.5 generalized to n-ary plane groups + tessellated (disc/annular/mixed) faces
+
+**Where:** `crates/yang-rs/src/stage0/nary.rs` — `build_plane_groups` (`:53`,
+connected components of the coplanar-pair graph), `PlaneGroup` (`:41`),
+`overlay_nary_group` (`:142`); pure-line class wall probes at `:189`
+(`nary-face-unsupported`) / `:217`,`:226` (`nary-mixed-orientation`); tessellated
+class in the same file — `face_polygon_2d_tessellated` (`:262`),
+`rim_chord_ctxs`/`mixed_chord_ctxs` (`:401`/`:392`), disc/annular gates (`:396`/`:397`),
+sub-floor shared-mint collapse (`:481`), crossing propagation (`:726`,
+`collect_rim_crossings` `:745`, `collect_mixed_crossings` `:737`), the B6 loud wall
+`annular-hole-rim-crossing` (`:196`). Dispatch from `stage0/mod.rs`:
+`build_plane_groups(&scan.cross)` (`:248`), per-group loop (`:308`),
+`overlay_nary_group(` call (`:313`), typed wall `CoplanarFacesUnsupported` (`:205`).
+
+**Mechanism:** §4.5.5 coplanar preprocessing formerly handled exactly one
+coplanar A×B face pair; a face appearing in more than one pair tripped a loud
+wall. This lifts that wall by grouping coplanar cross-pairs into PLANE GROUPS
+(connected components joined by a shared face) and running ONE exact-rational
+2D overlay per group (side A = all its A faces, side B = all its B faces) so a
+repeated face is segmented against the union of its partners in a single
+consistent triangulation. A 1-pair group runs the historical 1×1 path
+byte-identically. Slice g (task #132) extends the group overlay from
+pure-`LineSegment` faces to the DISC / ANNULAR / MIXED Line+Arc tessellated
+classes the 1×1 path already supported, wiring exact Stage-1 rim rings, on-circle
+chord-mint contexts, sub-floor shared-mint collapse over every group rim circle,
+attribution-scoped per-face override triangulations, and per-face crossing
+propagation into the laterals. A disc-rim × annular-hole-rim strict crossing
+stays the loud 1×1 wall, applied pairwise across the group.
+
+**Paper section:** faithful implementation of §4.5.5 "Handling coplanarity"
+(`refs/text/yang2025_hybrid_boolean.txt:718-751`) — the set-level
+A-only/B-only/overlap segmentation of the shared plane, generalized from a pair
+to the connected group. NOT a divergence.
+
+**Tolerance decisions:** none new. Per-pair detection uses the pre-existing YR24
+weld band; no epsilon is introduced (mints are closed-form circle∩line / radial
+projection). The volume oracle allows a 6% chord band for Stage-1 rim sag.
+
+**Oracles:** e2e `crates/yang-rs/tests/m8_bridge_nary_overlay.rs`
+(`narrow_bridge_union_is_genus1_frame` χ=0, `..subtract_leaves_u_exactly` χ=2,
+`..intersect_is_empty`, `user_bridge_union_is_genus1_frame`);
+`m8_nary_tessellated_overlay.rs` (`flush_pocket_subtract_and_union_partition`,
+`plain_flush_pocket_still_succeeds`, `group_with_crossing_and_contained_rims_succeeds`,
+`single_boss_crossing_1x1_regression`); engine unit `yr25_coplanar_overlay.rs`
+(`nary_two_towers_vs_spanning_bridge`, `nary_singleton_delegation_is_bit_identical`,
+`nary_overlapping_same_side_inputs_are_loud`). Assay: **C0101** pinned
+`SupportedCorrect` (`assay_kv2.rs:1203`). **R0046** (slice-g driver) is NOT
+explicitly pinned in `assay_kv2.rs`; the spec anticipates it lands CORRECT or on
+the deeper `rim-lateral-none` torus-lateral wall (N28), and the catalog line
+`R0046 — FAIL` appears stale relative to the current baseline (anchor unverified
+— flagged in 2026-07-12 catch-up).
+
+**Deviation status:** faithful §4.5.5; design decision = plane-group
+partitioning. No sign-off required.
+
+### N26 — Overlay f64-emission fused collapse (§4.5.5 identical-mesh at rounding resolution)
+
+**Where:** `crates/yang-rs/src/coplanar_overlay.rs` — published `fused`
+map (`:190`), step-6 emission gate (`:604`), `CollinearSliver` trigger
+(`:634-638`), `fused_emission_repair` call (`:651`) and def (`:696`), loud
+`RoundingCollapse` fallback (`:671-673`), eligibility ceiling `tau2` (`:708-710`),
+candidate sort by exact squared length (`:769`), ceiling test `if len2 >= &tau2`
+(`:772`), survivor selection (`:778-786`), exact link/fold validity gate (`:797`+).
+
+**Mechanism:** at the overlay's f64 emission gate, when a triangle of three
+distinct EXACT vertices rounds to a degenerate/collinear f64 image
+(`CollinearSliver`), a constrained-edge-collapse repair runs instead of failing.
+Worklist = non-`Positive` triangles ascending; each tries its edges in ascending
+exact squared-length order (lexicographic tie-break). An edge is eligible only if
+its exact squared length is below the ceiling (real-scale slivers stay loud). The
+survivor is the input-loop vertex over a minted arrangement vertex, else the
+smaller overlay index, keeping its OWN exact bits (never an average — the KV15b
+precedent). A Hoppe-style link/fold validity gate remaps loser→survivor over all
+live triangles in exact arithmetic: index-degenerate triangles are dropped, every
+other remapped triangle must retain strictly positive exact area or the candidate
+is rejected. A full pass committing nothing while a sliver remains ⇒ loud
+`RoundingCollapse`. Publishes `fused: BTreeMap<u32,u32>` (fully resolved
+loser→survivor). No-sliver inputs are byte-identical, `fused` empty.
+
+**Paper section:** serves the §4.5.5 identical-overlap-mesh requirement
+(`...txt:718-751`) at f64 resolution — coincident-rounded boundary chains must
+fuse to keep both models' meshes identical. Method references [#51] Hoppe 1996
+(edge collapse + link/fold) and [#52] Hobby 1999 (snap-rounding) are supporting,
+not Yang sections.
+
+**Tolerance decision (design choice, logged):** the fusion eligibility CEILING is
+`TAU_MODEL` (`1e-7`, `crates/cad-primitives/src/lib.rs:23`), applied squared
+(`tau2`, `coplanar_overlay.rs:708-710`). This is deliberately a fail-closed
+ceiling on what MAY fuse, NOT a trigger (the trigger is exact f64 degeneracy) and
+NOT `MIN_FEATURE_SIZE` (the R0091 revert lesson). Sign-off rationale: fusing only
+sub-`TAU_MODEL` exact separations cannot merge a real feature.
+
+**Oracles:** `crates/yang-rs/tests/m8_overlay_femto_slab_emission.rs`
+(`c0048_mirrored_rim_slab_repair` verbatim C0048 pair, `synthetic_femto_slab_fuses`,
+`needle_only_overlay_byte_identical_legacy`, `supra_tau_collinear_stays_loud`,
+`fusion_survivors_prefer_input_loop_vertices`, `femto_slab_coexists_with_supra_hole_feature`,
+`fused_output_is_finite_and_nondegenerate`, `nan_and_degenerate_inputs_rejected_before_gate`);
+`yr25_coplanar_overlay.rs::rounding_stress_subresolution_sliver_fuses`. Assay:
+F0067/C0048/R0053 leave the `RoundingCollapse` wall for their next honest wall
+(C0048 → the kernel-v2 rim-override refusal that N27 retires; C0048 remains
+`Unsupported(CoplanarBoolean)` pinned at `assay_kv2.rs:1169`). F0067/R0053 have no
+explicit assay pin (anchor unverified — flagged in 2026-07-12 catch-up).
+
+**Deviation status:** faithful §4.5.5 with a documented fail-closed tolerance
+ceiling. Design decision, no separate sign-off.
+
+### N27 — Stage-1 rim-override merge onto a coinciding uniform sample (producer/consumer of N26)
+
+**Where:** `crates/yang-rs/src/stage1_tessellate.rs` —
+`stage1_tessellate_with_rim_overrides` (`:81`), `stage1_tessellate_inner` (`:118`),
+`inserted_rims` set (`:126`). Full-rim site: `uni_step`/`merge_tol` (`:521-522`),
+coincidence test (`:564-565`), seam (k=0) B-Rep guard (`:567-580`), same-slot /
+already-merged conflict (`:582-590`), TAU_MODEL identity check `d2 >= tau*tau`
+(`:604-615`), MERGE bit-replace `slots[k_slot] = (…, RimSlot::Override(pt))`
+(`:622`). Arc-chain site: `uni_step`/`merge_tol` (`:358-359`), `k_near` (`:395-396`),
+endpoint/seam refusal (`:406`), same-slot conflict (`:419`), identity ceiling
+(`:434`), real-scale refusal (`:436`).
+
+**Mechanism:** a rim-crossing override point (the fused boundary point from N26)
+that angularly COINCIDES with an interior uniform rim Steiner sample (slot k≠0)
+and is a sub-`TAU_MODEL` 3D twin of that sample is DELIBERATELY MERGED — the
+uniform slot's computed sample is replaced by the override's exact bits while the
+slot keeps its uniform angular key + theta. Ring length is unchanged
+(replacement, not insertion), so the uniform (N−k) lateral index-pairing stays
+valid and the rim is kept out of `inserted_rims` (not routed to azimuth-merge).
+This retires the old "coinciding override always = upstream bug ⇒ silent-merge
+refused" wall. Fail-closed guards stay loud (`MalformedTopology`): real-scale
+coincidence (3D distance ≥ TAU_MODEL), two distinct overrides on one slot, or a
+differing-bits collision on the seam / arc endpoint (B-Rep vertices are
+authoritative). Applies at both the full-circle rim and arc-chain sites.
+
+**Paper section:** §4.5.5 shared-boundary-point propagation
+(`...txt:718-751`) — the single fused overlap-boundary point must appear in this
+body's rim sampling for the two meshes to stay identical. Faithful.
+
+**Tolerance decisions (design choice, logged):** angular trigger
+`merge_tol = uni_step * 1.0e-6` (`:359`, `:522`) — the pre-existing coincidence
+band; identity ceiling = `TAU_MODEL` (`1e-7`), compared as squared 3D distance
+`d2 >= tau*tau` (`:604`/`:614`, arc `:434`). No new constant; both from the
+centralized policy. Same fail-closed rationale as N26.
+
+**Oracles:** `crates/yang-rs/src/tests_unit/boolean_functional.rs` —
+`rim_override_ulp_twin_merges_onto_uniform_sample` (`:687`: ring length unchanged,
+twin bits present, displaced bits gone, edge NOT in inserted set, closed
+2-manifold), `rim_override_bit_exact_uniform_merge_is_byte_identical` (`:731`),
+`rim_override_real_scale_uniform_coincidence_stays_loud` (`:757`), plus existing
+`rim_override_empty_is_byte_identical` / `rim_override_inserts_into_both_rims_no_t_junction`.
+Assay: C0048 (shared driver with N26) still `Unsupported(CoplanarBoolean)` — the
+wall keeps moving downstream one honest step at a time.
+
+**Deviation status:** faithful §4.5.5; design decision. No sign-off required.
+
+### N28 — Torus-profile rim crossings: CapLateral torus arm + poloidal opposite-rim projection
+
+**Where:** `crates/yang-rs/src/stage0/rim_chords.rs` — `enum CapLateral`
+(`:370`), `lateral_for_cap` (`:387`; cylinder arm `:424`, torus guard
+`rim-lateral-torus-not-2profile` `:451`, torus arm `:459`, `rim-lateral-none`
+`:482`), `collect_ring_crossings` (`:563`; torus arms `:578`/`:731`; poloidal
+φ = atan2(τ, ρ−R) `:678-679`). Grid alignment in
+`crates/yang-rs/src/stage1_tessellate.rs` — `tessellate_torus_face` (`:3204`),
+`phi_slot` closure (`:3333`), `tessellate_torus_band` (`:4472`).
+
+**Mechanism:** when a disc cap's rim edge is a torus profile circle
+(revolved-circle output) and the coplanar overlap boundary crosses it, the
+crossing must be mirrored onto the OPPOSITE profile circle so both rims of the
+torus band keep matched sample counts. `lateral_for_cap` was generalized from a
+cylinder-only classifier into a `CapLateral` enum with a TORUS arm that detects a
+`Surface::Torus` face whose outer loop carries exactly two distinct full-circle
+rims of radius ≈ minor. For a crossing on one profile circle it computes the
+intrinsic poloidal angle φ = atan2(τ, ρ−R) and mints the opposite point exactly at
+the same φ on the opposite circle via `c₁ + r₁(cos φ·u + sin φ·a)` (1:1, no grid
+search). `tessellate_torus_face` then aligns its structured θ×φ grid columns by the
+rings' actual intrinsic φ values (index-wise on sorted seam-anchored offsets)
+instead of assuming uniform slots, keeping the mesh watertight against both seam
+discs.
+
+**Paper section:** faithful §4.5.5 (`...txt:718-751`) — overlap boundaries become
+shared intersection curves and the boundary sampling must propagate into every
+face sharing the subdivided edge.
+
+**Tolerance decisions:** the ring-match uses a fixed band (index-wise on sorted
+seam-anchored offsets); the spec explicitly REJECTS a min-gap-derived tolerance
+(R0050's Δφ≈9e-16 vs a 4e-16 twin gap would collapse it). The exact `1e-9` literal
+for this ring-match band and the `1e-9·(1+R+r)` minor-radius classification band
+are documented in the spec but were NOT isolated to a unique source line in this
+pass (anchor unverified — flagged in 2026-07-12 catch-up).
+
+**Oracles:** `crates/yang-rs/tests/kv6d_torus_boolean.rs`
+(`flush_box_crossing_seam_disc_union` RED→green, `flush_box_contained_in_seam_disc_union`);
+unit `crates/yang-rs/src/tests_unit/stage0_rim_projection.rs`. Assay: **R0046**
+UNSUPPORTED→CORRECT; **R0025/R0050** advance to typed Stage-4
+LocalRefinementRequired (the N2 class); **R0085** was formerly masked by an
+UNSUPPORTED(revolve) verdict and now surfaces the pre-existing CDT wall.
+
+**Deviation status:** faithful §4.5.5. No sign-off required.
+
+### N29 — §4.5.3 reversed-point correction via EXACT conic parameters (not the paper's discrete tangent-angle proxy) + near-tangent ellipse relocation
+
+**Where:** `crates/yang-rs/src/stage4_correct.rs` —
+`sweep_reversed_intersections` (`:3402`, call `:2978`), param-order test
+`d1 * d2 < 0.0` (`:3567` in-sweep, `:3785` in `shared_conic_reversed`),
+`conic_param_deltas` wrap closure (`:3788-3816`), `mixed_cycle_shared_conic`
+(`:3824`), `conics_equal_up_to_normal_sign` (`:3705`), `is_reversed` (`:3968`),
+`reversal_collapse_direction` (`:3894`). Near-tangent ellipse arm:
+`project_onto_ellipse_via_cylinder` (call `:2082`, def `stage4_relocate.rs:789`),
+`project_onto_ellipse_nearest` (call `:2101`, def `stage4_relocate.rs:865`),
+`ellipse_residual` (def `stage4_relocate.rs:1266`, used `:2058`).
+
+**Mechanism:** in a MIXED boundary cycle (solid edges + conic chain), a site `p_r`
+whose two incident edges carry the SAME conic (Circle/Ellipse, identity up to
+stored-normal sign) is tested for parameter-order reversal — compute the three
+points' conic parameters, wrap consecutive deltas `d1 = t_r−t_b`, `d2 = t_n−t_r` to
+(−π,π], and flag a backtrack iff `d1·d2 < 0`. The victim collapses onto the
+parameter-NEARER bracketing neighbor (not `reversal_collapse_direction`, which
+picks the far junction) under a `2·d_ε` gate. A second, deeper arm fixes the
+near-tangent ellipse relocation: `project_onto_ellipse_via_cylinder` preserves
+cylinder azimuth and amplifies by `1/(n·â)`, silently sliding a corridor vertex
+macro-distances; when the azimuth move exceeds the per-site gate it is replaced by
+the in-plane nearest point on the ellipse — found by BISECTION of
+`f(t)=(a²−b²)cos·sin − |u|a·sin + |v|b·cos` on `[0,π/2]`, NOT Newton (the F0047
+divergence) — accepted only if its move ≤ `2·gate/sinθ`.
+
+**Paper section:** DEVIATION FROM LITERAL, faithful to INTENT. §4.5.3 "Correction
+of reversed intersection points" (`...txt:679-751`, Fig. 15) prescribes a
+discrete tangential-direction analysis (a 45°–135° angle band on sampled
+tangents). This implements the same correction via EXACT conic parameters instead
+of the discrete-tangent proxy — a strengthening (the exact parameter order can
+never mis-diagnose a reversal the angle band would blur). Analogous in spirit to
+N24: diverges from the literal method only where the literal method is a
+resolution-limited approximation.
+
+**Tolerance decisions (design choice, logged — the "2·d_ε/sinθ corridor budget"):**
+the near-tangency relocation corridor budget `2·gate/sinθ` is the acceptance band
+for a relocated point's move, first-order from the 1/sinθ distance-to-curve
+amplification of a near-tangent surface pair. It appears at ~5 sites in
+`stage4_correct.rs`: `:1782` (pp-planes∩cylinder junction, `2·d_eps/sin_theta`),
+`:2032` (coplanar circle∩circle corner), `:2128` (single-ellipse relocation,
+`2·gate/sin_theta`), `:2286` (line metric `2·d_eps/grad`), and the `:2529-2533`
+residual gate. The `2·d_ε` collapse gate is at `:3625`/`:3630`. These are labeled
+in-code as "the torus-block metric — NOT a tolerance widening": the budget is the
+provable first-order bound on how far an exact junction can lie from the
+inscribed-mesh estimate, not an accept-anything slack. `ellipse_residual` is a
+SURFACE metric (a flat move gate over-rejects — the kv11 pin), and nearest-on-
+ellipse is bisection, not Newton-from-atan2.
+
+**Oracles:** `crates/yang-rs/src/tests_unit/m5_case_iv.rs`
+(`s453d_shared_circle_backtrack_reversed`, `s453d_steep_ellipse_peak_monotone_is_healthy`,
+`s453d_conic_identity_up_to_normal_sign`, `s453d_shared_conic_site_eligibility`,
+`s453e_near_tangent_ellipse_nearest_projection_bounded`,
+`s453_merge_survivor_prefers_exact_vertex`); regression pins in
+`crates/yang-rs/tests/n2_rim_mint_adversary.rs`
+(`corner_in_band_box`, `corner_in_band_reverts_keep_true_junction`). Assay:
+**R0061** RED→GREEN driver, **R0059/R0072** joined CORRECT (class siblings
+R0063/R0095/F0085); baseline 238C/0W/53E/4U/0T.
+
+**Deviation status:** documented strengthening deviation from the §4.5.3 literal
+method; the corridor-budget tolerance is a design decision with the provable
+first-order rationale above. No user sign-off outstanding (strengthening
+direction; identical to N24's posture).
+
+### N30 — Circle × parallel-plane-line junction closed form (§4.4.1 relocation onto both incident curves)
+
+**Where:** `crates/yang-rs/src/stage4_correct.rs` — `vert_pp_circle_junction`
+map (`:1669`), rerouting pass (`:1672-1697`), `dedup_single_pp_line` (call
+`:1684`, def `:3676`), relocation loop (`:2586`), `pp_line_circle_junction` call
+(`:2588`). `crates/yang-rs/src/stage4_relocate.rs` — `pp_line` (`:930`),
+`pp_line_circle_junction` (`:981`). Per-vertex maps `vert_circle` (`:753`),
+`vert_pp_planes` (`:816`).
+
+**Mechanism:** a vertex registered in BOTH `vert_circle` (a section circle) and
+`vert_pp_planes` (an exact plane∩plane trace line) is a triple point where the
+pp-line crosses the circle. A rerouting pass (after the KV11 ellipse×pp pass,
+before PR-F3 line×circle) dedups the vertex's pp entries — exactly one distinct
+line ⇒ remove from `vert_circle`, insert `(line, circle)` into
+`vert_pp_circle_junction`; ≥2 distinct lines ⇒ loud `LocalRefinementRequired`.
+The relocation arm solves the pp-line ∩ sphere(C,r) quadratic (chosen over the
+transversal plane-piercing form because it is exact for BOTH in-plane and
+transversal configs — PR-F3's piercing form is degenerate for the in-plane
+class), picks the root nearer the current position that also passes the
+circle-plane residual band, retags `t` via `project_onto_circle`, and STOPs loudly
+if the displacement exceeds the junction gate. Sibling of the KV11 ellipse×pp
+reroute, whose ellipse-only handling previously let the plain `vert_circle`
+relocation slide the vertex along the circle off the pp-planes (a Newell-normal
+disagreement one op downstream).
+
+**Paper section:** faithful §4.4.1 "Mesh updating" (`...txt:605+`) — a point
+terminating two intersection curves must satisfy both; also uses [#1]
+Patrikalakis line–quadric closed forms.
+
+**Tolerance decisions:** none new. Reuses the derived junction gate `2·d_ε/sinθ`
+(N29 family; sinθ=0 ⇒ INFINITY) and the `OffCurveBeyondChordBand` reject.
+
+**Oracles:** `crates/yang-rs/src/tests_unit/m5_case_iv.rs::s146_pp_line_circle_junction_closed_form`
+(`:1272` — in-plane crossing, transversal, line-miss→None, tangent grazing; the
+two-distinct-lines over-determined branch STOP asserted at `:1363`). Assay
+drivers F0064 (×2 ops, RED→GREEN), R0051, F0067; baseline 241C/0W/50E/4U/0T.
+NOTE: R0063 is claimed by both this spec and the N29 spec as a class sibling;
+which pass actually resolves it could not be determined from code alone (anchor
+unverified — flagged in 2026-07-12 catch-up).
+
+**Deviation status:** faithful §4.4.1 junction relocation. No sign-off required.
+
+### N31 — Cone-ellipse & cone-hyperbola SAME-TYPE junction routing to the triple relocation (KV16 / KV16b)
+
+**Where:** `crates/yang-rs/src/stage4_correct.rs` — `vert_cone_ellipse` map
+(`:761`, built `:1272`), `vert_cone_hyperbola` map (`:769`, built `:1092`),
+`same_type_junction` set (`:778`), KV16b second-descriptor detection (`:1290`,
+diff check `:1296`, `same_type_junction.insert(v)` `:1303`), triple-relocation
+trigger `if n_maps < 2 && !same_type_junction.contains(&v)` (`:1739`),
+`relocate_onto_implicit_triple` call (`:1756`). `crates/yang-rs/src/stage4_relocate.rs`
+— `relocate_onto_implicit_triple` (`:251`), `ConeEllipseReloc` (`:1026`),
+`cone_ellipse_residual` (`:1210`), `ConeHyperbolaReloc` (`:1076`).
+
+**Mechanism:** a vertex at the junction of TWO conic sections of ONE cone cut by
+two different planes gets both curves' Stage-4 scan arms calling
+`vert_cone_ellipse.insert(v, …)` (or `vert_cone_hyperbola`); the second silently
+overwrote the first, so `n_maps == 1`, the triple-junction trigger never fired,
+and the single-curve relocation moved the vertex onto only the surviving conic —
+the other output edge's endpoint was left off its curve and kernel-v2 rejected
+("output ellipse-arc endpoint does not lie on its ellipse"). Fix: at the insert
+site, detect a SECOND descriptor differing in any of apex / axis_dir / half_angle
+/ plane_n / plane_d and add the vertex to `same_type_junction`, which the existing
+multi-curve trigger honors — routing 3-surface vertices to
+`relocate_onto_implicit_triple` (the exact cone∩planeC∩planeD point) while
+≥4-surface vertices keep the loud audits. Field-for-field mirror of the KV16
+`vert_cone_hyperbola` arm.
+
+**Paper section:** faithful §4.3.3 / §4.4.1 (`...txt:518-574` / `605+`) — a
+junction vertex lies on ALL incident intersection curves and relocation must
+respect every constraint.
+
+**Tolerance decisions (design choices, logged):** two constants live in
+`relocate_onto_implicit_triple`/its certificate and are the honest homes for two
+of the catch-up's flagged tolerance decisions:
+- **8εL junction exactness certificate** — `stage4_relocate.rs:95`
+  (`junction_certificate_band`, def `:70`): `TAU_WORK.max(8.0 * f64::EPSILON * l)`
+  with `l = mag3(p) + refmag`. Doc-comment frames it as "exact to evaluation
+  precision," NOT a tolerance widening — the strongest property float arithmetic
+  can express (P9-clean).
+- **1e-13.max(8εL) Newton work floor** — `stage4_relocate.rs:268`:
+  `let tau = 1e-13_f64.max(8.0 * f64::EPSILON * l);`. The verbatim comment
+  (`:258-266`) admits the intent honestly: the absolute 1e-13 floor is sub-ULP at
+  coordinate magnitude ~4000 (the R0017 corpus scale) and could never converge
+  there, so it takes the max with the same 8εL term as the certificate — and
+  **"at unit scale 8εL ≈ 5e-15 < 1e-13, so the shipped torus-block behavior is
+  byte-identical."** Logged as such: a scale-aware floor chosen to preserve
+  existing torus-block byte output while unblocking the large-coordinate class.
+  The sibling `relocate_onto_implicit_pair` uses a flat `1e-13` (`:212`, no 8εL
+  max).
+
+Same-type identity is an EXACT field comparison (apex/axis_dir/half_angle/plane_n/
+plane_d), never a tolerance.
+
+**Oracles:** `crates/yang-rs/tests/rim_junction_insertion.rs`
+(`same_type_ellipse_edge_pierce_endpoints_on_curve` `:1232` — 30° frustum ∖
+45°-rotated diamond prism, discriminating check = every output ellipse endpoint on
+its own ellipse; sibling `same_type_hyperbola_edge_pierce_endpoints_on_curve`
+`:998`). Assay drivers R0004/R0100 (junction FIXED here), R0009/R0091 (attributed
+to a separate KV15b micro-scale mint-accuracy residue, not this handler). Commit
+0893d5c0 dated 2026-07-11, POSTDATES N24 (2026-07-08) — no prior ledger coverage.
+
+**Deviation status:** faithful §4.3.3/§4.4.1; the two Newton/certificate constants
+are logged design decisions with the byte-identical rationale above.
+
+### N32 — Stage-6 output arc orientation obeys the CCW-minor input convention
+
+**Where:** `crates/yang-rs/src/stage5_topology.rs` — `orient_directed_curve`
+(def `:301`, called at both push sites `:425` and `:628`), `emit_topology`
+(`:361`), ambiguity-band posture comment (`:299`).
+
+**Mechanism:** `emit_topology` created one directed edge copy per face loop but
+copied the intersection curve (stored normal included) verbatim from the
+undirected mesh-edge map; a clockwise traversal then declared the complementary
+(~2π) arc, and Stage-1 sampled nearly a full circle for it (~90 unbalanced edges
+⇒ `NonManifoldOutput` when the output re-entered a boolean). `orient_directed_curve`
+fixes this: for a periodic Circle/Ellipse copy with start≠end whose CCW sweep
+about the stored normal exceeds π, negate that copy's stored normal (the kernel-v2
+twin convention: same point set, opposite traversal ⇒ always the minor side); a
+sweep < π is copied unchanged; within 1e-6 of π is left ambiguous. Result: a yang
+boolean OUTPUT is a valid yang boolean INPUT. The twin-chain bit-identity arm was
+implemented then found UNNECESSARY (`ortho_basis(−n) = (e1, −e2)` exactly + atan2
+odd symmetry weld the mirrored frames bit-exactly), so kernel-v2 `from_yang_brep`
+re-derives the arc sense (<π as stored, >π negated), making the flips transparent.
+
+**Paper section:** §4.4/§4.5 (`...txt:605+`) — intersection curves carry exact
+geometry and shared-boundary sampling is the watertightness mechanism. This is an
+internal I/O-convention fix (yang output = valid yang input), not a paper method
+change.
+
+**Tolerance decisions:** a `1e-6`-of-π arc-minor ambiguity band (`stage5_topology.rs`
+near `:299`/`:301`); mirrors the kernel-v2 `boolean.rs` directional-normal twin
+convention. No geometry is moved.
+
+**Oracles:** `crates/yang-rs/tests/stage6_arc_orientation.rs`
+(`output_arc_edges_satisfy_ccw_minor_convention` `:209` RED→GREEN,
+`pocket_operand_reenters_plain_boolean` `:270`). No assay case ID — the driver is
+yang-DIRECT chained booleans (production re-enters via kernel-v2 which re-derives);
+per-case output is byte-identical.
+
+**Deviation status:** internal-convention fix, no paper divergence. No sign-off
+required.
+
+### N33 — Disjoint-union passthrough (A ∪ B with A∩B=∅ is the disjoint sum — outside Yang's interacting-solid scope)
+
+**Where:** `crates/yang-rs/src/boolean.rs` — `conservative_aabb` (`:1650`),
+`union_operands_strictly_disjoint` (`:1697`, re-exported `lib.rs:96`),
+`concat_breps` (`:1719`), fast-path dispatch (`:1773-1774`). kernel-v2 arena
+merge: `crates/kernel-v2/src/boolean.rs:2945`.
+
+**Mechanism:** a UNION whose operands' conservative AABBs are strictly disjoint is
+the disjoint sum — emit the verbatim concatenation of the two input B-Reps
+(indices offset, every curve/surface tag preserved) with no pipeline/tessellation
+loss. Otherwise every full rim degrades to a `LineSegment` chord polyline and a
+downstream boolean dies at the Stage-3 `chord_tol_for_curved_owner` →
+`AmbiguousCurve{0,0}` fault. Conservative AABB = vertex hull expanded by
+Circle/Ellipse radius, Sphere r, Torus R+r; returns `None` (no fast path) if any
+edge carries Hyperbola/Parabola/SurfacePair. Two layers: the yang `boolean()`
+passthrough (serves yang-direct chains) and a kernel-v2 arena-level shell merge
+(native, preserves faces bit-for-bit — needed because yang's passthrough output is
+seam-doubled input-convention topology that `from_yang_brep` will not re-ingest).
+
+**Paper section:** OUT OF PAPER SCOPE. A∪B with A∩B=∅ has no arrangement to build;
+Yang 2025 addresses interacting solids. Not a method divergence — a scope
+completion.
+
+**Tolerance decision (design choice, logged):** the disjointness band is
+`1e-9·(1+scale)` (inside `union_operands_strictly_disjoint`/`conservative_aabb`,
+`boolean.rs:1650-1717`). It MUST exceed the YR24 weld band
+`2·max(TAU_MODEL, scale·TAU_WORK)` or the near-partial r=1e-8 weld class (yr27) is
+stolen from Stage-0. The exact in-body arithmetic literal was confirmed by
+function location but not quoted line-for-line in this pass (anchor unverified —
+flagged in 2026-07-12 catch-up).
+
+**Oracles:** `crates/yang-rs/tests/disjoint_union_passthrough.rs`
+(`disjoint_union_preserves_circle_vocabulary` `:85` RED-first — 4 closed Circle
+rims, watertight, volume = sum; `disjoint_union_output_reenters_boolean` `:136`
+— the chained Stage-3 `AmbiguousCurve{0,0}` fixture). No new assay case ID;
+per-case output byte-identical (baseline 237C/0W/49E/9U/0T at ship).
+
+**Deviation status:** scope completion outside the paper; the disjointness band is
+a logged design decision (must dominate the weld band). No user sign-off
+outstanding.
+
+### N34 — KV6a-tilted: full-turn revolve alternation gate narrowed to consecutive-annuli only
+
+**Where (kernel-v2, NOT a yang-pipeline stage):** `crates/kernel-v2/src/construct.rs`
+— `build_full_revolve` (`:1680`), consecutive-annuli typed reject (`:1695`,
+`NotImplemented("PR-KV6a full-turn revolve with consecutive annular …edges")`),
+`start_cap`/`end_cap` now `Option<FaceId>` (fields `:282`/`:286`, capless logic
+`:1883-1930`), `REVOLVE_FULL_TURN_TOLERANCE = 1e-9` (`:316`).
+
+**Mechanism:** a full-turn (360°) polygon revolve whose profile has consecutive
+wall edges (parallel→cylinder or oblique→cone, no annulus between) died at an
+alternation gate demanding strict wall/annulus alternation. The gate is narrowed:
+every wall/annulus pairing is now supported EXCEPT two consecutive ANNULI (a
+subdivided radial edge). Justification (P8, removes an artificial input
+restriction): rim-normal consistency holds for any wall neighbor — adjacent walls
+meet head-to-tail so their twin rim half-edges carry opposite ±â normals,
+satisfying the curve-twin rule the gate protected. Caps are no longer guaranteed:
+`start_cap`/`end_cap` became `Option`; an all-oblique tilted-axis rectangle (4
+cone frusta, 0 annuli) builds a capless genus-1 cone-frustum ring with both caps
+`None`.
+
+**Paper section:** NONE — kernel-v2 constructor change (surface-of-revolution
+vocabulary), not a Yang-pipeline stage. Cites Stroud 2006 §3.1.4 (single-fake-edge
+closed curved edges) and P8. Logged here for completeness of the revolve campaign;
+strictly this belongs to the kernel-v2 construction layer, not the Yang deviation
+surface.
+
+**Tolerance decisions:** none new — reuses `REVOLVE_FULL_TURN_TOLERANCE = 1e-9`.
+
+**Oracles:** `crates/kernel-v2/tests/kv6a_revolve.rs`
+(`full_turn_oblique_edge_builds_cone_frustum`, `full_revolve_topology_census_genus_one_washer`,
+`full_volume_is_exactly_pi_r2sq_minus_r1sq_h`, `full_mesh_watertight_with_annular_caps`,
+`revolve_face_partial_and_full_end_to_end`, `capability_walls_keep_notsupported_marker`).
+Assay: **C0070** ERROR→CORRECT (with the meta genus correction euler_target 2→0).
+C0070 is not explicitly pinned in `assay_kv2.rs`; the meta/gen_complexity edits
+(`tracker(2,4.0)→(0,4.0)`, `C0070.meta.json`) were not re-verified at HEAD in this
+pass (anchor unverified — flagged in 2026-07-12 catch-up).
+
+**Deviation status:** kernel-v2 constructor P8 change; no Yang divergence.
+
+### N35 — KV6d: closed-torus & on-axis-sphere full-turn revolve + Stage-4 bounded-face containment guard
+
+**Where:** kernel-v2 constructors — `crates/kernel-v2/src/construct.rs`:
+`build_torus_revolve` (`:1978`, full-turn dispatch `:399`), sphere sweep dispatch
+(`:2059`, `Surface::Sphere` emission `:2444`), clearance
+`REVOLVE_MIN_AXIS_CLEARANCE_REL = 1e-9` (`:311`); `geom::sphere_residual`
+(`geom.rs:86`), `validate_sphere_face` (`validate.rs:1640`),
+`tessellate_sphere_patch` (kernel-v2 `tessellate.rs:1916` → yang
+`stage1_tessellate.rs:4145`). Stage-4 (yang) containment guard —
+`crates/yang-rs/src/stage4_correct.rs`, inside `stage4_relocate_and_correct`
+(`:723`): wedge gate `2.0*d_eps/sin_theta` (`:2815`), `OffCurveBeyondChordBand`
+reject (`:2820`), containment guard block with the C0065 comment (`:2824`+),
+per-planar-partner AABB hull loop (`:2838`+).
+
+**Mechanism (two parts):** (1) CONSTRUCTORS — a full-turn revolve of a circle
+profile about a strictly off-axis in-plane axis builds a CLOSED ring-torus
+(genus 1, minimal-CW aba⁻¹b⁻¹ seam: V=1, E=2 closed circles, F=1 `Surface::Torus`);
+a full-turn revolve of a circle centered ON the axis builds a CLOSED sphere
+(genus 0, PR-YR12 contract: V=2 poles at center±r·ẑ in WORLD z — the sphere is
+isotropic so the seam frame is CANONICAL z-up regardless of the revolve axis,
+making `to_yang` a direct emission — E=1 meridian `Curve::Arc` twin, F=1
+`Surface::Sphere`). Both re-enter the yang pipeline (Stage-1 doubly-periodic θ×φ
+torus grid; sphere lat/long grid or `tessellate_sphere_patch` pole-cap/disk UV-CDT
+for boolean-output patches). (2) A Stage-4 BOUNDED-FACE CONTAINMENT GUARD: near
+tangency the wedge relocation gate `2·d_ε/sinθ` balloons, letting an inscribed
+mesh close an intersection loop early INSIDE the partner's bounded face while the
+implicit-pair Newton drags relocated points onto the infinite-surface curve
+OUTSIDE that face. The guard rejects (loud STOP) any relocation escaping every
+matching planar partner face's vertex-hull AABB (+d_ε), since a correct vertex must
+lie on both bounded faces. Planes only — curved hulls under-bound closed seam
+loops.
+
+**Paper section:** the constructors are exact/analytic (Stroud 2006 §3.1.4 +
+Mäntylä 1988 for the seam CW structure), not a Yang method. The containment guard
+lives in the §4.3.3 near-tangency relocation region (`...txt:518-574`) and its
+comment explicitly DEFERS the honest near-tangency fix to "the §4.3.3
+near-tangency increment" (task #137). That deferral is the real DEVIATION in this
+entry: a loud STOP substitutes for the §4.3.3 mesh-topology-matches-exact-topology
+handling when the face gap falls under the sagitta.
+
+**Tolerance decisions:** `REVOLVE_MIN_AXIS_CLEARANCE_REL = 1e-9` and
+`REVOLVE_FULL_TURN_TOLERANCE = 1e-9` are pre-existing. The Stage-4 wedge gate
+`2·d_ε/sin_theta` (`:2815`) and hull inflation `+d_ε` reuse the PR-YR10 chord-band
+budget (the N29 corridor family) — no new tolerance-widening constant; the guard's
+purpose is to stay LOUD, not to widen acceptance.
+
+**Oracles:** `crates/kernel-v2/tests/kv6d_closed_torus.rs`
+(`closed_torus_topology_census`, `closed_torus_mesh_watertight_with_pappus_volume`,
+`closed_torus_near_tangent_shaft_stays_loud` — the containment-guard oracle,
+`crossing_circle_full_turn_rejected_as_error`, `on_axis_circle_full_turn_builds_sphere`);
+`kv6d_sphere_revolve.rs` (`closed_sphere_topology_census`,
+`closed_sphere_mesh_watertight_with_ball_volume`,
+`closed_sphere_boolean_equatorial_half_cut`, `partial_on_axis_circle_still_rejected`);
+yang unit `tests_unit/boolean_functional.rs::torus_closed_full_turn_doubly_periodic`.
+Assay: the revolve UNSUPPORTED bucket is now EMPTY (operand construction complete),
+but the boolean CASES advance to deeper typed Stage-4 errors — **C0065** pinned
+`Category::Error` (`assay_kv2.rs:1193`, near-tangent shaft containment guard);
+**C0067** per campaign memory → Stage-4 LocalRefinementRequired (the N2 class),
+not explicitly pinned (anchor unverified — flagged in 2026-07-12 catch-up).
+
+**Deviation status:** constructors are faithful/out-of-scope; the containment
+guard is an ACKNOWLEDGED deviation — a loud STOP standing in for the §4.3.3
+near-tangency mesh-topology handling, remediation tracked as task #137. Not signed
+off; actively tracked.
