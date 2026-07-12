@@ -1,6 +1,6 @@
 # Documentation Index
 
-All documentation files in `docs/`, categorized. Updated 2026-03-09.
+All documentation files in `docs/`, categorized. Updated 2026-07-12.
 
 ## Architecture
 
@@ -12,23 +12,38 @@ All documentation files in `docs/`, categorized. Updated 2026-03-09.
 | `SYSTEM-INTERFACES.md` | Cross-crate data flows, dependency graph, interface type contracts |
 | `PERSISTENT-NAMING.md` | GeomRef persistent naming system for stable geometry references across rebuilds |
 | `test-tooling-design.md` | GUI architecture and testing infrastructure component hierarchy |
-| `NONDETERMINISM-REPORT.md` | Determinism and stability analysis of truck boolean operations |
+| `NONDETERMINISM-REPORT.md` | HISTORICAL (pre-2026-06-11): determinism/stability analysis of the retired truck boolean operations |
 | `SKETCH-SYSTEM-PLAN.md` | Sketch system development plan with current capabilities and roadmap |
 
 ## Governance
 
-Located in `/governance/`, not `docs/`:
+Located in `/governance/`, not `docs/`. The four pillars, highest precedence
+first:
 
 | File | Description |
 |------|-------------|
-| `governance/ENGINEERING_CONSTITUTION.md` | Non-negotiable engineering rules (P1-P8), test requirements, amendment process |
-| `governance/FEATURE_IMPLEMENTATION_PROTOCOL.md` | Required workflow for modeling features: spec, test, implement, validate |
+| `governance/ENGINEERING_CONSTITUTION.md` | Non-negotiable engineering rules (P1-P10, incl. P9 no-hack-to-green / P10 abort-on-wrong-diagnosis), test requirements, amendment process |
+| `governance/ARCHITECTURAL_INVARIANTS.md` | Architectural invariants (A0–A15), incl. A14 tolerance layering and A15 analytical-primacy / Yang hybrid boolean pipeline |
+| `governance/FEATURE_IMPLEMENTATION_PROTOCOL.md` | Required workflow for modeling features: spec, test, implement, validate (roles, phases, oracles) |
+| `governance/DEFINITION_OF_DONE.md` | Definition of Done checklist gating a change as complete |
+
+## Kernel & Yang Boolean Pipeline
+
+The live kernel is the layered `kernel-v2` stack (Phase-6 migration COMPLETE
+2026-06-11); these docs govern it. See root `CLAUDE.md` §"Kernel: kernel-v2".
+
+| File | Description |
+|------|-------------|
+| `yang_functional_roadmap.md` | **Plan of record** for the whole kernel stack: `LabeledArrangement` interface, milestones M0–M8, reference-parity strategy |
+| `yang_deviations.md` | Ledger of known divergences between the implementation and Yang 2025 / Cherchi 2022 — a per-increment entry is a **merge blocker** (Constitution P2 artifact for Yang increments) |
+| `audits/yang_2025_audit.md` | Per-step CORRECT / INCOMPLETE / WRONG / STUB assessment of the Yang pipeline vs the paper — read before working on a stage |
+| `review/design_review_2026-07-12_kernel.md` | Multi-agent kernel design review (findings F1–F18, governance-doc issues G1–G11) driving current remediation |
 
 ## Testing
 
 | File | Description |
 |------|-------------|
-| `TESTING.md` | Test tiers (Rust fast/full, GUI fast/full), how to run, how to add tests |
+| `TESTING.md` | Test tiers (`rewrite`, `parity`, `fast`, `full`, GUI fast/full, `all`) + the categorized kernel-v2 `assay_kv2` oracle, how to run, how to add tests |
 | `TESTING-STRATEGY.md` | Test pyramid, layer definitions, testing philosophy |
 | `gui-test-plan.md` | 5 core parametric CAD workflows with test matrices |
 | `gui-test-skeptic-report.md` | Adversarial quality review of all GUI tests (2026-02-11) |

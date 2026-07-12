@@ -3,7 +3,8 @@ use super::types::*;
 use std::collections::HashMap;
 
 /// Core geometry kernel trait. Provides all shape construction and modification operations.
-/// Implemented by WaffleKernel (clean-sheet kernel) and MockKernel (deterministic test double).
+/// Implemented by `kernel_v2::KernelV2Adapter` (the production kernel since the
+/// Phase 6 migration) and `MockKernel` (deterministic test double).
 pub trait Kernel {
     /// Extrude a planar face along a direction vector.
     fn extrude_face(

@@ -1,8 +1,11 @@
 # 01 — Kernel Fork: Agent Instructions
 
-> **ARCHIVED (2026-03-28):** These instructions cover the truck-based kernel, which
-> has been replaced by the clean-sheet kernel at `crates/kernel/`. See the top-level
-> `CLAUDE.md` for current kernel development instructions.
+> **ARCHIVED (superseded 2026-06-11 Phase-6 migration):** this dossier describes
+> retired code. It covered the truck-based kernel, then the clean-sheet
+> `crates/kernel/` — **both are now deleted.** Current kernel work lives in
+> `crates/{cad-primitives,waffle-types,cherchi-rs,ssi-rs,yang-rs,kernel-v2}` —
+> plan of record `docs/yang_functional_roadmap.md` (+ the crate routing table in
+> the top-level `CLAUDE.md`). Do not follow instructions below.
 
 You are working on **kernel-fork**. Read ARCHITECTURE.md in this directory first.
 

@@ -947,21 +947,51 @@ pub struct EdgeRange {
 
 ## G) Kernel Abstraction Traits
 
-**Implementor:** kernel (WaffleKernel, MockKernel)
-**Consumer:** modeling-ops, feature-engine
+**Defined in:** `waffle_types::kernel` (`crates/waffle-types/src/kernel/traits.rs` + `types.rs`)
+**Implementor:** `kernel_v2::KernelV2Adapter` (production kernel since the Phase 6 migration, 2026-06-11) + `waffle_types::kernel::MockKernel` (deterministic test double, feature `mock-kernel`)
+**Consumer:** modeling-ops, feature-engine, wasm-bridge
+
+> **Regenerated 2026-07-12 from `waffle_types::kernel` (design review G9).** The
+> Rust source (`traits.rs` + `types.rs`) is normative; regenerate this section
+> when the trait changes. The per-method support status below mirrors the
+> capability map at the top of `crates/kernel-v2/src/adapter.rs` (the "current
+> truth"). MockKernel is a separate deterministic double and does not track the
+> same support boundaries.
+
+### Support status (in `KernelV2Adapter`)
+
+| Method | Trait requirement | Status in `KernelV2Adapter` |
+|---|---|---|
+| `extrude_face` | required | **SUPPORTED** — staged profile → `kernel_v2::extrude`; circle profiles → cylinders |
+| `revolve_face` | required | **SUPPORTED** — full/partial revolve incl. cones (KV6c), torus + sphere (KV6d), tilted non-alternating profiles (KV6a). Consecutive annular edges / holed profiles → typed error |
+| `boolean_union` / `_subtract` / `_intersect` | required | **SUPPORTED** (non-coplanar) via yang-rs native pipeline. Coplanar input face pairs → `NotSupported` (Yang Stage 0 / roadmap M8); some curved-partial-patch operands → `BooleanFailed` |
+| `boolean_union_multi` / `_subtract_multi` / `_intersect_multi` | trait-default (wraps single-body) | **SUPPORTED** — adapter overrides to return genuinely multi-body results (disjoint operands, KV7 multi-shell) |
+| `fillet_edges` / `chamfer_edges` / `shell` | required | **DEFERRED INDEFINITELY** → `NotSupported` (root `CLAUDE.md`; do not work on these) |
+| `tessellate` | required | **SUPPORTED** — exact-rational planar tessellation; the `tolerance` argument is IGNORED |
+| `extract_edges` | required | **SUPPORTED** — arena half-edge walk → polylines + analytic `EdgeCurve` for circular edges |
+| `import_body` | trait-default `NotSupported` | **SUPPORTED** — ingests a mesh-backed STEP body (task #138, SI1); booleans on it are not yet supported |
+| `export_step` | trait-default `NotSupported` | **NOT SUPPORTED** — trait default (STEP export unimplemented) |
+| `make_faces_from_profiles` | required | **SUPPORTED** — polygon + circle + exact arc + spline-via-polygon + holed regions |
+| `make_face_from_region` | trait-default `NotSupported` | **SUPPORTED** — builds one planar face from an explicit outer + hole region (minimal sub-region extrude) |
+| `list_faces` / `list_edges` / `list_vertices` | required (introspect) | **SUPPORTED** — arena walk |
+| `face_edges` / `edge_faces` / `edge_vertices` / `face_neighbors` | required (introspect) | **SUPPORTED** — arena adjacency |
+| `compute_signature` / `compute_all_signatures` | required (introspect) | **SUPPORTED** |
+| `face_provenance` | trait-default `None` | **SUPPORTED** — exposes persistent id + lineage root (KV13 F5) for feature resolution |
+
+`revolve_face` takes `angle` in **degrees** (the legacy trait convention;
+`modeling-ops` passes `RevolveParams.angle` through unchanged and the adapter
+converts to radians internally). MockKernel implements the required methods and
+returns `NotSupported`/`None` for the trait-default optional ones.
 
 ```rust
 /// Core geometry kernel trait. Provides all shape construction and modification operations.
 /// Implemented by WaffleKernel (clean-sheet kernel) and MockKernel (deterministic test double).
 ///
-/// All methods take &mut self because kernel operations mutate internal state.
-/// Methods return Result to handle kernel failures gracefully.
-///
-/// Implementor: kernel
-/// Consumer: modeling-ops
+/// (NOTE: the doc comment above is verbatim from traits.rs; the live production
+/// implementor is `kernel_v2::KernelV2Adapter`, not a type literally named
+/// `WaffleKernel`. See the support table above.)
 pub trait Kernel {
     /// Extrude a planar face along a direction vector.
-    /// Returns the resulting solid handle.
     fn extrude_face(
         &mut self,
         face: KernelId,
@@ -969,8 +999,8 @@ pub trait Kernel {
         depth: f64,
     ) -> Result<KernelSolidHandle, KernelError>;
 
-    /// Revolve a planar face around an axis.
-    /// angle is in radians. 2*PI for full revolution.
+    /// Revolve a planar face around an axis. `angle` is in DEGREES
+    /// (legacy trait convention; 360 for a full revolution).
     fn revolve_face(
         &mut self,
         face: KernelId,
@@ -1000,7 +1030,30 @@ pub trait Kernel {
         b: &KernelSolidHandle,
     ) -> Result<KernelSolidHandle, KernelError>;
 
+    /// Boolean union that may produce multiple bodies (e.g., disjoint operands).
+    /// Default delegates to `boolean_union` and wraps in a single-element vec.
+    fn boolean_union_multi(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+    ) -> Result<Vec<KernelSolidHandle>, KernelError> { /* default */ }
+
+    /// Boolean subtract that may produce multiple bodies. Default wraps single.
+    fn boolean_subtract_multi(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+    ) -> Result<Vec<KernelSolidHandle>, KernelError> { /* default */ }
+
+    /// Boolean intersect that may produce multiple bodies. Default wraps single.
+    fn boolean_intersect_multi(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+    ) -> Result<Vec<KernelSolidHandle>, KernelError> { /* default */ }
+
     /// Fillet (round) the specified edges with the given radius.
+    /// DEFERRED INDEFINITELY — always `NotSupported`.
     fn fillet_edges(
         &mut self,
         solid: &KernelSolidHandle,
@@ -1009,6 +1062,7 @@ pub trait Kernel {
     ) -> Result<KernelSolidHandle, KernelError>;
 
     /// Chamfer (bevel) the specified edges with the given distance.
+    /// DEFERRED INDEFINITELY — always `NotSupported`.
     fn chamfer_edges(
         &mut self,
         solid: &KernelSolidHandle,
@@ -1017,6 +1071,7 @@ pub trait Kernel {
     ) -> Result<KernelSolidHandle, KernelError>;
 
     /// Shell a solid by removing faces and offsetting remaining faces inward.
+    /// DEFERRED INDEFINITELY — always `NotSupported`.
     fn shell(
         &mut self,
         solid: &KernelSolidHandle,
@@ -1024,16 +1079,37 @@ pub trait Kernel {
         thickness: f64,
     ) -> Result<KernelSolidHandle, KernelError>;
 
-    /// Tessellate a solid to a triangle mesh.
-    /// tolerance controls chordal deviation from true surface.
+    /// Tessellate a solid to a triangle mesh. (In `KernelV2Adapter` the
+    /// `tolerance` is ignored — planar tessellation is exact.)
     fn tessellate(
         &mut self,
         solid: &KernelSolidHandle,
         tolerance: f64,
     ) -> Result<RenderMesh, KernelError>;
 
-    /// Create a solid from closed sketch profiles on a plane.
-    /// Returns face IDs for the created planar faces.
+    /// Extract edge polylines for rendering edge overlays (+ analytic
+    /// `EdgeCurve` descriptors for circular edges).
+    fn extract_edges(
+        &mut self,
+        solid: &KernelSolidHandle,
+        tolerance: f64,
+    ) -> Result<EdgeRenderData, KernelError>;
+
+    /// Ingest an externally-imported mesh-backed body (STEP import, task #138).
+    /// Data is already placed in world coordinates (meters). Default
+    /// `NotSupported`; overridden in `KernelV2Adapter`.
+    fn import_body(&mut self, data: &ImportedBodyData)
+        -> Result<KernelSolidHandle, KernelError> { /* default: NotSupported */ }
+
+    /// Export a solid to a STEP AP203 format string. Default `NotSupported`
+    /// (not overridden — STEP export is unimplemented).
+    fn export_step(
+        &mut self,
+        solid: &KernelSolidHandle,
+        file_name: &str,
+    ) -> Result<String, KernelError> { /* default: NotSupported */ }
+
+    /// Create planar faces from closed sketch profiles.
     fn make_faces_from_profiles(
         &mut self,
         profiles: &[ClosedProfile],
@@ -1042,12 +1118,24 @@ pub trait Kernel {
         plane_x_axis: [f64; 3],
         positions: &std::collections::HashMap<u32, (f64, f64)>,
     ) -> Result<Vec<KernelId>, KernelError>;
+
+    /// Create a single planar face from an explicit region boundary (outer
+    /// loop + zero or more hole loops, in sketch (u, v) coords). Used to
+    /// extrude minimal sub-regions of overlapping sketch shapes (annulus,
+    /// lens, crescent). Default `NotSupported`; overridden in `KernelV2Adapter`.
+    fn make_face_from_region(
+        &mut self,
+        region: &crate::Region,
+        plane_origin: [f64; 3],
+        plane_normal: [f64; 3],
+        plane_x_axis: [f64; 3],
+    ) -> Result<KernelId, KernelError> { /* default: NotSupported */ }
 }
 
 /// Topology introspection trait. Provides read-only queries on kernel geometry.
 ///
-/// Implementor: kernel
-/// Consumer: modeling-ops (for topology diffing and provenance), feature-engine (for GeomRef resolution)
+/// Implementor: kernel_v2::KernelV2Adapter, MockKernel
+/// Consumer: modeling-ops (topology diffing/provenance), feature-engine (GeomRef resolution)
 pub trait KernelIntrospect {
     /// List all faces of a solid.
     fn list_faces(&self, solid: &KernelSolidHandle) -> Vec<KernelId>;
@@ -1079,40 +1167,109 @@ pub trait KernelIntrospect {
         solid: &KernelSolidHandle,
         kind: TopoKind,
     ) -> Vec<(KernelId, TopoSignature)>;
+
+    /// Persistent-identity provenance of a face (KV13 F5): its persistent id
+    /// and its lineage root (where the geometry was introduced, through
+    /// chained booleans). Used by feature-engine (F6) to resolve the face's
+    /// creating feature. Default `None` (kernels without persistent identity,
+    /// e.g. MockKernel); overridden in `KernelV2Adapter`.
+    fn face_provenance(&self, face: KernelId) -> Option<FaceProvenance> { None }
+}
+```
+
+### Key shared types (`waffle_types::kernel::types`)
+
+```rust
+/// Opaque handle to a solid in the geometry kernel. NEVER persisted; valid
+/// only for the current kernel session. `from_raw`/`raw` are the seam for
+/// external `Kernel` implementations (the kernel-v2 adapter).
+pub struct KernelSolidHandle(/* u64 */);
+
+/// Transient kernel-internal entity identifier. Stable within a single kernel
+/// session but NOT across rebuilds. NEVER persisted — use GeomRef for
+/// persistent references. In `KernelV2Adapter` it is tag-encoded
+/// (`tag << 40 | index`): 1 = vertex, 2 = edge (canonical lower-id half-edge),
+/// 3 = face, 4 = staged profile.
+pub struct KernelId(pub u64);
+
+/// Persistent-identity provenance of a face (KV13 F5). Unlike KernelId (which
+/// churns every rebuild), these ids are stable through chained booleans.
+pub struct FaceProvenance {
+    /// The face's own persistent id.
+    pub pid: u64,
+    /// The persistent id where this face's geometry was introduced (lineage root).
+    pub root_pid: u64,
 }
 
-/// Errors from kernel operations.
-///
-/// Producer: kernel
-/// Consumer: modeling-ops, feature-engine
+/// Errors from kernel operations. `BooleanEmptyResult` is a distinct TYPED
+/// outcome (a correct boolean that leaves no material — e.g. a subtract whose
+/// tool engulfs the target), so the engine can apply body-lifetime policy
+/// instead of string-matching an error. `NotSupported { operation }` is the
+/// loud capability-boundary marker (coplanar inputs, export_step, fillet/…).
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum KernelError {
-    /// Boolean operation failed.
     #[error("boolean operation failed: {reason}")]
     BooleanFailed { reason: String },
-
-    /// Fillet operation failed.
+    #[error("boolean produced an empty result (no material remains)")]
+    BooleanEmptyResult,
     #[error("fillet failed: {reason}")]
     FilletFailed { reason: String },
-
-    /// Shell operation failed.
     #[error("shell failed: {reason}")]
     ShellFailed { reason: String },
-
-    /// Tessellation failed.
     #[error("tessellation failed: {reason}")]
     TessellationFailed { reason: String },
-
-    /// Invalid entity reference.
     #[error("entity not found: {id:?}")]
     EntityNotFound { id: KernelId },
-
-    /// Operation not supported by this kernel implementation.
     #[error("operation not supported: {operation}")]
     NotSupported { operation: String },
-
-    /// Generic kernel error.
     #[error("kernel error: {message}")]
     Other { message: String },
 }
+
+/// Tessellated triangle mesh for rendering in three.js. Keyed on `KernelId`
+/// at this layer; wasm-bridge re-keys `face_ranges` onto persistent `GeomRef`
+/// before crossing to JS (see section F).
+pub struct RenderMesh {
+    pub vertices: Vec<f32>,       // [x0,y0,z0, x1,...]
+    pub normals: Vec<f32>,        // parallel to vertices
+    pub indices: Vec<u32>,        // triangle indices
+    pub face_ranges: Vec<FaceRange>,
+}
+pub struct FaceRange { pub face_id: KernelId, pub start_index: u32, pub end_index: u32 }
+
+/// Sharp-edge overlay data. `EdgeRange.curve` carries an analytic descriptor
+/// when the edge is a circle/arc, so consumers (sketch projection) can mint
+/// TRUE arcs instead of polyline approximations; `None` for straight edges and
+/// non-circular curves (ellipse/hyperbola/surface-pair render as polylines).
+pub struct EdgeRenderData { pub vertices: Vec<f32>, pub edge_ranges: Vec<EdgeRange> }
+pub struct EdgeRange {
+    pub edge_id: KernelId,
+    pub start_vertex: u32,
+    pub end_vertex: u32,
+    pub curve: Option<EdgeCurve>,
+}
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EdgeCurve {
+    Circle { center: [f64; 3], normal: [f64; 3], radius: f64 },
+    Arc    { center: [f64; 3], normal: [f64; 3], radius: f64 },
+}
+
+/// Options controlling the tolerance layering for boolean operations. Built
+/// via `default()`, `for_scale(extent)` (scale-adaptive), or
+/// `for_boolean_tol(tol)`; `validate()` enforces the hierarchy
+/// tau_work < tau_weld < tau_model and tau_mesh <= tau_model.
+pub struct BooleanOptions {
+    pub tau_model: f64,
+    pub tau_mesh: f64,
+    pub tau_weld: f64,
+    pub tau_work: f64,
+    pub tau_coplanar: f64,
+    pub min_feature_size: f64,
+}
 ```
+
+The neutral contract types for imported bodies
+(`ImportedBodyData`/`ImportedShellData`/`ImportedFaceData`/`ImportedEdgeData`/`ImportedSurface`,
+in `crates/waffle-types/src/kernel/import.rs`) are runtime-only (no serde) — the
+persisted artifact is the compressed STEP text re-parsed on rebuild. `TopoSignature`
+and `TopoKind` are defined in `crates/waffle-types/src/topo.rs` (section A/F).

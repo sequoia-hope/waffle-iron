@@ -1,9 +1,12 @@
 # 01 — Kernel Fork: Plan
 
-> **ARCHIVED (2026-03-28):** This plan covers the truck-based kernel (`kernel-fork`,
-> `vendor/truck/`), which has been replaced by the clean-sheet kernel at `crates/kernel/`.
-> The truck code is archived in `archive/truck/`. This plan is retained for historical
-> reference only. Active kernel work is tracked in ARCHITECTURE.md and kernel test suites.
+> **ARCHIVED (superseded 2026-06-11 Phase-6 migration):** this dossier describes
+> retired code. This plan covered the truck-based kernel (`kernel-fork`,
+> `vendor/truck/`), then the clean-sheet `crates/kernel/` — **both are now
+> deleted.** Current kernel work lives in
+> `crates/{cad-primitives,waffle-types,cherchi-rs,ssi-rs,yang-rs,kernel-v2}` —
+> plan of record `docs/yang_functional_roadmap.md`. Retained for historical
+> reference only. Do not follow instructions below.
 
 ## Milestones
 

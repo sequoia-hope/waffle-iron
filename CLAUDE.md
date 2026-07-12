@@ -143,12 +143,21 @@ Do NOT skip to lower-priority items because they are easier.
 3. Read `INTERFACES.md` — understand the type contracts.
 4. Read `/governance/ENGINEERING_CONSTITUTION.md` — understand the engineering law.
 5. Read `/agents/ORCHESTRATION.md` — understand the agent workflow.
-6. Identify your sub-project. Read that sub-project's `CLAUDE.md`.
-7. Read that sub-project's `PLAN.md` — pick the highest-priority uncompleted task.
-   **For the new kernel crates (`cherchi-rs`, `yang-rs`, `cherchi-sidecar-rs`,
-   `indirect-predicates-sidecar-rs`, `ssi-rs`, `kernel-v2`) there is no per-crate
-   `PLAN.md`** — `docs/yang_functional_roadmap.md` is the plan of record for all
-   of them; pick the next uncompleted milestone (M0–M8) there.
+6. **Identify your sub-project and route accordingly:**
+   - **Kernel-stack work** (`cad-primitives`, `waffle-types`, `cherchi-rs`,
+     `ssi-rs`, `yang-rs`, `kernel-v2`, and the two sidecar crates) is routed by
+     **`docs/yang_functional_roadmap.md`** (the plan of record) plus the crate
+     routing table under "Kernel: kernel-v2" above — **not** by any
+     `projects/NN-*/` dossier. Those kernel dossiers (`projects/01-kernel-fork`)
+     describe the retired truck/`crates/kernel` code and are ARCHIVED; do not
+     follow them. Pick the next uncompleted milestone (M0–M8) in the roadmap.
+   - **Non-kernel sub-projects** (sketch-solver, wasm-bridge, 3d-viewport,
+     sketch-ui, feature-engine, modeling-ops, ui-chrome, file-format,
+     test-harness, dev-infrastructure) still use their `projects/NN-*/`
+     dossier: read that sub-project's `CLAUDE.md`, then its `PLAN.md` and pick
+     the highest-priority uncompleted task. Sanity-check any dossier against
+     the live tree first — some list truck-era history in completed-milestone
+     notes.
 
 ## While Coding
 
