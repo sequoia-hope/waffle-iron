@@ -69,6 +69,7 @@ TEST_HARNESS_FAST_BINS=(
   report_tests
   scenarios_advanced
   stl_tests
+  assay_euler_consistency
 )
 
 # ---------------------------------------------------------------------------
