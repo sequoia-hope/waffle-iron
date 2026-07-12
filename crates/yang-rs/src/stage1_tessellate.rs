@@ -637,6 +637,16 @@ pub(crate) fn stage1_tessellate_inner(
                     if !inserted_keys.is_empty() {
                         inserted_rims.insert(e_idx as u32);
                     }
+                    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                        eprintln!(
+                            "[ring-build] edge={e_idx} n_seg={n_seg} overrides={} merged={} \
+                             inserted={} ring_len={}",
+                            extra.len(),
+                            merged_slots.len(),
+                            inserted_keys.len(),
+                            slots.len()
+                        );
+                    }
                 }
                 // Sort by seam-relative angle (the seam, offset 0, leads).
                 // ULP-twin overrides collide on the f64 angle key (spec

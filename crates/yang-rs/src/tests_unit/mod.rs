@@ -15,6 +15,7 @@ mod m4_substitute;
 mod m5_case_iv;
 mod matching;
 pub(crate) mod n2_junction;
+mod stage0_rim_projection;
 mod topology;
 
 #[allow(unused_imports)]

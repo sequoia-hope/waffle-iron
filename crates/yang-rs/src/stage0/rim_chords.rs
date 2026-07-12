@@ -523,6 +523,39 @@ pub(crate) fn collect_rim_crossings(
     Err("rim-not-disc")
 }
 
+/// Bit-exact dedup + push of one projected opposite-rim sample, shared by
+/// the translation and renormalisation arms (task #144). The env-gated
+/// probe reports skips, distinguishing a pairwise collapse (two cap
+/// samples → one image, the C0048/F0067 count-deficit mechanism) from a
+/// dedup against a pre-existing entry.
+fn push_opp(
+    opp_entry: &mut Vec<Point3>,
+    opp_pt: Point3,
+    pt: Point3,
+    opp_preexisting: usize,
+    rim_probe: bool,
+    cap_edge: u32,
+    opp_edge: u32,
+) {
+    if let Some(hit) = opp_entry.iter().position(|q| *q == opp_pt) {
+        if rim_probe {
+            let kind = if hit < opp_preexisting {
+                "PREEXISTING"
+            } else {
+                "PAIRWISE-COLLAPSE"
+            };
+            eprintln!(
+                "[opp-proj] cap_edge={cap_edge} opp_edge={opp_edge} pt={:?} \
+                 opp_pt={:?} SKIPPED ({kind} idx={hit})",
+                pt.as_array(),
+                opp_pt.as_array()
+            );
+        }
+    } else {
+        opp_entry.push(opp_pt);
+    }
+}
+
 /// Propagate the overlay's rim-chord split points for ONE circular rim
 /// (`cap_edge`) into that rim's override AND its cylinder's opposite rim (so the
 /// shared lateral stays conformal). Called once per rim by
@@ -648,7 +681,25 @@ pub(crate) fn collect_ring_crossings(
     //   opposite meridian.
     let oc = opp_center.as_array();
     let _ = opp_normal; // opposite plane is fixed by `oc`; normal no longer used
+
+    // Task #144 P10 REFUTATION RECORD (spec
+    // `m8_exact_opposite_rim_projection`): an exact-translation arm
+    // (`opp = p + (oc − cc)` in rational) was implemented here and REVERTED.
+    // It fixed the C0048/F0067 azimuth-merge count deficits (same-ray radial
+    // twin pairs — a #142 chord-depth fused survivor + its on-circle twin at
+    // bit-identical exact azimuth — collapse to ONE on-circle image below;
+    // merge counts are SYMMETRIC, measured `[ring-build]` C0048: 3=3), but
+    // mirrored chord-DEEP samples onto rims with no own crossings, where
+    // nothing relocates them: n2_rim_mint_adversary caught off-surface loop
+    // vertices (residual ≈ sagitta) on Ok outputs — SILENT-WRONG. A correct
+    // fix must place ON-CIRCLE (within the stage1 rim band), injectively
+    // (deterministic tangential separation for exact-azimuth twins),
+    // merge-MIRRORING, and exact-order-consistent — snap-rounding grade
+    // ([#52] Hobby), a design increment. Until then the collapse stays and
+    // the downstream azimuth-merge count wall stays LOUD (never silent).
     let opp_entry = rim_overrides.entry(opp_edge).or_default();
+    let opp_preexisting = opp_entry.len();
+    let rim_probe = std::env::var_os("YANG_SPLIT_PROBE").is_some();
     for &pt in &cap_pts {
         let p = pt.as_array();
         let w = [
@@ -709,9 +760,15 @@ pub(crate) fn collect_ring_crossings(
                 )
             }
         };
-        if !opp_entry.contains(&opp_pt) {
-            opp_entry.push(opp_pt);
-        }
+        push_opp(
+            opp_entry,
+            opp_pt,
+            pt,
+            opp_preexisting,
+            rim_probe,
+            cap_edge,
+            opp_edge,
+        );
     }
     if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
         eprintln!(
