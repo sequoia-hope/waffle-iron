@@ -1863,6 +1863,23 @@ pub(crate) fn tessellate_lateral_holed_cdt(
     // handles Line + Arc (Circle start≠end); a full-circle rim or degree-4 edge
     // is rejected there (loud, typed — the later-slice boundary).
     let outer_poly = loop_polyline(f_idx, &f.outer_loop, edges, chains)?;
+    // Task #145 diagnosis probe (read-only, env-gated): per-vertex edge
+    // attribution + loop edge kinds, to localize a chain zigzag to a stored
+    // edge sequence vs a rebuilt arc chain.
+    if std::env::var_os("YANG_T145_PROBE").is_some() {
+        if let Ok(attr) = loop_polyline_attributed(f_idx, &f.outer_loop, edges, chains) {
+            eprintln!("[t145] face {f_idx} outer attr (vert,edge): {attr:?}");
+        }
+        let kinds: Vec<(u32, String, u32, u32)> = f
+            .outer_loop
+            .iter()
+            .map(|&e| {
+                let ed = &edges[e as usize];
+                (e, format!("{:?}", ed.curve), ed.start, ed.end)
+            })
+            .collect();
+        eprintln!("[t145] face {f_idx} loop edges: {kinds:?}");
+    }
     let mut inner_polys: Vec<Vec<u32>> = Vec::with_capacity(f.inner_loops.len());
     for inner in &f.inner_loops {
         inner_polys.push(loop_polyline(f_idx, inner, edges, chains)?);

@@ -2788,11 +2788,20 @@ swapped every consumer to `predicates::indirect`).
     128/129/130) and chain-inserted override samples (261-264); sorted by
     unroll-u the point set is cleanly monotone, but the ORIGINAL samples
     128/129 are geometrically SWAPPED relative to their stored order.
-    Suspects: chained-output edge_polyline sample order (Stage-6 emission)
-    vs the conversion's arc-chain angular re-sort on mixed
-    on-circle/on-chord samples (the F0087/88/90 VertexOffSurface note in
-    `rim_chords.rs`). Next probe: dump the PREVIOUS op's stored
-    edge_polyline for the zigzag edge and compare with the rebuilt chain.
+    **Localized same day (`YANG_T145_PROBE`, banked in
+    `tessellate_lateral_holed_cdt`):** the face's boundary is a chain of
+    139 tiny per-segment EllipseArc edges (per-pair conic vocabulary;
+    consecutive edges share centers with flipped normal signs), each
+    contributing start + 1 interior Steiner; every arc's own rebuilt chain
+    is monotone — the STORED VERTEX ORDER is inverted along the curve
+    (loop vertices 128/129/130 at unroll-u 0.0448/0.0436/0.0481, zigzag
+    amplitude ~1.2e-3 real scale). The PREVIOUS op minted edges between
+    misordered curve samples; suspect Stage-4 relocation near tangency
+    swapping neighbours along the intersection curve (the task-#137
+    family). Fix direction: restore per-curve parameter order BEFORE
+    Stage-6 edge minting, or a validate_solid monotone-parameter check to
+    make the producing op loud. Re-entry-side repair is impossible (edges
+    already minted between the wrong vertex pairs). Task #145.
     (4) Remainder: 3× Stage-3 AmbiguousCurve conic (C0043 R0008 R0026, M5
     class), Stage-4 LRR/OffCurve (R0044 R0074 R0081 + subtract-chain
     singletons), 3× non-2-manifold reassembly (C0044 C0058 F0082, §4.3.3
