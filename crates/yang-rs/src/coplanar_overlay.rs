@@ -184,6 +184,10 @@ pub struct ClassifiedOverlay {
     pub poly_a: Vec<u32>,
     /// Side-B analog of `poly_a`.
     pub poly_b: Vec<u32>,
+    /// Fusion record of the step-6 fused-emission repair (spec
+    /// m8_overlay_fused_emission_collapse): loser overlay vertex index →
+    /// surviving index, fully resolved; empty when no repair ran.
+    pub fused: BTreeMap<u32, u32>,
 }
 
 /// Typed errors of the coplanar overlay engine. Every failure is loud; no
@@ -567,6 +571,7 @@ pub fn coplanar_overlay_multi(
         class,
         poly_a,
         poly_b,
+        fused: BTreeMap::new(),
     };
 
     // ── 5. Exact coverage post-conditions (P9/P10 — loud). Run on the FULL
@@ -596,51 +601,286 @@ pub fn coplanar_overlay_multi(
         }
     }
 
-    // ── 6. Sliver-collapse gate: every triangle is exactly CCW-positive by
-    // construction; check it stays positively oriented in the ROUNDED f64
-    // coordinates.
+    // ── 6. f64-emission gate (spec m8_overlay_fused_emission_collapse §3).
+    // Every triangle is exactly CCW-positive by construction; it must also be
+    // strictly positive in the ROUNDED f64 coordinates for the downstream
+    // exact mesh boolean to consume it. A positive exact triangle can round
+    // non-positive two ways (`rounded_tri_disposition`):
+    //   * CoincidentNeedle — two verts round to the SAME f64 point (distinct
+    //     exact verts a sub-ulp apart). Benign: the downstream coordinate
+    //     interner welds f64-identical points to one index, so the needle's
+    //     two non-zero edges are the SAME edge — dropping it leaves no f64 gap
+    //     and no flip. The exact coverage above already proved the overlay
+    //     correct.
+    //   * CollinearSliver — three DISTINCT f64 verts rounded collinear (or
+    //     order-inverted): its removal could gap, its retention flips a
+    //     neighbour.
     //
-    // Two ways a positive exact triangle can round to non-positive f64 area:
-    //   (a) two of its three verts round to the SAME f64 point (a zero-EXTENT
-    //       needle — distinct exact verts a sub-ulp apart, e.g. two 2D-Boolean
-    //       intersection points the same edge crossing minted within an ulp).
-    //       This is benign: the downstream coordinate interner welds f64-
-    //       identical points to one index, so the needle's two non-zero edges
-    //       are the SAME edge — dropping it leaves NO f64 gap and no flip. The
-    //       exact coverage above already proved the overlay correct. DROP it.
-    //   (b) three DISTINCT f64 verts that rounded into collinearity — a real
-    //       sliver whose removal could leave a gap or whose retention flips a
-    //       neighbour. This stays a LOUD reject (P9 — never silently dropped).
-    //       Emission-gate repair (T-subdivision + same-class quad flips) was
-    //       prototyped and REFUTED 2026-07-10 (spec
-    //       `m8_overlay_femto_slab_emission`, P10 abort record): the
-    //       measured corpus slivers include mint triples exactly collinear
-    //       on one input chord (every local apex is exactly degenerate) and
-    //       twin mints whose ROUNDED order inverts their exact order along
-    //       an input edge (no triangulation over the fixed rounded vertex
-    //       set can be positive) — the walls need per-region re-emission /
-    //       mint-site collapse, not local surgery.
+    // Branch B2 — if NO triangle is a CollinearSliver: the legacy path (keep
+    // Positive, drop CoincidentNeedle) is byte-identical and `fused` stays
+    // empty. This preserves bit-identical output for every currently-passing
+    // input (zero-regression requirement).
+    //
+    // Branch B3 — otherwise the fused-emission repair runs: sub-f64-resolution
+    // degenerate complexes are collapsed (constrained edge collapse, [#51]
+    // Hoppe validity gate in exact arithmetic) until the rounded image is
+    // f64-emittable, or a real-scale (supra-TAU_MODEL) sliver keeps the loud
+    // wall (B5/B6). Local T-subdivision over the FIXED rounded vertex set was
+    // prototyped and REFUTED 2026-07-10 (spec `m8_overlay_femto_slab_emission`
+    // §8, P10 abort): the corpus slivers are chord-collinear mint triples and
+    // order-inverted twin mints for which no fixed-vertex-set triangulation is
+    // positive — the repair removes that fixed-vertex premise.
+    let any_sliver = overlay.tris.iter().any(|t| {
+        rounded_tri_disposition(
+            overlay.verts[t[0] as usize],
+            overlay.verts[t[1] as usize],
+            overlay.verts[t[2] as usize],
+        ) == RoundedTri::CollinearSliver
+    });
+
+    if any_sliver {
+        // B3: survivor preference set — an input-loop vertex outranks a minted
+        // arrangement vertex (fusing a mint INTO existing input geometry
+        // minimises downstream churn, spec §3). Re-derived from this overlay's
+        // own exact inputs.
+        let input_loop_verts: BTreeSet<ExactPoint2> = polys_a
+            .iter()
+            .chain(polys_b.iter())
+            .flat_map(|poly| poly.iter().flatten().cloned())
+            .collect();
+        fused_emission_repair(&mut overlay, &input_loop_verts, &all_edges)?;
+    } else {
+        // B2 legacy path — byte-identical (zero-regression requirement). No
+        // CollinearSliver exists in this branch, so that arm is unreachable.
+        let mut kept_tris = Vec::with_capacity(overlay.tris.len());
+        let mut kept_class = Vec::with_capacity(overlay.class.len());
+        let mut kept_pa = Vec::with_capacity(overlay.poly_a.len());
+        let mut kept_pb = Vec::with_capacity(overlay.poly_b.len());
+        for (i, (tri, cls)) in overlay.tris.iter().zip(overlay.class.iter()).enumerate() {
+            let a2 = overlay.verts[tri[0] as usize];
+            let b2 = overlay.verts[tri[1] as usize];
+            let c2 = overlay.verts[tri[2] as usize];
+            match rounded_tri_disposition(a2, b2, c2) {
+                RoundedTri::Positive => {
+                    kept_tris.push(*tri);
+                    kept_class.push(*cls);
+                    kept_pa.push(overlay.poly_a[i]);
+                    kept_pb.push(overlay.poly_b[i]);
+                }
+                RoundedTri::CoincidentNeedle => continue,
+                RoundedTri::CollinearSliver => {
+                    probe_sliver(&overlay, tri, &all_edges, "collapse");
+                    return Err(CoplanarOverlayError::RoundingCollapse { tri: *tri });
+                }
+            }
+        }
+        overlay.tris = kept_tris;
+        overlay.class = kept_class;
+        overlay.poly_a = kept_pa;
+        overlay.poly_b = kept_pb;
+    }
+
+    Ok(overlay)
+}
+
+/// Fused-emission repair at the step-6 rounding gate (spec
+/// `m8_overlay_fused_emission_collapse` §3, branches B3–B8). Entered only when
+/// ≥1 triangle rounds to a `CollinearSliver`. Collapses the edges of
+/// sub-f64-resolution degenerate complexes (constrained edge collapse, [#51]
+/// Hoppe with a validity gate in EXACT arithmetic) — recording each
+/// `fused[loser] = survivor` — until no `CollinearSliver` remains, then drops
+/// the resulting index-degenerate triangles and any residual benign needle.
+/// A pass that commits nothing while a sliver remains is the honest loud wall
+/// (B5). Mutates `overlay.tris`/`class`/`poly_a`/`poly_b`/`fused` in place;
+/// `verts`/`exact_verts` are never compacted (spec §3).
+fn fused_emission_repair(
+    overlay: &mut ClassifiedOverlay,
+    input_loop_verts: &BTreeSet<ExactPoint2>,
+    all_edges: &[(ExactPoint2, ExactPoint2)],
+) -> Result<(), CoplanarOverlayError> {
+    // Eligibility ceiling: an edge is fusible only if its EXACT squared length
+    // is < TAU_MODEL² (spec §2). TAU_MODEL comes from the centralized policy
+    // (A14.3, no ad-hoc epsilon); it is the KV15b precedent constant — the
+    // R0091 revert proved MIN_FEATURE_SIZE would wrongly fuse real micro-scale
+    // geometry. This is a CEILING on what MAY fuse, not a trigger: the trigger
+    // is exact f64 degeneracy of the rounded image, so real-scale
+    // exactly-collinear slivers (edges ≥ TAU_MODEL) stay a loud wall (B6).
+    let tau = rat(cad_primitives::TAU_MODEL)
+        .map_err(|_| CoplanarOverlayError::TriangulationFailed("TAU_MODEL is not finite"))?;
+    let tau2 = &tau * &tau;
+
+    // A triangle is "dropped" once a collapse remaps two of its corners to the
+    // same index — its sub-TAU_MODEL exact area is absorbed (spec I5). Rather
+    // than compact mid-repair (which would invalidate the index-based
+    // worklist, spec I6), degenerate triangles stay in `tris` and are simply
+    // skipped everywhere until the final cleanup.
+    let is_degenerate = |t: &[u32; 3]| t[0] == t[1] || t[1] == t[2] || t[0] == t[2];
+    let disp = |ov: &ClassifiedOverlay, t: &[u32; 3]| {
+        rounded_tri_disposition(
+            ov.verts[t[0] as usize],
+            ov.verts[t[1] as usize],
+            ov.verts[t[2] as usize],
+        )
+    };
+
+    loop {
+        // Worklist: live triangles whose ROUNDED disposition is non-Positive
+        // (needles AND slivers both fuse in repair mode), ascending index.
+        let mut worklist: Vec<usize> = Vec::new();
+        let mut first_sliver: Option<usize> = None;
+        for (ti, t) in overlay.tris.iter().enumerate() {
+            if is_degenerate(t) {
+                continue;
+            }
+            match disp(overlay, t) {
+                RoundedTri::Positive => {}
+                RoundedTri::CoincidentNeedle => worklist.push(ti),
+                RoundedTri::CollinearSliver => {
+                    worklist.push(ti);
+                    if first_sliver.is_none() {
+                        first_sliver = Some(ti);
+                    }
+                }
+            }
+        }
+        // Success: only Positive triangles and benign needles remain.
+        let Some(stuck) = first_sliver else { break };
+
+        let mut committed = false;
+        'wl: for &ti in &worklist {
+            let t = overlay.tris[ti];
+            // Re-check: an earlier commit this pass may have dropped this
+            // triangle or already made it Positive (a healthy triangle is
+            // never fused — its edges are all supra-ceiling anyway).
+            if is_degenerate(&t) || disp(overlay, &t) == RoundedTri::Positive {
+                continue;
+            }
+            // Candidate edges in ascending EXACT squared length; deterministic
+            // tie-break by the lexicographically smaller [min, max] index pair.
+            let mut cands: Vec<([u32; 2], RBig)> = Vec::with_capacity(3);
+            for k in 0..3 {
+                let (i, j) = (t[k], t[(k + 1) % 3]);
+                let (lo, hi) = if i < j { (i, j) } else { (j, i) };
+                let dx = &overlay.exact_verts[lo as usize].x - &overlay.exact_verts[hi as usize].x;
+                let dy = &overlay.exact_verts[lo as usize].y - &overlay.exact_verts[hi as usize].y;
+                cands.push(([lo, hi], &dx * &dx + &dy * &dy));
+            }
+            cands.sort_by(|(e0, l0), (e1, l1)| l0.cmp(l1).then(e0.cmp(e1)));
+
+            for ([lo, hi], len2) in &cands {
+                // B6: real-scale edges are never fused (ceiling < TAU_MODEL²).
+                if len2 >= &tau2 {
+                    continue;
+                }
+                // Survivor selection (spec §3): an input-loop vertex outranks a
+                // mint; both/neither → the smaller overlay index survives. The
+                // survivor keeps its OWN exact bits (KV15b min-index precedent,
+                // never an average).
+                let lo_in = input_loop_verts.contains(&overlay.exact_verts[*lo as usize]);
+                let hi_in = input_loop_verts.contains(&overlay.exact_verts[*hi as usize]);
+                let (survivor, loser) = match (lo_in, hi_in) {
+                    (true, false) => (*lo, *hi),
+                    (false, true) => (*hi, *lo),
+                    _ => (*lo, *hi),
+                };
+
+                // Validity gate ([#51] Hoppe link/fold condition, in EXACT
+                // arithmetic — P9, no silent flip): tentatively remap
+                // loser→survivor over every live triangle. Triangles that go
+                // index-degenerate collapse away (absorbed, I5); every OTHER
+                // remapped triangle must keep strictly positive EXACT area. Any
+                // violation rejects this candidate; the triangle then tries its
+                // next edge, or is left for a later pass (B7).
+                let ok = overlay.tris.iter().all(|other| {
+                    if is_degenerate(other) || !other.contains(&loser) {
+                        return true;
+                    }
+                    let r = [
+                        if other[0] == loser {
+                            survivor
+                        } else {
+                            other[0]
+                        },
+                        if other[1] == loser {
+                            survivor
+                        } else {
+                            other[1]
+                        },
+                        if other[2] == loser {
+                            survivor
+                        } else {
+                            other[2]
+                        },
+                    ];
+                    if is_degenerate(&r) {
+                        return true; // collapses away — absorbed
+                    }
+                    cross_r(
+                        &overlay.exact_verts[r[0] as usize],
+                        &overlay.exact_verts[r[1] as usize],
+                        &overlay.exact_verts[r[2] as usize],
+                    ) > RBig::ZERO
+                });
+                if !ok {
+                    continue;
+                }
+
+                // Commit: remap loser→survivor across all triangles, then
+                // record the fusion path-compressed so `fused` stays fully
+                // resolved — values are never keys (spec §3): every existing
+                // entry that pointed at the loser is rewritten to the survivor.
+                for tt in overlay.tris.iter_mut() {
+                    for v in tt.iter_mut() {
+                        if *v == loser {
+                            *v = survivor;
+                        }
+                    }
+                }
+                for v in overlay.fused.values_mut() {
+                    if *v == loser {
+                        *v = survivor;
+                    }
+                }
+                overlay.fused.insert(loser, survivor);
+                committed = true;
+                continue 'wl;
+            }
+            // No eligible candidate for this triangle this pass — leave it.
+        }
+
+        if !committed {
+            // B5: a full pass committed nothing while a sliver remains — the
+            // honest wall is preserved (loud), same probe hook before return.
+            let stuck_tri = overlay.tris[stuck];
+            probe_sliver(overlay, &stuck_tri, all_edges, "collapse");
+            return Err(CoplanarOverlayError::RoundingCollapse { tri: stuck_tri });
+        }
+    }
+
+    // Cleanup (spec §3 step 4): drop index-degenerate triangles and any
+    // remaining CoincidentNeedle (benign weld, B8 — same argument as the B2
+    // legacy path), keep everything else. No vertex compaction.
     let mut kept_tris = Vec::with_capacity(overlay.tris.len());
     let mut kept_class = Vec::with_capacity(overlay.class.len());
     let mut kept_pa = Vec::with_capacity(overlay.poly_a.len());
     let mut kept_pb = Vec::with_capacity(overlay.poly_b.len());
-    for (i, (tri, cls)) in overlay.tris.iter().zip(overlay.class.iter()).enumerate() {
-        let a2 = overlay.verts[tri[0] as usize];
-        let b2 = overlay.verts[tri[1] as usize];
-        let c2 = overlay.verts[tri[2] as usize];
-        match rounded_tri_disposition(a2, b2, c2) {
+    for (i, t) in overlay.tris.iter().enumerate() {
+        if is_degenerate(t) {
+            continue;
+        }
+        match disp(overlay, t) {
             RoundedTri::Positive => {
-                kept_tris.push(*tri);
-                kept_class.push(*cls);
+                kept_tris.push(*t);
+                kept_class.push(overlay.class[i]);
                 kept_pa.push(overlay.poly_a[i]);
                 kept_pb.push(overlay.poly_b[i]);
             }
-            // (a) benign coincident-pair needle — drop (zero f64 extent).
             RoundedTri::CoincidentNeedle => continue,
-            // (b) genuine collinear sliver — loud.
             RoundedTri::CollinearSliver => {
-                probe_sliver(&overlay, tri, &all_edges, "collapse");
-                return Err(CoplanarOverlayError::RoundingCollapse { tri: *tri });
+                // Unreachable: the loop only exits with no sliver remaining.
+                return Err(CoplanarOverlayError::TriangulationFailed(
+                    "sliver survived fused-emission repair",
+                ));
             }
         }
     }
@@ -648,8 +888,7 @@ pub fn coplanar_overlay_multi(
     overlay.class = kept_class;
     overlay.poly_a = kept_pa;
     overlay.poly_b = kept_pb;
-
-    Ok(overlay)
+    Ok(())
 }
 
 /// Diagnosis probe (read-only, env-gated on `YANG_POLY_PROBE`): report an
@@ -1138,5 +1377,106 @@ mod sliver_gate_tests {
             Point2::new(2.0, 2.0),
         );
         assert_eq!(d, RoundedTri::CollinearSliver);
+    }
+}
+
+#[cfg(test)]
+mod b7_validity_gate_tests {
+    //! Spec `m8_overlay_fused_emission_collapse.md` §4 B7 — the fused-emission
+    //! repair's validity gate ([#51] Hoppe link/fold condition, in EXACT
+    //! arithmetic) is load-bearing.
+    //!
+    //! The Adversary found that the "drop the validity gate (accept every
+    //! candidate)" mutation is an EQUIVALENT mutant on every constructible
+    //! public-API input: on all such inputs a flip-inducing collapse is never
+    //! the only escape, so accepting it changes no observable result. Spec §6
+    //! anticipated this and mandated a direct internal unit on the repair
+    //! routine — this is that test.
+    //!
+    //! Hand-built triangle soup: a sub-`TAU_MODEL` sliver whose ONLY eligible
+    //! collapse edge (AB) is straddled by two real triangles, so remapping the
+    //! edge in EITHER survivor direction (B→A or A→B) exactly flips a real
+    //! neighbour. The sliver's other two edges are real-scale (supra-`TAU_MODEL`,
+    //! ineligible), so with the gate intact NOTHING can be committed and the
+    //! honest `RoundingCollapse` wall stands with an EMPTY fusion record.
+    //! Without the gate the repair commits the flipping AB collapse (leaking a
+    //! `fused` entry and minting an exactly-flipped triangle) before stalling on
+    //! the collapse it created — hence `fused.is_empty()` is the mutation-killer.
+    use super::{
+        fused_emission_repair, rat, ClassifiedOverlay, CoplanarOverlayError, ExactPoint2,
+        RegionClass,
+    };
+    use cad_primitives::Point2;
+    use dashu::rational::RBig;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    fn ev(x: f64, y: RBig) -> ExactPoint2 {
+        ExactPoint2 {
+            x: rat(x).expect("finite"),
+            y,
+        }
+    }
+
+    /// B7: the exact validity gate rejects the sole eligible (sub-`TAU_MODEL`)
+    /// collapse because it would flip a real triangle in either survivor
+    /// direction; the repair returns the loud wall with nothing fused.
+    #[test]
+    fn b7_flip_inducing_collapse_is_rejected() {
+        // A tiny rational far below the smallest f64 subnormal (2⁻¹⁰⁷⁴): its
+        // rounded image is 0.0, so R stays f64-collinear with A and B while the
+        // EXACT sliver area (1e-8 · d) is strictly positive.
+        let d = RBig::from(1) / RBig::from(10u64).pow(400);
+
+        // Verts (exact | rounded-f64):
+        //   A = (0, 0)          idx 0   — left of the separating line x = 5e-9
+        //   B = (1e-8, 0)       idx 1   — right of it; AB = 1e-8 < TAU_MODEL(1e-7)
+        //   R = (1, d→0)        idx 2   — real-scale; AR, BR ≈ 1 ≥ TAU_MODEL
+        //   P = (5e-9, -1)      idx 3   — on the separating line
+        //   Q = (5e-9,  1)      idx 4   — on the separating line
+        let exact_verts = vec![
+            ev(0.0, rat(0.0).unwrap()),
+            ev(1e-8, rat(0.0).unwrap()),
+            ev(1.0, d),
+            ev(5e-9, rat(-1.0).unwrap()),
+            ev(5e-9, rat(1.0).unwrap()),
+        ];
+        let verts = vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(1e-8, 0.0),
+            Point2::new(1.0, 0.0), // R.y = d rounds to 0.0 → f64-collinear sliver
+            Point2::new(5e-9, -1.0),
+            Point2::new(5e-9, 1.0),
+        ];
+
+        // Triangles, all CCW-positive in EXACT coords (the repair's precondition):
+        //   [0,1,2] (A,B,R) — the sliver (exact area 1e-8·d, rounds collinear).
+        //   [1,4,3] (B,Q,P) real — flips to negative under B→A (idx1→idx0).
+        //   [0,3,4] (A,P,Q) real — flips to negative under A→B (idx0→idx1).
+        let mut overlay = ClassifiedOverlay {
+            verts,
+            exact_verts,
+            tris: vec![[0, 1, 2], [1, 4, 3], [0, 3, 4]],
+            class: vec![RegionClass::Overlap, RegionClass::AOnly, RegionClass::BOnly],
+            poly_a: vec![0, 0, 0],
+            poly_b: vec![0, 0, 0],
+            fused: BTreeMap::new(),
+        };
+
+        // No input-loop verts → survivor is the min index (A over B); the gate
+        // must still reject. `all_edges` is only read by the env-gated probe.
+        let res = fused_emission_repair(&mut overlay, &BTreeSet::new(), &[]);
+
+        assert!(
+            matches!(res, Err(CoplanarOverlayError::RoundingCollapse { .. })),
+            "the flip-inducing sole eligible collapse must leave the honest wall, got {res:?}"
+        );
+        // Mutation-killer: with the gate intact NOTHING is committed. A leaked
+        // fusion entry means the gate accepted a flip (the always-accept mutant
+        // commits AB before stalling on the sliver it minted).
+        assert!(
+            overlay.fused.is_empty(),
+            "validity gate leaked a fusion — a flip-inducing collapse was accepted ({:?})",
+            overlay.fused
+        );
     }
 }

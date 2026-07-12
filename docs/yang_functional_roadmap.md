@@ -2693,6 +2693,39 @@ swapped every consumer to `predicates::indirect`).
     design increments: KV15b DegenerateLoop micro twins (R0007/R0071,
     scale/floor policy) + femto-slab RoundingCollapse (F0067/C0048,
     per-region re-emission).
+  - **M8 fused-emission collapse SHIPPED 2026-07-12 (task #142, spec
+    `specs/m8_overlay_fused_emission_collapse.md`): the femto-slab
+    `RoundingCollapse` wall is retired.** The step-6 rounding gate now
+    repairs sub-f64-resolution degenerate complexes by constrained edge
+    collapse ([#51] Hoppe fold condition in EXACT arithmetic, [#52] Hobby
+    snap-rounding family; KV15b/A14.2 precedent): trigger = exact f64
+    degeneracy of the rounded image; eligibility ceiling = exact edge
+    length² < TAU_MODEL² (supra-TAU collinear slivers stay the honest loud
+    wall — pinned at ×1e9 scale); survivor preference = input-loop vertex
+    over mint, else min index, keeping own exact bits; validity gate =
+    every remapped triangle keeps exact area > 0; fusion published as
+    `ClassifiedOverlay::fused` (loser→survivor, fully resolved). The
+    no-sliver path is byte-identical (FNV-golden-pinned needle fixture).
+    Full FIP cycle: Test Author red (C0048 verbatim pair + synthetic
+    ULP-split parallelograms) → Implementer green → Adversary mutation
+    matrix (survivor-inversion caught by a new input-loop-survivor pin;
+    ceiling-widen caught by the supra-TAU pin; validity-gate B7 pinned by
+    an internal hand-built-soup unit). The yr25
+    `rounding_stress_sliver_collapse_is_loud` pin was superseded by the
+    spec and updated to `rounding_stress_subresolution_sliver_fuses`.
+    Corpus: F0067 + C0048 + **R0053 (bonus — the refuted trio's third
+    member)** leave UNSUPPORTED(coplanar) for their next honest typed
+    walls — C0048: kernel-v2 rim-crossing override coincides with uniform
+    sample k=12 (silent merge refused → **task #143**, intentional
+    shared-sample merge); F0067: 2× Newell-normal disagreement + azimuth-
+    merge rims mismatched samples (572 vs 571 — the named exact
+    opposite-rim projection follow-up); R0053: Stage-2 patch flood-fill
+    LabelMismatch. Assay **238 CORRECT / 0 WRONG / 53 ERROR /
+    4 UNSUPPORTED / 0 TIMEOUT**, zero-lost (exactly the 3 movers).
+    Remaining UNSUPPORTED: R0007/R0071 (profile-congenital micro-twin
+    scale/floor POLICY class), R0015 (coplanar — mechanism to re-census;
+    it was not among the 2026-07-11 four-case tail), + C0063
+    (curved-profile, by design).
   - **KV4-F1 ✅ RESOLVED (PR-KV4-F1, 2026-06-12): the rational-ray
     fallback** — `rational_ray_inner_label` in cherchi-rs
     `labeling/inside_out.rs` implements the branch the C++ reference

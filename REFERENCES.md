@@ -1233,6 +1233,45 @@ survey to read first for the decomposition landscape. Pair with #47
 evaluates. Relevant as a future optimization reference (PR-SS2+): decomposition
 reduces the monolithic LM solve into smaller, better-conditioned sub-problems.
 
+## Robust Emission / Rounding References
+
+### 51. Hoppe — "Progressive Meshes" (SIGGRAPH 1996)
+
+**Access**: Free PDF from the author: https://hhoppe.com/pm.pdf
+
+**Citation**: Hoppe, H. "Progressive Meshes." Proceedings of SIGGRAPH 96,
+pp. 99–108, 1996.
+
+**Relevance**: Canonical formulation of the **edge collapse** operator for
+local mesh modification: merge an edge's two vertices into one survivor,
+drop the triangles that become degenerate, remap the rest — with a validity
+gate that rejects collapses which would invert (fold) a surviving triangle.
+The Stage-0 coplanar overlay's fused-emission repair
+(`specs/m8_overlay_fused_emission_collapse.md`) is this operator in exact
+rational arithmetic: sub-f64-resolution degenerate complexes are fused by
+validity-gated edge collapses so the emitted triangulation is
+f64-representable. Cite #51 for the collapse operator and the
+fold-prevention validity condition.
+
+### 52. Hobby — "Practical Segment Intersection with Finite Precision Output" (1999)
+
+**Access**: Computational Geometry: Theory and Applications 13(4):199–214,
+1999. Preprint widely available (Bell Labs report, 1993).
+
+**Citation**: Hobby, J.D. "Practical segment intersection with finite
+precision output." Computational Geometry 13(4), pp. 199–214, 1999.
+
+**Relevance**: The original **snap rounding** paper: converting an exact
+arrangement of segments into a finite-precision representation by snapping
+vertices and intersection points into pixels, merging all sub-pixel
+structure while preserving topological consistency. Frames the general
+problem class behind the overlay's rounding boundary: an exact-arithmetic
+arrangement whose output coordinates must live on a finite grid (here the
+f64 lattice). The fused-emission repair is a cluster-limited snap-round —
+only f64-degenerate complexes are merged; everything representable is
+untouched. Cite #52 for the finite-precision-output problem statement and
+the merge-sub-resolution-structure approach.
+
 ## How to Reference During Development
 
 When working on boolean reliability or kernel improvements:

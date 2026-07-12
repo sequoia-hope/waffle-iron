@@ -297,6 +297,107 @@ fn centroid(ov: &ClassifiedOverlay, tri: &[u32; 3]) -> ExactPoint2 {
     }
 }
 
+/// Post-fusion oracle bundle for a sub-resolution slab
+/// (`specs/m8_overlay_fused_emission_collapse.md` §5): I2 exact positivity, I4
+/// f64-CCW positivity, I3 conformality, I5 per-class identity within the
+/// absorbed-femto bound, and I6 determinism (including the `fused` record).
+/// Deliberately lighter than `check_properties`: the EXACT per-class identity
+/// and the exact tiling of the ORIGINAL input chains are NOT asserted — once
+/// two chains share one rounded image those become jointly unsatisfiable with
+/// f64 emittability (spec §5 I3' rationale), which is exactly why this fixture
+/// fuses instead of failing loud.
+fn check_fused(a: &PolygonWithHoles, b: &PolygonWithHoles, ov: &ClassifiedOverlay) {
+    // I2: strictly positive EXACT area for every emitted triangle.
+    for (i, tri) in ov.tris.iter().enumerate() {
+        let area2 = cross_e(
+            &ov.exact_verts[tri[0] as usize],
+            &ov.exact_verts[tri[1] as usize],
+            &ov.exact_verts[tri[2] as usize],
+        );
+        assert!(
+            area2 > RBig::ZERO,
+            "I2: tri {i} has non-positive exact area {area2}"
+        );
+    }
+
+    // I4: every kept triangle strictly CCW-positive in the ROUNDED f64 coords.
+    for (i, tri) in ov.tris.iter().enumerate() {
+        let p = ov.verts[tri[0] as usize];
+        let q = ov.verts[tri[1] as usize];
+        let r = ov.verts[tri[2] as usize];
+        let area2 = (q.x() - p.x()) * (r.y() - p.y()) - (q.y() - p.y()) * (r.x() - p.x());
+        assert!(
+            area2 > 0.0,
+            "I4: tri {i} not f64-CCW-positive (area2={area2})"
+        );
+    }
+
+    // I3: conformality — ≤ 2 triangles per undirected edge.
+    let mut edge_count: BTreeMap<[u32; 2], usize> = BTreeMap::new();
+    for tri in &ov.tris {
+        for k in 0..3 {
+            let (i, j) = (tri[k], tri[(k + 1) % 3]);
+            let key = if i < j { [i, j] } else { [j, i] };
+            *edge_count.entry(key).or_default() += 1;
+        }
+    }
+    for (e, n) in &edge_count {
+        assert!(
+            *n <= 2,
+            "I3: edge {e:?} has {n} adjacent triangles (T-junction)"
+        );
+    }
+
+    // I5: per-class exact identity within the absorbed-femto bound. Fusion
+    // moves each fused vertex by < TAU_MODEL and drops only index-degenerate
+    // triangles (exact area sub-TAU_MODEL × domain scale); 1e-12 is generous at
+    // this fixture's unit scale while still catching any real misclassification.
+    let bound = RBig::from(1) / RBig::from(10u64).pow(12);
+    for (side, poly) in [('A', a), ('B', b)] {
+        let only = if side == 'A' {
+            RegionClass::AOnly
+        } else {
+            RegionClass::BOnly
+        };
+        let delta = rabs(
+            ov.area_exact(only) + ov.area_exact(RegionClass::Overlap) - input_area_exact(poly),
+        );
+        assert!(
+            delta < bound,
+            "I5: side {side}: per-class identity off by {delta} (> absorbed-femto bound)"
+        );
+    }
+
+    // I6: determinism — bit-identical second run, INCLUDING the fusion record.
+    let ov2 = coplanar_overlay(a, b).expect("I6: second run must succeed");
+    assert_eq!(ov.tris, ov2.tris, "I6: tris differ across runs");
+    assert_eq!(ov.class, ov2.class, "I6: classes differ across runs");
+    assert_eq!(ov.exact_verts, ov2.exact_verts, "I6: exact verts differ");
+    assert_eq!(ov.fused, ov2.fused, "I6: fused record differs across runs");
+    let bits = |vs: &[Point2]| -> Vec<(u64, u64)> {
+        vs.iter()
+            .map(|v| (v.x().to_bits(), v.y().to_bits()))
+            .collect()
+    };
+    assert_eq!(bits(&ov.verts), bits(&ov2.verts), "I6: f64 verts differ");
+}
+
+/// The fusion record must be non-empty and fully resolved (a `fused` value is
+/// never itself a key — spec §3).
+fn assert_fused_resolved(ov: &ClassifiedOverlay) {
+    assert!(
+        !ov.fused.is_empty(),
+        "expected a non-empty fusion record for a repaired sub-resolution sliver"
+    );
+    for (loser, survivor) in &ov.fused {
+        assert_ne!(loser, survivor, "fused vertex maps to itself");
+        assert!(
+            !ov.fused.contains_key(survivor),
+            "fused survivor {survivor} is itself a key (record not fully resolved)"
+        );
+    }
+}
+
 // ───────────────────────────── fixtures ─────────────────────────────────
 
 /// Identical squares → ONE region: everything Overlap, area exact.
@@ -529,21 +630,39 @@ fn collinear_partial_edge_overlap() {
     check_properties(&a, &b, &ov);
 }
 
-/// Rounding-stress: B is a wedge whose two slanted edges cross A's top edge
-/// at two DISTINCT rational points that both round to the SAME f64 (0.25, 1)
-/// — the offsets (≈1.39e-17) are below half an ulp. The sliver cells between
-/// the crossings collapse under rounding; the engine must fail LOUDLY with
-/// `RoundingCollapse`, never silently drop or flip.
+/// Rounding-stress (now FUSED, not loud): B is a wedge whose apex sits at
+/// y = 1 − 2⁻⁵³ — a SUB-ULP, sub-`TAU_MODEL` sliver where it pokes through A's
+/// top edge. Under `specs/m8_overlay_fused_emission_collapse.md` §3/§4 (B3/B4)
+/// such sub-resolution structure is FUSED (constrained edge collapse) at the
+/// emission gate instead of failing `RoundingCollapse`: the overlay succeeds,
+/// records the collapse in `fused`, and emits a clean f64-representable
+/// triangulation. The loud wall is preserved only for SUPRA-`TAU_MODEL`
+/// rounded-collinear slivers, now pinned by `supra_tau_collinear_stays_loud`
+/// in `tests/m8_overlay_femto_slab_emission.rs`, which replaces this test's
+/// former loud expectation. (Was `rounding_stress_sliver_collapse_is_loud`.)
 #[test]
-fn rounding_stress_sliver_collapse_is_loud() {
+fn rounding_stress_subresolution_sliver_fuses() {
     let a = rect(0.0, 0.0, 1.0, 1.0);
     let apex_y = 1.0 - (2.0f64).powi(-53); // representable; 2^-53 below 1.0
     let b = pwh(&[(0.25, apex_y), (0.375, 2.0), (0.125, 2.0)], &[]);
 
-    let err = coplanar_overlay(&a, &b).expect_err("sliver collapse must be LOUD");
+    let ov = coplanar_overlay(&a, &b)
+        .expect("sub-resolution apex sliver must FUSE at the emission gate, not fail loud");
+
+    check_fused(&a, &b, &ov);
+    assert_fused_resolved(&ov);
+
+    // The wedge enters A only by the femto tip below y = 1, so essentially all
+    // of A is AOnly and all of B is BOnly; the Overlap is femto residue.
+    let femto = RBig::from(1) / RBig::from(10u64).pow(9);
     assert!(
-        matches!(err, CoplanarOverlayError::RoundingCollapse { .. }),
-        "expected RoundingCollapse, got {err:?}"
+        ov.area_exact(RegionClass::Overlap) < femto,
+        "Overlap must be femto residue, got {}",
+        ov.area_exact(RegionClass::Overlap)
+    );
+    assert!(
+        rabs(ov.area_exact(RegionClass::AOnly) - input_area_exact(&a)) < femto,
+        "AOnly must account for ~all of A (unit square)"
     );
 }
 
