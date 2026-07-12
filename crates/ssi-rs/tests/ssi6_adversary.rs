@@ -56,9 +56,11 @@ fn unit(a: [f64; 3]) -> [f64; 3] {
 /// but we cover the whole enum to be defensive.
 fn assert_curve_finite(c: &SsiCurve) {
     match c {
-        SsiCurve::SurfacePair { .. } => unreachable!(
-            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
-        ),
+        // Since F10, the sphere×cylinder NC arm returns a procedural
+        // SurfacePair. It carries only the two operand surfaces verbatim (no
+        // derived float geometry to check for NaN/Inf) — finite by
+        // construction.
+        SsiCurve::SurfacePair { .. } => {}
         SsiCurve::Circle {
             center,
             normal,
@@ -356,14 +358,14 @@ fn attack2_coaxial_detection_band_unit_scale() {
         }
     }
 
-    // At/above the band ⇒ NC ⇒ ASNA. A barely-offset axis just over TAU must
-    // yield ASNA, NOT a wrong/degenerate circle.
+    // At/above the band ⇒ NC ⇒ the procedural SurfacePair (F10 contract; was
+    // the staged ASNA). Still the attack: NOT a wrong/degenerate circle.
     for &off in &[TAU_MODEL, 1.0001 * TAU_MODEL, 2.0 * TAU_MODEL, 1e-3, 0.1] {
         let cyl = make(off);
         assert_eq!(
             intersect(&sphere, &cyl),
-            Err(SsiError::AnalyticalSolutionNotAvailable),
-            "off={off:e}: d_ax ≥ TAU ⇒ must be NC (ASNA), not a circle"
+            Ok(vec![SsiCurve::SurfacePair { a: cyl, b: sphere }]),
+            "off={off:e}: d_ax ≥ TAU ⇒ must be NC (SurfacePair), not a circle"
         );
     }
 }
@@ -436,6 +438,13 @@ fn attack2_coaxial_detection_band_is_absolute_scale_sensitive() {
     let res = intersect(&sphere, &cyl);
     // Whatever the verdict, it must be a clean Result (no panic, no NaN).
     match res {
+        Ok(ref v) if v.len() == 1 && matches!(v[0], SsiCurve::SurfacePair { .. }) => {
+            // EXPECTED-POSSIBLE: at 1e10, fp noise in d_ax exceeded the
+            // absolute TAU_MODEL, so a truly-coaxial config read as NC — which
+            // since F10 returns the (exact, still-correct) SurfacePair instead
+            // of the former ASNA. Documented absolute-band scale-sensitivity,
+            // NOT a logic bug. (Same class as the PR-SSI1 ~1e8 ceiling.)
+        }
         Ok(ref v) => {
             for c in v {
                 assert_curve_finite(c);
@@ -447,12 +456,6 @@ fn attack2_coaxial_detection_band_is_absolute_scale_sensitive() {
                 "scale=1e10: unexpected circle count {}",
                 v.len()
             );
-        }
-        Err(SsiError::AnalyticalSolutionNotAvailable) => {
-            // EXPECTED-POSSIBLE: at 1e10, fp noise in d_ax exceeded the
-            // absolute TAU_MODEL, so a truly-coaxial config read as NC. This is
-            // the documented absolute-band scale-sensitivity, NOT a logic bug.
-            // (Same class as the PR-SSI1 ~1e8 absolute-oracle ceiling.)
         }
         Err(other) => panic!("scale=1e10: unexpected error {other:?}"),
     }
@@ -471,8 +474,8 @@ fn attack2_barely_offset_axis_is_asna_not_degenerate_circle() {
     };
     assert_eq!(
         intersect(&sphere, &cyl),
-        Err(SsiError::AnalyticalSolutionNotAvailable),
-        "barely-offset axis must be ASNA, not a wrong circle"
+        Ok(vec![SsiCurve::SurfacePair { a: cyl, b: sphere }]),
+        "barely-offset axis must be the NC SurfacePair, not a wrong circle"
     );
     // And a NON-axis-aligned tiny offset likewise.
     let cyl2 = QuadricSurface::Cylinder {
@@ -482,7 +485,7 @@ fn attack2_barely_offset_axis_is_asna_not_degenerate_circle() {
     };
     assert_eq!(
         intersect(&sphere, &cyl2),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
+        Ok(vec![SsiCurve::SurfacePair { a: cyl2, b: sphere }])
     );
 }
 
@@ -896,20 +899,18 @@ fn attack6_symmetry_all_branches() {
     assert_eq!(intersect(&sphere, &cyl_x0), Ok(vec![]));
     assert_eq!(intersect(&cyl_x0, &sphere), Ok(vec![]));
 
-    // NC: ASNA both ways.
+    // NC: the canonical SurfacePair both ways (F10 contract; was ASNA).
     let cyl_nc = QuadricSurface::Cylinder {
         axis_point: Point3::new(0.5, 0.0, 0.0),
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         radius: 1.0,
     };
-    assert_eq!(
-        intersect(&sphere, &cyl_nc),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
-    assert_eq!(
-        intersect(&cyl_nc, &sphere),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
+    let expected_nc = Ok(vec![SsiCurve::SurfacePair {
+        a: cyl_nc,
+        b: sphere,
+    }]);
+    assert_eq!(intersect(&sphere, &cyl_nc), expected_nc);
+    assert_eq!(intersect(&cyl_nc, &sphere), expected_nc);
 }
 
 #[test]

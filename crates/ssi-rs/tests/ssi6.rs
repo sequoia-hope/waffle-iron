@@ -339,11 +339,13 @@ fn x0_coaxial_cylinder_wider_yields_empty() {
 }
 
 // ---------------------------------------------------------------------------
-// NC — non-coaxial (axis offset from sphere center) → ASNA (staged) (I3).
+// NC — non-coaxial (axis offset from sphere center) → procedural SurfacePair
+// (cylinder first), the M5 degree-4 contract (I3). Contract changed
+// 2026-07-12 (design review F10); was the staged ASNA.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn nc_non_coaxial_yields_not_available() {
+fn nc_non_coaxial_yields_surface_pair() {
     // Sphere C=origin, r_s=2. Cylinder axis ∥ +z but offset: axis_point=(0.5,0,0)
     // ⇒ axis line x=0.5,y=0 does NOT pass through C. d_ax = 0.5 ≥ TAU_MODEL ⇒ NC.
     let sphere = QuadricSurface::Sphere {
@@ -355,15 +357,10 @@ fn nc_non_coaxial_yields_not_available() {
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         radius: 1.0,
     };
-    assert_eq!(
-        intersect(&sphere, &cyl),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
-    // Symmetric order also ASNA.
-    assert_eq!(
-        intersect(&cyl, &sphere),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
+    let expected = Ok(vec![SsiCurve::SurfacePair { a: cyl, b: sphere }]);
+    assert_eq!(intersect(&sphere, &cyl), expected);
+    // Symmetric order: same canonical pair (I4).
+    assert_eq!(intersect(&cyl, &sphere), expected);
 }
 
 // ---------------------------------------------------------------------------

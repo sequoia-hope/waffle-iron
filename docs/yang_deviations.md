@@ -2093,3 +2093,36 @@ behavior change requiring a full-assay measurement before touching):**
 
 **Oracles:** value-identical by construction; yang-rs/kernel-v2/waffle-types
 suites green post-change. **Sign-off:** refactor, signed off 2026-07-12.
+
+### N37 — Sphere×cylinder and sphere×cone general position → procedural SurfacePair
+
+**Date:** 2026-07-12 (design review F10). **Class:** capability closure —
+the two general-position (non-coaxial) sphere degree-4 arms in `ssi-rs`.
+
+**Before:** `sphere_cylinder` NC (`lib.rs:~1063`) and `sphere_cone` NC
+(`lib.rs:~1185`) returned `Err(AnalyticalSolutionNotAvailable)` — a staged
+gap with pre-M5 "later increment" comments, while the mathematically
+equivalent cyl×cyl / cyl×cone / cone×cone arms already returned the M5
+procedural `SurfacePair`. So an offset sphere×cylinder boolean loudly failed
+where its sibling succeeded.
+
+**After:** both NC arms return `Ok(vec![SsiCurve::SurfacePair { a, b }])` —
+structured surface first (cylinder / cone), sphere second, matching the
+cyl×cone producer's convention. Same M5 contract (Constitution P8 degree-4
+clarification; A15.1 amendment): exact, defined implicitly by the two
+surfaces, each concrete point certified by yang-rs Newton projection onto
+BOTH. The downstream plumbing already carried `PairSurface::Sphere`
+(kernel-v2 arena) and `quadric_to_surface`/`surface_to_quadric` sphere arms,
+so no seam change was needed.
+
+**Paper basis:** §4.1.2 / §4.3 procedural surface-pair curve. **Deviation:**
+none from the paper — this REMOVES a deviation (the staged gap).
+
+**Oracles:** the contract-change tests were updated with the change (they
+asserted the staged `ASNA`): ssi2/ssi6/ssi7 NC unit + adversary suites now
+assert the canonical `SurfacePair` (cylinder/cone first, both argument
+orders → same pair, I4). Full ssi-rs suite green. **Sign-off:** capability
+closure, signed off 2026-07-12. Residual: the last `Err` gap in A15.4 is
+now closed; `AnalyticalSolutionNotAvailable` remains reachable only as the
+documented absolute-band scale-sensitivity fallback (unit tests characterize
+it), not as a staged capability gap.

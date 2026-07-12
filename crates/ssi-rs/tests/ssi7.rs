@@ -491,12 +491,14 @@ fn x0_empty_sphere_too_small() {
 }
 
 // ---------------------------------------------------------------------------
-// NC — non-coaxial (sphere center OFF the axis line) → ASNA (staged).
+// NC — non-coaxial (sphere center OFF the axis line) → procedural
+// SurfacePair (cone first), the M5 degree-4 contract. Supersedes the staged
+// ASNA (design review 2026-07-12 F10; contract change, test updated with it).
 // apex=origin, axis=+z, center=(0.5,0,3) ⇒ d_ax=0.5 ≥ TAU_MODEL. Both orders.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn nc_non_coaxial_yields_not_available() {
+fn nc_non_coaxial_yields_surface_pair() {
     let alpha = std::f64::consts::FRAC_PI_4;
     let sphere = QuadricSurface::Sphere {
         center: Point3::new(0.5, 0.0, 3.0), // off the z-axis ⇒ d_ax = 0.5
@@ -507,15 +509,13 @@ fn nc_non_coaxial_yields_not_available() {
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         half_angle: alpha,
     };
-    assert_eq!(
-        intersect(&sphere, &cone),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
-    // Symmetric order also ASNA.
-    assert_eq!(
-        intersect(&cone, &sphere),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
+    let expected = Ok(vec![SsiCurve::SurfacePair {
+        a: cone,
+        b: sphere,
+    }]);
+    assert_eq!(intersect(&sphere, &cone), expected);
+    // Symmetric order: same canonical pair (I4).
+    assert_eq!(intersect(&cone, &sphere), expected);
 }
 
 // ---------------------------------------------------------------------------

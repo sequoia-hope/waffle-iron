@@ -395,36 +395,38 @@ fn attack2_coaxial_detection_band_unit_scale() {
         }
     }
 
-    // At/above the band ⇒ NC ⇒ ASNA. A barely-offset center just over TAU must
-    // yield ASNA, NOT a wrong/degenerate circle.
+    // At/above the band ⇒ NC ⇒ the procedural SurfacePair (F10 contract; was
+    // the staged ASNA). Still the point of the attack: NOT a wrong/degenerate
+    // circle.
     for &off in &[TAU_MODEL, 1.0001 * TAU_MODEL, 2.0 * TAU_MODEL, 1e-3, 0.1] {
         let sphere = sphere_at([off, 0.0, 0.0], r_s);
         assert_eq!(
             intersect(&sphere, &cone),
-            Err(SsiError::AnalyticalSolutionNotAvailable),
-            "off={off:e}: d_ax ≥ TAU ⇒ must be NC (ASNA), not a circle"
+            Ok(vec![SsiCurve::SurfacePair { a: cone, b: sphere }]),
+            "off={off:e}: d_ax ≥ TAU ⇒ must be NC (SurfacePair), not a circle"
         );
     }
 }
 
 #[test]
-fn attack2_barely_offset_center_is_asna_not_degenerate_circle() {
-    // A sphere center offset by just over TAU from the axis must yield ASNA, NOT
-    // a degenerate/near-tangent circle. The danger is a misclassification that
-    // produces a geometrically wrong circle near the band.
+fn attack2_barely_offset_center_is_surface_pair_not_degenerate_circle() {
+    // A sphere center offset by just over TAU from the axis must yield the NC
+    // SurfacePair (F10 contract; was ASNA), NOT a degenerate/near-tangent
+    // circle. The danger is a misclassification that produces a geometrically
+    // wrong circle near the band.
     let cone = z_cone([0.0, 0.0, 0.0], std::f64::consts::FRAC_PI_4);
     // d_ax = 1.5·TAU along +x.
     let s1 = sphere_at([1.5 * TAU_MODEL, 0.0, 0.0], 2.0);
     assert_eq!(
         intersect(&s1, &cone),
-        Err(SsiError::AnalyticalSolutionNotAvailable),
-        "barely-offset center must be ASNA, not a wrong circle"
+        Ok(vec![SsiCurve::SurfacePair { a: cone, b: s1 }]),
+        "barely-offset center must be the NC SurfacePair, not a wrong circle"
     );
     // And a non-axis-aligned tiny offset (along +y) likewise.
     let s2 = sphere_at([0.0, 2.0 * TAU_MODEL, 0.0], 2.0);
     assert_eq!(
         intersect(&s2, &cone),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
+        Ok(vec![SsiCurve::SurfacePair { a: cone, b: s2 }])
     );
 }
 
@@ -476,16 +478,18 @@ fn attack2_coaxial_band_is_absolute_scale_sensitive() {
     // Both Ok(2) and ASNA are acceptable; ASNA is the documented absolute-band
     // noise, NOT a logic bug. (Empirically: ASNA at 1e9 with this generic axis.)
     match probe(1e9) {
+        Ok(ref v) if v.len() == 1 && matches!(v[0], SsiCurve::SurfacePair { .. }) => {
+            // EXPECTED-POSSIBLE: fp noise in d_ax exceeded the absolute
+            // TAU_MODEL ⇒ a truly-coaxial config read as NC, which since F10
+            // returns the (exact, still-correct) SurfacePair instead of the
+            // former ASNA. Documented absolute-band scale-sensitivity, not a
+            // logic bug.
+        }
         Ok(ref v) => {
             for c in v {
                 assert_curve_finite(c);
             }
             assert_eq!(v.len(), 2, "scale=1e9: unexpected circle count");
-        }
-        Err(SsiError::AnalyticalSolutionNotAvailable) => {
-            // EXPECTED-POSSIBLE: fp noise in d_ax exceeded the absolute
-            // TAU_MODEL ⇒ a truly-coaxial config read as NC. Documented
-            // absolute-band scale-sensitivity, not a logic bug.
         }
         Err(other) => panic!("scale=1e9: unexpected error {other:?}"),
     }
@@ -811,16 +815,14 @@ fn attack6_symmetry_all_branches() {
     assert_eq!(intersect(&sphere_x0, &cone), Ok(vec![]));
     assert_eq!(intersect(&cone, &sphere_x0), Ok(vec![]));
 
-    // NC: ASNA both ways. Center off the axis.
+    // NC: the canonical SurfacePair both ways (F10 contract; was ASNA).
     let sphere_nc = sphere_at([0.5, 0.0, 3.0], 2.0);
-    assert_eq!(
-        intersect(&sphere_nc, &cone),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
-    assert_eq!(
-        intersect(&cone, &sphere_nc),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
+    let expected_nc = Ok(vec![SsiCurve::SurfacePair {
+        a: cone,
+        b: sphere_nc,
+    }]);
+    assert_eq!(intersect(&sphere_nc, &cone), expected_nc);
+    assert_eq!(intersect(&cone, &sphere_nc), expected_nc);
 }
 
 #[test]

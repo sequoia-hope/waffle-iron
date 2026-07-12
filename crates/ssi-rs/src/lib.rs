@@ -1063,9 +1063,19 @@ fn sphere_cylinder(
     let rel = sub(c, a);
     let d_ax = norm(sub(rel, scale(ahat, dot(rel, ahat))));
 
-    // NC — non-coaxial general degree-4: staged (loud Err, no fallback).
+    // NC — non-coaxial general degree-4: the sphere∩cylinder intersection is
+    // a degree-4 space curve with no conic closed form. Return the procedural
+    // surface-pair descriptor (both quadrics verbatim, cylinder first —
+    // matching the cyl×cone producer's convention). Same M5 contract as
+    // cyl×cyl / cyl×cone / cone×cone (specs/m5_surface_pair_curve.md;
+    // Constitution P8 degree-4 clarification): exact, loud-on-failure —
+    // yang-rs certifies each concrete point by Newton projection onto both
+    // surfaces. Supersedes the staged ASNA (design review 2026-07-12 F10).
     if d_ax >= TAU_MODEL {
-        return Err(SsiError::AnalyticalSolutionNotAvailable);
+        return Ok(vec![SsiCurve::SurfacePair {
+            a: *cylinder,
+            b: *sphere,
+        }]);
     }
 
     // X0 — cylinder strictly wider than the sphere: no contact.
@@ -1185,9 +1195,15 @@ fn sphere_cone(sphere: &QuadricSurface, cone: &QuadricSurface) -> Result<Vec<Ssi
     let h0 = dot(rel, ahat);
     let d_ax = norm(sub(rel, scale(ahat, h0)));
 
-    // NC — non-coaxial general degree-4: staged (loud Err, no fallback).
+    // NC — non-coaxial general degree-4: procedural surface-pair descriptor
+    // (cone first, matching the cyl×cone producer's structured-surface-first
+    // convention). Same M5 contract as the other degree-4 arms; supersedes
+    // the staged ASNA (design review 2026-07-12 F10).
     if d_ax >= TAU_MODEL {
-        return Err(SsiError::AnalyticalSolutionNotAvailable);
+        return Ok(vec![SsiCurve::SurfacePair {
+            a: *cone,
+            b: *sphere,
+        }]);
     }
 
     // Linear gate: g = r_s − |h0|·sinα, with sign(D) = sign(g).

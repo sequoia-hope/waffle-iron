@@ -590,7 +590,11 @@ fn determinism_c3a_two_lines_identical() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn sphere_cylinder_non_coaxial_not_available() {
+fn sphere_cylinder_non_coaxial_yields_surface_pair() {
+    // Contract changed 2026-07-12 (design review F10): the NC degree-4 arm
+    // now returns the procedural SurfacePair (cylinder first), the same M5
+    // contract as cyl×cyl / cyl×cone / cone×cone. Test updated with the
+    // contract (was: staged Err(AnalyticalSolutionNotAvailable)).
     let sphere = QuadricSurface::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 2.0,
@@ -602,13 +606,8 @@ fn sphere_cylinder_non_coaxial_not_available() {
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         radius: 1.0,
     };
-    assert_eq!(
-        intersect(&sphere, &cyl),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
-    // Symmetric order also unavailable.
-    assert_eq!(
-        intersect(&cyl, &sphere),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
+    let expected = Ok(vec![SsiCurve::SurfacePair { a: cyl, b: sphere }]);
+    assert_eq!(intersect(&sphere, &cyl), expected);
+    // Symmetric order: same canonical pair (I4).
+    assert_eq!(intersect(&cyl, &sphere), expected);
 }
