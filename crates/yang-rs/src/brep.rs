@@ -72,7 +72,7 @@ pub enum TessellationSource {
 /// mesh vertices in `boolean()`. Tight enough to avoid false
 /// positives on genuine intersection points; loose enough to absorb
 /// the sidecar's internal coordinate-normalization rounding.
-pub const MATCH_TOLERANCE: f64 = 1e-9;
+pub const MATCH_TOLERANCE: f64 = cad_primitives::TAU_EVAL;
 
 /// Per-mesh-vertex bijection to B-Rep features. Established by Stage 1.
 #[derive(Clone, Debug, PartialEq)]

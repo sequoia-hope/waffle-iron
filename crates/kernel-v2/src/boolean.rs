@@ -104,7 +104,8 @@ use cad_primitives::{BoolOp, Point3, Vector3};
 /// cross-check that a yang output face's stated plane agrees with its
 /// boundary walk. Same bar as `validate::NORMAL_AGREEMENT_TOLERANCE` —
 /// both vectors are unit-length; only normalization rounding is absorbed.
-const YANG_NORMAL_AGREEMENT_TOLERANCE: f64 = 1e-9;
+/// (= the central [`cad_primitives::TAU_EVAL`] rounding tier, F8.)
+const YANG_NORMAL_AGREEMENT_TOLERANCE: f64 = cad_primitives::TAU_EVAL;
 
 /// Sweep band (radians) around π inside which an arc's minor side is
 /// declared ambiguous and rejected (`UnsupportedBooleanOutputCurve`)
@@ -2572,7 +2573,7 @@ fn classify_edge(
                 let d = sub(p, center);
                 let on_plane = dot3(d, n);
                 let radial = (dot3(d, d) - on_plane * on_plane).max(0.0).sqrt();
-                let band = 1e-9 * (1.0 + radius.max(p.x().abs().max(p.y().abs().max(p.z().abs()))));
+                let band = cad_primitives::TAU_EVAL * (1.0 + radius.max(p.x().abs().max(p.y().abs().max(p.z().abs()))));
                 if (radial - radius).abs() > band || on_plane.abs() > band {
                     return Err(KernelV2Error::InvalidBooleanOutput(
                         "output arc endpoint does not lie on its circle",
@@ -2639,7 +2640,7 @@ fn classify_edge(
                 let u = dot3(d, m) / major_radius;
                 let v = dot3(d, w) / minor_radius;
                 let band =
-                    1e-9 * (1.0 + major_radius.max(p.x().abs().max(p.y().abs().max(p.z().abs()))));
+                    cad_primitives::TAU_EVAL * (1.0 + major_radius.max(p.x().abs().max(p.y().abs().max(p.z().abs()))));
                 if out_of_plane.abs() > band || (u.hypot(v) - 1.0).abs() * minor_radius > band {
                     if std::env::var("KV_ELLIPSE_PROBE").is_ok() {
                         eprintln!(
@@ -2726,7 +2727,7 @@ fn classify_edge(
                     p,
                 );
                 let mag = p.x().abs().max(p.y().abs()).max(p.z().abs());
-                let band = 1e-9 * (1.0 + scale.max(mag));
+                let band = cad_primitives::TAU_EVAL * (1.0 + scale.max(mag));
                 if std::env::var("KV_HYPERBOLA_PROBE").is_ok() {
                     eprintln!(
                         "KV_HYPERBOLA_PROBE edge ({},{}) p=({:.6},{:.6},{:.6}) u={u:.3e} \
@@ -2788,7 +2789,7 @@ fn classify_edge(
                             "surface-pair endpoint lies on a defining surface's axis",
                         ));
                     };
-                    let band = 1e-9 * (1.0 + crate::geom::pair_surface_scale(s).max(mag));
+                    let band = cad_primitives::TAU_EVAL * (1.0 + crate::geom::pair_surface_scale(s).max(mag));
                     if residual.abs() > band {
                         return Err(KernelV2Error::InvalidBooleanOutput(
                             "output surface-pair endpoint does not lie on both surfaces",

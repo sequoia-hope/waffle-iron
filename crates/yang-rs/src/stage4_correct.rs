@@ -6,6 +6,27 @@
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 
+/// §4.4.2 tangent-plane corridor half-width. The two surfaces at a
+/// relocation site, linearized as tangent planes P_A, P_B meeting at angle
+/// θ, admit a corridor of `2·budget/sinθ` around L = P_A ∩ P_B — the
+/// Stage-1 budget mapped through the wedge (paper
+/// refs/text/yang2025_hybrid_boolean.txt:494-537). `divergence` is the
+/// unit-vector cross-product magnitude (= sin θ), or the gradient magnitude
+/// for implicit forms. At exact tangency the corridor is unbounded →
+/// `INFINITY` (the circle-junction gate precedent: the projection is still
+/// the local nearest point; callers that need a finite band gate on a
+/// tangency cutoff FIRST). Extracted from five duplicated sites (design
+/// review 2026-07-12 F8) — the formula must never be re-inlined: a future
+/// correction has to land HERE once.
+pub(crate) fn tangent_plane_corridor(budget: f64, divergence: f64) -> f64 {
+    if divergence > 0.0 {
+        2.0 * budget / divergence
+    } else {
+        f64::INFINITY
+    }
+}
+
+
 // =========================================================================
 // PR-YR5 — topology reconstruction
 // =========================================================================
@@ -1778,11 +1799,7 @@ pub(crate) fn stage4_relocate_and_correct(
                 n0[0] * n1[1] - n0[1] * n1[0],
             ];
             let sin_theta = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
-            let gate = if sin_theta > 0.0 {
-                2.0 * d_eps / sin_theta
-            } else {
-                f64::INFINITY
-            };
+            let gate = tangent_plane_corridor(d_eps, sin_theta);
             if rho > gate {
                 return Err(YangError::Stage4RegionInvalid {
                     vertex: v,
@@ -2028,11 +2045,7 @@ pub(crate) fn stage4_relocate_and_correct(
             ra_h[0] * rb_h[1] - ra_h[1] * rb_h[0],
         ];
         let sin_theta = (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
-        let gate = if sin_theta > 0.0 {
-            2.0 * d_eps / sin_theta
-        } else {
-            f64::INFINITY
-        };
+        let gate = tangent_plane_corridor(d_eps, sin_theta);
         if rho > gate {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: v,
@@ -2124,15 +2137,10 @@ pub(crate) fn stage4_relocate_and_correct(
                     radial[0] * n_pl[1] - radial[1] * n_pl[0],
                 ];
                 let sin_theta = (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
-                if sin_theta > 0.0 {
-                    2.0 * gate / sin_theta
-                } else {
-                    // Exact tangency at the relocated point: the corridor
-                    // metric is unbounded (the circle-junction gate's
-                    // INFINITY precedent); the projection is still the
-                    // local nearest point.
-                    f64::INFINITY
-                }
+                // Exact tangency → unbounded corridor (see
+                // `tangent_plane_corridor`); the projection is still the
+                // local nearest point.
+                tangent_plane_corridor(gate, sin_theta)
             };
             if std::env::var_os("YANG_T145_RELOC_PROBE").is_some() {
                 eprintln!(
@@ -2282,10 +2290,8 @@ pub(crate) fn stage4_relocate_and_correct(
         };
         let gate = if let Some(budget) = same_pair_budget {
             (2.0 * e_a.radius * budget).sqrt() + budget
-        } else if grad > 0.0 {
-            2.0 * d_eps / grad
         } else {
-            f64::INFINITY
+            tangent_plane_corridor(d_eps, grad)
         };
         // KV9-F1 Increment 0c census: per-junction second_cyl provenance +
         // first-order gate state (kept env-gated, like the other Stage-4 probes).
@@ -2617,11 +2623,7 @@ pub(crate) fn stage4_relocate_and_correct(
             dh[0] * tangent[1] - dh[1] * tangent[0],
         ];
         let sin_theta = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
-        let gate = if sin_theta > 0.0 {
-            2.0 * d_eps / sin_theta
-        } else {
-            f64::INFINITY
-        };
+        let gate = tangent_plane_corridor(d_eps, sin_theta);
         if rho > gate {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: v,
@@ -2811,11 +2813,7 @@ pub(crate) fn stage4_relocate_and_correct(
                 n0[0] * n1[1] - n0[1] * n1[0],
             ];
             let sin_theta = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
-            let gate = if sin_theta > 0.0 {
-                2.0 * d_eps / sin_theta
-            } else {
-                f64::INFINITY
-            };
+            let gate = tangent_plane_corridor(d_eps, sin_theta);
             if rho > gate {
                 return Err(YangError::Stage4RegionInvalid {
                     vertex: v,

@@ -30,6 +30,23 @@ pub const MIN_FEATURE_SIZE: f64 = 1e-6;
 /// numerically sensitive intermediate computations.
 pub const TAU_WORK: f64 = 1e-12;
 
+/// f64 evaluation/rounding band (RELATIVE, dimensionless): the accumulated
+/// rounding of a value computed through a short chain of f64 operations —
+/// normalization, plane evaluation, circle-membership residuals, unit-dot
+/// agreement (`1 − n·m`). Used scale-relative for distances
+/// (`TAU_EVAL * (1 + |coord|)`) and directly for dimensionless residuals.
+///
+/// This names the tier that previously lived as ~80 inline `1e-9` literals
+/// across yang-rs and kernel-v2 (design review 2026-07-12 F8): between
+/// `TAU_MODEL` (1e-7, model coincidence) and `TAU_WORK` (1e-12, working
+/// floor). It is a REJECT band for topology-critical decisions (retag,
+/// fuse, junction certification, import validation) — fine enough that
+/// genuine defects exceed it by orders of magnitude, coarse enough that
+/// legitimate f64 construction noise never trips it. Never widen it to
+/// admit a failing case (P9); a value that exceeds `TAU_EVAL` where
+/// exactness is expected is a defect at the producing site.
+pub const TAU_EVAL: f64 = 1e-9;
+
 /// A point in 3D Euclidean space, stored as three `f64` coordinates.
 ///
 /// Newtype wrapper around `[f64; 3]` — no algorithms, just storage +

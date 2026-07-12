@@ -84,8 +84,9 @@ fn planarity_band(p: Point3) -> f64 {
 
 /// Tolerance on `1 − dot(stored_normal, newell_unit)` for invariant 5.
 /// Both vectors are unit-length f64; agreement is by construction, so this
-/// only absorbs normalization rounding.
-pub const NORMAL_AGREEMENT_TOLERANCE: f64 = 1e-9;
+/// only absorbs normalization rounding (= the central
+/// [`cad_primitives::TAU_EVAL`] rounding tier, F8).
+pub const NORMAL_AGREEMENT_TOLERANCE: f64 = cad_primitives::TAU_EVAL;
 
 /// PRODUCTION-tier planarity band for BOOLEAN-PATH solids, as a RELATIVE
 /// band — multiplied by `(1 + max|coordinate|)` at the check site, like
@@ -110,7 +111,7 @@ pub const NORMAL_AGREEMENT_TOLERANCE: f64 = 1e-9;
 /// defect-class residuals (≥ `MIN_FEATURE_SIZE`-scale) exceed it by ≥1000×.
 /// A reject here is a REJECT (typed `NonPlanarFace`), never a snap or a
 /// repair (P9).
-pub const PLANARITY_BOOLEAN_OUTPUT_TOLERANCE: f64 = 1e-9;
+pub const PLANARITY_BOOLEAN_OUTPUT_TOLERANCE: f64 = cad_primitives::TAU_EVAL;
 
 /// Production planarity gate for solids assembled from yang boolean output
 /// (see [`PLANARITY_BOOLEAN_OUTPUT_TOLERANCE`]). Checks every loop vertex of

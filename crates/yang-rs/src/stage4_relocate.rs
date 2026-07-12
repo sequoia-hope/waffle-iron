@@ -95,6 +95,31 @@ pub(crate) fn junction_certificate_band(p: [f64; 3], s: Surface) -> f64 {
     cad_primitives::TAU_WORK.max(8.0 * f64::EPSILON * l)
 }
 
+/// Tangency cutoff (unit sine) for the CIRCLE-PAIR membership
+/// amplification: sin α at/below this is tangent-grade — the constraint
+/// band diverges — so the amplification returns `None` and the caller
+/// falls back to the tangent-direction discriminator (the SAFE direction).
+pub(crate) const AMP_TANGENCY_MIN_SIN_CIRCLE_PAIR: f64 = cad_primitives::MIN_FEATURE_SIZE;
+
+/// Tangency cutoff (unit sine) for the CYL×CYL radial-gradient
+/// amplification. F8 HONEST NOTE (design review 2026-07-12): this is 1000×
+/// coarser than [`AMP_TANGENCY_MIN_SIN_CIRCLE_PAIR`]. Both cutoffs trigger
+/// the SAFE fallback (`None` → tangent-direction discriminator), so the
+/// spread is a conservatism difference between two amplification forms,
+/// not a correctness fudge — but it is UNJUSTIFIED spread; unifying the two
+/// requires a full-assay measurement (banked debt, deviations ledger).
+pub(crate) const AMP_TANGENCY_MIN_SIN_CYL_CYL: f64 = 1e-3;
+
+/// Work floor for the torus-block relocation convergence/certificate
+/// band. F8 HONEST NOTE (design review 2026-07-12): `1e-13`, i.e. 10×
+/// TIGHTER than the crate's `TAU_WORK` (1e-12) — the value was chosen when
+/// the torus-block relocation shipped so that behavior stayed
+/// byte-identical (see the comment at the use site). Unifying it up to
+/// `TAU_WORK` is a behavior change requiring a full-assay measurement
+/// (banked debt, deviations ledger). Never lower it further to pass a case
+/// (P9).
+pub(crate) const TORUS_RELOC_WORK_FLOOR: f64 = 1e-13;
+
 pub(crate) fn surface_value_and_normal(s: Surface, x: [f64; 3]) -> Option<(f64, [f64; 3])> {
     let eps = cad_primitives::MIN_FEATURE_SIZE;
     match s {
@@ -265,7 +290,7 @@ pub(crate) fn relocate_onto_implicit_triple(
     // so the shipped torus-block behavior is byte-identical.
     let mag3 = |v: [f64; 3]| v[0].abs().max(v[1].abs()).max(v[2].abs());
     let l = mag3(p.as_array());
-    let tau = 1e-13_f64.max(8.0 * f64::EPSILON * l);
+    let tau = TORUS_RELOC_WORK_FLOOR.max(8.0 * f64::EPSILON * l);
     let rank_eps = cad_primitives::MIN_FEATURE_SIZE;
     let cross = |a: [f64; 3], b: [f64; 3]| {
         [
@@ -495,7 +520,7 @@ pub(crate) fn line_band_amplification(surf0: Surface, surf1: Surface) -> Option<
         let d = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
         let cos_a = ((r1 * r1 + r2 * r2 - d * d) / (2.0 * r1 * r2)).clamp(-1.0, 1.0);
         let sin_a = (1.0 - cos_a * cos_a).max(0.0).sqrt();
-        if sin_a <= cad_primitives::MIN_FEATURE_SIZE {
+        if sin_a <= AMP_TANGENCY_MIN_SIN_CIRCLE_PAIR {
             return None; // tangent-grade crossing: band diverges
         }
         return Some(1.0 / sin_a);
@@ -561,7 +586,7 @@ pub(crate) fn cyl_cyl_point_amplification(
         g1[0] * g2[1] - g1[1] * g2[0],
     ];
     let sin_a = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
-    if sin_a < 1e-3 {
+    if sin_a < AMP_TANGENCY_MIN_SIN_CYL_CYL {
         return None; // tangency-grade: no finite band
     }
     Some(1.0 / sin_a)

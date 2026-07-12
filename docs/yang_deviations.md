@@ -2056,3 +2056,40 @@ not explicitly pinned (anchor unverified — flagged in 2026-07-12 catch-up).
 guard is an ACKNOWLEDGED deviation — a loud STOP standing in for the §4.3.3
 near-tangency mesh-topology handling, remediation tracked as task #137. Not signed
 off; actively tracked.
+
+### N36 — Tolerance-vocabulary consolidation (TAU_EVAL) + named surviving divergences
+
+**Date:** 2026-07-12 (design review F8). **Class:** refactor, value-identical —
+no behavior change; every replaced literal keeps its exact prior value.
+
+**What changed:**
+- The unnamed `1e-9` rounding tier is now the named central
+  `cad_primitives::TAU_EVAL` (f64 evaluation/rounding band, scale-relative
+  for distances, direct for dimensionless residuals). Renamed-in-place
+  consumers: kernel-v2 `YANG_NORMAL_AGREEMENT_TOLERANCE`,
+  `validate::NORMAL_AGREEMENT_TOLERANCE`,
+  `validate::PLANARITY_BOOLEAN_OUTPUT_TOLERANCE`, `recover::BAND`, four
+  inline output-curve acceptance bands in `boolean.rs`, the adapter
+  hole-nesting band; yang-rs `brep::MATCH_TOLERANCE`; waffle-types
+  `TAU_COINCIDENT`.
+- The §4.4.2 corridor formula `2·budget/divergence` (with the
+  tangency→INFINITY arm) was duplicated at six sites in
+  `stage4_correct.rs`; now one helper,
+  `stage4_correct::tangent_plane_corridor` (paper
+  refs/text/yang2025_hybrid_boolean.txt:494-537). Future corrections land
+  there once.
+
+**Surviving divergences, named honestly rather than unified blind (each a
+behavior change requiring a full-assay measurement before touching):**
+- `stage4_relocate::TORUS_RELOC_WORK_FLOOR = 1e-13` — 10× tighter than
+  `TAU_WORK`; chosen at torus-block ship time for byte-identical behavior.
+  Unify-to-TAU_WORK = banked measured debt.
+- `stage4_relocate::AMP_TANGENCY_MIN_SIN_CIRCLE_PAIR` (= `MIN_FEATURE_SIZE`,
+  1e-6) vs `AMP_TANGENCY_MIN_SIN_CYL_CYL` (= 1e-3): 1000× spread between
+  two amplification forms' tangency cutoffs. Both trigger the SAFE fallback
+  (`None` → tangent-direction discriminator), so this is conservatism
+  spread, not fudge — but it is unjustified; unification = banked measured
+  debt.
+
+**Oracles:** value-identical by construction; yang-rs/kernel-v2/waffle-types
+suites green post-change. **Sign-off:** refactor, signed off 2026-07-12.

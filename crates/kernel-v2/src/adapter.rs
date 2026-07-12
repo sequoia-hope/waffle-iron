@@ -1031,7 +1031,7 @@ impl Kernel for KernelV2Adapter {
                     .filter(|&j| {
                         j != i
                             && shape_is_outer(&shapes[j])
-                            && shape_area(&shapes[j]) > hole_area * (1.0 + 1e-9)
+                            && shape_area(&shapes[j]) > hole_area * (1.0 + cad_primitives::TAU_EVAL)
                             && outer_contains(&shapes[j], witness)
                     })
                     .min_by(|&a, &b| {

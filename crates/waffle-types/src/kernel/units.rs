@@ -40,10 +40,15 @@ pub const TAU_NORMALIZE: f64 = 1e-15;
 /// runtime multiplication and clarify intent.
 pub const TAU_NORMALIZE_SQ: f64 = 1e-30;
 
-/// Point-on-surface coincidence tolerance: 1e-9.
-/// Finer than TAU_MODEL to avoid premature snapping, coarser than TAU_WORK
-/// to tolerate floating-point accumulation. Feeds `BooleanOptions`.
-pub const TAU_COINCIDENT: f64 = 1e-9;
+/// Point-on-surface coincidence tolerance: the central `TAU_EVAL` rounding
+/// tier (1e-9). Finer than TAU_MODEL to avoid premature snapping, coarser
+/// than TAU_WORK to tolerate floating-point accumulation. Feeds
+/// `BooleanOptions`.
+pub const TAU_COINCIDENT: f64 = cad_primitives::TAU_EVAL;
+
+/// Re-export of the central f64 evaluation/rounding band (see
+/// `cad_primitives::TAU_EVAL` for the full contract).
+pub use cad_primitives::TAU_EVAL;
 
 /// Relative weld factor for scale-adaptive tolerance: 1e-7.
 /// tau_weld = (model_diagonal * TAU_WELD_FACTOR), clamped to TAU_WELD_MAX.

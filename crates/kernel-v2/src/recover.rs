@@ -44,8 +44,9 @@ use yang_rs::{BRepEdge, BRepFace, BRepVertex, Curve, Surface};
 const MAX_ARC_PIECE_SWEEP: f64 = 2.6;
 
 /// Relative band for on-circle membership / circle-identity / collinearity,
-/// mirroring `classify_edge`'s import band.
-const BAND: f64 = 1e-9;
+/// mirroring `classify_edge`'s import band (= the central
+/// [`cad_primitives::TAU_EVAL`] rounding tier, F8).
+const BAND: f64 = cad_primitives::TAU_EVAL;
 
 fn sub(a: Point3, b: Point3) -> [f64; 3] {
     let (a, b) = (a.as_array(), b.as_array());
