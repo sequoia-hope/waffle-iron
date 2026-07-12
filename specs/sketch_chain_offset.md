@@ -177,3 +177,42 @@ tool-first.
   edge chain + commit (4 lines + 4 arcs real), offset arm on face click.
 - `projection-select-first.spec.js` O6 updated to the chain-by-default
   contract (F2 straight-on hover oracle unchanged).
+
+# Cycle 3 (2026-07-12, task #141): true arcs from native curved body edges
+
+User case step_extrude.waffle round 2: projecting/offsetting a rounded
+hexagon plate gave straight chords, and the offset kept a radius at only
+one corner.
+
+- **Kernel edge export sampled + descriptors.** `Kernel::extract_edges`
+  (kernel-v2 adapter) exported bare endpoint chords for EVERY edge — a
+  rounded outline reached the app as 2-point straight lines. It now reuses
+  `introspect::edge_polyline` (the chord-bound render sampling, shared
+  helper) and carries `EdgeCurve::{Circle,Arc}` descriptors
+  (center/normal/radius) on `EdgeRange` through the wasm bridge.
+- **Projection mints TRUE arcs.** `projectEdgeRange` creates a construction
+  Arc/Circle (center point + corner-bound endpoints) when the descriptor's
+  plane is parallel to the sketch plane (anti-parallel normals swap the
+  entity endpoints to keep the CCW convention); non-parallel or
+  non-circular edges keep the polyline path. Offsets of projected rounded
+  outlines therefore keep exact radii (r ± d) at every corner.
+- **finishSketch arc metadata off-by-one (pre-existing, KV12-era).**
+  `arc_segments.end_vertex_index` pointed at the LAST INTERIOR SAMPLE, so
+  every extruded arc profile was really a 15/16-sweep arc plus a chord
+  sliver line (an extruded 90° fillet was an 84.4° arc). It now points at
+  the shared endpoint (the next entity's start), wrapping to vertex 0 when
+  the arc closes the profile — the kernel reconstruction treats index runs
+  cyclically.
+
+Oracles: Rust `kernel-v2/tests/kv2_edge_render_curves.rs` (cylinder rims =
+sampled closed polylines + Circle descriptors; box edges stay 2-point,
+descriptor-free); GUI `project-arc-offset.spec.js` (rounded plate → project
+face → 4 true 90° construction arcs, one chain, offset outward → REAL arcs
+at r+d on every corner). Verified against the user's file: rounded-hex cap
+projects 12 arcs, offset ±0.5 mm shifts every radius to 2.0/3.0 mm.
+
+Fixture note: an Arc entity is CCW start→end — authoring a corner arc with
+swapped endpoints describes the 270° COMPLEMENT lobe (legal, self-
+intersecting profile). The M15b ring fixtures do exactly that (harmless for
+their dedup/densifier oracles, misleading name "cw"); project-arc-offset
+authors the true corner arcs.

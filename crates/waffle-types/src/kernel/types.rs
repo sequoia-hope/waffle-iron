@@ -166,6 +166,33 @@ pub struct EdgeRange {
     pub edge_id: KernelId,
     pub start_vertex: u32,
     pub end_vertex: u32,
+    /// Analytic descriptor when the edge is a circular arc/circle (kernel
+    /// `Curve` vocabulary), so consumers (sketch projection) can create TRUE
+    /// arcs instead of polyline approximations. `None` for straight edges
+    /// and non-circular curves (ellipse/hyperbola/surface-pair render as
+    /// sampled polylines only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curve: Option<EdgeCurve>,
+}
+
+/// Analytic circular-edge descriptor carried by [`EdgeRange`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EdgeCurve {
+    /// Full circle: the range's polyline is a closed sampling of it.
+    Circle {
+        center: [f64; 3],
+        /// Unit axis the edge traverses CCW around.
+        normal: [f64; 3],
+        radius: f64,
+    },
+    /// Circular arc from the range's first to last polyline point, CCW
+    /// around `normal`.
+    Arc {
+        center: [f64; 3],
+        normal: [f64; 3],
+        radius: f64,
+    },
 }
 
 /// Options controlling tolerance layering for boolean operations.

@@ -55,6 +55,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use crate::arena::Curve;
 use crate::{BrepArena, FaceId, HalfEdgeId, KernelV2Error, SolidId, Surface, VertexId};
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use waffle_types::kernel::{
@@ -200,6 +201,7 @@ impl KernelV2Adapter {
                     edge_id: encode_imported(TAG_IMPORTED_EDGE, slot, ei),
                     start_vertex,
                     end_vertex,
+                    curve: None,
                 });
             }
         }
@@ -766,21 +768,58 @@ impl Kernel for KernelV2Adapter {
             return Ok(self.imported_edge_render(slot));
         }
         let sid = self.solid_of(solid)?;
+        // Curved edges export as their render polylines (the SAME chord-bound
+        // samples `introspect::extract_edges` reports); before this they were
+        // exported as bare endpoint chords, so a rounded outline projected as
+        // straight lines (the step_extrude.waffle offset regression).
+        // Circular edges additionally carry their analytic descriptor so
+        // sketch projection can mint TRUE arcs.
+        let n_seg =
+            crate::tessellate::circle_segment_count(crate::tessellate::RENDER_CHORD_TOLERANCE_REL);
         let mut vertices: Vec<f32> = Vec::new();
         let mut edge_ranges: Vec<EdgeRange> = Vec::new();
         for canonical in self.solid_canonical_edges(sid) {
-            let Some((a, b)) = self.edge_endpoints(canonical) else {
+            let Ok(polyline) = crate::introspect::edge_polyline(&self.arena, canonical, n_seg)
+            else {
                 continue;
             };
+            if polyline.len() < 2 {
+                continue;
+            }
+            let Ok(he) = self.arena.half_edge(canonical) else {
+                continue;
+            };
+            let curve = match he.curve {
+                Curve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => Some(waffle_types::kernel::EdgeCurve::Circle {
+                    center: center.as_array(),
+                    normal: [normal.x, normal.y, normal.z],
+                    radius,
+                }),
+                Curve::Arc {
+                    center,
+                    normal,
+                    radius,
+                } => Some(waffle_types::kernel::EdgeCurve::Arc {
+                    center: center.as_array(),
+                    normal: [normal.x, normal.y, normal.z],
+                    radius,
+                }),
+                _ => None,
+            };
             let start_vertex = (vertices.len() / 3) as u32;
-            for p in [a, b] {
+            for p in polyline {
                 let p = p.as_array();
                 vertices.extend_from_slice(&[p[0] as f32, p[1] as f32, p[2] as f32]);
             }
             edge_ranges.push(EdgeRange {
                 edge_id: encode_edge(canonical),
                 start_vertex,
-                end_vertex: start_vertex + 2,
+                end_vertex: (vertices.len() / 3) as u32,
+                curve,
             });
         }
         Ok(EdgeRenderData {

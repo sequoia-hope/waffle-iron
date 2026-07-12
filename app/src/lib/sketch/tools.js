@@ -85,7 +85,6 @@ import {
 import { showToast } from '$lib/ui/toast.svelte.js';
 import { setPreview, setSnapIndicator, setSnapCandidates, getPreview as _getPreview, getSnapIndicator as _getSnapIndicator, getSnapCandidates as _getSnapCandidates } from './sketchToolState.svelte.js';
 import { buildSketchPlane } from './sketchCoords.js';
-import { projectEdgeToSketch, simplifyPolyline } from './projectGeometry.js';
 import { classifyDimension, isDimensionComplete, dimensionPreviewPolyline } from './dimensionHeuristic.js';
 import { DRAG_THRESHOLD_PX, DRAG_MIN_DURATION_MS, DRAG_COMMIT_PX, CANDIDATE_DEDUP_PX, GEAR_PREVIEW_MODULE_M, DEFAULT_GEAR_TOOTH_COUNT, DEFAULT_GEAR_PRESSURE_ANGLE } from '$lib/config.js';
 
@@ -1707,6 +1706,9 @@ function projectBodyTarget(target) {
 	if (target.kind === 'edge' && target.indices.length > 1) {
 		projectEdgeChain(target.mesh, target.indices, target.ref.anchor);
 	} else {
+		// Single edge / face: projectRef (single straight edges keep their
+		// classic live binding — invariant I4; curved edges route through
+		// projectEdgeChain inside projectRef and mint true arcs).
 		projectRef(target.ref);
 	}
 	return getSketchEntities().filter((e) => !before.has(e.id) && entityChainable(e));
@@ -1809,34 +1811,29 @@ export function projectRef(ref) {
 	const meshData = getMeshes();
 	if (!meshData) return;
 
-	const sketchPlane = buildSketchPlane(sm.origin, sm.normal);
-
 	if (ref.kind?.type === 'Edge') {
 		for (const mesh of meshData) {
 			if (!mesh.edges || !mesh.edges.ranges) continue;
 			const verts = mesh.edges.vertices;
-			for (const range of mesh.edges.ranges) {
+			for (let i = 0; i < mesh.edges.ranges.length; i++) {
+				const range = mesh.edges.ranges[i];
 				if (!geomRefEquals(range.geom_ref, ref)) continue;
 
 				const si = range.start_index;
 				const ei = range.end_index;
-				if (ei - si === 2) {
+				if (ei - si === 2 && !range.curve) {
 					// Straight edge → live binding: two endpoint vertices + a line.
 					const p0 = [verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]];
 					const p1 = [verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2]];
 					projectEdge(ref.anchor, p0, p1);
 					log('sketch', 'Projected straight edge (live)');
 				} else {
-					// Curved edge → static construction snapshot (interior points
-					// are not vertices, so no live binding yet).
-					const projected = projectEdgeToSketch(verts, range, sketchPlane);
-					const simplified = simplifyPolyline(projected);
-					if (simplified.length >= 2) {
-						beginSketchAction();
-						createConstructionLinesFromPoints(simplified, false);
-						endSketchAction();
-						log('sketch', 'Projected curved edge as construction lines', { pointCount: simplified.length });
-					}
+					// Curved edge → projectEdgeChain mints a TRUE Arc/Circle
+					// when the edge carries an analytic descriptor parallel to
+					// the sketch plane, and a bound-endpoint polyline snapshot
+					// otherwise.
+					const n = projectEdgeChain(mesh, [i], ref.anchor);
+					log('sketch', 'Projected curved edge', { entities: n });
 				}
 				return;
 			}
@@ -1846,32 +1843,6 @@ export function projectRef(ref) {
 	if (ref.kind?.type === 'Face') {
 		const n = projectFace(ref);
 		log('sketch', 'Projected face boundary edges', { lines: n });
-	}
-}
-
-/**
- * Create construction points and lines from projected 2D points.
- * @param {Array<{ x: number, y: number }>} points
- * @param {boolean} closed - If true, connect last point to first
- */
-function createConstructionLinesFromPoints(points, closed) {
-	if (points.length < 2) return;
-	const pointIds = [];
-	for (const pt of points) {
-		const id = allocEntityId();
-		addLocalEntity({ type: 'Point', id, x: pt.x, y: pt.y, construction: true });
-		pointIds.push(id);
-	}
-	const n = closed ? points.length : points.length - 1;
-	for (let i = 0; i < n; i++) {
-		const j = (i + 1) % points.length;
-		addLocalEntity({
-			type: 'Line',
-			id: allocEntityId(),
-			start_id: pointIds[i],
-			end_id: pointIds[j],
-			construction: true,
-		});
 	}
 }
 

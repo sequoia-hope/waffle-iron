@@ -1318,6 +1318,7 @@ impl Kernel for MockKernel {
                 edge_id: edge.id,
                 start_vertex: 0,
                 end_vertex: 0,
+                curve: None,
             });
         }
 

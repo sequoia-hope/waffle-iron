@@ -465,11 +465,14 @@ fn build_edge_entries(
             policy: ResolvePolicy::BestEffort,
         };
 
-        // EdgeOverlay.svelte expects start_index/end_index (vertex counts)
+        // EdgeOverlay.svelte expects start_index/end_index (vertex counts).
+        // `curve` (Some for circular edges) lets sketch projection mint TRUE
+        // Arc/Circle entities instead of polyline approximations.
         entries.push(serde_json::json!({
             "geom_ref": geom_ref,
             "start_index": range.start_vertex,
             "end_index": range.end_vertex,
+            "curve": range.curve,
         }));
     }
     entries

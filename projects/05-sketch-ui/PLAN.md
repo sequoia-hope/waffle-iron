@@ -244,6 +244,31 @@ face projection.
   `projection-select-first.spec.js` updated to the chain-by-default
   contract (its F2 straight-on-hover oracle unchanged).
 
+### M17: True arcs from native curved body edges ✅ (2026-07-12)
+
+Task #141, spec `specs/sketch_chain_offset.md` cycle 3. User case
+step_extrude.waffle round 2: a rounded hexagon projected as straight
+chords; its offset kept a radius at only one corner.
+
+- [x] kernel-v2 `Kernel::extract_edges` exported bare endpoint chords for
+      every edge. Now reuses `introspect::edge_polyline` (shared chord-bound
+      render sampling) and carries `EdgeCurve::{Circle,Arc}` descriptors on
+      `EdgeRange` → through wasm-bridge → `getMeshes().edgeRanges[].curve`.
+- [x] `projectEdgeRange` mints TRUE construction Arc/Circle entities when
+      the descriptor plane is sketch-parallel (anti-parallel normal swaps
+      endpoints for the CCW entity convention); polyline fallback otherwise.
+      Offset of projected rounded outlines keeps r ± d at every corner.
+- [x] Pre-existing KV12-era fix: finishSketch `arc_segments.end_vertex_index`
+      pointed at the last interior sample → every extruded arc was a
+      15/16-sweep arc + chord sliver. Now points at the shared endpoint
+      (wraps to 0 when the arc closes the profile).
+- Tests: Rust `kv2_edge_render_curves.rs` (2), GUI
+  `project-arc-offset.spec.js` (rounded plate e2e: project → 4 true 90°
+  arcs → offset → real arcs at r+d); verified on the user's file (12 arcs,
+  ±0.5 mm shifts all radii).
+- TRAP for fixture authors: Arc entities are CCW start→end — swapped
+  endpoints author the 270° complement lobe.
+
 ## Implementation Summary
 
 ### New files created

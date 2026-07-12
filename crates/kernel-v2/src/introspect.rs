@@ -48,7 +48,6 @@ pub fn extract_edges_with_chord_tolerance(
     solid: SolidId,
     rel_chord_tolerance: f64,
 ) -> Result<Vec<Vec<Point3>>, KernelV2Error> {
-    use crate::arena::Curve;
     let n_seg = crate::tessellate::circle_segment_count(rel_chord_tolerance);
     let he_set = solid_half_edges(arena, solid)?;
     let mut out = Vec::with_capacity(he_set.len() / 2);
@@ -57,91 +56,105 @@ pub fn extract_edges_with_chord_tolerance(
         if he.twin < h {
             continue; // the twin (lower id) already reported this edge
         }
-        match he.curve {
-            Curve::LineSegment => {
-                let start = arena.vertex(he.origin)?.point;
-                let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
-                out.push(vec![start, end]);
-            }
-            Curve::Arc { .. } => {
-                // PR-KV5b: an arc edge (boolean-output intersection circle
-                // piece) extracts as its chord-bound sample polyline —
-                // endpoints + the SAME interior samples render tessellation
-                // uses, so extracted edges lie exactly on the rendered seams.
-                let start = arena.vertex(he.origin)?.point;
-                let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
-                let mut pl = vec![start];
-                pl.extend(crate::tessellate::arc_interior_samples(arena, h, n_seg)?);
-                pl.push(end);
-                out.push(pl);
-            }
-            Curve::EllipseArc { .. } => {
-                // PR-KV9: same contract as Arc — the render-identical
-                // sample polyline.
-                let start = arena.vertex(he.origin)?.point;
-                let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
-                let mut pl = vec![start];
-                pl.extend(crate::tessellate::ellipse_interior_samples(
-                    arena, h, n_seg,
-                )?);
-                pl.push(end);
-                out.push(pl);
-            }
-            Curve::HyperbolaArc { .. } => {
-                // KV16: same contract as Arc — the render-identical
-                // sample polyline.
-                let start = arena.vertex(he.origin)?.point;
-                let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
-                let mut pl = vec![start];
-                pl.extend(crate::tessellate::hyperbola_interior_samples(
-                    arena, h, n_seg,
-                )?);
-                pl.push(end);
-                out.push(pl);
-            }
-            Curve::SurfacePair { .. } => {
-                // M5: same contract as Arc — endpoints + the render-identical
-                // certified sample polyline (Newton-projected onto both
-                // defining surfaces).
-                let start = arena.vertex(he.origin)?.point;
-                let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
-                let mut pl = vec![start];
-                pl.extend(crate::tessellate::surface_pair_edge_samples(
-                    arena, h, n_seg,
-                )?);
-                pl.push(end);
-                out.push(pl);
-            }
-            Curve::Circle {
-                center,
-                normal,
-                radius,
-            } => {
-                // Sampled at the SAME N as render tessellation; closed
-                // polyline (last == first, bitwise).
-                let anchor = arena.vertex(he.origin)?.point;
-                let Some((e1, e2)) = crate::tessellate::circle_frame(center, normal, anchor) else {
-                    return Err(KernelV2Error::CurvedGeometryMismatch {
-                        face: arena.loop_(he.loop_id)?.face,
-                        reason: "extract_edges: degenerate circle frame (anchor not radial)",
-                    });
-                };
-                let mut pl = Vec::with_capacity(n_seg as usize + 1);
-                for k in 0..n_seg {
-                    let theta = 2.0 * std::f64::consts::PI * f64::from(k) / f64::from(n_seg);
-                    let (s, c) = theta.sin_cos();
-                    pl.push(Point3::new(
-                        center.x() + radius * (c * e1[0] + s * e2[0]),
-                        center.y() + radius * (c * e1[1] + s * e2[1]),
-                        center.z() + radius * (c * e1[2] + s * e2[2]),
-                    ));
-                }
-                pl.push(pl[0]);
-                out.push(pl);
-            }
-        }
+        out.push(edge_polyline(arena, h, n_seg)?);
     }
     Ok(out)
+}
+
+/// One edge's render polyline, for a canonical (lower-id) half-edge at
+/// `n_seg` angular density — the per-curve contract of [`extract_edges`].
+/// Shared with the adapter's `Kernel::extract_edges` (the app's edge
+/// overlay/pick/projection data), so both views are byte-identical.
+pub(crate) fn edge_polyline(
+    arena: &BrepArena,
+    h: crate::arena::HalfEdgeId,
+    n_seg: u32,
+) -> Result<Vec<Point3>, KernelV2Error> {
+    use crate::arena::Curve;
+    let he = arena.half_edge(h)?;
+    Ok(match he.curve {
+        Curve::LineSegment => {
+            let start = arena.vertex(he.origin)?.point;
+            let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+            vec![start, end]
+        }
+        Curve::Arc { .. } => {
+            // PR-KV5b: an arc edge (boolean-output intersection circle
+            // piece) extracts as its chord-bound sample polyline —
+            // endpoints + the SAME interior samples render tessellation
+            // uses, so extracted edges lie exactly on the rendered seams.
+            let start = arena.vertex(he.origin)?.point;
+            let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+            let mut pl = vec![start];
+            pl.extend(crate::tessellate::arc_interior_samples(arena, h, n_seg)?);
+            pl.push(end);
+            pl
+        }
+        Curve::EllipseArc { .. } => {
+            // PR-KV9: same contract as Arc — the render-identical
+            // sample polyline.
+            let start = arena.vertex(he.origin)?.point;
+            let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+            let mut pl = vec![start];
+            pl.extend(crate::tessellate::ellipse_interior_samples(
+                arena, h, n_seg,
+            )?);
+            pl.push(end);
+            pl
+        }
+        Curve::HyperbolaArc { .. } => {
+            // KV16: same contract as Arc — the render-identical
+            // sample polyline.
+            let start = arena.vertex(he.origin)?.point;
+            let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+            let mut pl = vec![start];
+            pl.extend(crate::tessellate::hyperbola_interior_samples(
+                arena, h, n_seg,
+            )?);
+            pl.push(end);
+            pl
+        }
+        Curve::SurfacePair { .. } => {
+            // M5: same contract as Arc — endpoints + the render-identical
+            // certified sample polyline (Newton-projected onto both
+            // defining surfaces).
+            let start = arena.vertex(he.origin)?.point;
+            let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+            let mut pl = vec![start];
+            pl.extend(crate::tessellate::surface_pair_edge_samples(
+                arena, h, n_seg,
+            )?);
+            pl.push(end);
+            pl
+        }
+        Curve::Circle {
+            center,
+            normal,
+            radius,
+        } => {
+            // Sampled at the SAME N as render tessellation; closed
+            // polyline (last == first, bitwise).
+            let anchor = arena.vertex(he.origin)?.point;
+            let Some((e1, e2)) = crate::tessellate::circle_frame(center, normal, anchor) else {
+                return Err(KernelV2Error::CurvedGeometryMismatch {
+                    face: arena.loop_(he.loop_id)?.face,
+                    reason: "extract_edges: degenerate circle frame (anchor not radial)",
+                });
+            };
+            let mut pl = Vec::with_capacity(n_seg as usize + 1);
+            for k in 0..n_seg {
+                let theta = 2.0 * std::f64::consts::PI * f64::from(k) / f64::from(n_seg);
+                let (s, c) = theta.sin_cos();
+                pl.push(Point3::new(
+                    center.x() + radius * (c * e1[0] + s * e2[0]),
+                    center.y() + radius * (c * e1[1] + s * e2[1]),
+                    center.z() + radius * (c * e1[2] + s * e2[2]),
+                ));
+            }
+            pl.push(pl[0]);
+            pl
+        }
+    })
 }
 
 /// Total surface area of `solid`, analytically per surface type

@@ -683,6 +683,7 @@ export async function initEngine() {
 					geom_ref: r.geom_ref,
 					start_index: r.start_index,
 					end_index: r.end_index,
+					curve: r.curve ?? null,
 				})),
 			})),
 			getRenderedOverlayCounts: () => ({
@@ -918,6 +919,7 @@ export async function initEngine() {
 			// flows themselves are driven with real pointer events).
 			findConnectedChain: (id) => findConnectedChain(id, sketchEntities, sketchPositions),
 			getOffsetToolState: () => _getOffsetToolState(),
+			faceBoundaryPreview: (ref) => faceBoundaryPreview(ref),
 			// Sketch-plane 2D → client-pixel position (the DimensionInput
 			// mapping). Lets tests aim real pointer events at sketch geometry
 			// whose screen position depends on the camera.
@@ -2040,6 +2042,48 @@ function projectEdgeRange(mesh, range, getCorner) {
 	const si = range.start_index;
 	const ei = range.end_index;
 	if (ei - si < 2) return 0;
+
+	// Analytic circular edges whose plane is PARALLEL to the sketch plane
+	// project isometrically — mint a TRUE Arc/Circle (construction) instead
+	// of a polyline, so offsets of rounded outlines keep real radii.
+	const curve = range.curve;
+	if (curve) {
+		const sn = sketchMode.normal;
+		const dn = curve.normal[0] * sn[0] + curve.normal[1] * sn[1] + curve.normal[2] * sn[2];
+		if (Math.abs(Math.abs(dn) - 1) < 1e-6) {
+			const c2 = worldToSketch2D(curve.center[0], curve.center[1], curve.center[2]);
+			const centerId = allocEntityId();
+			addLocalEntity({ type: 'Point', id: centerId, x: c2.u, y: c2.v, construction: true });
+			if (curve.kind === 'circle') {
+				addLocalEntity({
+					type: 'Circle',
+					id: allocEntityId(),
+					center_id: centerId,
+					radius: curve.radius,
+					construction: true,
+				});
+				return 1;
+			}
+			// Arc: bound endpoints through the shared corner allocator so the
+			// boundary chains. The 3D arc runs CCW around curve.normal; the
+			// sketch Arc entity is CCW start→end, so an anti-parallel normal
+			// swaps the endpoints.
+			const pa = getCorner(verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]);
+			const pb = getCorner(verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2]);
+			if (pa !== pb) {
+				addLocalEntity({
+					type: 'Arc',
+					id: allocEntityId(),
+					center_id: centerId,
+					start_id: dn > 0 ? pa : pb,
+					end_id: dn > 0 ? pb : pa,
+					construction: true,
+				});
+				return 1;
+			}
+			return 0;
+		}
+	}
 
 	const a = getCorner(verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]);
 	const b = getCorner(verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2]);
@@ -4518,11 +4562,15 @@ export async function finishSketch() {
 						];
 						pointIds.push(synthId);
 					}
-					const arcEndIdx = pointIds.length - 1;
-					// Record arc metadata for cylindrical face assignment
+					// The arc's true end vertex is the NEXT entity's start point —
+					// pointIds.length is the index it will occupy (wrapped to 0
+					// after the loop when this arc closes the profile). Pointing
+					// at the last interior sample instead cut every arc to
+					// (N-1)/N of its sweep and left a chord-sliver line: an
+					// extruded 90° fillet was really an 84.4° arc + sliver.
 					arcSegments.push({
 						start_vertex_index: arcStartIdx,
-						end_vertex_index: arcEndIdx,
+						end_vertex_index: pointIds.length,
 						center_u: center.x,
 						center_v: center.y,
 						radius: radius,
@@ -4565,6 +4613,12 @@ export async function finishSketch() {
 
 			addEntityPoints(entity, dir);
 			prevEnd = connected ? (forward ? nextEnd : nextStart) : nextEnd;
+		}
+
+		// An arc that closes the profile ends on vertex 0 (the kernel's
+		// reconstruction treats index runs cyclically).
+		for (const seg of arcSegments) {
+			if (seg.end_vertex_index >= pointIds.length) seg.end_vertex_index = 0;
 		}
 
 		const result = { entity_ids: [...p.entityIds], is_outer: p.isOuter, vertex_ids: pointIds };
