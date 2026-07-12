@@ -650,6 +650,428 @@ pub(crate) fn rim_override_inserts_into_both_rims_no_t_junction() {
     );
 }
 
+// ====================================================================
+// Task #143 (spec `m8_rim_override_uniform_merge`): an override that
+// coincides with a uniform rim sample within the fused-emission identity
+// (< TAU_MODEL) MERGES deliberately — the uniform slot takes the
+// override's exact bits, ring length unchanged, no azimuth-merge routing.
+// Real-scale coincidence, seam/endpoint collisions, and same-slot
+// conflicts stay loud (fail closed).
+// ====================================================================
+
+/// Rotate a point about the +z axis by a tiny angle — the ULP-twin
+/// generator (a fused survivor from the OTHER body's mirrored rim sits a
+/// few ULPs off this rim's own uniform sample).
+pub(crate) fn rot_z(p: Point3, delta: f64) -> Point3 {
+    let a = p.as_array();
+    let (s, c) = delta.sin_cos();
+    Point3::new(a[0] * c - a[1] * s, a[0] * s + a[1] * c, a[2])
+}
+
+fn closed_2_manifold(tris: &[[u32; 3]]) -> bool {
+    let mut counts: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+    for tri in tris {
+        for k in 0..3 {
+            let (a, b) = (tri[k], tri[(k + 1) % 3]);
+            *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+        }
+    }
+    !counts.is_empty() && counts.values().all(|&c| c == 2)
+}
+
+/// Spec row 2 (I1+I2): a ULP-twin override on an interior uniform slot
+/// merges — ring length unchanged, the ring vertex takes the override's
+/// exact bits, the displaced uniform bits vanish, the rim is NOT routed to
+/// azimuth-merge, and the cylinder stays a closed 2-manifold.
+#[test]
+pub(crate) fn rim_override_ulp_twin_merges_onto_uniform_sample() {
+    let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+    let empty: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    let (plain, _) = stage1_tessellate_inner(&verts, &edges, &faces, &empty, None).expect("plain");
+    let ring = plain.chains[&0].clone();
+    let n = ring.len();
+    let up = plain.verts[ring[2] as usize];
+    let twin = rot_z(up, 1e-15);
+    assert_ne!(
+        twin.as_array().map(f64::to_bits),
+        up.as_array().map(f64::to_bits),
+        "fixture: twin must differ in bits"
+    );
+
+    let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov.insert(0, vec![twin]);
+    let (t, inserted) = stage1_tessellate_inner(&verts, &edges, &faces, &ov, None)
+        .expect("ULP-twin override must merge, not refuse");
+
+    let ring2 = &t.chains[&0];
+    assert_eq!(ring2.len(), n, "merge must not change ring length (I1)");
+    let bits = |p: &Point3| p.as_array().map(f64::to_bits);
+    assert!(
+        t.verts.iter().any(|q| bits(q) == bits(&twin)),
+        "merged ring must carry the override's exact bits (I2)"
+    );
+    assert!(
+        !t.verts.iter().any(|q| bits(q) == bits(&up)),
+        "displaced uniform sample bits must be gone (survivor is the shared point)"
+    );
+    assert!(
+        !inserted.contains(&0),
+        "a pure merge must NOT route the rim to azimuth-merge (I1)"
+    );
+    assert!(
+        closed_2_manifold(&t.tris),
+        "merged cylinder must stay a closed 2-manifold"
+    );
+}
+
+/// Spec row 2 degenerate + I3: an override bit-exactly EQUAL to the
+/// computed uniform sample merges as a no-op — verts AND tris are
+/// byte-identical to the un-overridden tessellation.
+#[test]
+pub(crate) fn rim_override_bit_exact_uniform_merge_is_byte_identical() {
+    let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+    let empty: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    let (plain, _) = stage1_tessellate_inner(&verts, &edges, &faces, &empty, None).expect("plain");
+    let up = plain.verts[plain.chains[&0][2] as usize];
+
+    let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov.insert(0, vec![up]);
+    let (t, inserted) = stage1_tessellate_inner(&verts, &edges, &faces, &ov, None)
+        .expect("bit-exact override must merge");
+    assert_eq!(plain.verts.len(), t.verts.len());
+    for (a, b) in plain.verts.iter().zip(&t.verts) {
+        assert_eq!(
+            a.as_array(),
+            b.as_array(),
+            "verts must be byte-identical (I3)"
+        );
+    }
+    assert_eq!(plain.tris, t.tris, "tris must be byte-identical (I3)");
+    assert!(!inserted.contains(&0));
+}
+
+/// Spec row 3 (I4, fail closed): an override angularly inside the
+/// coincidence band but ≥ TAU_MODEL away in 3D (a REAL-scale distinct
+/// crossing grazing a uniform sample) stays the loud typed wall.
+#[test]
+pub(crate) fn rim_override_real_scale_uniform_coincidence_stays_loud() {
+    let r = 100.0;
+    let (verts, edges, faces) = rt_cylinder(0.0, 1.0, r);
+    let empty: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    let (plain, _) = stage1_tessellate_inner(&verts, &edges, &faces, &empty, None).expect("plain");
+    let ring = plain.chains[&0].clone();
+    let n = ring.len();
+    let uni_step = 2.0 * std::f64::consts::PI / (n as f64);
+    let delta = 0.9 * (uni_step * 1.0e-6); // inside the angular trigger band
+    assert!(
+        r * delta > 2.0 * cad_primitives::TAU_MODEL,
+        "fixture precondition: the graze must be real-scale (r·δ = {} vs TAU_MODEL)",
+        r * delta
+    );
+    let up = plain.verts[ring[2] as usize];
+    let graze = rot_z(up, delta);
+
+    let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov.insert(0, vec![graze]);
+    let Err(err) = stage1_tessellate_inner(&verts, &edges, &faces, &ov, None) else {
+        panic!("real-scale coincidence must stay loud (I4)");
+    };
+    assert!(
+        format!("{err:?}").contains("merge refused"),
+        "wrong error: {err:?}"
+    );
+}
+
+/// Spec rows 4+5: a bit-identical repeat of a merged override dedups; a
+/// DISTINCT second override claiming the same uniform slot is loud.
+#[test]
+pub(crate) fn rim_override_same_slot_repeat_dedups_conflict_is_loud() {
+    let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+    let empty: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    let (plain, _) = stage1_tessellate_inner(&verts, &edges, &faces, &empty, None).expect("plain");
+    let ring = plain.chains[&0].clone();
+    let n = ring.len();
+    let up = plain.verts[ring[2] as usize];
+    let twin = rot_z(up, 1e-15);
+
+    // Row 4: same bits twice → dedup, single merge.
+    let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov.insert(0, vec![twin, twin]);
+    let (t, _) = stage1_tessellate_inner(&verts, &edges, &faces, &ov, None)
+        .expect("bit-identical repeat must dedup");
+    assert_eq!(t.chains[&0].len(), n);
+    let bits = |p: &Point3| p.as_array().map(f64::to_bits);
+    assert_eq!(
+        t.verts.iter().filter(|q| bits(q) == bits(&twin)).count(),
+        1,
+        "exactly one copy of the merged point"
+    );
+
+    // Row 5: two DISTINCT points claiming one slot → loud.
+    let twin2 = rot_z(up, 2e-15);
+    assert_ne!(bits(&twin), bits(&twin2));
+    let mut ov2: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov2.insert(0, vec![twin, twin2]);
+    let Err(err) = stage1_tessellate_inner(&verts, &edges, &faces, &ov2, None) else {
+        panic!("distinct overrides on one slot must be loud");
+    };
+    assert!(
+        format!("{err:?}").contains("distinct"),
+        "wrong error: {err:?}"
+    );
+}
+
+/// Spec rows 6+7: the SEAM slot (k=0) is a B-Rep vertex — a bit-exact
+/// override dedups (byte-identical output); a ULP-off override is loud
+/// (replacing a B-Rep vertex's bits in one ring would desync every other
+/// face sharing that vertex).
+#[test]
+pub(crate) fn rim_override_seam_bit_exact_dedups_ulp_off_is_loud() {
+    let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+    let empty: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    let (plain, _) = stage1_tessellate_inner(&verts, &edges, &faces, &empty, None).expect("plain");
+    let seam_pt = plain.verts[plain.chains[&0][0] as usize];
+
+    // Row 6: bit-exact on the seam → dedup, byte-identical.
+    let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov.insert(0, vec![seam_pt]);
+    let (t, inserted) = stage1_tessellate_inner(&verts, &edges, &faces, &ov, None)
+        .expect("bit-exact seam override must dedup");
+    assert_eq!(plain.verts.len(), t.verts.len());
+    for (a, b) in plain.verts.iter().zip(&t.verts) {
+        assert_eq!(a.as_array(), b.as_array());
+    }
+    assert_eq!(plain.tris, t.tris);
+    assert!(!inserted.contains(&0));
+
+    // Row 7: ULP-off the seam → loud.
+    let seam_twin = rot_z(seam_pt, 1e-15);
+    let mut ov2: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov2.insert(0, vec![seam_twin]);
+    let Err(err) = stage1_tessellate_inner(&verts, &edges, &faces, &ov2, None) else {
+        panic!("ULP-off seam override must stay loud");
+    };
+    assert!(format!("{err:?}").contains("seam"), "wrong error: {err:?}");
+}
+
+/// Half-cylinder lateral patch: two π arcs + two rulings (the KV14 fixture
+/// shape without the hole) — the arc-chain override site's test bed.
+pub(crate) fn arc_patch_fixture() -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>) {
+    use std::f64::consts::PI;
+    let r = 1.0_f64;
+    let on = |theta: f64, z: f64| Point3::new(r * theta.cos(), r * theta.sin(), z);
+    let verts = [on(0.0, 0.0), on(PI, 0.0), on(PI, 2.0), on(0.0, 2.0)]
+        .into_iter()
+        .map(|point| BRepVertex { point })
+        .collect::<Vec<_>>();
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: r,
+            },
+        },
+        BRepEdge {
+            start: 1,
+            end: 2,
+            curve: Curve::LineSegment,
+        },
+        BRepEdge {
+            start: 2,
+            end: 3,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, 2.0),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                radius: r,
+            },
+        },
+        BRepEdge {
+            start: 3,
+            end: 0,
+            curve: Curve::LineSegment,
+        },
+    ];
+    let faces = vec![BRepFace {
+        surface: Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: r,
+        },
+        outer_loop: vec![0, 1, 2, 3],
+        inner_loops: Vec::new(),
+        reversed: false,
+    }];
+    (verts, edges, faces)
+}
+
+/// Spec row 2, ARC site: a ULP-twin override on an interior uniform slot of
+/// an open arc CHAIN merges — chain length unchanged, override bits in.
+#[test]
+pub(crate) fn arc_chord_override_ulp_twin_merges_onto_uniform_slot() {
+    let (verts, edges, faces) = arc_patch_fixture();
+    let empty: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    let (plain, _) =
+        stage1_tessellate_inner(&verts, &edges, &faces, &empty, None).expect("plain patch");
+    let chain = plain.chains[&0].clone();
+    assert!(
+        chain.len() >= 3,
+        "fixture: arc chain needs an interior slot"
+    );
+    let up = plain.verts[chain[1] as usize];
+    let twin = rot_z(up, 1e-15);
+    let bits = |p: &Point3| p.as_array().map(f64::to_bits);
+    assert_ne!(bits(&twin), bits(&up));
+
+    let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov.insert(0, vec![twin]);
+    let (t, _) = stage1_tessellate_inner(&verts, &edges, &faces, &ov, None)
+        .expect("arc-slot ULP twin must merge, not refuse");
+    let chain2 = &t.chains[&0];
+    assert_eq!(
+        chain2.len(),
+        chain.len(),
+        "merge must not change chain length (I1)"
+    );
+    assert!(
+        t.verts.iter().any(|q| bits(q) == bits(&twin)),
+        "merged chain must carry the override's exact bits (I2)"
+    );
+    assert!(
+        !t.verts.iter().any(|q| bits(q) == bits(&up)),
+        "displaced uniform arc sample bits must be gone"
+    );
+}
+
+/// Spec rows 3/4/5, ARC site (adversarial): a real-scale graze of an arc
+/// uniform slot stays loud; a bit-identical repeat of a merged arc override
+/// dedups; two distinct overrides claiming one arc slot are loud.
+#[test]
+pub(crate) fn arc_chord_override_real_scale_and_conflict_walls() {
+    let (verts, edges, faces) = arc_patch_fixture();
+    let empty: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    let (plain, _) =
+        stage1_tessellate_inner(&verts, &edges, &faces, &empty, None).expect("plain patch");
+    let chain = plain.chains[&0].clone();
+    let m = chain.len() - 1; // interior slots = m - 1
+    let up = plain.verts[chain[1] as usize];
+    let uni_step = std::f64::consts::PI / (m as f64);
+    let delta = 0.9 * (uni_step * 1.0e-6);
+    assert!(
+        1.0 * delta > 2.0 * cad_primitives::TAU_MODEL,
+        "fixture precondition: the graze must be real-scale (r·δ = {delta})"
+    );
+
+    // Row 3: real-scale graze → loud.
+    let graze = rot_z(up, delta);
+    let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov.insert(0, vec![graze]);
+    let Err(err) = stage1_tessellate_inner(&verts, &edges, &faces, &ov, None) else {
+        panic!("real-scale arc coincidence must stay loud");
+    };
+    assert!(
+        format!("{err:?}").contains("merge refused"),
+        "wrong error: {err:?}"
+    );
+
+    // Row 4: bit-identical repeat dedups.
+    let twin = rot_z(up, 1e-15);
+    let bits = |p: &Point3| p.as_array().map(f64::to_bits);
+    let mut ov2: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov2.insert(0, vec![twin, twin]);
+    let (t, _) = stage1_tessellate_inner(&verts, &edges, &faces, &ov2, None)
+        .expect("bit-identical arc repeat must dedup");
+    assert_eq!(t.chains[&0].len(), chain.len());
+    assert_eq!(t.verts.iter().filter(|q| bits(q) == bits(&twin)).count(), 1);
+
+    // Row 5: two distinct overrides on one arc slot → loud.
+    let twin2 = rot_z(up, 2e-15);
+    assert_ne!(bits(&twin), bits(&twin2));
+    let mut ov3: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov3.insert(0, vec![twin, twin2]);
+    let Err(err) = stage1_tessellate_inner(&verts, &edges, &faces, &ov3, None) else {
+        panic!("distinct arc overrides on one slot must be loud");
+    };
+    assert!(
+        format!("{err:?}").contains("distinct"),
+        "wrong error: {err:?}"
+    );
+}
+
+/// Spec rows 6/7, ARC site (adversarial): a bit-exact override on the arc
+/// START endpoint dedups (byte-identical output); a ULP-off one is loud.
+#[test]
+pub(crate) fn arc_chord_override_endpoint_bit_exact_dedups_ulp_off_is_loud() {
+    let (verts, edges, faces) = arc_patch_fixture();
+    let empty: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    let (plain, _) =
+        stage1_tessellate_inner(&verts, &edges, &faces, &empty, None).expect("plain patch");
+    let start_pt = verts[0].point; // edge 0 starts at B-Rep vertex 0
+
+    // Row 6: bit-exact on the endpoint → dedup, byte-identical.
+    let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov.insert(0, vec![start_pt]);
+    let (t, _) = stage1_tessellate_inner(&verts, &edges, &faces, &ov, None)
+        .expect("bit-exact endpoint override must dedup");
+    assert_eq!(plain.verts.len(), t.verts.len());
+    for (a, b) in plain.verts.iter().zip(&t.verts) {
+        assert_eq!(a.as_array(), b.as_array());
+    }
+    assert_eq!(plain.tris, t.tris);
+
+    // Row 7: ULP-off the endpoint → loud.
+    let start_twin = rot_z(start_pt, 1e-15);
+    let mut ov2: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov2.insert(0, vec![start_twin]);
+    let Err(err) = stage1_tessellate_inner(&verts, &edges, &faces, &ov2, None) else {
+        panic!("ULP-off endpoint override must stay loud");
+    };
+    assert!(
+        format!("{err:?}").contains("endpoint"),
+        "wrong error: {err:?}"
+    );
+}
+
+/// Adversarial interplay: one MERGED twin plus a genuinely INSERTED crossing
+/// (propagated to BOTH rims, as Stage-0 always does) on the same cylinder —
+/// the insert routes the lateral to azimuth-merge, the merged ring grows by
+/// exactly one, all override points are present, and the mesh stays closed.
+#[test]
+pub(crate) fn rim_override_merge_plus_insert_coexist() {
+    let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+    let empty: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    let (plain, _) = stage1_tessellate_inner(&verts, &edges, &faces, &empty, None).expect("plain");
+    let ring = plain.chains[&0].clone();
+    let n = ring.len();
+    let up = plain.verts[ring[2] as usize];
+    let twin = rot_z(up, 1e-15);
+    // A genuine crossing far from every uniform sample, on the bottom rim,
+    // and its axial projection on the top rim (the Stage-0 propagation).
+    let insert_bot = rot_z(up, 0.4 * (2.0 * std::f64::consts::PI / n as f64));
+    let ib = insert_bot.as_array();
+    let insert_top = Point3::new(ib[0], ib[1], 1.0);
+
+    let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+    ov.insert(0, vec![twin, insert_bot]);
+    ov.insert(1, vec![insert_top]);
+    let (t, inserted) = stage1_tessellate_inner(&verts, &edges, &faces, &ov, None)
+        .expect("merge + insert must coexist");
+    let bits = |p: &Point3| p.as_array().map(f64::to_bits);
+    assert_eq!(t.chains[&0].len(), n + 1, "exactly one inserted sample");
+    assert!(t.verts.iter().any(|q| bits(q) == bits(&twin)));
+    assert!(t.verts.iter().any(|q| bits(q) == bits(&insert_bot)));
+    assert!(
+        inserted.contains(&0),
+        "a genuine insert must still route the rim to azimuth-merge"
+    );
+    assert!(
+        closed_2_manifold(&t.tris),
+        "merge + insert cylinder must stay a closed 2-manifold"
+    );
+}
+
 /// KV14 Slice A (spec `yang_stage1_curved_holed_patch`): a cylinder lateral
 /// PARTIAL patch (2 sweep arcs + 2 rulings) carrying an interior hole (an
 /// on-surface inner loop) must tessellate via the unroll+CDT path so the

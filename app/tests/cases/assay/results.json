@@ -1452,7 +1452,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 5: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: circle edge 0: rim-crossing override at angle-offset 5.385587406153931 coincides with uniform sample k=12 (silent merge refused)\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 5: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 2: azimuth-merge rims have mismatched / too-few samples (66 vs 69)\"). Body created as standalone.",
       "id": "C0048",
       "status": "error"
     },

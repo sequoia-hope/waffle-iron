@@ -2726,6 +2726,30 @@ swapped every consumer to `predicates::indirect`).
     scale/floor POLICY class), R0015 (coplanar — mechanism to re-census;
     it was not among the 2026-07-11 four-case tail), + C0063
     (curved-profile, by design).
+  - **Rim-override uniform-sample intentional merge SHIPPED 2026-07-12
+    (task #143, spec `specs/m8_rim_override_uniform_merge.md`): the
+    "silent merge refused" wall is retired for fused twins.** Probe
+    measurement (C0048): the refused override is the task-#142 fused
+    survivor sitting **3 ULPs** (7.4e-16) off the rim's own uniform
+    sample k=12/14 — the ULP-split mirrored-rim twin that MUST be the
+    one shared §4.5.5 point. Both `stage1_tessellate` override sites
+    (full rim + arc chain) now MERGE a coinciding override when it is a
+    sub-TAU_MODEL twin of the uniform sample: the slot keeps its uniform
+    angular key and takes the override's exact bits — ring length
+    unchanged, so the uniform `(N−k)` lateral pairing holds and the rim
+    is NOT routed to azimuth-merge; a bit-exact merge is byte-identical.
+    Fail-closed walls kept loud: real-scale (≥ TAU_MODEL) grazes,
+    seam-vertex / arc-endpoint bit mismatches (B-Rep vertices are
+    authoritative; bit-exact copies dedup), and two distinct overrides
+    claiming one slot. FIP cycle: 6 red tests → merge implementation →
+    adversary (arc-site walls + merge-plus-insert interplay; 6-mutation
+    matrix, every mutation killed by a named test). Corpus: C0048 leaves
+    this wall for its next honest typed ERROR — "azimuth-merge rims have
+    mismatched samples (66 vs 69)" — JOINING F0067 in the named exact
+    opposite-rim projection follow-up class. SESSION TRAP (repeat of the
+    KV15b incident): a `git checkout <file>` used to revert a mutation
+    probe wiped the uncommitted implementation — mutations are now
+    applied/reverted via scratchpad `cp` backups only.
   - **KV4-F1 ✅ RESOLVED (PR-KV4-F1, 2026-06-12): the rational-ray
     fallback** — `rational_ray_inner_label` in cherchi-rs
     `labeling/inside_out.rs` implements the branch the C++ reference

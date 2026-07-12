@@ -62,13 +62,22 @@ pub(crate) fn stage1_tessellate(
 /// [`stage1_tessellate`] — the uniform-rim path is left 100% untouched (see
 /// the `rim_override_empty_is_byte_identical` unit test).
 ///
+/// An override that coincides ANGULARLY with a uniform sample MERGES when it
+/// is a sub-TAU_MODEL twin of that sample (task #143, spec
+/// `m8_rim_override_uniform_merge`): the slot takes the override's exact bits
+/// — ring length unchanged, no azimuth-merge routing — so cap overlay, rim,
+/// and lateral share the one fused point (§4.5.5).
+///
 /// Loud errors (`MalformedTopology`):
-/// - an override point that coincides ANGULARLY with an existing UNIFORM
-///   sample (we never silently merge a crossing into a uniform vertex), or
+/// - a coinciding override ≥ TAU_MODEL from the uniform sample (real-scale
+///   graze — fail closed),
+/// - a coinciding override that differs in bits from the SEAM vertex / an
+///   arc endpoint (B-Rep vertices are authoritative),
+/// - two DISTINCT overrides claiming one uniform slot, or
 /// - an override point not on the rim circle (off-radius / off-plane).
 ///
-/// An override point coinciding with an already-inserted override is
-/// deduplicated (skipped).
+/// An override point coinciding with an already-inserted override (or a
+/// bit-identical repeat of a merged one) is deduplicated (skipped).
 pub(crate) fn stage1_tessellate_with_rim_overrides(
     verts: &[BRepVertex],
     edges: &[BRepEdge],
@@ -377,14 +386,65 @@ pub(crate) fn stage1_tessellate_inner(
                                      is outside the arc sweep {sweep}"
                                 )));
                             }
+                            let key = [sp[0].to_bits(), sp[1].to_bits(), sp[2].to_bits()];
+                            // Coincides angularly with a uniform slot? Same
+                            // merge/refuse policy as the full rim (task #143,
+                            // spec `m8_rim_override_uniform_merge`): a
+                            // sub-TAU_MODEL twin takes the slot, real-scale
+                            // grazes and endpoint collisions stay loud.
                             let k_near = (off / uni_step).round();
                             if (off - k_near * uni_step).abs() <= merge_tol {
-                                return Err(YangError::MalformedTopology(format!(
-                                    "circle edge {e_idx}: arc-chord override at angle-offset {off} \
-                                     coincides with uniform sample k={k_near} (silent merge refused)"
-                                )));
+                                let k_slot = k_near as usize;
+                                if k_slot == 0 {
+                                    // The arc START is a B-Rep vertex, not a
+                                    // Steiner slot (k=m, the END, is caught by
+                                    // the outside-sweep refusal above).
+                                    let ev = out_verts[e_start as usize].as_array();
+                                    if key == [ev[0].to_bits(), ev[1].to_bits(), ev[2].to_bits()] {
+                                        continue;
+                                    }
+                                    return Err(YangError::MalformedTopology(format!(
+                                        "circle edge {e_idx}: arc-chord override at angle-offset \
+                                         {off} coincides with the arc-start endpoint but differs \
+                                         in bits (B-Rep vertex is authoritative; merge refused)"
+                                    )));
+                                }
+                                // Interior slots sit at indices k−1 (built from
+                                // 1..m before any override is appended).
+                                if let Some(prev) = slots[k_slot - 1].1 {
+                                    let pv = prev.as_array();
+                                    if key == [pv[0].to_bits(), pv[1].to_bits(), pv[2].to_bits()] {
+                                        continue; // bit-identical repeat — dedup
+                                    }
+                                    return Err(YangError::MalformedTopology(format!(
+                                        "circle edge {e_idx}: two distinct arc-chord overrides \
+                                         claim uniform sample k={k_slot}"
+                                    )));
+                                }
+                                let theta = phi0 + (k_slot as f64) * uni_step;
+                                let (st, ct) = theta.sin_cos();
+                                let up = [
+                                    c[0] + radius * (ct * e1a[0] + st * e2a[0]),
+                                    c[1] + radius * (ct * e1a[1] + st * e2a[1]),
+                                    c[2] + radius * (ct * e1a[2] + st * e2a[2]),
+                                ];
+                                let d2 = (sp[0] - up[0]) * (sp[0] - up[0])
+                                    + (sp[1] - up[1]) * (sp[1] - up[1])
+                                    + (sp[2] - up[2]) * (sp[2] - up[2]);
+                                let tau = cad_primitives::TAU_MODEL;
+                                if d2 >= tau * tau {
+                                    return Err(YangError::MalformedTopology(format!(
+                                        "circle edge {e_idx}: arc-chord override at angle-offset \
+                                         {off} coincides with uniform sample k={k_slot} but is {} \
+                                         away (≥ TAU_MODEL {tau}) — real-scale coincidence (merge \
+                                         refused)",
+                                        d2.sqrt()
+                                    )));
+                                }
+                                // MERGE: slot keeps its uniform angular key.
+                                slots[k_slot - 1].1 = Some(pt);
+                                continue;
                             }
-                            let key = [sp[0].to_bits(), sp[1].to_bits(), sp[2].to_bits()];
                             if inserted_keys.contains(&key) {
                                 continue;
                             }
@@ -453,11 +513,20 @@ pub(crate) fn stage1_tessellate_inner(
                 }
                 if let Some(extra) = rim_overrides.get(&(e_idx as u32)) {
                     // Angular margin around a uniform sample: a crossing landing
-                    // within this of an existing uniform vertex is a malformed
-                    // overlap (we never silently merge into a uniform sample).
+                    // within this of an existing uniform vertex either MERGES
+                    // (task #143, spec `m8_rim_override_uniform_merge`: the
+                    // fused-emission survivor of a ULP-split mirrored rim IS the
+                    // rim's own sample — the slot takes the override's exact
+                    // bits) or is refused loudly (real-scale coincidence).
                     let uni_step = two_pi / (n_seg as f64);
                     let merge_tol = uni_step * 1.0e-6;
                     let mut inserted_keys: Vec<[u64; 3]> = Vec::new();
+                    // Uniform slots taken by a merged override (slot → bits).
+                    // Kept SEPARATE from `inserted_keys`: a pure merge never
+                    // changes the ring length, so it must not route the lateral
+                    // to azimuth-merge via `inserted_rims` (spec I1).
+                    let mut merged_slots: std::collections::BTreeMap<usize, [u64; 3]> =
+                        std::collections::BTreeMap::new();
                     for &pt in extra {
                         // Resolve the point's seam-relative angle + validate it
                         // lies on the rim circle.
@@ -490,13 +559,66 @@ pub(crate) fn stage1_tessellate_inner(
                             )));
                         }
                         let off = (wy.atan2(wx) - phi0).rem_euclid(two_pi);
-                        // Coincides angularly with a uniform sample? loud.
+                        let key = [sp[0].to_bits(), sp[1].to_bits(), sp[2].to_bits()];
+                        // Coincides angularly with a uniform sample?
                         let k_near = (off / uni_step).round();
                         if (off - k_near * uni_step).abs() <= merge_tol {
-                            return Err(YangError::MalformedTopology(format!(
-                                "circle edge {e_idx}: rim-crossing override at angle-offset {off} \
-                                 coincides with uniform sample k={k_near} (silent merge refused)"
-                            )));
+                            let k_slot = (k_near as usize) % n_seg;
+                            if k_slot == 0 {
+                                // The SEAM is a B-Rep vertex, not a Steiner slot
+                                // — replacing its bits in one ring would desync
+                                // every other edge/face sharing the vertex.
+                                // Bit-exact = the point is already in the ring.
+                                let sv = out_verts[seam_vertex as usize].as_array();
+                                if key == [sv[0].to_bits(), sv[1].to_bits(), sv[2].to_bits()] {
+                                    continue;
+                                }
+                                return Err(YangError::MalformedTopology(format!(
+                                    "circle edge {e_idx}: rim-crossing override at angle-offset \
+                                     {off} coincides with the seam vertex but differs in bits \
+                                     (B-Rep vertex is authoritative; merge refused)"
+                                )));
+                            }
+                            if let Some(prev) = merged_slots.get(&k_slot) {
+                                if *prev == key {
+                                    continue; // bit-identical repeat — dedup
+                                }
+                                return Err(YangError::MalformedTopology(format!(
+                                    "circle edge {e_idx}: two distinct rim-crossing overrides \
+                                     claim uniform sample k={k_slot}"
+                                )));
+                            }
+                            // Identity ceiling (A14.2/A14.3, the task-#142
+                            // fused-emission constant): only a sub-TAU_MODEL
+                            // twin of the uniform sample may merge; a REAL-scale
+                            // graze stays the loud wall (fail closed).
+                            let theta = phi0 + (k_slot as f64) * uni_step;
+                            let (st, ct) = theta.sin_cos();
+                            let up = [
+                                c[0] + radius * (ct * e1a[0] + st * e2a[0]),
+                                c[1] + radius * (ct * e1a[1] + st * e2a[1]),
+                                c[2] + radius * (ct * e1a[2] + st * e2a[2]),
+                            ];
+                            let d2 = (sp[0] - up[0]) * (sp[0] - up[0])
+                                + (sp[1] - up[1]) * (sp[1] - up[1])
+                                + (sp[2] - up[2]) * (sp[2] - up[2]);
+                            let tau = cad_primitives::TAU_MODEL;
+                            if d2 >= tau * tau {
+                                return Err(YangError::MalformedTopology(format!(
+                                    "circle edge {e_idx}: rim-crossing override at angle-offset \
+                                     {off} coincides with uniform sample k={k_slot} but is {} \
+                                     away (≥ TAU_MODEL {tau}) — real-scale coincidence (merge \
+                                     refused)",
+                                    d2.sqrt()
+                                )));
+                            }
+                            // MERGE: the slot keeps its uniform angular key (sort
+                            // order + emission theta unchanged) and takes the
+                            // override's exact bits — the ONE shared point the
+                            // cap overlay already carries (§4.5.5 conformality).
+                            slots[k_slot] = (slots[k_slot].0, RimSlot::Override(pt));
+                            merged_slots.insert(k_slot, key);
+                            continue;
                         }
                         // Bit-identical to an already-inserted override? dedup
                         // (the SAME point re-arriving from adjacent sub-chords).
@@ -506,7 +628,6 @@ pub(crate) fn stage1_tessellate_inner(
                         // crossings (the R0088/R0070 twin population) must BOTH
                         // enter the ring, or it desynchronizes from the cap
                         // override that carries both points (T-junction holes).
-                        let key = [sp[0].to_bits(), sp[1].to_bits(), sp[2].to_bits()];
                         if inserted_keys.contains(&key) {
                             continue;
                         }
