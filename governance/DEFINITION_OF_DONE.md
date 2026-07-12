@@ -37,6 +37,12 @@ A modeling feature is complete only if ALL of the following are satisfied.
 
 ## 1.1 Specification
 
+*(Yang-increment variant, amended 2026-07-12: for Yang hybrid-boolean
+increments, the spec artifact is the roadmap milestone entry + a mandatory
+`docs/yang_deviations.md` entry — see ENGINEERING_CONSTITUTION.md P2
+clarification. The deviations entry is a merge blocker. All other checklist
+items below still apply.)*
+
 - [ ] A spec file exists in `/specs/<feature>.md`
 - [ ] Spec includes:
   - [ ] Goal

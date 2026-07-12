@@ -44,6 +44,12 @@ The same agent may not act as both Test Author AND Implementer within a single f
 
 Manager orchestrates but does not implement modeling code.
 
+**Solo-operator variant** (amended 2026-07-12, user-approved): under the
+Constitution's P5 solo-operator variant, a single frontier-class agent may
+hold all five roles sequentially within a cycle. The phase sequence and
+artifacts (spec artifact per P2, red-phase demonstration §4.4, adversarial
+validation §6) remain mandatory — the roles collapse, the phases do not.
+
 ---
 
 ## 2. Phase Overview

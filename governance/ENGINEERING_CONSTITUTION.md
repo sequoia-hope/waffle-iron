@@ -57,6 +57,17 @@ No modeling feature work begins without a spec file in `/specs/` describing:
 - Invariants and oracles
 - Failure modes / expected errors
 
+**Yang-increment clarification** (amended 2026-07-12, user-approved; see
+`docs/review/design_review_2026-07-12_kernel.md` §5 G7): for increments under
+the Yang hybrid-boolean effort (plan of record:
+`docs/yang_functional_roadmap.md`), the P2 spec artifact is the roadmap
+milestone entry **plus a mandatory `docs/yang_deviations.md` entry** recording
+the mechanism, its paper basis (section + line citation) or deviation
+rationale, and any tolerance decisions it introduces. The deviations entry is
+a merge blocker for the increment — an increment without one is not done.
+Full `/specs/<feature>.md` files remain required for new user-facing modeling
+features and for any change introducing a new user-visible parameter or mode.
+
 ### P3 — Tests must fail before the fix
 Feature work and bug fixes use red/green TDD: write a failing test (red), then implement until it passes (green).
 
@@ -69,6 +80,17 @@ The same agent (or role) must not:
 - both author the tests **and** change the implementation in the same feature cycle.
 
 (Sequentially, the same human can execute both, but agent teams must respect role separation.)
+
+**Solo-operator variant** (amended 2026-07-12, user-approved; see
+`docs/review/design_review_2026-07-12_kernel.md` §5 G6): while a single
+frontier-class agent is the operator, that agent MAY author both tests and
+implementation within a feature cycle. The separation's intent is preserved
+instead by: (a) red/green TDD (P3) with the failing test demonstrated before
+the fix; (b) adversarial/mutation validation (FIP Phase 4) as an independent
+oracle; (c) the assay corpus and reference-parity oracles as
+implementation-blind checks; and (d) the mandatory deviations-log entry (P2
+Yang-increment clarification) as the written design record. Strict role
+separation resumes if multi-agent feature cycles are re-adopted.
 
 ### P6 — Architecture must not be eroded
 Agents may not introduce “convenient” cross-layer shortcuts. The layering described in `ARCHITECTURE.md` must remain intact. In particular:
