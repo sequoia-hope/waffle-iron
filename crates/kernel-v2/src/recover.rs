@@ -218,7 +218,23 @@ pub(crate) fn recover_output_curves(
     };
     match try_recover(brep) {
         Some(out) => out,
-        None => orig(),
+        None => {
+            // KNOWN DEBT (design review 2026-07-12 F6, spec
+            // `specs/yang_output_curve_typing_migration.md`): this whole
+            // module is an after-the-fact repair layer for a yang emission
+            // gap — yang Stage-5 emits a surviving curved rim as a
+            // `LineSegment` chord run, and we re-fuse it here. On this bail
+            // path a curved rim that could NOT be re-fused (ellipse /
+            // hyperbola / torus / structural anomaly) ships as chords — a
+            // silent A15.5 surface-tier erosion. The principled fix is to
+            // type rims at emission inside yang (then this module shrinks to
+            // a validation assertion). Until then the bail is observable via
+            // `KV2_RECOVER_PROBE` above. A robust always-on "recovery was
+            // needed but failed" detector is deferred to the migration —
+            // distinguishing it from the common "nothing to recover" bail
+            // requires the surface context that lives on the yang side.
+            orig()
+        }
     }
 }
 
