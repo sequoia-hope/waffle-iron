@@ -2855,9 +2855,15 @@ swapped every consumer to `predicates::indirect`).
     transversal / miss / inside-circle piercing; pp_line; unordered
     dedup). Corpus: **F0064's and R0051's Newell walls RETIRED** (both
     move to a deeper NonManifoldOutput reassembly wall; F0064 2→1 failing
-    unions); R0063 still Newell (DIFFERENT sub-mechanism — next
-    increment's diagnosis); F0067 moves to a face-272 re-entry CDT wall
-    (#145-adjacent, on top of its #144 wall).
+    unions); R0063 still Newell (DIFFERENT sub-mechanism, measured same
+    day: `KV11_PROBE` face 4 is a MICRO SLIVER — 5-Seg loop, extent
+    ~1.8e-4 × 2.8e-4 × 4.8e-6 at case scale 1.74e-3 — with ONE vertex
+    8.9e-8 off the other four's plane; the 0.44° Newell tilt is that
+    sub-band positional noise on a tiny lever arm. This is the
+    R0009/R0091 KV15b micro-scale MINT-ACCURACY family, not a junction
+    routing defect — a future increment needs the minting-site accuracy
+    treatment, not more Stage-4 rerouting); F0067 moves to a face-272
+    re-entry CDT wall (#145-adjacent, on top of its #144 wall).
     (3) **4× re-entry CDT failure** (R0061 R0095 `holed lateral CDT
     failed`; R0063 F0085 `CDT triangulation failed`) — a SUCCESSFUL op's
     output B-Rep fails conversion at the NEXT op. R0061 face 2 (probe
