@@ -281,10 +281,15 @@ pub enum KernelV2Error {
     /// (Stroud 2006 §4, rule 4; written there as v − e + f − h = 2(b − g)).
     EulerFormulaViolation { lhs: i64, rhs: i64 },
 
-    /// Debug-tier finding only: a vertex of a face's loop is further from the
-    /// face plane than the documented debug tolerance. See
-    /// `validate::PLANARITY_DEBUG_TOLERANCE` for why this is not a production
-    /// correctness gate.
+    /// A vertex of a face's loop is further from the face plane than the
+    /// applicable band. Two producers:
+    /// - CONSTRUCTOR path: debug-tier tripwire only
+    ///   (`validate::PLANARITY_DEBUG_TOLERANCE`, `debug_assertions`) —
+    ///   planarity is guaranteed by construction there.
+    /// - BOOLEAN path: PRODUCTION gate
+    ///   (`validate::validate_boolean_output_planarity`, design review
+    ///   2026-07-12 F1) — yang re-entry noise is real, and the
+    ///   F0064/R0051 off-plane class must wall loudly at the boundary.
     NonPlanarFace { face: FaceId },
 
     /// A half-edge's curve disagrees with its twin's: twins must describe

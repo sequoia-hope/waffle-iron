@@ -1,8 +1,8 @@
 {
-  "errored": 50,
+  "errored": 51,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 240,
+  "passed": 239,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -486,7 +486,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 589 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "detail": "1 engine error(s): 72ce3e9a-5ff4-43d6-8777-d96db7d1dd4d: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: NonPlanarFace { face: FaceId(666) }",
       "id": "R0081",
       "status": "error"
     },
@@ -1013,10 +1013,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "ERROR",
+      "detail": "2 auto-union failure(s): Extrude 9: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: NonPlanarFace { face: FaceId(6227) }. Body created as standalone.; Extrude 10: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: NonPlanarFace { face: FaceId(6711) }. Body created as standalone.",
       "id": "F0069",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1032,7 +1032,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 11: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 1742: azimuth-merge rims have mismatched / too-few samples (229 vs 230)\"). Body created as standalone.",
+      "detail": "3 auto-union failure(s): Extrude 8: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: NonPlanarFace { face: FaceId(10329) }. Body created as standalone.; Extrude 9: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: NonPlanarFace { face: FaceId(10813) }. Body created as standalone.; Extrude 11: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 4: azimuth-merge rims have mismatched / too-few samples (229 vs 230)\"). Body created as standalone.",
       "id": "F0072",
       "status": "error"
     },

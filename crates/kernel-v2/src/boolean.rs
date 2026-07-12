@@ -3045,6 +3045,13 @@ pub fn boolean_op(
         }
     }
     let (out_solid, out_face_ids) = from_yang_brep_indexed(arena, &out)?;
+    // F1 (design review 2026-07-12): PRODUCTION planarity gate for the
+    // assembled boolean output. The debug-only tripwire in `validate_solid`
+    // rests on "planar by construction", which is false for yang re-entry —
+    // the F0064/R0051 class shipped planar faces with off-plane loop
+    // vertices that evaded the (averaged) Newell orientation checks. Loud
+    // typed reject at the boundary; never a snap or repair (P9).
+    crate::validate::validate_boolean_output_planarity(arena, out_solid)?;
     // KV13 F2: record the boolean's per-face lineage in the journal.
     record_boolean_evolution(arena, op, &out, &out_face_ids, &a_faces, &b_faces);
     Ok(out_solid)

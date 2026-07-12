@@ -36,16 +36,22 @@
 //! ## The planarity boundary (documented per the KV1 mandate)
 //!
 //! kernel-v2 may not depend on `cherchi-rs`, so no exact coplanarity
-//! predicate is available in this crate. That is acceptable for KV1 because
-//! planarity of constructed faces is **guaranteed by construction**: the
-//! Euler operators create geometry only at caller-supplied points, and the
-//! KV2 consumers (planar profile → extrude) supply coplanar points by
-//! construction. The f64 residual check below is therefore a *debug-tier
-//! tripwire for construction-sequence bugs*, compiled only under
-//! `debug_assertions`, and is **not** a production correctness gate —
-//! production correctness for planarity rests on the constructors, and any
-//! future need for exact coplanarity decisions (e.g. boolean input
-//! validation) belongs to the yang-rs/cherchi-rs layers.
+//! predicate is available in this crate. For CONSTRUCTOR-path solids that
+//! is acceptable: planarity of constructed faces is **guaranteed by
+//! construction** (the Euler operators create geometry only at
+//! caller-supplied points, and the KV2 consumers — planar profile →
+//! extrude — supply coplanar points by construction), so the f64 residual
+//! check below is a *debug-tier tripwire for construction-sequence bugs*,
+//! compiled only under `debug_assertions`.
+//!
+//! For BOOLEAN-path solids that rationale is FALSE — yang output re-enters
+//! with real-scale f64 noise, and the F0064/R0051 class (task #146) shipped
+//! "planar" faces with off-plane loop vertices that passed the production
+//! orientation checks. Since design review 2026-07-12 F1, boolean outputs
+//! are additionally gated by the PRODUCTION-tier
+//! [`validate_boolean_output_planarity`] (called from
+//! `boolean::boolean_op`), at the scale-relative
+//! [`PLANARITY_BOOLEAN_OUTPUT_TOLERANCE`] band.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -80,6 +86,85 @@ fn planarity_band(p: Point3) -> f64 {
 /// Both vectors are unit-length f64; agreement is by construction, so this
 /// only absorbs normalization rounding.
 pub const NORMAL_AGREEMENT_TOLERANCE: f64 = 1e-9;
+
+/// PRODUCTION-tier planarity band for BOOLEAN-PATH solids, as a RELATIVE
+/// band — multiplied by `(1 + max|coordinate|)` at the check site, like
+/// [`PLANARITY_DEBUG_TOLERANCE`].
+///
+/// Design review 2026-07-12 F1: the debug tripwire's "planar by
+/// construction" rationale is FALSE for boolean outputs, which re-enter
+/// from the yang mesh pipeline carrying real-scale f64 noise. The
+/// F0064/R0051/F0067 class (task #146) produced "planar" output faces whose
+/// loop vertices sat measurably off the face plane while the AVERAGED
+/// Newell normal stayed within [`NORMAL_AGREEMENT_TOLERANCE`] — so
+/// production validation passed and the defect surfaced downstream as
+/// tessellation self-intersections. This gate makes the class loud at the
+/// boolean boundary instead.
+///
+/// Value: `1e-9` relative — the same import-band tier as
+/// [`YANG_NORMAL_AGREEMENT`](crate::boolean) and `recover::BAND`
+/// (f64-construction/normalization rounding, to be centralized as the named
+/// `TAU_EVAL` tier per design-review F8). Healthy yang output is exact to
+/// ~`TAU_WORK` (1e-12) after Stage-4 relocation and rational vertex
+/// canonicalization, so this is ≥1000× above legitimate noise, while
+/// defect-class residuals (≥ `MIN_FEATURE_SIZE`-scale) exceed it by ≥1000×.
+/// A reject here is a REJECT (typed `NonPlanarFace`), never a snap or a
+/// repair (P9).
+pub const PLANARITY_BOOLEAN_OUTPUT_TOLERANCE: f64 = 1e-9;
+
+/// Production planarity gate for solids assembled from yang boolean output
+/// (see [`PLANARITY_BOOLEAN_OUTPUT_TOLERANCE`]). Checks every loop vertex of
+/// every PLANAR face against its face plane at the boolean-output band.
+/// Constructor-path solids are exempt by design — their planarity is
+/// guaranteed by construction and guarded by the debug tripwire.
+///
+/// Called by [`crate::boolean::boolean_op`] on every assembled boolean
+/// output (the disjoint-union shell-merge path is exempt: it reuses the
+/// operands' constructor-validated shells bit-for-bit).
+pub fn validate_boolean_output_planarity(
+    arena: &BrepArena,
+    solid: SolidId,
+) -> Result<(), KernelV2Error> {
+    let solid_ref = arena.solid(solid)?;
+    for &sh in &solid_ref.shells {
+        let shell = arena.shell(sh)?;
+        for &f in &shell.faces {
+            let face = arena.face(f)?;
+            let Some(Surface::Plane(plane)) = &face.surface else {
+                continue;
+            };
+            let mut loops = vec![face.outer_loop];
+            loops.extend(face.inner_loops.iter().copied());
+            for lid in loops {
+                for p in arena.loop_points(lid)? {
+                    // Signed distance from the stored face plane — the same
+                    // residual as the debug tripwire, at the boolean-output
+                    // band. Invariant: every loop vertex of a planar output
+                    // face lies ON the face plane (a violation is a yang
+                    // emission defect, not noise — reject, never repair).
+                    let d = (p.x() - plane.point.x()) * plane.normal.x
+                        + (p.y() - plane.point.y()) * plane.normal.y
+                        + (p.z() - plane.point.z()) * plane.normal.z;
+                    let band = PLANARITY_BOOLEAN_OUTPUT_TOLERANCE
+                        * (1.0 + p.x().abs().max(p.y().abs()).max(p.z().abs()));
+                    if d.abs() > band {
+                        if std::env::var_os("KV2_PLANARITY_PROBE").is_some() {
+                            eprintln!(
+                                "[boolean-planarity-gate] face={f:?} loop={lid:?} \
+                                 p=({:.17e},{:.17e},{:.17e}) d={d:.3e} band={band:.3e}",
+                                p.x(),
+                                p.y(),
+                                p.z(),
+                            );
+                        }
+                        return Err(KernelV2Error::NonPlanarFace { face: f });
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
 
 /// Debug-tier curved-surface tripwire (PR-KV5a): maximum |distance defect|
 /// (meters) of curved-face geometry — loop vertices off the cylinder
