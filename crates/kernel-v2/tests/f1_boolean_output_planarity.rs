@@ -65,8 +65,7 @@ fn saddle_top_face(arena: &mut BrepArena, solid: SolidId, d: f64) {
         let v = arena.half_edge(h).unwrap().origin;
         let sign = if i % 2 == 0 { 1.0 } else { -1.0 };
         let p = arena.vertex(v).unwrap().point;
-        arena.vertex_mut(v).unwrap().point =
-            Point3::new(p.x(), p.y(), p.z() + sign * d);
+        arena.vertex_mut(v).unwrap().point = Point3::new(p.x(), p.y(), p.z() + sign * d);
     }
 }
 

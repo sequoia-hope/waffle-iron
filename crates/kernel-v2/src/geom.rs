@@ -1167,11 +1167,7 @@ pub(crate) fn pair_surface_residual_gradient(
         // the shared Gauss-Newton step is exact, exactly as for the cylinder.
         // `None` at the center (radial direction undefined).
         crate::arena::PairSurface::Sphere { center, radius } => {
-            let d = [
-                p[0] - center.x(),
-                p[1] - center.y(),
-                p[2] - center.z(),
-            ];
+            let d = [p[0] - center.x(), p[1] - center.y(), p[2] - center.z()];
             let dl = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
             if !(dl.is_finite() && dl > 0.0) {
                 return None;
