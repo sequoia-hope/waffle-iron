@@ -1,0 +1,2208 @@
+//! Revolve family — full/partial/on-axis/torus/sphere revolves and their
+//! frame + validation helpers. Move-only split from the construct god-module
+//! (design review 2026-07-12 F9); behavior byte-identical.
+
+use super::*;
+
+/// Entities produced by [`revolve`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RevolveResult {
+    /// The new solid.
+    pub solid: SolidId,
+    /// Its single shell.
+    pub shell: ShellId,
+    /// The profile face at sweep angle 0. For a partial revolve its outward
+    /// normal opposes the sweep velocity; for the 360° branch it is the
+    /// annular cap at the axial minimum (outward normal `−â`). `None` for a
+    /// capless 360° ring (a non-alternating wall-only profile — e.g. the
+    /// tilted-axis all-oblique rectangle — has no planar face to name; spec
+    /// `kv6a_nonalternating_full_revolve.md`).
+    pub start_cap: Option<FaceId>,
+    /// The profile face at the sweep angle (partial) / the annular cap at
+    /// the axial maximum (360°, outward normal `+â`). `None` exactly when
+    /// `start_cap` is (the capless full-turn ring).
+    pub end_cap: Option<FaceId>,
+    /// Lateral faces, one per profile edge, in loop walk order: cylinder
+    /// patches for axis-parallel edges, planar annular sectors for
+    /// axis-perpendicular edges (partial); the outer + inner full cylinders
+    /// (360°).
+    pub walls: Vec<FaceId>,
+}
+
+/// `|â · n̂|` ceiling above which the revolve axis direction is rejected as
+/// out of the profile plane, and the relative band (scaled by the geometry
+/// magnitude) for the axis origin's distance to the plane. Absorbs only
+/// unit-vector rounding — the assay generator emits exactly in-plane axes.
+pub const REVOLVE_AXIS_IN_PLANE_TOLERANCE: f64 = 1e-9;
+
+/// Per-edge alignment band: a profile edge is axis-parallel when its radial
+/// extent is below `tol · length`, axis-perpendicular when its axial extent
+/// is; anything in between is an oblique edge (a CONE — KV6c), rejected
+/// typed. Corpus rectangles are exactly axis-aligned.
+pub const REVOLVE_EDGE_ALIGNMENT_TOLERANCE: f64 = 1e-9;
+
+/// Relative clearance the profile must keep from the axis (scaled by the
+/// geometry magnitude). Touching or crossing the axis is invalid input
+/// ([`KernelV2Error::RevolveAxisIntersectsProfile`]): crossing
+/// self-intersects, touching pinches a non-manifold seam (the on-axis
+/// solid-of-revolution is a later capability).
+pub const REVOLVE_MIN_AXIS_CLEARANCE_REL: f64 = 1e-9;
+
+/// `|α − 2π|` band inside which a revolve angle is the full-turn branch
+/// (the washer topology); `α > 2π + band` is rejected. Absorbs only the
+/// degrees→radians conversion rounding of an exact 360°.
+pub const REVOLVE_FULL_TURN_TOLERANCE: f64 = 1e-9;
+
+/// Per-edge classification of an axis-aligned profile edge.
+#[derive(Debug, Clone, Copy)]
+enum EdgeClass {
+    /// Constant radius: sweeps a cylinder wall. `reversed` = material on
+    /// the larger-radius side (the wall of an inner bore).
+    Parallel { radius: f64, reversed: bool },
+    /// Constant axial height: sweeps a planar annular sector (partial) or
+    /// vanishes into an annulus bounded by its endpoint rims (full turn).
+    /// `outward_plus_axis` = the face's outward normal is `+â`.
+    Perpendicular { outward_plus_axis: bool },
+    /// Both radius and axial height change: sweeps a CONE (frustum) band
+    /// (KV6c). Topologically a wall, exactly like [`EdgeClass::Parallel`] —
+    /// two rim circles (at the edge's two radii) plus two seams — only the
+    /// surface differs. The cone parameters are derived from the slant in
+    /// [`validate_revolve_geometry`]: `apex` is where the slant, extended,
+    /// meets the axis; `axis_dir` is oriented so both rims have a positive
+    /// axial coordinate (apex behind); `half_angle = atan|Δs/Δt|`;
+    /// `reversed` = material on the larger-radius side (an inner bore),
+    /// the same `dt > 0` rule as `Parallel`. Only the full-turn builder
+    /// handles it; a partial revolve of an oblique edge sweeps an
+    /// arc-bounded cone patch (KV6c increment 5) and is rejected typed.
+    Oblique {
+        apex: Point3,
+        axis_dir: UnitVector3,
+        half_angle: f64,
+        reversed: bool,
+    },
+}
+
+/// Validated revolve geometry, computed before any arena mutation.
+struct RevolveFrame {
+    /// Unit axis direction.
+    a: UnitVector3,
+    /// Unit in-plane radial direction; every profile vertex has a strictly
+    /// positive radial coordinate along it.
+    w: UnitVector3,
+    /// `â × ŵ` — the sweep-velocity direction at θ = 0 (`±` the profile
+    /// normal). The working loop is ordered so its Newell normal is `+m`.
+    m: UnitVector3,
+    /// Axis origin.
+    a0: Point3,
+    /// Working-order outer loop, embedded (Newell normal `+m`).
+    ring0: Vec<Point3>,
+    /// Per-vertex axial coordinate `(p − a0) · â`.
+    t: Vec<f64>,
+    /// Per-vertex radial coordinate `(p − a0) · ŵ` (all > clearance).
+    s: Vec<f64>,
+    /// Per-edge classification (edge `i` joins vertex `i` to `i + 1`).
+    edges: Vec<EdgeClass>,
+}
+
+/// Revolve a validated polygon [`Profile`] about an in-plane axis by
+/// `angle_rad ∈ (0, 2π]` radians (PR-KV6a). See `tests/kv6a_revolve.rs`
+/// for the pinned contract: geometry, topology census, Pappus volume,
+/// rejection semantics. Like [`extrude_circle`], both branches are direct
+/// assemblers (arcs / closed rims are outside the Euler-operator
+/// vocabulary); the safety obligation is discharged by `validate_solid`
+/// at exit.
+pub fn revolve(
+    arena: &mut BrepArena,
+    profile: &Profile,
+    axis_origin: Point3,
+    axis_direction: Vector3,
+    angle_rad: f64,
+) -> Result<RevolveResult, KernelV2Error> {
+    // ---- argument validation (ALL before the first mutation) -------------
+    if !angle_rad.is_finite() || angle_rad <= 0.0 {
+        return Err(KernelV2Error::RevolveInvalidAngle);
+    }
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let full_turn = (angle_rad - two_pi).abs() <= REVOLVE_FULL_TURN_TOLERANCE;
+    if !full_turn && angle_rad > two_pi {
+        return Err(KernelV2Error::RevolveInvalidAngle);
+    }
+
+    // A circle profile sweeps a TORUS (KV6d). Partial revolves build a bent
+    // solid tube (2 disk caps + a toroidal lateral with longitude-arc seams);
+    // the full-turn case builds the CLOSED genus-1 ring torus (spec
+    // `specs/kv6d_closed_torus_revolve.md`). The on-axis full-turn circle
+    // (a SPHERE, C0067) stays a typed wall — KV6d increment 2.
+    if let ProfileRegion::Circle { center, radius } = profile.region() {
+        return build_torus_revolve(
+            arena,
+            profile,
+            *center,
+            *radius,
+            axis_origin,
+            axis_direction,
+            angle_rad,
+            full_turn,
+        );
+    }
+
+    let frame = match validate_revolve_geometry(profile, axis_origin, axis_direction) {
+        // KV6 on-axis slices 1–3 (specs `kv6_on_axis_revolve_rectangle.md`,
+        // `kv6_on_axis_revolve_oblique.md`, `kv6_on_axis_revolve_partial_
+        // wedge.md`): the clearance rejection conflates CROSSING (invalid
+        // input) with TOUCHING (a legitimate solid of revolution). Recover
+        // the single-on-axis-edge lathe family — full-turn cylinder /
+        // frustum / apex cone, and the partial-angle WEDGE (slice 3);
+        // every other on-axis shape keeps the typed error.
+        Err(KernelV2Error::RevolveAxisIntersectsProfile) => {
+            return on_axis_revolve(arena, profile, axis_origin, axis_direction, angle_rad);
+        }
+        f => f?,
+    };
+
+    if full_turn {
+        build_full_revolve(arena, &frame)
+    } else {
+        build_partial_revolve(arena, &frame, angle_rad)
+    }
+}
+
+/// All revolve input validation: axis in plane, polygon region without
+/// holes, profile strictly on one side of the axis, every edge axis-aligned.
+/// Pure — no arena access.
+fn validate_revolve_geometry(
+    profile: &Profile,
+    axis_origin: Point3,
+    axis_direction: Vector3,
+) -> Result<RevolveFrame, KernelV2Error> {
+    // Axis direction: finite, nonzero, in the profile plane.
+    let d = [axis_direction.x(), axis_direction.y(), axis_direction.z()];
+    let d_sq = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    if !d_sq.is_finite()
+        || d_sq <= 0.0
+        || !axis_origin.x().is_finite()
+        || !axis_origin.y().is_finite()
+        || !axis_origin.z().is_finite()
+    {
+        return Err(KernelV2Error::RevolveAxisNotInPlane);
+    }
+    let d_len = d_sq.sqrt();
+    let a = UnitVector3 {
+        x: d[0] / d_len,
+        y: d[1] / d_len,
+        z: d[2] / d_len,
+    };
+    let n = profile.unit_normal();
+    if (a.x * n.x + a.y * n.y + a.z * n.z).abs() > REVOLVE_AXIS_IN_PLANE_TOLERANCE {
+        return Err(KernelV2Error::RevolveAxisNotInPlane);
+    }
+    // Axis origin on the profile plane (band scaled by the magnitudes).
+    let o = profile.origin();
+    let plane_dist = (axis_origin.x() - o.x()) * n.x
+        + (axis_origin.y() - o.y()) * n.y
+        + (axis_origin.z() - o.z()) * n.z;
+    let mag = axis_origin
+        .x()
+        .abs()
+        .max(axis_origin.y().abs())
+        .max(axis_origin.z().abs())
+        .max(o.x().abs())
+        .max(o.y().abs())
+        .max(o.z().abs());
+    if plane_dist.abs() > REVOLVE_AXIS_IN_PLANE_TOLERANCE * (1.0 + mag) {
+        return Err(KernelV2Error::RevolveAxisNotInPlane);
+    }
+
+    // Region: polygon, no holes (typed walls for the rest).
+    let outer = match profile.region() {
+        ProfileRegion::Circle { .. } => {
+            return Err(KernelV2Error::RevolveCircleProfileUnsupported);
+        }
+        ProfileRegion::Polygon { holes, .. } if !holes.is_empty() => {
+            return Err(KernelV2Error::RevolveProfileHolesUnsupported);
+        }
+        ProfileRegion::ArcPolygon { .. } => {
+            return Err(KernelV2Error::ArcPolygonProfileUnsupported);
+        }
+        ProfileRegion::Polygon { outer, .. } => outer,
+    };
+
+    // Radial direction: ŵ = ±normalize(n̂ × â), signed so the profile's
+    // radial coordinates come out positive. m̂ = â × ŵ = ±n̂ is then the
+    // sweep-velocity direction; the working loop is reordered so its
+    // Newell normal is +m̂ (the extrude `reverse` flag, revolve edition).
+    let wx = [
+        n.y * a.z - n.z * a.y,
+        n.z * a.x - n.x * a.z,
+        n.x * a.y - n.y * a.x,
+    ];
+    let w_len = (wx[0] * wx[0] + wx[1] * wx[1] + wx[2] * wx[2]).sqrt();
+    // |n̂ × â| = 1 up to rounding (â ⊥ n̂ just verified).
+    let mut w = UnitVector3 {
+        x: wx[0] / w_len,
+        y: wx[1] / w_len,
+        z: wx[2] / w_len,
+    };
+
+    let embedded: Vec<Point3> = outer.iter().map(|&p| profile.embed(p)).collect();
+    let radial = |p: &Point3, w: &UnitVector3| {
+        (p.x() - axis_origin.x()) * w.x
+            + (p.y() - axis_origin.y()) * w.y
+            + (p.z() - axis_origin.z()) * w.z
+    };
+    let s_sum: f64 = embedded.iter().map(|p| radial(p, &w)).sum();
+    let flip_w = s_sum < 0.0;
+    if flip_w {
+        w = UnitVector3 {
+            x: -w.x,
+            y: -w.y,
+            z: -w.z,
+        };
+    }
+    // m̂ = â × ŵ (exactly ±n̂; recompute for numerical hygiene).
+    let m = UnitVector3 {
+        x: a.y * w.z - a.z * w.y,
+        y: a.z * w.x - a.x * w.z,
+        z: a.x * w.y - a.y * w.x,
+    };
+
+    // Working order: stored loops are CCW around n̂; the construction wants
+    // Newell ≡ +m̂. m̂ = +n̂ exactly when ŵ was not flipped.
+    let ring0: Vec<Point3> = if flip_w {
+        embedded.into_iter().rev().collect()
+    } else {
+        embedded
+    };
+
+    // Per-vertex axis coordinates + strict one-side clearance.
+    let mut t = Vec::with_capacity(ring0.len());
+    let mut s = Vec::with_capacity(ring0.len());
+    let mut scale = 0.0f64;
+    for p in &ring0 {
+        let dx = [
+            p.x() - axis_origin.x(),
+            p.y() - axis_origin.y(),
+            p.z() - axis_origin.z(),
+        ];
+        t.push(dx[0] * a.x + dx[1] * a.y + dx[2] * a.z);
+        s.push(dx[0] * w.x + dx[1] * w.y + dx[2] * w.z);
+        scale = scale.max(dx[0].abs()).max(dx[1].abs()).max(dx[2].abs());
+    }
+    let clearance = REVOLVE_MIN_AXIS_CLEARANCE_REL * (1.0 + scale);
+    if s.iter().any(|&si| si <= clearance) {
+        // Mixed signs = crossing; near-zero = touching. Both invalid input.
+        // (Straight in-plane edges between positive-radius vertices cannot
+        // dip below their endpoint minimum, so the vertex check is
+        // sufficient for the polygon.)
+        return Err(KernelV2Error::RevolveAxisIntersectsProfile);
+    }
+
+    // Edge classification (working order; edge i joins i → i+1).
+    let k = ring0.len();
+    let mut edges = Vec::with_capacity(k);
+    for i in 0..k {
+        let j = (i + 1) % k;
+        let dt = t[j] - t[i];
+        let ds = s[j] - s[i];
+        let len = (dt * dt + ds * ds).sqrt();
+        if ds.abs() <= REVOLVE_EDGE_ALIGNMENT_TOLERANCE * len {
+            // Material lies LEFT of the working-CCW edge: +ŝ for dt > 0 —
+            // that face's outward normal points toward the axis (an inner
+            // bore wall), the cavity sense.
+            edges.push(EdgeClass::Parallel {
+                radius: s[i],
+                reversed: dt > 0.0,
+            });
+        } else if dt.abs() <= REVOLVE_EDGE_ALIGNMENT_TOLERANCE * len {
+            // Outward normal +â exactly when the material is on the −â
+            // side, i.e. when the working-CCW edge runs radially outward.
+            edges.push(EdgeClass::Perpendicular {
+                outward_plus_axis: ds > 0.0,
+            });
+        } else {
+            // Oblique edge → cone frustum band (KV6c). The slant, extended,
+            // meets the axis at `t_apex` (where s = 0): from s = s[i] +
+            // (t − t[i])·ds/dt, set s = 0. `half_angle = atan|ds/dt|`; orient
+            // `axis_dir` toward increasing radius so both rims have τ > 0
+            // (apex behind). `reversed = dt > 0`, the same material-sense rule
+            // as `Parallel` (the cone's default outward normal points away
+            // from the axis; `reversed` flips it toward the axis for a bore).
+            let t_apex = t[i] - s[i] * dt / ds;
+            let apex = Point3::new(
+                axis_origin.x() + t_apex * a.x,
+                axis_origin.y() + t_apex * a.y,
+                axis_origin.z() + t_apex * a.z,
+            );
+            let axis_dir = if (ds > 0.0) == (dt > 0.0) { a } else { neg(a) };
+            edges.push(EdgeClass::Oblique {
+                apex,
+                axis_dir,
+                half_angle: (ds / dt).abs().atan(),
+                reversed: dt > 0.0,
+            });
+        }
+    }
+
+    Ok(RevolveFrame {
+        a,
+        w,
+        m,
+        a0: axis_origin,
+        ring0,
+        t,
+        s,
+        edges,
+    })
+}
+
+/// Snap a trig value to exactly 0 / ±1 when within 1e-12 of it. At the
+/// quadrant angles (90°, 180°, 270°, 360°) `sin`/`cos` carry ~1e-16
+/// residue; snapping makes a 180° revolve's two caps carry BIT-IDENTICAL
+/// planes — which yang's intra-solid near-coplanar gate excludes as the
+/// benign "one plane, several faces" class. Without the snap the caps
+/// differ by 1 ulp and the gate (correctly conservative for the femto-seam
+/// hazard class) would defer every boolean near them.
+fn snap_trig(x: f64) -> f64 {
+    if x.abs() < 1e-12 {
+        0.0
+    } else if (x - 1.0).abs() < 1e-12 {
+        1.0
+    } else if (x + 1.0).abs() < 1e-12 {
+        -1.0
+    } else {
+        x
+    }
+}
+
+impl RevolveFrame {
+    /// Rotate a profile point by `theta` about the axis: the point's
+    /// in-plane decomposition is `a0 + t·â + s·ŵ`, which maps to
+    /// `a0 + t·â + s·(cos θ·ŵ + sin θ·m̂)`. Trig snapped at the quadrant
+    /// angles (see [`snap_trig`]).
+    fn rotate(&self, i: usize, theta: f64) -> Point3 {
+        let (c, sn) = (snap_trig(theta.cos()), snap_trig(theta.sin()));
+        let radial = self.s[i];
+        Point3::new(
+            self.a0.x() + self.t[i] * self.a.x + radial * (c * self.w.x + sn * self.m.x),
+            self.a0.y() + self.t[i] * self.a.y + radial * (c * self.w.y + sn * self.m.y),
+            self.a0.z() + self.t[i] * self.a.z + radial * (c * self.w.z + sn * self.m.z),
+        )
+    }
+
+    /// Foot of the axis perpendicular through vertex `i` (= arc center).
+    fn axis_foot(&self, i: usize) -> Point3 {
+        Point3::new(
+            self.a0.x() + self.t[i] * self.a.x,
+            self.a0.y() + self.t[i] * self.a.y,
+            self.a0.z() + self.t[i] * self.a.z,
+        )
+    }
+}
+
+/// Partial-angle branch: caps + one wall per profile edge, sweep arcs
+/// between the θ=0 and θ=α vertex rings. Topology (k = edge count):
+/// V = 2k, E = 3k (k cap segments ×2 + k arcs), F = k + 2, χ = 2.
+fn build_partial_revolve(
+    arena: &mut BrepArena,
+    fr: &RevolveFrame,
+    angle: f64,
+) -> Result<RevolveResult, KernelV2Error> {
+    let k = fr.ring0.len();
+    let neg = |u: UnitVector3| UnitVector3 {
+        x: -u.x,
+        y: -u.y,
+        z: -u.z,
+    };
+
+    // ---- vertices: ring 0 (working order) + ring α -------------------------
+    let vb = arena.vertices.len() as u32;
+    for p in &fr.ring0 {
+        arena.vertices.push(Some(Vertex { point: *p }));
+    }
+    for i in 0..k {
+        arena.vertices.push(Some(Vertex {
+            point: fr.rotate(i, angle),
+        }));
+    }
+    let v0 = |i: usize| VertexId(vb + (i % k) as u32);
+    let v1 = |i: usize| VertexId(vb + k as u32 + (i % k) as u32);
+
+    // ---- half-edge id layout (6 per edge index i) ---------------------------
+    // sc[i]: start cap, ring0[i+1] → ring0[i]   (cap winds CCW around −m̂)
+    // ec[i]: end cap,   ring1[i]   → ring1[i+1] (cap winds CCW around rot(+m̂))
+    // wb[i]: wall i bottom, ring0[i] → ring0[i+1] (twin sc[i])
+    // wt[i]: wall i top,    ring1[i+1] → ring1[i] (twin ec[i])
+    // af[i]: forward sweep arc at vertex i, ring0[i] → ring1[i], normal +â
+    //        (lives in wall (i−1+k)%k's loop)
+    // ab[i]: backward arc at vertex i, ring1[i] → ring0[i], normal −â
+    //        (twin af[i]; lives in wall i's loop)
+    let hb = arena.half_edges.len() as u32;
+    let sc = |i: usize| HalfEdgeId(hb + 6 * ((i % k) as u32));
+    let ec = |i: usize| HalfEdgeId(hb + 6 * ((i % k) as u32) + 1);
+    let wb = |i: usize| HalfEdgeId(hb + 6 * ((i % k) as u32) + 2);
+    let wt = |i: usize| HalfEdgeId(hb + 6 * ((i % k) as u32) + 3);
+    let af = |i: usize| HalfEdgeId(hb + 6 * ((i % k) as u32) + 4);
+    let ab = |i: usize| HalfEdgeId(hb + 6 * ((i % k) as u32) + 5);
+
+    let lb = arena.loops.len() as u32;
+    let loop_start = LoopId(lb);
+    let loop_end = LoopId(lb + 1);
+    let loop_wall = |i: usize| LoopId(lb + 2 + (i % k) as u32);
+    let fb = arena.faces.len() as u32;
+    let f_start = FaceId(fb);
+    let f_end = FaceId(fb + 1);
+    let f_wall = |i: usize| FaceId(fb + 2 + (i % k) as u32);
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    for i in 0..k {
+        let arc_curve = |normal: UnitVector3| Curve::Arc {
+            center: fr.axis_foot(i),
+            normal,
+            radius: fr.s[i],
+        };
+        // sc[i]: origin ring0[i+1]; cap cycle visits vertices in reverse,
+        // so next(sc[i]) starts at ring0[i] — that is sc[i−1].
+        arena.half_edges.push(Some(HalfEdge {
+            twin: wb(i),
+            next: sc(i + k - 1),
+            prev: sc(i + 1),
+            origin: v0(i + 1),
+            loop_id: loop_start,
+            curve: Curve::LineSegment,
+        }));
+        // ec[i]: origin ring1[i]; forward cycle.
+        arena.half_edges.push(Some(HalfEdge {
+            twin: wt(i),
+            next: ec(i + 1),
+            prev: ec(i + k - 1),
+            origin: v1(i),
+            loop_id: loop_end,
+            curve: Curve::LineSegment,
+        }));
+        // Wall i cycle: wb[i] → af[i+1] → wt[i] → ab[i] → wb[i].
+        arena.half_edges.push(Some(HalfEdge {
+            twin: sc(i),
+            next: af(i + 1),
+            prev: ab(i),
+            origin: v0(i),
+            loop_id: loop_wall(i),
+            curve: Curve::LineSegment,
+        }));
+        arena.half_edges.push(Some(HalfEdge {
+            twin: ec(i),
+            next: ab(i),
+            prev: af(i + 1),
+            origin: v1(i + 1),
+            loop_id: loop_wall(i),
+            curve: Curve::LineSegment,
+        }));
+        // af[i] lives in wall (i−1)'s loop: prev = wb[i−1], next = wt[i−1].
+        arena.half_edges.push(Some(HalfEdge {
+            twin: ab(i),
+            next: wt(i + k - 1),
+            prev: wb(i + k - 1),
+            origin: v0(i),
+            loop_id: loop_wall(i + k - 1),
+            curve: arc_curve(fr.a),
+        }));
+        arena.half_edges.push(Some(HalfEdge {
+            twin: af(i),
+            next: wb(i),
+            prev: wt(i),
+            origin: v1(i),
+            loop_id: loop_wall(i),
+            curve: arc_curve(neg(fr.a)),
+        }));
+    }
+
+    // ---- loops, faces ------------------------------------------------------
+    arena.loops.push(Some(Loop {
+        face: f_start,
+        boundary: LoopBoundary::Edges(sc(0)),
+        kind: LoopKind::Outer,
+    }));
+    arena.loops.push(Some(Loop {
+        face: f_end,
+        boundary: LoopBoundary::Edges(ec(0)),
+        kind: LoopKind::Outer,
+    }));
+    for i in 0..k {
+        arena.loops.push(Some(Loop {
+            face: f_wall(i),
+            boundary: LoopBoundary::Edges(wb(i)),
+            kind: LoopKind::Outer,
+        }));
+    }
+
+    // Start cap: outward normal −m̂ (opposes the sweep velocity); end cap:
+    // +m̂ rotated by the sweep angle = cos α·m̂ − sin α·ŵ.
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Plane(Plane {
+            point: fr.ring0[0],
+            normal: neg(fr.m),
+        })),
+        outer_loop: loop_start,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    let (ca, sa) = (snap_trig(angle.cos()), snap_trig(angle.sin()));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Plane(Plane {
+            point: fr.rotate(0, angle),
+            normal: UnitVector3 {
+                x: ca * fr.m.x - sa * fr.w.x,
+                y: ca * fr.m.y - sa * fr.w.y,
+                z: ca * fr.m.z - sa * fr.w.z,
+            },
+        })),
+        outer_loop: loop_end,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    let mut walls = Vec::with_capacity(k);
+    for (i, cls) in fr.edges.iter().enumerate() {
+        let surface = match *cls {
+            EdgeClass::Parallel { radius, reversed } => Surface::Cylinder {
+                axis_point: fr.a0,
+                axis_dir: fr.a,
+                radius,
+                reversed,
+            },
+            EdgeClass::Perpendicular { outward_plus_axis } => Surface::Plane(Plane {
+                point: fr.ring0[i],
+                normal: if outward_plus_axis { fr.a } else { neg(fr.a) },
+            }),
+            // KV6c increment 5 (spec `kv6c_partial_revolve_cone_patch.md`):
+            // an oblique edge sweeps an arc-bounded CONE patch — the same
+            // [seg, arc, seg, arc] wall loop as `Parallel`, only the surface
+            // differs. Parameters pass through from the classification.
+            EdgeClass::Oblique {
+                apex,
+                axis_dir,
+                half_angle,
+                reversed,
+            } => Surface::Cone {
+                apex,
+                axis_dir,
+                half_angle,
+                reversed,
+            },
+        };
+        arena.faces.push(Some(Face {
+            surface: Some(surface),
+            outer_loop: loop_wall(i),
+            inner_loops: Vec::new(),
+            shell,
+        }));
+        walls.push(f_wall(i));
+    }
+
+    let mut shell_faces = vec![f_start, f_end];
+    shell_faces.extend(walls.iter().copied());
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: shell_faces,
+        genus: 0,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    finalize_solid(arena, solid)?;
+    Ok(RevolveResult {
+        solid,
+        shell,
+        start_cap: Some(f_start),
+        end_cap: Some(f_end),
+        walls,
+    })
+}
+
+/// KV6 on-axis recovery (slice 1 `specs/kv6_on_axis_revolve_rectangle.md`,
+/// task #65; slice 2 `specs/kv6_on_axis_revolve_oblique.md`, task #66):
+/// full-turn revolve of a 3/4-gon with exactly ONE on-axis edge — the
+/// lathe family. The on-axis edge sweeps the rotation's fixed line
+/// (degenerate, interior to the solid); perpendicular edges sweep full
+/// DISCS; the remaining edges sweep the lateral:
+///
+/// - 4-gon, axis-PARALLEL off-axis edge (slice 1): EXACTLY the canonical
+///   KV5a cylinder — DELEGATES to `extrude` of a synthesized cap-plane
+///   circle profile, bit-canonical with extrude-of-circle, no new
+///   topology code.
+/// - 4-gon, OBLIQUE off-axis edge (slice 2A, the C0064 class): the SOLID
+///   FRUSTUM — same census with a `Surface::Cone` lateral, built by
+///   [`build_on_axis_frustum`].
+/// - 3-gon, one perpendicular cap + one oblique edge reaching the axis
+///   (slice 2B, the C0063 primary): the SOLID CONE, built by
+///   [`build_on_axis_apex_cone`] — the apex an interior singular point of
+///   the lateral.
+///
+/// Reached only where `validate_revolve_geometry` returned
+/// `RevolveAxisIntersectsProfile` (axis finite + in-plane and the region a
+/// hole-free polygon are already verified — the clearance check is the
+/// LAST rejection in that function). Everything that is not a slice-1/2
+/// shape — crossing profiles, bicones, pencil quads, degenerate
+/// rectangles — returns the ORIGINAL typed error, pre-mutation.
+fn on_axis_revolve(
+    arena: &mut BrepArena,
+    profile: &Profile,
+    axis_origin: Point3,
+    axis_direction: Vector3,
+    angle_rad: f64,
+) -> Result<RevolveResult, KernelV2Error> {
+    const REJECT: KernelV2Error = KernelV2Error::RevolveAxisIntersectsProfile;
+    // Slice-3 dispatch: the caller validated `angle_rad ∈ (0, 2π]`; the
+    // full-turn band is the same constant `revolve` classified with.
+    let full_turn = (angle_rad - 2.0 * std::f64::consts::PI).abs() <= REVOLVE_FULL_TURN_TOLERANCE;
+    // Axis frame — the same formulas and constants as
+    // `validate_revolve_geometry` (â verified finite/in-plane there).
+    let d = [axis_direction.x(), axis_direction.y(), axis_direction.z()];
+    let d_len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    let a = UnitVector3 {
+        x: d[0] / d_len,
+        y: d[1] / d_len,
+        z: d[2] / d_len,
+    };
+    let n = profile.unit_normal();
+    let wx = [
+        n.y * a.z - n.z * a.y,
+        n.z * a.x - n.x * a.z,
+        n.x * a.y - n.y * a.x,
+    ];
+    let w_len = (wx[0] * wx[0] + wx[1] * wx[1] + wx[2] * wx[2]).sqrt();
+    let mut w = UnitVector3 {
+        x: wx[0] / w_len,
+        y: wx[1] / w_len,
+        z: wx[2] / w_len,
+    };
+    let outer = match profile.region() {
+        ProfileRegion::Polygon { outer, holes } if holes.is_empty() => outer,
+        _ => return Err(REJECT),
+    };
+    let embedded: Vec<Point3> = outer.iter().map(|&p| profile.embed(p)).collect();
+    let radial = |p: &Point3, w: &UnitVector3| {
+        (p.x() - axis_origin.x()) * w.x
+            + (p.y() - axis_origin.y()) * w.y
+            + (p.z() - axis_origin.z()) * w.z
+    };
+    // Same radial sign rule as the validator: ŵ points to the material side.
+    if embedded.iter().map(|p| radial(p, &w)).sum::<f64>() < 0.0 {
+        w = UnitVector3 {
+            x: -w.x,
+            y: -w.y,
+            z: -w.z,
+        };
+    }
+    let mut t = Vec::with_capacity(embedded.len());
+    let mut s = Vec::with_capacity(embedded.len());
+    let mut scale = 0.0f64;
+    for p in &embedded {
+        let dx = [
+            p.x() - axis_origin.x(),
+            p.y() - axis_origin.y(),
+            p.z() - axis_origin.z(),
+        ];
+        t.push(dx[0] * a.x + dx[1] * a.y + dx[2] * a.z);
+        s.push(radial(p, &w));
+        scale = scale.max(dx[0].abs()).max(dx[1].abs()).max(dx[2].abs());
+    }
+    let clearance = REVOLVE_MIN_AXIS_CLEARANCE_REL * (1.0 + scale);
+    // No explicit crossing branch: the ŵ sign rule normalizes an
+    // all-negative profile to positive, and a genuinely mixed-sign
+    // (crossing) profile cannot present 2 on-axis + 2 equal-radius
+    // vertices below, so every crossing input falls out of the shape
+    // gates with the same typed error (branch-minimal per Constitution §7;
+    // `full_turn_crossing_profile_stays_rejected` pins it).
+
+    // ---- shared shape gates: 3/4-gon with exactly one on-axis edge --------
+    let k = embedded.len();
+    if k != 3 && k != 4 {
+        return Err(REJECT);
+    }
+    let on = |i: usize| s[i].abs() <= clearance;
+    let on_idx: Vec<usize> = (0..k).filter(|&i| on(i)).collect();
+    if on_idx.len() != 2 {
+        return Err(REJECT);
+    }
+    let adjacent = on_idx[1] == on_idx[0] + 1 || (on_idx[0] == 0 && on_idx[1] == k - 1);
+    if !adjacent {
+        return Err(REJECT);
+    }
+    let off_idx: Vec<usize> = (0..k).filter(|&i| !on(i)).collect();
+    let band = REVOLVE_EDGE_ALIGNMENT_TOLERANCE * (1.0 + scale);
+
+    // ---- slice 2 increment B: apex triangle → solid cone ------------------
+    // The single off-axis vertex has one connector edge to each on-axis
+    // vertex: exactly ONE must be axis-perpendicular (it sweeps the disc
+    // cap); the other is oblique and its on-axis endpoint is the APEX.
+    // Both perpendicular is geometrically impossible (the on-axis vertices
+    // are axially distinct simple-polygon vertices); both oblique is the
+    // BICONE, outside the slice (typed, pre-mutation).
+    if k == 3 {
+        // The partial-angle apex-triangle wedge (a cone wedge whose apex
+        // sits ON the boundary between the two pie sectors) is a distinct
+        // vocabulary with no corpus driver — typed (slice-3 spec §2).
+        if !full_turn {
+            return Err(REJECT);
+        }
+        let c = off_idx[0];
+        let radius = s[c];
+        let perp: Vec<usize> = on_idx
+            .iter()
+            .copied()
+            .filter(|&i| (t[i] - t[c]).abs() <= band)
+            .collect();
+        if perp.len() != 1 || radius <= clearance {
+            return Err(REJECT); // bicone or degenerate — never a silent sliver
+        }
+        let cap_i = perp[0];
+        let apex_i = if on_idx[0] == cap_i {
+            on_idx[1]
+        } else {
+            on_idx[0]
+        };
+        if (t[apex_i] - t[cap_i]).abs() <= band {
+            return Err(REJECT); // flat triangle — degenerate
+        }
+        return build_on_axis_apex_cone(arena, a, w, axis_origin, t[cap_i], t[apex_i], radius);
+    }
+
+    // ---- slice-1/2A shapes: the 4-gon lathe family -------------------------
+    // Each cap edge must be axis-perpendicular (on-axis vertex and its
+    // off-axis ring neighbor at the same axial coordinate) — an oblique
+    // CAP edge would sweep an apex cone glued to a lateral (the "pencil"),
+    // outside the slice-2 vocabulary.
+    for &i in &on_idx {
+        for j in [(i + 3) % 4, (i + 1) % 4] {
+            if !on(j) && (t[i] - t[j]).abs() > band {
+                return Err(REJECT);
+            }
+        }
+    }
+
+    // Off-axis pair ordered axially. The radii/height positivity gate is
+    // defense-in-depth (slice-1 precedent): a mixed-sign quad that passes
+    // the perpendicular-cap gates always self-intersects the on-axis edge
+    // and is rejected upstream as ProfileNotSimple (pinned by
+    // `crossing_oblique_quad_rejected_upstream_not_simple`), and an
+    // all-negative profile is normalized positive by the ŵ sign rule.
+    let (o0, o1) = (off_idx[0], off_idx[1]);
+    let (bot, top) = if t[o0] <= t[o1] { (o0, o1) } else { (o1, o0) };
+    let (r_bot, r_top) = (s[bot], s[top]);
+    let height = t[top] - t[bot];
+    if r_bot <= clearance || r_top <= clearance || height <= band {
+        return Err(REJECT); // crossing or degenerate — never a silent sliver
+    }
+
+    // ---- slice 3: PARTIAL angle → the wedge (cylinder or frustum wall) ----
+    if !full_turn {
+        return build_on_axis_wedge(
+            arena,
+            a,
+            w,
+            axis_origin,
+            t[bot],
+            t[top],
+            r_bot,
+            r_top,
+            band,
+            angle_rad,
+        );
+    }
+
+    // ---- slice 2 increment A: oblique off-axis edge → solid frustum -------
+    if (r_bot - r_top).abs() > band {
+        return build_on_axis_frustum(arena, a, w, axis_origin, t[bot], t[top], r_bot, r_top);
+    }
+
+    // ---- slice 1: canonical cylinder via the extrude-of-circle path -------
+    let radius = r_bot;
+    // Cap-plane frame: (ŵ, m̂ = â × ŵ) spans the plane ⊥ â with
+    // ŵ × m̂ = â, so the synthesized profile's normal IS the axis and the
+    // extrude direction is exactly normal (cosine 1).
+    let m = UnitVector3 {
+        x: a.y * w.z - a.z * w.y,
+        y: a.z * w.x - a.x * w.z,
+        z: a.x * w.y - a.y * w.x,
+    };
+    let origin = Point3::new(
+        axis_origin.x() + t[bot] * a.x,
+        axis_origin.y() + t[bot] * a.y,
+        axis_origin.z() + t[bot] * a.z,
+    );
+    let circle = Profile::circle(
+        origin,
+        Vector3::new(w.x, w.y, w.z),
+        Vector3::new(m.x, m.y, m.z),
+        Point2::new(0.0, 0.0),
+        radius,
+    )?;
+    let ex = extrude(arena, &circle, Vector3::new(a.x, a.y, a.z), height)?;
+    // I3: same 360° result convention as the washer branch — start cap at
+    // the axial minimum (outward −â), end cap at the maximum (+â).
+    Ok(RevolveResult {
+        solid: ex.solid,
+        shell: ex.shell,
+        start_cap: Some(ex.base),
+        end_cap: Some(ex.top),
+        walls: ex.walls,
+    })
+}
+
+/// KV6 on-axis slice 2 increment A (spec
+/// `specs/kv6_on_axis_revolve_oblique.md`, task #66): direct assembler for
+/// the SOLID FRUSTUM swept full-turn by an on-axis 4-gon whose off-axis
+/// edge is oblique (the C0064 class). Mirrors [`extrude_circle`] verbatim —
+/// same id layout, same Stroud §3.1.4 single-fake-edge topology (2 seam
+/// vertices, 2 vertex-anchored closed rims + 1 seam ruling, 3 faces), same
+/// rim-curve orientation conventions — with per-rim radii and the analytic
+/// [`Surface::Cone`] lateral. The cone parameters come from the slant with
+/// the SAME formulas as [`EdgeClass::Oblique`] classification in
+/// [`validate_revolve_geometry`]: extended to `s = 0` the slant meets the
+/// axis at `t_apex = t_bot − r_bot·Δt/Δr`; `axis_dir` is oriented so both
+/// rims sit at τ > 0 (apex behind); `half_angle = atan|Δr/Δt|`. Safety
+/// obligation discharged by `finalize_solid` at exit (the extrude-circle
+/// precedent for closed curved edges outside the Euler-operator
+/// vocabulary).
+///
+/// Caller guarantees: `t_top − t_bot` and `|r_top − r_bot|` above the
+/// alignment band, both radii strictly positive.
+#[allow(clippy::too_many_arguments)]
+fn build_on_axis_frustum(
+    arena: &mut BrepArena,
+    a: UnitVector3,
+    w: UnitVector3,
+    a0: Point3,
+    t_bot: f64,
+    t_top: f64,
+    r_bot: f64,
+    r_top: f64,
+) -> Result<RevolveResult, KernelV2Error> {
+    let neg_a = neg(a);
+    let at = |t: f64| Point3::new(a0.x() + t * a.x, a0.y() + t * a.y, a0.z() + t * a.z);
+    let (c0, c1) = (at(t_bot), at(t_top));
+    // Seam anchors: radially along ŵ (θ = 0 of the sweep) — the same seam
+    // azimuth the slice-1 delegation produces via `Profile::circle`'s u
+    // basis.
+    let on_rim = |c: Point3, r: f64| Point3::new(c.x() + r * w.x, c.y() + r * w.y, c.z() + r * w.z);
+    let (v0, v1) = (on_rim(c0, r_bot), on_rim(c1, r_top));
+
+    // Cone surface from the slant (EdgeClass::Oblique formulas; Δt > 0 by
+    // the caller's bot/top ordering, so `axis_dir` follows sign(Δr)).
+    let dt = t_top - t_bot;
+    let ds = r_top - r_bot;
+    let apex = at(t_bot - r_bot * dt / ds);
+    let axis_dir = if ds > 0.0 { a } else { neg_a };
+    let half_angle = (ds / dt).abs().atan();
+
+    // ---- direct assembly (extrude_circle id layout) ------------------------
+    let vid0 = VertexId(arena.vertices.len() as u32);
+    let vid1 = VertexId(vid0.0 + 1);
+    arena.vertices.push(Some(Vertex { point: v0 }));
+    arena.vertices.push(Some(Vertex { point: v1 }));
+
+    let hb = arena.half_edges.len() as u32;
+    let (cap_b, lat_b, seam_up, lat_t, cap_t, seam_dn) = (
+        HalfEdgeId(hb),
+        HalfEdgeId(hb + 1),
+        HalfEdgeId(hb + 2),
+        HalfEdgeId(hb + 3),
+        HalfEdgeId(hb + 4),
+        HalfEdgeId(hb + 5),
+    );
+    let lb = arena.loops.len() as u32;
+    let (loop_base, loop_top, loop_lat) = (LoopId(lb), LoopId(lb + 1), LoopId(lb + 2));
+    let fb = arena.faces.len() as u32;
+    let (f_base, f_top, f_lat) = (FaceId(fb), FaceId(fb + 1), FaceId(fb + 2));
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    let rim = |center: Point3, normal: UnitVector3, radius: f64| Curve::Circle {
+        center,
+        normal,
+        radius,
+    };
+    // Base cap boundary: one closed circle half-edge, CCW around the cap's
+    // outward normal −a.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: lat_b,
+        next: cap_b,
+        prev: cap_b,
+        origin: vid0,
+        loop_id: loop_base,
+        curve: rim(c0, neg_a, r_bot),
+    }));
+    // Lateral loop: bottom rim (CCW around +a — toward the top rim), seam
+    // up, top rim (CCW around −a — toward the bottom rim), seam down.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: cap_b,
+        next: seam_up,
+        prev: seam_dn,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: rim(c0, a, r_bot),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: seam_dn,
+        next: lat_t,
+        prev: lat_b,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: Curve::LineSegment,
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: cap_t,
+        next: seam_dn,
+        prev: seam_up,
+        origin: vid1,
+        loop_id: loop_lat,
+        curve: rim(c1, neg_a, r_top),
+    }));
+    // Top cap boundary: CCW around the cap's outward normal +a.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: lat_t,
+        next: cap_t,
+        prev: cap_t,
+        origin: vid1,
+        loop_id: loop_top,
+        curve: rim(c1, a, r_top),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: seam_up,
+        next: lat_b,
+        prev: lat_t,
+        origin: vid1,
+        loop_id: loop_lat,
+        curve: Curve::LineSegment,
+    }));
+
+    for (face, boundary) in [(f_base, cap_b), (f_top, cap_t), (f_lat, lat_b)] {
+        arena.loops.push(Some(Loop {
+            face,
+            boundary: LoopBoundary::Edges(boundary),
+            kind: LoopKind::Outer,
+        }));
+    }
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Plane(Plane {
+            point: c0,
+            normal: neg_a,
+        })),
+        outer_loop: loop_base,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Plane(Plane {
+            point: c1,
+            normal: a,
+        })),
+        outer_loop: loop_top,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+            reversed: false,
+        }),
+        outer_loop: loop_lat,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: vec![f_base, f_top, f_lat],
+        genus: 0,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    // ---- full production validation (defense in depth) --------------------
+    finalize_solid(arena, solid)?;
+    // I3/I6: start cap at the axial minimum (outward −â), end cap at the
+    // maximum (+â) — same 360° convention as the washer branch.
+    Ok(RevolveResult {
+        solid,
+        shell,
+        start_cap: Some(f_base),
+        end_cap: Some(f_top),
+        walls: vec![f_lat],
+    })
+}
+
+/// KV6 on-axis slice 3 (spec `specs/kv6_on_axis_revolve_partial_wedge.md`,
+/// task #85): direct assembler for the WEDGE — the single-on-axis-edge
+/// lathe 4-gon swept a PARTIAL angle. The two on-axis vertices are fixed
+/// by the rotation, so the θ=0 and θ=α caps SHARE the on-axis edge
+/// directly (the swept face of the on-axis edge is degenerate and is not
+/// emitted). Census: V=6, E=9 (7 cap segments + 2 sweep arcs), F=5
+/// (2 caps + 2 planar pie sectors + 1 curved wall), χ=2. Every face is
+/// existing vocabulary — planar-with-arcs sectors, the KV5b/KV6c-5
+/// [seg, arc, seg, arc] wall — only the construction is new.
+///
+/// Vertex/loop conventions mirror [`build_partial_revolve`]: the start cap's
+/// outward normal opposes the sweep velocity (−m̂), the end cap carries the
+/// rotated +m̂; arcs carry axis-directional traversal normals; trig snapped
+/// at the quadrant angles ([`snap_trig`]).
+///
+/// Caller guarantees: `0 < angle < 2π` (not the full-turn band), radii
+/// strictly positive, `t_top − t_bot` above the band; equal radii (within
+/// `band`) → cylinder wall, else the frustum-wedge `Surface::Cone` from the
+/// slice-2A slant formulas.
+#[allow(clippy::too_many_arguments)]
+fn build_on_axis_wedge(
+    arena: &mut BrepArena,
+    a: UnitVector3,
+    w: UnitVector3,
+    a0: Point3,
+    t_bot: f64,
+    t_top: f64,
+    r_bot: f64,
+    r_top: f64,
+    band: f64,
+    angle: f64,
+) -> Result<RevolveResult, KernelV2Error> {
+    let neg = |u: UnitVector3| UnitVector3 {
+        x: -u.x,
+        y: -u.y,
+        z: -u.z,
+    };
+    // m̂ = â × ŵ — the sweep-velocity direction at θ = 0.
+    let m = UnitVector3 {
+        x: a.y * w.z - a.z * w.y,
+        y: a.z * w.x - a.x * w.z,
+        z: a.x * w.y - a.y * w.x,
+    };
+    let (ca, sa) = (snap_trig(angle.cos()), snap_trig(angle.sin()));
+    // Rotated radial ŵ_α and the end cap's outward normal m̂_α.
+    let w_a = UnitVector3 {
+        x: ca * w.x + sa * m.x,
+        y: ca * w.y + sa * m.y,
+        z: ca * w.z + sa * m.z,
+    };
+    let m_a = UnitVector3 {
+        x: ca * m.x - sa * w.x,
+        y: ca * m.y - sa * w.y,
+        z: ca * m.z - sa * w.z,
+    };
+    let at = |t: f64| Point3::new(a0.x() + t * a.x, a0.y() + t * a.y, a0.z() + t * a.z);
+    let radial = |c: Point3, u: UnitVector3, r: f64| {
+        Point3::new(c.x() + r * u.x, c.y() + r * u.y, c.z() + r * u.z)
+    };
+    // A/B on the axis; C/D the off-axis ring at θ=0 (suffix 0) and θ=α (1).
+    let (pa, pb) = (at(t_bot), at(t_top));
+    let (c0, d0) = (radial(pa, w, r_bot), radial(pb, w, r_top));
+    let (c1, d1) = (radial(pa, w_a, r_bot), radial(pb, w_a, r_top));
+
+    // Wall surface: cylinder for equal radii, else the slice-2A cone.
+    let wall_surface = if (r_bot - r_top).abs() <= band {
+        Surface::Cylinder {
+            axis_point: a0,
+            axis_dir: a,
+            radius: r_bot,
+            reversed: false,
+        }
+    } else {
+        let dt = t_top - t_bot;
+        let ds = r_top - r_bot;
+        Surface::Cone {
+            apex: at(t_bot - r_bot * dt / ds),
+            axis_dir: if ds > 0.0 { a } else { neg(a) },
+            half_angle: (ds / dt).abs().atan(),
+            reversed: false,
+        }
+    };
+
+    // ---- direct assembly ---------------------------------------------------
+    let vb = arena.vertices.len() as u32;
+    let (va, vbx, vc0, vd0, vc1, vd1) = (
+        VertexId(vb),
+        VertexId(vb + 1),
+        VertexId(vb + 2),
+        VertexId(vb + 3),
+        VertexId(vb + 4),
+        VertexId(vb + 5),
+    );
+    for p in [pa, pb, c0, d0, c1, d1] {
+        arena.vertices.push(Some(Vertex { point: p }));
+    }
+
+    // 18 half-edges. Naming: cap0 = start cap (θ=0, outward −m̂), cap1 =
+    // end cap (θ=α, outward m̂_α), sb/st = bottom/top pie sectors (outward
+    // ∓â), wl = the curved wall (outward radial).
+    let hb = arena.half_edges.len() as u32;
+    let h = |i: u32| HalfEdgeId(hb + i);
+    // cap0 cycle: A→C0 (0), C0→D0 (1), D0→B (2), B→A (3)
+    // cap1 cycle: A→B (4), B→D1 (5), D1→C1 (6), C1→A (7)
+    // sector_bot cycle: A→C1 (8), arc C1→C0 (9), C0→A (10)
+    // sector_top cycle: B→D0 (11), arc D0→D1 (12), D1→B (13)
+    // wall cycle: arc C0→C1 (14), C1→D1 (15), arc D1→D0 (16), D0→C0 (17)
+    let lb = arena.loops.len() as u32;
+    let (l_cap0, l_cap1, l_sb, l_st, l_wl) = (
+        LoopId(lb),
+        LoopId(lb + 1),
+        LoopId(lb + 2),
+        LoopId(lb + 3),
+        LoopId(lb + 4),
+    );
+    let fb = arena.faces.len() as u32;
+    let (f_cap0, f_cap1, f_sb, f_st, f_wl) = (
+        FaceId(fb),
+        FaceId(fb + 1),
+        FaceId(fb + 2),
+        FaceId(fb + 3),
+        FaceId(fb + 4),
+    );
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    let seg = Curve::LineSegment;
+    let arc = |center: Point3, normal: UnitVector3, radius: f64| Curve::Arc {
+        center,
+        normal,
+        radius,
+    };
+    // (id, twin, next, prev, origin, loop, curve)
+    let hes: [(u32, u32, u32, u32, VertexId, LoopId, Curve); 18] = [
+        // cap0: A→C0→D0→B→A, CCW around −m̂.
+        (0, 10, 1, 3, va, l_cap0, seg),
+        (1, 17, 2, 0, vc0, l_cap0, seg),
+        (2, 11, 3, 1, vd0, l_cap0, seg),
+        (3, 4, 0, 2, vbx, l_cap0, seg),
+        // cap1: A→B→D1→C1→A, CCW around m̂_α.
+        (4, 3, 5, 7, va, l_cap1, seg),
+        (5, 13, 6, 4, vbx, l_cap1, seg),
+        (6, 15, 7, 5, vd1, l_cap1, seg),
+        (7, 8, 4, 6, vc1, l_cap1, seg),
+        // sector_bot: A→C1, arc C1→C0 (CCW around −â), C0→A.
+        (8, 7, 9, 10, va, l_sb, seg),
+        (9, 14, 10, 8, vc1, l_sb, arc(pa, neg(a), r_bot)),
+        (10, 0, 8, 9, vc0, l_sb, seg),
+        // sector_top: B→D0, arc D0→D1 (CCW around +â), D1→B.
+        (11, 2, 12, 13, vbx, l_st, seg),
+        (12, 16, 13, 11, vd0, l_st, arc(pb, a, r_top)),
+        (13, 5, 11, 12, vd1, l_st, seg),
+        // wall: arc C0→C1 (+â), C1→D1, arc D1→D0 (−â), D0→C0.
+        (14, 9, 15, 17, vc0, l_wl, arc(pa, a, r_bot)),
+        (15, 6, 16, 14, vc1, l_wl, seg),
+        (16, 12, 17, 15, vd1, l_wl, arc(pb, neg(a), r_top)),
+        (17, 1, 14, 16, vd0, l_wl, seg),
+    ];
+    for &(_, twin, next, prev, origin, loop_id, curve) in &hes {
+        arena.half_edges.push(Some(HalfEdge {
+            twin: h(twin),
+            next: h(next),
+            prev: h(prev),
+            origin,
+            loop_id,
+            curve,
+        }));
+    }
+
+    for (face, boundary) in [
+        (f_cap0, h(0)),
+        (f_cap1, h(4)),
+        (f_sb, h(8)),
+        (f_st, h(11)),
+        (f_wl, h(14)),
+    ] {
+        arena.loops.push(Some(Loop {
+            face,
+            boundary: LoopBoundary::Edges(boundary),
+            kind: LoopKind::Outer,
+        }));
+    }
+    let plane = |point: Point3, normal: UnitVector3| Some(Surface::Plane(Plane { point, normal }));
+    for (surface, outer_loop) in [
+        (plane(c0, neg(m)), l_cap0),
+        (plane(c1, m_a), l_cap1),
+        (plane(pa, neg(a)), l_sb),
+        (plane(pb, a), l_st),
+        (Some(wall_surface), l_wl),
+    ] {
+        arena.faces.push(Some(Face {
+            surface,
+            outer_loop,
+            inner_loops: Vec::new(),
+            shell,
+        }));
+    }
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: vec![f_cap0, f_cap1, f_sb, f_st, f_wl],
+        genus: 0,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    finalize_solid(arena, solid)?;
+    // Result contract: start/end caps per the partial-revolve convention;
+    // walls in profile order = [curved wall, bottom sector, top sector].
+    Ok(RevolveResult {
+        solid,
+        shell,
+        start_cap: Some(f_cap0),
+        end_cap: Some(f_cap1),
+        walls: vec![f_wl, f_sb, f_st],
+    })
+}
+
+/// KV6 on-axis slice 2 increment B (spec
+/// `specs/kv6_on_axis_revolve_oblique.md`, task #66): direct assembler for
+/// the SOLID CONE swept full-turn by an on-axis apex triangle (the C0063
+/// primary). The apex is an INTERIOR SINGULAR POINT of the lateral, not a
+/// topological vertex — yang-rs's own cone model ([#24] Yang tessellates
+/// the apex-pointed cone as a disk with a single base rim). Topology:
+/// 1 seam vertex on the base rim, 1 edge (the rim circle — a twin pair of
+/// closed half-edges, the PR-KV5a disc-cap form), 2 faces (disc cap +
+/// apex lateral); V − E + F = 1 − 1 + 2 = 2, a ball. Orientation: the cap
+/// rim is CCW around the cap's outward normal (away from the apex); the
+/// lateral rim's traversal axis points TOWARD the apex — the apex analog
+/// of the frustum's "toward the opposite rim" material-sense rule.
+/// Safety obligation discharged by `finalize_solid` at exit.
+///
+/// Caller guarantees: `radius` strictly positive, `|t_apex − t_cap|`
+/// above the alignment band.
+fn build_on_axis_apex_cone(
+    arena: &mut BrepArena,
+    a: UnitVector3,
+    w: UnitVector3,
+    a0: Point3,
+    t_cap: f64,
+    t_apex: f64,
+    radius: f64,
+) -> Result<RevolveResult, KernelV2Error> {
+    let at = |t: f64| Point3::new(a0.x() + t * a.x, a0.y() + t * a.y, a0.z() + t * a.z);
+    let (c_cap, apex) = (at(t_cap), at(t_apex));
+    // Outward cap normal points AWAY from the apex; the cone's axis_dir
+    // (apex → rim, τ > 0) is the SAME direction.
+    let n_cap = if t_cap < t_apex {
+        UnitVector3 {
+            x: -a.x,
+            y: -a.y,
+            z: -a.z,
+        }
+    } else {
+        a
+    };
+    let toward_apex = UnitVector3 {
+        x: -n_cap.x,
+        y: -n_cap.y,
+        z: -n_cap.z,
+    };
+    let height = (t_apex - t_cap).abs();
+    let half_angle = (radius / height).atan();
+    // Seam anchor: radially along ŵ (θ = 0), same azimuth as the other
+    // on-axis constructions.
+    let v0 = Point3::new(
+        c_cap.x() + radius * w.x,
+        c_cap.y() + radius * w.y,
+        c_cap.z() + radius * w.z,
+    );
+
+    // ---- direct assembly ----------------------------------------------------
+    let vid0 = VertexId(arena.vertices.len() as u32);
+    arena.vertices.push(Some(Vertex { point: v0 }));
+
+    let hb = arena.half_edges.len() as u32;
+    let (cap_rim, lat_rim) = (HalfEdgeId(hb), HalfEdgeId(hb + 1));
+    let lb = arena.loops.len() as u32;
+    let (loop_cap, loop_lat) = (LoopId(lb), LoopId(lb + 1));
+    let fb = arena.faces.len() as u32;
+    let (f_cap, f_lat) = (FaceId(fb), FaceId(fb + 1));
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    // Cap boundary: one closed circle half-edge, CCW around the cap's
+    // outward normal.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: lat_rim,
+        next: cap_rim,
+        prev: cap_rim,
+        origin: vid0,
+        loop_id: loop_cap,
+        curve: Curve::Circle {
+            center: c_cap,
+            normal: n_cap,
+            radius,
+        },
+    }));
+    // Lateral boundary: the twin — traversal axis toward the apex.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: cap_rim,
+        next: lat_rim,
+        prev: lat_rim,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: Curve::Circle {
+            center: c_cap,
+            normal: toward_apex,
+            radius,
+        },
+    }));
+
+    for (face, boundary) in [(f_cap, cap_rim), (f_lat, lat_rim)] {
+        arena.loops.push(Some(Loop {
+            face,
+            boundary: LoopBoundary::Edges(boundary),
+            kind: LoopKind::Outer,
+        }));
+    }
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Plane(Plane {
+            point: c_cap,
+            normal: n_cap,
+        })),
+        outer_loop: loop_cap,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Cone {
+            apex,
+            axis_dir: n_cap,
+            half_angle,
+            reversed: false,
+        }),
+        outer_loop: loop_lat,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: vec![f_cap, f_lat],
+        genus: 0,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    // ---- full production validation (defense in depth) --------------------
+    finalize_solid(arena, solid)?;
+    // I6: the apex end has no planar face to name — the single disc cap
+    // fills both result fields; `walls` = the lateral.
+    Ok(RevolveResult {
+        solid,
+        shell,
+        start_cap: Some(f_cap),
+        end_cap: Some(f_cap),
+        walls: vec![f_lat],
+    })
+}
+
+/// Full-turn branch: the washer. Perpendicular profile edges become
+/// seamless annuli (outer circle loop + circle ring); parallel edges
+/// become canonical full cylinders (2 rims + a seam at θ = 0, the KV5a
+/// lateral shape). Rectangle: V=4, E=6 (4 rims + 2 seams), F=4, R=2,
+/// G=1 ⇒ χ = 0 = 2(S − G).
+///
+/// KV6a-tilted (spec `kv6a_nonalternating_full_revolve.md`): every vertex
+/// pairing of wall (Parallel cylinder / Oblique cone) and annulus
+/// (Perpendicular) edges is supported EXCEPT two consecutive annuli. The
+/// twin arithmetic (`rim_on_edge`) is class-agnostic, and the wall rim
+/// normals are consistent at wall-wall junctions by construction: with
+/// `toward = sign(Δt)·â` and `reversed ⟺ sign(Δt)` fixed by the CCW
+/// profile's outward side, every wall rim half-edge carries one sign of
+/// `â` at its head vertex and the opposite at its tail — adjacent walls
+/// meet head-to-tail, so twin rims always traverse oppositely (the
+/// alternating washer is the special case where one neighbour is an
+/// annulus). Two consecutive ANNULI (a subdivided radial edge through a
+/// collinear vertex — coplanar adjacent faces) stay typed
+/// [`KernelV2Error::NotImplemented`].
+fn build_full_revolve(
+    arena: &mut BrepArena,
+    fr: &RevolveFrame,
+) -> Result<RevolveResult, KernelV2Error> {
+    let k = fr.ring0.len();
+    let neg = |u: UnitVector3| UnitVector3 {
+        x: -u.x,
+        y: -u.y,
+        z: -u.z,
+    };
+    let is_wall =
+        |c: EdgeClass| matches!(c, EdgeClass::Parallel { .. } | EdgeClass::Oblique { .. });
+    for i in 0..k {
+        if !is_wall(fr.edges[i]) && !is_wall(fr.edges[(i + 1) % k]) {
+            return Err(KernelV2Error::NotImplemented(
+                "PR-KV6a full-turn revolve with consecutive annular (axis-perpendicular) edges",
+            ));
+        }
+    }
+
+    // ---- vertices: the θ=0 ring only (every rim circle is anchored there) --
+    let vb = arena.vertices.len() as u32;
+    for p in &fr.ring0 {
+        arena.vertices.push(Some(Vertex { point: *p }));
+    }
+    let v = |i: usize| VertexId(vb + (i % k) as u32);
+
+    // ---- half-edge layout (4 per edge index) --------------------------------
+    // Per PARALLEL edge i (cylinder wall, vertices i and i+1):
+    //   rim_w[i]   : rim circle at vertex i, in the wall loop
+    //   seam_f[i]  : seam ring0[i] → ring0[i+1], in the wall loop
+    //   rim_w2[i]  : rim circle at vertex i+1, in the wall loop
+    //   seam_b[i]  : seam ring0[i+1] → ring0[i], in the wall loop (twin of f)
+    //   wall cycle: rim_w[i] → seam_f[i] → rim_w2[i] → seam_b[i] → rim_w[i]
+    // Per PERPENDICULAR edge j (annulus, vertices j and j+1): two closed
+    //   circle half-edges, ann_o[j] (outer loop, at the larger-radius
+    //   vertex) and ann_r[j] (ring, at the smaller-radius vertex); they twin
+    //   with the adjacent walls' rim half-edges at the same vertices.
+    let hb = arena.half_edges.len() as u32;
+    let he = |i: usize, slot: u32| HalfEdgeId(hb + 4 * ((i % k) as u32) + slot);
+
+    let lb = arena.loops.len() as u32;
+    let fb = arena.faces.len() as u32;
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    // Loop/face layout: one outer loop per edge face; annuli get one ring
+    // loop each (allocated after the k outer loops).
+    let outer_loop = |i: usize| LoopId(lb + (i % k) as u32);
+    let face_of = |i: usize| FaceId(fb + (i % k) as u32);
+
+    // Rim circle half-edge ids at a VERTEX: vertex i is shared by edge
+    // (i−1) and edge i, and the rim at i twins between those two edges'
+    // faces whatever their classes (wall-wall junctions included —
+    // KV6a-tilted). Rim at vertex i: slot 0 if the owning edge is edge i
+    // (rim_w / annulus at its first vertex), slot 2 if it is edge i−1
+    // (rim_w2 / annulus at its second vertex).
+    let rim_on_edge = |edge: usize, vertex: usize| -> HalfEdgeId {
+        if vertex % k == edge % k {
+            he(edge, 0)
+        } else {
+            he(edge, 2)
+        }
+    };
+
+    let mut ring_loops: Vec<(usize, LoopId)> = Vec::new(); // (edge idx, ring loop)
+    let mut next_ring = lb + k as u32;
+    for (i, cls) in fr.edges.iter().enumerate() {
+        if matches!(cls, EdgeClass::Perpendicular { .. }) {
+            ring_loops.push((i, LoopId(next_ring)));
+            next_ring += 1;
+        }
+    }
+    let ring_loop_of = |edge: usize, ring_loops: &[(usize, LoopId)]| -> LoopId {
+        ring_loops
+            .iter()
+            .find(|(e, _)| *e == edge)
+            .map(|(_, l)| *l)
+            .expect("perpendicular edge has a ring loop")
+    };
+
+    // ---- emit half-edges (4 dense slots per edge; perpendicular edges use
+    //      slots 0/2 and leave 1/3 as dead `None` slots so the id arithmetic
+    //      stays uniform) ----------------------------------------------------
+    for (i, cls) in fr.edges.iter().enumerate() {
+        let j = (i + 1) % k;
+        match *cls {
+            EdgeClass::Parallel { reversed, .. } | EdgeClass::Oblique { reversed, .. } => {
+                // Rim normals: for an outward wall the rim's traversal axis
+                // points TOWARD the opposite rim (the KV5a canonical rule);
+                // for a reversed (inner-bore) wall it points AWAY — the
+                // mirrored material sense, forced by the twin structure
+                // (each rim twin lives in an adjacent annulus whose
+                // outer/ring winding rules fix the sign).
+                let toward_j = if fr.t[j] >= fr.t[i] { fr.a } else { neg(fr.a) };
+                let (n_i, n_j) = if reversed {
+                    (neg(toward_j), toward_j)
+                } else {
+                    (toward_j, neg(toward_j))
+                };
+                let rim = |vi: usize, normal: UnitVector3| Curve::Circle {
+                    center: fr.axis_foot(vi),
+                    normal,
+                    radius: fr.s[vi],
+                };
+                // Wall cycle: rim(i) → seam i→j → rim(j) → seam j→i.
+                arena.half_edges.push(Some(HalfEdge {
+                    twin: rim_on_edge((i + k - 1) % k, i),
+                    next: he(i, 1),
+                    prev: he(i, 3),
+                    origin: v(i),
+                    loop_id: outer_loop(i),
+                    curve: rim(i, n_i),
+                }));
+                arena.half_edges.push(Some(HalfEdge {
+                    twin: he(i, 3),
+                    next: he(i, 2),
+                    prev: he(i, 0),
+                    origin: v(i),
+                    loop_id: outer_loop(i),
+                    curve: Curve::LineSegment,
+                }));
+                arena.half_edges.push(Some(HalfEdge {
+                    twin: rim_on_edge(j, j),
+                    next: he(i, 3),
+                    prev: he(i, 1),
+                    origin: v(j),
+                    loop_id: outer_loop(i),
+                    curve: rim(j, n_j),
+                }));
+                arena.half_edges.push(Some(HalfEdge {
+                    twin: he(i, 1),
+                    next: he(i, 0),
+                    prev: he(i, 2),
+                    origin: v(j),
+                    loop_id: outer_loop(i),
+                    curve: Curve::LineSegment,
+                }));
+            }
+            EdgeClass::Perpendicular { outward_plus_axis } => {
+                // Annulus face normal ±â; the outer circle (larger radius)
+                // traverses CCW around the face normal, the ring circle CCW
+                // around its negation. Each twins with the wall-side rim at
+                // the same vertex.
+                let normal = if outward_plus_axis { fr.a } else { neg(fr.a) };
+                let vo = if fr.s[i] >= fr.s[j] { i } else { j };
+                let ring_l = ring_loop_of(i, &ring_loops);
+                for (slot, vi) in [(0u32, i), (2u32, j)] {
+                    let is_outer = vi == vo;
+                    let nu = if is_outer { normal } else { neg(normal) };
+                    let lid = if is_outer { outer_loop(i) } else { ring_l };
+                    let hid = he(i, slot);
+                    let other_edge = if vi == i { (i + k - 1) % k } else { j };
+                    arena.half_edges.push(Some(HalfEdge {
+                        twin: rim_on_edge(other_edge, vi),
+                        next: hid,
+                        prev: hid,
+                        origin: v(vi),
+                        loop_id: lid,
+                        curve: Curve::Circle {
+                            center: fr.axis_foot(vi),
+                            normal: nu,
+                            radius: fr.s[vi],
+                        },
+                    }));
+                    if slot == 0 {
+                        arena.half_edges.push(None); // dead slot 1
+                    }
+                }
+                arena.half_edges.push(None); // dead slot 3
+            }
+        }
+    }
+
+    // ---- loops --------------------------------------------------------------
+    // k outer loops (edge order), then one ring loop per perpendicular edge
+    // (the order ring_loops was collected in).
+    for (i, cls) in fr.edges.iter().enumerate() {
+        let j = (i + 1) % k;
+        let boundary = match *cls {
+            EdgeClass::Parallel { .. } | EdgeClass::Oblique { .. } => he(i, 0),
+            EdgeClass::Perpendicular { .. } => {
+                let vo = if fr.s[i] >= fr.s[j] { i } else { j };
+                he(i, if vo == i { 0 } else { 2 })
+            }
+        };
+        arena.loops.push(Some(Loop {
+            face: face_of(i),
+            boundary: LoopBoundary::Edges(boundary),
+            kind: LoopKind::Outer,
+        }));
+    }
+    for &(i, _lid) in &ring_loops {
+        let j = (i + 1) % k;
+        let vr = if fr.s[i] >= fr.s[j] { j } else { i };
+        arena.loops.push(Some(Loop {
+            face: face_of(i),
+            boundary: LoopBoundary::Edges(he(i, if vr == i { 0 } else { 2 })),
+            kind: LoopKind::Inner,
+        }));
+    }
+
+    // ---- faces ----------------------------------------------------------------
+    let mut start_cap = None; // perpendicular face at the axial minimum
+    let mut end_cap = None;
+    let mut walls = Vec::new();
+    for (i, cls) in fr.edges.iter().enumerate() {
+        let surface = match *cls {
+            EdgeClass::Parallel { radius, reversed } => Surface::Cylinder {
+                axis_point: fr.a0,
+                axis_dir: fr.a,
+                radius,
+                reversed,
+            },
+            EdgeClass::Perpendicular { outward_plus_axis } => Surface::Plane(Plane {
+                point: fr.ring0[i],
+                normal: if outward_plus_axis { fr.a } else { neg(fr.a) },
+            }),
+            EdgeClass::Oblique {
+                apex,
+                axis_dir,
+                half_angle,
+                reversed,
+            } => Surface::Cone {
+                apex,
+                axis_dir,
+                half_angle,
+                reversed,
+            },
+        };
+        let inner: Vec<LoopId> = ring_loops
+            .iter()
+            .filter(|(e, _)| *e == i)
+            .map(|(_, l)| *l)
+            .collect();
+        arena.faces.push(Some(Face {
+            surface: Some(surface),
+            outer_loop: outer_loop(i),
+            inner_loops: inner,
+            shell,
+        }));
+        match *cls {
+            EdgeClass::Perpendicular { outward_plus_axis } => {
+                // The first −â annulus is the start cap, the first +â one
+                // the end cap; a staircase's extra annuli join `walls`. An
+                // all-wall profile (KV6a-tilted diamond ring) has none —
+                // both caps stay `None`.
+                if !outward_plus_axis && start_cap.is_none() {
+                    start_cap = Some(face_of(i));
+                } else if outward_plus_axis && end_cap.is_none() {
+                    end_cap = Some(face_of(i));
+                } else {
+                    walls.push(face_of(i));
+                }
+            }
+            EdgeClass::Parallel { .. } | EdgeClass::Oblique { .. } => walls.push(face_of(i)),
+        }
+    }
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: (0..k).map(face_of).collect(),
+        genus: 1,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    finalize_solid(arena, solid)?;
+    Ok(RevolveResult {
+        solid,
+        shell,
+        start_cap,
+        end_cap,
+        walls,
+    })
+}
+
+/// Revolve a circle [`Profile`] about an in-plane axis (KV6d).
+///
+/// Partial angles `∈ (0, 2π)` build a bent solid tube: topology mirrors
+/// [`extrude_circle`] — 2 seam vertices, 6 half-edges, 3 faces — but the
+/// caps are the profile disks at `θ = 0` and `θ = α` (meridian planes), the
+/// rims are the profile circles (minor radius), the seams are longitude
+/// ARCS (the φ = 0 latitude, radius `R + r`), and the lateral is a
+/// [`Surface::Torus`].
+///
+/// The full turn (`full_turn`) builds the CLOSED ring torus (spec
+/// `specs/kv6d_closed_torus_revolve.md`): the minimal CW structure of T²
+/// (Stroud 2006 §3.1.4 seam representation) — 1 seam anchor vertex at the
+/// outer equator, 2 closed seam circles (poloidal profile + toroidal outer
+/// equator), 1 torus face whose outer loop is the aba⁻¹b⁻¹ square with
+/// BOTH twin pairs internal. `V − E + F − R = 0 = 2(S − G)`, genus 1. The
+/// on-axis circle (a sphere) is a typed wall; the off-center crossing
+/// circle is invalid input, exactly like the partial branch.
+///
+/// Direct assembler; the safety obligation is discharged by
+/// `validate_solid` at exit.
+#[allow(clippy::too_many_arguments)]
+fn build_torus_revolve(
+    arena: &mut BrepArena,
+    profile: &Profile,
+    center2d: Point2,
+    minor_radius: f64,
+    axis_origin: Point3,
+    axis_direction: Vector3,
+    angle: f64,
+    full_turn: bool,
+) -> Result<RevolveResult, KernelV2Error> {
+    // ---- frame + validation (ALL before the first mutation) ----------------
+    let d = [axis_direction.x(), axis_direction.y(), axis_direction.z()];
+    let d_sq = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    if !d_sq.is_finite()
+        || d_sq <= 0.0
+        || !axis_origin.x().is_finite()
+        || !axis_origin.y().is_finite()
+        || !axis_origin.z().is_finite()
+    {
+        return Err(KernelV2Error::RevolveAxisNotInPlane);
+    }
+    let d_len = d_sq.sqrt();
+    let a = UnitVector3 {
+        x: d[0] / d_len,
+        y: d[1] / d_len,
+        z: d[2] / d_len,
+    };
+    let n = profile.unit_normal();
+    // Axis must lie IN the profile plane (⊥ n, origin on the plane).
+    if (a.x * n.x + a.y * n.y + a.z * n.z).abs() > REVOLVE_AXIS_IN_PLANE_TOLERANCE {
+        return Err(KernelV2Error::RevolveAxisNotInPlane);
+    }
+    let o = profile.origin();
+    let mag = axis_origin
+        .x()
+        .abs()
+        .max(axis_origin.y().abs())
+        .max(axis_origin.z().abs())
+        .max(o.x().abs())
+        .max(o.y().abs())
+        .max(o.z().abs());
+    let plane_dist = (axis_origin.x() - o.x()) * n.x
+        + (axis_origin.y() - o.y()) * n.y
+        + (axis_origin.z() - o.z()) * n.z;
+    if plane_dist.abs() > REVOLVE_AXIS_IN_PLANE_TOLERANCE * (1.0 + mag) {
+        return Err(KernelV2Error::RevolveAxisNotInPlane);
+    }
+    // Radial ŵ = ±normalize(n̂ × â), signed so the circle center is on the +ŵ
+    // side; m̂ = â × ŵ is the sweep-velocity direction at θ = 0.
+    let wx = [
+        n.y * a.z - n.z * a.y,
+        n.z * a.x - n.x * a.z,
+        n.x * a.y - n.y * a.x,
+    ];
+    let w_len = (wx[0] * wx[0] + wx[1] * wx[1] + wx[2] * wx[2]).sqrt();
+    let mut w = UnitVector3 {
+        x: wx[0] / w_len,
+        y: wx[1] / w_len,
+        z: wx[2] / w_len,
+    };
+    let c3 = profile.embed(center2d);
+    let radial = |p: Point3, w: &UnitVector3| {
+        (p.x() - axis_origin.x()) * w.x
+            + (p.y() - axis_origin.y()) * w.y
+            + (p.z() - axis_origin.z()) * w.z
+    };
+    if radial(c3, &w) < 0.0 {
+        w = neg(w);
+    }
+    let m = UnitVector3 {
+        x: a.y * w.z - a.z * w.y,
+        y: a.z * w.x - a.x * w.z,
+        z: a.x * w.y - a.y * w.x,
+    };
+    let t_c = (c3.x() - axis_origin.x()) * a.x
+        + (c3.y() - axis_origin.y()) * a.y
+        + (c3.z() - axis_origin.z()) * a.z;
+    let major = radial(c3, &w); // R: axis → tube center circle
+    let r = minor_radius;
+    // Ring torus: the circle's closest approach to the axis is R − r > 0.
+    let clearance = REVOLVE_MIN_AXIS_CLEARANCE_REL * (1.0 + mag.max(major));
+    // Full-turn on-axis circle sweeps a SPHERE (KV6d increment 2, spec
+    // `kv6d_sphere_revolve.md`): the ball of radius `r` about the profile
+    // center's axis projection (the sub-clearance off-axis component is
+    // snapped away). Distinct from the off-center crossing (invalid input).
+    if full_turn && major.abs() <= clearance {
+        let center_sphere = Point3::new(
+            axis_origin.x() + t_c * a.x,
+            axis_origin.y() + t_c * a.y,
+            axis_origin.z() + t_c * a.z,
+        );
+        return assemble_closed_sphere(arena, center_sphere, r);
+    }
+    if major - r <= clearance {
+        return Err(KernelV2Error::RevolveAxisIntersectsProfile);
+    }
+
+    // ---- geometry ----------------------------------------------------------
+    let center_torus = Point3::new(
+        axis_origin.x() + t_c * a.x,
+        axis_origin.y() + t_c * a.y,
+        axis_origin.z() + t_c * a.z,
+    );
+    // Point at radial `cw` along ŵ + `cm` along m̂ from the tube-plane center.
+    let lin = |cw: f64, cm: f64| {
+        Point3::new(
+            center_torus.x() + cw * w.x + cm * m.x,
+            center_torus.y() + cw * w.y + cm * m.y,
+            center_torus.z() + cw * w.z + cm * m.z,
+        )
+    };
+    if full_turn {
+        return assemble_closed_torus(arena, c3, center_torus, a, w, m, major, r);
+    }
+    let (ca, sa) = (snap_trig(angle.cos()), snap_trig(angle.sin()));
+    let c_alpha = lin(major * ca, major * sa); // end-cap circle center
+    let v0 = lin(major + r, 0.0); // seam anchor at θ=0, φ=0 (outer)
+    let v_alpha = lin((major + r) * ca, (major + r) * sa); // at θ=α, φ=0
+    let m_alpha = UnitVector3 {
+        x: ca * m.x - sa * w.x,
+        y: ca * m.y - sa * w.y,
+        z: ca * m.z - sa * w.z,
+    };
+    let neg_m = neg(m);
+
+    // ---- direct assembly (mirrors `extrude_circle`) ------------------------
+    let vid0 = VertexId(arena.vertices.len() as u32);
+    let vid1 = VertexId(vid0.0 + 1);
+    arena.vertices.push(Some(Vertex { point: v0 }));
+    arena.vertices.push(Some(Vertex { point: v_alpha }));
+
+    let hb = arena.half_edges.len() as u32;
+    let (cap_b, lat_b, seam_up, lat_t, cap_t, seam_dn) = (
+        HalfEdgeId(hb),
+        HalfEdgeId(hb + 1),
+        HalfEdgeId(hb + 2),
+        HalfEdgeId(hb + 3),
+        HalfEdgeId(hb + 4),
+        HalfEdgeId(hb + 5),
+    );
+    let lb = arena.loops.len() as u32;
+    let (loop_base, loop_top, loop_lat) = (LoopId(lb), LoopId(lb + 1), LoopId(lb + 2));
+    let fb = arena.faces.len() as u32;
+    let (f_base, f_top, f_lat) = (FaceId(fb), FaceId(fb + 1), FaceId(fb + 2));
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    let profile_rim = |center: Point3, normal: UnitVector3| Curve::Circle {
+        center,
+        normal,
+        radius: r,
+    };
+    let seam_arc = |normal: UnitVector3| Curve::Arc {
+        center: center_torus,
+        normal,
+        radius: major + r,
+    };
+    // Start cap boundary: profile circle CCW around the cap's outward −m̂.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: lat_b,
+        next: cap_b,
+        prev: cap_b,
+        origin: vid0,
+        loop_id: loop_base,
+        curve: profile_rim(c3, neg_m),
+    }));
+    // Lateral loop: start rim (toward +m̂), seam arc fwd, end rim, seam back.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: cap_b,
+        next: seam_up,
+        prev: seam_dn,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: profile_rim(c3, m),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: seam_dn,
+        next: lat_t,
+        prev: lat_b,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: seam_arc(a),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: cap_t,
+        next: seam_dn,
+        prev: seam_up,
+        origin: vid1,
+        loop_id: loop_lat,
+        curve: profile_rim(c_alpha, neg(m_alpha)),
+    }));
+    // End cap boundary: profile circle CCW around the cap's outward +m̂_α.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: lat_t,
+        next: cap_t,
+        prev: cap_t,
+        origin: vid1,
+        loop_id: loop_top,
+        curve: profile_rim(c_alpha, m_alpha),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: seam_up,
+        next: lat_b,
+        prev: lat_t,
+        origin: vid1,
+        loop_id: loop_lat,
+        curve: seam_arc(neg(a)),
+    }));
+
+    for (face, boundary) in [(f_base, cap_b), (f_top, cap_t), (f_lat, lat_b)] {
+        arena.loops.push(Some(Loop {
+            face,
+            boundary: LoopBoundary::Edges(boundary),
+            kind: LoopKind::Outer,
+        }));
+    }
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Plane(Plane {
+            point: c3,
+            normal: neg_m,
+        })),
+        outer_loop: loop_base,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Plane(Plane {
+            point: c_alpha,
+            normal: m_alpha,
+        })),
+        outer_loop: loop_top,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Torus {
+            center: center_torus,
+            axis_dir: a,
+            major_radius: major,
+            minor_radius: r,
+            reversed: false,
+        }),
+        outer_loop: loop_lat,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: vec![f_base, f_top, f_lat],
+        genus: 0,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    finalize_solid(arena, solid)?;
+    Ok(RevolveResult {
+        solid,
+        shell,
+        start_cap: Some(f_base),
+        end_cap: Some(f_top),
+        walls: vec![f_lat],
+    })
+}
+
+/// Assemble the CLOSED ring torus (KV6d full turn, spec
+/// `specs/kv6d_closed_torus_revolve.md`): the minimal CW structure of T².
+///
+/// - 1 vertex: the seam anchor `v0` at the outer equator (θ = 0, φ = 0).
+/// - 2 closed edges through `v0`: the poloidal PROFILE circle at θ = 0
+///   (radius `r`, center `c3`) and the toroidal OUTER-EQUATOR circle
+///   (radius `R + r`, center `center_torus`).
+/// - 1 face: the torus, outer loop = `[prof_fwd, eq_fwd, prof_back,
+///   eq_back]` — the aba⁻¹b⁻¹ square of the cut torus; BOTH twin pairs are
+///   internal to the loop (the partial-tube seam twin pair precedent,
+///   closed in the second direction too).
+///
+/// Directional normals follow the partial-tube conventions continuously:
+/// the θ = 0 rim traversal carries `+m̂` (the sweep velocity — the θ = 2π
+/// return carries `−m̂`), the equator pair carries `±â` exactly like the
+/// longitude seam arcs. Euler–Poincaré: `1 − 2 + 1 − 0 = 0 = 2(S − G)`,
+/// genus 1.
+#[allow(clippy::too_many_arguments)]
+fn assemble_closed_torus(
+    arena: &mut BrepArena,
+    c3: Point3,
+    center_torus: Point3,
+    a: UnitVector3,
+    w: UnitVector3,
+    m: UnitVector3,
+    major: f64,
+    r: f64,
+) -> Result<RevolveResult, KernelV2Error> {
+    let v0 = Point3::new(
+        center_torus.x() + (major + r) * w.x,
+        center_torus.y() + (major + r) * w.y,
+        center_torus.z() + (major + r) * w.z,
+    );
+    let neg_m = neg(m);
+
+    let vid0 = VertexId(arena.vertices.len() as u32);
+    arena.vertices.push(Some(Vertex { point: v0 }));
+
+    let hb = arena.half_edges.len() as u32;
+    let (prof_fwd, eq_fwd, prof_back, eq_back) = (
+        HalfEdgeId(hb),
+        HalfEdgeId(hb + 1),
+        HalfEdgeId(hb + 2),
+        HalfEdgeId(hb + 3),
+    );
+    let loop_lat = LoopId(arena.loops.len() as u32);
+    let f_lat = FaceId(arena.faces.len() as u32);
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    let profile_rim = |normal: UnitVector3| Curve::Circle {
+        center: c3,
+        normal,
+        radius: r,
+    };
+    let equator_rim = |normal: UnitVector3| Curve::Circle {
+        center: center_torus,
+        normal,
+        radius: major + r,
+    };
+    // Loop cycle prof_fwd → eq_fwd → prof_back → eq_back (aba⁻¹b⁻¹).
+    arena.half_edges.push(Some(HalfEdge {
+        twin: prof_back,
+        next: eq_fwd,
+        prev: eq_back,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: profile_rim(m),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: eq_back,
+        next: prof_back,
+        prev: prof_fwd,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: equator_rim(a),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: prof_fwd,
+        next: eq_back,
+        prev: eq_fwd,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: profile_rim(neg_m),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: eq_fwd,
+        next: prof_fwd,
+        prev: prof_back,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: equator_rim(neg(a)),
+    }));
+
+    arena.loops.push(Some(Loop {
+        face: f_lat,
+        boundary: LoopBoundary::Edges(prof_fwd),
+        kind: LoopKind::Outer,
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Torus {
+            center: center_torus,
+            axis_dir: a,
+            major_radius: major,
+            minor_radius: r,
+            reversed: false,
+        }),
+        outer_loop: loop_lat,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: vec![f_lat],
+        genus: 1,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    finalize_solid(arena, solid)?;
+    Ok(RevolveResult {
+        solid,
+        shell,
+        start_cap: None,
+        end_cap: None,
+        walls: vec![f_lat],
+    })
+}
+
+/// Assemble the CLOSED solid sphere (KV6d increment 2, spec
+/// `kv6d_sphere_revolve.md`): the full-turn revolve of an on-axis circle.
+///
+/// Minimal seam structure of S² (the PR-YR12 yang contract mirrored into
+/// the arena): V = 2 (south/north poles), E = 1 (a meridian seam Arc twin
+/// pair), F = 1 (`Surface::Sphere`), genus 0 —
+/// `V − E + F − R = 2 = 2(S − G)` ✓.
+///
+/// The seam frame is CANONICAL world-z-up regardless of the revolve axis
+/// (the sphere is isotropic; the fixed frame matches yang's fixed z-up
+/// lat/long parameterization so `to_yang_brep` is a direct emission):
+/// poles at `center ± r·ẑ`, seam on the X–Z great circle through
+/// `center + r·x̂`. The forward (south → north) half-edge sweeps CCW
+/// around `−ŷ` (tangent `+x̂` at the south pole — through the `+x̂`
+/// meridian); its twin carries the negated normal (the existing
+/// curve-twin sign-canonicalized consistency rule).
+fn assemble_closed_sphere(
+    arena: &mut BrepArena,
+    center: Point3,
+    r: f64,
+) -> Result<RevolveResult, KernelV2Error> {
+    let v_south = Point3::new(center.x(), center.y(), center.z() - r);
+    let v_north = Point3::new(center.x(), center.y(), center.z() + r);
+
+    let vid_s = VertexId(arena.vertices.len() as u32);
+    let vid_n = VertexId(vid_s.0 + 1);
+    arena.vertices.push(Some(Vertex { point: v_south }));
+    arena.vertices.push(Some(Vertex { point: v_north }));
+
+    let hb = arena.half_edges.len() as u32;
+    let (seam_fwd, seam_back) = (HalfEdgeId(hb), HalfEdgeId(hb + 1));
+    let loop_sph = LoopId(arena.loops.len() as u32);
+    let f_sph = FaceId(arena.faces.len() as u32);
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    let meridian = |normal: UnitVector3| Curve::Arc {
+        center,
+        normal,
+        radius: r,
+    };
+    let neg_y = UnitVector3 {
+        x: 0.0,
+        y: -1.0,
+        z: 0.0,
+    };
+    // Loop cycle seam_fwd → seam_back (the twin pair internal to one loop —
+    // closed-torus precedent).
+    arena.half_edges.push(Some(HalfEdge {
+        twin: seam_back,
+        next: seam_back,
+        prev: seam_back,
+        origin: vid_s,
+        loop_id: loop_sph,
+        curve: meridian(neg_y),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: seam_fwd,
+        next: seam_fwd,
+        prev: seam_fwd,
+        origin: vid_n,
+        loop_id: loop_sph,
+        curve: meridian(neg(neg_y)),
+    }));
+
+    arena.loops.push(Some(Loop {
+        face: f_sph,
+        boundary: LoopBoundary::Edges(seam_fwd),
+        kind: LoopKind::Outer,
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Sphere {
+            center,
+            radius: r,
+            reversed: false,
+        }),
+        outer_loop: loop_sph,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: vec![f_sph],
+        genus: 0,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    finalize_solid(arena, solid)?;
+    Ok(RevolveResult {
+        solid,
+        shell,
+        start_cap: None,
+        end_cap: None,
+        walls: vec![f_sph],
+    })
+}
