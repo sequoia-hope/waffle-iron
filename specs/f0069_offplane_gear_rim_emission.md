@@ -44,7 +44,52 @@ Key facts:
   displacement, NOT f64 rounding noise. Per the prior directive (memory
   `remediation_2026_07_12_shipped`): **fix the mint site, never widen the band.**
 
-## Mechanism (hypothesis, to confirm)
+## Empirical trace (2026-07-13, session refinement)
+
+Ran the existing yang probes (`YANG_INPUT_VERT_PROBE`, `KV2_PLANE_TRACE`) plus a
+throwaway per-vertex residual probe in `from_yang` on F0069's op-9 auto-union.
+Findings, in order of what they rule out:
+
+1. **The off-plane vertex is a pre-existing INPUT vertex to the failing
+   boolean, NOT minted in it.** `YANG_INPUT_VERT_PROBE` shows the offending
+   point `(-0.029050124226413905, -0.26968703059951493, 1.922942127810015)`
+   present bit-identically as vertex 3 in BOTH operands (and in both Stage-0
+   meshes). So op-9's own Stage-0/6 and `from_yang` are exonerated — the drift
+   is **chained in** from a prior op's boolean output (or the accumulated
+   body's seam). This case is squarely the **task #146 class** (chained planar
+   faces carrying off-plane loop vertices).
+2. **The flank IS geometrically vertical where it matters.** The base-rim twin
+   directly below (vertex 951, z=1.806231) has BIT-IDENTICAL `(x,y)` to the top
+   vertex 3. So the `d≠0` cannot come from a base↔top misalignment on that
+   corner.
+3. **Normal source is NOT the bug (hypothesis REFUTED).** `KV2_PLANE_TRACE`
+   shows yang emits the flank's plane normal as EXACTLY `(-0.994248…,
+   0.107098…, 0.0)` (z==0) with `d≈-8e-16`. But `from_yang.rs:984` stores the
+   **Newell-fit** normal (`nu`, z-tilt ≈ 2.5e-7) computed from the loop, not
+   yang's exact normal. Storing yang's exact normal was tried: the per-vertex
+   residual probe shows `max_resid_newell == max_resid_yang == 5.924e-8`
+   IDENTICALLY. The worst-offending loop vertex sits at the anchor's z (so the
+   z-tilt is irrelevant to it) and is slipped ~5.9e-8 **tangentially in (x,y)**.
+   No choice of plane normal makes the loop planar — the **vertex positions are
+   genuinely non-planar**.
+4. **The loop has 5 vertices, not 4** (`cycle_len=5`). A fresh flank quad has 4;
+   the 5th is a **seam-crossing point inserted on the flank's edge** by a prior
+   op's coplanar/overlay processing. That inserted point is the ~5.9e-8
+   off-flank offender — it was computed in f64 (or relocated) instead of landing
+   exactly on the flank plane.
+
+**Conclusion:** the mint is an **upstream/chained tangential vertex slip** where
+a seam-crossing point is inserted onto a planar flank edge off the flank plane.
+It is the #146 shared-vertex design-increment class (a point exact on one
+incident analytic surface but ~6e-8 off another), NOT a normal-source or
+`from_yang` conversion bug. Fixing it requires either (a) yang Stage-0/6 to
+mint the flank-edge seam-crossing point by exact intersection with the flank
+plane (rational), or (b) a Stage-6 snap of shared boundary vertices exactly onto
+every incident analytic surface — the same "snap-rounding grade" design
+increment named for the #144 opposite-rim class. Band-widening remains
+forbidden (the residual is real).
+
+## Mechanism (original hypothesis — see Empirical trace above for refinement)
 
 The gear's top rim sits on the gear/circle coplanar seam. During the chained
 union the seam is re-processed by Stage-0 coplanar preprocessing / azimuth-merge
