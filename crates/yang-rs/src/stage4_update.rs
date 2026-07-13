@@ -587,7 +587,11 @@ mod tests {
         ];
         let q = Point2::new(0.0, 0.0);
         // dist²(q, v3) = 0.1² + 0.02² ; dist²(q, v5) = 0.02² + 0.1² — equal.
-        assert_eq!(dist2(q, verts[3]), dist2(q, verts[5]), "must be an exact tie");
+        assert_eq!(
+            dist2(q, verts[3]),
+            dist2(q, verts[5]),
+            "must be an exact tie"
+        );
         let claimed = vec![false; verts.len()];
 
         let mut winner = None;

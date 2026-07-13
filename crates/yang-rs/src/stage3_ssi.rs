@@ -86,9 +86,7 @@ pub(crate) fn quadric_to_surface(q: ssi_rs::QuadricSurface) -> Result<Surface, S
         // and Stage-4 relocation has the sphere gradient arm). Without this
         // the F10 promotion would only move the wall from ssi-rs's ASNA to
         // here.
-        ssi_rs::QuadricSurface::Sphere { center, radius } => {
-            Ok(Surface::Sphere { center, radius })
-        }
+        ssi_rs::QuadricSurface::Sphere { center, radius } => Ok(Surface::Sphere { center, radius }),
         // No producer emits a bare `Plane` as a surface-pair operand (a
         // plane section is always a conic, never a degree-4 pair).
         ssi_rs::QuadricSurface::Plane { .. } => Err(SsiRefinementError::UnsupportedSurfaceForSsi),
