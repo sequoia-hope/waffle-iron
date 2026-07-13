@@ -82,6 +82,30 @@ pub enum MeshUpdateError {
     CdtFailed(CdtError),
 }
 
+/// The nearest unclaimed boundary vertex to `q`, as `(index, dist²)`.
+///
+/// `boundary_set` is a `HashSet`, whose iteration order is seeded per instance,
+/// so a `min` on distance ALONE would resolve an exact distance tie to whichever
+/// vertex the seed happens to yield first — making [`stage4_mesh_update`]'s
+/// output depend on the hash seed (a violation of its "pure and deterministic"
+/// contract). The tie is broken deterministically on the **lowest vertex index**,
+/// so the choice is seed-independent.
+fn nearest_unclaimed_boundary_vertex(
+    q: Point2,
+    boundary_set: &std::collections::HashSet<u32>,
+    claimed: &[bool],
+    verts: &[Point2],
+) -> Option<(usize, f64)> {
+    boundary_set
+        .iter()
+        .map(|&i| i as usize)
+        .filter(|&i| !claimed[i])
+        .map(|i| (i, dist2(q, verts[i])))
+        // Order by (dist², index): the index tie-break makes ties independent of
+        // the HashSet's per-instance iteration order.
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then(a.0.cmp(&b.0)))
+}
+
 /// Update `patch`'s triangulation so `polyline` becomes a chain of constrained
 /// edges, faithfully to Yang 2025 §4.4.1 (Fig 11 split / merge / insert).
 ///
@@ -159,12 +183,7 @@ pub fn stage4_mesh_update(
     let tol2 = opts.merge_tol * opts.merge_tol;
     for &q in &polyline.points {
         // Nearest unclaimed boundary vertex (positions never move → patch.verts).
-        let bv = boundary_set
-            .iter()
-            .map(|&i| i as usize)
-            .filter(|&i| !claimed[i])
-            .map(|i| (i, dist2(q, patch.verts[i])))
-            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        let bv = nearest_unclaimed_boundary_vertex(q, &boundary_set, &claimed, &patch.verts);
         // A boundary vertex within tol wins (Fig 11 sliver removal), fixed pos.
         if let Some((bi, bd)) = bv {
             if bd <= tol2 {
@@ -534,6 +553,56 @@ mod tests {
         let u = stage4_mesh_update(&patch, &poly, opts).unwrap();
         assert_eq!(u.verts.len(), 7, "no merge: both endpoints appended");
         assert!(no_flips(&u));
+    }
+
+    // ---- Determinism: an exact distance tie between two boundary vertices
+    //      must resolve identically on every call (the module docstring's
+    //      "Pure and deterministic" contract). The boundary-vertex nearest
+    //      search iterates a `HashSet`, whose iteration order is seeded per
+    //      instance; a `min_by` on distance ALONE returns whichever tied vertex
+    //      the seed happens to yield first. The fix breaks ties on the vertex
+    //      index, so the choice is seed-independent (spec: lowest index wins).
+    // ---- Determinism: an EXACT distance tie between two boundary vertices must
+    //      resolve identically on every call. The nearest-vertex search iterates
+    //      a `HashSet` whose order is seeded per instance; a distance-only `min`
+    //      would return whichever tied vertex the seed yields first, breaking the
+    //      "pure and deterministic" contract on `stage4_mesh_update`. The fix
+    //      tie-breaks on the lowest vertex index. Each loop iteration builds a
+    //      FRESH HashSet (fresh RandomState seed), so this samples many iteration
+    //      orders in one run — pre-fix (distance-only min) the returned index
+    //      flips ~50/50 and the assert fails; post-fix it is always the minimum.
+    #[test]
+    fn tie_resolves_to_lowest_index_across_seeds() {
+        // v3 and v5 are at genuinely different positions but bit-for-bit
+        // equidistant from q: their dist² terms are the same two values (0.01,
+        // 0.0004) summed in either order, so IEEE addition makes them exactly
+        // equal. v3 has the lower index and must always win.
+        let verts = [
+            Point2::new(9.0, 9.0),  // 0  (far)
+            Point2::new(9.0, -9.0), // 1  (far)
+            Point2::new(-9.0, 9.0), // 2  (far)
+            Point2::new(0.1, 0.02), // 3  tie candidate, LOWER index
+            Point2::new(-9.0, 0.0), // 4  (far)
+            Point2::new(0.02, 0.1), // 5  tie candidate, higher index
+        ];
+        let q = Point2::new(0.0, 0.0);
+        // dist²(q, v3) = 0.1² + 0.02² ; dist²(q, v5) = 0.02² + 0.1² — equal.
+        assert_eq!(dist2(q, verts[3]), dist2(q, verts[5]), "must be an exact tie");
+        let claimed = vec![false; verts.len()];
+
+        let mut winner = None;
+        for _ in 0..128 {
+            let mut set = std::collections::HashSet::new();
+            for i in 0..verts.len() as u32 {
+                set.insert(i);
+            }
+            let (idx, _) = nearest_unclaimed_boundary_vertex(q, &set, &claimed, &verts).unwrap();
+            match winner {
+                None => winner = Some(idx),
+                Some(w) => assert_eq!(idx, w, "tie must resolve identically every call"),
+            }
+        }
+        assert_eq!(winner, Some(3), "the lowest-index tied vertex wins");
     }
 
     // ---- Insert branch (Fig 11 insert; spec §5). ------------------------
