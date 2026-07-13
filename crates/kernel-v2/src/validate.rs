@@ -152,10 +152,17 @@ pub fn validate_boolean_output_planarity(
                         if std::env::var_os("KV2_PLANARITY_PROBE").is_some() {
                             eprintln!(
                                 "[boolean-planarity-gate] face={f:?} loop={lid:?} \
-                                 p=({:.17e},{:.17e},{:.17e}) d={d:.3e} band={band:.3e}",
+                                 p=({:.17e},{:.17e},{:.17e}) d={d:.3e} band={band:.3e} \
+                                 plane.n=({:.6},{:.6},{:.6}) plane.pt=({:.6},{:.6},{:.6})",
                                 p.x(),
                                 p.y(),
                                 p.z(),
+                                plane.normal.x,
+                                plane.normal.y,
+                                plane.normal.z,
+                                plane.point.x(),
+                                plane.point.y(),
+                                plane.point.z(),
                             );
                         }
                         return Err(KernelV2Error::NonPlanarFace { face: f });
