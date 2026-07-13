@@ -40,6 +40,45 @@ fn make_face(kernel: &mut MockKernel) -> KernelId {
     face_ids[0]
 }
 
+/// Helper: a larger square profile (area 16 vs `make_face`'s 6) so a union with
+/// a `make_face` box is a genuine two-body combination.
+///
+/// `MockKernel::extrude_face` is position-agnostic: it sizes the box from the
+/// profile *area* (`side = area.sqrt()`) and corners it at the origin
+/// (`make_box_solid`), ignoring the sketch-plane origin. Two boxes of the *same*
+/// area are therefore fully coincident, and `merge_solids` correctly removes the
+/// six duplicate faces (union of identical solids IS one solid) — collapsing the
+/// union to 6 faces, which is not what the union tests intend to exercise
+/// (task #157). A distinct area yields six non-coincident faces, so the union
+/// keeps all 12. (This mirrors the `boolean_assigns_body_a_b_roles` test, which
+/// already relies on a distinct-area body B.)
+fn make_face_distinct(kernel: &mut MockKernel) -> KernelId {
+    let profile = ClosedProfile {
+        entity_ids: vec![1, 2, 3, 4],
+        is_outer: true,
+        vertex_ids: vec![],
+        circle: None,
+        spline_segments: vec![],
+        arc_segments: vec![],
+    };
+    let mut positions = HashMap::new();
+    positions.insert(1, (0.0, 0.0));
+    positions.insert(2, (4.0, 0.0));
+    positions.insert(3, (4.0, 4.0));
+    positions.insert(4, (0.0, 4.0));
+
+    let face_ids = kernel
+        .make_faces_from_profiles(
+            &[profile],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            &positions,
+        )
+        .unwrap();
+    face_ids[0]
+}
+
 // ── Topology Diff Tests ────────────────────────────────────────────────────
 
 #[test]
@@ -302,13 +341,12 @@ fn revolve_invalid_face_returns_error() {
 // ── Boolean Tests ──────────────────────────────────────────────────────────
 
 #[test]
-#[ignore = "MockKernel union face-count drift — tracked as task #157 (pre-existing, fails on pre-migration HEAD too; NOT a Phase 6 regression)"]
 fn boolean_union_produces_combined_result() {
     let mut kernel = MockKernel::new();
 
     let face_a = make_face(&mut kernel);
     let handle_a = kernel.extrude_face(face_a, [0.0, 0.0, 1.0], 2.0).unwrap();
-    let face_b = make_face(&mut kernel);
+    let face_b = make_face_distinct(&mut kernel);
     let handle_b = kernel.extrude_face(face_b, [0.0, 0.0, 1.0], 2.0).unwrap();
 
     let result = execute_boolean(&mut kernel, &handle_a, &handle_b, BooleanKind::Union).unwrap();
@@ -719,12 +757,11 @@ fn pipeline_extrude_then_shell() {
 
 /// Extrude → Boolean Union pipeline.
 #[test]
-#[ignore = "MockKernel union face-count drift — tracked as task #157 (pre-existing, fails on pre-migration HEAD too; NOT a Phase 6 regression)"]
 fn pipeline_extrude_boolean_union() {
     let mut kernel = MockKernel::new();
     let face_a = make_face(&mut kernel);
     let handle_a = kernel.extrude_face(face_a, [0.0, 0.0, 1.0], 3.0).unwrap();
-    let face_b = make_face(&mut kernel);
+    let face_b = make_face_distinct(&mut kernel);
     let handle_b = kernel.extrude_face(face_b, [0.0, 0.0, 1.0], 3.0).unwrap();
 
     let snap_a = diff::snapshot(&kernel, &handle_a);
@@ -1090,14 +1127,13 @@ fn revolve_full_side_face_indices_sequential() {
 
 /// GAP M8: Boolean mode distinction — different modes produce different results.
 #[test]
-#[ignore = "MockKernel union face-count drift — tracked as task #157 (pre-existing, fails on pre-migration HEAD too; NOT a Phase 6 regression)"]
 fn boolean_modes_produce_distinct_results() {
     let mut kernel = MockKernel::new();
 
-    // Create two boxes
+    // Create two boxes (B offset so the union is a genuine two-body combination)
     let face_a = make_face(&mut kernel);
     let handle_a = kernel.extrude_face(face_a, [0.0, 0.0, 1.0], 2.0).unwrap();
-    let face_b = make_face(&mut kernel);
+    let face_b = make_face_distinct(&mut kernel);
     let handle_b = kernel.extrude_face(face_b, [0.0, 0.0, 1.0], 2.0).unwrap();
 
     let union_result =
