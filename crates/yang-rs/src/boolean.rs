@@ -286,6 +286,30 @@ pub fn boolean(
         None => (a, b),
     };
 
+    // Backtrack-spike normalization (task #146): a chained-boolean-drift operand
+    // can carry an invalid, self-overlapping boundary loop — a straight edge
+    // overshoots a near-tangent arc/line junction by a tiny real-scale amount,
+    // then a second straight edge backtracks to the junction. Re-tessellating
+    // that loop emits a zero-area triangle that survives the Cherchi
+    // arrangement and trips the Stage-4 watertight gate. Merge such
+    // `LineSegment` spike pairs (arc-safe, per-loop conformal) before Stage 0.
+    // The fast path (no spike, the overwhelming majority) leaves both operands
+    // byte-identical. See `BRep::normalized_without_backtrack_spikes`.
+    let na = a.normalized_without_backtrack_spikes()?;
+    let nb = b.normalized_without_backtrack_spikes()?;
+    let despiked: Option<(BRep, BRep)> = if na.is_some() || nb.is_some() {
+        Some((
+            na.unwrap_or_else(|| a.clone()),
+            nb.unwrap_or_else(|| b.clone()),
+        ))
+    } else {
+        None
+    };
+    let (a, b): (&BRep, &BRep) = match &despiked {
+        Some((na, nb)) => (na, nb),
+        None => (a, b),
+    };
+
     // (0) Stage 0 — §4.5.5 coplanar preprocessing (PR-YR26, M8 slice b).
     // Near-coplanar planar A×B face pairs are HANDLED: both faces snapped
     // onto one canonical shared plane, segmented by the exact 2D overlay,

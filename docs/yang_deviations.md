@@ -2270,3 +2270,71 @@ this is a faithfulness increment that makes the conic band principled and
 robust for grazing cuts (governance §0.1 — a faithful stage lighting zero new
 cases ships). **Sign-off:** solo-operator variant (P5), red/green via the
 load-bearing unit test + mutation-killable primitive units.
+
+### N40 — Backtrack-spike normalization of chained-boolean-drift operand loops
+
+**Where:** `crates/yang-rs/src/brep.rs` —
+`BRep::normalized_without_backtrack_spikes` + free helpers
+`is_backtrack_spike_pair` / `clean_spike_loop`; wired at the top of
+`crates/yang-rs/src/boolean.rs::boolean` (after the Case-IV phantom-guard
+rebind, before Stage 0).
+
+**Mechanism:** a chained boolean OUTPUT can carry an invalid, self-overlapping
+boundary loop: a straight edge `a→v` overshoots a near-tangent arc/line junction
+`b` by a tiny real-scale amount, then a second straight edge `v→b` backtracks to
+`b` (F0064 face 590: `v1189 → v1190`(x=−0.15811, overshoot) `→ v1191`(x=−0.15936,
+the `Curve::Circle` arc start); the spurious needle `v1190` is degree-2 and
+purely collinear, ~1.3e-3 from `v1191`). Re-tessellating this loop emits a
+zero-area triangle `[1189,1190,1191]` that survives the Cherchi arrangement and
+trips the Stage-4 watertight gate (`check_watertight_2manifold`,
+`s4-halfedge-pairing`). The normalization merges, per face loop, any consecutive
+`LineSegment` pair `(a→v, v→b)` whose `a,v,b` are collinear (`|d1×d2| ≤
+1e-9·|d1||d2|`) AND reverse direction (`dot(v−a, b−v) < 0`) into a single
+`LineSegment` `a→b`. Two safeguards make it correct:
+- **Arc-safe:** the merge requires BOTH edges to be `LineSegment`, so a genuine
+  arc/line junction (one edge is `Curve::Circle`) is never merged.
+- **Conformance under a zigzag:** a shared straight edge can carry BOTH the
+  spurious spike and the real arc junction as near-coincident collinear
+  backtracks (F0064's wall walks `…→1191→1190→1189`, so both `1191` and `1190`
+  are backtracks). A global `protected` set (endpoints of any non-`LineSegment`
+  edge) forbids removing `1191`, so every face that shares the edge converges on
+  removing the SAME spurious vertex `1190` — the top face and its wall stay
+  boundary-conformal.
+
+**Paper basis / deviation status:** NOT a Yang deviation — the paper assumes
+valid manifold operands (§4.1). This is an INPUT-robustness normalization that
+repairs an invalid self-overlapping loop produced by a prior boolean's arc/line
+near-tangency (the deeper producer defect is task #137 territory). The true
+`b→a` reverse of a merged edge is preserved on the neighbouring face by the same
+per-loop rule, so no B-Rep contract is weakened.
+
+**P9/S7 safety:** a collinear *backtrack* is a self-overlap that NEVER occurs in
+a valid simple polygon, so the merge can only fire on already-invalid input and
+cannot alter any currently-passing tessellation (the same structural-safety
+argument as the S7 certainly-fatal chord split). Normal collinear Steiner points
+(`dot ≥ 0`, `v` strictly between `a` and `b`) are preserved for conformance.
+The fast path (`normalized_without_backtrack_spikes` returns `None`, no clone,
+no re-tessellation) covers the overwhelming majority of booleans.
+
+**Tolerance decisions:** one — relative collinearity `|d1×d2| ≤ 1e-9·|d1||d2|`
+(⇔ `sinθ ≤ 1e-9`, far below any real corner; a reflex/convex vertex has
+`sinθ = O(1)`). No absolute-distance band: the backtrack (`dot < 0`) is the
+load-bearing discriminant, and it is scale-free.
+
+**Oracles:** yang-rs lib units in `brep.rs::spike_normalization_tests`
+(`detects_backtrack_spike_pair`, `protected_arc_junction_is_not_removed`,
+`collinear_steiner_point_is_not_a_spike`, `reflex_corner_is_not_a_spike`,
+`clean_loop_merges_spike_and_preserves_arc_junction`, `clean_brep_returns_none`).
+Integration: F0064 (task #146) — the `s4-halfedge-pairing` wall is RETIRED (the
+spike triangle is gone and the top/wall boundaries are conformal); the case then
+advances to a SEPARATE, pre-existing `s4-shell-euler chi=3` layer (the same
+odd-χ shell class R0051 already sits in), so F0064 stays ERROR pending that
+second increment. **Assay 2026-07-14: 239 CORRECT / 0 WRONG / 51 ERROR /
+4 UNSUPPORTED / 1 EXPECTED_ERROR — byte-identical to the N39 baseline (exact
+same 51-case ERROR set), 0 SUPPORTED_WRONG, no SUPPORTED_CORRECT lost.** A
+faithful robustness increment that retires one defect layer (the spike
+`s4-halfedge-pairing` wall) and lights zero new cases (governance §0.1 — a
+principled, tested, zero-regression fix ships).
+
+**Sign-off:** solo-operator variant (P5), red/green via the mutation-killable
+primitive units. Deviation entry per P2 Yang-increment clarification.

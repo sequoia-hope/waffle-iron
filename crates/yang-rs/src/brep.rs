@@ -23,6 +23,95 @@ pub struct BRepEdge {
     pub curve: Curve,
 }
 
+/// Is the consecutive loop edge pair `(ei: a→v, ej: v→b)` a backtrack-spike
+/// needle: both `LineSegment`, sharing `v` (`ei.end == ej.start`), with `a,v,b`
+/// collinear (relative `|d1×d2| ≤ 1e-9·|d1||d2|` ⇔ sinθ ≤ 1e-9, never a real
+/// corner) AND reversing direction (`dot(v−a, b−v) < 0`)? See
+/// [`BRep::normalized_without_backtrack_spikes`].
+fn is_backtrack_spike_pair(
+    verts: &[BRepVertex],
+    edges: &[BRepEdge],
+    protected: &std::collections::HashSet<u32>,
+    ei: u32,
+    ej: u32,
+) -> bool {
+    let (e1, e2) = (&edges[ei as usize], &edges[ej as usize]);
+    if !matches!(e1.curve, Curve::LineSegment) || !matches!(e2.curve, Curve::LineSegment) {
+        return false;
+    }
+    if e1.end != e2.start {
+        return false;
+    }
+    // NEVER remove a curve junction: the needle vertex `v` must not be an
+    // endpoint of any non-`LineSegment` edge (an arc/ellipse start/end). When a
+    // shared straight edge carries a ZIGZAG of two near-coincident collinear
+    // points — the spurious spike AND a real arc junction — both are backtracks;
+    // protecting the arc junction makes every face converge on removing the
+    // SAME (spurious) vertex, preserving conformance.
+    if protected.contains(&e1.end) {
+        return false;
+    }
+    let a = verts[e1.start as usize].point.as_array();
+    let v = verts[e1.end as usize].point.as_array();
+    let b = verts[e2.end as usize].point.as_array();
+    let d1 = [v[0] - a[0], v[1] - a[1], v[2] - a[2]];
+    let d2 = [b[0] - v[0], b[1] - v[1], b[2] - v[2]];
+    let cr = [
+        d1[1] * d2[2] - d1[2] * d2[1],
+        d1[2] * d2[0] - d1[0] * d2[2],
+        d1[0] * d2[1] - d1[1] * d2[0],
+    ];
+    let crm = (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
+    let l1 = (d1[0] * d1[0] + d1[1] * d1[1] + d1[2] * d1[2]).sqrt();
+    let l2 = (d2[0] * d2[0] + d2[1] * d2[1] + d2[2] * d2[2]).sqrt();
+    let dot = d1[0] * d2[0] + d1[1] * d2[1] + d1[2] * d2[2];
+    l1 > 0.0 && l2 > 0.0 && crm <= 1e-9 * l1 * l2 && dot < 0.0
+}
+
+/// Merge every backtrack-spike edge pair in one face loop into a single
+/// `LineSegment` (appending the merged edge to `edges`), iterating to a
+/// fixpoint. Sets `*changed` when any merge happens. See
+/// [`BRep::normalized_without_backtrack_spikes`].
+fn clean_spike_loop(
+    verts: &[BRepVertex],
+    edges: &mut Vec<BRepEdge>,
+    protected: &std::collections::HashSet<u32>,
+    lp: &mut Vec<u32>,
+    changed: &mut bool,
+) {
+    'restart: loop {
+        let n = lp.len();
+        if n < 2 {
+            return;
+        }
+        for k in 0..n {
+            let (ei, ej) = (lp[k], lp[(k + 1) % n]);
+            if is_backtrack_spike_pair(verts, edges, protected, ei, ej) {
+                let a = edges[ei as usize].start;
+                let b = edges[ej as usize].end;
+                let new_idx = edges.len() as u32;
+                edges.push(BRepEdge {
+                    start: a,
+                    end: b,
+                    curve: Curve::LineSegment,
+                });
+                if k + 1 < n {
+                    lp[k] = new_idx;
+                    lp.remove(k + 1);
+                } else {
+                    // The spike pair wraps (last edge, first edge): the merged
+                    // edge takes slot 0, the wrapping last slot is dropped.
+                    lp[0] = new_idx;
+                    lp.remove(n - 1);
+                }
+                *changed = true;
+                continue 'restart;
+            }
+        }
+        return;
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct BRepFace {
     pub surface: Surface,
@@ -399,6 +488,81 @@ impl BRep {
         )
     }
 
+    /// Normalize away BACKTRACK-SPIKE needle vertices in every face loop.
+    ///
+    /// A chained boolean output can carry an invalid, self-overlapping boundary
+    /// loop: a straight edge `a→v` overshoots a near-tangent arc/line junction
+    /// `b` by a tiny real-scale amount, then a second straight edge `v→b`
+    /// backtracks to `b` (F0064: face 590 `v1189 → v1190`(x=-0.15811, overshoot)
+    /// `→ v1191`(x=-0.15936, the Circle-arc start)). The needle vertex `v`
+    /// (`1190`) is degree-2 and purely collinear — it connects only to `a` and
+    /// `b`, both by `LineSegment`. Re-tessellating this loop emits a zero-area
+    /// triangle `[a, v, b]` that survives the Cherchi arrangement and trips the
+    /// Stage-4 watertight gate (`s4-halfedge-pairing`).
+    ///
+    /// Fix: per face loop, replace any consecutive `LineSegment` pair
+    /// `(a→v, v→b)` whose `a,v,b` are collinear AND reverse direction
+    /// (`dot(v−a, b−v) < 0`) with a single `LineSegment` `a→b`. Both incident
+    /// faces of the shared edge run the identical per-loop rule, so the result
+    /// stays boundary-CONFORMAL. **Arc-safe:** the merge requires BOTH edges to
+    /// be `LineSegment`, so a genuine arc/line junction (one edge is
+    /// `Curve::Circle`) is never touched. **P9/S7-safe:** a collinear backtrack
+    /// is a self-overlap that NEVER occurs in a valid simple polygon, so this
+    /// can only fire on already-invalid input and cannot alter any
+    /// currently-passing tessellation. Normal collinear Steiner points
+    /// (`dot ≥ 0`, `v` strictly between `a` and `b`) are preserved.
+    ///
+    /// Returns `Ok(None)` when no spike was found (the fast path — the caller
+    /// keeps the original B-Rep); `Ok(Some(rebuilt))` when at least one loop was
+    /// cleaned (the topology is re-tessellated from the merged edges).
+    pub(crate) fn normalized_without_backtrack_spikes(&self) -> Result<Option<Self>, YangError> {
+        let mut edges = self.edges.clone();
+        let mut faces = self.faces.clone();
+        let mut changed = false;
+        // Curve-junction vertices: endpoints of any non-`LineSegment` edge.
+        // These are real topological junctions (arc/ellipse start/end) and are
+        // NEVER removed, so a zigzag of two collinear backtrack points resolves
+        // to the same survivor on every face that shares the edge.
+        let protected: std::collections::HashSet<u32> = self
+            .edges
+            .iter()
+            .filter(|e| !matches!(e.curve, Curve::LineSegment))
+            .flat_map(|e| [e.start, e.end])
+            .collect();
+        for f_idx in 0..faces.len() {
+            let mut outer = std::mem::take(&mut faces[f_idx].outer_loop);
+            clean_spike_loop(
+                &self.vertices,
+                &mut edges,
+                &protected,
+                &mut outer,
+                &mut changed,
+            );
+            faces[f_idx].outer_loop = outer;
+            let n_inner = faces[f_idx].inner_loops.len();
+            for j in 0..n_inner {
+                let mut inner = std::mem::take(&mut faces[f_idx].inner_loops[j]);
+                clean_spike_loop(
+                    &self.vertices,
+                    &mut edges,
+                    &protected,
+                    &mut inner,
+                    &mut changed,
+                );
+                faces[f_idx].inner_loops[j] = inner;
+            }
+        }
+        if !changed {
+            return Ok(None);
+        }
+        Ok(Some(Self::from_topology(
+            self.vertices.clone(),
+            edges,
+            faces,
+            self.forced_rim_n,
+        )?))
+    }
+
     /// Construct from a pre-tessellated mesh (no topology).
     /// Degenerate B-Rep: `TessellationMap` entries are all `Unknown`.
     pub fn from_mesh(mesh: Mesh) -> Self {
@@ -703,5 +867,129 @@ impl BRep {
                 Point3::new(0.0, 0.0, 0.0)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod spike_normalization_tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    fn vtx(x: f64, y: f64) -> BRepVertex {
+        BRepVertex {
+            point: Point3::new(x, y, 0.47715355249616415),
+        }
+    }
+    fn seg(start: u32, end: u32) -> BRepEdge {
+        BRepEdge {
+            start,
+            end,
+            curve: Curve::LineSegment,
+        }
+    }
+
+    /// F0064 geometry along one boundary line: corner `v0(-0.2757)`, spurious
+    /// spike `v1(-0.15811, overshoot)`, arc-junction `v2(-0.15936)`. The pair
+    /// `(v0→v1, v1→v2)` is a backtrack spike; `(v1→v2, v2→v0)` is NOT the target
+    /// (its needle `v2` is a protected arc junction).
+    fn f0064_verts() -> Vec<BRepVertex> {
+        vec![
+            vtx(-0.2757114308522339, -0.05656023626695868), // 0 corner
+            vtx(-0.1581114617736767, -0.05656023626695868), // 1 spurious spike
+            vtx(-0.15936068363645936, -0.05656023626695865), // 2 arc junction
+        ]
+    }
+
+    #[test]
+    fn detects_backtrack_spike_pair() {
+        let verts = f0064_verts();
+        let edges = vec![seg(0, 1), seg(1, 2)];
+        let protected = HashSet::new();
+        assert!(is_backtrack_spike_pair(&verts, &edges, &protected, 0, 1));
+    }
+
+    #[test]
+    fn protected_arc_junction_is_not_removed() {
+        // Same geometry, but the needle vertex 1 is a protected arc junction:
+        // the pair must NOT be flagged (arc/ellipse endpoints are real).
+        let verts = f0064_verts();
+        let edges = vec![seg(0, 1), seg(1, 2)];
+        let protected: HashSet<u32> = [1u32].into_iter().collect();
+        assert!(!is_backtrack_spike_pair(&verts, &edges, &protected, 0, 1));
+    }
+
+    #[test]
+    fn collinear_steiner_point_is_not_a_spike() {
+        // v1 strictly BETWEEN v0 and v2 (dot ≥ 0) — a legitimate split point.
+        let verts = vec![vtx(0.0, 0.0), vtx(1.0, 0.0), vtx(2.0, 0.0)];
+        let edges = vec![seg(0, 1), seg(1, 2)];
+        assert!(!is_backtrack_spike_pair(
+            &verts,
+            &edges,
+            &HashSet::new(),
+            0,
+            1
+        ));
+    }
+
+    #[test]
+    fn reflex_corner_is_not_a_spike() {
+        // v1 off the v0→v2 line — a real (non-collinear) corner.
+        let verts = vec![vtx(0.0, 0.0), vtx(1.0, 0.5), vtx(2.0, 0.0)];
+        let edges = vec![seg(0, 1), seg(1, 2)];
+        assert!(!is_backtrack_spike_pair(
+            &verts,
+            &edges,
+            &HashSet::new(),
+            0,
+            1
+        ));
+    }
+
+    #[test]
+    fn clean_loop_merges_spike_and_preserves_arc_junction() {
+        // The F0064 wall zigzag: v3(-0.0566) → v2(arc jn) → v1(spike) → v0(corner).
+        // Both v2 and v1 are collinear backtracks, but v2 is protected, so the
+        // survivor is unambiguously v1's removal (keep the arc junction v2).
+        let mut verts = f0064_verts();
+        verts.push(vtx(-0.05656023626695868, -0.05656023626695868)); // 3
+        let mut edges = vec![seg(3, 2), seg(2, 1), seg(1, 0)];
+        let protected: HashSet<u32> = [2u32].into_iter().collect();
+        let mut lp = vec![0u32, 1, 2]; // edge indices
+        let mut changed = false;
+        clean_spike_loop(&verts, &mut edges, &protected, &mut lp, &mut changed);
+        assert!(changed, "the spurious spike v1 must be merged out");
+        // After merging (v2→v1, v1→v0) into (v2→v0), the loop walks
+        // [seg(3,2), merged(2,0)] and vertex 1 (the spike) is gone; vertex 2
+        // (the arc junction) survives on both endpoints of remaining edges.
+        let survivors: HashSet<u32> = lp
+            .iter()
+            .flat_map(|&e| [edges[e as usize].start, edges[e as usize].end])
+            .collect();
+        assert!(!survivors.contains(&1), "spurious spike v1 removed");
+        assert!(survivors.contains(&2), "arc junction v2 preserved");
+    }
+
+    #[test]
+    fn clean_brep_returns_none() {
+        // A plain unit square (no spikes) → the fast path returns None.
+        let verts = vec![vtx(0.0, 0.0), vtx(1.0, 0.0), vtx(1.0, 1.0), vtx(0.0, 1.0)];
+        let edges = vec![seg(0, 1), seg(1, 2), seg(2, 3), seg(3, 0)];
+        let faces = vec![BRepFace {
+            surface: Surface::Plane {
+                normal: cad_primitives::Vector3::new(0.0, 0.0, 1.0),
+                d: 0.0,
+            },
+            outer_loop: vec![0, 1, 2, 3],
+            inner_loops: vec![],
+            reversed: false,
+        }];
+        let brep = BRep::new(verts, edges, faces).expect("valid square");
+        assert!(
+            brep.normalized_without_backtrack_spikes()
+                .expect("normalize")
+                .is_none(),
+            "a clean B-Rep must take the no-op fast path"
+        );
     }
 }
