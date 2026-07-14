@@ -529,6 +529,83 @@ pub(crate) fn collapse_vertex(
     dropped
 }
 
+/// N47 (spec `yang_n47_coincident_moved_weld`): weld coincident RELOCATED
+/// vertices before topology emission.
+///
+/// Two vertices this pipeline pushed onto an analytic curve (`moved`) can
+/// Newton-converge to within the MODEL coincidence tolerance
+/// `TAU_MODEL·(1+scale)` — they are the SAME geometric point emitted twice (a
+/// near-tangent seam crossing whose two arrangement vertices both project onto
+/// one intersection point). Emitted distinct, they become a sub-render-precision
+/// output edge that trips kernel-v2's G1 render-collapse gate far downstream.
+///
+/// Band: the scale-relative model coincidence tolerance (`scale` = max |coord| of
+/// the pair) — the SAME band every other coincidence test uses, 10× tighter than
+/// the `MIN_FEATURE_SIZE·(1+scale)` feature floor, so it admits ONLY
+/// sub-(feature/10) coincidences. Restricted to `moved`×`moved` pairs: it never
+/// touches un-relocated arrangement geometry `boolean()` kept for watertightness
+/// (cf. the §4.4.1(b) micro-scale R0091 revert — P9/P10). `collapse_vertex` is the
+/// proven watertight-preserving edge-collapse; iterate to a fixed point over live
+/// (still-referenced) vertices. Returns whether any pair welded.
+pub(crate) fn weld_coincident_relocated(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    moved: &std::collections::HashSet<u32>,
+) -> bool {
+    let mut welded = false;
+    loop {
+        // Live moved verts (still referenced by some triangle), ascending.
+        let mut live: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        for tri in &mesh.tris {
+            for &v in tri {
+                if moved.contains(&v) {
+                    live.insert(v);
+                }
+            }
+        }
+        let live: Vec<u32> = live.into_iter().collect();
+        let mut pair: Option<(u32, u32)> = None;
+        'scan: for (i, &u) in live.iter().enumerate() {
+            let pu = mesh.verts[u as usize].as_array();
+            for &w in &live[i + 1..] {
+                let pw = mesh.verts[w as usize].as_array();
+                let d =
+                    ((pu[0] - pw[0]).powi(2) + (pu[1] - pw[1]).powi(2) + (pu[2] - pw[2]).powi(2))
+                        .sqrt();
+                let scale = pu[0]
+                    .abs()
+                    .max(pu[1].abs())
+                    .max(pu[2].abs())
+                    .max(pw[0].abs())
+                    .max(pw[1].abs())
+                    .max(pw[2].abs());
+                let band = cad_primitives::TAU_MODEL * (1.0 + scale);
+                if d < band {
+                    // survivor = lower index (matches every other collapse's
+                    // survivor rule — both are already exact on their curve, so
+                    // no exactness ranking is needed).
+                    pair = Some((w, u)); // (victim = higher, survivor = lower)
+                    break 'scan;
+                }
+            }
+        }
+        match pair {
+            Some((victim, survivor)) => {
+                if std::env::var_os("YANG_MOVED_WELD_PROBE").is_some() {
+                    eprintln!(
+                        "[moved-weld] victim={victim} survivor={survivor} p={:?}",
+                        mesh.verts[survivor as usize]
+                    );
+                }
+                collapse_vertex(mesh, attribution, victim, survivor);
+                welded = true;
+            }
+            None => break,
+        }
+    }
+    welded
+}
+
 /// KV15b (spec `kv15b_mint_site_subresolution_collapse`): collapse
 /// sub-resolution intersection segments before Phase-B emission.
 ///
@@ -3122,6 +3199,41 @@ pub(crate) fn stage4_relocate_and_correct(
                 }
                 None => break,
             }
+        }
+        attribution.attributions = attr_vec;
+    }
+
+    // (3b′) Coincident RELOCATED-vertex weld (spec `yang_n47_coincident_moved_weld`,
+    // deviation N47). Two vertices this pipeline RELOCATED (`moved`: pushed onto an
+    // analytic circle/ellipse/line/torus/surface-pair) can converge to within the
+    // MODEL coincidence tolerance `TAU_MODEL·(1+scale)` — they are the SAME
+    // geometric point emitted twice (a near-tangent seam crossing whose two
+    // arrangement points both Newton-project onto one intersection point). The
+    // §4.4.1(b) merge above misses them: it scans TRIANGLE edges and gates on the
+    // triangle AREA (`floor²`), so a NEEDLE (two coincident verts + one far vert:
+    // large area, sub-floor edge) is skipped, and a coincident pair that is only
+    // LOOP-adjacent (not a shared triangle edge) is never examined. Left in place,
+    // the twins survive into `emit_topology` (vertices 1:1 with `mesh.verts`) as a
+    // sub-render-precision output edge, tripping kernel-v2's G1 render-collapse
+    // gate FAR downstream (R0012 face 1023 @ 7e-7 / scale 100; R0098 face 599 @
+    // 4e-6 / scale 1900). Welding here is a self-localizing PRODUCER fix.
+    //
+    // Band: the scale-relative MODEL coincidence tolerance `TAU_MODEL·(1+scale)`
+    // (`scale` = max |coord| of the pair) — the SAME band the stage-5 planarity
+    // wall and every other coincidence test uses; it is 10× TIGHTER than the
+    // MIN_FEATURE_SIZE feature floor, so it admits ONLY sub-(feature/10)
+    // coincidences (a genuine feature is ≥ `MIN_FEATURE_SIZE·(1+scale)` apart).
+    // NOT tolerance widening (P9): it is the model's own definition of "same
+    // point," and it only ever COLLAPSES an already-degenerate output edge.
+    // Restricted to `moved`×`moved` pairs (the relocation-convergence mechanism) —
+    // it never touches un-relocated arrangement geometry `boolean()` kept for
+    // watertightness (cf. the §4.4.1(b) micro-scale R0091 revert). `collapse_vertex`
+    // is the proven watertight-preserving edge-collapse (with membrane
+    // cancellation); iterate to a fixed point over live (still-referenced) verts.
+    {
+        let mut attr_vec = std::mem::take(&mut attribution.attributions);
+        if weld_coincident_relocated(mesh, &mut attr_vec, &moved) {
+            collapsed_any = true;
         }
         attribution.attributions = attr_vec;
     }

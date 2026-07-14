@@ -16,6 +16,7 @@ mod m5_case_iv;
 mod matching;
 mod membrane;
 pub(crate) mod n2_junction;
+mod n47_moved_weld;
 mod stage0_rim_projection;
 mod topology;
 

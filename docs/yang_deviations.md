@@ -2800,3 +2800,69 @@ wrong generator stays rejected; and the `None` guards fire for non-cyl/plane,
 (linear-band RED / exact-band GREEN in one test, mirroring N39) plus the R0026
 single-case replay advancing past the selection wall. Deviation entry per P2
 Yang-increment clarification.
+
+### N47 — Coincident relocated-vertex weld before topology emission (defensive producer invariant; render-collapse twin class)
+
+**Status:** SHIPPED (task #165). Spec `specs/yang_n47_coincident_moved_weld.md`.
+
+**Mechanism.** Stage-4 `stage4_relocate_and_correct` pushes intersection-edge
+vertices onto their exact analytic curves (`moved`: circle / ellipse / line /
+torus / surface-pair). Two such relocations can *converge* — a near-tangent seam
+whose two arrangement vertices both Newton-project onto one intersection point —
+leaving two distinct mesh vertices closer than the model coincidence tolerance
+`TAU_MODEL·(1+scale)`. Emitted 1:1 into the output B-Rep (`emit_topology`), the
+pair is a sub-render-precision output edge that trips kernel-v2's G1 gate far
+downstream (`planar triangle collapsed at render precision`).
+
+The existing §4.4.1(b) sub-feature merge misses this population: it scans
+TRIANGLE edges and gates on the triangle AREA (`floor²`), so a NEEDLE (two
+coincident verts + one far vert — large area, sub-floor edge) is skipped, and a
+pair that is only LOOP-adjacent (not a shared triangle edge) is never examined.
+
+**Fix.** A new fixed-point pass `weld_coincident_relocated` (stage4_correct.rs),
+run after the §4.4.1(b) merge: scan `moved`×`moved` live-vertex pairs; a pair
+within `TAU_MODEL·(1+scale)` (`scale` = max |coord|) is one geometric point —
+`collapse_vertex` welds it (victim = higher index).
+
+**Paper basis (P8).** Yang et al. 2025 §4.4.1 / Fig. 11(b)
+(`refs/text/yang2025_hybrid_boolean.txt` lines 535–538, 562, 975): *"we remove a
+point if it is too close to another … after removing all the points too close to
+each other";* *"if an endpoint p … is too close to q, we merge p with q";*
+*"Coincident edges and points are merged."* This is the relocation-convergence
+analog of that merge.
+
+**Tolerance decisions.** No free parameter. The band `TAU_MODEL·(1+scale)` is the
+model's own coincidence tolerance (identical to the stage-5 planarity wall and
+every other coincidence test), **10× tighter** than the `MIN_FEATURE_SIZE·(1+scale)`
+feature floor, so it admits only sub-(feature/10) coincidences. It only ever
+collapses an already-degenerate output edge — not a downstream acceptance band
+(P9). Restricted to `moved`×`moved`: it never touches un-relocated arrangement
+geometry `boolean()` kept for watertightness (cf. the §4.4.1(b) micro-scale R0091
+revert — the un-relocated coincident-twin class stays blocked on sidecar
+reference parity, P9/P10).
+
+**Scope / zero-regression.** Full release corpus **byte-stable: 239 CORRECT /
+0 WRONG / 51 ERROR** (identical to baseline; the F0072 ERROR↔TIMEOUT flip is the
+known load-sensitive budget artifact, not this change). The pass is a corpus
+no-op today — no currently-passing case carries a relocated coincident twin — so
+it ships as a *preventive* producer invariant. It directly serves the named
+§4.3.3 near-tangency increment (task #137: R0003/R0008/R0026/C0065), whose
+convergent relocations onto shared curves are exactly the population this welds.
+
+**Explicitly NOT fixed:** the render-collapse cases that motivated the
+investigation (R0012 face 1023 @ 7e-7 / scale 100; R0098 face 599 @ 4e-6 / scale
+1900) are NON-relocated Cherchi arrangement twins — they never reach the
+relocation stage, so `moved`-restricted welding cannot (and must not, R0091
+landmine) touch them. Their safe collapse needs sidecar reference parity; tracked.
+
+**Oracles:** `tests_unit/n47_moved_weld.rs` —
+`relocated_coincident_twin_welds` (a relocated 1e-7 twin collapses, bystander
+byte-identical), `separated_relocated_pair_is_not_welded` (a 0.1-apart relocated
+pair is untouched), `coincident_but_unrelocated_twin_is_not_welded` (an
+un-relocated coincident twin is untouched — the R0091 restriction).
+Mutation-killable: dropping the `moved` restriction collapses un-relocated
+geometry; widening the band past the feature floor welds real features.
+
+**Sign-off:** solo-operator variant (P5); unit oracles (P3/P4) + full-corpus
+byte-stability gate (P1 implementation-blind check). Deviation entry per P2
+Yang-increment clarification.
