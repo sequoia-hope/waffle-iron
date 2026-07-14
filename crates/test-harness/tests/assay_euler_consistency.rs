@@ -245,3 +245,62 @@ fn generator_output_is_even() {
         "generator_output_is_even: {checked} generated cases + op-scan spot checks, all even"
     );
 }
+
+/// Check 5 — the through-hole heuristic OVER-CLAIM class (task #155).
+///
+/// `compute_euler_target` calls a same-plane extrude-cut deeper than the boss a
+/// genus-1 through-hole and emits χ=0 (`gen.rs`). That test is DEPTH-only: it
+/// never checks whether the cut profile is XY-contained inside the boss
+/// footprint. A cut that penetrates in depth but sits partly (or wholly)
+/// OUTSIDE the boss cross-section removes a notch/chunk, not a closed tunnel —
+/// the result stays genus-0 (χ=2). So the heuristic's 0 is an UPPER-BOUND on
+/// genus; mesh measurement is the ground truth that corrects it back to 2. This
+/// is one of the ~62 legitimate `compute != stored` disagreements the header
+/// documents, in the OVER-claim (0-vs-2) direction (R0006 is the UNDER-claim
+/// 2-vs-0 direction).
+///
+/// These five R-series metas were flagged (task #155) as "suspected miswritten
+/// χ=2→0" precisely because the op-scan returns 0. This session's per-case
+/// `single_case` run resolved the suspicion as WRONG — the metas are correct:
+///
+/// | case  | op-scan | stored | single_case (2026-07-14)          |
+/// |-------|---------|--------|-----------------------------------|
+/// | R0027 | 0       | 2      | SUPPORTED_CORRECT — mesh χ = 2     |
+/// | R0055 | 0       | 2      | SUPPORTED_CORRECT — mesh χ = 2     |
+/// | R0079 | 0       | 2      | SUPPORTED_CORRECT — mesh χ = 2     |
+/// | R0088 | 0       | 2      | SUPPORTED_CORRECT — mesh χ = 2     |
+/// | R0007 | 0       | 2      | UNSUPPORTED(coplanar/M8) — no mesh |
+///
+/// For the four SUPPORTED_CORRECT cases the euler oracle
+/// (`check_mesh_euler_characteristic`) measured V−E+F on the real output and it
+/// equalled the stored 2 (a single genus-0 shell) — the cuts are not contained
+/// tunnels. R0007 walls at Stage-0 coplanar (roadmap M8) so no solid is built
+/// and its target is not yet mesh-verified; it is pinned here only to prevent a
+/// stale-suspicion flip to 0, and MUST be re-measured when M8 lands (its op-3
+/// gear/rect cuts are LARGER than the circle boss — an engulfing cut, not a
+/// contained loop — so genus-0 is the expected outcome).
+///
+/// The pin: stored stays 2, and the op-scan divergence (0) is asserted so a
+/// future change to `compute_euler_target` that silences it forces a re-read of
+/// this analysis rather than a silent corpus edit.
+#[test]
+fn throughhole_heuristic_overclaim_targets_pinned() {
+    // The four mesh-verified genus-0 outputs plus the M8-pending R0007.
+    for id in ["R0027", "R0055", "R0079", "R0088", "R0007"] {
+        let meta = load_meta(id);
+        assert_eq!(
+            meta.oracles.euler_target, 2,
+            "{id}: stored euler_target must stay 2 (mesh-verified genus-0; task #155 \
+             resolved the χ=2→0 suspicion as a depth-only heuristic over-claim)"
+        );
+        assert_eq!(
+            compute_euler_target(&meta.operations),
+            0,
+            "{id}: op-scan no longer over-claims a through-hole — if the heuristic \
+             gained XY-containment awareness, delete this pin and revisit task #155"
+        );
+    }
+    eprintln!(
+        "throughhole_heuristic_overclaim_targets_pinned: R0007/R0027/R0055/R0079/R0088 held at 2"
+    );
+}

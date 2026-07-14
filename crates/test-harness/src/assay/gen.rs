@@ -396,6 +396,18 @@ pub fn random_operation(rng: &mut impl Rng, scale: f64, is_first: bool) -> (Stri
 ///   which is why it cannot re-close an existing hole)
 /// - Multi-plane cuts (cut axis misaligned with boss → penetration unknown)
 /// - Any boss after the first (may refill a hole)
+///
+/// KNOWN OVER-CLAIM (task #155): the through-hole test is DEPTH-only — it fires
+/// whenever a same-plane extrude-cut is deeper than the boss, WITHOUT checking
+/// that the cut profile is XY-contained inside the boss footprint. Depth
+/// penetration is necessary but not sufficient for a closed tunnel: a deep cut
+/// that sits partly or wholly outside the boss cross-section removes a notch or
+/// engulfs a chunk and leaves the solid genus-0 (χ=2). So the emitted 0 is an
+/// UPPER BOUND on genus; the mesh euler oracle is the ground truth that may
+/// correct it back to 2. The corpus stores the mesh-verified value, so several
+/// frozen metas legitimately read 2 where this op-scan returns 0 (R0007, R0027,
+/// R0055, R0079, R0088 — pinned in `throughhole_heuristic_overclaim_targets_pinned`).
+/// This is why the euler self-consistency guard never asserts `compute == stored`.
 pub fn compute_euler_target(ops: &[OpMeta]) -> i64 {
     // Must start with a boss.
     let Some(boss) = ops.first() else {
