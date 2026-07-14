@@ -2338,3 +2338,82 @@ principled, tested, zero-regression fix ships).
 
 **Sign-off:** solo-operator variant (P5), red/green via the mutation-killable
 primitive units. Deviation entry per P2 Yang-increment clarification.
+
+### N41 — Doubled-membrane removal at the Stage-4 shell gate (the χ=3 sub-layer of the #146 non-2-manifold class)
+
+**Where:** `crates/yang-rs/src/stage4_relocate.rs` — `remove_doubled_membranes`
+(+ `membrane_orientation_sign`); wired at `crates/yang-rs/src/stage4_correct.rs`
+step (4a1), immediately before the pinch-vertex split (4a2) and the
+`check_watertight_2manifold` shell gate (4b).
+
+**Mechanism:** the mesh boolean can mint a DOUBLED MEMBRANE — a pair of
+triangles with the IDENTICAL vertex set and OPPOSITE winding — when a
+backtrack-spike / near-tangent junction leaves a spur vertex just off a real
+edge. The two coincident, opposite-normal triangles form a zero-thickness "fin"
+that contributes NOTHING to the represented point-set, yet each of its three
+shared edges gains one surplus `fwd` + one surplus `rev` directed half-edge. The
+`fwd == rev` watertight pairing still holds (so the halfedge gate passes), but
+the shell's Euler characteristic reads the topologically IMPOSSIBLE odd value
+`χ = 3` (exactly one double-cover edge: `3f − 2e = 2`), and the per-shell Euler
+gate in `check_watertight_2manifold` stops loud with `NonManifoldOutput`.
+Measured drivers (probe `DOUBLECOVER_EDGE_PROBE`): **R0051** op-3, shell
+`v=133 e=392 f=262 χ=3`, membrane `{116,117,132}` on edge `(116,132)` (apex
+`117` area 2.4e-9, used by NOTHING but the two fin copies); **F0064** op-4, shell
+`v=1300 e=3893 f=2596 χ=3`, membrane `{1237,1282,1290}` (apex `1290`, likewise
+tri-incidence 2). The pass groups triangles by ascending-sorted vertex triple,
+cancels each opposite-winding pair (removing BOTH copies), and leaves the spur
+apex dangling for the caller's `compact_unreferenced_verts`.
+
+**Why removal is correct (three independent properties):**
+- **Volume / point-set preserving** — a doubled membrane is a zero-volume fin;
+  the two copies carry opposite normals and cancel exactly.
+- **Edge-balance preserving** — removing both copies drops `fwd` AND `rev` by one
+  on each of the three shared edges, so the `fwd == rev` invariant is maintained
+  and an edge that reaches zero simply vanishes. The pass can NEVER open a new
+  boundary or unbalance an edge, which is why it is safe without re-examining the
+  surrounding star (contrast the pinch-VERTEX split, which needs the closed-fan
+  guard). Each membrane raises `χ` by exactly 1, so removing it lowers `χ` by 1
+  toward the honest even value — and removal is done regardless of parity, so a
+  TWO-membrane shell (which would read an even `χ` and SILENTLY masquerade as a
+  higher genus — the same P9 silent-wrong hazard the pinch-split spec flagged)
+  is also healed.
+- **No-op on any valid 2-manifold** — a valid closed oriented mesh never
+  contains two triangles sharing a vertex set, so the pass is BYTE-IDENTICAL on
+  the entire green corpus (I5, the fast path returns `removed == 0` with the
+  triangle array untouched).
+
+**Paper basis / deviation status:** NOT a Yang deviation — the paper assumes the
+mesh boolean emits a clean manifold (§4.4). This is the mesh-level dual of the
+already-shipped tangency pinch-VERTEX split (spec `yang_tangency_pinch_split.md`,
+task #86): the standard manifold B-Rep representation of a self-touching /
+degenerate-fin output is per-sheet topological cleanup (Mäntylä [#23]). A
+same-winding coincident pair (a DIFFERENT defect, not a cancelling fin) is
+deliberately left for the loud gate (P9 — do not mask an unexplained defect).
+
+**P9/P10 safety:** purely combinatorial — NO positional tolerance. The
+discriminant is exact vertex-set identity + opposite winding parity, both
+tolerance-free, exactly like `split_pinch_vertices`. Because the pass is a strict
+no-op on clean meshes it cannot alter any currently-passing output.
+
+**Tolerance decisions:** none.
+
+**Oracles:** yang-rs lib units in `tests_unit/membrane.rs`
+(`doubled_membrane_heals_odd_chi_shell` — the χ=3 tetra-plus-fin fixture heals to
+χ=2; `clean_shell_is_byte_identical` — I5; `same_winding_duplicate_is_left_for_the_gate`
+— the P9 guard / winding-sign mutation catcher; `membrane_orientation_sign_is_parity`).
+Integration: F0064 and R0051 — the `s4-shell-euler χ=3` wall is RETIRED for both
+(each shell heals to a valid χ). Both remain ERROR because they are MULTI-LAYER
+cases (like F0059 was): F0064 advances to a pre-existing Stage-6
+`s6-planar-positive-count face 9` wall, R0051 to a pre-existing kernel-v2
+Newell-normal re-entry wall — separate, deeper defects this fix EXPOSES rather
+than introduces (the standard "peel a layer" progression of the #146 class).
+**Assay 2026-07-14: 239 CORRECT / 0 WRONG / 51 ERROR / 4 UNSUPPORTED /
+1 EXPECTED_ERROR — every one of the 295 cases keeps its EXACT baseline category
+(a full per-case diff against the pre-fix run is identical), 0 SUPPORTED_WRONG,
+no SUPPORTED_CORRECT lost. A faithful robustness increment that retires the χ=3
+doubled-membrane wall for both drivers (each shell now heals to a valid χ before
+advancing to its deeper pre-existing layer) and lights zero new cases
+(governance §0.1 — a principled, tested, zero-regression fix ships).**
+
+**Sign-off:** solo-operator variant (P5), red/green via the mutation-killable
+`membrane.rs` units. Deviation entry per P2 Yang-increment clarification.

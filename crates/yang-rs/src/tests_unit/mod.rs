@@ -14,6 +14,7 @@ mod construction_stage1;
 mod m4_substitute;
 mod m5_case_iv;
 mod matching;
+mod membrane;
 pub(crate) mod n2_junction;
 mod stage0_rim_projection;
 mod topology;
@@ -32,6 +33,8 @@ pub(crate) use m4_substitute::*;
 pub(crate) use m5_case_iv::*;
 #[allow(unused_imports)]
 pub(crate) use matching::*;
+#[allow(unused_imports)]
+pub(crate) use membrane::*;
 #[allow(unused_imports)]
 pub(crate) use n2_junction::*;
 #[allow(unused_imports)]

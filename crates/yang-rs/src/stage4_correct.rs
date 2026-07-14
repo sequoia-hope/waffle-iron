@@ -3374,6 +3374,16 @@ pub(crate) fn stage4_relocate_and_correct(
     // non-degeneracy (Yang §4.5 step 4). Reversed intersections are handled by
     // the §4.5.3 sweep above; watertightness by the global gate below (§4.4.3).
     validate_relocated_triangles(mesh, attribution, &moved)?;
+    // (4a1) Doubled-membrane removal (spec `yang_doubled_membrane_removal.md`,
+    // task #146 χ=3 sub-layer): drop opposite-winding coincident-triangle fins
+    // (a zero-volume artifact of a backtrack-spike / near-tangent junction)
+    // BEFORE the shell gate reads χ. Volume- and edge-balance-preserving; it
+    // leaves the spur apex dangling for `compact_unreferenced_verts`, so it
+    // rides the same Phase-A recompute path as a §4.5.3 collapse.
+    let membranes_removed = remove_doubled_membranes(mesh);
+    if membranes_removed > 0 {
+        collapsed_any = true;
+    }
     // (4a2) Tangency pinch-vertex split (spec `yang_tangency_pinch_split.md`):
     // uniform per-sheet representation of self-touching union boundaries
     // BEFORE the shell gate reads χ. Splitting appends vertices (a topology

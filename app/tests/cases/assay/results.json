@@ -294,7 +294,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): d77f3528-7297-490c-abb3-74aee23c46f5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "detail": "1 engine error(s): d77f3528-7297-490c-abb3-74aee23c46f5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output hyperbola-arc endpoint does not lie on the +major-axis branch\")",
       "id": "R0049",
       "status": "error"
     },
@@ -306,7 +306,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output face plane normal disagrees with its outer-loop Newell normal\"). Body created as standalone.",
       "id": "R0051",
       "status": "error"
     },

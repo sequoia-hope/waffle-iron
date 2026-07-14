@@ -1374,6 +1374,108 @@ pub(crate) fn non_manifold_at(site: &str, detail: std::fmt::Arguments<'_>) -> Ya
     YangError::NonManifoldOutput
 }
 
+/// Orientation of `tri` relative to its ASCENDING-sorted key: `+1` for an
+/// even permutation, `−1` for an odd one. `key` must be `tri` sorted (all
+/// three vertices distinct). Two triangles with the same key and OPPOSITE
+/// sign are a doubled membrane (§ [`remove_doubled_membranes`]).
+pub(crate) fn membrane_orientation_sign(tri: [u32; 3], key: [u32; 3]) -> i8 {
+    let idx = |v: u32| key.iter().position(|&k| k == v).unwrap();
+    let perm = (idx(tri[0]), idx(tri[1]), idx(tri[2]));
+    // Even permutations of (0,1,2): (0,1,2),(1,2,0),(2,0,1).
+    if matches!(perm, (0, 1, 2) | (1, 2, 0) | (2, 0, 1)) {
+        1
+    } else {
+        -1
+    }
+}
+
+/// DOUBLED-MEMBRANE removal (spec `yang_doubled_membrane_removal.md`, task
+/// #146 χ=3 sub-layer). A DOUBLED MEMBRANE is a pair of triangles with the
+/// IDENTICAL vertex set and OPPOSITE winding — a zero-thickness "fin" the
+/// mesh boolean mints when a backtrack-spike / near-tangent junction leaves a
+/// spur vertex just off a real edge (F0064 op-4 membrane {1237,1282,1290};
+/// R0051 op-3 membrane {116,117,132} — the spur apex is used by NOTHING but
+/// the two fin copies). The two coincident triangles carry opposite normals,
+/// so the pair contributes NOTHING to the represented point-set, yet each of
+/// its three shared edges gains one surplus `fwd` + one surplus `rev`
+/// directed half-edge. The union shell then reads the topologically
+/// IMPOSSIBLE odd Euler characteristic (χ=3: exactly one double-cover edge)
+/// and [`check_watertight_2manifold`]'s shell gate stops loud.
+///
+/// Removing BOTH triangles of every opposite-winding pair is:
+/// - **volume / point-set preserving** — a membrane is a zero-volume fin;
+/// - **balance preserving** — each of the 3 shared edges loses exactly one
+///   `fwd` and one `rev`, so the `fwd == rev` watertight invariant is
+///   maintained and an edge that drops to zero simply vanishes; the pass can
+///   NEVER open a new boundary or unbalance an edge (this is why it is safe
+///   without re-checking the surrounding star);
+/// - a strict **no-op on any valid 2-manifold**, which never contains two
+///   triangles sharing a vertex set, so the entire green corpus is
+///   BYTE-IDENTICAL through the pass (I5).
+///
+/// Purely combinatorial — NO positional tolerance (P9/P10), exactly like
+/// [`split_pinch_vertices`]. A SAME-winding duplicate (a distinct defect, not
+/// a cancelling fin) is deliberately left for the loud gate. The spur apex
+/// vertex is left dangling here and dropped by the caller's
+/// `compact_unreferenced_verts` (the pass returns `> 0`, which the caller
+/// treats like a §4.5.3 collapse). Deterministic: sorted-triple + triangle
+/// index order (I7). Returns the number of triangles removed.
+pub(crate) fn remove_doubled_membranes(mesh: &mut Mesh) -> usize {
+    use std::collections::BTreeMap;
+    // Group triangles by ascending-sorted vertex triple → (index, sign).
+    let mut groups: BTreeMap<[u32; 3], Vec<(usize, i8)>> = BTreeMap::new();
+    for (ti, &tri) in mesh.tris.iter().enumerate() {
+        let mut key = tri;
+        key.sort_unstable();
+        // A repeated vertex is a degenerate triangle, not a membrane — leave
+        // it for the loud gate.
+        if key[0] == key[1] || key[1] == key[2] {
+            continue;
+        }
+        groups
+            .entry(key)
+            .or_default()
+            .push((ti, membrane_orientation_sign(tri, key)));
+    }
+    let mut remove = vec![false; mesh.tris.len()];
+    for members in groups.values() {
+        if members.len() < 2 {
+            continue;
+        }
+        // Cancel opposite-winding pairs (both directions of the same fin).
+        // Any same-winding surplus is a DIFFERENT defect (two coincident
+        // like-oriented triangles) and is left untouched (P9 — do not mask an
+        // unexplained defect).
+        let pos: Vec<usize> = members
+            .iter()
+            .filter(|&&(_, s)| s > 0)
+            .map(|&(i, _)| i)
+            .collect();
+        let neg: Vec<usize> = members
+            .iter()
+            .filter(|&&(_, s)| s < 0)
+            .map(|&(i, _)| i)
+            .collect();
+        let k = pos.len().min(neg.len());
+        for i in 0..k {
+            remove[pos[i]] = true;
+            remove[neg[i]] = true;
+        }
+    }
+    let removed = remove.iter().filter(|&&r| r).count();
+    if removed > 0 {
+        let kept: Vec<[u32; 3]> = mesh
+            .tris
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| !remove[i])
+            .map(|(_, &t)| t)
+            .collect();
+        *mesh = Mesh::new(std::mem::take(&mut mesh.verts), kept);
+    }
+    removed
+}
+
 /// Tangency PINCH-VERTEX split (spec `yang_tangency_pinch_split.md`, task
 /// #86): a vertex whose triangle star decomposes into ≥ 2 edge-connected
 /// components, EACH a closed fan, is the mesh weld of a tangency pinch —
