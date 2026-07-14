@@ -2417,3 +2417,112 @@ advancing to its deeper pre-existing layer) and lights zero new cases
 
 **Sign-off:** solo-operator variant (P5), red/green via the mutation-killable
 `membrane.rs` units. Deviation entry per P2 Yang-increment clarification.
+
+### N42 — Stage-6 planar-face GROSS-non-planarity self-check (producer-contract enforcement for the #146 off-plane emission class)
+
+**Where:** `crates/yang-rs/src/stage5_topology.rs` — `emit_topology`, planar
+branch, immediately after the `positive_count` (E3) check and before loop
+emission. Guard tag `s6-planar-loop-nonplanar` (self-localizing via
+`NONMANIFOLD_SITE_PROBE`).
+
+**Mechanism / gap closed:** yang's Stage-6 planar-face assembler validated only
+the winding *sign* of each loop (the Newell area's sign along the inherited
+normal, via `positive_count`), never that the loop is actually **planar** (all
+loop vertices ON the inherited plane). So a planar output face carrying a
+GROSSLY off-plane loop vertex — the task-#146 class (F0064 / R0051) — was emitted
+as a *non-planar "planar" face*: structurally invalid output that only a
+DOWNSTREAM consumer's gate caught, far from its source (kernel-v2 `from_yang`'s
+Newell-agreement wall `InvalidBooleanOutput("plane normal disagrees with its
+outer-loop Newell normal")` on the *next* chained op for R0051; or the F1
+production planarity gate `validate_boolean_output_planarity`). This violates
+yang **HARD RULE #4** ("output must be 2-manifold/valid or yang-rs returns
+`Err`"): the producer was shipping a contract violation for a consumer to detect.
+The gate makes every planar output face check `|n·p + d| ≤ TAU_MODEL·(1+max|coord|)`
+for every loop vertex and rejects with a loud `NonManifoldOutput` naming the face,
+off-plane vertex, and residual.
+
+**Band = `TAU_MODEL` (1e-7), NOT `TAU_EVAL` — the load-bearing tolerance
+decision (P9).** A boolean output planar face is only planar to the MODEL
+coplanarity tolerance, because Stage-0 near-coplanar preprocessing legitimately
+merges faces whose seam vertices carry a residual up to `TAU_MODEL`. The DESIGNED
+proof of this is `yr27_face_resolution::near_partial_overlap_residual_1e8`: a
+1e-8-residual near-coplanar union whose output is asserted VALID (watertight,
+χ=2, volume that *includes* the residual). A `TAU_EVAL` (1e-9) band here would
+false-positive on that designed near-coplanar class (it rejected the 1e-8 fixture
+in the first cut of this gate — the P10 correction that produced this band). So
+this is deliberately the **GROSS**-defect producer wall: a real topology bug (a
+cylinder wall sliver grouped into a floor patch, an over-determined junction
+relocated onto the wrong surface subset) is ≥ `MIN_FEATURE_SIZE`-scale (1e-6),
+≥10× `TAU_MODEL`, while every legitimate near-coplanar residual is ≤ `TAU_MODEL`.
+kernel-v2's F1 gate (`TAU_EVAL`) remains the stricter FINAL adjudicator of
+sub-`TAU_MODEL` slips (e.g. F0069's 3e-8, still F1-caught, unchanged). This is a
+`REJECT`, never a snap — a > `TAU_MODEL` off-plane vertex is a real defect.
+
+**Zero corpus-regression (assay path):** every corpus case flows through
+kernel-v2's `boolean_op`, whose F1 gate (`TAU_EVAL`, STRICTER than this
+`TAU_MODEL`) already rejects any planar face with an off-plane loop vertex. Any
+face this yang gate would reject was therefore *already* rejected downstream → the
+case was already `ERROR`, never `CORRECT`; the gate cannot demote a corpus
+`CORRECT` case. Confirmed empirically: full assay **239 CORRECT / 0 WRONG /
+51 ERROR / 4 UNSUPPORTED / 1 EXPECTED_ERROR — byte-identical categories to the
+pre-fix baseline.** What changes is *attribution*, not category: R0051 (`face 3
+vert 131 off-plane d=-1.187e-3`) now fails at the yang producer instead of a
+confusing cross-op consumer wall; F0064 (`face 4 vert 1277 off-plane
+d=-8.331e-2`) now reports the TRUE root cause (a real-scale off-plane vertex)
+instead of its former downstream *symptom* wall `s6-planar-positive-count`.
+F0069 (3e-8, sub-`TAU_MODEL`) is unaffected — still adjudicated by F1.
+
+**One yang-LEVEL unit test exposed a masked defect (NOT a corpus regression, P9).**
+The rewrite tier flagged exactly one previously-green test,
+`stage6_arc_orientation::pocket_operand_reenters_plain_boolean` (#133). It calls
+yang's `boolean()` DIRECTLY (not via kernel-v2 `boolean_op`), so F1 never guarded
+it — it asserted only mesh *watertightness*. Its `pocket − tool` output has a z=1
+"floor" planar face swallowing a cylinder wall-SLIVER triangle (all three verts
+on the r=2 pocket wall at z ∈ {0,1,2} — the face is 1.0 off its own plane, ≫
+`TAU_MODEL`). The mesh is watertight, but the B-Rep is invalid; the same output
+already failed `from_yang`'s Newell gate downstream, so this case NEVER produced a
+valid kernel solid — the watertightness oracle was masking the malformed floor
+face. The gate correctly walls it; the test is quarantined `#[ignore]` (task
+#162) with the restoration path (fix the Stage-5 wall/floor TessellationMap
+attribution so the floor patch stops swallowing the wall sliver). A NEW,
+precisely-localized follow-up defect, recorded — not masked. (A second yang-level
+test, `near_partial_overlap_residual_1e8`, was momentarily red under the first
+`TAU_EVAL` cut and is GREEN under the final `TAU_MODEL` band — it is the design
+fixture that pinned the band.)
+
+**Not a fix for the underlying mint defects (P9/P10):** this gate makes the
+class fail HONESTLY at its source with a diagnostic; it does NOT relocate or snap
+the off-plane vertex (band-widening / silent repair is forbidden — spec
+`f0069_offplane_gear_rim_emission.md` "What NOT to do"). The two distinct
+mint-site defects it now localizes remain open epics, planned but not landed:
+- **R0051 — over-determined thin-slab junction.** Root-caused this session
+  (probe `KV11_PROBE` + per-vertex surface-residual dump): output vertex 131 is
+  the transversal piercing of the `cyl12 ∩ cyl13` degree-4 SSI curve through a
+  thin slab bounded by two PARALLEL, opposite-normal planes (faces 11 & 15,
+  1.187e-3 apart at model scale 3.37e-3). Exact topology needs TWO distinct
+  piercing vertices (`cyl∩cyl∩plane11` and `cyl∩cyl∩plane15`); the mesh boolean
+  merged them into one vertex, exact on {cyl12, cyl13, plane15} and 1.187e-3 off
+  plane 11. Faithful fix = Stage-4 vertex SPLIT (per-plane copies reconnected by
+  the `cyl∩cyl` edge). This is the "mesh topology ≠ exact topology" family (task
+  #137).
+- **F0069/F0072 — chained seam-crossing tangential slip** (~6e-8), a
+  seam-crossing point inserted on a vertical tooth-flank edge off the flank plane
+  by a prior op's coplanar/overlay processing (spec
+  `f0069_offplane_gear_rim_emission.md`). Faithful fix = mint the seam-crossing
+  point by exact intersection with the flank plane at its Stage-0/6 insertion
+  site.
+
+**Tolerance decisions:** the band is `cad_primitives::TAU_MODEL` (1e-7, the model
+coplanarity tolerance) — see the load-bearing rationale above. No new constant
+introduced; no existing band widened (F1 stays `TAU_EVAL`).
+
+**Oracles:** yang-rs lib unit `tests_unit::topology::s6_planar_loop_offplane_vertex_rejected`
+— the mutation-killable pair (an off-plane quad rejects `NonManifoldOutput`; the
+same quad flattened onto its plane assembles to exactly one face). Integration:
+full assay category-stable (above); R0051 (1.187e-3) and F0064 (8.331e-2)
+confirmed re-attributed to the `s6-planar-loop-nonplanar` producer wall; rewrite
+tier GREEN with `near_partial_overlap_residual_1e8` (the band's design fixture)
+passing and `pocket_operand_reenters_plain_boolean` quarantined (task #162).
+
+**Sign-off:** solo-operator variant (P5), red/green via the mutation-killable
+`topology.rs` unit. Deviation entry per P2 Yang-increment clarification.

@@ -326,3 +326,72 @@ pub(crate) fn stage6_all_degenerate_patch_stays_loud() {
         "an all-degenerate patch must stay loud (NonManifoldOutput) — it cannot bound a face"
     );
 }
+
+/// Task #146 (F0064/R0051 off-plane planar-face emission class): a PLANAR
+/// patch whose loop carries a vertex GROSSLY off the inherited plane (beyond
+/// the model coplanarity tolerance `TAU_MODEL`) is INVALID output — yang HARD
+/// RULE #4 requires the producer to reject its own contract violation
+/// (`NonManifoldOutput`), not emit a non-planar "planar" face for a downstream
+/// consumer's Newell / planarity gate to catch. The band is `TAU_MODEL` (a
+/// real topology defect is ≥ `MIN_FEATURE_SIZE`-scale); kernel-v2's stricter
+/// `TAU_EVAL` F1 gate stays the final adjudicator of sub-`TAU_MODEL` slips.
+/// This is the mutation-killable pair: the same quad with the corner ON the
+/// plane must assemble cleanly.
+#[test]
+pub(crate) fn s6_planar_loop_offplane_vertex_rejected() {
+    use std::collections::BTreeMap;
+    // A unit quad inheriting the z=0 plane; the (1,1) corner is lifted 0.01
+    // off z=0 — a gross off-plane loop vertex (0.01 ≫ TAU_MODEL = 1e-7).
+    let offplane = PatchInfo {
+        cycles: vec![vec![(0, 1), (1, 2), (2, 3), (3, 0)]],
+        input: InputId::A,
+        inherited: Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: 0.0,
+        },
+        face_idx: 0,
+        input_reversed: false,
+        had_fold_sliver: false,
+    };
+    let bad_mesh = Mesh::new(
+        vec![
+            p(0.0, 0.0, 0.0),
+            p(1.0, 0.0, 0.0),
+            p(1.0, 1.0, 0.01), // OFF the z=0 plane by 0.01
+            p(0.0, 1.0, 0.0),
+        ],
+        vec![[0, 1, 2], [0, 2, 3]],
+    );
+    let err = emit_topology(
+        &bad_mesh,
+        std::slice::from_ref(&offplane),
+        &BTreeMap::new(),
+        &[],
+        BoolOp::Union,
+    )
+    .expect_err("a planar patch with an off-plane loop vertex must be rejected");
+    assert!(
+        matches!(err, YangError::NonManifoldOutput),
+        "off-plane planar loop must be a loud NonManifoldOutput, got {err:?}"
+    );
+
+    // Companion (mutation kill): the SAME quad flattened onto z=0 assembles.
+    let good_mesh = Mesh::new(
+        vec![
+            p(0.0, 0.0, 0.0),
+            p(1.0, 0.0, 0.0),
+            p(1.0, 1.0, 0.0), // ON the plane
+            p(0.0, 1.0, 0.0),
+        ],
+        vec![[0, 1, 2], [0, 2, 3]],
+    );
+    let ok = emit_topology(
+        &good_mesh,
+        std::slice::from_ref(&offplane),
+        &BTreeMap::new(),
+        &[],
+        BoolOp::Union,
+    )
+    .expect("a genuinely planar quad must assemble");
+    assert_eq!(ok.2.len(), 1, "the flat quad yields exactly one face");
+}

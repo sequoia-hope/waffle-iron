@@ -119,3 +119,31 @@ azimuth-merge path for a chained coaxial gear→disc union; find where the rim
 sample is emitted off the tooth-flank plane and pin it to the exact flank.
 F0072 (3 auto-union failures, `NonPlanarFace` + `azimuth-merge mismatched`) is
 the same class and should fall out with the same fix.
+
+## Amendment 1 (2026-07-14) — a yang producer-side GROSS-non-planarity gate landed (N42), but F0069 is BELOW its band; F0069 stays F1-caught; mint-site fix still open
+
+A Stage-6 planar-face **gross-non-planarity self-check** shipped (deviation N42,
+`stage5_topology.rs::emit_topology`, guard `s6-planar-loop-nonplanar`): yang now
+rejects its own planar output whose loop vertex is beyond the MODEL coplanarity
+tolerance `TAU_MODEL` (1e-7) off the plane. The band is deliberately `TAU_MODEL`,
+**not** `TAU_EVAL` — a first `TAU_EVAL` cut false-positived on the DESIGNED
+near-coplanar fixture `yr27_face_resolution::near_partial_overlap_residual_1e8`
+(a valid 1e-8-residual near-coplanar union), so the producer wall is scoped to
+GROSS defects (≥ `MIN_FEATURE_SIZE`-scale).
+
+**F0069/F0072's residual is ~3e-8 — BELOW `TAU_MODEL` — so this producer gate
+does NOT catch it; F0069 continues to be adjudicated by kernel-v2's stricter
+`TAU_EVAL` F1 gate exactly as before** (assay unchanged, still `ERROR`). N42
+tightened attribution only for the GROSS `#146` drivers R0051 (1.187e-3) and
+F0064 (8.331e-2).
+
+So for F0069, N42 changes nothing: the **mint-site fix in this spec (exact
+seam-crossing insertion on the flank plane) remains the open task-#153 work**,
+still bounded by the "What NOT to do" list above (no band-widening — and note the
+F1 `TAU_EVAL` vs the N42 near-coplanar `TAU_MODEL` tension is a real, deferred
+design question about whether a 3e-8 seam slip is a "defect" or a legitimate
+near-coplanar residual; #153 currently treats it as a defect per its measured
+mechanism, an inserted point NOT on any near-coplanar seam). The sibling R0051
+defect, root-caused the same session, is a DIFFERENT mint bug (an
+over-determined thin-slab `cyl∩cyl` piercing that needs a Stage-4 vertex SPLIT,
+task #137 family) — see deviation N42.

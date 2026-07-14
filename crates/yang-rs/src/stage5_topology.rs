@@ -604,6 +604,51 @@ pub(crate) fn emit_topology(
                 format_args!("face {face_idx} positive_count={positive_count}"),
             ));
         }
+
+        // Task #146 (F0064/R0051 off-plane planar-face emission class):
+        // GROSS-non-planarity self-check (yang HARD RULE #4 — the producer
+        // validates its own output). A PLANAR output face whose loop vertex is
+        // beyond the MODEL coplanarity tolerance `TAU_MODEL` off the inherited
+        // plane is not planar at all — it is a topology/grouping defect (a
+        // cylinder wall sliver grouped into a floor patch, an over-determined
+        // junction relocated onto the wrong surface subset), invalid output
+        // that a downstream consumer's Newell / planarity gate would otherwise
+        // catch far from its source (kernel-v2's
+        // `validate_boolean_output_planarity` at the stricter `TAU_EVAL`, or
+        // its `from_yang` Newell wall). Rejecting here gives the class a
+        // self-localizing wall at its PRODUCER.
+        //
+        // Band = `TAU_MODEL` (1e-7), NOT `TAU_EVAL`: a boolean output is only
+        // planar to the model coplanarity tolerance, because Stage-0
+        // near-coplanar preprocessing legitimately merges faces whose seam
+        // vertices carry a residual up to `TAU_MODEL` (see
+        // `yr27_face_resolution::near_partial_overlap_residual_1e8` — a DESIGNED
+        // 1e-8-residual near-coplanar union whose output is valid, volume
+        // includes the residual). `TAU_EVAL` here would false-positive on that
+        // designed class. So this is the GROSS-defect producer wall (a real
+        // topology bug is ≥ `MIN_FEATURE_SIZE`-scale, ≥10× `TAU_MODEL`);
+        // kernel-v2's F1 gate remains the stricter `TAU_EVAL` FINAL check that
+        // adjudicates sub-`TAU_MODEL` slips (e.g. F0069's 3e-8). `|n·p + d|` is
+        // flip-invariant, so the pre-flip `(n, d)` is used. A REJECT, never a
+        // snap (P9): a > `TAU_MODEL` off-plane vertex is a real defect, not
+        // f64 noise.
+        for cycle in cycles {
+            for &(v, _) in cycle {
+                let pt = mesh.verts[v as usize].as_array();
+                let dist = pt[0] * n[0] + pt[1] * n[1] + pt[2] * n[2] + d;
+                let band = cad_primitives::TAU_MODEL
+                    * (1.0 + pt[0].abs().max(pt[1].abs()).max(pt[2].abs()));
+                if dist.abs() > band {
+                    return Err(non_manifold_at(
+                        "s6-planar-loop-nonplanar",
+                        format_args!(
+                            "face {face_idx} vert {v} off-plane d={dist:.3e} band={band:.3e}"
+                        ),
+                    ));
+                }
+            }
+        }
+
         let outer_cycle = &cycles[outer_idx];
         let inner_cycles: Vec<&Vec<(u32, u32)>> = cycles
             .iter()
