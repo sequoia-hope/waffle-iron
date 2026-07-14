@@ -245,6 +245,74 @@ Baseline timing data from `profile-rust.sh` run:
 | boolean_failures | 158s | Full |
 | **extrude_chains** | **1659s** | Full (96% of harness time) |
 
+## Running the categorized assay (the kernel-v2 corpus score)
+
+**You CAN run the full assay reliably, including in a sandbox / under other
+compute load. Run it in `--release`.** The recurring "the sandbox can't run the
+assay cleanly" belief is a **debug-mode artifact**, not a real limitation — see
+the "why it's reliable" note below.
+
+The corpus is 295 cases. The runner is the `#[ignore]`d
+`full_corpus_categorized` test in `crates/test-harness/tests/assay_kv2.rs`; it
+prints the category table (CORRECT / WRONG / ERROR / UNSUPPORTED / …) and writes
+`target/assay_kv2_report.json` + the committed `app/tests/cases/assay/results.json`.
+
+```
+# Compile once (~9s incremental), then run the full corpus:
+cargo test -p test-harness --test assay_kv2 --release --no-run
+ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=120 \
+  cargo test -p test-harness --test assay_kv2 --release full_corpus_categorized \
+  -- --ignored --nocapture
+```
+
+**Why it's reliable (even under load):** with `ASSAY_JOBS > 1` each case runs as
+a killable subprocess whose per-case timeout is budgeted on **CPU time**, not
+wall time (`assay_kv2.rs`, `replay_case_subprocess`). A case starved by siblings
+or other machine load accrues wall time but **not** CPU time, so its verdict is
+**load-insensitive** — judged the same alone or under contention. Release mode
+slashes per-case CPU time, so heavy cases finish well under budget. The
+debug-mode "~20 false TIMEOUTs" episodes were unoptimized cases exceeding the
+CPU budget, *not* contention. (Debug + `ASSAY_JOBS=1` budgets on WALL and DOES
+give false timeouts under load — avoid that combination.)
+
+**Env knobs:**
+- `ASSAY_JOBS` — parallel cases (default 4; 8 is fine on a ≥12-core box). CPU
+  budgeting keeps verdicts stable; higher just risks a few borderline-slow cases
+  needing a bigger budget.
+- `ASSAY_CASE_TIMEOUT_SECS` — per-case **CPU**-time budget (default 30).
+  **Use ≥120** for a clean full run — a too-tight budget flips genuinely-heavy
+  cases (e.g. `extrude_chains`-scale) to a spurious `TIMEOUT`.
+- `ASSAY_FAST=1` — skip only the un-judgeable (previously timed-out) slow-list
+  cases for a quick partial baseline.
+
+**Handling a budget `TIMEOUT`:** it means "exceeded the CPU budget," not a real
+hang. Re-run that single case serially with a large budget to get its true
+verdict:
+
+```
+ASSAY_CASE=<ID> ASSAY_CASE_TIMEOUT_SECS=280 \
+  cargo test -p test-harness --test assay_kv2 --release single_case -- --ignored --nocapture
+# or, avoiding a rebuild, invoke the built binary directly:
+ASSAY_CASE=<ID> ASSAY_CASE_TIMEOUT_SECS=280 \
+  ./target/release/deps/assay_kv2-<hash> single_case --ignored --nocapture
+```
+
+`ASSAY_CASE=<ID> … single_case` is also the go-to for debugging or
+byte-stability spot-checks of one case (fast, deterministic, generous budget).
+
+**Zero-regression gate for a kernel change:** run the full `--release` corpus
+before and after (or lean on the byte-stability argument for the unchanged
+paths, then confirm on the full run). Compare the category table; investigate
+any case that moved. A budget `TIMEOUT` is not a regression — resolve it to its
+true verdict with `single_case` before comparing.
+
+> ⚠️ The committed `app/tests/cases/assay/results.json` is overwritten by every
+> full run and **auto-staged by the pre-commit hook** (below). If a run left
+> budget-artifact `TIMEOUT`s in it, either re-run with a larger
+> `ASSAY_CASE_TIMEOUT_SECS` to regenerate it clean, or
+> `git checkout app/tests/cases/assay/results.json` before committing — don't
+> commit artifact timeouts as if they were true verdicts.
+
 ## Assay UI snapshot (`results.json`) — a committed file served on GitHub Pages
 
 The in-app **AssayBrowser** shows per-case pass/fail/error status by fetching

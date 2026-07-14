@@ -88,8 +88,14 @@ Do NOT skip to lower-priority items because they are easier.
    NotSupported boundaries listed above: **KV6 revolve**, **M8 coplanar
    Stage 0**, **M5 degree-4 SSI (cyl×cyl)**, and the non-convex CDT profile
    tail. The correctness oracle is **reference parity against the Cherchi
-   C++ sidecar** (roadmap §6) plus the categorized kernel-v2 assay
-   (`cargo test -p test-harness --test assay_kv2 -- --ignored --nocapture`).
+   C++ sidecar** (roadmap §6) plus the categorized kernel-v2 assay. Run the
+   assay in **`--release`** — it is reliable even in a sandbox or under other
+   compute load (per-case timeouts are CPU-time-budgeted, so verdicts are
+   load-insensitive; the "can't run the assay here" belief is a debug-mode
+   artifact). Full recipe and env knobs (`ASSAY_JOBS`, `ASSAY_CASE_TIMEOUT_SECS`,
+   `ASSAY_CASE=<id> single_case`): `docs/TESTING.md` §"Running the categorized
+   assay". Quick form:
+   `ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=120 cargo test -p test-harness --test assay_kv2 --release full_corpus_categorized -- --ignored --nocapture`.
 
    **The paper IS the spec.** Read `refs/yang2025_hybrid_boolean.pdf` before
    each session. Implement what the paper describes.
