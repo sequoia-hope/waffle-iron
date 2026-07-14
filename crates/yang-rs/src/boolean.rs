@@ -1042,10 +1042,35 @@ pub fn boolean(
             if let Some(pp) = stage0_pair_plane(fi) {
                 return Ok((pp.n[0] * c[0] + pp.n[1] * c[1] + pp.n[2] * c[2] + pp.d).abs());
             }
+            // Task #162 (#146/#133 off-plane emission class): a triangle lies
+            // IN a `Plane` face iff ALL THREE of its vertices do. The centroid
+            // ALONE is fooled by a triangle that straddles the plane
+            // symmetrically — a tall cylinder-wall triangle spanning
+            // z ∈ {0, 1, 2} has its centroid EXACTLY on the z=1 pocket-floor
+            // plane (an "exact" hit, d=0) while no vertex is on it, so the
+            // centroid rule mis-attributes the wall sliver to the floor face
+            // (whose arc-edged loop defeats the `point_strictly_in_planar_face`
+            // containment tie-break → `None`, undecidable). Measure the WORST
+            // vertex, not the centroid, so a straddling triangle is rejected at
+            // its true membership distance. This is EXACT and byte-identical for
+            // a genuine on-plane triangle (its vertices are exactly on the face
+            // plane → max == centroid == 0), so the all-planar fuzz corpus and
+            // every clean planar hit are unaffected; it only removes the false
+            // straddle hit. Stage-0 pair-plane faces keep the centroid basis
+            // above (their loop vertices carry a DESIGNED band-level off-plane
+            // residual from the coplanar weld — the centroid is the matching
+            // distance basis there, NOT a straddle). Curved faces keep the
+            // centroid (a wall/cap triangle sits `d_ε` inside the surface BY
+            // CONSTRUCTION; per-vertex distance would mis-tier it).
+            if let Surface::Plane { normal, d } = face.surface {
+                let n = normal.as_array();
+                let dist = |q: [f64; 3]| (q[0] * n[0] + q[1] * n[1] + q[2] * n[2] + d).abs();
+                return Ok(dist(p0).max(dist(p1)).max(dist(p2)));
+            }
             // PR-YR7: delegate to the shared `signed_distance_to_surface`
-            // (Plane + Cylinder + Sphere); take `.abs()` (distance to the
-            // surface). Cone still rejects loudly — the free function returns a
-            // sentinel face index, which we replace with the real input `fi`.
+            // (Cylinder + Sphere); take `.abs()` (distance to the surface). Cone
+            // still rejects loudly — the free function returns a sentinel face
+            // index, which we replace with the real input `fi`.
             match signed_distance_to_surface(face.surface, Point3::new(c[0], c[1], c[2])) {
                 Ok(d) => Ok(d.abs()),
                 Err(YangError::CurvedSurfaceNotYetSupported { .. }) => {

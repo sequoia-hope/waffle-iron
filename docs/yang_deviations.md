@@ -2526,3 +2526,73 @@ passing and `pocket_operand_reenters_plain_boolean` quarantined (task #162).
 
 **Sign-off:** solo-operator variant (P5), red/green via the mutation-killable
 `topology.rs` unit. Deviation entry per P2 Yang-increment clarification.
+
+### N43 — Stage-6 geometric attribution measures a `Plane` face by its triangle's WORST vertex, not the centroid (the #162 wall-sliver mint fix, root of an #146 driver)
+
+**Where:** `crates/yang-rs/src/boolean.rs` — the Stage-6 geometric
+face-attribution fallback (`plane_dist` closure inside the per-kept-triangle
+resolution loop), the LINEAGE-LESS path taken when the input B-Rep carries no
+provenance map (a yang boolean OUTPUT chained directly back into another
+boolean, or a `from_mesh` B-Rep — `ProvMiss::NoLineage`).
+
+**Mechanism / gap closed:** the geometric fallback attributes each kept mesh
+triangle to the input B-Rep face it lies on by measuring the triangle's
+**centroid** distance to each candidate surface and keeping the nearest (an
+"exact" hit within `TAU_WORK` dominates a curved "band" hit). For a `Plane`
+face this centroid-only test is FOOLED by a triangle that STRADDLES the plane
+symmetrically: a tall cylinder-wall triangle whose three vertices sit on the
+r=2 wall at z ∈ {0, 1, 2} has its centroid at z=1 — EXACTLY on the z=1
+pocket-floor plane (distance 0, an exact hit) — while NO vertex is on that
+plane. So the wall sliver was attributed to the horizontal floor face, and
+Stage-6 flood-fill grouped it into the floor patch, emitting a "planar" floor
+face carrying a loop vertex 1.0 off its own plane (a HARD RULE #4 violation
+that N42's producer self-check then correctly walled as
+`s6-planar-loop-nonplanar`). The YR27 `point_strictly_in_planar_face`
+containment tie-break could NOT fix this: the pocket floor's loop has ARC edges
+(where the slot meets the cylinder wall), so the planar 2D test returns `None`
+(undecidable — a curved loop edge's chord would misrepresent the boundary) and
+never excludes the false hit. And the tie-break only runs on MULTI-hit ties,
+whereas the straddle is a UNIQUE exact hit.
+
+**The fix:** a triangle lies IN a plane iff ALL THREE of its vertices do.
+For a `Plane` face (that is NOT a Stage-0 canonical pair plane), membership is
+now the MAXIMUM of the three vertices' plane-distance magnitudes, not the
+centroid's. The straddling wall triangle then measures its true membership
+distance (1.0 off the floor) and is rejected; it falls through to the
+cylinder-wall band hit and is attributed to the cylinder — the correct owner.
+
+**Byte-stability (P9, load-bearing):** for a GENUINE on-plane triangle every
+vertex is exactly on the face plane, so `max == centroid == 0` — the exact
+tier, membership, and tiering are byte-identical to the centroid rule. The only
+behavioral change is REMOVING a false straddle hit (centroid coincidentally on
+a plane the triangle is not in). The all-planar box fuzz (900 cases) and every
+clean planar hit are therefore unaffected. **Two classes deliberately keep the
+centroid basis:** (a) Stage-0 canonical **pair-plane** faces — their loop
+vertices carry a DESIGNED band-level off-plane residual from the coplanar weld
+(`stage0_pair_plane` branch, measured against the pair's canonical plane at its
+`band`), so per-vertex max would mis-tier a legitimate near-coplanar weld; and
+(b) **curved** faces (Cylinder/Sphere/Cone/Torus) — a wall/cap triangle sits
+`d_ε` INSIDE the analytic surface BY CONSTRUCTION, and the centroid is the
+`signed_distance_to_surface` basis the per-face `d_ε` band was tuned against
+(per-vertex distance would mis-tier it). This is the root-cause mint fix the
+#162 quarantine named ("fix the Stage-5 wall/floor attribution"), located
+precisely at the geometric fallback that does that attribution for a
+lineage-less chained input.
+
+**Tolerance decisions:** none — no constant introduced or widened. Membership
+still uses each face's own A14.3 `tol_for` band; only the DISTANCE BASIS for a
+non-pair `Plane` face changes from centroid to worst-vertex (both exact f64
+plane evaluations).
+
+**Oracles:** `stage6_arc_orientation::pocket_operand_reenters_plain_boolean`
+un-quarantined (task #162 closed) — now asserts `assert_watertight` AND
+`assert_planar_faces_are_planar` (every output `Surface::Plane` face's loop
+vertices lie on its stored plane within `TAU_MODEL`, the B-Rep twin of N42's
+producer check). Mutation-killable: reverting the `plane_dist` change
+re-attributes the wall sliver to the floor and the boolean fails at N42's
+`s6-planar-loop-nonplanar` gate. Regression: full assay category-stable (see
+below); rewrite tier GREEN.
+
+**Sign-off:** solo-operator variant (P5), red/green via the un-quarantined e2e
+oracle (red at N42's gate before the fix, green after). Deviation entry per P2
+Yang-increment clarification.

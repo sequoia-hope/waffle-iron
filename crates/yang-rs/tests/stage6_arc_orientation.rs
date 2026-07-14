@@ -282,14 +282,48 @@ fn output_arc_edges_satisfy_ccw_minor_convention() {
 /// is covered by `output_arc_edges_satisfy_ccw_minor_convention` (the
 /// FIRST boolean, `cyl − channel`, still builds).
 ///
-/// UN-QUARANTINE when the Stage-5 wall/floor TessellationMap attribution is
-/// fixed so the floor patch no longer swallows the cylinder wall sliver;
-/// then this returns to `assert_watertight` AND a planar-B-Rep assertion.
+/// UN-QUARANTINED 2026-07-14 (task #162 fixed): the Stage-6 geometric
+/// attribution fallback (used because the chained pocket operand is a
+/// lineage-less yang output) now measures a `Plane` face's membership by the
+/// WORST of a triangle's three vertex distances, not the centroid, so the tall
+/// cylinder-wall triangle spanning z ∈ {0, 1, 2} — whose centroid sits exactly
+/// on the z=1 floor plane while no vertex does — is no longer swallowed into
+/// the floor patch. Back to `assert_watertight` AND a planar-B-Rep assertion.
 #[test]
-#[ignore = "task #162 (#146/#133): pocket−tool output has a cylinder wall sliver mis-grouped into the z=1 floor plane; yang N42 planarity self-check correctly walls it (s6-planar-loop-nonplanar). Un-ignore when Stage-5 wall/floor attribution is fixed."]
 fn pocket_operand_reenters_plain_boolean() {
     let solid = pocket_operand();
     let tool = z_cylinder(0.0, 0.0, 1.3, 1.0, 0.5);
     let out = run(&solid, &tool, BoolOp::Subtract, "pocket − sunk tool");
     assert_watertight(out.as_mesh(), "pocket − sunk tool");
+    assert_planar_faces_are_planar(&out, "pocket − sunk tool");
+}
+
+/// Every `Surface::Plane` output face's loop vertices lie ON its stored plane
+/// (within the model coplanarity tolerance) — i.e. no wall sliver mis-grouped
+/// into a horizontal floor patch. This is the B-Rep-level twin of yang's N42
+/// producer self-check, asserted directly on the output topology.
+fn assert_planar_faces_are_planar(out: &BRep, what: &str) {
+    let mut planar_faces = 0usize;
+    for (fi, f) in out.faces().iter().enumerate() {
+        let Surface::Plane { normal, d } = f.surface else {
+            continue;
+        };
+        planar_faces += 1;
+        let n = normal.as_array();
+        for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+            let e = &out.edges()[ei as usize];
+            for v in [e.start, e.end] {
+                let q = out.vertices()[v as usize].point.as_array();
+                let dist = (q[0] * n[0] + q[1] * n[1] + q[2] * n[2] + d).abs();
+                let band =
+                    cad_primitives::TAU_MODEL * (1.0 + q[0].abs().max(q[1].abs()).max(q[2].abs()));
+                assert!(
+                    dist <= band,
+                    "{what}: planar face {fi} loop vertex {v} at {q:?} is {dist:.3e} \
+                     off its plane (band {band:.3e}) — a non-planar 'planar' face",
+                );
+            }
+        }
+    }
+    assert!(planar_faces > 0, "{what}: output must carry planar faces");
 }
