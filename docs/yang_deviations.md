@@ -2729,3 +2729,74 @@ crossing block to call `select_disjoint_parallel_line` re-raises R0008's
 **Sign-off:** solo-operator variant (P5), red/green via the new unit oracle
 (red before the crossing block, green after) plus the R0008 single-case replay
 advancing past Stage-3. Deviation entry per P2 Yang-increment clarification.
+
+### N46 — Exact cylinder∩plane generator-line membership band (R0026, task #164)
+
+**Where:** `crates/yang-rs/src/stage4_relocate.rs` — new
+`cyl_plane_generator_band(surf0, surf1, tol)`; wired into BOTH line-selection
+gates: `stage3_ssi.rs::build_intersection_curves` (the `point_tol` `Line` arm)
+and `stage4_correct.rs` (the Stage-4 relocation `line_tol`). Both previously
+used `line_band_amplification(…) · tol`; each now prefers the exact band when the
+pair is `cylinder ∩ plane`, falling back to the linear factor otherwise.
+
+**Paper basis:** [#1 Patrikalakis Ch.5] a plane **parallel to a cylinder's axis**
+sections it into a pair of parallel generator lines; [#24 Yang 2025 §4.3]
+surface-pair curve refinement with a Stage-1 chord-band membership test.
+Analytical-primacy (P8): the mesh chord point is off the cylinder radially by
+`ρ ≤ d_ε`; its exact perpendicular distance to a generator is a **derived**
+metric conversion of that same certified band, not a widening.
+
+**Mechanism / gap closed:** R0026 raised
+`AmbiguousCurve { candidates: 2, matched: 0 }` on edge (131,197) (reported as
+"Stage-3 SSI refinement failed" but actually raised at the **Stage-4**
+relocation gate `stage4_correct.rs`, which re-derives the same band). Both
+endpoints lie ~`2.99e-3` from the correct generator; the LINEAR band
+`amp·tol = (R/√(R²−d²))·tol = 2.934e-3` rejected them by ~2 %. Root cause: the
+map from a point's axis-radial distance to its in-plane perpendicular offset to
+the generator is `η(radial) = √(radial²−d²)`, and `line_band_amplification`
+returns its **tangent slope at radial = R** (`amp = η'(R)`). `η` is **concave**
+(`η'' = −d²/(radial²−d²)^{3/2} < 0`), so for a finite `tol` inside the cylinder
+the exact offset drop `B_in = √(R²−d²) − √((R−tol)²−d²)` **exceeds** the tangent
+estimate `amp·tol` — the gap widens as `d → R` (R0026: `d/R = 0.86`, gap ~7 %).
+The exact worst-case membership band (adding the orthogonal out-of-plane budget
+`tol`, since a legit point is also within `tol` of the plane) is
+`√(B_in² + tol²) = 3.482e-3`, which admits both endpoints while the wrong
+generator (11× farther, `3.35e-2`) stays rejected.
+
+**Byte-stability (P9, load-bearing):** the exact band only ever **widens** the
+membership test relative to the linear one (it is the tightest *correct* band,
+`≥ amp·tol` always). It therefore can only convert current `matched = 0` ERRORs
+into resolved selections; a currently-`matched = 1` case stays selected (and if
+widening now also admits the second generator, the existing R0072/R0008 position
+tie-break picks the strictly-nearer one). Scoped to `cylinder ∩ plane` — the
+`cylinder ∩ cylinder` Steinmetz band and `cone ∩ plane` apex-line band are
+untouched (`cyl_plane_generator_band` returns `None`, both gates fall back to
+the prior expression byte-for-byte). Confirmed on the full release corpus:
+byte-stable (R0026 stays ERROR but moves walls — below), no other case changed.
+
+**Result:** R0026 advances PAST the generator-selection wall to the pre-existing
+deeper `Stage-4 relocation region around vertex 218 … OffCurveBeyondChordBand`
+(the N2 relocation family, same class as R0003/C0065). Retiring a line-selection
+band-derivation wall and exposing the deeper Stage-4 relocation layer is the
+established increment pattern (cf. N38/N39/N45); the selector is now measurably
+more capable near cylinder∩plane tangency, verified by the unit oracle.
+
+**Tolerance decisions:** none introduced or widened as a free parameter. The
+exact band is a closed-form consequence of the existing Stage-1 chord band `tol`
+(the concave metric conversion `√(B_in² + tol²)`), superseding a first-order
+approximation of the *same* quantity. `None` guards (`d ≥ R`, or `R − tol ≤ d`
+= merged-generator near-tangency) keep the loud stop rather than widening into
+an unresolvable tangency (task #137 territory).
+
+**Oracles:** `n46_cyl_plane_generator_band_{exceeds_linearization,is_load_bearing,
+none_guards}` (tests_unit/m5_case_iv.rs), on R0026's probed geometry: the exact
+band strictly exceeds the linearization; the linear band REJECTS both legitimate
+endpoints off the real ssi-rs generator while the exact band ADMITS them and the
+wrong generator stays rejected; and the `None` guards fire for non-cyl/plane,
+`d ≥ R`, and `R − tol ≤ d`. Mutation-killable: reverting either gate to
+`line_band_amplification · tol` re-raises R0026's `AmbiguousCurve`.
+
+**Sign-off:** solo-operator variant (P5), red/green via the new unit oracles
+(linear-band RED / exact-band GREEN in one test, mirroring N39) plus the R0026
+single-case replay advancing past the selection wall. Deviation entry per P2
+Yang-increment clarification.

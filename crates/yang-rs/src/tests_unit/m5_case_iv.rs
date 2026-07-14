@@ -1202,6 +1202,172 @@ pub(crate) fn n39_amplification_none_at_cone_apex() {
     );
 }
 
+// N46 (task #164): the EXACT cylinder∩plane generator-line band. `line_amp`'s
+// constant `R/√(R²−d²)` is the tangent slope of the concave η(radial)=√(radial²−d²)
+// at radial=R; for finite `tol` near tangency it UNDER-predicts the perpendicular
+// distance, so a legitimate mesh chord point is wrongly rejected off BOTH
+// generators (R0026's `AmbiguousCurve{2,0}`). The exact worst-case band
+// `√(B_in²+tol²)` admits it while the wrong (11×-farther) generator stays out.
+// Geometry is R0026's edge (131,197), probed from the assay.
+fn r0026_cyl_plane_fixture() -> (Surface, Surface, Point3, Point3, f64) {
+    let cyl = Surface::Cylinder {
+        axis_point: p(
+            -0.03525890036742006,
+            0.06844222368655112,
+            -0.057767985112573875,
+        ),
+        axis_dir: Vector3::new(
+            -0.6082295054207996,
+            -0.31717801479140706,
+            0.7276365683969928,
+        ),
+        radius: 0.03575800166968048,
+    };
+    let plane = Surface::Plane {
+        normal: Vector3::new(0.6451807609275815, 0.3364472639173315, 0.6859628447164238),
+        d: 0.008601756033135673,
+    };
+    let p_s = p(
+        -0.05406432762021697,
+        0.07585316408040951,
+        0.00110635509114421,
+    );
+    let p_e = p(
+        -0.053983474941050165,
+        0.07590435591733039,
+        0.0010052010023050533,
+    );
+    // The cylinder's Stage-1 chord band for this edge (probed `tol`).
+    let tol = 1.498e-3;
+    (cyl, plane, p_s, p_e, tol)
+}
+
+#[test]
+pub(crate) fn n46_cyl_plane_generator_band_exceeds_linearization() {
+    // O1: the exact band strictly exceeds its first-order linearization for a
+    // finite `tol` with `d < R` (concavity of √(radial²−d²)).
+    let (cyl, plane, _, _, tol) = r0026_cyl_plane_fixture();
+    let exact = cyl_plane_generator_band(cyl, plane, tol).expect("d<R, R-tol>d → Some");
+    let linear = line_band_amplification(cyl, plane).expect("cyl∩plane → Some amp") * tol;
+    assert!(
+        exact > linear,
+        "exact band {exact} must exceed the linearization {linear} (concave η)"
+    );
+    // And the gap is the R0026-relevant ~7%+ (not a rounding wobble).
+    assert!(
+        exact > linear * 1.05,
+        "exact/linear = {} — the near-tangency gap must be material",
+        exact / linear
+    );
+}
+
+#[test]
+pub(crate) fn n46_cyl_plane_generator_band_is_load_bearing() {
+    // O2/O3: with R0026's geometry the LINEAR band rejects the legitimate chord
+    // endpoints off the correct generator (the bug), the EXACT band admits them,
+    // and the wrong generator stays rejected under the exact band.
+    let (cyl, plane, p_s, p_e, tol) = r0026_cyl_plane_fixture();
+    let q_cyl = surface_to_quadric(cyl).expect("cyl quadric");
+    let q_plane = surface_to_quadric(plane).expect("plane quadric");
+    let curves = ssi_rs::intersect(&q_cyl, &q_plane).expect("cyl∩plane 2 generators");
+    let lines: Vec<&ssi_rs::SsiCurve> = curves
+        .iter()
+        .filter(|c| matches!(c, ssi_rs::SsiCurve::Line { .. }))
+        .collect();
+    assert_eq!(
+        lines.len(),
+        2,
+        "a plane ∥ axis sections the cylinder in 2 generators"
+    );
+
+    let perp = |c: &ssi_rs::SsiCurve, pt: Point3| -> f64 {
+        let ssi_rs::SsiCurve::Line { point, dir } = c else {
+            unreachable!()
+        };
+        let d = {
+            let a = dir.as_array();
+            let n = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+            [a[0] / n, a[1] / n, a[2] / n]
+        };
+        let pa = point.as_array();
+        let w = [pt.x() - pa[0], pt.y() - pa[1], pt.z() - pa[2]];
+        let h = w[0] * d[0] + w[1] * d[1] + w[2] * d[2];
+        let r = [w[0] - h * d[0], w[1] - h * d[1], w[2] - h * d[2]];
+        (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt()
+    };
+    // Correct generator = the one nearer to p_s; wrong = the other.
+    let (correct, wrong) = if perp(lines[0], p_s) < perp(lines[1], p_s) {
+        (lines[0], lines[1])
+    } else {
+        (lines[1], lines[0])
+    };
+    // Sanity: the wrong generator is an order of magnitude farther.
+    assert!(
+        perp(wrong, p_s) > perp(correct, p_s) * 5.0,
+        "the two generators must be clearly distinguishable by position"
+    );
+
+    let linear = line_band_amplification(cyl, plane).unwrap() * tol;
+    let exact = cyl_plane_generator_band(cyl, plane, tol).unwrap();
+
+    for pt in [p_s, p_e] {
+        // RED: the linear band under-admits the legitimate endpoint.
+        assert!(
+            !curve_contains_point(correct, pt, linear, None),
+            "linear band {linear} wrongly rejects endpoint perp {} (the N46 bug)",
+            perp(correct, pt)
+        );
+        // GREEN: the exact band admits it.
+        assert!(
+            curve_contains_point(correct, pt, exact, None),
+            "exact band {exact} must admit endpoint perp {}",
+            perp(correct, pt)
+        );
+        // O3: the wrong generator is NOT admitted (no false positive).
+        assert!(
+            !curve_contains_point(wrong, pt, exact, None),
+            "the wrong generator (perp {}) must stay rejected under the exact band {exact}",
+            perp(wrong, pt)
+        );
+    }
+}
+
+#[test]
+pub(crate) fn n46_cyl_plane_generator_band_none_guards() {
+    // O4: None for a non-cyl/plane pair, for d ≥ R (plane misses), and for
+    // R − tol ≤ d (merged-generator near-tangency → the loud stop stands).
+    let (cyl, _, _, _, tol) = r0026_cyl_plane_fixture();
+    // Non-matching pair.
+    assert_eq!(cyl_plane_generator_band(cyl, cyl, tol), None);
+    // Plane far outside the cylinder (d ≫ R).
+    let far = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: -10.0,
+    };
+    let axis_cyl = Surface::Cylinder {
+        axis_point: p(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    assert_eq!(cyl_plane_generator_band(axis_cyl, far, tol), None);
+    // Near-tangency: plane at d = 0.999·R, so R − tol < d.
+    let tangent_pl = Surface::Plane {
+        normal: Vector3::new(1.0, 0.0, 0.0),
+        d: -0.999,
+    };
+    assert_eq!(
+        cyl_plane_generator_band(axis_cyl, tangent_pl, 0.01),
+        None,
+        "R − tol ≤ d must return None (merged generators, loud stop stands)"
+    );
+    // Sanity that the SAME axis cylinder with a comfortably-secant plane IS Some.
+    let secant = Surface::Plane {
+        normal: Vector3::new(1.0, 0.0, 0.0),
+        d: -0.5,
+    };
+    assert!(cyl_plane_generator_band(axis_cyl, secant, 0.01).is_some());
+}
+
 #[test]
 pub(crate) fn kv15b_resolved_length_regrows_past_band_stays() {
     // B5 second half: after 1→0, segment (1,2) resolves to (0,2) at

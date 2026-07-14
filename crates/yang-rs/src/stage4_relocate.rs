@@ -554,6 +554,76 @@ pub(crate) fn line_band_amplification(surf0: Surface, surf1: Surface) -> Option<
     Some(radius / half_sep_sq.sqrt())
 }
 
+/// N46 (task #164): the EXACT worst-case membership band for a `cylinder ∩
+/// plane` generator LINE — supersedes the first-order [`line_band_amplification`]
+/// factor for this specific pair.
+///
+/// A plane parallel to a cylinder's axis sections it into two parallel generator
+/// lines at in-plane perpendicular offset `±√(R²−d²)` from the axis foot, where
+/// `d` is the axis-to-plane distance. A point at radial distance `radial` from
+/// the axis lies at in-plane offset `η(radial) = √(radial²−d²)`; its
+/// perpendicular distance to the near generator is `√(R²−d²) − η(radial)`.
+/// `η` is **concave** (`η'' < 0`), so `line_band_amplification`'s constant
+/// `amp = R/√(R²−d²) = η'(R)` (the tangent slope at `radial = R`) UNDER-predicts
+/// the offset drop for a point radially `tol` *inside* the cylinder. The exact
+/// worst-case in-plane term is
+///
+/// ```text
+///   B_in = √(R²−d²) − √((R−tol)²−d²)   ( ≥ amp·tol, and > the outside case )
+/// ```
+///
+/// A legitimate mesh chord point is also within `tol` of the plane; that
+/// out-of-plane displacement is orthogonal to both `B_in` and the (in-plane)
+/// generator direction, so the 3-D perpendicular distance `curve_contains_point`
+/// measures is at most `√(B_in² + tol²)` — the returned band. This is a DERIVED
+/// metric conversion of the Stage-1 chord contract, not a widening. R0026's
+/// spurious `AmbiguousCurve{2,0}` is exactly the ~7 % gap between `amp·tol` and
+/// this exact band near tangency (`d/R = 0.86`). Spec
+/// `specs/yr_r0026_cyl_plane_generator_band.md`.
+///
+/// `None` for a non-cylinder/plane pair, `d ≥ R` (plane misses / tangent — no
+/// transversal generators), or `R − tol ≤ d` (a radially-inside worst-case point
+/// no longer reaches the plane: the two generators have merged below mesh
+/// resolution, genuine near-tangency — the loud stop stands, task #137).
+pub(crate) fn cyl_plane_generator_band(surf0: Surface, surf1: Surface, tol: f64) -> Option<f64> {
+    let (cyl, pl) = match (surf0, surf1) {
+        (c @ Surface::Cylinder { .. }, p @ Surface::Plane { .. }) => (c, p),
+        (p @ Surface::Plane { .. }, c @ Surface::Cylinder { .. }) => (c, p),
+        _ => return None,
+    };
+    let (
+        Surface::Cylinder {
+            axis_point, radius, ..
+        },
+        Surface::Plane { normal, d },
+    ) = (cyl, pl)
+    else {
+        return None;
+    };
+    let n = normal.as_array();
+    let nn = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    // NaN-safe: a non-finite `nn`/`tol` fails the guards and returns None.
+    if nn < cad_primitives::MIN_FEATURE_SIZE
+        || !nn.is_finite()
+        || radius <= 0.0
+        || !tol.is_finite()
+        || tol < 0.0
+    {
+        return None;
+    }
+    let p = axis_point.as_array();
+    let dist = ((n[0] * p[0] + n[1] * p[1] + n[2] * p[2] + d) / nn).abs();
+    let r_in = radius - tol;
+    // `d ≥ R`: plane misses / tangent — no transversal generators.
+    // `r_in ≤ d`: the inside worst-case point leaves the plane's reach (near
+    // tangency); return None so the loud stop stands rather than widening.
+    if dist >= radius || r_in <= dist {
+        return None;
+    }
+    let b_in = (radius * radius - dist * dist).sqrt() - (r_in * r_in - dist * dist).sqrt();
+    Some((b_in * b_in + tol * tol).sqrt())
+}
+
 /// PR-KV9: per-point membership amplification for a curve on TWO cylinders
 /// — `1/‖ĝ₁×ĝ₂‖` with `ĝᵢ` the unit radial gradients of the two cylinders
 /// at `x`. The constraint-band intersection at angle α has diameter

@@ -1512,8 +1512,15 @@ pub(crate) fn stage4_relocate_and_correct(
                 let p_e = mesh.verts[e as usize];
                 // PR-F3b: the SAME propagated band as Stage-3 matching (the
                 // metric is shared, so every gate carries the factor).
-                let band_amp = line_band_amplification(surf_a, surf_b).unwrap_or(1.0);
-                let line_tol = band_amp * tol;
+                // N46 (task #164): a `cylinder ∩ plane` generator uses the EXACT
+                // worst-case band `√(B_in² + tol²)` (superseding the first-order
+                // `line_band_amplification`, which under-admits near tangency —
+                // R0026's `AmbiguousCurve{2,0}` reaches THIS Stage-4 relocation
+                // once Stage-3 selection passes). Non-cyl/plane pairs keep the
+                // linear factor (cyl∩cyl Steinmetz, cone-apex lines).
+                let line_tol = cyl_plane_generator_band(surf_a, surf_b, tol).unwrap_or_else(|| {
+                    line_band_amplification(surf_a, surf_b).unwrap_or(1.0) * tol
+                });
                 let mut matched: Option<LineReloc> = None;
                 let mut matched_n = 0usize;
                 let mut matched_lines: Vec<(Point3, Vector3)> = Vec::new();

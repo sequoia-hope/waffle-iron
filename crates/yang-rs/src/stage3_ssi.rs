@@ -699,6 +699,14 @@ pub(crate) fn build_intersection_curves(
         // sphere section circle's `(R/r_c)` scaling. Conic candidates keep
         // the unscaled `tol` byte-for-byte.
         let line_amp = line_band_amplification(surf0, surf1);
+        // N46 (task #164): a `cylinder ∩ plane` generator LINE uses the EXACT
+        // worst-case band `√(B_in² + tol²)` (the concave radial→perpendicular
+        // metric), superseding `line_amp`'s first-order tangent estimate which
+        // UNDER-admits near tangency (R0026's spurious `AmbiguousCurve{2,0}`).
+        // `None` (non-cyl/plane, plane-misses, or merged-generator tangency)
+        // falls back to the `line_amp` path unchanged. Scoped here so the
+        // cyl∩cyl Steinmetz and cone-apex line paths keep their current band.
+        let cyl_plane_gen_band = cyl_plane_generator_band(surf0, surf1, tol);
         // PR-KV9: cylinder×cylinder pairs carry the per-point gradient
         // amplification (membership measured against the band intersection
         // of BOTH surfaces; diverges at surface tangency — the Steinmetz
@@ -735,7 +743,9 @@ pub(crate) fn build_intersection_curves(
         };
         let point_tol = |x: Point3, curve: &ssi_rs::SsiCurve| -> f64 {
             match curve {
-                ssi_rs::SsiCurve::Line { .. } => line_amp.map_or(tol, |a| a * tol),
+                ssi_rs::SsiCurve::Line { .. } => {
+                    cyl_plane_gen_band.unwrap_or_else(|| line_amp.map_or(tol, |a| a * tol))
+                }
                 ssi_rs::SsiCurve::Ellipse { .. }
                 | ssi_rs::SsiCurve::Hyperbola { .. }
                 | ssi_rs::SsiCurve::Parabola { .. } => {
