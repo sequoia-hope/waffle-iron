@@ -2838,8 +2838,9 @@ feature floor, so it admits only sub-(feature/10) coincidences. It only ever
 collapses an already-degenerate output edge — not a downstream acceptance band
 (P9). Restricted to `moved`×`moved`: it never touches un-relocated arrangement
 geometry `boolean()` kept for watertightness (cf. the §4.4.1(b) micro-scale R0091
-revert — the un-relocated coincident-twin class stays blocked on sidecar
-reference parity, P9/P10).
+revert: collapsing un-relocated arrangement geometry there produced a
+green-but-wrong χ = −4 output — a `SUPPORTED_WRONG` the internal assay cannot
+catch, P9/P10).
 
 **Scope / zero-regression.** Full release corpus **byte-stable: 239 CORRECT /
 0 WRONG / 51 ERROR** (identical to baseline; the F0072 ERROR↔TIMEOUT flip is the
@@ -2852,8 +2853,16 @@ convergent relocations onto shared curves are exactly the population this welds.
 **Explicitly NOT fixed:** the render-collapse cases that motivated the
 investigation (R0012 face 1023 @ 7e-7 / scale 100; R0098 face 599 @ 4e-6 / scale
 1900) are NON-relocated Cherchi arrangement twins — they never reach the
-relocation stage, so `moved`-restricted welding cannot (and must not, R0091
-landmine) touch them. Their safe collapse needs sidecar reference parity; tracked.
+relocation stage, so `moved`-restricted welding cannot touch them, and blindly
+welding un-relocated geometry is the R0091 `SUPPORTED_WRONG` class. It is NOT
+blocked, however: the Cherchi 2022 reference-parity sidecar builds and runs in
+this tree (`cargo test -p cherchi-rs --test sidecar_smoke` passes;
+`/home/claude/cherchi2022/.../build/mesh_booleans`). Whether these twins are a
+native-only arrangement artifact or genuinely present in the exact arrangement is
+verifiable by diffing the native vertex set against the C++ reference — the
+correct next step for task #166 (the twins are loop-adjacent, not
+triangle-adjacent, so the fix lives in the `emit_topology` / `from_yang` loop
+domain).
 
 **Oracles:** `tests_unit/n47_moved_weld.rs` —
 `relocated_coincident_twin_welds` (a relocated 1e-7 twin collapses, bystander

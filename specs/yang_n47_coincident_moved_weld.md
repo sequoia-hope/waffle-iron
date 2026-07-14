@@ -55,9 +55,11 @@ floor, so it admits only sub-(feature/10) coincidences.
 
 - Not a fix for the **non-relocated** arrangement-twin render-collapse
   (R0012/R0098): those coincident vertices are Cherchi arrangement points, not
-  `moved`, so welding them would collapse legitimately-distinct arrangement
-  geometry — blocked on sidecar reference parity (the R0091 class). Documented as
-  out of scope here.
+  `moved`, so blindly welding them risks collapsing legitimately-distinct
+  arrangement geometry (the R0091 `SUPPORTED_WRONG` class). Out of scope for THIS
+  increment, but not blocked: the Cherchi 2022 reference-parity sidecar builds and
+  runs here (`sidecar_smoke` passes), so whether those twins exist in the exact
+  arrangement is verifiable against the C++ reference (task #166).
 
 ## P9/P10
 
