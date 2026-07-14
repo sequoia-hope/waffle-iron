@@ -438,6 +438,70 @@ pub(crate) fn r0072_parallel_line_position_tiebreak() {
     assert_eq!(select_disjoint_parallel_line(&[cand0], p_s, p_e), None);
 }
 
+// R0008: position tie-break for CROSSING generator lines through a cone apex.
+// The two candidates are the live probe values from R0008's edge (43,44): a
+// plane through the cone apex sections it into two generators that CROSS at the
+// apex (NOT parallel — so `select_disjoint_parallel_line` bails) and are nearly
+// aligned with the edge (so the tangent discriminator's 0.1 margin never
+// fires). The edge lies on the HORIZONTAL generator (dir z-component ≈ 0, same
+// z as the endpoints); the tilted generator is admitted only by the large cone
+// chord band. The general `select_disjoint_line_by_distance` resolves it by
+// disjoint perpendicular-distance interval; the parallel wrapper still returns
+// None (its contract — the crossing case is not its job).
+#[test]
+pub(crate) fn r0008_cone_apex_crossing_generators_position_tiebreak() {
+    let apex = Point3::new(
+        39.562_058_563_451_22,
+        -187.104_703_586_691_47,
+        -27.121_056_731_101_312,
+    );
+    // cand 0: TILTED generator (z-component 0.0361) — the false match.
+    let tilted = (
+        apex,
+        Vector3::new(
+            0.100_642_603_516_822_69,
+            -0.994_268_050_926_091_2,
+            0.036_084_751_142_105_825,
+        ),
+    );
+    // cand 1: HORIZONTAL generator (z-component ≈ 0) — the true edge curve.
+    let horizontal = (
+        apex,
+        Vector3::new(
+            -0.106_916_055_424_955_14,
+            0.994_268_050_926_091_2,
+            -1.144_917_494_144_692_7e-16,
+        ),
+    );
+    let p_s = Point3::new(
+        32.001_345_361_241_51,
+        -116.793_696_046_306_76,
+        -27.121_056_731_101_312,
+    );
+    let p_e = Point3::new(
+        32.055_545_644_578_29,
+        -117.297_732_693_176_21,
+        -27.121_056_731_101_312,
+    );
+
+    // General position test resolves the crossing pair (order-independent).
+    assert_eq!(
+        select_disjoint_line_by_distance(&[tilted, horizontal], p_s, p_e),
+        Some(1)
+    );
+    assert_eq!(
+        select_disjoint_line_by_distance(&[horizontal, tilted], p_s, p_e),
+        Some(0)
+    );
+
+    // The parallel wrapper still bails (crossing lines are not its case) — its
+    // R0072 contract is preserved.
+    assert_eq!(
+        select_disjoint_parallel_line(&[tilted, horizontal], p_s, p_e),
+        None
+    );
+}
+
 pub(crate) fn d_scale(v: Vector3, s: f64) -> [f64; 3] {
     let d = normalize3(v.as_array());
     [d[0] * s, d[1] * s, d[2] * s]

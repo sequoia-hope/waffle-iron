@@ -841,6 +841,47 @@ pub(crate) fn build_intersection_curves(
             }
         }
 
+        // R0008: POSITION tie-break for CROSSING generator lines. A cutting
+        // plane through a cone's APEX sections it into TWO generator lines that
+        // CROSS at the apex — NOT parallel (so the R0072 block above bails), and
+        // when the mesh edge lies near the apex-plane, both generators are
+        // nearly aligned with the edge (so the tangent discriminator's 0.1
+        // cosine margin never fires). The edge lies on exactly ONE generator;
+        // the other is admitted only by the large cone chord band `tol`
+        // (R0008: a near-flat 88.95° cone, tol ≈ 2.81). The same disjoint
+        // perpendicular-distance interval criterion as R0072 selects it — sound
+        // for crossing lines because the endpoints lie on the true generator to
+        // chord accuracy (perp dist ~0) while the false one is a full band away
+        // (~2.6). Overlapping intervals (edge sitting AT the apex crossing) →
+        // the loud `AmbiguousCurve` stands (P9 — a proximity tie-break on
+        // geometry the on-both gate already verified, never a band widening).
+        // Spec `specs/yr_r0008_cone_apex_generators.md`.
+        if matched > 1 {
+            let mut cands: Vec<(Point3, Vector3)> = Vec::new();
+            let mut cand_idx: Vec<usize> = Vec::new();
+            let mut all_matched_are_lines = true;
+            for (i, curve) in returned.iter().enumerate() {
+                if !(curve_contains_point(curve, p_s, point_tol(p_s, curve), source_radius)
+                    && curve_contains_point(curve, p_e, point_tol(p_e, curve), source_radius))
+                {
+                    continue;
+                }
+                if let ssi_rs::SsiCurve::Line { point, dir } = curve {
+                    cands.push((*point, *dir));
+                    cand_idx.push(i);
+                } else {
+                    all_matched_are_lines = false;
+                    break;
+                }
+            }
+            if all_matched_are_lines && cands.len() == matched {
+                if let Some(wk) = select_disjoint_line_by_distance(&cands, p_s, p_e) {
+                    matched = 1;
+                    matched_idx = Some(cand_idx[wk]);
+                }
+            }
+        }
+
         let idx = match (matched, matched_idx) {
             (1, Some(idx)) => idx,
             _ => {

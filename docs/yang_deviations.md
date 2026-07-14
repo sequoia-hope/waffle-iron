@@ -2664,3 +2664,68 @@ Stage-0 no longer walls, `mesh_a` is watertight (edge-balanced), and every
 **Sign-off:** solo-operator variant (P5), red/green via the new unit oracle
 (red — shell tears — under the reverted-swap mutation, green after). Deviation
 entry per P2 Yang-increment clarification.
+
+### N45 — Stage-3 SSI position tie-break for CROSSING cone-apex generator lines (R0008, task #163)
+
+**Where:** `crates/yang-rs/src/stage3_ssi.rs` — `build_intersection_curves`:
+a new `matched > 1` block after the R0072 parallel-line block. Supported by a
+refactor of `crates/yang-rs/src/stage4_relocate.rs`: the disjoint
+perpendicular-distance interval core is extracted from
+`select_disjoint_parallel_line` into `select_disjoint_line_by_distance` (no
+parallelism gate); the parallel wrapper delegates to it, staying byte-identical
+for its R0072 callers.
+
+**Paper basis:** [#1 Patrikalakis Ch.5] degenerate conic sections of a quadric
+cone — a plane through the apex yields a **line pair**. Analytical-primacy
+corollary (P8): the exact section is those two lines; `ssi_rs::intersect`
+returns both, and the mesh edge lies on exactly one.
+
+**Mechanism / gap closed:** R0008 raised
+`AmbiguousCurve { candidates: 2, matched: 2 }` on edge (43,44). Both candidates
+are cone generators sharing the apex `(39.56, −187.10, −27.12)`: cand 0 tilts
+out of the apex-plane (dir z = 0.036), cand 1 is horizontal (dir z ≈ 0, same z
+as the edge endpoints). Both pass `curve_contains_point` only because the cone
+chord band is huge — R0008 is a near-flat 88.95° cone, `tol ≈ 2.81`. Neither
+existing discriminator resolves it: the tangent pass needs a 0.1 cosine margin
+but both generators are ~aligned with the edge near the apex-plane (their
+in-plane projections differ only by the small z-tilt); the R0072 parallel-line
+tiebreak bails because the generators are NOT parallel (cross-product magnitude
+≈ 0.037 ≫ `TAU_MODEL` — they cross at the apex). The edge's endpoints lie on
+the true (horizontal) generator to chord accuracy (perp dist ≈ 0.009) while the
+false one is a full band away (≈ 2.6), so the SAME disjoint perp-distance
+interval criterion as R0072 — a pure position test with no parallelism
+assumption — selects the true generator.
+
+**Byte-stability (P9, load-bearing):** the new block runs only when
+`matched > 1` survives BOTH existing discriminators AND every matched candidate
+is a line AND the intervals are strictly disjoint. Today that state raises
+`AmbiguousCurve` (an ERROR), so the block can only convert current ERRORs to
+resolved — no CORRECT case can regress. The R0072 parallel path is unchanged
+(its wrapper still gates on parallelism before delegating to the shared core;
+`r0072_parallel_line_position_tiebreak` green, incl. its NON-parallel → `None`
+assertion). Confirmed on the full release corpus: byte-stable (R0008 stays
+ERROR but moves walls — see below), no other case changed.
+
+**Result:** R0008 advances PAST the Stage-3 wall to the pre-existing deeper
+`Stage-4 relocation region … LocalRefinementRequired` (the §4.5.2 local-
+refinement epic, the corpus's largest ERROR cluster). Retiring a Stage-3 SSI
+selector wall and exposing the pre-existing deeper Stage-4 layer is the
+established increment pattern (cf. N40/N42/N44); the SSI selector is now
+measurably more capable (it resolves a real degenerate-conic apex section it
+previously refused), verified by the unit oracle.
+
+**Tolerance decisions:** none — no constant introduced or widened. The
+selection reuses the existing on-both-surfaces chord band `tol` for membership
+and a margin-free, scale-free strict-interval comparison for the tie-break.
+
+**Oracles:** `r0008_cone_apex_crossing_generators_position_tiebreak`
+(tests_unit/m5_case_iv.rs) pins the two probed candidate lines + edge endpoints
+and asserts `select_disjoint_line_by_distance` returns the horizontal
+generator's index (order-independent) while `select_disjoint_parallel_line`
+returns `None` (its parallel gate still bails). Mutation-killable: reverting the
+crossing block to call `select_disjoint_parallel_line` re-raises R0008's
+`AmbiguousCurve`.
+
+**Sign-off:** solo-operator variant (P5), red/green via the new unit oracle
+(red before the crossing block, green after) plus the R0008 single-case replay
+advancing past Stage-3. Deviation entry per P2 Yang-increment clarification.

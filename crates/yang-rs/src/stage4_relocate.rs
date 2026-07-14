@@ -779,7 +779,10 @@ pub(crate) fn select_disjoint_parallel_line(
         return None;
     }
     // Every candidate must be mutually parallel — the case the tangent
-    // discriminator structurally cannot resolve.
+    // discriminator structurally cannot resolve. (The disjoint-interval core is
+    // sound for crossing lines too; that generalization is exposed separately as
+    // `select_disjoint_line_by_distance` for the R0008 cone-apex case, keeping
+    // this wrapper's R0072-only contract — and its callers — byte-identical.)
     let dirs: Vec<[f64; 3]> = cands.iter().map(|c| normalize3(c.1.as_array())).collect();
     for w in dirs.windows(2) {
         let (a, b) = (w[0], w[1]);
@@ -791,6 +794,31 @@ pub(crate) fn select_disjoint_parallel_line(
         if (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt() >= cad_primitives::TAU_MODEL {
             return None;
         }
+    }
+    select_disjoint_line_by_distance(cands, p_s, p_e)
+}
+
+/// The disjoint perpendicular-distance interval core shared by the parallel
+/// (R0072, `select_disjoint_parallel_line`) and crossing (R0008) line
+/// selectors. Given matched line candidates `(point, dir)` and the edge
+/// endpoints, return the index whose endpoint perp-distance interval
+/// `[min, max]` lies STRICTLY below every other candidate's (`hi_w < lo_j
+/// ∀ j≠w`): the winner's worst endpoint still beats every rival's best, so the
+/// endpoints unambiguously lie on it. Margin-free and scale-free. Returns
+/// `None` for < 2 candidates or overlapping intervals (ambiguity preserved).
+///
+/// This is a pure POSITION discriminator — it makes NO parallelism assumption,
+/// so it is sound for crossing lines (e.g. the two generators of a cone
+/// sectioned through its apex, R0008) as well as parallel ones. P9: a proximity
+/// tie-break on geometry already gate-verified on both surfaces, never a band
+/// widening. Spec `specs/yr_r0008_cone_apex_generators.md`.
+pub(crate) fn select_disjoint_line_by_distance(
+    cands: &[(Point3, Vector3)],
+    p_s: Point3,
+    p_e: Point3,
+) -> Option<usize> {
+    if cands.len() < 2 {
+        return None;
     }
     let ivs: Vec<(f64, f64)> = cands
         .iter()
