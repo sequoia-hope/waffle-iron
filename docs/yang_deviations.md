@@ -2635,9 +2635,13 @@ supported group) has `face_dot > 0` for all A faces ⇒ `face_swap_a == false`
 everywhere ⇒ the emission is byte-identical to the historical path, and the
 removed wall never fired for such a group. The behavioral change is confined to
 `−n̂` faces, which appear ONLY in a mixed-orientation group. Verified: all 290
-yang-rs lib tests green (incl. every slice-f/g Stage-0 test); corpus spot-check
-byte-stable — R0046 (uniform coplanar) `SUPPORTED_CORRECT` unchanged, R0025
-(unrelated Subtract) `ERROR`/LRR identical to baseline. Driver R0015
+yang-rs lib tests green (incl. every slice-f/g Stage-0 test); and the FULL
+295-case corpus (release `full_corpus_categorized`, ASSAY_JOBS=8, the four
+budget-TIMEOUTs R0019/F0072/F0085/F0090 resolved serially — ERROR/ERROR/ERROR/
+CORRECT) is **byte-stable except R0015**: `239 CORRECT / 0 WRONG / 52 ERROR /
+3 UNSUPPORTED / 1 EXPECTED_ERROR`, i.e. the pre-N44 baseline
+(239C/0W/51E/4U/1EE) with the SINGLE net change being R0015 UNSUPPORTED→ERROR
+(CORRECT unchanged, WRONG still 0). Driver R0015
 `UNSUPPORTED(coplanar-boolean)` → `ERROR` — it advances PAST this Stage-0 wall
 (reaching Stage-2 mesh boolean, which requires watertight manifold input, then
 Stage-4) to a PRE-EXISTING deeper gap `Stage-4 OffCurveBeyondChordBand` (the

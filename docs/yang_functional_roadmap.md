@@ -2826,8 +2826,11 @@ swapped every consumer to `predicates::indirect`).
     coverage winding-independently, so the ONLY fix is per-A-face override
     winding `face_swap_a = face_dot < 0` (a `−n̂` face swaps like an opposing
     B face) — strictly byte-identical for uniform `+n̂` groups (every
-    currently-supported group), so the M8 corpus is unaffected (R0046
-    CORRECT unchanged; R0025 ERROR identical to baseline). R0015
+    currently-supported group). FULL release corpus (295 cases,
+    budget-TIMEOUTs resolved) = **byte-stable except R0015**:
+    **239C / 0W / 52E / 3U / 1EE** vs the pre-N44 baseline 239C/0W/51E/4U/1EE
+    — the SINGLE net change is R0015 UNSUPPORTED→ERROR (CORRECT unchanged,
+    WRONG still 0). R0015
     `UNSUPPORTED(coplanar-boolean)` → `ERROR` (advances past Stage-0 to the
     PRE-EXISTING `Stage-4 OffCurveBeyondChordBand` N2/LRR gap, R0003 class).
     **UNSUPPORTED(coplanar) tail 3→2** (R0007, R0071 DegenerateLoop micro-
