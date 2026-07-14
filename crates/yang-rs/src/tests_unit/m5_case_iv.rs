@@ -1008,6 +1008,136 @@ pub(crate) fn n38_cone_band_bound_none_without_circle_rims() {
     assert_eq!(cone_band_chord_bound(band, &faces, &edges), None);
 }
 
+// N39 (task #161): the cone∩plane conic curve-distance amplification factor.
+// A GRAZING plane-∥-axis hyperbola places a legitimate mesh chord point (off
+// the cone within its Stage-1 chord band) FURTHER from the exact curve than
+// the raw cone chord sagitta — by 1/sin α, α = angle(cone normal, plane
+// normal). Without the factor the flat band under-admits (spurious
+// AmbiguousCurve); with it the point is correctly matched.
+#[test]
+pub(crate) fn n39_cone_plane_hyperbola_amplification_is_load_bearing() {
+    // yr23 config: cone apex-origin, axis +Z, tanα = 0.5 (half_angle = atan 0.5),
+    // height 4. Cutting plane x = 1 (normal +X, d = −1) is PARALLEL to the axis
+    // → the section is a hyperbola. At the branch vertex the cone normal makes
+    // angle α_cone = 90°−atan(0.5) with the axis, so sin(angle to the plane
+    // normal) = sin(atan 0.5) and the amplification is 1/sin(atan 0.5) ≈ 2.236.
+    let half_angle = 0.5_f64.atan();
+    let cone = Surface::Cone {
+        apex: p(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        half_angle,
+    };
+    let plane = Surface::Plane {
+        normal: Vector3::new(1.0, 0.0, 0.0),
+        d: -1.0,
+    };
+    // The real ssi-rs section (independent of the amplification code).
+    let q_plane = surface_to_quadric(plane).expect("plane quadric");
+    let q_cone = surface_to_quadric(cone).expect("cone quadric");
+    let curves = ssi_rs::intersect(&q_plane, &q_cone).expect("cone∩plane hyperbola");
+    // Upper nappe: major_axis has +Z component (the branch on the +Z solid).
+    let upper = curves
+        .iter()
+        .find(|c| match c {
+            ssi_rs::SsiCurve::Hyperbola { major_axis, .. } => major_axis.as_array()[2] > 0.0,
+            _ => false,
+        })
+        .expect("an upper-nappe hyperbola branch");
+    let (center, major, a) = match upper {
+        ssi_rs::SsiCurve::Hyperbola {
+            center,
+            major_axis,
+            semi_transverse,
+            ..
+        } => (center.as_array(), major_axis.as_array(), *semi_transverse),
+        _ => unreachable!(),
+    };
+    // Branch vertex V = center + a·major_axis (t = 0). ≈ (1, 0, 2).
+    let v = Point3::new(
+        center[0] + a * major[0],
+        center[1] + a * major[1],
+        center[2] + a * major[2],
+    );
+
+    // The amplification at the vertex is the grazing 1/sin α ≈ 2.236.
+    let amp = surface_pair_point_amplification(v, cone, plane).expect("finite grazing amp");
+    assert!(
+        amp > 2.0,
+        "a plane-∥-axis hyperbola vertex is grazing → amp 1/sinα ≈ 2.236, got {amp}"
+    );
+
+    // A legitimate mesh chord point: on the plane (x=1), off the cone axially by
+    // ε along +Z from the vertex — off the cone RADIALLY by ε/2 (within the
+    // chord band), but off the exact hyperbola by ≈ε (the amplified distance).
+    let flat = cone_chord_bound(4.0, half_angle); // the cone's Stage-1 band ≈ 0.0566
+    let eps = 0.08;
+    let q = Point3::new(v.x(), v.y(), v.z() + eps);
+    let cone_off = signed_distance_to_surface(cone, q).unwrap().abs();
+    assert!(
+        cone_off <= flat,
+        "the probe point must be a LEGITIMATE mesh point (off the cone {cone_off} \
+         within its chord band {flat})"
+    );
+    // The plane is exact: the point is ON it.
+    assert!(signed_distance_to_surface(plane, q).unwrap().abs() <= cad_primitives::TAU_WORK);
+
+    // RED (flat band): the legitimate point is WRONGLY rejected off the curve.
+    assert!(
+        !curve_contains_point(upper, q, flat, None),
+        "flat cone band under-admits the grazing-hyperbola chord point (the N39 bug)"
+    );
+    // GREEN (amplified band): the point is correctly matched.
+    assert!(
+        curve_contains_point(upper, q, flat * amp, None),
+        "the amplified band flat·(1/sinα) correctly admits the chord point"
+    );
+}
+
+#[test]
+pub(crate) fn n39_amplification_matches_gradient_cross_product() {
+    // The factor is exactly 1/‖n̂₀ × n̂₁‖ of the two surface gradients — a
+    // mutation using the dot product, sin↔cos, or one surface must fail.
+    let cone = Surface::Cone {
+        apex: p(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        half_angle: 0.5_f64.atan(),
+    };
+    let plane = Surface::Plane {
+        normal: Vector3::new(1.0, 0.0, 0.0),
+        d: -1.0,
+    };
+    let x = Point3::new(1.0, 0.0, 2.0);
+    let g0 = surface_normal_at(cone, x).unwrap();
+    let g1 = surface_normal_at(plane, x).unwrap();
+    let cx = [
+        g0[1] * g1[2] - g0[2] * g1[1],
+        g0[2] * g1[0] - g0[0] * g1[2],
+        g0[0] * g1[1] - g0[1] * g1[0],
+    ];
+    let sin_a = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+    let got = surface_pair_point_amplification(x, cone, plane).unwrap();
+    assert!((got - 1.0 / sin_a).abs() < 1e-12, "amp = 1/‖ĝ₀×ĝ₁‖");
+}
+
+#[test]
+pub(crate) fn n39_amplification_none_at_cone_apex() {
+    // At the apex the cone gradient is singular → None (the caller keeps the
+    // flat band + tangent discriminator; never a silent everything-matches).
+    let cone = Surface::Cone {
+        apex: p(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        half_angle: 0.5_f64.atan(),
+    };
+    let plane = Surface::Plane {
+        normal: Vector3::new(1.0, 0.0, 0.0),
+        d: 0.0,
+    };
+    assert_eq!(
+        surface_pair_point_amplification(Point3::new(0.0, 0.0, 0.0), cone, plane),
+        None
+    );
+}
+
 #[test]
 pub(crate) fn kv15b_resolved_length_regrows_past_band_stays() {
     // B5 second half: after 1→0, segment (1,2) resolves to (0,2) at

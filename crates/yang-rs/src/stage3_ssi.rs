@@ -719,15 +719,35 @@ pub(crate) fn build_intersection_curves(
             ) => Some(((p1, d1), (p2, d2))),
             _ => None,
         };
+        // N39 (task #161): a CONE∩PLANE conic (ellipse ⊥/oblique section,
+        // hyperbola for a plane ∥ axis, parabola for a plane ∥ generator)
+        // carries the per-point gradient-angle amplification `1/sin α` between
+        // the cone normal and the plane normal — the conic analog of the
+        // `cyl_cyl` factor. A grazing (small-α) cut places the mesh chord point
+        // legitimately further from the exact curve than the raw cone chord
+        // sagitta; without this factor the flat band under-admits and Stage-3
+        // raises a spurious `AmbiguousCurve`. `None` (apex singularity /
+        // tangency) keeps the flat band + tangent discriminator.
+        let cone_plane: Option<(Surface, Surface)> = match (surf0, surf1) {
+            (c @ Surface::Cone { .. }, p @ Surface::Plane { .. })
+            | (p @ Surface::Plane { .. }, c @ Surface::Cone { .. }) => Some((c, p)),
+            _ => None,
+        };
         let point_tol = |x: Point3, curve: &ssi_rs::SsiCurve| -> f64 {
             match curve {
                 ssi_rs::SsiCurve::Line { .. } => line_amp.map_or(tol, |a| a * tol),
-                ssi_rs::SsiCurve::Ellipse { .. } => match cyl_pair {
-                    Some((c1, c2)) => {
+                ssi_rs::SsiCurve::Ellipse { .. }
+                | ssi_rs::SsiCurve::Hyperbola { .. }
+                | ssi_rs::SsiCurve::Parabola { .. } => {
+                    if let Some((c1, c2)) = cyl_pair {
+                        // Steinmetz ellipse: two-cylinder radial amplification.
                         cyl_cyl_point_amplification(x, c1, c2).map_or(f64::INFINITY, |a| a * tol)
+                    } else if let Some((cone, plane)) = cone_plane {
+                        surface_pair_point_amplification(x, cone, plane).map_or(tol, |a| a * tol)
+                    } else {
+                        tol
                     }
-                    None => tol,
-                },
+                }
                 _ => tol,
             }
         };

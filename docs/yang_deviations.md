@@ -2210,3 +2210,63 @@ identical totals to baseline, 0 SUPPORTED_WRONG, no SUPPORTED_CORRECT lost;
 R0003 moves AmbiguousCurve → Stage-4 OffCurveBeyondChordBand, all other cases
 byte-stable.** **Sign-off:** solo-operator variant (P5), red/green via the
 R0003 probe + mutation-killable units.
+
+### N39 — Cone∩plane conic curve-distance amplification (the N38 follow-up)
+
+**Date:** 2026-07-14 (task #161). **Class:** correctness/faithfulness fix —
+the Stage-3 conic membership metric omitted the surface-gradient-angle
+amplification, so the flat chord band under-admitted grazing cone∩plane
+conics.
+
+**Code:** `stage4_relocate.rs::surface_pair_point_amplification` (new) +
+`stage3_ssi.rs::build_intersection_curves` `point_tol` conic arms.
+
+**Paper basis:** §4.4.1 mesh chord → exact curve. A mesh point on a Stage-1
+facet chord is off each surface by ρ ≤ its d_ε, but its perpendicular distance
+to the intersection CURVE (on BOTH surfaces) is measured in the metric of the
+two surfaces' band INTERSECTION: two half-spaces of half-width ρ meeting at
+gradient-angle α have an intersection slab of half-width `ρ/sin α`. So the
+curve-membership band is `d_ε/sin α`, α = angle between the two surfaces' unit
+gradients (`surface_normal_at`) at the point.
+
+**Before:** the `point_tol` closure applied this amplification for `Line`
+candidates (`line_band_amplification`, cyl∩plane / cyl∥cyl) and for the
+Steinmetz `Ellipse` on a cylinder pair (`cyl_cyl_point_amplification`), but the
+CONE∩PLANE conic arms (ellipse ⊥/oblique section, hyperbola for plane ∥ axis,
+parabola for plane ∥ generator) fell through to the flat `tol`. For a grazing
+plane-∥-axis hyperbola the gradient angle α is small (the plane is nearly
+tangent to the cone along the curve; the minimum α for a plane ∥ axis is the
+half-angle, so amp up to `1/sin(half_angle)`), so a legitimate mesh chord point
+sat up to `1/sin α` further from the exact curve than the raw cone sagitta and
+the flat band spuriously rejected it → `AmbiguousCurve`. (N38's per-band bound
+absorbed this for the current corpus by being loose; N39 makes it principled —
+the band is the geometric curve-distance, not a coincidentally-loose surface
+band.)
+
+**After:** `surface_pair_point_amplification(x, surf0, surf1) = 1/‖n̂₀ × n̂₁‖`
+— the general `1/sin α` form the `cyl_cyl`/`line_band` factors are special
+cases of, evaluated via the shared `surface_normal_at` gradients (so it works
+for the cone gradient's ⟂-generator tilt). Wired into the Ellipse / Hyperbola /
+Parabola arms for a cone∩plane pair; `None` at the apex singularity or tangency
+falls back to the flat band + tangent discriminator (the SAFE direction, never
+a silent everything-matches). The on-both-surfaces GATE and the base `tol`
+(N38 per-band) are UNCHANGED — the factor only widens conic membership after
+the gate, so it can admit a grazing-but-legitimate endpoint, never reclassify a
+non-intersection edge.
+
+**Oracles:** yang-rs lib units —
+`n39_cone_plane_hyperbola_amplification_is_load_bearing` (a legitimate mesh
+point off the yr23 cone within its chord band is REJECTED by the flat band but
+ACCEPTED by `flat·amp` — the red/green), `n39_amplification_matches_gradient_cross_product`
+(exact `1/‖ĝ₀×ĝ₁‖`; a dot/sin↔cos/wrong-surface mutation fails),
+`n39_amplification_none_at_cone_apex` (singularity → None). Integration:
+`kv16_hyperbola_boolean`, `yr21_cone_ellipse`, `yr22_cone_parabola`,
+`yr23_cone_hyperbola` all green. Rewrite tier green. **Assay 2026-07-14:
+239 CORRECT / 0 WRONG / 51 ERROR / 4 UNSUPPORTED / 1 EXPECTED_ERROR —
+identical to the N38 baseline, 0 SUPPORTED_WRONG, no SUPPORTED_CORRECT lost,
+all ERROR clusters byte-stable.** No corpus case currently DEMANDS the factor
+(R0003 already cleared the conic selection under N38 and now blocks at Stage-4);
+this is a faithfulness increment that makes the conic band principled and
+robust for grazing cuts (governance §0.1 — a faithful stage lighting zero new
+cases ships). **Sign-off:** solo-operator variant (P5), red/green via the
+load-bearing unit test + mutation-killable primitive units.

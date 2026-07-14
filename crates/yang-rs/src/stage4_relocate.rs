@@ -592,6 +592,47 @@ pub(crate) fn cyl_cyl_point_amplification(
     Some(1.0 / sin_a)
 }
 
+/// N38 follow-up (task #161): per-point membership amplification for a
+/// transversal intersection curve of ANY two surfaces — `1/sin α` with α the
+/// angle between the two surfaces' UNIT GRADIENTS (`surface_normal_at`) at `x`.
+///
+/// A mesh point on a Stage-1 facet chord is off each surface by ρ ≤ its d_ε
+/// (the chord sagitta). Its perpendicular distance to the intersection CURVE
+/// (which lies on BOTH surfaces) is the chord band measured in the metric of
+/// the band INTERSECTION of the two surfaces: two half-spaces of half-width ρ
+/// meeting at gradient-angle α have an intersection slab of half-width
+/// `ρ/sin α`. So the curve-membership band is `d_ε/sin α` — the general form
+/// the `cyl_cyl_point_amplification` (two RADIAL gradients) and
+/// `line_band_amplification` (`r/√(r²−d²) = 1/sin α` for cyl∩plane) are both
+/// special cases of. For a CONE∩PLANE conic the cone gradient tilts ⟂ the
+/// generator (`surface_normal_at`'s cone arm), so a grazing plane-∥-axis
+/// hyperbola — small α — legitimately needs a larger band than the raw cone
+/// chord sagitta; the conic membership arms previously omitted this factor
+/// (deviation N39).
+///
+/// `None` at a gradient singularity (cone apex, cylinder/sphere axis) or at
+/// tangency (`sin α → 0`, the band diverges), where the caller keeps the flat
+/// band and the tangent-direction discriminator decides — the SAFE fallback,
+/// never a silent everything-matches.
+pub(crate) fn surface_pair_point_amplification(
+    x: Point3,
+    surf0: Surface,
+    surf1: Surface,
+) -> Option<f64> {
+    let g0 = surface_normal_at(surf0, x)?;
+    let g1 = surface_normal_at(surf1, x)?;
+    let cx = [
+        g0[1] * g1[2] - g0[2] * g1[1],
+        g0[2] * g1[0] - g0[0] * g1[2],
+        g0[0] * g1[1] - g0[1] * g1[0],
+    ];
+    let sin_a = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+    if sin_a < AMP_TANGENCY_MIN_SIN_CYL_CYL {
+        return None; // tangency-grade: no finite band
+    }
+    Some(1.0 / sin_a)
+}
+
 /// PR-KV9: unit tangent of an ssi candidate curve at (the projection of)
 /// `x` — the tangent-direction discriminator for multi-matched candidates.
 /// `None` for curve types without a closed-form tangent here.
