@@ -231,3 +231,57 @@ pub(crate) fn cone_chord_bound(height: f64, half_angle: f64) -> f64 {
     let r = height * half_angle.tan();
     1e-2 * ((2.0 * r).powi(2) + height.powi(2)).sqrt()
 }
+
+/// The Stage-1 chord bound of ONE specific cone band — the selection band for
+/// a cone-owning intersection edge (Stage-3 `cone_chord_tol_for_owner`).
+///
+/// `band` is the edge's own `Surface::Cone` (as tagged on the arrangement
+/// edge). We find the owner face carrying exactly that surface and return its
+/// `cone_chord_bound(height, half_angle)` computed from the band's OWN rim(s),
+/// taking the MAX-height rim (a frustum has two — the larger radius carries
+/// the larger circumferential sagitta, so it is the band's chord bound).
+///
+/// **Deviation N38.** The pre-fix `cone_chord_tol_for_owner` paired the edge
+/// band's apex/half_angle with the FIRST cone face's FIRST rim — an unrelated
+/// band on a multi-band gear revolve (R0003: apex of the h≈50 band mixed with
+/// a h≈3 band's rim → a nonsense `height` → a 6× too-tight band). The mesh
+/// endpoints, legitimately on the h≈50 band's chord (well within its true
+/// 0.63 sagitta), then fell outside the bogus 0.10 band and Stage-3 raised a
+/// spurious `AmbiguousCurve`. Binding the band to the edge's OWN cone (exact
+/// `Surface` match — the surface is a same-source copy off the face) fixes the
+/// mismatch while leaving every single-cone case byte-identical (the matched
+/// face is the only cone face).
+///
+/// Returns `None` when no matching cone face carries a `Curve::Circle` rim —
+/// the caller keeps its loud producer-fault path.
+pub(crate) fn cone_band_chord_bound(
+    band: Surface,
+    faces: &[BRepFace],
+    edges: &[BRepEdge],
+) -> Option<f64> {
+    let Surface::Cone {
+        apex,
+        axis_dir,
+        half_angle,
+    } = band
+    else {
+        return None;
+    };
+    let au = normalize3(axis_dir.as_array());
+    let ap = apex.as_array();
+    let mut max_h: Option<f64> = None;
+    for f in faces {
+        if f.surface != band {
+            continue;
+        }
+        for &e_idx in &f.outer_loop {
+            if let Curve::Circle { center, .. } = edges[e_idx as usize].curve {
+                let c = center.as_array();
+                let h = ((c[0] - ap[0]) * au[0] + (c[1] - ap[1]) * au[1] + (c[2] - ap[2]) * au[2])
+                    .abs();
+                max_h = Some(max_h.map_or(h, |m: f64| m.max(h)));
+            }
+        }
+    }
+    max_h.map(|h| cone_chord_bound(h, half_angle))
+}

@@ -2138,3 +2138,75 @@ closure, signed off 2026-07-12. Residual: the last `Err` gap in A15.4 is
 now closed; `AnalyticalSolutionNotAvailable` remains reachable only as the
 documented absolute-band scale-sensitivity fallback (unit tests characterize
 it), not as a staged capability gap.
+
+### N38 — Stage-3 cone-owning-edge selection tol bound to the EDGE's OWN cone band
+
+**Date:** 2026-07-14 (task #160). **Class:** correctness fix — the Stage-3
+SSI curve-selection tolerance for a cone-owning intersection edge was derived
+from the WRONG cone band on a multi-band cone solid (a gear/staircase
+revolve).
+
+**Code:** `stage3_ssi.rs::cone_chord_tol_for_owner` +
+`stage1_tessellate/normals_chord_bounds.rs::cone_band_chord_bound` (new).
+
+**Paper basis:** §4.4.1 / §4.1.2 — the mesh endpoints of an intersection edge
+sit on the curved surface's Stage-1 chord approximation, off the exact
+analytic intersection curve by up to that surface's Stage-1 chord bound. The
+on-curve selection band must therefore equal the Stage-1 chord bound of the
+surface the edge lies on (governance A14.3 single source — the SAME bound
+Stage 1 guarantees, NOT tolerance widening).
+
+**Before (the bug):** `cone_chord_tol_for_owner` destructured the edge's cone
+`Surface` for `apex`/`axis_dir`/`half_angle`, then iterated `owner.faces()`
+and returned the FIRST cone face's FIRST rim `cone_chord_bound(height, …)` —
+but computed `height = |(that_face's_rim_center − this_edge's_cone_apex)·â|`,
+i.e. it paired one band's rim with a DIFFERENT band's apex. On a single-cone
+solid the first cone face IS the edge's cone, so this was correct and
+unexercised as a bug. On R0003 (a `revolve(gear)` — hundreds of coaxial cone
+bands), the edge's ellipse lay on a band at height ≈50 / radius ≈70 whose true
+Stage-1 sagitta is ≈0.21 (n_seg=41, max_r=213, global d_ε=0.63), but the
+mismatched apex/rim pairing minted `height ≈ 3.3` → a bogus band ≈0.099. The
+mesh endpoint, legitimately 0.111 off the exact ellipse (well inside the
+band's real 0.21 chord error), fell outside 0.099 → a spurious
+`AmbiguousCurve { candidates: 1, matched: 0 }` and a loud `BooleanFailed`.
+
+**After (the fix):** `cone_band_chord_bound(band, faces, edges)` binds the
+band to the edge's OWN cone via exact `Surface` equality (the surface is a
+same-source copy propagated onto the arrangement edge, so the match is exact),
+and returns `cone_chord_bound(max_height_rim, half_angle)` over that band's
+own rims (a frustum has two rims; the max-radius rim carries the larger
+circumferential sagitta, so it is the band's chord bound). Producer-fault path
+(no matching cone rim → loud `AmbiguousCurve { matched: 0 }`) preserved. R0003
+now clears BOTH conic selections on its gear bands (the ellipse ⊥ section and
+the plane-∥-axis hyperbola section) and advances to a Stage-4
+`OffCurveBeyondChordBand` relocation wall (the N2 relocation family) — a
+genuine advance, not a conversion (R0003 stays ERROR).
+
+**Why per-band, not the global `d_ε`:** an initial version returned the
+owner's global Stage-1 `d_ε` (the `min` over all bands + the rim-AABB, the
+value that actually sizes `n_seg`). That is a valid, tighter upper bound —
+but it is SMALLER than a given band's own `cone_chord_bound`, and for a
+plane-∥-axis HYPERBOLA cut the mesh-endpoint-to-curve distance is amplified
+beyond the surface sagitta (a grazing intersection; the cone∩plane conic
+membership arms carry no amplification factor, unlike the `line_band` /
+`cyl_cyl` arms). Under the tighter global `d_ε` the `frustum ∪ box`
+regression test `kv16_hyperbola_boolean` broke (`AmbiguousCurve { 2, 0 }` on
+its hyperbola). The per-band bound — the edge band's OWN `cone_chord_bound`,
+which is what the single-cone code already returned and thus what that test
+was tuned to — is the surgical fix for the mismatch bug without perturbing
+that balance, and is byte-identical for every single-cone case. **Named
+follow-up:** a principled cone∩plane conic curve-distance amplification factor
+(the analog the `cyl_cyl_point_amplification` provides for cylinder pairs) —
+the deeper wall behind the grazing-hyperbola residual.
+
+**Oracles:** yang-rs lib units `n38_cone_band_bound_binds_to_matching_band`
+(an edge on band A gets band A's bound, not the first-listed band B's),
+`…_max_height_rim` (a two-rim frustum uses the h-max rim),
+`…_none_without_circle_rims` (producer-fault preserved) — all
+mutation-killable. Regression: `kv16_hyperbola_boolean` green (was broken by
+the global-`d_ε` variant). Rewrite tier green. **Assay 2026-07-14:
+239 CORRECT / 0 WRONG / 51 ERROR / 4 UNSUPPORTED / 1 EXPECTED_ERROR —
+identical totals to baseline, 0 SUPPORTED_WRONG, no SUPPORTED_CORRECT lost;
+R0003 moves AmbiguousCurve → Stage-4 OffCurveBeyondChordBand, all other cases
+byte-stable.** **Sign-off:** solo-operator variant (P5), red/green via the
+R0003 probe + mutation-killable units.

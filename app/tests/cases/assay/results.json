@@ -18,7 +18,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 9bf3f664-2436-4144-9e52-9e07c56f21d4: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (4232, 4241): AmbiguousCurve { candidates: 1, matched: 0 }\")",
+      "detail": "1 engine error(s): 9bf3f664-2436-4144-9e52-9e07c56f21d4: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 4233 is invalid: OffCurveBeyondChordBand\")",
       "id": "R0003",
       "status": "error"
     },
@@ -48,7 +48,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (46, 66): AmbiguousCurve { candidates: 2, matched: 2 }\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (43, 44): AmbiguousCurve { candidates: 2, matched: 2 }\"). Body created as standalone.",
       "id": "R0008",
       "status": "error"
     },

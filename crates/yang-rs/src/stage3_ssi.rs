@@ -459,17 +459,23 @@ pub(crate) fn chord_tol_for_curved_owner(
 }
 
 /// PR-YR17: selection tolerance for a CONE-owning intersection edge. A cone
-/// edge is the perpendicular `plane ∩ cone` cut whose returned `ssi_rs` curve is
-/// the exact rim `Circle`; the mesh endpoints sit on the cone's Stage-1 chord
-/// approximation, off that exact circle by up to the cone's OWN chord bound
-/// `cone_chord_bound(height, half_angle)` (A14.3 single source — the SAME bound
-/// Stage 1 guarantees, NOT tolerance widening). `Surface::Cone` carries no
-/// height, so it is derived from the cone owner's rim `Curve::Circle` edge in
-/// the cone face's outer loop exactly as the Stage-1 pre-pass / `tol_for` do:
-/// `height = |(rim_center − apex)·â|`. A cone-bearing input with NO rim Circle
-/// is a producer fault → LOUD `AmbiguousCurve { matched: 0 }` (never silently
-/// default to `TAU_WORK` for a curved selection), mirroring
-/// `chord_tol_for_curved_owner`.
+/// edge is a `plane ∩ cone` cut whose exact `ssi_rs` curve is a `Circle` (⊥
+/// section) or `Ellipse` (oblique section); the mesh endpoints sit on the
+/// cone's Stage-1 chord approximation, off that exact curve by up to the
+/// cone's Stage-1 chord bound (A14.3 single source — the SAME bound Stage 1
+/// guarantees, NOT tolerance widening).
+///
+/// **N38 fix:** the band is the EDGE's OWN cone band's `cone_chord_bound`
+/// (`cone_band_chord_bound`, matched by exact `Surface`), max-height rim. The
+/// pre-fix code paired the edge band's apex/half_angle with an ARBITRARY first
+/// cone face's rim; on a multi-band gear revolve that mixes one band's apex
+/// with another's rim → a nonsense height → a too-tight band that UNDERESTIMATES
+/// the band the edge actually lies on, raising a spurious `AmbiguousCurve` on
+/// legitimate chord-error endpoints (R0003). Every single-cone case stays
+/// byte-identical (the matched face is the only cone face). A cone-bearing
+/// input with NO rim Circle is a producer fault → LOUD
+/// `AmbiguousCurve { matched: 0 }` (never silently default to `TAU_WORK` for a
+/// curved selection), mirroring `chord_tol_for_curved_owner`.
 pub(crate) fn cone_chord_tol_for_owner(
     cone_surface: Surface,
     input: InputId,
@@ -478,46 +484,22 @@ pub(crate) fn cone_chord_tol_for_owner(
     candidates: usize,
     edge: (u32, u32),
 ) -> Result<f64, YangError> {
-    let Surface::Cone {
-        apex,
-        axis_dir,
-        half_angle,
-    } = cone_surface
-    else {
-        return Err(YangError::SsiRefinementFailed {
+    let owner = match input {
+        InputId::A => a,
+        InputId::B => b,
+    };
+    match cone_band_chord_bound(cone_surface, owner.faces(), owner.edges()) {
+        Some(t) => Ok(t),
+        // Not a cone surface, or the cone band carries no `Curve::Circle` rim
+        // → producer fault (never silently default to `TAU_WORK`).
+        None => Err(YangError::SsiRefinementFailed {
             edge,
             reason: SsiRefinementError::AmbiguousCurve {
                 candidates,
                 matched: 0,
             },
-        });
-    };
-    let owner = match input {
-        InputId::A => a,
-        InputId::B => b,
-    };
-    let au = normalize3(axis_dir.as_array());
-    let ap = apex.as_array();
-    for f in owner.faces() {
-        if let Surface::Cone { .. } = f.surface {
-            for &e_idx in &f.outer_loop {
-                if let Curve::Circle { center, .. } = owner.edges()[e_idx as usize].curve {
-                    let c = center.as_array();
-                    let height =
-                        ((c[0] - ap[0]) * au[0] + (c[1] - ap[1]) * au[1] + (c[2] - ap[2]) * au[2])
-                            .abs();
-                    return Ok(cone_chord_bound(height, half_angle));
-                }
-            }
-        }
+        }),
     }
-    Err(YangError::SsiRefinementFailed {
-        edge,
-        reason: SsiRefinementError::AmbiguousCurve {
-            candidates,
-            matched: 0,
-        },
-    })
 }
 
 /// PR-YR9: build the EXACT analytical `Curve` for each output intersection edge

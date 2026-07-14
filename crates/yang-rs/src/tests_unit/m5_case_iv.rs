@@ -877,6 +877,137 @@ pub(crate) fn s3_ellipse_rim_bound_none_without_ellipses() {
     );
 }
 
+// Deviation N38: the cone-owning Stage-3 selection band is bound to the EDGE's
+// OWN cone band (exact `Surface` match), NOT an arbitrary first cone face. The
+// pre-fix bug paired one band's apex with another band's rim on a multi-band
+// gear revolve, minting a nonsense height and a too-tight band that spuriously
+// rejected legitimate chord-error endpoints (R0003).
+#[test]
+pub(crate) fn n38_cone_band_bound_binds_to_matching_band() {
+    use std::f64::consts::FRAC_PI_4;
+    let circle = |cz: f64, r: f64| Curve::Circle {
+        center: p(0.0, 0.0, cz),
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        radius: r,
+    };
+    // Band A: apex origin, rim at height 10 (r = 10·tan45° = 10).
+    // Band B: apex z=50, rim at height 2 from its OWN apex (r = 2).
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 0,
+            curve: circle(10.0, 10.0),
+        },
+        BRepEdge {
+            start: 1,
+            end: 1,
+            curve: circle(52.0, 2.0),
+        },
+    ];
+    let cone_surf = |apex_z: f64| Surface::Cone {
+        apex: p(0.0, 0.0, apex_z),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        half_angle: FRAC_PI_4,
+    };
+    let band_a = BRepFace {
+        surface: cone_surf(0.0),
+        outer_loop: vec![0],
+        inner_loops: vec![],
+        reversed: false,
+    };
+    let band_b = BRepFace {
+        surface: cone_surf(50.0),
+        outer_loop: vec![1],
+        inner_loops: vec![],
+        reversed: false,
+    };
+    // Band B listed FIRST — a "first cone face" bug would return Band B's
+    // bound for an edge that names Band A.
+    let faces = vec![band_b, band_a];
+
+    // An edge on Band A must select Band A's OWN bound (height 10), NOT the
+    // first-listed Band B's (height 2).
+    let got_a = cone_band_chord_bound(cone_surf(0.0), &faces, &edges).expect("band A matches");
+    assert!(
+        (got_a - cone_chord_bound(10.0, FRAC_PI_4)).abs() < 1e-15,
+        "edge on Band A gets Band A's own chord bound"
+    );
+    // An edge on Band B selects Band B's bound.
+    let got_b = cone_band_chord_bound(cone_surf(50.0), &faces, &edges).expect("band B matches");
+    assert!(
+        (got_b - cone_chord_bound(2.0, FRAC_PI_4)).abs() < 1e-15,
+        "edge on Band B gets Band B's own chord bound"
+    );
+    assert!(got_a > got_b, "the two bands have distinct bounds");
+}
+
+#[test]
+pub(crate) fn n38_cone_band_bound_max_height_rim() {
+    use std::f64::consts::FRAC_PI_4;
+    // A frustum band bounded by TWO rims (heights 4 and 10). The bound must
+    // use the MAX-height rim (larger radius ⇒ larger circumferential sagitta).
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 0,
+            curve: Curve::Circle {
+                center: p(0.0, 0.0, 4.0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: 4.0,
+            },
+        },
+        BRepEdge {
+            start: 1,
+            end: 1,
+            curve: Curve::Circle {
+                center: p(0.0, 0.0, 10.0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: 10.0,
+            },
+        },
+    ];
+    let band = Surface::Cone {
+        apex: p(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        half_angle: FRAC_PI_4,
+    };
+    let faces = vec![BRepFace {
+        surface: band,
+        outer_loop: vec![0, 1],
+        inner_loops: vec![],
+        reversed: false,
+    }];
+    let got = cone_band_chord_bound(band, &faces, &edges).unwrap();
+    assert!(
+        (got - cone_chord_bound(10.0, FRAC_PI_4)).abs() < 1e-15,
+        "max-height (h=10) rim drives the band bound, not h=4"
+    );
+}
+
+#[test]
+pub(crate) fn n38_cone_band_bound_none_without_circle_rims() {
+    // A cone band with only a LineSegment edge has no Circle rim → None,
+    // preserving the loud producer-fault path (a mutation returning
+    // Some(TAU_WORK) must fail).
+    let edges = vec![BRepEdge {
+        start: 0,
+        end: 1,
+        curve: Curve::LineSegment,
+    }];
+    let band = Surface::Cone {
+        apex: p(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        half_angle: std::f64::consts::FRAC_PI_4,
+    };
+    let faces = vec![BRepFace {
+        surface: band,
+        outer_loop: vec![0],
+        inner_loops: vec![],
+        reversed: false,
+    }];
+    assert_eq!(cone_band_chord_bound(band, &faces, &edges), None);
+}
+
 #[test]
 pub(crate) fn kv15b_resolved_length_regrows_past_band_stays() {
     // B5 second half: after 1→0, segment (1,2) resolves to (0,2) at
