@@ -213,10 +213,23 @@ pub(crate) fn overlay_nary_group(
         let n = normalize3(normal.as_array());
         frame.n[0] * n[0] + frame.n[1] * n[1] + frame.n[2] * n[2]
     };
-    if group.faces_a.iter().any(|&fi| face_dot(a, fi) <= 0.0) {
-        probe("nary-mixed-orientation", &group_tag());
-        return Err(pair_err());
-    }
+    // Task #147 (slice h): a plane group whose side-A faces have MIXED
+    // orientation vs the frame — some agree (+n̂), some oppose (−n̂) — is a
+    // VALID non-convex solid, NOT a defect: opposite-normal coplanar faces
+    // must occupy 2D-DISJOINT regions of the plane (overlapping ones would be
+    // a zero-thickness membrane, which a valid manifold cannot expose). The
+    // exact overlay classifies coverage winding-INDEPENDENTLY (module contract
+    // "outer/hole winding direction is irrelevant"), so its A-only / overlap
+    // partition and per-triangle `poly_a` attribution are already correct for
+    // both orientations. The ONLY orientation-dependent step is the per-A-face
+    // override winding: an overlay triangle is CCW in the frame (⇒ +n̂), so a
+    // face whose outward normal is −n̂ must SWAP, exactly as a B face does when
+    // it opposes the frame. `face_swap_a` below computes that per face. For a
+    // uniform +n̂ group (every currently-supported case) `face_dot > 0` for all
+    // A faces ⇒ `swap == false` everywhere ⇒ byte-identical to the historical
+    // path. So this admits mixed orientation with ZERO change to uniform
+    // groups.
+    let face_swap_a = |fa: usize| face_dot(a, fa) < 0.0;
     let opposite = face_dot(b, group.faces_b[0]) < 0.0;
     if group
         .faces_b
@@ -619,10 +632,11 @@ pub(crate) fn overlay_nary_group(
     }
 
     // ── Per-face override triangulations (attribution-scoped tris_for).
-    // Overlay triangles are CCW in the frame ⇒ normal +n̂: side-A faces
-    // keep the order (n̂ IS their outward normal); side-B faces swap iff
-    // the group opposes. The M-B degenerate-3D-image filter mirrors the
-    // 1×1 path (femto-split 2D verts resolved to one exact point).
+    // Overlay triangles are CCW in the frame ⇒ normal +n̂: a side-A face keeps
+    // the order iff its outward normal IS +n̂ (`face_swap_a`, task #147 — a −n̂
+    // face swaps, like an opposing B face); side-B faces swap iff the group
+    // opposes. The M-B degenerate-3D-image filter mirrors the 1×1 path
+    // (femto-split 2D verts resolved to one exact point).
     let tris_for =
         |keep: [RegionClass; 2], attribution: &[u32], idx: u32, swap: bool| -> Vec<[Point3; 3]> {
             let bits = |p: Point3| [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
@@ -656,7 +670,8 @@ pub(crate) fn overlay_nary_group(
                 [RegionClass::AOnly, RegionClass::Overlap],
                 &overlay.poly_a,
                 idx as u32,
-                false,
+                // Task #147: −n̂ A faces swap, exactly like an opposing B face.
+                face_swap_a(fa),
             ),
         );
     }
@@ -974,5 +989,104 @@ mod tests {
                 "tri attributed to face {face} (x∈[{lo},{hi}]) has centroid x={cx}"
             );
         }
+    }
+
+    /// Task #147 (slice h): a plane group whose side-A faces have MIXED
+    /// orientation vs the frame is a VALID non-convex solid, admitted by the
+    /// per-face override winding (`face_swap_a`). Before the fix, Stage-0
+    /// walled it at `nary-mixed-orientation` → `CoplanarFacesUnsupported`.
+    ///
+    /// Fixture: an offset flush-stack whose z=1 boundary carries a +z face
+    /// (lower top, x∈[0,1]) AND a −z face (upper bottom, x∈[2,3]) — 2D-disjoint
+    /// opposite-normal coplanar faces — unioned with a B box flush at z=1 that
+    /// spans both. Oracles: (1) Stage-0 no longer walls; (2) the emitted mesh
+    /// is watertight (edge-balanced); (3) every mesh-A triangle attributed to
+    /// the −z face is wound −n̂ (nz < 0). Mutation-killer: reverting the
+    /// per-face `face_swap_a` to `false` winds the −z face +n̂ → oracle (3)
+    /// fails AND the shell tears (oracle 2).
+    #[test]
+    fn nary_mixed_orientation_group_stage0_watertight() {
+        let nb = crate::native_backend().expect("native backend");
+        let lower = rj_box([0.0, 0.0, 0.0], [2.0, 1.0, 1.0]);
+        let upper = rj_box([1.0, 0.0, 1.0], [3.0, 1.0, 2.0]);
+        let a = crate::boolean(&lower, &upper, BoolOp::Union, &nb).expect("A = lower ∪ upper");
+
+        // The −z coplanar face at z=1 (upper's exposed bottom).
+        let neg_z_face = a
+            .faces()
+            .iter()
+            .enumerate()
+            .find(|(_, f)| {
+                let Surface::Plane { normal, d } = f.surface else {
+                    return false;
+                };
+                let n = normalize3(normal.as_array());
+                n[2] < -0.99 && (d + n[2]).abs() < 1e-6
+            })
+            .map(|(fi, _)| fi as u32)
+            .expect("A has a −z coplanar face at z=1");
+
+        // B: a box flush at z=1 (its bottom face) spanning both A z=1 faces.
+        let b = rj_box([0.5, 0.25, 1.0], [2.5, 0.75, 1.5]);
+
+        // (1) Stage-0 admits the mixed-orientation group (was a typed wall).
+        let s0 = stage0_preprocess(&a, &b)
+            .expect("mixed-orientation group is admitted (no CoplanarFacesUnsupported)")
+            .expect("near-coplanar pairs detected");
+        assert!(
+            s0.pairs.len() >= 2,
+            "B bottom pairs with both A z=1 faces, got {}",
+            s0.pairs.len()
+        );
+
+        // (2) The emitted Stage-0 mesh_a is watertight (every edge used twice,
+        // balanced) — a −n̂ override wound the wrong way would tear it.
+        let key = |mesh: &Mesh, v: u32| {
+            let p = mesh.verts[v as usize];
+            [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()]
+        };
+        let mut edges: BTreeMap<([u64; 3], [u64; 3]), (usize, i64)> = BTreeMap::new();
+        for t in &s0.mesh_a.tris {
+            for k in 0..3 {
+                let (u, v) = (key(&s0.mesh_a, t[k]), key(&s0.mesh_a, t[(k + 1) % 3]));
+                let (lo, hi, dir) = if u <= v { (u, v, 1) } else { (v, u, -1) };
+                let e = edges.entry((lo, hi)).or_insert((0, 0));
+                e.0 += 1;
+                e.1 += dir;
+            }
+        }
+        let bad = edges
+            .values()
+            .filter(|&&(c, bal)| c != 2 || bal != 0)
+            .count();
+        assert_eq!(
+            bad, 0,
+            "mixed-orientation Stage-0 mesh_a must be watertight"
+        );
+
+        // (3) Every mesh-A triangle attributed to the −z face winds −n̂ (nz<0).
+        let mut neg_z_tris = 0usize;
+        for (t, &face) in s0.mesh_a.tris.iter().zip(&s0.tri_face_a) {
+            if face != neg_z_face {
+                continue;
+            }
+            let p = |v: u32| {
+                let q = s0.mesh_a.verts[v as usize];
+                [q.x(), q.y(), q.z()]
+            };
+            let (p0, p1, p2) = (p(t[0]), p(t[1]), p(t[2]));
+            let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+            let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+            let nz = e1[0] * e2[1] - e1[1] * e2[0];
+            assert!(
+                nz < 0.0,
+                "−z face triangle {t:?} must wind −n̂ (nz<0), got nz={nz}"
+            );
+            neg_z_tris += 1;
+        }
+        assert!(
+            neg_z_tris > 0,
+            "the −z coplanar face must carry override triangles in mesh_a"
+        );
     }
 }

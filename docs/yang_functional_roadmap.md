@@ -2815,6 +2815,25 @@ swapped every consumer to `predicates::indirect`).
     class, task #146); R0095 / F0085 → NonManifoldOutput reassembly.
     Assay: **241 CORRECT / 0 WRONG / 50 ERROR / 4 UNSUPPORTED /
     0 TIMEOUT** — zero-lost (exactly the 3 movers up).
+  - **M8 slice h SHIPPED 2026-07-14 (task #147, spec
+    `specs/m8_mixed_orientation_nary.md`, deviation N44): mixed-orientation
+    side-A faces in an n-ary plane group are admitted.** Driver R0015: a
+    coplanar plane group whose side-A faces carry BOTH orientations vs the
+    frame (`A-dots=[(0,+1),(1,+1),(7,−1),(8,−1)]`) — a VALID non-convex
+    solid, since opposite-normal coplanar faces must be 2D-disjoint on a
+    manifold (probe-verified: `+n̂ {0,1}` has zero self-overlap with
+    `−n̂ {7,8}`; the disc B0 spans both). The exact overlay classifies
+    coverage winding-independently, so the ONLY fix is per-A-face override
+    winding `face_swap_a = face_dot < 0` (a `−n̂` face swaps like an opposing
+    B face) — strictly byte-identical for uniform `+n̂` groups (every
+    currently-supported group), so the M8 corpus is unaffected (R0046
+    CORRECT unchanged; R0025 ERROR identical to baseline). R0015
+    `UNSUPPORTED(coplanar-boolean)` → `ERROR` (advances past Stage-0 to the
+    PRE-EXISTING `Stage-4 OffCurveBeyondChordBand` N2/LRR gap, R0003 class).
+    **UNSUPPORTED(coplanar) tail 3→2** (R0007, R0071 DegenerateLoop micro-
+    twins remain; + C0063 curved-profile by design). Oracle:
+    `nary_mixed_orientation_group_stage0_watertight` (offset flush-stack,
+    mutation-killable via the reverted swap).
   - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
     post-#143), with two fresh class diagnoses:**
     (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —

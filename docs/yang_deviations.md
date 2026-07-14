@@ -2596,3 +2596,67 @@ below); rewrite tier GREEN.
 **Sign-off:** solo-operator variant (P5), red/green via the un-quarantined e2e
 oracle (red at N42's gate before the fix, green after). Deviation entry per P2
 Yang-increment clarification.
+
+### N44 — Mixed-orientation side-A faces in an n-ary coplanar plane group (M8 slice h, task #147)
+
+**Where:** `crates/yang-rs/src/stage0/nary.rs` — `overlay_nary_group`: the
+`nary-mixed-orientation` side-A wall (removed) and the per-A-face override
+winding in the `tris_for([AOnly, Overlap], poly_a, …)` emission.
+
+**Paper basis:** [#24 Yang et al. 2025 §4.5.5, Fig. 16] — the A-only /
+B-only / overlap segmentation is a partition **of the plane**, independent of
+per-face orientation; orientation enters only when lifting each region back to
+an oriented output face.
+
+**Mechanism / gap closed:** a plane group whose side-A faces have MIXED
+orientation vs the group frame `n̂` — some outward-`+n̂`, some outward-`−n̂` —
+was walled as `CoplanarFacesUnsupported`. It is a VALID non-convex solid, not
+a defect: on a 2-manifold, opposite-normal coplanar faces must occupy
+2D-DISJOINT regions of the plane (overlapping ones would be a zero-thickness
+membrane a manifold boundary cannot expose). Verified for the driver R0015:
+the `+n̂` faces `{0,1}` have ZERO 2D self-overlap with the `−n̂` faces `{7,8}`,
+while the side-B disc `B0` positively overlaps all four (it spans both
+orientations' disjoint sub-regions). The exact overlay
+(`coplanar_overlay_multi`) classifies coverage WINDING-INDEPENDENTLY (module
+contract: "outer/hole winding direction is irrelevant"), so its region
+partition and per-triangle `poly_a` source-face attribution are already
+correct for both orientations. The ONLY orientation-dependent step is the
+per-A-face override winding: an overlay triangle is CCW in the frame ⇒ normal
+`+n̂`, so a `−n̂` face must SWAP its emitted triangles — exactly as an opposing
+side-B face already does.
+
+**The fix:** replace the hard-coded `swap = false` for every side-A face with
+per-face `face_swap_a(fa) = face_dot(a, fa) < 0.0`. Side B is unchanged (still
+requires uniform orientation; a mixed-orientation B stays walled — out of
+scope).
+
+**Byte-stability (P9, load-bearing):** a uniform `+n̂` group (EVERY currently
+supported group) has `face_dot > 0` for all A faces ⇒ `face_swap_a == false`
+everywhere ⇒ the emission is byte-identical to the historical path, and the
+removed wall never fired for such a group. The behavioral change is confined to
+`−n̂` faces, which appear ONLY in a mixed-orientation group. Verified: all 290
+yang-rs lib tests green (incl. every slice-f/g Stage-0 test); corpus spot-check
+byte-stable — R0046 (uniform coplanar) `SUPPORTED_CORRECT` unchanged, R0025
+(unrelated Subtract) `ERROR`/LRR identical to baseline. Driver R0015
+`UNSUPPORTED(coplanar-boolean)` → `ERROR` — it advances PAST this Stage-0 wall
+(reaching Stage-2 mesh boolean, which requires watertight manifold input, then
+Stage-4) to a PRE-EXISTING deeper gap `Stage-4 OffCurveBeyondChordBand` (the
+N2/LRR SSI-relocation family, same typed class as R0003). Retiring a Stage-0
+coplanar wall and exposing the pre-existing deeper layer is the established
+increment pattern (cf. N40/N42); R0015 leaves the coplanar-UNSUPPORTED bucket
+(3→2: R0007, R0071 remain) and joins the general curved-boolean N2 epic.
+
+**Tolerance decisions:** none — no constant introduced or widened. `face_dot`
+is an existing exact f64 plane-normal dot product; the change is purely which
+per-face boolean drives an existing winding swap.
+
+**Oracles:** `nary_mixed_orientation_group_stage0_watertight` (stage0/nary.rs)
+— an offset flush-stack A with a `+z` and a `−z` face coplanar at `z=1`
+(2D-disjoint) unioned with a B box flush at `z=1` spanning both; asserts
+Stage-0 no longer walls, `mesh_a` is watertight (edge-balanced), and every
+`−z`-face triangle winds `−n̂`. Mutation-killable: reverting `face_swap_a` to
+`false` tears `mesh_a` (watertight assert fires) and flips the `−z` normals.
+
+**Sign-off:** solo-operator variant (P5), red/green via the new unit oracle
+(red — shell tears — under the reverted-swap mutation, green after). Deviation
+entry per P2 Yang-increment clarification.
