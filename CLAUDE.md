@@ -204,12 +204,36 @@ when their milestone lands. Anything else red is a real regression.
 
 See `docs/TESTING.md` for tier definitions and how to add tests.
 
+## Structural Fixes First (default posture)
+
+**Prefer real, robust, structural fixes over tolerance/relocation-band tuning —
+basically always.** The kernel's remaining failure tail is dominated by missing
+*capability* (Yang §4.4.1 mesh-updating, §4.5.2 local refinement, corner-junction
+assembly, conformal reassembly, CDT re-triangulation), not by tolerances. Adding
+another Stage-4 acceptance band moves ~0 cases now. Reach for a band ONLY to
+convert a NEW silent-wrong into a loud STOP (a P10 safety net) — never to squeak a
+case through, and never in place of the structural fix the STOP is naming. See
+`memory` `feedback_stop_band_tuning_build_mesh_updating` and
+`docs/yang_functional_roadmap.md`.
+
+A structural fix legitimately spans a whole session (or several). That is
+expected, not a scoping failure — land it as deliberate, atomic checkpoints
+(design spec → de-risked gated-off primitive with tests → one wired increment
+proven byte-identical), the way #137 (`specs/yang_137_torus_plane_grazing_corner.md`)
+and #168 (`specs/yang_n2_stage4_cdt_mesh_updating.md`) are structured.
+
 ## If Stuck
 
-- **Don't loop.** If something isn't working after a few attempts, stop.
+- **Don't loop.** If a *specific approach* isn't working after a few attempts,
+  stop and reassess the approach — this is about avoiding unproductive spinning,
+  NOT about abandoning a large structural task because it takes more than one
+  commit.
 - **Document in PLAN.md** under "Blockers" — what you tried, what failed, what you think the issue is.
-- **Move to the next task.** Don't burn context on one problem.
-- **If no commit in 15 minutes,** the task scope is too broad. Break it down into smaller tasks in PLAN.md.
+- **A long gap between commits is NOT itself a signal to narrow scope.** Building
+  the mesh-updating machinery is inherently multi-commit and multi-session; judge
+  progress by "am I still learning / advancing the structural fix?", not by a
+  wall-clock commit cadence. Break work down when an approach is genuinely thrashing,
+  not merely because it is large.
 
 ## Test Philosophy
 

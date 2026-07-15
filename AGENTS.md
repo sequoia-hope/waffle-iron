@@ -88,7 +88,13 @@ In practice, a Sub-Project Agent may assume different feature-cycle roles across
 4. **Every agent reads INTERFACES.md before starting work.** Interface types are the contracts.
 5. **Every agent runs tests before committing.** `cargo test -p <crate>` for sub-project agents. Full `cargo test` for Integration Agent.
 6. **Every agent updates PLAN.md** to mark completed tasks and add discovered tasks.
-7. **If stuck for more than 15 minutes without a commit,** the task scope is too broad. Break it down, document in PLAN.md, move on.
+7. **Prefer structural fixes over tolerance-band tuning — basically always.** A
+   robust structural fix (mesh-updating, local refinement, conformal reassembly)
+   legitimately spans many commits and sessions; that is expected, not a scoping
+   failure. Break work down only when a *specific approach* is thrashing, not
+   merely because it is large or slow to a first commit. (Reason: the kernel tail
+   is missing-capability, not tolerances — see root `CLAUDE.md` "Structural Fixes
+   First".)
 
 ### Interface Change Process
 
