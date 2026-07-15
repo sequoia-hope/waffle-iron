@@ -1494,16 +1494,20 @@ mod event_column_merge_tests {
     //! render-collapse "twin" that is exact-distinct (survives the f64 interner)
     //! yet below model resolution (this is the R0012/R0098 signature).
     //!
-    //! This is a documented **pending RED oracle**, not yet green. N48's scoped
-    //! fix (snap input x pre-`split_all`) is REFUTED (N49): the input-polygon
-    //! corners are boundary-shared with the rest of the solid mesh — adjacent
-    //! non-coplanar faces reuse those exact vertices — so moving ANY corner
-    //! opens a watertightness seam (proven by
-    //! `stage0::nary::nary_tessellated_group_stage0_meshes`, which a global
-    //! x-snap tears: mesh_b → 15 boundary edges). The corrected fix must weld
-    //! the INTERIOR twin lift-points only (never a boundary corner) and be
-    //! certified against the R0091 green-but-wrong hazard — its own increment.
-    //! Un-ignore this test when that fix lands.
+    //! This is a documented **pending RED oracle**, not yet green. TWO fix
+    //! approaches are REFUTED (N49):
+    //!   1. N48's input-column snap — moving the boundary-shared corners tears a
+    //!      watertightness seam (`nary_tessellated_group_stage0_meshes`).
+    //!   2. A 2D-overlay interior/corner-first twin weld — seam-safe, and it
+    //!      DID fix R0012, but the full release assay showed it regresses 4
+    //!      previously-CORRECT cases (F0063/F0090/R0014/R0088): its
+    //!      model-tolerance × GLOBAL-scale band over-merges legitimate
+    //!      near-origin rim samples in far-flung models, and the 2D overlay
+    //!      cannot predict the 3D f32 render-collapse threshold the twin
+    //!      actually trips. The corrected fix must live where 3D coordinates
+    //!      exist (Stage 4/6), weld at the f32-render-precision floor computed
+    //!      from LOCAL magnitude, and never chain — its own certified
+    //!      increment. Un-ignore this test when that fix lands.
     use super::{coplanar_overlay_multi, PolygonWithHoles};
     use cad_primitives::Point2;
 
@@ -1521,8 +1525,9 @@ mod event_column_merge_tests {
     /// the edge is lifted once, so the minimum pairwise vertex gap is the real
     /// feature scale (tens of units), not ~1e-6.
     #[test]
-    #[ignore = "#166 pending: input-column snap refuted (N49, boundary-shared \
-                corners); needs interior-only twin weld — un-ignore when it lands"]
+    #[ignore = "#166 pending: TWO overlay-level fixes refuted (N49 — input-column \
+                snap tears a seam; 2D interior weld regresses 4 cases); the fix \
+                belongs at Stage 4/6 in 3D — un-ignore when it lands"]
     fn near_coincident_event_columns_do_not_mint_twin() {
         // A: quad with a non-vertical top edge y = 60 − 0.2·x spanning x∈[0,100].
         let a = quad([(0.0, 0.0), (100.0, 0.0), (100.0, 40.0), (0.0, 60.0)]);

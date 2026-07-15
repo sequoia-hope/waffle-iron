@@ -3028,3 +3028,45 @@ Stage-0 meshes).
 **Sign-off:** solo-operator variant (P5). P10 outcome — the refuted approach is
 reverted, not patched around; production `coplanar_overlay.rs` is byte-identical
 to N48. Diagnosis-refinement entry per P2 Yang-increment clarification.
+
+**Second refutation (2D-overlay interior twin weld).** The N49 "corrected fix
+direction" above — weld the interior twin lift-points only, corner-first so no
+boundary vertex moves — was implemented (`weld_interior_twins`, a step-5b sibling
+of the fused-emission gate: union pairs of `exact_verts` within
+`TAU_MODEL·(1+scale)`, elect a survivor corner-first, remap triangles, drop the
+index-degenerate twin-slab). It is seam-safe (the `nary_tessellated_group_stage0_meshes`
+watertightness invariant holds) and it DID fix R0012 (→ SUPPORTED_CORRECT, full
+χ/watertight/volume oracle pass). But the full release assay REFUTES it as a
+zero-regression increment: **4 previously-CORRECT cases regress to ERROR**
+(F0063 patch-flood LabelMismatch; F0090 "azimuth-merge rims 41 vs 40 samples";
+R0014 "undirected output edge not used by exactly two directed edges"; R0088
+non-2-manifold), with SUPPORTED_WRONG still 0. R0098 was NOT fixed (its twin is a
+different sub-case). Two structural faults, both fatal:
+
+1. **Global-scale band over-merges.** The band `TAU_MODEL·(1+scale)` uses the
+   GLOBAL maximum coordinate. In a far-flung model a near-origin rim (local
+   magnitude ≪ global scale) gets a band far wider than its own f32 resolution,
+   so legitimately-distinct adjacent rim samples (which do NOT render-collapse)
+   are welded — dropping one sample is exactly F0090's "41 vs 40" and the
+   R0014/R0088 topology tears. The render gate that the twin actually trips uses
+   f32 precision at the vertex's LOCAL magnitude (`crates/kernel-v2/.../tessellate/mod.rs`,
+   G1: two verts bitwise-equal after f32, or f32 cross product exactly zero),
+   not a global model-tolerance band.
+2. **The 2D overlay cannot predict the 3D render collapse.** `frame.lift` is an
+   isometry, so 2D distances equal 3D distances, but 3D MAGNITUDE = |frame_origin
+   + u·e₁ + v·e₂| differs from the 2D magnitude (R0098: 3D ≈ 1686 vs a much
+   smaller 2D u,v). The f32 render floor is set by the 3D magnitude, so an
+   overlay-level (2D) weld band is the wrong quantity in principle.
+
+**Corrected scope (P10 — abort, do not tune the band).** Widening/narrowing the
+overlay band to thread between "twin" and "legit sample" is the P9 tolerance-tuning
+trap. The fix must live where 3D coordinates exist — Stage 4/6 (the natural
+sibling of N47's moved-vertex weld, but reaching non-relocated arrangement
+verts) or the kernel-v2 render path — weld at the f32-render-precision floor
+computed from LOCAL vertex magnitude, and be NON-CHAINING (single-linkage
+union-find collapsed dense rims; use an anchor-bounded or pairwise-isolated
+cluster). Certify with the full release assay (0 WRONG **and no CORRECT lost**)
+plus the Stage-0 watertightness invariant. The refuted `weld_interior_twins`
+was reverted; production `coplanar_overlay.rs` remains byte-identical to N48.
+Assay evidence this increment: baseline 239C/52E → weld 236C/54E (R0012 +1,
+F0063/F0090/R0014/R0088 −4), 0 SUPPORTED_WRONG.
