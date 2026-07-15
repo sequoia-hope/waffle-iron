@@ -661,6 +661,29 @@ pub(crate) fn emit_topology(
                 let band = cad_primitives::TAU_MODEL
                     * (1.0 + pt[0].abs().max(pt[1].abs()).max(pt[2].abs()));
                 if dist.abs() > band {
+                    if std::env::var_os("YANG_S6_NONPLANAR_PROBE").is_some() {
+                        eprintln!(
+                            "YANG_S6_NONPLANAR_PROBE face={face_idx} input={:?} inherited={:?} \
+                             n=({:.6},{:.6},{:.6}) d={d:.6} cycles={}",
+                            info.input,
+                            inherited,
+                            n[0],
+                            n[1],
+                            n[2],
+                            cycles.len()
+                        );
+                        for (ci, cyc) in cycles.iter().enumerate() {
+                            for &(vv, _) in cyc {
+                                let q = mesh.verts[vv as usize].as_array();
+                                let dd = q[0] * n[0] + q[1] * n[1] + q[2] * n[2] + d;
+                                let reloc = relocations.iter().find(|(rv, _)| *rv == vv);
+                                eprintln!(
+                                    "  cyc{ci} v={vv} p=({:.6},{:.6},{:.6}) dist={dd:.4e} reloc={reloc:?}",
+                                    q[0], q[1], q[2]
+                                );
+                            }
+                        }
+                    }
                     return Err(non_manifold_at(
                         "s6-planar-loop-nonplanar",
                         format_args!(
