@@ -430,6 +430,366 @@ pub(crate) fn stage4_chord_band(a: &BRep, b: &BRep) -> Option<f64> {
 /// triangle pair with opposite windings — the pleat spanning the twin gap —
 /// is a zero-volume flap whose directed edges pair with each other; both
 /// copies are dropped. Returns the number of triangles dropped.
+/// N2 §4.4.1 mesh-updating: re-triangulate a degenerate CYLINDER patch in its
+/// `(θ, z)` parametric domain, KEEPING every vertex (no geometry moves — the
+/// re-CDT only re-connects existing vertices), so a collinear-generator sliver
+/// band becomes valid triangles. Returns `Ok(true)` if any patch was re-meshed
+/// (the caller re-scans), `Ok(false)` if no eligible patch exists (caller keeps
+/// its loud STOP). SCOPED: `Surface::Cylinder` only, and only patches whose θ-span
+/// is `< π` (no seam wrap — the full-ring / seam-straddling case is deferred to
+/// the periodic-θ closer, spec §5c.5). Any malformed boundary / CDT failure is a
+/// loud STOP (`LocalRefinementRequired`), never a silent accept (P9/P10).
+///
+/// Faithful-ness: this is §4.4.1 CDT re-triangulation. It moves NO vertex, drops
+/// none, adds no Steiner point — so it cannot distort neighbour geometry (the
+/// R0091 silent-wrong the tolerance-collapse would risk). The watertight/validity
+/// re-gate the caller runs after this is the proof gate.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn replan_degenerate_cylinder_patches(
+    mesh: &mut Mesh,
+    attr_vec: &mut Vec<Option<TriangleAttribution>>,
+    moved: &std::collections::HashSet<u32>,
+    brep_a: &BRep,
+    brep_b: &BRep,
+) -> Result<bool, YangError> {
+    use std::collections::BTreeSet;
+    let pi = std::f64::consts::PI;
+    let degen_area = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
+    let is_degen = |t: [u32; 3], mesh: &Mesh| -> bool {
+        if !t.iter().any(|v| moved.contains(v)) {
+            return false;
+        }
+        let av = tri_area_vector(
+            mesh.verts[t[0] as usize].as_array(),
+            mesh.verts[t[1] as usize].as_array(),
+            mesh.verts[t[2] as usize].as_array(),
+        );
+        0.5 * (av[0] * av[0] + av[1] * av[1] + av[2] * av[2]).sqrt() < degen_area
+    };
+    let attr_of =
+        |ti: usize| -> Option<TriangleAttribution> { attr_vec.get(ti).copied().flatten() };
+    let key_of = |at: TriangleAttribution| (matches!(at.input, InputId::A), at.face);
+    let surf_of = |at: TriangleAttribution| -> Surface {
+        let br = match at.input {
+            InputId::A => brep_a,
+            InputId::B => brep_b,
+        };
+        br.faces()[at.face as usize].surface
+    };
+
+    // Attributions carrying a degenerate triangle on a Cylinder face.
+    let mut targets: BTreeSet<(bool, u32)> = BTreeSet::new();
+    for ti in 0..mesh.tris.len() {
+        if is_degen(mesh.tris[ti], mesh) {
+            if let Some(at) = attr_of(ti) {
+                if matches!(surf_of(at), Surface::Cylinder { .. }) {
+                    targets.insert(key_of(at));
+                }
+            }
+        }
+    }
+    if targets.is_empty() {
+        return Ok(false);
+    }
+
+    // Copy through every triangle NOT in a target patch; remesh each target.
+    let mut new_tris: Vec<[u32; 3]> = Vec::new();
+    let mut new_attr: Vec<Option<TriangleAttribution>> = Vec::new();
+    for ti in 0..mesh.tris.len() {
+        let keep = attr_of(ti).is_none_or(|at| !targets.contains(&key_of(at)));
+        if keep {
+            new_tris.push(mesh.tris[ti]);
+            new_attr.push(attr_of(ti));
+        }
+    }
+
+    let mut remeshed = false;
+    for &(is_a, face) in &targets {
+        let at = TriangleAttribution {
+            input: if is_a { InputId::A } else { InputId::B },
+            face,
+        };
+        let Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            ..
+        } = surf_of(at)
+        else {
+            continue;
+        };
+        let patch_tris: Vec<u32> = (0..mesh.tris.len() as u32)
+            .filter(|&t| attr_of(t as usize).is_some_and(|a| key_of(a) == (is_a, face)))
+            .collect();
+
+        // (θ, z) frame.
+        let (e1, e2) = ortho_basis(axis_dir);
+        let au = normalize3(axis_dir.as_array());
+        let o = axis_point.as_array();
+        let proj = |v: u32| -> (f64, f64) {
+            let p = mesh.verts[v as usize].as_array();
+            let r = [p[0] - o[0], p[1] - o[1], p[2] - o[2]];
+            let x = r[0] * e1.x() + r[1] * e1.y() + r[2] * e1.z();
+            let y = r[0] * e2.x() + r[1] * e2.y() + r[2] * e2.z();
+            let z = r[0] * au[0] + r[1] * au[1] + r[2] * au[2];
+            (y.atan2(x), z)
+        };
+
+        // Unique patch vertices → local 2D pool (θ unwrapped near a reference).
+        let mut vset: BTreeSet<u32> = BTreeSet::new();
+        for &t in &patch_tris {
+            for &v in &mesh.tris[t as usize] {
+                vset.insert(v);
+            }
+        }
+        let th_ref = proj(*vset.iter().next().unwrap()).0;
+        let mut verts2d: Vec<cad_primitives::Point2> = Vec::new();
+        let mut global_of_local: Vec<u32> = Vec::new();
+        let mut local_of_global: std::collections::HashMap<u32, u32> =
+            std::collections::HashMap::new();
+        let (mut th_lo, mut th_hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        for &v in &vset {
+            let (mut th, z) = proj(v);
+            th -= th_ref;
+            while th > pi {
+                th -= 2.0 * pi;
+            }
+            while th < -pi {
+                th += 2.0 * pi;
+            }
+            th_lo = th_lo.min(th);
+            th_hi = th_hi.max(th);
+            let l = verts2d.len() as u32;
+            local_of_global.insert(v, l);
+            global_of_local.push(v);
+            verts2d.push(cad_primitives::Point2::new(th, z));
+        }
+        // Seam-wrap guard: only LOCAL (θ-span < π) patches are in scope.
+        if th_hi - th_lo >= pi {
+            return Ok(remeshed);
+        }
+
+        // Boundary loops from ALL patch triangles (INCLUDING the degenerate
+        // slivers — a generator boundary edge covered only by a degenerate cap
+        // triangle is still a shared patch boundary; excluding it, as
+        // `patch_boundary_cycle` does, would misclassify the generator's shared
+        // vertices as interior and tear the seam → non-manifold). Boundary edge =
+        // undirected edge used exactly once across the patch.
+        let mut edge_ct: std::collections::HashMap<(u32, u32), u32> =
+            std::collections::HashMap::new();
+        for &t in &patch_tris {
+            // Skip degenerate cap triangles: their collinear spanning edges are
+            // not real patch boundary (they inject spurious high-degree vertices).
+            // The generator's shared vertices survive as boundary because they are
+            // ALSO incident to non-degenerate strip triangles.
+            if is_degen(mesh.tris[t as usize], mesh) {
+                continue;
+            }
+            let tri = mesh.tris[t as usize];
+            for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+                let (u, v) = (tri[i], tri[j]);
+                let k = if u < v { (u, v) } else { (v, u) };
+                *edge_ct.entry(k).or_insert(0) += 1;
+            }
+        }
+        // Local-index boundary adjacency; each boundary vertex must have exactly
+        // two boundary neighbours (manifold boundary) or we bail (loud STOP).
+        let mut bnd_adj: std::collections::BTreeMap<u32, Vec<u32>> =
+            std::collections::BTreeMap::new();
+        for (&(u, v), &c) in &edge_ct {
+            if c == 1 {
+                let (lu, lv) = (local_of_global[&u], local_of_global[&v]);
+                bnd_adj.entry(lu).or_default().push(lv);
+                bnd_adj.entry(lv).or_default().push(lu);
+            }
+        }
+        if bnd_adj.is_empty() || bnd_adj.values().any(|n| n.len() != 2) {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: u32::MAX,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
+        }
+        // Walk the boundary edges into closed loops.
+        let mut loops_local: Vec<Vec<u32>> = Vec::new();
+        let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        for &start in bnd_adj.keys() {
+            if seen.contains(&start) {
+                continue;
+            }
+            let mut lp = vec![start];
+            seen.insert(start);
+            let mut prev = start;
+            let mut cur = bnd_adj[&start][0];
+            while cur != start {
+                if !seen.insert(cur) {
+                    // revisited a non-start vertex → tangled boundary, bail.
+                    return Err(YangError::Stage4RegionInvalid {
+                        vertex: u32::MAX,
+                        reason: Stage4InvalidReason::LocalRefinementRequired,
+                    });
+                }
+                lp.push(cur);
+                let nb = &bnd_adj[&cur];
+                let next = if nb[0] == prev { nb[1] } else { nb[0] };
+                prev = cur;
+                cur = next;
+            }
+            loops_local.push(lp);
+        }
+        // Fig-11(a): a shared generator/intersection vertex whose ONLY incident
+        // triangles were degenerate caps is missing from the non-degenerate
+        // boundary above, yet it lies ON a boundary edge and is shared with the
+        // neighbouring patch across the intersection curve — it MUST stay on the
+        // boundary or the seam tears (non-manifold). Insert every such
+        // interior-but-on-a-boundary-edge vertex into the boundary chain (split
+        // the constraint edge at it), iterating so multiple collinear inserts on
+        // one edge each find their sub-edge.
+        loop {
+            let on_bnd: BTreeSet<u32> = loops_local.iter().flatten().copied().collect();
+            let mut inserted = false;
+            for vi in 0..verts2d.len() as u32 {
+                if on_bnd.contains(&vi) {
+                    continue;
+                }
+                let p = verts2d[vi as usize];
+                'find: for lp in &mut loops_local {
+                    for i in 0..lp.len() {
+                        let a = verts2d[lp[i] as usize];
+                        let b = verts2d[lp[(i + 1) % lp.len()] as usize];
+                        let ab = (b.x() - a.x(), b.y() - a.y());
+                        let ap = (p.x() - a.x(), p.y() - a.y());
+                        let cross = ab.0 * ap.1 - ab.1 * ap.0;
+                        let len2 = ab.0 * ab.0 + ab.1 * ab.1;
+                        let dot = ab.0 * ap.0 + ab.1 * ap.1;
+                        // Collinear (area of a-b-p ≈ 0 vs the edge length) AND
+                        // strictly between a and b.
+                        if len2 > 0.0 && cross.abs() <= 1e-9 * len2 && dot > 0.0 && dot < len2 {
+                            lp.insert(i + 1, vi);
+                            inserted = true;
+                            break 'find;
+                        }
+                    }
+                }
+            }
+            if !inserted {
+                break;
+            }
+        }
+        let signed_area = |lp: &[u32]| -> f64 {
+            let mut a = 0.0;
+            for i in 0..lp.len() {
+                let p = verts2d[lp[i] as usize];
+                let q = verts2d[lp[(i + 1) % lp.len()] as usize];
+                a += p.x() * q.y() - q.x() * p.y();
+            }
+            a * 0.5
+        };
+        let outer_i = (0..loops_local.len())
+            .max_by(|&x, &y| {
+                signed_area(&loops_local[x])
+                    .abs()
+                    .partial_cmp(&signed_area(&loops_local[y]).abs())
+                    .unwrap()
+            })
+            .unwrap();
+        let outer = loops_local[outer_i].clone();
+        let holes: Vec<Vec<u32>> = loops_local
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != outer_i)
+            .map(|(_, l)| l.clone())
+            .collect();
+        let bnd: BTreeSet<u32> = loops_local.iter().flatten().copied().collect();
+        let interior: Vec<u32> = (0..verts2d.len() as u32)
+            .filter(|l| !bnd.contains(l))
+            .collect();
+        if std::env::var_os("YANG_RECDT_PROBE").is_some() {
+            let interior_g: Vec<u32> = interior
+                .iter()
+                .map(|&l| global_of_local[l as usize])
+                .collect();
+            eprintln!(
+                "YANG_RECDT face={face} nverts={} nloops={} outer_len={} n_interior={} interior_g={:?}",
+                verts2d.len(),
+                loops_local.len(),
+                loops_local.iter().map(|l| l.len()).max().unwrap_or(0),
+                interior.len(),
+                interior_g,
+            );
+        }
+
+        let tris_local =
+            cherchi_rs::cdt_polygon_with_holes_keep_interior(&verts2d, &outer, &holes, &interior)
+                .map_err(|_| YangError::Stage4RegionInvalid {
+                vertex: u32::MAX,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            })?;
+
+        // Reference winding sign: align to the patch's existing non-degenerate
+        // triangles (robust to inward/outward cylinder faces).
+        let radial_at = |g: [u32; 3]| -> [f64; 3] {
+            let c = [
+                (mesh.verts[g[0] as usize].x()
+                    + mesh.verts[g[1] as usize].x()
+                    + mesh.verts[g[2] as usize].x())
+                    / 3.0,
+                (mesh.verts[g[0] as usize].y()
+                    + mesh.verts[g[1] as usize].y()
+                    + mesh.verts[g[2] as usize].y())
+                    / 3.0,
+                (mesh.verts[g[0] as usize].z()
+                    + mesh.verts[g[1] as usize].z()
+                    + mesh.verts[g[2] as usize].z())
+                    / 3.0,
+            ];
+            let r = [c[0] - o[0], c[1] - o[1], c[2] - o[2]];
+            let axl = r[0] * au[0] + r[1] * au[1] + r[2] * au[2];
+            [r[0] - axl * au[0], r[1] - axl * au[1], r[2] - axl * au[2]]
+        };
+        let mut ref_sign = 0.0_f64;
+        for &t in &patch_tris {
+            let g = mesh.tris[t as usize];
+            if is_degen(g, mesh) {
+                continue;
+            }
+            let av = tri_area_vector(
+                mesh.verts[g[0] as usize].as_array(),
+                mesh.verts[g[1] as usize].as_array(),
+                mesh.verts[g[2] as usize].as_array(),
+            );
+            let rad = radial_at(g);
+            ref_sign += av[0] * rad[0] + av[1] * rad[1] + av[2] * rad[2];
+        }
+        let ref_sign = if ref_sign >= 0.0 { 1.0 } else { -1.0 };
+
+        for tl in tris_local {
+            let mut g = [
+                global_of_local[tl[0] as usize],
+                global_of_local[tl[1] as usize],
+                global_of_local[tl[2] as usize],
+            ];
+            let av = tri_area_vector(
+                mesh.verts[g[0] as usize].as_array(),
+                mesh.verts[g[1] as usize].as_array(),
+                mesh.verts[g[2] as usize].as_array(),
+            );
+            let rad = radial_at(g);
+            let dot = av[0] * rad[0] + av[1] * rad[1] + av[2] * rad[2];
+            if dot * ref_sign < 0.0 {
+                g.swap(1, 2);
+            }
+            new_tris.push(g);
+            new_attr.push(Some(at));
+        }
+        remeshed = true;
+    }
+
+    if remeshed {
+        mesh.tris = new_tris;
+        *attr_vec = new_attr;
+    }
+    Ok(remeshed)
+}
+
 pub(crate) fn collapse_vertex(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
@@ -3669,6 +4029,142 @@ pub(crate) fn stage4_relocate_and_correct(
                                 );
                             }
                             eprintln!("YANG_LRR_STOP site=degenerate_no_longedge ndeg={ndeg}");
+                            // Grounding: for each attribution carrying a degenerate
+                            // triangle, size the same-attribution tri set and count
+                            // its boundary edges (undirected edges used exactly once).
+                            let mut deg_attrs: std::collections::BTreeSet<(u8, u32)> =
+                                std::collections::BTreeSet::new();
+                            for ti in 0..mesh.tris.len() {
+                                if is_degen(ti, mesh) {
+                                    if let Some(at) = attr_vec.get(ti).and_then(|o| o.as_ref()) {
+                                        let ik = matches!(at.input, InputId::A) as u8;
+                                        deg_attrs.insert((ik, at.face));
+                                    }
+                                }
+                            }
+                            for (ik, face) in &deg_attrs {
+                                let want = |ti: usize| {
+                                    attr_vec.get(ti).and_then(|o| o.as_ref()).is_some_and(|at| {
+                                        (matches!(at.input, InputId::A) as u8) == *ik
+                                            && at.face == *face
+                                    })
+                                };
+                                let patch_tris: Vec<u32> = (0..mesh.tris.len() as u32)
+                                    .filter(|&t| want(t as usize))
+                                    .collect();
+                                let mut edge_ct: std::collections::HashMap<(u32, u32), u32> =
+                                    std::collections::HashMap::new();
+                                let mut ndeg_in = 0usize;
+                                for &t in &patch_tris {
+                                    if is_degen(t as usize, mesh) {
+                                        ndeg_in += 1;
+                                    }
+                                    let tri = mesh.tris[t as usize];
+                                    for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+                                        let (u, v) = (tri[i], tri[j]);
+                                        let k = if u < v { (u, v) } else { (v, u) };
+                                        *edge_ct.entry(k).or_insert(0) += 1;
+                                    }
+                                }
+                                let bnd = edge_ct.values().filter(|&&c| c == 1).count();
+                                let nonmanifold = edge_ct.values().filter(|&&c| c > 2).count();
+                                // θ/z span of the patch in the cylinder frame (if
+                                // this face is a Cylinder), to decide seam-wrap.
+                                let br = if *ik == 1 { brep_a } else { brep_b };
+                                let mut span_str = String::from("(not cylinder)");
+                                if let Surface::Cylinder {
+                                    axis_point,
+                                    axis_dir,
+                                    ..
+                                } = br.faces()[*face as usize].surface
+                                {
+                                    let (e1, e2) = ortho_basis(axis_dir);
+                                    let au = normalize3(axis_dir.as_array());
+                                    let o = axis_point.as_array();
+                                    let mut verts_set: std::collections::BTreeSet<u32> =
+                                        std::collections::BTreeSet::new();
+                                    for &t in &patch_tris {
+                                        for &v in &mesh.tris[t as usize] {
+                                            verts_set.insert(v);
+                                        }
+                                    }
+                                    let th_ref = {
+                                        let p = mesh.verts
+                                            [*verts_set.iter().next().unwrap() as usize]
+                                            .as_array();
+                                        let r = [p[0] - o[0], p[1] - o[1], p[2] - o[2]];
+                                        let x = r[0] * e1.x() + r[1] * e1.y() + r[2] * e1.z();
+                                        let y = r[0] * e2.x() + r[1] * e2.y() + r[2] * e2.z();
+                                        y.atan2(x)
+                                    };
+                                    let (mut th_lo, mut th_hi, mut z_lo, mut z_hi) = (
+                                        f64::INFINITY,
+                                        f64::NEG_INFINITY,
+                                        f64::INFINITY,
+                                        f64::NEG_INFINITY,
+                                    );
+                                    for &v in &verts_set {
+                                        let p = mesh.verts[v as usize].as_array();
+                                        let r = [p[0] - o[0], p[1] - o[1], p[2] - o[2]];
+                                        let x = r[0] * e1.x() + r[1] * e1.y() + r[2] * e1.z();
+                                        let y = r[0] * e2.x() + r[1] * e2.y() + r[2] * e2.z();
+                                        let z = r[0] * au[0] + r[1] * au[1] + r[2] * au[2];
+                                        // Unwrap θ near th_ref.
+                                        let mut th = y.atan2(x) - th_ref;
+                                        while th > std::f64::consts::PI {
+                                            th -= 2.0 * std::f64::consts::PI;
+                                        }
+                                        while th < -std::f64::consts::PI {
+                                            th += 2.0 * std::f64::consts::PI;
+                                        }
+                                        th_lo = th_lo.min(th);
+                                        th_hi = th_hi.max(th);
+                                        z_lo = z_lo.min(z);
+                                        z_hi = z_hi.max(z);
+                                    }
+                                    span_str = format!(
+                                        "theta_span={:.4} (pi={:.4}) z_span={:.4} nverts={}",
+                                        th_hi - th_lo,
+                                        std::f64::consts::PI,
+                                        z_hi - z_lo,
+                                        verts_set.len()
+                                    );
+                                }
+                                eprintln!(
+                                    "YANG_LRR_PATCH input={} face={face} n_tris={} n_degen={ndeg_in} \
+                                     boundary_edges={bnd} nonmanifold_edges={nonmanifold} {span_str}",
+                                    if *ik == 1 { "A" } else { "B" },
+                                    patch_tris.len()
+                                );
+                            }
+                        }
+                        // N2 §4.4.1: try re-meshing degenerate CYLINDER patches
+                        // in their (θ,z) parametric domain (keep-interior CDT — no
+                        // geometry moves). If it re-meshed, re-scan the loop; the
+                        // `max_passes` guard bounds any pathological repeat.
+                        //
+                        // WIP (task #168): gated OFF by default — the re-CDT fires
+                        // and resolves the degenerate cluster, but the seam with the
+                        // neighbour patch across the generator is not yet exactly
+                        // conformal (R0038 reaches a single unpaired generator edge,
+                        // spec §5c.6). Byte-identical to baseline when the env is
+                        // unset (production keeps the loud STOP). Enable with
+                        // `YANG_N2_RECDT_ENABLE` for development.
+                        if std::env::var_os("YANG_N2_RECDT_ENABLE").is_some() {
+                            match replan_degenerate_cylinder_patches(
+                                mesh,
+                                &mut attr_vec,
+                                &moved,
+                                brep_a,
+                                brep_b,
+                            ) {
+                                Ok(true) => continue,
+                                Ok(false) => {}
+                                Err(e) => {
+                                    attribution.attributions = attr_vec;
+                                    return Err(e);
+                                }
+                            }
                         }
                         attribution.attributions = attr_vec;
                         return Err(YangError::Stage4RegionInvalid {

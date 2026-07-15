@@ -485,9 +485,47 @@ reverted for lack of a demanding case — R0038 IS that case). Grounded via
   (synthetic collinear generator strip → all-positive-area, same vertex set, wound
   outward).
 
-**Status:** DESIGN complete, de-risked (foundation committed, R0038 confirmed
-LOCAL, risk profile shown safe). Implementation is the next increment — held to
-the certification bar above, not rushed.
+**Status:** DESIGN complete, de-risked; **WIP implementation landed behind
+`YANG_N2_RECDT_ENABLE` (off = baseline, byte-identical).**
+
+### 5c.7 WIP implementation + the remaining seam-conformality blocker (task #168)
+
+`replan_degenerate_cylinder_patches` (stage4_correct.rs) is IMPLEMENTED and wired
+at the `degenerate_no_longedge` give-up, **gated OFF by default**
+(`YANG_N2_RECDT_ENABLE`). It re-meshes each degenerate cylinder patch whole in
+`(θ,z)` (keep-interior CDT), and it WORKS structurally: for R0038 (gate on) the
+degenerate cluster is resolved and the pipeline advances past the loud STOP.
+
+Grounding for R0038's patch: 24 tris, θ-span 0.347 (< π → no seam wrap), z-span
+7.5, 26 verts, 0 non-manifold — a small clean partial arc. The re-mesh:
+
+1. Boundary from NON-degenerate tris only (the degenerate caps' collinear spanning
+   edges inject spurious degree-4 vertices — measured: 18,19 at degree 4 when caps
+   are included). Clean walk → 23-vertex loop, 3 generator vertices fall interior.
+2. **Fig-11(a) insert** the 3 interior-but-on-a-boundary-edge generator vertices
+   back onto the boundary chain (they are shared with the neighbour across the
+   intersection curve — the generator is constant-θ = a vertical line in `(θ,z)`,
+   so the collinearity test is exact). Result: single 26-gon, 0 interior. ✅
+3. keep-interior CDT of the 26-gon, local-normal winding, rebuild splice.
+
+**REMAINING BLOCKER (why gated off):** the re-meshed patch is not yet exactly
+conformal with its neighbour across the generator. `NONMANIFOLD_SITE_PROBE`
+pinpoints ONE unpaired generator edge — **(14,21), fwd=1 rev=0**, both at
+z=13.256 (on the generator). My re-CDT connects generator vertices 14→21
+consecutively, but nothing in the rest of the mesh carries (21,14): the neighbour
+patch's generator-chain connectivity differs from the one I reconstruct from the
+degenerate-corrupted patch topology. Root difficulty: the correct patch boundary
+is the set of half-edges SHARED with a different-attribution neighbour, but the
+zero-area degenerate caps make "which generator adjacency is the real shared
+seam" ambiguous — neither `boundary=count1-within-patch` (spurious cap long edges,
+degree-4) nor `boundary=nondegenerate-only + Fig-11(a) reinsert` (loses the
+neighbour's exact generator adjacency) reproduces the neighbour's chain exactly.
+
+**NEXT increment:** derive the seam boundary from GLOBAL cross-attribution edge
+sharing (an edge is patch-boundary iff its incident global triangles are not all
+this patch's attribution), so the generator chain is taken verbatim from what the
+neighbour actually shares — not reconstructed. Then re-gate + assay 0-WRONG +
+sidecar. The `(14,21)` case is the concrete red target.
 
 ## 6. Risks & guardrails
 
