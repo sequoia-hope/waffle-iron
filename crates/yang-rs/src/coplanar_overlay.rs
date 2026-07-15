@@ -1525,9 +1525,12 @@ mod event_column_merge_tests {
     /// the edge is lifted once, so the minimum pairwise vertex gap is the real
     /// feature scale (tens of units), not ~1e-6.
     #[test]
-    #[ignore = "#166 pending: TWO overlay-level fixes refuted (N49 — input-column \
-                snap tears a seam; 2D interior weld regresses 4 cases); the fix \
-                belongs at Stage 4/6 in 3D — un-ignore when it lands"]
+    #[ignore = "#166 RESOLVED at Stage 5/6, not here (N50): the render-collapse \
+                twin is welded in 3D by `weld_f32_render_twins` at the f32-render \
+                floor (local magnitude). The upstream overlay still mints the \
+                near-coincident lift pair (both overlay-level source fixes were \
+                refuted — N49), so this 2D assertion stays red BY DESIGN: it \
+                documents the un-fixed producer, not a regression. Keep ignored."]
     fn near_coincident_event_columns_do_not_mint_twin() {
         // A: quad with a non-vertical top edge y = 60 − 0.2·x spanning x∈[0,100].
         let a = quad([(0.0, 0.0), (100.0, 0.0), (100.0, 40.0), (0.0, 60.0)]);

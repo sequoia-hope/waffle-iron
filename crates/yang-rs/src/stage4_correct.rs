@@ -606,6 +606,82 @@ pub(crate) fn weld_coincident_relocated(
     welded
 }
 
+/// N50 (spec `yang_n50_f32_render_twin_weld`, deviation N50): collapse two
+/// DISTINCT output vertices that are **bitwise-identical after rounding to
+/// f32** — the exact G1 render-collapse criterion (kernel-v2
+/// `f32_render_degenerate`, B2 clause). This is the 3D, output-magnitude
+/// completion of N47's `weld_coincident_relocated`:
+///
+/// - N47 reaches only `moved`×`moved` relocated pairs; the R0012/R0098 twins are
+///   NON-relocated Cherchi arrangement vertices minted by near-coincident
+///   Stage-0 overlay sweep-event columns (N48/N49). After the FINAL Stage-4
+///   relocation onto the exact curves the pair converges to within f32 render
+///   precision at the OUTPUT (world) magnitude, surviving every earlier merge and
+///   tripping G1 downstream (`planar triangle collapsed at render precision`).
+/// - The criterion is the f32 **bit-key** `[(x as f32).to_bits(), …]`, not a
+///   model band. Two vertices that round to the same f32 bits are the same
+///   rendered point — collapsing them is render-invariant. The key is LOCAL by
+///   construction (f32 ulp ≈ `|coord|·2⁻²³`), so it never over-merges a
+///   near-origin pair in a far-flung model the way a global-`scale` `TAU_MODEL`
+///   band does (the refuted N49 approach). Grouping by exact f32 cell is an
+///   equivalence relation, so the weld never single-linkages across distinct
+///   render cells (the N49 fault-1 / F0090 rim-drop hazard).
+///
+/// Runs on the FINAL mesh (after Stage-4 relocation and the KV15b collapse,
+/// immediately before `emit_topology`, whose output vertices are 1:1 with
+/// `mesh.verts`). `collapse_vertex` is the proven watertight-preserving
+/// edge-collapse; iterate to a fixed point (one pair per BTreeMap-ordered sweep,
+/// min-index survivor). Byte-identical no-op when no two live verts share an f32
+/// cell (the overwhelming-majority fast path). Returns whether any pair welded.
+pub(crate) fn weld_f32_render_twins(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+) -> bool {
+    let f32_key = |p: &Point3| -> [u32; 3] {
+        let a = p.as_array();
+        [
+            (a[0] as f32).to_bits(),
+            (a[1] as f32).to_bits(),
+            (a[2] as f32).to_bits(),
+        ]
+    };
+    let mut welded = false;
+    loop {
+        // Group live (still triangle-referenced) verts by f32 render cell.
+        let mut buckets: std::collections::BTreeMap<[u32; 3], std::collections::BTreeSet<u32>> =
+            std::collections::BTreeMap::new();
+        for tri in &mesh.tris {
+            for &v in tri {
+                buckets
+                    .entry(f32_key(&mesh.verts[v as usize]))
+                    .or_default()
+                    .insert(v);
+            }
+        }
+        // First cell (deterministic key order) holding two distinct verts.
+        let pair = buckets.values().find(|g| g.len() > 1).map(|g| {
+            let mut it = g.iter();
+            let survivor = *it.next().expect("len > 1"); // min index (BTreeSet)
+            let victim = *it.next().expect("len > 1");
+            (victim, survivor)
+        });
+        match pair {
+            Some((victim, survivor)) => {
+                if std::env::var_os("YANG_F32_WELD_PROBE").is_some() {
+                    eprintln!(
+                        "[f32-weld] victim={victim} survivor={survivor} p={:?}",
+                        mesh.verts[survivor as usize]
+                    );
+                }
+                collapse_vertex(mesh, attribution, victim, survivor);
+                welded = true;
+            }
+            None => break,
+        }
+    }
+    welded
+}
+
 /// KV15b (spec `kv15b_mint_site_subresolution_collapse`): collapse
 /// sub-resolution intersection segments before Phase-B emission.
 ///

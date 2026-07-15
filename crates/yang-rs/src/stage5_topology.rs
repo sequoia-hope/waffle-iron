@@ -275,6 +275,28 @@ pub(crate) fn reconstruct_topology_stage4(
         }
     }
 
+    // N50 (spec `yang_n50_f32_render_twin_weld`, deviation N50): weld two
+    // distinct output vertices that are bitwise-identical after rounding to f32 —
+    // the kernel-v2 G1 render-collapse criterion at the OUTPUT (world) magnitude.
+    // The R0012/R0098 render-collapse twins are NON-relocated arrangement
+    // vertices minted by near-coincident Stage-0 overlay sweep-event columns
+    // (N48/N49); after the final Stage-4 relocation above they converge to within
+    // f32 render precision and survive every earlier (model-band) merge. This
+    // runs LAST, on the final mesh whose verts are 1:1 with the emitted output
+    // vertices, so it measures the same magnitude G1 does. Byte-identical no-op
+    // when no two live verts share an f32 render cell (the fast path).
+    {
+        let mut attr_vec = std::mem::take(&mut attribution.attributions);
+        let f32_welded = weld_f32_render_twins(mesh, &mut attr_vec);
+        attribution.attributions = attr_vec;
+        if f32_welded {
+            compact_unreferenced_verts(mesh, &mut relocations);
+            let (i4, _inc4, cv4) = compute_phase_a(mesh, attribution, a, b)?;
+            infos = i4;
+            intersection_curves = cv4;
+        }
+    }
+
     emit_topology(mesh, &infos, &intersection_curves, &relocations, op)
 }
 

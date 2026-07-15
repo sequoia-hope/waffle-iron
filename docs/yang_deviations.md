@@ -3070,3 +3070,69 @@ plus the Stage-0 watertightness invariant. The refuted `weld_interior_twins`
 was reverted; production `coplanar_overlay.rs` remains byte-identical to N48.
 Assay evidence this increment: baseline 239C/52E → weld 236C/54E (R0012 +1,
 F0063/F0090/R0014/R0088 −4), 0 SUPPORTED_WRONG.
+
+### N50 — f32-render-twin weld before topology emission (Stage 5/6; the shipped fix for R0012/R0098, task #166)
+
+**Status:** SHIPPED. Implements the "corrected scope" N49 arrived at, in the
+layer N49 prescribed (3D, output magnitude, f32-render floor, non-chaining).
+Spec `specs/yang_n50_f32_render_twin_weld.md`.
+
+**Mechanism.** A new `weld_f32_render_twins` (`stage4_correct.rs`) runs LAST in
+`reconstruct_topology_stage4`, after Stage-4 relocation and the KV15b
+sub-resolution collapse, immediately before `emit_topology` (whose output
+vertices are 1:1 with `mesh.verts`). It groups live vertices by their f32
+**bit-key** `[(x as f32).to_bits(), (y…), (z…)]` and, for any cell holding two
+distinct verts, `collapse_vertex`es the victim onto the min-index survivor
+(iterated to a fixed point). This is the exact G1 render-collapse criterion
+(kernel-v2 `f32_render_degenerate`, B2 clause: two verts bitwise-equal after f32
+rounding) applied at the producer, so an output edge that would collapse in the
+f32 render buffer is welded before it ever reaches tessellation.
+
+**Why the f32 bit-key answers both N49 refutations.**
+- *Fault 1 (global-scale over-merge):* the f32 bit-key is **local by
+  construction** — its resolution at a vertex is `|coord|·2⁻²³`, so a near-origin
+  rim pair keeps a tiny cell and is never merged, while a far vertex (R0098 mag
+  1686, cell ≈ 2e-4) is measured at its own scale. Grouping by exact cell is an
+  equivalence relation, so the weld never single-linkages across distinct render
+  cells (the F0090 rim-drop hazard). Unit oracles
+  `n50_f32_render_twin::{f32_distinct_pair_is_not_welded,
+  near_origin_pair_survives_when_far_vertex_present}` pin this: an f64-distinct
+  pair 1e-7 apart (inside the model band — N47 *would* weld it) and a near-origin
+  1e-6 pair beside an R0098-scale far vertex are both LEFT INTACT.
+- *Fault 2 (2D can't predict 3D):* the weld runs where the final 3D output
+  coordinates exist, so it measures the same magnitude G1 does. Oracle
+  `r0012_world_magnitude_twin_welds` uses R0012's actual pair (mag ~72, gap
+  1.15e-6 > `TAU_MODEL`) — a model band misses it; the f32 key at mag 72 catches
+  it because it collapses in the render buffer.
+
+**Root cause is unchanged and upstream (N48/N49).** The twin is still minted by
+near-coincident Stage-0 overlay sweep-event columns; N50 is emission hygiene (the
+same posture as KV15b and N47), not a producer fix. Both overlay-level source
+fixes remain refuted, so the 2D RED oracle
+`coplanar_overlay::event_column_merge_tests::near_coincident_event_columns_do_not_mint_twin`
+stays `#[ignore]`d BY DESIGN (it documents the un-fixed producer), with its
+ignore reason updated to point here.
+
+**Certification (I4, the gate N49's second refutation failed).** Full release
+assay: **239C/52E → 241C/49E, 0 SUPPORTED_WRONG, no CORRECT lost**. Per-case
+`results.json` diff is exactly R0012 ERROR→SUPPORTED_CORRECT and R0098
+ERROR→SUPPORTED_CORRECT (F0072's ERROR↔TIMEOUT budget artifact restored to its
+stable ERROR entry). The Stage-0 watertightness invariant
+`nary_tessellated_group_stage0_meshes` still passes (N50 never touches
+boundary-shared corners — it welds render-coincident output verts downstream of
+the overlay). Recipe: `ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=120 cargo test -p
+test-harness --test assay_kv2 --release full_corpus_categorized -- --ignored
+--nocapture` (276s).
+
+**Scope / limitation.** Addresses the B2 coincident-pair class (verified: the
+R0012/R0098 collapsing pairs share an f32 bit-key). A pure B3 collapse (three
+f32-distinct verts f32-collinear, no coincident pair) is a separate class not
+covered here; none observed in the corpus.
+
+**P9/P10.** The criterion is the render buffer's own definition of "same point"
+(exact f32 equality), not a widened acceptance band; the pass only collapses an
+already-render-degenerate output edge. Probe `YANG_F32_WELD_PROBE`.
+
+**Sign-off:** solo-operator variant (P5); red-first unit oracles + adversarial
+safety oracles (P3/FIP Phase 4); assay + Stage-0 watertightness as
+implementation-blind checks (I4); this entry (P2 Yang-increment clarification).
