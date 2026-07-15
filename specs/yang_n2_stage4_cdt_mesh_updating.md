@@ -588,6 +588,60 @@ infrastructure; stays gated OFF (demand-driven — a 0-conversion path shipped
 enabled would be speculative infra) until the junction-aware follow-up greens a
 case.
 
+### 5c.10 REFUTATION: R0038 is a plane-tangent-to-cylinder case; its degenerate caps are LOAD-BEARING conformal seam triangles — re-CDT CANNOT green it (probes `YANG_RECDT_INC` / `NONMANIFOLD_SITE_PROBE`)
+
+The §5c.9 framing ("R0038 needs a wedge-aware junction walk to green it") is
+**refuted by the edge-incidence ground truth**. mykey here is the *cylinder*
+(`(false,2)`); the neighbour is the *plane* (`(true,2)`). All six generator
+verts (14,15,18,19,21,23) share ONE θ (0.34725) — this is a plane **tangent to
+the cylinder along a single generator**, not two generators. The per-edge
+incidence of the ORIGINAL mesh (each edge = exactly two triangles, so it IS
+2-manifold; the baseline STOP is a *zero-area* gate, not a manifold gate):
+
+| seam edge | z-span | cylinder-side triangle |
+|---|---|---|
+| (14,15) | 0.68 → 1.94 | **zero-area cap** |
+| (14,18) | 0.68 → −3.75 (skips 21,23) | **zero-area cap** |
+| (15,19) | 1.94 → 3.75 | **zero-area cap** |
+| (18,21) | −3.75 → −1.32 (skips 23) | real tri |
+| (18,23) | −3.75 → −1.37 | **zero-area cap** |
+| (19,21) | 3.75 → −1.32 | real tri |
+| (19,23) | 3.75 → −1.37 | **zero-area cap** |
+
+Two facts kill the re-CDT approach for R0038:
+
+1. **The degenerate caps are the conformal seam, not spurious.** Five of the
+   seven neighbour (plane) seam edges are matched on the cylinder side *only* by
+   a zero-area cap. Verts 18 and 19 are **degree-3+** on the seam (a pinch where
+   two boundary strands meet). Because all six verts are collinear on the
+   generator, the only cylinder triangles that can present the plane's edges
+   (14,18),(18,23),(18,21),… — which mutually overlap on the line — are
+   ZERO-AREA. The tangent strip has no width there; the conformal mesh of a
+   zero-width strip is exactly those zero-area triangles.
+
+2. **Re-CDT necessarily breaks conformality.** keep-interior re-CDT drops the
+   caps and re-triangulates with non-degenerate triangles, which gives the
+   cylinder the *fine z-consecutive* seam 18-23-21-14-15-19 — a chain the plane
+   does NOT have (the plane connects 14→18 directly). Result: unpaired edge
+   (14,21) fwd=1/rev=0 → non-2-manifold. There is **no** keep-interior
+   triangulation that both (a) is non-degenerate and (b) reproduces the plane's
+   overlapping-collinear seam. The two requirements are contradictory for a
+   tangency. This is fundamentally the **near-tangency class (#137 / §4.3.3)**,
+   NOT the R0021/R0072 axis-perpendicular-ring CDT class the epic assumed.
+
+**What shipped instead (this increment):** the fragile z-reconstruction that
+manufactured the wrong fine chain is **deleted**. The re-CDT now uses the
+verbatim cross-attribution seam directly. For a genuine simple
+degenerate-cylinder strip (none exist in the corpus) this yields a clean
+degree-2 boundary and re-CDTs. For the tangency pinch (R0038) it yields degree-3+
+seam vertices and is rejected by the existing degree-2 boundary gate — a
+**self-validating LOUD STOP** (`LocalRefinementRequired`) at the right place,
+instead of emitting a non-manifold mesh caught only by a downstream gate. Full
+gate-ON assay unchanged: **241 CORRECT / 0 SUPPORTED_WRONG / 49 ERROR**,
+byte-identical to baseline. R0038 is **reclassified to task #137** (near-tangency);
+it is not greenable by the CDT mesh-update and must be resolved by the tangency
+treatment (recognize the grazing contact; do not emit a zero-width strip patch).
+
 ## 6. Risks & guardrails
 
 - **Conformality** (§3.3): the dominant risk; mitigated by fixed-boundary + the

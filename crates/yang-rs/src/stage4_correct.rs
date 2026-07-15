@@ -657,65 +657,25 @@ pub(crate) fn replan_degenerate_cylinder_patches(
                 }
             }
         }
-        // Generator-chain reconstruction. The collapsed caps DESTROY the fine
-        // generator edges and add spurious spanning ones (e.g. R0038 v18→v14
-        // skipping v23,v21), so neither the spans nor the gaps are trustworthy.
-        // A generator is a maximal set of seam vertices sharing one θ (a vertical
-        // line in (θ,z)); its true seam chain is the z-consecutive one (which the
-        // neighbour, sharing these vertices, also uses). Replace every same-θ seam
-        // edge with the z-sorted consecutive chain of that generator; keep the
-        // cross-θ seam edges (strip ends / other boundary) as-is.
-        // The generator needing reconstruction is the one the degenerate caps sit
-        // on — its θ is exactly that of the degenerate triangles' vertices. Other
-        // same-θ coincidences (e.g. two strip-END vertices that happen to share a
-        // θ) are NOT generators and must keep their original seam edges, or the
-        // chain would bridge the whole strip.
-        let mut gen_theta: Vec<f64> = Vec::new();
-        for &t in &patch_tris {
-            if is_degen(mesh.tris[t as usize], mesh) {
-                for &v in &mesh.tris[t as usize] {
-                    let th = verts2d[local_of_global[&v] as usize].x();
-                    if !gen_theta.iter().any(|g| (g - th).abs() < 1e-9) {
-                        gen_theta.push(th);
-                    }
-                }
-            }
-        }
-        let is_gen_theta = |th: f64| gen_theta.iter().any(|g| (g - th).abs() < 1e-9);
-        let mut new_seam: std::collections::BTreeSet<(u32, u32)> =
-            std::collections::BTreeSet::new();
-        for &(u, v) in &seam_edges {
-            let (lu, lv) = (local_of_global[&u], local_of_global[&v]);
-            let (xu, xv) = (verts2d[lu as usize].x(), verts2d[lv as usize].x());
-            // Keep every edge EXCEPT same-generator-θ edges (those are rebuilt).
-            if (xu - xv).abs() > 1e-9 || !is_gen_theta(xu) {
-                new_seam.insert((u, v));
-            }
-        }
-        // Rebuild each generator's chain z-consecutively from ALL its seam verts.
-        for &gth in &gen_theta {
-            let mut group: Vec<u32> = seam_edges
-                .iter()
-                .flat_map(|&(u, v)| [local_of_global[&u], local_of_global[&v]])
-                .filter(|&l| (verts2d[l as usize].x() - gth).abs() < 1e-9)
-                .collect();
-            group.sort_unstable();
-            group.dedup();
-            group.sort_by(|&a, &b| {
-                verts2d[a as usize]
-                    .y()
-                    .partial_cmp(&verts2d[b as usize].y())
-                    .unwrap()
-            });
-            for w in group.windows(2) {
-                let (a, b) = (
-                    global_of_local[w[0] as usize],
-                    global_of_local[w[1] as usize],
-                );
-                new_seam.insert(if a < b { (a, b) } else { (b, a) });
-            }
-        }
-        let seam_edges = new_seam;
+        // NO generator-chain reconstruction. An earlier increment z-reconstructed
+        // each generator's seam into the fine z-consecutive chain, on the theory
+        // that the neighbour shares those vertices and so uses that chain. That is
+        // FALSE for the tangency/pinch configuration (R0038, refuted in §5c.10):
+        // when a plane is tangent to the cylinder along a generator, the plane's
+        // seam edges are NOT the fine z-consecutive chain — the plane connects
+        // 14→18 (skipping 21,23), and verts 18,19 are DEGREE-3 on the seam (a
+        // pinch where two boundary strands meet). The conformal cylinder seam there
+        // is carried by ZERO-AREA caps, which the re-CDT necessarily drops. So the
+        // z-reconstruction produced a seam the neighbour does not have (edge 14→21,
+        // fwd=1 rev=0) → a non-manifold output caught only downstream.
+        //
+        // The verbatim cross-attribution `seam_edges` above IS the neighbour's
+        // seam (every seam edge is incident to a patch triangle — cap or real — so
+        // the patch-edge scan captures all of them). Use it directly. A genuine
+        // simple degenerate-cylinder strip yields a clean degree-2 boundary and
+        // re-CDTs. A pinched tangency (R0038) yields degree-3 seam vertices and is
+        // rejected by the degree-2 boundary gate below — a clean, self-validating
+        // LOUD STOP at the right place, never a downstream non-manifold surprise.
         // Local-index boundary adjacency; each boundary vertex must have exactly
         // two boundary neighbours (manifold boundary) or we bail (loud STOP).
         let mut bnd_adj: std::collections::BTreeMap<u32, Vec<u32>> =

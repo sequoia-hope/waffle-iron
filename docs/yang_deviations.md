@@ -516,6 +516,25 @@ re-triangulation) are the remaining N2 work. Paper basis: §4.4.1 "Mesh updating
 (`refs/text/yang2025_hybrid_boolean.txt:605+`) + §4.5.2 "Local refinement"
 (`:659+`).
 
+**Update (2026-07-15) — R0038 REMOVED from the N2/CDT class; it is near-tangency
+(#137).** The exploratory `replan_degenerate_cylinder_patches`
+(`stage4_correct.rs`, gated `YANG_N2_RECDT_ENABLE`, off in production) targeted
+R0038 as the sole degenerate-*cylinder* case. Edge-incidence ground truth
+(`YANG_RECDT_INC`) refutes the "degenerate CDT" framing: R0038 is a **plane
+tangent to the cylinder along one generator** (all six seam verts at θ=0.34725),
+and its zero-area triangles are **load-bearing conformal seam triangles** —
+5 of the 7 cylinder-side seam edges are presented *only* by a zero-area cap, and
+the seam pinches (verts 18,19 degree-3+). No keep-interior re-CDT can be both
+non-degenerate AND reproduce the plane's overlapping-collinear seam, so re-CDT
+provably cannot green it (unpaired edge (14,21) fwd=1/rev=0). This increment
+**deleted the fragile z-reconstruction** that manufactured a wrong fine chain;
+the re-CDT now uses the verbatim cross-attribution seam and **self-validates**
+via the existing degree-2 boundary gate → a clean `LocalRefinementRequired`
+LOUD STOP on the pinch instead of a downstream non-manifold surprise. Gate-ON
+full assay unchanged (241C/0W/49E, byte-identical). R0038 belongs to the
+§4.3.3 near-tangency epic (task #137), not N2. Full analysis:
+`specs/yang_n2_stage4_cdt_mesh_updating.md` §5c.10.
+
 ### N3 — §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion)
 
 **Code location:** `crates/yang-rs/src/lib.rs:2504-2506` — returns `false` (no
