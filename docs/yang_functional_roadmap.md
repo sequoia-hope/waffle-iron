@@ -3828,6 +3828,17 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   downstream walls). The LRR class stands at 14 genuine
   relocation-region cases — the N2 mesh-updating epic remains the top
   target.**
+  > **AMENDMENT (N52, task #167, 2026-07-15):** the "14 relocation-region
+  > cases / mesh-updating epic is the top target" framing is INACCURATE — a
+  > per-case reject-site census (deviations N52, probe `YANG_LRR_PROBE`)
+  > shows the cluster is a heterogeneous tail: M5 torus∩torus (R0044/R0096),
+  > #137 near-tangency torus∩plane (C0065/R0074), an unclaimed-conic-endpoint
+  > vocabulary gap (R0038), `InvalidBooleanOutput`/`AmbiguousCurve` cases that
+  > never reach a relocation region, and only R0003 in a conic band gate (and
+  > it is a multi-map over-band chain, not a §4.5.1 region). Wiring the Fig-11
+  > mesh-update would clear only a small subset, not 14. Attack the census's
+  > root classes per-case (M5 / #137 first), not the mesh-update as a cluster
+  > cure.
 
 - **S7 — the certainly-fatal chord split (§4B follow-up). ✅ SHIPPED
   2026-07-10 (spec `yang_stage6_sliver_topology` amendment 1 + 1a).**

@@ -2500,6 +2500,134 @@ pub(crate) fn stage4_relocate_and_correct(
         processed.insert(v);
     }
 
+    // LRR diagnostic (read-only): unified over-band run-structure across ALL
+    // conic relocation maps. Per curve identity, sort by parameter `t`, flag
+    // over-band vertices, and classify each over-band vertex as INTERIOR-bounded
+    // (a within-band vertex exists at both a smaller AND larger t on the same
+    // curve — the paper §4.5.1 condition) vs END/UNBOUNDED. Emits a per-case
+    // verdict on whether EVERY over-band conic vertex is interior-bounded.
+    if std::env::var_os("YANG_LRR_PROBE").is_some() {
+        // Per (curve-kind, curve-identity) → sorted samples `(t, v, rho, band)`.
+        type LrrGroups = BTreeMap<(&'static str, [u64; 3]), Vec<(f64, u32, f64, f64)>>;
+        let mut groups: LrrGroups = BTreeMap::new();
+        let kb = |p: Point3| [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
+        let mut push = |kind: &'static str, key: [u64; 3], t: f64, v: u32, rho: f64, band: f64| {
+            groups
+                .entry((kind, key))
+                .or_default()
+                .push((t, v, rho, band));
+        };
+        for (&v, &(center, normal, radius, src_r)) in &vert_circle {
+            let p = mesh.verts[v as usize];
+            let (axial, radial_dev) = circle_residual_split(p, center, normal, radius);
+            let band = match src_r {
+                Some(big_r) if radius > cad_primitives::MIN_FEATURE_SIZE => {
+                    (big_r / radius) * d_eps
+                }
+                _ => d_eps,
+            };
+            let t = project_onto_circle(p, center, normal, radius)
+                .map(|(_, t)| t)
+                .unwrap_or(0.0);
+            push(
+                "circle",
+                kb(center),
+                t,
+                v,
+                axial.max(radial_dev),
+                band.max(d_eps),
+            );
+        }
+        for (&v, er) in &vert_ellipse {
+            let p = mesh.verts[v as usize];
+            push(
+                "ellipse",
+                kb(er.center),
+                0.0,
+                v,
+                ellipse_residual(p, er),
+                d_eps,
+            );
+        }
+        for (&v, cer) in &vert_cone_ellipse {
+            let p = mesh.verts[v as usize];
+            let t = ellipse_param(
+                p,
+                cer.center,
+                cer.normal,
+                cer.major_axis,
+                cer.major_radius,
+                cer.minor_radius,
+            );
+            push(
+                "cone_ell",
+                kb(cer.center),
+                t,
+                v,
+                cone_ellipse_residual(p, cer),
+                cer.cone_d_eps,
+            );
+        }
+        for (&v, cpr) in &vert_parabola {
+            let p = mesh.verts[v as usize];
+            let rho = cone_plane_residual(
+                p,
+                cpr.apex,
+                cpr.cone_axis_dir,
+                cpr.half_angle,
+                cpr.plane_n,
+                cpr.plane_d,
+            );
+            push("parabola", kb(cpr.vertex), 0.0, v, rho, cpr.cone_d_eps);
+        }
+        for (&v, chr) in &vert_cone_hyperbola {
+            let p = mesh.verts[v as usize];
+            let rho = cone_plane_residual(
+                p,
+                chr.apex,
+                chr.cone_axis_dir,
+                chr.half_angle,
+                chr.plane_n,
+                chr.plane_d,
+            );
+            push("hyperbola", kb(chr.apex), 0.0, v, rho, chr.cone_d_eps);
+        }
+        let mut all_interior = true;
+        let mut n_over = 0usize;
+        for ((kind, _key), list) in &mut groups {
+            list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            let within: Vec<f64> = list.iter().filter(|r| r.2 <= r.3).map(|r| r.0).collect();
+            let (tmin, tmax) = (
+                within.iter().cloned().fold(f64::INFINITY, f64::min),
+                within.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+            );
+            let mut seq = String::new();
+            for (t, _v, rho, band) in list.iter() {
+                if rho > band {
+                    n_over += 1;
+                    let interior = *t > tmin && *t < tmax;
+                    if !interior {
+                        all_interior = false;
+                    }
+                    seq.push(if interior { 'I' } else { 'E' });
+                } else {
+                    seq.push('.');
+                }
+            }
+            if seq.contains('I') || seq.contains('E') {
+                eprintln!(
+                    "YANG_LRR_PROBE {kind} n={} within={} seq={seq}",
+                    list.len(),
+                    within.len()
+                );
+            }
+        }
+        eprintln!(
+            "YANG_LRR_VERDICT n_over={n_over} all_over_band_interior_bounded={}",
+            n_over > 0 && all_interior
+        );
+    }
+
     // PR-YR21: cone-ellipse relocation loop, mirroring the cylinder-ellipse loop.
     // Closed form via the cone GENERATOR parameterization (spec §3.1). Gated
     // against the cone's OWN chord budget `cone_d_eps` (NOT the rim-AABB `d_eps`)

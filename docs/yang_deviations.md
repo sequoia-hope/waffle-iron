@@ -3136,3 +3136,73 @@ already-render-degenerate output edge. Probe `YANG_F32_WELD_PROBE`.
 **Sign-off:** solo-operator variant (P5); red-first unit oracles + adversarial
 safety oracles (P3/FIP Phase 4); assay + Stage-0 watertightness as
 implementation-blind checks (I4); this entry (P2 Yang-increment clarification).
+
+### N52 — Re-scoping the Stage-4 "LRR cluster": it is a heterogeneous hard tail, NOT one relocation-region class waiting on the §4.4.1/§4.5.2 mesh-update (diagnosis, task #167)
+
+**Status:** DIAGNOSIS + reusable probe (no fix — no case is a clean single-session
+increment). Corrects the framing carried by this file's N2 note
+(`:502-517`) and the roadmap (`yang_functional_roadmap.md:3828` "The LRR class
+stands at 14 genuine relocation-region cases — the N2 mesh-updating epic remains
+the top target"). That framing implies wiring the built-but-unwired Fig-11
+primitives (`stage4_update::stage4_mesh_update`, `stage4_dt::{eval_uv,d_of_t}`)
+would clear the cluster. **It would not** — a per-case reject-site census shows
+the failing vertices are scattered across at least six distinct root classes,
+most of which never reach a relocation region.
+
+**Reject-site census (release `single_case`, HEAD; the `boolean_*` /
+`auto-union` wrappers hide these inner reasons):**
+
+| Case | Failing vertex | Inner reason | Root class |
+|---|---|---|---|
+| R0003 | 4233 → 8508 (chained) | `OffCurveBeyondChordBand` | cone∩plane conic arc under-sampled — **multi-map** over-band chain |
+| R0044, R0096 | 11, 7 | `LocalRefinementRequired` | torus∩torus degree-4 (explicit STOP `stage4_correct.rs:2879`, M5) |
+| C0065, R0074 | 8, 89 | tangent STOP | plane grazes torus outer equator (`det≤rank_eps`, #137 near-tangency) |
+| R0038 | u32::MAX | `LocalRefinementRequired` | no-skip audit (`:2886`) — a conic endpoint no relocation map claimed (unhandled curve **vocabulary** gap) |
+| R0009 | — | `InvalidBooleanOutput` | not a relocation reject at all |
+| R0017 | — | `AmbiguousCurve{0,0}` | Stage-3 selection, upstream of Stage-4 |
+
+Only R0003 rejects in a conic band gate; every other surveyed case shows
+`n_over=0` in the conic relocation maps (probe `YANG_LRR_PROBE`).
+
+**Why the paper §4.5.1 "optimize across boundaries" recovery converts ≈0 cases
+here.** §4.5.1 (`yang2025:672-689`) removes an erroneous run bounded by two
+converged points on the same surface and re-derives it. We have an advantage the
+paper lacks — the exact analytical SSI curve — so "re-derive" is just projecting
+onto the closed-form curve we already compute. The safe, faithful trigger is the
+paper's own certificate: the over-band vertex is INTERIOR-bounded (a within-band
+vertex at both a smaller and a larger curve-parameter `t` on the same curve).
+The probe's `YANG_LRR_VERDICT all_over_band_interior_bounded` is **false for
+R0003** and moot for every other case (no conic over-band vertices), so the
+faithful interior-bounded recovery converts **zero** corpus cases. Confirmed
+empirically: R0003's failing ellipse arc has over-band runs of **12·. ·15·I ·17·
+· 8·E · 8** (`seq=EEEEEEEEEEEE...............IIIIIIIIIIIIIIIII........EEEEEEEE`),
+i.e. the failing terminus (v4233) is in an END run, and relaxing the cone-ellipse
+gate alone just advances the STOP to a different over-band curve (v8508) — a
+multi-map chain, not a single §4.5.1 region.
+
+**Consequence for the epic.** The productive path is NOT "wire the mesh-update
+and the cluster falls." It is the same per-case bespoke-handler cadence the N38–
+N50 increments used, now targeting the census's actual root classes in priority
+order: (1) **M5 torus∩torus** degree-4 SSI (R0044/R0096) and **#137 near-tangency**
+torus∩plane (C0065/R0074) are the two largest sub-groups and are already
+first-class roadmap items; (2) R0038's unclaimed-conic-endpoint vocabulary gap is
+an N38-style scoped fix (identify the curve type the scan drops, add its map
+assignment); (3) R0003 needs BOTH a certified multi-curve arc relocation AND an
+ellipse×hyperbola (same-cone, two-plane) junction handler — a two-part increment,
+not a drive-by. The unwired Fig-11 primitives remain the right tool ONLY for the
+subset whose relocation succeeds but whose incident patch then needs a
+T-junction-free re-CDT; the census shows that subset is small, not 14.
+
+**Tooling shipped.** `YANG_LRR_PROBE` (stage4_correct.rs, gated, read-only,
+byte-identical when off): dumps every conic relocation candidate grouped by curve
+identity, sorted by parameter `t`, as an over-band run sequence (`.`=within-band,
+`I`=over-band interior-bounded, `E`=over-band end/unbounded), plus a per-case
+`YANG_LRR_VERDICT`. This is the diagnostic that localizes a §4.5.1-recoverable
+region vs a genuine multi-map / near-tangent / vocabulary wall. 301 yang-rs lib
+tests green; probe is env-gated so all tiers are byte-identical when unset.
+
+**P9/P10.** No band was widened and no fix shipped — the "relax the gate"
+experiment (v4233→v8508) was a throwaway used only to prove the multi-map chain,
+then reverted. Committing a recovery that converts 0 cases would be speculative
+infra (contra the roadmap's "build differential testing as part of the port, not
+future audit" discipline); the honest increment is this re-scoping + the probe.
