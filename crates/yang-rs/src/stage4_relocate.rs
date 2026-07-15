@@ -339,6 +339,44 @@ pub(crate) fn relocate_onto_implicit_triple(
     None
 }
 
+/// #137 N-137.1 (spec `specs/yang_137_torus_plane_grazing_corner.md`): the exact
+/// grazing-CORNER junction `torus ∩ cutting_plane ∩ clip_plane`, refined from a
+/// mesh `seed` via the existing 3-surface Newton and then VALIDATED to lie on all
+/// three surfaces within the on-surface band. This is the point where a torus∩plane
+/// intersection loop crosses a transversal clip plane of the same operand (the box
+/// notch's perpendicular face) — the Fig. 13 corner `s` that the eventual §4.5.2
+/// assembly must pin so the loop terminates on a shared 3-surface vertex instead of
+/// dangling (the C0065/R0074 unpaired-edge defect at fine resolution).
+///
+/// `None` for a loud STOP: the triple Newton did not converge, OR it converged to a
+/// point that is not on all three surfaces to `1e-9·(1+‖s‖)` (a spurious/tangent
+/// root — never returned as a junction). Pure geometry; NO topology side effects.
+/// Currently exercised only by unit tests — the wiring is N-137.4, gated.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn torus_plane_clip_junction(
+    seed: Point3,
+    torus: Surface,
+    cutting_plane: Surface,
+    clip_plane: Surface,
+) -> Option<Point3> {
+    debug_assert!(matches!(torus, Surface::Torus { .. }));
+    debug_assert!(matches!(cutting_plane, Surface::Plane { .. }));
+    debug_assert!(matches!(clip_plane, Surface::Plane { .. }));
+    let q = relocate_onto_implicit_triple(seed, torus, cutting_plane, clip_plane)?;
+    // Validate on ALL three surfaces (the triple Newton STOPs on rank-deficiency
+    // but a converged point could still be a spurious root reached across a fold);
+    // scale-relative band, looser than the 1e-13 Newton tol but tight vs feature.
+    let qa = q.as_array();
+    let band = 1e-9 * (1.0 + qa[0].abs().max(qa[1].abs()).max(qa[2].abs()));
+    for s in [torus, cutting_plane, clip_plane] {
+        let (f, _) = surface_value_and_normal(s, qa)?;
+        if f.abs() > band {
+            return None;
+        }
+    }
+    Some(q)
+}
+
 /// PR-YR10 (spec §4.4): per-component residual `(|axial|, |radial − r|)` of `pt`
 /// to an exact circle. This is the spec §4.5 classification residual the Stage-4
 /// relocation drives ≤ `TAU_MODEL`. The legacy combined form
