@@ -907,6 +907,9 @@ pub(crate) fn stage4_relocate_and_correct(
         None => {
             // A conic edge with no circle-bearing input is a producer fault;
             // never default to TAU_WORK for a curved relocation (P10).
+            if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                eprintln!("YANG_LRR_STOP site=chord_band_none");
+            }
             return Err(YangError::Stage4RegionInvalid {
                 vertex: u32::MAX,
                 reason: Stage4InvalidReason::LocalRefinementRequired,
@@ -2933,7 +2936,31 @@ pub(crate) fn stage4_relocate_and_correct(
     // No-skip audit (anti-disproven-attempt): every conic endpoint was handled.
     let relocation_keys: HashSet<u32> = relocations.iter().map(|&(v, _)| v).collect();
     let endpoint_set: HashSet<u32> = endpoints.iter().copied().collect();
+    if std::env::var_os("YANG_LRR_PROBE").is_some() && processed != endpoint_set {
+        for &v in endpoint_set.difference(&processed) {
+            let mut curs: Vec<String> = Vec::new();
+            for (&(s, e), curve) in &curves0 {
+                if s == v || e == v {
+                    curs.push(format!("({s},{e})={curve:?}"));
+                }
+            }
+            eprintln!(
+                "YANG_LRR_UNCLAIMED endpoint v={v} on curves: {}",
+                curs.join(" | ")
+            );
+        }
+        for &v in processed.difference(&endpoint_set) {
+            eprintln!("YANG_LRR_EXTRA processed-but-not-endpoint v={v}");
+        }
+    }
     if processed != endpoint_set || processed != relocation_keys {
+        if std::env::var_os("YANG_LRR_PROBE").is_some() {
+            eprintln!(
+                "YANG_LRR_STOP site=no_skip_audit ep_ne_proc={} proc_ne_reloc={}",
+                processed != endpoint_set,
+                processed != relocation_keys
+            );
+        }
         return Err(YangError::Stage4RegionInvalid {
             vertex: u32::MAX,
             reason: Stage4InvalidReason::LocalRefinementRequired,
@@ -3335,6 +3362,9 @@ pub(crate) fn stage4_relocate_and_correct(
                         mesh.tris.len()
                     );
                 }
+                if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                    eprintln!("YANG_LRR_STOP site=merge_budget");
+                }
                 attribution.attributions = attr_vec;
                 return Err(YangError::Stage4RegionInvalid {
                     vertex: u32::MAX,
@@ -3548,6 +3578,9 @@ pub(crate) fn stage4_relocate_and_correct(
         loop {
             passes += 1;
             if passes > max_passes {
+                if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                    eprintln!("YANG_LRR_STOP site=split_max_passes");
+                }
                 attribution.attributions = attr_vec;
                 return Err(YangError::Stage4RegionInvalid {
                     vertex: u32::MAX,
@@ -3595,6 +3628,31 @@ pub(crate) fn stage4_relocate_and_correct(
                     if any_degen {
                         // Degenerate triangles remain but none has a non-degenerate
                         // long-edge neighbour — genuine local-refinement territory.
+                        if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                            let mut ndeg = 0usize;
+                            for ti in 0..mesh.tris.len() {
+                                if !is_degen(ti, mesh) {
+                                    continue;
+                                }
+                                ndeg += 1;
+                                let (a, c, b) = long_edge_off(&mesh.tris[ti], mesh);
+                                let key = if a < c { (a, c) } else { (c, a) };
+                                let inc = edge_tris.get(&key).map(|v| v.len()).unwrap_or(0);
+                                let nbr_degen = edge_tris.get(&key).is_some_and(|v| {
+                                    v.iter()
+                                        .any(|&n| n as usize != ti && is_degen(n as usize, mesh))
+                                });
+                                eprintln!(
+                                    "YANG_LRR_DEGEN tri={ti} verts={:?} long_edge=({a},{c}) off={b} \
+                                     inc_count={inc} nbr_degen={nbr_degen} moved_a={} moved_c={} moved_b={}",
+                                    mesh.tris[ti],
+                                    moved.contains(&a),
+                                    moved.contains(&c),
+                                    moved.contains(&b),
+                                );
+                            }
+                            eprintln!("YANG_LRR_STOP site=degenerate_no_longedge ndeg={ndeg}");
+                        }
                         attribution.attributions = attr_vec;
                         return Err(YangError::Stage4RegionInvalid {
                             vertex: u32::MAX,

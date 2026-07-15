@@ -3157,7 +3157,7 @@ most of which never reach a relocation region.
 | R0003 | 4233 → 8508 (chained) | `OffCurveBeyondChordBand` | cone∩plane conic arc under-sampled — **multi-map** over-band chain |
 | R0044, R0096 | 11, 7 | `LocalRefinementRequired` | torus∩torus degree-4 (explicit STOP `stage4_correct.rs:2879`, M5) |
 | C0065, R0074 | 8, 89 | tangent STOP | plane grazes torus outer equator (`det≤rank_eps`, #137 near-tangency) |
-| R0038 | u32::MAX | `LocalRefinementRequired` | no-skip audit (`:2886`) — a conic endpoint no relocation map claimed (unhandled curve **vocabulary** gap) |
+| R0038 | u32::MAX | `LocalRefinementRequired` | `site=degenerate_no_longedge` — **3 mutually-degenerate relocated triangles** (a collinear fan around v19), a genuine §4.5.2/§4.5.3 degenerate cluster (NOT a vocabulary gap — the earlier guess was a stale-line-number artifact) |
 | R0009 | — | `InvalidBooleanOutput` | not a relocation reject at all |
 | R0017 | — | `AmbiguousCurve{0,0}` | Stage-3 selection, upstream of Stage-4 |
 
@@ -3185,13 +3185,32 @@ and the cluster falls." It is the same per-case bespoke-handler cadence the N38�
 N50 increments used, now targeting the census's actual root classes in priority
 order: (1) **M5 torus∩torus** degree-4 SSI (R0044/R0096) and **#137 near-tangency**
 torus∩plane (C0065/R0074) are the two largest sub-groups and are already
-first-class roadmap items; (2) R0038's unclaimed-conic-endpoint vocabulary gap is
-an N38-style scoped fix (identify the curve type the scan drops, add its map
-assignment); (3) R0003 needs BOTH a certified multi-curve arc relocation AND an
-ellipse×hyperbola (same-cone, two-plane) junction handler — a two-part increment,
-not a drive-by. The unwired Fig-11 primitives remain the right tool ONLY for the
-subset whose relocation succeeds but whose incident patch then needs a
-T-junction-free re-CDT; the census shows that subset is small, not 14.
+first-class roadmap items; (2) **R0038 is a post-relocation degenerate cluster**
+(`YANG_LRR_STOP site=degenerate_no_longedge`): 3 mutually-degenerate relocated
+triangles (83/84/85 = a collinear fan around v19; every degenerate triangle's
+`long_edge_off` off-vertex sits on a long edge shared with ANOTHER degenerate
+triangle, so the existing split-into-neighbour arm — which needs a NON-degenerate
+long-edge neighbour — never fires). The missing arm is a **degenerate-cluster
+collapse** (§4.5.3 "remove the redundant collinear point"): edge-collapse the
+collinear-redundant `moved` vertices via `collapse_vertex`, then retry. This
+mutates OUTPUT topology, so it needs sidecar certification (P10), not just the
+internal assay (the R0091 green-but-wrong landmine). (3) R0003 needs BOTH a
+certified multi-curve arc relocation AND an ellipse×hyperbola (same-cone,
+two-plane) junction handler — a two-part increment, not a drive-by.
+**Amendment to the "mesh-update converts ≈0" claim:** R0038 (and the
+`degenerate_no_longedge` sub-class) IS a genuine §4.5.2/§4.5.3 case the
+mesh-update/collapse WOULD address — so the mesh-update is the right tool for
+that sub-class, just not for the M5/#137/producer-fault majority.
+
+**Deepened tooling (this session, later commit).** The five Stage-4 `u32::MAX`
+STOP sites are now env-tagged (`YANG_LRR_STOP site=chord_band_none | no_skip_audit
+| merge_budget | split_max_passes | degenerate_no_longedge`), the no-skip audit
+prints unclaimed / extra endpoints with their `curves0` curve types
+(`YANG_LRR_UNCLAIMED` / `YANG_LRR_EXTRA`), and the degenerate give-up point dumps
+each remaining degenerate triangle (`YANG_LRR_DEGEN tri=.. verts=.. long_edge=..
+off=.. inc_count=.. nbr_degen=.. moved_a/c/b=..`). All read-only, env-gated,
+byte-identical when off; this is how a `u32::MAX` LRR case is localized to its
+true site in one run.
 
 **Tooling shipped.** `YANG_LRR_PROBE` (stage4_correct.rs, gated, read-only,
 byte-identical when off): dumps every conic relocation candidate grouped by curve
