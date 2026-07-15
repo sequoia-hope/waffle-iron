@@ -423,6 +423,72 @@ this build.
   on top of the committed foundation; until it lands, Mode-2 stays a correct loud
   STOP.
 
+### 5c.6 R0038 — the LOCAL cylinder-generator-band demand (task #167/#168, 2026-07-15)
+
+**New corpus demand for the LOCAL band re-CDT** (the increment §5c.5 built then
+reverted for lack of a demanding case — R0038 IS that case). Grounded via
+`YANG_LRR_PROBE` / `YANG_LRR_DEGEN` / `YANG_LRR_DEGEN_SURF`:
+
+- **Failure:** R0038 STOPs at `site=degenerate_no_longedge`, `ndeg=3`. The three
+  degenerate triangles (83=[23,19,18] / 84=[18,19,14] / 85=[15,14,19]) are on a
+  **Cylinder** (r=15.22, axis_dir [0.4034, 0.9150, 0] — HORIZONTAL axis). Their
+  five distinct vertices (14,15,18,19,23) are **exactly collinear** at constant
+  z=13.256, xy-direction ratio 2.269 == axis_dir ratio 0.9150/0.4034 = 2.268 →
+  the points lie on a cylinder **GENERATOR** (plane‖axis × cylinder = generator
+  lines, the N46/R0026 configuration). One generator = **constant θ** → the
+  degenerate band is a **thin θ-strip, LOCAL** (NOT the full circumferential ring
+  R0021/R0072 produce from an axis-perpendicular boss cut). So R0038 is the
+  local-band case, and the θ-seam / periodic-θ closer (§5c.5) is NOT needed here.
+
+- **Why it is safe to close (risk profile).** The keep-interior re-CDT **moves no
+  geometry** — it re-connects the SAME vertices (every band vertex kept, none
+  dropped, no Steiner). So it CANNOT produce the R0091 "moved neighbour geometry"
+  silent-wrong the collapse (Option A, §5c.3) risks; its worst case is a `cdt_*`
+  error or a failed watertight re-gate → a **loud STOP** (safe). The distortion
+  budget that made Option A a P9 hazard is simply absent.
+
+- **Consumer design (implementation increment, review-gated):**
+  1. **Band.** `is_degen(ti)` = triangle has a `moved` vertex AND area < `MIN_FEATURE_SIZE²`.
+     Seed = the degenerate triangles; `band` = seed ∪ {same-`attribution`
+     triangles sharing a vertex with a seed triangle} (one attribution per band;
+     cross-curve neighbours on the OTHER surface are excluded — they are the fixed
+     conformal neighbours). Connected components → one band per cluster.
+  2. **Perimeter.** `patch_boundary_cycle(&Patch{ attribution, tri_indices: band }, mesh)`
+     — reuse the existing walk (it already excludes fold slivers, so the zero-area
+     degenerate triangles do not corrupt the boundary). Outer = largest |signed
+     area| in `(θ,z)`; the rest are holes.
+  3. **`(θ,z)` projection.** `ortho_basis(axis_dir)` frame; θ = atan2 of the radial
+     component, z = projection onto axis. Assert the band's θ span ≪ π (LOCAL) —
+     if it straddles the seam, bail to the loud STOP (defer to the periodic-θ
+     closer). Interior band vertices projected into the same pool.
+  4. **CDT.** `cdt_polygon_with_holes_keep_interior(verts2d, outer, holes, interior)`
+     (committed foundation) — boundary fixed, interior kept, no new points.
+  5. **Wind + splice.** Wind each new triangle to the **local** cylinder outward
+     normal at its centroid (radial from axis; NOT a band ref-normal). Rebuild
+     `mesh.tris`+`attr_vec` in one pass (remove band tris, append new with the
+     band attribution) — the §5b.4 splice shape. Vertices are all reused, so no
+     `compact`/lift-back is needed.
+  6. **Re-gate + loop.** `continue` the degenerate-resolution loop so it re-scans;
+     if no degenerate triangle remains, fall through to the existing
+     `validate_relocated_triangles` + `check_watertight_2manifold`. Any breach →
+     the existing loud STOP.
+  7. **Scope gate:** Cylinder only, LOCAL bands only (θ span < π). Full-ring /
+     seam-straddling / non-cylinder degenerate bands keep the current loud STOP.
+
+- **Certification (non-negotiable, P10 — topology-mutating):** RED oracle
+  `red_r0038_cylinder_generator_band` → oracle-correct + un-`#[ignore]`d; full
+  release assay **0 SUPPORTED_WRONG**, no CORRECT lost; **sidecar parity** on
+  R0038's arrangement (the mutation is downstream of Stage-2, so the arrangement
+  is unchanged — the check is that the re-meshed OUTPUT is watertight/χ=2 and its
+  boundary curve set matches); `fuzz_boxes` 900/900 (no-op path — re-CDT only runs
+  when a degenerate band exists). A yang-rs lib unit test on the band re-CDT helper
+  (synthetic collinear generator strip → all-positive-area, same vertex set, wound
+  outward).
+
+**Status:** DESIGN complete, de-risked (foundation committed, R0038 confirmed
+LOCAL, risk profile shown safe). Implementation is the next increment — held to
+the certification bar above, not rushed.
+
 ## 6. Risks & guardrails
 
 - **Conformality** (§3.3): the dominant risk; mitigated by fixed-boundary + the

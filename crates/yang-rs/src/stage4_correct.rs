@@ -901,6 +901,11 @@ pub(crate) fn stage4_relocate_and_correct(
 ) -> Result<(Vec<(u32, f64)>, bool), YangError> {
     use std::collections::{BTreeMap, HashSet};
 
+    // Non-shadowed aliases for the input BReps (the loops below rebind `a`/`b`
+    // to per-triangle vertex indices, so diagnostics/lookups that need the BReps
+    // use these).
+    let (brep_a, brep_b) = (a, b);
+
     // d_ε relocation budget (a conic edge implies a curved input ⇒ Some).
     let d_eps = match stage4_chord_band(a, b) {
         Some(de) => de,
@@ -3636,6 +3641,14 @@ pub(crate) fn stage4_relocate_and_correct(
                                 }
                                 ndeg += 1;
                                 let (a, c, b) = long_edge_off(&mesh.tris[ti], mesh);
+                                let surf = attr_vec.get(ti).and_then(|o| o.as_ref()).map(|at| {
+                                    let br = match at.input {
+                                        InputId::A => brep_a,
+                                        InputId::B => brep_b,
+                                    };
+                                    br.faces()[at.face as usize].surface
+                                });
+                                eprintln!("YANG_LRR_DEGEN_SURF tri={ti} surface={surf:?}");
                                 let key = if a < c { (a, c) } else { (c, a) };
                                 let inc = edge_tris.get(&key).map(|v| v.len()).unwrap_or(0);
                                 let nbr_degen = edge_tris.get(&key).is_some_and(|v| {
