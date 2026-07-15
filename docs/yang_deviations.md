@@ -3303,3 +3303,55 @@ strip) refuted as a CDT case, also under #137
 (`specs/yang_n2_stage4_cdt_mesh_updating.md` §5c.10); R0044/R0096 are the separate
 torus∩TORUS M5 pair. Probe `YANG_TORUS_PROBE` (banked, env-gated, byte-identical
 off) prints each torus-vertex relocation move vs the displacement gate vs d_ε.
+
+#### #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong (`SUPPORTED_WRONG`). The real blocker is exact grazing-corner junction assembly.
+
+The note above concludes "the remaining #137 work is REFINEMENT." **A controlled
+resolution sweep on C0065 refutes the "just refine" reading** — refining the torus
+alone makes the case *worse*, not correct. Method: temporarily force a global rim
+segment floor (`YANG_NSEG_FLOOR`, the dev-only debug knob at
+`stage1_tessellate.rs:271`) and re-run `ASSAY_CASE=C0065 single_case`. The closed
+torus's toroidal density is `n_theta = eq_ring.len()` (`tessellate_torus_closed`,
+`patch_tessellators.rs:362`) — it is set by the **equator circle's rim
+tessellation** (the global `stage1_tessellate_min_segments` n_seg, ≈12 at
+production for this model), NOT by `tessellate_torus_face`'s local `d_eps` and NOT
+by the trimmed-band `tessellate_torus_patch` path. Sweep result:
+
+| global rim N | outcome |
+|---|---|
+| 12 (production), 24, 48 | `ERROR` — `OffCurveBeyondChordBand` at vertex 8 (loud STOP) |
+| 64 | `SUPPORTED_WRONG` — 112 unpaired edges, V504−E1397+F894 = χ=1 (≠2) |
+| 96 | `SUPPORTED_WRONG` — 164 unpaired, χ=1 |
+| 160 | `SUPPORTED_WRONG` — 272 unpaired, χ=−1 |
+
+**Why the coarse STOP actually fires (per-vertex artifact, not a whole-loop
+error).** At production density the mesh puts a vertex EXACTLY on the outer-equator
+ring (z=0.5): C0065 vertex 8 = `[1.45,-0.219,0.5]`, z=0.5 exact. The true
+torus∩plane(x=1.45) curve at z=0.5 is the equatorial extreme |y|=0.384 (outer
+radius 1.5), so `relocate_onto_implicit_pair` drags that ONE vertex out to
+`[1.45,-0.384,0.5]` — outside the box face (|y|≤0.25) → the containment STOP. It is
+a single equatorial-ring vertex whose nearest true-curve point is the loop's y
+extreme, not evidence that the whole mesh loop escapes.
+
+**Why fine resolution is worse.** At N≥64 no mesh vertex lands on the exact
+equatorial ring, so every relocation is tiny (`YANG_TORUS_PROBE`: rho ~1e-3, all
+inside the gate and the face hull) and the torus block PASSES. But the x=1.45
+loop's mesh max is still only |y|≈0.23 (`v68=[1.45,-0.230,0.63]`) — it still does
+not reach |y|=0.25, while separate mesh vertices DO sit on the box y=−0.25 face
+(`v69=[1.44,-0.25,0.64]`). The x=1.45 torus loop and the y=−0.25 face curve
+therefore **never share an exact corner junction** (the true 3-surface point
+torus∩plane_x∩plane_y at `[1.45,-0.25,{0.372,0.628}]`), so the downstream topology
+assembly leaves the loop end dangling → unpaired edges → χ≠2.
+
+**Corrected scope.** #137's grazing-loop case needs BOTH (a) local mesh refinement
+of the grazing band (§4.3.4/§4.5.2) AND (b) exact grazing-**corner junction**
+insertion + loop stitching (torus∩plane_x∩plane_y via
+`relocate_onto_implicit_triple`, then split/route the loop across the box face
+boundary — the §4.5.1/§4.5.2 across-boundary machinery). Refinement without (b)
+converts a correct loud ERROR into a silent `SUPPORTED_WRONG`, so **the current
+STOP is load-bearing and must stay** until (b) exists. This corrects the earlier
+"remaining work = REFINEMENT" framing. No production change this session (probe
+enrichment only; corpus byte-identical 241C/0W/49E). The N≥64 `SUPPORTED_WRONG` is
+only reachable via the dev-only rim floor — the corpus never tessellates this torus
+finer than N=12, so there is no live silent-wrong to gate today (adding a
+resolution-independent grazing guard now would be speculative P9 infra, cf. N52).

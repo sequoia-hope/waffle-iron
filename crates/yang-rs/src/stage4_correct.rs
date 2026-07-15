@@ -3623,9 +3623,13 @@ pub(crate) fn stage4_relocate_and_correct(
             let sin_theta = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
             let gate = tangent_plane_corridor(d_eps, sin_theta);
             if std::env::var_os("YANG_TORUS_PROBE").is_some() {
+                let fv = surface_value_and_normal(t_surf, proj.as_array())
+                    .map(|(f, _)| f)
+                    .unwrap_or(f64::NAN);
                 eprintln!(
                     "YANG_TORUS_PROBE v={v} rho={rho:.4e} gate={gate:.4e} d_eps={d_eps:.4e} \
-                     sin_theta={sin_theta:.4e} p={p:?} proj={proj:?}"
+                     sin_theta={sin_theta:.4e} F_torus(proj)={fv:.2e} p={p:?} proj={proj:?} \
+                     t_surf={t_surf:?} partners={partners:?}"
                 );
             }
             if rho > gate {
