@@ -503,6 +503,25 @@ pub(crate) fn replan_degenerate_cylinder_patches(
         }
     }
 
+    // Global undirected edge → incident-triangle attribution keys (whole mesh).
+    // Used to define a patch's TRUE seam: an edge is a patch boundary iff it is
+    // shared with a triangle of a DIFFERENT attribution (or is a mesh boundary) —
+    // so the re-mesh reproduces the neighbour's chain verbatim (spec §5c.7). This
+    // is robust to the zero-area caps: a cap edge shared with another SAME-patch
+    // triangle is interior (dropped), only cap edges facing a neighbour are seam.
+    type AttrKey = Option<(bool, u32)>;
+    let mut global_edge_attrs: std::collections::HashMap<(u32, u32), Vec<AttrKey>> =
+        std::collections::HashMap::new();
+    for ti in 0..mesh.tris.len() {
+        let k = attr_of(ti).map(key_of);
+        let tri = mesh.tris[ti];
+        for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+            let (u, v) = (tri[i], tri[j]);
+            let e = if u < v { (u, v) } else { (v, u) };
+            global_edge_attrs.entry(e).or_default().push(k);
+        }
+    }
+
     let mut remeshed = false;
     for &(is_a, face) in &targets {
         let at = TriangleAttribution {
@@ -568,38 +587,124 @@ pub(crate) fn replan_degenerate_cylinder_patches(
             return Ok(remeshed);
         }
 
-        // Boundary loops from ALL patch triangles (INCLUDING the degenerate
-        // slivers — a generator boundary edge covered only by a degenerate cap
-        // triangle is still a shared patch boundary; excluding it, as
-        // `patch_boundary_cycle` does, would misclassify the generator's shared
-        // vertices as interior and tear the seam → non-manifold). Boundary edge =
-        // undirected edge used exactly once across the patch.
-        let mut edge_ct: std::collections::HashMap<(u32, u32), u32> =
-            std::collections::HashMap::new();
+        // TRUE seam boundary via GLOBAL cross-attribution edge sharing (spec
+        // §5c.7): an edge of this patch is a boundary edge iff it is NOT shared by
+        // exactly two triangles that both carry THIS patch's attribution — i.e. it
+        // faces a different-attribution neighbour (the seam) or is a mesh boundary.
+        // This takes the neighbour's chain verbatim, so the re-mesh stays exactly
+        // conformal, and the zero-area caps' internal edges (both sides this patch)
+        // are correctly interior. Collect the seam edges of THIS patch's tris.
+        let mykey = (is_a, face);
+        let mut seam_edges: std::collections::BTreeSet<(u32, u32)> =
+            std::collections::BTreeSet::new();
         for &t in &patch_tris {
-            // Skip degenerate cap triangles: their collinear spanning edges are
-            // not real patch boundary (they inject spurious high-degree vertices).
-            // The generator's shared vertices survive as boundary because they are
-            // ALSO incident to non-degenerate strip triangles.
-            if is_degen(mesh.tris[t as usize], mesh) {
-                continue;
-            }
             let tri = mesh.tris[t as usize];
             for (i, j) in [(0, 1), (1, 2), (2, 0)] {
                 let (u, v) = (tri[i], tri[j]);
-                let k = if u < v { (u, v) } else { (v, u) };
-                *edge_ct.entry(k).or_insert(0) += 1;
+                let e = if u < v { (u, v) } else { (v, u) };
+                let inc = &global_edge_attrs[&e];
+                let all_mine = inc.len() == 2 && inc.iter().all(|k| *k == Some(mykey));
+                if !all_mine {
+                    seam_edges.insert(e);
+                }
             }
         }
+        // Generator-chain reconstruction. The collapsed caps DESTROY the fine
+        // generator edges and add spurious spanning ones (e.g. R0038 v18→v14
+        // skipping v23,v21), so neither the spans nor the gaps are trustworthy.
+        // A generator is a maximal set of seam vertices sharing one θ (a vertical
+        // line in (θ,z)); its true seam chain is the z-consecutive one (which the
+        // neighbour, sharing these vertices, also uses). Replace every same-θ seam
+        // edge with the z-sorted consecutive chain of that generator; keep the
+        // cross-θ seam edges (strip ends / other boundary) as-is.
+        // The generator needing reconstruction is the one the degenerate caps sit
+        // on — its θ is exactly that of the degenerate triangles' vertices. Other
+        // same-θ coincidences (e.g. two strip-END vertices that happen to share a
+        // θ) are NOT generators and must keep their original seam edges, or the
+        // chain would bridge the whole strip.
+        let mut gen_theta: Vec<f64> = Vec::new();
+        for &t in &patch_tris {
+            if is_degen(mesh.tris[t as usize], mesh) {
+                for &v in &mesh.tris[t as usize] {
+                    let th = verts2d[local_of_global[&v] as usize].x();
+                    if !gen_theta.iter().any(|g| (g - th).abs() < 1e-9) {
+                        gen_theta.push(th);
+                    }
+                }
+            }
+        }
+        let is_gen_theta = |th: f64| gen_theta.iter().any(|g| (g - th).abs() < 1e-9);
+        let mut new_seam: std::collections::BTreeSet<(u32, u32)> =
+            std::collections::BTreeSet::new();
+        for &(u, v) in &seam_edges {
+            let (lu, lv) = (local_of_global[&u], local_of_global[&v]);
+            let (xu, xv) = (verts2d[lu as usize].x(), verts2d[lv as usize].x());
+            // Keep every edge EXCEPT same-generator-θ edges (those are rebuilt).
+            if (xu - xv).abs() > 1e-9 || !is_gen_theta(xu) {
+                new_seam.insert((u, v));
+            }
+        }
+        // Rebuild each generator's chain z-consecutively from ALL its seam verts.
+        for &gth in &gen_theta {
+            let mut group: Vec<u32> = seam_edges
+                .iter()
+                .flat_map(|&(u, v)| [local_of_global[&u], local_of_global[&v]])
+                .filter(|&l| (verts2d[l as usize].x() - gth).abs() < 1e-9)
+                .collect();
+            group.sort_unstable();
+            group.dedup();
+            group.sort_by(|&a, &b| {
+                verts2d[a as usize]
+                    .y()
+                    .partial_cmp(&verts2d[b as usize].y())
+                    .unwrap()
+            });
+            for w in group.windows(2) {
+                let (a, b) = (
+                    global_of_local[w[0] as usize],
+                    global_of_local[w[1] as usize],
+                );
+                new_seam.insert(if a < b { (a, b) } else { (b, a) });
+            }
+        }
+        let seam_edges = new_seam;
         // Local-index boundary adjacency; each boundary vertex must have exactly
         // two boundary neighbours (manifold boundary) or we bail (loud STOP).
         let mut bnd_adj: std::collections::BTreeMap<u32, Vec<u32>> =
             std::collections::BTreeMap::new();
-        for (&(u, v), &c) in &edge_ct {
-            if c == 1 {
-                let (lu, lv) = (local_of_global[&u], local_of_global[&v]);
-                bnd_adj.entry(lu).or_default().push(lv);
-                bnd_adj.entry(lv).or_default().push(lu);
+        for &(u, v) in &seam_edges {
+            let (lu, lv) = (local_of_global[&u], local_of_global[&v]);
+            bnd_adj.entry(lu).or_default().push(lv);
+            bnd_adj.entry(lv).or_default().push(lu);
+        }
+        if std::env::var_os("YANG_RECDT_PROBE").is_some() {
+            let bad: Vec<(u32, usize)> = bnd_adj
+                .iter()
+                .filter(|(_, n)| n.len() != 2)
+                .map(|(&v, n)| (global_of_local[v as usize], n.len()))
+                .collect();
+            eprintln!(
+                "YANG_RECDT_SEAM face={face} nverts={} nseam_edges={} nbnd={} bad_degree={:?}",
+                verts2d.len(),
+                seam_edges.len(),
+                bnd_adj.len(),
+                bad
+            );
+            for (&lv, n) in &bnd_adj {
+                if n.len() != 2 {
+                    let gv = global_of_local[lv as usize];
+                    let nbrs: Vec<(u32, f64, f64)> = n
+                        .iter()
+                        .map(|&ln| {
+                            let g = global_of_local[ln as usize];
+                            (g, verts2d[ln as usize].x(), verts2d[ln as usize].y())
+                        })
+                        .collect();
+                    eprintln!(
+                        "  bad v{gv} (θ,z)={:?} seam_nbrs={nbrs:?}",
+                        verts2d[lv as usize]
+                    );
+                }
             }
         }
         if bnd_adj.is_empty() || bnd_adj.values().any(|n| n.len() != 2) {

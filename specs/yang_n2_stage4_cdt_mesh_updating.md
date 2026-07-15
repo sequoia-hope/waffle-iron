@@ -521,11 +521,38 @@ seam" ambiguous — neither `boundary=count1-within-patch` (spurious cap long ed
 degree-4) nor `boundary=nondegenerate-only + Fig-11(a) reinsert` (loses the
 neighbour's exact generator adjacency) reproduces the neighbour's chain exactly.
 
-**NEXT increment:** derive the seam boundary from GLOBAL cross-attribution edge
-sharing (an edge is patch-boundary iff its incident global triangles are not all
-this patch's attribution), so the generator chain is taken verbatim from what the
-neighbour actually shares — not reconstructed. Then re-gate + assay 0-WRONG +
-sidecar. The `(14,21)` case is the concrete red target.
+### 5c.8 Boundary reconstruction solved; blocker is now TWO-SIDED conformality
+
+Progress (still gated off). The seam-boundary derivation was iterated to a clean
+result on R0038 (probe `YANG_RECDT_SEAM` → 26-gon, all degree 2):
+
+1. **Cross-attribution seam** (§5c.7): boundary edge iff not shared by exactly two
+   same-attribution triangles. Correct in principle but left the caps' spurious
+   spanning edges → v18,v19 degree 4.
+2. **Generator identification + z-consecutive chain rebuild.** The generator is the
+   θ-group (a vertical line in `(θ,z)`) that carries the degenerate-triangle
+   vertices; replace its same-θ seam edges with the z-sorted consecutive chain
+   (the caps destroy the fine edges AND add spanning ones, so neither survives —
+   rebuild). Other same-θ coincidences (two strip-END vertices sharing a θ) are
+   NOT generators and keep their original edges. → clean 26-gon, degree 2. ✅
+
+**REMAINING BLOCKER — two-sided conformality.** With a clean boundary the CDT
+runs, but reassembly is non-manifold at the SAME edge as the first attempt:
+**(14,21) fwd=1 rev=0**. z-consecutive is the RIGHT chain for my patch, but the
+NEIGHBOUR patch across the intersection curve does not carry (21,14): its
+triangulation along the generator was ALSO collapsed by the same relocation, so it
+has different (collapsed/spanning) edges there. A ONE-SIDED re-mesh cannot match a
+collapsed neighbour. `(14,21)` is an edge my z-chain CREATES that exists on neither
+side of the original mesh.
+
+**NEXT increment (the real closer):** re-mesh BOTH patches sharing the collapsed
+intersection curve together, using ONE reconstructed curve chain for both — i.e.
+when the degenerate generator is detected, re-CDT the cylinder patch AND its
+different-attribution neighbour patch(es) along that generator in the same pass,
+so both adopt the identical z-consecutive chain. (Alternatively: detect that the
+neighbour is itself degenerate and include it in `targets`, keyed by the shared
+generator rather than by surface type.) Concrete red target stays `(14,21)`; the
+`YANG_RECDT_SEAM` + `NONMANIFOLD_SITE_PROBE` pair is the debug loop.
 
 ## 6. Risks & guardrails
 
