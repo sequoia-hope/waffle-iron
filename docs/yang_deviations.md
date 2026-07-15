@@ -2960,3 +2960,71 @@ render-collapse itself is pinned by kernel-v2's always-on G1 gate.
 implementation-blind reference parity (native `cherchi-rs` ≡ Cherchi 2022 C++
 sidecar, bit-identical on both cases). Diagnosis-only entry per P2 Yang-increment
 clarification; the production fix lands as its own certified increment.
+
+---
+
+### N49 — Refutation of N48's scoped fix: input-column snap breaks boundary-shared seams; the event-column merge must be interior-only (task #166)
+
+**Status:** DIAGNOSIS REFINED (task #166). N48's *root cause* stands
+(sidecar-certified: near-coincident Stage-0 overlay sweep-event columns mint the
+R0012/R0098 render-collapse twins). N48's proposed *scoped fix* — snap the exact
+sweep-event x's / sub-segment endpoints to one representative column before
+`line_pts`/slab construction — is **REFUTED** here by a concrete regression. No
+production change this increment; a documented RED oracle and the corrected fix
+direction ship instead (P10: abort the refuted fix, report what was learned).
+
+**What was tried.** A `snap_near_coincident_columns` pass over
+`coplanar_overlay_multi`'s exact input polygons: cluster all input x-coordinates
+that lie within `TAU_MODEL·(1+scale)` (anchor-bounded single-linkage, so no
+coordinate moves more than the tolerance floor) and rewrite each to its cluster
+representative *before* `split_all`. This is N48's "snap so both columns collapse
+to one representative before the slab build," implemented at the earliest sound
+point. It made the synthetic twin oracle
+(`coplanar_overlay::event_column_merge_tests`) go green.
+
+**Why it is wrong (the regression).** It tore an existing watertightness
+invariant: `stage0::nary::nary_tessellated_group_stage0_meshes` failed with
+`mesh_b: Stage-0 mesh must be watertight` — 15 boundary edges instead of 0. The
+overlay's input-polygon corners are **boundary-shared**: they are the coplanar
+face's boundary vertices, and the solid's *adjacent non-coplanar faces reuse
+those exact `f64` vertices* for the shared edge. Moving a corner even by a
+sub-tolerance amount desynchronizes the coplanar face from its neighbours and
+opens a seam (T-junction / gap). Because the two near-coincident columns are
+themselves *input corners* (two genuinely-distinct gear-B corners whose `p·e₁`
+coincide — N48), you cannot merge those columns without moving a boundary corner.
+N48's fix — whether phrased as snapping input x or snapping sub-segment endpoints
+(which include those corners) — is therefore structurally incompatible with
+Stage-0's boundary-sharing contract.
+
+**Corrected fix direction (next, planned increment).** Leave every
+boundary-shared corner exactly where it is; instead weld the **interior twin
+lift-points only** — the near-duplicate crossing vertices the sweep mints on the
+*other* side's edge, which are internal arrangement vertices (never external
+corners). Concretely: a post-arrangement, post-coverage-check step (a sibling of
+the step-6 fused-emission gate) that, for a pair of `exact_verts` within
+`TAU_MODEL·(1+scale)` where **neither is an input-loop corner**, redirects the
+loser index to the survivor and drops the resulting index-degenerate triangles.
+This preserves boundaries by construction. It still carries the R0091
+green-but-wrong hazard (welding un-relocated arrangement geometry can yield a
+B-Rep χ the internal assay can't catch), so it must be certified by BOTH the full
+release assay (0 WRONG, no CORRECT lost) AND — since the weld is downstream of
+the arrangement — a direct check that the welded coplanar face stays watertight
+against its neighbours (the `nary_tessellated_group_stage0_meshes` invariant),
+plus re-running `twin_diag_r0012.rs` on the fresh operand meshes to confirm the
+twin is gone. Open sub-question for that increment: whether a twin lift-point can
+ever land on a *boundary* A-edge (shared, subdivided) rather than an interior
+one — if so the interior-only filter must also propagate the removed subdivision
+to the adjacent face, or wall loudly.
+
+**Oracles / verification.** RED oracle
+`coplanar_overlay::event_column_merge_tests::near_coincident_event_columns_do_not_mint_twin`
+(`#[ignore]`d, synthetic: two distinct B corners 1e-6 apart in sweep-x, an A top
+edge crossing the thin slab; asserts the minimum pairwise output-vertex gap is
+the real feature scale, not ~1e-6). It fails today (twin present) and un-ignores
+when the interior-weld increment lands. The refuting regression is
+`stage0::nary::nary_tessellated_group_stage0_meshes` (watertightness of both
+Stage-0 meshes).
+
+**Sign-off:** solo-operator variant (P5). P10 outcome — the refuted approach is
+reverted, not patched around; production `coplanar_overlay.rs` is byte-identical
+to N48. Diagnosis-refinement entry per P2 Yang-increment clarification.

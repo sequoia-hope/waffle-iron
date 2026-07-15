@@ -1480,3 +1480,75 @@ mod b7_validity_gate_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod event_column_merge_tests {
+    //! #166 (deviations N49) — near-coincident sweep-event columns.
+    //!
+    //! When two GENUINELY-DISTINCT input corners project to nearly-equal sweep
+    //! x (their 3D separation is orthogonal to the sweep direction, so `p·e₁`
+    //! collapses them to within the coordinate-resolution floor), the exact
+    //! plane-sweep opens TWO event columns a sub-`TAU_MODEL·(1+scale)` gap
+    //! apart. Any crossing edge of the OTHER side is then lifted at BOTH
+    //! columns, minting two arrangement vertices a like distance apart — a
+    //! render-collapse "twin" that is exact-distinct (survives the f64 interner)
+    //! yet below model resolution (this is the R0012/R0098 signature).
+    //!
+    //! This is a documented **pending RED oracle**, not yet green. N48's scoped
+    //! fix (snap input x pre-`split_all`) is REFUTED (N49): the input-polygon
+    //! corners are boundary-shared with the rest of the solid mesh — adjacent
+    //! non-coplanar faces reuse those exact vertices — so moving ANY corner
+    //! opens a watertightness seam (proven by
+    //! `stage0::nary::nary_tessellated_group_stage0_meshes`, which a global
+    //! x-snap tears: mesh_b → 15 boundary edges). The corrected fix must weld
+    //! the INTERIOR twin lift-points only (never a boundary corner) and be
+    //! certified against the R0091 green-but-wrong hazard — its own increment.
+    //! Un-ignore this test when that fix lands.
+    use super::{coplanar_overlay_multi, PolygonWithHoles};
+    use cad_primitives::Point2;
+
+    fn quad(v: [(f64, f64); 4]) -> PolygonWithHoles {
+        PolygonWithHoles {
+            outer: v.iter().map(|&(x, y)| Point2::new(x, y)).collect(),
+            holes: vec![],
+        }
+    }
+
+    /// A single overlay whose two B-corners share a sweep column to within
+    /// ~1e-6 (real 3D separation ⟂ to the sweep direction). A's slanted top
+    /// edge crosses the thin slab; the twin is the pair of near-duplicate lift
+    /// vertices on that edge, one per column. Post-fix the columns unify and
+    /// the edge is lifted once, so the minimum pairwise vertex gap is the real
+    /// feature scale (tens of units), not ~1e-6.
+    #[test]
+    #[ignore = "#166 pending: input-column snap refuted (N49, boundary-shared \
+                corners); needs interior-only twin weld — un-ignore when it lands"]
+    fn near_coincident_event_columns_do_not_mint_twin() {
+        // A: quad with a non-vertical top edge y = 60 − 0.2·x spanning x∈[0,100].
+        let a = quad([(0.0, 0.0), (100.0, 0.0), (100.0, 40.0), (0.0, 60.0)]);
+        // B ⊂ A: its left side runs from (50.0, 10) up to (50.000001, 30) — two
+        // distinct corners 20 units apart in y whose x differ by only 1e-6.
+        let b = quad([(50.0, 10.0), (80.0, 10.0), (80.0, 30.0), (50.000001, 30.0)]);
+
+        let overlay = coplanar_overlay_multi(std::slice::from_ref(&a), std::slice::from_ref(&b))
+            .expect("overlay must succeed");
+
+        // No two DISTINCT output vertices may lie within the tolerance floor:
+        // the twin (~1e-6 apart) violates this; the real geometry here is
+        // separated by whole units. 1e-3 cleanly straddles the two regimes.
+        let mut min_gap = f64::INFINITY;
+        for (i, p) in overlay.verts.iter().enumerate() {
+            for q in &overlay.verts[i + 1..] {
+                let d = ((p.x() - q.x()).powi(2) + (p.y() - q.y()).powi(2)).sqrt();
+                if d > 0.0 {
+                    min_gap = min_gap.min(d);
+                }
+            }
+        }
+        assert!(
+            min_gap > 1e-3,
+            "near-coincident event columns minted a sub-tolerance twin: \
+             min pairwise vertex gap = {min_gap:e} (expected ≫ 1e-3)"
+        );
+    }
+}
