@@ -3185,22 +3185,28 @@ and the cluster falls." It is the same per-case bespoke-handler cadence the N38�
 N50 increments used, now targeting the census's actual root classes in priority
 order: (1) **M5 torus∩torus** degree-4 SSI (R0044/R0096) and **#137 near-tangency**
 torus∩plane (C0065/R0074) are the two largest sub-groups and are already
-first-class roadmap items; (2) **R0038 is a post-relocation degenerate cluster**
-(`YANG_LRR_STOP site=degenerate_no_longedge`): 3 mutually-degenerate relocated
-triangles (83/84/85 = a collinear fan around v19; every degenerate triangle's
-`long_edge_off` off-vertex sits on a long edge shared with ANOTHER degenerate
-triangle, so the existing split-into-neighbour arm — which needs a NON-degenerate
-long-edge neighbour — never fires). The missing arm is a **degenerate-cluster
-collapse** (§4.5.3 "remove the redundant collinear point"): edge-collapse the
-collinear-redundant `moved` vertices via `collapse_vertex`, then retry. This
-mutates OUTPUT topology, so it needs sidecar certification (P10), not just the
-internal assay (the R0091 green-but-wrong landmine). (3) R0003 needs BOTH a
-certified multi-curve arc relocation AND an ellipse×hyperbola (same-cone,
-two-plane) junction handler — a two-part increment, not a drive-by.
-**Amendment to the "mesh-update converts ≈0" claim:** R0038 (and the
-`degenerate_no_longedge` sub-class) IS a genuine §4.5.2/§4.5.3 case the
-mesh-update/collapse WOULD address — so the mesh-update is the right tool for
-that sub-class, just not for the M5/#137/producer-fault majority.
+first-class roadmap items; (2) **R0038 is the documented R0021/R0072 CDT-mesh-update
+class** (`YANG_LRR_STOP site=degenerate_no_longedge`): 3 relocated triangles
+(83=[23,19,18] / 84=[18,19,14] / 85=[15,14,19]) whose FIVE distinct vertices
+(14,15,18,19,23) are **exactly collinear** (all at z=13.256..., xy-direction ratio
+2.269 to 6 figures) — a run of `moved` intersection vertices monotonic along a
+straight constraint line, so every triangle between them spans the curve and
+collapses to zero area. Each degenerate triangle's `long_edge_off` off-vertex sits
+on a long edge shared with ANOTHER degenerate triangle, so the existing
+split-into-non-degenerate-neighbour arm never fires. **The naïve fix — an
+edge-collapse of the collinear-redundant vertices — is EXPLICITLY PROHIBITED** by
+`specs/yang_n2_stage4_cdt_mesh_updating.md` §2 (P9/P10): the sliver's short edge is
+a *real* edge at model scale, so collapsing it moves neighbour geometry and yields a
+watertight-but-WRONG mesh (the R0091 silent-wrong this campaign exists to catch).
+The faithful fix is the **per-patch parametric-domain CDT re-triangulation** already
+designed in that spec (§3) — the unwired Fig-11 mesh-update primitives
+(`stage4_update`/`stage4_dt`). That is DESIGN-status, reviewer-sign-off-required,
+NOT a drive-by. (3) R0003 needs BOTH a certified multi-curve arc relocation AND an
+ellipse×hyperbola (same-cone, two-plane) junction handler — a two-part increment,
+not a drive-by. **Corrected claim on the mesh-update:** it IS the right tool for the
+`degenerate_no_longedge` / R0021-class sub-group (R0038 confirmed), just not for the
+M5/#137/producer-fault majority — and even there the tool is the CDT re-triangulation,
+NOT the prohibited collapse.
 
 **Deepened tooling (this session, later commit).** The five Stage-4 `u32::MAX`
 STOP sites are now env-tagged (`YANG_LRR_STOP site=chord_band_none | no_skip_audit

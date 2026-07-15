@@ -3644,11 +3644,15 @@ pub(crate) fn stage4_relocate_and_correct(
                                 });
                                 eprintln!(
                                     "YANG_LRR_DEGEN tri={ti} verts={:?} long_edge=({a},{c}) off={b} \
-                                     inc_count={inc} nbr_degen={nbr_degen} moved_a={} moved_c={} moved_b={}",
+                                     inc_count={inc} nbr_degen={nbr_degen} moved_a={} moved_c={} moved_b={} \
+                                     pa={:?} pc={:?} pb={:?}",
                                     mesh.tris[ti],
                                     moved.contains(&a),
                                     moved.contains(&c),
                                     moved.contains(&b),
+                                    mesh.verts[a as usize].as_array(),
+                                    mesh.verts[c as usize].as_array(),
+                                    mesh.verts[b as usize].as_array(),
                                 );
                             }
                             eprintln!("YANG_LRR_STOP site=degenerate_no_longedge ndeg={ndeg}");
