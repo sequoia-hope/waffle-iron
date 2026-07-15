@@ -2875,3 +2875,88 @@ geometry; widening the band past the feature floor welds real features.
 **Sign-off:** solo-operator variant (P5); unit oracles (P3/P4) + full-corpus
 byte-stability gate (P1 implementation-blind check). Deviation entry per P2
 Yang-increment clarification.
+
+### N48 — Render-collapse twins (R0012/R0098) are GENUINE, sidecar-certified: root-caused to Stage-0 overlay near-coincident sweep-event columns (task #166, DIAGNOSIS)
+
+**Status:** ROOT-CAUSED (task #166). Diagnostic tool
+`crates/cherchi-rs/tests/twin_diag_r0012.rs`. No production change this
+increment — the fix is a scoped Stage-0 near-degeneracy increment (below), and
+attempting it as a drive-by is a P9/P10 trap (see "Why not fixed here").
+
+**Symptom.** R0012 (`FaceId(1023)`) and R0098 (`FaceId(599)`) both fail
+kernel-v2's G1 render-precision gate: `TessellationFailed { reason: "planar
+triangle collapsed at render precision" }`. Each collapsing face carries a
+vertex TWIN — two output B-Rep vertices geometrically one point but a few ×1e-7
+apart (R0012 d=7.04e-7 @ scale ~70; R0098 d≈4e-6 @ scale ~2200), far below the
+model coincidence tolerance `TAU_MODEL·(1+scale)` (~1e-5 / ~2e-4 respectively).
+
+**The open question #166 posed** (from N47): are these twins a NATIVE
+`cherchi-rs` arrangement artifact (a duplicated LPI the C++ reference does not
+emit — fixable in cherchi-rs) or GENUINE arrangement output (present in the
+exact arrangement — the downstream must handle)?
+
+**Answer — GENUINE, reference-certified.** Feeding each case's exact Stage-2
+operand meshes (`YANG_STAGE0_DUMP_DIR` dump) through both
+`native_labeled_arrangement` and the Cherchi 2022 C++ sidecar
+(`cherchi_sidecar_rs::labeled_arrangement`) yields **bit-identical arrangements**:
+R0012 → 9160 verts / 25426 tris, 14 sub-1e-4 coincident pairs, min gap 7.038e-7
+on BOTH backends (the twin at (43.0266,−55.9136,−71.8299) is present, identical,
+in each); R0098 → 3634 verts / 8566 tris, 3 pairs, min gap 2.591e-6 on both.
+The native port is NOT the culprit — reference parity holds exactly. (Tool:
+`twin_diag_r0012.rs`; both cases run under it.)
+
+**Root cause — Stage-0 §4.5.5 coplanar-overlay sweep-event near-degeneracy.**
+The twins already exist in the Stage-0-REWRITTEN operand meshes handed to the
+arrangement (the arrangement faithfully carries them). In R0012's overlay dump,
+two *genuinely distinct* gear-B corners — `corner_b(1019)` at
+(47.548857.., −71.142.., −46.458..) and `corner_b(1022)` at
+(47.548856.., −73.612.., −45.404..), ~2.7 apart in 3D — project to sweep-`u`
+values only **1.11e-6 apart** (u = p·e₁ = 63.12911013920474 vs
+63.12911125207131). The exact plane-sweep (`coplanar_overlay.rs` step 2,
+`xs = distinct endpoint x's` over `RBig`) therefore opens TWO event columns
+1.11e-6 apart, and lifts the *other* polygon's crossing edges at BOTH columns,
+minting pairs of LIFT vertices ~1e-6 apart in 3D along the thin slab between
+them. Those near-duplicate lifts are the twins. They survive by design: the
+overlay's f64-rounding interner welds only BIT-identical points
+(`RoundedTri::CoincidentNeedle`), and `triangulate_ring`'s B6 is explicit that
+femto-near-duplicate DISTINCT vertices are "NEVER a tolerance weld." Both
+backends reproduce them because the input already contains them.
+
+**Paper basis for the eventual fix (P8).** Yang §4.4.1 / Fig. 11(b)
+(`refs/text/yang2025_hybrid_boolean.txt` 535–538): *"we remove a point if it is
+too close to another"*, and §4.5.5's requirement that Stage 0 emit IDENTICAL,
+coincidence-free meshes for both models. Two exact sweep events within the model
+tolerance are ONE event; the robust-sweep fix merges them.
+
+**Why not fixed here (P9/P10).** Merging the two `xs` events is NOT a contained
+change: the split sub-segment arrangement `subs` still references the dropped
+event x, so the slab filter `s.a.x <= xl && s.b.x >= xr` would silently drop a
+sub-segment that ended at the removed event — the whole exact sub-segment
+arrangement must be re-snapped, a substantial reformulation touching every M8
+coplanar case. The alternative — a post-hoc model-tolerance weld of the Stage-0
+output meshes + degenerate-triangle drop — risks fan/non-manifold-edge folds and,
+per the R0091 precedent, welding un-relocated arrangement geometry can produce a
+GREEN-but-WRONG B-Rep Euler-χ that the internal assay CANNOT catch (sidecar
+parity certifies the ARRANGEMENT, not the final yang B-Rep χ). Either path is a
+scoped increment with its own spec + red test + full-assay certification, not a
+session-end drive-by.
+
+**Scoped fix (next increment).** Robust event-column merge in
+`coplanar_overlay::coplanar_overlay_multi` step 1/2: when two exact `xs` events
+lie within `TAU_MODEL·(1+scale)`, snap the sub-segment endpoints of the arrangement
+so both collapse to one representative column BEFORE `line_pts`/slab
+construction — the standard near-degenerate-sweep unification. Guard so it fires
+only on genuine sub-tolerance event pairs (a strict no-op for every other
+coplanar case ⇒ byte-stable assay outside R0012/R0098). Certify with the full
+release assay (0 WRONG, no CORRECT lost) AND the sidecar arrangement parity on
+both cases' operand meshes.
+
+**Oracles / verification.** `twin_diag_r0012.rs` (env-gated reference-parity
+diagnostic: native vs sidecar arrangement on dumped operand meshes, reports
+coincident pairs ± a target). Reproduction recipe in the file header. The
+render-collapse itself is pinned by kernel-v2's always-on G1 gate.
+
+**Sign-off:** solo-operator variant (P5); the decisive oracle is
+implementation-blind reference parity (native `cherchi-rs` ≡ Cherchi 2022 C++
+sidecar, bit-identical on both cases). Diagnosis-only entry per P2 Yang-increment
+clarification; the production fix lands as its own certified increment.
