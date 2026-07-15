@@ -2587,10 +2587,25 @@ pub(crate) fn stage4_relocate_and_correct(
                     er.second_cyl,
                 );
             }
+            // `torus` / `surface_pair` are the two `inc0`-driven implicit-pair
+            // relocation paths (the KV6d Tier B torus block and the M5
+            // surface-pair block, both AFTER the conic audit). They do NOT
+            // populate the conic `vert_*` maps above, so a vertex handled by
+            // them shows every conic flag `false`. Print them here so a reader
+            // never mistakes "all conic flags false" for "unhandled" — the
+            // exact trap that produced the wrong "#137 missing solver" reframe.
+            // `torus` mirrors the block's own detection: an `inc0` edge incident
+            // to `v` whose attributed surfaces include a `Torus`.
+            let torus_v = inc0.iter().any(|(&(s, e), entries)| {
+                (s == v || e == v)
+                    && entries
+                        .iter()
+                        .any(|(_i, surf)| matches!(surf, Surface::Torus { .. }))
+            });
             eprintln!(
                 "YANG_V_PROBE v={v} p={:?} circle={} ellipse={} cone_ell={} parab={} hyp={} \
                  line={} ell_junction={} circle_junction={} line_circle_junction={} \
-                 pp_planes={} pp_circle_junction={} endpoint={}",
+                 pp_planes={} pp_circle_junction={} endpoint={} torus={torus_v} surface_pair={}",
                 mesh.verts.get(v as usize),
                 vert_circle.contains_key(&v),
                 vert_ellipse.contains_key(&v),
@@ -2604,6 +2619,7 @@ pub(crate) fn stage4_relocate_and_correct(
                 vert_pp_planes.contains_key(&v),
                 vert_pp_circle_junction.contains_key(&v),
                 endpoints.contains(&v),
+                vert_surface_pair.contains_key(&v),
             );
         }
     }
