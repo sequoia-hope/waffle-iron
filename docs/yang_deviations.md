@@ -3175,7 +3175,7 @@ most of which never reach a relocation region.
 |---|---|---|---|
 | R0003 | 4233 → 8508 (chained) | `OffCurveBeyondChordBand` | cone∩plane conic arc under-sampled — **multi-map** over-band chain |
 | R0044, R0096 | 11, 7 | `LocalRefinementRequired` | torus∩torus degree-4 (explicit STOP `stage4_correct.rs:2879`, M5) |
-| C0065, R0074 | 8, 89 | tangent STOP | plane grazes torus outer equator (`det≤rank_eps`, #137 near-tangency) |
+| C0065, R0074 | 8, 89 | `OffCurveBeyondChordBand` | general-position torus∩PLANE = degree-4 quartic with **no SSI solver**; vertex is UNCLASSIFIED (no curve vocab), stuck at the chord sagitta, amplified by near-tangency (#137) — see 2026-07-15 reframe below |
 | R0038 | u32::MAX | `LocalRefinementRequired` | `site=degenerate_no_longedge` — **3 mutually-degenerate relocated triangles** (a collinear fan around v19), a genuine §4.5.2/§4.5.3 degenerate cluster (NOT a vocabulary gap — the earlier guess was a stale-line-number artifact) |
 | R0009 | — | `InvalidBooleanOutput` | not a relocation reject at all |
 | R0017 | — | `AmbiguousCurve{0,0}` | Stage-3 selection, upstream of Stage-4 |
@@ -3250,3 +3250,53 @@ experiment (v4233→v8508) was a throwaway used only to prove the multi-map chai
 then reverted. Committing a recovery that converts 0 cases would be speculative
 infra (contra the roadmap's "build differential testing as part of the port, not
 future audit" discipline); the honest increment is this re-scoping + the probe.
+
+### #137 REFRAME (2026-07-15): C0065/R0074 are a MISSING torus∩plane degree-4 SSI solver, not a "near-tangency refinement" (probe `YANG_V_PROBE`)
+
+Task #137 is titled "§4.3.3 near-tangency increment (face-gap under sagitta)."
+Diagnosis of its two live cases (`YANG_V_PROBE` on the failing vertex) shows the
+near-tangency is a **secondary amplifier**; the **primary blocker is a missing SSI
+solver**:
+
+- **C0065** (subtract): vertex 8 = `[1.45, -0.219, 0.5]`, on **Plane x=1.45**
+  (normal [1,0,0]) and near **Torus** (center [0,0,0.5], axis Z, major 1.2, minor
+  0.3). The torus outer equator is at radius 1.5, so the plane grazes it (gap 0.05
+  → a small quartic loop spanning major-angle φ∈[−16.6°,16.6°]). Vertex 8 is exactly
+  on the plane but **3.6e-2 off the torus surface** — a Cherchi arrangement vertex
+  on a flat torus **chord** triangle, sitting at the tessellation sagitta.
+- **R0074** (union): vertex 89, same signature.
+
+**Both failing vertices are classified as NO curve type** (`circle/ellipse/line/
+cone_*/…` all false, `endpoint=false`). Reason (`specs/ssi_solver_matrix.md:244-274`):
+the 5 torus-bearing pairs — including **Plane–Torus** — have **no solver in
+`ssi-rs`** (a torus is degree-4, excluded from `QuadricSurface`). Torus is handled
+today only by (1) coaxial-revolve rim-retag (mints an exact `Circle`, bypassing
+SSI — this is why KV6d coaxial C0065/C0067 revolve *creation* works) and (2)
+Stage-4 implicit relocation. But C0065's cut plane is in **general position**
+(normal [1,0,0] ⟂ nothing coaxial with the Z-axis torus), so there is NO exact
+curve — coaxial retag does not fire, and Stage-4 has nothing to relocate vertex 8
+onto. It stays on the chord (3.6e-2 off), and near the grazing tangency the loop is
+small + coarsely sampled so the sagitta blows past the chord band →
+`OffCurveBeyondChordBand`. (Supersedes the stale census note "tangent STOP /
+`det≤rank_eps`" — that is not the current signature.)
+
+**Consequence — #137 is a large multi-part epic, not a single-session fix:**
+1. **Torus∩plane degree-4 SSI** (the spiric/quartic curve) — the faithful paper
+   mechanism is §4.3.1 **Newton projection onto the implicit pair** {torus F=0,
+   plane G=0} for Stage-4 relocation (yang currently uses closed-form conic SSI and
+   has no numeric-projection relocation path). This is an A15.4 SSI-matrix item.
+2. **Output curve vocabulary** — kernel-v2's B-Rep must represent the torus∩plane
+   quartic output edge; there is no such `Curve` variant (the same class of
+   vocabulary gap that made R0017's `Hyperbola` a whole increment, #124). Without
+   it Stage 5/6 cannot emit the trimmed edge even if relocation succeeds.
+3. **Near-tangency refinement** (§4.3.3/§4.3.4) — the small-loop-under-mesh-resolution
+   case (plane grazing the equator) needs curvature refinement / the "insert a
+   point inside a loop with no interior vertex" rule; this is the *actual* #137
+   content, but it only matters AFTER (1) and (2) exist.
+
+No code shipped (P9/P10: no clean single-session increment — the prerequisite is a
+new solver + output vocabulary, reviewer-scoped, reference-parity-gated). This
+reframe + the corrected census row IS the increment. Related: R0038 (plane-tangent-
+CYLINDER degenerate strip) was refuted as a CDT case and also lives under #137
+(`specs/yang_n2_stage4_cdt_mesh_updating.md` §5c.10); R0044/R0096 are the separate
+torus∩TORUS M5 pair.
