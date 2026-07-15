@@ -554,6 +554,40 @@ neighbour is itself degenerate and include it in `targets`, keyed by the shared
 generator rather than by surface type.) Concrete red target stays `(14,21)`; the
 `YANG_RECDT_SEAM` + `NONMANIFOLD_SITE_PROBE` pair is the debug loop.
 
+### 5c.9 R0038 has generator JUNCTIONS — it is a HARDER sub-case (probe `YANG_RECDT_GENV`)
+
+Further grounding refutes the "cylinder-only vertex" theory: ALL six generator
+vertices (14,15,18,19,21,23) are `shared=true` (incident to a neighbour tri), so
+none can be dropped — they are all genuinely on the intersection curve. Yet 18,19
+are degree-4 in the cross-attribution seam: they are **junction points** where more
+than one intersection curve meets (the plane‖axis cut yields TWO generators that
+meet the cylinder ends / each other). So R0038's degenerate patch boundary is
+**pinched at junctions**, and my z-consecutive chain does not match the neighbour's
+actual edge sequence (both sides share the vertices but connect them differently
+around the junction).
+
+**Implication:** R0038 needs BOTH (a) reproducing the neighbour's chain **verbatim**
+(not z-reconstructing) AND (b) a **wedge-aware / figure-eight** boundary walk for
+the pinched junctions (the machinery `patch_boundary_cycle` already has, but which
+excludes the degenerate slivers we must keep). It is one of the HARDER cases in the
+`degenerate_no_longedge` class. **A simpler degenerate-cylinder case without
+generator junctions is the right first GREEN target** — the current re-CDT should
+close it directly. Run the assay with `YANG_N2_RECDT_ENABLE=1` to find which cases
+the current increment already converts (0-WRONG gate), ship those, and leave the
+junction cases (R0038) for the wedge-aware follow-up.
+
+**Assay result (gate ON, full corpus, 275s):** 241 CORRECT / **0 SUPPORTED_WRONG** /
+49 ERROR — per-case IDENTICAL to baseline except F0072 (a budget-timeout artifact).
+So the current re-CDT is **corpus-wide zero-change: 0 conversions, 0 regressions,
+0 WRONG**. This EMPIRICALLY CONFIRMS the §5c.6 safety claim: keep-interior re-CDT
+moves no geometry, so across all 295 cases it never produced a silently-wrong
+output — its only outcomes are a valid re-mesh or a caught error (the P10 risk is
+provably absent, not just argued). It converts nothing yet only because R0038 (the
+sole degenerate-cylinder case in the corpus) has generator junctions. Proven-safe
+infrastructure; stays gated OFF (demand-driven — a 0-conversion path shipped
+enabled would be speculative infra) until the junction-aware follow-up greens a
+case.
+
 ## 6. Risks & guardrails
 
 - **Conformality** (§3.3): the dominant risk; mitigated by fixed-boundary + the

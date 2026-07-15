@@ -553,11 +553,59 @@ pub(crate) fn replan_degenerate_cylinder_patches(
             (y.atan2(x), z)
         };
 
+        // Shared vertices: incident to ≥1 neighbour (different-attribution)
+        // triangle — i.e. genuinely ON the intersection curve, present on both
+        // sides. A generator-θ vertex that is NOT shared is a cylinder-only
+        // tessellation vertex lying on the (straight) intersection line; the
+        // neighbour's coarser chain skips it, so keeping it on our seam tears the
+        // seam. Such vertices are collinear-redundant on the generator → DROP.
+        let mut shared: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        for ti in 0..mesh.tris.len() {
+            if attr_of(ti).map(key_of) != Some((is_a, face)) {
+                for &v in &mesh.tris[ti] {
+                    shared.insert(v);
+                }
+            }
+        }
+        // Generator θ values (where the degenerate caps sit).
+        let mut gen_theta: Vec<f64> = Vec::new();
+        for &t in &patch_tris {
+            if is_degen(mesh.tris[t as usize], mesh) {
+                for &v in &mesh.tris[t as usize] {
+                    let th = proj(v).0;
+                    if !gen_theta.iter().any(|g| (g - th).abs() < 1e-9) {
+                        gen_theta.push(th);
+                    }
+                }
+            }
+        }
+        let on_generator = |v: u32| {
+            let th = proj(v).0;
+            gen_theta.iter().any(|g| (g - th).abs() < 1e-9)
+        };
+
         // Unique patch vertices → local 2D pool (θ unwrapped near a reference).
+        // Drop cylinder-only generator vertices (collinear-redundant on the seam).
         let mut vset: BTreeSet<u32> = BTreeSet::new();
         for &t in &patch_tris {
             for &v in &mesh.tris[t as usize] {
+                if on_generator(v) && !shared.contains(&v) {
+                    continue;
+                }
                 vset.insert(v);
+            }
+        }
+        if std::env::var_os("YANG_RECDT_PROBE").is_some() {
+            for &t in &patch_tris {
+                for &v in &mesh.tris[t as usize] {
+                    if on_generator(v) {
+                        eprintln!(
+                            "YANG_RECDT_GENV v={v} shared={} z={:.4}",
+                            shared.contains(&v),
+                            proj(v).1
+                        );
+                    }
+                }
             }
         }
         let th_ref = proj(*vset.iter().next().unwrap()).0;
