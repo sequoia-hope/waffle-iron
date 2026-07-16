@@ -1,8 +1,8 @@
 {
-  "errored": 59,
+  "errored": 51,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 232,
+  "passed": 240,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -71,10 +71,10 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(1023), reason: \"planar triangle collapsed at render precision\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0012",
-      "status": "error"
+      "status": "passed"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -455,10 +455,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0076",
-      "status": "error"
+      "status": "passed"
     },
     {
       "category": "ERROR",
@@ -527,10 +527,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(492), reason: \"patch triangle collapsed at render precision\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0088",
-      "status": "error"
+      "status": "passed"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -587,10 +587,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(599), reason: \"planar triangle collapsed at render precision\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0098",
-      "status": "error"
+      "status": "passed"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1067,16 +1067,16 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(2997), reason: \"planar triangle collapsed at render precision\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0078",
-      "status": "error"
+      "status": "passed"
     },
     {
-      "category": "ERROR",
-      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(5915), reason: \"planar triangle collapsed at render precision\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0079",
-      "status": "error"
+      "status": "passed"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1103,10 +1103,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 13: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0084",
-      "status": "error"
+      "status": "passed"
     },
     {
       "category": "ERROR",
@@ -1139,10 +1139,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 3cd86634-ee93-47c2-bdc4-31c9d3256e0c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 4294967295 is invalid: LocalRefinementRequired\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0090",
-      "status": "error"
+      "status": "passed"
     },
     {
       "category": "SUPPORTED_CORRECT",

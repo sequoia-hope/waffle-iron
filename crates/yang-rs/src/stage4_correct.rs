@@ -1335,24 +1335,27 @@ pub(crate) fn collapse_vertex(
 /// star), and retiring it can only expose a loud STOP, never a silent-wrong. The
 /// measured cost of turning all four off was 13 cases (241C → 228C, 0 WRONG).
 ///
-/// **Update (N55):** the `subfeature` tag was NOT a tolerance hack after all —
-/// it was Yang §4.4.1(b) (Fig-11(b) "merge p with q if too close") applied with
-/// the WRONG (absolute `MIN_FEATURE_SIZE`) criterion. Retightened to the
-/// scale-relative numerical-coincidence band `TAU_WORK·(1+scale)`
-/// (`is_relocation_coincidence`), it is now a COMPLIANT, always-on §4.4.1(b)
-/// merge (no longer gated) — it merges only machine-ε relocation twins
-/// (exact-dedup, which the ratchet keeps) and recovers R0055/F0056/F0057/F0059
-/// (228C → 232C, 0 WRONG). R0072's genuine ~1e-7 micro-scale collapse is now
-/// correctly REFUSED → loud STOP → curved re-CDT. So `weld_enabled("subfeature")`
-/// is no longer called; three welds remain gated (`f32`, `coincident`, `subres`),
-/// masking Stage-0 near-coincident minting (their compliant Stage-0 fix was
-/// refuted at the overlay level — N54 — pending a re-spec).
+/// **Update (N55/N56): the audit was wrong for THREE of the four.** The correct
+/// test is "is it a Yang paper operation?", not "does it use a tolerance." The
+/// paper prescribes tolerance-gated merges, and those are desired:
+/// - `subfeature` = Yang §4.4.1(b) (Fig-11(b) "merge p with q if too close"),
+///   retightened to `TAU_WORK·(1+scale)` (`is_relocation_coincidence`) →
+///   compliant always-on merge (N55). Recovers R0055/F0056/F0057/F0059.
+/// - `coincident` = Yang §4.3 ("remove a point too close to another on the same
+///   loop"; both verts relocated onto the curve) → reinstated always-on (N56).
+///   0-conversion (near-tangency infra for #137) but genuine paper machinery.
+/// - `subres` = Yang §4.3 (sub-resolution intersection-curve segment collapse),
+///   retightened from the absolute floor to `TAU_MODEL·(1+scale)` → reinstated
+///   always-on (N56). Recovers R0076/R0088/F0078/F0079/F0084 — and, combined
+///   with `coincident`, the render twins R0012/R0098/F0090.
 ///
-/// The remaining welds are callable ONLY behind `YANG_WELD_ENABLE` — a
-/// comma-separated list of weld tags (`f32`, `coincident`, `subres`; `subfeature`
-/// is inert post-N55) or `all` — so the A/B compliance ledger (shipping vs.
-/// weld-enabled assay delta) can still be measured. Unset (the production
-/// default) ⇒ every remaining weld off.
+/// Net: 12 of the 13 retired cases recover COMPLIANTLY (228C → 240C, 0 WRONG);
+/// only R0072 stays a loud STOP (a real ~1e-7 micro-scale collapse → curved
+/// re-CDT). `weld_enabled` now gates ONLY **`f32`** — the sole confirmed hack
+/// (it keys on f32 RENDER precision, not geometry; it is nowhere in the paper,
+/// it REGRESSES C0036, and it is now redundant since the §4.3 dedup recovers
+/// its cases). It remains callable behind `YANG_WELD_ENABLE=f32|all` purely as a
+/// historical A/B artifact; unset (the production default) ⇒ off.
 pub(crate) fn weld_enabled(tag: &str) -> bool {
     match std::env::var("YANG_WELD_ENABLE") {
         Ok(list) => list.split(',').any(|t| {
@@ -1610,7 +1613,6 @@ pub(crate) fn collapse_subresolution_intersection_segments(
         }
         seen.len()
     };
-    let tau2 = cad_primitives::TAU_MODEL * cad_primitives::TAU_MODEL;
     let mut any = false;
     for &(u, v) in intersection_curves.keys() {
         let (ru, rv) = (resolve(&redirect, u), resolve(&redirect, v));
@@ -1620,7 +1622,20 @@ pub(crate) fn collapse_subresolution_intersection_segments(
         let p = mesh.verts[ru as usize].as_array();
         let q = mesh.verts[rv as usize].as_array();
         let d2 = (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2);
-        if d2 == 0.0 || d2 >= tau2 {
+        // #169 N56: scale-relative sub-resolution band `TAU_MODEL·(1+scale)`
+        // (was the absolute `TAU_MODEL²` floor N53 flagged). Both endpoints lie
+        // on the intersection curve, so an edge below the model-coincidence
+        // resolution is a redundant curve sample — Yang §4.3 "remove a point too
+        // close to another on the same loop." Scale-relative because a fixed
+        // gap is numerical noise at large coordinates; the SAME band coincident
+        // and the stage-5 planarity wall use. Measured collapses are ~1e-8…1e-7
+        // (genuinely sub-resolution); recovers R0076/R0088/F0078/F0079/F0084.
+        let scale = p
+            .iter()
+            .chain(q.iter())
+            .fold(0.0f64, |m, &c| m.max(c.abs()));
+        let band = cad_primitives::TAU_MODEL * (1.0 + scale);
+        if d2 == 0.0 || d2 >= band * band {
             continue;
         }
         let survivor = ru.min(rv);
@@ -4373,7 +4388,16 @@ pub(crate) fn stage4_relocate_and_correct(
     // watertightness (cf. the §4.4.1(b) micro-scale R0091 revert). `collapse_vertex`
     // is the proven watertight-preserving edge-collapse (with membrane
     // cancellation); iterate to a fixed point over live (still-referenced) verts.
-    if weld_enabled("coincident") {
+    // #169 N56: reinstated as a COMPLIANT always-on Yang §4.3 operation ("we
+    // remove a point if it is too close to another point on the same loop",
+    // paper line 535). Both verts are `moved` = relocated onto the analytic
+    // curve, so merging one into the other is faithful redundant-curve-point
+    // removal, not a tolerance hack. Measured 0-conversion on the current
+    // corpus (the R0012/R0098 render twins named above are NOT reached by this
+    // §4.3 merge — they are un-relocated arrangement verts needing the Stage-0
+    // fix); it is kept as paper machinery for near-tangency (#137). Genuine
+    // Yang ⇒ un-gated (was `weld_enabled("coincident")`).
+    {
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
         if weld_coincident_relocated(mesh, &mut attr_vec, &moved) {
             collapsed_any = true;

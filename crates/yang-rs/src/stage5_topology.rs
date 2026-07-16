@@ -238,10 +238,15 @@ pub(crate) fn reconstruct_topology_stage4(
     // §4.4.1(b) merge above never sees it). Byte-identical no-op when no
     // such segment exists (B6).
     {
-        // #169 weld-retirement: the KV15b sub-resolution collapse is a retired
-        // non-compliant weld (off in production). It runs ONLY behind
-        // `YANG_WELD_ENABLE=subres` for A/B compliance measurement; unset ⇒ off.
-        let kv15b_collapsed = if weld_enabled("subres") {
+        // #169 N56: the KV15b sub-resolution collapse is a COMPLIANT always-on
+        // Yang §4.3 operation ("remove a point too close to another on the same
+        // loop") — it collapses an intersection-curve segment below the
+        // scale-relative model-coincidence resolution (both endpoints on the
+        // curve ⇒ faithful redundant-sample removal). Retightened from the
+        // absolute floor and un-gated (was `weld_enabled("subres")`); recovers
+        // R0076/R0088/F0078/F0079/F0084, 0 WRONG. Byte-identical no-op when no
+        // such segment exists (B6).
+        let kv15b_collapsed = {
             let mut attr_vec = std::mem::take(&mut attribution.attributions);
             let c = collapse_subresolution_intersection_segments(
                 mesh,
@@ -252,8 +257,6 @@ pub(crate) fn reconstruct_topology_stage4(
             );
             attribution.attributions = attr_vec;
             c
-        } else {
-            false
         };
         if kv15b_collapsed {
             compact_unreferenced_verts(mesh, &mut relocations);
