@@ -238,15 +238,23 @@ pub(crate) fn reconstruct_topology_stage4(
     // §4.4.1(b) merge above never sees it). Byte-identical no-op when no
     // such segment exists (B6).
     {
-        let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        let kv15b_collapsed = collapse_subresolution_intersection_segments(
-            mesh,
-            &mut attr_vec,
-            &intersection_curves,
-            a,
-            b,
-        );
-        attribution.attributions = attr_vec;
+        // #169 weld-retirement: the KV15b sub-resolution collapse is a retired
+        // non-compliant weld (off in production). It runs ONLY behind
+        // `YANG_WELD_ENABLE=subres` for A/B compliance measurement; unset ⇒ off.
+        let kv15b_collapsed = if weld_enabled("subres") {
+            let mut attr_vec = std::mem::take(&mut attribution.attributions);
+            let c = collapse_subresolution_intersection_segments(
+                mesh,
+                &mut attr_vec,
+                &intersection_curves,
+                a,
+                b,
+            );
+            attribution.attributions = attr_vec;
+            c
+        } else {
+            false
+        };
         if kv15b_collapsed {
             compact_unreferenced_verts(mesh, &mut relocations);
             let (i3, _inc3, cv3) = compute_phase_a(mesh, attribution, a, b)?;
@@ -285,7 +293,7 @@ pub(crate) fn reconstruct_topology_stage4(
     // runs LAST, on the final mesh whose verts are 1:1 with the emitted output
     // vertices, so it measures the same magnitude G1 does. Byte-identical no-op
     // when no two live verts share an f32 render cell (the fast path).
-    {
+    if weld_enabled("f32") {
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
         let f32_welded = weld_f32_render_twins(mesh, &mut attr_vec);
         attribution.attributions = attr_vec;

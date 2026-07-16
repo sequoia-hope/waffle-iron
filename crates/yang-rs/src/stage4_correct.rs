@@ -1327,6 +1327,31 @@ pub(crate) fn collapse_vertex(
 /// one intersection point). Emitted distinct, they become a sub-render-precision
 /// output edge that trips kernel-v2's G1 render-collapse gate far downstream.
 ///
+/// The four non-compliant vertex welds are RETIRED (#169 weld-retirement track,
+/// audit 2026-07-16): they are OFF in production. Each was a tolerance hack
+/// (violating the Cherchi B6 "never a tolerance weld" invariant) that masked
+/// upstream near-coincident minting; a case that only stayed CORRECT via such a
+/// weld was a false green by project intent (Yang-paper compliance is the north
+/// star), and retiring it can only expose a loud STOP, never a silent-wrong. The
+/// measured cost of turning all four off is 13 cases (241C → 228C, 0 WRONG); the
+/// compliant replacements (Stage-0 exact event-column canonicalization for
+/// `f32`/`coincident`/`subres`; wired §4.4.1 mesh-update for `subfeature`) recover
+/// them properly over time.
+///
+/// The welds remain callable ONLY behind `YANG_WELD_ENABLE` — a comma-separated
+/// list of weld tags (`f32`, `coincident`, `subfeature`, `subres`) or `all` — so
+/// the A/B compliance ledger (shipping vs. weld-enabled assay delta) can still be
+/// measured. Unset (the production default) ⇒ every weld off.
+pub(crate) fn weld_enabled(tag: &str) -> bool {
+    match std::env::var("YANG_WELD_ENABLE") {
+        Ok(list) => list.split(',').any(|t| {
+            let t = t.trim();
+            t == "all" || t == tag
+        }),
+        Err(_) => false,
+    }
+}
+
 /// Band: the scale-relative model coincidence tolerance (`scale` = max |coord| of
 /// the pair) — the SAME band every other coincidence test uses, 10× tighter than
 /// the `MIN_FEATURE_SIZE·(1+scale)` feature floor, so it admits ONLY
@@ -4133,7 +4158,7 @@ pub(crate) fn stage4_relocate_and_correct(
     // SUPPORTED_WRONG). The relocation/conic-adjacent eligibility below is
     // LOAD-BEARING: it keeps the merge away from pre-existing arrangement
     // slivers that `boolean()` legitimately kept for watertightness.
-    {
+    if weld_enabled("subfeature") {
         let floor = cad_primitives::MIN_FEATURE_SIZE;
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
         // KV9-F3 (spec `kv9_f3_output_vertex_identity` E-V2): junction
@@ -4283,7 +4308,7 @@ pub(crate) fn stage4_relocate_and_correct(
     // watertightness (cf. the §4.4.1(b) micro-scale R0091 revert). `collapse_vertex`
     // is the proven watertight-preserving edge-collapse (with membrane
     // cancellation); iterate to a fixed point over live (still-referenced) verts.
-    {
+    if weld_enabled("coincident") {
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
         if weld_coincident_relocated(mesh, &mut attr_vec, &moved) {
             collapsed_any = true;

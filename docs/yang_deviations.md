@@ -3355,3 +3355,51 @@ enrichment only; corpus byte-identical 241C/0W/49E). The N≥64 `SUPPORTED_WRONG
 only reachable via the dev-only rim floor — the corpus never tessellates this torus
 finer than N=12, so there is no live silent-wrong to gate today (adding a
 resolution-independent grazing guard now would be speculative P9 infra, cf. N52).
+
+### N53 — Retire the four non-compliant tolerance welds (Yang-paper-compliance north star, #169 / #170)
+
+**Deviation being REMOVED, not added.** Four downstream vertex welds had
+accumulated to green individual corpus cases; each violates the exact-arrangement
+premise (Cherchi B6, "never a tolerance weld") and masks an upstream
+near-coincident-minting defect rather than fixing it. Per the project north star —
+build the kernel on the Yang 2025 paper — a case that stays `SUPPORTED_CORRECT`
+only because of a tolerance weld is a **false green** (P9 "right answer for the
+wrong reason"), not a real capability. They are retired (off in production; the
+functions remain callable ONLY behind `YANG_WELD_ENABLE=<tags>|all` for the A/B
+compliance ledger).
+
+The four (audit 2026-07-16):
+
+| tag | mechanism | criterion (why non-compliant) | root defect it masked | compliant replacement |
+|---|---|---|---|---|
+| `f32` | `weld_f32_render_twins` (N50) | f32 bit-key rounding | Stage-0 overlay near-coincident event columns | Stage-0 exact input-coord canonicalization |
+| `coincident` | `weld_coincident_relocated` (N47) | absolute `TAU_MODEL·(1+scale)` | same (N47 predecessor of `f32`) | same |
+| `subfeature` | inline §4.4.1(b) merge | absolute `MIN_FEATURE_SIZE` floor | missing §4.4.1 mesh-update | wire `two_sided_conformal_update_lifted` + `SurfaceChart` (#169 Phase B) |
+| `subres` | `collapse_subresolution_intersection_segments` (KV15b) | `TAU_MODEL` segment length | Stage-0 overlay sub-resolution crossing mint | Stage-0 exact event-column merge |
+
+**Measured cost (release assay):** `241C → 228C`, **0 WRONG**, 62E (was 50E). The
+13 cases that revert to a **loud STOP** (never a silent-wrong — a weld only ever
+*suppresses* a STOP; retiring it can only re-expose one): render-collapse
+`f32`/`coincident` — R0012, R0098, R0055, F0078, F0079; render-CDT ring/patch —
+F0056, F0057, F0059, R0088; reassembly / boolean — F0084, R0072, F0090; KV15b
+`subres` — R0076. (F0072 was already ERROR; its off-run TIMEOUT is a 120s-budget
+artifact, not a weld dependency.) Most trace to ONE root — the Stage-0 coplanar
+overlay minting near-coincident twin vertices (the N48 diagnosis) — which is also
+the root of the F0082/R0095 non-2-manifold bucket that #169 Phase B refuted. So the
+single highest-leverage compliant fix is the **Stage-0 exact event-column merge**;
+`subfeature` is subsumed by wiring the banked §4.4.1 mesh-update.
+
+**Why this is not a regression to fix by re-adding a weld:** the honest 228C is the
+true compliant baseline. The retired cases climb back via the compliant
+replacements (Stage-0 canonicalization, §4.4.1 wiring, §4.5.2 refinement), which
+fix the *mint site* so the twins never exist — not the render/output symptom. The
+weld A/B delta (`YANG_WELD_ENABLE=all` minus production) is a standing compliance
+ledger that may only **shrink**; a PR that widens it (a new tolerance weld) is
+caught loudly. Supersedes the shipped-fix framing of N47 and N50 (both now retired
+from the production path). Their unit oracles stay green unchanged — they exercise
+the weld functions DIRECTLY (`weld_coincident_relocated` / `weld_f32_render_twins`
+on a fixture mesh), so they test the still-callable primitives, not the production
+wiring. Kept compliant (exact, not
+tolerance): the Stage-0 exact interner, `Frame::snap`, `merge_same_plane_patches`
+(surface-identity on `TAU_WORK`), `dedup_single_pp_line`, and the shared
+`collapse_vertex` primitive.
