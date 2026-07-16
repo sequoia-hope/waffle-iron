@@ -1,6 +1,17 @@
 # SPEC — Stage-0 exact event-column canonicalization (compliant twin-mint fix)
 
-Status: **DESIGN** (2026-07-16, #169/#170 compliant climb-back, increment 1).
+Status: **REFUTED at the overlay level** (2026-07-16, deviation N54). The §3
+mechanism below — canonicalize by rewriting INPUT-CORNER x's — was implemented
+behind `YANG_STAGE0_COLMERGE`, red/green demonstrated on the unit oracle, then
+**refuted by the §4 step-2 de-risk gate**: with the gate ON,
+`nary_tessellated_group_stage0_meshes` loses watertightness — the very N48
+seam-tear the §3 interior guard was meant to prevent. Root cause and the
+corrected direction are in **§7** below. Implementation reverted (production
+byte-identical); the RED oracle stays `#[ignore]`d with the N54 reason. This
+doc is retained as the design record + refutation (P2/P10). Do NOT re-attempt
+the corner-rewrite approach; a corrected approach needs a NEW spec (§7).
+
+Prior status: DESIGN (2026-07-16, #169/#170 compliant climb-back, increment 1).
 Prerequisite context: deviation N53 (welds retired), N48 (diagnosis), N49 (two
 refutations). Owner surface: `crates/yang-rs/src/coplanar_overlay.rs`.
 
@@ -138,4 +149,66 @@ cannot touch legitimate near-origin rim samples ⟹ no N49 over-merge.
    — subsumes the `subfeature` weld. (#169 Phase B, re-scoped.)
 3. §4.5.2 local-refinement loop — grazing/near-tangency (C0067/R0038/C0065/R0074).
    (#169 Phase C; needs new cherchi local-arrangement machinery.)
+
+## 7. REFUTATION (2026-07-16, deviation N54) — why §3 cannot work
+
+Implemented §3 behind `YANG_STAGE0_COLMERGE` (input-corner x-rewrite before
+`split_all`, union-perimeter interior guard, anchor-relative f32-render-floor
+clustering, trial-validate-or-noop). Unit red/green held: the isolated
+interior-twin oracle merged (min gap tens-of-units), gate-OFF preserved the
+twin byte-identically, a perimeter-guard fixture froze a seam column. Then the
+**§4 step-2 gate failed**: `YANG_STAGE0_COLMERGE=1 cargo test -p yang-rs`
+breaks `nary_tessellated_group_stage0_meshes` — `mesh_b` gains 12 non-shared
+boundary edges (not watertight). That is the N48 seam-tear, reproduced.
+
+**Root cause (why the interior guard is structurally insufficient):**
+
+1. Stage-0 emits, *per operand*, a mesh whose **overlap** region comes from
+   this overlay and whose **non-overlap** region comes from independent
+   tessellation elsewhere in `stage0/`. The two are stitched by **bit-exact**
+   vertex-position equality (`f64::to_bits`), not tolerant matching.
+2. **Every input corner of the overlay lies on its OWN operand's coplanar-face
+   boundary** — i.e. on the seam shared bit-exactly with that operand's
+   non-overlay mesh. The union-perimeter guard (§3 step 2) is the wrong
+   invariant: a corner can be strictly interior to the *union* yet still on its
+   own operand's face boundary. Concrete counterexample from the failing test:
+   a **tool-rim** vertex (r=1) is strictly inside the larger cylinder-cap disc
+   (r=2), so the guard calls it movable — but it sits on the tool disc's own
+   boundary, shared with the tool's (non-coplanar) side wall.
+3. Therefore moving ANY input corner — by even **1 ulp** — desynchronizes the
+   overlap mesh from the non-overlap mesh at that bit-exact seam ⟹ non-shared
+   edges ⟹ non-watertight.
+4. Empirically the clusters that actually fire in the corpus test are **1-ulp
+   (~1e-16) near-duplicate rim samples** from *independent* circle
+   tessellations (e.g. `x=0.974927912…` two f64-ulps apart), NOT the ~1e-6
+   projection-noise twin §1 targets — but the tear mechanism is identical for
+   any corner move.
+
+**Consequence.** No input corner is safely movable at the overlay level. The
+`ExactPoint2`-corner is the wrong lever. The spec §3 sentence "the two corners
+keep their y — they become two points in one exact column" is exactly the
+move that tears the seam, because it rewrites a corner's x.
+
+**Corrected directions (each a NEW spec; do not improvise here — P10):**
+
+- **(a) Minted-interior-vertex unification.** Operate ONLY on arrangement
+  vertices that are strictly interior to BOTH operands' faces and are NOT input
+  corners (the `y_at` lift/crossing points). These appear only in the overlap
+  mesh — generated identically for both operands — so unifying them is
+  watertight-safe on both sides and touches no non-overlay seam. Caveat: this
+  is vertex welding, which N49 refuted at the overlay level (over-merge +
+  "2D can't predict the 3D f32 floor"); a viable version must weld in 3D at the
+  render floor on non-corner verts only — i.e. the exact scope the retired
+  `weld_f32_render_twins` occupied. Reconsider whether the render-collapse is
+  better handled as a 3D Stage-4/5 pass (compliantly) than a 2D overlay change.
+- **(b) Stage-0-level canonicalization.** Move the canonical-coordinate
+  decision UP to `stage0/` mesh emission, where BOTH the overlap and the
+  non-overlap mesh see the same canonical coords, so a snap stays watertight.
+  Larger blast radius than the 2D overlay; needs its own de-risk.
+
+**Disposition.** Reverted to production byte-identical. This is a genuine P10
+"plan diagnosis was wrong → abort + report" outcome, not a scoping failure:
+the overlay-corner lever is eliminated, and the search is correctly narrowed to
+(a)/(b). The `f32`/`coincident`/`subres` render-twin reverts (N53) therefore
+remain LOUD STOPs until a re-specced (a)- or (b)-shaped fix lands.
 4. Compliance ledger + grep-lint (the ratchet, `feedback_paper_compliance_north_star_weld_ratchet`).

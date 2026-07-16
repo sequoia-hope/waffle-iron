@@ -3403,3 +3403,52 @@ wiring. Kept compliant (exact, not
 tolerance): the Stage-0 exact interner, `Frame::snap`, `merge_same_plane_patches`
 (surface-identity on `TAU_WORK`), `dedup_single_pp_line`, and the shared
 `collapse_vertex` primitive.
+
+### N54 — Stage-0 event-column canonicalization is REFUTED at the overlay level (the N53 "compliant replacement" for `f32`/`coincident`/`subres` does not work as specced, #170)
+
+**A refutation, not a shipped mechanism.** N53's headline compliant replacement
+for three retired welds was "Stage-0 exact event-column merge" — canonicalize
+the near-coincident sweep columns that mint the render-collapse twins (N48
+diagnosis). Spec `specs/yang_stage0_event_column_canonicalization.md` §3
+proposed doing this by rewriting an **input-corner x** to a shared canonical
+column before `split_all`, guarded to "interior-only" columns (not on the
+overlay's union perimeter). Implemented behind `YANG_STAGE0_COLMERGE`, unit
+red/green demonstrated. Then the spec's own §4 step-2 de-risk gate **failed**:
+`YANG_STAGE0_COLMERGE=1 cargo test -p yang-rs` breaks
+`nary_tessellated_group_stage0_meshes` watertightness (`mesh_b` → 12 non-shared
+boundary edges). That IS the N48 seam-tear, reproduced by the mechanism that
+claimed to avoid it.
+
+**Root cause — the union-perimeter interior guard is the wrong invariant:**
+
+- Stage-0 emits, per operand, a mesh whose OVERLAP region comes from the
+  overlay and whose NON-OVERLAP region comes from independent tessellation, and
+  stitches them by **bit-exact** `f64::to_bits` vertex equality.
+- **Every** input corner of the overlay lies on its own operand's coplanar-face
+  boundary — the seam shared bit-exactly with that operand's non-overlay mesh.
+  A corner can be strictly interior to the *union* yet still on its own face
+  boundary: the failing test's mover is a **tool-rim** vertex (r=1) inside the
+  larger cylinder cap (r=2) — interior to the union, but on the tool disc's own
+  rim (shared with the tool side wall).
+- So moving ANY corner by even **1 ulp** desyncs the two meshes at that
+  bit-exact seam → non-watertight. (The corpus clusters that actually fired
+  were 1-ulp ~1e-16 near-duplicate rim samples from independent circle
+  tessellations — not even the ~1e-6 projection twin — but the tear is the same
+  for any corner move.)
+
+**Consequence.** The overlay `ExactPoint2`-corner is the wrong lever; no corner
+is safely movable there. Corrected directions (each a NEW spec — P10, do not
+improvise): **(a)** unify only minted INTERIOR arrangement verts (`y_at`
+lift/crossing points, absent from every non-overlay mesh) — but that is vertex
+welding, N49-refuted at the overlay level, so a viable form must weld in 3D at
+the render floor on non-corner verts (the retired `weld_f32_render_twins`
+scope), which argues the render-collapse belongs to a 3D Stage-4/5 pass, not a
+2D overlay change; or **(b)** canonicalize at the `stage0/` mesh-emission level
+where both overlap and non-overlap emission see the same canonical coords.
+
+**Disposition.** Reverted; production byte-identical (baseline unchanged at
+`228C/0W/63E`, N53). RED oracle `near_coincident_event_columns_do_not_mint_twin`
+stays `#[ignore]`d with the N54 reason. The N53 climb-back plan is amended: the
+`f32`/`coincident`/`subres` render-twin reverts remain LOUD STOPs until an (a)-
+or (b)-shaped fix is specced and de-risked; the `subfeature` weld's replacement
+(wire §4.4.1, #169 Phase B) is unaffected and is now the next compliant lever.

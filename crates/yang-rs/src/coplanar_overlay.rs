@@ -1525,12 +1525,20 @@ mod event_column_merge_tests {
     /// the edge is lifted once, so the minimum pairwise vertex gap is the real
     /// feature scale (tens of units), not ~1e-6.
     #[test]
-    #[ignore = "#166 RESOLVED at Stage 5/6, not here (N50): the render-collapse \
-                twin is welded in 3D by `weld_f32_render_twins` at the f32-render \
-                floor (local magnitude). The upstream overlay still mints the \
-                near-coincident lift pair (both overlay-level source fixes were \
-                refuted — N49), so this 2D assertion stays red BY DESIGN: it \
-                documents the un-fixed producer, not a regression. Keep ignored."]
+    #[ignore = "#170 REFUTED at the overlay level (deviation N54): merging the \
+                columns requires rewriting an INPUT-CORNER x, but every input \
+                corner lies on its OWN operand's coplanar-face boundary — the \
+                seam stitched BIT-EXACTLY (f64::to_bits) to that operand's \
+                non-coplanar Stage-0 mesh. Moving a corner by even 1 ulp tears \
+                that seam: gate-ON breaks `nary_tessellated_group_stage0_meshes` \
+                watertightness (spec §4 de-risk step 2), the same N48 failure the \
+                union-perimeter interior guard was meant to prevent (it is \
+                insufficient — a tool-rim vertex is interior to the UNION yet on \
+                its own face boundary). A correct twin fix must operate on minted \
+                INTERIOR arrangement verts (N49 weld territory, 3D render floor) \
+                or at the Stage-0 mesh-emission level, NOT on overlay corners. \
+                This 2D assertion stays red BY DESIGN; keep ignored until a \
+                re-specced approach lands. See specs/…event_column_canonicalization."]
     fn near_coincident_event_columns_do_not_mint_twin() {
         // A: quad with a non-vertical top edge y = 60 − 0.2·x spanning x∈[0,100].
         let a = quad([(0.0, 0.0), (100.0, 0.0), (100.0, 40.0), (0.0, 60.0)]);
