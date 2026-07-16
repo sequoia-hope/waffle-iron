@@ -125,6 +125,16 @@ phase or ejects it to another track — no case is assumed without a probe.
   off by default; prove full-assay byte-identical off.
 - Acceptance: the fixture reassembles with zero unpaired edges; #168's `(14,21)`
   seam pairs.
+- **VALIDATED (2026-07-16, `stage4_update.rs` tests
+  `two_patches_sharing_one_curve_get_conformal_seam` /
+  `independent_seam_reconstruction_diverges`):** two-sided conformality is
+  achieved by keeping the shared intersection-curve vertices as ONE identity set
+  and re-triangulating each patch's INTERIOR only — driving both sides from the
+  same curve keeps the seam identical even when the patch interiors differ;
+  reconstructing the curve per-side diverges (the #168 §5c.8 mode). So the Phase-A
+  driver's job is plumbing (feed both patches the one shared curve + interior-only
+  keep-CDT), NOT a new geometric algorithm. This is the key de-risk: the primitive
+  already supports it.
 
 ### Phase B — Wire §4.4.1 mesh-update into the forward pass
 - Replace relocation-only with: relocate curve → Phase-A conformal re-triangulate
