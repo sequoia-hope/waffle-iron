@@ -1,341 +1,117 @@
 # Yang/Cherchi Implementation Deviations Log
 
-**Purpose:** authoritative record of known divergences between the Yang 2025 hybrid B-Rep/mesh boolean pipeline as specified in the paper, and the implementation. (The `D*` entries reference the now-DELETED legacy `crates/kernel/`; the live pipeline is the `N*` new-crate series in `yang-rs`/`cherchi-rs`.) Any deviation listed here MUST have either (a) a user sign-off with stated rationale, or (b) an active remediation tracked.
+**Purpose:** authoritative record of divergences between the Yang 2025 hybrid B-Rep/mesh boolean pipeline as specified in the paper (plus the Cherchi 2020/2022 reference implementations) and this codebase. Every entry carries exactly one **State**; the OPEN set is the paper-compliance backlog and MUST trend to zero.
 
-**Discipline:** per `CLAUDE.md` "Paper-Spec Compliance is MANDATORY," deviations are errors. Investigation on a component with an open deviation is blocked until either the deviation is fixed or signed off in writing.
+**States:**
 
-**Posture (2026-06-26):** user directive — implement Yang faithfully and *generally*; the assay is a regression detector, not the objective (do not prioritize work by score). The live faithfulness backlog and the general §4.5.5 plan are in `docs/yang_functional_roadmap.md` §0.1–0.2 + M8. Status notes since these entries were written: **N1 is RESOLVED** (native `cherchi-rs` arrangement replaced the sidecar, M6/M7 complete), which **unblocks N4** (§4.2.3 barycentric provenance is now implementable — the native arrangement can expose per-triangle provenance). The substantive open paper-faithfulness deviations are: general Stage-0 §4.5.5 (the keystone), **N4** (face provenance), **N2** (Stage-4 CDT mesh updating), **N5** (unified §4.1 discretization), **N6** (§4.5.4 self-intersection removal). **N7** (closed-form SSI) is signed off; NURBS is a deferred scope milestone.
+- **OPEN** — a temporary divergence. Remediation MUST be actively tracked (roadmap milestone, epic, or task). Investigation on a component with an OPEN deviation is blocked until the deviation is fixed or signed off (per `CLAUDE.md` "deviations are errors").
+- **PERMANENT** — a deliberate, user-signed divergence (deliberate reference-bug corrections, in-scope substitutions, extensions beyond the paper, scope decisions). Not temporary, by explicit decision; the entry records the rationale.
+- **RESOLVED** — the implementation was brought into line with the paper (or the divergent code was deleted). Kept for the record.
+- **HISTORICAL** — not a standing divergence: diagnosis/refutation journal entries, superseded mechanisms, and entries citing the deleted legacy `crates/kernel/`.
 
----
+**Ratchet:** the OPEN count may only decrease. It may increase only when a newly discovered divergence is added WITH a tracked remediation. PERMANENT requires the user's signature — agent-proposed entries stay `PENDING` until ratified.
 
-## Open deviations (NOT signed off; investigation blocked)
-
-### D1 — Simplified earcut used where Yang §4.4.1 specifies CDT
-
-**Status:** OPEN. NOT signed off.
-
-**Discovered:** 2026-05-16 during PR-Y46 architectural review.
-
-**Code location:**
-- `crates/kernel/src/tessellation/mod.rs:3471` — `earcutr::earcut(...)` call (convex path)
-- `crates/kernel/src/tessellation/mod.rs:3509` — `earcutr::earcut(...)` call (with-holes path)
-- `tessellate_planar_face_bounded` in `tessellation/mod.rs` (per-face independent triangulation entry point)
-
-**Paper prescription:** Yang 2025 §4.4.1 ("Mesh updating") at `refs/text/yang2025_hybrid_boolean.txt:548-590`. Quote: "through CDT we obtain valid discretizations of the trimmed meshes" (line ~557). Yang specifies **Constrained Delaunay Triangulation** — an algorithm that enforces intersection-curve polyline boundaries as hard constraint edges across all faces that meet at a shared boundary.
-
-**Current implementation:** uses the `earcutr` crate (Livesu et al. 2021 "Deterministic Linear Time Constrained Triangulation Using Simplified Earcut"). The simplified earcut is a deterministic O(n) ear-removal algorithm. It does NOT enforce constrained edges across face boundaries; each B-Rep face's earcut runs independently with no cross-face coordination beyond shared `disc.positions` vertex pool.
-
-**Architectural consequence:** when two adjacent B-Rep faces meet at a shared boundary that includes intersection-curve vertices, both faces' earcut calls receive the same boundary vertex positions (via shared `disc.positions`), but each face's earcut chooses diagonals independently. This produces the "Case D" defect signature measured across PR-Y43-Y46: all 3 vertex positions are present in the final Render LOD vertex set (sub-class (a) `m1x=3, m5x=3`), but no triangle connects them because each face's independent earcut emitted incompatible diagonals.
-
-**Investigation cost prior to discovery:** 15 PR cycles (PR-Y32 through PR-Y46), ~2821 LOC of probe scaffolding, 0 production code, F0020 unpaired count unchanged at 40 across the entire arc.
-
-**Remediation options:**
-1. Constrained earcut wrapper (~80-150 LOC) — detect B-Rep shared edges, pass as hard constraints to earcut OR post-process diagonal flips. Closest to current architecture.
-2. Replace `earcutr` with a true CDT (full Bowyer-Watson + constraint enforcement, or port from CGAL / use a Rust CDT crate). ~800-1500 LOC. Highest paper-alignment.
-3. Cross-face coordination phase before per-face earcut. ~50-100 LOC for boundary alignment but doesn't fix earcut divergence root.
-
-**Investigation status:** **REMEDIATION IN PROGRESS.** Earcut sweep complete; Tier 2/3 remain.
-
-**Cycle 1 (2026-05-16):** Replaced `earcutr` with `spade::ConstrainedDelaunayTriangulation::try_bulk_load_cdt` at `tessellate_planar_face_bounded` (two call sites: planar-no-holes, planar-with-holes). Constraint edges constructed from boundary loops. Results: F0020 unpaired 40→35; kernel lib 1262→1266; yang_fast 10/157→13/157.
-
-**Cycle 1.1 (2026-05-16):** Removed the earcut-fallback arm at both call sites — `try_bulk_load_cdt`'s silent-conflict callback handles upstream defects internally, so the fallback was unreachable on F0020. Replaced fallback with eprintln + empty output.
-
-**Cycle 1.2 (2026-05-16):** Swept the 9 remaining earcut call sites across the kernel — each replaced with `cdt::cdt_triangulate_flat` (earcut-shaped flat-API wrapper). Sites converted: `boolean/coplanar_preprocess.rs::triangulate_polygon_with_holes` (Yang §4.5.5 path), plus 8 sites in `tessellation/mod.rs` (convex/non-convex polygon, revolve caps, cylinder strip, sphere/torus cap). Removed `earcutr` from `Cargo.toml`. Results: kernel lib 1266→1268; yang_fast 13/157 (unchanged); F0020 35 unpaired (unchanged); cdt unit tests 4→6 passing.
-
-**Earcut now removed from the kernel.** Confirmed via `grep -rn earcutr crates/kernel/src/` returning zero hits.
-
-**Cycle 2a (2026-05-16):** Plumbed `edge_is_intersection` from `ResultTopology` through `WaffleSolid` to a thread-local at tessellation entry. Added `Y47T2_INTERSECTION_PROBE` env-gated probe at `tessellate_solid_bounded` that walks each face's boundary loops and counts which segments map to intersection-flagged arena edges. Default-off byte-identical (F0020 35 unpaired unchanged); kernel lib 1266→1268.
-
-**MEASUREMENT (load-bearing):** On F0020 with probe enabled, the thread-local marker carries 48 arena edges of which 20 are flagged `is_intersection=true`. The first version of the probe used vertex-index inversion via `disc.edge_verts` and reported `intersection_segs=0` across all faces — **that probe had a bug**: vertex inversion is ambiguous because a single vertex belongs to multiple edges. The corrected probe walks half-edges directly (`arena.half_edges[he].edge`) and gives the exact `EdgeIdx` per boundary segment.
-
-**Corrected measurement:** all 20 flagged edges DO appear on boundary loops, totaling 40 face-loop incidences across 7 faces:
-- Face4, Face7, Face13: walked_edges=10, walked_intersection=10 — **entirely intersection-bordered** (these are trim faces born from the boolean)
-- Face9, Face10, Face11, Face12: walked_edges=5-6, walked_intersection=2-3 — partial intersection borders
-
-**The boundary loops already include the intersection edges, and the CDT calls already pass every boundary segment as a constraint edge** (via the `loops` parameter to `cdt_triangulate_2d_with_loops`). So "Tier 2 = add intersection-curve constraints" produces no new constraints — they're already there.
-
-**Tier 2 EMPIRICALLY REFUTED, with corrected reasoning.** The intersection edges aren't a missing-constraint problem; the boundary IS the intersection in these cases. The Case D 24/24 defect must come from CDT divergence on the SAME boundary input across adjacent faces. Cross-face shared-edge analysis from the deep probe:
-- Face4 ↔ Face13: share 10 intersection edges (one large intersection patch boundary).
-- Face7 ↔ Face9, Face10, Face11, Face12: share intersection edges across 4 neighboring faces.
-
-The 24 Case D missing triangles are presumably the ones spade chose differently on each side of these shared boundaries.
-
-**Remaining work to close D1 (revised after cycle 2a corrected measurement):**
-- **Tier 3:** canonical cross-face Newell basis — eliminate ±ε 2D-projection drift between adjacent faces sharing intersection-edge boundaries (Face4 ↔ Face13 and Face7 ↔ {Face9,10,11,12} on F0020). With identical 2D inputs, deterministic CDT would produce identical outputs on shared regions. Estimated load-bearing.
-- **Cross-face vertex-set divergence:** adjacent faces' CDT calls operate on different non-shared vertex sets (each face has its own interior vertices). Even with identical boundary constraints and identical Newell bases, Delaunay diagonal choice on shared-boundary triangles depends on the full vertex set. Forces investigation of global-coplanar-CDT (architectural rewrite Candidate C from the earlier review). The Face4/Face13 case is concrete: both faces' CDT calls see different non-shared vertex sets but identical 10-edge intersection boundary, and presumably emit different diagonals on the shared region.
-- **Spade-CDT determinism caveat:** verify that spade actually emits identical triangulations given identical input (vertices + constraints) across separate calls. If spade's `bulk_load_cdt` has any input-order dependence we don't control, that's a contributing factor.
-
-**Implementation choice note:** Yang §4.4.1 says "CDT in CGAL [2024]." We use `spade` (Rust-native CDT, ~5-10k LOC) rather than porting CGAL's CDT (~12k lines of C++ templates plus kernel/predicate infrastructure). `spade` implements the same algorithm class (Constrained Delaunay Triangulation with adaptive predicates via the `robust` crate); the deviation is "CGAL specifically" not "CDT semantics." This is a documented choice, not a behavioral deviation.
-
-**Sign-off:** *not eligible.* Deviation remains until Tier 2 (and possibly Tier 3) lands.
+**Numbering note:** there is no N51 — that investigation (F0064 #146 diagnosis, 2026-07-15) was recorded in session memory and task #146, never ledgered. The gap is intentional, not a lost entry.
 
 ---
 
-## Audit findings (2026-05-18)
+## ⏳ Sign-off batch 2026-07-16 — PENDING user ratification
 
-Three parallel Explore agents audited Yang §4.1 through §4.5 against the code. Findings consolidated below. Entries grouped by category. Each is independent of D1.
+Presented to the user 2026-07-16 (restructure session); answers not yet received. Until ratified, the entries below are **PERMANENT (proposed)** — treated as permanent for planning, but carrying no user signature. To ratify, reply (or edit here) with decisions; each entry then gets the formal `**Sign-off:** approved by <name>, <date>` stamp.
 
-### Fundamental — replace wholesale
-
-#### D2 — Extra post-tessellation repair pipeline (legacy S-H residue) — REMOVED
-
-**Status:** REMOVED 2026-05-18. Replaced with Yang-compliant "no post-processing" path. Some new structural-deviation work surfaced; tracked below.
-
-**Original code location:** `crates/kernel/src/tessellation/repair.rs` (entire module, ~4075 LOC; including extensive probe scaffolding from PR-Y40/Y45). Called from `crates/kernel/src/tessellation/mod.rs` lines ~568-792 (main `tessellate_solid_ext` cleanup loop) and ~5220-5322 (`tessellate_solid_bounded` stage-f F.0-F.4 sub-passes).
-
-**Paper section:** Yang §4.4.3 (`yang2025:599-605`).
-
-**Paper requirement:** "The watertightness of our result is **inherited from the mesh Boolean output**, ensuring the mesh has no geometric gaps." Yang asserts watertight-by-construction with no post-processing.
-
-**Removal (2026-05-18):** Deleted `repair.rs` entirely. Removed `mod repair;` and `use self::repair::*;` from `tessellation/mod.rs`. Stripped all in-pipeline call sites at the two locations above. Deleted 3 test clusters (~270 LOC of tests targeting the deleted functions: `dedup_*`, `cross_face_nm_*`, `test_steiner_fan_*`). Extracted `count_unpaired_in_mesh` into a new `tessellation/diagnostics.rs` (~55 LOC) since it's pure measurement, not repair. The `weld_shared_edge_vertices` + `compact_unreferenced_vertices` helpers in `mod.rs` remain (fan-path-specific, separate deviation — see D5).
-
-**Empirical impact (honest numbers, no repair masking):**
-
-| Gate | Before D2 | After D2 | Delta |
-|---|---|---|---|
-| F0020 unpaired | 35 | **54** | +19 (was masked) |
-| F0020 degenerate tris | 2 | 24 | +22 (was being removed) |
-| F0020 non-manifold edges | 2 | 14 | +12 (was masked) |
-| F0020 triangle count | 124 | 154 | +30 (no dedup/welding now) |
-| kernel lib | 1268/24/42 | 1249/34/42 | -19 pass / +10 fail (9 tests removed; 10 newly exposed failures) |
-| yang_fast | 13/157 | 13/157 | unchanged |
-| pr_y31_f0044_extras_zero | GREEN | GREEN | unchanged |
-
-The yang_fast pass rate didn't drop — confirming the repair pipeline was never closing corpus cases, just dressing F0020's diagnostic numbers.
-
-**Significance:** F0020's "35 unpaired" figure that the prior 17 PR cycles chased was partly a repair-pipeline artifact. The real defect count is 54. The other 19 were closed by post-hoc welding/filling/T-junction-splitting that Yang doesn't have. Future work is against the honest 54 baseline.
-
-**Banked findings exposed by D2 removal (each a candidate for its own deviation entry if substantive):**
-- 24 degenerate triangles (zero-area or near-zero) survive in F0020 output. Upstream is producing these; Yang's algorithm should not.
-- 14 non-manifold edges (count ≠ 2). Yang's bijective mesh-boolean output should be 2-manifold.
-- 5 reversed normals. Yang's bijective mapping preserves orientation.
-- 30 extra triangles vs the prior dedup'd output. Some are duplicates from upstream; some are genuine missing-then-now-emitted.
-
-These are real upstream defects the repair was hiding. Investigating them is the natural next step — and now it's possible because we're not measuring against a masked baseline.
-
-**Sign-off:** *resolved* per the directive that D2 must be removed.
-
-#### D3 — §4.5.4 illegal-intersection detection/removal absent
-
-**Status:** OPEN. NOT signed off.
-
-**Code location:** Not present.
-
-**Paper section:** Yang §4.5.4 (`yang2025:752-758`).
-
-**Paper requirement:** "We detect these illegal intersections [self-intersections in the trimmed mesh arising from discretization or mesh updating] and perform local refinement. Since the input B-Rep model has no self-intersections, these illegal intersections are eliminated."
-
-**Current implementation:** No detection or removal logic for post-trim self-intersections. The `no_self_intersection` oracle counts them as a test gate but doesn't fix them.
-
-**Deviation magnitude:** Fundamental. An entire §4.5.4 step is missing.
-
-### Structural — algorithm differs
-
-#### D4 — §4.5.2 global re-tessellation instead of localized refinement
-
-**Status:** OPEN. NOT signed off.
-
-**Code location:** `crates/kernel/src/boolean/yang_integration.rs:843-904`.
-
-**Paper section:** Yang §4.5.2 (`yang2025:659-670`).
-
-**Paper requirement:** When optimization fails in a region, refine only the surfaces traversed by the failed intersection curve segment plus a one-ring of neighbors. Re-compute intersections only in the refined regions.
-
-**Current implementation:** When the SSI optimization can't recover, the entire pipeline halves `d_ε` and re-tessellates BOTH solids globally, up to 2 rounds. Not localized.
-
-**Deviation magnitude:** Structural.
-
-#### D5 — §4.4.1 r_A = r_B = r identification — PARTIALLY ADDRESSED via plane-intrinsic origin
-
-**Status:** PARTIALLY RESOLVED 2026-05-18. The 3D-vertex side of `r_A = r_B` is already enforced by the shared `disc.positions` pool. The 2D-projection side (which is what CDT actually sees) now uses a plane-intrinsic origin so coplanar adjacent faces produce byte-identical 2D coords for the same 3D point.
-
-**Code location:** `crates/kernel/src/tessellation/mod.rs::tessellate_planar_face_bounded` — now takes a `plane_origin: [f64; 3]` parameter, used everywhere the prior code used `ordered_verts[0]`.
-
-**Paper section:** Yang §4.4.1 (`yang2025:548-556`).
-
-**What was the deviation:** 3D vertex identity was preserved (shared `disc.positions` pool) but the 2D coordinate that CDT received depended on `ordered_verts[0]` — i.e., the FIRST boundary vertex of the face. Two adjacent coplanar faces have different `ordered_verts[0]`, so the same 3D point projected to different 2D coordinates on each side. Deterministic CDT given different inputs is not equivalent to deterministic CDT given the same inputs.
-
-**Fix (2026-05-18):** Pass the plane's intrinsic origin (`plane.origin` from `SurfaceGeom::Planar`) as the 2D origin. Two coplanar faces share `plane.origin` → identical 2D coordinates for shared 3D points.
-
-**Remaining gap:** the fallback path (when surface geometry is unknown) still uses a vertex-derived origin. This is a sub-deviation but the fallback is only hit for faces without surface info, which Yang assumes don't exist.
-
-**Sign-off:** *partially resolved.* Full closure when D14 (NURBS/Bézier support) lands, since each parametric surface will have a canonical origin.
-
-#### D6 — §4.4.1 Fig 11 split/merge/insert procedures unclear
-
-**Status:** OPEN. UNCERTAIN.
-
-**Code location:** `crates/kernel/src/boolean/topology_extract.rs:249`, `mesh_arrangement.rs`, `cherchi/fast_trimesh.rs`.
-
-**Paper section:** Yang §4.4.1 Fig 11 (`yang2025:555-565`).
-
-**Paper requirement:** Three preprocessing steps before CDT:
-- (a) Locate the constraint edge containing intersection point q; split it at q.
-- (b) If a split-edge endpoint p is too close to q, merge p with q.
-- (c) If an intersection loop has no interior mesh vertices, insert one.
-
-**Current implementation:** Generic `split_edge` and `insert_vertex_into_triangle` routines exist. Whether they're applied in this exact sequence at CDT-prep time is unclear.
-
-**Deviation magnitude:** Structural pending clarification.
-
-#### D7 — §4.4.2 patch segmentation: flood-fill vs Cherchi 2022 per-patch ray-cast
-
-**Status:** OPEN. UNCERTAIN.
-
-**Code location:** `crates/kernel/src/boolean/topology_extract.rs:404-637, 1868+` (`face_survival_detect`).
-
-**Paper section:** Yang §4.4.2 (`yang2025:574-598`).
-
-**Paper requirement:** "We directly apply a standard inside/outside classification step [Cherchi et al. 2022]." Cherchi 2022 uses per-patch ray-casting through manifold-edge barriers.
-
-**Current implementation:** Flood-fill patch segmentation with manifold-edge-barrier walking. Comment at `topology_extract.rs:508-514` notes a "refactor from Yang's intersection-edge-barrier flood to Cherchi 2022 §5 manifold-edge-barrier flood" — but whether the refactor matches Cherchi exactly or is a variant is unclear.
-
-**Deviation magnitude:** Structural pending clarification.
-
-#### D8 — §4.5.1 boundary step rescaling via surface-switching
-
-**Status:** OPEN. UNCERTAIN.
-
-**Code location:** `crates/kernel/src/boolean/intersection_opt.rs:901-1006`.
-
-**Paper section:** Yang §4.5.1 (`yang2025:626-638`, Fig 12).
-
-**Paper requirement:** When a Newton step exits the current surface's domain, **rescale the step magnitude** to land on the boundary curve `C_b`; continue optimization on the adjacent surface from there.
-
-**Current implementation:** Clamps the parameter update to domain bounds, then if the point exits, finds the adjacent face and switches surface parameterization entirely. Both prevent escaping the domain but the mechanics differ from Yang's step-rescaling.
-
-**Deviation magnitude:** Structural; semantic equivalence uncertain.
-
-#### D9 — §4.1.2 per-surface u-v CDT for adjacency handling — PARTIALLY ADDRESSED
-
-**Status:** PARTIALLY RESOLVED 2026-05-18. For planar surfaces, the CDT now operates in the surface's intrinsic 2D frame (plane.origin as origin, plane.normal as basis source). This is the §4.1.2 "in its own u-v domain" requirement for planar patches.
-
-**Code location:** `crates/kernel/src/tessellation/mod.rs::tessellate_planar_face_bounded`.
-
-**Paper section:** Yang §4.1.2 (`yang2025:397-410`).
-
-**Original deviation:** "compute the 2D basis from boundary vertex order" — vertex-dependent, drifts across adjacent faces.
-
-**Fix (2026-05-18):** The 2D basis (`u_axis`, `v_axis`) was already derived from `plane.normal` via `compute_plane_basis()`. The 2D origin (changed today) now comes from `plane.origin`. Both are intrinsic to the surface. Adjacent coplanar faces share the entire 2D frame.
-
-**Remaining gap:** Yang §4.1.2 also describes the discretization step (sample u-v rectangle then re-sample boundary curves) as a separate phase from the post-boolean §4.4.1 CDT. We collapse both into a single per-face CDT call. For analytic surfaces other than planes (cylinder, sphere, cone, torus), tessellation is geometry-specific and does NOT use CDT in the surface's parametric (u,v). Closing this requires either (a) running CDT in (θ, z) for cylinders, (u, v) for sphere etc., or (b) accepting per-surface tessellation as adequate when it doesn't share boundaries with other curved surfaces.
-
-**Sign-off:** *partially resolved* for planar surfaces. Curved-surface side remains for future work bundled with D14 (full NURBS handling).
-
-#### D10 — Tessellation density not fully `d_ε`-driven
-
-**Status:** OPEN. NOT signed off.
-
-**Code location:** `crates/kernel/src/tessellation/mod.rs:34-87`.
-
-**Paper section:** Yang §4.1 (`yang2025:330-395`).
-
-**Paper requirement:** Discretize each surface with iterative refinement until distance-to-surface < `d_ε`. Adaptive per surface, driven by `d_ε`.
-
-**Current implementation:** Three LOD modes: `Boolean` (fixed 16 segments/circle), `Render` (fixed 64), `Adaptive { d_epsilon }` (sagitta-formula segment count for circular edges only). Production path uses fixed `Boolean` LOD for boolean stages and fixed `Render` LOD for output. Adaptive is invoked but constrained to circular-edge sagitta — not the full surface-iterative refinement Yang prescribes.
-
-**Deviation magnitude:** Structural.
-
-#### D11 — `d_ε` computed from combined-AABB across both solids
-
-**Status:** OPEN. NOT signed off.
-
-**Code location:** `crates/kernel/src/boolean/yang_integration.rs:642-661`.
-
-**Paper section:** Yang §4.1 (`yang2025:378-382`).
-
-**Paper requirement:** "We select `d_ε` as a value 10⁻² · d relative to the diagonal length d of the AABB of **the B-Rep model**" (singular).
-
-**Current implementation:** `d_ε = 0.01 · diag` where diag is the AABB diagonal over BOTH solids' vertices combined. Single `d_ε` value used for both operand discretizations.
-
-**Deviation magnitude:** Structural. May over-smooth small solids when paired with large ones.
-
-### Performance — algorithm class differs
-
-#### D12 — O(n²) broad-phase intersection detection vs octree
-
-**Status:** OPEN. NOT signed off.
-
-**Code location:** `crates/kernel/src/boolean/cherchi/intersection_class.rs:106-160`.
-
-**Paper section:** Yang §4.2.1 (`yang2025:450-451`).
-
-**Paper requirement:** "We use an **octree** to detect triangles that are closer than `2·d_ε`."
-
-**Current implementation:** O(n²) pairwise loop over all triangle pairs with AABB culling per pair. Comment at line 107 acknowledges this: "Simple O(n²) broad phase with AABB culling + Gauss map filtering. For production, replace with BVH/octree."
-
-**Deviation magnitude:** Structural for scale; functional behavior is correct for small inputs.
-
-### Scope — we don't support what Yang supports
-
-#### D13 — Gauss-map check uses triangle-normal dot product, not Theorem 4.1 cones
-
-**Status:** OPEN. NOT signed off.
-
-**Code location:** `crates/kernel/src/boolean/cherchi/intersection_class.rs:117-149`.
-
-**Paper section:** Yang §4.2.2 Theorem 4.1 (`yang2025:457-480`).
-
-**Paper requirement:** Construct circular cone C₃ around a₃ = (a₁ × a₂) / |a₁ × a₂| where a₁, a₂ are from the Bézier control net. The cone bounds the normal-vector field of the entire patch.
-
-**Current implementation:** Per-triangle normal cross product + dot-product check. Valid for flat triangles; not the cone-construction Theorem 4.1 prescribes.
-
-**Deviation magnitude:** Scope (Bézier-specific algorithm). Becomes a structural deviation when D14 (NURBS support) is closed.
-
-#### D14 — No NURBS / Bézier surface support; only analytic primitives
-
-**Status:** OPEN. NOT signed off.
-
-**Code location:** `crates/kernel/src/geometry/surface.rs:56-62`, `crates/kernel/src/tessellation/analytic.rs` (entire file).
-
-**Paper section:** Yang §4.1 + §4.1.1 NURBS-to-Bézier conversion (`yang2025:330-395`).
-
-**Paper requirement:** Yang's whole pipeline takes NURBS B-Rep input, converts to rational Bézier sub-patches, and discretizes via recursive Bézier subdivision. Theorems A.1 and A.2 give the control-net distance bounds that make this work.
-
-**Current implementation:** Five analytic surface types only (Planar, Cylindrical, Conical, Spherical, Toroidal). No NURBS, no Bézier subdivision. The tessellation strategy is geometry-specific dispatch per primitive type, not the unified Bézier algorithm Yang specifies.
-
-**Deviation magnitude:** Scope. We are building Yang for analytic-primitive inputs only. The paper's algorithm scales to NURBS; our subset doesn't need to (yet) but should be acknowledged.
-
-**Notes:** This is the largest scope gap, but the most defensible — analytic surfaces are a strict subset of NURBS, so an analytic-only kernel can be a faithful Yang implementation for that subset. The decision is whether to broaden scope to NURBS later (likely yes for real CAD use) or stay analytic-only.
+- **Batch A — the 11 long-standing `Sign-off: candidate` entries:** N5, N9, N10, N11, N12, N13, N14, N15, N16, N17, N18. All are documented in-scope substitutions; the Cherchi-port ones (N13–N18) were later validated by bit-identical sidecar parity (M6/M7). *Recommended: approve all as PERMANENT; N5 carries a scope condition (reopens if NURBS/Bézier support is ever scheduled).*
+- **Batch B — the 31 self-signed entries:** N19–N24 (deliberate corrections of C++ reference bugs/quirks), N25–N35 (self-declared design decisions), N36–N37 (refactor/capability), N38–N47 + N55–N56 (P5 solo-operator sign-offs: mutation-tested red/green oracles + full-assay 0-WRONG). *Recommended: ratify retroactively AND delegate forward — amend the sign-off procedure so shipped-fix deviations may self-sign under the P5 convention, while substantive paper-faithfulness gaps still require the user.*
+- **Batch C — scope:** D14 (no NURBS/Bézier; analytic primitives only) as a PERMANENT scope sign-off, inherited by the entries conditioned on it (N5, N7). *Recommended: approve; reopen explicitly if NURBS is ever scheduled.*
 
 ---
 
-## New-crate deviations (clean-sheet rewrite: `yang-rs` / `cherchi-rs`)
+## Status index (every entry, one line)
 
-> Deviations D1–D14 above concern the **legacy** `crates/kernel/` port. The
-> entries below concern the new tiered crates and the functional roadmap
-> (`docs/yang_functional_roadmap.md`).
+| ID | State | Entry |
+|---|---|---|
+| D1 | HISTORICAL | Simplified earcut used where Yang §4.4.1 specifies CDT |
+| D2 | RESOLVED | Extra post-tessellation repair pipeline (legacy S-H residue) — REMOVED |
+| D3 | HISTORICAL | §4.5.4 illegal-intersection detection/removal absent |
+| D4 | HISTORICAL | §4.5.2 global re-tessellation instead of localized refinement |
+| D5 | HISTORICAL | §4.4.1 r_A = r_B = r identification — PARTIALLY ADDRESSED via plane-intrinsic origin |
+| D6 | HISTORICAL | §4.4.1 Fig 11 split/merge/insert procedures unclear |
+| D7 | HISTORICAL | §4.4.2 patch segmentation: flood-fill vs Cherchi 2022 per-patch ray-cast |
+| D8 | HISTORICAL | §4.5.1 boundary step rescaling via surface-switching |
+| D9 | HISTORICAL | §4.1.2 per-surface u-v CDT for adjacency handling — PARTIALLY ADDRESSED |
+| D10 | HISTORICAL | Tessellation density not fully `d_ε`-driven |
+| D11 | HISTORICAL | `d_ε` computed from combined-AABB across both solids |
+| D12 | HISTORICAL | O(n²) broad-phase intersection detection vs octree |
+| D13 | HISTORICAL | Gauss-map check uses triangle-normal dot product, not Theorem 4.1 cones |
+| D14 | PERM-pending (C) | No NURBS / Bézier surface support; only analytic primitives |
+| N1 | RESOLVED | Stage-2 labels taken from the C++ sidecar, not a native arrangement |
+| N2 | OPEN | Stage-4 mesh-updating / CDT absent (relocation-only) |
+| N3 | RESOLVED | §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion) |
+| N4 | RESOLVED | Face provenance via centroid-proximity, not §4.2.3 barycentric implicit mapping |
+| N5 | PERM-pending (A) | Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2 CDT framework |
+| N6 | OPEN | §4.5.4 illegal self-intersection detection/removal absent |
+| N7 | PERMANENT | Stage 3 uses closed-form algebraic SSI instead of §4.3 Newton/geometric optimization |
+| N8 | RESOLVED | Stage 0 (§4.5.5 coplanar) verified NATIVE-need, not sidecar-delegated |
+| N9 | PERM-pending (A) | Planar non-convex / holed Stage-1 tessellation uses no-Steiner CDT (spade) |
+| N10 | PERM-pending (A) | Stage-5 intersection-edge classification gated by on-both-surfaces predicate (PR-YR18) |
+| N11 | PERM-pending (A) | sphere section `Circle` membership uses a projection-scaled radial band (PR-YR19) |
+| N12 | PERM-pending (A) | Stage-6 face resolution ranks ties by exact-vs-band tier (PR-YR20) |
+| N13 | PERM-pending (A) | PR-CR-AR1 builds explicit+LPI points only; TPI deferred to AR2 (scope correction) |
+| N14 | PERM-pending (A) | PR-CR-AR2a point/edge insertion: readable `splitSingleTriangle` with a uniform on-edge check; structural LP… |
+| N15 | PERM-pending (A) | PR-CR-AR2b Cycle C1 TPI routing: macro dispatch (faithful) + the createTPI STOP (blocking re-scope to C2/AR3) |
+| N16 | PERM-pending (A) | PR-CR-AR3a constraint enforcement: per-work-item `source_tri` replaces the global `seg2tris`; deep-recursio… |
+| N17 | PERM-pending (A) | PR-CR-AR3b coplanar/single-coplanar-edge: defer ONLY a real intersection AR1 cannot construct; benign touch… |
+| N18 | PERM-pending (A) | PR-CR-AR3b exact-coordinate canonicalization welds coincident implicit points across triangles |
+| N19 | PERM-pending (B) | PR-CR-BL2 ray perturbation: one coherent offset per attempt; winner-less events skip (C++ early-break quirk… |
+| N20 | PERM-pending (B) | PR-CR-BL2 in/out: ray-parameter-ZERO hits are discarded (C++ keeps them and mislabels point-touch inputs) |
+| N21 | PERM-pending (B) | PR-KV4-F1 in/out: rational-ray fallback where the C++ exits ("requires exact rationals") |
+| N22 | PERM-pending (B) | Stage-6 degenerate-arrangement children: fold-sliver exclusion + loop T-subdivision |
+| N23 | PERM-pending (B) | Patch-label flood tolerates COMPATIBLE (subset) labels at coplanar-sheet borders; DISJOINT stays loud |
+| N24 | PERM-pending (B) | orient2d/orient3d: exact-rational zero-certification (Shewchuk underflow hole) |
+| N25 | PERM-pending (B) | Stage-0 §4.5.5 generalized to n-ary plane groups + tessellated (disc/annular/mixed) faces |
+| N26 | PERM-pending (B) | Overlay f64-emission fused collapse (§4.5.5 identical-mesh at rounding resolution) |
+| N27 | PERM-pending (B) | Stage-1 rim-override merge onto a coinciding uniform sample (producer/consumer of N26) |
+| N28 | PERM-pending (B) | Torus-profile rim crossings: CapLateral torus arm + poloidal opposite-rim projection |
+| N29 | PERM-pending (B) | §4.5.3 reversed-point correction via EXACT conic parameters (not the paper's discrete tangent-angle proxy) … |
+| N30 | PERM-pending (B) | Circle × parallel-plane-line junction closed form (§4.4.1 relocation onto both incident curves) |
+| N31 | PERM-pending (B) | Cone-ellipse & cone-hyperbola SAME-TYPE junction routing to the triple relocation (KV16 / KV16b) |
+| N32 | PERM-pending (B) | Stage-6 output arc orientation obeys the CCW-minor input convention |
+| N33 | PERM-pending (B) | Disjoint-union passthrough (A ∪ B with A∩B=∅ is the disjoint sum — outside Yang's interacting-solid scope) |
+| N34 | PERM-pending (B) | KV6a-tilted: full-turn revolve alternation gate narrowed to consecutive-annuli only |
+| N35 | PERM-pending (B) | KV6d: closed-torus & on-axis-sphere full-turn revolve + Stage-4 bounded-face containment guard |
+| N36 | PERM-pending (B) | Tolerance-vocabulary consolidation (TAU_EVAL) + named surviving divergences |
+| N37 | PERM-pending (B) | Sphere×cylinder and sphere×cone general position → procedural SurfacePair |
+| N38 | PERM-pending (B) | Stage-3 cone-owning-edge selection tol bound to the EDGE's OWN cone band |
+| N39 | PERM-pending (B) | Cone∩plane conic curve-distance amplification (the N38 follow-up) |
+| N40 | PERM-pending (B) | Backtrack-spike normalization of chained-boolean-drift operand loops |
+| N41 | PERM-pending (B) | Doubled-membrane removal at the Stage-4 shell gate (the χ=3 sub-layer of the #146 non-2-manifold class) |
+| N42 | PERM-pending (B) | Stage-6 planar-face GROSS-non-planarity self-check (producer-contract enforcement for the #146 off-plane em… |
+| N43 | PERM-pending (B) | Stage-6 geometric attribution measures a `Plane` face by its triangle's WORST vertex, not the centroid (the… |
+| N44 | PERM-pending (B) | Mixed-orientation side-A faces in an n-ary coplanar plane group (M8 slice h, task #147) |
+| N45 | PERM-pending (B) | Stage-3 SSI position tie-break for CROSSING cone-apex generator lines (R0008, task #163) |
+| N46 | PERM-pending (B) | Exact cylinder∩plane generator-line membership band (R0026, task #164) |
+| N47 | PERM-pending (B) | Coincident relocated-vertex weld before topology emission (defensive producer invariant; render-collapse tw… |
+| N48 | HISTORICAL | Render-collapse twins (R0012/R0098) are GENUINE, sidecar-certified: root-caused to Stage-0 overlay near-coi… |
+| N49 | HISTORICAL | Refutation of N48's scoped fix: input-column snap breaks boundary-shared seams; the event-column merge must… |
+| N50 | HISTORICAL | f32-render-twin weld before topology emission (Stage 5/6; the shipped fix for R0012/R0098, task #166) |
+| N52 | HISTORICAL | Re-scoping the Stage-4 "LRR cluster": it is a heterogeneous hard tail, NOT one relocation-region class wait… |
+| N53 | HISTORICAL | Retire the four non-compliant tolerance welds (Yang-paper-compliance north star, #169 / #170) |
+| N54 | HISTORICAL | Stage-0 event-column canonicalization is REFUTED at the overlay level (the N53 "compliant replacement" for … |
+| N55 | PERM-pending (B) | the `subfeature` weld was Yang §4.4.1(b) all along; retighten its criterion → COMPLIANT always-on merge (re… |
+| N56 | PERM-pending (B) | `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the so… |
+| #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
+| #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-### N1 — Stage-2 labels taken from the C++ sidecar, not a native arrangement
+**OPEN count: 2** (N2, N6). Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
-**Code location:** `crates/cherchi-sidecar-rs/` (interim `LabeledArrangement`
-producer) consumed by `crates/yang-rs/` Stages 5/6.
+---
 
-**Paper section:** §4.2 (mesh boolean) → the per-output-triangle origin +
-patch in/out labels that §4.4.2 reassembly consumes are, in the paper, products
-of the implementation's *own* exact mesh arrangement.
+## OPEN deviations (temporary; remediation tracked; investigation blocked)
 
-**Current behavior (interim):** `yang-rs` obtains the `LabeledArrangement` from a
-patched Cherchi 2022 `mesh_booleans` binary (subprocess), not from a native
-pure-Rust arrangement. This is the deliberate decoupling that lets functional
-Yang (mesh-approximate) exist before the native arrangement is written.
-
-**Architectural consequence:** the boolean pipeline depends on an external C++
-binary and is **not WASM-compatible** while this path is active. Also bounded by
-Cherchi's input axioms (manifold/watertight/intersection-free), enforced at
-roadmap M1.
-
-**Remediation:** roadmap **M6** replaces the producer with the native
-`cherchi-rs` Stage-2 arrangement behind the *same* `LabeledArrangement`
-interface (sidecar retained as differential-parity oracle); **M7** clean-rooms
-the indirect predicates from Attene's paper and restores WASM.
-
-**Sign-off:** approved by Sequoia Alexander, 2026-05-28, rationale: deliberate
-strategy — decouple "functional Yang" from "native arrangement complete";
-WASM-break during the development phase is accepted (no users; personal
-experiment). Tracking: `docs/yang_functional_roadmap.md` M6/M7.
+The live paper-compliance backlog. N2 is the §4.4.1 mesh-updating + §4.5.2 local-refinement gap (epic #169, `specs/yang_mesh_updating_epic.md`); N6 is §4.5.4 illegal-self-intersection removal (roadmap M8 milestone).
 
 ### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
+
+**State:** OPEN — remediation actively tracked; investigation on this component follows the in-entry status.
 
 **Code location (refreshed 2026-07-12 — the god-module was decomposed; `lib.rs`
 is now 161 lines):** the production Stage-4 path is
@@ -535,93 +311,9 @@ full assay unchanged (241C/0W/49E, byte-identical). R0038 belongs to the
 §4.3.3 near-tangency epic (task #137), not N2. Full analysis:
 `specs/yang_n2_stage4_cdt_mesh_updating.md` §5c.10.
 
-### N3 — §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion)
-
-**Code location:** `crates/yang-rs/src/lib.rs:2504-2506` — returns `false` (no
-reversal) when `t_tilde_len < TAU_WORK`, commented "Degenerate/collinear t̃ ⇒
-healthy, no reversal."
-
-**Paper section:** §4.5.3 (refs/text/yang2025_hybrid_boolean.txt:743-745) — places
-collinear triples **within** the reversal subset: "if … collinear, t̃ is almost
-degenerate … we directly detect the reversal, avoiding the angle comparisons."
-
-**Current behavior:** inverts the paper — collinearity ⇒ *healthy* and the check
-is skipped. Harmless on circle/ellipse edges (no 3 collinear points), **but
-reachable on Line-type intersection edges** (axis-parallel `plane∩cylinder` →
-lines), which `cylinder ∪ box` can produce. The only finding where the code
-actively *contradicts* the paper rather than deferring.
-
-**Severity:** medium (latent — reachable via line edges; not exercised by the
-current circle/ellipse canonical tests).
-
-**Remediation:** implement the paper's branch (on collinear consecutive points,
-detect reversal directly).
-
-**RESOLVED (2026-06-01):** `is_reversed` now returns `true` on degenerate t̃
-(`|t̃| < TAU_WORK` ⟺ `v1 ≈ −v2` ⟺ a U-turn at `p_r`), matching §4.5.3's
-direct-detection of the collinear reversal case. Regression test
-`tests::n3_degenerate_tangent_is_reversal`; full yang-rs suite unregressed (the
-fix does not over-trigger on healthy circle/ellipse edges, where `|t̃| ≈ 2`).
-No longer a deviation. **Sign-off:** resolved.
-
-### N4 — Face provenance via centroid-proximity, not §4.2.3 barycentric implicit mapping
-
-**Code location:** `crates/yang-rs/src/lib.rs` (~1794-1798) — pick the unique
-labeled-solid face plane within `TAU_WORK` of the kept triangle's centroid.
-
-**Paper section:** §4.2.3 — map each intersection point to both surfaces via
-Cherchi implicit-point **barycentric** coordinates from the intersecting
-triangles.
-
-**Current behavior:** geometric centroid-in-plane proximity, not the
-arrangement's intrinsic per-triangle provenance. Works for the current scope; it
-is the proximate cause of the **F2** multi-solid `FaceResolutionFailed`. Forced
-by **N1** (the sidecar's `LabeledArrangement` exposes only *solid*-level
-provenance, not per-triangle barycentric data).
-
-**Remediation:** tied to roadmap **M6** (native arrangement exposes triangle-level
-provenance). **Progress (2026-07-01):** provenance attribution is now the PRIMARY
-Stage-6 path (geometric is the fallback), fed by a per-triangle → face map
-(`tri_face`) emitted by every Stage-0 producer: the inputs' own Stage-1
-tessellation (1b), the planar coplanar overlay (2a), and — as of
-commit for `specs/n4_coincident_cylinder_provenance.md` — the coincident-cylinder
-membrane path (band-strip triangles attributed by azimuth to their arc-patch
-face; `u32::MAX` sentinel → geometric fallback where a column has no covering
-arc). Geometric attribution remains only for lineage-less / sidecar-backend
-inputs; it can be RETIRED once those are the sole remaining consumers.
-**RETIRED (2026-07-07, task #53, spec `specs/n4_retire_stage6_fallback.md`):**
-the `YANG_N4_FALLBACK_PROBE` measurement proved ZERO fallback hits across the
-full corpus on the native backend. A provenance MISS on a lineage-carrying
-input (NoSourceEntry / too-short map / `u32::MAX` sentinel) is now a LOUD
-`FaceResolutionFailed` — never a silent geometric guess. The geometric path
-survives solely for LINEAGE-LESS attribution (documented contract): an
-arrangement without `source` (the dev-only C++ sidecar oracle,
-`tests/backend_parity.rs`; the in-crate mock-label fixtures) or an input
-without a `tri_face` map (a yang boolean OUTPUT chained directly back in —
-the yr27/F0066 pattern — or a `from_mesh` B-Rep).
-**Sign-off:** resolved (provenance is the sole production path; geometric =
-oracle/lineage-less contract only).
-
-### N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2 CDT framework
-
-**Code location:** planar Newell fan `crates/yang-rs/src/lib.rs:531-563` (1:1, no
-`d_ε` iteration, no CDT); cylinder analytic rim rings (no u-v CDT).
-
-**Paper section:** §4.1 (298-322), §4.1.2 (404-407).
-
-**Current behavior:** planar faces use an exact 1:1 bijection (faithful-by-
-exactness for flat patches — no Steiner points needed); the cylinder uses a
-2-ring + chord-bound rim sampling; watertightness comes from shared rim rings
-rather than per-boundary CDT. Deliberate divergence, acceptable while inputs are
-analytic primitives. Distinct from legacy **D9/D10**. (PR-NC1 update: non-convex
-and holed *planar* faces now go through a no-Steiner CDT — see **N9** — but the
-1:1 / no-`d_ε` property is preserved for the planar scope.)
-
-**Severity:** low. **Remediation:** closure bundled with NURBS support (legacy
-**D14** analog). **Sign-off:** candidate (faithful-by-exactness for the analytic
-scope).
-
 ### N6 — §4.5.4 illegal self-intersection detection/removal absent
+
+**State:** OPEN — remediation actively tracked; investigation on this component follows the in-entry status.
 
 **Code location:** not present in the new crates (legacy **D3** covers
 `crates/kernel/` only).
@@ -639,23 +331,15 @@ analytic primitives in scope: the sidecar emits a validly-trimmed mesh and
 `check_watertight_2manifold` gates the output; a true post-trim self-intersection
 detector is the milestone.) **Sign-off:** remediation tracked.
 
-### N8 — Stage 0 (§4.5.5 coplanar) verified NATIVE-need, not sidecar-delegated
+---
 
-**Audit follow-up (resolved 2026-06-02).** The Yang-conformance audit flagged that
-"Stage 0" was conflated between *unimplemented* and *delegated to the sidecar's
-arrangement* — unverified. **Verified:** the patched `mesh_booleans` sidecar
-emits **multi-solid-labeled** triangles (`surface.len() == 2`) on coplanar-overlap
-input (confirmed by `cherchi-sidecar-rs` test
-`c3_coplanar_face_yields_multi_attribution`, run against the live binary). Those
-multi-attributed triangles flow into `yang-rs`, where the centroid-proximity face
-resolution (N4) cannot pick a single source face → loud `FaceResolutionFailed`
-(F2). **Conclusion:** coplanarity is NOT silently resolved by the sidecar; it
-surfaces as a multi-attributed arrangement. Therefore M8 "Stage 0" is a **genuine
-native pre-pass need** (2D coplanar Boolean before discretization, §4.5.5), not
-something delegated away. The current loud-F2 deferral is correct. **Sign-off:**
-remediation tracked (roadmap M8).
+## PERMANENT deviations (deliberate; signed or pending ratification)
+
+Deliberate divergences with recorded rationale. Sub-groups: signed; batch A (in-scope substitutions); batch B (reference-bug corrections, design decisions, P5 shipped fixes); batch C (scope).
 
 ### N7 — Stage 3 uses closed-form algebraic SSI instead of §4.3 Newton/geometric optimization
+
+**State:** PERMANENT — signed off (in-entry sign-off, 2026-06-02; mirrors the N1 rationale the user approved 2026-05-28).
 
 **Code location:** `crates/yang-rs/src/lib.rs:1316-1550` (`surface_to_quadric`,
 `ssi_curve_to_curve`, intersection-edge selection via `curve_contains_point`);
@@ -677,7 +361,30 @@ Documented in the PR-YR9 spec; recorded here for ledger completeness.
 **Sign-off:** *signed off* — sound in-scope substitution, mirroring the N1
 rationale.
 
+### N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2 CDT framework
+
+**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+
+**Code location:** planar Newell fan `crates/yang-rs/src/lib.rs:531-563` (1:1, no
+`d_ε` iteration, no CDT); cylinder analytic rim rings (no u-v CDT).
+
+**Paper section:** §4.1 (298-322), §4.1.2 (404-407).
+
+**Current behavior:** planar faces use an exact 1:1 bijection (faithful-by-
+exactness for flat patches — no Steiner points needed); the cylinder uses a
+2-ring + chord-bound rim sampling; watertightness comes from shared rim rings
+rather than per-boundary CDT. Deliberate divergence, acceptable while inputs are
+analytic primitives. Distinct from legacy **D9/D10**. (PR-NC1 update: non-convex
+and holed *planar* faces now go through a no-Steiner CDT — see **N9** — but the
+1:1 / no-`d_ε` property is preserved for the planar scope.)
+
+**Severity:** low. **Remediation:** closure bundled with NURBS support (legacy
+**D14** analog). **Sign-off:** candidate (faithful-by-exactness for the analytic
+scope).
+
 ### N9 — Planar non-convex / holed Stage-1 tessellation uses no-Steiner CDT (spade)
+
+**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
 
 **Code location:** `crates/yang-rs/src/lib.rs` planar dispatch arm
 (`tessellate_planar_cdt_face` + `planar_outer_loop_is_nonconvex`);
@@ -707,6 +414,8 @@ concern for the new kernel's planar Stage-1** (no ear-clipping anywhere).
 chord error, so no `d_ε` densification is warranted).
 
 ### N10 — Stage-5 intersection-edge classification gated by on-both-surfaces predicate (PR-YR18)
+
+**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
 
 **Code location:** `crates/yang-rs/src/lib.rs` `build_intersection_curves`
 (the on-both-surfaces gate before `ssi_rs::intersect`); the mis-attribution
@@ -754,6 +463,8 @@ intersection-edge invariant; the producer-provenance route remains the durable
 target.
 
 ### N11 — sphere section `Circle` membership uses a projection-scaled radial band (PR-YR19)
+
+**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
 
 **Code location:** `crates/yang-rs/src/lib.rs` — `curve_contains_point` (the
 `Circle` arm, plus its caller `build_intersection_curves` threading
@@ -811,6 +522,8 @@ durable target for intersection-edge identification generally.
 
 ### N12 — Stage-6 face resolution ranks ties by exact-vs-band tier (PR-YR20)
 
+**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+
 **Code location:** `crates/yang-rs/src/lib.rs` — the **non-degenerate** branch of
 Stage-6 geometric face resolution (the centroid-membership counter). Spec
 `specs/yr20_face_resolution_tiered_tiebreak.md`. Refines **N4** (face provenance
@@ -865,6 +578,8 @@ centroid membership test; the producer-provenance route (N4) remains the durable
 target for face attribution generally.
 
 ### N13 — PR-CR-AR1 builds explicit+LPI points only; TPI deferred to AR2 (scope correction)
+
+**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
 
 **Code location:** `crates/cherchi-rs/src/arrangements/intersection_points.rs`
 (new; `#[cfg(feature = "indirect-predicates")]`). Prompt PR-CR-AR1 ("tri-tri
@@ -992,6 +707,8 @@ Stage-0 / M8) → `Deferred(Coplanar)`. Never a guessed result.
 
 ### N14 — PR-CR-AR2a point/edge insertion: readable `splitSingleTriangle` with a uniform on-edge check; structural LPI dedup
 
+**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+
 **Code location:** `crates/cherchi-rs/src/arrangements/retriangulate.rs` and
 `aux_structure.rs` (new; `#[cfg(feature = "indirect-predicates")]`). Prompt
 PR-CR-AR2a ("per-triangle POINT/EDGE insertion"). C++ reference
@@ -1056,6 +773,8 @@ cross-triangle parity are roadmap-tracked to AR2b/AR3.
 
 ### N15 — PR-CR-AR2b Cycle C1 TPI routing: macro dispatch (faithful) + the createTPI STOP (blocking re-scope to C2/AR3)
 
+**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+
 **Code location:** `crates/cherchi-rs/src/arrangements/retriangulate.rs`
 (`#[cfg(feature = "indirect-predicates")]`). Prompt PR-CR-AR2b Cycle C1. C++
 reference `.../arrangements/code/triangulation.cpp` (`createTPI` cpp:1007,
@@ -1108,6 +827,8 @@ enforcement (global `seg2tris` + `jollyPoint`) is roadmap-tracked to Cycle
 C2 / AR3.
 
 ### N16 — PR-CR-AR3a constraint enforcement: per-work-item `source_tri` replaces the global `seg2tris`; deep-recursion/coplanar TPI deferred to AR3b
+
+**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
 
 **Code location:** `crates/cherchi-rs/src/arrangements/enforce.rs` +
 `arrangements/gp_dispatch.rs` (both `#[cfg(feature = "indirect-predicates")]`).
@@ -1181,6 +902,8 @@ soup + global `seg2tris`/coplanar `jollyPoint` TPI roadmap-tracked to AR3b.
 
 ### N17 — PR-CR-AR3b coplanar/single-coplanar-edge: defer ONLY a real intersection AR1 cannot construct; benign touches pass through
 
+**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+
 **Code location:** `crates/cherchi-rs/src/arrangements/soup.rs` —
 `deferred_pair_must_defer` / `coplanar_tris_overlap` /
 `single_coplanar_edge_introduces_geometry` (step 7 of `mesh_arrangement`).
@@ -1218,6 +941,8 @@ unhandled positive-area / interior-crossing cases are loud typed errors deferred
 to M8. **Sign-off:** candidate.
 
 ### N18 — PR-CR-AR3b exact-coordinate canonicalization welds coincident implicit points across triangles
+
+**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
 
 **Code location:** `crates/cherchi-rs/src/arrangements/soup.rs` —
 `canonicalize_points` (step 8 of `mesh_arrangement`). Prompt PR-CR-AR3b. C++
@@ -1272,76 +997,13 @@ Oracles: `aux_structure::ar3c_tests` (minimal pair-order anchor),
 `soup::ar3c_tests` (stage-level + end-to-end presentation invariance), and the
 un-ignored `adversary_b_generated_ray_permutation_invariance` witness.
 
-### Legacy ↔ new-crate cross-reference
+### Batch B — reference-bug corrections and port-robustness upgrades (N19–N24)
 
-The legacy **D1–D14** entries scope to `crates/kernel/` and do **not** imply
-new-crate coverage. Map (legacy → new-crate analog):
-
-| Legacy (kernel) | New-crate (yang-rs) |
-|---|---|
-| D1 (CDT in §4.4.1) | **N2** (Stage-4 remesh absent) |
-| D3 (§4.5.4 self-intersection) | **N6** |
-| D4 (§4.5.2 localized refinement) | loud `LocalRefinementRequired` STOP (pr-yr10b) |
-| D9 / D10 (§4.1.2 CDT / d_ε density) | **N5** |
-| D13 / D14 (Gauss-map / NURBS scope) | loud `CurvedSurfaceNotYetSupported` (Sphere/Cone) |
-
----
-
-## Priority order for remediation
-
-1. **D2** (post-tessellation repair pipeline) — fundamental, blocks investigation of anything downstream. Removing this will surface what the upstream stages are actually doing.
-2. **D1 Tier 3** + **D5** + **D9** — cross-face triangulation consistency (Newell drift, r_A=r_B, per-surface u-v CDT). All related; closing them together makes sense.
-3. **D6** (Fig 11 procedures) — closes the §4.4.1 mesh-updating story.
-4. **D7** (Cherchi vs flood-fill) — confirm or correct the patch-segmentation refactor.
-5. **D3** (§4.5.4 illegal-intersection removal) — independent; can be added at any time.
-6. **D4** (localized refinement) — depends on having a working failure-detection path first.
-7. **D8** (boundary step rescaling) — minor semantic difference; defer unless it shows up empirically.
-8. **D10, D11** (adaptive d_ε) — improvements to discretization fidelity.
-9. **D12** (octree) — performance, not correctness.
-10. **D13, D14** (NURBS / Bézier) — scope decision; defer until needed.
-
----
-
-## Closed deviations (signed off; investigation may proceed)
-
-*(none yet)*
-
----
-
-## Resolved deviations (implementation brought into line with paper)
-
-*(none yet)*
-
----
-
-## How to add a new deviation entry
-
-When you discover a divergence during work:
-
-1. Add a new entry to "Open deviations" with: code location, paper section, current behavior, paper prescription, architectural consequence, remediation options.
-2. Cite the relevant paper line numbers from `refs/text/*.txt`.
-3. Flag in the current cycle's audit memo and mention at the TOP of your next message to the user.
-4. Halt the affected investigation; do not continue accumulating probe data on the divergent implementation.
-
-## How to sign off on a deviation (user)
-
-Append to the deviation's entry:
-
-```
-**Sign-off:** approved by <name>, <date>, rationale: <text>. Tracking issue / future remediation: <link or note>.
-```
-
-This is a deliberate choice to accept the deviation — usually because the paper-aligned implementation is impractical or impossible in this codebase context. The sign-off documents the trade-off so future investigations don't waste cycles re-discovering the gap.
-
-## How to mark a deviation resolved
-
-When implementation is brought into line with the paper:
-
-1. Move the entry from "Open deviations" to "Resolved deviations".
-2. Append `**Resolved:** <date>, commit <sha>, description: <text>`.
-3. Update CLAUDE.md "Known deviations" section if you summarized there.
+These deliberately do NOT reproduce bugs/quirks found in the Cherchi C++ reference; each records the reference behavior and why ours differs.
 
 ### N19 — PR-CR-BL2 ray perturbation: one coherent offset per attempt; winner-less events skip (C++ early-break quirk + `-1` semantics)
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 `perturbRayAndFindIntersTri` (booleans.cpp:1016) has an early `break` that,
 once any offset has produced a hit, mixes hits gathered under DIFFERENT
@@ -1358,6 +1020,8 @@ every perturbed hit lies behind the origin; the port returns None.
 
 ### N20 — PR-CR-BL2 in/out: ray-parameter-ZERO hits are discarded (C++ keeps them and mislabels point-touch inputs)
 
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
 `sortIntersectedTrisAlongX/Y/Z` (booleans.cpp:1190) discards only hits
 STRICTLY before the ray origin (`lessThanOn* < 0`); a hit at parameter
 exactly zero — the origin lying ON another input's surface — survives and
@@ -1373,6 +1037,8 @@ defect, not a semantic to preserve; full-corpus parity (BL3) is unaffected
 away from touch configurations.
 
 ### N21 — PR-KV4-F1 in/out: rational-ray fallback where the C++ exits ("requires exact rationals")
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 `findRayEndpoints` (booleans.cpp:504) has two f64 origin strategies: an
 explicit non-border patch vertex, else a generated ray from a patch
@@ -1408,6 +1074,8 @@ terminates); correctness is carried by the needle-fixture oracles
 F0016-family corpus flips (5 cases → SUPPORTED_CORRECT).
 
 ### N22 — Stage-6 degenerate-arrangement children: fold-sliver exclusion + loop T-subdivision
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 Yang 2025 §4.5 topology extraction assumes clean same-face regions. The exact
 mesh arrangement, however, keeps ZERO-AREA shim slivers along shared collinear
@@ -1449,6 +1117,8 @@ byte-identical (A no-ops without a fold sliver; B no-ops without an on-segment
 foreign vertex).
 
 ### N23 — Patch-label flood tolerates COMPATIBLE (subset) labels at coplanar-sheet borders; DISJOINT stays loud
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 Cherchi 2022 `computeSinglePatch` (booleans.cpp:426) floods triangles across
 manifold edges into a patch and, in debug builds, asserts
@@ -1492,6 +1162,8 @@ analysis); the deviation-policy memo (`cherchi_rs_cpp_deviation_policy`).
 
 ### N24 — orient2d/orient3d: exact-rational zero-certification (Shewchuk underflow hole)
 
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
 **Where:** `cherchi-rs/src/predicates/orient.rs` (`orient3d`, `orient2d`).
 **C++ behavior:** the reference (and our former wrapper) trusts the
 Shewchuk-style adaptive predicate's 0.0 as a certified Zero. Shewchuk's
@@ -1529,7 +1201,11 @@ records for increments that shipped before the amendment. Anchors verified by
 faithfulness *improvements* or new-capability constructors, not divergences —
 each entry states its deviation status explicitly. -->
 
+### Batch B — design decisions and extensions beyond the paper (N25–N37)
+
 ### N25 — Stage-0 §4.5.5 generalized to n-ary plane groups + tessellated (disc/annular/mixed) faces
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 **Where:** `crates/yang-rs/src/stage0/nary.rs` — `build_plane_groups` (`:53`,
 connected components of the coplanar-pair graph), `PlaneGroup` (`:41`),
@@ -1586,6 +1262,8 @@ partitioning. No sign-off required.
 
 ### N26 — Overlay f64-emission fused collapse (§4.5.5 identical-mesh at rounding resolution)
 
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
 **Where:** `crates/yang-rs/src/coplanar_overlay.rs` — published `fused`
 map (`:190`), step-6 emission gate (`:604`), `CollinearSliver` trigger
 (`:634-638`), `fused_emission_repair` call (`:651`) and def (`:696`), loud
@@ -1637,6 +1315,8 @@ ceiling. Design decision, no separate sign-off.
 
 ### N27 — Stage-1 rim-override merge onto a coinciding uniform sample (producer/consumer of N26)
 
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
 **Where:** `crates/yang-rs/src/stage1_tessellate.rs` —
 `stage1_tessellate_with_rim_overrides` (`:81`), `stage1_tessellate_inner` (`:118`),
 `inserted_rims` set (`:126`). Full-rim site: `uni_step`/`merge_tol` (`:521-522`),
@@ -1683,6 +1363,8 @@ wall keeps moving downstream one honest step at a time.
 
 ### N28 — Torus-profile rim crossings: CapLateral torus arm + poloidal opposite-rim projection
 
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
 **Where:** `crates/yang-rs/src/stage0/rim_chords.rs` — `enum CapLateral`
 (`:370`), `lateral_for_cap` (`:387`; cylinder arm `:424`, torus guard
 `rim-lateral-torus-not-2profile` `:451`, torus arm `:459`, `rim-lateral-none`
@@ -1726,6 +1408,8 @@ UNSUPPORTED(revolve) verdict and now surfaces the pre-existing CDT wall.
 **Deviation status:** faithful §4.5.5. No sign-off required.
 
 ### N29 — §4.5.3 reversed-point correction via EXACT conic parameters (not the paper's discrete tangent-angle proxy) + near-tangent ellipse relocation
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 **Where:** `crates/yang-rs/src/stage4_correct.rs` —
 `sweep_reversed_intersections` (`:3402`, call `:2978`), param-order test
@@ -1791,6 +1475,8 @@ direction; identical to N24's posture).
 
 ### N30 — Circle × parallel-plane-line junction closed form (§4.4.1 relocation onto both incident curves)
 
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
 **Where:** `crates/yang-rs/src/stage4_correct.rs` — `vert_pp_circle_junction`
 map (`:1669`), rerouting pass (`:1672-1697`), `dedup_single_pp_line` (call
 `:1684`, def `:3676`), relocation loop (`:2586`), `pp_line_circle_junction` call
@@ -1832,6 +1518,8 @@ unverified — flagged in 2026-07-12 catch-up).
 **Deviation status:** faithful §4.4.1 junction relocation. No sign-off required.
 
 ### N31 — Cone-ellipse & cone-hyperbola SAME-TYPE junction routing to the triple relocation (KV16 / KV16b)
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 **Where:** `crates/yang-rs/src/stage4_correct.rs` — `vert_cone_ellipse` map
 (`:761`, built `:1272`), `vert_cone_hyperbola` map (`:769`, built `:1092`),
@@ -1895,6 +1583,8 @@ are logged design decisions with the byte-identical rationale above.
 
 ### N32 — Stage-6 output arc orientation obeys the CCW-minor input convention
 
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
 **Where:** `crates/yang-rs/src/stage5_topology.rs` — `orient_directed_curve`
 (def `:301`, called at both push sites `:425` and `:628`), `emit_topology`
 (`:361`), ambiguity-band posture comment (`:299`).
@@ -1932,6 +1622,8 @@ per-case output is byte-identical.
 required.
 
 ### N33 — Disjoint-union passthrough (A ∪ B with A∩B=∅ is the disjoint sum — outside Yang's interacting-solid scope)
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 **Where:** `crates/yang-rs/src/boolean.rs` — `conservative_aabb` (`:1650`),
 `union_operands_strictly_disjoint` (`:1697`, re-exported `lib.rs:96`),
@@ -1974,6 +1666,8 @@ outstanding.
 
 ### N34 — KV6a-tilted: full-turn revolve alternation gate narrowed to consecutive-annuli only
 
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
 **Where (kernel-v2, NOT a yang-pipeline stage):** `crates/kernel-v2/src/construct.rs`
 — `build_full_revolve` (`:1680`), consecutive-annuli typed reject (`:1695`,
 `NotImplemented("PR-KV6a full-turn revolve with consecutive annular …edges")`),
@@ -2012,6 +1706,8 @@ pass (anchor unverified — flagged in 2026-07-12 catch-up).
 **Deviation status:** kernel-v2 constructor P8 change; no Yang divergence.
 
 ### N35 — KV6d: closed-torus & on-axis-sphere full-turn revolve + Stage-4 bounded-face containment guard
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 **Where:** kernel-v2 constructors — `crates/kernel-v2/src/construct.rs`:
 `build_torus_revolve` (`:1978`, full-turn dispatch `:399`), sphere sweep dispatch
@@ -2078,6 +1774,8 @@ off; actively tracked.
 
 ### N36 — Tolerance-vocabulary consolidation (TAU_EVAL) + named surviving divergences
 
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
 **Date:** 2026-07-12 (design review F8). **Class:** refactor, value-identical —
 no behavior change; every replaced literal keeps its exact prior value.
 
@@ -2114,6 +1812,8 @@ behavior change requiring a full-assay measurement before touching):**
 suites green post-change. **Sign-off:** refactor, signed off 2026-07-12.
 
 ### N37 — Sphere×cylinder and sphere×cone general position → procedural SurfacePair
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 **Date:** 2026-07-12 (design review F10). **Class:** capability closure —
 the two general-position (non-coaxial) sphere degree-4 arms in `ssi-rs`.
@@ -2158,7 +1858,11 @@ now closed; `AnalyticalSolutionNotAvailable` remains reachable only as the
 documented absolute-band scale-sensitivity fallback (unit tests characterize
 it), not as a staged capability gap.
 
+### Batch B — shipped fixes under the P5 solo-operator convention (N38–N47, N55–N56)
+
 ### N38 — Stage-3 cone-owning-edge selection tol bound to the EDGE's OWN cone band
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 **Date:** 2026-07-14 (task #160). **Class:** correctness fix — the Stage-3
 SSI curve-selection tolerance for a cone-owning intersection edge was derived
@@ -2232,6 +1936,8 @@ R0003 probe + mutation-killable units.
 
 ### N39 — Cone∩plane conic curve-distance amplification (the N38 follow-up)
 
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
 **Date:** 2026-07-14 (task #161). **Class:** correctness/faithfulness fix —
 the Stage-3 conic membership metric omitted the surface-gradient-angle
 amplification, so the flat chord band under-admitted grazing cone∩plane
@@ -2291,6 +1997,8 @@ cases ships). **Sign-off:** solo-operator variant (P5), red/green via the
 load-bearing unit test + mutation-killable primitive units.
 
 ### N40 — Backtrack-spike normalization of chained-boolean-drift operand loops
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 **Where:** `crates/yang-rs/src/brep.rs` —
 `BRep::normalized_without_backtrack_spikes` + free helpers
@@ -2359,6 +2067,8 @@ principled, tested, zero-regression fix ships).
 primitive units. Deviation entry per P2 Yang-increment clarification.
 
 ### N41 — Doubled-membrane removal at the Stage-4 shell gate (the χ=3 sub-layer of the #146 non-2-manifold class)
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 **Where:** `crates/yang-rs/src/stage4_relocate.rs` — `remove_doubled_membranes`
 (+ `membrane_orientation_sign`); wired at `crates/yang-rs/src/stage4_correct.rs`
@@ -2438,6 +2148,8 @@ advancing to its deeper pre-existing layer) and lights zero new cases
 `membrane.rs` units. Deviation entry per P2 Yang-increment clarification.
 
 ### N42 — Stage-6 planar-face GROSS-non-planarity self-check (producer-contract enforcement for the #146 off-plane emission class)
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 **Where:** `crates/yang-rs/src/stage5_topology.rs` — `emit_topology`, planar
 branch, immediately after the `positive_count` (E3) check and before loop
@@ -2548,6 +2260,8 @@ passing and `pocket_operand_reenters_plain_boolean` quarantined (task #162).
 
 ### N43 — Stage-6 geometric attribution measures a `Plane` face by its triangle's WORST vertex, not the centroid (the #162 wall-sliver mint fix, root of an #146 driver)
 
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
 **Where:** `crates/yang-rs/src/boolean.rs` — the Stage-6 geometric
 face-attribution fallback (`plane_dist` closure inside the per-kept-triangle
 resolution loop), the LINEAGE-LESS path taken when the input B-Rep carries no
@@ -2618,6 +2332,8 @@ Yang-increment clarification.
 
 ### N44 — Mixed-orientation side-A faces in an n-ary coplanar plane group (M8 slice h, task #147)
 
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
 **Where:** `crates/yang-rs/src/stage0/nary.rs` — `overlay_nary_group`: the
 `nary-mixed-orientation` side-A wall (removed) and the per-A-face override
 winding in the `tris_for([AOnly, Overlap], poly_a, …)` emission.
@@ -2686,6 +2402,8 @@ entry per P2 Yang-increment clarification.
 
 ### N45 — Stage-3 SSI position tie-break for CROSSING cone-apex generator lines (R0008, task #163)
 
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
 **Where:** `crates/yang-rs/src/stage3_ssi.rs` — `build_intersection_curves`:
 a new `matched > 1` block after the R0072 parallel-line block. Supported by a
 refactor of `crates/yang-rs/src/stage4_relocate.rs`: the disjoint
@@ -2750,6 +2468,8 @@ crossing block to call `select_disjoint_parallel_line` re-raises R0008's
 advancing past Stage-3. Deviation entry per P2 Yang-increment clarification.
 
 ### N46 — Exact cylinder∩plane generator-line membership band (R0026, task #164)
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 **Where:** `crates/yang-rs/src/stage4_relocate.rs` — new
 `cyl_plane_generator_band(surf0, surf1, tol)`; wired into BOTH line-selection
@@ -2821,6 +2541,8 @@ single-case replay advancing past the selection wall. Deviation entry per P2
 Yang-increment clarification.
 
 ### N47 — Coincident relocated-vertex weld before topology emission (defensive producer invariant; render-collapse twin class)
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
 
 **Status:** SHIPPED (task #165). Spec `specs/yang_n47_coincident_moved_weld.md`.
 
@@ -2895,7 +2617,524 @@ geometry; widening the band past the feature floor welds real features.
 byte-stability gate (P1 implementation-blind check). Deviation entry per P2
 Yang-increment clarification.
 
+### N55 — the `subfeature` weld was Yang §4.4.1(b) all along; retighten its criterion → COMPLIANT always-on merge (recovers R0055/F0056/F0057/F0059; 228C→232C; #169 Phase B)
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
+**A retired weld reinstated compliantly, not a new hack.** #169 Phase B set out
+to "wire §4.4.1 mesh-update" as the `subfeature` weld's compliant replacement.
+Two findings from grounding it (assay A/B + `YANG_S44B_MEASURE` probe) redirected
+the increment:
+
+1. **The §4.4.1 re-CDT path greens nothing.** The re-CDT primitives
+   (`replan_degenerate_cylinder_patches`, `remesh_nonmanifold_patches`) are
+   empirically 0-conversion corpus-wide (child spec §5c.10: R0038→#137 tangency;
+   epic §8e: the non-manifold bucket is near-duplicate/off-plane junction verts,
+   →#146). So "wiring the re-CDT" recovers no case. The `subfeature` cases and the
+   re-CDT cases are **disjoint** populations.
+2. **The `subfeature` merge IS Yang §4.4.1(b).** Fig-11(b) is literally "if a
+   split-edge endpoint p is too close to q, merge p with q." The weld collapses
+   relocated-triangle vertices — a §4.4.1(b) merge. Measuring the 5 cases it
+   greens (`YANG_S44B_MEASURE`): **4 merge points that are identical to f64
+   precision** — R0055 (gap ~5e-15 @ scale 58), F0056/F0057/F0059 (gap ~1e-16 @
+   scale ~0.25). Those are **exact-dedup merges, which the compliance ratchet
+   explicitly KEEPS.** Only **R0072** collapses a genuine sub-feature edge — gap
+   ~1e-7 at micro-scale (~2e-4 span) = 0.4 % of the model, the R0091 silent-wrong
+   hazard N53 rightly objected to.
+
+**The fix — a scale-relative same-point criterion.** N53's objection was the
+*absolute* `MIN_FEATURE_SIZE` floor (which merged both the exact-dedup twins AND
+R0072's real edge). Retightening the criterion to the scale-relative working
+tolerance `TAU_WORK·(1+scale)` (`is_relocation_coincidence`, 5 orders below
+`MIN_FEATURE_SIZE`) separates them exactly: it merges only numerically-identical
+pairs and REFUSES R0072's ~1e-7 collapse. The merge is then a compliant,
+paper-faithful §4.4.1(b) step, made **always-on** (no longer gated behind
+`weld_enabled("subfeature")`; the tag is now inert). The `MIN_FEATURE_SIZE` floor
+remains only as the degeneracy *detector* (which triangles are merge candidates),
+not the same-point decision.
+
+**Measured (full release assay):** `228C → 232C`, **0 WRONG**, **0 CORRECT
+regressions** (per-case diff vs the committed baseline: exactly R0055/F0056/F0057/
+F0059 flip ERROR→CORRECT). R0072 correctly stays a loud STOP (its collapse is a
+resolution-band decision → routes to the curved-band re-CDT, child spec §5c;
+still blocked). Oracles: `tests_unit/n55_s44b_coincidence.rs` pin the
+discriminant (machine-ε twins merge at any scale; the R0072 micro-scale edge is
+refused; the band is exactly `TAU_WORK·(1+scale)`). All 326 yang-rs lib tests
+green.
+
+**Compliance-ledger effect.** `subfeature` leaves the weld set: three welds
+remain gated (`f32`, `coincident`, `subres`), all masking the same Stage-0
+near-coincident-minting root whose overlay-level fix was refuted (N54). The
+honest compliant baseline is now **232C / 0W**. This is the first case-recovering
+compliant advance of the climb-back — and it works precisely because §4.4.1(b)
+merge of exact duplicates is a *paper operation*, not a tolerance weld. The N53
+audit had mis-bucketed it; N55 corrects that with the criterion the paper implies.
+
+### N56 — `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the sole real hack (redundant + regresses C0036) — the N53 audit substantially over-retired (#169)
+
+**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+
+**The correct audit test is "is it in the Yang paper?", not "does it use a tolerance."** N55 showed `subfeature` was §4.4.1(b) mis-classified as a hack. Applying the same lens to the other three retired welds (paper cross-check + per-case assay + `YANG_DOUBLECOVER_PROBE` magnitudes) shows N53 over-retired: two of the remaining three are also paper operations.
+
+**Yang §4.3 (`refs/text/yang2025_hybrid_boolean.txt:535`):** *"During optimization, we remove a point if it is too close to another point on the same loop."* This is a first-class paper operation — collapsing redundant intersection-curve points. Two of the retired welds ARE this:
+
+- **`coincident`** (`weld_coincident_relocated`, N47): merges two `moved` (relocated-onto-the-analytic-curve) verts within `TAU_MODEL·(1+scale)` — both on the curve, so a faithful §4.3 redundant-point removal. Already scale-relative. Measured **0-conversion** on the corpus (preventive near-tangency infra for #137) but genuine Yang. → **reinstated always-on** (un-gated).
+- **`subres`** (`collapse_subresolution_intersection_segments`): collapses an intersection-curve SEGMENT (both endpoints on the curve) below the model-coincidence resolution — §4.3 again. Its criterion was the **absolute** `TAU_MODEL²` floor N53 flagged; retightened to scale-relative `TAU_MODEL·(1+scale)` (the N55 pattern; `YANG_DOUBLECOVER_PROBE` shows its collapses are ~1e-8…1e-7, genuinely sub-resolution, R0088 at ~1e-13). → **reinstated always-on** (un-gated).
+- **`f32`** (`weld_f32_render_twins`, N50): keys on **f32 render precision** (a downstream kernel-v2 tessellation-gate identity), which is NOT a geometric same-point test and appears nowhere in the paper. Two verts can be f32-identical yet geometrically 1e-6 apart. Enabling it **regresses C0036** (its blind bit-collapse destroys the exact 3-plane corner that `subres`'s plane-incidence-richer survivor rule preserves). → **stays retired** — the sole confirmed hack. It is now also **redundant**: everything it greened is recovered by the paper operations below.
+
+**Measured (full release assay, both reinstated together):** `232C → 240C`, **0 WRONG**, **0 CORRECT regressions** (per-case diff vs the committed baseline: exactly R0012, R0098, R0076, R0088, F0078, F0079, F0084, F0090 flip ERROR→CORRECT — 8 cases). `subres` alone accounts for R0076/R0088/F0078/F0079/F0084; the render-collapse cases **R0012/R0098/F0090** — which N48/N54 diagnosed as needing a Stage-0 upstream fix — are recovered by the COMBINED §4.3 dedup (`coincident`+`subres`) with no `f32`. R0012 and R0098 were re-confirmed individually as `SUPPORTED_CORRECT` / "all checks passed" (volume/bbox/χ, not just watertightness) — so these are metrically correct, not the χ=−4 false-green N48 feared from the *blind* weld. The geometric §4.3 dedup is the right tool; `f32`'s blind collapse was the wrong one.
+
+**The big correction.** Of the 13 cases N53 retired as "false greens via non-compliant welds," **12 recover compliantly** — 4 via §4.4.1(b) (N55) and 8 via §4.3 (N56) — all genuine Yang paper operations. Only **R0072** stays a loud STOP (a real ~1e-7 micro-scale collapse → curved re-CDT, child spec §5c). So the corpus returns to **240C** (vs the pre-retirement 241C; the 1-case gap is R0072, correctly not force-merged). The N53 premise — "these 13 are tolerance hacks masking upstream defects" — was largely wrong: they were paper operations (§4.4.1(b) merge, §4.3 curve-point dedup) applied with occasionally-imperfect criteria. The compliance ratchet still holds — nothing silently wrong, `f32` (the one real hack) stays out — but the lesson is that **"uses a tolerance" ≠ "is a hack"; the paper prescribes tolerance-gated merges, and those are desired.**
+
+**Effect on N54/#170.** The render-collapse cases R0012/R0098/F0090 that #170's Stage-0 event-column canonicalization was chasing are now recovered by §4.3 dedup at Stage 4/5 — the paper's own mechanism for near-coincident mesh-boolean output. The Stage-0 minting is expected geometry (N48 sidecar-certified the C++ reference mints the same near-coincident points), and §4.3 dedup — not an upstream Stage-0 change — is the paper-faithful response. #170's overlay-canonicalization approach is therefore **moot for these cases**. `f32` remains gated behind `YANG_WELD_ENABLE` purely as a historical A/B artifact; it is redundant and harmful and could be deleted.
+
+### Batch C — scope (D14)
+
+#### D14 — No NURBS / Bézier surface support; only analytic primitives
+
+**State:** PERMANENT (proposed) — scope sign-off batch C (2026-07-16), PENDING user ratification: analytic primitives only; NURBS/Bézier out of scope until explicitly reopened.
+
+**Status:** OPEN. NOT signed off.
+
+**Code location:** `crates/kernel/src/geometry/surface.rs:56-62`, `crates/kernel/src/tessellation/analytic.rs` (entire file).
+
+**Paper section:** Yang §4.1 + §4.1.1 NURBS-to-Bézier conversion (`yang2025:330-395`).
+
+**Paper requirement:** Yang's whole pipeline takes NURBS B-Rep input, converts to rational Bézier sub-patches, and discretizes via recursive Bézier subdivision. Theorems A.1 and A.2 give the control-net distance bounds that make this work.
+
+**Current implementation:** Five analytic surface types only (Planar, Cylindrical, Conical, Spherical, Toroidal). No NURBS, no Bézier subdivision. The tessellation strategy is geometry-specific dispatch per primitive type, not the unified Bézier algorithm Yang specifies.
+
+**Deviation magnitude:** Scope. We are building Yang for analytic-primitive inputs only. The paper's algorithm scales to NURBS; our subset doesn't need to (yet) but should be acknowledged.
+
+**Notes:** This is the largest scope gap, but the most defensible — analytic surfaces are a strict subset of NURBS, so an analytic-only kernel can be a faithful Yang implementation for that subset. The decision is whether to broaden scope to NURBS later (likely yes for real CAD use) or stay analytic-only.
+
+---
+
+---
+
+## RESOLVED deviations (implementation brought into line with the paper)
+
+#### D2 — Extra post-tessellation repair pipeline (legacy S-H residue) — REMOVED
+
+**State:** RESOLVED (REMOVED 2026-05-18) — legacy post-tessellation repair pipeline deleted; successor structural items were re-recorded as N-entries.
+
+**Status:** REMOVED 2026-05-18. Replaced with Yang-compliant "no post-processing" path. Some new structural-deviation work surfaced; tracked below.
+
+**Original code location:** `crates/kernel/src/tessellation/repair.rs` (entire module, ~4075 LOC; including extensive probe scaffolding from PR-Y40/Y45). Called from `crates/kernel/src/tessellation/mod.rs` lines ~568-792 (main `tessellate_solid_ext` cleanup loop) and ~5220-5322 (`tessellate_solid_bounded` stage-f F.0-F.4 sub-passes).
+
+**Paper section:** Yang §4.4.3 (`yang2025:599-605`).
+
+**Paper requirement:** "The watertightness of our result is **inherited from the mesh Boolean output**, ensuring the mesh has no geometric gaps." Yang asserts watertight-by-construction with no post-processing.
+
+**Removal (2026-05-18):** Deleted `repair.rs` entirely. Removed `mod repair;` and `use self::repair::*;` from `tessellation/mod.rs`. Stripped all in-pipeline call sites at the two locations above. Deleted 3 test clusters (~270 LOC of tests targeting the deleted functions: `dedup_*`, `cross_face_nm_*`, `test_steiner_fan_*`). Extracted `count_unpaired_in_mesh` into a new `tessellation/diagnostics.rs` (~55 LOC) since it's pure measurement, not repair. The `weld_shared_edge_vertices` + `compact_unreferenced_vertices` helpers in `mod.rs` remain (fan-path-specific, separate deviation — see D5).
+
+**Empirical impact (honest numbers, no repair masking):**
+
+| Gate | Before D2 | After D2 | Delta |
+|---|---|---|---|
+| F0020 unpaired | 35 | **54** | +19 (was masked) |
+| F0020 degenerate tris | 2 | 24 | +22 (was being removed) |
+| F0020 non-manifold edges | 2 | 14 | +12 (was masked) |
+| F0020 triangle count | 124 | 154 | +30 (no dedup/welding now) |
+| kernel lib | 1268/24/42 | 1249/34/42 | -19 pass / +10 fail (9 tests removed; 10 newly exposed failures) |
+| yang_fast | 13/157 | 13/157 | unchanged |
+| pr_y31_f0044_extras_zero | GREEN | GREEN | unchanged |
+
+The yang_fast pass rate didn't drop — confirming the repair pipeline was never closing corpus cases, just dressing F0020's diagnostic numbers.
+
+**Significance:** F0020's "35 unpaired" figure that the prior 17 PR cycles chased was partly a repair-pipeline artifact. The real defect count is 54. The other 19 were closed by post-hoc welding/filling/T-junction-splitting that Yang doesn't have. Future work is against the honest 54 baseline.
+
+**Banked findings exposed by D2 removal (each a candidate for its own deviation entry if substantive):**
+- 24 degenerate triangles (zero-area or near-zero) survive in F0020 output. Upstream is producing these; Yang's algorithm should not.
+- 14 non-manifold edges (count ≠ 2). Yang's bijective mesh-boolean output should be 2-manifold.
+- 5 reversed normals. Yang's bijective mapping preserves orientation.
+- 30 extra triangles vs the prior dedup'd output. Some are duplicates from upstream; some are genuine missing-then-now-emitted.
+
+These are real upstream defects the repair was hiding. Investigating them is the natural next step — and now it's possible because we're not measuring against a masked baseline.
+
+**Sign-off:** *resolved* per the directive that D2 must be removed.
+
+### N1 — Stage-2 labels taken from the C++ sidecar, not a native arrangement
+
+**State:** RESOLVED — native `cherchi-rs` arrangement replaced the sidecar (M6/M7 complete); the signed-off interim no longer exists. Original user sign-off 2026-05-28 retained below.
+
+**Code location:** `crates/cherchi-sidecar-rs/` (interim `LabeledArrangement`
+producer) consumed by `crates/yang-rs/` Stages 5/6.
+
+**Paper section:** §4.2 (mesh boolean) → the per-output-triangle origin +
+patch in/out labels that §4.4.2 reassembly consumes are, in the paper, products
+of the implementation's *own* exact mesh arrangement.
+
+**Current behavior (interim):** `yang-rs` obtains the `LabeledArrangement` from a
+patched Cherchi 2022 `mesh_booleans` binary (subprocess), not from a native
+pure-Rust arrangement. This is the deliberate decoupling that lets functional
+Yang (mesh-approximate) exist before the native arrangement is written.
+
+**Architectural consequence:** the boolean pipeline depends on an external C++
+binary and is **not WASM-compatible** while this path is active. Also bounded by
+Cherchi's input axioms (manifold/watertight/intersection-free), enforced at
+roadmap M1.
+
+**Remediation:** roadmap **M6** replaces the producer with the native
+`cherchi-rs` Stage-2 arrangement behind the *same* `LabeledArrangement`
+interface (sidecar retained as differential-parity oracle); **M7** clean-rooms
+the indirect predicates from Attene's paper and restores WASM.
+
+**Sign-off:** approved by Sequoia Alexander, 2026-05-28, rationale: deliberate
+strategy — decouple "functional Yang" from "native arrangement complete";
+WASM-break during the development phase is accepted (no users; personal
+experiment). Tracking: `docs/yang_functional_roadmap.md` M6/M7.
+
+### N3 — §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion)
+
+**State:** RESOLVED (2026-06-01) — `is_reversed` returns `true` on degenerate t̃; logic inversion fixed. See in-entry RESOLVED note.
+
+**Code location:** `crates/yang-rs/src/lib.rs:2504-2506` — returns `false` (no
+reversal) when `t_tilde_len < TAU_WORK`, commented "Degenerate/collinear t̃ ⇒
+healthy, no reversal."
+
+**Paper section:** §4.5.3 (refs/text/yang2025_hybrid_boolean.txt:743-745) — places
+collinear triples **within** the reversal subset: "if … collinear, t̃ is almost
+degenerate … we directly detect the reversal, avoiding the angle comparisons."
+
+**Current behavior:** inverts the paper — collinearity ⇒ *healthy* and the check
+is skipped. Harmless on circle/ellipse edges (no 3 collinear points), **but
+reachable on Line-type intersection edges** (axis-parallel `plane∩cylinder` →
+lines), which `cylinder ∪ box` can produce. The only finding where the code
+actively *contradicts* the paper rather than deferring.
+
+**Severity:** medium (latent — reachable via line edges; not exercised by the
+current circle/ellipse canonical tests).
+
+**Remediation:** implement the paper's branch (on collinear consecutive points,
+detect reversal directly).
+
+**RESOLVED (2026-06-01):** `is_reversed` now returns `true` on degenerate t̃
+(`|t̃| < TAU_WORK` ⟺ `v1 ≈ −v2` ⟺ a U-turn at `p_r`), matching §4.5.3's
+direct-detection of the collinear reversal case. Regression test
+`tests::n3_degenerate_tangent_is_reversal`; full yang-rs suite unregressed (the
+fix does not over-trigger on healthy circle/ellipse edges, where `|t̃| ≈ 2`).
+No longer a deviation. **Sign-off:** resolved.
+
+### N4 — Face provenance via centroid-proximity, not §4.2.3 barycentric implicit mapping
+
+**State:** RESOLVED (2026-07-07, task #53) — per-triangle provenance is the sole production path; geometric attribution survives only for the documented lineage-less contract (dev sidecar oracle / `from_mesh`).
+
+**Code location:** `crates/yang-rs/src/lib.rs` (~1794-1798) — pick the unique
+labeled-solid face plane within `TAU_WORK` of the kept triangle's centroid.
+
+**Paper section:** §4.2.3 — map each intersection point to both surfaces via
+Cherchi implicit-point **barycentric** coordinates from the intersecting
+triangles.
+
+**Current behavior:** geometric centroid-in-plane proximity, not the
+arrangement's intrinsic per-triangle provenance. Works for the current scope; it
+is the proximate cause of the **F2** multi-solid `FaceResolutionFailed`. Forced
+by **N1** (the sidecar's `LabeledArrangement` exposes only *solid*-level
+provenance, not per-triangle barycentric data).
+
+**Remediation:** tied to roadmap **M6** (native arrangement exposes triangle-level
+provenance). **Progress (2026-07-01):** provenance attribution is now the PRIMARY
+Stage-6 path (geometric is the fallback), fed by a per-triangle → face map
+(`tri_face`) emitted by every Stage-0 producer: the inputs' own Stage-1
+tessellation (1b), the planar coplanar overlay (2a), and — as of
+commit for `specs/n4_coincident_cylinder_provenance.md` — the coincident-cylinder
+membrane path (band-strip triangles attributed by azimuth to their arc-patch
+face; `u32::MAX` sentinel → geometric fallback where a column has no covering
+arc). Geometric attribution remains only for lineage-less / sidecar-backend
+inputs; it can be RETIRED once those are the sole remaining consumers.
+**RETIRED (2026-07-07, task #53, spec `specs/n4_retire_stage6_fallback.md`):**
+the `YANG_N4_FALLBACK_PROBE` measurement proved ZERO fallback hits across the
+full corpus on the native backend. A provenance MISS on a lineage-carrying
+input (NoSourceEntry / too-short map / `u32::MAX` sentinel) is now a LOUD
+`FaceResolutionFailed` — never a silent geometric guess. The geometric path
+survives solely for LINEAGE-LESS attribution (documented contract): an
+arrangement without `source` (the dev-only C++ sidecar oracle,
+`tests/backend_parity.rs`; the in-crate mock-label fixtures) or an input
+without a `tri_face` map (a yang boolean OUTPUT chained directly back in —
+the yr27/F0066 pattern — or a `from_mesh` B-Rep).
+**Sign-off:** resolved (provenance is the sole production path; geometric =
+oracle/lineage-less contract only).
+
+### N8 — Stage 0 (§4.5.5 coplanar) verified NATIVE-need, not sidecar-delegated
+
+**State:** RESOLVED (2026-06-02) — verification note: coplanarity is NOT silently sidecar-resolved; confirmed genuine native Stage-0 need. The capability itself landed as N25/M8; residue tracked in roadmap M8 (task #130).
+
+**Audit follow-up (resolved 2026-06-02).** The Yang-conformance audit flagged that
+"Stage 0" was conflated between *unimplemented* and *delegated to the sidecar's
+arrangement* — unverified. **Verified:** the patched `mesh_booleans` sidecar
+emits **multi-solid-labeled** triangles (`surface.len() == 2`) on coplanar-overlap
+input (confirmed by `cherchi-sidecar-rs` test
+`c3_coplanar_face_yields_multi_attribution`, run against the live binary). Those
+multi-attributed triangles flow into `yang-rs`, where the centroid-proximity face
+resolution (N4) cannot pick a single source face → loud `FaceResolutionFailed`
+(F2). **Conclusion:** coplanarity is NOT silently resolved by the sidecar; it
+surfaces as a multi-attributed arrangement. Therefore M8 "Stage 0" is a **genuine
+native pre-pass need** (2D coplanar Boolean before discretization, §4.5.5), not
+something delegated away. The current loud-F2 deferral is correct. **Sign-off:**
+remediation tracked (roadmap M8).
+
+---
+
+## HISTORICAL — legacy `crates/kernel/` audit archive (D-series)
+
+The 2026-05-18 audit findings (three parallel Explore agents, Yang §4.1–§4.5 vs the legacy kernel). The legacy kernel was DELETED at the Phase-6 migration (2026-06-11); code locations in these entries no longer exist. Each entry's State line records its live kernel-v2 analog, if any. Original severity grouping: D2 fundamental (moved to RESOLVED above); D4–D9 structural; D12 performance; D13–D14 scope (D14 moved to PERMANENT batch C above).
+
+### D1 — Simplified earcut used where Yang §4.4.1 specifies CDT
+
+**State:** HISTORICAL — cites legacy `crates/kernel/` (DELETED 2026-06-11); live analog: cross-face CDT consistency is subsumed by N2 (§4.4.1 mesh-updating, epic #169).
+
+**Status:** OPEN. NOT signed off.
+
+**Discovered:** 2026-05-16 during PR-Y46 architectural review.
+
+**Code location:**
+- `crates/kernel/src/tessellation/mod.rs:3471` — `earcutr::earcut(...)` call (convex path)
+- `crates/kernel/src/tessellation/mod.rs:3509` — `earcutr::earcut(...)` call (with-holes path)
+- `tessellate_planar_face_bounded` in `tessellation/mod.rs` (per-face independent triangulation entry point)
+
+**Paper prescription:** Yang 2025 §4.4.1 ("Mesh updating") at `refs/text/yang2025_hybrid_boolean.txt:548-590`. Quote: "through CDT we obtain valid discretizations of the trimmed meshes" (line ~557). Yang specifies **Constrained Delaunay Triangulation** — an algorithm that enforces intersection-curve polyline boundaries as hard constraint edges across all faces that meet at a shared boundary.
+
+**Current implementation:** uses the `earcutr` crate (Livesu et al. 2021 "Deterministic Linear Time Constrained Triangulation Using Simplified Earcut"). The simplified earcut is a deterministic O(n) ear-removal algorithm. It does NOT enforce constrained edges across face boundaries; each B-Rep face's earcut runs independently with no cross-face coordination beyond shared `disc.positions` vertex pool.
+
+**Architectural consequence:** when two adjacent B-Rep faces meet at a shared boundary that includes intersection-curve vertices, both faces' earcut calls receive the same boundary vertex positions (via shared `disc.positions`), but each face's earcut chooses diagonals independently. This produces the "Case D" defect signature measured across PR-Y43-Y46: all 3 vertex positions are present in the final Render LOD vertex set (sub-class (a) `m1x=3, m5x=3`), but no triangle connects them because each face's independent earcut emitted incompatible diagonals.
+
+**Investigation cost prior to discovery:** 15 PR cycles (PR-Y32 through PR-Y46), ~2821 LOC of probe scaffolding, 0 production code, F0020 unpaired count unchanged at 40 across the entire arc.
+
+**Remediation options:**
+1. Constrained earcut wrapper (~80-150 LOC) — detect B-Rep shared edges, pass as hard constraints to earcut OR post-process diagonal flips. Closest to current architecture.
+2. Replace `earcutr` with a true CDT (full Bowyer-Watson + constraint enforcement, or port from CGAL / use a Rust CDT crate). ~800-1500 LOC. Highest paper-alignment.
+3. Cross-face coordination phase before per-face earcut. ~50-100 LOC for boundary alignment but doesn't fix earcut divergence root.
+
+**Investigation status:** **REMEDIATION IN PROGRESS.** Earcut sweep complete; Tier 2/3 remain.
+
+**Cycle 1 (2026-05-16):** Replaced `earcutr` with `spade::ConstrainedDelaunayTriangulation::try_bulk_load_cdt` at `tessellate_planar_face_bounded` (two call sites: planar-no-holes, planar-with-holes). Constraint edges constructed from boundary loops. Results: F0020 unpaired 40→35; kernel lib 1262→1266; yang_fast 10/157→13/157.
+
+**Cycle 1.1 (2026-05-16):** Removed the earcut-fallback arm at both call sites — `try_bulk_load_cdt`'s silent-conflict callback handles upstream defects internally, so the fallback was unreachable on F0020. Replaced fallback with eprintln + empty output.
+
+**Cycle 1.2 (2026-05-16):** Swept the 9 remaining earcut call sites across the kernel — each replaced with `cdt::cdt_triangulate_flat` (earcut-shaped flat-API wrapper). Sites converted: `boolean/coplanar_preprocess.rs::triangulate_polygon_with_holes` (Yang §4.5.5 path), plus 8 sites in `tessellation/mod.rs` (convex/non-convex polygon, revolve caps, cylinder strip, sphere/torus cap). Removed `earcutr` from `Cargo.toml`. Results: kernel lib 1266→1268; yang_fast 13/157 (unchanged); F0020 35 unpaired (unchanged); cdt unit tests 4→6 passing.
+
+**Earcut now removed from the kernel.** Confirmed via `grep -rn earcutr crates/kernel/src/` returning zero hits.
+
+**Cycle 2a (2026-05-16):** Plumbed `edge_is_intersection` from `ResultTopology` through `WaffleSolid` to a thread-local at tessellation entry. Added `Y47T2_INTERSECTION_PROBE` env-gated probe at `tessellate_solid_bounded` that walks each face's boundary loops and counts which segments map to intersection-flagged arena edges. Default-off byte-identical (F0020 35 unpaired unchanged); kernel lib 1266→1268.
+
+**MEASUREMENT (load-bearing):** On F0020 with probe enabled, the thread-local marker carries 48 arena edges of which 20 are flagged `is_intersection=true`. The first version of the probe used vertex-index inversion via `disc.edge_verts` and reported `intersection_segs=0` across all faces — **that probe had a bug**: vertex inversion is ambiguous because a single vertex belongs to multiple edges. The corrected probe walks half-edges directly (`arena.half_edges[he].edge`) and gives the exact `EdgeIdx` per boundary segment.
+
+**Corrected measurement:** all 20 flagged edges DO appear on boundary loops, totaling 40 face-loop incidences across 7 faces:
+- Face4, Face7, Face13: walked_edges=10, walked_intersection=10 — **entirely intersection-bordered** (these are trim faces born from the boolean)
+- Face9, Face10, Face11, Face12: walked_edges=5-6, walked_intersection=2-3 — partial intersection borders
+
+**The boundary loops already include the intersection edges, and the CDT calls already pass every boundary segment as a constraint edge** (via the `loops` parameter to `cdt_triangulate_2d_with_loops`). So "Tier 2 = add intersection-curve constraints" produces no new constraints — they're already there.
+
+**Tier 2 EMPIRICALLY REFUTED, with corrected reasoning.** The intersection edges aren't a missing-constraint problem; the boundary IS the intersection in these cases. The Case D 24/24 defect must come from CDT divergence on the SAME boundary input across adjacent faces. Cross-face shared-edge analysis from the deep probe:
+- Face4 ↔ Face13: share 10 intersection edges (one large intersection patch boundary).
+- Face7 ↔ Face9, Face10, Face11, Face12: share intersection edges across 4 neighboring faces.
+
+The 24 Case D missing triangles are presumably the ones spade chose differently on each side of these shared boundaries.
+
+**Remaining work to close D1 (revised after cycle 2a corrected measurement):**
+- **Tier 3:** canonical cross-face Newell basis — eliminate ±ε 2D-projection drift between adjacent faces sharing intersection-edge boundaries (Face4 ↔ Face13 and Face7 ↔ {Face9,10,11,12} on F0020). With identical 2D inputs, deterministic CDT would produce identical outputs on shared regions. Estimated load-bearing.
+- **Cross-face vertex-set divergence:** adjacent faces' CDT calls operate on different non-shared vertex sets (each face has its own interior vertices). Even with identical boundary constraints and identical Newell bases, Delaunay diagonal choice on shared-boundary triangles depends on the full vertex set. Forces investigation of global-coplanar-CDT (architectural rewrite Candidate C from the earlier review). The Face4/Face13 case is concrete: both faces' CDT calls see different non-shared vertex sets but identical 10-edge intersection boundary, and presumably emit different diagonals on the shared region.
+- **Spade-CDT determinism caveat:** verify that spade actually emits identical triangulations given identical input (vertices + constraints) across separate calls. If spade's `bulk_load_cdt` has any input-order dependence we don't control, that's a contributing factor.
+
+**Implementation choice note:** Yang §4.4.1 says "CDT in CGAL [2024]." We use `spade` (Rust-native CDT, ~5-10k LOC) rather than porting CGAL's CDT (~12k lines of C++ templates plus kernel/predicate infrastructure). `spade` implements the same algorithm class (Constrained Delaunay Triangulation with adaptive predicates via the `robust` crate); the deviation is "CGAL specifically" not "CDT semantics." This is a documented choice, not a behavioral deviation.
+
+**Sign-off:** *not eligible.* Deviation remains until Tier 2 (and possibly Tier 3) lands.
+
+---
+
+#### D3 — §4.5.4 illegal-intersection detection/removal absent
+
+**State:** HISTORICAL — cites legacy `crates/kernel/` (DELETED 2026-06-11); live analog: N6 (§4.5.4 detection/removal, re-recorded for the new crates).
+
+**Status:** OPEN. NOT signed off.
+
+**Code location:** Not present.
+
+**Paper section:** Yang §4.5.4 (`yang2025:752-758`).
+
+**Paper requirement:** "We detect these illegal intersections [self-intersections in the trimmed mesh arising from discretization or mesh updating] and perform local refinement. Since the input B-Rep model has no self-intersections, these illegal intersections are eliminated."
+
+**Current implementation:** No detection or removal logic for post-trim self-intersections. The `no_self_intersection` oracle counts them as a test gate but doesn't fix them.
+
+**Deviation magnitude:** Fundamental. An entire §4.5.4 step is missing.
+
+#### D4 — §4.5.2 global re-tessellation instead of localized refinement
+
+**State:** HISTORICAL — cites legacy `crates/kernel/` (DELETED 2026-06-11); live analog: §4.5.2 localized refinement — N2/#169 Phase C.
+
+**Status:** OPEN. NOT signed off.
+
+**Code location:** `crates/kernel/src/boolean/yang_integration.rs:843-904`.
+
+**Paper section:** Yang §4.5.2 (`yang2025:659-670`).
+
+**Paper requirement:** When optimization fails in a region, refine only the surfaces traversed by the failed intersection curve segment plus a one-ring of neighbors. Re-compute intersections only in the refined regions.
+
+**Current implementation:** When the SSI optimization can't recover, the entire pipeline halves `d_ε` and re-tessellates BOTH solids globally, up to 2 rounds. Not localized.
+
+**Deviation magnitude:** Structural.
+
+#### D5 — §4.4.1 r_A = r_B = r identification — PARTIALLY ADDRESSED via plane-intrinsic origin
+
+**State:** HISTORICAL — cites legacy `crates/kernel/` (DELETED 2026-06-11); planar side resolved pre-deletion; curved side subsumed by N2 chart work (`SurfaceChart`).
+
+**Status:** PARTIALLY RESOLVED 2026-05-18. The 3D-vertex side of `r_A = r_B` is already enforced by the shared `disc.positions` pool. The 2D-projection side (which is what CDT actually sees) now uses a plane-intrinsic origin so coplanar adjacent faces produce byte-identical 2D coords for the same 3D point.
+
+**Code location:** `crates/kernel/src/tessellation/mod.rs::tessellate_planar_face_bounded` — now takes a `plane_origin: [f64; 3]` parameter, used everywhere the prior code used `ordered_verts[0]`.
+
+**Paper section:** Yang §4.4.1 (`yang2025:548-556`).
+
+**What was the deviation:** 3D vertex identity was preserved (shared `disc.positions` pool) but the 2D coordinate that CDT received depended on `ordered_verts[0]` — i.e., the FIRST boundary vertex of the face. Two adjacent coplanar faces have different `ordered_verts[0]`, so the same 3D point projected to different 2D coordinates on each side. Deterministic CDT given different inputs is not equivalent to deterministic CDT given the same inputs.
+
+**Fix (2026-05-18):** Pass the plane's intrinsic origin (`plane.origin` from `SurfaceGeom::Planar`) as the 2D origin. Two coplanar faces share `plane.origin` → identical 2D coordinates for shared 3D points.
+
+**Remaining gap:** the fallback path (when surface geometry is unknown) still uses a vertex-derived origin. This is a sub-deviation but the fallback is only hit for faces without surface info, which Yang assumes don't exist.
+
+**Sign-off:** *partially resolved.* Full closure when D14 (NURBS/Bézier support) lands, since each parametric surface will have a canonical origin.
+
+#### D6 — §4.4.1 Fig 11 split/merge/insert procedures unclear
+
+**State:** HISTORICAL — cites legacy `crates/kernel/` (DELETED 2026-06-11); live analog: N2 (§4.4.1 Fig 11 split/merge/insert).
+
+**Status:** OPEN. UNCERTAIN.
+
+**Code location:** `crates/kernel/src/boolean/topology_extract.rs:249`, `mesh_arrangement.rs`, `cherchi/fast_trimesh.rs`.
+
+**Paper section:** Yang §4.4.1 Fig 11 (`yang2025:555-565`).
+
+**Paper requirement:** Three preprocessing steps before CDT:
+- (a) Locate the constraint edge containing intersection point q; split it at q.
+- (b) If a split-edge endpoint p is too close to q, merge p with q.
+- (c) If an intersection loop has no interior mesh vertices, insert one.
+
+**Current implementation:** Generic `split_edge` and `insert_vertex_into_triangle` routines exist. Whether they're applied in this exact sequence at CDT-prep time is unclear.
+
+**Deviation magnitude:** Structural pending clarification.
+
+#### D7 — §4.4.2 patch segmentation: flood-fill vs Cherchi 2022 per-patch ray-cast
+
+**State:** HISTORICAL — cites legacy `crates/kernel/` (DELETED 2026-06-11); resolved by the rewrite: native `cherchi-rs` implements Cherchi 2022 per-patch ray-cast (M6/M7, sidecar-parity-certified).
+
+**Status:** OPEN. UNCERTAIN.
+
+**Code location:** `crates/kernel/src/boolean/topology_extract.rs:404-637, 1868+` (`face_survival_detect`).
+
+**Paper section:** Yang §4.4.2 (`yang2025:574-598`).
+
+**Paper requirement:** "We directly apply a standard inside/outside classification step [Cherchi et al. 2022]." Cherchi 2022 uses per-patch ray-casting through manifold-edge barriers.
+
+**Current implementation:** Flood-fill patch segmentation with manifold-edge-barrier walking. Comment at `topology_extract.rs:508-514` notes a "refactor from Yang's intersection-edge-barrier flood to Cherchi 2022 §5 manifold-edge-barrier flood" — but whether the refactor matches Cherchi exactly or is a variant is unclear.
+
+**Deviation magnitude:** Structural pending clarification.
+
+#### D8 — §4.5.1 boundary step rescaling via surface-switching
+
+**State:** HISTORICAL — cites legacy `crates/kernel/` (DELETED 2026-06-11); no live analog recorded; revisit only if it surfaces empirically in kernel-v2.
+
+**Status:** OPEN. UNCERTAIN.
+
+**Code location:** `crates/kernel/src/boolean/intersection_opt.rs:901-1006`.
+
+**Paper section:** Yang §4.5.1 (`yang2025:626-638`, Fig 12).
+
+**Paper requirement:** When a Newton step exits the current surface's domain, **rescale the step magnitude** to land on the boundary curve `C_b`; continue optimization on the adjacent surface from there.
+
+**Current implementation:** Clamps the parameter update to domain bounds, then if the point exits, finds the adjacent face and switches surface parameterization entirely. Both prevent escaping the domain but the mechanics differ from Yang's step-rescaling.
+
+**Deviation magnitude:** Structural; semantic equivalence uncertain.
+
+#### D9 — §4.1.2 per-surface u-v CDT for adjacency handling — PARTIALLY ADDRESSED
+
+**State:** HISTORICAL — cites legacy `crates/kernel/` (DELETED 2026-06-11); planar side resolved pre-deletion; curved side subsumed by N2/`SurfaceChart`.
+
+**Status:** PARTIALLY RESOLVED 2026-05-18. For planar surfaces, the CDT now operates in the surface's intrinsic 2D frame (plane.origin as origin, plane.normal as basis source). This is the §4.1.2 "in its own u-v domain" requirement for planar patches.
+
+**Code location:** `crates/kernel/src/tessellation/mod.rs::tessellate_planar_face_bounded`.
+
+**Paper section:** Yang §4.1.2 (`yang2025:397-410`).
+
+**Original deviation:** "compute the 2D basis from boundary vertex order" — vertex-dependent, drifts across adjacent faces.
+
+**Fix (2026-05-18):** The 2D basis (`u_axis`, `v_axis`) was already derived from `plane.normal` via `compute_plane_basis()`. The 2D origin (changed today) now comes from `plane.origin`. Both are intrinsic to the surface. Adjacent coplanar faces share the entire 2D frame.
+
+**Remaining gap:** Yang §4.1.2 also describes the discretization step (sample u-v rectangle then re-sample boundary curves) as a separate phase from the post-boolean §4.4.1 CDT. We collapse both into a single per-face CDT call. For analytic surfaces other than planes (cylinder, sphere, cone, torus), tessellation is geometry-specific and does NOT use CDT in the surface's parametric (u,v). Closing this requires either (a) running CDT in (θ, z) for cylinders, (u, v) for sphere etc., or (b) accepting per-surface tessellation as adequate when it doesn't share boundaries with other curved surfaces.
+
+**Sign-off:** *partially resolved* for planar surfaces. Curved-surface side remains for future work bundled with D14 (full NURBS handling).
+
+#### D10 — Tessellation density not fully `d_ε`-driven
+
+**State:** HISTORICAL — cites legacy `crates/kernel/` (DELETED 2026-06-11); live analog: N5 (Stage-1 discretization).
+
+**Status:** OPEN. NOT signed off.
+
+**Code location:** `crates/kernel/src/tessellation/mod.rs:34-87`.
+
+**Paper section:** Yang §4.1 (`yang2025:330-395`).
+
+**Paper requirement:** Discretize each surface with iterative refinement until distance-to-surface < `d_ε`. Adaptive per surface, driven by `d_ε`.
+
+**Current implementation:** Three LOD modes: `Boolean` (fixed 16 segments/circle), `Render` (fixed 64), `Adaptive { d_epsilon }` (sagitta-formula segment count for circular edges only). Production path uses fixed `Boolean` LOD for boolean stages and fixed `Render` LOD for output. Adaptive is invoked but constrained to circular-edge sagitta — not the full surface-iterative refinement Yang prescribes.
+
+**Deviation magnitude:** Structural.
+
+#### D11 — `d_ε` computed from combined-AABB across both solids
+
+**State:** HISTORICAL — cites legacy `crates/kernel/` (DELETED 2026-06-11); live analog: N5 (Stage-1 discretization).
+
+**Status:** OPEN. NOT signed off.
+
+**Code location:** `crates/kernel/src/boolean/yang_integration.rs:642-661`.
+
+**Paper section:** Yang §4.1 (`yang2025:378-382`).
+
+**Paper requirement:** "We select `d_ε` as a value 10⁻² · d relative to the diagonal length d of the AABB of **the B-Rep model**" (singular).
+
+**Current implementation:** `d_ε = 0.01 · diag` where diag is the AABB diagonal over BOTH solids' vertices combined. Single `d_ε` value used for both operand discretizations.
+
+**Deviation magnitude:** Structural. May over-smooth small solids when paired with large ones.
+
+#### D12 — O(n²) broad-phase intersection detection vs octree
+
+**State:** HISTORICAL — cites legacy `crates/kernel/` (DELETED 2026-06-11); performance-only; revisit broad-phase in kernel-v2 if profiling demands.
+
+**Status:** OPEN. NOT signed off.
+
+**Code location:** `crates/kernel/src/boolean/cherchi/intersection_class.rs:106-160`.
+
+**Paper section:** Yang §4.2.1 (`yang2025:450-451`).
+
+**Paper requirement:** "We use an **octree** to detect triangles that are closer than `2·d_ε`."
+
+**Current implementation:** O(n²) pairwise loop over all triangle pairs with AABB culling per pair. Comment at line 107 acknowledges this: "Simple O(n²) broad phase with AABB culling + Gauss map filtering. For production, replace with BVH/octree."
+
+**Deviation magnitude:** Structural for scale; functional behavior is correct for small inputs.
+
+#### D13 — Gauss-map check uses triangle-normal dot product, not Theorem 4.1 cones
+
+**State:** HISTORICAL — cites legacy `crates/kernel/` (DELETED 2026-06-11); moot within the analytic-primitive scope; revisit together with D14/NURBS.
+
+**Status:** OPEN. NOT signed off.
+
+**Code location:** `crates/kernel/src/boolean/cherchi/intersection_class.rs:117-149`.
+
+**Paper section:** Yang §4.2.2 Theorem 4.1 (`yang2025:457-480`).
+
+**Paper requirement:** Construct circular cone C₃ around a₃ = (a₁ × a₂) / |a₁ × a₂| where a₁, a₂ are from the Bézier control net. The cone bounds the normal-vector field of the entire patch.
+
+**Current implementation:** Per-triangle normal cross product + dot-product check. Valid for flat triangles; not the cone-construction Theorem 4.1 prescribes.
+
+**Deviation magnitude:** Scope (Bézier-specific algorithm). Becomes a structural deviation when D14 (NURBS support) is closed.
+
+---
+
+## HISTORICAL — investigation journal (diagnoses, refutations, superseded mechanisms)
+
+Work-history records retained for their measurements and lessons. None is a standing divergence. New diagnosis/refutation write-ups should go to session memory or a spec's history section — add a ledger entry only when a standing divergence (OPEN or PERMANENT) is created or changed.
+
 ### N48 — Render-collapse twins (R0012/R0098) are GENUINE, sidecar-certified: root-caused to Stage-0 overlay near-coincident sweep-event columns (task #166, DIAGNOSIS)
+
+**State:** HISTORICAL — DIAGNOSIS (task #166). Root-cause analysis retained; the fix path it scoped was refuted by N49/N54, and the twin cases were ultimately recovered compliantly by N56 §4.3 dedup. No standing divergence.
 
 **Status:** ROOT-CAUSED (task #166). Diagnostic tool
 `crates/cherchi-rs/tests/twin_diag_r0012.rs`. No production change this
@@ -2983,6 +3222,8 @@ clarification; the production fix lands as its own certified increment.
 ---
 
 ### N49 — Refutation of N48's scoped fix: input-column snap breaks boundary-shared seams; the event-column merge must be interior-only (task #166)
+
+**State:** HISTORICAL — REFUTATION (task #166, P10). Corrected N48's scoped fix; superseded by N50, then by N53/N56. No standing divergence.
 
 **Status:** DIAGNOSIS REFINED (task #166). N48's *root cause* stands
 (sidecar-certified: near-coincident Stage-0 overlay sweep-event columns mint the
@@ -3092,6 +3333,8 @@ F0063/F0090/R0014/R0088 −4), 0 SUPPORTED_WRONG.
 
 ### N50 — f32-render-twin weld before topology emission (Stage 5/6; the shipped fix for R0012/R0098, task #166)
 
+**State:** HISTORICAL — SUPERSEDED — the shipped f32-render-twin weld was retired from production by N53 and confirmed as the sole real hack by N56 (its cases recover via §4.3 dedup; it regresses C0036). Mechanism remains dev-gated behind `YANG_WELD_ENABLE=f32`.
+
 **Status:** SHIPPED. Implements the "corrected scope" N49 arrived at, in the
 layer N49 prescribed (3D, output magnitude, f32-render floor, non-chaining).
 Spec `specs/yang_n50_f32_render_twin_weld.md`.
@@ -3157,6 +3400,8 @@ safety oracles (P3/FIP Phase 4); assay + Stage-0 watertightness as
 implementation-blind checks (I4); this entry (P2 Yang-increment clarification).
 
 ### N52 — Re-scoping the Stage-4 "LRR cluster": it is a heterogeneous hard tail, NOT one relocation-region class waiting on the §4.4.1/§4.5.2 mesh-update (diagnosis, task #167)
+
+**State:** HISTORICAL — DIAGNOSIS/RE-SCOPE (task #167). The "LRR cluster" is a heterogeneous tail; routing recorded here feeds the #169 triage. No standing divergence.
 
 **Status:** DIAGNOSIS + reusable probe (no fix — no case is a clean single-session
 increment). Corrects the framing carried by this file's N2 note
@@ -3253,6 +3498,8 @@ future audit" discipline); the honest increment is this re-scoping + the probe.
 
 ### #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION near the grazing loop (probe `YANG_TORUS_PROBE`)
 
+**State:** HISTORICAL — DIAGNOSIS (task #137). Self-correcting investigation record; superseded by the follow-up below.
+
 **Self-correction.** An earlier same-day note here claimed C0065/R0074 were "a
 MISSING torus∩plane degree-4 SSI solver" (commit c23bebbd). **That was wrong**
 (P10 — abort the wrong diagnosis and report what was learned). Deeper tracing
@@ -3306,6 +3553,8 @@ off) prints each torus-vertex relocation move vs the displacement gate vs d_ε.
 
 #### #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong (`SUPPORTED_WRONG`). The real blocker is exact grazing-corner junction assembly.
 
+**State:** HISTORICAL — DIAGNOSIS (task #137). Establishes that resolution alone flips loud STOP → silent-wrong; the standing work item is the #137 grazing-corner epic (spec `specs/yang_137_torus_plane_grazing_corner.md`), tracked in the roadmap, not a paper deviation.
+
 The note above concludes "the remaining #137 work is REFINEMENT." **A controlled
 resolution sweep on C0065 refutes the "just refine" reading** — refining the torus
 alone makes the case *worse*, not correct. Method: temporarily force a global rim
@@ -3358,6 +3607,8 @@ resolution-independent grazing guard now would be speculative P9 infra, cf. N52)
 
 ### N53 — Retire the four non-compliant tolerance welds (Yang-paper-compliance north star, #169 / #170)
 
+**State:** HISTORICAL — CORRECTED by N55/N56 — the "four non-compliant welds" premise was largely wrong (3 of 4 are genuine paper operations, reinstated with corrected criteria). Standing residue: `f32` stays retired (recorded in N56). Retained as the record of the compliance-ratchet arc.
+
 **Deviation being REMOVED, not added.** Four downstream vertex welds had
 accumulated to green individual corpus cases; each violates the exact-arrangement
 premise (Cherchi B6, "never a tolerance weld") and masks an upstream
@@ -3406,6 +3657,8 @@ tolerance): the Stage-0 exact interner, `Frame::snap`, `merge_same_plane_patches
 
 ### N54 — Stage-0 event-column canonicalization is REFUTED at the overlay level (the N53 "compliant replacement" for `f32`/`coincident`/`subres` does not work as specced, #170)
 
+**State:** HISTORICAL — REFUTATION (task #170, P10). Overlay corner-move tears the bit-exact Stage-0 seam; #170 as specced is dead, and N56 made its target (render twins) MOOT. Retained for the corrected-scope options should the twin-mint class resurface.
+
 **A refutation, not a shipped mechanism.** N53's headline compliant replacement
 for three retired welds was "Stage-0 exact event-column merge" — canonicalize
 the near-coincident sweep columns that mint the render-collapse twins (N48
@@ -3453,69 +3706,57 @@ stays `#[ignore]`d with the N54 reason. The N53 climb-back plan is amended: the
 or (b)-shaped fix is specced and de-risked; the `subfeature` weld's replacement
 (wire §4.4.1, #169 Phase B) is unaffected and is now the next compliant lever.
 
-### N55 — the `subfeature` weld was Yang §4.4.1(b) all along; retighten its criterion → COMPLIANT always-on merge (recovers R0055/F0056/F0057/F0059; 228C→232C; #169 Phase B)
+---
 
-**A retired weld reinstated compliantly, not a new hack.** #169 Phase B set out
-to "wire §4.4.1 mesh-update" as the `subfeature` weld's compliant replacement.
-Two findings from grounding it (assay A/B + `YANG_S44B_MEASURE` probe) redirected
-the increment:
+### Legacy ↔ new-crate cross-reference
 
-1. **The §4.4.1 re-CDT path greens nothing.** The re-CDT primitives
-   (`replan_degenerate_cylinder_patches`, `remesh_nonmanifold_patches`) are
-   empirically 0-conversion corpus-wide (child spec §5c.10: R0038→#137 tangency;
-   epic §8e: the non-manifold bucket is near-duplicate/off-plane junction verts,
-   →#146). So "wiring the re-CDT" recovers no case. The `subfeature` cases and the
-   re-CDT cases are **disjoint** populations.
-2. **The `subfeature` merge IS Yang §4.4.1(b).** Fig-11(b) is literally "if a
-   split-edge endpoint p is too close to q, merge p with q." The weld collapses
-   relocated-triangle vertices — a §4.4.1(b) merge. Measuring the 5 cases it
-   greens (`YANG_S44B_MEASURE`): **4 merge points that are identical to f64
-   precision** — R0055 (gap ~5e-15 @ scale 58), F0056/F0057/F0059 (gap ~1e-16 @
-   scale ~0.25). Those are **exact-dedup merges, which the compliance ratchet
-   explicitly KEEPS.** Only **R0072** collapses a genuine sub-feature edge — gap
-   ~1e-7 at micro-scale (~2e-4 span) = 0.4 % of the model, the R0091 silent-wrong
-   hazard N53 rightly objected to.
+The legacy **D1–D14** entries scope to `crates/kernel/` and do **not** imply
+new-crate coverage. Map (legacy → new-crate analog):
 
-**The fix — a scale-relative same-point criterion.** N53's objection was the
-*absolute* `MIN_FEATURE_SIZE` floor (which merged both the exact-dedup twins AND
-R0072's real edge). Retightening the criterion to the scale-relative working
-tolerance `TAU_WORK·(1+scale)` (`is_relocation_coincidence`, 5 orders below
-`MIN_FEATURE_SIZE`) separates them exactly: it merges only numerically-identical
-pairs and REFUSES R0072's ~1e-7 collapse. The merge is then a compliant,
-paper-faithful §4.4.1(b) step, made **always-on** (no longer gated behind
-`weld_enabled("subfeature")`; the tag is now inert). The `MIN_FEATURE_SIZE` floor
-remains only as the degeneracy *detector* (which triangles are merge candidates),
-not the same-point decision.
+| Legacy (kernel) | New-crate (yang-rs) |
+|---|---|
+| D1 (CDT in §4.4.1) | **N2** (Stage-4 remesh absent) |
+| D3 (§4.5.4 self-intersection) | **N6** |
+| D4 (§4.5.2 localized refinement) | loud `LocalRefinementRequired` STOP (pr-yr10b) |
+| D9 / D10 (§4.1.2 CDT / d_ε density) | **N5** |
+| D13 / D14 (Gauss-map / NURBS scope) | loud `CurvedSurfaceNotYetSupported` (Sphere/Cone) |
 
-**Measured (full release assay):** `228C → 232C`, **0 WRONG**, **0 CORRECT
-regressions** (per-case diff vs the committed baseline: exactly R0055/F0056/F0057/
-F0059 flip ERROR→CORRECT). R0072 correctly stays a loud STOP (its collapse is a
-resolution-band decision → routes to the curved-band re-CDT, child spec §5c;
-still blocked). Oracles: `tests_unit/n55_s44b_coincidence.rs` pin the
-discriminant (machine-ε twins merge at any scale; the R0072 micro-scale edge is
-refused; the band is exactly `TAU_WORK·(1+scale)`). All 326 yang-rs lib tests
-green.
+---
 
-**Compliance-ledger effect.** `subfeature` leaves the weld set: three welds
-remain gated (`f32`, `coincident`, `subres`), all masking the same Stage-0
-near-coincident-minting root whose overlay-level fix was refuted (N54). The
-honest compliant baseline is now **232C / 0W**. This is the first case-recovering
-compliant advance of the climb-back — and it works precisely because §4.4.1(b)
-merge of exact duplicates is a *paper operation*, not a tolerance weld. The N53
-audit had mis-bucketed it; N55 corrects that with the criterion the paper implies.
+---
 
-### N56 — `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the sole real hack (redundant + regresses C0036) — the N53 audit substantially over-retired (#169)
+## Remediation priority (OPEN set)
 
-**The correct audit test is "is it in the Yang paper?", not "does it use a tolerance."** N55 showed `subfeature` was §4.4.1(b) mis-classified as a hack. Applying the same lens to the other three retired welds (paper cross-check + per-case assay + `YANG_DOUBLECOVER_PROBE` magnitudes) shows N53 over-retired: two of the remaining three are also paper operations.
+1. **N2** — §4.4.1 mesh-updating + §4.5.2 local refinement (epic #169). Case-first: wire machinery only against a confirmed-diagnosis customer (#137 grazing corner is the first validated one; the non-2-manifold bucket was refuted as a re-CDT target — see the journal).
+2. **N6** — §4.5.4 illegal-self-intersection detection/removal (roadmap M8 milestone; currently loud-gated by `check_watertight_2manifold`).
 
-**Yang §4.3 (`refs/text/yang2025_hybrid_boolean.txt:535`):** *"During optimization, we remove a point if it is too close to another point on the same loop."* This is a first-class paper operation — collapsing redundant intersection-curve points. Two of the retired welds ARE this:
+Capability milestones (not deviations) are ordered in `docs/yang_functional_roadmap.md`: M8 coplanar residue (#130), M5 degree-4 SSI, KV6 revolve tail, #137 epic. The pre-rewrite D-series priority list is obsolete (archived above).
 
-- **`coincident`** (`weld_coincident_relocated`, N47): merges two `moved` (relocated-onto-the-analytic-curve) verts within `TAU_MODEL·(1+scale)` — both on the curve, so a faithful §4.3 redundant-point removal. Already scale-relative. Measured **0-conversion** on the corpus (preventive near-tangency infra for #137) but genuine Yang. → **reinstated always-on** (un-gated).
-- **`subres`** (`collapse_subresolution_intersection_segments`): collapses an intersection-curve SEGMENT (both endpoints on the curve) below the model-coincidence resolution — §4.3 again. Its criterion was the **absolute** `TAU_MODEL²` floor N53 flagged; retightened to scale-relative `TAU_MODEL·(1+scale)` (the N55 pattern; `YANG_DOUBLECOVER_PROBE` shows its collapses are ~1e-8…1e-7, genuinely sub-resolution, R0088 at ~1e-13). → **reinstated always-on** (un-gated).
-- **`f32`** (`weld_f32_render_twins`, N50): keys on **f32 render precision** (a downstream kernel-v2 tessellation-gate identity), which is NOT a geometric same-point test and appears nowhere in the paper. Two verts can be f32-identical yet geometrically 1e-6 apart. Enabling it **regresses C0036** (its blind bit-collapse destroys the exact 3-plane corner that `subres`'s plane-incidence-richer survivor rule preserves). → **stays retired** — the sole confirmed hack. It is now also **redundant**: everything it greened is recovered by the paper operations below.
+---
 
-**Measured (full release assay, both reinstated together):** `232C → 240C`, **0 WRONG**, **0 CORRECT regressions** (per-case diff vs the committed baseline: exactly R0012, R0098, R0076, R0088, F0078, F0079, F0084, F0090 flip ERROR→CORRECT — 8 cases). `subres` alone accounts for R0076/R0088/F0078/F0079/F0084; the render-collapse cases **R0012/R0098/F0090** — which N48/N54 diagnosed as needing a Stage-0 upstream fix — are recovered by the COMBINED §4.3 dedup (`coincident`+`subres`) with no `f32`. R0012 and R0098 were re-confirmed individually as `SUPPORTED_CORRECT` / "all checks passed" (volume/bbox/χ, not just watertightness) — so these are metrically correct, not the χ=−4 false-green N48 feared from the *blind* weld. The geometric §4.3 dedup is the right tool; `f32`'s blind collapse was the wrong one.
+## How to add a new deviation entry
 
-**The big correction.** Of the 13 cases N53 retired as "false greens via non-compliant welds," **12 recover compliantly** — 4 via §4.4.1(b) (N55) and 8 via §4.3 (N56) — all genuine Yang paper operations. Only **R0072** stays a loud STOP (a real ~1e-7 micro-scale collapse → curved re-CDT, child spec §5c). So the corpus returns to **240C** (vs the pre-retirement 241C; the 1-case gap is R0072, correctly not force-merged). The N53 premise — "these 13 are tolerance hacks masking upstream defects" — was largely wrong: they were paper operations (§4.4.1(b) merge, §4.3 curve-point dedup) applied with occasionally-imperfect criteria. The compliance ratchet still holds — nothing silently wrong, `f32` (the one real hack) stays out — but the lesson is that **"uses a tolerance" ≠ "is a hack"; the paper prescribes tolerance-gated merges, and those are desired.**
+When you discover a divergence during work:
 
-**Effect on N54/#170.** The render-collapse cases R0012/R0098/F0090 that #170's Stage-0 event-column canonicalization was chasing are now recovered by §4.3 dedup at Stage 4/5 — the paper's own mechanism for near-coincident mesh-boolean output. The Stage-0 minting is expected geometry (N48 sidecar-certified the C++ reference mints the same near-coincident points), and §4.3 dedup — not an upstream Stage-0 change — is the paper-faithful response. #170's overlay-canonicalization approach is therefore **moot for these cases**. `f32` remains gated behind `YANG_WELD_ENABLE` purely as a historical A/B artifact; it is redundant and harmful and could be deleted.
+1. Add an entry with: code location, paper section, current behavior, paper prescription, architectural consequence, remediation options — and a `**State:**` line (OPEN with tracked remediation, or PERMANENT-proposed pending user sign-off).
+2. Cite paper line numbers from `refs/text/*.txt`.
+3. Update the Status index table and the OPEN count.
+4. Flag it at the TOP of your next message to the user; halt the affected investigation (the deviation IS the bug).
+5. Diagnoses/refutations that create no standing divergence go to session memory, not this ledger (see the journal section note).
+
+## How to sign off on a deviation (user)
+
+Append to the entry:
+
+```
+**Sign-off:** approved by <name>, <date>, rationale: <text>. Tracking issue / future remediation: <link or note>.
+```
+
+and set `**State:** PERMANENT`. Only the user signs; agent-proposed permanence stays `PENDING` in the batch section until ratified. (A standing P5 solo-operator delegation for shipped-fix deviations is proposed in batch B above — if ratified, this section gains that convention explicitly.)
+
+## How to mark a deviation resolved
+
+1. Set `**State:** RESOLVED (<date>, commit <sha>)` and move the entry to the RESOLVED section.
+2. Update the Status index row and decrement the OPEN count.
+3. Un-quarantine any tests gated on it in the same PR.
+
