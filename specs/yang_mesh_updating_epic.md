@@ -308,6 +308,52 @@ partitions the bucket sharply:
 3. Every firing region so far has charts for all its patches (Plane/Cylinder), so
    the projection layer covers them.
 
+### 8c. F0082 root cause → Phase-B RE-SCOPE (2026-07-16, local-topology dump)
+
+Dumping the incident triangles of F0082's firing regions (enriched
+`YANG_MESHUP_REGION` probe) shows the non-manifoldness is **NOT a two-sided
+seam-subdivision mismatch** — it is a **spurious overlapping triangle inside ONE
+planar patch**:
+
+- Region 1 (face 306): `tri1217 [588,601,610]` and `tri1216 [588,609,610]` are
+  BOTH incident to seam edge `{588,610}` in the SAME direction (`610→588`), so
+  face 306 covers that seam edge TWICE (while face 302 covers `588→610` once).
+  `tri1217` is a redundant sliver dangling out to junction vertex 601 (which is
+  shared by faces 297/303/306, not by 302). One overlapping triangle within the
+  patch → three imbalanced edges.
+- Region 2 (face 29): identical shape — `tri156 [101,95,99]` overlaps within
+  face 29, doubling edge `{95,99}`.
+
+**Consequence — the Phase-B splice is a ONE-SIDED keep-boundary re-CDT, not the
+two-sided curve-insertion driver.** The fix for a spurious-in-patch-triangle case
+is to re-triangulate the offending patch's INTERIOR while keeping its boundary
+(incl. shared seam verts) VERBATIM — which drops the overlap. This:
+- is exactly what `replan_degenerate_cylinder_patches` +
+  `cdt_polygon_with_holes_keep_interior` already do (generalize from
+  degenerate-cylinder-caps to any charted planar/cyl patch, triggered by the
+  detector instead of by degenerate caps);
+- is **inherently two-sided-conformal** (the shared seam verts never move, so the
+  neighbour still agrees — the #168 §5c.8 wall is avoided *because* we keep the
+  boundary verbatim rather than reconstructing the seam chain);
+- is **P10-safe**: keep-interior re-CDT moves NO geometry, so the worst case is a
+  loud STOP, never a silent-wrong (the property `replan` already proved
+  corpus-wide).
+
+The **two-sided curve-insertion driver** (`two_sided_conformal_update_lifted`) +
+`SurfaceChart` are therefore reserved for **Phase C/D** — where a relocated /
+newly-refined curve is genuinely inserted into a curved patch pair (grazing /
+near-tangency / #137 corner), which IS a two-sided insert. They are correct and
+tested; they were just aimed at the wrong sub-problem for the Phase-B bucket.
+
+**Revised Phase-B splice plan:** (1) detector supplies the region + patch keys;
+(2) for each involved patch with a chart, extract its boundary loop from the flat
+mesh (edges used once within the patch's own tri set, plus the cross-attribution
+seam — the `replan` §5c.7 pattern), project into the chart, re-CDT the interior
+keeping the boundary verbatim; (3) rewrite the patch's triangles in the mesh; (4)
+gate `YANG_MESHUP_ENABLE` off → byte-identical; (5) target F0082 first (two clean
+planar patches), then R0095's pairwise regions; 3-patch junctions (C0044) and the
+downstream-failing cases stay out.
+
 **Read:** ~15 cases route to Phase B (8 reassembly + 4 render-CDT + 3 re-entry-CDT),
 ~4 to Phase C/D (grazing), 5 eject (2 → #146, 1 → §4.5.3, 2 → M5). The Phase-B
 reassembly bucket is the largest single lever and the ★★ hypothesis (post-relocation

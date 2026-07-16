@@ -4451,6 +4451,24 @@ pub(crate) fn stage4_relocate_and_correct(
                     crate::stage4_project::SurfaceChart::new(surf).is_some()
                 );
             }
+            // Local topology dump: for each region vertex, its coords + every
+            // incident triangle (verts + attribution) — reveals whether the
+            // mismatch is a shared-seam subdivision, a T-junction, or a floating
+            // triangle, so the mesh-update operation can be chosen correctly.
+            let rverts: std::collections::BTreeSet<u32> =
+                r.edges.iter().flat_map(|&(s, e)| [s, e]).collect();
+            for &v in &rverts {
+                eprintln!("  v{v} = {:?}", mesh.verts[v as usize]);
+            }
+            for ti in 0..mesh.tris.len() {
+                let t = mesh.tris[ti];
+                if t.iter().any(|v| rverts.contains(v)) {
+                    let k = attribution
+                        .lookup(ti as u32)
+                        .map(|at| (matches!(at.input, InputId::A), at.face));
+                    eprintln!("  tri{ti} {t:?} attr={k:?}");
+                }
+            }
         }
     }
     // (4b) Explicit Stage-4 watertightness gate (§4.4.3).
