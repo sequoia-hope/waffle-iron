@@ -115,6 +115,23 @@ pub fn stage4_mesh_update(
     polyline: &Polyline,
     opts: MeshUpdateOpts,
 ) -> Result<PatchUpdate, MeshUpdateError> {
+    stage4_mesh_update_traced(patch, polyline, opts).map(|(u, _)| u)
+}
+
+/// As [`stage4_mesh_update`], but also returns the **seam-vertex chain**
+/// `poly_vidx`: `poly_vidx[i]` is the output-vertex index (into `PatchUpdate::
+/// verts`) that realizes `polyline.points[i]`. Exactly one entry per polyline
+/// point, in input order — never dropped, never duplicated.
+///
+/// This trace is the identity handle the Phase-A two-sided driver
+/// ([`two_sided_conformal_update`]) uses to pair the two operands' patches along
+/// their shared intersection curve. `stage4_mesh_update` delegates here and
+/// drops the trace, so the two are byte-identical on the `PatchUpdate`.
+pub fn stage4_mesh_update_traced(
+    patch: &Patch,
+    polyline: &Polyline,
+    opts: MeshUpdateOpts,
+) -> Result<(PatchUpdate, Vec<u32>), MeshUpdateError> {
     // ---- 1. Validate tolerances + polyline (spec §6). -------------------
     if opts.merge_tol <= 0.0 || opts.merge_tol >= opts.d_eps {
         return Err(MeshUpdateError::MergeTolTooLarge);
@@ -267,7 +284,114 @@ pub fn stage4_mesh_update(
             other => MeshUpdateError::CdtFailed(other),
         })?;
 
-    Ok(PatchUpdate { verts, tris })
+    Ok((PatchUpdate { verts, tris }, poly_vidx))
+}
+
+// ===========================================================================
+// #169 Phase A — two-sided conformal patch re-triangulation (THE LINCHPIN).
+//
+// Spec `specs/yang_mesh_updating_epic.md` §3/§5-Phase-A. When an intersection
+// curve is re-inserted into the two ADJACENT trimmed patches (one per operand,
+// A and B), the reassembled mesh is 2-manifold ONLY IF the two sides realize
+// the SAME ordered seam-vertex chain — same count, same positions — along the
+// curve. Reconstructing the curve independently per side diverges (the #168
+// §5c.8 `(14,21)` fwd=1/rev=0 wall and #137 part-b).
+//
+// The validated principle (tests `two_patches_sharing_one_curve_get_conformal_
+// seam` / `independent_seam_reconstruction_diverges`): drive BOTH patches from
+// ONE shared curve-vertex identity set and re-triangulate each INTERIOR only.
+// The seam then comes out identical even when the interiors differ. So this
+// driver is PLUMBING over [`stage4_mesh_update_traced`], not a new algorithm.
+//
+// UNWIRED (like #137 N-137.1 `torus_plane_clip_junction` and #168
+// `replan_degenerate_cylinder_patches`): Phase B wires it into the forward pass
+// behind `YANG_MESHUP_ENABLE`. This increment de-risks it on fixtures.
+// ===========================================================================
+
+/// The result of a two-sided conformal update (Phase A): both operands' patches
+/// re-triangulated against ONE shared intersection curve, plus the seam pairing
+/// that makes the reassembled mesh manifold.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TwoSidedUpdate {
+    /// Operand A's re-triangulated patch.
+    pub a: PatchUpdate,
+    /// Operand B's re-triangulated patch.
+    pub b: PatchUpdate,
+    /// `seam[i] = (va, vb)`: the shared curve's point `i` is realized by vertex
+    /// `va` in `a.verts` and vertex `vb` in `b.verts`. Reassembly stitches `va`
+    /// to `vb`. Exactly one pair per shared-curve point, in curve order.
+    pub seam: Vec<(u32, u32)>,
+}
+
+/// Why a two-sided update failed (spec §7 P9/P10 — every variant is a LOUD stop;
+/// we NEVER emit a silently non-conformal seam).
+#[derive(Debug, Clone, PartialEq)]
+pub enum TwoSidedError {
+    /// Operand A's patch update failed.
+    SideA(MeshUpdateError),
+    /// Operand B's patch update failed.
+    SideB(MeshUpdateError),
+    /// The two sides realized shared curve point `point` at positions farther
+    /// apart than `conformal_tol` — the non-manifold wall. A merge on one side
+    /// snapped the seam vertex to a boundary vertex the other side does not
+    /// share. This is the #168 §5c.8 divergence, caught loudly instead of
+    /// producing an unpaired half-edge downstream.
+    NonConformalSeam { point: usize, gap: f64 },
+}
+
+/// Re-triangulate the two adjacent trimmed patches `patch_a` (operand A) and
+/// `patch_b` (operand B) so their shared intersection curve `shared_curve`
+/// becomes a conformal seam — the Phase-A linchpin of the mesh-updating epic.
+///
+/// Both patches and `shared_curve` are expressed in ONE common 2D frame (the
+/// de-risk fixture contract; Phase B supplies the per-operand parametric
+/// projections that map the 3D curve into each patch's own domain, then calls
+/// this). Because both sides consume the SAME ordered curve points, their seam
+/// chains are combinatorially identical by construction (point `i` ↔ point
+/// `i+1` on both). The driver then VERIFIES they are geometrically conformal
+/// (positions agree within `conformal_tol`) and returns the seam pairing; a
+/// divergence is a loud [`TwoSidedError::NonConformalSeam`], never a silent
+/// non-manifold output.
+///
+/// `conformal_tol` must be tight (≤ `merge_tol`): interior curve points land at
+/// the exact shared position on both sides, and a boundary merge is conformal
+/// only when both sides snap to the SAME shared boundary vertex.
+///
+/// Pure and deterministic (delegates to [`stage4_mesh_update_traced`]).
+pub fn two_sided_conformal_update(
+    patch_a: &Patch,
+    patch_b: &Patch,
+    shared_curve: &Polyline,
+    opts: MeshUpdateOpts,
+    conformal_tol: f64,
+) -> Result<TwoSidedUpdate, TwoSidedError> {
+    let (a, va) =
+        stage4_mesh_update_traced(patch_a, shared_curve, opts).map_err(TwoSidedError::SideA)?;
+    let (b, vb) =
+        stage4_mesh_update_traced(patch_b, shared_curve, opts).map_err(TwoSidedError::SideB)?;
+
+    // Both traces have exactly one entry per shared-curve point, in curve order
+    // (the primitive never drops or duplicates), so the chains are the same
+    // length by construction. debug_assert pins that invariant.
+    debug_assert_eq!(va.len(), vb.len(), "seam traces must be equal length");
+    debug_assert_eq!(va.len(), shared_curve.points.len());
+
+    let tol2 = conformal_tol * conformal_tol;
+    let mut seam = Vec::with_capacity(va.len());
+    for (i, (&ia, &ib)) in va.iter().zip(vb.iter()).enumerate() {
+        let pa = a.verts[ia as usize];
+        let pb = b.verts[ib as usize];
+        let gap2 = dist2(pa, pb);
+        if gap2 > tol2 {
+            return Err(TwoSidedError::NonConformalSeam {
+                point: i,
+                gap: gap2.sqrt(),
+            });
+        }
+        seam.push((ia, ib));
+    }
+
+    Ok(TwoSidedUpdate { a, b, seam })
 }
 
 // ---------------------------------------------------------------------------
@@ -1234,5 +1358,158 @@ mod tests {
             seam_positions(&b, &curve_b, 1e-9),
             "independent per-side curve reconstruction must be detected as divergent"
         );
+    }
+
+    // ==== #169 Phase A — the two-sided conformal driver ======================
+    //
+    // These exercise `two_sided_conformal_update` directly: the plumbing that
+    // drives both operands' patches from ONE shared curve and returns the seam
+    // pairing, or a LOUD stop when the two sides diverge.
+
+    /// The traced primitive returns one seam-vertex per polyline point, in order,
+    /// and the dropped-trace wrapper is byte-identical to `stage4_mesh_update`.
+    #[test]
+    fn traced_update_matches_wrapper_and_traces_every_point() {
+        let patch = unit_square();
+        let poly = Polyline {
+            points: vec![
+                Point2::new(0.0, 0.5),
+                Point2::new(0.5, 0.6),
+                Point2::new(1.0, 0.5),
+            ],
+            closed: false,
+        };
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-4,
+            d_eps: 1e-2,
+        };
+        let (u, vidx) = stage4_mesh_update_traced(&patch, &poly, opts).unwrap();
+        // Wrapper drops the trace but is otherwise identical.
+        assert_eq!(stage4_mesh_update(&patch, &poly, opts).unwrap(), u);
+        // One trace entry per polyline point, in order, each at that point's pos.
+        assert_eq!(vidx.len(), poly.points.len());
+        for (i, &v) in vidx.iter().enumerate() {
+            assert!(
+                dist2(u.verts[v as usize], poly.points[i]) < 1e-18,
+                "trace {i} must sit on its polyline point"
+            );
+        }
+    }
+
+    /// GREEN — two genuinely different patches (A plain, B with extra boundary
+    /// density + interior vertex) sharing ONE chord produce a CONFORMAL seam:
+    /// every paired seam vertex coincides across the two sides, and each seam
+    /// edge is present on BOTH — the reassembled mesh is manifold.
+    #[test]
+    fn two_sided_driver_produces_conformal_seam() {
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-3,
+            d_eps: 1e-2,
+        };
+        let shared = Polyline {
+            points: vec![Point2::new(0.0, 0.5), Point2::new(1.0, 0.5)],
+            closed: false,
+        };
+        // Side B: same outline, different interior triangulation seed.
+        let mut pb = unit_square();
+        pb.verts.push(Point2::new(0.5, 1.0)); // extra top-edge boundary vertex
+        pb.verts.push(Point2::new(0.5, 0.75)); // free interior vertex
+        pb.boundary = vec![0, 1, 2, 4, 3];
+
+        let ts = two_sided_conformal_update(&unit_square(), &pb, &shared, opts, 1e-9).unwrap();
+
+        // One seam pair per shared-curve point.
+        assert_eq!(ts.seam.len(), shared.points.len());
+        // Each paired seam vertex is at an IDENTICAL position on both sides.
+        for &(ia, ib) in &ts.seam {
+            assert!(
+                dist2(ts.a.verts[ia as usize], ts.b.verts[ib as usize]) < 1e-18,
+                "paired seam verts must coincide"
+            );
+        }
+        // Each consecutive seam edge is realized on BOTH sides (combinatorially
+        // identical chain → paired half-edges → manifold reassembly).
+        for w in ts.seam.windows(2) {
+            let (a0, a1) = (w[0].0, w[1].0);
+            let (b0, b1) = (w[0].1, w[1].1);
+            assert!(edge_present(&ts.a, a0, a1), "seam edge missing on A");
+            assert!(edge_present(&ts.b, b0, b1), "seam edge missing on B");
+        }
+        assert!(no_flips(&ts.a) && no_flips(&ts.b));
+        assert!((total_area(&ts.a).abs() - 1.0).abs() < 1e-9);
+        assert!((total_area(&ts.b).abs() - 1.0).abs() < 1e-9);
+    }
+
+    /// LOUD — the #168 §5c.8 divergence, caught. Side A has a boundary vertex at
+    /// (0, 0.5+5e-4); the shared curve's left endpoint (0, 0.5) MERGES onto it
+    /// (within merge_tol=1e-3), snapping A's seam vertex to (0, 0.5+5e-4). Side B
+    /// (plain square) splits its left edge at exactly (0, 0.5). The two seams
+    /// then disagree by 5e-4 > conformal_tol → a loud NonConformalSeam, never a
+    /// silent unpaired half-edge.
+    #[test]
+    fn two_sided_driver_stops_on_divergent_seam() {
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-3,
+            d_eps: 1e-2,
+        };
+        let shared = Polyline {
+            points: vec![Point2::new(0.0, 0.5), Point2::new(1.0, 0.5)],
+            closed: false,
+        };
+        // Side A: an extra left-edge boundary vertex just off the curve endpoint.
+        let mut pa = unit_square();
+        pa.verts.push(Point2::new(0.0, 0.5 + 5e-4)); // idx 4
+        pa.boundary = vec![0, 1, 2, 3, 4]; // ...,(0,1),(0,0.5+5e-4) up the left edge
+
+        let err = two_sided_conformal_update(&pa, &unit_square(), &shared, opts, 1e-6).unwrap_err();
+        match err {
+            TwoSidedError::NonConformalSeam { point, gap } => {
+                assert_eq!(point, 0, "the left endpoint is the divergent one");
+                assert!(
+                    (gap - 5e-4).abs() < 1e-6,
+                    "gap must be the merge displacement, got {gap}"
+                );
+            }
+            other => panic!("expected NonConformalSeam, got {other:?}"),
+        }
+    }
+
+    /// A per-side update failure propagates as SideA / SideB, not a panic.
+    #[test]
+    fn two_sided_driver_propagates_side_errors() {
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-3,
+            d_eps: 1e-2,
+        };
+        // Curve point 1 is far off the patch → the first side evaluated (A)
+        // fails, propagated as SideA(PolylineOffPatch).
+        let shared = Polyline {
+            points: vec![Point2::new(0.5, 0.5), Point2::new(5.0, 5.0)],
+            closed: false,
+        };
+        let err = two_sided_conformal_update(&unit_square(), &unit_square(), &shared, opts, 1e-9)
+            .unwrap_err();
+        assert_eq!(
+            err,
+            TwoSidedError::SideA(MeshUpdateError::PolylineOffPatch { point: 1 })
+        );
+    }
+
+    /// Determinism: the driver returns bit-identical results across calls.
+    #[test]
+    fn two_sided_driver_deterministic() {
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-3,
+            d_eps: 1e-2,
+        };
+        let shared = Polyline {
+            points: vec![Point2::new(0.0, 0.5), Point2::new(1.0, 0.5)],
+            closed: false,
+        };
+        let x = two_sided_conformal_update(&unit_square(), &unit_square(), &shared, opts, 1e-9)
+            .unwrap();
+        let y = two_sided_conformal_update(&unit_square(), &unit_square(), &shared, opts, 1e-9)
+            .unwrap();
+        assert_eq!(x, y);
     }
 }

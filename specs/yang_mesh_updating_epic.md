@@ -63,6 +63,8 @@ keeps the B-Rep topology exactly aligned with the (watertight) mesh boolean.
 | keep-interior CDT with holes | `cherchi_rs::cdt_polygon_with_holes_keep_interior` | ✅ built |
 | per-patch degenerate re-CDT (#168) | `stage4_correct::replan_degenerate_cylinder_patches` | ⚠️ built, **gated off** `YANG_N2_RECDT_ENABLE`, blocked on two-sided conformality |
 | torus∩plane∩plane corner junction (#137 N-137.1) | `stage4_relocate::torus_plane_clip_junction` | ⚠️ built + tested, **UNWIRED** |
+| Phase-A two-sided conformal driver | `stage4_update::two_sided_conformal_update` | ⚠️ built + tested (5 fixtures), **UNWIRED** (Phase B wires behind `YANG_MESHUP_ENABLE`) |
+| seam-vertex trace (`poly_vidx`) exposure | `stage4_update::stage4_mesh_update_traced` | ✅ built (byte-identical refactor of the primitive) |
 
 **The current forward pass relocates vertices IN PLACE and skips §4.4.1** — it
 never re-triangulates the patch to make the relocated curve the boundary. That is
@@ -135,6 +137,21 @@ phase or ejects it to another track — no case is assumed without a probe.
   driver's job is plumbing (feed both patches the one shared curve + interior-only
   keep-CDT), NOT a new geometric algorithm. This is the key de-risk: the primitive
   already supports it.
+- **BUILT (2026-07-16, `stage4_update::two_sided_conformal_update`, UNWIRED):**
+  the Phase-A driver. It runs `stage4_mesh_update_traced` (a byte-identical
+  refactor of the primitive that also returns the per-point seam-vertex chain
+  `poly_vidx`) on both operands' patches against ONE shared curve, pairs the two
+  chains into a `seam: Vec<(va, vb)>`, and VERIFIES geometric conformality within
+  a tight `conformal_tol` — a divergence is a LOUD `TwoSidedError::NonConformalSeam`
+  (the #168 §5c.8 wall caught, never a silent unpaired half-edge). Fixtures pin:
+  (a) two genuinely different patches sharing a chord → identical paired seam
+  positions + seam edges present on both sides (manifold); (b) a merge that snaps
+  one side's endpoint to an un-shared boundary vertex → loud NonConformalSeam;
+  (c) per-side error propagation (SideA/SideB); (d) determinism. Both patches +
+  curve are in ONE common frame (the de-risk contract); **Phase B supplies the
+  per-operand parametric projection** that maps the 3D curve into each patch's
+  own (u,v) domain, then calls this. Gated behind `YANG_MESHUP_ENABLE` at wire
+  time; unwired now ⇒ production byte-identical.
 
 ### Phase B — Wire §4.4.1 mesh-update into the forward pass
 - Replace relocation-only with: relocate curve → Phase-A conformal re-triangulate
