@@ -178,3 +178,47 @@ phase or ejects it to another track — no case is assumed without a probe.
 - Keep the child specs (`yang_137_torus_plane_grazing_corner`,
   `yang_n2_stage4_cdt_mesh_updating`) as the detailed per-part designs; this doc
   is the sequencing + shared-foundation contract.
+
+## 8. Appendix — Phase 0 triage, first pass (2026-07-16)
+
+From the release assay failure detail + probes (`YANG_TORUS_PROBE`) + memory
+cross-refs. Confidence: ★★★ clear, ★★ likely, ★ needs a deeper probe before coding.
+
+| case | failure detail | route | conf |
+|---|---|---|---|
+| C0044 | reassembled non-2-manifold (union) | Phase B | ★★ |
+| C0058 | reassembled non-2-manifold (union) | Phase B | ★★ |
+| F0058 | reassembled non-2-manifold (subtract) | Phase B | ★★ |
+| F0060 | reassembled non-2-manifold (subtract) | Phase B | ★★ |
+| F0082 | reassembled non-2-manifold (×2 union) | Phase B | ★★ |
+| F0085 | reassembled non-2-manifold (union) | Phase B | ★★ |
+| R0049 | reassembled non-2-manifold (subtract) | Phase B | ★★ |
+| R0095 | reassembled non-2-manifold (subtract) | Phase B | ★★ |
+| F0045 | render CDT: ring rejected (FaceId 9) | Phase B (confirm yang-output face vs kv2-render) | ★ |
+| R0011 | render CDT: ring rejected (FaceId 407) | Phase B (boolean succeeds, OUTPUT face degenerate) | ★ |
+| R0016 | render CDT: ring rejected (FaceId 1885) | Phase B | ★ |
+| R0028 | render CDT: ring rejected (FaceId 32) | Phase B | ★ |
+| F0067 | re-entry CDT fail (face 272) + azimuth-merge rims 572≠571 | Phase B + rim-sampling sub-bug | ★★ |
+| R0085 | re-entry CDT fail (face 1) | Phase B (chained curved re-entry) | ★★ |
+| R0100 | holed-lateral re-entry CDT fail (face 4) | Phase B (chained holed re-entry) | ★★ |
+| C0065 | OffCurveBeyondChordBand (torus∩plane grazing) | Phase D (#137) | ★★★ |
+| R0074 | OffCurveBeyondChordBand (torus∩plane grazing) | Phase D (#137) | ★★★ |
+| R0038 | LRR u32::MAX (plane-tangent-cylinder) | Phase C/D (#168→#137) | ★★★ |
+| C0067 | LRR v128 (closed-torus + on-axis sphere; torus block did NOT fire) | **PROBE** — M5 sphere∩torus (eject) vs refinement | ★ |
+| R0077 | LRR v3 (torus∩plane; torus verts relocate to ~1e-13, STOP is a NON-torus-block site) | **PROBE** — Phase C or conic site | ★ |
+| **EJECT** | | | |
+| F0064 | non-2-manifold, but = #146 Newell off-plane class | → #146, not this epic | ★★ |
+| R0051 | non-2-manifold, but = #146 Newell off-plane class | → #146 | ★★ |
+| R0009 | InvalidBooleanOutput ellipse-endpoint | → §4.5.3 track (`yang_453_*`, R0009/R0091 `#[ignore]` RED) | ★★★ |
+| R0044 | LRR — torus∩torus degree-4 | → M5 SSI solver track | ★★★ |
+| R0096 | LRR — torus∩torus degree-4 | → M5 SSI solver track | ★★★ |
+
+**Read:** ~15 cases route to Phase B (8 reassembly + 4 render-CDT + 3 re-entry-CDT),
+~4 to Phase C/D (grazing), 5 eject (2 → #146, 1 → §4.5.3, 2 → M5). The Phase-B
+reassembly bucket is the largest single lever and the ★★ hypothesis (post-relocation
+non-manifoldness → §4.4.1 mesh-update fixes it) must be confirmed per-case as
+Phase B lands — a case that survives §4.4.1 and stays non-manifold is a different
+bug and re-triages out. Two ★ LRR cases (C0067, R0077) still need a routing probe
+before they are assigned. The render-CDT ★ cases (F0045/R0011/R0016/R0028) need one
+probe each to confirm the degenerate ring is a yang-emitted OUTPUT face (Phase B)
+rather than a kernel-v2 render-tessellation bug (out of yang scope).
