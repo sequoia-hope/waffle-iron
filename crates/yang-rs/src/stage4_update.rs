@@ -1134,4 +1134,105 @@ mod tests {
             Err(MeshUpdateError::PolylineOffPatch { point: 1 })
         );
     }
+
+    // ==== #169 Phase A — two-sided conformality principle ====================
+    //
+    // The mesh-update epic's linchpin (spec `yang_mesh_updating_epic.md` §3): when
+    // an intersection curve is re-inserted into the two ADJACENT patches (one per
+    // operand), the two sides must realize the SAME seam-vertex chain along the
+    // curve, or the reassembled mesh is non-manifold (the wall that stalled #168
+    // §5c.8 and #137 part-b). These tests pin the design principle at the primitive
+    // level: driving both patches from ONE shared curve keeps them conformal;
+    // reconstructing the curve independently per side diverges.
+
+    /// The seam positions a patch realizes for `poly` = the update vertices that
+    /// coincide (within `tol`) with a polyline point, as a sorted, rounded set.
+    fn seam_positions(u: &PatchUpdate, poly: &Polyline, tol: f64) -> Vec<(i64, i64)> {
+        let q = 1.0 / tol;
+        let key = |p: Point2| ((p.x() * q).round() as i64, (p.y() * q).round() as i64);
+        let mut s: Vec<(i64, i64)> = u
+            .verts
+            .iter()
+            .filter(|&&v| poly.points.iter().any(|&p| dist2(v, p) <= tol * tol))
+            .map(|&v| key(v))
+            .collect();
+        s.sort_unstable();
+        s.dedup();
+        s
+    }
+
+    /// GREEN: two GENUINELY DIFFERENT patches (a plain square vs. one with extra
+    /// boundary density + an interior vertex) that share the SAME intersection
+    /// chord both realize that chord as a connected edge at IDENTICAL positions —
+    /// the differing interiors do not perturb the seam. This is the property that,
+    /// applied to the two operands' patches, keeps the reassembled seam manifold.
+    #[test]
+    fn two_patches_sharing_one_curve_get_conformal_seam() {
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-3,
+            d_eps: 1e-2,
+        };
+        // The shared intersection curve (in the common parametric frame both
+        // patches are expressed in for this fixture): a horizontal chord y=0.5.
+        let shared = Polyline {
+            points: vec![Point2::new(0.0, 0.5), Point2::new(1.0, 0.5)],
+            closed: false,
+        };
+
+        // Patch A: plain unit square.
+        let a = stage4_mesh_update(&unit_square(), &shared, opts).unwrap();
+
+        // Patch B: same outline, but a DIFFERENT triangulation seed — extra
+        // boundary vertex on the top edge and a free interior vertex — so its
+        // interior mesh differs from A's.
+        let mut pb = unit_square();
+        pb.verts.push(Point2::new(0.5, 1.0)); // 4: extra top-edge boundary vertex
+        pb.verts.push(Point2::new(0.5, 0.75)); // 5: interior vertex
+        pb.boundary = vec![0, 1, 2, 4, 3];
+        let b = stage4_mesh_update(&pb, &shared, opts).unwrap();
+
+        // Both realize the chord as an edge, and the seam-vertex position SET is
+        // identical — the conformal-seam invariant.
+        assert_eq!(
+            seam_positions(&a, &shared, 1e-9),
+            seam_positions(&b, &shared, 1e-9),
+            "two patches sharing one curve must realize IDENTICAL seam positions"
+        );
+        assert!(no_flips(&a) && no_flips(&b));
+    }
+
+    /// The #168 failure mode, pinned: if the two sides reconstruct the curve
+    /// INDEPENDENTLY and disagree on its vertices (here B inserts an extra
+    /// collinear midpoint), the seam-vertex sets DIVERGE — the reassembled seam
+    /// would be non-manifold (A has edge p0–p1; B has p0–m, m–p1). This is why
+    /// Phase A must drive both patches from ONE shared curve-vertex identity set,
+    /// never per-side reconstruction.
+    #[test]
+    fn independent_seam_reconstruction_diverges() {
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-3,
+            d_eps: 1e-2,
+        };
+        let curve_a = Polyline {
+            points: vec![Point2::new(0.0, 0.5), Point2::new(1.0, 0.5)],
+            closed: false,
+        };
+        // Side B independently reconstructs the SAME geometric curve but with an
+        // extra collinear sample — the divergence #168 hit after per-patch work.
+        let curve_b = Polyline {
+            points: vec![
+                Point2::new(0.0, 0.5),
+                Point2::new(0.5, 0.5),
+                Point2::new(1.0, 0.5),
+            ],
+            closed: false,
+        };
+        let a = stage4_mesh_update(&unit_square(), &curve_a, opts).unwrap();
+        let b = stage4_mesh_update(&unit_square(), &curve_b, opts).unwrap();
+        assert_ne!(
+            seam_positions(&a, &curve_a, 1e-9),
+            seam_positions(&b, &curve_b, 1e-9),
+            "independent per-side curve reconstruction must be detected as divergent"
+        );
+    }
 }
