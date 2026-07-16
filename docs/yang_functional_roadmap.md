@@ -831,6 +831,20 @@ the roadmap's remaining work:
    output-loop wall is GONE (→ typed UNSUPPORTED curved re-entry); F0064 →
    face-normal/Newell disagreement wall; R0088 → render tessellation wall
    (FaceId 492). Trackers `dface_bigon_campaign.rs` 3/3 GREEN.
+   **UNIFYING EPIC (2026-07-16, task #169, plan
+   `specs/yang_mesh_updating_epic.md`):** this N2 thread + #137 (torus∩plane
+   grazing-corner assembly) + #168 (degenerate re-CDT) are ONE machinery — the
+   §4.4.1 mesh-update + §4.5.2 local-refinement LOOP. The built-but-unwired
+   primitives (`stage4_mesh_update`, `cdt_polygon_with_holes_keep_interior`,
+   `replan_degenerate_cylinder_patches` gated, `torus_plane_clip_junction`) all
+   stalled on the SAME wall: **two-sided conformality** (re-mesh one operand's
+   patch → the neighbour across the shared curve must get the identical vertex
+   chain, else non-manifold). The epic solves that ONCE (Phase A) then wires the
+   rest (Phase B §4.4.1 → C §4.5.2 → D #137 corner). This is now the DEFAULT
+   kernel priority over Stage-4 relocation-band tuning (data: ~45 of ~54 corpus
+   failures are structural, not tolerance — memory
+   `feedback_stop_band_tuning_build_mesh_updating`). Route M5 torus∩torus
+   (R0044/R0096) to the SSI track, NOT here.
 4. **N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2
    CDT framework** (per-surface ad-hoc Newell fans / rim rings instead).
 5. **N6 — §4.5.4 illegal-self-intersection detection/removal is absent.**
