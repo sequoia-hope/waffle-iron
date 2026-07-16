@@ -65,6 +65,7 @@ keeps the B-Rep topology exactly aligned with the (watertight) mesh boolean.
 | torus∩plane∩plane corner junction (#137 N-137.1) | `stage4_relocate::torus_plane_clip_junction` | ⚠️ built + tested, **UNWIRED** |
 | Phase-A two-sided conformal driver (common-frame) | `stage4_update::two_sided_conformal_update` | ⚠️ built + tested, **UNWIRED** |
 | Phase-A→B frame-agnostic driver (two-surface, 3D-checked) | `stage4_update::two_sided_conformal_update_lifted` | ⚠️ built + tested (8 fixtures incl. dihedral two-surface), **UNWIRED** (Phase B wires behind `YANG_MESHUP_ENABLE`) |
+| Phase-B per-operand parametric charts (Plane/Cylinder project+lift) | `stage4_project::SurfaceChart` | ⚠️ built + tested (round-trip + plane-tangent-cylinder integration w/ driver), **UNWIRED** |
 | seam-vertex trace (`poly_vidx`) exposure | `stage4_update::stage4_mesh_update_traced` | ✅ built (byte-identical refactor of the primitive) |
 
 **The current forward pass relocates vertices IN PLACE and skips §4.4.1** — it
@@ -171,6 +172,20 @@ phase or ejects it to another track — no case is assumed without a probe.
   remaining work is now concrete: pull the per-operand surface projection/lift
   from the forward pass's `Surface`, extract the two adjacent patches + their
   shared mesh-vertex seam, call this, splice back.
+- **BUILT (2026-07-16, `stage4_project::SurfaceChart`, UNWIRED):** the per
+  -operand projection layer. `SurfaceChart::new(Surface)` returns a Plane or
+  Cylinder chart (`None` for Sphere/Cone/Torus — the wiring skips those,
+  byte-identical); `project` maps world→param (plane: in-plane ortho basis;
+  cylinder: (θ,z)), `lift` maps param→world, mutual inverses on-surface.
+  Tested: exact round-trip for both, plus an **integration test on the real
+  #168 plane-tangent-cylinder pair** — the shared generator projected into each
+  chart, re-CDT'd via `two_sided_conformal_update_lifted`, lifts back to a seam
+  that coincides in 3D. This is the concrete "per-operand projection" the driver
+  needed. **Phase B's ONLY remaining piece is the splice loop** in
+  `stage4_relocate_and_correct`: for each patch pair that went non-manifold,
+  build both charts, project the shared mesh-vertex curve into each, call the
+  driver, rewrite the two patches' triangles in `Mesh` via the seam pairing —
+  gated `YANG_MESHUP_ENABLE`, off → byte-identical.
 
 ### Phase B — Wire §4.4.1 mesh-update into the forward pass
 - Replace relocation-only with: relocate curve → Phase-A conformal re-triangulate
