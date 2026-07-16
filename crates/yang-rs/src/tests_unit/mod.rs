@@ -19,6 +19,7 @@ mod n137_torus_plane_corner;
 pub(crate) mod n2_junction;
 mod n47_moved_weld;
 mod n50_f32_render_twin;
+mod n55_s44b_coincidence;
 mod stage0_rim_projection;
 mod topology;
 

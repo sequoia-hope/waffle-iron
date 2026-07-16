@@ -1333,15 +1333,26 @@ pub(crate) fn collapse_vertex(
 /// upstream near-coincident minting; a case that only stayed CORRECT via such a
 /// weld was a false green by project intent (Yang-paper compliance is the north
 /// star), and retiring it can only expose a loud STOP, never a silent-wrong. The
-/// measured cost of turning all four off is 13 cases (241C → 228C, 0 WRONG); the
-/// compliant replacements (Stage-0 exact event-column canonicalization for
-/// `f32`/`coincident`/`subres`; wired §4.4.1 mesh-update for `subfeature`) recover
-/// them properly over time.
+/// measured cost of turning all four off was 13 cases (241C → 228C, 0 WRONG).
 ///
-/// The welds remain callable ONLY behind `YANG_WELD_ENABLE` — a comma-separated
-/// list of weld tags (`f32`, `coincident`, `subfeature`, `subres`) or `all` — so
-/// the A/B compliance ledger (shipping vs. weld-enabled assay delta) can still be
-/// measured. Unset (the production default) ⇒ every weld off.
+/// **Update (N55):** the `subfeature` tag was NOT a tolerance hack after all —
+/// it was Yang §4.4.1(b) (Fig-11(b) "merge p with q if too close") applied with
+/// the WRONG (absolute `MIN_FEATURE_SIZE`) criterion. Retightened to the
+/// scale-relative numerical-coincidence band `TAU_WORK·(1+scale)`
+/// (`is_relocation_coincidence`), it is now a COMPLIANT, always-on §4.4.1(b)
+/// merge (no longer gated) — it merges only machine-ε relocation twins
+/// (exact-dedup, which the ratchet keeps) and recovers R0055/F0056/F0057/F0059
+/// (228C → 232C, 0 WRONG). R0072's genuine ~1e-7 micro-scale collapse is now
+/// correctly REFUSED → loud STOP → curved re-CDT. So `weld_enabled("subfeature")`
+/// is no longer called; three welds remain gated (`f32`, `coincident`, `subres`),
+/// masking Stage-0 near-coincident minting (their compliant Stage-0 fix was
+/// refuted at the overlay level — N54 — pending a re-spec).
+///
+/// The remaining welds are callable ONLY behind `YANG_WELD_ENABLE` — a
+/// comma-separated list of weld tags (`f32`, `coincident`, `subres`; `subfeature`
+/// is inert post-N55) or `all` — so the A/B compliance ledger (shipping vs.
+/// weld-enabled assay delta) can still be measured. Unset (the production
+/// default) ⇒ every remaining weld off.
 pub(crate) fn weld_enabled(tag: &str) -> bool {
     match std::env::var("YANG_WELD_ENABLE") {
         Ok(list) => list.split(',').any(|t| {
@@ -1350,6 +1361,24 @@ pub(crate) fn weld_enabled(tag: &str) -> bool {
         }),
         Err(_) => false,
     }
+}
+
+/// Yang §4.4.1(b) same-point test (deviation N55): two relocated endpoints
+/// `len` apart at local magnitude `scale` (= max |coord| of the pair) are the
+/// SAME intersection point — a numerical coincidence eligible for the Fig-11(b)
+/// merge — iff their separation is below the scale-relative WORKING tolerance
+/// `TAU_WORK·(1+scale)`.
+///
+/// This is the COMPLIANT criterion that replaced the retired `subfeature` weld's
+/// absolute `MIN_FEATURE_SIZE` floor. The distinction is load-bearing: the
+/// absolute floor merged BOTH machine-ε relocation twins (exact duplicates —
+/// which the compliance ratchet keeps) AND genuine sub-feature edges at
+/// micro-scale (R0072's ~1e-7 collapse = 0.4 % of a ~2e-4 span — the R0091
+/// silent-wrong hazard). The `TAU_WORK` band (5 orders tighter than
+/// `MIN_FEATURE_SIZE`) admits only the former: a numerically-identical pair
+/// merges, a real sub-feature edge stays a loud STOP (→ curved re-CDT).
+pub(crate) fn is_relocation_coincidence(len: f64, scale: f64) -> bool {
+    len < cad_primitives::TAU_WORK * (1.0 + scale)
 }
 
 /// Band: the scale-relative model coincidence tolerance (`scale` = max |coord| of
@@ -4158,7 +4187,20 @@ pub(crate) fn stage4_relocate_and_correct(
     // SUPPORTED_WRONG). The relocation/conic-adjacent eligibility below is
     // LOAD-BEARING: it keeps the merge away from pre-existing arrangement
     // slivers that `boolean()` legitimately kept for watertightness.
-    if weld_enabled("subfeature") {
+    // #169 N55: Yang §4.4.1(b) numerical-duplicate merge — COMPLIANT and
+    // ALWAYS-ON (replaces the retired absolute-floor `subfeature` weld). The
+    // paper's Fig-11(b) "if p is too close to q, merge p with q" is a
+    // NUMERICAL-COINCIDENCE test (two relocated points that Newton-converged to
+    // the SAME intersection point), not a feature-size floor. The criterion is
+    // therefore the scale-relative working tolerance `TAU_WORK·(1+scale)` at the
+    // edge gate below (an exact-dedup merge — the kind the compliance ratchet
+    // KEEPS), NOT the absolute `MIN_FEATURE_SIZE` the weld used (which also
+    // collapsed genuine sub-resolution edges at micro-scale — R0072's ~1e-7
+    // merges, the R0091 hazard — now correctly refused → curved re-CDT). `floor`
+    // here is only the DEGENERACY DETECTOR (a triangle below the feature floor
+    // is a merge candidate); the actual same-point decision is the tighter
+    // numerical band. Deviation N55.
+    {
         let floor = cad_primitives::MIN_FEATURE_SIZE;
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
         // KV9-F3 (spec `kv9_f3_output_vertex_identity` E-V2): junction
@@ -4247,7 +4289,30 @@ pub(crate) fn stage4_relocate_and_correct(
                     .copied()
                     .min_by(|x, y| x.2.partial_cmp(&y.2).unwrap_or(std::cmp::Ordering::Equal))
                     .expect("3 edges");
-                if len < floor {
+                // §4.4.1(b) same-point test: the shortest edge is a numerical
+                // coincidence iff below the scale-relative working tolerance
+                // `TAU_WORK·(1+scale)` (`scale` = max |coord| of the pair). This
+                // is the model's own "numerically identical" threshold — 5 orders
+                // tighter than `MIN_FEATURE_SIZE` — so it merges only relocation
+                // twins that converged onto one point (~machine ε; R0055/F0056/
+                // F0057/F0059) and never a genuine sub-feature edge (R0072's ~1e-7
+                // collapse at micro-scale is refused → loud STOP → curved re-CDT).
+                let scale = {
+                    let pu = mesh.verts[u as usize].as_array();
+                    let pv = mesh.verts[v as usize].as_array();
+                    pu.iter()
+                        .chain(pv.iter())
+                        .fold(0.0f64, |m, &c| m.max(c.abs()))
+                };
+                let merge = is_relocation_coincidence(len, scale);
+                if std::env::var_os("YANG_S44B_MEASURE").is_some() {
+                    eprintln!(
+                        "[s44b] cand u={u} v={v} len={len:.4e} scale={scale:.4e} \
+                         band={:.4e} merge={merge}",
+                        cad_primitives::TAU_WORK * (1.0 + scale)
+                    );
+                }
+                if merge {
                     // Spec `yang_453_junction_protected_collapse` §3b: the
                     // exactness-ranked survivor (`sub_feature_merge_direction`,
                     // Yang Fig. 11(b) — the exact vertex survives) is BANKED,

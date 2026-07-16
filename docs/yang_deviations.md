@@ -3374,7 +3374,7 @@ The four (audit 2026-07-16):
 |---|---|---|---|---|
 | `f32` | `weld_f32_render_twins` (N50) | f32 bit-key rounding | Stage-0 overlay near-coincident event columns | Stage-0 exact input-coord canonicalization |
 | `coincident` | `weld_coincident_relocated` (N47) | absolute `TAU_MODEL·(1+scale)` | same (N47 predecessor of `f32`) | same |
-| `subfeature` | inline §4.4.1(b) merge | absolute `MIN_FEATURE_SIZE` floor | missing §4.4.1 mesh-update | wire `two_sided_conformal_update_lifted` + `SurfaceChart` (#169 Phase B) |
+| `subfeature` | inline §4.4.1(b) merge | absolute `MIN_FEATURE_SIZE` floor | ~~missing §4.4.1 mesh-update~~ **(N55: mis-bucketed — it IS §4.4.1(b), wrong criterion)** | **DONE (N55):** retighten criterion to `TAU_WORK·(1+scale)` → compliant always-on merge; recovers R0055/F0056/F0057/F0059 |
 | `subres` | `collapse_subresolution_intersection_segments` (KV15b) | `TAU_MODEL` segment length | Stage-0 overlay sub-resolution crossing mint | Stage-0 exact event-column merge |
 
 **Measured cost (release assay):** `241C → 228C`, **0 WRONG**, 62E (was 50E). The
@@ -3452,3 +3452,54 @@ stays `#[ignore]`d with the N54 reason. The N53 climb-back plan is amended: the
 `f32`/`coincident`/`subres` render-twin reverts remain LOUD STOPs until an (a)-
 or (b)-shaped fix is specced and de-risked; the `subfeature` weld's replacement
 (wire §4.4.1, #169 Phase B) is unaffected and is now the next compliant lever.
+
+### N55 — the `subfeature` weld was Yang §4.4.1(b) all along; retighten its criterion → COMPLIANT always-on merge (recovers R0055/F0056/F0057/F0059; 228C→232C; #169 Phase B)
+
+**A retired weld reinstated compliantly, not a new hack.** #169 Phase B set out
+to "wire §4.4.1 mesh-update" as the `subfeature` weld's compliant replacement.
+Two findings from grounding it (assay A/B + `YANG_S44B_MEASURE` probe) redirected
+the increment:
+
+1. **The §4.4.1 re-CDT path greens nothing.** The re-CDT primitives
+   (`replan_degenerate_cylinder_patches`, `remesh_nonmanifold_patches`) are
+   empirically 0-conversion corpus-wide (child spec §5c.10: R0038→#137 tangency;
+   epic §8e: the non-manifold bucket is near-duplicate/off-plane junction verts,
+   →#146). So "wiring the re-CDT" recovers no case. The `subfeature` cases and the
+   re-CDT cases are **disjoint** populations.
+2. **The `subfeature` merge IS Yang §4.4.1(b).** Fig-11(b) is literally "if a
+   split-edge endpoint p is too close to q, merge p with q." The weld collapses
+   relocated-triangle vertices — a §4.4.1(b) merge. Measuring the 5 cases it
+   greens (`YANG_S44B_MEASURE`): **4 merge points that are identical to f64
+   precision** — R0055 (gap ~5e-15 @ scale 58), F0056/F0057/F0059 (gap ~1e-16 @
+   scale ~0.25). Those are **exact-dedup merges, which the compliance ratchet
+   explicitly KEEPS.** Only **R0072** collapses a genuine sub-feature edge — gap
+   ~1e-7 at micro-scale (~2e-4 span) = 0.4 % of the model, the R0091 silent-wrong
+   hazard N53 rightly objected to.
+
+**The fix — a scale-relative same-point criterion.** N53's objection was the
+*absolute* `MIN_FEATURE_SIZE` floor (which merged both the exact-dedup twins AND
+R0072's real edge). Retightening the criterion to the scale-relative working
+tolerance `TAU_WORK·(1+scale)` (`is_relocation_coincidence`, 5 orders below
+`MIN_FEATURE_SIZE`) separates them exactly: it merges only numerically-identical
+pairs and REFUSES R0072's ~1e-7 collapse. The merge is then a compliant,
+paper-faithful §4.4.1(b) step, made **always-on** (no longer gated behind
+`weld_enabled("subfeature")`; the tag is now inert). The `MIN_FEATURE_SIZE` floor
+remains only as the degeneracy *detector* (which triangles are merge candidates),
+not the same-point decision.
+
+**Measured (full release assay):** `228C → 232C`, **0 WRONG**, **0 CORRECT
+regressions** (per-case diff vs the committed baseline: exactly R0055/F0056/F0057/
+F0059 flip ERROR→CORRECT). R0072 correctly stays a loud STOP (its collapse is a
+resolution-band decision → routes to the curved-band re-CDT, child spec §5c;
+still blocked). Oracles: `tests_unit/n55_s44b_coincidence.rs` pin the
+discriminant (machine-ε twins merge at any scale; the R0072 micro-scale edge is
+refused; the band is exactly `TAU_WORK·(1+scale)`). All 326 yang-rs lib tests
+green.
+
+**Compliance-ledger effect.** `subfeature` leaves the weld set: three welds
+remain gated (`f32`, `coincident`, `subres`), all masking the same Stage-0
+near-coincident-minting root whose overlay-level fix was refuted (N54). The
+honest compliant baseline is now **232C / 0W**. This is the first case-recovering
+compliant advance of the climb-back — and it works precisely because §4.4.1(b)
+merge of exact duplicates is a *paper operation*, not a tolerance weld. The N53
+audit had mis-bucketed it; N55 corrects that with the criterion the paper implies.
