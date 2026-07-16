@@ -63,7 +63,8 @@ keeps the B-Rep topology exactly aligned with the (watertight) mesh boolean.
 | keep-interior CDT with holes | `cherchi_rs::cdt_polygon_with_holes_keep_interior` | ✅ built |
 | per-patch degenerate re-CDT (#168) | `stage4_correct::replan_degenerate_cylinder_patches` | ⚠️ built, **gated off** `YANG_N2_RECDT_ENABLE`, blocked on two-sided conformality |
 | torus∩plane∩plane corner junction (#137 N-137.1) | `stage4_relocate::torus_plane_clip_junction` | ⚠️ built + tested, **UNWIRED** |
-| Phase-A two-sided conformal driver | `stage4_update::two_sided_conformal_update` | ⚠️ built + tested (5 fixtures), **UNWIRED** (Phase B wires behind `YANG_MESHUP_ENABLE`) |
+| Phase-A two-sided conformal driver (common-frame) | `stage4_update::two_sided_conformal_update` | ⚠️ built + tested, **UNWIRED** |
+| Phase-A→B frame-agnostic driver (two-surface, 3D-checked) | `stage4_update::two_sided_conformal_update_lifted` | ⚠️ built + tested (8 fixtures incl. dihedral two-surface), **UNWIRED** (Phase B wires behind `YANG_MESHUP_ENABLE`) |
 | seam-vertex trace (`poly_vidx`) exposure | `stage4_update::stage4_mesh_update_traced` | ✅ built (byte-identical refactor of the primitive) |
 
 **The current forward pass relocates vertices IN PLACE and skips §4.4.1** — it
@@ -152,6 +153,24 @@ phase or ejects it to another track — no case is assumed without a probe.
   per-operand parametric projection** that maps the 3D curve into each patch's
   own (u,v) domain, then calls this. Gated behind `YANG_MESHUP_ENABLE` at wire
   time; unwired now ⇒ production byte-identical.
+- **BUILT (2026-07-16, frame-agnostic upgrade `two_sided_conformal_update_lifted`,
+  UNWIRED):** the common-frame check only holds when both patches share one 2D
+  frame — but the real forward pass puts the two adjacent patches on DIFFERENT
+  surfaces (plane vs cylinder — cf. `replan_degenerate_cylinder_patches`'s (θ,z)
+  projection), where the seam vertices coincide in **3D**, not in either 2D frame.
+  So the driver now takes a per-side `lift: Point2 → Point3` and checks
+  conformality in WORLD space; each side receives the ONE shared 3D curve
+  projected into its OWN domain (`curve_a`/`curve_b`, same count+order, else a
+  loud `SeamLengthMismatch`). `two_sided_conformal_update` is now the identity
+  -lift (z=0) special case. De-risked on a dihedral two-perpendicular-planes
+  fixture (A's chord vertical in (x,y), B's horizontal in (y,z) — genuinely
+  different frames — all 3 paired seam verts lift to the SAME world point; a
+  divergence where B samples at z=0.02 is caught as NonConformalSeam with the
+  exact 0.02 world gap). **This resolves the Phase-A→B bridge's biggest unknown:
+  the per-operand projection + that the conformal check lives in 3D.** Phase B's
+  remaining work is now concrete: pull the per-operand surface projection/lift
+  from the forward pass's `Surface`, extract the two adjacent patches + their
+  shared mesh-vertex seam, call this, splice back.
 
 ### Phase B — Wire §4.4.1 mesh-update into the forward pass
 - Replace relocation-only with: relocate curve → Phase-A conformal re-triangulate

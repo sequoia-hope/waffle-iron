@@ -18,7 +18,7 @@
 //! primitive, unit-tested in isolation — **not** wired into
 //! `stage4_relocate_and_correct` (that is N2-3), and no `d(T)` recompute (N2-2).
 
-use cad_primitives::Point2;
+use cad_primitives::{Point2, Point3};
 use cherchi_rs::{cdt_with_interior_constraints, CdtError};
 
 /// A mesh patch in a 2D parametric domain, already triangulated upstream (Stage
@@ -303,6 +303,16 @@ pub fn stage4_mesh_update_traced(
 // The seam then comes out identical even when the interiors differ. So this
 // driver is PLUMBING over [`stage4_mesh_update_traced`], not a new algorithm.
 //
+// CRUCIAL FRAME NOTE: in the real forward pass the two adjacent patches live on
+// DIFFERENT surfaces (e.g. a plane and a cylinder — cf.
+// `replan_degenerate_cylinder_patches`'s (θ,z) projection), so their seam
+// vertices coincide in 3D, NOT in any shared 2D frame. The driver therefore
+// checks conformality in 3D via per-side lifts (parametric → world). The common
+// -frame entry point [`two_sided_conformal_update`] is the identity-lift special
+// case (both patches in one z=0 frame) used by the minimal fixtures;
+// [`two_sided_conformal_update_lifted`] is the general two-surface form Phase B
+// calls after projecting the 3D intersection curve into each patch's own domain.
+//
 // UNWIRED (like #137 N-137.1 `torus_plane_clip_junction` and #168
 // `replan_degenerate_cylinder_patches`): Phase B wires it into the forward pass
 // behind `YANG_MESHUP_ENABLE`. This increment de-risks it on fixtures.
@@ -337,51 +347,75 @@ pub enum TwoSidedError {
     /// share. This is the #168 §5c.8 divergence, caught loudly instead of
     /// producing an unpaired half-edge downstream.
     NonConformalSeam { point: usize, gap: f64 },
+    /// The two per-side projections of the shared curve have DIFFERENT point
+    /// counts — the two sides are not sampling the SAME intersection curve, so
+    /// no index-paired seam exists. A caller (Phase B) fault, caught loudly.
+    SeamLengthMismatch { a: usize, b: usize },
 }
 
-/// Re-triangulate the two adjacent trimmed patches `patch_a` (operand A) and
-/// `patch_b` (operand B) so their shared intersection curve `shared_curve`
-/// becomes a conformal seam — the Phase-A linchpin of the mesh-updating epic.
+/// Re-triangulate the two adjacent trimmed patches so their shared intersection
+/// curve becomes a conformal seam — the general two-surface form Phase B calls.
 ///
-/// Both patches and `shared_curve` are expressed in ONE common 2D frame (the
-/// de-risk fixture contract; Phase B supplies the per-operand parametric
-/// projections that map the 3D curve into each patch's own domain, then calls
-/// this). Because both sides consume the SAME ordered curve points, their seam
-/// chains are combinatorially identical by construction (point `i` ↔ point
-/// `i+1` on both). The driver then VERIFIES they are geometrically conformal
-/// (positions agree within `conformal_tol`) and returns the seam pairing; a
-/// divergence is a loud [`TwoSidedError::NonConformalSeam`], never a silent
-/// non-manifold output.
+/// `patch_a`/`patch_b` are expressed in their OWN parametric domains (operand A's
+/// and B's surfaces), and `curve_a`/`curve_b` are the ONE shared 3D intersection
+/// curve projected into each domain (same point count + order — the two sides
+/// sample the SAME curve). `lift_a`/`lift_b` map each patch's parametric point
+/// back to world space, so conformality is verified in **3D** (the seam vertices
+/// coincide in the world, not in either 2D frame).
 ///
-/// `conformal_tol` must be tight (≤ `merge_tol`): interior curve points land at
-/// the exact shared position on both sides, and a boundary merge is conformal
-/// only when both sides snap to the SAME shared boundary vertex.
+/// The seam chains are combinatorially identical by construction (both consume
+/// the same ordered curve, so point `i` ↔ point `i+1` on both). The driver
+/// VERIFIES they are geometrically conformal in 3D within `conformal_tol` and
+/// returns the seam pairing; a divergence is a loud
+/// [`TwoSidedError::NonConformalSeam`], never a silent non-manifold output.
+///
+/// `conformal_tol` must be tight (≤ `merge_tol` in world units): interior curve
+/// points lift to the exact shared world position on both sides, and a boundary
+/// merge is conformal only when both sides snap to the SAME shared world vertex.
 ///
 /// Pure and deterministic (delegates to [`stage4_mesh_update_traced`]).
-pub fn two_sided_conformal_update(
+#[allow(clippy::too_many_arguments)]
+pub fn two_sided_conformal_update_lifted<FA, FB>(
     patch_a: &Patch,
+    lift_a: FA,
+    curve_a: &Polyline,
     patch_b: &Patch,
-    shared_curve: &Polyline,
+    lift_b: FB,
+    curve_b: &Polyline,
     opts: MeshUpdateOpts,
     conformal_tol: f64,
-) -> Result<TwoSidedUpdate, TwoSidedError> {
-    let (a, va) =
-        stage4_mesh_update_traced(patch_a, shared_curve, opts).map_err(TwoSidedError::SideA)?;
-    let (b, vb) =
-        stage4_mesh_update_traced(patch_b, shared_curve, opts).map_err(TwoSidedError::SideB)?;
+) -> Result<TwoSidedUpdate, TwoSidedError>
+where
+    FA: Fn(Point2) -> Point3,
+    FB: Fn(Point2) -> Point3,
+{
+    // The two sides must sample the SAME shared curve (same count + order), or
+    // there is no index-paired seam to stitch (loud caller fault).
+    if curve_a.points.len() != curve_b.points.len() {
+        return Err(TwoSidedError::SeamLengthMismatch {
+            a: curve_a.points.len(),
+            b: curve_b.points.len(),
+        });
+    }
 
-    // Both traces have exactly one entry per shared-curve point, in curve order
-    // (the primitive never drops or duplicates), so the chains are the same
-    // length by construction. debug_assert pins that invariant.
+    let (a, va) =
+        stage4_mesh_update_traced(patch_a, curve_a, opts).map_err(TwoSidedError::SideA)?;
+    let (b, vb) =
+        stage4_mesh_update_traced(patch_b, curve_b, opts).map_err(TwoSidedError::SideB)?;
+
+    // Each trace has exactly one entry per curve point, in curve order (the
+    // primitive never drops or duplicates), so the chains are the same length by
+    // construction. debug_assert pins that invariant.
     debug_assert_eq!(va.len(), vb.len(), "seam traces must be equal length");
-    debug_assert_eq!(va.len(), shared_curve.points.len());
+    debug_assert_eq!(va.len(), curve_a.points.len());
 
     let tol2 = conformal_tol * conformal_tol;
     let mut seam = Vec::with_capacity(va.len());
     for (i, (&ia, &ib)) in va.iter().zip(vb.iter()).enumerate() {
-        let pa = a.verts[ia as usize];
-        let pb = b.verts[ib as usize];
-        let gap2 = dist2(pa, pb);
+        // Lift each side's realized seam vertex to WORLD space and compare there.
+        let pa = lift_a(a.verts[ia as usize]);
+        let pb = lift_b(b.verts[ib as usize]);
+        let gap2 = dist2_3d(pa, pb);
         if gap2 > tol2 {
             return Err(TwoSidedError::NonConformalSeam {
                 point: i,
@@ -392,6 +426,40 @@ pub fn two_sided_conformal_update(
     }
 
     Ok(TwoSidedUpdate { a, b, seam })
+}
+
+/// Common-frame form: both patches and the shared curve are expressed in ONE 2D
+/// frame (the minimal-fixture / same-plane special case). Conformality is checked
+/// directly in that frame — the identity-lift specialization of
+/// [`two_sided_conformal_update_lifted`].
+///
+/// Pure and deterministic.
+pub fn two_sided_conformal_update(
+    patch_a: &Patch,
+    patch_b: &Patch,
+    shared_curve: &Polyline,
+    opts: MeshUpdateOpts,
+    conformal_tol: f64,
+) -> Result<TwoSidedUpdate, TwoSidedError> {
+    // Identity lift: the common 2D frame IS the world (z = 0).
+    let id = |p: Point2| Point3::new(p.x(), p.y(), 0.0);
+    two_sided_conformal_update_lifted(
+        patch_a,
+        id,
+        shared_curve,
+        patch_b,
+        id,
+        shared_curve,
+        opts,
+        conformal_tol,
+    )
+}
+
+fn dist2_3d(a: Point3, b: Point3) -> f64 {
+    let dx = a.x() - b.x();
+    let dy = a.y() - b.y();
+    let dz = a.z() - b.z();
+    dx * dx + dy * dy + dz * dz
 }
 
 // ---------------------------------------------------------------------------
@@ -1511,5 +1579,192 @@ mod tests {
         let y = two_sided_conformal_update(&unit_square(), &unit_square(), &shared, opts, 1e-9)
             .unwrap();
         assert_eq!(x, y);
+    }
+
+    // ==== #169 Phase A→B bridge — the frame-agnostic (two-surface) driver =====
+    //
+    // The real forward pass puts the two adjacent patches on DIFFERENT surfaces
+    // with DIFFERENT parametric frames; their seam vertices coincide in 3D, not
+    // in any shared 2D frame. These fixtures use two perpendicular planes (a
+    // dihedral) whose 2D frames genuinely differ — A's chord is vertical in
+    // (x,y), B's is horizontal in (y,z) — and verify conformality in WORLD space
+    // via non-identity lifts. This de-risks the Phase-B per-operand projection.
+
+    /// A patch straddling a chord in its own 2D frame, with a shared 3D curve
+    /// projected into that frame and a lift back to world.
+    fn dihedral_patch_x(half: f64) -> Patch {
+        // Plane z=0, frame (x,y): a rectangle x∈[-half,half], y∈[0,1]. The seam
+        // (x=0) runs through its interior.
+        Patch {
+            verts: vec![
+                Point2::new(-half, 0.0),
+                Point2::new(half, 0.0),
+                Point2::new(half, 1.0),
+                Point2::new(-half, 1.0),
+            ],
+            boundary: vec![0, 1, 2, 3],
+            holes: vec![],
+        }
+    }
+
+    /// GREEN — two perpendicular planes sharing the world line x=0,z=0 (y∈[0,1]).
+    /// A is the z=0 plane (frame (x,y), lift (u,v)↦(u,v,0)); B is the x=0 plane
+    /// (frame (y,z), lift (u,v)↦(0,u,v)). The shared curve projects to a VERTICAL
+    /// chord x=0 in A and a HORIZONTAL chord z=0 in B — different 2D frames — yet
+    /// every paired seam vertex lifts to the SAME world point. Conformal in 3D.
+    #[test]
+    fn two_surface_driver_conformal_in_world() {
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-4,
+            d_eps: 1e-2,
+        };
+        // A: z=0 plane, x∈[-1,1]. Curve x=0 sampled at y=0,0.5,1 (interior chord).
+        let pa = dihedral_patch_x(1.0);
+        let curve_a = Polyline {
+            points: vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(0.0, 0.5),
+                Point2::new(0.0, 1.0),
+            ],
+            closed: false,
+        };
+        let lift_a = |p: Point2| Point3::new(p.x(), p.y(), 0.0);
+
+        // B: x=0 plane, frame (y,z), z∈[-1,1]. Same world curve is z=0 sampled at
+        // y=0,0.5,1 → (u=y, v=z) = (0,0),(0.5,0),(1,0) — a horizontal chord.
+        let pb = Patch {
+            verts: vec![
+                Point2::new(0.0, -1.0),
+                Point2::new(1.0, -1.0),
+                Point2::new(1.0, 1.0),
+                Point2::new(0.0, 1.0),
+            ],
+            boundary: vec![0, 1, 2, 3],
+            holes: vec![],
+        };
+        let curve_b = Polyline {
+            points: vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(0.5, 0.0),
+                Point2::new(1.0, 0.0),
+            ],
+            closed: false,
+        };
+        let lift_b = |p: Point2| Point3::new(0.0, p.x(), p.y());
+
+        let ts = two_sided_conformal_update_lifted(
+            &pa, lift_a, &curve_a, &pb, lift_b, &curve_b, opts, 1e-9,
+        )
+        .unwrap();
+
+        // Three seam pairs; each lifts to an IDENTICAL world point across sides.
+        assert_eq!(ts.seam.len(), 3);
+        for &(ia, ib) in &ts.seam {
+            let wa = lift_a(ts.a.verts[ia as usize]);
+            let wb = lift_b(ts.b.verts[ib as usize]);
+            assert!(
+                dist2_3d(wa, wb) < 1e-18,
+                "seam must coincide in world: {wa:?} vs {wb:?}"
+            );
+        }
+        // Seam edges present on both sides → paired half-edges → manifold.
+        for w in ts.seam.windows(2) {
+            assert!(edge_present(&ts.a, w[0].0, w[1].0), "A seam edge missing");
+            assert!(edge_present(&ts.b, w[0].1, w[1].1), "B seam edge missing");
+        }
+        assert!(no_flips(&ts.a) && no_flips(&ts.b));
+    }
+
+    /// LOUD — the two sides sample the shared curve at DIVERGENT world points (B's
+    /// interior midpoint is projected to z=0.02 instead of z=0). A naive per-frame
+    /// check would miss it (both look like valid in-frame chords); the 3D check
+    /// catches the 0.02 world gap as a NonConformalSeam. This is the Phase-B
+    /// guarantee: if the per-operand projection does not sample ONE shared curve,
+    /// STOP loudly rather than emit an unpaired seam.
+    #[test]
+    fn two_surface_driver_stops_on_world_divergence() {
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-4,
+            d_eps: 1e-1,
+        };
+        let pa = dihedral_patch_x(1.0);
+        let curve_a = Polyline {
+            points: vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(0.0, 0.5),
+                Point2::new(0.0, 1.0),
+            ],
+            closed: false,
+        };
+        let lift_a = |p: Point2| Point3::new(p.x(), p.y(), 0.0);
+        let pb = Patch {
+            verts: vec![
+                Point2::new(0.0, -1.0),
+                Point2::new(1.0, -1.0),
+                Point2::new(1.0, 1.0),
+                Point2::new(0.0, 1.0),
+            ],
+            boundary: vec![0, 1, 2, 3],
+            holes: vec![],
+        };
+        // B's midpoint sampled at z=0.02 — a curve that DIVERGES from A's in world.
+        let curve_b = Polyline {
+            points: vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(0.5, 0.02),
+                Point2::new(1.0, 0.0),
+            ],
+            closed: false,
+        };
+        let lift_b = |p: Point2| Point3::new(0.0, p.x(), p.y());
+
+        let err = two_sided_conformal_update_lifted(
+            &pa, lift_a, &curve_a, &pb, lift_b, &curve_b, opts, 1e-6,
+        )
+        .unwrap_err();
+        match err {
+            TwoSidedError::NonConformalSeam { point, gap } => {
+                assert_eq!(point, 1, "the divergent sample is the interior midpoint");
+                assert!(
+                    (gap - 0.02).abs() < 1e-9,
+                    "world gap must be 0.02, got {gap}"
+                );
+            }
+            other => panic!("expected NonConformalSeam, got {other:?}"),
+        }
+    }
+
+    /// Mismatched per-side curve lengths are a loud caller fault.
+    #[test]
+    fn two_surface_driver_rejects_length_mismatch() {
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-4,
+            d_eps: 1e-2,
+        };
+        let id = |p: Point2| Point3::new(p.x(), p.y(), 0.0);
+        let ca = Polyline {
+            points: vec![Point2::new(0.0, 0.5), Point2::new(1.0, 0.5)],
+            closed: false,
+        };
+        let cb = Polyline {
+            points: vec![
+                Point2::new(0.0, 0.5),
+                Point2::new(0.5, 0.5),
+                Point2::new(1.0, 0.5),
+            ],
+            closed: false,
+        };
+        let err = two_sided_conformal_update_lifted(
+            &unit_square(),
+            id,
+            &ca,
+            &unit_square(),
+            id,
+            &cb,
+            opts,
+            1e-9,
+        )
+        .unwrap_err();
+        assert_eq!(err, TwoSidedError::SeamLengthMismatch { a: 2, b: 3 });
     }
 }
