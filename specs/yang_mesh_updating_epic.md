@@ -381,6 +381,34 @@ splice mechanics are correct and P10-safe; they are **banked gated-off**
 P9/P10 the residual is NOT hacked (no weld of the 0.012 pair — that is 4.6 % of
 the model span, far above any coincidence tol).
 
+### 8e. REFUTATION — the Stage-4 non-manifold bucket is near-duplicate / off-plane junction verts, NOT clean re-CDT targets (2026-07-16)
+
+Probing the re-CDT boundary geometry (`YANG_MESHUP_RECDT` sharpest-triple dump)
+REFUTES §8c/§8d's "keep-boundary re-CDT greens the bucket" hypothesis:
+
+- **F0082 face 306:** boundary verts 591 and 601 are 0.012 apart in 3D but
+  project ~4e-4 apart in face 306's plane — their separation is nearly ALONG the
+  face normal, i.e. one vertex is slightly **off-plane** (the #146 Newell class).
+  Faces 29/32 have boundary triples of area ~8e-20 / ~3.6e-21 — **near-duplicate
+  vertices** (face 32: three verts within ~5e-8).
+- **R0095:** EVERY re-CDT'd face (1,6,9,15,18,30,38,40,55) has a sharpest
+  boundary triple of area ~1e-24…1e-27 — near-duplicate boundary verts
+  throughout (the model is at ~1e-3 scale; the dup gaps are ~1e-6…1e-8).
+
+**Conclusion:** the Stage-4-firing non-manifold cases are dominated by
+**near-duplicate / off-plane junction vertices** produced upstream (arrangement /
+Stage-0 / relocation), not by spurious triangles over a clean boundary. A
+keep-boundary re-CDT projects those near-coincident boundary verts into
+degenerate slivers → it CANNOT green them, and welding is barred (0.012 is 4.6 %
+of F0082's span; the P10 line). So **Phase B (§4.4.1 re-CDT) does NOT green the
+non-manifold bucket** — the real blocker is upstream degenerate junction geometry
+(re-triage → the #146 off-plane-vertex track / a Stage-2/3 near-duplicate
+resolution). The detector + splice are correct, P10-safe infrastructure (banked
+gated-off `YANG_MESHUP_ENABLE`); they will apply once a genuine
+spurious-triangle-over-clean-boundary case appears, or once the upstream
+degeneracy is resolved. This is the "abort the fix, report what you learned"
+guardrail: the Phase-B-greens-the-bucket diagnosis was wrong.
+
 **Read:** ~15 cases route to Phase B (8 reassembly + 4 render-CDT + 3 re-entry-CDT),
 ~4 to Phase C/D (grazing), 5 eject (2 → #146, 1 → §4.5.3, 2 → M5). The Phase-B
 reassembly bucket is the largest single lever and the ★★ hypothesis (post-relocation

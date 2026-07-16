@@ -1103,6 +1103,39 @@ pub(crate) fn remesh_nonmanifold_patches(
             loops_local.push(lp);
         }
 
+        // Probe: flag near-collinear boundary triples (a spike/notch that a
+        // keep-interior CDT cannot triangulate cleanly — the F0082 588/591/601
+        // diagnosis). Reports the sharpest triple per patch with its 2D coords.
+        if probe {
+            let mut worst: Option<(f64, [u32; 3], [cad_primitives::Point2; 3])> = None;
+            for lp in &loops_local {
+                let m = lp.len();
+                for i in 0..m {
+                    let (a, b, c) = (
+                        lp[i] as usize,
+                        lp[(i + 1) % m] as usize,
+                        lp[(i + 2) % m] as usize,
+                    );
+                    let (pa, pb, pc) = (verts2d[a], verts2d[b], verts2d[c]);
+                    let area2 = ((pb.x() - pa.x()) * (pc.y() - pa.y())
+                        - (pc.x() - pa.x()) * (pb.y() - pa.y()))
+                    .abs();
+                    if worst.is_none_or(|(w, _, _)| area2 < w) {
+                        worst = Some((
+                            area2,
+                            [global_of_local[a], global_of_local[b], global_of_local[c]],
+                            [pa, pb, pc],
+                        ));
+                    }
+                }
+            }
+            if let Some((area2, gv, p2)) = worst {
+                eprintln!(
+                    "YANG_MESHUP_RECDT face={mykey:?} sharpest_triple gverts={gv:?} 2xarea={area2:.3e} p2d={p2:?}"
+                );
+            }
+        }
+
         // Outer loop = the largest |signed area|; the rest are holes.
         let signed_area = |lp: &[u32]| -> f64 {
             let mut a = 0.0;
