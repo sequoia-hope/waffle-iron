@@ -903,6 +903,288 @@ pub(crate) fn replan_degenerate_cylinder_patches(
     Ok(remeshed)
 }
 
+/// #169 Phase B — the §4.4.1 mesh-update splice for the non-manifold reassembly
+/// bucket. For each patch flagged by [`detect_nonmanifold_seams`] whose defect is
+/// a spurious/overlapping triangle (F0082: `tri1217` doubling a seam edge inside
+/// one planar patch), re-triangulate that patch's INTERIOR while keeping its
+/// TRUE boundary verbatim — dropping the overlap. This is `replan`'s keep-interior
+/// CDT generalized from degenerate-cylinder-caps to any charted patch, triggered
+/// by the detector.
+///
+/// The boundary is built from the patch edges shared with a DIFFERENT-attribution
+/// triangle (the genuine cross-face seam); a spurious single-incidence edge has
+/// no different-key partner and is excluded — that is exactly what removes the
+/// overlap. Keep-interior re-CDT moves NO geometry (the shared seam verts stay
+/// put → the neighbour still pairs, so it is inherently two-sided-conformal and
+/// P10-safe: a malformed boundary is a loud STOP, never a silent-wrong).
+///
+/// Scope of this increment: PLANE patches only (the F0082/R0095-plane subset).
+/// Regions with >2 patches (3-patch junctions like C0044), a non-plane patch, or
+/// a chartless surface are skipped — the mesh is left as-is for the loud gate.
+/// Returns `Ok(true)` iff at least one patch was re-triangulated.
+pub(crate) fn remesh_nonmanifold_patches(
+    mesh: &mut Mesh,
+    attr_vec: &mut Vec<Option<TriangleAttribution>>,
+    brep_a: &BRep,
+    brep_b: &BRep,
+) -> Result<bool, YangError> {
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
+    let probe = std::env::var_os("YANG_MESHUP_RECDT").is_some();
+
+    let attr_key = |ti: usize| -> Option<(bool, u32)> {
+        attr_vec
+            .get(ti)
+            .copied()
+            .flatten()
+            .map(|at| (matches!(at.input, InputId::A), at.face))
+    };
+    let surf_of = |k: (bool, u32)| -> Surface {
+        let br = if k.0 { brep_a } else { brep_b };
+        br.faces()[k.1 as usize].surface
+    };
+
+    // (1) Failure regions → target patch keys. Only 2-patch regions whose BOTH
+    // patches are Planes (this increment's scope) contribute; junctions (>2) and
+    // non-plane/chartless patches are skipped (left for the loud gate).
+    let regions = crate::stage4_project::detect_nonmanifold_seams(&mesh.tris, &attr_key);
+    if regions.is_empty() {
+        return Ok(false);
+    }
+    let mut targets: BTreeSet<(bool, u32)> = BTreeSet::new();
+    for r in &regions {
+        if r.keys.len() != 2 {
+            continue;
+        }
+        if !r
+            .keys
+            .iter()
+            .all(|&k| matches!(surf_of(k), Surface::Plane { .. }))
+        {
+            continue;
+        }
+        for &k in &r.keys {
+            targets.insert(k);
+        }
+    }
+    if targets.is_empty() {
+        return Ok(false);
+    }
+
+    // (2) Global undirected edge → incident-triangle attribution keys (whole
+    // mesh), for the cross-attribution seam test.
+    type AttrKey = Option<(bool, u32)>;
+    let mut edge_keys: HashMap<(u32, u32), Vec<AttrKey>> = HashMap::new();
+    for ti in 0..mesh.tris.len() {
+        let k = attr_key(ti);
+        let tri = mesh.tris[ti];
+        for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+            let (u, v) = (tri[i], tri[j]);
+            let e = if u < v { (u, v) } else { (v, u) };
+            edge_keys.entry(e).or_default().push(k);
+        }
+    }
+
+    // (3) Copy through every triangle NOT in a target patch; remesh each target.
+    let mut new_tris: Vec<[u32; 3]> = Vec::new();
+    let mut new_attr: Vec<Option<TriangleAttribution>> = Vec::new();
+    for ti in 0..mesh.tris.len() {
+        if attr_key(ti).is_none_or(|k| !targets.contains(&k)) {
+            new_tris.push(mesh.tris[ti]);
+            new_attr.push(attr_vec.get(ti).copied().flatten());
+        }
+    }
+
+    let mut remeshed = false;
+    for &mykey in &targets {
+        let surf = surf_of(mykey);
+        let Some(chart) = crate::stage4_project::SurfaceChart::new(surf) else {
+            // Chartless: leave the patch's triangles in place (copy them back).
+            for ti in 0..mesh.tris.len() {
+                if attr_key(ti) == Some(mykey) {
+                    new_tris.push(mesh.tris[ti]);
+                    new_attr.push(attr_vec.get(ti).copied().flatten());
+                }
+            }
+            continue;
+        };
+        let at = TriangleAttribution {
+            input: if mykey.0 { InputId::A } else { InputId::B },
+            face: mykey.1,
+        };
+        let patch_tris: Vec<u32> = (0..mesh.tris.len() as u32)
+            .filter(|&t| attr_key(t as usize) == Some(mykey))
+            .collect();
+
+        // Local 2D pool via the chart (unique patch verts).
+        let mut vset: BTreeSet<u32> = BTreeSet::new();
+        for &t in &patch_tris {
+            for &v in &mesh.tris[t as usize] {
+                vset.insert(v);
+            }
+        }
+        let mut verts2d: Vec<cad_primitives::Point2> = Vec::with_capacity(vset.len());
+        let mut global_of_local: Vec<u32> = Vec::with_capacity(vset.len());
+        let mut local_of_global: HashMap<u32, u32> = HashMap::new();
+        for &v in &vset {
+            local_of_global.insert(v, verts2d.len() as u32);
+            global_of_local.push(v);
+            verts2d.push(chart.project(mesh.verts[v as usize]));
+        }
+
+        // TRUE seam boundary: a patch edge shared with a DIFFERENT-attribution
+        // triangle. A spurious single-incidence edge (the overlap's dangling
+        // edge) has no different-key partner → excluded → the overlap is dropped.
+        let mut seam_edges: BTreeSet<(u32, u32)> = BTreeSet::new();
+        for &t in &patch_tris {
+            let tri = mesh.tris[t as usize];
+            for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+                let (u, v) = (tri[i], tri[j]);
+                let e = if u < v { (u, v) } else { (v, u) };
+                if edge_keys[&e].iter().any(|k| *k != Some(mykey)) {
+                    seam_edges.insert(e);
+                }
+            }
+        }
+
+        // Boundary adjacency; every boundary vertex must have exactly two
+        // boundary neighbours (a manifold boundary) or bail (loud STOP).
+        let mut bnd_adj: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        for &(u, v) in &seam_edges {
+            let (lu, lv) = (local_of_global[&u], local_of_global[&v]);
+            bnd_adj.entry(lu).or_default().push(lv);
+            bnd_adj.entry(lv).or_default().push(lu);
+        }
+        if probe {
+            let bad: Vec<(u32, usize)> = bnd_adj
+                .iter()
+                .filter(|(_, n)| n.len() != 2)
+                .map(|(&v, n)| (global_of_local[v as usize], n.len()))
+                .collect();
+            eprintln!(
+                "YANG_MESHUP_RECDT face={:?} nverts={} nseam={} nbnd={} bad_degree={:?}",
+                mykey,
+                verts2d.len(),
+                seam_edges.len(),
+                bnd_adj.len(),
+                bad
+            );
+        }
+        if bnd_adj.is_empty() || bnd_adj.values().any(|n| n.len() != 2) {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: u32::MAX,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
+        }
+
+        // Walk the boundary edges into closed loops.
+        let mut loops_local: Vec<Vec<u32>> = Vec::new();
+        let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        for &start in bnd_adj.keys() {
+            if seen.contains(&start) {
+                continue;
+            }
+            let mut lp = vec![start];
+            seen.insert(start);
+            let mut prev = start;
+            let mut cur = bnd_adj[&start][0];
+            while cur != start {
+                if !seen.insert(cur) {
+                    return Err(YangError::Stage4RegionInvalid {
+                        vertex: u32::MAX,
+                        reason: Stage4InvalidReason::LocalRefinementRequired,
+                    });
+                }
+                lp.push(cur);
+                let nb = &bnd_adj[&cur];
+                let next = if nb[0] == prev { nb[1] } else { nb[0] };
+                prev = cur;
+                cur = next;
+            }
+            loops_local.push(lp);
+        }
+
+        // Outer loop = the largest |signed area|; the rest are holes.
+        let signed_area = |lp: &[u32]| -> f64 {
+            let mut a = 0.0;
+            for i in 0..lp.len() {
+                let p = verts2d[lp[i] as usize];
+                let q = verts2d[lp[(i + 1) % lp.len()] as usize];
+                a += p.x() * q.y() - q.x() * p.y();
+            }
+            a * 0.5
+        };
+        let outer_i = (0..loops_local.len())
+            .max_by(|&x, &y| {
+                signed_area(&loops_local[x])
+                    .abs()
+                    .partial_cmp(&signed_area(&loops_local[y]).abs())
+                    .unwrap()
+            })
+            .unwrap();
+        let outer = loops_local[outer_i].clone();
+        let holes: Vec<Vec<u32>> = loops_local
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != outer_i)
+            .map(|(_, l)| l.clone())
+            .collect();
+        let bnd: BTreeSet<u32> = loops_local.iter().flatten().copied().collect();
+        let interior: Vec<u32> = (0..verts2d.len() as u32)
+            .filter(|l| !bnd.contains(l))
+            .collect();
+
+        let tris_local =
+            cherchi_rs::cdt_polygon_with_holes_keep_interior(&verts2d, &outer, &holes, &interior)
+                .map_err(|_| YangError::Stage4RegionInvalid {
+                vertex: u32::MAX,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            })?;
+
+        // Winding: align new triangles to the patch's existing net normal, so the
+        // re-meshed patch keeps the operand's outward orientation.
+        let plane_n = match surf {
+            Surface::Plane { normal, .. } => normal.as_array(),
+            _ => unreachable!("only Plane patches reach here"),
+        };
+        let mut ref_sign = 0.0_f64;
+        for &t in &patch_tris {
+            let g = mesh.tris[t as usize];
+            let av = tri_area_vector(
+                mesh.verts[g[0] as usize].as_array(),
+                mesh.verts[g[1] as usize].as_array(),
+                mesh.verts[g[2] as usize].as_array(),
+            );
+            ref_sign += av[0] * plane_n[0] + av[1] * plane_n[1] + av[2] * plane_n[2];
+        }
+        let ref_sign = if ref_sign >= 0.0 { 1.0 } else { -1.0 };
+        for tl in tris_local {
+            let mut g = [
+                global_of_local[tl[0] as usize],
+                global_of_local[tl[1] as usize],
+                global_of_local[tl[2] as usize],
+            ];
+            let av = tri_area_vector(
+                mesh.verts[g[0] as usize].as_array(),
+                mesh.verts[g[1] as usize].as_array(),
+                mesh.verts[g[2] as usize].as_array(),
+            );
+            let dot = av[0] * plane_n[0] + av[1] * plane_n[1] + av[2] * plane_n[2];
+            if dot * ref_sign < 0.0 {
+                g.swap(1, 2);
+            }
+            new_tris.push(g);
+            new_attr.push(Some(at));
+        }
+        remeshed = true;
+    }
+
+    if remeshed {
+        mesh.tris = new_tris;
+        *attr_vec = new_attr;
+    }
+    Ok(remeshed)
+}
+
 pub(crate) fn collapse_vertex(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
@@ -4470,6 +4752,17 @@ pub(crate) fn stage4_relocate_and_correct(
                 }
             }
         }
+    }
+    // (4b') #169 Phase B §4.4.1 mesh-update: re-triangulate the non-manifold
+    // planar patches (keep-boundary re-CDT — drops spurious overlapping triangles
+    // like F0082's tri1217) BEFORE the gate. Gated on `YANG_MESHUP_ENABLE`, so
+    // byte-identical when unset (production keeps the loud STOP). Any malformed
+    // boundary is a loud STOP inside the remesh, never a silent-wrong.
+    if std::env::var_os("YANG_MESHUP_ENABLE").is_some() {
+        let mut attr_vec = std::mem::take(&mut attribution.attributions);
+        let r = remesh_nonmanifold_patches(mesh, &mut attr_vec, brep_a, brep_b);
+        attribution.attributions = attr_vec;
+        r?;
     }
     // (4b) Explicit Stage-4 watertightness gate (§4.4.3).
     check_watertight_2manifold(mesh)?;

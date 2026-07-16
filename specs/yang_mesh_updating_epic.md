@@ -354,6 +354,33 @@ gate `YANG_MESHUP_ENABLE` off → byte-identical; (5) target F0082 first (two cl
 planar patches), then R0095's pairwise regions; 3-patch junctions (C0044) and the
 downstream-failing cases stay out.
 
+### 8d. F0082 splice attempt — mechanics work, residual is a near-degenerate junction (2026-07-16)
+
+Built `remesh_nonmanifold_patches` (stage4_correct.rs): detector → for each 2-plane
+region, re-CDT each patch's interior keeping the true (cross-attribution seam)
+boundary verbatim — the boundary rule excludes spurious single-incidence edges, so
+the overlap triangle is dropped. Wired gated behind `YANG_MESHUP_ENABLE` (off →
+byte-identical; the fn is only reachable via the gate).
+
+**Gate-ON result on F0082:** the remesh FIRES cleanly — all 4 patches (faces
+302/306/29/32) re-CDT with valid degree-2 boundaries, dropping the overlap
+(`tri1217`). BUT the case still errors: 2 of the 3 bad edges are fixed, leaving a
+NEW unpaired edge `(588,601)`. v588=(0.1385,-0.0943,0.4742) and
+v601=(0.1505,-0.0943,0.4731) are **only ~0.012 apart** — two distinct *junction*
+vertices (588 ∈ faces 286/302/306; 601 ∈ faces 297/303/306) with v591 between them
+on face 306's boundary. The single-patch keep-boundary re-CDT drops the spurious
+triangle but the CDT bridges 588–601 across the near-degenerate junction, and the
+neighbour faces (297/303) don't carry that edge → still non-manifold.
+
+**Finding:** F0082's root defect is a **near-degenerate junction**, not merely a
+spurious triangle. Single-patch re-CDT is necessary but not sufficient — greening
+it needs junction-aware handling (coordinate the re-CDT across the faces meeting
+at the 588/591/601 cluster, or resolve the near-duplicate junction verts). The
+splice mechanics are correct and P10-safe; they are **banked gated-off**
+(`YANG_MESHUP_ENABLE`) like #168's `replan`, pending the junction increment. Per
+P9/P10 the residual is NOT hacked (no weld of the 0.012 pair — that is 4.6 % of
+the model span, far above any coincidence tol).
+
 **Read:** ~15 cases route to Phase B (8 reassembly + 4 render-CDT + 3 re-entry-CDT),
 ~4 to Phase C/D (grazing), 5 eject (2 → #146, 1 → §4.5.3, 2 → M5). The Phase-B
 reassembly bucket is the largest single lever and the ★★ hypothesis (post-relocation
