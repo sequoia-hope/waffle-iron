@@ -25,6 +25,62 @@ deviations** (`docs/yang_deviations.md`) — and per the project's standing rule
 ("Paper-Spec Compliance is MANDATORY; deviations are errors"), closing those, not
 chasing a score, is the work.
 
+### 0.0 Compliance endgame — PLAN OF RECORD (committed 2026-07-16)
+
+**Thesis:** the kernel is Yang-compliant in architecture (all six stages exist;
+the exact Stage-2 core is native and sidecar-parity-certified). What remains is
+the **junction layer** — the seam where exact mesh geometry meets analytic
+B-Rep geometry at places where curves meet: grazing corners, near-duplicate
+junction verts, degenerate seams, missing intersection curves. Every recent
+refutation (#168 R0038, #169 Phase B ×2, N54) points there. The paper is thin
+on multi-surface junction assembly; closing it means building what the paper
+implies and signing the extensions into the deviations ledger.
+
+**Definition of done (measurable):**
+(a) OPEN deviation count = 0 (`docs/yang_deviations.md`: N2, N6);
+(b) every corpus case is CORRECT or a signed-off scope boundary — 0 WRONG, no
+unexplained ERRORs; (c) Cherchi sidecar parity stays green; (d) everything else
+in the ledger is PERMANENT with user sign-off.
+
+**Phases (dependency-ordered; baseline 240C/0W at 6d6141ef):**
+
+1. **Triage ledger** — `docs/yang_tail_triage.md`: every failing case gets a
+   confirmed root cause + fix vehicle BEFORE machinery is built against it.
+   First pass done 2026-07-16 (~28/54 confirmed); the 26-row PROBE queue is the
+   remainder. Case-first is the standing discipline: no wiring against an
+   unconfirmed bucket.
+2. **Analytical completeness (M5)** — finish the `ssi-rs` degree-4 matrix
+   (torus×torus, cyl×cyl lateral∩lateral). Goes first among builds because
+   Stage 4 can only relocate onto curves that exist, and downstream junction
+   fixes need the true curves. Confirmed customers: R0044, R0096.
+3. **The junction layer (closes N2):**
+   a. **#146 upstream junction-vert mint** — stop minting near-duplicate /
+      off-plane junction verts in Stage 2/3 (root of the 8-case non-2-manifold
+      bucket; likely feeds the chained-input CDT bucket). Fix the mint, don't
+      repair its output.
+   b. **#137 grazing-corner insert + stitch** — the proven triple-junction
+      primitive (N-137.1) gets its insert + stitch + genuinely-local §4.5.2
+      refinement. First validated wiring point for the banked two-sided
+      conformal driver + `SurfaceChart` (§4.4.1/§4.5.2 machinery).
+   c. **Curved-seam re-CDT** (R0072 class) and whatever the triage promotes.
+   N2 closes as the sum of these wirings, not as an abstract epic.
+4. **N6 detector-first** — §4.5.4 illegal-self-intersection detection as a new
+   loud STOP class; removal comes after. Closes the last OPEN deviation cheaply
+   in its first increment.
+5. **Capability tails** (interleavable): M8 coplanar residue (#130) +
+   rim-projection (#144), KV6 revolve leftovers, non-convex/curved profiles,
+   #153 NonPlanarFace wall.
+
+**Continuous:** the verification substrate ratchets — assay 0-WRONG gate, weld
+delta (`YANG_WELD_ENABLE=all` vs prod may only shrink), deviations OPEN-count
+ratchet, sidecar parity, resolution-sweep for any "finer mesh?" question.
+
+**Expectations:** phase 3 is the multi-session structural core (~60–70% of
+remaining effort; per the structural-fixes-first policy that is expected, not
+scope creep) and will produce PERMANENT-by-extension ledger entries needing
+user sign-off — "the paper, plus a signed junction-assembly appendix" is the
+correct end state.
+
 ### 0.1 Posture (2026-06-26 directive): implement Yang faithfully; deviations are errors
 
 The plan of record is **the paper**. We implement what Yang 2025 describes,
