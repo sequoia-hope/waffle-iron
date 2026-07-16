@@ -274,6 +274,40 @@ cross-refs. Confidence: ★★★ clear, ★★ likely, ★ needs a deeper probe
 | R0044 | LRR — torus∩torus degree-4 | → M5 SSI solver track | ★★★ |
 | R0096 | LRR — torus∩torus degree-4 | → M5 SSI solver track | ★★★ |
 
+### 8b. Non-manifold bucket — detector triage (2026-07-16, `YANG_MESHUP_REGION`)
+
+The `stage4_project::detect_nonmanifold_seams` probe (wired gated before the
+Stage-4 `check_watertight_2manifold` gate) was run on the 8 reassembly cases. It
+partitions the bucket sharply:
+
+| case | Stage-4 detector fires? | region shape |
+|---|---|---|
+| C0044 | YES | ONE 3-patch junction: Plane(z=1) + 2 Cylinders — a triple corner |
+| F0082 | YES | TWO regions, each a clean **two-plane** pair mismatch (charts ✓) |
+| R0095 | YES | THREE regions: two-plane, **three-plane**, two-plane (charts ✓) |
+| F0085 | (timeout — re-probe) | ? |
+| C0058 | NO | non-manifold caught DOWNSTREAM (Stage 5/6), not the Stage-4 gate |
+| F0058 | NO | downstream |
+| F0060 | NO | downstream |
+| R0049 | NO | downstream |
+
+**Consequences (this refines §4/§8):**
+1. **The bucket is heterogeneous.** Only ~half (C0044, F0082, R0095, F0085?)
+   fail the Stage-4 half-edge gate — those are the genuine §4.4.1 targets. The
+   other half (C0058, F0058, F0060, R0049) are manifold at the Stage-4 gate and
+   fail LATER (Stage 5/6 cycle-walk `NonManifoldOutput`); a Stage-4 mesh-update
+   will NOT fix them — they **re-triage out** of Phase B (need a separate probe:
+   Stage-5/6 topology or a different defect).
+2. **Two sub-shapes among the firing cases:** (a) clean **pairwise** two-patch
+   seam mismatches (F0082, most of R0095) — the `two_sided_conformal_update_lifted`
+   driver fits directly; (b) **3-patch junctions** (C0044 triple corner, one
+   R0095 region) — the pairwise driver is insufficient; these need a triple
+   -junction stitch (the #137 corner machinery / `torus_plane_clip_junction`
+   pattern generalized). So the splice loop's FIRST target is the pairwise
+   plane-plane subset (F0082), not C0044.
+3. Every firing region so far has charts for all its patches (Plane/Cylinder), so
+   the projection layer covers them.
+
 **Read:** ~15 cases route to Phase B (8 reassembly + 4 render-CDT + 3 re-entry-CDT),
 ~4 to Phase C/D (grazing), 5 eject (2 → #146, 1 → §4.5.3, 2 → M5). The Phase-B
 reassembly bucket is the largest single lever and the ★★ hypothesis (post-relocation

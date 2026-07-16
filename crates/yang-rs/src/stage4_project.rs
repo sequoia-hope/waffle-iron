@@ -155,6 +155,129 @@ fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
+// ===========================================================================
+// #169 Phase B / Phase 0 — the failure-region detector.
+//
+// Yang §4.5: after relocation, find the regions where the mesh is NOT a valid
+// 2-manifold — the input to the §4.4.1 mesh-update. `check_watertight_2manifold`
+// already reports the FIRST unpaired half-edge and stops; the mesh-update loop
+// needs the WHOLE set, grouped into the patch pairs whose shared seam is
+// mismatched, so it can re-triangulate each pair conformally.
+//
+// Confirmed on C0044 (2026-07-16): its non-manifold edge (14,15) is an unpaired
+// half-edge (fwd=1 rev=0) between two adjacent PLANAR patches whose shared seam
+// is subdivided differently — exactly a two-sided conformality failure. The
+// detector groups such edges by the patch pair + connected seam run.
+// ===========================================================================
+
+/// One non-manifold seam region: the patch(es) whose shared boundary carries a
+/// directional half-edge imbalance, and the offending undirected edges.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(not(test), allow(dead_code))] // consumed by the splice loop (later).
+pub(crate) struct SeamRegion {
+    /// Distinct triangle-attribution keys `(is_a, face)` incident to the region's
+    /// unpaired edges — normally the two adjacent patches whose seam mismatches.
+    pub keys: Vec<(bool, u32)>,
+    /// The unpaired undirected edges `(s, e)` with `s < e`, in ascending order.
+    pub edges: Vec<(u32, u32)>,
+}
+
+/// Find every non-manifold seam region in `tris`: undirected edges whose two
+/// directions are imbalanced (`fwd != rev`), grouped into connected runs that
+/// share a vertex. Each region also lists the attribution keys of the triangles
+/// touching those edges (the patches the §4.4.1 mesh-update must reconcile).
+///
+/// Pure and deterministic (BTree-ordered). A conformal 2-manifold mesh yields an
+/// empty vector — the same condition `check_watertight_2manifold` gates on.
+#[cfg_attr(not(test), allow(dead_code))] // wired as a probe now; splice loop later.
+pub(crate) fn detect_nonmanifold_seams(
+    tris: &[[u32; 3]],
+    attr_of: &dyn Fn(usize) -> Option<(bool, u32)>,
+) -> Vec<SeamRegion> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    // Directed half-edge counts + undirected edge → incident triangles.
+    let mut dir: BTreeMap<(u32, u32), i32> = BTreeMap::new();
+    let mut inc: BTreeMap<(u32, u32), Vec<usize>> = BTreeMap::new();
+    for (ti, tri) in tris.iter().enumerate() {
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (a, b) = (tri[i], tri[j]);
+            *dir.entry((a, b)).or_default() += 1;
+            let key = if a < b { (a, b) } else { (b, a) };
+            inc.entry(key).or_default().push(ti);
+        }
+    }
+
+    // Unpaired undirected edges (deterministic ascending order).
+    let mut unpaired: Vec<(u32, u32)> = Vec::new();
+    for &(s, e) in inc.keys() {
+        let fwd = dir.get(&(s, e)).copied().unwrap_or(0);
+        let rev = dir.get(&(e, s)).copied().unwrap_or(0);
+        if fwd != rev {
+            unpaired.push((s, e));
+        }
+    }
+    if unpaired.is_empty() {
+        return Vec::new();
+    }
+
+    // Group unpaired edges into connected runs via shared vertices (union-find
+    // over edge indices, keyed by vertex).
+    let n = unpaired.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(parent: &mut [usize], x: usize) -> usize {
+        let mut r = x;
+        while parent[r] != r {
+            r = parent[r];
+        }
+        let mut cur = x;
+        while parent[cur] != r {
+            let nx = parent[cur];
+            parent[cur] = r;
+            cur = nx;
+        }
+        r
+    }
+    let mut vert_first: BTreeMap<u32, usize> = BTreeMap::new();
+    for (idx, &(s, e)) in unpaired.iter().enumerate() {
+        for v in [s, e] {
+            if let Some(&j) = vert_first.get(&v) {
+                let (ra, rb) = (find(&mut parent, idx), find(&mut parent, j));
+                if ra != rb {
+                    parent[ra] = rb;
+                }
+            } else {
+                vert_first.insert(v, idx);
+            }
+        }
+    }
+
+    // Collect per-root region: edges + attribution keys of incident triangles.
+    type RegionAcc = (Vec<(u32, u32)>, BTreeSet<(bool, u32)>);
+    let mut by_root: BTreeMap<usize, RegionAcc> = BTreeMap::new();
+    for (idx, &(s, e)) in unpaired.iter().enumerate() {
+        let root = find(&mut parent, idx);
+        let entry = by_root.entry(root).or_default();
+        entry.0.push((s, e));
+        for &ti in &inc[&(s, e)] {
+            if let Some(k) = attr_of(ti) {
+                entry.1.insert(k);
+            }
+        }
+    }
+
+    by_root
+        .into_values()
+        .map(|(mut edges, keys)| {
+            edges.sort_unstable();
+            SeamRegion {
+                keys: keys.into_iter().collect(),
+                edges,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,6 +289,63 @@ mod tests {
     fn dist3(a: Point3, b: Point3) -> f64 {
         let d = [a.x() - b.x(), a.y() - b.y(), a.z() - b.z()];
         (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+    }
+
+    // ---- Failure-region detector. ---------------------------------------
+
+    /// A CLOSED tetrahedron (verts `base..base+4`) — a valid 2-manifold, so the
+    /// detector sees no imbalanced edge. Faces oriented outward.
+    fn tetra(base: u32) -> Vec<[u32; 3]> {
+        let (a, b, c, d) = (base, base + 1, base + 2, base + 3);
+        vec![[a, b, c], [a, d, b], [a, c, d], [b, d, c]]
+    }
+
+    /// The same tetrahedron but with face `[a,b,c]` split at a midpoint `base+4`
+    /// on edge `a-b` — so edge (a,b) is subdivided on ONE side only, exactly the
+    /// C0044-class seam mismatch. Returns (tris, the unpaired undirected edges).
+    fn tetra_with_split_seam(base: u32) -> Vec<[u32; 3]> {
+        let (a, b, c, d, m) = (base, base + 1, base + 2, base + 3, base + 4);
+        // Split face [a,b,c] into [a,m,c] + [m,b,c] (seam a→m→b); the opposite
+        // face [b,d,c] still carries the un-split edge b→...; face [a,d,b] carries
+        // edge a→...→b — the imbalance lands on (a,b),(a,m),(b,m).
+        vec![[a, m, c], [m, b, c], [a, d, b], [a, c, d], [b, d, c]]
+    }
+
+    #[test]
+    fn detector_empty_on_closed_manifold() {
+        let tris = tetra(0);
+        let attr = |_: usize| Some((true, 0u32));
+        assert!(detect_nonmanifold_seams(&tris, &attr).is_empty());
+    }
+
+    #[test]
+    fn detector_finds_mismatched_seam_and_both_patches() {
+        // The seam edge a-b (0-1) is shared by the split face (halves = tris 0,1,
+        // patch A) and its neighbour [a,d,b] (tri 2, patch B (false,7)). The
+        // imbalance is exactly the A/B seam mismatch.
+        let tris = tetra_with_split_seam(0);
+        let attr = |ti: usize| Some((ti != 2, if ti == 2 { 7 } else { 0 }));
+        let regions = detect_nonmanifold_seams(&tris, &attr);
+        assert_eq!(regions.len(), 1, "one connected mismatched seam run");
+        let r = &regions[0];
+        // Edges: a-b (0-1), a-m (0-4), b-m (1-4).
+        assert_eq!(r.edges, vec![(0, 1), (0, 4), (1, 4)]);
+        // Both patches named — the pair the mesh-update must reconcile.
+        assert_eq!(r.keys, vec![(false, 7), (true, 0)]);
+    }
+
+    #[test]
+    fn detector_separates_disjoint_regions() {
+        // Two independent split tetrahedra (disjoint vertex sets) → two regions.
+        let mut tris = tetra_with_split_seam(0);
+        tris.extend(tetra_with_split_seam(10));
+        let attr = |ti: usize| {
+            let local = ti % 5;
+            Some((local != 2, ti as u32))
+        };
+        let regions = detect_nonmanifold_seams(&tris, &attr);
+        assert_eq!(regions.len(), 2, "two vertex-disjoint runs");
+        assert!(regions.iter().all(|r| r.edges.len() == 3));
     }
 
     // ---- Round-trip: lift ∘ project = identity for on-surface points. -------

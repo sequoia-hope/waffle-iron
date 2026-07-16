@@ -4426,6 +4426,33 @@ pub(crate) fn stage4_relocate_and_correct(
     if pinch_splits > 0 {
         collapsed_any = true;
     }
+    // (4b') #169 Phase-0 failure-region probe: before the gate fires, report the
+    // non-manifold seam regions + their patch pairs + whether each patch has a
+    // SurfaceChart (Plane/Cylinder) — the §4.4.1 mesh-update worklist. Gated on
+    // `YANG_MESHUP_REGION`, so byte-identical when unset (no production change).
+    if std::env::var_os("YANG_MESHUP_REGION").is_some() {
+        let regions = crate::stage4_project::detect_nonmanifold_seams(&mesh.tris, &|ti| {
+            attribution
+                .lookup(ti as u32)
+                .map(|at| (matches!(at.input, InputId::A), at.face))
+        });
+        for r in &regions {
+            eprintln!(
+                "YANG_MESHUP_REGION n_edges={} keys={:?} edges={:?}",
+                r.edges.len(),
+                r.keys,
+                r.edges
+            );
+            for &(is_a, face) in &r.keys {
+                let br = if is_a { brep_a } else { brep_b };
+                let surf = br.faces()[face as usize].surface;
+                eprintln!(
+                    "  key ({is_a},{face}) surface={surf:?} has_chart={}",
+                    crate::stage4_project::SurfaceChart::new(surf).is_some()
+                );
+            }
+        }
+    }
     // (4b) Explicit Stage-4 watertightness gate (§4.4.3).
     check_watertight_2manifold(mesh)?;
 
