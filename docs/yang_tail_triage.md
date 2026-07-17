@@ -35,20 +35,20 @@ Re-generate the baseline column only from a committed `results.json`.
 | R0096 | Stage-4 LRR v7 | torus×torus — same as R0044 | CONFIRMED (N52) | P2-M5 |
 | R0038 | Stage-4 LRR (u32::MAX) | plane tangent to cylinder along one generator; degree-2 gate self-validates (`bad_degree=[(18,4),(19,4)]`) — near-tangency pinch, NOT a CDT ring | CONFIRMED (#168 WIP4, 9f4cb604) | P3b-#137 |
 | R0072 | Stage-4 LRR (u32::MAX) | real ~1e-7 micro-scale edge (0.4% span); force-merge is the R0091 silent-wrong trap — needs curved re-CDT | CONFIRMED (N55) | P3c |
-| C0058 | Stage-4 LRR (u32::MAX) | fails downstream of the Stage-4 gate per #169 Phase-0 triage; specific site unknown | PROBE | PROBE |
+| C0058 | non-2-manifold (reassembly) | probe 2026-07-17: `NONMANIFOLD_SITE s6-curved-degenerate-loop` — Stage-6 curved face 2 emits a 64-vertex loop with \|Newell N\| = 2.3e-16 (degenerate junction loop) | CONFIRMED (#171 sweep) | P3a-#146 |
 | C0067 | Stage-4 LRR v128 | on-axis-sphere revolve (KV6d) boolean; revolve itself landed (#136), boolean relocation region invalid | PROBE | PROBE |
 | R0008 | Stage-4 LRR v42 | cone-apex crossing-generator tie-break shipped (#163/N45) but a residual region remains | PROBE | PROBE |
-| R0009 | Stage-4 LRR (u32::MAX) | previously InvalidBooleanOutput (N52 census); error class CHANGED since — re-diagnose | PROBE | PROBE |
+| R0009 | Stage-4 LRR (u32::MAX) | probe 2026-07-17: `site=split_max_passes` — the chord-split loop exhausts its pass budget (§4.5.2 refinement demand, non-convergent) | CONFIRMED (#171 sweep) | P3-§4.5.2 |
 | R0020 | Stage-4 LRR v44 | — | PROBE | PROBE |
 | R0025 | Stage-4 LRR v1760 | torus-profile rim crossing shipped (#131/N28); residual region | PROBE | PROBE |
 | R0032 | Stage-4 LRR v32 | — | PROBE | PROBE |
 | R0035 | Stage-4 LRR v194 | — | PROBE | PROBE |
-| R0047 | Stage-4 LRR (u32::MAX) | `YANG_LRR_STOP` tagged site exists (N52 probe infra) | PROBE | PROBE |
-| R0049 | Stage-4 LRR (u32::MAX) | fails downstream per #169 Phase-0 triage | PROBE | PROBE |
+| R0047 | Stage-4 LRR (u32::MAX) | probe 2026-07-17: `site=split_max_passes` — same class as R0009 | CONFIRMED (#171 sweep) | P3-§4.5.2 |
+| R0049 | non-2-manifold (reassembly) | probe 2026-07-17: `s6-planar-loop-nonplanar` face 134 vert 337 off-plane 1.449e-6 (band 1.0e-7) — the F0064 class (N51) | CONFIRMED (#171 sweep) | P3a-#146 |
 | R0050 | Stage-4 LRR v58 | torus-profile rim crossing shipped (#131/N28); residual region | PROBE | PROBE |
-| R0063 | Stage-4 LRR (u32::MAX) | re-entry zigzag class shipped (#145); residual | PROBE | PROBE |
+| R0063 | Stage-4 LRR (u32::MAX) | probe 2026-07-17: `site=split_max_passes` — same class as R0009 (the #145 zigzag residual resolves into the split-budget class) | CONFIRMED (#171 sweep) | P3-§4.5.2 |
 | R0077 | Stage-4 LRR v3 | — | PROBE | PROBE |
-| R0091 | Stage-4 LRR (u32::MAX) | the historical silent-wrong trap case, now a loud STOP — treat with P3c-level care | PROBE | PROBE |
+| R0091 | Stage-4 LRR (u32::MAX) | probe 2026-07-17: `site=split_max_passes` — same class as R0009; STILL the historical silent-wrong trap: any fix must be re-CDT/refinement, never a merge | CONFIRMED (#171 sweep) | P3-§4.5.2 |
 
 ### OffCurveBeyondChordBand (6)
 
@@ -70,9 +70,9 @@ Re-generate the baseline column only from a committed `results.json`.
 | C0044 | non-2-manifold | 3-patch junction fires the Stage-4 gate | CONFIRMED (#169 Phase 0) | P3a-#146 |
 | F0064 | non-2-manifold | wall vert 0.083 off floor plane; minted in Stage-4 mutation window OR inherited via lineage-less chained B (4 hypotheses eliminated, N51 session) | PARTIAL (#146) | P3a-#146 |
 | R0051 | non-2-manifold | in the #146 Newell-normal class per task | SUSPECTED | P3a-#146 |
-| F0058 | non-2-manifold | fails downstream per #169 Phase-0 triage | PROBE | PROBE→P3a |
-| F0060 | non-2-manifold | fails downstream per #169 Phase-0 triage | PROBE | PROBE→P3a |
-| F0085 | non-2-manifold | re-entry zigzag class shipped (#145); residual | PROBE | PROBE→P3a |
+| F0058 | non-2-manifold | probe 2026-07-17: `s4-shell-euler` shell root 106 χ=3 (v107 e314 f210) — Stage-4 shell-level Euler defect | CONFIRMED (#171 sweep) | P3a-#146 |
+| F0060 | non-2-manifold | probe 2026-07-17: `s4-shell-euler` shell root 118 χ=3 (v49 e150 f104) — same class as F0058 | CONFIRMED (#171 sweep) | P3a-#146 |
+| F0085 | non-2-manifold | probe 2026-07-17: `s4-halfedge-pairing` edge (5720,5731) fwd=1 rev=0, verts 0.043 apart — the R0038-type unpaired open seam (two-sided conformality) | CONFIRMED (#171 sweep) | P3b-#137 |
 
 ### CDT / tessellation failures (8) — mostly chained-input casualties
 
@@ -85,9 +85,9 @@ junction verts in that output then poison CDT. Suspected downstream of P3a.
 | R0011 | ring rejected by CDT (FaceId 407) | — | PROBE | PROBE→P3a? |
 | R0016 | ring rejected by CDT (FaceId 1885) | — | PROBE | PROBE→P3a? |
 | R0028 | ring rejected by CDT (FaceId 32) | — | PROBE | PROBE→P3a? |
-| R0017 | holed lateral CDT: degenerate input | hyperbola vocabulary landed (#124); residual degenerate loop | PROBE | PROBE |
+| R0017 | KV9-F2 folded patch triangulation | probe 2026-07-17: error class CHANGED — kernel-v2 `TessellationFailed` FaceId(14) "patch triangulation folded (inverted triangle)" (unrolled ear-clip fold), not the old holed-lateral CDT | CONFIRMED (#171 sweep) | kernel-v2 KV9-F2 |
 | R0085 | converted-input CDT backend failed (face 1) | chained-input | PROBE | PROBE→P3a? |
-| R0100 | holed lateral CDT backend failed (face 4) | chained-input | PROBE | PROBE→P3a? |
+| R0100 | KV9-F2 folded patch triangulation | probe 2026-07-17: error class CHANGED — kernel-v2 `TessellationFailed` FaceId(15) folded ear-clip, same class as R0017 | CONFIRMED (#171 sweep) | kernel-v2 KV9-F2 |
 | F0067 | converted-input CDT failed (face 272) | M8 opposite-rim projection class (#142/#143/#144) | CONFIRMED (task #144) | M8 |
 
 ### Stage-3 SSI (2)
@@ -112,7 +112,7 @@ junction verts in that output then poison CDT. Suspected downstream of P3a.
 | C0046 | NonManifoldVertex(17) | kernel-v2 B-Rep-level vertex defect | PROBE | PROBE |
 | C0048 | azimuth-merge rims mismatched (66 vs 69) | M8 rim-crossing/uniform-sample merge (#143 landed; residual = #144 snap-rounding) | CONFIRMED (#144) | M8 |
 | C0075 | InvalidBooleanOutput (undirected edge ≠ 2 directed) | — | PROBE | PROBE |
-| R0019 | input B-Rep not 2-manifold | chained input carries a defect from an earlier output | PROBE | PROBE→P3a? |
+| R0019 | input B-Rep not 2-manifold | probe 2026-07-17 REFUTES the chained-defect suspicion: the FIRST boolean (`op=Subtract a: 2v/3f`) rejects — operand A is a 2-vertex/3-face revolve-primitive B-Rep the yang input gate cannot accept (primitive topology vocabulary, KV6-class) | CONFIRMED (#171 sweep) | KV6/scope |
 | R0053 | patch flood-fill LabelMismatch {seed 2, tri 3890} | native arrangement patch labeling — Stage 2/3 | PROBE | PROBE |
 
 ### Capability / scope (4)
@@ -156,6 +156,37 @@ box). The #174 ratchet may now bind corpus-wide. #178 follow-up scenarios
 recorded in N57: coincident-CYLINDER sub-resolution radius gap (needs a
 corpus case FIRST, coverage directive) and tilt-only sub-resolution wedges.
 
+## Probe sweep 2026-07-17 (#171, first pass over the queue)
+
+All 33 queue cases replayed with `YANG_LRR_PROBE` / `NONMANIFOLD_SITE_PROBE`
+/ `YANG_S6_NONPLANAR_PROBE` / `YANG_COPLANAR_PROBE` (release, 180 s caps;
+logs archived in the session scratchpad). 12 rows upgraded to CONFIRMED
+above. Findings that shape the remaining queue:
+
+- **`split_max_passes` is a 4-case class** (R0009, R0047, R0063, R0091) —
+  every u32::MAX LRR in the queue shares the chord-split budget-exhaustion
+  site. One mechanism, one future fix vehicle (the §4.5.2 guarded
+  refinement shell).
+- **The #169 "fails downstream" bucket resolves into named sites**:
+  s4-shell-euler (F0058/F0060), s4-halfedge-pairing open seam (F0085,
+  R0038-type), s6-planar-loop-nonplanar (R0049 = F0064 class),
+  s6-curved-degenerate-loop (C0058).
+- **Two error classes silently drifted since their rows were written**:
+  R0017/R0100 now fail as kernel-v2 KV9-F2 folded ear-clip (not holed
+  lateral CDT); R0019's non-2-manifold INPUT is the first boolean's
+  revolve-primitive operand (2v/3f), refuting the chained-defect theory.
+- **Still PROBE after the sweep** (no deeper probe light; each needs a
+  targeted per-case dig, not another sweep): the identified-vertex LRR
+  regions (C0067 v128, R0008 v42, R0020 v44, R0025 v1760, R0032 v32,
+  R0035 v194, R0050 v58, R0077 v3, R0085-op2 v5; all with §4.5.1
+  `n_over=0` — interior-bounded recovery inapplicable), the
+  OffCurve trio (R0015/R0026/R0070), the CDT ring-rejects
+  (F0045/R0011/R0016/R0028/R0085-op1 — need a kernel-v2 ring-geometry
+  probe), Stage-3 AmbiguousCurve{1,0} (C0043/C0056 — need a candidate/
+  match probe), C0046, C0075, R0053.
+- All coplanar cross pairs in the queue cases are femto-class
+  (max 1.1e-13, `subres=false`) — live confirmation of the #178/N57 line.
+
 ## Rollup
 
 | Vehicle | Cases |
@@ -168,7 +199,7 @@ corpus case FIRST, coverage directive) and tilt-only sub-resolution wedges.
 | M8 residue | 4 confirmed (R0007, R0071, C0048, F0067) |
 | #153 NonPlanarFace | 2 confirmed + 1 suspected |
 | KV6/scope | 2 (C0063, R0004) |
-| **PROBE queue (root cause unconfirmed)** | **26** |
+| **PROBE queue (root cause unconfirmed)** | **14** (was 26; 12 confirmed by the 2026-07-17 #171 sweep) |
 
 **Reading:** the confirmed set already covers ~28 of 54 cases and justifies the
 plan's ordering (P3a-#146 is plausibly the single biggest lever if the
