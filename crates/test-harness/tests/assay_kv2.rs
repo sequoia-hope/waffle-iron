@@ -1214,11 +1214,14 @@ fn smoke_corpus_boundary_categories() {
         ("C0103", Category::SupportedCorrect), // 7a GRAZING cyl corner (#137-cyl class)
         ("C0106", Category::SupportedCorrect), // 7a cap through bicylinder curve
         // FINDING C0105-F1 (2026-07-17): the frustum notch (cone∩plane∩plane
-        // corners) silently emits a non-watertight, SELF-INTERSECTING shell
-        // (51 unpaired edges, 10 penetrations, χ=−1) — a silent-wrong in the
-        // conic-junction class. Pinned RED honestly; must become a loud STOP
-        // (P10), not a band (see the spec's findings section).
-        ("C0105", Category::SupportedWrong),
+        // corners) silently emitted a non-watertight, SELF-INTERSECTING shell
+        // (51 unpaired edges, 10 penetrations, χ=−1). CONVERTED to a loud
+        // typed STOP by the #173/N6 render-level gate the same day
+        // (`SelfIntersectingBooleanOutput`, kernel-v2 `validate::selfx`) —
+        // the boolean_subtract now rejects at the boundary. The #177
+        // residual is the WATERTIGHT half (how 51 unpaired edges evaded a
+        // gate); the case itself is loud now.
+        ("C0105", Category::Error),
         ("C0107", Category::Error), // 7b point-tangent sphere⊕cyl: loud non-2-manifold
         ("C0110", Category::SupportedCorrect), // 7b line-tangent box⊕cyl union
         // FINDING C0111/C0113-F1 (2026-07-17): sliver walls at 1e-8 m (below
@@ -1232,12 +1235,15 @@ fn smoke_corpus_boundary_categories() {
         ("C0114", Category::SupportedCorrect), // 7e coincident pocket walls merge exactly
         ("C0115", Category::SupportedCorrect), // 7e coplanar-floor membrane opens exactly
         // FINDING C0116-F1 (2026-07-17): the 0.01-deep perpendicular cyl×cyl
-        // graze passes watertight/χ/volume but the shell SELF-INTERSECTS (10
-        // penetrations) with no kernel STOP — the N6 deviation (#173) made
-        // concrete in a corpus case for the first time. This is the designed
-        // #173 red-phase fixture; the pin flips to a typed loud STOP when the
-        // §4.5.4 detector lands.
-        ("C0116", Category::SupportedWrong),
+        // graze passed watertight/χ/volume while the shell SELF-INTERSECTED
+        // (10 penetrations) with no kernel STOP — the N6 red-phase fixture.
+        // CONVERTED the same day by the #173/N6 detector: the render-level
+        // gate (`SelfIntersectingBooleanOutput`, kernel-v2 `validate::selfx`)
+        // rejects the auto-union loudly. (Measurement note, spec §6: the
+        // defect is SUB-SAGITTA in the coarse Stage-4 mesh — the exact
+        // mesh-level detector provably cannot see it; render resolution is
+        // the observable layer.)
+        ("C0116", Category::Error),
         ("C0117", Category::SupportedCorrect), // 7f 1e-4 curved tube wall survives
     ];
     for (id, expect) in expected {

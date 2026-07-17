@@ -258,15 +258,22 @@ fn steinmetz_subtract_exact_volume() {
     );
 }
 
-/// M5 (`specs/m5_surface_pair_curve.md`): the irreducible quartic is now
-/// SUPPORTED via the procedural surface-pair curve — the general unequal-radius
-/// 90° cyl×cyl union produces a valid, watertight solid whose degree-4 seam is
-/// carried exactly by its two defining cylinders (no conic approximation).
-/// Volume oracle: the union lies strictly between the larger cylinder alone
-/// (they overlap, so more than `V1`) and the disjoint sum `V1 + V2` (they DO
-/// overlap, so strictly less). Was `unequal_perpendicular_stays_walled`.
+/// M5 (`specs/m5_surface_pair_curve.md`) — REVISED at #173 (2026-07-17):
+/// the surface-pair-curve increment let this general unequal-radius 90°
+/// cyl×cyl union COMPLETE (watertight, volume-plausible), but the N6
+/// render-level gate (`validate::selfx`, spec `yang_173_selfx_detector.md`)
+/// exposed the completion as a FALSE GREEN: the emitted shell fails the
+/// corpus' own inter-face self-intersection standard (79 penetrations
+/// beyond the grazing band at render resolution — this fixture simply
+/// never ran under that oracle before). The prior expectation asserted
+/// watertight/volume but not self-intersection. Root fix is [M5]/#172
+/// territory (exact degree-4 trim + conformal seam sampling — the
+/// equal-radius Steinmetz corpus cases pass because their intersection
+/// degenerates to exact ellipses); flip this pin back when that lands.
+/// Was `unequal_perpendicular_now_supported`; before that,
+/// `unequal_perpendicular_stays_walled`.
 #[test]
-fn unequal_perpendicular_now_supported() {
+fn unequal_perpendicular_walls_on_selfx_gate() {
     let mut a = BrepArena::new();
     let (r1, r2) = (0.3_f64, 0.18_f64);
     let c1 = cyl(
@@ -289,23 +296,14 @@ fn unequal_perpendicular_now_supported() {
         r2,
         1.0,
     );
-    let out = boolean_op(&mut a, c1, c2, BoolOp::Union)
-        .expect("M5: general cyl×cyl union is supported via the surface-pair curve");
-    validate_solid(&a, out).expect("watertight, 2-manifold solid");
-    let mesh = tessellate(&a, out).expect("tessellate");
+    let err = boolean_op(&mut a, c1, c2, BoolOp::Union)
+        .expect_err("[M5]/#172 pin: the union must wall on the N6 self-intersection gate");
     assert!(
-        mesh.positions.iter().all(|c| c.is_finite()),
-        "no NaN/inf positions"
-    );
-    let vol = mesh_signed_volume(&mesh);
-    let v1 = std::f64::consts::PI * r1 * r1 * 1.0;
-    let v2 = std::f64::consts::PI * r2 * r2 * 1.0;
-    // Chord-inscribed mesh, so allow a small deficit below the analytic bounds.
-    assert!(
-        vol > 0.9 * v1 && vol < v1 + v2,
-        "union volume {vol} out of (0.9·V1={}, V1+V2={})",
-        0.9 * v1,
-        v1 + v2
+        matches!(
+            err,
+            kernel_v2::KernelV2Error::SelfIntersectingBooleanOutput { .. }
+        ),
+        "expected the typed §4.5.4 STOP, got: {err:?}"
     );
 }
 

@@ -15,14 +15,23 @@
 //! a defective mesh can be traced back to its producer (the M8 Stage-0
 //! emission diagnosis, spec `m8_stage0_inputcheck_clean_emission` §6).
 //!
-//! **DIAGNOSTIC ORACLE, NOT A GATE.** Do not wire this into a production
-//! boolean path: (a) the Intersection tier is O(n²) exact tri-tri
-//! classification with only AABB pruning; (b) legitimately-chained inputs
-//! whose collinear edge chains subdivide differently (the N22 fold-sliver
-//! class) violate mesh-level coverage forms on VALID data — the measured
-//! false-positive population that P10-aborted the yang-rs kept-mesh gate
+//! **`census` IS A DIAGNOSTIC ORACLE, NOT A GATE.** Do not wire the full
+//! census into a production boolean path: (a) the five-axiom sweep is
+//! expensive; (b) legitimately-chained INPUT operands whose collinear edge
+//! chains subdivide differently (the N22 fold-sliver class) violate
+//! mesh-level coverage forms on VALID data — the measured false-positive
+//! population that P10-aborted the yang-rs kept-mesh gate
 //! (`specs/yang_kept_mesh_manifold_gate.md` §2b). Enforcement of the
 //! Stage-0 operand contract lives in dev-only tests and trackers.
+//!
+//! The Intersection tier alone is separately exported as
+//! [`detect_improper_contacts`] for the §4.5.4 illegal-self-intersection
+//! detector on boolean OUTPUT shells (task #173, spec
+//! `specs/yang_173_selfx_detector.md`), where the N22 false-positive
+//! legitimacy does not apply: an output shell is one arrangement-derived
+//! indexed mesh whose conformality contract is index-level, so
+//! index-disjoint contact is a genuine defect. That consumer gates on a
+//! corpus-wide false-positive measurement recorded in its spec.
 //!
 //! The Intersection tier reuses [`classify_pair`] — the same exact tri-tri
 //! classification the native arrangement itself runs — so "improper" here
@@ -211,6 +220,153 @@ impl NativeInputCheck {
         ));
         s
     }
+}
+
+/// Result of the standalone improper-contact sweep
+/// ([`detect_improper_contacts`]).
+#[derive(Clone, Debug, Default)]
+pub struct ImproperContacts {
+    /// Non-index-sharing triangle pairs the exact classification reports
+    /// as intersecting/touching (transversal or coplanar contact).
+    /// Sorted ascending, original triangle ids.
+    pub improper_pairs: Vec<(u32, u32)>,
+    /// Pairs `classify_pair` deferred (degenerate configuration) — loud,
+    /// never silently dropped. `(u32::MAX, u32::MAX)` if the soup itself
+    /// could not be constructed (out-of-range index).
+    pub unresolved_pairs: Vec<(u32, u32)>,
+}
+
+impl ImproperContacts {
+    /// No improper or unresolved contact anywhere.
+    pub fn is_clean(&self) -> bool {
+        self.improper_pairs.is_empty() && self.unresolved_pairs.is_empty()
+    }
+}
+
+/// Exact improper-contact sweep over an indexed triangle soup — the census
+/// Intersection tier as a standalone primitive (census delegates here).
+///
+/// Reports every pair of triangles that share **no vertex index** yet
+/// classify as non-`Disjoint` under [`classify_pair`] — the same exact
+/// tri-tri classification the native arrangement runs, so "improper" means
+/// precisely "the arrangement would construct intersection structure for
+/// this pair". Index-degenerate and exactly-collinear triangles are
+/// excluded (out of `classify_pair`'s contract; census reports them
+/// separately).
+///
+/// **Pruning:** per-triangle AABBs, sorted by min-x with a sweep window
+/// (only strictly-separated boxes are pruned — touching boxes stay
+/// candidates because exact contact matters). Deterministic output order
+/// (sorted pairs).
+pub fn detect_improper_contacts(verts: &[Point3], tris: &[[u32; 3]]) -> ImproperContacts {
+    let mut r = ImproperContacts::default();
+
+    // Eligibility: distinct-index, non-collinear triangles.
+    let mut eligible: Vec<u32> = Vec::with_capacity(tris.len());
+    for (t, tri) in tris.iter().enumerate() {
+        if tri[0] == tri[1] || tri[1] == tri[2] || tri[0] == tri[2] {
+            continue;
+        }
+        if tri.iter().any(|&v| v as usize >= verts.len()) {
+            // Out-of-range index: report the whole tier unresolved rather
+            // than silently skipping (mirrors census's construction-failure
+            // path) — but keep scanning eligibility so the count is stable.
+            r.unresolved_pairs = vec![(u32::MAX, u32::MAX)];
+            return r;
+        }
+        let (a, b, c) = (
+            verts[tri[0] as usize],
+            verts[tri[1] as usize],
+            verts[tri[2] as usize],
+        );
+        if points_are_collinear_3d(a, b, c) {
+            continue;
+        }
+        eligible.push(t as u32);
+    }
+    let el_tris: Vec<[u32; 3]> = eligible.iter().map(|&t| tris[t as usize]).collect();
+    let soup = match FastTrimesh::from_soup(verts, &el_tris, Plane::XY) {
+        Ok(s) => s,
+        Err(_) => {
+            if !el_tris.is_empty() {
+                r.unresolved_pairs.push((u32::MAX, u32::MAX));
+            }
+            return r;
+        }
+    };
+
+    // Per-triangle AABBs.
+    let boxes: Vec<[f64; 6]> = el_tris
+        .iter()
+        .map(|tri| {
+            let mut bb = [
+                f64::INFINITY,
+                f64::INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+            ];
+            for &v in tri {
+                let p = verts[v as usize];
+                for (k, c) in [p.x(), p.y(), p.z()].into_iter().enumerate() {
+                    bb[k] = bb[k].min(c);
+                    bb[k + 3] = bb[k + 3].max(c);
+                }
+            }
+            bb
+        })
+        .collect();
+
+    // Sweep on min-x: after sorting, j's box can only overlap i's if
+    // min_x[j] <= max_x[i]. Strictly-separated boxes never reach the
+    // exact predicate; touching boxes do.
+    let mut order: Vec<u32> = (0..el_tris.len() as u32).collect();
+    order.sort_by(|&a, &b| {
+        boxes[a as usize][0]
+            .total_cmp(&boxes[b as usize][0])
+            .then(a.cmp(&b))
+    });
+
+    for (si, &i) in order.iter().enumerate() {
+        let ba = &boxes[i as usize];
+        'pair: for &j in &order[si + 1..] {
+            let bb = &boxes[j as usize];
+            if bb[0] > ba[3] {
+                break; // sorted by min-x: no later j can overlap i
+            }
+            if ba[4] < bb[1] || bb[4] < ba[1] || ba[5] < bb[2] || bb[5] < ba[2] {
+                continue;
+            }
+            // Proper adjacency: any shared vertex INDEX.
+            for &va in &el_tris[i as usize] {
+                if el_tris[j as usize].contains(&va) {
+                    continue 'pair;
+                }
+            }
+            let orig = (
+                eligible[i as usize].min(eligible[j as usize]),
+                eligible[i as usize].max(eligible[j as usize]),
+            );
+            match classify_pair(&soup, i.min(j), i.max(j)) {
+                PairClassification::Disjoint => {}
+                PairClassification::Transversal { vertices } => {
+                    if !vertices.is_empty() {
+                        r.improper_pairs.push(orig);
+                    }
+                }
+                PairClassification::Coplanar { vertices, segments } => {
+                    if !vertices.is_empty() || !segments.is_empty() {
+                        r.improper_pairs.push(orig);
+                    }
+                }
+                PairClassification::Deferred(_) => r.unresolved_pairs.push(orig),
+            }
+        }
+    }
+    r.improper_pairs.sort_unstable();
+    r.unresolved_pairs.sort_unstable();
+    r
 }
 
 /// Run the five-axiom census over an indexed triangle soup.
@@ -424,80 +580,11 @@ pub fn census(verts: &[Point3], tris: &[[u32; 3]]) -> NativeInputCheck {
     r.component_signed_volumes = vol_by_root.into_values().collect();
 
     // ── Tier 3: exact improper-intersection sweep ───────────────────────
-    // Eligible: distinct-index, non-collinear triangles (degenerates are
-    // already reported; `classify_pair`'s contract excludes them).
-    let collinear: &[u32] = &r.collinear_degenerate_tris;
-    let eligible: Vec<u32> = live
-        .iter()
-        .copied()
-        .filter(|t| !collinear.contains(t))
-        .collect();
-    let el_tris: Vec<[u32; 3]> = eligible.iter().map(|&t| tris[t as usize]).collect();
-    if let Ok(soup) = FastTrimesh::from_soup(verts, &el_tris, Plane::XY) {
-        // Per-triangle AABBs; prune strictly-separated pairs (touching
-        // boxes stay candidates — exact contact matters).
-        let boxes: Vec<[f64; 6]> = el_tris
-            .iter()
-            .map(|tri| {
-                let mut bb = [
-                    f64::INFINITY,
-                    f64::INFINITY,
-                    f64::INFINITY,
-                    f64::NEG_INFINITY,
-                    f64::NEG_INFINITY,
-                    f64::NEG_INFINITY,
-                ];
-                for &v in tri {
-                    let p = verts[v as usize];
-                    for (k, c) in [p.x(), p.y(), p.z()].into_iter().enumerate() {
-                        bb[k] = bb[k].min(c);
-                        bb[k + 3] = bb[k + 3].max(c);
-                    }
-                }
-                bb
-            })
-            .collect();
-        for i in 0..el_tris.len() {
-            'pair: for j in (i + 1)..el_tris.len() {
-                let (ba, bb) = (&boxes[i], &boxes[j]);
-                if ba[3] < bb[0]
-                    || bb[3] < ba[0]
-                    || ba[4] < bb[1]
-                    || bb[4] < ba[1]
-                    || ba[5] < bb[2]
-                    || bb[5] < ba[2]
-                {
-                    continue;
-                }
-                // Proper adjacency: any shared vertex INDEX.
-                for &va in &el_tris[i] {
-                    if el_tris[j].contains(&va) {
-                        continue 'pair;
-                    }
-                }
-                let orig = (eligible[i].min(eligible[j]), eligible[i].max(eligible[j]));
-                match classify_pair(&soup, i as u32, j as u32) {
-                    PairClassification::Disjoint => {}
-                    PairClassification::Transversal { vertices } => {
-                        if !vertices.is_empty() {
-                            r.improper_pairs.push(orig);
-                        }
-                    }
-                    PairClassification::Coplanar { vertices, segments } => {
-                        if !vertices.is_empty() || !segments.is_empty() {
-                            r.improper_pairs.push(orig);
-                        }
-                    }
-                    PairClassification::Deferred(_) => r.unresolved_pairs.push(orig),
-                }
-            }
-        }
-    } else if !el_tris.is_empty() {
-        // Construction failure after degeneracy filtering means an
-        // out-of-range index — report every eligible pairing as
-        // unresolved rather than silently skipping the tier.
-        r.unresolved_pairs.push((u32::MAX, u32::MAX));
-    }
+    // Delegates to the standalone primitive (identical eligibility: it
+    // excludes index-degenerate and exactly-collinear triangles itself).
+    let contacts = detect_improper_contacts(verts, tris);
+    r.improper_pairs = contacts.improper_pairs;
+    r.unresolved_pairs = contacts.unresolved_pairs;
 
     r
 }
@@ -643,6 +730,131 @@ mod tests {
         let t = vec![[0, 1, 2], [0, 3, 4]];
         let c = census(&v, &t);
         assert_eq!(c.nonmanifold_verts, vec![0]);
+    }
+
+    // ── detect_improper_contacts (standalone primitive, #173) ───────────
+
+    #[test]
+    fn contacts_clean_tet_is_clean() {
+        let (v, t) = tet();
+        let c = detect_improper_contacts(&v, &t);
+        assert!(c.is_clean(), "got: {c:?}");
+    }
+
+    #[test]
+    fn contacts_piercing_pair_flagged() {
+        let (mut v, mut t) = tet();
+        let base = v.len() as u32;
+        v.extend([p(0.5, 0.5, -0.5), p(0.5, 0.5, 1.0), p(0.6, 0.4, -0.5)]);
+        t.push([base, base + 1, base + 2]);
+        let c = detect_improper_contacts(&v, &t);
+        assert!(!c.improper_pairs.is_empty(), "got: {c:?}");
+        assert!(c.unresolved_pairs.is_empty());
+    }
+
+    #[test]
+    fn contacts_coplanar_overlap_flagged() {
+        let v = vec![
+            p(0.0, 0.0, 0.0),
+            p(2.0, 0.0, 0.0),
+            p(0.0, 2.0, 0.0),
+            p(0.5, 0.5, 0.0),
+            p(2.5, 0.5, 0.0),
+            p(0.5, 2.5, 0.0),
+        ];
+        let t = vec![[0, 1, 2], [3, 4, 5]];
+        let c = detect_improper_contacts(&v, &t);
+        assert_eq!(c.improper_pairs, vec![(0, 1)]);
+    }
+
+    #[test]
+    fn contacts_index_shared_adjacency_skipped() {
+        // Two triangles sharing an edge BY INDEX: proper adjacency.
+        let v = vec![
+            p(0.0, 0.0, 0.0),
+            p(1.0, 0.0, 0.0),
+            p(0.0, 1.0, 0.0),
+            p(1.0, 1.0, 0.0),
+        ];
+        let t = vec![[0, 1, 2], [1, 3, 2]];
+        let c = detect_improper_contacts(&v, &t);
+        assert!(c.is_clean(), "got: {c:?}");
+    }
+
+    #[test]
+    fn contacts_twin_mediated_edge_flagged() {
+        // Same two triangles, but the second references bit-identical TWIN
+        // vertices instead of shared indices — improper for the arrangement
+        // (keys exact identity per index).
+        let v = vec![
+            p(0.0, 0.0, 0.0),
+            p(1.0, 0.0, 0.0),
+            p(0.0, 1.0, 0.0),
+            p(1.0, 1.0, 0.0),
+            p(1.0, 0.0, 0.0), // twin of 1
+            p(0.0, 1.0, 0.0), // twin of 2
+        ];
+        let t = vec![[0, 1, 2], [4, 3, 5]];
+        let c = detect_improper_contacts(&v, &t);
+        assert_eq!(c.improper_pairs, vec![(0, 1)]);
+    }
+
+    #[test]
+    fn contacts_degenerates_excluded_not_crashing() {
+        let v = vec![
+            p(0.0, 0.0, 0.0),
+            p(1.0, 0.0, 0.0),
+            p(2.0, 0.0, 0.0),
+            p(0.0, 1.0, 0.0),
+        ];
+        let t = vec![[0, 1, 1], [0, 1, 2], [0, 1, 3]];
+        let c = detect_improper_contacts(&v, &t);
+        assert!(c.is_clean(), "degenerates are census's report, got: {c:?}");
+    }
+
+    #[test]
+    fn contacts_out_of_range_index_is_unresolved_loudly() {
+        let v = vec![p(0.0, 0.0, 0.0), p(1.0, 0.0, 0.0), p(0.0, 1.0, 0.0)];
+        let t = vec![[0, 1, 9]];
+        let c = detect_improper_contacts(&v, &t);
+        assert_eq!(c.unresolved_pairs, vec![(u32::MAX, u32::MAX)]);
+    }
+
+    /// Sweep pruning ≡ full double loop: same pairs on a mixed scene
+    /// (piercing + coplanar overlap + adjacency + far-apart tris) and
+    /// agreement with census's tier on every census fixture above.
+    #[test]
+    fn contacts_sweep_matches_census_tier() {
+        let scenes: Vec<(Vec<Point3>, Vec<[u32; 3]>)> = vec![
+            tet(),
+            {
+                let (mut v, mut t) = tet();
+                let base = v.len() as u32;
+                v.extend([p(0.5, 0.5, -0.5), p(0.5, 0.5, 1.0), p(0.6, 0.4, -0.5)]);
+                t.push([base, base + 1, base + 2]);
+                (v, t)
+            },
+            (
+                vec![
+                    p(0.0, 0.0, 0.0),
+                    p(2.0, 0.0, 0.0),
+                    p(0.0, 2.0, 0.0),
+                    p(0.5, 0.5, 0.0),
+                    p(2.5, 0.5, 0.0),
+                    p(0.5, 2.5, 0.0),
+                    p(10.0, 0.0, 0.0),
+                    p(11.0, 0.0, 0.0),
+                    p(10.0, 1.0, 0.0),
+                ],
+                vec![[0, 1, 2], [3, 4, 5], [6, 7, 8]],
+            ),
+        ];
+        for (v, t) in &scenes {
+            let c = detect_improper_contacts(v, t);
+            let cen = census(v, t);
+            assert_eq!(c.improper_pairs, cen.improper_pairs);
+            assert_eq!(c.unresolved_pairs, cen.unresolved_pairs);
+        }
     }
 
     #[test]

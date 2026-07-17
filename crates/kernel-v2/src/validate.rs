@@ -65,6 +65,8 @@ use cad_primitives::Point3;
 
 mod faces;
 pub(crate) use faces::*;
+mod selfx;
+pub use selfx::validate_boolean_output_self_intersection;
 
 /// Debug-tier planarity tripwire: maximum |signed distance| of a loop
 /// vertex from its face plane, as a RELATIVE band — multiplied by

@@ -79,11 +79,19 @@ in the ledger is PERMANENT with user sign-off.
       silently accept.
    N2 closes as the sum of these wirings, not as an abstract epic.
 4. **N6 detector-first** — §4.5.4 illegal-self-intersection detection as a new
-   loud STOP class; removal comes after. Design settled by findings Q5: exact
-   non-adjacent tri–tri test on the output shell via the existing `cherchi-rs`
-   indirect predicates + octree broad-phase; removal (increment 2) routes into
-   the phase-3 mesh-update loop. Closes the last OPEN deviation cheaply in its
-   first increment.
+   loud STOP class; removal comes after. *DETECTION SHIPPED 2026-07-17 (task
+   #173, spec `specs/yang_173_selfx_detector.md`) with a measured CORRECTION
+   to findings Q5: the exact mesh-level test and the C0116 silent-wrong class
+   see DISJOINT defects. The exact non-adjacent tri–tri test on the Stage-4
+   mesh fires on 53 cases (33 CORRECT) of relocation-minted seam
+   chord-crossings — the §4.5.4 artifacts whose remedy is REMOVAL (#169
+   increment 2), so it is banked as the `YANG_SELFX_PROBE` diagnostic (its
+   fire-list is the removal worklist), NOT a STOP. The production STOP is
+   kernel-v2's render-resolution boolean-output gate (`validate::selfx`, a
+   semantics-identical port of the corpus-calibrated assay oracle): sub-
+   sagitta B-Rep-level penetrations are only observable where the true
+   surfaces are sampled finely. Converts C0116 AND C0105 WRONG→ERROR.
+   Removal (increment 2) routes into the phase-3 mesh-update loop.*
 5. **Capability tails** (interleavable): M8 coplanar residue (#130) +
    rim-projection (#144), KV6 revolve leftovers, non-convex/curved profiles,
    #153 NonPlanarFace wall.

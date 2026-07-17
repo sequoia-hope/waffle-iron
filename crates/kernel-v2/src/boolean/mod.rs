@@ -307,6 +307,11 @@ pub fn boolean_op(
     // vertices that evaded the (averaged) Newell orientation checks. Loud
     // typed reject at the boundary; never a snap or repair (P9).
     crate::validate::validate_boolean_output_planarity(arena, out_solid)?;
+    // N6 / §4.5.4 (task #173): PRODUCTION self-intersection gate at render
+    // resolution — the layer where sub-sagitta B-Rep-level penetrations
+    // (the C0116 cyl×cyl graze class) become observable. Loud typed
+    // reject; never a snap or trim repair (P9). See `validate::selfx`.
+    crate::validate::validate_boolean_output_self_intersection(arena, out_solid)?;
     // KV13 F2: record the boolean's per-face lineage in the journal.
     record_boolean_evolution(arena, op, &out, &out_face_ids, &a_faces, &b_faces);
     Ok(out_solid)

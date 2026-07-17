@@ -15,8 +15,13 @@
 //!   inherited from the mesh boolean. The paper's CDT remesh / split-merge-insert
 //!   is **NOT implemented** (deviation N2 in `docs/yang_deviations.md`); the
 //!   sidecar's trimmed mesh is trusted and `check_watertight_2manifold` gates the
-//!   output. Likewise §4.5.4 illegal-self-intersection removal is **NOT
-//!   implemented** (deviation N6, roadmap-tracked).
+//!   output. §4.5.4 illegal-self-intersection DETECTION shipped 2026-07-17
+//!   (task #173, two layers — spec `specs/yang_173_selfx_detector.md`): the
+//!   production loud STOP is kernel-v2's render-resolution boolean-output
+//!   gate; the exact mesh-level test is banked here as the `YANG_SELFX_PROBE`
+//!   diagnostic (`stage5_topology`, pre-`emit_topology`). REMOVAL (the
+//!   paper's local refinement) is **NOT implemented** (deviation N6 residue,
+//!   folded into the #169 mesh-update loop).
 //! - **Stage 5** (§4.4.2): Patch segmentation (flood-fill)
 //! - **Stage 6** (§4.4.2): B-Rep reassembly
 //!

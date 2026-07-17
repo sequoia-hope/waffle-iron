@@ -318,6 +318,22 @@ pub enum KernelV2Error {
     /// `introspect::face_plane` was asked for the plane of a face whose
     /// surface is not planar.
     FaceNotPlanar { face: FaceId },
+
+    /// N6 / §4.5.4 (task #173): triangles of two different faces of a
+    /// boolean output penetrate each other beyond the grazing band at
+    /// render resolution — the emitted shell self-intersects. PRODUCTION
+    /// gate (`validate::validate_boolean_output_self_intersection`), the
+    /// render-resolution layer of the two-layer N6 detector (spec
+    /// `specs/yang_173_selfx_detector.md`): sub-sagitta B-Rep-level
+    /// penetrations (the C0116 cyl×cyl graze class) are invisible in the
+    /// coarse Stage-4 mesh and only observable where the true surfaces
+    /// are sampled finely. A loud typed STOP — never a snap, trim repair,
+    /// or tolerance widening (P9/P10).
+    SelfIntersectingBooleanOutput {
+        face_a: FaceId,
+        face_b: FaceId,
+        penetrations: usize,
+    },
 }
 
 impl core::fmt::Display for KernelV2Error {

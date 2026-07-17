@@ -308,6 +308,54 @@ pub(crate) fn reconstruct_topology_stage4(
         }
     }
 
+    // (#173 / N6) §4.5.4 illegal-self-intersection PROBE on the FINAL mesh
+    // (verts 1:1 with the emitted output vertices). Gated on
+    // `YANG_SELFX_PROBE`, byte-identical when unset. Measurement-first per
+    // `specs/yang_173_selfx_detector.md` §4 — the always-on loud STOP ships
+    // only after the corpus-wide false-positive measurement passes.
+    if std::env::var_os("YANG_SELFX_PROBE").is_some() {
+        let t0 = std::time::Instant::now();
+        let contacts = cherchi_rs::detect_improper_contacts(&mesh.verts, &mesh.tris);
+        eprintln!(
+            "YANG_SELFX_CHECKED tris={} improper={} unresolved={} ms={}",
+            mesh.tris.len(),
+            contacts.improper_pairs.len(),
+            contacts.unresolved_pairs.len(),
+            t0.elapsed().as_millis()
+        );
+        if !contacts.is_clean() {
+            eprintln!(
+                "YANG_SELFX improper={} unresolved={}",
+                contacts.improper_pairs.len(),
+                contacts.unresolved_pairs.len()
+            );
+            let attr_of = |t: u32| {
+                attribution
+                    .attributions
+                    .get(t as usize)
+                    .and_then(|o| o.as_ref().map(|at| (at.input, at.face)))
+            };
+            for &(ta, tb) in contacts
+                .improper_pairs
+                .iter()
+                .chain(contacts.unresolved_pairs.iter())
+                .take(8)
+            {
+                eprintln!(
+                    "  pair ({ta},{tb}) attr=({:?},{:?}) A={:?} B={:?}",
+                    attr_of(ta),
+                    attr_of(tb),
+                    mesh.tris
+                        .get(ta as usize)
+                        .map(|t| t.map(|v| mesh.verts[v as usize])),
+                    mesh.tris
+                        .get(tb as usize)
+                        .map(|t| t.map(|v| mesh.verts[v as usize])),
+                );
+            }
+        }
+    }
+
     emit_topology(mesh, &infos, &intersection_curves, &relocations, op)
 }
 

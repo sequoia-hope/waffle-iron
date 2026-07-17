@@ -44,7 +44,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N3 | RESOLVED | §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion) |
 | N4 | RESOLVED | Face provenance via centroid-proximity, not §4.2.3 barycentric implicit mapping |
 | N5 | PERMANENT (A) | Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2 CDT framework |
-| N6 | OPEN | §4.5.4 illegal self-intersection detection/removal absent |
+| N6 | OPEN | §4.5.4 illegal self-intersection — DETECTION SHIPPED 2026-07-17 (#173, two-layer); removal folded into #169; closure pending ratification |
 | N7 | PERMANENT | Stage 3 uses closed-form algebraic SSI instead of §4.3 Newton/geometric optimization |
 | N8 | RESOLVED | Stage 0 (§4.5.5 coplanar) verified NATIVE-need, not sidecar-delegated |
 | N9 | PERMANENT (A) | Planar non-convex / holed Stage-1 tessellation uses no-Steiner CDT (spade) |
@@ -97,13 +97,13 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count: 2** (N2, N6). Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count: 2** (N2, N6 — N6's detection half SHIPPED 2026-07-17, #173; its removal half is #169 machinery, closure pending ratification). Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
 ## OPEN deviations (temporary; remediation tracked; investigation blocked)
 
-The live paper-compliance backlog. N2 is the §4.4.1 mesh-updating + §4.5.2 local-refinement gap (epic #169, `specs/yang_mesh_updating_epic.md`); N6 is §4.5.4 illegal-self-intersection removal (roadmap M8 milestone).
+The live paper-compliance backlog. N2 is the §4.4.1 mesh-updating + §4.5.2 local-refinement gap (epic #169, `specs/yang_mesh_updating_epic.md`); N6 is §4.5.4 illegal-self-intersection detection/removal — detection SHIPPED 2026-07-17 (#173, `specs/yang_173_selfx_detector.md`), removal folded into #169.
 
 ### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
 
@@ -309,23 +309,37 @@ full assay unchanged (241C/0W/49E, byte-identical). R0038 belongs to the
 
 ### N6 — §4.5.4 illegal self-intersection detection/removal absent
 
-**State:** OPEN — remediation actively tracked; investigation on this component follows the in-entry status.
+**State:** OPEN — **DETECTION SHIPPED 2026-07-17** (task #173 increment 1);
+remaining = removal (§4.5.4 "perform local refinement"), folded into the
+#169 mesh-update loop (N2's machinery). Closure decision pending user
+ratification: N6 may close as detection-shipped with removal tracked under
+N2, or stay open until removal lands.
 
-**Code location:** not present in the new crates (legacy **D3** covers
-`crates/kernel/` only).
+**Code location (detection, two layers — spec
+`specs/yang_173_selfx_detector.md`):**
+- PRODUCTION loud STOP: kernel-v2
+  `validate::selfx::validate_boolean_output_self_intersection`, called at
+  the boolean assembly boundary (`boolean/mod.rs`, beside the F1 planarity
+  gate). Render-resolution port of the corpus-calibrated assay oracle
+  (`check_no_self_intersection`, PR-TH1 + PR-KV11 semantics); typed
+  `KernelV2Error::SelfIntersectingBooleanOutput`.
+- Diagnostic (banked): yang-rs `YANG_SELFX_PROBE` — exact non-adjacent
+  tri–tri (`cherchi_rs::detect_improper_contacts`) on the final Stage-4/5
+  mesh, before `emit_topology`. Byte-identical off.
 
 **Paper section:** §4.5.4 (752-758).
 
-**Current behavior:** no post-trim self-intersection detection in `yang-rs`.
+**Measured reality (2026-07-17 sweep, spec §6):** the two layers see
+DISJOINT classes. The exact Stage-4 test fires on 53 cases (33 CORRECT) —
+relocation-minted seam chord-crossings, the paper's "new intersections
+during mesh updating", whose remedy is REMOVAL (#169 increment 2), not a
+STOP (wiring it as a STOP was P10-refuted). The C0116/C0105 silent-wrong
+class (B-Rep-level trimmed-surface penetration, sub-sagitta at Stage-4
+resolution) is only observable at render resolution — the shipped gate
+converts both to loud typed STOPs.
 
-**Severity:** medium. **Remediation (tracked 2026-06-02):** now **roadmap-tracked**
-— a §4.5.4 illegal-self-intersection removal milestone in
-`docs/yang_functional_roadmap.md` M8 (alongside Stage-0 coplanar). The crate-doc
-Stage list (`crates/yang-rs/src/lib.rs`) explicitly states §4.5.4 is NOT
-implemented, so the gap is documented, not silent. (Currently benign for the
-analytic primitives in scope: the sidecar emits a validly-trimmed mesh and
-`check_watertight_2manifold` gates the output; a true post-trim self-intersection
-detector is the milestone.) **Sign-off:** remediation tracked.
+**Severity:** medium → detection remediated; removal is the N2-machinery
+increment. **Sign-off:** detection shipped; closure-scope decision pending.
 
 ---
 

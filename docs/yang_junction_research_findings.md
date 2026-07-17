@@ -140,6 +140,21 @@ surface signature is the wrong layer (certifies the analytic surface, which is
 already clean). Removal (increment 2) routes detected regions into the #169
 mesh-update loop — no new remover.
 
+> **CORRECTED BY MEASUREMENT (2026-07-17, #173 implementation — spec
+> `specs/yang_173_selfx_detector.md` §6).** The mesh-level test is right for
+> the paper's artifact class but is NOT the layer that catches the corpus'
+> silent-wrongs, because our Stage-4 d_ε is coarse (the paper's Table-1 d_ε
+> is fine, which is why mesh-level sufficed for them). Two corrections:
+> (1) the exact Stage-4 test fires on 53 cases (33 CORRECT) of
+> relocation-minted seam chord-crossings — real §4.5.4 artifacts whose
+> remedy is removal, so it ships as the `YANG_SELFX_PROBE` diagnostic (its
+> fire-list = the #169 increment-2 removal worklist), not a STOP;
+> (2) the C0116/C0105 class (B-Rep trimmed-surface penetration from
+> chord-accurate trims, sub-sagitta at Stage-4 resolution) is only
+> observable at render resolution — the production STOP is kernel-v2's
+> render-level boolean-output gate (`validate::selfx`, the
+> corpus-calibrated oracle port).
+
 ## Q6 — Stage-0 identical meshes
 
 **Finding:** the companion paper (Jieyin Yang & Jia, TOG 44(6) Art. 228,

@@ -45,7 +45,7 @@ pub mod triangulation;
 
 pub use arrangements::{mesh_arrangement, ArrangementError, ArrangementSoup};
 pub use boolean::MeshBoolean;
-pub use inputcheck::{census, NativeInputCheck};
+pub use inputcheck::{census, detect_improper_contacts, ImproperContacts, NativeInputCheck};
 pub use labeled_arrangement::{InputId, LabeledArrangement};
 pub use labeling::{native_labeled_arrangement, NativeBoolean, NativeBooleanError};
 pub use mesh::Mesh;
