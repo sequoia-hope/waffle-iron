@@ -3382,10 +3382,6 @@ fn family_regions(dir: &Path) -> Vec<ManifestEntry> {
     e
 }
 
-// ── Entry point ────────────────────────────────────────────────────────────
-
-/// Generate all 100 C-series cases into `output_dir`. Returns manifest
-/// entries in id order (C0001–C0100, dense).
 // ── Group 6: user-reported drivers (C0101–) ────────────────────────────────
 
 /// Minimal deterministic replicas of user-reported failure configurations
@@ -3440,6 +3436,462 @@ fn family_user_reported(dir: &Path) -> Vec<ManifestEntry> {
     e
 }
 
+// ── Group 7: junction-scenario coverage (#176), C0102–C0117 ────────────────
+//
+// Coverage expansion from the 2026-07-17 assay audit (spec
+// `specs/assay_junction_scenario_corpus.md`, charter: roadmap §0.0
+// "assay coverage grows with the scenario space"). Families: 3-surface
+// corner junctions (7a), curved tangencies / degenerate contact (7b),
+// micro-feature scale sweep (7d), zero-thickness results (7e), and
+// #173 self-intersection hazard fixtures (7f). Trackers carry χ and —
+// where computable — the exact green-state volume, so they self-verify
+// when their wall lifts.
+
+/// Circular-segment area beyond the chord at distance `d` from the center
+/// of a circle of radius `r` (0 when the chord misses the circle).
+fn circ_seg(r: f64, d: f64) -> f64 {
+    if d >= r {
+        0.0
+    } else {
+        r * r * (d / r).acos() - d * (r * r - d * d).sqrt()
+    }
+}
+
+/// Fixed-step composite Simpson quadrature (deterministic generation-time
+/// arithmetic; `n` is forced even).
+fn simpson(f: impl Fn(f64) -> f64, a: f64, b: f64, n: usize) -> f64 {
+    let n = n + n % 2;
+    let h = (b - a) / n as f64;
+    let mut s = f(a) + f(b);
+    for i in 1..n {
+        s += f(a + i as f64 * h) * if i % 2 == 1 { 4.0 } else { 2.0 };
+    }
+    s * h / 3.0
+}
+
+fn family_junction_scenarios(dir: &Path) -> Vec<ManifestEntry> {
+    use std::f64::consts::PI;
+    let mut e = Vec::new();
+    let axis_o = [0.0; 3];
+    let axis_d = [0.0, 0.0, 1.0];
+    // Shared boss: vertical cylinder r=0.5, z ∈ [0, 2] (Group 2b's base_cyl).
+    let base_cyl = |c: &mut CCase| {
+        c.extrude(
+            [0.0, 0.0, 0.0],
+            Z,
+            true_circle_profile(0.0, 0.0, 0.5),
+            "circle",
+            0.5,
+            2.0,
+            false,
+        );
+    };
+    // Z-normal sketch planes map u → −y, v → x (see C0029): a rect profile
+    // [umin..][vmin..] lands at world y ∈ [−umin−w, −umin], x ∈ [vmin, vmin+h].
+
+    // C0102: cyl∩plane∩plane transversal notch corner (bug hunter). Partial
+    // depth notch x∈[0.2,0.8], y∈[−0.3,0.3], z∈[1,3] into the cylinder flank:
+    // floor∩wall∩lateral triple junctions, all transversal.
+    {
+        let mut c = CCase::new("C0102");
+        base_cyl(&mut c);
+        c.extrude(
+            [0.0, 0.0, 3.0],
+            Z,
+            rect_profile(-0.3, 0.2, 0.6, 0.6),
+            "rectangle",
+            0.6,
+            2.0,
+            true,
+        );
+        // Removed = {x≥0.2, |y|≤0.3} ∩ disc(0.5), height 1:
+        // ∫√(r²−y²)dy over ±0.3 = a√(r²−a²) + r²·asin(a/r), minus 0.2·0.6.
+        let a_removed = 0.3 * 0.4 + 0.25 * (0.3f64 / 0.5).asin() - 0.2 * 0.6;
+        let vol = PI * 0.25 * 2.0 - a_removed;
+        let d = desc(
+            &c,
+            "junction scenario",
+            "cyl∩plane∩plane transversal notch corners, partial depth (chi=2) [7a corner]",
+        );
+        e.push(write_c_case(dir, c, d, Knobs::curved(2, vol, 4.0)));
+    }
+    // C0103: cyl∩plane∩plane GRAZING corner — the notch's far wall x=−0.5 is
+    // EXACTLY tangent to the cylinder along the (−0.5,0,z) generator, and the
+    // notch floor z=1 ends it at the grazing corner (−0.5,0,1). The cylinder
+    // analog of the #137 torus grazing-corner class (R0038 + a corner).
+    {
+        let mut c = CCase::new("C0103");
+        base_cyl(&mut c);
+        c.extrude(
+            [0.0, 0.0, 3.0],
+            Z,
+            rect_profile(-0.6, -0.5, 1.2, 0.7),
+            "rectangle",
+            1.2,
+            2.0,
+            true,
+        );
+        // Green state: slab x ≤ 0.2 removed over z∈[1,2] (y planes clear the
+        // disc): removed area = π r² − seg(x≥0.2).
+        let vol = PI * 0.25 * 2.0 - (PI * 0.25 - circ_seg(0.5, 0.2));
+        let d = desc(
+            &c,
+            "junction scenario",
+            "cyl∩plane∩plane GRAZING corner: notch wall tangent along a generator, floor ends it (chi=2) [7a #137-cyl]",
+        );
+        e.push(write_c_case(dir, c, d, Knobs::curved(2, vol, 4.0)));
+    }
+    // C0104: sphere∩plane POINT graze — through-cut whose far wall x=−0.4 is
+    // tangent to the sphere at the single point (−0.4,0,0.5); spherical cap
+    // x∈[0.1,0.4] remains. The sphere analog of #137's equator graze.
+    {
+        let mut c = CCase::new("C0104");
+        c.revolve(
+            [0.0; 3],
+            Y,
+            rz_circle(0.0, 0.5, 0.4),
+            "circle",
+            0.4,
+            axis_o,
+            axis_d,
+            360.0,
+            false,
+        );
+        c.extrude(
+            [0.0, 0.0, 2.0],
+            Z,
+            rect_profile(-0.5, -0.4, 1.0, 0.5),
+            "rectangle",
+            1.0,
+            3.0,
+            true,
+        );
+        // Cap height h = 0.3 on r = 0.4: V = π h² (3r − h) / 3.
+        let vol = PI * 0.09 * (1.2 - 0.3) / 3.0;
+        let d = desc(
+            &c,
+            "junction scenario",
+            "sphere∩plane point-tangent cut wall, spherical cap remains (chi=2) [7a #137-sphere]",
+        );
+        e.push(write_c_case(dir, c, d, Knobs::curved(2, vol, 3.0)));
+    }
+    // C0105: cone∩plane∩plane frustum notch — trapezoid revolve (r 0.8→0.4
+    // over z∈[0,1], no apex) + rect notch x≥0.45 over z∈[0.5,2]: transversal
+    // conic corner junctions (the N38/N39 conic class, curated).
+    {
+        let mut c = CCase::new("C0105");
+        c.revolve(
+            [0.0; 3],
+            Y,
+            rz_polygon(&[(0.0, 0.0), (0.8, 0.0), (0.4, 1.0), (0.0, 1.0)]),
+            "polygon",
+            0.8,
+            axis_o,
+            axis_d,
+            360.0,
+            false,
+        );
+        c.extrude(
+            [0.0, 0.0, 2.0],
+            Z,
+            rect_profile(-0.6, 0.45, 1.2, 0.5),
+            "rectangle",
+            1.2,
+            1.5,
+            true,
+        );
+        // Frustum π/3·h·(R²+Rr+r²) minus ∫ seg(r(z), 0.45) dz over the band
+        // where the cone flank reaches past x=0.45 (r(z)=0.8−0.4z ≥ 0.45 up
+        // to z=0.875).
+        let frustum = PI / 3.0 * (0.64 + 0.32 + 0.16);
+        let removed = simpson(|z| circ_seg(0.8 - 0.4 * z, 0.45), 0.5, 0.875, 4096);
+        let d = desc(
+            &c,
+            "junction scenario",
+            "cone∩plane∩plane transversal notch corners on a frustum flank (chi=2) [7a conic-junction]",
+        );
+        e.push(write_c_case(
+            dir,
+            c,
+            d,
+            Knobs::curved(2, frustum - removed, 4.0),
+        ));
+    }
+    // C0106: cyl×cyl×plane corner — C0052's perpendicular crossing but the
+    // bore is BLIND (cap plane x=0 inside the boss): the tool's cap crosses
+    // the bicylinder curve → lateral∩lateral∩plane corner junctions.
+    {
+        let mut c = CCase::new("C0106");
+        base_cyl(&mut c);
+        c.extrude(
+            [2.0, 0.0, 1.0],
+            X,
+            true_circle_profile(0.0, 0.0, 0.3),
+            "circle",
+            0.3,
+            2.0,
+            true,
+        );
+        // Removed = ∫ x-extent · z-chord over the tool disc's y-range:
+        // x from the cap (0) to the boss wall √(0.25−y²).
+        let removed = simpson(
+            |y| (0.25 - y * y).sqrt() * 2.0 * (0.09 - y * y).sqrt(),
+            -0.3,
+            0.3,
+            4096,
+        );
+        let d = desc(
+            &c,
+            "junction scenario",
+            "blind cyl bore: cap plane crosses the bicylinder curve (chi=2) [7a M5-corner]",
+        );
+        e.push(write_c_case(
+            dir,
+            c,
+            d,
+            Knobs::curved(2, PI * 0.25 * 2.0 - removed, 4.0),
+        ));
+    }
+    // C0107: point-tangent sphere⊕cylinder union — sphere r=0.4 at
+    // (0.9,0,0.5) touches the r=0.5 cylinder wall at exactly (0.5,0,0.5),
+    // zero overlap. Curved analog of the corner-touch box case C0046; green
+    // = loud reject or honest 2-body outcome, never a silent pinched shell.
+    {
+        let mut c = CCase::new("C0107");
+        base_cyl(&mut c);
+        c.revolve(
+            [0.0; 3],
+            Y,
+            true_circle_profile(-0.9, 0.5, 0.4),
+            "circle",
+            0.4,
+            [0.9, 0.0, 0.0],
+            axis_d,
+            360.0,
+            false,
+        );
+        let d = desc(
+            &c,
+            "junction scenario",
+            "sphere point-tangent to cylinder wall, union (0D curved contact, 2 shells chi=4) [7b tangency-0D]",
+        );
+        e.push(write_c_case(dir, c, d, Knobs::tracker(4, 4.0)));
+    }
+    // C0108: externally tangent equal spheres — point contact at (0.4,0,0.5).
+    {
+        let mut c = CCase::new("C0108");
+        c.revolve(
+            [0.0; 3],
+            Y,
+            rz_circle(0.0, 0.5, 0.4),
+            "circle",
+            0.4,
+            axis_o,
+            axis_d,
+            360.0,
+            false,
+        );
+        c.revolve(
+            [0.0; 3],
+            Y,
+            true_circle_profile(-0.8, 0.5, 0.4),
+            "circle",
+            0.4,
+            [0.8, 0.0, 0.0],
+            axis_d,
+            360.0,
+            false,
+        );
+        let d = desc(
+            &c,
+            "junction scenario",
+            "externally tangent equal spheres, union (0D curved contact, 2 shells chi=4) [7b tangency-0D]",
+        );
+        e.push(write_c_case(dir, c, d, Knobs::tracker(4, 3.0)));
+    }
+    // C0109: internally tangent sphere cavity (internal-void) — the r=0.3
+    // cavity touches the r=0.5 outer surface at exactly (0.5,0,0.5). A
+    // pinched shell is invalid; green = loud reject.
+    {
+        let mut c = CCase::new("C0109");
+        c.revolve(
+            [0.0; 3],
+            Y,
+            rz_circle(0.0, 0.5, 0.5),
+            "circle",
+            0.5,
+            axis_o,
+            axis_d,
+            360.0,
+            false,
+        );
+        c.revolve(
+            [0.0; 3],
+            Y,
+            true_circle_profile(-0.2, 0.5, 0.3),
+            "circle",
+            0.3,
+            [0.2, 0.0, 0.0],
+            axis_d,
+            360.0,
+            true,
+        );
+        let d = desc(
+            &c,
+            "junction scenario",
+            "internal-void: internally tangent sphere cavity touching the outer surface at a point (chi=4) [7b tangency-0D]",
+        );
+        e.push(write_c_case(dir, c, d, Knobs::tracker(4, 2.0)));
+    }
+    // C0110: line-tangent box⊕cylinder union — box face plane tangent along
+    // a generator SEGMENT (1D contact, zero overlap). Planar twin C0045
+    // (edge-only box contact) passes; this pins the curved-contact behavior.
+    {
+        let mut c = CCase::new("C0110");
+        base_cyl(&mut c);
+        c.vboss([1.0, 0.0, 0.25], Z, 1.0, 0.8, 1.5);
+        let d = desc(
+            &c,
+            "junction scenario",
+            "box face tangent to cylinder along a generator segment, union (1D contact, 2 shells chi=4) [7b tangency-1D]",
+        );
+        e.push(write_c_case(dir, c, d, Knobs::tracker(4, 4.0)));
+    }
+    // C0111–C0113: micro-feature scale sweep — C0030's sliver-wall geometry
+    // (through-cut leaving an ε_rel wall at the +x face) uniformly scaled.
+    // Validates the scale-relative tolerance criteria (N55/N56): the wall is
+    // 1e-8 m (below the 1e-6 m floor → must be LOUD), 1e-2 m (in contract →
+    // must PASS), and exactly TAU_MODEL = 1e-7 m (the R0091 hazard rung —
+    // loud STOP acceptable, silent weld is the failure).
+    for (id, s, eps_rel, note) in [
+        (
+            "C0111",
+            1e-3,
+            1e-5,
+            "1e-5 rel sliver wall @ 1 mm body = 1e-8 m, below the feature floor (loud expected)",
+        ),
+        (
+            "C0112",
+            1e3,
+            1e-5,
+            "1e-5 rel sliver wall @ 1 km body = 1e-2 m, in contract (must pass)",
+        ),
+        (
+            "C0113",
+            1.0,
+            1e-7,
+            "1e-7 rel sliver wall @ 1 m body = TAU_MODEL exactly (R0091 hazard rung)",
+        ),
+    ] {
+        let mut c = CCase::new(id);
+        c.scale = s;
+        c.vboss([0.0, 0.0, 0.0], Z, s, s, s);
+        c.vcut_uv(
+            [0.0, 0.0, 2.0 * s],
+            Z,
+            -0.25 * s,
+            0.1 * s,
+            0.5 * s,
+            (0.4 - eps_rel) * s,
+            3.0 * s,
+        );
+        let vol = c.chain_vol();
+        let d = desc(
+            &c,
+            "junction scenario",
+            &format!("{note} (chi=0) [7d scale-sweep]"),
+        );
+        e.push(write_c_case(dir, c, d, Knobs::solid(0, vol, 4.0 * s)));
+    }
+    // C0114: coincident pocket walls — two blind pockets sharing the wall
+    // plane x=0 exactly: the wall between them is zero-thickness. Green =
+    // the merged single pocket; silently keeping a zero-thickness wall is
+    // the failure this case sentinels.
+    {
+        let mut c = CCase::new("C0114");
+        c.vboss([0.0, 0.0, 0.0], Z, 2.0, 1.0, 1.0);
+        c.vcut_uv([0.0, 0.0, 2.0], Z, -0.35, -0.9, 0.7, 0.9, 1.5);
+        c.vcut_uv([0.0, 0.0, 2.0], Z, -0.35, 0.0, 0.7, 0.9, 1.5);
+        let vol = c.chain_vol();
+        let d = desc(
+            &c,
+            "junction scenario",
+            "two pockets with EXACTLY coincident walls — zero-thickness wall must merge or reject loudly (chi=2) [7e zero-thickness]",
+        );
+        e.push(write_c_case(dir, c, d, Knobs::solid(2, vol, 5.0)));
+    }
+    // C0115: opposite-side pockets with EXACTLY coplanar floors at z=0.5 —
+    // a zero-thickness membrane over the overlapping footprint. Green =
+    // through opening (χ=0); a silent zero-thickness membrane is the failure.
+    {
+        let mut c = CCase::new("C0115");
+        c.vboss([0.0, 0.0, 0.0], Z, 1.0, 1.0, 1.0);
+        c.vcut([0.0, 0.0, 2.0], Z, 0.6, 0.6, 1.5);
+        c.vcut([0.0, 0.0, -1.0], [0.0, 0.0, -1.0], 0.7, 0.7, 1.5);
+        let vol = c.chain_vol();
+        let d = desc(
+            &c,
+            "junction scenario",
+            "opposite-side pockets, floors EXACTLY coplanar — zero-thickness membrane must open or reject loudly (chi=0) [7e zero-thickness]",
+        );
+        e.push(write_c_case(dir, c, d, Knobs::solid(0, vol, 4.0)));
+    }
+    // C0116: deep-graze perpendicular cyl×cyl union — tool axis 0.79 from
+    // the boss axis vs r+R = 0.8: a 0.01-deep crossing wedge. Stage-4
+    // relocation across the wedge is the §4.5.4 self-intersection hazard
+    // (#173 red-phase stress case). Lens volume ≪ the 5% tolerance.
+    {
+        let mut c = CCase::new("C0116");
+        base_cyl(&mut c);
+        // Boss extrudes along +normal: start at x=−1.5 so the tool spans
+        // x∈[−1.5,2] THROUGH the boss (a cut would extrude along −normal).
+        c.extrude(
+            [-1.5, 0.79, 1.0],
+            X,
+            true_circle_profile(0.0, 0.0, 0.3),
+            "circle",
+            0.3,
+            3.5,
+            false,
+        );
+        let d = desc(
+            &c,
+            "junction scenario",
+            "perpendicular cylinders grazing 0.01 deep — thin-wedge relocation hazard (chi=2) [7f #173-hazard]",
+        );
+        e.push(write_c_case(
+            dir,
+            c,
+            d,
+            Knobs::curved(2, PI * 0.25 * 2.0 + PI * 0.09 * 3.5, 6.5),
+        ));
+    }
+    // C0117: coaxial through-bore leaving a 1e-4 m curved tube wall — the
+    // curved twin of C0034: two parallel cylinder surfaces one relocation
+    // band apart along the full circumference (#173 red-phase stress case).
+    {
+        let mut c = CCase::new("C0117");
+        base_cyl(&mut c);
+        c.extrude(
+            [0.0, 0.0, 3.0],
+            Z,
+            true_circle_profile(0.0, 0.0, 0.4999),
+            "circle",
+            0.4999,
+            4.0,
+            true,
+        );
+        let vol = PI * (0.25 - 0.4999 * 0.4999) * 2.0;
+        let d = desc(
+            &c,
+            "junction scenario",
+            "coaxial bore leaves a 1e-4 m curved tube wall (chi=0) [7f #173-hazard]",
+        );
+        e.push(write_c_case(dir, c, d, Knobs::curved(0, vol, 4.0)));
+    }
+    e
+}
+
 pub fn generate_complexity_cases(output_dir: &Path) -> Vec<ManifestEntry> {
     let mut entries = Vec::new();
     entries.extend(family_genus(output_dir));
@@ -3456,7 +3908,8 @@ pub fn generate_complexity_cases(output_dir: &Path) -> Vec<ManifestEntry> {
     entries.extend(family_holed_profiles(output_dir));
     entries.extend(family_regions(output_dir));
     entries.extend(family_user_reported(output_dir));
-    assert_eq!(entries.len(), 101, "C-series must be exactly 101 cases");
+    entries.extend(family_junction_scenarios(output_dir));
+    assert_eq!(entries.len(), 117, "C-series must be exactly 117 cases");
     for (i, en) in entries.iter().enumerate() {
         assert_eq!(
             en.id,
@@ -3547,7 +4000,7 @@ mod tests {
     fn generate_all_hundred_into_tempdir() {
         let dir = tempfile::tempdir().unwrap();
         let entries = generate_complexity_cases(dir.path());
-        assert_eq!(entries.len(), 101);
+        assert_eq!(entries.len(), 117);
         // C0001 meta: plate volume 8 − 2·(0.4·0.4·0.5) = 7.84, chi = −2.
         let meta: AssayMeta = serde_json::from_str(
             &std::fs::read_to_string(dir.path().join("C0001.meta.json")).unwrap(),

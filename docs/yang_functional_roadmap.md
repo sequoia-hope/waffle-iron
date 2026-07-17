@@ -93,12 +93,18 @@ delta (`YANG_WELD_ENABLE=all` vs prod may only shrink), deviations OPEN-count
 ratchet, sidecar parity, resolution-sweep for any "finer mesh?" question.
 **Assay coverage grows with the scenario space** (user directive 2026-07-17):
 whenever a phase names a scenario class the corpus does not exercise, add assay
-cases for it BEFORE (or with) the fix — the research session names the gaps to
-audit first: 3-surface corner junctions beyond torus∩plane∩plane (cyl/cone/
-sphere × plane × plane), tangential-contact families beyond R0038, cyl×cyl
-lateral∩lateral (M5 has NO corpus case today), micro-feature scale sweeps
-(R0072-class at varying scales), coplanar zero-thickness/edge-touch rejects,
-and post-boolean self-intersection fixtures for the #173 detector's red phase.
+cases for it BEFORE (or with) the fix. *Audit + first tranche DONE 2026-07-17
+(task #176, spec `specs/assay_junction_scenario_corpus.md`): the six charter
+classes were audited against the 295-case corpus and the gaps landed as
+Group 7 (C0102–C0117, corpus now 311). Corrections to the charter's suspicions:
+cyl×cyl lateral∩lateral was ALREADY covered (C0051–C0058; 6 of 8 pass
+chord-accurately today — M5 #172 owes them analytical refinement, not
+existence); sphere∩plane∩plane transversal was covered (C0067). Real gaps
+closed: grazing corners beyond the torus (C0103 cyl, C0104 sphere), curated
+cone∩plane∩plane (C0105), curved×curved×plane cap-through-crossing corner
+(C0106), sphere tangencies / curved 0D-1D contact (C0107–C0110), micro-feature
+ABSOLUTE-scale sweep incl. the TAU_MODEL rung (C0111–C0113), zero-thickness
+results (C0114–C0115), #173 red-phase hazard fixtures (C0116–C0117).*
 
 **Expectations:** phase 3 is the multi-session structural core (~60–70% of
 remaining effort; per the structural-fixes-first policy that is expected, not

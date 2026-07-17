@@ -1,6 +1,6 @@
 {
   "master_seed": 42,
-  "count": 295,
+  "count": 311,
   "generator_version": 4,
   "cases": [
     {
@@ -2066,6 +2066,118 @@
       "filename": "C0101.waffle",
       "meta_filename": "C0101.meta.json",
       "description": "4 ops, scale=2.42e-2, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — user-reported: flush bridge across two tower tops — bridge bottom in TWO coplanar pairs (frame, g=1, chi=0) [M8 n-ary]",
+      "featured": true
+    },
+    {
+      "id": "C0102",
+      "filename": "C0102.waffle",
+      "meta_filename": "C0102.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(rectangle,cut) — junction scenario: cyl∩plane∩plane transversal notch corners, partial depth (chi=2) [7a corner]",
+      "featured": true
+    },
+    {
+      "id": "C0103",
+      "filename": "C0103.waffle",
+      "meta_filename": "C0103.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(rectangle,cut) — junction scenario: cyl∩plane∩plane GRAZING corner: notch wall tangent along a generator, floor ends it (chi=2) [7a #137-cyl]",
+      "featured": true
+    },
+    {
+      "id": "C0104",
+      "filename": "C0104.waffle",
+      "meta_filename": "C0104.meta.json",
+      "description": "2 ops, scale=1.00e0, revolve(circle,boss)+extrude(rectangle,cut) — junction scenario: sphere∩plane point-tangent cut wall, spherical cap remains (chi=2) [7a #137-sphere]",
+      "featured": true
+    },
+    {
+      "id": "C0105",
+      "filename": "C0105.waffle",
+      "meta_filename": "C0105.meta.json",
+      "description": "2 ops, scale=1.00e0, revolve(polygon,boss)+extrude(rectangle,cut) — junction scenario: cone∩plane∩plane transversal notch corners on a frustum flank (chi=2) [7a conic-junction]",
+      "featured": true
+    },
+    {
+      "id": "C0106",
+      "filename": "C0106.waffle",
+      "meta_filename": "C0106.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — junction scenario: blind cyl bore: cap plane crosses the bicylinder curve (chi=2) [7a M5-corner]",
+      "featured": true
+    },
+    {
+      "id": "C0107",
+      "filename": "C0107.waffle",
+      "meta_filename": "C0107.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+revolve(circle,boss) — junction scenario: sphere point-tangent to cylinder wall, union (0D curved contact, 2 shells chi=4) [7b tangency-0D]",
+      "featured": true
+    },
+    {
+      "id": "C0108",
+      "filename": "C0108.waffle",
+      "meta_filename": "C0108.meta.json",
+      "description": "2 ops, scale=1.00e0, revolve(circle,boss)+revolve(circle,boss) — junction scenario: externally tangent equal spheres, union (0D curved contact, 2 shells chi=4) [7b tangency-0D]",
+      "featured": true
+    },
+    {
+      "id": "C0109",
+      "filename": "C0109.waffle",
+      "meta_filename": "C0109.meta.json",
+      "description": "2 ops, scale=1.00e0, revolve(circle,boss)+revolve(circle,cut) — junction scenario: internal-void: internally tangent sphere cavity touching the outer surface at a point (chi=4) [7b tangency-0D]",
+      "featured": true
+    },
+    {
+      "id": "C0110",
+      "filename": "C0110.waffle",
+      "meta_filename": "C0110.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(rectangle,boss) — junction scenario: box face tangent to cylinder along a generator segment, union (1D contact, 2 shells chi=4) [7b tangency-1D]",
+      "featured": true
+    },
+    {
+      "id": "C0111",
+      "filename": "C0111.waffle",
+      "meta_filename": "C0111.meta.json",
+      "description": "2 ops, scale=1.00e-3, extrude(rectangle,boss)+extrude(rectangle,cut) — junction scenario: 1e-5 rel sliver wall @ 1 mm body = 1e-8 m, below the feature floor (loud expected) (chi=0) [7d scale-sweep]",
+      "featured": true
+    },
+    {
+      "id": "C0112",
+      "filename": "C0112.waffle",
+      "meta_filename": "C0112.meta.json",
+      "description": "2 ops, scale=1.00e3, extrude(rectangle,boss)+extrude(rectangle,cut) — junction scenario: 1e-5 rel sliver wall @ 1 km body = 1e-2 m, in contract (must pass) (chi=0) [7d scale-sweep]",
+      "featured": true
+    },
+    {
+      "id": "C0113",
+      "filename": "C0113.waffle",
+      "meta_filename": "C0113.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut) — junction scenario: 1e-7 rel sliver wall @ 1 m body = TAU_MODEL exactly (R0091 hazard rung) (chi=0) [7d scale-sweep]",
+      "featured": true
+    },
+    {
+      "id": "C0114",
+      "filename": "C0114.waffle",
+      "meta_filename": "C0114.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut) — junction scenario: two pockets with EXACTLY coincident walls — zero-thickness wall must merge or reject loudly (chi=2) [7e zero-thickness]",
+      "featured": true
+    },
+    {
+      "id": "C0115",
+      "filename": "C0115.waffle",
+      "meta_filename": "C0115.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut) — junction scenario: opposite-side pockets, floors EXACTLY coplanar — zero-thickness membrane must open or reject loudly (chi=0) [7e zero-thickness]",
+      "featured": true
+    },
+    {
+      "id": "C0116",
+      "filename": "C0116.waffle",
+      "meta_filename": "C0116.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — junction scenario: perpendicular cylinders grazing 0.01 deep — thin-wedge relocation hazard (chi=2) [7f #173-hazard]",
+      "featured": true
+    },
+    {
+      "id": "C0117",
+      "filename": "C0117.waffle",
+      "meta_filename": "C0117.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — junction scenario: coaxial bore leaves a 1e-4 m curved tube wall (chi=0) [7f #173-hazard]",
       "featured": true
     }
   ]

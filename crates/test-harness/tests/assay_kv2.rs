@@ -1165,10 +1165,13 @@ fn smoke_corpus_boundary_categories() {
         // oracle end-to-end.
         ("C0064", Category::SupportedCorrect), // [KV6c] stacked solid frusta chain
         // Still-walled trackers (flip these when the milestone lands):
-        (
-            "C0048",
-            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
-        ), // [M8] chained swiss-cheese plates
+        // C0048 PIN MOVED (2026-07-17, task #176 session): the M8 campaign
+        // (#142/#143) had already lifted the UNSUPPORTED(coplanar) wall —
+        // the case now progresses to the deeper typed azimuth-merge ERROR
+        // ("rims have mismatched / too-few samples", the committed baseline's
+        // verdict at 6d6141ef too). The stale pin sat unseen behind the debug
+        // tier's fail-fast, exactly like C0065's and C0071's below.
+        ("C0048", Category::Error), // [M8] chained swiss-cheese plates → azimuth-merge ERROR
         // M5 LANDED (specs/m5_surface_pair_curve.md): the general
         // unequal-radius perpendicular cyl×cyl intersection is now carried by
         // the procedural surface-pair curve — union then cut passes the
@@ -1201,6 +1204,41 @@ fn smoke_corpus_boundary_categories() {
         // bottom face lands in TWO Stage-0 coplanar pairs; handled by the
         // plane-grouped n-ary overlay (spec `m8_plane_group_nary_overlay`).
         ("C0101", Category::SupportedCorrect), // [M8 n-ary] flush bridge frame
+        // ── Group 7: junction-scenario coverage, task #176 (2026-07-17
+        // baseline; spec `assay_junction_scenario_corpus.md`). Boundary
+        // corrections at first run: the cyl GRAZING corner (C0103), sphere
+        // point-graze (C0104), cyl×cyl×plane blind-bore corner (C0106),
+        // line-tangent union (C0110) and both zero-thickness results
+        // (C0114/C0115) all pass — capability better than suspected.
+        ("C0102", Category::SupportedCorrect), // 7a transversal cyl notch corner
+        ("C0103", Category::SupportedCorrect), // 7a GRAZING cyl corner (#137-cyl class)
+        ("C0106", Category::SupportedCorrect), // 7a cap through bicylinder curve
+        // FINDING C0105-F1 (2026-07-17): the frustum notch (cone∩plane∩plane
+        // corners) silently emits a non-watertight, SELF-INTERSECTING shell
+        // (51 unpaired edges, 10 penetrations, χ=−1) — a silent-wrong in the
+        // conic-junction class. Pinned RED honestly; must become a loud STOP
+        // (P10), not a band (see the spec's findings section).
+        ("C0105", Category::SupportedWrong),
+        ("C0107", Category::Error), // 7b point-tangent sphere⊕cyl: loud non-2-manifold
+        ("C0110", Category::SupportedCorrect), // 7b line-tangent box⊕cyl union
+        // FINDING C0111/C0113-F1 (2026-07-17): sliver walls at 1e-8 m (below
+        // the 1e-6 m feature floor) and at exactly TAU_MODEL = 1e-7 m are
+        // SILENTLY dissolved (χ 0→2, wall gone) instead of rejected loudly —
+        // while C0031 (2e-6 m) and C0112 (1e-2 m @ km scale) survive
+        // correctly. The out-of-contract path must be LOUD (A14 posture).
+        ("C0111", Category::SupportedWrong),
+        ("C0112", Category::SupportedCorrect), // 7d km-scale sliver: scale-relative bands hold
+        ("C0113", Category::SupportedWrong),
+        ("C0114", Category::SupportedCorrect), // 7e coincident pocket walls merge exactly
+        ("C0115", Category::SupportedCorrect), // 7e coplanar-floor membrane opens exactly
+        // FINDING C0116-F1 (2026-07-17): the 0.01-deep perpendicular cyl×cyl
+        // graze passes watertight/χ/volume but the shell SELF-INTERSECTS (10
+        // penetrations) with no kernel STOP — the N6 deviation (#173) made
+        // concrete in a corpus case for the first time. This is the designed
+        // #173 red-phase fixture; the pin flips to a typed loud STOP when the
+        // §4.5.4 detector lands.
+        ("C0116", Category::SupportedWrong),
+        ("C0117", Category::SupportedCorrect), // 7f 1e-4 curved tube wall survives
     ];
     for (id, expect) in expected {
         let case = cases
@@ -1279,8 +1317,8 @@ fn full_corpus_categorized() {
     let cases = discover_cases(&dir);
     assert_eq!(
         cases.len(),
-        295,
-        "expected the 295-case assay corpus (194 legacy + 101 C-series)"
+        311,
+        "expected the 311-case assay corpus (194 legacy + 117 C-series)"
     );
 
     // Per-case timeout (default 30s, env-overridable) so no single case can

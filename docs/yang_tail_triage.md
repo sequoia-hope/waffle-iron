@@ -124,6 +124,29 @@ junction verts in that output then poison CDT. Suspected downstream of P3a.
 | C0063 | NotSupported: curved partial-patch cone operand | curved-profile capability tail | CONFIRMED (scope) | KV6/scope |
 | R0004 | RevolveAxisIntersectsProfile | self-intersecting revolve — capability boundary | CONFIRMED (scope) | KV6/scope |
 
+## Group-7 additions (task #176, 2026-07-17 — designed cases, root cause known by construction)
+
+The junction-scenario corpus expansion (spec
+`specs/assay_junction_scenario_corpus.md`, C0102–C0117, corpus 295→311) adds
+7 non-CORRECT cases. Unlike the legacy tail these are self-triaged: each was
+authored to exercise a named mechanism, so they enter CONFIRMED, not PROBE.
+
+| Case | Category | Root cause (by construction + first-run evidence) | Vehicle |
+|---|---|---|---|
+| C0105 | **SUPPORTED_WRONG** | cone∩plane∩plane notch corners → silent non-watertight, self-intersecting shell (51 unpaired edges, 10 penetrations, χ=−1); conic-junction silent-wrong path | **#177** (loud STOP first), then P3-junction |
+| C0107 | ERROR (loud ✓) | point-tangent sphere⊕cyl union — 0D curved contact, typed non-2-manifold reject is the DESIRED posture | none (scope boundary; sign-off candidate) |
+| C0108 | ERROR (loud ✓) | externally tangent spheres — same 0D-contact reject | none (scope boundary; sign-off candidate) |
+| C0109 | ERROR (loud ✓) | internal point-tangent sphere cavity — Stage-3 AmbiguousCurve{0,0}: no curve vocabulary for the degenerate sphere×sphere tangency | P2-M5-adjacent (degenerate SSI vocabulary) |
+| C0111 | **SUPPORTED_WRONG** | 1e-8 m wall (below MIN_FEATURE_SIZE) silently dissolved, χ 0→2 — out-of-contract must reject loudly | **#178** |
+| C0113 | **SUPPORTED_WRONG** | wall at exactly TAU_MODEL (1e-7 m) silently dissolved — the R0091 hazard rung is live | **#178** |
+| C0116 | **SUPPORTED_WRONG** | 0.01-deep cyl×cyl graze: watertight/χ/volume pass but the shell self-intersects (10 penetrations), no kernel STOP — N6 demonstrated in-corpus | **#173** red-phase fixture |
+
+The 4 SUPPORTED_WRONG entries change the corpus summary from 240C/0W to a
+baseline that shows WRONG > 0 **by exposure, not regression** — the 295
+pre-existing cases are byte-identical. The 0-WRONG ratchet (#174) applies to
+the pre-existing set immediately and to the whole corpus once #177/#178/#173
+convert these to loud STOPs (the ratchet may then never regress).
+
 ## Rollup
 
 | Vehicle | Cases |

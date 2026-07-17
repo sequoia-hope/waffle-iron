@@ -89,7 +89,7 @@ fn assert_case_correct(dir: &Path, id: &str) {
 fn complexity_generator_gate() {
     let dir = tempfile::tempdir().unwrap();
     let entries = generate_complexity_cases(dir.path());
-    assert_eq!(entries.len(), 101);
+    assert_eq!(entries.len(), 117);
 
     // Representative in-boundary cases, one+ per Group 1/3 family:
     // 1a genus, 1b chains, 1c non-convex, 1d near-degenerate,

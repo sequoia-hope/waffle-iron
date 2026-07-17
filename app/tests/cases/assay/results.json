@@ -1,8 +1,8 @@
 {
-  "errored": 51,
-  "failed": 0,
+  "errored": 54,
+  "failed": 4,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 240,
+  "passed": 249,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -24,7 +24,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "2 engine error(s): 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile; f3f795d7-4b9d-4d45-8fd7-93be32b6585b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 4294967295 is invalid: LocalRefinementRequired\")",
+      "detail": "2 engine error(s): 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile; f3f795d7-4b9d-4d45-8fd7-93be32b6585b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: CurvedGeometryMismatch { face: FaceId(517), reason: \"bounded cone patch must have exactly one material-CCW loop\" }",
       "id": "R0004",
       "status": "error"
     },
@@ -42,7 +42,7 @@
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: e37f2bcc-225b-4613-b693-d37261699f51: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing \u2014 roadmap M8 \u2014 not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: e37f2bcc-225b-4613-b693-d37261699f51: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0007",
       "status": "unsupported"
     },
@@ -74,7 +74,7 @@
       "category": "SUPPORTED_CORRECT",
       "detail": "all checks passed",
       "id": "R0012",
-      "status": "passed"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -102,7 +102,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 05ca6f07-b307-4b9e-9be3-51420a177d1c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 2: holed lateral CDT failed: degenerate CDT input (too few / collinear / zero-area loop)\")",
+      "detail": "1 engine error(s): 05ca6f07-b307-4b9e-9be3-51420a177d1c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (64, 65): AmbiguousCurve { candidates: 0, matched: 0 }\")",
       "id": "R0017",
       "status": "error"
     },
@@ -294,7 +294,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): d77f3528-7297-490c-abb3-74aee23c46f5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 4294967295 is invalid: LocalRefinementRequired\")",
+      "detail": "1 engine error(s): d77f3528-7297-490c-abb3-74aee23c46f5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
       "id": "R0049",
       "status": "error"
     },
@@ -426,7 +426,7 @@
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: 2c659565-295a-4d6d-9582-dc2859b55e11: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing \u2014 roadmap M8 \u2014 not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: 2c659565-295a-4d6d-9582-dc2859b55e11: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0071",
       "status": "unsupported"
     },
@@ -458,7 +458,7 @@
       "category": "SUPPORTED_CORRECT",
       "detail": "all checks passed",
       "id": "R0076",
-      "status": "passed"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -530,7 +530,7 @@
       "category": "SUPPORTED_CORRECT",
       "detail": "all checks passed",
       "id": "R0088",
-      "status": "passed"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -590,7 +590,7 @@
       "category": "SUPPORTED_CORRECT",
       "detail": "all checks passed",
       "id": "R0098",
-      "status": "passed"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1070,13 +1070,13 @@
       "category": "SUPPORTED_CORRECT",
       "detail": "all checks passed",
       "id": "F0078",
-      "status": "passed"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
       "detail": "all checks passed",
       "id": "F0079",
-      "status": "passed"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1106,7 +1106,7 @@
       "category": "SUPPORTED_CORRECT",
       "detail": "all checks passed",
       "id": "F0084",
-      "status": "passed"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -1142,7 +1142,7 @@
       "category": "SUPPORTED_CORRECT",
       "detail": "all checks passed",
       "id": "F0090",
-      "status": "passed"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1512,7 +1512,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 4294967295 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
       "id": "C0058",
       "status": "error"
     },
@@ -1542,7 +1542,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 5042d61b-a8b6-4ce3-9963-0caf870bc313: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(1) [curved lateral is an apex/frustum cone (full-circle rim; no CDT re-entry)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 \u2014 no partial-patch tessellation yet)",
+      "detail": "1 NotSupported boundary(ies); first: 5042d61b-a8b6-4ce3-9963-0caf870bc313: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(1) [curved lateral is an apex/frustum cone (full-circle rim; no CDT re-entry)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "C0063",
       "status": "unsupported"
     },
@@ -1773,7 +1773,103 @@
       "detail": "all checks passed",
       "id": "C0101",
       "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "C0102",
+      "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "C0103",
+      "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "C0104",
+      "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_WRONG",
+      "detail": "watertight_mesh: 51 unpaired edges out of 201 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,4), (2,4), (2,4), (2,4), (2,4), ...; mesh_euler_characteristic: V(1512) - E(4377) + F(2864) = -1 (expected 2 for 1 shell(s))",
+      "id": "C0105",
+      "status": "fail"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "C0106",
+      "status": "pass"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
+      "id": "C0107",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
+      "id": "C0108",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): 6b1dda62-0e0d-4ffc-b5f1-10f5edd44aac: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (87, 88): AmbiguousCurve { candidates: 0, matched: 0 }\")",
+      "id": "C0109",
+      "status": "error"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "C0110",
+      "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_WRONG",
+      "detail": "mesh_euler_characteristic: V(16) - E(42) + F(28) = 2 (expected 0 for 1 shell(s), exact bits)",
+      "id": "C0111",
+      "status": "fail"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "C0112",
+      "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_WRONG",
+      "detail": "mesh_euler_characteristic: V(16) - E(42) + F(28) = 2 (expected 0 for 1 shell(s), exact bits)",
+      "id": "C0113",
+      "status": "fail"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "C0114",
+      "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "C0115",
+      "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_WRONG",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,5), (2,5), (2,5), (2,5), (2,5), ...",
+      "id": "C0116",
+      "status": "fail"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "C0117",
+      "status": "pass"
     }
   ],
-  "total": 295
+  "total": 311
 }
