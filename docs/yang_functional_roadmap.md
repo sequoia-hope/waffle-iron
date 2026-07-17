@@ -53,20 +53,37 @@ in the ledger is PERMANENT with user sign-off.
    (torus×torus, cyl×cyl lateral∩lateral). Goes first among builds because
    Stage 4 can only relocate onto curves that exist, and downstream junction
    fixes need the true curves. Confirmed customers: R0044, R0096.
-3. **The junction layer (closes N2):**
-   a. **#146 upstream junction-vert mint** — stop minting near-duplicate /
-      off-plane junction verts in Stage 2/3 (root of the 8-case non-2-manifold
-      bucket; likely feeds the chained-input CDT bucket). Fix the mint, don't
-      repair its output.
+3. **The junction layer (closes N2)** — design grounded by the 2026-07-17
+   research session: **`docs/yang_junction_research_findings.md`** (read it
+   before writing any P3 spec; its "junction contract" is binding: mint once
+   exactly, share by identity/handle, multiplicity is a loud STOP, refinement
+   is only a guarded shell):
+   a. **#146 conformal junction sampling at Stage 1** (RE-SCOPED per findings
+      Q4: the near-dup mint is Stage-1's independent non-conformal sampling
+      near shared junctions, NOT Stage 2/3; the exact arrangement is
+      exonerated, N48 sidecar-certified). Faces incident to a shared curve use
+      the SAME boundary sample points; corners inserted once into both meshes.
+      Non-goal: no new tolerance merge (R0091 hazard) — existing STOPs stay.
    b. **#137 grazing-corner insert + stitch** — the proven triple-junction
-      primitive (N-137.1) gets its insert + stitch + genuinely-local §4.5.2
-      refinement. First validated wiring point for the banked two-sided
-      conformal driver + `SurfaceChart` (§4.4.1/§4.5.2 machinery).
+      primitive (N-137.1, stronger than anything in the literature per
+      findings Q1) gets the Urick-style stitch: mint the corner ONCE, insert
+      into both operands as one shared arrangement vertex, split both incident
+      chains at it. First validated wiring point for the banked two-sided
+      conformal driver + `SurfaceChart`, under the findings-Q2 seam contract
+      (one canonical seam polyline, constrained input to BOTH CDTs).
    c. **Curved-seam re-CDT** (R0072 class) and whatever the triage promotes.
+   d. **§4.5.2 as guard shell only** (findings Q3: it recovers ~zero current
+      cases — every confirmed LRR case is tangential/missing-solver/micro-
+      feature): transversality entry gate, per-pass strict-decrease monitor,
+      budget, watertight-gated output — so refinement can only STOP, never
+      silently accept.
    N2 closes as the sum of these wirings, not as an abstract epic.
 4. **N6 detector-first** — §4.5.4 illegal-self-intersection detection as a new
-   loud STOP class; removal comes after. Closes the last OPEN deviation cheaply
-   in its first increment.
+   loud STOP class; removal comes after. Design settled by findings Q5: exact
+   non-adjacent tri–tri test on the output shell via the existing `cherchi-rs`
+   indirect predicates + octree broad-phase; removal (increment 2) routes into
+   the phase-3 mesh-update loop. Closes the last OPEN deviation cheaply in its
+   first increment.
 5. **Capability tails** (interleavable): M8 coplanar residue (#130) +
    rim-projection (#144), KV6 revolve leftovers, non-convex/curved profiles,
    #153 NonPlanarFace wall.
@@ -74,6 +91,14 @@ in the ledger is PERMANENT with user sign-off.
 **Continuous:** the verification substrate ratchets — assay 0-WRONG gate, weld
 delta (`YANG_WELD_ENABLE=all` vs prod may only shrink), deviations OPEN-count
 ratchet, sidecar parity, resolution-sweep for any "finer mesh?" question.
+**Assay coverage grows with the scenario space** (user directive 2026-07-17):
+whenever a phase names a scenario class the corpus does not exercise, add assay
+cases for it BEFORE (or with) the fix — the research session names the gaps to
+audit first: 3-surface corner junctions beyond torus∩plane∩plane (cyl/cone/
+sphere × plane × plane), tangential-contact families beyond R0038, cyl×cyl
+lateral∩lateral (M5 has NO corpus case today), micro-feature scale sweeps
+(R0072-class at varying scales), coplanar zero-thickness/edge-touch rejects,
+and post-boolean self-intersection fixtures for the #173 detector's red phase.
 
 **Expectations:** phase 3 is the multi-session structural core (~60–70% of
 remaining effort; per the structural-fixes-first policy that is expected, not

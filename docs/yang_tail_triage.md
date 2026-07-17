@@ -17,7 +17,7 @@ Re-generate the baseline column only from a committed `results.json`.
 | Vehicle | What it is |
 |---|---|
 | **P2-M5** | Degree-4 SSI solvers in `ssi-rs` (torus×torus, cyl×cyl lateral) |
-| **P3a-#146** | Upstream junction-vert mint (near-duplicate / off-plane verts, Stage 2/3) |
+| **P3a-#146** | Conformal junction sampling at Stage 1 (RE-SCOPED 2026-07-17 per `docs/yang_junction_research_findings.md` Q4: the near-dup mint is Stage-1 independent sampling near shared junctions; Stage 2/3 arrangement exonerated) |
 | **P3b-#137** | Grazing-corner exact junction insert + stitch + local §4.5.2 refinement |
 | **P3c** | Curved-seam re-CDT (real micro-scale features; R0072 class) |
 | **M8** | Stage-0 coplanar residue (task #130) + rim-projection class (task #144) |
