@@ -3889,6 +3889,38 @@ fn family_junction_scenarios(dir: &Path) -> Vec<ManifestEntry> {
         );
         e.push(write_c_case(dir, c, d, Knobs::curved(0, vol, 4.0)));
     }
+    // C0118: MICRO-graze perpendicular cyl×cyl union — C0116's geometry with
+    // the tool axis at 0.8 − 1e-8 from the boss axis: a 1e-8-deep genuine
+    // intersection ABOVE the coincidence-authoring noise line (1e-9) yet
+    // BELOW the rim-N-cap observability floor (~4.7e-7) — no practical
+    // tessellation can sample it (Yang Fig. 8 Case III). The #172 graze
+    // guard must reject loudly (`SubSagittaGrazeIntersection`); the silent
+    // failure is unfused two-lump emission whose true surfaces
+    // interpenetrate below even the render gate's sagitta.
+    {
+        let mut c = CCase::new("C0118");
+        base_cyl(&mut c);
+        c.extrude(
+            [-1.5, 0.8 - 1e-8, 1.0],
+            X,
+            true_circle_profile(0.0, 0.0, 0.3),
+            "circle",
+            0.3,
+            3.5,
+            false,
+        );
+        let d = desc(
+            &c,
+            "junction scenario",
+            "perpendicular cylinders grazing 1e-8 deep — sub-sagitta Case III must reject loudly (chi=2) [7f #172-graze]",
+        );
+        e.push(write_c_case(
+            dir,
+            c,
+            d,
+            Knobs::curved(2, PI * 0.25 * 2.0 + PI * 0.09 * 3.5, 6.5),
+        ));
+    }
     e
 }
 
@@ -3909,7 +3941,7 @@ pub fn generate_complexity_cases(output_dir: &Path) -> Vec<ManifestEntry> {
     entries.extend(family_regions(output_dir));
     entries.extend(family_user_reported(output_dir));
     entries.extend(family_junction_scenarios(output_dir));
-    assert_eq!(entries.len(), 117, "C-series must be exactly 117 cases");
+    assert_eq!(entries.len(), 118, "C-series must be exactly 118 cases");
     for (i, en) in entries.iter().enumerate() {
         assert_eq!(
             en.id,
@@ -4000,7 +4032,7 @@ mod tests {
     fn generate_all_hundred_into_tempdir() {
         let dir = tempfile::tempdir().unwrap();
         let entries = generate_complexity_cases(dir.path());
-        assert_eq!(entries.len(), 117);
+        assert_eq!(entries.len(), 118);
         // C0001 meta: plate volume 8 − 2·(0.4·0.4·0.5) = 7.84, chi = −2.
         let meta: AssayMeta = serde_json::from_str(
             &std::fs::read_to_string(dir.path().join("C0001.meta.json")).unwrap(),

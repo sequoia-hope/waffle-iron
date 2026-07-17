@@ -139,7 +139,8 @@ authored to exercise a named mechanism, so they enter CONFIRMED, not PROBE.
 | C0109 | ERROR (loud ✓) | internal point-tangent sphere cavity — Stage-3 AmbiguousCurve{0,0}: no curve vocabulary for the degenerate sphere×sphere tangency | P2-M5-adjacent (degenerate SSI vocabulary) |
 | C0111 | ~~SUPPORTED_WRONG~~ **ERROR (loud STOP, 2026-07-17)** | 1e-8 m wall (below MIN_FEATURE_SIZE) WAS silently dissolved (χ 0→2); the #178/N57 Stage-0 sub-resolution coplanar-gap STOP now rejects the subtract (`SubResolutionCoplanarGap`, gap=1e-8, spec `yang_178_subres_coplanar_gap_stop.md`). Terminal: out-of-contract input, loud by design | **#178 DONE** |
 | C0113 | ~~SUPPORTED_WRONG~~ **ERROR (loud STOP, 2026-07-17)** | wall at exactly TAU_MODEL WAS silently dissolved — the R0091 hazard rung; the #178/N57 STOP now rejects it (`SubResolutionCoplanarGap`, gap=1e-7). Terminal: loud by design | **#178 DONE** |
-| C0116 | ~~SUPPORTED_WRONG~~ **ERROR (loud STOP, 2026-07-17)** | 0.01-deep cyl×cyl graze: WAS watertight/χ/volume-passing with a self-intersecting shell; the #173/N6 render-level gate now rejects the auto-union (`SelfIntersectingBooleanOutput`, 40 penetrations). Root fix = M5 exact degree-4 cyl×cyl curve (#172) — the chord-accurate path's trims interpenetrate sub-sagitta (spec `yang_173_selfx_detector.md` §6) | **#172** (root), gate shipped |
+| ~~C0116~~ | ~~SUPPORTED_WRONG~~ ~~ERROR~~ **SUPPORTED_CORRECT (2026-07-17)** | 0.01-deep cyl×cyl graze: WAS watertight/χ/volume-passing with a self-intersecting shell, then a loud #173/N6 render-gate STOP. ROOT-FIXED by the #172 Case-III graze guard (spec `yang_172_case_iii_graze_guard.md`): boolean-entry rim-N boost (derived N=29) makes the chord meshes sample the wedge; the shipped SurfacePair Stage-3/4 machinery refines it — all oracles green incl. the render selfx gate | **#172 DONE** |
+| C0118 | ERROR **by design** (new case, 2026-07-17) | 1e-8-deep cyl×cyl micro-graze — the #172 guard's STOP arm: genuine intersection above authoring noise but below the rim-N-cap observability floor; typed `SubSagittaGrazeIntersection`. Terminal: loud by design (the silent failure is unfused two-lump emission below even the render gate's sagitta) | **#172 DONE** (designed STOP) |
 
 The 4 SUPPORTED_WRONG entries change the corpus summary from 240C/0W to a
 baseline that shows WRONG > 0 **by exposure, not regression** — the 295
@@ -149,12 +150,14 @@ convert these to loud STOPs (the ratchet may then never regress).
 
 **2026-07-17 UPDATE: all four are now loud.** #173 converted C0105/C0116;
 #178 (spec `yang_178_subres_coplanar_gap_stop.md`, deviation N57) converted
-C0111/C0113. Committed baseline **250C / 0 WRONG / 57E** as of the #172
-torus×torus lift (R0096 ERROR→CORRECT 2026-07-17; before that
-249C / 0 WRONG / 58E — the +1C vs 248C
-and two TIMEOUT→ERROR shifts are the F0072/F0085/F0090 timeout-artifact
-cases resolving to their triage-documented honest states on an unloaded
-box). The #174 ratchet may now bind corpus-wide. #178 follow-up scenarios
+C0111/C0113. **C0116 subsequently ROOT-FIXED to SUPPORTED_CORRECT by the
+#172 Case-III graze guard (same day).** Committed baseline
+**250C / 0 WRONG / 55E / 3T on the 312-case corpus** (after #172 increment
+2: C0116 ERROR→CORRECT, new designed-ERROR C0118; F0072/F0085/F0090 are
+120s-budget-borderline TIMEOUT artifacts — F0090 solo-verifies
+SUPPORTED_CORRECT at 115.6s, ~0.1% above its 115.4s pre-guard solo; both
+states loud. Prior rungs: 250C/57E on 311 after the torus×torus lift;
+249C/58E before it). The #174 ratchet may now bind corpus-wide. #178 follow-up scenarios
 recorded in N57: coincident-CYLINDER sub-resolution radius gap (needs a
 corpus case FIRST, coverage directive) and tilt-only sub-resolution wedges.
 

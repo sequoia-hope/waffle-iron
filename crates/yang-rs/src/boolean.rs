@@ -274,7 +274,22 @@ pub fn boolean(
     // pairs cannot mesh-intersect. `None` (no cylinder faces, e.g. the
     // `from_mesh` chained-output operand, or no disjoint pair demanding
     // more than each solid's own N) leaves both operands byte-identical.
-    let boosted: Option<(BRep, BRep)> = match phantom_min_rim_segments(a, b) {
+    // Case-III graze guard (spec `yang_172_case_iii_graze_guard`, M5 #172
+    // half b): the mirror scan — cross cylinder pairs whose surfaces
+    // INTERSECT at a penetration shallower than the combined chord sagitta
+    // would be MISSED by the meshes (measured C0116: unfused emission
+    // whose true trims interpenetrate). Boost so the meshes must sample
+    // the wedge; a genuine sub-resolution graze STOPs loudly
+    // (`SubSagittaGrazeIntersection`).
+    let req = match (
+        phantom_min_rim_segments(a, b),
+        graze_min_rim_segments(a, b)?,
+    ) {
+        (Some(p), Some(g)) => Some(p.max(g)),
+        (p, None) => p,
+        (None, g) => g,
+    };
+    let boosted: Option<(BRep, BRep)> = match req {
         Some(n) => Some((
             a.rebuilt_with_min_rim_segments(n)?,
             b.rebuilt_with_min_rim_segments(n)?,

@@ -12,6 +12,7 @@ mod attribution;
 mod boolean_functional;
 mod construction_stage1;
 mod m4_substitute;
+mod m5_case_iii;
 mod m5_case_iv;
 mod matching;
 mod membrane;
@@ -34,6 +35,8 @@ pub(crate) use boolean_functional::*;
 pub(crate) use construction_stage1::*;
 #[allow(unused_imports)]
 pub(crate) use m4_substitute::*;
+#[allow(unused_imports)]
+pub(crate) use m5_case_iii::*;
 #[allow(unused_imports)]
 pub(crate) use m5_case_iv::*;
 #[allow(unused_imports)]

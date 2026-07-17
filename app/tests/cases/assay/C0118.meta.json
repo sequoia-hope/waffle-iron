@@ -1,0 +1,69 @@
+{
+  "id": "C0118",
+  "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — junction scenario: perpendicular cylinders grazing 1e-8 deep — sub-sagitta Case III must reject loudly (chi=2) [7f #172-graze]",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.5,
+      "depth_or_angle": 2.0,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.3,
+      "depth_or_angle": 3.5,
+      "is_cut": false,
+      "plane_origin": [
+        -1.5,
+        0.79999999,
+        1.0
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 6.5,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "increase"
+    ],
+    "expect_rebuild_error": false,
+    "expected_volume": 2.5603980126756816,
+    "expected_volume_tol_rel": 0.05
+  },
+  "generator_version": 4,
+  "featured": true
+}

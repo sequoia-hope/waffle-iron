@@ -394,6 +394,7 @@ fn err_variant_name(e: &YangError) -> &'static str {
         YangError::Stage4RegionInvalid { .. } => "Stage4RegionInvalid",
         YangError::CoplanarFacesUnsupported { .. } => "CoplanarFacesUnsupported",
         YangError::SubResolutionCoplanarGap { .. } => "SubResolutionCoplanarGap",
+        YangError::SubSagittaGrazeIntersection { .. } => "SubSagittaGrazeIntersection",
     }
 }
 

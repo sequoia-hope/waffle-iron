@@ -1,6 +1,6 @@
 {
   "master_seed": 42,
-  "count": 311,
+  "count": 312,
   "generator_version": 4,
   "cases": [
     {
@@ -2178,6 +2178,13 @@
       "filename": "C0117.waffle",
       "meta_filename": "C0117.meta.json",
       "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — junction scenario: coaxial bore leaves a 1e-4 m curved tube wall (chi=0) [7f #173-hazard]",
+      "featured": true
+    },
+    {
+      "id": "C0118",
+      "filename": "C0118.waffle",
+      "meta_filename": "C0118.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — junction scenario: perpendicular cylinders grazing 1e-8 deep — sub-sagitta Case III must reject loudly (chi=2) [7f #172-graze]",
       "featured": true
     }
   ]

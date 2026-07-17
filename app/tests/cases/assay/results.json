@@ -1,5 +1,5 @@
 {
-  "errored": 57,
+  "errored": 55,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
   "passed": 250,
@@ -1031,8 +1031,8 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "3 auto-union failure(s): Extrude 8: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: NonPlanarFace { face: FaceId(10329) }. Body created as standalone.; Extrude 9: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: NonPlanarFace { face: FaceId(10813) }. Body created as standalone.; Extrude 11: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 4: azimuth-merge rims have mismatched / too-few samples (229 vs 230)\"). Body created as standalone.",
+      "category": "TIMEOUT",
+      "detail": "timeout after 120s CPU (subprocess killed)",
       "id": "F0072",
       "status": "error"
     },
@@ -1109,8 +1109,8 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 20: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
+      "category": "TIMEOUT",
+      "detail": "timeout after 120s CPU (subprocess killed)",
       "id": "F0085",
       "status": "error"
     },
@@ -1139,10 +1139,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 120s CPU (subprocess killed)",
       "id": "F0090",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1859,17 +1859,23 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: SelfIntersectingBooleanOutput { face_a: FaceId(8), face_b: FaceId(11), penetrations: 40 }. Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0116",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
       "detail": "all checks passed",
       "id": "C0117",
       "status": "pass"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: cylinder faces A#2 and B#2 intersect at a penetration depth of 1.000e-8 — a genuine graze below the mesh observability floor (4.706e-7, the combined chord sagitta at the rim-N cap): no practical tessellation can sample the intersection (Yang Fig. 8 Case III), so the boolean would emit unfused topology that silently ignores it (#172)\"). Body created as standalone.",
+      "id": "C0118",
+      "status": "error"
     }
   ],
-  "total": 311
+  "total": 312
 }

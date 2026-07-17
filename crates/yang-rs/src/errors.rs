@@ -109,6 +109,24 @@ pub enum YangError {
         gap: f64,
         band: f64,
     },
+
+    /// #172 half (b) (spec `yang_172_case_iii_graze_guard.md`): two
+    /// cross A×B cylinder lateral surfaces genuinely INTERSECT at a
+    /// penetration `depth` above the coincidence-authoring noise class
+    /// yet below the observability floor of any practical rim
+    /// tessellation (`floor` = the combined chord sagitta at the
+    /// N-cap): Yang Fig. 8 Case III with no finite refinement answer.
+    /// Emitting would be silent-wrong topology (the meshes never see
+    /// the intersection, so the output stays unfused while the true
+    /// surfaces interpenetrate — below the #173 render gate's sagitta
+    /// too). A P10 LOUD stop, the graze mirror of
+    /// [`Self::SubResolutionCoplanarGap`].
+    SubSagittaGrazeIntersection {
+        face_a: usize,
+        face_b: usize,
+        depth: f64,
+        floor: f64,
+    },
 }
 
 /// PR-YR10 (Stage 4): why a relocation region could not be made valid.
@@ -253,6 +271,22 @@ impl fmt::Display for YangError {
                      ({band:.3e}) but above rounding noise: a sub-resolution feature the \
                      Stage-0 overlay would silently dissolve; input is outside the \
                      MIN_FEATURE_SIZE contract (#178)"
+                )
+            }
+            Self::SubSagittaGrazeIntersection {
+                face_a,
+                face_b,
+                depth,
+                floor,
+            } => {
+                write!(
+                    f,
+                    "yang-rs: cylinder faces A#{face_a} and B#{face_b} intersect at a \
+                     penetration depth of {depth:.3e} — a genuine graze below the mesh \
+                     observability floor ({floor:.3e}, the combined chord sagitta at the \
+                     rim-N cap): no practical tessellation can sample the intersection \
+                     (Yang Fig. 8 Case III), so the boolean would emit unfused topology \
+                     that silently ignores it (#172)"
                 )
             }
         }

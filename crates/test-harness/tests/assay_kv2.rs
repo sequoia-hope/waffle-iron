@@ -1247,8 +1247,21 @@ fn smoke_corpus_boundary_categories() {
         // defect is SUB-SAGITTA in the coarse Stage-4 mesh — the exact
         // mesh-level detector provably cannot see it; render resolution is
         // the observable layer.)
-        ("C0116", Category::Error),
+        // ROOT-FIXED 2026-07-17 by the #172 Case-III graze guard (spec
+        // `yang_172_case_iii_graze_guard.md`): the boolean entry boosts
+        // both operands' rim N (derived 29 here) so the chord meshes
+        // sample the 0.01 wedge; the shipped SurfacePair Stage-3/4
+        // machinery then refines it — CORRECT through every oracle
+        // including the render selfx gate.
+        ("C0116", Category::SupportedCorrect),
         ("C0117", Category::SupportedCorrect), // 7f 1e-4 curved tube wall survives
+        // C0118 (#172 graze-guard STOP arm): a genuine 1e-8-deep cyl×cyl
+        // intersection — above authoring noise, below any practical rim
+        // tessellation's observability floor (Yang Fig. 8 Case III with no
+        // finite refinement answer). Must reject with the typed
+        // `SubSagittaGrazeIntersection`; the silent failure is unfused
+        // two-lump emission below even the render gate's sagitta.
+        ("C0118", Category::Error),
     ];
     for (id, expect) in expected {
         let case = cases
@@ -1327,8 +1340,8 @@ fn full_corpus_categorized() {
     let cases = discover_cases(&dir);
     assert_eq!(
         cases.len(),
-        311,
-        "expected the 311-case assay corpus (194 legacy + 117 C-series)"
+        312,
+        "expected the 312-case assay corpus (194 legacy + 118 C-series)"
     );
 
     // Per-case timeout (default 30s, env-overridable) so no single case can

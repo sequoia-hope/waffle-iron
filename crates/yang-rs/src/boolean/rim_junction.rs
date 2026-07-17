@@ -115,26 +115,6 @@ pub(crate) fn phantom_min_rim_segments(a: &BRep, b: &BRep) -> Option<usize> {
     // already satisfies is dropped, keeping the common path byte-identical
     // (and rebuild-free). `natural_rim_n` mirrors the Stage-1 N derivation
     // (chord bound over all rim circles, N from the max radius).
-    let natural_rim_n = |brep: &BRep| -> usize {
-        let Some(d_eps) = curved_chord_bound(brep.edges()) else {
-            return usize::MAX; // no circles: nothing to boost
-        };
-        let max_r = brep
-            .edges()
-            .iter()
-            .filter_map(|e| match e.curve {
-                Curve::Circle { radius, .. } => Some(radius),
-                _ => None,
-            })
-            .fold(0.0f64, f64::max);
-        let mut n = 3usize;
-        if d_eps > 0.0 {
-            while max_r * (1.0 - (std::f64::consts::PI / n as f64).cos()) > d_eps {
-                n += 1;
-            }
-        }
-        n
-    };
     let gated = match req {
         Some(n) if n > natural_rim_n(a) || n > natural_rim_n(b) => Some(n),
         _ => None,
@@ -156,6 +136,326 @@ pub(crate) fn phantom_min_rim_segments(a: &BRep, b: &BRep) -> Option<usize> {
         );
     }
     gated
+}
+
+/// The solid's natural Stage-1 rim segment count: mirrors the Stage-1 N
+/// derivation exactly (chord bound over all rim circles, N from the max
+/// radius). `usize::MAX` for a solid with no circles (nothing to boost).
+/// Shared by the Case-IV phantom and Case-III graze guards' self-limiting
+/// gates.
+fn natural_rim_n(brep: &BRep) -> usize {
+    let Some(d_eps) = curved_chord_bound(brep.edges()) else {
+        return usize::MAX; // no circles: nothing to boost
+    };
+    let max_r = brep
+        .edges()
+        .iter()
+        .filter_map(|e| match e.curve {
+            Curve::Circle { radius, .. } => Some(radius),
+            _ => None,
+        })
+        .fold(0.0f64, f64::max);
+    let mut n = 3usize;
+    if d_eps > 0.0 {
+        while max_r * (1.0 - (std::f64::consts::PI / n as f64).cos()) > d_eps {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// One cylinder pair's Case-III verdict (spec
+/// `yang_172_case_iii_graze_guard` §3).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum GrazeDemand {
+    /// Not a scoped shallow graze: disjoint / exact tangency (the Case-IV
+    /// side), deep intersection handled by the natural N, depth inside the
+    /// authored-tangency noise class, or degenerate input.
+    None,
+    /// Boost both operands' rim N to at least this value so the chord
+    /// meshes must sample the intersection.
+    Boost(usize),
+    /// Genuine intersection below the observability floor of the rim-N
+    /// cap: no practical tessellation sees it — the typed-STOP arm.
+    SubSagitta { depth: f64, floor: f64 },
+}
+
+/// The Case-III pairwise demand of two cylinder lateral surfaces (spec
+/// `yang_172_case_iii_graze_guard`): the mirror of [`cyl_pair_phantom_n`]
+/// for pairs that ANALYTICALLY INTERSECT at a shallow penetration `depth`
+/// (non-parallel axes: `r_a + r_b − d_lines`; parallel axes crossing
+/// properly: `min(r_a + r_b − d, d − |r_a − r_b|)` — the second term is
+/// the internal graze). A positive depth demands the smallest `N` with
+/// `sag(r_a, N) + sag(r_b, N) ≤ depth/2`, guaranteeing mesh-level
+/// penetration ≥ depth/2 regardless of chord phase (inscribed chords
+/// recede at most `sag` inward; the factor-2 margin is safety, not a
+/// tolerance — a finer N is always chord-valid, A14.3). Deep
+/// intersections derive a tiny N absorbed by the caller's natural-N gate.
+/// A depth at or below the #178-calibrated coincidence-noise line
+/// (`max(TAU_MODEL, scale·TAU_WORK)/100`) is authored tangency residue —
+/// no demand. A depth above the noise line whose N would exceed the 4096
+/// cap is a genuine sub-resolution intersection: [`GrazeDemand::SubSagitta`]
+/// (the caller STOPs loudly after the face-extent witness check).
+pub(crate) fn cyl_pair_graze_demand(
+    (pa, da, ra): (Point3, Vector3, f64),
+    (pb, db, rb): (Point3, Vector3, f64),
+) -> GrazeDemand {
+    let ua = normalize3(da.as_array());
+    let ub = normalize3(db.as_array());
+    let w = [pb.x() - pa.x(), pb.y() - pa.y(), pb.z() - pa.z()];
+    let cx = [
+        ua[1] * ub[2] - ua[2] * ub[1],
+        ua[2] * ub[0] - ua[0] * ub[2],
+        ua[0] * ub[1] - ua[1] * ub[0],
+    ];
+    let cross_norm = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+    let (parallel, d_axes) = if cross_norm > 1e-12 {
+        let d = (w[0] * cx[0] + w[1] * cx[1] + w[2] * cx[2]).abs() / cross_norm;
+        (false, d)
+    } else {
+        let t = w[0] * ua[0] + w[1] * ua[1] + w[2] * ua[2];
+        let perp = [w[0] - t * ua[0], w[1] - t * ua[1], w[2] - t * ua[2]];
+        let d = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
+        (true, d)
+    };
+    let depth = if parallel {
+        // Proper crossing of parallel laterals: |r_a − r_b| < d < r_a + r_b.
+        // Both margins are graze hazards (external lens / internal crescent).
+        let external = (ra + rb) - d_axes;
+        let internal = d_axes - (ra - rb).abs();
+        external.min(internal)
+    } else {
+        (ra + rb) - d_axes
+    };
+    if depth.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+        return GrazeDemand::None; // disjoint / exact tangency / NaN
+    }
+    // #178-calibrated coincidence-authoring noise line: an authored-tangent
+    // pair arrives with sub-noise residue (measured population ≤ 2.235e-10);
+    // designed sub-resolution features sit ≥ 1e-8, 10–100× above the line.
+    let mut scale = ra.max(rb);
+    for &c in pa.as_array().iter().chain(pb.as_array().iter()) {
+        scale = scale.max(c.abs());
+    }
+    let noise = cad_primitives::TAU_MODEL.max(scale * cad_primitives::TAU_WORK) / 100.0;
+    if depth <= noise {
+        return GrazeDemand::None;
+    }
+    let sag = |r: f64, n: usize| r * (1.0 - (std::f64::consts::PI / n as f64).cos());
+    let mut n = 3usize;
+    while sag(ra, n) + sag(rb, n) > depth / 2.0 {
+        n += 1;
+        if n > 4096 {
+            return GrazeDemand::SubSagitta {
+                depth,
+                floor: 2.0 * (sag(ra, 4096) + sag(rb, 4096)),
+            };
+        }
+    }
+    // Render-observability scope line (spec §3): the boost exists so the
+    // OBSERVABLE output is right. A lens shallower than the render mesh's
+    // own combined sagitta (kernel-v2 render chord ratio 1e-3·r per face,
+    // #173 calibration) cannot be represented at ANY output resolution —
+    // the render selfx gate provably cannot see it, and the measured
+    // corpus-green status quo (C0057: unfused 1e-6 lens, shell-credited
+    // oracles) stays byte-identical. That sub-render band is §4.5.2 LOCAL
+    // refinement territory (roadmap P3d), not a global-rim-N job — the
+    // derived N would be unbounded (C0057: 3142, measured CORRECT→TIMEOUT
+    // corpus regression). Above the line the derived N is bounded ≈ 71
+    // regardless of radii (scale-free ratio), so the boost is always
+    // affordable. Depths below the 4096-cap floor still STOP above.
+    if depth <= 2.0e-3 * (ra + rb) {
+        return GrazeDemand::None;
+    }
+    GrazeDemand::Boost(n)
+}
+
+/// Case-III graze guard scan (spec `yang_172_case_iii_graze_guard`): the
+/// forced minimum rim segment count over all cross A×B cylinder-face
+/// pairs that intersect at a shallow analytic penetration (Yang Fig. 8
+/// Case III — the meshes would MISS an intersection the surfaces have,
+/// emitting unfused topology whose true trimmed surfaces interpenetrate;
+/// measured C0116). `Err(SubSagittaGrazeIntersection)` when a pair's
+/// depth is above authoring noise yet below the rim-N cap's
+/// observability floor AND the graze region reaches both faces' axial
+/// extents (the witness check — an off-face infinite-surface graze must
+/// not false-STOP the adjacent-boss class). Self-limiting like the
+/// Case-IV guard: a demand both solids' natural Stage-1 N satisfies is
+/// dropped, keeping the common path byte-identical.
+pub(crate) fn graze_min_rim_segments(a: &BRep, b: &BRep) -> Result<Option<usize>, YangError> {
+    let cyls = |brep: &BRep| -> Vec<(usize, Point3, Vector3, f64)> {
+        brep.faces()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, f)| match f.surface {
+                Surface::Cylinder {
+                    axis_point,
+                    axis_dir,
+                    radius,
+                } => Some((i, axis_point, axis_dir, radius)),
+                _ => None,
+            })
+            .collect()
+    };
+    // The face's span of rim-circle centers along `û` measured from `p0`.
+    // `None` when the face carries no Circle edges (no derivable span —
+    // the caller treats it as spanning, conservative-loud).
+    let axial_span =
+        |brep: &BRep, face_idx: usize, p0: Point3, u: [f64; 3]| -> Option<(f64, f64)> {
+            let face = &brep.faces()[face_idx];
+            let mut span: Option<(f64, f64)> = None;
+            for &e_idx in face
+                .outer_loop
+                .iter()
+                .chain(face.inner_loops.iter().flatten())
+            {
+                if let Curve::Circle { center, .. } = brep.edges()[e_idx as usize].curve {
+                    let t = (center.x() - p0.x()) * u[0]
+                        + (center.y() - p0.y()) * u[1]
+                        + (center.z() - p0.z()) * u[2];
+                    span = Some(span.map_or((t, t), |(lo, hi)| (lo.min(t), hi.max(t))));
+                }
+            }
+            span
+        };
+    let (ca, cb) = (cyls(a), cyls(b));
+    let mut boosts: Vec<(usize, usize, usize)> = Vec::new(); // (fa, fb, n)
+    for &(fa, pa, da, ra) in &ca {
+        for &(fb, pb, db, rb) in &cb {
+            match cyl_pair_graze_demand((pa, da, ra), (pb, db, rb)) {
+                GrazeDemand::None => {}
+                GrazeDemand::Boost(n) => {
+                    boosts.push((fa, fb, n));
+                }
+                GrazeDemand::SubSagitta { depth, floor } => {
+                    // Witness check: the graze region (the common
+                    // perpendicular of the two axes, widened by the wedge
+                    // half-length √(2·r_max·depth)) must reach BOTH faces'
+                    // axial spans; the infinite surfaces grazing off-face
+                    // is not this pair's defect.
+                    let ua = normalize3(da.as_array());
+                    let ub = normalize3(db.as_array());
+                    let w = [pb.x() - pa.x(), pb.y() - pa.y(), pb.z() - pa.z()];
+                    let bdot = ua[0] * ub[0] + ua[1] * ub[1] + ua[2] * ub[2];
+                    let d1 = w[0] * ua[0] + w[1] * ua[1] + w[2] * ua[2];
+                    let d2 = w[0] * ub[0] + w[1] * ub[1] + w[2] * ub[2];
+                    let denom = 1.0 - bdot * bdot;
+                    let half_len = (2.0 * ra.max(rb) * depth).sqrt();
+                    let hit = |span: Option<(f64, f64)>, t: f64| -> bool {
+                        span.is_none_or(|(lo, hi)| t >= lo - half_len && t <= hi + half_len)
+                    };
+                    let in_extent = if denom > 1e-24 {
+                        // Skew/crossing axes: perpendicular feet params.
+                        let s_a = (d1 - bdot * d2) / denom;
+                        let t_b = (bdot * d1 - d2) / denom;
+                        hit(axial_span(a, fa, pa, ua), s_a) && hit(axial_span(b, fb, pb, ub), t_b)
+                    } else {
+                        // Parallel axes: the graze runs along the common
+                        // axial overlap — the two spans (both measured
+                        // along û_a from p_a) must overlap.
+                        match (axial_span(a, fa, pa, ua), axial_span(b, fb, pb, ua)) {
+                            (Some((alo, ahi)), Some((blo, bhi))) => {
+                                let boff = d1; // p_b's offset along û_a
+                                alo - half_len <= boff + bhi + half_len
+                                    && blo + boff - half_len <= ahi + half_len
+                            }
+                            _ => true, // no derivable span: conservative-loud
+                        }
+                    };
+                    if in_extent {
+                        return Err(YangError::SubSagittaGrazeIntersection {
+                            face_a: fa,
+                            face_b: fb,
+                            depth,
+                            floor,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    // Phase-aware Case-III filter (spec §3): the paper defines Case III as
+    // "the meshes MISS intersections" — a pair whose NATURAL meshes already
+    // intersect (the seam-anchored chord phase happens to catch the lens,
+    // e.g. the C0057 vertex-aligned 1e-6 sliver) is NOT a Case III miss and
+    // keeps today's byte-identical path (its output is guarded by the same
+    // metric/render oracles as before). Only pairs whose natural face
+    // meshes are exactly disjoint (Cherchi tri-tri classifier, exact
+    // predicates) demand the boost. Both failure directions are safe: a
+    // spurious "disjoint" only costs a finer mesh; a spurious "intersects"
+    // is the measured pre-guard baseline.
+    let mut req: Option<usize> = None;
+    if !boosts.is_empty() {
+        let verts_a: Vec<BRepVertex> = a.vertices().to_vec();
+        let verts_b: Vec<BRepVertex> = b.vertices().to_vec();
+        let ta = stage1_tessellate(&verts_a, a.edges(), a.faces())?;
+        let tb = stage1_tessellate(&verts_b, b.edges(), b.faces())?;
+        let tri_aabb = |t: &crate::stage1_tessellate::Stage1Tess, tri: [u32; 3]| {
+            let mut lo = [f64::INFINITY; 3];
+            let mut hi = [f64::NEG_INFINITY; 3];
+            for &vi in &tri {
+                let p = t.verts[vi as usize].as_array();
+                for k in 0..3 {
+                    lo[k] = lo[k].min(p[k]);
+                    hi[k] = hi[k].max(p[k]);
+                }
+            }
+            (lo, hi)
+        };
+        // Any-contact test between one operand's tri range and the WHOLE
+        // partner mesh. The flagged pair's mesh-level contact need not be
+        // lateral×lateral — with parallel axes the lateral tris are all
+        // axis-parallel and can never cross each other; the C0057 sliver
+        // enters through the partner's CAP disc — so a flagged face is
+        // tested against every partner triangle.
+        let touches = |xa: &crate::stage1_tessellate::Stage1Tess,
+                       range: std::ops::Range<usize>,
+                       xb: &crate::stage1_tessellate::Stage1Tess|
+         -> bool {
+            use cherchi_rs::predicates::TriangleIntersection as TI;
+            for ia in range {
+                let tri_a = xa.tris[ia];
+                let (alo, ahi) = tri_aabb(xa, tri_a);
+                for &tri_b in &xb.tris {
+                    let (blo, bhi) = tri_aabb(xb, tri_b);
+                    if (0..3).any(|k| alo[k] > bhi[k] || blo[k] > ahi[k]) {
+                        continue;
+                    }
+                    match cherchi_rs::predicates::triangle_intersects_triangle_3d(
+                        xa.verts[tri_a[0] as usize],
+                        xa.verts[tri_a[1] as usize],
+                        xa.verts[tri_a[2] as usize],
+                        xb.verts[tri_b[0] as usize],
+                        xb.verts[tri_b[1] as usize],
+                        xb.verts[tri_b[2] as usize],
+                    ) {
+                        TI::Intersects | TI::Coplanar => return true,
+                        TI::Disjoint => {}
+                    }
+                }
+            }
+            false
+        };
+        for (fa, fb, n) in boosts {
+            let meshes_touch = touches(&ta, ta.face_tri_ranges[fa].clone(), &tb)
+                || touches(&tb, tb.face_tri_ranges[fb].clone(), &ta);
+            if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                eprintln!(
+                    "[graze-guard] pair=({fa},{fb}) n={n} meshes_touch={meshes_touch} \
+                     tris=({},{})",
+                    ta.face_tri_ranges[fa].len(),
+                    tb.face_tri_ranges[fb].len(),
+                );
+            }
+            if !meshes_touch {
+                req = Some(req.map_or(n, |r: usize| r.max(n)));
+            }
+        }
+    }
+    Ok(match req {
+        Some(n) if n > natural_rim_n(a) || n > natural_rim_n(b) => Some(n),
+        _ => None,
+    })
 }
 
 /// N2/F0059 epic increment 2, BANKED-UNWIRED (spec

@@ -64,8 +64,24 @@ in the ledger is PERMANENT with user sign-off.
    torus×torus diagnosis: its v11 is a cylinder×cone `SurfacePair` endpoint
    that is also a conic endpoint (surface-pair endpoint-mix STOP) —
    re-vehicled to the phase-3 junction layer in `docs/yang_tail_triage.md`.
-   Remaining M5 half: cyl×cyl lateral analytical refinement for the
-   C0051–C0058 chord-accurate passes + the C0116 root fix.*
+   cyl×cyl half SHIPPED 2026-07-17 (#172 increment 2, spec
+   `specs/yang_172_case_iii_graze_guard.md`): the Case-III graze guard —
+   the exact mirror of the shipped Case-IV phantom guard — detects
+   cross-operand cylinder pairs whose surfaces intersect at a penetration
+   the chord meshes never sample (Yang §4.2.1 Fig. 8 Case III) and
+   rebuilds both operands at the derived rim N (`sag_a+sag_b ≤ depth/2`),
+   so the SHIPPED SurfacePair Stage-3/4 machinery refines the wedge.
+   C0116 ERROR→CORRECT (the #173 gate's root fix). Scope lines, all
+   derived: phase-aware filter (natural meshes already touching = not a
+   Case-III miss, byte-identical — C0057's vertex-phase sliver);
+   render-observability floor (`depth ≤ 2·1e-3·(r_a+r_b)` cannot be
+   represented at any output resolution → status quo, routed to the
+   phase-3 §4.5.2 LOCAL refinement); sub-sagitta STOP (depth above
+   authoring noise but below the rim-N cap ⇒ typed
+   `SubSagittaGrazeIntersection`, new designed-ERROR corpus case C0118,
+   corpus 311→312). M5 is CLOSED as a phase; the sub-render near-tangent
+   residue (C0057-class unfused shell-credited lenses) is phase-3
+   §4.5.2/P3d territory.*
 3. **The junction layer (closes N2)** — design grounded by the 2026-07-17
    research session: **`docs/yang_junction_research_findings.md`** (read it
    before writing any P3 spec; its "junction contract" is binding: mint once
@@ -138,9 +154,13 @@ cross pair of two genuinely DISTINCT parallel planes (offset gap above the
 rounding-noise class `TAU_WORK·(1+scale)`; corpus-measured legitimate
 femto-twin max 2.7e-12, ≥40× below the line) rejects with typed
 `SubResolutionCoplanarGap` before any overlay work. Committed baseline
-**250C / 0 WRONG / 57E** (was 249C/58E; R0096 flipped CORRECT by the #172
-torus×torus lift, 2026-07-17) — DoD (b)'s 0-WRONG clause holds corpus-wide
-and the #174 ratchet can bind the whole corpus.*
+**250C / 0 WRONG / 55E / 3T on the 312-case corpus** (2026-07-17, after the
+#172 Case-III graze guard: C0116 ERROR→CORRECT, new designed-ERROR C0118;
+F0072/F0085/F0090 are 120s-budget-borderline TIMEOUT artifacts — F0090
+solo-verifies SUPPORTED_CORRECT at 115.6s vs a 115.4s pre-guard solo, i.e.
+the guard costs it ~0.1%; both states loud. Prior rungs: 250C/57E on 311
+after the #172 torus×torus lift; 249C/58E before it) — DoD (b)'s 0-WRONG
+clause holds corpus-wide and the #174 ratchet can bind the whole corpus.*
 
 **Expectations:** phase 3 is the multi-session structural core (~60–70% of
 remaining effort; per the structural-fixes-first policy that is expected, not
