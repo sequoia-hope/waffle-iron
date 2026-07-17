@@ -15,13 +15,9 @@
 
 ---
 
-## ⏳ Sign-off batch 2026-07-16 — PENDING user ratification
+## Sign-off batch 2026-07-16 — RESOLVED BY DELEGATION (2026-07-17)
 
-Presented to the user 2026-07-16 (restructure session); answers not yet received. Until ratified, the entries below are **PERMANENT (proposed)** — treated as permanent for planning, but carrying no user signature. To ratify, reply (or edit here) with decisions; each entry then gets the formal `**Sign-off:** approved by <name>, <date>` stamp.
-
-- **Batch A — the 11 long-standing `Sign-off: candidate` entries:** N5, N9, N10, N11, N12, N13, N14, N15, N16, N17, N18. All are documented in-scope substitutions; the Cherchi-port ones (N13–N18) were later validated by bit-identical sidecar parity (M6/M7). *Recommended: approve all as PERMANENT; N5 carries a scope condition (reopens if NURBS/Bézier support is ever scheduled).*
-- **Batch B — the 31 self-signed entries:** N19–N24 (deliberate corrections of C++ reference bugs/quirks), N25–N35 (self-declared design decisions), N36–N37 (refactor/capability), N38–N47 + N55–N56 (P5 solo-operator sign-offs: mutation-tested red/green oracles + full-assay 0-WRONG). *Recommended: ratify retroactively AND delegate forward — amend the sign-off procedure so shipped-fix deviations may self-sign under the P5 convention, while substantive paper-faithfulness gaps still require the user.*
-- **Batch C — scope:** D14 (no NURBS/Bézier; analytic primitives only) as a PERMANENT scope sign-off, inherited by the entries conditioned on it (N5, N7). *Recommended: approve; reopen explicitly if NURBS is ever scheduled.*
+Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on A B C"** — an explicit delegation, not an approval of substance. Disposition: the recommended defaults were applied under that delegation, and each affected entry's State line records it verbatim. Concretely: **batch A** (N5, N9–N18) and **batch B** (N19–N47, N55–N56) are PERMANENT; the **P5 solo-operator convention is ratified by delegation** (shipped-fix deviations may self-sign given mutation-tested red/green oracles + full-assay 0-WRONG); **batch C** (D14) records the analytic-primitives-only scope. If the user later forms an opinion, any of these dispositions can be reversed — the delegation, not the substance, is what was decided.
 
 ---
 
@@ -42,62 +38,62 @@ Presented to the user 2026-07-16 (restructure session); answers not yet received
 | D11 | HISTORICAL | `d_ε` computed from combined-AABB across both solids |
 | D12 | HISTORICAL | O(n²) broad-phase intersection detection vs octree |
 | D13 | HISTORICAL | Gauss-map check uses triangle-normal dot product, not Theorem 4.1 cones |
-| D14 | PERM-pending (C) | No NURBS / Bézier surface support; only analytic primitives |
+| D14 | PERMANENT (C) | No NURBS / Bézier surface support; only analytic primitives |
 | N1 | RESOLVED | Stage-2 labels taken from the C++ sidecar, not a native arrangement |
 | N2 | OPEN | Stage-4 mesh-updating / CDT absent (relocation-only) |
 | N3 | RESOLVED | §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion) |
 | N4 | RESOLVED | Face provenance via centroid-proximity, not §4.2.3 barycentric implicit mapping |
-| N5 | PERM-pending (A) | Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2 CDT framework |
+| N5 | PERMANENT (A) | Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2 CDT framework |
 | N6 | OPEN | §4.5.4 illegal self-intersection detection/removal absent |
 | N7 | PERMANENT | Stage 3 uses closed-form algebraic SSI instead of §4.3 Newton/geometric optimization |
 | N8 | RESOLVED | Stage 0 (§4.5.5 coplanar) verified NATIVE-need, not sidecar-delegated |
-| N9 | PERM-pending (A) | Planar non-convex / holed Stage-1 tessellation uses no-Steiner CDT (spade) |
-| N10 | PERM-pending (A) | Stage-5 intersection-edge classification gated by on-both-surfaces predicate (PR-YR18) |
-| N11 | PERM-pending (A) | sphere section `Circle` membership uses a projection-scaled radial band (PR-YR19) |
-| N12 | PERM-pending (A) | Stage-6 face resolution ranks ties by exact-vs-band tier (PR-YR20) |
-| N13 | PERM-pending (A) | PR-CR-AR1 builds explicit+LPI points only; TPI deferred to AR2 (scope correction) |
-| N14 | PERM-pending (A) | PR-CR-AR2a point/edge insertion: readable `splitSingleTriangle` with a uniform on-edge check; structural LP… |
-| N15 | PERM-pending (A) | PR-CR-AR2b Cycle C1 TPI routing: macro dispatch (faithful) + the createTPI STOP (blocking re-scope to C2/AR3) |
-| N16 | PERM-pending (A) | PR-CR-AR3a constraint enforcement: per-work-item `source_tri` replaces the global `seg2tris`; deep-recursio… |
-| N17 | PERM-pending (A) | PR-CR-AR3b coplanar/single-coplanar-edge: defer ONLY a real intersection AR1 cannot construct; benign touch… |
-| N18 | PERM-pending (A) | PR-CR-AR3b exact-coordinate canonicalization welds coincident implicit points across triangles |
-| N19 | PERM-pending (B) | PR-CR-BL2 ray perturbation: one coherent offset per attempt; winner-less events skip (C++ early-break quirk… |
-| N20 | PERM-pending (B) | PR-CR-BL2 in/out: ray-parameter-ZERO hits are discarded (C++ keeps them and mislabels point-touch inputs) |
-| N21 | PERM-pending (B) | PR-KV4-F1 in/out: rational-ray fallback where the C++ exits ("requires exact rationals") |
-| N22 | PERM-pending (B) | Stage-6 degenerate-arrangement children: fold-sliver exclusion + loop T-subdivision |
-| N23 | PERM-pending (B) | Patch-label flood tolerates COMPATIBLE (subset) labels at coplanar-sheet borders; DISJOINT stays loud |
-| N24 | PERM-pending (B) | orient2d/orient3d: exact-rational zero-certification (Shewchuk underflow hole) |
-| N25 | PERM-pending (B) | Stage-0 §4.5.5 generalized to n-ary plane groups + tessellated (disc/annular/mixed) faces |
-| N26 | PERM-pending (B) | Overlay f64-emission fused collapse (§4.5.5 identical-mesh at rounding resolution) |
-| N27 | PERM-pending (B) | Stage-1 rim-override merge onto a coinciding uniform sample (producer/consumer of N26) |
-| N28 | PERM-pending (B) | Torus-profile rim crossings: CapLateral torus arm + poloidal opposite-rim projection |
-| N29 | PERM-pending (B) | §4.5.3 reversed-point correction via EXACT conic parameters (not the paper's discrete tangent-angle proxy) … |
-| N30 | PERM-pending (B) | Circle × parallel-plane-line junction closed form (§4.4.1 relocation onto both incident curves) |
-| N31 | PERM-pending (B) | Cone-ellipse & cone-hyperbola SAME-TYPE junction routing to the triple relocation (KV16 / KV16b) |
-| N32 | PERM-pending (B) | Stage-6 output arc orientation obeys the CCW-minor input convention |
-| N33 | PERM-pending (B) | Disjoint-union passthrough (A ∪ B with A∩B=∅ is the disjoint sum — outside Yang's interacting-solid scope) |
-| N34 | PERM-pending (B) | KV6a-tilted: full-turn revolve alternation gate narrowed to consecutive-annuli only |
-| N35 | PERM-pending (B) | KV6d: closed-torus & on-axis-sphere full-turn revolve + Stage-4 bounded-face containment guard |
-| N36 | PERM-pending (B) | Tolerance-vocabulary consolidation (TAU_EVAL) + named surviving divergences |
-| N37 | PERM-pending (B) | Sphere×cylinder and sphere×cone general position → procedural SurfacePair |
-| N38 | PERM-pending (B) | Stage-3 cone-owning-edge selection tol bound to the EDGE's OWN cone band |
-| N39 | PERM-pending (B) | Cone∩plane conic curve-distance amplification (the N38 follow-up) |
-| N40 | PERM-pending (B) | Backtrack-spike normalization of chained-boolean-drift operand loops |
-| N41 | PERM-pending (B) | Doubled-membrane removal at the Stage-4 shell gate (the χ=3 sub-layer of the #146 non-2-manifold class) |
-| N42 | PERM-pending (B) | Stage-6 planar-face GROSS-non-planarity self-check (producer-contract enforcement for the #146 off-plane em… |
-| N43 | PERM-pending (B) | Stage-6 geometric attribution measures a `Plane` face by its triangle's WORST vertex, not the centroid (the… |
-| N44 | PERM-pending (B) | Mixed-orientation side-A faces in an n-ary coplanar plane group (M8 slice h, task #147) |
-| N45 | PERM-pending (B) | Stage-3 SSI position tie-break for CROSSING cone-apex generator lines (R0008, task #163) |
-| N46 | PERM-pending (B) | Exact cylinder∩plane generator-line membership band (R0026, task #164) |
-| N47 | PERM-pending (B) | Coincident relocated-vertex weld before topology emission (defensive producer invariant; render-collapse tw… |
+| N9 | PERMANENT (A) | Planar non-convex / holed Stage-1 tessellation uses no-Steiner CDT (spade) |
+| N10 | PERMANENT (A) | Stage-5 intersection-edge classification gated by on-both-surfaces predicate (PR-YR18) |
+| N11 | PERMANENT (A) | sphere section `Circle` membership uses a projection-scaled radial band (PR-YR19) |
+| N12 | PERMANENT (A) | Stage-6 face resolution ranks ties by exact-vs-band tier (PR-YR20) |
+| N13 | PERMANENT (A) | PR-CR-AR1 builds explicit+LPI points only; TPI deferred to AR2 (scope correction) |
+| N14 | PERMANENT (A) | PR-CR-AR2a point/edge insertion: readable `splitSingleTriangle` with a uniform on-edge check; structural LP… |
+| N15 | PERMANENT (A) | PR-CR-AR2b Cycle C1 TPI routing: macro dispatch (faithful) + the createTPI STOP (blocking re-scope to C2/AR3) |
+| N16 | PERMANENT (A) | PR-CR-AR3a constraint enforcement: per-work-item `source_tri` replaces the global `seg2tris`; deep-recursio… |
+| N17 | PERMANENT (A) | PR-CR-AR3b coplanar/single-coplanar-edge: defer ONLY a real intersection AR1 cannot construct; benign touch… |
+| N18 | PERMANENT (A) | PR-CR-AR3b exact-coordinate canonicalization welds coincident implicit points across triangles |
+| N19 | PERMANENT (B) | PR-CR-BL2 ray perturbation: one coherent offset per attempt; winner-less events skip (C++ early-break quirk… |
+| N20 | PERMANENT (B) | PR-CR-BL2 in/out: ray-parameter-ZERO hits are discarded (C++ keeps them and mislabels point-touch inputs) |
+| N21 | PERMANENT (B) | PR-KV4-F1 in/out: rational-ray fallback where the C++ exits ("requires exact rationals") |
+| N22 | PERMANENT (B) | Stage-6 degenerate-arrangement children: fold-sliver exclusion + loop T-subdivision |
+| N23 | PERMANENT (B) | Patch-label flood tolerates COMPATIBLE (subset) labels at coplanar-sheet borders; DISJOINT stays loud |
+| N24 | PERMANENT (B) | orient2d/orient3d: exact-rational zero-certification (Shewchuk underflow hole) |
+| N25 | PERMANENT (B) | Stage-0 §4.5.5 generalized to n-ary plane groups + tessellated (disc/annular/mixed) faces |
+| N26 | PERMANENT (B) | Overlay f64-emission fused collapse (§4.5.5 identical-mesh at rounding resolution) |
+| N27 | PERMANENT (B) | Stage-1 rim-override merge onto a coinciding uniform sample (producer/consumer of N26) |
+| N28 | PERMANENT (B) | Torus-profile rim crossings: CapLateral torus arm + poloidal opposite-rim projection |
+| N29 | PERMANENT (B) | §4.5.3 reversed-point correction via EXACT conic parameters (not the paper's discrete tangent-angle proxy) … |
+| N30 | PERMANENT (B) | Circle × parallel-plane-line junction closed form (§4.4.1 relocation onto both incident curves) |
+| N31 | PERMANENT (B) | Cone-ellipse & cone-hyperbola SAME-TYPE junction routing to the triple relocation (KV16 / KV16b) |
+| N32 | PERMANENT (B) | Stage-6 output arc orientation obeys the CCW-minor input convention |
+| N33 | PERMANENT (B) | Disjoint-union passthrough (A ∪ B with A∩B=∅ is the disjoint sum — outside Yang's interacting-solid scope) |
+| N34 | PERMANENT (B) | KV6a-tilted: full-turn revolve alternation gate narrowed to consecutive-annuli only |
+| N35 | PERMANENT (B) | KV6d: closed-torus & on-axis-sphere full-turn revolve + Stage-4 bounded-face containment guard |
+| N36 | PERMANENT (B) | Tolerance-vocabulary consolidation (TAU_EVAL) + named surviving divergences |
+| N37 | PERMANENT (B) | Sphere×cylinder and sphere×cone general position → procedural SurfacePair |
+| N38 | PERMANENT (B) | Stage-3 cone-owning-edge selection tol bound to the EDGE's OWN cone band |
+| N39 | PERMANENT (B) | Cone∩plane conic curve-distance amplification (the N38 follow-up) |
+| N40 | PERMANENT (B) | Backtrack-spike normalization of chained-boolean-drift operand loops |
+| N41 | PERMANENT (B) | Doubled-membrane removal at the Stage-4 shell gate (the χ=3 sub-layer of the #146 non-2-manifold class) |
+| N42 | PERMANENT (B) | Stage-6 planar-face GROSS-non-planarity self-check (producer-contract enforcement for the #146 off-plane em… |
+| N43 | PERMANENT (B) | Stage-6 geometric attribution measures a `Plane` face by its triangle's WORST vertex, not the centroid (the… |
+| N44 | PERMANENT (B) | Mixed-orientation side-A faces in an n-ary coplanar plane group (M8 slice h, task #147) |
+| N45 | PERMANENT (B) | Stage-3 SSI position tie-break for CROSSING cone-apex generator lines (R0008, task #163) |
+| N46 | PERMANENT (B) | Exact cylinder∩plane generator-line membership band (R0026, task #164) |
+| N47 | PERMANENT (B) | Coincident relocated-vertex weld before topology emission (defensive producer invariant; render-collapse tw… |
 | N48 | HISTORICAL | Render-collapse twins (R0012/R0098) are GENUINE, sidecar-certified: root-caused to Stage-0 overlay near-coi… |
 | N49 | HISTORICAL | Refutation of N48's scoped fix: input-column snap breaks boundary-shared seams; the event-column merge must… |
 | N50 | HISTORICAL | f32-render-twin weld before topology emission (Stage 5/6; the shipped fix for R0012/R0098, task #166) |
 | N52 | HISTORICAL | Re-scoping the Stage-4 "LRR cluster": it is a heterogeneous hard tail, NOT one relocation-region class wait… |
 | N53 | HISTORICAL | Retire the four non-compliant tolerance welds (Yang-paper-compliance north star, #169 / #170) |
 | N54 | HISTORICAL | Stage-0 event-column canonicalization is REFUTED at the overlay level (the N53 "compliant replacement" for … |
-| N55 | PERM-pending (B) | the `subfeature` weld was Yang §4.4.1(b) all along; retighten its criterion → COMPLIANT always-on merge (re… |
-| N56 | PERM-pending (B) | `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the so… |
+| N55 | PERMANENT (B) | the `subfeature` weld was Yang §4.4.1(b) all along; retighten its criterion → COMPLIANT always-on merge (re… |
+| N56 | PERMANENT (B) | `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the so… |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -363,7 +359,7 @@ rationale.
 
 ### N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2 CDT framework
 
-**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
 **Code location:** planar Newell fan `crates/yang-rs/src/lib.rs:531-563` (1:1, no
 `d_ε` iteration, no CDT); cylinder analytic rim rings (no u-v CDT).
@@ -384,7 +380,7 @@ scope).
 
 ### N9 — Planar non-convex / holed Stage-1 tessellation uses no-Steiner CDT (spade)
 
-**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
 **Code location:** `crates/yang-rs/src/lib.rs` planar dispatch arm
 (`tessellate_planar_cdt_face` + `planar_outer_loop_is_nonconvex`);
@@ -415,7 +411,7 @@ chord error, so no `d_ε` densification is warranted).
 
 ### N10 — Stage-5 intersection-edge classification gated by on-both-surfaces predicate (PR-YR18)
 
-**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
 **Code location:** `crates/yang-rs/src/lib.rs` `build_intersection_curves`
 (the on-both-surfaces gate before `ssi_rs::intersect`); the mis-attribution
@@ -464,7 +460,7 @@ target.
 
 ### N11 — sphere section `Circle` membership uses a projection-scaled radial band (PR-YR19)
 
-**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
 **Code location:** `crates/yang-rs/src/lib.rs` — `curve_contains_point` (the
 `Circle` arm, plus its caller `build_intersection_curves` threading
@@ -522,7 +518,7 @@ durable target for intersection-edge identification generally.
 
 ### N12 — Stage-6 face resolution ranks ties by exact-vs-band tier (PR-YR20)
 
-**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
 **Code location:** `crates/yang-rs/src/lib.rs` — the **non-degenerate** branch of
 Stage-6 geometric face resolution (the centroid-membership counter). Spec
@@ -579,7 +575,7 @@ target for face attribution generally.
 
 ### N13 — PR-CR-AR1 builds explicit+LPI points only; TPI deferred to AR2 (scope correction)
 
-**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
 **Code location:** `crates/cherchi-rs/src/arrangements/intersection_points.rs`
 (new; `#[cfg(feature = "indirect-predicates")]`). Prompt PR-CR-AR1 ("tri-tri
@@ -707,7 +703,7 @@ Stage-0 / M8) → `Deferred(Coplanar)`. Never a guessed result.
 
 ### N14 — PR-CR-AR2a point/edge insertion: readable `splitSingleTriangle` with a uniform on-edge check; structural LPI dedup
 
-**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
 **Code location:** `crates/cherchi-rs/src/arrangements/retriangulate.rs` and
 `aux_structure.rs` (new; `#[cfg(feature = "indirect-predicates")]`). Prompt
@@ -773,7 +769,7 @@ cross-triangle parity are roadmap-tracked to AR2b/AR3.
 
 ### N15 — PR-CR-AR2b Cycle C1 TPI routing: macro dispatch (faithful) + the createTPI STOP (blocking re-scope to C2/AR3)
 
-**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
 **Code location:** `crates/cherchi-rs/src/arrangements/retriangulate.rs`
 (`#[cfg(feature = "indirect-predicates")]`). Prompt PR-CR-AR2b Cycle C1. C++
@@ -828,7 +824,7 @@ C2 / AR3.
 
 ### N16 — PR-CR-AR3a constraint enforcement: per-work-item `source_tri` replaces the global `seg2tris`; deep-recursion/coplanar TPI deferred to AR3b
 
-**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
 **Code location:** `crates/cherchi-rs/src/arrangements/enforce.rs` +
 `arrangements/gp_dispatch.rs` (both `#[cfg(feature = "indirect-predicates")]`).
@@ -902,7 +898,7 @@ soup + global `seg2tris`/coplanar `jollyPoint` TPI roadmap-tracked to AR3b.
 
 ### N17 — PR-CR-AR3b coplanar/single-coplanar-edge: defer ONLY a real intersection AR1 cannot construct; benign touches pass through
 
-**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
 **Code location:** `crates/cherchi-rs/src/arrangements/soup.rs` —
 `deferred_pair_must_defer` / `coplanar_tris_overlap` /
@@ -942,7 +938,7 @@ to M8. **Sign-off:** candidate.
 
 ### N18 — PR-CR-AR3b exact-coordinate canonicalization welds coincident implicit points across triangles
 
-**State:** PERMANENT (proposed) — sign-off batch A (2026-07-16), PENDING user ratification. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
 **Code location:** `crates/cherchi-rs/src/arrangements/soup.rs` —
 `canonicalize_points` (step 8 of `mesh_arrangement`). Prompt PR-CR-AR3b. C++
@@ -1003,7 +999,7 @@ These deliberately do NOT reproduce bugs/quirks found in the Cherchi C++ referen
 
 ### N19 — PR-CR-BL2 ray perturbation: one coherent offset per attempt; winner-less events skip (C++ early-break quirk + `-1` semantics)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 `perturbRayAndFindIntersTri` (booleans.cpp:1016) has an early `break` that,
 once any offset has produced a hit, mixes hits gathered under DIFFERENT
@@ -1020,7 +1016,7 @@ every perturbed hit lies behind the origin; the port returns None.
 
 ### N20 — PR-CR-BL2 in/out: ray-parameter-ZERO hits are discarded (C++ keeps them and mislabels point-touch inputs)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 `sortIntersectedTrisAlongX/Y/Z` (booleans.cpp:1190) discards only hits
 STRICTLY before the ray origin (`lessThanOn* < 0`); a hit at parameter
@@ -1038,7 +1034,7 @@ away from touch configurations.
 
 ### N21 — PR-KV4-F1 in/out: rational-ray fallback where the C++ exits ("requires exact rationals")
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 `findRayEndpoints` (booleans.cpp:504) has two f64 origin strategies: an
 explicit non-border patch vertex, else a generated ray from a patch
@@ -1075,7 +1071,7 @@ F0016-family corpus flips (5 cases → SUPPORTED_CORRECT).
 
 ### N22 — Stage-6 degenerate-arrangement children: fold-sliver exclusion + loop T-subdivision
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 Yang 2025 §4.5 topology extraction assumes clean same-face regions. The exact
 mesh arrangement, however, keeps ZERO-AREA shim slivers along shared collinear
@@ -1118,7 +1114,7 @@ foreign vertex).
 
 ### N23 — Patch-label flood tolerates COMPATIBLE (subset) labels at coplanar-sheet borders; DISJOINT stays loud
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 Cherchi 2022 `computeSinglePatch` (booleans.cpp:426) floods triangles across
 manifold edges into a patch and, in debug builds, asserts
@@ -1162,7 +1158,7 @@ analysis); the deviation-policy memo (`cherchi_rs_cpp_deviation_policy`).
 
 ### N24 — orient2d/orient3d: exact-rational zero-certification (Shewchuk underflow hole)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `cherchi-rs/src/predicates/orient.rs` (`orient3d`, `orient2d`).
 **C++ behavior:** the reference (and our former wrapper) trusts the
@@ -1205,7 +1201,7 @@ each entry states its deviation status explicitly. -->
 
 ### N25 — Stage-0 §4.5.5 generalized to n-ary plane groups + tessellated (disc/annular/mixed) faces
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage0/nary.rs` — `build_plane_groups` (`:53`,
 connected components of the coplanar-pair graph), `PlaneGroup` (`:41`),
@@ -1262,7 +1258,7 @@ partitioning. No sign-off required.
 
 ### N26 — Overlay f64-emission fused collapse (§4.5.5 identical-mesh at rounding resolution)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/coplanar_overlay.rs` — published `fused`
 map (`:190`), step-6 emission gate (`:604`), `CollinearSliver` trigger
@@ -1315,7 +1311,7 @@ ceiling. Design decision, no separate sign-off.
 
 ### N27 — Stage-1 rim-override merge onto a coinciding uniform sample (producer/consumer of N26)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage1_tessellate.rs` —
 `stage1_tessellate_with_rim_overrides` (`:81`), `stage1_tessellate_inner` (`:118`),
@@ -1363,7 +1359,7 @@ wall keeps moving downstream one honest step at a time.
 
 ### N28 — Torus-profile rim crossings: CapLateral torus arm + poloidal opposite-rim projection
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage0/rim_chords.rs` — `enum CapLateral`
 (`:370`), `lateral_for_cap` (`:387`; cylinder arm `:424`, torus guard
@@ -1409,7 +1405,7 @@ UNSUPPORTED(revolve) verdict and now surfaces the pre-existing CDT wall.
 
 ### N29 — §4.5.3 reversed-point correction via EXACT conic parameters (not the paper's discrete tangent-angle proxy) + near-tangent ellipse relocation
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage4_correct.rs` —
 `sweep_reversed_intersections` (`:3402`, call `:2978`), param-order test
@@ -1475,7 +1471,7 @@ direction; identical to N24's posture).
 
 ### N30 — Circle × parallel-plane-line junction closed form (§4.4.1 relocation onto both incident curves)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage4_correct.rs` — `vert_pp_circle_junction`
 map (`:1669`), rerouting pass (`:1672-1697`), `dedup_single_pp_line` (call
@@ -1519,7 +1515,7 @@ unverified — flagged in 2026-07-12 catch-up).
 
 ### N31 — Cone-ellipse & cone-hyperbola SAME-TYPE junction routing to the triple relocation (KV16 / KV16b)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage4_correct.rs` — `vert_cone_ellipse` map
 (`:761`, built `:1272`), `vert_cone_hyperbola` map (`:769`, built `:1092`),
@@ -1583,7 +1579,7 @@ are logged design decisions with the byte-identical rationale above.
 
 ### N32 — Stage-6 output arc orientation obeys the CCW-minor input convention
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage5_topology.rs` — `orient_directed_curve`
 (def `:301`, called at both push sites `:425` and `:628`), `emit_topology`
@@ -1623,7 +1619,7 @@ required.
 
 ### N33 — Disjoint-union passthrough (A ∪ B with A∩B=∅ is the disjoint sum — outside Yang's interacting-solid scope)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/boolean.rs` — `conservative_aabb` (`:1650`),
 `union_operands_strictly_disjoint` (`:1697`, re-exported `lib.rs:96`),
@@ -1666,7 +1662,7 @@ outstanding.
 
 ### N34 — KV6a-tilted: full-turn revolve alternation gate narrowed to consecutive-annuli only
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where (kernel-v2, NOT a yang-pipeline stage):** `crates/kernel-v2/src/construct.rs`
 — `build_full_revolve` (`:1680`), consecutive-annuli typed reject (`:1695`,
@@ -1707,7 +1703,7 @@ pass (anchor unverified — flagged in 2026-07-12 catch-up).
 
 ### N35 — KV6d: closed-torus & on-axis-sphere full-turn revolve + Stage-4 bounded-face containment guard
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** kernel-v2 constructors — `crates/kernel-v2/src/construct.rs`:
 `build_torus_revolve` (`:1978`, full-turn dispatch `:399`), sphere sweep dispatch
@@ -1774,7 +1770,7 @@ off; actively tracked.
 
 ### N36 — Tolerance-vocabulary consolidation (TAU_EVAL) + named surviving divergences
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Date:** 2026-07-12 (design review F8). **Class:** refactor, value-identical —
 no behavior change; every replaced literal keeps its exact prior value.
@@ -1813,7 +1809,7 @@ suites green post-change. **Sign-off:** refactor, signed off 2026-07-12.
 
 ### N37 — Sphere×cylinder and sphere×cone general position → procedural SurfacePair
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Date:** 2026-07-12 (design review F10). **Class:** capability closure —
 the two general-position (non-coaxial) sphere degree-4 arms in `ssi-rs`.
@@ -1862,7 +1858,7 @@ it), not as a staged capability gap.
 
 ### N38 — Stage-3 cone-owning-edge selection tol bound to the EDGE's OWN cone band
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Date:** 2026-07-14 (task #160). **Class:** correctness fix — the Stage-3
 SSI curve-selection tolerance for a cone-owning intersection edge was derived
@@ -1936,7 +1932,7 @@ R0003 probe + mutation-killable units.
 
 ### N39 — Cone∩plane conic curve-distance amplification (the N38 follow-up)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Date:** 2026-07-14 (task #161). **Class:** correctness/faithfulness fix —
 the Stage-3 conic membership metric omitted the surface-gradient-angle
@@ -1998,7 +1994,7 @@ load-bearing unit test + mutation-killable primitive units.
 
 ### N40 — Backtrack-spike normalization of chained-boolean-drift operand loops
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/brep.rs` —
 `BRep::normalized_without_backtrack_spikes` + free helpers
@@ -2068,7 +2064,7 @@ primitive units. Deviation entry per P2 Yang-increment clarification.
 
 ### N41 — Doubled-membrane removal at the Stage-4 shell gate (the χ=3 sub-layer of the #146 non-2-manifold class)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage4_relocate.rs` — `remove_doubled_membranes`
 (+ `membrane_orientation_sign`); wired at `crates/yang-rs/src/stage4_correct.rs`
@@ -2149,7 +2145,7 @@ advancing to its deeper pre-existing layer) and lights zero new cases
 
 ### N42 — Stage-6 planar-face GROSS-non-planarity self-check (producer-contract enforcement for the #146 off-plane emission class)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage5_topology.rs` — `emit_topology`, planar
 branch, immediately after the `positive_count` (E3) check and before loop
@@ -2260,7 +2256,7 @@ passing and `pocket_operand_reenters_plain_boolean` quarantined (task #162).
 
 ### N43 — Stage-6 geometric attribution measures a `Plane` face by its triangle's WORST vertex, not the centroid (the #162 wall-sliver mint fix, root of an #146 driver)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/boolean.rs` — the Stage-6 geometric
 face-attribution fallback (`plane_dist` closure inside the per-kept-triangle
@@ -2332,7 +2328,7 @@ Yang-increment clarification.
 
 ### N44 — Mixed-orientation side-A faces in an n-ary coplanar plane group (M8 slice h, task #147)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage0/nary.rs` — `overlay_nary_group`: the
 `nary-mixed-orientation` side-A wall (removed) and the per-A-face override
@@ -2402,7 +2398,7 @@ entry per P2 Yang-increment clarification.
 
 ### N45 — Stage-3 SSI position tie-break for CROSSING cone-apex generator lines (R0008, task #163)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage3_ssi.rs` — `build_intersection_curves`:
 a new `matched > 1` block after the R0072 parallel-line block. Supported by a
@@ -2469,7 +2465,7 @@ advancing past Stage-3. Deviation entry per P2 Yang-increment clarification.
 
 ### N46 — Exact cylinder∩plane generator-line membership band (R0026, task #164)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage4_relocate.rs` — new
 `cyl_plane_generator_band(surf0, surf1, tol)`; wired into BOTH line-selection
@@ -2542,7 +2538,7 @@ Yang-increment clarification.
 
 ### N47 — Coincident relocated-vertex weld before topology emission (defensive producer invariant; render-collapse twin class)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Status:** SHIPPED (task #165). Spec `specs/yang_n47_coincident_moved_weld.md`.
 
@@ -2619,7 +2615,7 @@ Yang-increment clarification.
 
 ### N55 — the `subfeature` weld was Yang §4.4.1(b) all along; retighten its criterion → COMPLIANT always-on merge (recovers R0055/F0056/F0057/F0059; 228C→232C; #169 Phase B)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **A retired weld reinstated compliantly, not a new hack.** #169 Phase B set out
 to "wire §4.4.1 mesh-update" as the `subfeature` weld's compliant replacement.
@@ -2672,7 +2668,7 @@ audit had mis-bucketed it; N55 corrects that with the criterion the paper implie
 
 ### N56 — `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the sole real hack (redundant + regresses C0036) — the N53 audit substantially over-retired (#169)
 
-**State:** PERMANENT (proposed) — sign-off batch B (2026-07-16), PENDING user ratification of the P5 solo-operator convention. See "Sign-off batch" at top.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **The correct audit test is "is it in the Yang paper?", not "does it use a tolerance."** N55 showed `subfeature` was §4.4.1(b) mis-classified as a hack. Applying the same lens to the other three retired welds (paper cross-check + per-case assay + `YANG_DOUBLECOVER_PROBE` magnitudes) shows N53 over-retired: two of the remaining three are also paper operations.
 
@@ -2692,7 +2688,7 @@ audit had mis-bucketed it; N55 corrects that with the criterion the paper implie
 
 #### D14 — No NURBS / Bézier surface support; only analytic primitives
 
-**State:** PERMANENT (proposed) — scope sign-off batch C (2026-07-16), PENDING user ratification: analytic primitives only; NURBS/Bézier out of scope until explicitly reopened.
+**State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); scope recorded: analytic primitives only, NURBS/Bézier out of scope until explicitly reopened (batch C).
 
 **Status:** OPEN. NOT signed off.
 
@@ -3752,7 +3748,10 @@ Append to the entry:
 **Sign-off:** approved by <name>, <date>, rationale: <text>. Tracking issue / future remediation: <link or note>.
 ```
 
-and set `**State:** PERMANENT`. Only the user signs; agent-proposed permanence stays `PENDING` in the batch section until ratified. (A standing P5 solo-operator delegation for shipped-fix deviations is proposed in batch B above — if ratified, this section gains that convention explicitly.)
+and set `**State:** PERMANENT`. Two routes exist:
+
+1. **User signature** — required for substantive paper-faithfulness gaps and scope decisions. If the user explicitly delegates ("no opinion"), apply the recommended default and record the delegation verbatim in the State line (per the 2026-07-17 batch disposition).
+2. **P5 solo-operator convention** (ratified by delegation 2026-07-17) — a SHIPPED-FIX deviation may self-sign when it carries mutation-tested red/green oracles AND a full-assay run with 0 WRONG and no CORRECT regressions. Cite "P5 convention" in the sign-off line.
 
 ## How to mark a deviation resolved
 
