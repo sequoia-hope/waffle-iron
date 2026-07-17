@@ -3882,15 +3882,17 @@ pub(crate) fn stage4_relocate_and_correct(
     // polylines (no analytic curve, no `t` retag), which validation and
     // `tessellate_torus_patch` already accept — so the conic no-skip audit above
     // is unaffected. Moved vertices join `moved` for the relocated-triangle
-    // validation. v1 scope: one torus + one partner per edge; torus∩torus,
-    // multi-surface junctions, and torus×conic junctions are loud STOPs (P9).
+    // validation. Scope: one or two tori + one partner per edge (torus∩other
+    // AND torus∩torus lateral, M5 #172); ≥3-surface junctions beyond the
+    // triple arm and torus×conic endpoint mixing are loud STOPs (P9).
     {
-        // Aggregate, per torus-edge endpoint, the single incident torus and the
+        // Aggregate, per torus-edge endpoint, the base incident torus and the
         // DISTINCT partner surfaces across all its torus edges. One partner is a
-        // plain torus∩surface edge (2-equation Newton); two partners is a
-        // 3-surface JUNCTION — a box edge (two planes) piercing the torus, or a
-        // torus∩plane meeting a torus∩plane′ — relocated onto all three. More
-        // than two partners, or a torus∩torus edge, is out of v1 scope (STOP).
+        // plain torus∩surface edge (2-equation Newton) — the partner may itself
+        // be a torus (torus×torus lateral, R0096); two partners is a
+        // 3-surface JUNCTION — a box edge (two planes) piercing the torus, a
+        // torus∩plane meeting a torus∩plane′, or torus×torus meeting a plane —
+        // relocated onto all three. More than two partners is out of scope (STOP).
         let mut vert_torus: BTreeMap<u32, Surface> = BTreeMap::new();
         let mut vert_partners: BTreeMap<u32, Vec<Surface>> = BTreeMap::new();
         for (&(s, e), entries) in &inc0 {
@@ -3906,19 +3908,29 @@ pub(crate) fn stage4_relocate_and_correct(
             if tori.is_empty() {
                 continue; // not a torus edge — conic scan / exact handles it
             }
-            if tori.len() != 1 {
-                // torus∩torus (degree-4 with no single base surface) — out of
-                // v1 scope. Loud STOP.
+            if tori.len() > 2 {
+                // ≥3 distinct tori at one edge — out of scope. Loud STOP.
                 return Err(YangError::Stage4RegionInvalid {
                     vertex: s,
                     reason: Stage4InvalidReason::LocalRefinementRequired,
                 });
             }
+            // M5 #172: a torus∩torus lateral edge (two incident tori) joins
+            // the SAME implicit-pair relocation as torus∩other — Newton on
+            // {F_a=0, F_b=0} needs no closed form, so the degree-8 torus×torus
+            // curve needs no special casing (the P8 procedural-curve model,
+            // spec `m5_surface_pair_curve.md`; corpus customer R0096). The
+            // base is the FIRST torus recorded at the vertex (`or_insert` —
+            // stable across the vertex's edges); every OTHER distinct incident
+            // surface, second torus included, joins the partner set, so a
+            // torus×torus∩plane junction resolves via the triple arm below.
+            // Coincident tori self-guard: the pair Newton's tangential rank
+            // gate (det ≤ rank_eps) returns None → loud STOP.
             for v in [s, e] {
-                vert_torus.insert(v, tori[0]);
+                let base = *vert_torus.entry(v).or_insert(tori[0]);
                 let entry = vert_partners.entry(v).or_default();
-                for o in &others {
-                    if !entry.contains(o) {
+                for o in tori.iter().chain(others.iter()) {
+                    if *o != base && !entry.contains(o) {
                         entry.push(*o);
                     }
                 }

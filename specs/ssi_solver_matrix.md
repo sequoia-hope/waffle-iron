@@ -266,7 +266,13 @@ intersection geometry is produced **above `ssi-rs`**, by two mechanisms:
    implicit-triple Newton projection (`relocate_onto_implicit_pair` /
    `_triple`) — the same machinery that certifies `SurfacePair` points. The
    torus itself survives as `Surface::Torus` through to the tessellator
-   (`crates/kernel-v2/src/tessellate.rs:1654`).
+   (`crates/kernel-v2/src/tessellate.rs:1654`). **Since M5 #172 (2026-07-17)
+   this includes Torus–Torus lateral∩lateral**: a torus∩torus edge's second
+   torus joins the partner set (base = first torus at the vertex), so the
+   degree-8 curve and its torus×torus×plane junctions relocate through the
+   same pair/triple Newton (corpus customer R0096; unit oracles
+   `newton_relocates_onto_torus_torus_*` in `torus_patch_tests.rs`).
+   Coincident tori self-guard via the tangential rank gate (loud STOP).
 
 A native torus SSI solver (adding `QuadricSurface::Torus` and the degree-4
 torus curve vocabulary) is a future increment; until then the two mechanisms

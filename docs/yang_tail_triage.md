@@ -31,8 +31,8 @@ Re-generate the baseline column only from a committed `results.json`.
 
 | Case | Loud error | Root cause | Confidence | Vehicle |
 |---|---|---|---|---|
-| R0044 | Stage-4 LRR v11 | torus×torus lateral∩lateral — missing degree-4 SSI curve (STOP at `stage4_correct.rs` torus×torus gate) | CONFIRMED (N52) | P2-M5 |
-| R0096 | Stage-4 LRR v7 | torus×torus — same as R0044 | CONFIRMED (N52) | P2-M5 |
+| R0044 | Stage-4 LRR v11 | ~~torus×torus (N52)~~ **RE-DIAGNOSED (probe 2026-07-17, #172):** v11 is a cylinder×cone `SurfacePair` endpoint that is ALSO a conic endpoint — the surface-pair endpoint-mix STOP (`stage4_correct.rs` `vert_surface_pair` loop), a mixed conic×degree-4 junction, NOT torus×torus. Needs a junction relocation onto the shared surface set | CONFIRMED (#172 probe) | P3-junction |
+| ~~R0096~~ | ~~Stage-4 LRR v7~~ | ~~torus×torus~~ **FLIPPED CORRECT 2026-07-17 (#172):** torus×torus lateral∩lateral + torus×torus×plane junctions now relocate via the implicit-pair/triple Newton (torus-block scope lift) | — | ~~P2-M5~~ DONE |
 | R0038 | Stage-4 LRR (u32::MAX) | plane tangent to cylinder along one generator; degree-2 gate self-validates (`bad_degree=[(18,4),(19,4)]`) — near-tangency pinch, NOT a CDT ring | CONFIRMED (#168 WIP4, 9f4cb604) | P3b-#137 |
 | R0072 | Stage-4 LRR (u32::MAX) | real ~1e-7 micro-scale edge (0.4% span); force-merge is the R0091 silent-wrong trap — needs curved re-CDT | CONFIRMED (N55) | P3c |
 | C0058 | non-2-manifold (reassembly) | probe 2026-07-17: `NONMANIFOLD_SITE s6-curved-degenerate-loop` — Stage-6 curved face 2 emits a 64-vertex loop with \|Newell N\| = 2.3e-16 (degenerate junction loop) | CONFIRMED (#171 sweep) | P3a-#146 |
@@ -149,7 +149,9 @@ convert these to loud STOPs (the ratchet may then never regress).
 
 **2026-07-17 UPDATE: all four are now loud.** #173 converted C0105/C0116;
 #178 (spec `yang_178_subres_coplanar_gap_stop.md`, deviation N57) converted
-C0111/C0113. Committed baseline **249C / 0 WRONG / 58E** (the +1C vs 248C
+C0111/C0113. Committed baseline **250C / 0 WRONG / 57E** as of the #172
+torus×torus lift (R0096 ERROR→CORRECT 2026-07-17; before that
+249C / 0 WRONG / 58E — the +1C vs 248C
 and two TIMEOUT→ERROR shifts are the F0072/F0085/F0090 timeout-artifact
 cases resolving to their triage-documented honest states on an unloaded
 box). The #174 ratchet may now bind corpus-wide. #178 follow-up scenarios
@@ -191,11 +193,11 @@ above. Findings that shape the remaining queue:
 
 | Vehicle | Cases |
 |---|---|
-| P2-M5 (SSI solvers) | 2 confirmed (R0044, R0096) — more may emerge from the probe queue |
+| P2-M5 (SSI solvers) | 0 open (R0096 FLIPPED CORRECT by the #172 torus×torus lift; R0044 re-diagnosed → P3-junction) — more may emerge from the probe queue |
 | P3a-#146 (junction mint) | 5 confirmed/partial + 3 probe-suspected + up to 7 chained-CDT suspects |
 | P3b-#137 (grazing corner) | 3 confirmed (C0065, R0074, R0038) |
 | P3c (curved re-CDT) | 1 confirmed (R0072) |
-| P3-junction (other) | 1 confirmed (R0003) |
+| P3-junction (other) | 2 confirmed (R0003; R0044 re-diagnosed from P2-M5 by the #172 probe — conic×surface-pair endpoint mix) |
 | M8 residue | 4 confirmed (R0007, R0071, C0048, F0067) |
 | #153 NonPlanarFace | 2 confirmed + 1 suspected |
 | KV6/scope | 2 (C0063, R0004) |

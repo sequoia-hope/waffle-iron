@@ -215,6 +215,13 @@ R0047, R0049, R0070, R0077, R0096, F0059. Per-site census (env-probe on the
 - **Line+circle junction, line ∥ circle-plane** (site 10435): R0015 — degenerate
   (no transversal junction); genuinely hard.
 - **torus∩torus** (site 10546, `tori.len() != 1`): R0096 — out of v1 scope.
+  *UPDATE 2026-07-17 (#172): scope lifted — a second torus now joins the
+  implicit-pair partner set (base = first torus at the vertex), so
+  torus×torus lateral edges and torus×torus×plane junctions relocate via the
+  existing pair/triple Newton. R0096 ERROR→CORRECT (baseline 250C/0W/57E).
+  R0044's N52 torus×torus attribution was REFUTED by the same probe — its
+  v11 is a cylinder×cone `SurfacePair` endpoint that is also a conic
+  endpoint (surface-pair endpoint-mix STOP) → P3-junction class.*
 - **Projection / solve failure** in a per-curve relocation helper: R0077.
 
 **KEY FINDING (prototyped + reverted 2026-07-08):** a general conic

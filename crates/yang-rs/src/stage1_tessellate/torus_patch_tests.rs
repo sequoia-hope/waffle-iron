@@ -488,6 +488,70 @@ fn newton_relocates_onto_torus_cylinder_intersection() {
 }
 
 #[test]
+fn newton_relocates_onto_torus_torus_intersection() {
+    // M5 #172 (R0096 class): TWO tori in general position — degree-8 curve,
+    // no closed form; the implicit-pair Newton is the paper's procedural
+    // relocation. Torus A: axis +z, center origin. Torus B: axis +x, center
+    // (0.5, 0, 0) (offset breaks the tangential symmetry of the coaxial-
+    // perpendicular pair). Both R=3 r=1; they intersect near the +y side.
+    let ta = torus(3.0, 1.0);
+    let tb = Surface::Torus {
+        center: Point3::new(0.5, 0.0, 0.0),
+        axis_dir: Vector3::new(1.0, 0.0, 0.0),
+        major_radius: 3.0,
+        minor_radius: 1.0,
+    };
+    // Seed: an A-surface point near B's zero set (u≈0.65, v=π/2), nudged off.
+    let seed = Point3::new(0.02, 3.82, 0.57);
+    let r = relocate_onto_implicit_pair(seed, ta, tb).expect("converges");
+    let fa = signed_distance_to_surface(ta, r).unwrap();
+    let fb = signed_distance_to_surface(tb, r).unwrap();
+    assert!(fa.abs() <= cad_primitives::TAU_MODEL, "off torus A: {fa:e}");
+    assert!(fb.abs() <= cad_primitives::TAU_MODEL, "off torus B: {fb:e}");
+    // The move is a chord-scale correction, not a jump to a far branch.
+    let d = {
+        let (s, q) = (seed.as_array(), r.as_array());
+        ((q[0] - s[0]).powi(2) + (q[1] - s[1]).powi(2) + (q[2] - s[2]).powi(2)).sqrt()
+    };
+    assert!(d < 0.5, "relocation jumped {d:e} — wrong branch");
+}
+
+#[test]
+fn newton_relocates_onto_torus_torus_plane_junction() {
+    // M5 #172 (R0096 v7/v18 class): a torus×torus lateral curve meeting a
+    // cutting plane — the 3-surface junction resolved by the triple Newton.
+    let ta = torus(3.0, 1.0);
+    let tb = Surface::Torus {
+        center: Point3::new(0.5, 0.0, 0.0),
+        axis_dir: Vector3::new(1.0, 0.0, 0.0),
+        major_radius: 3.0,
+        minor_radius: 1.0,
+    };
+    let plane = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: -0.5,
+    };
+    let seed = Point3::new(0.02, 3.83, 0.52);
+    let j = relocate_onto_implicit_triple(seed, ta, tb, plane).expect("converges");
+    for (name, s) in [("torus A", ta), ("torus B", tb), ("plane", plane)] {
+        let f = signed_distance_to_surface(s, j).unwrap();
+        assert!(f.abs() <= cad_primitives::TAU_MODEL, "off {name}: {f:e}");
+    }
+}
+
+#[test]
+fn newton_stops_on_coincident_tori() {
+    // Identical tori: normals parallel everywhere ⇒ rank-deficient pair ⇒
+    // the tangential gate must REFUSE (there is no 1D curve to land on).
+    let t = torus(3.0, 1.0);
+    let seed = Point3::new(4.0, 0.0, 0.01);
+    assert!(
+        relocate_onto_implicit_pair(seed, t, t).is_none(),
+        "coincident tori ⇒ STOP, not a fabricated curve"
+    );
+}
+
+#[test]
 fn newton_stops_when_there_is_no_intersection() {
     // Plane x = 10 lies entirely outside the torus (max x = R+r = 4): no
     // common zero, so the relocation must REFUSE (no curve to land on)

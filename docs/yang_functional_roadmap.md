@@ -55,6 +55,17 @@ in the ledger is PERMANENT with user sign-off.
    (torus×torus, cyl×cyl lateral∩lateral). Goes first among builds because
    Stage 4 can only relocate onto curves that exist, and downstream junction
    fixes need the true curves. Confirmed customers: R0044, R0096.
+   *torus×torus half SHIPPED 2026-07-17 (#172 increment 1): the Stage-4
+   torus-block scope lift admits a second torus as an implicit-pair partner
+   (base = first torus at the vertex, `or_insert`-stable), so torus×torus
+   lateral edges and torus×torus×plane junctions relocate through the
+   EXISTING pair/triple Newton — no new curve type needed (P8 procedural
+   model). R0096 ERROR→CORRECT. The probe also REFUTED R0044's N52
+   torus×torus diagnosis: its v11 is a cylinder×cone `SurfacePair` endpoint
+   that is also a conic endpoint (surface-pair endpoint-mix STOP) —
+   re-vehicled to the phase-3 junction layer in `docs/yang_tail_triage.md`.
+   Remaining M5 half: cyl×cyl lateral analytical refinement for the
+   C0051–C0058 chord-accurate passes + the C0116 root fix.*
 3. **The junction layer (closes N2)** — design grounded by the 2026-07-17
    research session: **`docs/yang_junction_research_findings.md`** (read it
    before writing any P3 spec; its "junction contract" is binding: mint once
@@ -127,8 +138,9 @@ cross pair of two genuinely DISTINCT parallel planes (offset gap above the
 rounding-noise class `TAU_WORK·(1+scale)`; corpus-measured legitimate
 femto-twin max 2.7e-12, ≥40× below the line) rejects with typed
 `SubResolutionCoplanarGap` before any overlay work. Committed baseline
-**249C / 0 WRONG / 58E** — DoD (b)'s 0-WRONG clause holds corpus-wide and
-the #174 ratchet can bind the whole corpus.*
+**250C / 0 WRONG / 57E** (was 249C/58E; R0096 flipped CORRECT by the #172
+torus×torus lift, 2026-07-17) — DoD (b)'s 0-WRONG clause holds corpus-wide
+and the #174 ratchet can bind the whole corpus.*
 
 **Expectations:** phase 3 is the multi-session structural core (~60–70% of
 remaining effort; per the structural-fixes-first policy that is expected, not
