@@ -263,19 +263,31 @@ fn red_r0021_stage4_relocation() {
 // `AmbiguousCurve` to a Stage-4 `DegenerateTriangle` / `VertexOffSurface`
 // class, which N2-3a's Stage-0 exact rim mint closed in turn (pinned by
 // `n2_junction_cluster_campaign.rs::red_r0072_vertex_off_surface`, now green).
-// UN-IGNORED 2026-07-12 (task #145, spec
-// `yang_453_mixed_cycle_conic_backtrack`): the THIRD wall (kernel-v2
-// TessellationFailed on face 19, previously "inverted final triangle" /
-// "ring rejected by CDT") was the §4.5.3 conic-site gap in mixed cycles —
-// R0072's FaceId(11) reversal sat on exactly the sites the §3c scope
-// excluded. The parameter-order sweep arm + nearest-point ellipse
-// relocation retire it; R0072 completes SUPPORTED_CORRECT end-to-end. The
-// Mode-3 fix keeps its own dedicated regression test in yang-rs
-// (`tests::r0072_parallel_line_position_tiebreak`).
-
+// UN-IGNORED 2026-07-12 (task #145): R0072 briefly completed
+// SUPPORTED_CORRECT end-to-end. The Mode-3 fix keeps its own dedicated
+// regression test in yang-rs (`tests::r0072_parallel_line_position_tiebreak`).
+//
+// PIN MOVED 2026-07-17: the #145-era CORRECT relied on the §4.4.1(b)
+// MIN_FEATURE_SIZE force-merge that N53/N55 retired as the R0091
+// silent-wrong trap — R0072's short edge is a REAL ~1e-7 micro-scale
+// feature (0.4% of span), so the honest state is the loud Stage-4
+// `LocalRefinementRequired` STOP until the P3c curved re-CDT lands
+// (triage ledger row R0072; N55 "only R0072 stays STOP"). The committed
+// release baseline agrees (ERROR). This stale CORRECT pin sat unseen
+// behind the debug tier's fail-fast — the C0048/C0065 precedent.
 #[test]
 fn red_r0072_stage3_ambiguous_parallel_lines() {
-    assert_correct("R0072");
+    let failures = replay_failures("R0072");
+    assert!(
+        !failures.is_empty(),
+        "expected R0072 to be a loud STOP (N55: real micro-scale edge, P3c \
+         curved re-CDT pending); if it now completes CORRECT, verify the fix \
+         is a paper-compliant re-CDT (NOT a force-merge) and re-pin"
+    );
+    assert!(
+        failures.iter().any(|f| f.contains("boolean")),
+        "R0072 must fail as a typed boolean STOP, got: {failures:?}"
+    );
 }
 
 // ── Mode 4: kernel-v2 azimuth-merge rims disagree (reassembly) ──────────────

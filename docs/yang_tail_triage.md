@@ -137,8 +137,8 @@ authored to exercise a named mechanism, so they enter CONFIRMED, not PROBE.
 | C0107 | ERROR (loud ✓) | point-tangent sphere⊕cyl union — 0D curved contact, typed non-2-manifold reject is the DESIRED posture | none (scope boundary; sign-off candidate) |
 | C0108 | ERROR (loud ✓) | externally tangent spheres — same 0D-contact reject | none (scope boundary; sign-off candidate) |
 | C0109 | ERROR (loud ✓) | internal point-tangent sphere cavity — Stage-3 AmbiguousCurve{0,0}: no curve vocabulary for the degenerate sphere×sphere tangency | P2-M5-adjacent (degenerate SSI vocabulary) |
-| C0111 | **SUPPORTED_WRONG** | 1e-8 m wall (below MIN_FEATURE_SIZE) silently dissolved, χ 0→2 — out-of-contract must reject loudly | **#178** |
-| C0113 | **SUPPORTED_WRONG** | wall at exactly TAU_MODEL (1e-7 m) silently dissolved — the R0091 hazard rung is live | **#178** |
+| C0111 | ~~SUPPORTED_WRONG~~ **ERROR (loud STOP, 2026-07-17)** | 1e-8 m wall (below MIN_FEATURE_SIZE) WAS silently dissolved (χ 0→2); the #178/N57 Stage-0 sub-resolution coplanar-gap STOP now rejects the subtract (`SubResolutionCoplanarGap`, gap=1e-8, spec `yang_178_subres_coplanar_gap_stop.md`). Terminal: out-of-contract input, loud by design | **#178 DONE** |
+| C0113 | ~~SUPPORTED_WRONG~~ **ERROR (loud STOP, 2026-07-17)** | wall at exactly TAU_MODEL WAS silently dissolved — the R0091 hazard rung; the #178/N57 STOP now rejects it (`SubResolutionCoplanarGap`, gap=1e-7). Terminal: loud by design | **#178 DONE** |
 | C0116 | ~~SUPPORTED_WRONG~~ **ERROR (loud STOP, 2026-07-17)** | 0.01-deep cyl×cyl graze: WAS watertight/χ/volume-passing with a self-intersecting shell; the #173/N6 render-level gate now rejects the auto-union (`SelfIntersectingBooleanOutput`, 40 penetrations). Root fix = M5 exact degree-4 cyl×cyl curve (#172) — the chord-accurate path's trims interpenetrate sub-sagitta (spec `yang_173_selfx_detector.md` §6) | **#172** (root), gate shipped |
 
 The 4 SUPPORTED_WRONG entries change the corpus summary from 240C/0W to a
@@ -146,6 +146,15 @@ baseline that shows WRONG > 0 **by exposure, not regression** — the 295
 pre-existing cases are byte-identical. The 0-WRONG ratchet (#174) applies to
 the pre-existing set immediately and to the whole corpus once #177/#178/#173
 convert these to loud STOPs (the ratchet may then never regress).
+
+**2026-07-17 UPDATE: all four are now loud.** #173 converted C0105/C0116;
+#178 (spec `yang_178_subres_coplanar_gap_stop.md`, deviation N57) converted
+C0111/C0113. Committed baseline **249C / 0 WRONG / 58E** (the +1C vs 248C
+and two TIMEOUT→ERROR shifts are the F0072/F0085/F0090 timeout-artifact
+cases resolving to their triage-documented honest states on an unloaded
+box). The #174 ratchet may now bind corpus-wide. #178 follow-up scenarios
+recorded in N57: coincident-CYLINDER sub-resolution radius gap (needs a
+corpus case FIRST, coverage directive) and tilt-only sub-resolution wedges.
 
 ## Rollup
 

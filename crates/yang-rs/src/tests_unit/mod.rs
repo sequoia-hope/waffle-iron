@@ -16,6 +16,7 @@ mod m5_case_iv;
 mod matching;
 mod membrane;
 mod n137_torus_plane_corner;
+mod n178_subres_coplanar;
 pub(crate) mod n2_junction;
 mod n47_moved_weld;
 mod n50_f32_render_twin;

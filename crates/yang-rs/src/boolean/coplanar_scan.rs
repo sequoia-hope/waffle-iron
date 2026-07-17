@@ -110,6 +110,23 @@ pub(crate) struct CrossCoplanarPair {
     pub(crate) face_a: usize,
     pub(crate) face_b: usize,
     pub(crate) band: f64,
+    /// The pair's orientation-aligned unit-normal offset gap
+    /// `|d̂a − s·d̂b|` — the plane-to-plane separation the overlay would
+    /// dissolve. Exactly `0.0` for bit-exact coplanar pairs; ~1e-16-relative
+    /// for legitimate rounding twins (the chained-output femto class); a
+    /// genuinely NONZERO sub-band value means two DISTINCT model planes
+    /// closer than the detection band (the C0111/C0113 sub-resolution wall,
+    /// task #178).
+    pub(crate) gap: f64,
+    /// #178 (spec `yang_178_subres_coplanar_gap_stop.md`): `true` iff
+    /// `gap > band/100` — the pair's planes are DISTINCT beyond the
+    /// coincidence-authoring noise class (measured: corpus femto twins
+    /// ≤ 2.7e-12; the real mm-scale bearing-recess producer residual
+    /// ≤ 2.235e-10 — both weld; the designed C0111/C0113 rungs 1e-8 and
+    /// TAU_MODEL sit 10–100× above the line and STOP), so the interposed
+    /// volume is a sub-resolution feature the overlay would silently
+    /// dissolve. `stage0_preprocess` STOPs loudly on it.
+    pub(crate) sub_resolution: bool,
 }
 
 /// Output of [`scan_near_coplanar`]: ALL cross pairs (PR-YR26 Stage-0
@@ -207,10 +224,13 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
     }
 
     /// Conditions 1 (offset agreement) + 2 (parallel normals) for one face
-    /// pair; returns the pair's `band` when both hold. Condition 3 (which
+    /// pair; returns the pair's `(band, gap, sub_resolution)` when both
+    /// hold, where `gap` is the orientation-aligned offset separation
+    /// `|d̂a − s·d̂b|` and `sub_resolution` classifies it against the
+    /// coincidence-authoring noise line `band/100` (#178). Condition 3 (which
     /// AABBs must overlap) differs between cross and intra pairs — see the
     /// scan loops below.
-    fn near_coplanar_band(pa: &FacePlane, pb: &FacePlane) -> Option<f64> {
+    fn near_coplanar_band(pa: &FacePlane, pb: &FacePlane) -> Option<(f64, f64, bool)> {
         // scale = max |coordinate| over both faces' AABB corners.
         let mut scale: f64 = 0.0;
         for p in [&pa.lo, &pa.hi, &pb.lo, &pb.hi] {
@@ -223,7 +243,8 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
         // 1. Orientation-aligned offset agreement.
         let dot = pa.n[0] * pb.n[0] + pa.n[1] * pb.n[1] + pa.n[2] * pb.n[2];
         let s = if dot >= 0.0 { 1.0 } else { -1.0 };
-        if (pa.d - s * pb.d).abs() > band {
+        let gap = (pa.d - s * pb.d).abs();
+        if gap > band {
             return None;
         }
 
@@ -242,7 +263,19 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
         if sin * ext2.sqrt() > band {
             return None;
         }
-        Some(band)
+        // #178: gap above the coincidence-authoring noise class = two
+        // DISTINCT model planes (a sub-resolution feature), not one plane
+        // authored twice imprecisely. The line is 1% of the pair's own
+        // detection band (absolute floor TAU_MODEL/100 = 1e-9), calibrated
+        // by the measured populations on both sides: intended-coincident
+        // pairs arrive with gaps ≤ 2.7e-12 (corpus chained femto twins,
+        // max at scale ≈ 4944) and ≤ 2.235e-10 (the REAL mm-scale
+        // bearing-recess producer residual, `bearing_recess_mm_regression`
+        // — a `TAU_WORK·(1+scale)` line was refuted by exactly that
+        // fixture); designed sub-resolution features sit at 1e-8 (C0111)
+        // and TAU_MODEL (C0113), 10–100× above the line.
+        let sub_resolution = gap > band / 100.0;
+        Some((band, gap, sub_resolution))
     }
 
     /// Band-inflated AABB overlap on every axis.
@@ -282,12 +315,14 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
         let Some(pa) = pa else { continue };
         for (ib, pb) in fb.iter().enumerate() {
             let Some(pb) = pb else { continue };
-            if let Some(band) = near_coplanar_band(pa, pb) {
+            if let Some((band, gap, sub_resolution)) = near_coplanar_band(pa, pb) {
                 if aabbs_overlap(&pa.lo, &pa.hi, &pb.lo, &pb.hi, band) {
                     cross.push(CrossCoplanarPair {
                         face_a: ia,
                         face_b: ib,
                         band,
+                        gap,
+                        sub_resolution,
                     });
                 }
             }
@@ -329,7 +364,7 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
                 {
                     continue;
                 }
-                if let Some(band) = near_coplanar_band(pi, pj) {
+                if let Some((band, _gap, _sub_resolution)) = near_coplanar_band(pi, pj) {
                     // (A PR-KV6b attempt narrowed this to ADJACENT fragments;
                     // it regressed F0017–F0025 from the typed M8 deferral
                     // into NoExplicitRayOrigin failures — the conservative

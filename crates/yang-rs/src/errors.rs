@@ -91,6 +91,24 @@ pub enum YangError {
         input_b: InputId,
         face_b: usize,
     },
+
+    /// #178 (spec `yang_178_subres_coplanar_gap_stop.md`): Stage-0's
+    /// near-coplanar scan matched a cross A×B face pair whose planes are
+    /// genuinely DISTINCT — separated by a NONZERO orientation-aligned
+    /// offset gap above the coincidence-authoring noise class `band/100`
+    /// yet inside the detection band `max(TAU_MODEL, scale·TAU_WORK)`. The
+    /// volume between them is a sub-resolution feature (below the
+    /// `MIN_FEATURE_SIZE` input contract) that the §4.5.5 overlay would
+    /// silently dissolve — the measured C0111/C0113 wall dissolve: χ 0→2
+    /// with green watertight/volume oracles. A P10 LOUD stop:
+    /// out-of-contract input is rejected, never welded (the R0091 trap
+    /// class).
+    SubResolutionCoplanarGap {
+        face_a: usize,
+        face_b: usize,
+        gap: f64,
+        band: f64,
+    },
 }
 
 /// PR-YR10 (Stage 4): why a relocation region could not be made valid.
@@ -220,6 +238,21 @@ impl fmt::Display for YangError {
                     "yang-rs: input faces {input_a:?}#{face_a} and {input_b:?}#{face_b} are \
                      coplanar (within the sub-model-resolution band) — coplanar boolean \
                      requires Yang 2025 §4.5.5 Stage-0 preprocessing (M8), not yet supported"
+                )
+            }
+            Self::SubResolutionCoplanarGap {
+                face_a,
+                face_b,
+                gap,
+                band,
+            } => {
+                write!(
+                    f,
+                    "yang-rs: faces A#{face_a} and B#{face_b} are two DISTINCT parallel \
+                     planes separated by {gap:.3e} — inside the coplanar detection band \
+                     ({band:.3e}) but above rounding noise: a sub-resolution feature the \
+                     Stage-0 overlay would silently dissolve; input is outside the \
+                     MIN_FEATURE_SIZE contract (#178)"
                 )
             }
         }

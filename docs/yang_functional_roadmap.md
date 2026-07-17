@@ -119,6 +119,17 @@ cone∩plane∩plane (C0105), curved×curved×plane cap-through-crossing corner
 ABSOLUTE-scale sweep incl. the TAU_MODEL rung (C0111–C0113), zero-thickness
 results (C0114–C0115), #173 red-phase hazard fixtures (C0116–C0117).*
 
+*All four #176 silent-wrong exposures are now loud (2026-07-17): #173
+converted C0105/C0116; task #178 (spec
+`yang_178_subres_coplanar_gap_stop.md`, deviation N57) converted
+C0111/C0113 via the Stage-0 sub-resolution coplanar-gap STOP — a matched
+cross pair of two genuinely DISTINCT parallel planes (offset gap above the
+rounding-noise class `TAU_WORK·(1+scale)`; corpus-measured legitimate
+femto-twin max 2.7e-12, ≥40× below the line) rejects with typed
+`SubResolutionCoplanarGap` before any overlay work. Committed baseline
+**249C / 0 WRONG / 58E** — DoD (b)'s 0-WRONG clause holds corpus-wide and
+the #174 ratchet can bind the whole corpus.*
+
 **Expectations:** phase 3 is the multi-session structural core (~60–70% of
 remaining effort; per the structural-fixes-first policy that is expected, not
 scope creep) and will produce PERMANENT-by-extension ledger entries needing

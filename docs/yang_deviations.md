@@ -94,6 +94,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N54 | HISTORICAL | Stage-0 event-column canonicalization is REFUTED at the overlay level (the N53 "compliant replacement" for … |
 | N55 | PERMANENT (B) | the `subfeature` weld was Yang §4.4.1(b) all along; retighten its criterion → COMPLIANT always-on merge (re… |
 | N56 | PERMANENT (B) | `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the so… |
+| N57 | PERMANENT (P5) | #178 sub-resolution coplanar-gap STOP: cross pair of DISTINCT parallel planes (gap above rounding noise) re… |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -2670,6 +2671,76 @@ audit had mis-bucketed it; N55 corrects that with the criterion the paper implie
 **The big correction.** Of the 13 cases N53 retired as "false greens via non-compliant welds," **12 recover compliantly** — 4 via §4.4.1(b) (N55) and 8 via §4.3 (N56) — all genuine Yang paper operations. Only **R0072** stays a loud STOP (a real ~1e-7 micro-scale collapse → curved re-CDT, child spec §5c). So the corpus returns to **240C** (vs the pre-retirement 241C; the 1-case gap is R0072, correctly not force-merged). The N53 premise — "these 13 are tolerance hacks masking upstream defects" — was largely wrong: they were paper operations (§4.4.1(b) merge, §4.3 curve-point dedup) applied with occasionally-imperfect criteria. The compliance ratchet still holds — nothing silently wrong, `f32` (the one real hack) stays out — but the lesson is that **"uses a tolerance" ≠ "is a hack"; the paper prescribes tolerance-gated merges, and those are desired.**
 
 **Effect on N54/#170.** The render-collapse cases R0012/R0098/F0090 that #170's Stage-0 event-column canonicalization was chasing are now recovered by §4.3 dedup at Stage 4/5 — the paper's own mechanism for near-coincident mesh-boolean output. The Stage-0 minting is expected geometry (N48 sidecar-certified the C++ reference mints the same near-coincident points), and §4.3 dedup — not an upstream Stage-0 change — is the paper-faithful response. #170's overlay-canonicalization approach is therefore **moot for these cases**. `f32` remains gated behind `YANG_WELD_ENABLE` purely as a historical A/B artifact; it is redundant and harmful and could be deleted.
+
+### N57 — #178 sub-resolution coplanar-gap STOP: two DISTINCT parallel cross planes inside the detection band reject loudly (C0111/C0113 silent dissolve → typed ERROR; corpus 0 WRONG)
+
+**State:** PERMANENT — self-signed under the P5 solo-operator convention
+(ratified by delegation 2026-07-17): red/green oracles
+(`tests_unit/n178_subres_coplanar.rs` ×5 + the yr27 Finding-2 pair + the
+real-model `bearing_recess_mm_regression`) + full release assay with
+per-case diff = exactly {C0111, C0113} WRONG→ERROR, **0 WRONG
+corpus-wide**. Reversible if the user forms a different opinion on the
+contract line.
+
+**Spec:** `specs/yang_178_subres_coplanar_gap_stop.md`. **Task:** #178
+(findings C0111-F1/C0113-F1, corpus expansion #176).
+
+**Paper relation:** an EXTENSION the paper does not specify. §4.5.5 assumes
+coplanar faces are coplanar; the implementation's near-band
+(`max(TAU_MODEL, scale·TAU_WORK)`, itself the N-series femto-twin
+accommodation) admits pairs the paper never contemplated: two genuinely
+DISTINCT parallel planes separated by a sub-resolution gap. The overlay then
+silently dissolves the interposed feature (C0111: 1e-8 wall @ mm body,
+C0113: wall exactly TAU_MODEL — χ 0→2 with green watertight/volume oracles;
+also the yr27 "hover" direction: two solids 1e-8 apart welded into contact).
+The `MIN_FEATURE_SIZE` input contract (A14) makes such input out-of-contract;
+P10 requires the loud STOP, not the silent weld (R0091 class).
+
+**Mechanism:** `scan_near_coplanar` classifies each matched cross pair's
+orientation-aligned offset gap `|d̂a − s·d̂b|` against the
+coincidence-authoring noise line **`band/100`** (absolute floor
+`TAU_MODEL/100 = 1e-9`). Below the line the overlay path is
+byte-identical: bit-exact pairs (gap 0, 211 of 318 corpus detections),
+chained femto twins (corpus max 2.7e-12 at scale ≈ 4944), and REAL
+producer residuals (2.235e-10 — the mm-scale bearing recess,
+`bearing_recess_mm_regression`). Above it →
+`YangError::SubResolutionCoplanarGap { face_a, face_b, gap, band }` before
+any overlay work — kernel-v2 maps it to the loud `BooleanFailed`, NOT
+`UnsupportedCoplanar` (input-contract violation, not a capability gap).
+Probe: `YANG_COPLANAR_PROBE=1` now prints every detected cross pair
+(`cross-pair` tag: band, gap, subres flag, surfaces).
+
+**Calibration note (P10 record):** the first line attempted,
+`TAU_WORK·(1+scale)` (~1e-12), separated the CORPUS populations with ≥40×
+margin but was **refuted by the real-model regression**
+`bearing_recess_mm_subtract_succeeds` (full tier): real app-chain
+intended-coincidence arrives ~2 orders above kernel femto noise (the
+documented "~1.5e-10 residual @ 1e-2 scale" class). `band/100` sits 4.5×
+above the bearing residual and 10×/100× below the C0111/C0113 rungs; no
+corpus gap lies between 2.7e-12 and 1e-8, so corpus verdicts are
+line-insensitive in that window. Consequence: the yr27 Finding-2 r=1e-10
+hover fixture stays in the WELD class (original behavior); only r=1e-8
+flips to the STOP.
+
+**Measured:** corpus-wide gap survey (311 cases) + full release assay:
+248C/2W → **249C/0W/58E** (the +1C and two TIMEOUT→ERROR shifts are the
+known F0072/F0085/F0090 timeout-artifact cases resolving on an unloaded
+box, verified against their triage-documented honest states). First 0-WRONG
+corpus since the #176 exposures — the #174 ratchet can bind corpus-wide.
+
+**Supersession note:** the yr27 Finding-2 r=1e-8 fixture asserted the OLD
+aspiration (snap a genuine 1e-8 hover into contact); it now asserts the
+typed STOP (`near_partial_overlap_residual_1e8_stops_loudly`). The r=1e-10
+fixture stays in the weld class (below the line, the bearing-residual
+population) and keeps its original weld-and-resolve assertions, for which
+the Finding-2 keyed-membership machinery remains load-bearing.
+
+**Known follow-ups (recorded, not shipped):** the coincident-CYLINDER pair
+path (`PairCylinder`) has the same theoretical hazard (two coaxial
+cylinders radius-separated by a sub-resolution gap); no corpus case
+exercises it — per the coverage directive a corpus case must land before
+(or with) that STOP. Tilt-only sub-resolution wedges (condition 2's
+`sin·ext` band) likewise have no corpus exposure.
 
 ### Batch C — scope (D14)
 

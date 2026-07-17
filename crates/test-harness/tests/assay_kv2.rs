@@ -1225,13 +1225,17 @@ fn smoke_corpus_boundary_categories() {
         ("C0107", Category::Error), // 7b point-tangent sphere⊕cyl: loud non-2-manifold
         ("C0110", Category::SupportedCorrect), // 7b line-tangent box⊕cyl union
         // FINDING C0111/C0113-F1 (2026-07-17): sliver walls at 1e-8 m (below
-        // the 1e-6 m feature floor) and at exactly TAU_MODEL = 1e-7 m are
-        // SILENTLY dissolved (χ 0→2, wall gone) instead of rejected loudly —
-        // while C0031 (2e-6 m) and C0112 (1e-2 m @ km scale) survive
-        // correctly. The out-of-contract path must be LOUD (A14 posture).
-        ("C0111", Category::SupportedWrong),
+        // the 1e-6 m feature floor) and at exactly TAU_MODEL = 1e-7 m were
+        // SILENTLY dissolved (χ 0→2, wall gone) — while C0031 (2e-6 m) and
+        // C0112 (1e-2 m @ km scale) survive correctly. CONVERTED to a loud
+        // typed STOP the same day by #178/N57 (spec
+        // `yang_178_subres_coplanar_gap_stop.md`): Stage-0's near-coplanar
+        // scan rejects a cross pair of DISTINCT parallel planes (offset gap
+        // above rounding noise `TAU_WORK·(1+scale)`) with
+        // `SubResolutionCoplanarGap` before any overlay work.
+        ("C0111", Category::Error),
         ("C0112", Category::SupportedCorrect), // 7d km-scale sliver: scale-relative bands hold
-        ("C0113", Category::SupportedWrong),
+        ("C0113", Category::Error),
         ("C0114", Category::SupportedCorrect), // 7e coincident pocket walls merge exactly
         ("C0115", Category::SupportedCorrect), // 7e coplanar-floor membrane opens exactly
         // FINDING C0116-F1 (2026-07-17): the 0.01-deep perpendicular cyl×cyl

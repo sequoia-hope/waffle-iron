@@ -212,6 +212,39 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
     if scan.cross.is_empty() {
         return Ok(None);
     }
+    if std::env::var_os("YANG_COPLANAR_PROBE").is_some() {
+        for p in &scan.cross {
+            probe(
+                "cross-pair",
+                &format!(
+                    "pair=({},{}) band={:.3e} gap={:.3e} subres={} sa={:?} sb={:?}",
+                    p.face_a,
+                    p.face_b,
+                    p.band,
+                    p.gap,
+                    p.sub_resolution,
+                    a.faces()[p.face_a].surface,
+                    b.faces()[p.face_b].surface
+                ),
+            );
+        }
+    }
+
+    // #178 (spec `yang_178_subres_coplanar_gap_stop.md`): a matched cross
+    // pair whose planes are DISTINCT (offset gap above the rounding-noise
+    // class) means the model carries a sub-resolution feature between two
+    // real parallel planes — the overlay would dissolve it silently (the
+    // measured C0111/C0113 χ 0→2 wall dissolve). Out-of-contract input:
+    // STOP loudly before any overlay work (first pair in scan order,
+    // deterministic).
+    if let Some(p) = scan.cross.iter().find(|p| p.sub_resolution) {
+        return Err(YangError::SubResolutionCoplanarGap {
+            face_a: p.face_a,
+            face_b: p.face_b,
+            gap: p.gap,
+            band: p.band,
+        });
+    }
 
     // ── Scope validation ────────────────────────────────────────────────
     let pair_err = |face_a: usize, face_b: usize| YangError::CoplanarFacesUnsupported {

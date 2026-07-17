@@ -30,6 +30,18 @@
 //! Stage-0 pair, membership is measured against the CANONICAL pair plane
 //! (keyed to the pair — NEVER a global tolerance change).
 //!
+//! *2026-07-17 PARTIAL SUPERSESSION (#178, spec
+//! `yang_178_subres_coplanar_gap_stop.md`): residual gaps above the
+//! coincidence-authoring noise line `band/100` (absolute floor
+//! TAU_MODEL/100 = 1e-9) are two genuinely DISTINCT parallel planes — an
+//! out-of-contract sub-resolution feature (the C0111/C0113 silent-dissolve
+//! class) — and Stage-0 now STOPs loudly instead of snapping. The r=1e-8
+//! fixture is in that class and asserts the typed STOP. The r=1e-10
+//! fixture sits BELOW the line (the real mm-scale bearing-recess producer
+//! residual, 2.235e-10, pins the weld class from above) and keeps the
+//! original weld-and-resolve behavior, for which the keyed membership fix
+//! remains load-bearing.*
+//!
 //! **Finding 3 — exact tie on INFINITE planes.** Membership resolves a
 //! kept triangle by centroid distance to each face's INFINITE plane; an
 //! L-profile cap triangle's centroid can lie EXACTLY on a side face's
@@ -381,9 +393,10 @@ fn chained_union_over_coplanar_union_output_succeeds() {
 /// One near-partial-overlap stacked fixture: A = [0,2]²×[0,1],
 /// B = [1,3]×[0,2]×[1+r, 2+r]. The shared plane carries an A-only region
 /// ([0,1]×[0,2]), an Overlap region ([1,2]×[0,2]) and a B-only region
-/// ([2,3]×[0,2] — the triangles that currently fail membership).
-/// After the Stage-0 snap B's bottom sits exactly at z = 1, so
-/// union volume = 4 + 4·(1+r) and subtract A−B = A = 4 exactly.
+/// ([2,3]×[0,2]). After the Stage-0 snap B's bottom sits exactly at z = 1,
+/// so union volume = 4 + 4·(1+r) and subtract A−B = A = 4 exactly.
+/// Valid only for r in the #178 coincidence-authoring noise class
+/// (r ≤ band/100): larger r is a DISTINCT-plane hover that must STOP.
 fn near_partial_case(r: f64, what: &str) {
     let a = box_brep([0.0, 0.0, 0.0], [2.0, 2.0, 1.0]);
     let b = box_brep([1.0, 0.0, 1.0 + r], [3.0, 2.0, 2.0 + r]);
@@ -395,14 +408,41 @@ fn near_partial_case(r: f64, what: &str) {
     assert_solid(&out, 4.0, &format!("{what}: subtract"));
 }
 
+/// r = 1e-10 sits BELOW the #178 noise line (band/100 = 1e-9): the
+/// coincidence-authoring class (the real bearing-recess residual is
+/// 2.235e-10) — the Stage-0 snap and keyed membership keep working.
 #[test]
 fn near_partial_overlap_residual_1e10_resolves_membership() {
     near_partial_case(1e-10, "near-partial r=1e-10");
 }
 
+/// r = 1e-8 is ABOVE the #178 noise line: B genuinely HOVERS 1e-8 above A
+/// (the exact union is two disjoint bodies), and the old snap silently
+/// welded it into contact — the same out-of-contract mutation as the
+/// C0111/C0113 wall dissolve. Both ops now STOP with the typed error.
 #[test]
-fn near_partial_overlap_residual_1e8_resolves_membership() {
-    near_partial_case(1e-8, "near-partial r=1e-8");
+fn near_partial_overlap_residual_1e8_stops_loudly() {
+    let r = 1e-8;
+    let a = box_brep([0.0, 0.0, 0.0], [2.0, 2.0, 1.0]);
+    let b = box_brep([1.0, 0.0, 1.0 + r], [3.0, 2.0, 2.0 + r]);
+    let nb = yang_rs::native_backend().expect("native backend always available");
+
+    for op in [BoolOp::Union, BoolOp::Subtract] {
+        match boolean(&a, &b, op, &nb) {
+            Err(YangError::SubResolutionCoplanarGap { gap, band, .. }) => {
+                assert!(
+                    (gap - r).abs() <= r * 1e-6 && gap <= band,
+                    "r=1e-8 {op:?}: STOP must carry the hover gap, \
+                     got gap={gap:.3e} band={band:.3e}"
+                );
+            }
+            Ok(_) => panic!(
+                "r=1e-8 {op:?}: sub-resolution hover must STOP loudly, \
+                 not weld into contact (#178)"
+            ),
+            Err(e) => panic!("r=1e-8 {op:?}: wrong error class: {e}"),
+        }
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════

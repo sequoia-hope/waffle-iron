@@ -1,8 +1,8 @@
 {
-  "errored": 54,
-  "failed": 2,
+  "errored": 58,
+  "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 248,
+  "passed": 249,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1031,8 +1031,8 @@
       "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 120s CPU (subprocess killed)",
+      "category": "ERROR",
+      "detail": "3 auto-union failure(s): Extrude 8: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: NonPlanarFace { face: FaceId(10329) }. Body created as standalone.; Extrude 9: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: NonPlanarFace { face: FaceId(10813) }. Body created as standalone.; Extrude 11: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 4: azimuth-merge rims have mismatched / too-few samples (229 vs 230)\"). Body created as standalone.",
       "id": "F0072",
       "status": "error"
     },
@@ -1109,8 +1109,8 @@
       "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 120s CPU (subprocess killed)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 20: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
       "id": "F0085",
       "status": "error"
     },
@@ -1139,10 +1139,10 @@
       "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 120s CPU (subprocess killed)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0090",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1829,10 +1829,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "mesh_euler_characteristic: V(16) - E(42) + F(28) = 2 (expected 0 for 1 shell(s), exact bits)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 0cc90059-4c16-4a15-979c-36ed2bdce4c5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: faces A#5 and B#3 are two DISTINCT parallel planes separated by 1.000e-8 — inside the coplanar detection band (1.000e-7) but above rounding noise: a sub-resolution feature the Stage-0 overlay would silently dissolve; input is outside the MIN_FEATURE_SIZE contract (#178)\")",
       "id": "C0111",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1841,10 +1841,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "mesh_euler_characteristic: V(16) - E(42) + F(28) = 2 (expected 0 for 1 shell(s), exact bits)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): fac52e59-41b0-4b3f-8598-64ed217685ef: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: faces A#5 and B#3 are two DISTINCT parallel planes separated by 1.000e-7 — inside the coplanar detection band (1.000e-7) but above rounding noise: a sub-resolution feature the Stage-0 overlay would silently dissolve; input is outside the MIN_FEATURE_SIZE contract (#178)\")",
       "id": "C0113",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
