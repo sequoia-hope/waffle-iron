@@ -37,7 +37,9 @@ on multi-surface junction assembly; closing it means building what the paper
 implies and signing the extensions into the deviations ledger.
 
 **Definition of done (measurable):**
-(a) OPEN deviation count = 0 (`docs/yang_deviations.md`: N2, N6);
+(a) OPEN deviation count = 0 (`docs/yang_deviations.md`: N2 — the sole
+remaining OPEN entry since N6's user-ratified 2026-07-17 closure as
+detection-shipped; N2's remit now includes the §4.5.4 removal half);
 (b) every corpus case is CORRECT or a signed-off scope boundary — 0 WRONG, no
 unexplained ERRORs; (c) Cherchi sidecar parity stays green; (d) everything else
 in the ledger is PERMANENT with user sign-off.
@@ -91,7 +93,10 @@ in the ledger is PERMANENT with user sign-off.
    semantics-identical port of the corpus-calibrated assay oracle): sub-
    sagitta B-Rep-level penetrations are only observable where the true
    surfaces are sampled finely. Converts C0116 AND C0105 WRONG→ERROR.
-   Removal (increment 2) routes into the phase-3 mesh-update loop.*
+   Removal (increment 2) routes into the phase-3 mesh-update loop.
+   **N6 CLOSED 2026-07-17 by user ratification** ("close as
+   detection-shipped, removal tracked under N2") — this phase is DONE;
+   the removal worklist lives in N2/#169.*
 5. **Capability tails** (interleavable): M8 coplanar residue (#130) +
    rim-projection (#144), KV6 revolve leftovers, non-convex/curved profiles,
    #153 NonPlanarFace wall.

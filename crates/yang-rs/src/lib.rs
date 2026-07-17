@@ -20,8 +20,9 @@
 //!   production loud STOP is kernel-v2's render-resolution boolean-output
 //!   gate; the exact mesh-level test is banked here as the `YANG_SELFX_PROBE`
 //!   diagnostic (`stage5_topology`, pre-`emit_topology`). REMOVAL (the
-//!   paper's local refinement) is **NOT implemented** (deviation N6 residue,
-//!   folded into the #169 mesh-update loop).
+//!   paper's local refinement) is **NOT implemented** — N6 was closed as
+//!   detection-shipped (user ratification 2026-07-17); the removal half is
+//!   tracked under deviation N2 / the #169 mesh-update loop.
 //! - **Stage 5** (§4.4.2): Patch segmentation (flood-fill)
 //! - **Stage 6** (§4.4.2): B-Rep reassembly
 //!

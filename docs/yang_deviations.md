@@ -44,7 +44,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N3 | RESOLVED | §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion) |
 | N4 | RESOLVED | Face provenance via centroid-proximity, not §4.2.3 barycentric implicit mapping |
 | N5 | PERMANENT (A) | Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2 CDT framework |
-| N6 | OPEN | §4.5.4 illegal self-intersection — DETECTION SHIPPED 2026-07-17 (#173, two-layer); removal folded into #169; closure pending ratification |
+| N6 | RESOLVED | §4.5.4 illegal self-intersection — detection SHIPPED 2026-07-17 (#173, two-layer); closed as detection-shipped by user ratification 2026-07-17; removal tracked under N2/#169 |
 | N7 | PERMANENT | Stage 3 uses closed-form algebraic SSI instead of §4.3 Newton/geometric optimization |
 | N8 | RESOLVED | Stage 0 (§4.5.5 coplanar) verified NATIVE-need, not sidecar-delegated |
 | N9 | PERMANENT (A) | Planar non-convex / holed Stage-1 tessellation uses no-Steiner CDT (spade) |
@@ -97,17 +97,24 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count: 2** (N2, N6 — N6's detection half SHIPPED 2026-07-17, #173; its removal half is #169 machinery, closure pending ratification). Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count: 1** (N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure). Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
 ## OPEN deviations (temporary; remediation tracked; investigation blocked)
 
-The live paper-compliance backlog. N2 is the §4.4.1 mesh-updating + §4.5.2 local-refinement gap (epic #169, `specs/yang_mesh_updating_epic.md`); N6 is §4.5.4 illegal-self-intersection detection/removal — detection SHIPPED 2026-07-17 (#173, `specs/yang_173_selfx_detector.md`), removal folded into #169.
+The live paper-compliance backlog. N2 is the §4.4.1 mesh-updating + §4.5.2 local-refinement gap (epic #169, `specs/yang_mesh_updating_epic.md`); since the 2026-07-17 N6 closure it also carries the §4.5.4 removal half (the `YANG_SELFX_PROBE` 53-case fire-list is that increment's worklist — spec `specs/yang_173_selfx_detector.md` §7).
 
 ### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
 
 **State:** OPEN — remediation actively tracked; investigation on this component follows the in-entry status.
+**Remit expansion (2026-07-17, user-ratified N6 closure):** N2 also carries
+the **§4.5.4 removal** half transferred from N6 — remove/refine the
+illegal mesh self-intersections the shipped detection finds. Concrete
+worklist: the `YANG_SELFX_PROBE` fire-list (53 cases, 33 CORRECT, of
+relocation-minted seam chord-crossings — spec
+`specs/yang_173_selfx_detector.md` §6/§7), a ready-made target set for the
+#169 mesh-update loop.
 
 **Code location (refreshed 2026-07-12 — the god-module was decomposed; `lib.rs`
 is now 161 lines):** the production Stage-4 path is
@@ -306,40 +313,6 @@ LOUD STOP on the pinch instead of a downstream non-manifold surprise. Gate-ON
 full assay unchanged (241C/0W/49E, byte-identical). R0038 belongs to the
 §4.3.3 near-tangency epic (task #137), not N2. Full analysis:
 `specs/yang_n2_stage4_cdt_mesh_updating.md` §5c.10.
-
-### N6 — §4.5.4 illegal self-intersection detection/removal absent
-
-**State:** OPEN — **DETECTION SHIPPED 2026-07-17** (task #173 increment 1);
-remaining = removal (§4.5.4 "perform local refinement"), folded into the
-#169 mesh-update loop (N2's machinery). Closure decision pending user
-ratification: N6 may close as detection-shipped with removal tracked under
-N2, or stay open until removal lands.
-
-**Code location (detection, two layers — spec
-`specs/yang_173_selfx_detector.md`):**
-- PRODUCTION loud STOP: kernel-v2
-  `validate::selfx::validate_boolean_output_self_intersection`, called at
-  the boolean assembly boundary (`boolean/mod.rs`, beside the F1 planarity
-  gate). Render-resolution port of the corpus-calibrated assay oracle
-  (`check_no_self_intersection`, PR-TH1 + PR-KV11 semantics); typed
-  `KernelV2Error::SelfIntersectingBooleanOutput`.
-- Diagnostic (banked): yang-rs `YANG_SELFX_PROBE` — exact non-adjacent
-  tri–tri (`cherchi_rs::detect_improper_contacts`) on the final Stage-4/5
-  mesh, before `emit_topology`. Byte-identical off.
-
-**Paper section:** §4.5.4 (752-758).
-
-**Measured reality (2026-07-17 sweep, spec §6):** the two layers see
-DISJOINT classes. The exact Stage-4 test fires on 53 cases (33 CORRECT) —
-relocation-minted seam chord-crossings, the paper's "new intersections
-during mesh updating", whose remedy is REMOVAL (#169 increment 2), not a
-STOP (wiring it as a STOP was P10-refuted). The C0116/C0105 silent-wrong
-class (B-Rep-level trimmed-surface penetration, sub-sagitta at Stage-4
-resolution) is only observable at render resolution — the shipped gate
-converts both to loud typed STOPs.
-
-**Severity:** medium → detection remediated; removal is the N2-machinery
-increment. **Sign-off:** detection shipped; closure-scope decision pending.
 
 ---
 
@@ -2723,6 +2696,41 @@ audit had mis-bucketed it; N55 corrects that with the criterion the paper implie
 ---
 
 ## RESOLVED deviations (implementation brought into line with the paper)
+
+### N6 — §4.5.4 illegal self-intersection detection/removal absent
+
+**State:** RESOLVED — **closed as detection-shipped by user ratification
+2026-07-17** ("close N6 as detection-shipped, removal tracked under N2").
+Detection SHIPPED 2026-07-17 (task #173 increment 1, commit aacc17aa); the
+removal half (§4.5.4 "perform local refinement") is tracked under **N2** as
+part of the #169 mesh-update loop — the `YANG_SELFX_PROBE` fire-list (53
+cases) is that increment's ready-made worklist.
+
+**Code location (detection, two layers — spec
+`specs/yang_173_selfx_detector.md`):**
+- PRODUCTION loud STOP: kernel-v2
+  `validate::selfx::validate_boolean_output_self_intersection`, called at
+  the boolean assembly boundary (`boolean/mod.rs`, beside the F1 planarity
+  gate). Render-resolution port of the corpus-calibrated assay oracle
+  (`check_no_self_intersection`, PR-TH1 + PR-KV11 semantics); typed
+  `KernelV2Error::SelfIntersectingBooleanOutput`.
+- Diagnostic (banked): yang-rs `YANG_SELFX_PROBE` — exact non-adjacent
+  tri–tri (`cherchi_rs::detect_improper_contacts`) on the final Stage-4/5
+  mesh, before `emit_topology`. Byte-identical off.
+
+**Paper section:** §4.5.4 (752-758).
+
+**Measured reality (2026-07-17 sweep, spec §6):** the two layers see
+DISJOINT classes. The exact Stage-4 test fires on 53 cases (33 CORRECT) —
+relocation-minted seam chord-crossings, the paper's "new intersections
+during mesh updating", whose remedy is REMOVAL (#169 increment 2), not a
+STOP (wiring it as a STOP was P10-refuted). The C0116/C0105 silent-wrong
+class (B-Rep-level trimmed-surface penetration, sub-sagitta at Stage-4
+resolution) is only observable at render resolution — the shipped gate
+converts both to loud typed STOPs (assay 248C/4W → 248C/2W).
+
+**Sign-off:** *signed off* — user ratification 2026-07-17, closure as
+detection-shipped; removal responsibility transferred to N2/#169.
 
 #### D2 — Extra post-tessellation repair pipeline (legacy S-H residue) — REMOVED
 
