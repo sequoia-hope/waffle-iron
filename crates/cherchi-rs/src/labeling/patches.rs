@@ -128,6 +128,13 @@ pub fn compute_all_patches(soup: &ArrangementSoup) -> Result<Patches, PatchError
                 let compatible =
                     cl.iter().all(|x| ref_l.contains(x)) || ref_l.iter().all(|x| cl.contains(x));
                 if !compatible {
+                    if std::env::var_os("CHERCHI_PATCH_PROBE").is_some() {
+                        eprintln!(
+                            "CHERCHI_PATCH_PROBE label-mismatch seed={seed} tri={curr} \
+                             ref_l={ref_l:?} cl={cl:?} patch_len={}",
+                            patch.len()
+                        );
+                    }
                     return Err(PatchError::LabelMismatch { seed, tri: curr });
                 }
                 // L2a: compatible — continue flooding; the patch keeps ref_l

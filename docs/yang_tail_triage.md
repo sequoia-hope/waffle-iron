@@ -36,18 +36,18 @@ Re-generate the baseline column only from a committed `results.json`.
 | R0038 | Stage-4 LRR (u32::MAX) | plane tangent to cylinder along one generator; degree-2 gate self-validates (`bad_degree=[(18,4),(19,4)]`) — near-tangency pinch, NOT a CDT ring | CONFIRMED (#168 WIP4, 9f4cb604) | P3b-#137 |
 | R0072 | Stage-4 LRR (u32::MAX) | real ~1e-7 micro-scale edge (0.4% span); force-merge is the R0091 silent-wrong trap — needs curved re-CDT | CONFIRMED (N55) | P3c |
 | C0058 | non-2-manifold (reassembly) | probe 2026-07-17: `NONMANIFOLD_SITE s6-curved-degenerate-loop` — Stage-6 curved face 2 emits a 64-vertex loop with \|Newell N\| = 2.3e-16 (degenerate junction loop) | CONFIRMED (#171 sweep) | P3a-#146 |
-| C0067 | Stage-4 LRR v128 | on-axis-sphere revolve (KV6d) boolean; revolve itself landed (#136), boolean relocation region invalid | PROBE | PROBE |
-| R0008 | Stage-4 LRR v42 | cone-apex crossing-generator tie-break shipped (#163/N45) but a residual region remains | PROBE | PROBE |
+| C0067 | Stage-4 LRR v128 | probe 2026-07-18 (#171 pass 2): v128 is a **circle×circle junction** (`circle_junction=true`, endpoint) — two sphere-section Circles (both r=0.371, centers [0.15,0,0.5]/[0,0.15,0.5], normals x̂/ŷ) meet at [0.15,0.15,0.83]; junction relocation region invalid. Needs two-curve junction relocation (mint-once contract) | CONFIRMED (#171 pass 2) | P3-junction |
+| R0008 | Stage-4 LRR v42 | probe 2026-07-18: `YANG_LRR_SITE site=lineseg_combo` edge (42,43) — LineSegment edge whose incidence is **Cone(A, half-angle 1.5525 rad ≈ 88.9°, near-flat) × Plane(B)**; the Stage-4 LineSegment arm has closed forms only for cyl×plane / cyl∥cyl / plane×plane — the **cone-generator line closed form is missing** (the "when a fixture demands them" fixture). #163/N45 residual theory REFUTED — it never reaches selection; same class as R0085-op2 | CONFIRMED (#171 pass 2) | Stage-4 cone-generator LineSegment arm (small closed-form vocabulary gap) |
 | R0009 | Stage-4 LRR (u32::MAX) | probe 2026-07-17: `site=split_max_passes` — the chord-split loop exhausts its pass budget (§4.5.2 refinement demand, non-convergent) | CONFIRMED (#171 sweep) | P3-§4.5.2 |
-| R0020 | Stage-4 LRR v44 | — | PROBE | PROBE |
-| R0025 | Stage-4 LRR v1760 | torus-profile rim crossing shipped (#131/N28); residual region | PROBE | PROBE |
-| R0032 | Stage-4 LRR v32 | — | PROBE | PROBE |
-| R0035 | Stage-4 LRR v194 | — | PROBE | PROBE |
+| R0020 | Stage-4 LRR v44 | probe 2026-07-18: v44 is `ellipse=true + surface_pair=true + endpoint` — a conic (cyl×plane Ellipse) endpoint that is ALSO on a `SurfacePair{Cylinder×Cone}` curve → the **surface-pair endpoint-mix STOP** (`stage4_correct.rs` vert_surface_pair loop) — the R0044 class exactly | CONFIRMED (#171 pass 2) | P3-junction (R0044 class) |
+| R0025 | Stage-4 LRR v1760 | probe 2026-07-18: `YANG_TORUS_STOP site=pair_newton_none` — torus×plane implicit-pair **Newton non-convergence** at v1760 (torus R=494/r=329, scale ~1300; siblings on the same op relocate fine). #131/N28 rim-crossing theory refuted | CONFIRMED (#171 pass 2) | P3b-#137 (torus∩plane relocation family) |
+| R0032 | Stage-4 LRR v32 | probe 2026-07-18: `YANG_TORUS_STOP site=pair_newton_none` — **torus×Cone** implicit-pair Newton non-convergence (torus R=45.6/r=30.4 × cone half-angle 1.19 rad); sibling verts with cone partners relocate fine — v32's specific pair diverges | CONFIRMED (#171 pass 2) | P3b/M5-residual (torus×cone pair Newton) |
+| R0035 | Stage-4 LRR v194 | probe 2026-07-18: v194 is `ellipse=true + surface_pair=true + endpoint` — Ellipse endpoint also on `SurfacePair{Cylinder×Cylinder}` (unequal radii 0.748/0.577) → surface-pair endpoint-mix STOP, R0044 class | CONFIRMED (#171 pass 2) | P3-junction (R0044 class) |
 | R0047 | Stage-4 LRR (u32::MAX) | probe 2026-07-17: `site=split_max_passes` — same class as R0009 | CONFIRMED (#171 sweep) | P3-§4.5.2 |
 | R0049 | non-2-manifold (reassembly) | probe 2026-07-17: `s6-planar-loop-nonplanar` face 134 vert 337 off-plane 1.449e-6 (band 1.0e-7) — the F0064 class (N51) | CONFIRMED (#171 sweep) | P3a-#146 |
-| R0050 | Stage-4 LRR v58 | torus-profile rim crossing shipped (#131/N28); residual region | PROBE | PROBE |
+| R0050 | Stage-4 LRR v58 | probe 2026-07-18: `YANG_TORUS_STOP site=gt2_partners` with **partners=[] (EMPTY)** — v58 (and v362 on the sibling torus) sit on torus intersection edges whose incidence records only ONE distinct surface (the base torus itself); the model has two near-identical revolve tori (R=3.95/r=2.63 vs R=3.78/r=2.52) — a Stage-2/3 **incidence gap between near-coincident revolve surfaces** (no partner to relocate onto). #131/N28 theory refuted | CONFIRMED (#171 pass 2) | P3a-#146 / Stage-2/3 incidence (near-coincident surfaces) |
 | R0063 | Stage-4 LRR (u32::MAX) | probe 2026-07-17: `site=split_max_passes` — same class as R0009 (the #145 zigzag residual resolves into the split-budget class) | CONFIRMED (#171 sweep) | P3-§4.5.2 |
-| R0077 | Stage-4 LRR v3 | — | PROBE | PROBE |
+| R0077 | Stage-4 LRR v3 | probe 2026-07-18: `YANG_TORUS_STOP site=pair_newton_none` — torus×plane implicit-pair Newton non-convergence at extreme scale (torus R=2051/r=1367, coords ~2700; the op's other two torus verts converge with rho ≈ 2e-13). Same class as R0025 | CONFIRMED (#171 pass 2) | P3b-#137 (torus∩plane relocation family) |
 | R0091 | Stage-4 LRR (u32::MAX) | probe 2026-07-17: `site=split_max_passes` — same class as R0009; STILL the historical silent-wrong trap: any fix must be re-CDT/refinement, never a merge | CONFIRMED (#171 sweep) | P3-§4.5.2 |
 
 ### OffCurveBeyondChordBand (6)
@@ -57,9 +57,9 @@ Re-generate the baseline column only from a committed `results.json`.
 | C0065 | Stage-4 OffCurve v8 | torus∩plane grazing loop reaches \|y\|=0.384 outside the box face; needs exact triple-junction corner insert + stitch (primitive proven, N-137.1) | CONFIRMED (#137 spec) | P3b-#137 |
 | R0074 | Stage-4 OffCurve v89 | torus∩plane grazing — same class as C0065 | CONFIRMED (#137) | P3b-#137 |
 | R0003 | Stage-4 OffCurve v4233 | multi-map over-band chain (v4233→v8508); needs ellipse×hyperbola junction handling, band-fixing exhausted (N45/N46) | CONFIRMED (N51/N52) | P3-junction |
-| R0015 | Stage-4 OffCurve v84 | no-curve-type structural (N51: not band-fixable) | PROBE (class known, site not) | PROBE |
-| R0026 | Stage-4 OffCurve v218 | exact generator band shipped (#164/N46); residual structural | PROBE | PROBE |
-| R0070 | Stage-4 OffCurve v1028 | no-curve-type structural (N51) | PROBE | PROBE |
+| R0015 | Stage-4 OffCurve v84 | probe 2026-07-18: N51 "no-curve-type" REFUTED — v84 IS in the torus map (`torus=true`); `YANG_TORUS_PROBE` shows the pair Newton relocates it EXACTLY (rho=0, F_torus(proj)=0) and it passes the displacement gate, so the STOP is the **bounded-face containment** check below the gate (`stage4_correct.rs:4225`) — the C0065 grazing-loop-outside-face signature, at MICRO scale (torus R=5.97e-5/r=3.98e-5, coords ~1e-4) | CONFIRMED (#171 pass 2) | P3b-#137 (C0065 containment class, micro-scale) |
+| R0026 | Stage-4 OffCurve v218 | probe 2026-07-18: same as R0015 — v218 `torus=true`, pair Newton rho=9.65e-6 ≪ gate 3.0e-3, then bounded-face containment STOP; micro torus∩plane (R=0.0214/r=0.0143) | CONFIRMED (#171 pass 2) | P3b-#137 (C0065 containment class, micro-scale) |
+| R0070 | Stage-4 OffCurve v1028 (+op2 LRR v47) | probe 2026-07-18: v1028 sits on a micro Ellipse edge (1025,1028; major_r 0.028) AND a LineSegment edge (1028,1029) — an ellipse∩line conic junction endpoint whose ellipse relocation lands beyond band at micro scale. **op2 v47** is `line=true + surface_pair=true + endpoint` — the surface-pair endpoint-mix STOP (SurfacePair{cyl×cyl} r=0.0228/0.0069), R0044 class | CONFIRMED (#171 pass 2) | P3-junction (both halves) |
 
 ### Reassembly non-2-manifold (8) — the #146 junction-mint bucket
 
@@ -76,17 +76,22 @@ Re-generate the baseline column only from a committed `results.json`.
 
 ### CDT / tessellation failures (8) — mostly chained-input casualties
 
-Chained models feed a yang boolean OUTPUT back in as an operand; degenerate
-junction verts in that output then poison CDT. Suspected downstream of P3a.
+~~Chained models feed a yang boolean OUTPUT back in as an operand; degenerate
+junction verts in that output then poison CDT. Suspected downstream of P3a.~~
+**REFRAMED by #171 pass 2 (2026-07-18):** the defective rings are boolean
+OUTPUT face boundaries rejected by kernel-v2's render CDT — chaining is not
+required (F0045 fails at its FIRST boolean). The mint is the boolean's own
+Stage-5/6 output-ring assembly; two signatures: sample-misorder
+zigzags/folds and #146 near-dup spikes (see per-row evidence).
 
 | Case | Loud error | Root cause | Confidence | Vehicle |
 |---|---|---|---|---|
-| F0045 | ring rejected by CDT (FaceId 9) | degenerate/self-intersecting ring | PROBE | PROBE→P3a? |
-| R0011 | ring rejected by CDT (FaceId 407) | — | PROBE | PROBE→P3a? |
-| R0016 | ring rejected by CDT (FaceId 1885) | — | PROBE | PROBE→P3a? |
-| R0028 | ring rejected by CDT (FaceId 32) | — | PROBE | PROBE→P3a? |
+| F0045 | ring rejected by CDT (FaceId 9) | probe 2026-07-18 (`KV2_RING_REJECT_PROBE` + polygon analysis): 21-pt ring with ONE proper self-crossing (segs 10-11 × 12-13) — a fine-sampled arc that doubles back over itself via a coarse return chain (two different samplings of overlapping curve sections in one ring). **NOT chained-input**: F0045 is two primitive extrudes (parallel cyl boss+boss, gen.rs F0041-45) and this is the FIRST boolean — the defective ring is minted by THIS boolean's own Stage-5/6 output emission, then rejected by kernel-v2 render CDT (loud, correct) | CONFIRMED (#171 pass 2) | P3-junction (S5/S6 output-ring assembly; refutes the "chained casualties" header) |
+| R0011 | ring rejected by CDT (FaceId 407) | probe 2026-07-18: 398-pt ring at scale ~2900 with 3 LOCAL zigzag crossings (each within a 4-index window: 23-27, 28-32, 390-394) — the #145 sample-misorder signature surviving in an output ring | CONFIRMED (#171 pass 2) | P3-junction (S5/S6 output-ring ordering, #145 residual class) |
+| R0016 | ring rejected by CDT (FaceId 1885) | probe 2026-07-18: 646-pt micro-scale ring (r≈0.03) with **15 periodic near-dup pairs** at (i, i+2) ~1.1e-4 apart (spike/needle pattern repeating with period ~310) + 1 crossing — the #146 near-duplicate junction-vert mint materialized in an output ring | CONFIRMED (#171 pass 2) | P3a-#146 (near-dup junction mint) |
+| R0028 | ring rejected by CDT (FaceId 32) | probe 2026-07-18: 146-pt ring, 2 crossings at the ring CLOSURE (segs 1×142, 4×138) — the chain tail folds back over the start (overlapping closure, not a mid-ring zigzag) | CONFIRMED (#171 pass 2) | P3-junction (S5/S6 output-ring closure) |
 | R0017 | KV9-F2 folded patch triangulation | probe 2026-07-17: error class CHANGED — kernel-v2 `TessellationFailed` FaceId(14) "patch triangulation folded (inverted triangle)" (unrolled ear-clip fold), not the old holed-lateral CDT | CONFIRMED (#171 sweep) | kernel-v2 KV9-F2 |
-| R0085 | converted-input CDT backend failed (face 1) | chained-input | PROBE | PROBE→P3a? |
+| R0085 | op1: ring rejected by CDT (FaceId 566); op2: LRR v5 | probe 2026-07-18: TWO independent failures. **op1** (Revolve 2 union): 42-pt ring, 3 fold crossings (0×33, 6×32, 33×41) — output-ring fold, same family as R0028. **op2** (Revolve 3 union): `YANG_LRR_SITE site=lineseg_combo` edge (5,550) — LineSegment edge with **Plane(A) × Cone(B, half-angle 0.0149 rad ≈ 0.85°, needle cone)**: the missing cone-generator LineSegment closed form, same class as R0008 | CONFIRMED (#171 pass 2) | op1: P3-junction (output ring); op2: Stage-4 cone-generator LineSegment arm |
 | R0100 | KV9-F2 folded patch triangulation | probe 2026-07-17: error class CHANGED — kernel-v2 `TessellationFailed` FaceId(15) folded ear-clip, same class as R0017 | CONFIRMED (#171 sweep) | kernel-v2 KV9-F2 |
 | F0067 | converted-input CDT failed (face 272) | M8 opposite-rim projection class (#142/#143/#144) | CONFIRMED (task #144) | M8 |
 
@@ -94,8 +99,8 @@ junction verts in that output then poison CDT. Suspected downstream of P3a.
 
 | Case | Loud error | Root cause | Confidence | Vehicle |
 |---|---|---|---|---|
-| C0043 | AmbiguousCurve {1, 0} edge (23,93) | one candidate curve, zero matched — selection/junction gap | PROBE | PROBE |
-| C0056 | AmbiguousCurve {1, 0} edge (37,70) | same signature as C0043 | PROBE | PROBE |
+| C0043 | AmbiguousCurve {1, 0} edge (23,93) | probe 2026-07-18 (`YANG_S3_AMBIG_PROBE`): the two surfaces are **internally tangent cylinders BY DESIGN** (r=1.0 at origin, r=0.4 at x=0.6; axis distance 0.6 = 1.0−0.4; gen_complexity.rs: "the degenerate tangency is the test", union == operand A by design). The single candidate IS the exact tangent generator Line{[1,0,0], ẑ}; the mesh intersection chords sit 4.5e-2 off it (= tol, the near-parallel-surface amplification at tangency) so matched=0 — a correct loud STOP on 1D line-contact tangency. Same contact-degeneracy family as C0107–C0110 | CONFIRMED (#171 pass 2) | degenerate-tangency SSI vocabulary (C0109 family) or scope sign-off |
+| C0056 | AmbiguousCurve {1, 0} edge (37,70) | probe 2026-07-18: same signature, also BY DESIGN — internal lateral tangency cut (r=1.0 origin × r=0.5 at x=0.5, axis distance 0.5 = 1.0−0.5; "wall thins to zero at the tangent line"); candidate = Line{[1,0,0], ẑ}, chords 4.9e-2 off. Output would be zero-thickness at the tangent line (C0114/C0115 kin) | CONFIRMED (#171 pass 2) | degenerate-tangency SSI vocabulary or scope sign-off |
 
 ### NonPlanarFace (3)
 
@@ -109,11 +114,11 @@ junction verts in that output then poison CDT. Suspected downstream of P3a.
 
 | Case | Loud error | Root cause | Confidence | Vehicle |
 |---|---|---|---|---|
-| C0046 | NonManifoldVertex(17) | kernel-v2 B-Rep-level vertex defect | PROBE | PROBE |
+| C0046 | NonManifoldVertex(17) | probe 2026-07-18: **0D corner contact BY DESIGN** (gen_complexity.rs: two boxes sharing exactly one vertex, "legitimately non-manifold, loud rejection acceptable"); kernel-v2 `validate.rs` vertex-fan check rejects the union output — the DESIRED posture, same as C0107/C0108 | CONFIRMED (#171 pass 2, by construction) | none (scope boundary; sign-off candidate) |
 | C0048 | azimuth-merge rims mismatched (66 vs 69) | M8 rim-crossing/uniform-sample merge (#143 landed; residual = #144 snap-rounding) | CONFIRMED (#144) | M8 |
-| C0075 | InvalidBooleanOutput (undirected edge ≠ 2 directed) | — | PROBE | PROBE |
+| C0075 | InvalidBooleanOutput (undirected edge ≠ 2 directed) | probe 2026-07-18: **two overlapping 12-tooth gear extrudes, union, BY CONSTRUCTION** (gen_complexity.rs Group 2e "gear/CDT tail") — the known non-convex gear-profile capability tail; the unpaired-edge reject is its loud downstream symptom (8.3s run, deep into the pipeline) | CONFIRMED (#171 pass 2, by construction) | gear/profile tail (Phase-2, KV/scope) |
 | R0019 | input B-Rep not 2-manifold | probe 2026-07-17 REFUTES the chained-defect suspicion: the FIRST boolean (`op=Subtract a: 2v/3f`) rejects — operand A is a 2-vertex/3-face revolve-primitive B-Rep the yang input gate cannot accept (primitive topology vocabulary, KV6-class) | CONFIRMED (#171 sweep) | KV6/scope |
-| R0053 | patch flood-fill LabelMismatch {seed 2, tri 3890} | native arrangement patch labeling — Stage 2/3 | PROBE | PROBE |
+| R0053 | patch flood-fill LabelMismatch {seed 2, tri 3890} | probe 2026-07-18 (new `CHERCHI_PATCH_PROBE`): the flood from a seed labeled `[InputId(0)]` reaches tri 3890 labeled `[InputId(1)]` after 956 triangles — **genuinely DISJOINT single labels** (not the L2a compatible coplanar-sheet case). An A-only region floods into a B-only region across 2-incident MANIFOLD edges ⇒ the A×B intersection curve is missing/unsplit there — a Stage-2 arrangement incidence gap (revolve×revolve op, kin to R0050's empty-partner signature) | CONFIRMED (#171 pass 2) | Stage-2/3 arrangement incidence (near-coincident revolve surfaces, R0050 kin) |
 
 ### Capability / scope (4)
 
@@ -192,23 +197,74 @@ above. Findings that shape the remaining queue:
 - All coplanar cross pairs in the queue cases are femto-class
   (max 1.1e-13, `subres=false`) — live confirmation of the #178/N57 line.
 
-## Rollup
+## Probe sweep 2026-07-18 (#171, pass 2 — targeted per-case digs; QUEUE EMPTY)
+
+All 14 remaining PROBE rows upgraded to CONFIRMED (rows above carry the
+evidence). New dev-only instrumentation shipped for the digs (all env-gated
+print-only, production byte-identical): `YANG_LRR_SITE` tags at every
+specific-vertex `Stage4RegionInvalid` STOP (classification combos in
+`stage4_correct.rs` + relocate-math guards in `stage4_relocate.rs`),
+`YANG_TORUS_STOP` tags at the torus-block pre-relocation STOPs
+(pair/triple Newton `None`, partner-count arm), and `CHERCHI_PATCH_PROBE`
+(labels at the flood-fill `LabelMismatch`). Key discoveries that reshape the
+buckets:
+
+- **The "identified-vertex LRR" group is NOT one class — it is five**:
+  (a) surface-pair endpoint-mix (R0020, R0035, R0070-op2 — all `conic +
+  surface_pair + endpoint`, the exact R0044 class; now a **4-case bucket**);
+  (b) torus×plane pair-Newton non-convergence (R0025, R0077);
+  (c) torus×cone pair-Newton non-convergence (R0032);
+  (d) missing cone-generator LineSegment closed form (R0008 near-flat cone
+  88.9°, R0085-op2 needle cone 0.85° — the Stage-4 lineseg arm only knows
+  cyl×plane / cyl∥cyl / plane×plane);
+  (e) circle×circle junction (C0067) and empty-partner incidence gap (R0050).
+- **The OffCurve trio's N51 "no-curve-type" diagnosis is REFUTED**: R0015 and
+  R0026 are torus-map vertices whose pair Newton relocates them exactly
+  (rho=0 / 9.6e-6 ≪ gate) and then the bounded-face CONTAINMENT gate
+  (`stage4_correct.rs:4225`) rejects — the C0065 #137 signature at micro
+  scale. R0070 is a micro ellipse∩line junction + an R0044-class op2.
+- **The CDT ring-reject bucket's "chained-input casualties" header is
+  REFUTED for its lead case**: F0045 is two primitive extrudes and fails at
+  the FIRST boolean — the self-intersecting ring is minted by that boolean's
+  own Stage-5/6 output emission. Ring geometry splits the bucket into
+  sample-misorder zigzags/folds (F0045, R0011, R0028, R0085-op1) vs periodic
+  near-dup spikes (R0016, (i,i+2) pairs ~1.1e-4 — the #146 mint materialized
+  in an output ring). kernel-v2's render CDT reject is the loud backstop.
+- **C0043/C0056/C0046/C0075 are designed-degeneracy cases** (internal cyl×cyl
+  tangency ×2, 0D corner contact, gear tail) — loud STOPs are the correct
+  posture; the tangency pair + C0046 are sign-off candidates alongside
+  C0107–C0110.
+- **R0053 is a Stage-2 arrangement incidence gap**: disjoint-label flood
+  ([A]-only region → [B]-only region across 2-incident manifold edges) ⇒ the
+  A×B intersection curve is missing/unsplit there; kin to R0050's
+  empty-partner torus edges (both are near-coincident revolve-surface pairs).
+
+## Rollup (post pass 2 — Phase 1 triage COMPLETE, 0 PROBE rows)
 
 | Vehicle | Cases |
 |---|---|
-| P2-M5 (SSI solvers) | 0 open (R0096 FLIPPED CORRECT by the #172 torus×torus lift; R0044 re-diagnosed → P3-junction) — more may emerge from the probe queue |
-| P3a-#146 (junction mint) | 5 confirmed/partial + 3 probe-suspected + up to 7 chained-CDT suspects |
-| P3b-#137 (grazing corner) | 3 confirmed (C0065, R0074, R0038) |
+| P2-M5 (SSI solvers) | 0 open (R0096 flipped CORRECT #172; R0044 → P3-junction) |
+| P3a-#146 (junction mint / incidence) | 9 confirmed (C0058, R0049, F0082, R0095, C0044, F0058, F0060, R0016, R0050) + F0064 partial + R0051 suspected |
+| P3b-#137 (torus∩plane + grazing/tangency Stage-4) | 8 confirmed (C0065, R0074, R0038, R0015, R0026, R0025, R0077, R0032-torus×cone) + F0085 (open seam, R0038-type) |
 | P3c (curved re-CDT) | 1 confirmed (R0072) |
-| P3-junction (other) | 2 confirmed (R0003; R0044 re-diagnosed from P2-M5 by the #172 probe — conic×surface-pair endpoint mix) |
+| P3-junction (other junction vocabulary) | 8 confirmed (R0003, R0044, C0067, R0020, R0035, R0070, F0045, R0011, R0028, R0085-op1 — last four are S5/S6 output-ring assembly) |
+| Stage-4 cone-generator LineSegment arm (new, small closed form) | 2 confirmed (R0008, R0085-op2) |
+| Stage-2/3 arrangement incidence (near-coincident surfaces) | 1 confirmed (R0053; R0050 kin, counted under P3a) |
+| P3-§4.5.2 (split budget) | 4 confirmed (R0009, R0047, R0063, R0091) |
 | M8 residue | 4 confirmed (R0007, R0071, C0048, F0067) |
-| #153 NonPlanarFace | 2 confirmed + 1 suspected |
-| KV6/scope | 2 (C0063, R0004) |
-| **PROBE queue (root cause unconfirmed)** | **14** (was 26; 12 confirmed by the 2026-07-17 #171 sweep) |
+| #153 NonPlanarFace | 2 confirmed + 1 suspected (R0081) |
+| kernel-v2 KV9-F2 folded ear-clip | 2 confirmed (R0017, R0100) |
+| KV6/scope + designed degeneracies | 7 (C0063, R0004, R0019, C0043, C0056, C0046, C0075 — the last four sign-off candidates) |
+| **PROBE queue** | **0** (was 26 → 14 after pass 1 → 0 after pass 2) |
 
-**Reading:** the confirmed set already covers ~28 of 54 cases and justifies the
-plan's ordering (P3a-#146 is plausibly the single biggest lever if the
-chained-CDT suspects trace back to it). The 26-row PROBE queue is the rest of
-Phase 1: run `YANG_LRR_PROBE` / `YANG_LRR_STOP` / `NONMANIFOLD_SITE_PROBE` /
-`YANG_S6_NONPLANAR_PROBE` per case and upgrade rows to CONFIRMED before any
-build targets them.
+**Reading:** Phase 1 (triage) is COMPLETE — every failing case has a confirmed
+root cause and fix vehicle. The distribution vindicates the plan's ordering:
+the junction layer (P3a + P3b + P3-junction ≈ 26 cases) is the dominant mass.
+Within it, three sharply-defined sub-classes emerged that were invisible
+before pass 2: the R0044 endpoint-mix bucket (4 cases, one STOP site), the
+torus pair-Newton/containment family (6 cases), and the S5/S6 output-ring
+assembly defects (4-5 cases, includes a first-boolean mint refuting the
+chained-input theory). The cone-generator LineSegment arm (2 cases) is the
+one small self-contained closed-form gap — a candidate quick win before the
+junction epic. Sign-off batch candidate: C0043/C0056/C0046/C0075 designed
+degeneracies (with C0107–C0110).

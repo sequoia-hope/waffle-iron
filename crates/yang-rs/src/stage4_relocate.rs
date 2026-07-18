@@ -480,7 +480,7 @@ pub(crate) fn coplanar_circle_circle_intersection(
 /// Stage 4 recomputes the line from the edge's incidence (cylinder + plane)
 /// and re-selects the unique candidate through both endpoints — the SAME
 /// matching rule Stage 3 used, so selection here cannot disagree with it.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct LineReloc {
     pub(crate) point: Point3,
     pub(crate) dir: Vector3,
@@ -1025,6 +1025,11 @@ pub(crate) fn project_onto_ellipse_via_cylinder(
     if n_dot_a.abs() < cad_primitives::MIN_FEATURE_SIZE {
         // Axis-parallel / degenerate-line section: out of scope. Loud STOP rather
         // than dividing by ~0 (spec §6).
+        if std::env::var_os("YANG_LRR_PROBE").is_some() {
+            eprintln!(
+                "YANG_LRR_SITE site=ellipse_axis_parallel_section p={p:?} n_dot_a={n_dot_a:.3e}"
+            );
+        }
         return Err(Stage4InvalidReason::LocalRefinementRequired);
     }
     let n_dot_q = n[0] * q[0] + n[1] * q[1] + n[2] * q[2];
@@ -1071,6 +1076,9 @@ pub(crate) fn project_onto_ellipse_nearest(
     let n_raw = er.plane_n.as_array();
     let n_len = (n_raw[0] * n_raw[0] + n_raw[1] * n_raw[1] + n_raw[2] * n_raw[2]).sqrt();
     if n_len < cad_primitives::TAU_WORK {
+        if std::env::var_os("YANG_LRR_PROBE").is_some() {
+            eprintln!("YANG_LRR_SITE site=ellipse_plane_degenerate p={p:?} n_len={n_len:.3e}");
+        }
         return Err(Stage4InvalidReason::LocalRefinementRequired);
     }
     let n = [n_raw[0] / n_len, n_raw[1] / n_len, n_raw[2] / n_len];
@@ -1358,6 +1366,9 @@ pub(crate) fn project_onto_cone_section(
         // Generator parallel to the plane: the asymptotic / parabola-tail
         // direction — out of scope (spec §6). Loud STOP rather than dividing by
         // ~0.
+        if std::env::var_os("YANG_LRR_PROBE").is_some() {
+            eprintln!("YANG_LRR_SITE site=cone_generator_parallel n_dot_g={n_dot_g:.3e}");
+        }
         return Err(Stage4InvalidReason::LocalRefinementRequired);
     }
     let n_dot_apex = n[0] * ap[0] + n[1] * ap[1] + n[2] * ap[2];
@@ -1365,6 +1376,9 @@ pub(crate) fn project_onto_cone_section(
     if s <= 0.0 {
         // Apex-coincident / wrong-nappe: the generator pierces the plane at or
         // behind the apex — out of scope. Loud STOP.
+        if std::env::var_os("YANG_LRR_PROBE").is_some() {
+            eprintln!("YANG_LRR_SITE site=cone_wrong_nappe s={s:.3e}");
+        }
         return Err(Stage4InvalidReason::LocalRefinementRequired);
     }
     Ok(Point3::new(

@@ -2039,6 +2039,13 @@ pub(crate) fn stage4_relocate_and_correct(
                     // A parabola section that is not a cone+plane pair is out of
                     // scope (producer fault). Loud STOP (P9/P10), mirroring the
                     // cone-ellipse `_ =>` arm.
+                    if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                        eprintln!(
+                            "YANG_LRR_SITE site=parabola_pair_miss edge=({s},{e}) p={:?} \
+                             entries={entries:?}",
+                            mesh.verts.get(s as usize)
+                        );
+                    }
                     return Err(YangError::Stage4RegionInvalid {
                         vertex: s,
                         reason: Stage4InvalidReason::LocalRefinementRequired,
@@ -2051,6 +2058,13 @@ pub(crate) fn stage4_relocate_and_correct(
                 let Some(cone_d_eps) =
                     cone_chord_budget_from_owner(apex, cone_axis_dir, half_angle, owner)
                 else {
+                    if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                        eprintln!(
+                            "YANG_LRR_SITE site=parabola_cone_budget edge=({s},{e}) p={:?} \
+                             apex={apex:?} half_angle={half_angle}",
+                            mesh.verts.get(s as usize)
+                        );
+                    }
                     return Err(YangError::Stage4RegionInvalid {
                         vertex: s,
                         reason: Stage4InvalidReason::LocalRefinementRequired,
@@ -2110,6 +2124,13 @@ pub(crate) fn stage4_relocate_and_correct(
                     // A hyperbola section that is not a cone+plane pair is out of
                     // scope (producer fault). Loud STOP (P9/P10), mirroring the
                     // cone-parabola arm.
+                    if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                        eprintln!(
+                            "YANG_LRR_SITE site=hyperbola_pair_miss edge=({s},{e}) p={:?} \
+                             entries={entries:?}",
+                            mesh.verts.get(s as usize)
+                        );
+                    }
                     return Err(YangError::Stage4RegionInvalid {
                         vertex: s,
                         reason: Stage4InvalidReason::LocalRefinementRequired,
@@ -2122,6 +2143,13 @@ pub(crate) fn stage4_relocate_and_correct(
                 let Some(cone_d_eps) =
                     cone_chord_budget_from_owner(apex, cone_axis_dir, half_angle, owner)
                 else {
+                    if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                        eprintln!(
+                            "YANG_LRR_SITE site=hyperbola_cone_budget edge=({s},{e}) p={:?} \
+                             apex={apex:?} half_angle={half_angle}",
+                            mesh.verts.get(s as usize)
+                        );
+                    }
                     return Err(YangError::Stage4RegionInvalid {
                         vertex: s,
                         reason: Stage4InvalidReason::LocalRefinementRequired,
@@ -2302,6 +2330,13 @@ pub(crate) fn stage4_relocate_and_correct(
                         let Some(cone_d_eps) =
                             cone_chord_budget_from_owner(apex, axis_dir, half_angle, owner)
                         else {
+                            if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                                eprintln!(
+                                    "YANG_LRR_SITE site=cone_ellipse_budget edge=({s},{e}) \
+                                     p={:?} apex={apex:?} half_angle={half_angle}",
+                                    mesh.verts.get(s as usize)
+                                );
+                            }
                             return Err(YangError::Stage4RegionInvalid {
                                 vertex: s,
                                 reason: Stage4InvalidReason::LocalRefinementRequired,
@@ -2417,6 +2452,14 @@ pub(crate) fn stage4_relocate_and_correct(
                     // Anything else (sphere, coplanar multi-solid): out of
                     // scope. Loud STOP (P9/P10).
                     _ => {
+                        if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                            eprintln!(
+                                "YANG_LRR_SITE site=ellipse_combo edge=({s},{e}) p={:?} \
+                                 n_cyls={} entries={entries:?}",
+                                mesh.verts.get(s as usize),
+                                cyls.len()
+                            );
+                        }
                         return Err(YangError::Stage4RegionInvalid {
                             vertex: s,
                             reason: Stage4InvalidReason::LocalRefinementRequired,
@@ -2509,6 +2552,16 @@ pub(crate) fn stage4_relocate_and_correct(
                         continue;
                     }
                     _ => {
+                        if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                            eprintln!(
+                                "YANG_LRR_SITE site=lineseg_combo edge=({s},{e}) p={:?} \
+                                 n_cyls={} n_pp={} other_curved={other_curved} \
+                                 entries={entries:?}",
+                                mesh.verts.get(s as usize),
+                                cyls.len(),
+                                pp.len()
+                            );
+                        }
                         return Err(YangError::Stage4RegionInvalid {
                             vertex: s,
                             reason: Stage4InvalidReason::LocalRefinementRequired,
@@ -2607,6 +2660,13 @@ pub(crate) fn stage4_relocate_and_correct(
                                     <= cad_primitives::TAU_MODEL
                             };
                         if !same {
+                            if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                                eprintln!(
+                                    "YANG_LRR_SITE site=line_line_junction v={v} p={:?} \
+                                     prev={prev:?} new={lr:?}",
+                                    mesh.verts.get(v as usize)
+                                );
+                            }
                             return Err(YangError::Stage4RegionInvalid {
                                 vertex: v,
                                 reason: Stage4InvalidReason::LocalRefinementRequired,
@@ -3949,6 +4009,14 @@ pub(crate) fn stage4_relocate_and_correct(
             let p = mesh.verts[v as usize];
             let (proj, n0, n1) = match partners.as_slice() {
                 [s1] => {
+                    if std::env::var_os("YANG_TORUS_PROBE").is_some()
+                        && relocate_onto_implicit_pair(p, t_surf, *s1).is_none()
+                    {
+                        eprintln!(
+                            "YANG_TORUS_STOP site=pair_newton_none v={v} p={p:?} \
+                             t_surf={t_surf:?} partner={s1:?}"
+                        );
+                    }
                     let proj = relocate_onto_implicit_pair(p, t_surf, *s1).ok_or(
                         YangError::Stage4RegionInvalid {
                             vertex: v,
@@ -3974,6 +4042,14 @@ pub(crate) fn stage4_relocate_and_correct(
                     // 3-surface junction: relocate onto {torus, s1, s2}. The
                     // displacement gate uses the torus∩s1 angle (the junction is
                     // a point; any incident curve's metric bounds the move).
+                    if std::env::var_os("YANG_TORUS_PROBE").is_some()
+                        && relocate_onto_implicit_triple(p, t_surf, *s1, *s2).is_none()
+                    {
+                        eprintln!(
+                            "YANG_TORUS_STOP site=triple_newton_none v={v} p={p:?} \
+                             t_surf={t_surf:?} s1={s1:?} s2={s2:?}"
+                        );
+                    }
                     let proj = relocate_onto_implicit_triple(p, t_surf, *s1, *s2).ok_or(
                         YangError::Stage4RegionInvalid {
                             vertex: v,
@@ -3996,6 +4072,12 @@ pub(crate) fn stage4_relocate_and_correct(
                     (proj, n0, n1)
                 }
                 _ => {
+                    if std::env::var_os("YANG_TORUS_PROBE").is_some() {
+                        eprintln!(
+                            "YANG_TORUS_STOP site=gt2_partners v={v} p={p:?} \
+                             t_surf={t_surf:?} partners={partners:?}"
+                        );
+                    }
                     return Err(YangError::Stage4RegionInvalid {
                         vertex: v,
                         reason: Stage4InvalidReason::LocalRefinementRequired,

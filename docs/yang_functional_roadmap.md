@@ -48,9 +48,22 @@ in the ledger is PERMANENT with user sign-off.
 
 1. **Triage ledger** — `docs/yang_tail_triage.md`: every failing case gets a
    confirmed root cause + fix vehicle BEFORE machinery is built against it.
-   First pass done 2026-07-16 (~28/54 confirmed); the 26-row PROBE queue is the
-   remainder. Case-first is the standing discipline: no wiring against an
-   unconfirmed bucket.
+   Case-first is the standing discipline: no wiring against an unconfirmed
+   bucket. *COMPLETE 2026-07-18 (#171 pass 2): the PROBE queue is EMPTY —
+   26 → 14 (pass 1, 2026-07-17) → 0. Pass 2's targeted digs (new env-gated
+   `YANG_LRR_SITE` / `YANG_TORUS_STOP` / `CHERCHI_PATCH_PROBE`
+   instrumentation) split the tail into sharply-defined classes: the R0044
+   surface-pair endpoint-mix bucket grew to 4 cases (R0020/R0035/R0070-op2),
+   the torus pair-Newton/containment family to 6 (R0015/R0026 REFUTE N51's
+   "no-curve-type" — they are C0065-class containment STOPs at micro scale),
+   S5/S6 output-ring assembly defects account for the CDT ring-rejects
+   (F0045 is a FIRST-boolean mint, refuting the chained-input theory;
+   R0016's ring carries the #146 near-dup spikes), a missing cone-generator
+   LineSegment closed form is a 2-case quick-win (R0008/R0085-op2), R0053 +
+   R0050 expose a Stage-2/3 incidence gap between near-coincident revolve
+   surfaces, and C0043/C0056/C0046/C0075 are designed degeneracies whose
+   loud STOPs are the correct posture (sign-off candidates). See the
+   ledger's pass-2 section + rollup for the full map.*
 2. **Analytical completeness (M5)** — finish the `ssi-rs` degree-4 matrix
    (torus×torus, cyl×cyl lateral∩lateral). Goes first among builds because
    Stage 4 can only relocate onto curves that exist, and downstream junction
