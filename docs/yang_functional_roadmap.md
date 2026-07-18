@@ -106,6 +106,22 @@ in the ledger is PERMANENT with user sign-off.
       exonerated, N48 sidecar-certified). Faces incident to a shared curve use
       the SAME boundary sample points; corners inserted once into both meshes.
       Non-goal: no new tolerance merge (R0091 hazard) — existing STOPs stay.
+      *STATUS 2026-07-18 (spec `specs/yang_146_conformal_junction_sampling.md`
+      §4, commits fb3ecde8/c16a8d51/9c368672/1284f062): increments 0–2
+      SHIPPED — pierce enumeration, Stage-1 edge-polyline + face-interior
+      insertion, full wiring banked behind `YANG_JUNCTION_SAMPLING_ENABLE`
+      (gate-OFF byte-identical, assay-verified). Gate-ON measurement: 0
+      WRONG; the MECHANISM IS PROVEN (F0082's v588/v601 near-dup mint
+      eliminated at the site), but no P3a bucket case converts (multi-defect
+      chained models) and F0016/F0084 flip CORRECT→ERROR via the I6
+      coincident-tri guard: the arrangement mints sub-weld-band crossings
+      from near-parallel CHAINED-operand residue (minted in-boolean, NOT
+      inherited B-Rep twins — twin-origin probe negative), and the insertion
+      re-rolls triangulations so the §4.3 weld fuses them coincident.
+      Increment 3 (always-on) is gated on characterizing/resolving that
+      chained near-parallel crossing mint — next increment: per-vertex
+      crossing provenance at the I6 site (probe-first, plan-of-record
+      discipline).*
    b. **#137 grazing-corner insert + stitch** — the proven triple-junction
       primitive (N-137.1, stronger than anything in the literature per
       findings Q1) gets the Urick-style stitch: mint the corner ONCE, insert
