@@ -277,7 +277,21 @@ pub(crate) fn loop_polyline_attributed(
     let expand = |e_idx: u32, forward: bool| -> Result<Vec<u32>, YangError> {
         let e = &edges[e_idx as usize];
         match e.curve {
-            Curve::LineSegment => Ok(vec![if forward { e.start } else { e.end }]),
+            Curve::LineSegment => {
+                // P3a #146 increment 1b: a straight edge carrying junction
+                // Steiner samples has a chain `[start, J…, end]` — splice it
+                // exactly like an open arc chain. Without overrides no
+                // LineSegment edge has a chain (byte-identical status quo).
+                if let Some(chain) = chains.get(&e_idx) {
+                    Ok(if forward {
+                        chain[..chain.len() - 1].to_vec()
+                    } else {
+                        chain[1..].iter().rev().copied().collect()
+                    })
+                } else {
+                    Ok(vec![if forward { e.start } else { e.end }])
+                }
+            }
             Curve::Circle { .. } | Curve::Ellipse { .. } | Curve::Hyperbola { .. } => {
                 let chain = chains
                     .get(&e_idx)

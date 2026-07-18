@@ -112,14 +112,87 @@ pub(crate) fn stage1_tessellate_min_segments(
     .map(|(t, _)| t)
 }
 
-/// Inner implementation returning the tessellation AND the set of rim edges
-/// that received inserted crossing points (consumed by the lateral dispatch).
+/// Stage 1 tessellation with per-`LineSegment`-edge JUNCTION points (P3a
+/// #146 increment 1b, spec `yang_146_conformal_junction_sampling.md` §3.3) —
+/// the [`stage1_tessellate_with_rim_overrides`] pattern generalized to
+/// straight edge polylines. `edge_overrides[e]` lists exact pierce points to
+/// insert into `LineSegment` edge `e`'s polyline as extra Steiner vertices at
+/// their chord-parameter-sorted positions.
+///
+/// `LineSegment` edges use the per-loop-copy convention (kernel-v2
+/// `to_yang.rs` m1: one directed yang edge per half-edge), so the caller must
+/// fan the IDENTICAL point list to EVERY copy of a geometric edge
+/// (`junction_pierce_points` does). Interior Steiner vertices are minted ONCE
+/// per geometric edge and every copy's polyline splices the same mesh vertex
+/// indices — the two incident faces stay conformal by identity.
+///
+/// An EMPTY map is byte-identical to [`stage1_tessellate`] (see the
+/// `edge_override_empty_is_byte_identical` unit test).
+///
+/// Loud errors (`MalformedTopology`, mirroring the rim-override contract):
+/// - a target edge that is out of range or not a `Curve::LineSegment`,
+/// - a geometric edge with a MISSING or MISMATCHED per-loop-copy list
+///   (broken fan-out would silently desync the two incident faces —
+///   the exact defect this machinery exists to prevent),
+/// - an override point off the edge's line (beyond the `1e-9·(1+scale)`
+///   on-curve band) or outside the edge span `t ∈ (0, 1)`,
+/// - an override within `TAU_MODEL·(1+scale)` of an endpoint that differs in
+///   bits (B-Rep vertices are authoritative; a near-corner pierce is P3b
+///   stitch territory, never a mid-edge sample),
+/// - an overridden edge incident to a NON-PLANAR face (increment-1b scope is
+///   planar-incident edges only — fail closed).
+///
+/// Bit-identical endpoint repeats and bit-identical duplicate points
+/// deduplicate (skipped).
+#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until increment 2 (spec §4).
+pub(crate) fn stage1_tessellate_with_edge_overrides(
+    verts: &[BRepVertex],
+    edges: &[BRepEdge],
+    faces: &[BRepFace],
+    edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    min_n_seg: Option<usize>,
+) -> Result<Stage1Tess, YangError> {
+    stage1_tessellate_inner_overrides(
+        verts,
+        edges,
+        faces,
+        &std::collections::BTreeMap::new(),
+        edge_overrides,
+        min_n_seg,
+    )
+    .map(|(t, _)| t)
+}
+
+/// [`stage1_tessellate_inner_overrides`] with no straight-edge junction
+/// overrides — the pre-1b signature, kept for the existing rim-override
+/// callers and unit fixtures.
 #[allow(clippy::type_complexity)]
 pub(crate) fn stage1_tessellate_inner(
     verts: &[BRepVertex],
     edges: &[BRepEdge],
     faces: &[BRepFace],
     rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    min_n_seg: Option<usize>,
+) -> Result<(Stage1Tess, std::collections::BTreeSet<u32>), YangError> {
+    stage1_tessellate_inner_overrides(
+        verts,
+        edges,
+        faces,
+        rim_overrides,
+        &std::collections::BTreeMap::new(),
+        min_n_seg,
+    )
+}
+
+/// Inner implementation returning the tessellation AND the set of rim edges
+/// that received inserted crossing points (consumed by the lateral dispatch).
+#[allow(clippy::type_complexity)]
+pub(crate) fn stage1_tessellate_inner_overrides(
+    verts: &[BRepVertex],
+    edges: &[BRepEdge],
+    faces: &[BRepFace],
+    rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     min_n_seg: Option<usize>,
 ) -> Result<(Stage1Tess, std::collections::BTreeSet<u32>), YangError> {
     {
@@ -973,6 +1046,222 @@ pub(crate) fn stage1_tessellate_inner(
             rim_rings.insert(e_idx as u32, chain);
         }
 
+        // ---- LineSegment junction-override chain pre-pass (P3a #146
+        // increment 1b, spec `yang_146_conformal_junction_sampling.md` §3.3).
+        //
+        // Overrides are grouped by GEOMETRIC edge (canonical bitwise endpoint
+        // pair — `LineSegment` edges are per-loop copies, kernel-v2
+        // `to_yang.rs` m1); interior Steiner vertices are minted ONCE per
+        // geometric edge and each copy's chain splices the SAME mesh vertex
+        // indices, oriented copy-start → copy-end, so every face incident to
+        // the geometric edge consumes an identical polyline (conformality by
+        // identity — keying or minting per copy would silently break it).
+        let mut line_chain_edges: std::collections::BTreeSet<u32> =
+            std::collections::BTreeSet::new();
+        if !edge_overrides.is_empty() {
+            let kb =
+                |p: Point3| -> [u64; 3] { [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()] };
+            for &e_idx in edge_overrides.keys() {
+                match edges.get(e_idx as usize) {
+                    None => {
+                        return Err(YangError::MalformedTopology(format!(
+                            "edge override targets out-of-range edge {e_idx}"
+                        )))
+                    }
+                    Some(e) if e.curve != Curve::LineSegment => {
+                        return Err(YangError::MalformedTopology(format!(
+                            "edge override targets non-LineSegment edge {e_idx} (curved-edge \
+                             junction points go through rim_overrides)"
+                        )))
+                    }
+                    Some(_) => {}
+                }
+            }
+            // Group ALL LineSegment edges by canonical endpoint identity;
+            // copies collect in ascending index order (deterministic canon).
+            let mut groups: std::collections::BTreeMap<([u64; 3], [u64; 3]), Vec<u32>> =
+                std::collections::BTreeMap::new();
+            for (i, e) in edges.iter().enumerate() {
+                if e.curve != Curve::LineSegment {
+                    continue;
+                }
+                let k0 = kb(verts[e.start as usize].point);
+                let k1 = kb(verts[e.end as usize].point);
+                let key = if k0 <= k1 { (k0, k1) } else { (k1, k0) };
+                groups.entry(key).or_default().push(i as u32);
+            }
+            for copies in groups.values() {
+                if !copies.iter().any(|c| edge_overrides.contains_key(c)) {
+                    continue;
+                }
+                // Fan-out contract: EVERY copy of a targeted geometric edge
+                // must carry the identical (bitwise, same-order) point list.
+                let canon = copies[0];
+                let canon_list = edge_overrides.get(&canon).ok_or_else(|| {
+                    YangError::MalformedTopology(format!(
+                        "edge override fan-out broken: geometric edge copy {canon} has no \
+                         override list while a sibling copy does"
+                    ))
+                })?;
+                for &ci in &copies[1..] {
+                    let list = edge_overrides.get(&ci).ok_or_else(|| {
+                        YangError::MalformedTopology(format!(
+                            "edge override fan-out broken: geometric edge copy {ci} has no \
+                             override list while copy {canon} does"
+                        ))
+                    })?;
+                    let same = list.len() == canon_list.len()
+                        && list
+                            .iter()
+                            .zip(canon_list.iter())
+                            .all(|(a, b)| kb(*a) == kb(*b));
+                    if !same {
+                        return Err(YangError::MalformedTopology(format!(
+                            "edge override fan-out broken: geometric edge copies {canon} and \
+                             {ci} carry different override lists"
+                        )));
+                    }
+                }
+                // Validate + collect interior points against the canonical
+                // copy's geometry (all copies share it by construction).
+                let e0 = &edges[canon as usize];
+                let p0 = verts[e0.start as usize].point;
+                let p1 = verts[e0.end as usize].point;
+                let (a0, a1) = (p0.as_array(), p1.as_array());
+                let dir = [a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]];
+                let chord2 = dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2];
+                if chord2 == 0.0 {
+                    return Err(YangError::MalformedTopology(format!(
+                        "edge override targets degenerate zero-length edge {canon}"
+                    )));
+                }
+                let dist = |p: [f64; 3], q: [f64; 3]| -> f64 {
+                    ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()
+                };
+                let mut seen: Vec<[u64; 3]> = Vec::new();
+                let mut interior: Vec<(f64, Point3)> = Vec::new();
+                for &pt in canon_list {
+                    let key = kb(pt);
+                    if key == kb(p0) || key == kb(p1) {
+                        continue; // bit-identical endpoint repeat — dedup
+                    }
+                    if seen.contains(&key) {
+                        continue; // bit-identical repeat — dedup
+                    }
+                    let pa = pt.as_array();
+                    let scale = pa
+                        .iter()
+                        .chain(a0.iter())
+                        .chain(a1.iter())
+                        .fold(0.0f64, |m, &c| m.max(c.abs()));
+                    let t = ((pa[0] - a0[0]) * dir[0]
+                        + (pa[1] - a0[1]) * dir[1]
+                        + (pa[2] - a0[2]) * dir[2])
+                        / chord2;
+                    let q = [a0[0] + t * dir[0], a0[1] + t * dir[1], a0[2] + t * dir[2]];
+                    let band = 1e-9 * (1.0 + scale);
+                    if !t.is_finite() || dist(pa, q) > band {
+                        return Err(YangError::MalformedTopology(format!(
+                            "edge {canon}: junction override ({},{},{}) is off the edge's line \
+                             (deviation {})",
+                            pa[0],
+                            pa[1],
+                            pa[2],
+                            dist(pa, q)
+                        )));
+                    }
+                    if t <= 0.0 || t >= 1.0 {
+                        return Err(YangError::MalformedTopology(format!(
+                            "edge {canon}: junction override at chord parameter {t} is outside \
+                             the edge span"
+                        )));
+                    }
+                    // Identity ceiling (the rim-override contract): only a
+                    // bit-exact endpoint repeat may merge; a sub-TAU_MODEL
+                    // near-endpoint graze that differs in bits is a CORNER
+                    // junction (P3b), refused loudly (fail closed).
+                    let margin = cad_primitives::TAU_MODEL * (1.0 + scale);
+                    if dist(pa, a0) <= margin || dist(pa, a1) <= margin {
+                        return Err(YangError::MalformedTopology(format!(
+                            "edge {canon}: junction override at chord parameter {t} coincides \
+                             with an endpoint but differs in bits (B-Rep vertex is \
+                             authoritative; near-corner pierce is P3b territory — merge refused)"
+                        )));
+                    }
+                    seen.push(key);
+                    interior.push((t, pt));
+                }
+                if interior.is_empty() {
+                    continue; // everything deduped — no chain, byte-identical
+                }
+                // Chord-parameter order; ULP twins that collide on the f64
+                // parameter break the tie by the EXACT along-edge coordinate
+                // order on the direction's dominant axis (never insertion
+                // order — the loop_polyline zigzag lesson, #145). On-line
+                // points order along the line exactly as their dominant-axis
+                // coordinates do.
+                let dom = (0..3)
+                    .max_by(|&i, &j| dir[i].abs().total_cmp(&dir[j].abs()))
+                    .unwrap_or(0);
+                interior.sort_by(|x, y| match x.0.total_cmp(&y.0) {
+                    std::cmp::Ordering::Equal => {
+                        let (xc, yc) = (x.1.as_array()[dom], y.1.as_array()[dom]);
+                        if dir[dom] >= 0.0 {
+                            xc.total_cmp(&yc)
+                        } else {
+                            yc.total_cmp(&xc)
+                        }
+                    }
+                    ord => ord,
+                });
+                // Mint ONCE, in canonical-copy direction.
+                let mut steiner: Vec<u32> = Vec::with_capacity(interior.len());
+                for &(t, pt) in &interior {
+                    let vi = out_verts.len() as u32;
+                    out_verts.push(pt);
+                    sources.push(TessellationSource::BRepEdge { edge: canon, t });
+                    steiner.push(vi);
+                }
+                // Per-copy oriented chains splicing the shared Steiner verts.
+                for &ci in copies {
+                    let e = &edges[ci as usize];
+                    let fwd = kb(verts[e.start as usize].point) == kb(p0);
+                    let mut chain: Vec<u32> = Vec::with_capacity(steiner.len() + 2);
+                    chain.push(e.start);
+                    if fwd {
+                        chain.extend(steiner.iter().copied());
+                    } else {
+                        chain.extend(steiner.iter().rev().copied());
+                    }
+                    chain.push(e.end);
+                    rim_rings.insert(ci, chain);
+                    line_chain_edges.insert(ci);
+                }
+            }
+            // Increment-1b scope guard: an overridden line edge incident to a
+            // NON-PLANAR face would need that face's tessellator to splice
+            // line chains too — only the planar CDT paths do. Fail closed
+            // rather than silently dropping the insertion on one side (the
+            // exact conformality break this pass exists to prevent).
+            for (f_idx, f) in faces.iter().enumerate() {
+                if matches!(f.surface, Surface::Plane { .. }) {
+                    continue;
+                }
+                if let Some(&e_idx) = f
+                    .outer_loop
+                    .iter()
+                    .chain(f.inner_loops.iter().flatten())
+                    .find(|e| line_chain_edges.contains(e))
+                {
+                    return Err(YangError::MalformedTopology(format!(
+                        "face {f_idx}: junction override on line edge {e_idx} incident to a \
+                         non-planar face — increment-1b scope is planar-incident edges only \
+                         (fail closed)"
+                    )));
+                }
+            }
+        }
+
         // ---- Per-face dispatch.
         let mut face_tri_ranges: Vec<std::ops::Range<usize>> = Vec::with_capacity(faces.len());
         for (f_idx, f) in faces.iter().enumerate() {
@@ -1001,7 +1290,30 @@ pub(crate) fn stage1_tessellate_inner(
                     let needs_cdt = !f.inner_loops.is_empty()
                         || planar_outer_loop_fan_unsafe(f, edges, &out_verts, normal);
 
-                    if needs_cdt {
+                    // P3a #146 increment 1b: a loop edge carrying inserted
+                    // junction samples must SPLICE its chain — the fan and
+                    // the all-segment CDT read only edge endpoints, so route
+                    // through the chain-splicing curved CDT (identical
+                    // triangulation + orientation, plus [`loop_polyline`]
+                    // chain expansion). Unreachable when `edge_overrides`
+                    // is empty — the fan/CDT dispatch stays byte-identical.
+                    let has_line_chain = !line_chain_edges.is_empty()
+                        && f.outer_loop
+                            .iter()
+                            .chain(f.inner_loops.iter().flatten())
+                            .any(|e| line_chain_edges.contains(e));
+
+                    if has_line_chain {
+                        tessellate_planar_curved_cdt_face(
+                            f_idx,
+                            f,
+                            edges,
+                            &rim_rings,
+                            normal,
+                            &out_verts,
+                            &mut out_tris,
+                        )?;
+                    } else if needs_cdt {
                         tessellate_planar_cdt_face(
                             f_idx,
                             f,

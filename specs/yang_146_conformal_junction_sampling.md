@@ -187,6 +187,48 @@ Production byte-identical (print-only). Oracle: probe fires on F0082 with a
   box-edge coplanar-with-plane (tangential — must NOT mint), pierce at an
   existing sample (sub-TAU_MODEL twin merge takes exact bits).
 
+**Increment 1a (2026-07-18, DONE)**: `boolean/junction.rs::
+junction_pierce_points` — pure, unwired, `LineSegment` edges × planar
+partner faces, 5 fixtures (`tests_unit/p3a_junction_pierce.rs`).
+
+**Increment 1b (2026-07-18, DONE)**: `stage1_tessellate_with_edge_overrides`
+(unwired wrapper over the widened `stage1_tessellate_inner_overrides`) —
+the rim-override insertion generalized to `LineSegment` edge polylines:
+
+- A pre-pass groups targeted edges by GEOMETRIC identity (canonical bitwise
+  endpoint pair — the per-loop-copy trap from increment 0), validates the
+  loud-error contract, mints each interior junction Steiner vertex ONCE per
+  geometric edge (source `BRepEdge { edge: canonical copy, t: chord param }`),
+  and registers a per-copy oriented chain `[start, J…, end]` in the shared
+  `chains` map — every copy splices the SAME mesh vertex indices, so both
+  incident faces are conformal by identity.
+- `loop_polyline`'s expansion splices a `LineSegment` chain exactly like an
+  open arc chain (no chain = byte-identical status quo); an all-line planar
+  face whose loop carries a chain routes through the chain-splicing
+  `tessellate_planar_curved_cdt_face` instead of the endpoint-only Newell
+  fan / all-segment CDT.
+- Loud arms (all covered by fixtures in `tests_unit/p3a_edge_overrides.rs`,
+  12 tests): non-LineSegment / out-of-range target; MISSING or MISMATCHED
+  per-loop-copy list (broken fan-out); off-line point; outside span
+  `t ∈ (0,1)`; sub-TAU_MODEL near-endpoint graze differing in bits (corner
+  = P3b, fail closed); overridden edge incident to a NON-PLANAR face
+  (1b scope is planar-incident only — curved-face tessellators do not
+  splice line chains yet). Bit-identical endpoint repeats and duplicate
+  points dedup. ULP-twin chord-parameter ties break by exact dominant-axis
+  coordinate order (the #145 lesson: never insertion order).
+- Oracles: `edge_override_empty_is_byte_identical` (verts + tris + sources
+  + chains), mint-once + closed consistently-wound 2-manifold conformality
+  on the F0082-shaped `rj_box` fixture.
+- Production byte-identity is structural: every production caller reaches
+  the widened inner through the old wrappers with an empty edge map, and
+  the new dispatch/expansion arms are unreachable with no line chains.
+
+Remaining before increment 2: curved-partner containment in
+`junction_pierce_points` (1a skips non-planar partner faces conservatively)
+and the partner-face-side insertion of `J` (boundary-polyline or interior
+Steiner per §3.3) — a missed mint is status quo, so increment 2 can wire
+the planar⟂planar class first and extend coverage incrementally.
+
 ### Increment 2 — wire behind `YANG_JUNCTION_SAMPLING_ENABLE`
 
 Feed the pierce points of BOTH operands into their Stage-1 calls inside
