@@ -1845,8 +1845,18 @@ pub(crate) fn tessellate_planar_cdt_face(
         })
         .collect();
 
-    let local_tris = cherchi_rs::cdt_polygon_with_holes(&local_verts, &outer_local, &holes_local)
-        .map_err(|e| {
+    // #179 (spec `yang_stage1_cdt_parity_flap.md`): interior classification
+    // must be the topological hull flood-fill, NOT f64 centroid parity — on
+    // a near-collinear boundary triple the parity test coin-flips a
+    // hair-sliver and can KEEP an exterior zero-area flap triangle (F0084's
+    // octagon cap), emitting a non-2-manifold Stage-1 mesh. Same F0047
+    // migration the curved-CDT path and kernel-v2 render already made.
+    let local_tris = cherchi_rs::triangulation::cdt_polygon_with_holes_floodfill(
+        &local_verts,
+        &outer_local,
+        &holes_local,
+    )
+    .map_err(|e| {
         YangError::MalformedTopology(format!("face {f_idx}: CDT triangulation failed: {e}"))
     })?;
 

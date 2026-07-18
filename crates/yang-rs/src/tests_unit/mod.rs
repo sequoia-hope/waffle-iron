@@ -27,6 +27,7 @@ mod p3a_junction_pierce;
 mod p3a_junction_wiring;
 mod p3a_wedge_dedup;
 mod stage0_rim_projection;
+mod stage1_cdt_flap;
 mod topology;
 
 #[allow(unused_imports)]

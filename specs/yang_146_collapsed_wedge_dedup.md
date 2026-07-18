@@ -121,6 +121,11 @@ not banked behind a flag.
   needs its own signature at the half-edge-pairing site. Separate
   increment; F0084 is expected to KEEP failing gate-ON after this spec
   (its failing op never reaches the I6 guard).
+  *RESOLVED OTHERWISE (2026-07-18, task #179): this framing was wrong —
+  F0084's over-use entered on the OPERAND meshes (Stage-1 parity-flap
+  zero-area triangles, spec `yang_stage1_cdt_parity_flap.md`); the
+  flood-fill classifier migration fixes it and NO edge-level wedge
+  resolution is needed. See the parent spec §4 correction.*
 - **Input contact canonicalization** (snapping the 1e-18…5e-15 residue
   exact pre-arrangement): rejected — R0091-adjacent, N54-warned.
 - No change to the weld itself, the keep-rules, or the arrangement.

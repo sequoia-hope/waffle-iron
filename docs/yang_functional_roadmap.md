@@ -149,6 +149,25 @@ in the ledger is PERMANENT with user sign-off.
       regression set {F0016,F0084,F0085} → {F0084}. Remaining inc-3
       blockers: F0084's edge-level over-use shadow at reassembly, then
       the bucket models' next defect layer.*
+      *F0084 shadow ROOT-CAUSED + FIXED 2026-07-18 (task #179, spec
+      `specs/yang_stage1_cdt_parity_flap.md`) — framing CORRECTED: the
+      over-used edge entered on the OPERAND meshes, not at the weld.
+      Stage-1's all-segment planar CDT was the last production caller of
+      the f64 centroid-parity classifier, which on near-collinear
+      boundary triples keeps an exterior zero-area FLAP triangle →
+      non-2-manifold Stage-1 meshes in BOTH gate states (production
+      survives by downstream luck; junction insertion amplifies the
+      class). Fix = flood-fill classifier migration (the F0047 fix the
+      curved path + kernel-v2 already had). Measured: gate-OFF
+      251C/0W/55E/2T (zero regressions; F0082's Extrude-7 failure also
+      fixed by it); gate-ON 251C/0W/55E/2T **category-identical
+      per-case to gate-OFF** — the P3a gate-ON regression set is {}.
+      Remaining inc-3 blockers before always-on: (1) the insertion
+      rebuild still mints NON-CONFORMAL operand meshes gate-ON (near-dup
+      ~0.003 T-junction pairs, `i6-input-overuse` probe; no case fails
+      today but it is an axiom violation) — characterize + fix, or add
+      the loud rebuilt-operand 2-manifold postcondition; (2) the bucket
+      models' next defect layer (F0082 Extrude-11 ring-reject class).*
    b. **#137 grazing-corner insert + stitch** — the proven triple-junction
       primitive (N-137.1, stronger than anything in the literature per
       findings Q1) gets the Urick-style stitch: mint the corner ONCE, insert

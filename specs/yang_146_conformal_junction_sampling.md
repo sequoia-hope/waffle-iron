@@ -368,6 +368,37 @@ shadow, spec §4 non-goal). Increment-3 blocker (1) is now HALF-cleared:
 the remaining gate-ON blocker is F0084's over-used-edge shadow at the
 Stage-4/5 reassembly site.
 
+**F0084 "edge-level shadow" ROOT-CAUSED and FIXED (2026-07-18, task
+#179, spec `specs/yang_stage1_cdt_parity_flap.md`) — the framing above
+is CORRECTED:** the fwd=1/rev=2 over-used edge was NOT a weld-site
+collapse needing an edge-level wedge resolution. The `i6-edge-overuse` +
+`i6-input-overuse` probe arms (`boolean.rs`, this session) showed the
+asymmetric directed edges enter ON THE OPERAND MESHES: Stage-1's
+all-segment planar CDT (`tessellate_planar_cdt_face`) was the last
+production caller of the f64 centroid-parity interior classifier, which
+on near-collinear boundary triples keeps an exterior zero-area flap
+triangle (F0084's fresh octagon-prism cap has vertex 4 on the chord
+3–7; the flap `[3,7,4]` makes the operand non-2-manifold IN BOTH GATE
+STATES, byte-identical meshes — production survives by downstream luck).
+Junction insertion amplifies the class (every pierce point is a new
+collinear boundary triple) and re-rolled the local triangulation so the
+imbalance landed in the kept set. Fix = flood-fill classifier migration
+(the F0047 fix the curved-CDT path and kernel-v2 already had). F0084
+gate-ON → SUPPORTED_CORRECT; no edge-level wedge dedup is needed.
+(The B#24 5e-15-off-plane LPI-fan measurement above remains true but was
+not the causal path of the STOP.)
+
+**Remaining increment-3 blocker (measured gate-ON, post-#179): the
+insertion rebuild still mints NON-CONFORMAL operand meshes** — the
+`i6-input-overuse` scan gate-ON shows near-dup T-junction pairs in
+rebuilt operands (e.g. F0084 operand B verts 0.0034 apart with
+fwd=1/rev=2 + open edges at the junction-inserted region; both A and B
+operands, many ops). These are NOT zero-area flaps (the #179 class,
+which is gone) but genuine one-sided/near-dup insertion conformality
+breaks inside `rebuilt_with_junction_overrides` → next increment:
+characterize with the topo-dump arm and fix the insertion (or add the
+loud rebuilt-operand 2-manifold postcondition), BEFORE inc-3 always-on.
+
 ### Increment 3 — always-on
 
 Only after increment 2's ledger shows recovered cases + 0 regressions
