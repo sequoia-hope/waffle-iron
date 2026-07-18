@@ -420,6 +420,75 @@ pub fn boolean(
         None => (a, b),
     };
 
+    // P3a #146 increment 2 (spec `yang_146_conformal_junction_sampling.md`
+    // §4, gated `YANG_JUNCTION_SAMPLING_ENABLE`): conformal junction
+    // sampling — mint each cross edge×face transversal pierce point ONCE
+    // and insert it by identity into the owner's edge polylines AND the
+    // pierced partner face's CDT, so the two operands' Stage-1 meshes share
+    // the junction vertex bit-exactly (no near-dup mint downstream).
+    // SCOPE GATE mirrors the rim-junction insertion above: no Stage-0
+    // interaction (the re-tessellation paths do not thread these overrides
+    // — the M8 incr-15 pass-through trap) and no rim-junction rebuild (a
+    // second from-topology rebuild would DROP the first rebuild's inserted
+    // rim samples; overrides do not compose across rebuilds yet). A skipped
+    // pair is a missed mint = status quo, never worse.
+    let p3a_sampled: Option<(BRep, BRep)> = if std::env::var_os("YANG_JUNCTION_SAMPLING_ENABLE")
+        .is_some()
+        && stage0.is_none()
+        && cyl_pairs.is_empty()
+        && junction_boosted.is_none()
+    {
+        let mut jo = junction_stage1_overrides(a, b);
+        // Diagnostic sub-modes for the gate value (dev measurement, spec §4
+        // increment-2 iteration): `edge` = owner-side polyline insertion
+        // only, `face` = partner-side interior insertion only. Any other
+        // value = both halves (the full junction contract).
+        match std::env::var("YANG_JUNCTION_SAMPLING_ENABLE").as_deref() {
+            Ok("edge") => {
+                jo.face_a.clear();
+                jo.face_b.clear();
+            }
+            Ok("face") => {
+                jo.edge_a.clear();
+                jo.edge_b.clear();
+            }
+            _ => {}
+        }
+        if jo.is_empty() {
+            None
+        } else {
+            if std::env::var_os("YANG_JUNCTION_MINT_PROBE").is_some() {
+                eprintln!(
+                    "[p3a-wire] edge_a={} face_a={} edge_b={} face_b={}",
+                    jo.edge_a.len(),
+                    jo.face_a.len(),
+                    jo.edge_b.len(),
+                    jo.face_b.len()
+                );
+            }
+            Some((
+                a.rebuilt_with_junction_overrides(&jo.edge_a, &jo.face_a)?,
+                b.rebuilt_with_junction_overrides(&jo.edge_b, &jo.face_b)?,
+            ))
+        }
+    } else {
+        if std::env::var_os("YANG_JUNCTION_SAMPLING_ENABLE").is_some()
+            && std::env::var_os("YANG_JUNCTION_MINT_PROBE").is_some()
+        {
+            eprintln!(
+                "[p3a-wire] SKIP stage0={} cyl_pairs={} rim_junction={}",
+                stage0.is_some(),
+                !cyl_pairs.is_empty(),
+                junction_boosted.is_some()
+            );
+        }
+        None
+    };
+    let (a, b): (&BRep, &BRep) = match &p3a_sampled {
+        Some((ba, bb)) => (ba, bb),
+        None => (a, b),
+    };
+
     // Twin-origin probe (read-only, env-gated): `YANG_INPUT_VERT_PROBE=x,y,z,r`
     // dumps every INPUT B-Rep vertex and every Stage-0/1 mesh vertex within
     // radius r of the target point, per operand — to establish whether a
@@ -934,14 +1003,32 @@ pub fn boolean(
     // arrangement has no such pair; reject it. (Compact indices are 1:1 with
     // welded indices, so a sorted-index key suffices.)
     {
-        use std::collections::HashSet;
-        let mut seen: HashSet<[u32; 3]> = HashSet::with_capacity(compact_tris.len());
-        for t in &compact_tris {
+        use std::collections::HashMap;
+        let mut seen: HashMap<[u32; 3], usize> = HashMap::with_capacity(compact_tris.len());
+        for (ci, t) in compact_tris.iter().enumerate() {
             let mut sorted = *t;
             sorted.sort_unstable();
-            if !seen.insert(sorted) {
+            if let Some(&prev_ci) = seen.get(&sorted) {
+                if std::env::var_os("NONMANIFOLD_SITE_PROBE").is_some() {
+                    eprintln!(
+                        "NONMANIFOLD_SITE_PROBE i6-coincident-tris: verts {:?} coords {:?} {:?} {:?}",
+                        sorted,
+                        compact_verts[sorted[0] as usize],
+                        compact_verts[sorted[1] as usize],
+                        compact_verts[sorted[2] as usize]
+                    );
+                    for label in [prev_ci, ci] {
+                        let ot = orig_tri[label];
+                        eprintln!(
+                            "NONMANIFOLD_SITE_PROBE i6-coincident-tris: compact {label} orig_t {ot} \
+                             source {:?} surface {:?}",
+                            la.source[ot], la.surface[ot]
+                        );
+                    }
+                }
                 return Err(YangError::NonManifoldInput);
             }
+            seen.insert(sorted, ci);
         }
     }
     let kept_submesh = Mesh::new(compact_verts, compact_tris);

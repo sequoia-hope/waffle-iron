@@ -28,7 +28,7 @@ fn bits(p: Point3) -> [u64; 3] {
 
 /// Every undirected edge shared by exactly two triangles AND every directed
 /// edge used exactly once — closed 2-manifold with consistent winding.
-fn closed_conformal_2_manifold(tris: &[[u32; 3]]) -> bool {
+pub(crate) fn closed_conformal_2_manifold(tris: &[[u32; 3]]) -> bool {
     let mut undirected: BTreeMap<(u32, u32), u32> = BTreeMap::new();
     let mut directed: BTreeMap<(u32, u32), u32> = BTreeMap::new();
     for tri in tris {
@@ -50,8 +50,15 @@ fn edge_override_empty_is_byte_identical() {
     let (verts, edges, faces) = box_parts();
     let plain = stage1_tessellate(&verts, &edges, &faces).expect("plain");
     let empty: BTreeMap<u32, Vec<Point3>> = BTreeMap::new();
-    let t = stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &empty, None)
-        .expect("empty overrides");
+    let t = stage1_tessellate_with_edge_overrides(
+        &verts,
+        &edges,
+        &faces,
+        &empty,
+        &BTreeMap::new(),
+        None,
+    )
+    .expect("empty overrides");
     assert_eq!(plain.verts.len(), t.verts.len());
     for (a, b) in plain.verts.iter().zip(&t.verts) {
         assert_eq!(bits(*a), bits(*b), "verts must be byte-identical");
@@ -73,8 +80,9 @@ fn edge_override_mints_once_and_keeps_conformality() {
     let mut ov: BTreeMap<u32, Vec<Point3>> = BTreeMap::new();
     ov.insert(0, vec![j]);
     ov.insert(20, vec![j]);
-    let t = stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, None)
-        .expect("mid-edge override");
+    let t =
+        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, &BTreeMap::new(), None)
+            .expect("mid-edge override");
 
     // Exactly one new vertex, bit-exactly the junction point.
     assert_eq!(t.verts.len(), plain.verts.len() + 1, "one shared mint");
@@ -117,8 +125,9 @@ fn edge_override_two_points_sorted_by_parameter() {
     let mut ov: BTreeMap<u32, Vec<Point3>> = BTreeMap::new();
     ov.insert(0, vec![j_a, j_b]);
     ov.insert(20, vec![j_a, j_b]);
-    let t = stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, None)
-        .expect("two overrides");
+    let t =
+        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, &BTreeMap::new(), None)
+            .expect("two overrides");
     assert_eq!(t.verts.len(), plain.verts.len() + 2);
     let chain = &t.chains[&0];
     assert_eq!(chain.len(), 4);
@@ -142,7 +151,7 @@ fn edge_override_missing_copy_is_loud() {
     let mut ov: BTreeMap<u32, Vec<Point3>> = BTreeMap::new();
     ov.insert(0, vec![Point3::new(0.4, 0.0, 0.0)]);
     let Err(YangError::MalformedTopology(msg)) =
-        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, None)
+        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, &BTreeMap::new(), None)
     else {
         panic!("missing sibling copy must be loud");
     };
@@ -157,7 +166,7 @@ fn edge_override_mismatched_copies_is_loud() {
     ov.insert(0, vec![Point3::new(0.4, 0.0, 0.0)]);
     ov.insert(20, vec![Point3::new(0.5, 0.0, 0.0)]);
     let Err(YangError::MalformedTopology(msg)) =
-        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, None)
+        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, &BTreeMap::new(), None)
     else {
         panic!("mismatched copies must be loud");
     };
@@ -176,7 +185,7 @@ fn edge_override_off_line_is_loud() {
     ov.insert(0, vec![bad]);
     ov.insert(20, vec![bad]);
     let Err(YangError::MalformedTopology(msg)) =
-        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, None)
+        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, &BTreeMap::new(), None)
     else {
         panic!("off-line override must be loud");
     };
@@ -192,7 +201,7 @@ fn edge_override_outside_span_is_loud() {
     ov.insert(0, vec![bad]);
     ov.insert(20, vec![bad]);
     let Err(YangError::MalformedTopology(msg)) =
-        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, None)
+        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, &BTreeMap::new(), None)
     else {
         panic!("outside-span override must be loud");
     };
@@ -210,7 +219,7 @@ fn edge_override_near_endpoint_differing_bits_is_loud() {
     ov.insert(0, vec![graze]);
     ov.insert(20, vec![graze]);
     let Err(YangError::MalformedTopology(msg)) =
-        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, None)
+        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, &BTreeMap::new(), None)
     else {
         panic!("near-endpoint graze must be loud");
     };
@@ -230,8 +239,9 @@ fn edge_override_endpoint_bit_identical_repeat_dedups() {
     let mut ov: BTreeMap<u32, Vec<Point3>> = BTreeMap::new();
     ov.insert(0, vec![endpoint]);
     ov.insert(20, vec![endpoint]);
-    let t = stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, None)
-        .expect("endpoint repeat dedups");
+    let t =
+        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, &BTreeMap::new(), None)
+            .expect("endpoint repeat dedups");
     assert_eq!(plain.verts.len(), t.verts.len());
     assert_eq!(plain.tris, t.tris);
 }
@@ -245,8 +255,9 @@ fn edge_override_duplicate_point_dedups() {
     let mut ov: BTreeMap<u32, Vec<Point3>> = BTreeMap::new();
     ov.insert(0, vec![j, j]);
     ov.insert(20, vec![j, j]);
-    let t = stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, None)
-        .expect("duplicate dedups");
+    let t =
+        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, &BTreeMap::new(), None)
+            .expect("duplicate dedups");
     assert_eq!(t.verts.len(), plain.verts.len() + 1, "one mint, not two");
     assert!(closed_conformal_2_manifold(&t.tris));
 }
@@ -269,7 +280,7 @@ fn edge_override_on_nonplanar_incident_face_is_loud() {
     ov.insert(0, vec![j]);
     ov.insert(20, vec![j]);
     let Err(YangError::MalformedTopology(msg)) =
-        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, None)
+        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, &BTreeMap::new(), None)
     else {
         panic!("non-planar incidence must be loud");
     };
@@ -284,7 +295,7 @@ fn edge_override_on_curved_edge_is_loud() {
     let mut ov: BTreeMap<u32, Vec<Point3>> = BTreeMap::new();
     ov.insert(0, vec![Point3::new(0.5, 0.0, 0.0)]); // edge 0 = bottom rim circle
     let Err(YangError::MalformedTopology(msg)) =
-        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, None)
+        stage1_tessellate_with_edge_overrides(&verts, &edges, &faces, &ov, &BTreeMap::new(), None)
     else {
         panic!("curved-edge target must be loud");
     };

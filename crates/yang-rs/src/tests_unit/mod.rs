@@ -24,6 +24,7 @@ mod n50_f32_render_twin;
 mod n55_s44b_coincidence;
 mod p3a_edge_overrides;
 mod p3a_junction_pierce;
+mod p3a_junction_wiring;
 mod stage0_rim_projection;
 mod topology;
 

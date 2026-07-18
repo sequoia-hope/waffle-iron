@@ -144,12 +144,21 @@ pub(crate) fn stage1_tessellate_min_segments(
 ///
 /// Bit-identical endpoint repeats and bit-identical duplicate points
 /// deduplicate (skipped).
-#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until increment 2 (spec §4).
+///
+/// Increment 2 adds `face_overrides[f]`: exact junction points to mint as
+/// INTERIOR Steiner vertices of PLANAR face `f`'s CDT (the partner side of
+/// a pierce, spec §3.3 second bullet — interiors are CDT-freedom, findings
+/// Q2). Loud errors: a target face that is out of range or non-planar, a
+/// point off the face's plane, or a point the face's CDT does not consume
+/// (outside the bounded region — a silent one-sided mint is the exact
+/// conformality break this machinery exists to prevent). Bit-identical
+/// duplicates dedup.
 pub(crate) fn stage1_tessellate_with_edge_overrides(
     verts: &[BRepVertex],
     edges: &[BRepEdge],
     faces: &[BRepFace],
     edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     min_n_seg: Option<usize>,
 ) -> Result<Stage1Tess, YangError> {
     stage1_tessellate_inner_overrides(
@@ -158,6 +167,7 @@ pub(crate) fn stage1_tessellate_with_edge_overrides(
         faces,
         &std::collections::BTreeMap::new(),
         edge_overrides,
+        face_overrides,
         min_n_seg,
     )
     .map(|(t, _)| t)
@@ -180,19 +190,21 @@ pub(crate) fn stage1_tessellate_inner(
         faces,
         rim_overrides,
         &std::collections::BTreeMap::new(),
+        &std::collections::BTreeMap::new(),
         min_n_seg,
     )
 }
 
 /// Inner implementation returning the tessellation AND the set of rim edges
 /// that received inserted crossing points (consumed by the lateral dispatch).
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(crate) fn stage1_tessellate_inner_overrides(
     verts: &[BRepVertex],
     edges: &[BRepEdge],
     faces: &[BRepFace],
     rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     min_n_seg: Option<usize>,
 ) -> Result<(Stage1Tess, std::collections::BTreeSet<u32>), YangError> {
     {
@@ -1077,12 +1089,24 @@ pub(crate) fn stage1_tessellate_inner_overrides(
                     Some(_) => {}
                 }
             }
-            // Group ALL LineSegment edges by canonical endpoint identity;
-            // copies collect in ascending index order (deterministic canon).
+            // Group the FACE-LOOP-REFERENCED LineSegment edges by canonical
+            // endpoint identity; copies collect in ascending index order
+            // (deterministic canon). The face-loop traversal mirrors the
+            // pierce enumeration's own copy discovery — an ORPHAN edge (in
+            // `edges` but in no loop) contributes nothing to the mesh, so it
+            // must not demand a fan-out entry (a chained-output B-Rep may
+            // carry such edges; a spurious loud STOP here would fail the
+            // whole boolean for a copy that cannot desync anything).
+            let mut referenced: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+            for f in faces {
+                for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+                    referenced.insert(ei);
+                }
+            }
             let mut groups: std::collections::BTreeMap<([u64; 3], [u64; 3]), Vec<u32>> =
                 std::collections::BTreeMap::new();
             for (i, e) in edges.iter().enumerate() {
-                if e.curve != Curve::LineSegment {
+                if e.curve != Curve::LineSegment || !referenced.contains(&(i as u32)) {
                     continue;
                 }
                 let k0 = kb(verts[e.start as usize].point);
@@ -1262,6 +1286,75 @@ pub(crate) fn stage1_tessellate_inner_overrides(
             }
         }
 
+        // ---- Face-interior junction pre-pass (P3a #146 increment 2, spec
+        // §3.3 second bullet): mint each partner-side junction point as an
+        // INTERIOR Steiner vertex of its pierced PLANAR face. Interiors are
+        // CDT-freedom (findings Q2) — inserting one moves no boundary sample
+        // — but the point must actually be CONSUMED by the face's CDT; the
+        // dispatch below routes any face with interior points through
+        // [`tessellate_planar_curved_cdt_face`]'s keep-interior arm, which
+        // errors loudly if a point falls outside the bounded region.
+        let mut face_interior: std::collections::BTreeMap<u32, Vec<u32>> =
+            std::collections::BTreeMap::new();
+        for (&f_idx, pts) in face_overrides {
+            let Some(f) = faces.get(f_idx as usize) else {
+                return Err(YangError::MalformedTopology(format!(
+                    "face override targets out-of-range face {f_idx}"
+                )));
+            };
+            let Surface::Plane { normal, d } = f.surface else {
+                return Err(YangError::MalformedTopology(format!(
+                    "face override targets non-planar face {f_idx} — increment-2 scope is \
+                     planar partner faces only (fail closed)"
+                )));
+            };
+            // Plane frame for the on-plane check + the `BRepFace` source
+            // params (`eval_source` reproduces `O + u·e1 + v·e2`).
+            let nu = normalize3(normal.as_array());
+            let n_len = {
+                let r = normal.as_array();
+                (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt()
+            };
+            if n_len < cad_primitives::TAU_WORK {
+                return Err(YangError::MalformedTopology(format!(
+                    "face override targets face {f_idx} with a degenerate plane normal"
+                )));
+            }
+            let dn = d / n_len;
+            let (e1f, e2f) = ortho_basis(normal);
+            let (e1a, e2a) = (e1f.as_array(), e2f.as_array());
+            let o = [-dn * nu[0], -dn * nu[1], -dn * nu[2]];
+            let mut seen: Vec<[u64; 3]> = Vec::new();
+            let mut minted: Vec<u32> = Vec::new();
+            for &pt in pts {
+                let pa = pt.as_array();
+                let key = [pa[0].to_bits(), pa[1].to_bits(), pa[2].to_bits()];
+                if seen.contains(&key) {
+                    continue; // bit-identical repeat — dedup
+                }
+                let scale = pa.iter().fold(0.0f64, |m, &c| m.max(c.abs()));
+                let off = (pa[0] * nu[0] + pa[1] * nu[1] + pa[2] * nu[2] + dn).abs();
+                if off > 1e-9 * (1.0 + scale) {
+                    return Err(YangError::MalformedTopology(format!(
+                        "face {f_idx}: interior junction override ({},{},{}) is off the \
+                         face plane (deviation {off})",
+                        pa[0], pa[1], pa[2]
+                    )));
+                }
+                let rel = [pa[0] - o[0], pa[1] - o[1], pa[2] - o[2]];
+                let u = rel[0] * e1a[0] + rel[1] * e1a[1] + rel[2] * e1a[2];
+                let v = rel[0] * e2a[0] + rel[1] * e2a[1] + rel[2] * e2a[2];
+                let vi = out_verts.len() as u32;
+                out_verts.push(pt);
+                sources.push(TessellationSource::BRepFace { face: f_idx, u, v });
+                seen.push(key);
+                minted.push(vi);
+            }
+            if !minted.is_empty() {
+                face_interior.insert(f_idx, minted);
+            }
+        }
+
         // ---- Per-face dispatch.
         let mut face_tri_ranges: Vec<std::ops::Range<usize>> = Vec::with_capacity(faces.len());
         for (f_idx, f) in faces.iter().enumerate() {
@@ -1295,15 +1388,21 @@ pub(crate) fn stage1_tessellate_inner_overrides(
                     // the all-segment CDT read only edge endpoints, so route
                     // through the chain-splicing curved CDT (identical
                     // triangulation + orientation, plus [`loop_polyline`]
-                    // chain expansion). Unreachable when `edge_overrides`
-                    // is empty — the fan/CDT dispatch stays byte-identical.
+                    // chain expansion). Increment 2: likewise a face carrying
+                    // INTERIOR junction points (the keep-interior CDT arm).
+                    // Unreachable when both override maps are empty — the
+                    // fan/CDT dispatch stays byte-identical.
                     let has_line_chain = !line_chain_edges.is_empty()
                         && f.outer_loop
                             .iter()
                             .chain(f.inner_loops.iter().flatten())
                             .any(|e| line_chain_edges.contains(e));
+                    let interior: &[u32] = face_interior
+                        .get(&(f_idx as u32))
+                        .map(|v| v.as_slice())
+                        .unwrap_or(&[]);
 
-                    if has_line_chain {
+                    if has_line_chain || !interior.is_empty() {
                         tessellate_planar_curved_cdt_face(
                             f_idx,
                             f,
@@ -1311,6 +1410,7 @@ pub(crate) fn stage1_tessellate_inner_overrides(
                             &rim_rings,
                             normal,
                             &out_verts,
+                            interior,
                             &mut out_tris,
                         )?;
                     } else if needs_cdt {
@@ -1376,7 +1476,15 @@ pub(crate) fn stage1_tessellate_inner_overrides(
                                 curve: Curve::Circle { .. },
                             } if start == end
                         );
-                    if is_disk {
+                    // P3a #146 increment 2: a face carrying interior junction
+                    // points routes through the keep-interior CDT (the cap
+                    // fan cannot consume interior Steiner points). Empty for
+                    // every face when `face_overrides` is empty.
+                    let interior: &[u32] = face_interior
+                        .get(&(f_idx as u32))
+                        .map(|v| v.as_slice())
+                        .unwrap_or(&[]);
+                    if is_disk && interior.is_empty() {
                         tessellate_cap_face(
                             f_idx,
                             f,
@@ -1395,6 +1503,7 @@ pub(crate) fn stage1_tessellate_inner_overrides(
                             &rim_rings,
                             normal,
                             &out_verts,
+                            interior,
                             &mut out_tris,
                         )?;
                     }
@@ -1501,6 +1610,14 @@ pub(crate) use loop_geometry::*;
 /// vertices — the watertightness mechanism. Triangulation + orientation are
 /// exactly the all-segment CDT path's (no Steiner points, no boundary
 /// subdivision).
+///
+/// P3a #146 increment 2: `interior` lists pre-minted mesh vertices (partner-
+/// side junction points) to keep as INTERIOR CDT vertices. Empty = the
+/// flood-fill variant, byte-identical to the pre-increment path; non-empty
+/// routes through [`cherchi_rs::triangulation::cdt_polygon_with_holes_keep_interior`]
+/// and errors loudly if any interior point is NOT consumed by the emitted
+/// triangles (a point outside the bounded region silently dropping is the
+/// one-sided-mint conformality break this machinery exists to prevent).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn tessellate_planar_curved_cdt_face(
     f_idx: usize,
@@ -1509,6 +1626,7 @@ pub(crate) fn tessellate_planar_curved_cdt_face(
     chains: &std::collections::BTreeMap<u32, Vec<u32>>,
     normal: Vector3,
     out_verts: &[Point3],
+    interior: &[u32],
     out_tris: &mut Vec<[u32; 3]>,
 ) -> Result<(), YangError> {
     if f.reversed {
@@ -1589,14 +1707,54 @@ pub(crate) fn tessellate_planar_curved_cdt_face(
     // non-manifold. The flood-fill variant classifies the outer region
     // topologically and (since increment 3) hole parity exactly; kernel-v2's
     // render cores made the same migration in `kv2_cdt_triangulation_core`.
-    let local_tris = cherchi_rs::triangulation::cdt_polygon_with_holes_floodfill(
-        &local_verts,
-        &outer_local,
-        &holes_local,
-    )
-    .map_err(|e| {
-        YangError::MalformedTopology(format!("face {f_idx}: CDT triangulation failed: {e}"))
-    })?;
+    //
+    // P3a #146 increment 2: with interior junction points the keep-interior
+    // variant triangulates them against the boundary constraints (no silent
+    // Steiner splits, spade constraint-crossing refused loudly); the loud
+    // consumed-postcondition below replaces flood-fill's topological
+    // classification guarantee for these faces.
+    let local_tris = if interior.is_empty() {
+        cherchi_rs::triangulation::cdt_polygon_with_holes_floodfill(
+            &local_verts,
+            &outer_local,
+            &holes_local,
+        )
+        .map_err(|e| {
+            YangError::MalformedTopology(format!("face {f_idx}: CDT triangulation failed: {e}"))
+        })?
+    } else {
+        let interior_local: Vec<u32> = interior
+            .iter()
+            .map(|&g| intern(g, &mut local_verts, &mut global_of_local))
+            .collect();
+        let tris = cherchi_rs::triangulation::cdt_polygon_with_holes_keep_interior(
+            &local_verts,
+            &outer_local,
+            &holes_local,
+            &interior_local,
+        )
+        .map_err(|e| {
+            YangError::MalformedTopology(format!(
+                "face {f_idx}: keep-interior CDT triangulation failed: {e}"
+            ))
+        })?;
+        // Consumed postcondition: every interior junction point must appear
+        // in the emitted triangles — a point outside the bounded region
+        // would silently drop and leave the junction minted on ONE side
+        // only (the exact conformality break this pass exists to prevent).
+        for (k, &li) in interior_local.iter().enumerate() {
+            if !tris.iter().any(|t| t.contains(&li)) {
+                let g = interior[k];
+                let p = out_verts[g as usize].as_array();
+                return Err(YangError::MalformedTopology(format!(
+                    "face {f_idx}: interior junction point ({},{},{}) was not consumed by \
+                     the face CDT (outside the bounded region — one-sided mint refused)",
+                    p[0], p[1], p[2]
+                )));
+            }
+        }
+        tris
+    };
     if cdt_probe {
         eprintln!("[cdt-probe] tris = {local_tris:?}");
     }

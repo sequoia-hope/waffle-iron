@@ -1,18 +1,18 @@
-//! P3a #146 conformal junction sampling — increment 1a: the pure pierce-point
-//! primitive (spec `specs/yang_146_conformal_junction_sampling.md` §3.2/§4).
+//! P3a #146 conformal junction sampling — the pierce-point primitive
+//! (increment 1a) and the Stage-1 override builder the increment-2 wiring
+//! feeds into `boolean()` behind `YANG_JUNCTION_SAMPLING_ENABLE`
+//! (spec `specs/yang_146_conformal_junction_sampling.md` §3.2/§4).
 //!
-//! UNWIRED: nothing in the production pipeline calls this yet. The
-//! increment-2 wiring feeds its output into Stage-1 edge overrides behind
-//! `YANG_JUNCTION_SAMPLING_ENABLE`; until then the only consumers are the
-//! unit fixtures.
-//!
-//! Increment-1a scope (fail-closed — a missed mint is status quo, never
+//! Wiring scope (fail-closed — a missed mint is status quo, never
 //! worse, spec §6):
-//! - edges: `Curve::LineSegment` only (the F0082 lead-customer class; the
-//!   chord IS the curve so the parameter-range test is exact);
-//! - partner faces: `Surface::Plane` only, with exact closed-form pierce
-//!   (line ∩ plane) and exact 2D bounded-face containment. Curved partner
-//!   faces are conservatively skipped (increment 1b adds their containment).
+//! - edges: `Curve::LineSegment` only, incident to two PLANAR faces (the
+//!   F0082 lead-customer class; the chord IS the curve so the
+//!   parameter-range test is exact, and the Stage-1 edge-override splice
+//!   is planar-incident only);
+//! - partner faces: `Surface::Plane` with ALL-LINE loops only — exact
+//!   closed-form pierce (line ∩ plane) and exact 2D bounded-face
+//!   containment (a chord polygon is the true region only when every loop
+//!   edge is straight). Curved edges/partners are a later increment.
 //!
 //! Every gate is derived, not tuned:
 //! - endpoint margin `TAU_MODEL·(1+scale)`: a pierce at/near an edge
@@ -32,7 +32,6 @@ use std::collections::BTreeMap;
 
 /// One transversal pierce point of a geometric edge through a bounded
 /// partner face.
-#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until increment 2 (spec §4).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct PiercePoint {
     /// The exact junction point (on the edge's line and the partner plane;
@@ -42,11 +41,14 @@ pub(crate) struct PiercePoint {
     pub t: f64,
     /// `|t̂ · n̂_partner|` at the pierce — the transversality margin.
     pub transversality: f64,
+    /// Index of the pierced face in the PARTNER operand — the face whose
+    /// Stage-1 mesh must carry `point` as an interior Steiner vertex
+    /// (increment 2, spec §3.3 second bullet).
+    pub partner_face: u32,
 }
 
 /// Sine-scale transversality floor on `|t̂·n̂|` — below this the edge is
 /// tangential to the partner surface (the #137 route), never a mint.
-#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until increment 2 (spec §4).
 const TRANSVERSALITY_MIN: f64 = 1e-9;
 
 /// All transversal pierce points of each operand's geometric `LineSegment`
@@ -58,7 +60,6 @@ const TRANSVERSALITY_MIN: f64 = 1e-9;
 /// copy of the geometric edge, so both incident faces of the owner see the
 /// identical insertion (the spec's conformality-by-identity requirement;
 /// keying by a single copy index would silently break it).
-#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until increment 2 (spec §4).
 pub(crate) fn junction_pierce_points(
     a: &BRep,
     b: &BRep,
@@ -93,12 +94,21 @@ pub(crate) fn junction_pierce_points(
             let [s1, s2] = surfs.as_slice() else {
                 continue; // border/defective incidence — not a 2-surface edge
             };
+            // Increment-2 wiring scope: the OWNER edge must be incident to two
+            // PLANAR faces — the Stage-1 edge-override tessellator splices
+            // line chains only into planar faces (the 1b fail-closed guard);
+            // a curved-incident edge is a later increment (missed mint =
+            // status quo, never worse).
+            if !matches!(s1, Surface::Plane { .. }) || !matches!(s2, Surface::Plane { .. }) {
+                continue;
+            }
             let e = &x.edges()[copies[0] as usize];
             let p0 = x.vertices()[e.start as usize].point;
             let p1 = x.vertices()[e.end as usize].point;
             let mut pierces: Vec<PiercePoint> = Vec::new();
-            for f in y.faces() {
-                if let Some(pp) = line_edge_plane_face_pierce(p0, p1, *s1, *s2, f, y) {
+            for (f_idx, f) in y.faces().iter().enumerate() {
+                if let Some(pp) = line_edge_plane_face_pierce(p0, p1, *s1, *s2, f_idx as u32, f, y)
+                {
                     pierces.push(pp);
                 }
             }
@@ -117,18 +127,30 @@ pub(crate) fn junction_pierce_points(
 /// The transversal pierce of the segment `p0→p1` (whose two incident
 /// surfaces are `s1`/`s2`) through the bounded planar face `f` of operand
 /// `y` — or `None` if any gate rejects (fail-closed).
-#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until increment 2 (spec §4).
 fn line_edge_plane_face_pierce(
     p0: Point3,
     p1: Point3,
     s1: Surface,
     s2: Surface,
+    f_idx: u32,
     f: &BRepFace,
     y: &BRep,
 ) -> Option<PiercePoint> {
     let Surface::Plane { normal, d } = f.surface else {
         return None; // increment-1a scope: planar partners only
     };
+    // Increment-2 scope: ALL-LINE partner loops only — the 2D containment
+    // below projects loop-edge START vertices, which is the exact bounded
+    // region only when every loop edge is straight (an arc-bounded face's
+    // chord polygon misjudges containment by up to the sagitta near the
+    // arc). Curved-bounded partners are a later increment (fail closed).
+    if f.outer_loop
+        .iter()
+        .chain(f.inner_loops.iter().flatten())
+        .any(|&ei| y.edges()[ei as usize].curve != Curve::LineSegment)
+    {
+        return None;
+    }
     let n = normalize3(normal.as_array());
     // The plane's `d` is scaled to the RAW normal; renormalize it too.
     let n_len = {
@@ -226,11 +248,124 @@ fn line_edge_plane_face_pierce(
         point: j,
         t,
         transversality,
+        partner_face: f_idx,
     })
 }
 
+/// Increment-2 wiring payload (spec §4): the four per-operand Stage-1
+/// override maps derived from [`junction_pierce_points`] — each operand's
+/// OWNER-side edge insertions plus the PARTNER-side interior face points the
+/// other operand's edges pierce through it. Identical exact bits on both
+/// sides of every junction (one mint, shared by identity).
+#[derive(Default, Debug)]
+pub(crate) struct JunctionStage1Overrides {
+    /// A's `LineSegment` edge index → junction points on that edge.
+    pub edge_a: BTreeMap<u32, Vec<Point3>>,
+    /// A's face index → interior junction points (pierced by B's edges).
+    pub face_a: BTreeMap<u32, Vec<Point3>>,
+    /// B's `LineSegment` edge index → junction points on that edge.
+    pub edge_b: BTreeMap<u32, Vec<Point3>>,
+    /// B's face index → interior junction points (pierced by A's edges).
+    pub face_b: BTreeMap<u32, Vec<Point3>>,
+}
+
+impl JunctionStage1Overrides {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.edge_a.is_empty()
+            && self.face_a.is_empty()
+            && self.edge_b.is_empty()
+            && self.face_b.is_empty()
+    }
+}
+
+/// Build the Stage-1 override maps for both operands from the pierce
+/// enumeration. Owner-side lists keep the per-(copy-)edge fan-out from
+/// [`junction_pierce_points`]; partner-side face lists deduplicate the
+/// per-copy repetition bitwise (each geometric edge contributes its pierce
+/// point to the pierced face ONCE — same exact bits as the owner side).
+///
+/// Sub-weld-band CLUSTER filter (the F0016 lesson): two DISTINCT pierce
+/// points closer than the §4.3 weld band `TAU_MODEL·(1+scale)` — e.g. from
+/// near-duplicate chained edges piercing the same partner plane — would be
+/// minted as separate sliver-spanning vertices that the downstream weld
+/// fuses back into COINCIDENT triangles (the I6 non-manifold guard). Per
+/// the junction contract, multiplicity below the resolution floor is NOT a
+/// P3a mint: every point in such a cluster is DROPPED on both sides (fail
+/// closed — a missed mint is status quo, never worse; the cluster itself is
+/// P3b/upstream-twin territory). NO merged representative is minted: that
+/// would be a tolerance merge (the R0091 hazard, spec §3.4).
+pub(crate) fn junction_stage1_overrides(a: &BRep, b: &BRep) -> JunctionStage1Overrides {
+    let pierce = junction_pierce_points(a, b);
+    // Sub-weld-band cluster scan over ALL pierce points of the pair (both
+    // directions — a mutual corner can put an A-side and a B-side mint in
+    // one cluster). Bit-identical repeats are the SAME mint (kept); only
+    // distinct-bits neighbours poison a cluster.
+    let kb = |p: Point3| -> [u64; 3] { [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()] };
+    let all: Vec<Point3> = {
+        let mut v: Vec<Point3> = Vec::new();
+        let mut seen: Vec<[u64; 3]> = Vec::new();
+        for pps in pierce.values() {
+            for pp in pps {
+                let key = kb(pp.point);
+                if !seen.contains(&key) {
+                    seen.push(key);
+                    v.push(pp.point);
+                }
+            }
+        }
+        v
+    };
+    let mut poisoned: Vec<[u64; 3]> = Vec::new();
+    for (i, p) in all.iter().enumerate() {
+        let pa = p.as_array();
+        for q in all.iter().skip(i + 1) {
+            let qa = q.as_array();
+            let scale = pa
+                .iter()
+                .chain(qa.iter())
+                .fold(0.0f64, |m, &c| m.max(c.abs()));
+            let band = cad_primitives::TAU_MODEL * (1.0 + scale);
+            let d2 = (pa[0] - qa[0]).powi(2) + (pa[1] - qa[1]).powi(2) + (pa[2] - qa[2]).powi(2);
+            if d2 < band * band {
+                poisoned.push(kb(*p));
+                poisoned.push(kb(*q));
+            }
+        }
+    }
+    if !poisoned.is_empty() && std::env::var_os("YANG_JUNCTION_MINT_PROBE").is_some() {
+        eprintln!(
+            "[p3a-wire] sub-weld-band cluster: dropping {} of {} pierce points",
+            poisoned.len(),
+            all.len()
+        );
+    }
+    let mut out = JunctionStage1Overrides::default();
+    for ((input, ei), pps) in &pierce {
+        let kept: Vec<&PiercePoint> = pps
+            .iter()
+            .filter(|pp| !poisoned.contains(&kb(pp.point)))
+            .collect();
+        if kept.is_empty() {
+            continue;
+        }
+        let (edge_map, face_map) = match input {
+            InputId::A => (&mut out.edge_a, &mut out.face_b),
+            InputId::B => (&mut out.edge_b, &mut out.face_a),
+        };
+        edge_map.insert(*ei, kept.iter().map(|pp| pp.point).collect());
+        for pp in &kept {
+            let list = face_map.entry(pp.partner_face).or_default();
+            let key = kb(pp.point);
+            let dup = list.iter().any(|q| kb(*q) == key);
+            if !dup {
+                list.push(pp.point);
+            }
+        }
+    }
+    out
+}
+
 /// Even-odd point-in-polygon test (2D).
-#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until increment 2 (spec §4).
 fn point_in_polygon(p: [f64; 2], poly: &[[f64; 2]]) -> bool {
     let mut inside = false;
     let n = poly.len();
@@ -247,7 +382,6 @@ fn point_in_polygon(p: [f64; 2], poly: &[[f64; 2]]) -> bool {
 }
 
 /// Minimum distance from `p` to any segment of the closed polyline `poly`.
-#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until increment 2 (spec §4).
 fn boundary_distance(p: [f64; 2], poly: &[[f64; 2]]) -> f64 {
     let n = poly.len();
     let mut best = f64::INFINITY;

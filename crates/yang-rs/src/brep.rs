@@ -2,6 +2,7 @@
 //! attribution, and the `BRep` container (extracted verbatim from
 //! lib.rs — spec `specs/yang_rs_lib_decomposition.md`, increment 3).
 
+use crate::stage1_tessellate_with_edge_overrides;
 use crate::stage1_tessellate_with_rim_overrides;
 use crate::{ellipse_point, hyperbola_point, normalize3, ortho_basis, parabola_point};
 use crate::{Curve, Point3, Surface, YangError};
@@ -421,6 +422,44 @@ impl BRep {
     ) -> Result<Self, YangError> {
         let tess =
             stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, rim_overrides, min_n_seg)?;
+        Self::from_topology_and_tess(verts, edges, faces, min_n_seg, tess)
+    }
+
+    /// P3a #146 increment-2 constructor body (spec
+    /// `yang_146_conformal_junction_sampling.md` §4): [`from_topology`] plus
+    /// per-`LineSegment`-edge junction points inserted into the Stage-1 edge
+    /// polylines AND per-face interior junction points minted into the
+    /// pierced faces' CDTs. Empty maps are byte-identical to
+    /// [`from_topology`] (the Stage-1 empty-override identity).
+    fn from_topology_with_junction_overrides(
+        verts: Vec<BRepVertex>,
+        edges: Vec<BRepEdge>,
+        faces: Vec<BRepFace>,
+        min_n_seg: Option<usize>,
+        edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+        face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    ) -> Result<Self, YangError> {
+        let tess = stage1_tessellate_with_edge_overrides(
+            &verts,
+            &edges,
+            &faces,
+            edge_overrides,
+            face_overrides,
+            min_n_seg,
+        )?;
+        Self::from_topology_and_tess(verts, edges, faces, min_n_seg, tess)
+    }
+
+    /// Shared tail of the `from_topology*` constructors: fold a Stage-1
+    /// tessellation into the B-Rep container (mesh, 1:1 tessellation map,
+    /// per-triangle owning-face attribution).
+    fn from_topology_and_tess(
+        verts: Vec<BRepVertex>,
+        edges: Vec<BRepEdge>,
+        faces: Vec<BRepFace>,
+        min_n_seg: Option<usize>,
+        tess: crate::stage1_tessellate::Stage1Tess,
+    ) -> Result<Self, YangError> {
         // N4: invert face_tri_ranges into a per-triangle owning-face map (1:1
         // with the mesh triangles), so kept arrangement triangles can be
         // attributed via cherchi provenance instead of geometric proximity.
@@ -485,6 +524,35 @@ impl BRep {
             self.faces.clone(),
             self.forced_rim_n,
             rim_overrides,
+        )
+    }
+
+    /// P3a #146 increment 2 (spec `yang_146_conformal_junction_sampling.md`
+    /// §4): rebuild this B-Rep's Stage-1 mesh with exact junction pierce
+    /// points inserted into its `LineSegment` edge polylines (owner side)
+    /// and as interior Steiner vertices of its pierced faces (partner
+    /// side). Preserves an existing phantom-guard boost (`forced_rim_n`).
+    /// Topology is unchanged; insertion moves no existing sample.
+    pub(crate) fn rebuilt_with_junction_overrides(
+        &self,
+        edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+        face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    ) -> Result<Self, YangError> {
+        if edge_overrides.is_empty() && face_overrides.is_empty() {
+            return Self::from_topology(
+                self.vertices.clone(),
+                self.edges.clone(),
+                self.faces.clone(),
+                self.forced_rim_n,
+            );
+        }
+        Self::from_topology_with_junction_overrides(
+            self.vertices.clone(),
+            self.edges.clone(),
+            self.faces.clone(),
+            self.forced_rim_n,
+            edge_overrides,
+            face_overrides,
         )
     }
 

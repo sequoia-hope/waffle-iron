@@ -241,6 +241,67 @@ seam suite — insertion happens before Stage 0, so Stage 0 sees the
 already-inserted polylines identically on both operands (safe by
 construction, but the oracle run is mandatory, not assumed).
 
+**Increment 2 (2026-07-18, WIRING SHIPPED gated-off; increment-3 gate NOT
+reached).** Implementation:
+
+- `junction_pierce_points` gains the increment-2 wiring scope (owner edge
+  incident to two PLANAR surfaces; partner face planar with ALL-LINE loops
+  — the chord-polygon containment is exact only then) and records the
+  pierced `partner_face` per point.
+- `junction_stage1_overrides(a, b)` builds the four Stage-1 maps: owner
+  edge overrides (per-copy fan-out) + partner face INTERIOR points (deduped
+  bitwise), one exact mint shared by identity; plus a sub-weld-band cluster
+  filter — two distinct pierce points closer than the §4.3 weld band
+  `TAU_MODEL·(1+scale)` are BOTH dropped (fail closed; minting them is
+  guaranteed post-weld coincidence, and merging them would be the R0091
+  tolerance hazard).
+- Stage-1 face-interior channel: `face_overrides[f]` mints interior
+  Steiner verts (source `BRepFace{face,u,v}`) into planar face `f`'s
+  keep-interior CDT (`cdt_polygon_with_holes_keep_interior`), with loud
+  arms: non-planar target, off-plane point, and a CONSUMED postcondition
+  (a point outside the bounded region silently dropping would be the
+  one-sided-mint conformality break). 7 new fixtures
+  (`tests_unit/p3a_junction_wiring.rs`) incl. the end-to-end contract:
+  both rebuilt operands carry every junction bit-exactly, closed
+  consistently-wound 2-manifolds.
+- Wiring in `boolean()` after the rim-junction block, scope gate:
+  `stage0.is_none() && cyl_pairs.is_empty() && junction_boosted.is_none()`
+  (overrides do not compose across from-topology rebuilds). Gate value
+  `edge`/`face` selects one insertion half (dev diagnostics).
+
+**Measured (gate-ON full release assay, 312 cases):**
+
+- 0 WRONG — the ratchet holds. Gate-OFF byte-identical to the committed
+  250C/0W/55E baseline (sole flip: F0090 TIMEOUT→CORRECT, which also
+  happens gate-OFF — a timeout flake, not a P3a effect). Gate-ON lib suite
+  (369) fully green incl. `nary_tessellated_group_stage0_meshes`.
+- **Mechanism CONFIRMED at the defect site**: on F0082's failing boolean,
+  the v588/v601 near-dup pair (the lead-customer mint-gap defect, 0.012
+  apart) is GONE gate-ON — the insertion removes the near-dup mint exactly
+  as designed.
+- **No P3a bucket case converts**: the bucket models are chained multi-op
+  cases with MULTIPLE defects; removing the near-dup exposes the next one
+  (F0082 now fails with an over-used edge fwd=1/rev=2 — an overlap-sheet
+  defect, different class).
+- **2 gated regressions** (F0016, F0084 CORRECT→ERROR; F0085 T→E):
+  root-caused via the new `NONMANIFOLD_SITE_PROBE` i6 provenance probe —
+  the arrangement still mints near-dup crossings from PRE-EXISTING twin
+  edges in the CHAINED operand's topology (the #170/N54 upstream Stage-0
+  mint class, outside P3a's reach); our insertion changes the partner
+  triangulation so the §4.3 weld now fuses those crossings into COINCIDENT
+  output triangles, tripping the I6 guard (loud, never silent). Baseline
+  passed only because the un-inserted triangulations happened to weld
+  non-coincidently.
+
+**Increment-3 blockers (in leverage order):** (1) the upstream twin-edge
+residue in chained outputs (the #170 re-spec: 3D minted-interior-vert
+unify or stage0-emission canonicalization) — P3a insertions are only safe
+corpus-wide once chained operands stop carrying sub-weld twins; (2) the
+next defect layer in the bucket models (overlap-sheet / fwd-rev misuse
+after the near-dup is gone); (3) curved-incident edges and curved partner
+containment (widen the wiring scope). The wiring + fixtures stay banked
+behind the env gate meanwhile (production byte-identical).
+
 ### Increment 3 — always-on
 
 Only after increment 2's ledger shows recovered cases + 0 regressions
