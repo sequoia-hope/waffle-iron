@@ -559,6 +559,30 @@ pub fn boolean(
                     jo.edge_b.len(),
                     jo.face_b.len()
                 );
+                // Verbose arm (`=v`): the full override payload per operand —
+                // targeted edge topology (endpoint indices + coords) and the
+                // exact junction points — to join a defective rebuilt mesh
+                // back to the insertion that produced it.
+                if std::env::var("YANG_JUNCTION_MINT_PROBE").as_deref() == Ok("v") {
+                    for (tag, brep, eo, fo) in [
+                        ("A", a, &jo.edge_a, &jo.face_a),
+                        ("B", b, &jo.edge_b, &jo.face_b),
+                    ] {
+                        for (ei, pts) in eo.iter() {
+                            let e = &brep.edges()[*ei as usize];
+                            eprintln!(
+                                "[p3a-wire-v] {tag} edge {ei} v{}→v{} {:?}→{:?} pts {pts:?}",
+                                e.start,
+                                e.end,
+                                brep.vertices()[e.start as usize].point,
+                                brep.vertices()[e.end as usize].point
+                            );
+                        }
+                        for (fi, pts) in fo.iter() {
+                            eprintln!("[p3a-wire-v] {tag} face {fi} pts {pts:?}");
+                        }
+                    }
+                }
             }
             Some((
                 a.rebuilt_with_junction_overrides(&jo.edge_a, &jo.face_a)?,
@@ -643,6 +667,63 @@ pub fn boolean(
         a.as_mesh(),
         b.as_mesh(),
     );
+
+    // (#146 inc-3b probe, print-only) Operand-mesh over-use scan: does the
+    // Stage-1/Stage-0 mesh handed to the arrangement ALREADY carry an
+    // asymmetric directed edge (fwd≠rev)? Distinguishes an over-use minted
+    // at the downstream weld from one inherited from the operand build
+    // (e.g. a gate-ON junction-insertion defect). Env-gated, no behavior
+    // change.
+    if std::env::var_os("NONMANIFOLD_SITE_PROBE").is_some() {
+        use std::collections::BTreeMap;
+        for (tag, m) in [("A", mesh_a), ("B", mesh_b)] {
+            let mut dir: BTreeMap<(u32, u32), i32> = BTreeMap::new();
+            for t in &m.tris {
+                for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                    *dir.entry((t[i], t[j])).or_insert(0) += 1;
+                }
+            }
+            let mut any = false;
+            for (&(s, e), &fwd) in &dir {
+                if s > e {
+                    continue;
+                }
+                let rev = dir.get(&(e, s)).copied().unwrap_or(0);
+                if fwd != rev {
+                    any = true;
+                    eprintln!(
+                        "NONMANIFOLD_SITE_PROBE i6-input-overuse: input {tag} edge ({s},{e}) \
+                         fwd={fwd} rev={rev} coords {:?} {:?}",
+                        m.verts[s as usize], m.verts[e as usize]
+                    );
+                }
+            }
+            // Small-operand topology dump: join the defective mesh back to
+            // the B-Rep loops/edges that tessellated it.
+            let brep = if tag == "A" { a } else { b };
+            if any && brep.faces().len() <= 20 {
+                for (i, v) in brep.vertices().iter().enumerate() {
+                    eprintln!(
+                        "NONMANIFOLD_SITE_PROBE i6-input-topo: {tag} vert {i} {:?}",
+                        v.point
+                    );
+                }
+                for (i, e) in brep.edges().iter().enumerate() {
+                    eprintln!(
+                        "NONMANIFOLD_SITE_PROBE i6-input-topo: {tag} edge {i} v{}→v{} {:?}",
+                        e.start, e.end, e.curve
+                    );
+                }
+                for (i, f) in brep.faces().iter().enumerate() {
+                    eprintln!(
+                        "NONMANIFOLD_SITE_PROBE i6-input-topo: {tag} face {i} surface {:?} \
+                         outer {:?} inner {:?}",
+                        f.surface, f.outer_loop, f.inner_loops
+                    );
+                }
+            }
+        }
+    }
 
     // (1) Stage 2: full labeled arrangement.
     let la = backend
@@ -1203,6 +1284,72 @@ pub fn boolean(
                 return Err(YangError::NonManifoldInput);
             }
             seen.insert(sorted, ci);
+        }
+    }
+    // (#146 inc-3b probe, print-only) Edge-over-use provenance: scan the
+    // compacted kept set for ASYMMETRIC directed edges (fwd count ≠ rev
+    // count — the F0084 `s4-halfedge-pairing fwd=1 rev=2` class) and print
+    // every incident triangle's raw triple / source / surface plus the two
+    // endpoints' weld clusters. Localizes whether the over-use is minted
+    // HERE (in-boolean, the I6.5 wedge class one simplex down) or later in
+    // Stage 4. Env-gated, no behavior change.
+    if std::env::var_os("NONMANIFOLD_SITE_PROBE").is_some() {
+        use std::collections::BTreeMap;
+        let mut dir: BTreeMap<(u32, u32), Vec<usize>> = BTreeMap::new();
+        for (ci, t) in compact_tris.iter().enumerate() {
+            for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                dir.entry((t[i], t[j])).or_default().push(ci);
+            }
+        }
+        for (&(s, e), fwd_tris) in &dir {
+            if s > e {
+                continue; // report each undirected edge once
+            }
+            let rev_tris = dir.get(&(e, s)).map(Vec::as_slice).unwrap_or(&[]);
+            if fwd_tris.len() == rev_tris.len() {
+                continue;
+            }
+            eprintln!(
+                "NONMANIFOLD_SITE_PROBE i6-edge-overuse: edge ({s},{e}) fwd={} rev={} \
+                 coords {:?} {:?}",
+                fwd_tris.len(),
+                rev_tris.len(),
+                compact_verts[s as usize],
+                compact_verts[e as usize]
+            );
+            for (dir_name, list) in [("fwd", fwd_tris.as_slice()), ("rev", rev_tris)] {
+                for &ci in list {
+                    let ot = orig_tri[ci];
+                    eprintln!(
+                        "NONMANIFOLD_SITE_PROBE i6-edge-overuse: {dir_name} compact {ci} \
+                         tri {:?} orig_t {ot} raw {:?} source {:?} surface {:?}",
+                        compact_tris[ci],
+                        la.mesh.tris[ot],
+                        if la.source.is_empty() {
+                            &[][..]
+                        } else {
+                            &la.source[ot][..]
+                        },
+                        la.surface[ot]
+                    );
+                }
+            }
+            for &cv in &[s, e] {
+                let root = remap
+                    .iter()
+                    .position(|sl| *sl == Some(cv))
+                    .expect("compact vert has a welded root");
+                let members: Vec<u32> = weld
+                    .iter()
+                    .enumerate()
+                    .filter(|&(_, &r)| r == root as u32)
+                    .map(|(i, _)| i as u32)
+                    .collect();
+                eprintln!(
+                    "NONMANIFOLD_SITE_PROBE i6-edge-overuse-cluster: compact {cv} root {root} \
+                     members(la-vert) {members:?}"
+                );
+            }
         }
     }
     let kept_submesh = Mesh::new(compact_verts, compact_tris);
