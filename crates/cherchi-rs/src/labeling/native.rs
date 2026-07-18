@@ -188,6 +188,8 @@ pub fn native_labeled_arrangement(
         out_tris.push(g);
     }
 
+    vert_provenance_probe(&soup, &remap, &out_verts, a, b);
+
     Ok(LabeledArrangement {
         mesh: Mesh::new(out_verts, out_tris),
         surface,
@@ -196,6 +198,202 @@ pub fn native_labeled_arrangement(
         source,
         num_inputs: 2,
     })
+}
+
+/// #146 P3a increment-3 crossing-provenance probe (env
+/// `CHERCHI_VERT_PROVENANCE`, print-only, read-only — never affects the
+/// boolean): scan the emitted output vertices for sub-band pairs and print
+/// each member's ARRANGEMENT-LEVEL provenance — its `VertexCoords`
+/// generators mapped back to input-mesh vertex ids — plus the incidence
+/// conditioning of the mint (|d̂·n̂| for an LPI's line vs pierced plane;
+/// pairwise |n̂ᵢ×n̂ⱼ| for a TPI's three planes). This answers "which input
+/// edges/triangles generate each member of a sub-weld crossing pair", the
+/// question the yang-rs I6 site cannot answer from f64 coordinates alone.
+///
+/// The env value is the RELATIVE band: verts `p`,`q` pair when
+/// `|p−q| ≤ band·(1+max|coord|)` per component in DESCALED model space —
+/// the same nomination shape as yang's I6 weld (`TAU_WORK·(1+scale)`), so
+/// `CHERCHI_VERT_PROVENANCE=1e-12` reports exactly the pairs that weld
+/// will fuse. Unparseable values default to 1e-12.
+fn vert_provenance_probe(
+    soup: &ArrangementSoup,
+    remap: &[Option<u32>],
+    out_verts: &[Point3],
+    a: &Mesh,
+    b: &Mesh,
+) {
+    let Some(raw) = std::env::var_os("CHERCHI_VERT_PROVENANCE") else {
+        return;
+    };
+    let band: f64 = raw
+        .to_str()
+        .and_then(|s| s.parse().ok())
+        .filter(|b: &f64| b.is_finite() && *b > 0.0)
+        .unwrap_or(1e-12);
+
+    use crate::arrangements::fast_trimesh::VertexCoords;
+    use std::collections::HashMap;
+
+    // Inverse of the emission remap: output vertex index → soup vertex index.
+    let mut soup_of_out: Vec<u32> = vec![u32::MAX; out_verts.len()];
+    for (sv, slot) in remap.iter().enumerate() {
+        if let Some(o) = slot {
+            soup_of_out[*o as usize] = sv as u32;
+        }
+    }
+
+    // Scaled-coordinate → input vertex id(s). Generators inside
+    // `VertexCoords` live in SCALED soup space; the multiplier is a power
+    // of two, so `input_coord * m` is exact and bit-matching is sound.
+    let m = soup.multiplier;
+    let key = |x: f64, y: f64, z: f64| -> [u64; 3] { [x.to_bits(), y.to_bits(), z.to_bits()] };
+    let mut inmap: HashMap<[u64; 3], Vec<(char, u32)>> = HashMap::new();
+    for (tag, verts) in [('A', &a.verts), ('B', &b.verts)] {
+        for (vi, p) in verts.iter().enumerate() {
+            inmap
+                .entry(key(p.x() * m, p.y() * m, p.z() * m))
+                .or_default()
+                .push((tag, vi as u32));
+        }
+    }
+    // Describe a generator point: matched input vertex ids, else its
+    // DESCALED coordinates.
+    let desc = |p: &Point3| -> String {
+        match inmap.get(&key(p.x(), p.y(), p.z())) {
+            Some(ids) => ids
+                .iter()
+                .map(|(t, v)| format!("{t}#{v}"))
+                .collect::<Vec<_>>()
+                .join("="),
+            None => format!("({:.9},{:.9},{:.9})", p.x() / m, p.y() / m, p.z() / m),
+        }
+    };
+    let sub = |p: &Point3, q: &Point3| [q.x() - p.x(), q.y() - p.y(), q.z() - p.z()];
+    let norm = |v: [f64; 3]| {
+        let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        [v[0] / l, v[1] / l, v[2] / l]
+    };
+    let cross = |u: [f64; 3], v: [f64; 3]| {
+        [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ]
+    };
+    let dot = |u: [f64; 3], v: [f64; 3]| u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    let mag = |v: [f64; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    let tri_n = |t: &[Point3; 3]| norm(cross(sub(&t[0], &t[1]), sub(&t[0], &t[2])));
+    let provenance = |sv: u32| -> String {
+        match &soup.verts[sv as usize] {
+            VertexCoords::Explicit(p) => format!("EXPLICIT {}", desc(p)),
+            VertexCoords::Lpi { line, plane } => {
+                let d = norm(sub(&line[0], &line[1]));
+                let n = tri_n(plane);
+                format!(
+                    "LPI line[{}→{}] plane[{},{},{}] sin_inc={:.3e}",
+                    desc(&line[0]),
+                    desc(&line[1]),
+                    desc(&plane[0]),
+                    desc(&plane[1]),
+                    desc(&plane[2]),
+                    dot(d, n).abs()
+                )
+            }
+            VertexCoords::Tpi { v, w, u } => {
+                let (nv, nw, nu) = (tri_n(v), tri_n(w), tri_n(u));
+                format!(
+                    "TPI v[{},{},{}] w[{},{},{}] u[{},{},{}] |nv×nw|={:.3e} |nv×nu|={:.3e} |nw×nu|={:.3e}",
+                    desc(&v[0]), desc(&v[1]), desc(&v[2]),
+                    desc(&w[0]), desc(&w[1]), desc(&w[2]),
+                    desc(&u[0]), desc(&u[1]), desc(&u[2]),
+                    mag(cross(nv, nw)), mag(cross(nv, nu)), mag(cross(nw, nu)),
+                )
+            }
+        }
+    };
+
+    // Sub-band pair scan over the DESCALED output vertices (grid nomination
+    // + exact per-pair band test — the KV8c lesson: quantization only ever
+    // NOMINATES, never decides).
+    let scale = out_verts
+        .iter()
+        .flat_map(|v| v.as_array())
+        .fold(0.0f64, |mx, c| mx.max(c.abs()));
+    let cell_band = band * (1.0 + scale);
+    let cell = |c: f64| -> i64 { (c / cell_band).floor() as i64 };
+    let mut grid: HashMap<[i64; 3], Vec<u32>> = HashMap::with_capacity(out_verts.len());
+    let mut pairs: Vec<(u32, u32)> = Vec::new();
+    for (i, v) in out_verts.iter().enumerate() {
+        let p = v.as_array();
+        let k = [cell(p[0]), cell(p[1]), cell(p[2])];
+        for dx in -1..=1i64 {
+            for dy in -1..=1i64 {
+                for dz in -1..=1i64 {
+                    let Some(occ) = grid.get(&[k[0] + dx, k[1] + dy, k[2] + dz]) else {
+                        continue;
+                    };
+                    for &j in occ {
+                        let q = out_verts[j as usize].as_array();
+                        let pb = band
+                            * (1.0
+                                + p.iter()
+                                    .chain(q.iter())
+                                    .fold(0.0f64, |mx, c| mx.max(c.abs())));
+                        if (0..3).all(|c| (p[c] - q[c]).abs() <= pb) {
+                            pairs.push((j, i as u32));
+                        }
+                    }
+                }
+            }
+        }
+        grid.entry(k).or_default().push(i as u32);
+    }
+
+    const MAX_PRINT: usize = 64;
+    for &(i, j) in pairs.iter().take(MAX_PRINT) {
+        let (p, q) = (&out_verts[i as usize], &out_verts[j as usize]);
+        let d = mag(sub(p, q));
+        // EXACT separation (rational, descaled): distinguishes "the
+        // arrangement minted the SAME exact geometric point under two
+        // `VertexCoords` representations" (d_exact = 0 — a dedup gap)
+        // from "genuinely distinct exact points that collide only at f64
+        // emission" (d_exact > 0 — true twins).
+        let d_exact = match (
+            exact_point_coords(&soup.verts[soup_of_out[i as usize] as usize]),
+            exact_point_coords(&soup.verts[soup_of_out[j as usize] as usize]),
+        ) {
+            (Some(pe), Some(qe)) => {
+                let dd: f64 = (0..3)
+                    .map(|c| {
+                        let diff = (pe[c].clone() - qe[c].clone()).to_f64().value() / m;
+                        diff * diff
+                    })
+                    .sum();
+                format!("{:.3e}", dd.sqrt())
+            }
+            _ => "unresolvable".to_string(),
+        };
+        eprintln!(
+            "CHERCHI_VERT_PROVENANCE pair out({i},{j}) d={d:.3e} d_exact={d_exact} @({:.9},{:.9},{:.9})",
+            p.x(),
+            p.y(),
+            p.z()
+        );
+        for out_v in [i, j] {
+            let sv = soup_of_out[out_v as usize];
+            eprintln!(
+                "CHERCHI_VERT_PROVENANCE   out {out_v} soup {sv}: {}",
+                provenance(sv)
+            );
+        }
+    }
+    if pairs.len() > MAX_PRINT {
+        eprintln!(
+            "CHERCHI_VERT_PROVENANCE … suppressed {} more pairs (of {})",
+            pairs.len() - MAX_PRINT,
+            pairs.len()
+        );
+    }
 }
 
 /// Resolve one soup vertex to explicit DESCALED f64 coordinates: exact

@@ -122,6 +122,23 @@ in the ledger is PERMANENT with user sign-off.
       chained near-parallel crossing mint — next increment: per-vertex
       crossing provenance at the I6 site (probe-first, plan-of-record
       discipline).*
+      *CROSSING PROVENANCE CONFIRMED 2026-07-18 (probe
+      `CHERCHI_VERT_PROVENANCE` — exact per-vertex generator provenance +
+      exact rational pair separation at the arrangement level, joined to
+      the I6 site via the `NONMANIFOLD_SITE_PROBE` i6-cluster arm):
+      "near-parallel" REFUTED (crossings well-conditioned, sin 0.36–0.70);
+      arrangement-dedup-gap REFUTED (d_exact ≈ 1e-18 > 0 — genuinely
+      distinct exact points, upstream-faithful). Real class = flush/chained
+      operands carry INTENDED-EXACT contacts at sub-weld f64 residue:
+      shared corner vertices grazed by CDT edges at 1e-18 (F0016) and a
+      vertex-on-face contact at 5e-15 spawning an LPI fan (F0084). The
+      insertion AMPLIFIES the pre-existing class (3 → 33 sub-weld pairs on
+      F0016) by densifying edges near junction corners; the I6 weld then
+      collapses slivers into coincident-tri pairs / over-used edges.
+      Next increment (spec-first): post-weld collapsed-wedge resolution —
+      exact structural dedup of same-winding same-label tri pairs that
+      share a raw edge with weld-fused tips; a4-class genuine coincident
+      faces still STOP. See spec §4 "Blocker (1) CHARACTERIZED".*
    b. **#137 grazing-corner insert + stitch** — the proven triple-junction
       primitive (N-137.1, stronger than anything in the literature per
       findings Q1) gets the Urick-style stitch: mint the corner ONCE, insert

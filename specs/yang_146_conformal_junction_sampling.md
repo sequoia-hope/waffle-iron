@@ -302,6 +302,57 @@ after the near-dup is gone); (3) curved-incident edges and curved partner
 containment (widen the wiring scope). The wiring + fixtures stay banked
 behind the env gate meanwhile (production byte-identical).
 
+**Blocker (1) CHARACTERIZED (2026-07-18, crossing-provenance probe —
+`CHERCHI_VERT_PROVENANCE` in `cherchi_rs::labeling::native`, joined
+against the widened `NONMANIFOLD_SITE_PROBE` i6-cluster arm):**
+
+- The sub-weld crossings at F0016's I6 site are `VertexCoords::Lpi`
+  mints whose generators are named input vertices: a CDT edge spanning
+  two SHARED operand vertices (`A#53=B#20 → A#61=B#22` — the flush
+  operands share bit-exact junction vertices) transversally crosses a
+  partner triangle whose corner is ITSELF a shared vertex
+  (`A#52=B#21`), passing `d_exact ≈ 4e-18` from it (exact rational
+  separation, measured). The arrangement correctly mints an LPI twin of
+  the explicit corner — three representations of one geometric junction
+  point, 1e-18 apart.
+- **The "near-parallel residue" theory is REFUTED**: the crossings are
+  well-conditioned (`sin_inc` = 0.36–0.70). So is the "arrangement
+  dedup gap" theory: `d_exact > 0` — the points are genuinely distinct
+  exact points, and upstream Cherchi would mint them identically. And
+  the #170 output-twin theory stays refuted (minted in-boolean).
+- F0084 is the same class in vertex-on-FACE form: input vertex `B#24`
+  sits 5e-15 off an A triangle plane (flush contact carried with f64
+  authoring residue), so EVERY B edge fanning out of `B#24` pierces
+  that plane sub-weld-close to the vertex — a fan of ≥6 LPI twins
+  within 1e-14. Gate-ON this surfaces as an over-used edge (fwd=1
+  rev=2) at reassembly rather than the I6 guard.
+- Gate-OFF measurement (F0016 CORRECT): the SAME contact-residue class
+  exists in the baseline (3 sub-weld pairs, e.g. an A vertex with
+  crossings 5e-18 away) but at low density. **The insertion does not
+  create the class — it amplifies it**: re-rolled CDT diagonals put
+  more edges near the shared junction corners (33 pairs gate-ON), and
+  the §4.3/I6 weld then collapses more slivers.
+- Corrected root statement: flush/chained operands carry
+  INTENDED-EXACT contacts (vertex-on-vertex, vertex-on-face) at
+  sub-weld f64 residue (1e-18…5e-15). Any triangulation edge passing
+  near such a contact mints LPI twins of the explicit vertex; the I6
+  weld rightly fuses the cluster; the collapsed sliver leaves two
+  surviving sub-triangles welded onto the SAME vertex triple (or an
+  over-used edge) — and the current response is a blanket STOP.
+- **Next increment (spec-first): post-weld collapsed-wedge resolution**
+  at the I6 site — when two surviving triangles weld to one vertex
+  triple AND share a raw edge while their third vertices weld together
+  (the collapsed-sliver signature: F0016's pair `[98,84,41]`/`[83,41,98]`
+  shares raw edge (41,98) with tips 84/83 welding via clusters
+  {41,42,43}/{83,84,85}), same winding, same surface label — keep one
+  (exact structural dedup, no tolerance beyond the existing weld).
+  Genuinely-coincident-face inputs (the a4 fixture: no shared raw
+  structure) still STOP. The fwd=1/rev=2 over-use is the edge-level
+  shadow of the same collapse and needs the analogous local resolution.
+  Alternative vehicle (more invasive, R0091-adjacent, N54-warned):
+  canonicalize the contact residue in the INPUTS (snap the 5e-15
+  vertex onto the face before arrangement) — not preferred.
+
 ### Increment 3 — always-on
 
 Only after increment 2's ledger shows recovered cases + 0 regressions

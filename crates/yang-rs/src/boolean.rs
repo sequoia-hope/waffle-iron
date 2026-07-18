@@ -1021,8 +1021,29 @@ pub fn boolean(
                         let ot = orig_tri[label];
                         eprintln!(
                             "NONMANIFOLD_SITE_PROBE i6-coincident-tris: compact {label} orig_t {ot} \
-                             source {:?} surface {:?}",
-                            la.source[ot], la.surface[ot]
+                             raw_tri {:?} source {:?} surface {:?}",
+                            la.mesh.tris[ot], la.source[ot], la.surface[ot]
+                        );
+                    }
+                    // #146 inc-3 provenance join: for each welded vertex of
+                    // the coincident pair, the ORIGINAL arrangement vertex
+                    // cluster that fused into it — these original indices
+                    // are cherchi OUTPUT indices, joining directly against
+                    // the CHERCHI_VERT_PROVENANCE pair log.
+                    for &cv in &sorted {
+                        let root = remap
+                            .iter()
+                            .position(|s| *s == Some(cv))
+                            .expect("compact vert has a welded root");
+                        let members: Vec<u32> = weld
+                            .iter()
+                            .enumerate()
+                            .filter(|&(_, &r)| r == root as u32)
+                            .map(|(i, _)| i as u32)
+                            .collect();
+                        eprintln!(
+                            "NONMANIFOLD_SITE_PROBE i6-cluster: compact {cv} root {root} \
+                             members(la-vert) {members:?}"
                         );
                     }
                 }
