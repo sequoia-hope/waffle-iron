@@ -325,6 +325,17 @@ pub fn boolean(
         None => (a, b),
     };
 
+    // P3a #146 increment 0 (spec `yang_146_conformal_junction_sampling.md`):
+    // dev-only junction-mint measurement probe. Enumerates cross edge×face
+    // pierce candidates (X-edge's two incident surfaces + Y-face's surface,
+    // solved by the N-137.1 implicit-triple Newton) and reports each
+    // converged pierce point with its distance to the edge's existing
+    // endpoint samples — the mint-gap measurement the spec's increment 0
+    // demands. Print-only; production byte-identical.
+    if std::env::var_os("YANG_JUNCTION_MINT_PROBE").is_some() {
+        junction_mint_probe(a, b);
+    }
+
     // (0) Stage 0 — §4.5.5 coplanar preprocessing (PR-YR26, M8 slice b).
     // Near-coplanar planar A×B face pairs are HANDLED: both faces snapped
     // onto one canonical shared plane, segmented by the exact 2D overlay,
@@ -1344,4 +1355,147 @@ pub fn boolean(
         tri_face: Vec::new(),
         forced_rim_n: None,
     })
+}
+
+/// P3a #146 increment 0 (spec `yang_146_conformal_junction_sampling.md` §4):
+/// dev-only measurement probe behind `YANG_JUNCTION_MINT_PROBE`.
+///
+/// For each cross pair (edge `e` of operand X with exactly two distinct
+/// incident surfaces, face `f` of operand Y) whose padded AABBs overlap,
+/// seed the exact 3-surface Newton ([`relocate_onto_implicit_triple`]) at
+/// the edge chord midpoint. A converged, in-band solution `J` is a candidate
+/// shared-junction pierce point; the printed `d_start`/`d_end` distances to
+/// the edge's endpoint samples measure the MINT GAP (how far the nearest
+/// existing Stage-1 sample sits from the true junction — for `LineSegment`
+/// edges the endpoints ARE the samples). Print-only diagnostics; never
+/// mutates the operands.
+fn junction_mint_probe(a: &BRep, b: &BRep) {
+    let aabb_of = |pts: &mut dyn Iterator<Item = Point3>| -> Option<([f64; 3], [f64; 3])> {
+        let mut lo = [f64::INFINITY; 3];
+        let mut hi = [f64::NEG_INFINITY; 3];
+        let mut any = false;
+        for p in pts {
+            let q = p.as_array();
+            for k in 0..3 {
+                lo[k] = lo[k].min(q[k]);
+                hi[k] = hi[k].max(q[k]);
+            }
+            any = true;
+        }
+        any.then_some((lo, hi))
+    };
+    let overlap = |x: ([f64; 3], [f64; 3]), y: ([f64; 3], [f64; 3]), pad: f64| -> bool {
+        (0..3).all(|k| x.0[k] - pad <= y.1[k] && y.0[k] - pad <= x.1[k])
+    };
+    let dist = |p: Point3, q: Point3| -> f64 {
+        let (p, q) = (p.as_array(), q.as_array());
+        ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()
+    };
+    let sides: [(&BRep, &BRep, &str); 2] = [(a, b, "A"), (b, a, "B")];
+    for (x, y, tag) in sides {
+        // Geometric edge → the DISTINCT surfaces of the faces whose loops
+        // carry it. `LineSegment` edges use the per-loop-copy convention (one
+        // directed yang edge per half-edge, kernel-v2 `to_yang.rs` m1), so
+        // incidence CANNOT be keyed by edge index — group copies by their
+        // canonical (unordered, bitwise) endpoint pair instead. Distinct
+        // curves sharing both endpoints (an arc + its chord) collapse into
+        // one group and are skipped by the two-surface filter — a
+        // probe-grade loss; increment 1 keys by curve identity.
+        let kb = |p: Point3| -> [u64; 3] { [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()] };
+        type EdgeKey = ([u64; 3], [u64; 3]);
+        let mut edge_surfs: std::collections::BTreeMap<EdgeKey, (u32, Vec<Surface>)> =
+            std::collections::BTreeMap::new();
+        for f in x.faces() {
+            for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+                let e = &x.edges()[ei as usize];
+                let k0 = kb(x.vertices()[e.start as usize].point);
+                let k1 = kb(x.vertices()[e.end as usize].point);
+                let key = if k0 <= k1 { (k0, k1) } else { (k1, k0) };
+                let entry = edge_surfs.entry(key).or_insert((ei, Vec::new()));
+                if !entry.1.contains(&f.surface) {
+                    entry.1.push(f.surface);
+                }
+            }
+        }
+        let mut n_candidates = 0usize;
+        let mut n_pierce = 0usize;
+        for (ei, surfs) in edge_surfs.values() {
+            let ei = *ei;
+            let [s1, s2] = surfs.as_slice() else {
+                continue; // border/defective incidence — not a 2-surface edge
+            };
+            let e = &x.edges()[ei as usize];
+            let p0 = x.vertices()[e.start as usize].point;
+            let p1 = x.vertices()[e.end as usize].point;
+            let chord = dist(p0, p1);
+            if chord == 0.0 {
+                continue; // closed-curve edge (full circle): midpoint seed is
+                          // meaningless — increment 1 will sample the curve.
+            }
+            let Some(e_box) = aabb_of(&mut [p0, p1].into_iter()) else {
+                continue;
+            };
+            let seed = Point3::new(
+                (p0.x() + p1.x()) / 2.0,
+                (p0.y() + p1.y()) / 2.0,
+                (p0.z() + p1.z()) / 2.0,
+            );
+            for (fi, f) in y.faces().iter().enumerate() {
+                let mut f_pts = f
+                    .outer_loop
+                    .iter()
+                    .chain(f.inner_loops.iter().flatten())
+                    .flat_map(|&fei| {
+                        let fe = &y.edges()[fei as usize];
+                        [
+                            y.vertices()[fe.start as usize].point,
+                            y.vertices()[fe.end as usize].point,
+                        ]
+                    });
+                let Some(f_box) = aabb_of(&mut f_pts) else {
+                    continue;
+                };
+                // Pad by the edge chord: covers arc bulge + chord sagitta at
+                // probe precision (increment 1 replaces this with the exact
+                // curve bound).
+                if !overlap(e_box, f_box, chord) {
+                    continue;
+                }
+                n_candidates += 1;
+                let Some(j) = relocate_onto_implicit_triple(seed, *s1, *s2, f.surface) else {
+                    continue;
+                };
+                // Reject far-off convergence: J must stay within the padded
+                // edge box (a Newton walk to a distant root is not this
+                // junction).
+                let ja = j.as_array();
+                if !(0..3).all(|k| e_box.0[k] - chord <= ja[k] && ja[k] <= e_box.1[k] + chord) {
+                    continue;
+                }
+                n_pierce += 1;
+                let fv = |s: Surface| {
+                    surface_value_and_normal(s, ja)
+                        .map(|(v, _)| v)
+                        .unwrap_or(f64::NAN)
+                };
+                eprintln!(
+                    "YANG_JUNCTION_MINT {tag}-edge={ei} vs-face={fi} \
+                     J=({:.9},{:.9},{:.9}) d_start={:.3e} d_end={:.3e} chord={:.3e} \
+                     F=({:.2e},{:.2e},{:.2e})",
+                    ja[0],
+                    ja[1],
+                    ja[2],
+                    dist(j, p0),
+                    dist(j, p1),
+                    chord,
+                    fv(*s1),
+                    fv(*s2),
+                    fv(f.surface),
+                );
+            }
+        }
+        eprintln!(
+            "YANG_JUNCTION_MINT summary side={tag} candidates={n_candidates} pierce={n_pierce}"
+        );
+    }
 }
