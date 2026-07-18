@@ -42,6 +42,100 @@ pub(crate) fn flip_for_op(op: BoolOp, la: &LabeledArrangement, t: usize) -> bool
     }
 }
 
+/// #146 increment 3a (spec `specs/yang_146_collapsed_wedge_dedup.md` §2):
+/// classify a coincident post-weld surviving-triangle pair at the I6 site.
+/// Returns `None` iff the candidate is a COLLAPSED WEDGE — one surface
+/// strip folded shut by the I6 weld — safe to drop in favour of the kept
+/// representative; otherwise the named reject reason (the pair falls
+/// through to the post-loop I6 `NonManifoldInput` backstop unchanged).
+///
+/// The signature is exact and structural (no tolerance beyond the weld
+/// that already fused the pair): same final winding, same surface label,
+/// a shared raw arrangement edge with weld-fused tips, and both triangles
+/// descending from DISTINCT parent triangles of the SAME B-Rep FACE of the
+/// SAME input (via the `tri_face` provenance maps — one surface strip
+/// folding shut lives inside one face; measured on F0016, whose parents
+/// B46/B47 share a face but NOT a mesh edge, which refuted the stricter
+/// parent-adjacency arm). Genuine coincident-sheet inputs are DIFFERENT
+/// B-Rep faces — or carry no lineage at all (the a4 adversary class) —
+/// and still STOP.
+#[allow(clippy::too_many_arguments)] // a pure classifier over the I6 site's locals
+pub(crate) fn wedge_reject_reason(
+    raw_first: [u32; 3],
+    raw_cur: [u32; 3],
+    welded_first: [u32; 3],
+    welded_cur: [u32; 3],
+    weld: &[u32],
+    src_first: &[(LaInputId, u32)],
+    src_cur: &[(LaInputId, u32)],
+    surface_first: &[LaInputId],
+    surface_cur: &[LaInputId],
+    tri_face_a: &[u32],
+    tri_face_b: &[u32],
+) -> Option<&'static str> {
+    // §2.1 same final winding: cyclic equality of the post-flip triples. An
+    // opposite-winding pair is a collapsed two-sided pocket — out of scope
+    // (spec §4), backstop STOPs.
+    if !(0..3).any(|r| (0..3).all(|k| welded_cur[(k + r) % 3] == welded_first[k])) {
+        return Some("winding");
+    }
+    // §2.2 same surface label (also forces an equal per-op flip decision).
+    if surface_first != surface_cur {
+        return Some("surface");
+    }
+    // §2.3 shared raw edge + weld-fused tips: the pair became coincident
+    // THROUGH the weld, tiling one strip side-by-side.
+    let shared: Vec<u32> = raw_first
+        .iter()
+        .copied()
+        .filter(|v| raw_cur.contains(v))
+        .collect();
+    if shared.len() != 2 {
+        return Some("raw-shared");
+    }
+    let tip = |raw: [u32; 3]| raw.iter().copied().find(|v| !shared.contains(v));
+    let (Some(tip_first), Some(tip_cur)) = (tip(raw_first), tip(raw_cur)) else {
+        return Some("raw-shared");
+    };
+    if weld[tip_first as usize] != weld[tip_cur as usize] {
+        return Some("tips-not-welded");
+    }
+    // §2.4 locally-connected provenance: single-valued lineage, same input,
+    // distinct parent triangles of the SAME B-Rep face (the `tri_face`
+    // provenance maps). A wedge is ONE surface strip folding shut inside one
+    // face; independent coincident sheets are different B-Rep faces.
+    // (Measured on F0016: parents B46/B47 share the face but NOT a mesh
+    // edge — the intersection-minted strip edge is not an inherited parent
+    // edge, so parent-tri adjacency is the WRONG locality notion.)
+    let (&[(input_first, parent_first)], &[(input_cur, parent_cur)]) = (src_first, src_cur) else {
+        return Some("lineage");
+    };
+    if input_first != input_cur {
+        return Some("cross-input");
+    }
+    if parent_first == parent_cur {
+        return Some("same-parent");
+    }
+    let faces = if input_first == LaInputId(0) {
+        tri_face_a
+    } else {
+        tri_face_b
+    };
+    if faces.is_empty() {
+        return Some("no-face-map");
+    }
+    let (Some(&face_first), Some(&face_cur)) = (
+        faces.get(parent_first as usize),
+        faces.get(parent_cur as usize),
+    ) else {
+        return Some("parent-range");
+    };
+    if face_first != face_cur {
+        return Some("parents-not-same-face");
+    }
+    None
+}
+
 /// M8 Stage-0 operand dump — diagnostic-only observer (spec
 /// `specs/m8_stage0_inputcheck_clean_emission.md` §6). Env-gated on
 /// `YANG_STAGE0_DUMP_DIR`; zero-cost when unset (never set in production or
@@ -878,6 +972,11 @@ pub fn boolean(
     let mut compact_tris: Vec<[u32; 3]> = Vec::with_capacity(kept.len());
     // compact-tri index -> original `la` tri index (for surface lookup).
     let mut orig_tri: Vec<usize> = Vec::with_capacity(kept.len());
+    // (I6.5, #146 inc-3a) Collapsed-wedge dedup bookkeeping: sorted welded
+    // post-flip triple → the kept representative's (raw triple, welded
+    // triple, `la` tri index). See the dedup arm inside the loop.
+    let mut wedge_seen: std::collections::HashMap<[u32; 3], ([u32; 3], [u32; 3], usize)> =
+        std::collections::HashMap::new();
     for &orig_t in &kept {
         let raw = la.mesh.tris[orig_t];
 
@@ -979,6 +1078,60 @@ pub fn boolean(
         // Intersection keep winding as-is.
         if flip_for_op(op, &la, orig_t) {
             tri.swap(1, 2);
+        }
+        // (I6.5, #146 inc-3a) Collapsed-wedge dedup — spec
+        // `specs/yang_146_collapsed_wedge_dedup.md` §2. When the I6 weld
+        // fuses sub-weld twin junction verts (flush-operand contact residue,
+        // measured 1e-18…5e-15), the hair-thin strip between them collapses
+        // and two surviving sub-triangles of ONE surface strip land on the
+        // same welded triple with the same winding. Drop the later copy iff
+        // the pair matches the exact structural wedge signature; every other
+        // coincidence falls through to the post-loop I6 `NonManifoldInput`
+        // backstop unchanged (the a4 adversary contract).
+        {
+            let mut key = tri;
+            key.sort_unstable();
+            if let Some(&(raw_first, tri_first, o_first)) = wedge_seen.get(&key) {
+                let src = |o: usize| -> &[(LaInputId, u32)] {
+                    if la.source.is_empty() {
+                        &[]
+                    } else {
+                        &la.source[o]
+                    }
+                };
+                let verdict = wedge_reject_reason(
+                    raw_first,
+                    raw,
+                    tri_first,
+                    tri,
+                    &weld,
+                    src(o_first),
+                    src(orig_t),
+                    &la.surface[o_first],
+                    &la.surface[orig_t],
+                    tri_face_a,
+                    tri_face_b,
+                );
+                if std::env::var_os("NONMANIFOLD_SITE_PROBE").is_some() {
+                    match verdict {
+                        None => eprintln!(
+                            "NONMANIFOLD_SITE_PROBE i6-wedge-dedup: DROP orig_t {orig_t} raw \
+                             {raw:?} (kept orig_t {o_first} raw {raw_first:?}) sources {:?}/{:?}",
+                            src(o_first),
+                            src(orig_t)
+                        ),
+                        Some(reason) => eprintln!(
+                            "NONMANIFOLD_SITE_PROBE i6-wedge-dedup: REJECT({reason}) orig_t \
+                             {orig_t} raw {raw:?} vs kept orig_t {o_first} raw {raw_first:?}"
+                        ),
+                    }
+                }
+                if verdict.is_none() {
+                    continue;
+                }
+            } else {
+                wedge_seen.insert(key, (raw, tri, orig_t));
+            }
         }
         let mut new_tri = [0u32; 3];
         for (k, &wi) in tri.iter().enumerate() {

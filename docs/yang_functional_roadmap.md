@@ -139,6 +139,16 @@ in the ledger is PERMANENT with user sign-off.
       exact structural dedup of same-winding same-label tri pairs that
       share a raw edge with weld-fused tips; a4-class genuine coincident
       faces still STOP. See spec §4 "Blocker (1) CHARACTERIZED".*
+      *Increment 3a SHIPPED same day (spec
+      `specs/yang_146_collapsed_wedge_dedup.md`, always-on): the I6-site
+      collapsed-wedge dedup. Locality arm corrected by measurement:
+      same-B-Rep-face via `tri_face` maps (parent-tri adjacency REFUTED —
+      the strip edge is intersection-minted). F0016 gate-ON →
+      SUPPORTED_CORRECT; gate-OFF corpus behaviorally unchanged (0 dedup
+      fires; sole delta = F0090 timeout flake); gate-ON 250C/0W/56E/2T,
+      regression set {F0016,F0084,F0085} → {F0084}. Remaining inc-3
+      blockers: F0084's edge-level over-use shadow at reassembly, then
+      the bucket models' next defect layer.*
    b. **#137 grazing-corner insert + stitch** — the proven triple-junction
       primitive (N-137.1, stronger than anything in the literature per
       findings Q1) gets the Urick-style stitch: mint the corner ONCE, insert

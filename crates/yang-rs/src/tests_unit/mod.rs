@@ -25,6 +25,7 @@ mod n55_s44b_coincidence;
 mod p3a_edge_overrides;
 mod p3a_junction_pierce;
 mod p3a_junction_wiring;
+mod p3a_wedge_dedup;
 mod stage0_rim_projection;
 mod topology;
 

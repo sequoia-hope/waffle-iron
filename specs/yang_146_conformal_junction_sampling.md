@@ -353,6 +353,21 @@ against the widened `NONMANIFOLD_SITE_PROBE` i6-cluster arm):**
   canonicalize the contact residue in the INPUTS (snap the 5e-15
   vertex onto the face before arrangement) — not preferred.
 
+**Increment 3a SHIPPED (2026-07-18, spec
+`specs/yang_146_collapsed_wedge_dedup.md`, always-on):** the collapsed-
+wedge dedup at the I6 site (`wedge_reject_reason` + the I6.5 loop arm in
+`boolean.rs`). One measured correction to the sketch above: the parents
+of the F0016 pair share a B-Rep FACE but NOT a mesh edge (the strip's
+shared raw edge is intersection-minted), so §2.4's locality arm is
+same-face via the `tri_face` maps, not parent-tri adjacency. Measured:
+F0016 gate-ON → SUPPORTED_CORRECT (dedup fires once); gate-OFF full
+assay behaviorally unchanged (dedup fires zero times; sole delta = the
+F0090 timeout flake); gate-ON full assay 250C/0W/56E/2T — the gate-ON
+regression set shrinks {F0016, F0084, F0085} → {F0084} (the edge-level
+shadow, spec §4 non-goal). Increment-3 blocker (1) is now HALF-cleared:
+the remaining gate-ON blocker is F0084's over-used-edge shadow at the
+Stage-4/5 reassembly site.
+
 ### Increment 3 — always-on
 
 Only after increment 2's ledger shows recovered cases + 0 regressions
