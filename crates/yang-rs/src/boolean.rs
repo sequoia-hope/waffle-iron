@@ -7,10 +7,13 @@
 use crate::*;
 
 mod coplanar_scan;
+mod junction;
 mod predicates;
 mod provenance;
 mod rim_junction;
 pub(crate) use coplanar_scan::*;
+#[allow(unused_imports)] // increment-1a: unwired until YANG_JUNCTION_SAMPLING_ENABLE (spec §4)
+pub(crate) use junction::*;
 pub(crate) use predicates::*;
 pub(crate) use provenance::*;
 pub(crate) use rim_junction::*;
