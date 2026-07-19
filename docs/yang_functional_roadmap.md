@@ -234,6 +234,24 @@ in the ledger is PERMANENT with user sign-off.
       exact-bits 3-fan grid insertion), increments 1–4 in the spec. The
       Urick stitch + refinement remains for the genuinely tangential class
       (C0065/R0074, the #137 spec).*
+      *P3b STATUS 2026-07-19 (increments 0–4b done; spec §5 is the source
+      of truth): pierce primitive + tube-grid insertion + gated wiring
+      SHIPPED (inc-1..3, `YANG_P3B_PIERCE_ENABLE`); gate-ON F0082 carries
+      the exact minted corner (mechanism proven). inc-4a SHIPPED always-on:
+      moved×minted §4.3 weld + orbit boundary-cycle extraction (legacy
+      fallback at tangency 4-sheet edges). inc-4b SHIPPED always-on: the
+      beyond-corner conformal trim — mesh-edge-adjacent moved×mint pairs
+      collapse when the sample lies beyond an owner plane whose OP-RESOLVED
+      zero-content verdict fires (Union: reflex; Subtract: base-convex /
+      tool-reflex; Intersect: convex; Xor: never), on the other owner
+      plane, within the chord corridor, and patch-subset-safe. Ledger:
+      gate-OFF 250C/0W category-identical (F0090 flake); gate-ON R0061
+      trims 19 phantoms but STOPs one layer deeper (over-used
+      minted×minted edge with same-winding near-dup-tip slivers = inc-4c,
+      the flip blocker); gate-ON F0082 REFUTED as a lone-phantom case —
+      it is a 3-junction micro-complex over a ~1e-4 near-coplanar cap
+      (J2 = cap-rim×wall CURVED-owner pierce + J3 = tube∩cap∩top triple)
+      → inc-4d curved-owner/rim-corner widening is its named vehicle.*
    c. **Curved-seam re-CDT** (R0072 class) and whatever the triage promotes.
    d. **§4.5.2 as guard shell only** (findings Q3: it recovers ~zero current
       cases — every confirmed LRR case is tangential/missing-solver/micro-

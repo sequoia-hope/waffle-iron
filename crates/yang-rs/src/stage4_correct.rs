@@ -1482,6 +1482,145 @@ pub(crate) fn weld_coincident_relocated(
     welded
 }
 
+/// P3b inc-4b (spec `yang_169_p3b_curved_partner_pierce.md` §5 inc-4b):
+/// beyond-corner conformal TRIM. A Stage-4 relocation can land a
+/// section-curve sample OUTSIDE the bounded owner face, past a Stage-1
+/// minted corner junction on the same curve (F0082's phantom: the chord-ring
+/// crossing vertex relocated to the ellipse's canonical t≈π/2, 1.29e-3
+/// beyond the wall the minted corner terminates at). Such a sample has ZERO
+/// kept content — the curve stops being an output boundary at the corner —
+/// so it is removed TOPOLOGICALLY: edge-collapse phantom→mint (survivor =
+/// the mint, `collapse_vertex` watertight-preserving), justified by the
+/// out-of-face + beyond-corner predicate, never by distance.
+///
+/// Predicate, per mesh edge (m, v) with `m` minted and `v` moved (and not
+/// itself a mint) — all bands derived, no new tolerance:
+/// - beyond-corner: signed distance to an owner plane i with a CONVEX
+///   pierce-time verdict (`trim_beyond`) exceeds `TAU_MODEL·(1+scale)`;
+/// - on-the-other-plane: |signed distance to plane j| ≤ `TAU_EVAL·(1+scale)`
+///   (v is a section-curve sample of partner×plane j ⇒ the segment m→v
+///   leaves the bounded face AT the corner);
+/// - corridor cap: |v−m| ≤ `tangent_plane_corridor(d_ε, sinθ)`,
+///   sinθ = dᵢ(v)/|v−m| — the chord-crossing displacement bound. Beyond it
+///   the vert may be LEGITIMATE far-side geometry (the owner plane is
+///   infinite; a non-convex face can re-enter its positive half-space away
+///   from this corner): NO fire, status quo — the #173/ring gates downstream
+///   stay loud. A missed trim is never worse; a false trim would be
+///   silent-wrong, so every leg fails closed.
+pub(crate) fn trim_beyond_corner_phantoms(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    moved: &std::collections::HashSet<u32>,
+    minted: &std::collections::BTreeMap<u32, crate::boolean::MintProvenance>,
+    d_eps: f64,
+) -> bool {
+    let probe = std::env::var_os("YANG_P3B_TRIM_PROBE").is_some();
+    let mut trimmed = false;
+    'fixed_point: loop {
+        // Patch-subset guard (the F0082 cap-ring lesson, measured 2026-07-19):
+        // collapsing v→m reroutes EVERY patch incident to v onto m, so the
+        // zero-content justification must hold for all of them — if v carries
+        // a patch m does not touch (F0082: the phantom is also a boundary
+        // vertex of B's near-coplanar CAP face, which the mint is 1e-4 off),
+        // the collapse would drag that face's ring onto a foreign point
+        // (s6-planar-loop-nonplanar, silent-wrong were the band looser).
+        // Eligibility therefore requires attributed-patch(v) ⊆
+        // attributed-patch(m); unattributed (`None`) intersection-strip
+        // triangles are neutral (they belong to the junction itself).
+        let mut patches: std::collections::BTreeMap<
+            u32,
+            std::collections::BTreeSet<(InputId, u32)>,
+        > = std::collections::BTreeMap::new();
+        for (ti, tri) in mesh.tris.iter().enumerate() {
+            if let Some(Some(att)) = attribution.get(ti) {
+                for &tv in tri {
+                    if moved.contains(&tv) || minted.contains_key(&tv) {
+                        patches.entry(tv).or_default().insert((att.input, att.face));
+                    }
+                }
+            }
+        }
+        let empty: std::collections::BTreeSet<(InputId, u32)> = std::collections::BTreeSet::new();
+        let mut seen: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
+        for tri in &mesh.tris {
+            for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                let (u, w) = (tri[i], tri[j]);
+                if u == w || !seen.insert((u.min(w), u.max(w))) {
+                    continue;
+                }
+                for (m, v) in [(u, w), (w, u)] {
+                    let Some(prov) = minted.get(&m) else {
+                        continue;
+                    };
+                    if minted.contains_key(&v) || !moved.contains(&v) {
+                        continue;
+                    }
+                    let pv_patches = patches.get(&v).unwrap_or(&empty);
+                    let pm_patches = patches.get(&m).unwrap_or(&empty);
+                    if !pv_patches.is_subset(pm_patches) {
+                        if probe {
+                            eprintln!(
+                                "[p3b-trim] patch-guard NO-FIRE mint v{m} ~ v{v}: \
+                                 v patches {pv_patches:?} ⊄ m patches {pm_patches:?}"
+                            );
+                        }
+                        continue;
+                    }
+                    let pv = mesh.verts[v as usize].as_array();
+                    let pm = mesh.verts[m as usize].as_array();
+                    let dist = ((pv[0] - pm[0]).powi(2)
+                        + (pv[1] - pm[1]).powi(2)
+                        + (pv[2] - pm[2]).powi(2))
+                    .sqrt();
+                    if dist <= 0.0 {
+                        continue; // coincidence is the weld's territory
+                    }
+                    let scale = pv
+                        .iter()
+                        .chain(pm.iter())
+                        .fold(0.0f64, |acc, &c| acc.max(c.abs()));
+                    let beyond_band = cad_primitives::TAU_MODEL * (1.0 + scale);
+                    let on_band = cad_primitives::TAU_EVAL * (1.0 + scale);
+                    for k in 0..2 {
+                        let pi = prov.owner_planes[k];
+                        let pj = prov.owner_planes[1 - k];
+                        if !pi.trim_beyond {
+                            continue; // reflex/ambiguous/default — fail closed
+                        }
+                        let d_i = pi.n[0] * pv[0] + pi.n[1] * pv[1] + pi.n[2] * pv[2] + pi.d;
+                        let d_j = pj.n[0] * pv[0] + pj.n[1] * pv[1] + pj.n[2] * pv[2] + pj.d;
+                        if d_i <= beyond_band || d_j.abs() > on_band {
+                            continue;
+                        }
+                        let sin_theta = d_i / dist;
+                        if dist > tangent_plane_corridor(d_eps, sin_theta) {
+                            if probe {
+                                eprintln!(
+                                    "[p3b-trim] over-corridor NO-FIRE mint v{m} ~ v{v} \
+                                     dist={dist:.3e} d_i={d_i:.3e} d_eps={d_eps:.3e}"
+                                );
+                            }
+                            continue;
+                        }
+                        if probe {
+                            eprintln!(
+                                "[p3b-trim] TRIM v{v} -> mint v{m} dist={dist:.3e} \
+                                 d_i={d_i:.3e} d_j={:.3e} sin={sin_theta:.3}",
+                                d_j.abs()
+                            );
+                        }
+                        collapse_vertex(mesh, attribution, v, m);
+                        trimmed = true;
+                        continue 'fixed_point;
+                    }
+                }
+            }
+        }
+        break;
+    }
+    trimmed
+}
+
 /// N50 (spec `yang_n50_f32_render_twin_weld`, deviation N50): collapse two
 /// DISTINCT output vertices that are **bitwise-identical after rounding to
 /// f32** — the exact G1 render-collapse criterion (kernel-v2
@@ -1786,7 +1925,7 @@ pub(crate) fn stage4_relocate_and_correct(
     attribution: &mut TriangleAttributionMap,
     a: &BRep,
     b: &BRep,
-    minted_junction_keys: &std::collections::BTreeSet<[u64; 3]>,
+    minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
 ) -> Result<(Vec<(u32, f64)>, bool), YangError> {
     use std::collections::{BTreeMap, HashSet};
 
@@ -4314,7 +4453,11 @@ pub(crate) fn stage4_relocate_and_correct(
             .iter()
             .enumerate()
             .filter(|(_, p)| {
-                minted_junction_keys.contains(&[p.x().to_bits(), p.y().to_bits(), p.z().to_bits()])
+                minted_junction_keys.contains_key(&[
+                    p.x().to_bits(),
+                    p.y().to_bits(),
+                    p.z().to_bits(),
+                ])
             })
             .map(|(v, _)| v as u32)
             .collect();
@@ -4356,6 +4499,26 @@ pub(crate) fn stage4_relocate_and_correct(
             {
                 collapsed_any = true;
             }
+        }
+        // P3b inc-4b: beyond-corner conformal trim, immediately AFTER the
+        // moved×minted weld (the weld owns coincidence ≤ TAU_MODEL band; the
+        // trim owns band→corridor beyond-corner phantoms — F0082's 2.76e-3).
+        // Re-resolve mint vert ids WITH provenance: the weld above may have
+        // collapsed vertices, but mint coordinates are never mutated.
+        let minted_prov: std::collections::BTreeMap<u32, crate::boolean::MintProvenance> = mesh
+            .verts
+            .iter()
+            .enumerate()
+            .filter_map(|(v, p)| {
+                minted_junction_keys
+                    .get(&[p.x().to_bits(), p.y().to_bits(), p.z().to_bits()])
+                    .map(|prov| (v as u32, *prov))
+            })
+            .collect();
+        if !minted_prov.is_empty()
+            && trim_beyond_corner_phantoms(mesh, &mut attr_vec, &moved, &minted_prov, d_eps)
+        {
+            collapsed_any = true;
         }
     }
     let sweep_result = sweep_reversed_intersections(mesh, &mut attr_vec, a, b, d_eps);
@@ -4592,7 +4755,7 @@ pub(crate) fn stage4_relocate_and_correct(
                 .iter()
                 .enumerate()
                 .filter(|(_, p)| {
-                    minted_junction_keys.contains(&[
+                    minted_junction_keys.contains_key(&[
                         p.x().to_bits(),
                         p.y().to_bits(),
                         p.z().to_bits(),

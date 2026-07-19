@@ -534,11 +534,13 @@ pub fn boolean(
         Ok("off") | Ok("0")
     );
     // P3b inc-4a: bit-keys of every Stage-1 minted junction point actually
-    // inserted below. Threaded into Stage 4 so the §4.3 coincident weld can
+    // inserted below, mapped (inc-4b) to the mint's owner-edge trim
+    // provenance. Threaded into Stage 4 so the §4.3 coincident weld can
     // recognize a relocated vertex converging onto a minted junction (the
-    // moved×minted arm; survivor = the mint). Empty when no mint happened.
-    let mut minted_junction_keys: std::collections::BTreeSet<[u64; 3]> =
-        std::collections::BTreeSet::new();
+    // moved×minted arm; survivor = the mint) and the beyond-corner trim can
+    // test the owner planes. Empty when no mint happened.
+    let mut minted_junction_keys: std::collections::BTreeMap<[u64; 3], MintProvenance> =
+        std::collections::BTreeMap::new();
     let p3a_sampled: Option<(BRep, BRep)> = if !p3a_disabled
         && stage0.is_none()
         && cyl_pairs.is_empty()
@@ -604,11 +606,22 @@ pub fn boolean(
                 .chain(jo.face_b.values())
             {
                 for p in pts {
-                    minted_junction_keys.insert([
-                        p.x().to_bits(),
-                        p.y().to_bits(),
-                        p.z().to_bits(),
-                    ]);
+                    let key = [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
+                    // inc-4b: resolve the pierce-time geometric verdicts into
+                    // zero-content flags for THIS op (see resolve_trim_beyond).
+                    let prov = match jo.provenance.get(&key) {
+                        Some(pp) => MintProvenance {
+                            owner_planes: pp.owner_planes.map(|pl| MintTrimPlane {
+                                n: pl.n,
+                                d: pl.d,
+                                trim_beyond: resolve_trim_beyond(op, pp.owner, pl.material_beyond),
+                            }),
+                        },
+                        None => MintProvenance {
+                            owner_planes: [MintTrimPlane::default(); 2],
+                        },
+                    };
+                    minted_junction_keys.insert(key, prov);
                 }
             }
             Some((

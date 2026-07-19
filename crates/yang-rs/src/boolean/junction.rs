@@ -45,6 +45,204 @@ pub(crate) struct PiercePoint {
     /// Stage-1 mesh must carry `point` as an interior Steiner vertex
     /// (increment 2, spec §3.3 second bullet).
     pub partner_face: u32,
+    /// The owner edge's two incident planes + their pierce-time GEOMETRIC
+    /// material verdicts — the Stage-4 beyond-corner trim's raw provenance
+    /// (inc-4b). Resolved against the boolean OP in `boolean()`.
+    pub owner_planes: [PierceTrimPlane; 2],
+}
+
+/// One owner plane of a pierce, in normalized Hesse form
+/// (`signed_dist(p) = n·p + d`, `n` the unit OUTWARD face normal), plus the
+/// pierce-time GEOMETRIC verdict `material_beyond`:
+/// - `Some(true)`  — reflex incidence: the owner solid's material extends
+///   past this plane at the pierce (beyond ⇒ INSIDE the owner);
+/// - `Some(false)` — convex incidence: beyond ⇒ OUTSIDE the owner;
+/// - `None`        — undetermined (near-coplanar faces, missing directed
+///   copy, degenerate data) ⇒ the trim never fires on this plane.
+///
+/// Whether "beyond" means ZERO KEPT CONTENT depends on the boolean op and
+/// the owner side — resolved by [`resolve_trim_beyond`] into the Stage-4
+/// [`MintTrimPlane::trim_beyond`] flag.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PierceTrimPlane {
+    /// Unit outward normal.
+    pub n: [f64; 3],
+    /// Normalized plane offset: `n·p + d = 0` on the plane.
+    pub d: f64,
+    /// Geometric material verdict at the pierce (see type docs).
+    pub material_beyond: Option<bool>,
+}
+
+impl Default for PierceTrimPlane {
+    /// Degenerate placeholder: zero normal ⇒ every signed distance is 0 and
+    /// the verdict is undetermined ⇒ the trim can never fire (fail closed).
+    fn default() -> Self {
+        PierceTrimPlane {
+            n: [0.0; 3],
+            d: 0.0,
+            material_beyond: None,
+        }
+    }
+}
+
+/// One owner plane RESOLVED for the executing boolean op: `trim_beyond ==
+/// true` ⇔ a section-curve sample beyond this plane — past the minted
+/// corner — is interior to / removed from the RESULT, i.e. has zero kept
+/// content and may be trimmed onto the mint.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct MintTrimPlane {
+    /// Unit outward normal.
+    pub n: [f64; 3],
+    /// Normalized plane offset: `n·p + d = 0` on the plane.
+    pub d: f64,
+    /// Resolved zero-content verdict for the executing op.
+    pub trim_beyond: bool,
+}
+
+impl Default for MintTrimPlane {
+    /// Degenerate placeholder: zero normal ⇒ every signed distance is 0 ⇒
+    /// the beyond-corner predicate can never fire on it (fail closed).
+    fn default() -> Self {
+        MintTrimPlane {
+            n: [0.0; 3],
+            d: 0.0,
+            trim_beyond: false,
+        }
+    }
+}
+
+/// Stage-4 provenance of one Stage-1 minted junction point (keyed by the
+/// mint's exact coordinate bits), with per-plane verdicts already RESOLVED
+/// for the executing op.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct MintProvenance {
+    /// The owner edge's two incident planes at the pierce.
+    pub owner_planes: [MintTrimPlane; 2],
+}
+
+/// Pierce-time provenance of one mint as recorded by
+/// [`junction_stage1_overrides`]: the owning operand + the raw geometric
+/// plane verdicts (op not yet applied).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PierceProvenance {
+    /// Which operand owns the pierced edge.
+    pub owner: InputId,
+    /// The owner edge's two incident planes at the pierce (geometric).
+    pub owner_planes: [PierceTrimPlane; 2],
+}
+
+/// Resolve a plane's geometric `material_beyond` verdict into the
+/// zero-content `trim_beyond` flag for the executing op (spec inc-4b,
+/// measured 2026-07-19 on both live customers):
+///
+/// A trim candidate v lies ON the partner operand's boundary surface and ON
+/// the owner's OTHER incident plane, beyond plane i past the minted corner.
+/// Zero kept content ⇔ v's beyond-region is interior to / removed from the
+/// result:
+/// - `Union`: beyond must be INSIDE the owner (reflex, `material_beyond ==
+///   true`) — interior of the union. Beyond a CONVEX plane is outside the
+///   owner, where the partner's surface is KEPT (F0082's measured union
+///   fires are reflex rising-wall corners).
+/// - `Subtract` (result = A − B): owner A (base): beyond must be OUTSIDE
+///   the base (convex) — outside the base is outside the result. Owner B
+///   (tool): beyond must be INSIDE the tool (reflex) — carved away
+///   (R0061's measured subtract fires: zigzag-tool reflex corners).
+/// - `Intersect`: beyond must be OUTSIDE the owner (convex) — outside
+///   either operand is outside the intersection.
+/// - `Xor`: NEVER — both sides of every surface survive an XOR boundary.
+/// - Undetermined geometry (`None`): never (fail closed).
+pub(crate) fn resolve_trim_beyond(
+    op: BoolOp,
+    owner: InputId,
+    material_beyond: Option<bool>,
+) -> bool {
+    match (op, material_beyond) {
+        (_, None) => false,
+        (BoolOp::Union, Some(mb)) => mb,
+        (BoolOp::Subtract, Some(mb)) => {
+            if owner == InputId::A {
+                !mb
+            } else {
+                mb
+            }
+        }
+        (BoolOp::Intersect, Some(mb)) => !mb,
+        (BoolOp::Xor, Some(_)) => false,
+    }
+}
+
+/// The inc-4b trim provenance of one owner edge: both incident planes in
+/// normalized Hesse form + the per-plane local-convexity verdict at the
+/// edge. Any gate failure (non-plane surface, degenerate normal, missing
+/// directed copy, ambiguous/reflex incidence) yields the fail-closed
+/// default (`trim_beyond == false` / zero normal) — the mint still happens;
+/// only the Stage-4 trim stays inert for that plane.
+fn owner_trim_planes(
+    x: &BRep,
+    s1: Surface,
+    s2: Surface,
+    copy_faces: &[(u32, Surface)],
+) -> [PierceTrimPlane; 2] {
+    let surfs = [s1, s2];
+    let mut out = [PierceTrimPlane::default(); 2];
+    for i in 0..2 {
+        let Surface::Plane { normal, d } = surfs[i] else {
+            return [PierceTrimPlane::default(); 2];
+        };
+        let ra = normal.as_array();
+        let n_len = (ra[0] * ra[0] + ra[1] * ra[1] + ra[2] * ra[2]).sqrt();
+        if n_len < cad_primitives::TAU_WORK {
+            return [PierceTrimPlane::default(); 2];
+        }
+        out[i] = PierceTrimPlane {
+            n: [ra[0] / n_len, ra[1] / n_len, ra[2] / n_len],
+            d: d / n_len,
+            material_beyond: None,
+        };
+    }
+    for i in 0..2 {
+        let j = 1 - i;
+        // A directed copy of the edge as it appears in the loop of a face ON
+        // plane j: under this B-Rep's loop convention ("CCW viewed from
+        // outside ALONG the face normal", i.e. looking in the +n direction;
+        // planar `Plane.normal` outward, `reversed == false`) face material
+        // lies to the RIGHT of travel — direction t̂ⱼ × n̂ⱼ. Pinned
+        // empirically by the `box_pierce_provenance_is_convex_and_on_plane`
+        // fixture (an rj_box vertical edge: the y=0.3 face's copy runs +z
+        // with n = −ŷ, and its material extends toward +x = t̂ × n̂).
+        let Some(&(ei, _)) = copy_faces.iter().find(|(_, fs)| *fs == surfs[j]) else {
+            continue;
+        };
+        let e = &x.edges()[ei as usize];
+        let a0 = x.vertices()[e.start as usize].point.as_array();
+        let a1 = x.vertices()[e.end as usize].point.as_array();
+        let t = [a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]];
+        let tl = (t[0] * t[0] + t[1] * t[1] + t[2] * t[2]).sqrt();
+        if tl == 0.0 {
+            continue;
+        }
+        let th = [t[0] / tl, t[1] / tl, t[2] / tl];
+        let nj = out[j].n;
+        let u = [
+            th[1] * nj[2] - th[2] * nj[1],
+            th[2] * nj[0] - th[0] * nj[2],
+            th[0] * nj[1] - th[1] * nj[0],
+        ];
+        // s < 0: convex — face j's material dips strictly INSIDE plane i's
+        // negative half-space (beyond plane i = outside the solid).
+        // s > 0: reflex — material extends past plane i.
+        // |s| within the collinearity floor (near-coplanar incident faces):
+        // undetermined — fail closed.
+        let s = out[i].n[0] * u[0] + out[i].n[1] * u[1] + out[i].n[2] * u[2];
+        out[i].material_beyond = if s > TRANSVERSALITY_MIN {
+            Some(true)
+        } else if s < -TRANSVERSALITY_MIN {
+            Some(false)
+        } else {
+            None
+        };
+    }
+    out
 }
 
 /// Sine-scale transversality floor on `|t̂·n̂|` — below this the edge is
@@ -64,13 +262,44 @@ pub(crate) fn junction_pierce_points(
     a: &BRep,
     b: &BRep,
 ) -> BTreeMap<(InputId, u32), Vec<PiercePoint>> {
+    // One-off structure probe (read-only, `YANG_P3B_FACE_PROBE=<A|B>,<idx>`):
+    // dump the face's surface and loop-edge composition (curve type, endpoint
+    // coords) — diagnoses why a face's boundary edges never enter the pierce
+    // enumeration.
+    if let Ok(spec) = std::env::var("YANG_P3B_FACE_PROBE") {
+        if let Some((which, idx)) = spec.split_once(',') {
+            if let Ok(fi) = idx.parse::<usize>() {
+                let brep = if which == "A" { a } else { b };
+                if let Some(f) = brep.faces().get(fi) {
+                    eprintln!(
+                        "[p3b-face] {which} face {fi} surface={:?} outer={} inner={}",
+                        f.surface,
+                        f.outer_loop.len(),
+                        f.inner_loops.len()
+                    );
+                    for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+                        let e = &brep.edges()[ei as usize];
+                        eprintln!(
+                            "[p3b-face]   edge {ei} {:?} {:?} -> {:?}",
+                            e.curve,
+                            brep.vertices()[e.start as usize].point,
+                            brep.vertices()[e.end as usize].point
+                        );
+                    }
+                }
+            }
+        }
+    }
     let mut out: BTreeMap<(InputId, u32), Vec<PiercePoint>> = BTreeMap::new();
     for (x, y, input) in [(a, b, InputId::A), (b, a, InputId::B)] {
         // Group the per-loop LineSegment edge copies by canonical (unordered,
         // bitwise) endpoint pair; collect every copy index and the DISTINCT
         // incident surfaces.
         let kb = |p: Point3| -> [u64; 3] { [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()] };
-        type Group = (Vec<u32>, Vec<Surface>);
+        // Per geometric edge: the per-loop copy indices, the DISTINCT incident
+        // surfaces, and each copy's OWN face surface (the copy is directed as
+        // it appears in that face's loop — the inc-4b convexity input).
+        type Group = (Vec<u32>, Vec<Surface>, Vec<(u32, Surface)>);
         let mut groups: BTreeMap<([u64; 3], [u64; 3]), Group> = BTreeMap::new();
         for f in x.faces() {
             for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
@@ -84,13 +313,48 @@ pub(crate) fn junction_pierce_points(
                 let g = groups.entry(key).or_default();
                 if !g.0.contains(&ei) {
                     g.0.push(ei);
+                    g.2.push((ei, f.surface));
                 }
                 if !g.1.contains(&f.surface) {
                     g.1.push(f.surface);
                 }
             }
         }
-        for (copies, surfs) in groups.values() {
+        for (copies, surfs, copy_faces) in groups.values() {
+            // Group-structure probe (read-only, `YANG_P3B_GROUP_PROBE=x,y,z,r`):
+            // dump every geometric-edge group whose midpoint lies within `r` of
+            // the given point — copies, distinct-surface count, endpoints.
+            // Diagnoses corners whose owner edges never reach the pierce math
+            // (e.g. non-conformal chained-output loops splitting the same
+            // geometric edge differently per face → 1-surface groups).
+            if let Ok(spec) = std::env::var("YANG_P3B_GROUP_PROBE") {
+                let parts: Vec<f64> = spec.split(',').filter_map(|s| s.parse().ok()).collect();
+                if let [px, py, pz, pr] = parts.as_slice() {
+                    let e = &x.edges()[copies[0] as usize];
+                    let a0 = x.vertices()[e.start as usize].point.as_array();
+                    let a1 = x.vertices()[e.end as usize].point.as_array();
+                    let mid = [
+                        0.5 * (a0[0] + a1[0]),
+                        0.5 * (a0[1] + a1[1]),
+                        0.5 * (a0[2] + a1[2]),
+                    ];
+                    let d = ((mid[0] - px).powi(2) + (mid[1] - py).powi(2) + (mid[2] - pz).powi(2))
+                        .sqrt();
+                    if d <= *pr {
+                        eprintln!(
+                            "[p3b-group] {input:?} copies={copies:?} surfs={} \
+                             p0=({:.7},{:.7},{:.7}) p1=({:.7},{:.7},{:.7}) surfaces={surfs:?}",
+                            surfs.len(),
+                            a0[0],
+                            a0[1],
+                            a0[2],
+                            a1[0],
+                            a1[1],
+                            a1[2]
+                        );
+                    }
+                }
+            }
             let [s1, s2] = surfs.as_slice() else {
                 continue; // border/defective incidence — not a 2-surface edge
             };
@@ -122,10 +386,15 @@ pub(crate) fn junction_pierce_points(
             let e = &x.edges()[copies[0] as usize];
             let p0 = x.vertices()[e.start as usize].point;
             let p1 = x.vertices()[e.end as usize].point;
+            // inc-4b: the trim provenance is per geometric edge — computed
+            // once, stamped on every pierce of this edge.
+            let owner_planes = owner_trim_planes(x, *s1, *s2, copy_faces);
             let mut pierces: Vec<PiercePoint> = Vec::new();
             for (f_idx, f) in y.faces().iter().enumerate() {
-                if let Some(pp) = line_edge_plane_face_pierce(p0, p1, *s1, *s2, f_idx as u32, f, y)
+                if let Some(mut pp) =
+                    line_edge_plane_face_pierce(p0, p1, *s1, *s2, f_idx as u32, f, y)
                 {
+                    pp.owner_planes = owner_planes;
                     pierces.push(pp);
                 }
                 // P3b inc-3 (spec `yang_169_p3b_curved_partner_pierce.md`
@@ -134,15 +403,14 @@ pub(crate) fn junction_pierce_points(
                 // ellipse×wall corner class. Gate-OFF this arm is dead and
                 // the enumeration is byte-identical.
                 if std::env::var_os("YANG_P3B_PIERCE_ENABLE").is_some() {
-                    pierces.extend(line_edge_cylinder_face_pierce(
-                        p0,
-                        p1,
-                        *s1,
-                        *s2,
-                        f_idx as u32,
-                        f,
-                        y,
-                    ));
+                    pierces.extend(
+                        line_edge_cylinder_face_pierce(p0, p1, *s1, *s2, f_idx as u32, f, y)
+                            .into_iter()
+                            .map(|mut pp| {
+                                pp.owner_planes = owner_planes;
+                                pp
+                            }),
+                    );
                 }
             }
             if pierces.is_empty() {
@@ -386,6 +654,9 @@ pub(crate) fn line_edge_cylinder_face_pierce(
             t,
             transversality,
             partner_face: f_idx,
+            // Stamped by the caller (`junction_pierce_points`) — the trim
+            // provenance is per owner EDGE, not per pierced face.
+            owner_planes: [PierceTrimPlane::default(); 2],
         });
     }
     out.sort_by(|u, v| u.t.total_cmp(&v.t));
@@ -517,6 +788,8 @@ fn line_edge_plane_face_pierce(
         t,
         transversality,
         partner_face: f_idx,
+        // Stamped by the caller (`junction_pierce_points`).
+        owner_planes: [PierceTrimPlane::default(); 2],
     })
 }
 
@@ -535,6 +808,12 @@ pub(crate) struct JunctionStage1Overrides {
     pub edge_b: BTreeMap<u32, Vec<Point3>>,
     /// B's face index → interior junction points (pierced by A's edges).
     pub face_b: BTreeMap<u32, Vec<Point3>>,
+    /// inc-4b: mint bit-key → pierce-time trim provenance (owner side +
+    /// geometric plane verdicts), for every kept (non-poisoned) pierce
+    /// point above. Resolved against the boolean op in `boolean()` and
+    /// threaded to the Stage-4 beyond-corner trim alongside the §4.3
+    /// moved×minted weld keys.
+    pub provenance: BTreeMap<[u64; 3], PierceProvenance>,
 }
 
 impl JunctionStage1Overrides {
@@ -628,6 +907,10 @@ pub(crate) fn junction_stage1_overrides(a: &BRep, b: &BRep) -> JunctionStage1Ove
             if !dup {
                 list.push(pp.point);
             }
+            out.provenance.entry(key).or_insert(PierceProvenance {
+                owner: *input,
+                owner_planes: pp.owner_planes,
+            });
         }
     }
     out

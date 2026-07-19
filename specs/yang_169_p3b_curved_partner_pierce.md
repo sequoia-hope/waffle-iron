@@ -341,21 +341,124 @@ copies of the owner edge (per-loop fan-out, proven by the P3a fixtures).
   moved×minted survivor pin and the minted×minted loudness pin); fmt +
   clippy clean; WASM bundle rebuilt. Gate-ON: R0061 ERROR (loud,
   next-layer), F0082 ERROR (unchanged, inc-4b's target).
-- **inc-4b — beyond-corner conformal trim (greens F0082), spec-first.**
-  The F0082 phantom (t≈π/2, 1.29e-3 beyond the wall — far outside any
-  coincidence band) is the same redundant-sample class at TRIM distance:
-  a section-curve sample whose exact curve position lies OUTSIDE the
-  bounded face, past a minted corner junction on the same curve. Its
-  kept-side content is zero ⇒ remove topologically: collapse
-  phantom→J across ALL incident output faces (an output edge collapse,
-  justified by the out-of-face + beyond-corner predicate, NOT by
-  distance), or — if any predicate is ambiguous — STOP loudly via a new
-  ellipse-arm bounded-face containment gate (the torus arm's KV6d
-  check, `stage4_correct.rs:4119`, has no ellipse counterpart today).
-  Design details to be fixed after inc-4a's ledger.
-- **inc-5 — always-on** per the standard ledger; then scope widenings
-  (strip/holed laterals, cone partners, curved-incident owners, rim-corner
-  and edge-split arms) as separate measured increments.
+- **inc-4b — beyond-corner conformal trim. SHIPPED always-on (2026-07-19);
+  "greens F0082" REFUTED by measurement — F0082 is a deeper class (below).**
+  Premises measured on live F0082 via `YANG_P3B_TRIM_PROBE`: the phantom
+  (mesh v917, moved) IS mesh-edge-adjacent to the mint (v919) at d=2.76e-3,
+  beyond the wall by 1.29e-3.
+  The phantom class: a RELOCATED section-curve sample beyond a minted
+  corner junction on the same curve, in a region the RESULT does not keep
+  on its boundary — zero kept content ⇒ remove topologically (collapse
+  phantom→J, survivor = the mint, `collapse_vertex`).
+
+  **Predicate (all derived, no new tolerance):** for a mesh edge (m, v),
+  m a Stage-1 minted junction vertex, v `moved` (relocated onto its
+  section curve) and not itself a mint, with the mint's owner planes
+  (n̂₁,d₁),(n̂₂,d₂) threaded from pierce time:
+  - (a) **beyond-corner, op-resolved**: signed distance dᵢ(v) = n̂ᵢ·v + dᵢ
+    > `TAU_MODEL·(1+scale)` for an owner plane i whose RESOLVED verdict
+    (below) says "beyond has zero kept content";
+  - (b) **on-curve/on-the-other-plane**: |dⱼ(v)| ≤ `TAU_EVAL·(1+scale)`
+    for the other owner plane j — v is a section-curve sample of
+    (partner surface × plane j), so the segment m→v leaves the bounded
+    face AT the corner m;
+  - (c) **corridor cap**: |v−m| ≤ `tangent_plane_corridor(d_ε, sinθ)`
+    with sinθ = dᵢ(v)/|v−m| — the chord-crossing displacement bound.
+    A beyond-corridor vert may be LEGITIMATE far-side geometry (the
+    owner plane is infinite; a non-convex face can re-enter its
+    positive half-space away from this corner) → NO fire, status quo
+    (the downstream #173/ring gates stay loud). Never a false wall;
+  - (d) **patch-subset guard** (the F0082 cap-ring lesson, measured):
+    attributed-patch(v) ⊆ attributed-patch(m), else NO fire — a collapse
+    reroutes EVERY patch incident to v onto m, so a candidate carrying a
+    face the mint does not touch (F0082's phantom also anchors B's
+    near-coplanar CAP ring, 1e-4 off the mint) would drag that ring onto
+    a foreign point (measured: `s6-planar-loop-nonplanar` at 1.05e-4 —
+    the guard converts that silent-wrong-shaped collapse into a no-op).
+
+  **Geometric verdict at the pierce (`material_beyond: Option<bool>` per
+  plane):** under this B-Rep's loop convention ("CCW viewed from outside
+  ALONG the face normal" = looking in the +n direction; planar
+  `Plane.normal` outward, `reversed == false`) face material at a directed
+  edge copy lies to the RIGHT of travel: u = t̂ × n̂ — pinned EMPIRICALLY
+  against `rj_box` by the `box_pierce_provenance_is_convex_and_on_plane`
+  fixture (the first material-left draft read every convex box edge as
+  reflex and the pin caught it). For plane i: take the edge copy in the
+  face on plane j; s = n̂ᵢ·(t̂ⱼ × n̂ⱼ); s > 1e-9 ⇒ reflex
+  (`Some(true)`: material extends beyond), s < −1e-9 ⇒ convex
+  (`Some(false)`), else undetermined (`None`, inert).
+
+  **Op resolution (`resolve_trim_beyond`, pinned by the
+  `resolve_trim_beyond_pins_the_op_owner_table` fixture):** zero-content-
+  beyond depends on the op and the owner side — Union: reflex only
+  (beyond = interior of the union; F0082's measured union fires are
+  reflex rising-wall corners); Subtract A−B: owner A convex only (beyond
+  = outside the result), owner B reflex only (beyond = carved away;
+  R0061's measured 19 fires); Intersect: convex only; Xor: never;
+  undetermined: never.
+
+  **Wiring:** `PiercePoint` carries `owner_planes: [PierceTrimPlane; 2]`
+  (geometric); `junction_stage1_overrides` records per-mint
+  `PierceProvenance { owner, planes }`; `boolean()` resolves against the
+  op into `MintProvenance` ([MintTrimPlane; 2]) and the Stage-4 mint
+  channel widens from a bit-key set to `BTreeMap<[u64;3], MintProvenance>`;
+  the trim pass runs at the pre-sweep site immediately AFTER the
+  moved×minted weld (weld owns ≤ band; trim owns band→corridor),
+  fixed-point iterated. Live gate-OFF too (P3a planar mints thread the
+  same channel) — measured by full assay: gate-OFF 250C/0W/55E/3T,
+  per-case category-identical to the committed baseline except the known
+  F0090 timeout flake. 9 unit fixtures
+  (`tests_unit/p3b_beyond_corner_trim.rs`).
+
+  **Measured outcomes (2026-07-19):**
+  - **F0082: the trim hypothesis is REFUTED for this case — it is a
+    3-junction micro-complex, not a lone phantom.** The phantom fires
+    eligibility (reflex wall × union) but the patch guard correctly
+    blocks it: B's extrusion CAP is near-coplanar with A's top face
+    (~1e-4 at the corner; sub-Stage-0 band), the cap rim and the section
+    ellipse osculate at t≈π/2, and the phantom is simultaneously (i) the
+    beyond-corner ellipse sample, (ii) a CAP-ring boundary vertex, and
+    (iii) the chord stand-in for TWO unminted junctions: J2 = cap-rim ×
+    wall-face (a CURVED-owner pierce — the rim is a Circle edge) and
+    J3 = tube ∩ cap-plane ∩ top-plane (the ellipse×rim crossing). An
+    unconditional collapse dragged the cap ring 1.05e-4 off-plane
+    (measured `s6-planar-loop-nonplanar`); with the guard the case
+    keeps its honest FaceId-3716 ring-reject STOP in both gate states.
+    The fix vehicle is the **curved-owner/rim-corner mint widening**
+    (inc-4d) — mint J2 via circle-edge × planar-face pierce (rim
+    polyline + wall-face interior insertion), after which the phantom
+    becomes a true zero-content sample.
+  - **R0061: 19 trims fire correctly (subtract, tool-owner reflex
+    corners, all on-curve to ≤1e-16), one layer deeper again** — the
+    orbit walk now dead-ends at mint v211 (`s6-boundary-walk-deadend`,
+    2 incoming / 0 outgoing). Root measured via the deadend wedge-dump:
+    the kept set carries an OVER-USED minted×minted mesh edge (211,186)
+    — THREE same-patch triangles, two of them same-winding slivers
+    spanning from the mint pair to near-dup tips (v172/v184, 3e-5–1.7e-4
+    apart — above the weld band, below sampling) on the cyl×ridge-face
+    section arc (B's zigzag ridge cap, face 394; its side-edge pierces
+    ARE minted at the arc's ends). This is the Stage-4 non-2-manifold
+    bucket one layer deeper: a same-winding fold with UNFUSED near-dup
+    tips (the inc-3a collapsed-wedge class generalized) — inc-4c below.
+- **inc-4c — R0061 dense-cluster fold resolution (spec-first, NEXT).**
+  Characterized above: resolve the over-used minted×minted edge whose
+  same-winding triangle pair has near-dup unfused tips on the same
+  section arc — either a structural fold-dedup at the Stage-4 site
+  (justified by arc-sample adjacency, NOT distance) or §4.5.2-style
+  local refinement of the tube band. Gate-ON flip is BLOCKED on this
+  (R0061 is CORRECT gate-OFF; flipping now would regress it C→E).
+- **inc-4d — curved-owner / rim-corner pierce widening (greens F0082,
+  spec-first).** Circle-edge × planar-face pierce mint: closed-form
+  circle∩plane roots, arc-param endpoint margins, transversality floor,
+  2D all-line containment on the partner face; owner-side insertion into
+  the rim POLYLINE (both incident faces: the planar cap CDT and the tube
+  lateral rim ring — the `rebuilt_with_rim_overrides` machinery is the
+  existing precedent) + partner-side face-interior insertion. Note the
+  rim-override and junction-override rebuilds do not compose yet (the
+  documented SCOPE GATE) — composition is part of this increment.
+- **inc-5 — always-on** per the standard ledger once inc-4c clears
+  R0061 gate-ON; then scope widenings (strip/holed laterals, cone
+  partners, edge-split arms) as separate measured increments.
 
 ## 6. Risks & guardrails (P9/P10)
 

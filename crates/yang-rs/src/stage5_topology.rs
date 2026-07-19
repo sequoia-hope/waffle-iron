@@ -61,7 +61,7 @@ pub(crate) fn reconstruct_topology_stage4(
     a: &BRep,
     b: &BRep,
     op: BoolOp,
-    minted_junction_keys: &std::collections::BTreeSet<[u64; 3]>,
+    minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
 ) -> Result<ReconstructedTopology, YangError> {
     // (4) Phase A: per-patch ordered loops + inherited surface (`infos`), and the
     // exact per-edge intersection `Curve` map.
@@ -1143,6 +1143,29 @@ pub(crate) fn patch_boundary_cycle(
             let w = match outs {
                 [] => {
                     // Dead-end / T-junction: a genuine non-manifold patch.
+                    if std::env::var_os("NONMANIFOLD_SITE_PROBE").is_some() {
+                        eprintln!("[wedge-dump] deadend incoming=({u},{v}) no outgoing");
+                        for &(s, e) in &directed_boundary {
+                            if s == v || e == v {
+                                eprintln!(
+                                    "[wedge-dump] dir boundary ({s},{e}) tri {:?}",
+                                    dir_tri.get(&(s, e))
+                                );
+                            }
+                        }
+                        for &t in &patch.tri_indices {
+                            let tri = &mesh.tris[t as usize];
+                            if tri.contains(&v) {
+                                eprintln!(
+                                    "[wedge-dump] patch tri {t} = {tri:?} sliver={} coords {:?}",
+                                    excluded_slivers.contains(&t),
+                                    tri.iter()
+                                        .map(|&vv| mesh.verts[vv as usize])
+                                        .collect::<Vec<_>>()
+                                );
+                            }
+                        }
+                    }
                     return Err(non_manifold_at(
                         "s6-boundary-walk-deadend",
                         format_args!("vertex {v} has incoming boundary but no outgoing"),
