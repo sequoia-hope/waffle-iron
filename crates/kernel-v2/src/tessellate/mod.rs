@@ -674,6 +674,8 @@ fn triangulate_ring(
                 .map(|&i| (p2[i as usize].x(), p2[i as usize].y()))
                 .collect();
             eprintln!("KV2_RING_REJECT_PROBE outer_pts={pts:?}");
+            let pts3: Vec<[f64; 3]> = outer.iter().map(|&i| p3[i as usize]).collect();
+            eprintln!("KV2_RING_REJECT_PROBE outer_pts3={pts3:?}");
             for (hi, h) in holes.iter().enumerate() {
                 let hp: Vec<(f64, f64)> = h
                     .iter()

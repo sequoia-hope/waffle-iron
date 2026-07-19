@@ -189,6 +189,21 @@ in the ledger is PERMANENT with user sign-off.
       bucket models' next defect layer. Known residue (out of scope):
       `cdt_polygon_with_holes_refined` (render channel) still
       classifies HOLES by f64 centroid parity.*
+      *Blocker (2) CHARACTERIZED + RE-CLASSIFIED to P3b (2026-07-19,
+      task #181, measured — spec §"Blocker (2) CHARACTERIZED"): F0082
+      Extrude-11's ring-reject is a curve-endpoint CORNER defect minted
+      by the failing union itself — the output section-Ellipse arc
+      terminates at a relocated chord-crossing vertex at t≈π/2 (on-curve
+      to 4e-16) instead of the never-minted ellipse × wall-plane corner
+      junction 2.76e-3 away along-curve, so the face ring
+      self-intersects and the #173 render gate STOPs (identically in
+      both gate states). P3a cannot reach it (intersection-curve ×
+      boundary-edge junction = the phase-b corner stitch below). Inc-3
+      always-on is NOT gated on F0082; P3a's remaining gate is the
+      standard ledger (recovered cases + 0 regressions + sidecar
+      parity). Probes banked: `KV2_OUT_VERT_PROBE` (output-B-Rep vertex
+      + incident edge/face dump in `kernel_v2::boolean_op`),
+      `KV2_RING_REJECT_PROBE` now also dumps the 3D ring.*
    b. **#137 grazing-corner insert + stitch** — the proven triple-junction
       primitive (N-137.1, stronger than anything in the literature per
       findings Q1) gets the Urick-style stitch: mint the corner ONCE, insert

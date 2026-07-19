@@ -417,6 +417,27 @@ interior-capable variants (`keep_interior` + the N2
 out of scope: `cdt_polygon_with_holes_refined` (render channel, no
 junction insertion) still classifies HOLES by f64 centroid parity.
 
+**Blocker (2) CHARACTERIZED (2026-07-19, task #181) — re-classified OUT
+of P3a scope to the P3b corner stitch:** F0082 Extrude-11's ring-reject
+(`KV2_RING_REJECT_PROBE` + the new `KV2_OUT_VERT_PROBE` in
+`kernel_v2::boolean_op`, both env-gated print-only) is a yang OUTPUT
+boundary defect minted by the failing union itself
+(`YANG_INPUT_VERT_PROBE` negative across the whole chain): output face
+362's cyl∩plane section-Ellipse arc (r≈0.2124) terminates at output
+vert 913, which lies ON the ellipse to 4e-16 at parameter t≈π/2 (the
+minor-axis quadrant — consistent with a cylinder chord-ring crossing
+vertex relocated on-curve by `project_onto_ellipse_nearest`), while the
+TRUE termination — the ellipse × wall-plane junction, t=1.5578, exact
+point (-0.06399183, -0.10911126, 2.10955341) — was never minted. The
+arc overshoots the wall by 1.29e-3 in-face (2.76e-3 along-curve), the
+face ring self-intersects, and the #173 render gate STOPs loudly (both
+gate states — P3a's edge-pierce insertion cannot reach it: this is an
+intersection-CURVE × operand-BOUNDARY-EDGE junction, the roadmap P3b
+"corner insert + stitch" class; the same ring also carries an 8.5e-4
+near-dup pair where the adjacent chain meets the arc's other endpoint
+v915). Inc-3 always-on is therefore NOT gated on F0082 — the case fails
+identically with and without P3a; its fix belongs to P3b.
+
 ### Increment 3 — always-on
 
 Only after increment 2's ledger shows recovered cases + 0 regressions

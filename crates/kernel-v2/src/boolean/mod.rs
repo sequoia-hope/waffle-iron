@@ -299,6 +299,56 @@ pub fn boolean_op(
             }
         }
     }
+    // #146 inc-3c diagnosis probe (read-only, env-gated):
+    // `KV2_OUT_VERT_PROBE=x,y,z,r` dumps every yang OUTPUT B-Rep vertex
+    // within radius r of the target, with incident edges (curve + endpoint
+    // coords) and the faces whose loops carry them — localizes a defective
+    // output-face boundary (e.g. an arc chain crossing a wall edge) to the
+    // emitting yang stage before the arena assembly / render gate runs.
+    if let Some(spec) = std::env::var_os("KV2_OUT_VERT_PROBE") {
+        let nums: Vec<f64> = spec
+            .to_string_lossy()
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
+        if let [x, y, z, r] = nums[..] {
+            let mut hits: Vec<u32> = Vec::new();
+            for (i, v) in out.vertices().iter().enumerate() {
+                let q = v.point.as_array();
+                let d = [q[0] - x, q[1] - y, q[2] - z];
+                if (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() <= r {
+                    eprintln!(
+                        "[out-vert-probe] out vert {i}: ({},{},{})",
+                        q[0], q[1], q[2]
+                    );
+                    hits.push(i as u32);
+                }
+            }
+            for &vi in &hits {
+                for (ei, e) in out.edges().iter().enumerate() {
+                    if e.start == vi || e.end == vi {
+                        let sp = out.vertices()[e.start as usize].point.as_array();
+                        let ep = out.vertices()[e.end as usize].point.as_array();
+                        eprintln!(
+                            "[out-vert-probe]   edge {ei} v{}→v{} {:?}\n\
+                             [out-vert-probe]     start ({},{},{}) end ({},{},{})",
+                            e.start, e.end, e.curve, sp[0], sp[1], sp[2], ep[0], ep[1], ep[2]
+                        );
+                        for (fi, f) in out.faces().iter().enumerate() {
+                            if f.outer_loop.contains(&(ei as u32))
+                                || f.inner_loops.iter().any(|l| l.contains(&(ei as u32)))
+                            {
+                                eprintln!(
+                                    "[out-vert-probe]     in face {fi} surface {:?}",
+                                    std::mem::discriminant(&f.surface)
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     let (out_solid, out_face_ids) = from_yang_brep_indexed(arena, &out)?;
     // F1 (design review 2026-07-12): PRODUCTION planarity gate for the
     // assembled boolean output. The debug-only tripwire in `validate_solid`
