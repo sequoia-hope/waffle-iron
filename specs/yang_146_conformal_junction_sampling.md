@@ -399,6 +399,24 @@ breaks inside `rebuilt_with_junction_overrides` → next increment:
 characterize with the topo-dump arm and fix the insertion (or add the
 loud rebuilt-operand 2-manifold postcondition), BEFORE inc-3 always-on.
 
+**Blocker FIXED (2026-07-19, task #180, spec
+`specs/yang_146_keep_interior_floodfill.md`) — the "one-sided insertion"
+framing is CORRECTED:** triangle-level unit reproduction (bit-exact
+F0084 live operand-B fixture `tests_unit/p3a_insertion_conformality.rs`)
+showed every imbalance is ONE EXTRA SLIVER TRIANGLE between a split edge
+polyline and its un-split chord (face 8's flap `[7, 11, J19]`), kept by
+the f64 centroid parity classifier inside
+`cdt_polygon_with_holes_keep_interior` — the CDT variant every
+interior-junction face routes through. The insertion machinery itself
+(polyline splicing, fan-out, interior minting) is correct; the #179
+class in its keep-interior guise. Fix = the same flood-fill migration
+(outer region topologically, holes by exact parity), applied to both
+interior-capable variants (`keep_interior` + the N2
+`cdt_with_interior_constraints`). Measured: F0084 gate-ON
+`i6-input-overuse` fires ZERO times, SUPPORTED_CORRECT. Known residue
+out of scope: `cdt_polygon_with_holes_refined` (render channel, no
+junction insertion) still classifies HOLES by f64 centroid parity.
+
 ### Increment 3 — always-on
 
 Only after increment 2's ledger shows recovered cases + 0 regressions

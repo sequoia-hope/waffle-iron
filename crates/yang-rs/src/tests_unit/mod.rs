@@ -23,6 +23,7 @@ mod n47_moved_weld;
 mod n50_f32_render_twin;
 mod n55_s44b_coincidence;
 mod p3a_edge_overrides;
+mod p3a_insertion_conformality;
 mod p3a_junction_pierce;
 mod p3a_junction_wiring;
 mod p3a_wedge_dedup;

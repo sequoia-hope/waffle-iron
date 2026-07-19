@@ -1727,6 +1727,18 @@ pub(crate) fn tessellate_planar_curved_cdt_face(
             .iter()
             .map(|&g| intern(g, &mut local_verts, &mut global_of_local))
             .collect();
+        if cdt_probe {
+            for (k, &li) in interior_local.iter().enumerate() {
+                let p = &local_verts[li as usize];
+                eprintln!(
+                    "[cdt-probe] interior {k} -> v {li} = ({:?}, {:?}) bits=({:#x},{:#x})",
+                    p.x(),
+                    p.y(),
+                    p.x().to_bits(),
+                    p.y().to_bits()
+                );
+            }
+        }
         let tris = cherchi_rs::triangulation::cdt_polygon_with_holes_keep_interior(
             &local_verts,
             &outer_local,

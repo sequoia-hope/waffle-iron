@@ -417,38 +417,10 @@ pub fn cdt_polygon_with_holes_floodfill(
     }
 
     // ---- 5a. Mark the OUTER exterior region topologically (flood-fill). ---
-    // Flood the dual graph from the infinite face inward, crossing only NON-
-    // constraint edges. Any inner face reached this way lies outside the outer
-    // constraint loop (the convex-hull notch of a non-convex domain, or the
-    // strip between hull and boundary). Robust where the float centroid test
-    // is not (§6b M2): a near-collinear outer boundary makes the centroid test
-    // drop thin near-boundary triangles, slitting the mesh; the flood-fill
-    // keeps every interior face. Copied verbatim from
-    // `cdt_polygon_with_holes_refined`.
-    let mut exterior: HashSet<_> = HashSet::new();
-    let mut queue: VecDeque<_> = VecDeque::new();
-    for hull_edge in cdt.convex_hull() {
-        if hull_edge.is_constraint_edge() {
-            continue;
-        }
-        if let Some(f) = hull_edge.rev().face().as_inner() {
-            if exterior.insert(f.fix()) {
-                queue.push_back(f.fix());
-            }
-        }
-    }
-    while let Some(f) = queue.pop_front() {
-        for edge in cdt.face(f).adjacent_edges() {
-            if edge.is_constraint_edge() {
-                continue;
-            }
-            if let Some(nb) = edge.rev().face().as_inner() {
-                if exterior.insert(nb.fix()) {
-                    queue.push_back(nb.fix());
-                }
-            }
-        }
-    }
+    // Robust where the float centroid test is not (§6b M2): a near-collinear
+    // outer boundary makes the centroid test drop thin near-boundary
+    // triangles, slitting the mesh; the flood-fill keeps every interior face.
+    let exterior = floodfill_outer_exterior(&cdt);
 
     // ---- 5b. Emit kept faces (not outer-exterior, centroid out of holes). -
     let hole_pts: Vec<Vec<CadPoint2>> = holes
@@ -619,14 +591,33 @@ pub fn cdt_polygon_with_holes_keep_interior(
         }
     }
 
-    // ---- 5. Classify interior faces by centroid + emit. -----------------
-    let outer_pts: Vec<CadPoint2> = outer.iter().map(|&i| verts[i as usize]).collect();
+    // ---- 5a. Mark the OUTER exterior region topologically (flood-fill). ---
+    // #146 inc-3b (task #180, spec `yang_146_keep_interior_floodfill.md`):
+    // the former f64 centroid parity classification misclassifies the flap
+    // between a near-collinear boundary chain and its chord (a junction
+    // pierce point sits ~1e-9 off the chord), keeping a triangle OUTSIDE the
+    // boundary — the boundary constraint edge is then used by two triangles
+    // and the caller's mesh goes non-2-manifold. Classify the outer region
+    // topologically instead, exactly like `cdt_polygon_with_holes_floodfill`
+    // (the F0047/#179 migration, next instance): flood the dual graph from
+    // the infinite face inward, crossing only NON-constraint edges. Interior
+    // vertices only add inner faces; the boundary loops remain the
+    // constraint walls, so the flood never leaks into the domain.
+    let exterior = floodfill_outer_exterior(&cdt);
+
+    // ---- 5b. Emit kept faces (not outer-exterior, centroid out of holes). -
+    // Holes are enclosed by constraint walls the flood cannot cross, so they
+    // are classified by EXACT parity (the rational tier decides inside the
+    // f64 uncertainty band) — same as the flood-fill variant.
     let hole_pts: Vec<Vec<CadPoint2>> = holes
         .iter()
         .map(|h| h.iter().map(|&i| verts[i as usize]).collect())
         .collect();
     let mut tris: Vec<[u32; 3]> = Vec::new();
     for face in cdt.inner_faces() {
+        if exterior.contains(&face.fix()) {
+            continue;
+        }
         let vs = face.vertices();
         let li = [
             caller_of_spade[vs[0].index()],
@@ -636,15 +627,18 @@ pub fn cdt_polygon_with_holes_keep_interior(
         if li.contains(&u32::MAX) {
             return Err(CdtError::TriangulationFailed);
         }
-        let a = verts[li[0] as usize];
-        let b = verts[li[1] as usize];
-        let c = verts[li[2] as usize];
-        let centroid = CadPoint2::new((a.x() + b.x() + c.x()) / 3.0, (a.y() + b.y() + c.y()) / 3.0);
-        let inside_outer = point_in_polygon(centroid, &outer_pts);
-        let in_a_hole = hole_pts.iter().any(|h| point_in_polygon(centroid, h));
-        if inside_outer && !in_a_hole {
-            tris.push(li);
+        if !hole_pts.is_empty() {
+            let a = verts[li[0] as usize];
+            let b = verts[li[1] as usize];
+            let c = verts[li[2] as usize];
+            if hole_pts
+                .iter()
+                .any(|h| centroid_in_polygon_exact(a, b, c, h))
+            {
+                continue;
+            }
         }
+        tris.push(li);
     }
 
     // ---- 6. Canonicalize for byte-identical determinism. ----------------
@@ -789,39 +783,13 @@ pub fn cdt_polygon_with_holes_refined(
     }
 
     // ---- 6a. Mark the OUTER exterior region topologically. --------------
-    // Flood the dual graph from the infinite face inward, crossing only NON-
-    // constraint edges. Any inner face reached this way lies outside the outer
-    // constraint loop (the convex-hull "notch" of a non-convex domain, or the
-    // strip between hull and boundary). This is robust where the float centroid
-    // test is not: a finely-sampled (near-collinear) outer boundary makes
-    // refinement spawn ~0-area slivers, and a centroid test drops them, slitting
-    // the mesh; the flood-fill keeps every interior face (slivers included), so
-    // the result stays watertight. For a convex domain whose hull edges are all
-    // constraints, nothing is seeded and every face is kept.
-    let mut exterior: HashSet<_> = HashSet::new();
-    let mut queue: VecDeque<_> = VecDeque::new();
-    for hull_edge in cdt.convex_hull() {
-        if hull_edge.is_constraint_edge() {
-            continue;
-        }
-        if let Some(f) = hull_edge.rev().face().as_inner() {
-            if exterior.insert(f.fix()) {
-                queue.push_back(f.fix());
-            }
-        }
-    }
-    while let Some(f) = queue.pop_front() {
-        for edge in cdt.face(f).adjacent_edges() {
-            if edge.is_constraint_edge() {
-                continue;
-            }
-            if let Some(nb) = edge.rev().face().as_inner() {
-                if exterior.insert(nb.fix()) {
-                    queue.push_back(nb.fix());
-                }
-            }
-        }
-    }
+    // Robust where the float centroid test is not: a finely-sampled
+    // (near-collinear) outer boundary makes refinement spawn ~0-area slivers,
+    // and a centroid test drops them, slitting the mesh; the flood-fill keeps
+    // every interior face (slivers included), so the result stays watertight.
+    // For a convex domain whose hull edges are all constraints, nothing is
+    // seeded and every face is kept.
+    let exterior = floodfill_outer_exterior(&cdt);
 
     // ---- 6b. Emit kept faces (not outer-exterior, centroid out of holes). -
     let hole_pts: Vec<Vec<CadPoint2>> = holes
@@ -1004,14 +972,22 @@ pub fn cdt_with_interior_constraints(
         }
     }
 
-    // ---- 5. Classify interior faces by centroid + emit. -----------------
-    let outer_pts: Vec<CadPoint2> = outer.iter().map(|&i| verts[i as usize]).collect();
+    // ---- 5. Classify interior faces + emit. -----------------------------
+    // #146 inc-3b (task #180, spec `yang_146_keep_interior_floodfill.md`):
+    // outer region topologically (flood-fill — the f64 centroid parity test
+    // keeps exterior flaps over near-collinear boundary chains), holes by
+    // EXACT parity. Interior constraint edges lie inside the domain, so the
+    // exterior flood never reaches them; they cannot wall off exterior faces.
+    let exterior = floodfill_outer_exterior(&cdt);
     let hole_pts: Vec<Vec<CadPoint2>> = holes
         .iter()
         .map(|h| h.iter().map(|&i| verts[i as usize]).collect())
         .collect();
     let mut tris: Vec<[u32; 3]> = Vec::new();
     for face in cdt.inner_faces() {
+        if exterior.contains(&face.fix()) {
+            continue;
+        }
         let vs = face.vertices();
         let li = [
             caller_of_spade[vs[0].index()],
@@ -1021,15 +997,18 @@ pub fn cdt_with_interior_constraints(
         if li.contains(&u32::MAX) {
             return Err(CdtError::TriangulationFailed);
         }
-        let a = verts[li[0] as usize];
-        let b = verts[li[1] as usize];
-        let c = verts[li[2] as usize];
-        let centroid = CadPoint2::new((a.x() + b.x() + c.x()) / 3.0, (a.y() + b.y() + c.y()) / 3.0);
-        let inside_outer = point_in_polygon(centroid, &outer_pts);
-        let in_a_hole = hole_pts.iter().any(|h| point_in_polygon(centroid, h));
-        if inside_outer && !in_a_hole {
-            tris.push(li);
+        if !hole_pts.is_empty() {
+            let a = verts[li[0] as usize];
+            let b = verts[li[1] as usize];
+            let c = verts[li[2] as usize];
+            if hole_pts
+                .iter()
+                .any(|h| centroid_in_polygon_exact(a, b, c, h))
+            {
+                continue;
+            }
         }
+        tris.push(li);
     }
 
     // ---- 6. Canonicalize for byte-identical determinism. ----------------
@@ -1041,6 +1020,45 @@ pub fn cdt_with_interior_constraints(
         return Err(CdtError::DegenerateInput);
     }
     Ok(tris)
+}
+
+/// Mark the OUTER exterior region of a constrained CDT topologically: flood
+/// the dual graph from the infinite face inward, crossing only NON-constraint
+/// edges. Any inner face reached lies outside the outer constraint loop (the
+/// convex-hull notch of a non-convex domain, or the strip between hull and
+/// boundary). Decision-exact where the f64 centroid test is not (§6b M2 /
+/// F0047 / #179 / #180): a near-collinear outer boundary makes the centroid
+/// test both drop thin interior triangles (slitting) and keep exterior flaps
+/// (over-coverage). Shared by the flood-fill, refined, keep-interior, and
+/// interior-constraints variants.
+fn floodfill_outer_exterior(
+    cdt: &ConstrainedDelaunayTriangulation<SpadePoint2<f64>>,
+) -> HashSet<spade::handles::FixedFaceHandle<spade::handles::InnerTag>> {
+    let mut exterior = HashSet::new();
+    let mut queue: VecDeque<_> = VecDeque::new();
+    for hull_edge in cdt.convex_hull() {
+        if hull_edge.is_constraint_edge() {
+            continue;
+        }
+        if let Some(f) = hull_edge.rev().face().as_inner() {
+            if exterior.insert(f.fix()) {
+                queue.push_back(f.fix());
+            }
+        }
+    }
+    while let Some(f) = queue.pop_front() {
+        for edge in cdt.face(f).adjacent_edges() {
+            if edge.is_constraint_edge() {
+                continue;
+            }
+            if let Some(nb) = edge.rev().face().as_inner() {
+                if exterior.insert(nb.fix()) {
+                    queue.push_back(nb.fix());
+                }
+            }
+        }
+    }
+    exterior
 }
 
 /// Count how many caller vertices were actually inserted into spade.
@@ -1306,6 +1324,49 @@ mod tests {
         assert!(tris.iter().any(|t| t.contains(&1)));
         assert!(tris.iter().any(|t| t.contains(&5)));
         assert!((total_area(&verts, &tris) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn keep_interior_near_collinear_boundary_chain_is_conformal() {
+        // #146 inc-3b (task #180, spec `yang_146_keep_interior_floodfill.md`):
+        // bit-exact local CDT input of F0084 gate-ON operand-B face 8 (via
+        // YANG_CDT_PROBE=8). The boundary chain 1→2→3 carries a junction
+        // pierce point (2) within ~1e-9 of the chord 1–3; the f64 centroid
+        // parity classifier keeps the exterior flap triangle [1,3,2] between
+        // chord and chain, so the boundary constraint edges (1,2)/(2,3) are
+        // each used by TWO triangles — the rebuilt operand mesh goes
+        // non-2-manifold (fwd=1/rev=2 + an open chord edge).
+        let p = |xb: u64, yb: u64| CadPoint2::new(f64::from_bits(xb), f64::from_bits(yb));
+        let verts = [
+            p(0x3ff568f26569b709, 0xbfc07a6c7f8299ef), // 0
+            p(0x3ff506a3a58c722c, 0x3f9aea02bb63da84), // 1
+            p(0x3ff110b06008354b, 0xbf88aa0b92fafea0), // 2 pierce point on chord 1–3
+            p(0x3ff103284f1f115b, 0xbf89b6351183fca0), // 3
+            p(0x3ff11f561e474f8c, 0xbfad2db6c6cf0030), // 4
+            p(0x3ff165770efc5638, 0xbfc573102807550c), // 5
+            p(0x3ff124312e8f4f2f, 0xbfad1b11a376fee6), // 6 interior junction point
+        ];
+        let outer: [u32; 6] = [0, 1, 2, 3, 4, 5];
+        let tris = cdt_polygon_with_holes_keep_interior(&verts, &outer, &[], &[6]).expect("ok");
+        // Every boundary constraint edge is used by EXACTLY one triangle
+        // (single outer loop, no holes: the polygon interior is on one side).
+        let mut use_count = std::collections::HashMap::new();
+        for t in &tris {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                *use_count.entry((a.min(b), a.max(b))).or_insert(0u32) += 1;
+            }
+        }
+        for i in 0..outer.len() {
+            let (a, b) = (outer[i], outer[(i + 1) % outer.len()]);
+            let c = use_count.get(&(a.min(b), a.max(b))).copied().unwrap_or(0);
+            assert_eq!(
+                c, 1,
+                "boundary edge ({a},{b}) must be used by exactly 1 triangle, got {c}: {tris:?}"
+            );
+        }
+        // The interior junction point is still consumed.
+        assert!(tris.iter().any(|t| t.contains(&6)));
     }
 
     #[test]

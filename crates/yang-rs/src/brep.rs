@@ -597,8 +597,8 @@ impl BRep {
             .filter(|e| !matches!(e.curve, Curve::LineSegment))
             .flat_map(|e| [e.start, e.end])
             .collect();
-        for f_idx in 0..faces.len() {
-            let mut outer = std::mem::take(&mut faces[f_idx].outer_loop);
+        for f in faces.iter_mut() {
+            let mut outer = std::mem::take(&mut f.outer_loop);
             clean_spike_loop(
                 &self.vertices,
                 &mut edges,
@@ -606,10 +606,10 @@ impl BRep {
                 &mut outer,
                 &mut changed,
             );
-            faces[f_idx].outer_loop = outer;
-            let n_inner = faces[f_idx].inner_loops.len();
+            f.outer_loop = outer;
+            let n_inner = f.inner_loops.len();
             for j in 0..n_inner {
-                let mut inner = std::mem::take(&mut faces[f_idx].inner_loops[j]);
+                let mut inner = std::mem::take(&mut f.inner_loops[j]);
                 clean_spike_loop(
                     &self.vertices,
                     &mut edges,
@@ -617,7 +617,7 @@ impl BRep {
                     &mut inner,
                     &mut changed,
                 );
-                faces[f_idx].inner_loops[j] = inner;
+                f.inner_loops[j] = inner;
             }
         }
         if !changed {

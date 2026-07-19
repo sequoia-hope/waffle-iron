@@ -168,6 +168,27 @@ in the ledger is PERMANENT with user sign-off.
       today but it is an axiom violation) — characterize + fix, or add
       the loud rebuilt-operand 2-manifold postcondition; (2) the bucket
       models' next defect layer (F0082 Extrude-11 ring-reject class).*
+      *Blocker (1) FIXED 2026-07-19 (task #180, spec
+      `specs/yang_146_keep_interior_floodfill.md`) — framing CORRECTED
+      again: the insertion machinery is fine; every gate-ON imbalance is
+      ONE EXTRA SLIVER between a split edge polyline and its un-split
+      chord, kept by the f64 centroid parity classifier inside
+      `cdt_polygon_with_holes_keep_interior` (the CDT every
+      interior-junction face routes through) — the #179 class in its
+      keep-interior guise. Fix = the same flood-fill migration, applied
+      to BOTH interior-capable variants (`keep_interior` + the N2
+      `cdt_with_interior_constraints`); bit-exact red→green fixtures at
+      the cherchi-rs primitive level and the yang-rs Stage-1 level
+      (`p3a_insertion_conformality.rs`). Measured: F0084 gate-ON
+      `i6-input-overuse` fires ZERO times, SUPPORTED_CORRECT; gate-OFF
+      corpus category-identical (250C/0W/55E/3T — sole deltas the known
+      F0072/F0085/F0090 timeout flakes); gate-ON 251C/0W/54E/3T, 0
+      WRONG, regression set stays {} (R0019 E→T under doubled assay
+      load re-verified: loud ERROR at 90.6s CPU with headroom; F0090
+      flake landed CORRECT). Remaining inc-3 blocker = (2) only, the
+      bucket models' next defect layer. Known residue (out of scope):
+      `cdt_polygon_with_holes_refined` (render channel) still
+      classifies HOLES by f64 centroid parity.*
    b. **#137 grazing-corner insert + stitch** — the proven triple-junction
       primitive (N-137.1, stronger than anything in the literature per
       findings Q1) gets the Urick-style stitch: mint the corner ONCE, insert
