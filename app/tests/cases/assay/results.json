@@ -264,7 +264,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 11 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 8 is invalid: LocalRefinementRequired\"). Body created as standalone.",
       "id": "R0044",
       "status": "error"
     },

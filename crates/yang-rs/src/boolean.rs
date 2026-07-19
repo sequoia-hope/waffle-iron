@@ -12,7 +12,6 @@ mod predicates;
 mod provenance;
 mod rim_junction;
 pub(crate) use coplanar_scan::*;
-#[allow(unused_imports)] // increment-1a: unwired until YANG_JUNCTION_SAMPLING_ENABLE (spec §4)
 pub(crate) use junction::*;
 pub(crate) use predicates::*;
 pub(crate) use provenance::*;
@@ -514,20 +513,27 @@ pub fn boolean(
         None => (a, b),
     };
 
-    // P3a #146 increment 2 (spec `yang_146_conformal_junction_sampling.md`
-    // §4, gated `YANG_JUNCTION_SAMPLING_ENABLE`): conformal junction
-    // sampling — mint each cross edge×face transversal pierce point ONCE
+    // P3a #146 conformal junction sampling (spec
+    // `yang_146_conformal_junction_sampling.md` §4, ALWAYS-ON since
+    // increment 3): mint each cross edge×face transversal pierce point ONCE
     // and insert it by identity into the owner's edge polylines AND the
     // pierced partner face's CDT, so the two operands' Stage-1 meshes share
     // the junction vertex bit-exactly (no near-dup mint downstream).
+    // `YANG_JUNCTION_SAMPLING_ENABLE=off|0` disables it purely as a dev A/B
+    // knob (compliance-ledger measurement, the `weld_enabled` pattern);
+    // `=edge|face` select one insertion half (dev diagnostics). Unset =
+    // production default = fully on.
     // SCOPE GATE mirrors the rim-junction insertion above: no Stage-0
     // interaction (the re-tessellation paths do not thread these overrides
     // — the M8 incr-15 pass-through trap) and no rim-junction rebuild (a
     // second from-topology rebuild would DROP the first rebuild's inserted
     // rim samples; overrides do not compose across rebuilds yet). A skipped
     // pair is a missed mint = status quo, never worse.
-    let p3a_sampled: Option<(BRep, BRep)> = if std::env::var_os("YANG_JUNCTION_SAMPLING_ENABLE")
-        .is_some()
+    let p3a_disabled = matches!(
+        std::env::var("YANG_JUNCTION_SAMPLING_ENABLE").as_deref(),
+        Ok("off") | Ok("0")
+    );
+    let p3a_sampled: Option<(BRep, BRep)> = if !p3a_disabled
         && stage0.is_none()
         && cyl_pairs.is_empty()
         && junction_boosted.is_none()
@@ -590,9 +596,7 @@ pub fn boolean(
             ))
         }
     } else {
-        if std::env::var_os("YANG_JUNCTION_SAMPLING_ENABLE").is_some()
-            && std::env::var_os("YANG_JUNCTION_MINT_PROBE").is_some()
-        {
+        if !p3a_disabled && std::env::var_os("YANG_JUNCTION_MINT_PROBE").is_some() {
             eprintln!(
                 "[p3a-wire] SKIP stage0={} cyl_pairs={} rim_junction={}",
                 stage0.is_some(),

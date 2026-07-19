@@ -444,6 +444,33 @@ Only after increment 2's ledger shows recovered cases + 0 regressions
 across the full corpus AND the sidecar parity suite stays green. Remove the
 env gate; un-quarantine any milestone-tagged tests that named this class.
 
+**SHIPPED (2026-07-19, task #182).** Ledger (all measured this session):
+
+- Gate-ON full release assay: 251C/0W/55E/2T on 312 — **category-identical
+  per-case to the committed gate-OFF baseline (zero diffs)**. The 0-WRONG
+  ratchet holds and the gate-ON regression set is {} (inc-3a wedge dedup +
+  inc-3b keep-interior flood-fill cleared it; inc-3c re-classed F0082 to
+  P3b — it fails identically in both states).
+- Sidecar parity gate-ON: `r0046_patch_label_parity`,
+  `stage0_operand_inputcheck`, and the flagship
+  `parity_native_vs_sidecar` suite (18 cases) all green.
+- "Recovered cases" resolved as mechanism-level: the near-dup junction
+  mint is eliminated at the measured defect sites (F0082 v588/v601 gone
+  gate-ON, inc-2; F0016/F0084 green gate-ON after 3a/3b), while the
+  case-level conversions were absorbed by the always-on/both-state fixes
+  that fell out of the campaign (#179 flap, keep-interior flood-fill).
+  Corpus-neutral + mechanism-superior (junction conformality by
+  construction) + paper-compliant (the binding junction contract) ⇒ flip.
+
+Implementation: sampling is the production default in
+`yang_rs::boolean()`; `YANG_JUNCTION_SAMPLING_ENABLE=off|0` disables it
+purely as a dev A/B knob for the compliance ledger (the `weld_enabled`
+pattern); `=edge|face` remain as diagnostic halves. No quarantined tests
+named this class (checked — the P3a fixtures test the primitives
+directly and are unconditional). Post-flip production assay (unset env)
+re-verified category-identical, and the yang-rs lib suite (806) is green
+on the flipped default.
+
 ## 5. Oracles & verification
 
 - `edge_override_empty_is_byte_identical` (increment 1);

@@ -204,6 +204,16 @@ in the ledger is PERMANENT with user sign-off.
       parity). Probes banked: `KV2_OUT_VERT_PROBE` (output-B-Rep vertex
       + incident edge/face dump in `kernel_v2::boolean_op`),
       `KV2_RING_REJECT_PROBE` now also dumps the 3D ring.*
+      ***Increment 3 SHIPPED 2026-07-19 (task #182): P3a junction
+      sampling is ALWAYS-ON in production.** Ledger: gate-ON full assay
+      251C/0W/55E/2T, category-identical per-case to the gate-OFF
+      baseline (zero diffs — corpus-neutral, mechanism-superior);
+      sidecar parity green gate-ON (r0046 + stage0 inputcheck + the
+      18-case flagship suite); yang-rs lib suite green on the flipped
+      default. `YANG_JUNCTION_SAMPLING_ENABLE=off|0` remains as a dev
+      A/B knob (compliance-ledger measurement, `weld_enabled` pattern);
+      `=edge|face` stay as diagnostic halves. **#146/P3a is COMPLETE**;
+      the junction layer continues at P3b (F0082 corner stitch, below).*
    b. **#137 grazing-corner insert + stitch** — the proven triple-junction
       primitive (N-137.1, stronger than anything in the literature per
       findings Q1) gets the Urick-style stitch: mint the corner ONCE, insert
