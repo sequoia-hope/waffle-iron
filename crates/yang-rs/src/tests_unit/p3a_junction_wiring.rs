@@ -101,13 +101,16 @@ fn face_interior_override_mints_and_is_consumed() {
     assert!(closed_conformal_2_manifold(&t.tris));
 }
 
-/// A face override targeting a NON-PLANAR face is a loud STOP.
+/// A face override targeting an UNSUPPORTED curved face is a loud STOP.
+/// (P3b inc-2 admitted CYLINDER targets — spec
+/// `yang_169_p3b_curved_partner_pierce.md` §3.3, fixtures in
+/// `p3b_tube_insertion.rs` — so the out-of-scope representative here is a
+/// sphere; cone/torus take the same fail-closed arm.)
 #[test]
 fn face_override_nonplanar_target_is_loud() {
     let (verts, edges, mut faces) = box_parts();
-    faces[1].surface = Surface::Cylinder {
-        axis_point: Point3::new(0.0, 0.0, 0.0),
-        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+    faces[1].surface = Surface::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
     };
     let mut fov: BTreeMap<u32, Vec<Point3>> = BTreeMap::new();

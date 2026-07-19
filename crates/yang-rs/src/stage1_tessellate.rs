@@ -1302,10 +1302,68 @@ pub(crate) fn stage1_tessellate_inner_overrides(
                     "face override targets out-of-range face {f_idx}"
                 )));
             };
+            // P3b inc-2 (spec `yang_169_p3b_curved_partner_pierce.md` §3.3):
+            // CYLINDER lateral faces mint interior junction points too — in
+            // the SAME (u=azimuth, v=axial) frame `eval_source` reproduces.
+            // The points join `face_interior`; the cylinder dispatch arm
+            // splices them into the tube grid post-tessellation (consumed
+            // loudly or error — never a silent one-sided drop).
+            if let Surface::Cylinder {
+                axis_point,
+                axis_dir,
+                radius,
+            } = f.surface
+            {
+                let au = normalize3(axis_dir.as_array());
+                let (e1f, e2f) = ortho_basis(axis_dir);
+                let (e1a, e2a) = (e1f.as_array(), e2f.as_array());
+                let ap = axis_point.as_array();
+                let mut seen: Vec<[u64; 3]> = Vec::new();
+                let mut minted: Vec<u32> = Vec::new();
+                for &pt in pts {
+                    let pa = pt.as_array();
+                    let key = [pa[0].to_bits(), pa[1].to_bits(), pa[2].to_bits()];
+                    if seen.contains(&key) {
+                        continue; // bit-identical repeat — dedup
+                    }
+                    let scale = pa.iter().fold(0.0f64, |m, &c| m.max(c.abs()));
+                    let w = [pa[0] - ap[0], pa[1] - ap[1], pa[2] - ap[2]];
+                    let v_ax = w[0] * au[0] + w[1] * au[1] + w[2] * au[2];
+                    let rad = [
+                        w[0] - v_ax * au[0],
+                        w[1] - v_ax * au[1],
+                        w[2] - v_ax * au[2],
+                    ];
+                    let r_len = (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
+                    let off = (r_len - radius).abs();
+                    if off > 1e-9 * (1.0 + scale) {
+                        return Err(YangError::MalformedTopology(format!(
+                            "face {f_idx}: interior junction override ({},{},{}) is off the \
+                             cylinder surface (radial deviation {off})",
+                            pa[0], pa[1], pa[2]
+                        )));
+                    }
+                    let u_az = (rad[0] * e2a[0] + rad[1] * e2a[1] + rad[2] * e2a[2])
+                        .atan2(rad[0] * e1a[0] + rad[1] * e1a[1] + rad[2] * e1a[2]);
+                    let vi = out_verts.len() as u32;
+                    out_verts.push(pt);
+                    sources.push(TessellationSource::BRepFace {
+                        face: f_idx,
+                        u: u_az,
+                        v: v_ax,
+                    });
+                    seen.push(key);
+                    minted.push(vi);
+                }
+                if !minted.is_empty() {
+                    face_interior.insert(f_idx, minted);
+                }
+                continue;
+            }
             let Surface::Plane { normal, d } = f.surface else {
                 return Err(YangError::MalformedTopology(format!(
                     "face override targets non-planar face {f_idx} — increment-2 scope is \
-                     planar partner faces only (fail closed)"
+                     planar and cylinder partner faces only (fail closed)"
                 )));
             };
             // Plane frame for the on-plane check + the `BRepFace` source
@@ -1525,6 +1583,24 @@ pub(crate) fn stage1_tessellate_inner_overrides(
                         radius,
                         &mut out_tris,
                     )?;
+                    // P3b inc-2 (spec §3.3): splice each interior junction
+                    // point into the freshly-emitted lateral triangles — a
+                    // local 3-fan of the containing triangle, exact bits,
+                    // consumed loudly or error. Unreachable when
+                    // `face_overrides` is empty (the tube path stays
+                    // byte-identical).
+                    if let Some(interior) = face_interior.get(&(f_idx as u32)) {
+                        splice_lateral_interior_points(
+                            f_idx,
+                            axis_point,
+                            axis_dir,
+                            radius,
+                            &out_verts,
+                            interior,
+                            range_start,
+                            &mut out_tris,
+                        )?;
+                    }
                 }
                 Surface::Sphere { center, radius } => {
                     tessellate_sphere_face(
@@ -2360,6 +2436,147 @@ pub(crate) fn tessellate_lateral_holed_cdt(
         }
         orient_tri(out_verts, &mut tri, n);
         out_tris.push(tri);
+    }
+    Ok(())
+}
+
+/// P3b inc-2 (spec `yang_169_p3b_curved_partner_pierce.md` §3.3): splice
+/// pre-minted interior junction vertices into a cylinder lateral's
+/// freshly-emitted triangles (`range_start..`) — replace each point's
+/// containing triangle with its 3-fan. LOCAL by construction: every other
+/// triangle keeps its exact indices, no existing coordinate moves (the N54
+/// lesson).
+///
+/// The containment chart is the isometric unroll `(u = r·Δθ, v = axial)`
+/// RE-CENTERED on each point's own azimuth (Δθ wrapped to (−π, π]), so the
+/// branch cut is always half a turn away from the query; triangles farther
+/// than a quarter-turn are skipped (a genuine containing triangle spans one
+/// azimuth step — a straddling far-side triangle could otherwise alias
+/// through the cut).
+///
+/// CONSUMED postcondition, all loud (a silent drop would be the one-sided
+/// mint conformality break; a silent double-insert would be the R0091-class
+/// sliver): exactly ONE containing triangle per point, non-degenerate, and
+/// the point at least the §4.3 weld band `TAU_MODEL·(1+scale)` from the
+/// triangle's corners and edges (a sub-band placement mints a guaranteed
+/// post-weld sliver — the wiring's pre-filters must route those away; if
+/// one reaches here it is an error, never a guess).
+#[allow(clippy::too_many_arguments)]
+fn splice_lateral_interior_points(
+    f_idx: usize,
+    axis_point: Point3,
+    axis_dir: Vector3,
+    radius: f64,
+    out_verts: &[Point3],
+    interior: &[u32],
+    range_start: usize,
+    out_tris: &mut Vec<[u32; 3]>,
+) -> Result<(), YangError> {
+    let au = normalize3(axis_dir.as_array());
+    let (e1f, e2f) = ortho_basis(axis_dir);
+    let (e1a, e2a) = (e1f.as_array(), e2f.as_array());
+    let ap = axis_point.as_array();
+    // (θ, v) of a global vertex in the axis frame.
+    let theta_v = |g: u32| -> (f64, f64) {
+        let p = out_verts[g as usize].as_array();
+        let w = [p[0] - ap[0], p[1] - ap[1], p[2] - ap[2]];
+        let v = w[0] * au[0] + w[1] * au[1] + w[2] * au[2];
+        let x = w[0] * e1a[0] + w[1] * e1a[1] + w[2] * e1a[2];
+        let y = w[0] * e2a[0] + w[1] * e2a[1] + w[2] * e2a[2];
+        (y.atan2(x), v)
+    };
+    for &ji in interior {
+        let (theta_j, v_j) = theta_v(ji);
+        let jp = out_verts[ji as usize].as_array();
+        let scale = jp.iter().fold(0.0f64, |m, &c| m.max(c.abs()));
+        let band = cad_primitives::TAU_MODEL * (1.0 + scale);
+        // Chart re-centered on J: u = r·Δθ with Δθ ∈ (−π, π].
+        let chart = |g: u32| -> Option<[f64; 2]> {
+            let (th, v) = theta_v(g);
+            let mut dt = th - theta_j;
+            if dt > std::f64::consts::PI {
+                dt -= 2.0 * std::f64::consts::PI;
+            } else if dt <= -std::f64::consts::PI {
+                dt += 2.0 * std::f64::consts::PI;
+            }
+            if dt.abs() > std::f64::consts::FRAC_PI_2 {
+                return None; // farther than a quarter-turn — cannot contain J
+            }
+            Some([radius * dt, v])
+        };
+        let jc = [0.0, v_j];
+        let cross = |o: [f64; 2], p: [f64; 2], q: [f64; 2]| -> f64 {
+            (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0])
+        };
+        let mut found: Option<(usize, [[f64; 2]; 3])> = None;
+        for (k, &[a, b, c]) in out_tris.iter().enumerate().skip(range_start) {
+            let (Some(ca), Some(cb), Some(cc)) = (chart(a), chart(b), chart(c)) else {
+                continue;
+            };
+            let area2 = cross(ca, cb, cc);
+            if area2 == 0.0 {
+                continue; // degenerate sliver cannot contain an interior point
+            }
+            let s = area2.signum();
+            let inside = s * cross(ca, cb, jc) > 0.0
+                && s * cross(cb, cc, jc) > 0.0
+                && s * cross(cc, ca, jc) > 0.0;
+            if !inside {
+                continue;
+            }
+            if found.is_some() {
+                return Err(YangError::MalformedTopology(format!(
+                    "face {f_idx}: interior junction ({},{},{}) contained by more than one \
+                     lateral triangle — ambiguous splice (consumed postcondition)",
+                    jp[0], jp[1], jp[2]
+                )));
+            }
+            found = Some((k, [ca, cb, cc]));
+        }
+        let Some((k, [ca, cb, cc])) = found else {
+            return Err(YangError::MalformedTopology(format!(
+                "face {f_idx}: interior junction ({},{},{}) not contained by any lateral \
+                 triangle — the mint would be silently dropped (consumed postcondition)",
+                jp[0], jp[1], jp[2]
+            )));
+        };
+        // Weld-band guards: corners, then edges (point-segment distance).
+        let d2 =
+            |p: [f64; 2], q: [f64; 2]| -> f64 { (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) };
+        let seg_d2 = |a: [f64; 2], b: [f64; 2]| -> f64 {
+            let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+            let len2 = dx * dx + dy * dy;
+            let t = if len2 == 0.0 {
+                0.0
+            } else {
+                (((jc[0] - a[0]) * dx + (jc[1] - a[1]) * dy) / len2).clamp(0.0, 1.0)
+            };
+            d2(jc, [a[0] + t * dx, a[1] + t * dy])
+        };
+        let corner_min = d2(jc, ca).min(d2(jc, cb)).min(d2(jc, cc));
+        let edge_min = seg_d2(ca, cb).min(seg_d2(cb, cc)).min(seg_d2(cc, ca));
+        if corner_min <= band * band || edge_min <= band * band {
+            return Err(YangError::MalformedTopology(format!(
+                "face {f_idx}: interior junction ({},{},{}) is within the weld band of the \
+                 containing triangle's boundary (corner {:.3e} / edge {:.3e} vs band {:.3e}) \
+                 — a sub-band splice mints a guaranteed post-weld sliver (fail loud; the \
+                 wiring pre-filters must route this placement away)",
+                jp[0],
+                jp[1],
+                jp[2],
+                corner_min.sqrt(),
+                edge_min.sqrt(),
+                band
+            )));
+        }
+        // The 3-fan: replace the containing triangle in place, push the
+        // remaining two INSIDE this face's range (the caller closes the
+        // face's tri range after this returns). Winding is preserved: each
+        // sub-triangle keeps the parent's boundary orientation.
+        let [a, b, c] = out_tris[k];
+        out_tris[k] = [a, b, ji];
+        out_tris.push([b, c, ji]);
+        out_tris.push([c, a, ji]);
     }
     Ok(())
 }

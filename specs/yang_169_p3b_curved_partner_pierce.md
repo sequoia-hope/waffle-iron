@@ -181,9 +181,26 @@ copies of the owner edge (per-loop fan-out, proven by the P3a fixtures).
   consistent with the section curve exiting that end via the tube RIM
   (v915 sits 0.0125 inside the wall), i.e. that terminus is a rim-corner
   junction, not a wall pierce; the rim-corner arm stays a later widening.
-- **inc-2 — tube-grid insertion channel.** The 3-fan split with exact-bits
-  J + fail-closed gates, reachable only via a new env gate
-  (`YANG_P3B_PIERCE_ENABLE`); gate-OFF byte-identical (assay-verified).
+- **inc-2 — tube-grid insertion channel. DONE (this session).** The
+  face-override pre-pass gains a CYLINDER arm (on-surface radial check
+  1e-9·(1+scale), mint with the `eval_source`-matching
+  `BRepFace{u: azimuth, v: axial}` source) and the cylinder dispatch arm
+  splices each interior point into the freshly-emitted lateral triangles:
+  containing-triangle 3-fan in the J-re-centered isometric chart
+  `(u=r·Δθ, v)` (branch cut half a turn away; quarter-turn straddle
+  guard), exact bits, winding preserved, all other triangles untouched.
+  CONSUMED postcondition all-loud: not-contained / ambiguous /
+  weld-band-of-boundary placements are `MalformedTopology` errors — never
+  a silent drop (one-sided mint) or a sub-band sliver fan (the R0091
+  hazard); sub-band routing is the inc-3 wiring pre-filters' job.
+  5 fixtures (`tests_unit/p3b_tube_insertion.rs`) incl. the cross-operand
+  contract: the inc-1 primitive's own J through the owner EDGE channel
+  (box) + partner FACE channel (tube) lands bit-exactly in BOTH rebuilt
+  Stage-1 meshes as closed 2-manifolds. The superseded P3a fixture
+  `face_override_nonplanar_target_is_loud` now uses a SPHERE as its
+  out-of-scope representative. Production-unreachable by construction
+  (no production caller emits cylinder face overrides until the inc-3
+  wiring, which carries the env gate) — full assay byte-identical.
 - **inc-3 — wire + measure.** Cylinder partners join `junction_pierce_points`
   scope under the gate; gate-ON F0082 measurement + full ledger.
 - **inc-4 — always-on** per the standard ledger; then scope widenings
