@@ -533,6 +533,12 @@ pub fn boolean(
         std::env::var("YANG_JUNCTION_SAMPLING_ENABLE").as_deref(),
         Ok("off") | Ok("0")
     );
+    // P3b inc-4a: bit-keys of every Stage-1 minted junction point actually
+    // inserted below. Threaded into Stage 4 so the §4.3 coincident weld can
+    // recognize a relocated vertex converging onto a minted junction (the
+    // moved×minted arm; survivor = the mint). Empty when no mint happened.
+    let mut minted_junction_keys: std::collections::BTreeSet<[u64; 3]> =
+        std::collections::BTreeSet::new();
     let p3a_sampled: Option<(BRep, BRep)> = if !p3a_disabled
         && stage0.is_none()
         && cyl_pairs.is_empty()
@@ -588,6 +594,21 @@ pub fn boolean(
                             eprintln!("[p3a-wire-v] {tag} face {fi} pts {pts:?}");
                         }
                     }
+                }
+            }
+            for pts in jo
+                .edge_a
+                .values()
+                .chain(jo.face_a.values())
+                .chain(jo.edge_b.values())
+                .chain(jo.face_b.values())
+            {
+                for p in pts {
+                    minted_junction_keys.insert([
+                        p.x().to_bits(),
+                        p.y().to_bits(),
+                        p.z().to_bits(),
+                    ]);
                 }
             }
             Some((
@@ -1751,8 +1772,14 @@ pub fn boolean(
     // the attribution in lockstep — so both are passed by `&mut` and the
     // tessellation sources come back from `reconstruct_topology`.
     let mut kept_submesh = kept_submesh;
-    let (vertices, edges, faces, sources, face_attribution) =
-        reconstruct_topology_stage4(&mut kept_submesh, &mut triangle_attribution, a, b, op)?;
+    let (vertices, edges, faces, sources, face_attribution) = reconstruct_topology_stage4(
+        &mut kept_submesh,
+        &mut triangle_attribution,
+        a,
+        b,
+        op,
+        &minted_junction_keys,
+    )?;
 
     let tessellation = TessellationMap { sources };
 

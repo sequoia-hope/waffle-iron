@@ -1387,23 +1387,35 @@ pub(crate) fn is_relocation_coincidence(len: f64, scale: f64) -> bool {
 /// Band: the scale-relative model coincidence tolerance (`scale` = max |coord| of
 /// the pair) — the SAME band every other coincidence test uses, 10× tighter than
 /// the `MIN_FEATURE_SIZE·(1+scale)` feature floor, so it admits ONLY
-/// sub-(feature/10) coincidences. Restricted to `moved`×`moved` pairs: it never
-/// touches un-relocated arrangement geometry `boolean()` kept for watertightness
-/// (cf. the §4.4.1(b) micro-scale R0091 revert — P9/P10). `collapse_vertex` is the
-/// proven watertight-preserving edge-collapse; iterate to a fixed point over live
-/// (still-referenced) vertices. Returns whether any pair welded.
+/// sub-(feature/10) coincidences. Restricted to `moved`×`moved` and
+/// `moved`×`minted` pairs: it never touches un-relocated arrangement geometry
+/// `boolean()` kept for watertightness (cf. the §4.4.1(b) micro-scale R0091
+/// revert — P9/P10). `collapse_vertex` is the proven watertight-preserving
+/// edge-collapse; iterate to a fixed point over live (still-referenced)
+/// vertices. Returns whether any pair welded.
+///
+/// P3b inc-4a (R0061): `minted` = Stage-1 minted junction vertices. A Stage-4
+/// relocation arm can converge a chord-crossing vertex onto the SAME geometric
+/// junction a Stage-1 mint carries (R0061: the `ell_junction` plane-pair ×
+/// cylinder junction IS the minted line×cylinder pierce corner, two exact-intent
+/// computations landing ~1e-15 apart), and the mint is unmoved so a moved×moved
+/// restriction misses the pair. Eligibility: at least one member `moved` (a
+/// minted×minted sub-band pair is a mint-multiplicity contract violation and
+/// must stay LOUD). Survivor: the minted vertex ALWAYS — its bits are the
+/// shared cross-operand junction identity; the mint never moves (N54).
 pub(crate) fn weld_coincident_relocated(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
     moved: &std::collections::HashSet<u32>,
+    minted: &std::collections::HashSet<u32>,
 ) -> bool {
     let mut welded = false;
     loop {
-        // Live moved verts (still referenced by some triangle), ascending.
+        // Live moved/minted verts (still referenced by some triangle), ascending.
         let mut live: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
         for tri in &mesh.tris {
             for &v in tri {
-                if moved.contains(&v) {
+                if moved.contains(&v) || minted.contains(&v) {
                     live.insert(v);
                 }
             }
@@ -1413,6 +1425,17 @@ pub(crate) fn weld_coincident_relocated(
         'scan: for (i, &u) in live.iter().enumerate() {
             let pu = mesh.verts[u as usize].as_array();
             for &w in &live[i + 1..] {
+                // A vert in BOTH sets counts as minted (identity outranks
+                // relocation). Pairs need ≥1 moved member; minted×minted is
+                // ineligible (multiplicity stays loud).
+                let (u_minted, w_minted) = (minted.contains(&u), minted.contains(&w));
+                let (u_moved, w_moved) = (
+                    !u_minted && moved.contains(&u),
+                    !w_minted && moved.contains(&w),
+                );
+                if !(u_moved || w_moved) {
+                    continue;
+                }
                 let pw = mesh.verts[w as usize].as_array();
                 let d =
                     ((pu[0] - pw[0]).powi(2) + (pu[1] - pw[1]).powi(2) + (pu[2] - pw[2]).powi(2))
@@ -1426,10 +1449,18 @@ pub(crate) fn weld_coincident_relocated(
                     .max(pw[2].abs());
                 let band = cad_primitives::TAU_MODEL * (1.0 + scale);
                 if d < band {
-                    // survivor = lower index (matches every other collapse's
-                    // survivor rule — both are already exact on their curve, so
-                    // no exactness ranking is needed).
-                    pair = Some((w, u)); // (victim = higher, survivor = lower)
+                    // Survivor: the minted member if any (the mint's bits are
+                    // the cross-operand junction identity); else lower index
+                    // (matches every other collapse's survivor rule — both are
+                    // already exact on their curve, so no exactness ranking is
+                    // needed).
+                    pair = Some(if u_minted {
+                        (w, u) // (victim, survivor = mint)
+                    } else if w_minted {
+                        (u, w)
+                    } else {
+                        (w, u) // (victim = higher, survivor = lower)
+                    });
                     break 'scan;
                 }
             }
@@ -1755,6 +1786,7 @@ pub(crate) fn stage4_relocate_and_correct(
     attribution: &mut TriangleAttributionMap,
     a: &BRep,
     b: &BRep,
+    minted_junction_keys: &std::collections::BTreeSet<[u64; 3]>,
 ) -> Result<(Vec<(u32, f64)>, bool), YangError> {
     use std::collections::{BTreeMap, HashSet};
 
@@ -4269,6 +4301,63 @@ pub(crate) fn stage4_relocate_and_correct(
             }
         }
     }
+    // P3b inc-4a (R0061): weld relocated verts that converged onto a Stage-1
+    // MINTED junction BEFORE any pass that walks patch boundaries — the §4.5.3
+    // sweep below recomputes Phase A, whose figure-eight wedge walk dies on a
+    // machine-ε moved×mint twin pair (s6-wedge-walk-not-outgoing at R0061's
+    // v173/v186). Same §4.3 op and band as the (3b′) weld; survivor = the mint
+    // (bits are the shared cross-operand junction identity, N54). The (3b′)
+    // call stays as the residual catch after the sweep + §4.4.1(b) merge.
+    if !minted_junction_keys.is_empty() {
+        let minted_verts: HashSet<u32> = mesh
+            .verts
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| {
+                minted_junction_keys.contains(&[p.x().to_bits(), p.y().to_bits(), p.z().to_bits()])
+            })
+            .map(|(v, _)| v as u32)
+            .collect();
+        if std::env::var_os("YANG_MOVED_WELD_PROBE").is_some() {
+            eprintln!(
+                "[moved-weld] pre-sweep: moved={} minted_verts={}",
+                moved.len(),
+                minted_verts.len()
+            );
+        }
+        // Restrict the pre-sweep pass to moved×minted pairs only (empty
+        // `moved` complement): pass `moved` as-is but rely on the weld's
+        // pairing rule — a moved×moved weld here would reorder the
+        // established (3b′)-after-sweep behavior, so filter to pairs
+        // involving a mint by handing the weld ONLY the moved verts within
+        // the coincidence band of some mint.
+        if !minted_verts.is_empty() {
+            let mut near_mint_moved: HashSet<u32> = HashSet::new();
+            for &mv in moved.iter() {
+                let pm = mesh.verts[mv as usize].as_array();
+                for &jv in &minted_verts {
+                    let pj = mesh.verts[jv as usize].as_array();
+                    let d = ((pm[0] - pj[0]).powi(2)
+                        + (pm[1] - pj[1]).powi(2)
+                        + (pm[2] - pj[2]).powi(2))
+                    .sqrt();
+                    let scale = pm
+                        .iter()
+                        .chain(pj.iter())
+                        .fold(0.0f64, |m, &c| m.max(c.abs()));
+                    if d < cad_primitives::TAU_MODEL * (1.0 + scale) {
+                        near_mint_moved.insert(mv);
+                        break;
+                    }
+                }
+            }
+            if !near_mint_moved.is_empty()
+                && weld_coincident_relocated(mesh, &mut attr_vec, &near_mint_moved, &minted_verts)
+            {
+                collapsed_any = true;
+            }
+        }
+    }
     let sweep_result = sweep_reversed_intersections(mesh, &mut attr_vec, a, b, d_eps);
     attribution.attributions = attr_vec;
     let any_collapse = sweep_result?;
@@ -4492,8 +4581,36 @@ pub(crate) fn stage4_relocate_and_correct(
     // fix); it is kept as paper machinery for near-tangency (#137). Genuine
     // Yang ⇒ un-gated (was `weld_enabled("coincident")`).
     {
+        // P3b inc-4a: resolve the Stage-1 minted junction points (exact bits,
+        // threaded from `boolean()`) to mesh vertex ids. Bit-exact match only —
+        // the mint contract preserves the bits through Stage 1 + arrangement,
+        // and coordinates are never mutated by the collapses above.
+        let minted_verts: HashSet<u32> = if minted_junction_keys.is_empty() {
+            HashSet::new()
+        } else {
+            mesh.verts
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| {
+                    minted_junction_keys.contains(&[
+                        p.x().to_bits(),
+                        p.y().to_bits(),
+                        p.z().to_bits(),
+                    ])
+                })
+                .map(|(v, _)| v as u32)
+                .collect()
+        };
+        if std::env::var_os("YANG_MOVED_WELD_PROBE").is_some() {
+            eprintln!(
+                "[moved-weld] entry: moved={} minted_keys={} minted_verts={:?}",
+                moved.len(),
+                minted_junction_keys.len(),
+                minted_verts
+            );
+        }
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        if weld_coincident_relocated(mesh, &mut attr_vec, &moved) {
+        if weld_coincident_relocated(mesh, &mut attr_vec, &moved, &minted_verts) {
             collapsed_any = true;
         }
         attribution.attributions = attr_vec;

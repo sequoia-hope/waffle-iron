@@ -61,6 +61,7 @@ pub(crate) fn reconstruct_topology_stage4(
     a: &BRep,
     b: &BRep,
     op: BoolOp,
+    minted_junction_keys: &std::collections::BTreeSet<[u64; 3]>,
 ) -> Result<ReconstructedTopology, YangError> {
     // (4) Phase A: per-patch ordered loops + inherited surface (`infos`), and the
     // exact per-edge intersection `Curve` map.
@@ -158,7 +159,8 @@ pub(crate) fn reconstruct_topology_stage4(
     // the output edges exist.
     let mut relocations: Vec<(u32, f64)> = Vec::new();
     if has_conic {
-        let (relocs, collapsed) = stage4_relocate_and_correct(mesh, attribution, a, b)?;
+        let (relocs, collapsed) =
+            stage4_relocate_and_correct(mesh, attribution, a, b, minted_junction_keys)?;
         relocations = relocs;
         // A §4.5.3 collapse mutated the mesh topology + attribution, so the
         // pre-collapse Phase-A loops are stale (spec §4.1 note). Recompute them
@@ -1044,9 +1046,6 @@ pub(crate) fn patch_boundary_cycle(
         ends.sort_unstable();
     }
 
-    // Track how many boundary edges remain unconsumed across all cycles, to
-    // bound a single cycle walk (per-cycle "loop escaped" safety guard).
-    let mut remaining = directed_boundary.len();
     let mut cycles: Vec<Vec<(u32, u32)>> = Vec::new();
 
     // Figure-eight wedge walk (spec `yang_tangency_pinch_split.md` I4, the
@@ -1112,12 +1111,139 @@ pub(crate) fn patch_boundary_cycle(
         }
     };
 
-    // Extract every cycle: while any start vertex still has an outgoing edge,
-    // begin a new cycle at the LOWEST such start vertex and walk it with the
-    // per-cycle start→end chain logic (consuming edges as we go).
+    // PRIMARY (#169 P3b inc-4a, the R0061 4-strand crossing): extract every
+    // cycle as an ORBIT of the wedge-consistent successor map — pair EVERY
+    // directed boundary edge (u,v) with its unique continuation (v,w) (the
+    // sole outgoing edge at v when v is unambiguous, else the wedge-consistent
+    // one), require the map to be a bijection, and take its orbits. No start
+    // heuristic; closure is at the EDGE level, so a crossing vertex is
+    // traversed once per strand, each along its own wedge. This fixes the
+    // legacy chain walk's two crossing defects: a cycle STARTING at a crossing
+    // picked its first edge without wedge pairing, and every cycle CLOSED on
+    // first return to its start VERTEX even when the arrival strand's wedge
+    // continuation was a different lobe — both stitch lobes wrongly at a
+    // 4-strand crossing (two section curves crossing at a minted pierce
+    // corner), leaving a later cycle's wedge continuation already consumed.
+    //
+    // FALLBACK: the fan rotation inside `wedge_continuation` is only reliable
+    // where every interior edge of the fan has exactly TWO patch triangles. At
+    // a tangency generator (the KV9-F1 Steinmetz pair) FOUR sheets share the
+    // tangency edge and all four are mutually tangent (first-order dihedral
+    // sorting degenerates), so the rotation can emerge in the wrong sheet and
+    // the successor map fails to resolve. Until a curvature-aware radial sort
+    // exists, an unresolvable patch falls back to the legacy consumption walk
+    // (which the KV9-F1 volume oracles validate on those fixtures); a patch
+    // that fails BOTH paths keeps the legacy loud error taxonomy.
+    let orbit_attempt = || -> Result<Vec<Vec<(u32, u32)>>, YangError> {
+        use std::collections::BTreeSet;
+        let mut succ: BTreeMap<(u32, u32), (u32, u32)> = BTreeMap::new();
+        let mut claimed: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+        for &(u, v) in &directed_boundary {
+            let outs = by_start.get(&v).map(|o| o.as_slice()).unwrap_or(&[]);
+            let w = match outs {
+                [] => {
+                    // Dead-end / T-junction: a genuine non-manifold patch.
+                    return Err(non_manifold_at(
+                        "s6-boundary-walk-deadend",
+                        format_args!("vertex {v} has incoming boundary but no outgoing"),
+                    ));
+                }
+                [only] => *only,
+                _ => {
+                    // Ambiguous crossing: take the wedge-consistent edge.
+                    let cont = wedge_continuation(v, u)?;
+                    if !outs.contains(&cont) {
+                        // EXPERIMENTAL dump (task #121): full local state at
+                        // the failed crossing, env-gated with the site probe.
+                        if std::env::var_os("NONMANIFOLD_SITE_PROBE").is_some() {
+                            eprintln!("[wedge-dump] incoming=({u},{v}) cont={cont} outs={outs:?}");
+                            for &(s, e) in &directed_boundary {
+                                if s == v || e == v || s == cont || e == cont {
+                                    eprintln!(
+                                        "[wedge-dump] dir boundary ({s},{e}) tri {:?}",
+                                        dir_tri.get(&(s, e))
+                                    );
+                                }
+                            }
+                            for &t in &patch.tri_indices {
+                                let tri = &mesh.tris[t as usize];
+                                if tri.contains(&v) {
+                                    eprintln!(
+                                        "[wedge-dump] patch tri {t} = {tri:?} sliver={} coords {:?}",
+                                        excluded_slivers.contains(&t),
+                                        tri.iter()
+                                            .map(|&vv| mesh.verts[vv as usize])
+                                            .collect::<Vec<_>>()
+                                    );
+                                }
+                            }
+                        }
+                        return Err(non_manifold_at(
+                            "s6-wedge-walk-not-outgoing",
+                            format_args!(
+                                "vertex {v}: wedge continuation {cont} is not an \
+                                 available outgoing boundary edge"
+                            ),
+                        ));
+                    }
+                    cont
+                }
+            };
+            succ.insert((u, v), (v, w));
+            *claimed.entry((v, w)).or_insert(0) += 1;
+        }
+        // The successor map must be a bijection: every directed boundary edge
+        // is claimed as a continuation exactly once (counts sum to the edge
+        // count, so all-once ⇔ every edge claimed). Two strands claiming one
+        // outgoing edge is an unresolvable pairing.
+        for (&(s, e), &n) in &claimed {
+            if n != 1 {
+                return Err(non_manifold_at(
+                    "s6-wedge-succ-collision",
+                    format_args!("edge ({s}, {e}) claimed by {n} strands"),
+                ));
+            }
+        }
+        // Orbits partition the boundary; extract each starting at its lowest
+        // unvisited edge (deterministic; for a simple boundary this matches
+        // the old lowest-start-vertex rotation).
+        let mut ordered: Vec<(u32, u32)> = directed_boundary.clone();
+        ordered.sort_unstable();
+        let mut visited: BTreeSet<(u32, u32)> = BTreeSet::new();
+        let mut orbit_cycles: Vec<Vec<(u32, u32)>> = Vec::new();
+        for &e0 in &ordered {
+            if visited.contains(&e0) {
+                continue;
+            }
+            let mut cycle: Vec<(u32, u32)> = Vec::new();
+            let mut e = e0;
+            loop {
+                visited.insert(e);
+                cycle.push(e);
+                e = succ[&e];
+                if e == e0 {
+                    break;
+                }
+            }
+            orbit_cycles.push(cycle);
+        }
+        Ok(orbit_cycles)
+    };
+    match orbit_attempt() {
+        Ok(orbit_cycles) => return Ok(orbit_cycles),
+        Err(orbit_err) => {
+            if std::env::var_os("NONMANIFOLD_SITE_PROBE").is_some() {
+                eprintln!("[wedge-orbit] unresolvable, legacy fallback: {orbit_err:?}");
+            }
+        }
+    }
+
+    // LEGACY consumption walk (the pre-inc-4a algorithm, byte-identical):
+    // while any start vertex still has an outgoing edge, begin a new cycle at
+    // the LOWEST such start vertex and chain-walk it, consuming edges as we
+    // go, closing on first return to the start vertex.
+    let mut remaining = directed_boundary.len();
     while let Some((&start, _)) = by_start.iter().find(|(_, ends)| !ends.is_empty()) {
-        // `start` is the lowest start vertex whose end-list is still non-empty.
-        // Edges available when this cycle starts: it cannot exceed this.
         let budget = remaining;
         let mut current = start;
         let mut prev: Option<u32> = None;
@@ -1143,36 +1269,6 @@ pub(crate) fn patch_boundary_cycle(
                     // Ambiguous crossing: take the wedge-consistent edge.
                     let cont = wedge_continuation(current, p)?;
                     let Some(pos) = next_vec.iter().position(|&e| e == cont) else {
-                        // EXPERIMENTAL dump (task #121): full local state at the
-                        // failed crossing, env-gated with the site probe.
-                        if std::env::var_os("NONMANIFOLD_SITE_PROBE").is_some() {
-                            eprintln!(
-                                "[wedge-dump] current={current} prev={p} cont={cont} \
-                                 next_vec={next_vec:?} cycle_len={}",
-                                cycle.len()
-                            );
-                            eprintln!("[wedge-dump] cycle so far: {cycle:?}");
-                            for &(s, e) in &directed_boundary {
-                                if s == current || e == current || s == cont || e == cont {
-                                    eprintln!(
-                                        "[wedge-dump] dir boundary ({s},{e}) tri {:?}",
-                                        dir_tri.get(&(s, e))
-                                    );
-                                }
-                            }
-                            for &t in &patch.tri_indices {
-                                let tri = &mesh.tris[t as usize];
-                                if tri.contains(&current) {
-                                    eprintln!(
-                                        "[wedge-dump] patch tri {t} = {tri:?} sliver={} coords {:?}",
-                                        excluded_slivers.contains(&t),
-                                        tri.iter()
-                                            .map(|&v| mesh.verts[v as usize])
-                                            .collect::<Vec<_>>()
-                                    );
-                                }
-                            }
-                        }
                         return Err(non_manifold_at(
                             "s6-wedge-walk-not-outgoing",
                             format_args!(
@@ -1184,8 +1280,7 @@ pub(crate) fn patch_boundary_cycle(
                     next_vec.remove(pos)
                 } else {
                     // Cycle START at a crossing: no incoming edge yet — take
-                    // the lowest (deterministic); the wedge rule takes over
-                    // from the second step and closes this lobe correctly.
+                    // the lowest (deterministic).
                     next_vec.remove(0)
                 }
             };

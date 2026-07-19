@@ -234,7 +234,126 @@ copies of the owner edge (per-loop fan-out, proven by the P3a fixtures).
   the subtract cylinder). The dense-mint reassembly break is the inc-4
   blocker to characterize (the P3a inc-2 F0016/F0084 pattern: chained
   models expose the next layer under insertion; expected, loud, named).
-- **inc-4 — always-on** per the standard ledger; then scope widenings
+- **inc-4a — R0061 CHARACTERIZED (measured 2026-07-19) + the
+  moved×minted §4.3 weld.** The R0061 gate-ON break is NOT an insertion
+  defect and NOT the F0016 in-boolean sub-weld mint class — it is the
+  SAME structural class as F0082's beyond-corner phantom, at identity
+  distance. Probe chain (`NONMANIFOLD_SITE_PROBE` wedge-dump +
+  `YANG_JUNCTION_MINT_PROBE=v` + `CHERCHI_VERT_PROVENANCE=1e-12` +
+  `YANG_V_PROBE=173,186` on the failing subtract):
+  - Output vert 186 IS a P3b mint (edges 2447/2449,
+    J=(0.1451332743051347, 0.0373125820582086, 0.08632893203547327),
+    exact bits carried — the mechanism worked).
+  - Output vert 173 is an arrangement chord-crossing vertex
+    (pre-relocation ~4e-4 from J) that Stage 4's **`ell_junction` arm**
+    relocated onto the junction of the two adjacent wall-planes' section
+    ellipses. That junction IS geometrically the pierce corner (the
+    planes' shared line is the owner polyline edge; its cylinder pierce
+    is the section-curves' crossing), computed via plane-pair×cylinder
+    arithmetic (`stage4_correct.rs:3279`) instead of the mint's
+    line×cylinder quadratic → lands **1e-15 from J** (machine roundoff
+    of two exact-intent computations of ONE junction).
+  - `CHERCHI_VERT_PROVENANCE=1e-12` reports ZERO pairs at emission —
+    the twins are NOT coincident at arrangement level; the coincidence
+    is CREATED by Stage-4 relocation. Gate-OFF worked by accident: with
+    no mint, the relocated chordal corner WAS the corner's only copy.
+  - The pair is ineligible for the N56 §4.3 coincident weld
+    (`weld_coincident_relocated` is `moved`×`moved`; the mint is
+    unmoved), so the twins survive → sliver tri [173,186,188] →
+    `s6-wedge-walk-not-outgoing` at v173 → loud non-2-manifold STOP.
+
+  **Fix (this increment): extend the §4.3 weld to `moved`×`minted`
+  pairs.** Thread the minted junction points' bit-keys from `boolean()`
+  (the `jo` override set) into `stage4_relocate_and_correct`; map to
+  mesh vert ids by bit-exact match; pair eligibility becomes
+  (moved×moved) OR (moved×minted) at the SAME `TAU_MODEL·(1+scale)`
+  band; **survivor = the minted vert always** (its bits are the shared
+  cross-operand junction identity — the mint may never move, N54).
+  minted×minted pairs stay INELIGIBLE (sub-band mint multiplicity is a
+  contract violation that must stay loud). This is the same Yang §4.3
+  "remove a point too close to another on the same loop" op — the
+  minted junction is on the section curve by construction, the relocated
+  vert by relocation; merging removes a redundant curve point, not a
+  tolerance. Note the P3a mints are always-on in production, so this
+  extension is live gate-OFF too — measured by full assay, not assumed
+  byte-identical. Rim-junction mints (`junction_boosted`) are a possible
+  later widening, not in scope.
+
+  **BUILT (this session), three pieces — measured layer by layer:**
+  1. The (3b′) weld extension alone did NOT fire: the §4.5.3 sweep
+     (`sweep_reversed_intersections` → `compute_phase_a`) walks patch
+     boundaries on the post-relocation mesh BEFORE (3b′), and the wedge
+     walk died on the twins there. The weld must run pre-sweep.
+  2. **Pre-sweep moved×minted weld** (placed after the PR-KV9 bit-dup
+     collapse, before the sweep; restricted to moved verts within the
+     band of some mint so no moved×moved pair is reordered). Fires on
+     R0061: 10 collapses, incl. the diagnosed v173→v186 (survivor = the
+     mint). Cleared layer 1; the walk then died at v211 — a mint that is
+     a legitimate **4-strand crossing** (the two wall-plane section
+     curves crossing at the pierce corner: 4 in + 4 out boundary edges)
+     — with an earlier cycle having consumed the wedge continuation.
+  3. **Orbit-based boundary-cycle extraction** (stage5_topology): the
+     old chain walk began cycles at the lowest start VERTEX (first edge
+     picked without wedge pairing when starting at a crossing) and
+     closed on first return to the start vertex (no wedge check at
+     closure) — both stitch lobes wrongly at a 4-strand crossing, and a
+     partially-consumed crossing could also masquerade as unambiguous
+     (dynamic out-degree 1). Replaced with the successor-map orbit
+     extraction: every directed boundary edge pairs with its
+     wedge-consistent continuation (static out-degree; sole-out fast
+     path preserved), the map must be a bijection (violation = new loud
+     site `s6-wedge-succ-collision`), cycles are its orbits (closure at
+     the EDGE level, no start heuristic). Byte-identical cycles for
+     simple boundaries; the C0058 pinch fixtures stay green.
+
+     **Measured limitation → legacy fallback (KV9-F1 Steinmetz).** The
+     pure orbit walk broke `steinmetz_subtract_passes_stage4_with_
+     volume_oracle`: at the Steinmetz TANGENCY GENERATOR, FOUR patch
+     sheets share the tangency edge and all four are mutually tangent,
+     so `wedge_continuation`'s fan rotation (which assumes 2 tris per
+     interior edge and has no radial sort) can emerge in the wrong
+     sheet — first-order dihedral sorting DEGENERATES at a tangency, so
+     a correct radial sort there must be curvature-aware (a future
+     spec-level increment). The legacy chain walk passed these fixtures
+     only by consumption ORDER (dynamic out-degree hid the crossing
+     from the wedge rule) — validated by the volume oracle, so it is
+     kept as the FALLBACK: orbit first; on any resolution failure
+     (deadend / not-outgoing / succ-collision) the patch re-runs the
+     byte-identical legacy walk; double failure keeps the legacy loud
+     error taxonomy. `[wedge-orbit] unresolvable, legacy fallback`
+     (probe-gated) marks each fallback for measurement.
+
+  **R0061 after all three: still a loud STOP, one layer deeper** — the
+  orbit attempt reports `s6-wedge-succ-collision: edge (145,288)
+  claimed by 2 strands` (v145 is another mint, previously a §4.5.3
+  reversal-collapse participant; the two strands' wedge continuations
+  genuinely collide there), then the legacy fallback re-fails loudly.
+  The dense-mint chained model keeps exposing the next layer, per the
+  §6 risk note; the succ-collision fingerprint is the next
+  characterization target. F0082 unchanged in both gate states (its
+  phantom is at trim distance — inc-4b).
+
+  **inc-4a ledger (2026-07-19): SHIPPED always-on.** Gate-OFF full
+  assay 251C/0W/55E/2T, `results.json` per-case BYTE-IDENTICAL to the
+  committed production baseline; rewrite tier green (incl. the three
+  KV9-F1 Steinmetz volume-oracle fixtures via the legacy fallback); 398
+  yang-rs lib tests green (5 N47 weld fixtures incl. the new
+  moved×minted survivor pin and the minted×minted loudness pin); fmt +
+  clippy clean; WASM bundle rebuilt. Gate-ON: R0061 ERROR (loud,
+  next-layer), F0082 ERROR (unchanged, inc-4b's target).
+- **inc-4b — beyond-corner conformal trim (greens F0082), spec-first.**
+  The F0082 phantom (t≈π/2, 1.29e-3 beyond the wall — far outside any
+  coincidence band) is the same redundant-sample class at TRIM distance:
+  a section-curve sample whose exact curve position lies OUTSIDE the
+  bounded face, past a minted corner junction on the same curve. Its
+  kept-side content is zero ⇒ remove topologically: collapse
+  phantom→J across ALL incident output faces (an output edge collapse,
+  justified by the out-of-face + beyond-corner predicate, NOT by
+  distance), or — if any predicate is ambiguous — STOP loudly via a new
+  ellipse-arm bounded-face containment gate (the torus arm's KV6d
+  check, `stage4_correct.rs:4119`, has no ellipse counterpart today).
+  Design details to be fixed after inc-4a's ledger.
+- **inc-5 — always-on** per the standard ledger; then scope widenings
   (strip/holed laterals, cone partners, curved-incident owners, rim-corner
   and edge-split arms) as separate measured increments.
 
