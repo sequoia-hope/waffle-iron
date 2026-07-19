@@ -94,12 +94,28 @@ pub(crate) fn junction_pierce_points(
             let [s1, s2] = surfs.as_slice() else {
                 continue; // border/defective incidence — not a 2-surface edge
             };
+            let owner_planar =
+                matches!(s1, Surface::Plane { .. }) && matches!(s2, Surface::Plane { .. });
+            // P3b scope-sizing probe (read-only): enumerate curved-partner
+            // pierce CANDIDATES this increment's planar scope skips — the
+            // F0082 ellipse×wall corner class. Mints nothing.
+            if std::env::var_os("YANG_P3B_PIERCE_PROBE").is_some() {
+                let e = &x.edges()[copies[0] as usize];
+                p3b_cylinder_pierce_probe(
+                    input,
+                    copies[0],
+                    owner_planar,
+                    x.vertices()[e.start as usize].point,
+                    x.vertices()[e.end as usize].point,
+                    y,
+                );
+            }
             // Increment-2 wiring scope: the OWNER edge must be incident to two
             // PLANAR faces — the Stage-1 edge-override tessellator splices
             // line chains only into planar faces (the 1b fail-closed guard);
             // a curved-incident edge is a later increment (missed mint =
             // status quo, never worse).
-            if !matches!(s1, Surface::Plane { .. }) || !matches!(s2, Surface::Plane { .. }) {
+            if !owner_planar {
                 continue;
             }
             let e = &x.edges()[copies[0] as usize];
@@ -122,6 +138,80 @@ pub(crate) fn junction_pierce_points(
         }
     }
     out
+}
+
+/// P3b increment-0 probe (`YANG_P3B_PIERCE_PROBE`, read-only): transversal
+/// pierce CANDIDATES of the segment `p0→p1` through the partner operand's
+/// CYLINDER lateral faces — the class the planar wiring scope skips (the
+/// F0082 ellipse×wall corner: an operand boundary edge piercing the other
+/// operand's cylinder is exactly the never-minted section-curve terminus).
+/// Line×cylinder is a quadratic in the chord parameter; both roots in (0,1)
+/// are candidates. No containment test (scope sizing, not a mint) — the
+/// printed height/azimuth let the reader judge against the face loops.
+fn p3b_cylinder_pierce_probe(
+    input: InputId,
+    edge0: u32,
+    owner_planar: bool,
+    p0: Point3,
+    p1: Point3,
+    y: &BRep,
+) {
+    let (a0, a1) = (p0.as_array(), p1.as_array());
+    let dir = [a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]];
+    let chord = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
+    if chord == 0.0 {
+        return;
+    }
+    for (f_idx, f) in y.faces().iter().enumerate() {
+        let Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } = f.surface
+        else {
+            continue;
+        };
+        let ap = axis_point.as_array();
+        let ah = normalize3(axis_dir.as_array());
+        // Radial component of p(t)−ap: w(t) = w0 + t·wd with the axis
+        // projection removed; |w(t)|² − r² = At² + Bt + C.
+        let proj = |v: [f64; 3]| -> [f64; 3] {
+            let along = v[0] * ah[0] + v[1] * ah[1] + v[2] * ah[2];
+            [
+                v[0] - along * ah[0],
+                v[1] - along * ah[1],
+                v[2] - along * ah[2],
+            ]
+        };
+        let w0 = proj([a0[0] - ap[0], a0[1] - ap[1], a0[2] - ap[2]]);
+        let wd = proj(dir);
+        let qa = wd[0] * wd[0] + wd[1] * wd[1] + wd[2] * wd[2];
+        let qb = 2.0 * (w0[0] * wd[0] + w0[1] * wd[1] + w0[2] * wd[2]);
+        let qc = w0[0] * w0[0] + w0[1] * w0[1] + w0[2] * w0[2] - radius * radius;
+        let disc = qb * qb - 4.0 * qa * qc;
+        if qa == 0.0 || disc < 0.0 {
+            continue; // line parallel to axis or missing the cylinder
+        }
+        let sq = disc.sqrt();
+        for t in [(-qb - sq) / (2.0 * qa), (-qb + sq) / (2.0 * qa)] {
+            if !(0.0..=1.0).contains(&t) {
+                continue;
+            }
+            let j = [a0[0] + t * dir[0], a0[1] + t * dir[1], a0[2] + t * dir[2]];
+            // Radial (outward) unit normal at J and the line/surface angle.
+            let wj = proj([j[0] - ap[0], j[1] - ap[1], j[2] - ap[2]]);
+            let n = normalize3(wj);
+            let t_hat = [dir[0] / chord, dir[1] / chord, dir[2] / chord];
+            let transversality = (n[0] * t_hat[0] + n[1] * t_hat[1] + n[2] * t_hat[2]).abs();
+            let height = (j[0] - ap[0]) * ah[0] + (j[1] - ap[1]) * ah[1] + (j[2] - ap[2]) * ah[2];
+            eprintln!(
+                "[p3b-pierce] {input:?} edge {edge0} (owner_planar={owner_planar}) × cyl \
+                 face {f_idx} (r={radius:.6}): t={t:.6} J=({:.9},{:.9},{:.9}) \
+                 transv={transversality:.3} h={height:.6}",
+                j[0], j[1], j[2]
+            );
+        }
+    }
 }
 
 /// The transversal pierce of the segment `p0→p1` (whose two incident

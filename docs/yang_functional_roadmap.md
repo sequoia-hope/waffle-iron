@@ -221,6 +221,19 @@ in the ledger is PERMANENT with user sign-off.
       chains at it. First validated wiring point for the banked two-sided
       conformal driver + `SurfaceChart`, under the findings-Q2 seam contract
       (one canonical seam polyline, constrained input to BOTH CDTs).
+      *P3b SPLIT BY MEASUREMENT 2026-07-19 (spec
+      `specs/yang_169_p3b_curved_partner_pierce.md`, increment-0 probe
+      `YANG_P3B_PIERCE_PROBE`): the F0082 ellipse×wall corner is NOT a
+      grazing corner — it is a TRANSVERSAL (0.474) line-edge × cylinder-face
+      pierce, enumerable by the P3a Stage-1 mint mechanism: operand A's wall
+      edge 2424 (planar-incident, already in the owner channel scope) ×
+      operand B's cylinder face 2 at t=0.767 reproduces the inc-3c true
+      corner to 9 decimals; the t=0.232 root covers the arc's other end
+      (the v915 near-dup region). Fix = widen P3a's partner scope to
+      canonical-tube cylinder faces (quadratic pierce + axial containment +
+      exact-bits 3-fan grid insertion), increments 1–4 in the spec. The
+      Urick stitch + refinement remains for the genuinely tangential class
+      (C0065/R0074, the #137 spec).*
    c. **Curved-seam re-CDT** (R0072 class) and whatever the triage promotes.
    d. **§4.5.2 as guard shell only** (findings Q3: it recovers ~zero current
       cases — every confirmed LRR case is tangential/missing-solver/micro-
