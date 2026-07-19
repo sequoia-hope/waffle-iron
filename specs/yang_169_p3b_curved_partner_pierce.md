@@ -201,8 +201,39 @@ copies of the owner edge (per-loop fan-out, proven by the P3a fixtures).
   out-of-scope representative. Production-unreachable by construction
   (no production caller emits cylinder face overrides until the inc-3
   wiring, which carries the env gate) — full assay byte-identical.
-- **inc-3 — wire + measure.** Cylinder partners join `junction_pierce_points`
-  scope under the gate; gate-ON F0082 measurement + full ledger.
+- **inc-3 — wire + measure. WIRED gated-off (this session), gate-ON
+  measured:** cylinder partners join `junction_pierce_points` behind
+  `YANG_P3B_PIERCE_ENABLE` (gate-OFF the arm is dead — byte-identical,
+  assay-verified).
+
+  **Gate-ON F0082 (the target): the MECHANISM WORKS at the defect site.**
+  The failing union mints (3 geometric edges × 2 copies + the pierced
+  cylinder face), and the rejected ring — now 8 verts, was 16 — carries
+  the EXACT minted corner J=(-0.063991828646, -0.109111255316,
+  2.109553406435) as the wall chain's terminus. The case still STOPs
+  (same FaceId 3716 ring-reject, loud) on the PREDICTED §3.4 residual:
+  the relocated chord-crossing vertex (-0.0652822, -0.1066743) at
+  ellipse-param t≈π/2 — 1.29e-3 BEYOND the wall, i.e. outside the arc's
+  kept range past the minted corner — survives in the ring between J and
+  the arc interior, and the segment J→phantom→arc re-crosses the wall
+  chain. Root: the Stage-4 ELLIPSE relocation arm has no bounded-face
+  containment gate (the torus arm's KV6d check, `stage4_correct.rs:4119`,
+  has no ellipse counterpart), so a sample whose true curve position is
+  outside the bounded face relocates out of it silently. Next increment
+  (spec-first): beyond-corner sample resolution — a section-curve sample
+  relocated past a minted corner junction is on the TRIMMED side of the
+  curve; remove it conformally (ALL incident output faces — an output
+  edge collapse J↔phantom, a topological trim, NOT a tolerance merge at
+  2.76e-3) or STOP loudly via a new ellipse-arm containment gate.
+
+  **Gate-ON full ledger: 250C/0W/56E — 0 WRONG holds; ONE regression:
+  R0061 CORRECT→ERROR** (`reassembled output would be non-2-manifold`,
+  loud). R0061 is the #145 chained-zigzag model: gate-OFF the failing
+  subtract mints NOTHING; gate-ON it mints densely (112 owner-edge
+  copies + 1 face — the chained operand's sampled polylines each pierce
+  the subtract cylinder). The dense-mint reassembly break is the inc-4
+  blocker to characterize (the P3a inc-2 F0016/F0084 pattern: chained
+  models expose the next layer under insertion; expected, loud, named).
 - **inc-4 — always-on** per the standard ledger; then scope widenings
   (strip/holed laterals, cone partners, curved-incident owners, rim-corner
   and edge-split arms) as separate measured increments.

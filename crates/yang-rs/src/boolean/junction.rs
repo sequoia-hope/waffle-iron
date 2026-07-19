@@ -128,6 +128,22 @@ pub(crate) fn junction_pierce_points(
                 {
                     pierces.push(pp);
                 }
+                // P3b inc-3 (spec `yang_169_p3b_curved_partner_pierce.md`
+                // §5, gated `YANG_P3B_PIERCE_ENABLE`): canonical-tube
+                // CYLINDER partners join the pierce scope — the F0082
+                // ellipse×wall corner class. Gate-OFF this arm is dead and
+                // the enumeration is byte-identical.
+                if std::env::var_os("YANG_P3B_PIERCE_ENABLE").is_some() {
+                    pierces.extend(line_edge_cylinder_face_pierce(
+                        p0,
+                        p1,
+                        *s1,
+                        *s2,
+                        f_idx as u32,
+                        f,
+                        y,
+                    ));
+                }
             }
             if pierces.is_empty() {
                 continue;
