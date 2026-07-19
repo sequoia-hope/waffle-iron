@@ -104,7 +104,8 @@ pub(crate) fn junction_pierce_points(
                 p3b_cylinder_pierce_probe(
                     input,
                     copies[0],
-                    owner_planar,
+                    *s1,
+                    *s2,
                     x.vertices()[e.start as usize].point,
                     x.vertices()[e.end as usize].point,
                     y,
@@ -151,11 +152,13 @@ pub(crate) fn junction_pierce_points(
 fn p3b_cylinder_pierce_probe(
     input: InputId,
     edge0: u32,
-    owner_planar: bool,
+    s1: Surface,
+    s2: Surface,
     p0: Point3,
     p1: Point3,
     y: &BRep,
 ) {
+    let owner_planar = matches!(s1, Surface::Plane { .. }) && matches!(s2, Surface::Plane { .. });
     let (a0, a1) = (p0.as_array(), p1.as_array());
     let dir = [a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]];
     let chord = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
@@ -211,7 +214,166 @@ fn p3b_cylinder_pierce_probe(
                 j[0], j[1], j[2]
             );
         }
+        // Increment-1 arm: the production-shaped primitive's verdict on the
+        // same face — which candidates survive EVERY mint gate (containment,
+        // margins, postconditions). The pre-inc-3 measurement of what the
+        // wiring would actually mint.
+        for pp in line_edge_cylinder_face_pierce(p0, p1, s1, s2, f_idx as u32, f, y) {
+            eprintln!(
+                "[p3b-pierce] MINT {input:?} edge {edge0} × cyl face {f_idx}: t={:.6} \
+                 J=({:.9},{:.9},{:.9}) transv={:.3}",
+                pp.t,
+                pp.point.x(),
+                pp.point.y(),
+                pp.point.z(),
+                pp.transversality
+            );
+        }
     }
+}
+
+/// P3b increment 1 (spec `yang_169_p3b_curved_partner_pierce.md` §3.1–3.2):
+/// the transversal pierces of the segment `p0→p1` (whose two incident owner
+/// surfaces are `s1`/`s2`) through the bounded CANONICAL-TUBE cylinder face
+/// `f` of operand `y` — up to TWO per edge×face (both quadratic roots are
+/// genuine crossings, unlike the planar arm's single root). UNWIRED this
+/// increment: only the probe and the unit fixtures call it; wiring into
+/// `junction_pierce_points` is increment 3, behind `YANG_P3B_PIERCE_ENABLE`.
+///
+/// Gates mirror `line_edge_plane_face_pierce` one-for-one — every margin is
+/// the existing derived vocabulary, fail-closed (a missed mint = status quo):
+/// - canonical-tube scope: hole-free face whose outer loop carries exactly
+///   two FULL-circle rims (the `tessellate_lateral_face` tube vocabulary) —
+///   axial containment is then EXACT via the rim planes. Strips / holed
+///   patches are a later widening (spec §5 inc-4);
+/// - roots in `[0,1]` with the endpoint margin `TAU_MODEL·(1+scale)` at both
+///   owner endpoints (a near-endpoint pierce is a higher-order corner);
+/// - transversality `|t̂·n̂(J)|` ≥ `TRANSVERSALITY_MIN` with the radial
+///   normal at J (tangential grazes route to #137, never minted);
+/// - on-surface postcondition `TAU_EVAL·(1+scale)` for `s1`/`s2` at J
+///   (producer-fault guard, identical to the planar arm);
+/// - axial containment `v_J ∈ (v_lo+margin, v_hi−margin)` from the rim-circle
+///   centers projected on the axis (a rim-margin pierce is a rim corner —
+///   P3b-later, fail closed).
+pub(crate) fn line_edge_cylinder_face_pierce(
+    p0: Point3,
+    p1: Point3,
+    s1: Surface,
+    s2: Surface,
+    f_idx: u32,
+    f: &BRepFace,
+    y: &BRep,
+) -> Vec<PiercePoint> {
+    let Surface::Cylinder {
+        axis_point,
+        axis_dir,
+        radius,
+    } = f.surface
+    else {
+        return Vec::new();
+    };
+    // Canonical-tube vocabulary gate (fail closed).
+    if !f.inner_loops.is_empty() {
+        return Vec::new();
+    }
+    let rims: Vec<&BRepEdge> = f
+        .outer_loop
+        .iter()
+        .map(|&ei| &y.edges()[ei as usize])
+        .filter(|e| matches!(e.curve, Curve::Circle { .. }) && e.start == e.end)
+        .collect();
+    let [rim0, rim1] = rims.as_slice() else {
+        return Vec::new();
+    };
+    let ap = axis_point.as_array();
+    let ah = normalize3(axis_dir.as_array());
+    let axial = |p: Point3| -> f64 {
+        let q = p.as_array();
+        (q[0] - ap[0]) * ah[0] + (q[1] - ap[1]) * ah[1] + (q[2] - ap[2]) * ah[2]
+    };
+    let (mut v_lo, mut v_hi) = (f64::INFINITY, f64::NEG_INFINITY);
+    for rim in [rim0, rim1] {
+        let Curve::Circle { center, .. } = rim.curve else {
+            unreachable!("filtered to circles above");
+        };
+        let v = axial(center);
+        v_lo = v_lo.min(v);
+        v_hi = v_hi.max(v);
+    }
+    let (a0, a1) = (p0.as_array(), p1.as_array());
+    let dir = [a1[0] - a0[0], a1[1] - a0[1], a1[2] - a0[2]];
+    let chord = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
+    if chord == 0.0 {
+        return Vec::new();
+    }
+    let proj = |v: [f64; 3]| -> [f64; 3] {
+        let along = v[0] * ah[0] + v[1] * ah[1] + v[2] * ah[2];
+        [
+            v[0] - along * ah[0],
+            v[1] - along * ah[1],
+            v[2] - along * ah[2],
+        ]
+    };
+    let w0 = proj([a0[0] - ap[0], a0[1] - ap[1], a0[2] - ap[2]]);
+    let wd = proj(dir);
+    let qa = wd[0] * wd[0] + wd[1] * wd[1] + wd[2] * wd[2];
+    let qb = 2.0 * (w0[0] * wd[0] + w0[1] * wd[1] + w0[2] * wd[2]);
+    let qc = w0[0] * w0[0] + w0[1] * w0[1] + w0[2] * w0[2] - radius * radius;
+    let disc = qb * qb - 4.0 * qa * qc;
+    if qa == 0.0 || disc < 0.0 {
+        return Vec::new(); // parallel to the axis or missing the cylinder
+    }
+    let sq = disc.sqrt();
+    let mut out = Vec::new();
+    for t in [(-qb - sq) / (2.0 * qa), (-qb + sq) / (2.0 * qa)] {
+        if !(0.0..=1.0).contains(&t) {
+            continue;
+        }
+        let j = [a0[0] + t * dir[0], a0[1] + t * dir[1], a0[2] + t * dir[2]];
+        let scale = j
+            .iter()
+            .chain(a0.iter())
+            .chain(a1.iter())
+            .fold(0.0f64, |m, &c| m.max(c.abs()));
+        let margin = cad_primitives::TAU_MODEL * (1.0 + scale);
+        // Endpoint margin: a pierce at/near an owner endpoint is a corner of
+        // higher order (vertex-on-surface) — fail closed.
+        let dist = |p: [f64; 3], q: [f64; 3]| -> f64 {
+            ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()
+        };
+        if dist(j, a0) <= margin || dist(j, a1) <= margin {
+            continue;
+        }
+        // Transversality via the radial normal at J.
+        let wj = proj([j[0] - ap[0], j[1] - ap[1], j[2] - ap[2]]);
+        let n = normalize3(wj);
+        let t_hat = [dir[0] / chord, dir[1] / chord, dir[2] / chord];
+        let transversality = (n[0] * t_hat[0] + n[1] * t_hat[1] + n[2] * t_hat[2]).abs();
+        if transversality < TRANSVERSALITY_MIN {
+            continue; // tangential graze — the #137 route, never a mint
+        }
+        // On-surface postcondition for the owner's two incident surfaces.
+        let band = cad_primitives::TAU_EVAL * (1.0 + scale);
+        let on_owner = [s1, s2]
+            .into_iter()
+            .all(|s| surface_value_and_normal(s, j).is_some_and(|(fv, _)| fv.abs() <= band));
+        if !on_owner {
+            continue;
+        }
+        // Exact axial containment with the rim margin.
+        let v_j = (j[0] - ap[0]) * ah[0] + (j[1] - ap[1]) * ah[1] + (j[2] - ap[2]) * ah[2];
+        if v_j <= v_lo + margin || v_j >= v_hi - margin {
+            continue; // outside the tube span, or a rim corner — fail closed
+        }
+        out.push(PiercePoint {
+            point: Point3::new(j[0], j[1], j[2]),
+            t,
+            transversality,
+            partner_face: f_idx,
+        });
+    }
+    out.sort_by(|u, v| u.t.total_cmp(&v.t));
+    out
 }
 
 /// The transversal pierce of the segment `p0→p1` (whose two incident

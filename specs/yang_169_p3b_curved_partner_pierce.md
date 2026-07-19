@@ -165,9 +165,22 @@ copies of the owner edge (per-loop fan-out, proven by the P3a fixtures).
   `junction_pierce_points` (read-only): enumerates line×cylinder pierce
   candidates. Measured on F0082: the corner enumerated exactly (§2); ~250
   candidate lines across the whole 11-op chain (scope is modest).
-- **inc-1 — pierce primitive + tube containment.** Production-shaped
-  `line_edge_cylinder_face_pierce` behind the probe (unwired), unit tests
-  pinning §2's values. Byte-identical production.
+- **inc-1 — pierce primitive + tube containment. DONE (this session).**
+  Production-shaped `line_edge_cylinder_face_pierce` (all gates: canonical-
+  tube vocabulary, quadratic roots, endpoint/rim margins, transversality
+  floor, owner on-surface postcondition, exact axial containment via the
+  rim planes), called only by the probe's new MINT arm + 6 unit fixtures
+  (`tests_unit/p3b_cylinder_pierce.rs`, `rj_cylinder` canonical tube:
+  analytic two-root mint, tangential/endpoint/axial/off-owner/vocabulary
+  fail-closed rejections). **Measured on live F0082: 4 MINTs on cyl face
+  2** — the lead corner (edge 2424 t=0.767345,
+  J=(-0.063991829,-0.109111255,2.109553406)) plus three more ring-corner
+  junctions (edges 2422/2425, matching the rejected ring's other
+  wall-crossing coordinates at x≈0.3095 / y≈-0.1966). Edge 2424's t=0.232
+  root is axially OUT of the bounded tube span (fail-closed reject) —
+  consistent with the section curve exiting that end via the tube RIM
+  (v915 sits 0.0125 inside the wall), i.e. that terminus is a rim-corner
+  junction, not a wall pierce; the rim-corner arm stays a later widening.
 - **inc-2 — tube-grid insertion channel.** The 3-fan split with exact-bits
   J + fail-closed gates, reachable only via a new env gate
   (`YANG_P3B_PIERCE_ENABLE`); gate-OFF byte-identical (assay-verified).
