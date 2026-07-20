@@ -29,6 +29,7 @@ mod p3a_junction_wiring;
 mod p3a_wedge_dedup;
 mod p3b_beyond_corner_trim;
 mod p3b_cylinder_pierce;
+mod p3b_fan_retriangulation;
 mod p3b_tube_insertion;
 mod stage0_rim_projection;
 mod stage1_cdt_flap;

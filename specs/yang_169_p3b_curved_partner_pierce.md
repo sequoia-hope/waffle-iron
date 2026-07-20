@@ -440,13 +440,23 @@ copies of the owner edge (per-loop fan-out, proven by the P3a fixtures).
     ARE minted at the arc's ends). This is the Stage-4 non-2-manifold
     bucket one layer deeper: a same-winding fold with UNFUSED near-dup
     tips (the inc-3a collapsed-wedge class generalized) — inc-4c below.
-- **inc-4c — R0061 dense-cluster fold resolution (spec-first, NEXT).**
-  Characterized above: resolve the over-used minted×minted edge whose
-  same-winding triangle pair has near-dup unfused tips on the same
-  section arc — either a structural fold-dedup at the Stage-4 site
-  (justified by arc-sample adjacency, NOT distance) or §4.5.2-style
-  local refinement of the tube band. Gate-ON flip is BLOCKED on this
-  (R0061 is CORRECT gate-OFF; flipping now would regress it C→E).
+- **inc-4c — R0061 fold resolution: §4.4.1 post-merge fan
+  re-triangulation (own spec `yang_169_p3b_inc4c_fan_retriangulation.md`;
+  inc-4c-1 SHIPPED always-on 2026-07-20, fail-closed).** Measurement
+  REFUTED the fold-dedup sketch above (the extra triangles have DISTINCT
+  tips — deletion leaves holes; the collapse stack is the manufacturer:
+  pre-weld/trim the mesh is manifold, and every pre-edge crossing the
+  victim-partition cut collapses onto the mint-pair edge). The fix is
+  connectivity-only local re-CDT of the merged fan regions
+  (`retriangulate_collapsed_fan_regions`, seam-pinned defective edges
+  constrained, pinch verts paired by combinatorial fan chains, expected-
+  multiplicity postcondition; 5 unit fixtures). R0061 gate-ON now bails
+  LOUDLY at the CDT on the newly-characterized next layer: the seam
+  polylines carry Stage-4 RELOCATION-ORDER zigzag needles (samples
+  relocated onto the analytic curves out of order; self-crossing at
+  ~1e-8 transverse) — inc-4c-2 in the sub-spec. Gate-ON flip stays
+  BLOCKED (R0061 is CORRECT gate-OFF; flipping now would regress it
+  C→E).
 - **inc-4d — curved-owner / rim-corner pierce widening (greens F0082,
   spec-first).** Circle-edge × planar-face pierce mint: closed-form
   circle∩plane roots, arc-param endpoint margins, transversality floor,
