@@ -185,13 +185,87 @@ connectivity-only.
   resurfacing on the seam itself. No keep-boundary re-CDT can proceed
   over a self-crossing boundary; deletion-only and refinement approaches
   do not touch it either.
-- **inc-4c-2 — seam-order needle resolution (spec-first, NEXT).** Restore
-  along-curve order for relocated seam samples (the curves are
-  analytically known — order by curve parameter; a needle vertex whose
-  removal/reorder is sub-`TAU_EVAL` transverse is the §4.3 "point too
-  close on the same loop" class), after which the inc-4c-1 boundaries
-  become simple and the fan repair completes. Gate-ON flip stays blocked
-  until then.
+- **inc-4c-2 — seam-order needle resolution. BUILT + MEASURED
+  (2026-07-20): R0061 gate-ON = SUPPORTED_CORRECT — the flip blocker is
+  cleared.** Implementation follows the design below with four measured
+  corrections:
+  - **runs need not be paths**: the stale chords form STARS (3 edges of
+    one curve rooted at mint 193) — any connected component sorts by
+    parameter and rewires; external same-pair connections at non-extreme
+    vertices trigger anchor growth instead of a path-ends check.
+  - **every disorder detector grows before bailing** (bounded, 16 rounds,
+    stagnation-checked): parameter-extreme mismatch, chain-junction
+    degree (an added-chain vertex with >2 boundary edges — the arc chain
+    detouring through wall-chain vert v195), odd boundary degree (chain
+    truncated at the region rim), and a 2D boundary self-crossing scan
+    per component (the trigger that pulls the OTHER side's face — B,394 —
+    into the regions so its chain becomes rewireable). R0061's big
+    cluster converges in 7 rounds.
+  - **components merge along the FULL rewritten chain** (pre-cancel):
+    the sorted chain redefines the sector split, and an unchanged chain
+    segment still ties together the old components it touches (the
+    common-cancel had emptied the merge set and left a boundary hole —
+    measured, fixed).
+  - **§4.3 sub-render sample drop**: after sorting, a relocated
+    (`moved`, non-mint, no-other-pair, all-triangles-in-region) chain
+    sample whose deviation from its kept neighbours' chord is below the
+    RENDER channel floor (4·max|coord|·ε_f32 — the assay
+    `no_degenerate_triangles` criterion) is dropped from the chain and
+    the region vertex pool. Measured necessity: without it the repair
+    completes but the output ring carries the needle verts and the
+    RENDER tessellation mints a degenerate sliver
+    (R0061 → SUPPORTED_WRONG, `1 of 15306 triangles degenerate`); the
+    render-degeneracy postcondition on new triangles (also added,
+    fail-closed) cannot see that downstream sliver, so the drop is
+    load-bearing. P9 note for ratification: the criterion is the render
+    channel's resolution — same floor the retired N50 f32 weld keyed on —
+    but scoped to redundant SAMPLES of an analytic curve during a §4.3
+    loop cleanup, not blind vertex merging; flagged for user review in
+    the deviations ledger.
+  Unit: 9 fixtures total (`p3b_fan_retriangulation.rs`) — the 5 inc-4c-1
+  fixtures + out-of-region zigzag scope discipline (a geometric zigzag
+  outside the cluster regions is untouched) + 3 `seam_run_params` pins
+  (plane×plane line order, plane×cylinder θ order, unsupported → None).
+
+  Original design (implemented as corrected above): Cluster-level
+  seam-run canonicalization inside `repair_fan_cluster`, BEFORE the
+  region walks. The §4.3 grounding: the relocated samples are all valid
+  points ON one analytic section curve; only their CHAIN ORDER is stale
+  (it reflects pre-relocation chordal positions). Reordering the chain
+  by curve parameter is a connectivity-only §4.4.1 update — no vertex
+  moves, no tolerance.
+  - **Chain extraction:** seam edges = edges whose incident triangles
+    span exactly TWO attribution keys and lie ENTIRELY inside the
+    cluster's regions (both sides re-CDT ⇒ the chain is rewireable; an
+    edge with an outside triangle is an anchor and is never rewritten).
+    Eligible: pinned (use-2) and seam-pinned defective edges. Group by
+    key pair; runs = connected components that form simple PATHS
+    (two degree-1 ends, interior degree-2; cycles bail).
+  - **Curve parameter** from the key pair's surfaces (BRep lookup):
+    Plane×Plane → t = p·d̂, d = n̂₁×n̂₂ (near-parallel pair bails);
+    Plane×Cylinder → θ in the cylinder chart, re-centred on the run's
+    circular mean (θ is injective along a section ellipse; a plane
+    ∥-to-axis pair — generator lines — uses the axial coordinate
+    instead); any other pair bails. Quarter-turn straddle bails.
+  - **Rewrite:** if the run's path order already matches the parameter
+    order (either orientation) → no-op. Else require the path's two END
+    vertices to be the parameter extremes (a disorder spanning the run
+    boundary bails), replace the run's edges with the parameter-sorted
+    chain, and use the rewritten set as the constrained boundary of
+    EVERY region touching the run — both operands constrain the SAME
+    sorted chain, so the seam stays conformal by construction.
+  - **Guards (all bail the cluster, mesh untouched):** ties in the
+    parameter (coincidence is the weld's territory); a rewritten-run
+    vertex with boundary degree ≠ 2 after the rewrite (a pinch mint
+    inside a disordered span — out of scope this increment; the pinch
+    fan-chain pairing must never see synthetic edges); rewritten new
+    edges whose vertices leave the component.
+  - **Postcondition additions:** every REMOVED old chain edge ends at
+    total-use 0 or 2; rewritten chain edges are ordinary boundary edges
+    of both sides' plans (expected multiplicity 2 via the existing
+    rule). The CDT itself is the simplicity verifier: a still-crossing
+    boundary fails loudly as before.
+  Gate-ON flip stays blocked until R0061's clusters repair.
 - **inc-4c-3:** full ledger both gate states; parent-spec §5 update; then
   (parent inc-5) the always-on flip decision for `YANG_P3B_PIERCE_ENABLE`
   once F0082's inc-4d also lands or is re-scoped.

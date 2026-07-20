@@ -232,8 +232,14 @@ fn fan_fold_is_retriangulated_to_a_closed_complex() {
     let brep_a = one_face_brep(z_plane());
     let brep_b = one_face_brep(z_plane());
     let minted: HashSet<u32> = [ids.pp, ids.gg].into_iter().collect();
-    let changed =
-        retriangulate_collapsed_fan_regions(&mut mesh, &mut attr, &brep_a, &brep_b, &minted);
+    let changed = retriangulate_collapsed_fan_regions(
+        &mut mesh,
+        &mut attr,
+        &brep_a,
+        &brep_b,
+        &HashSet::new(),
+        &minted,
+    );
     assert!(changed, "the repair must fire on the folded cluster");
     for (e, &(n, fwd, rev)) in &edge_profile(&mesh) {
         assert!(
@@ -261,6 +267,7 @@ fn mint_free_fold_is_left_alone() {
         &brep_a,
         &brep_b,
         &HashSet::new(),
+        &HashSet::new(),
     );
     assert!(!changed, "no mints -> detector must not fire");
     assert_eq!(mesh.tris, before, "mesh must be untouched");
@@ -281,8 +288,234 @@ fn unattributed_cluster_triangle_bails_without_mutation() {
     let brep_b = one_face_brep(z_plane());
     let minted: HashSet<u32> = [ids.pp, ids.gg].into_iter().collect();
     let before = mesh.tris.clone();
-    let changed =
-        retriangulate_collapsed_fan_regions(&mut mesh, &mut attr, &brep_a, &brep_b, &minted);
+    let changed = retriangulate_collapsed_fan_regions(
+        &mut mesh,
+        &mut attr,
+        &brep_a,
+        &brep_b,
+        &HashSet::new(),
+        &minted,
+    );
     assert!(!changed, "an unattributed cluster triangle must bail");
     assert_eq!(mesh.tris, before, "bail must leave the mesh untouched");
+}
+
+/// inc-4c-2 fixtures: the strip fixture extended with a MISORDERED seam
+/// chain between G and s3 — two extra samples x1 < x2 (by curve parameter)
+/// wired stale as G→x2→x1→s3. Operand A lies on the z=0 plane, operand B on
+/// the y=0 plane, so the seam is the x-axis and the pair has a genuine line
+/// parameter. `off` is the samples' transverse offset: above the render
+/// floor they must be KEPT and reordered; below it they are §4.3-dropped.
+fn misordered_chain_fixture(off: f64) -> (Mesh, Vec<Option<TriangleAttribution>>, Ids, u32, u32) {
+    let p3 = |x: f64, y: f64, z: f64| Point3::new(x, y, z);
+    let verts = vec![
+        p3(0.0, 0.0, 0.0),   //  0 s0
+        p3(1.0, 0.0, 0.0),   //  1 P   (mint)
+        p3(1.4, 0.0, 0.0),   //  2 V1  (victim -> P)
+        p3(1.6, 0.0, 0.0),   //  3 V2  (victim -> G)
+        p3(2.0, 0.0, 0.0),   //  4 G   (mint)
+        p3(3.0, 0.0, 0.0),   //  5 s3
+        p3(1.0, 0.5, 0.0),   //  6 q1
+        p3(1.4, 0.5, 0.0),   //  7 m1  (victim -> P)
+        p3(1.6, 0.5, 0.0),   //  8 m2  (victim -> G)
+        p3(2.0, 0.5, 0.0),   //  9 q2
+        p3(1.45, 0.3, 0.0),  // 10 cu
+        p3(1.55, 0.35, 0.0), // 11 cv
+        p3(1.5, 1.0, 0.0),   // 12 r1
+        p3(2.5, 1.0, 0.0),   // 13 r2
+        p3(0.5, 0.0, -1.0),  // 14 b0 (on B's y=0 plane)
+        p3(1.5, 0.0, -1.0),  // 15 b1
+        p3(2.5, 0.0, -1.0),  // 16 b2
+        p3(2.4, off, 0.0),   // 17 x1 (chain sample, true order G < x1 < x2)
+        p3(2.6, -off, 0.0),  // 18 x2
+    ];
+    let (s0, pp, v1, v2, gg, s3) = (0u32, 1u32, 2u32, 3u32, 4u32, 5u32);
+    let (q1, m1, m2, q2, cu, cv, r1, r2) = (6u32, 7u32, 8u32, 9u32, 10u32, 11u32, 12u32, 13u32);
+    let (b0, b1, b2) = (14u32, 15u32, 16u32);
+    let (x1, x2) = (17u32, 18u32);
+    let a_tris = vec![
+        [s0, pp, q1],
+        [pp, v1, m1],
+        [pp, m1, q1],
+        [v1, v2, cu],
+        [v2, m2, cu],
+        [m2, cv, cu],
+        [m2, m1, cv],
+        [m1, cu, cv],
+        [v1, cu, m1],
+        [v2, gg, q2],
+        [v2, q2, m2],
+        [q1, m1, r1],
+        [m1, m2, r1],
+        [m2, q2, r1],
+        [q2, r2, r1],
+        // The misordered right span: seam runs G -> x2 -> x1 -> s3.
+        [gg, x2, q2],
+        [x2, x1, q2],
+        [x1, s3, q2],
+        [s3, r2, q2],
+    ];
+    let b_tris = vec![
+        [pp, s0, b0],
+        [pp, b0, b1],
+        [v1, pp, b1],
+        [v2, v1, b1],
+        [v2, b1, b2],
+        [gg, v2, b2],
+        // Mirror of the misordered span.
+        [x2, gg, b2],
+        [x1, x2, b2],
+        [s3, x1, b2],
+    ];
+    let mut tris = Vec::new();
+    let mut attr = Vec::new();
+    for t in &a_tris {
+        tris.push(*t);
+        attr.push(Some(TriangleAttribution {
+            input: InputId::A,
+            face: 0,
+        }));
+    }
+    for t in &b_tris {
+        tris.push(*t);
+        attr.push(Some(TriangleAttribution {
+            input: InputId::B,
+            face: 0,
+        }));
+    }
+    (
+        Mesh::new(verts, tris),
+        attr,
+        Ids {
+            s0,
+            pp,
+            v1,
+            v2,
+            gg,
+            s3,
+        },
+        x1,
+        x2,
+    )
+}
+
+fn y_plane() -> Surface {
+    Surface::Plane {
+        normal: Vector3::new(0.0, 1.0, 0.0),
+        d: 0.0,
+    }
+}
+
+fn run_misordered(off: f64) -> (Mesh, Ids, u32, u32) {
+    let (mut mesh, mut attr, ids, x1, x2) = misordered_chain_fixture(off);
+    // Pre-collapse manifold sanity.
+    for (e, &(n, fwd, rev)) in &edge_profile(&mesh) {
+        assert!(
+            n == 1 || (n == 2 && fwd == 1 && rev == 1),
+            "pre edge {e:?} profile n={n} fwd={fwd} rev={rev}"
+        );
+    }
+    let (v1, v2, m1, m2) = (2u32, 3u32, 7u32, 8u32);
+    collapse_vertex(&mut mesh, &mut attr, v1, ids.pp);
+    collapse_vertex(&mut mesh, &mut attr, v2, ids.gg);
+    collapse_vertex(&mut mesh, &mut attr, m1, ids.pp);
+    collapse_vertex(&mut mesh, &mut attr, m2, ids.gg);
+    let brep_a = one_face_brep(z_plane());
+    let brep_b = one_face_brep(y_plane());
+    let minted: HashSet<u32> = [ids.pp, ids.gg].into_iter().collect();
+    let moved: HashSet<u32> = [x1, x2].into_iter().collect();
+    let changed = retriangulate_collapsed_fan_regions(
+        &mut mesh, &mut attr, &brep_a, &brep_b, &moved, &minted,
+    );
+    assert!(changed, "the repair must fire on the folded cluster");
+    for (e, &(n, fwd, rev)) in &edge_profile(&mesh) {
+        assert!(
+            n == 1 || (n == 2 && fwd == 1 && rev == 1),
+            "post edge {e:?} profile n={n} fwd={fwd} rev={rev}"
+        );
+    }
+    (mesh, ids, x1, x2)
+}
+
+/// A geometric zigzag OUTSIDE the cluster regions is not this pass's
+/// business: the fold still repairs, the mesh stays manifold, and the
+/// out-of-region stale chord survives untouched (scope discipline — the
+/// pass may only rewire chains whose triangles it is already re-CDTing).
+#[test]
+fn out_of_region_zigzag_is_left_alone() {
+    let (mesh, ids, _x1, x2) = run_misordered(0.01);
+    let prof = edge_profile(&mesh);
+    assert!(
+        prof.contains_key(&(ids.gg.min(x2), ids.gg.max(x2))),
+        "the out-of-region chain edge (G,x2) must survive untouched"
+    );
+}
+
+// ---- seam_run_params: the inc-4c-2 curve parameter. ----
+
+use super::super::stage4_correct::seam_run_params;
+
+#[test]
+fn seam_params_plane_plane_orders_along_the_intersection_line() {
+    // z=0 x y=0 intersect in the x-axis: the parameter must be monotone in x.
+    let verts = vec![
+        Point3::new(2.0, 0.0, 0.0),
+        Point3::new(2.6, -1.0e-8, 0.0),
+        Point3::new(2.4, 1.0e-8, 0.0),
+        Point3::new(3.0, 0.0, 0.0),
+    ];
+    let mesh = Mesh::new(verts, vec![[0, 1, 2]]);
+    let params = seam_run_params(z_plane(), y_plane(), &[0, 1, 2, 3], &mesh)
+        .expect("plane x plane has a line parameter");
+    // Sorting by the parameter recovers the true x-order 0 < 2 < 1 < 3.
+    let mut order: Vec<usize> = (0..4).collect();
+    order.sort_by(|&a, &b| params[a].partial_cmp(&params[b]).unwrap());
+    assert!(
+        order == [0, 2, 1, 3] || order == [3, 1, 2, 0],
+        "params must order along the seam line, got {order:?}"
+    );
+}
+
+#[test]
+fn seam_params_plane_cylinder_orders_along_theta() {
+    let cyl = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    // A tilted plane cuts an ellipse; three samples at increasing theta,
+    // listed out of order.
+    let p_at = |theta: f64| Point3::new(theta.cos(), theta.sin(), 0.3 * theta.sin());
+    let verts = vec![p_at(0.30), p_at(0.10), p_at(0.20)];
+    let mesh = Mesh::new(verts, vec![[0, 1, 2]]);
+    let plane = Surface::Plane {
+        normal: Vector3::new(0.0, -0.287_347_885_566_345, 0.957_826_285_221_1),
+        d: 0.0,
+    };
+    let params =
+        seam_run_params(plane, cyl, &[0, 1, 2], &mesh).expect("ellipse has a theta parameter");
+    let mut order: Vec<usize> = (0..3).collect();
+    order.sort_by(|&a, &b| params[a].partial_cmp(&params[b]).unwrap());
+    assert!(
+        order == [1, 2, 0] || order == [0, 2, 1],
+        "params must order along theta, got {order:?}"
+    );
+}
+
+#[test]
+fn seam_params_unsupported_pairs_are_none() {
+    let verts = vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)];
+    let mesh = Mesh::new(verts, vec![[0, 1, 0]]);
+    let sphere = Surface::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    assert!(
+        seam_run_params(z_plane(), sphere, &[0, 1], &mesh).is_none(),
+        "plane x sphere has no supported parameter"
+    );
+    assert!(
+        seam_run_params(z_plane(), z_plane(), &[0, 1], &mesh).is_none(),
+        "parallel planes have no line direction"
+    );
 }

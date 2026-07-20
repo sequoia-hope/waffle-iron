@@ -1664,6 +1664,7 @@ pub(crate) fn retriangulate_collapsed_fan_regions(
     attr_vec: &mut Vec<Option<TriangleAttribution>>,
     brep_a: &BRep,
     brep_b: &BRep,
+    moved: &std::collections::HashSet<u32>,
     minted: &std::collections::HashSet<u32>,
 ) -> bool {
     use std::collections::{BTreeMap, BTreeSet};
@@ -1726,7 +1727,9 @@ pub(crate) fn retriangulate_collapsed_fan_regions(
                 continue;
             }
             attempted.insert(sig.clone());
-            match repair_fan_cluster(mesh, attr_vec, brep_a, brep_b, cluster, &edge_use, probe) {
+            match repair_fan_cluster(
+                mesh, attr_vec, brep_a, brep_b, cluster, &edge_use, moved, minted, probe,
+            ) {
                 Some(()) => {
                     if probe {
                         eprintln!("[p3b-fanfix] cluster {sig:?} REPAIRED");
@@ -1750,6 +1753,114 @@ pub(crate) fn retriangulate_collapsed_fan_regions(
 /// `Some(())` = the mesh was mutated and the postcondition verified;
 /// `None` = bail, mesh guaranteed untouched.
 #[allow(clippy::too_many_lines)]
+/// inc-4c-2: analytic curve parameter for a seam run between the two faces'
+/// surfaces, or `None` for an unsupported pair (the run is then left as-is
+/// and the CDT stays the loud verifier).
+///
+/// * Plane × Plane — the section is a line: t = p · d̂ with d = n̂₁×n̂₂
+///   (near-parallel pair → `None`).
+/// * Plane × Cylinder — the section is an ellipse (θ injective along it):
+///   t = θ re-centred on the run's circular mean; a plane ∥ to the axis cuts
+///   generator lines instead, where the axial coordinate orders the run. A
+///   quarter-turn straddle after re-centring → `None`.
+pub(crate) fn seam_run_params(
+    s1: Surface,
+    s2: Surface,
+    path: &[u32],
+    mesh: &Mesh,
+) -> Option<Vec<f64>> {
+    let dot3 = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    match (s1, s2) {
+        (Surface::Plane { normal: n1, .. }, Surface::Plane { normal: n2, .. }) => {
+            let (a, b) = (normalize3(n1.as_array()), normalize3(n2.as_array()));
+            let d = [
+                a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0],
+            ];
+            let len = dot3(d, d).sqrt();
+            if len < 1e-9 {
+                return None; // near-parallel planes: no line direction
+            }
+            let d = [d[0] / len, d[1] / len, d[2] / len];
+            Some(
+                path.iter()
+                    .map(|&v| dot3(mesh.verts[v as usize].as_array(), d))
+                    .collect(),
+            )
+        }
+        (
+            Surface::Plane { normal, .. },
+            Surface::Cylinder {
+                axis_point,
+                axis_dir,
+                ..
+            },
+        )
+        | (
+            Surface::Cylinder {
+                axis_point,
+                axis_dir,
+                ..
+            },
+            Surface::Plane { normal, .. },
+        ) => {
+            let ax = normalize3(axis_dir.as_array());
+            let nn = normalize3(normal.as_array());
+            let ap = axis_point.as_array();
+            if dot3(ax, nn).abs() < 1e-6 {
+                // Generator-line section: order axially.
+                return Some(
+                    path.iter()
+                        .map(|&v| {
+                            let p = mesh.verts[v as usize].as_array();
+                            dot3([p[0] - ap[0], p[1] - ap[1], p[2] - ap[2]], ax)
+                        })
+                        .collect(),
+                );
+            }
+            let (e1v, e2v) = ortho_basis(cad_primitives::Vector3::new(ax[0], ax[1], ax[2]));
+            let (e1, e2) = (e1v.as_array(), e2v.as_array());
+            let thetas: Vec<f64> = path
+                .iter()
+                .map(|&v| {
+                    let p = mesh.verts[v as usize].as_array();
+                    let w = [p[0] - ap[0], p[1] - ap[1], p[2] - ap[2]];
+                    let z = dot3(w, ax);
+                    let r = [w[0] - z * ax[0], w[1] - z * ax[1], w[2] - z * ax[2]];
+                    dot3(r, e2).atan2(dot3(r, e1))
+                })
+                .collect();
+            let (mut sx, mut sy) = (0.0f64, 0.0f64);
+            for &t in &thetas {
+                sx += t.cos();
+                sy += t.sin();
+            }
+            let t0 = sy.atan2(sx);
+            let mut out = Vec::with_capacity(thetas.len());
+            for &t in &thetas {
+                let mut dt = t - t0;
+                while dt > std::f64::consts::PI {
+                    dt -= 2.0 * std::f64::consts::PI;
+                }
+                while dt < -std::f64::consts::PI {
+                    dt += 2.0 * std::f64::consts::PI;
+                }
+                if dt.abs() > std::f64::consts::FRAC_PI_2 {
+                    return None; // quarter-turn straddle
+                }
+                out.push(dt);
+            }
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+/// An unordered attribution-key pair naming one seam chain's two faces.
+type SeamKeyPair = ((InputId, u32), (InputId, u32));
+
+#[allow(clippy::too_many_arguments)]
 fn repair_fan_cluster(
     mesh: &mut Mesh,
     attr_vec: &mut Vec<Option<TriangleAttribution>>,
@@ -1757,6 +1868,8 @@ fn repair_fan_cluster(
     brep_b: &BRep,
     cluster: &std::collections::BTreeSet<u32>,
     edge_use: &std::collections::BTreeMap<(u32, u32), Vec<usize>>,
+    moved: &std::collections::HashSet<u32>,
+    minted: &std::collections::HashSet<u32>,
     probe: bool,
 ) -> Option<()> {
     use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -1766,34 +1879,6 @@ fn repair_fan_cluster(
         }
         None
     };
-    // Regions: attribution key → triangles incident to a cluster vertex. An
-    // UNATTRIBUTED triangle touching the cluster leaves the repair without a
-    // surface to re-CDT in — bail.
-    let mut regions: BTreeMap<(InputId, u32), BTreeSet<usize>> = BTreeMap::new();
-    for (ti, tri) in mesh.tris.iter().enumerate() {
-        if !tri.iter().any(|v| cluster.contains(v)) {
-            continue;
-        }
-        match attr_vec.get(ti).copied().flatten() {
-            Some(at) => {
-                regions.entry((at.input, at.face)).or_default().insert(ti);
-            }
-            None => return bail("unattributed triangle in cluster"),
-        }
-    }
-    if regions.is_empty() {
-        return bail("empty cluster");
-    }
-    let in_regions: BTreeSet<usize> = regions.values().flatten().copied().collect();
-    // Every defective cluster edge must be fully inside the cluster's regions.
-    for (&(u, w), ts) in edge_use {
-        if ts.len() != 2
-            && (cluster.contains(&u) || cluster.contains(&w))
-            && !ts.iter().all(|t| in_regions.contains(t))
-        {
-            return bail("defective edge reaches outside the cluster regions");
-        }
-    }
     let surf_of = |k: (InputId, u32)| -> Surface {
         let br = if matches!(k.0, InputId::A) {
             brep_a
@@ -1822,324 +1907,816 @@ fn repair_fan_cluster(
         }
         per_key.values().any(|&n| n == 1)
     };
+    // Regions: attribution key → triangles incident to an ANCHOR vertex
+    // (initially the cluster; inc-4c-2 grows the anchor set when a seam
+    // disorder reaches the region rim). An UNATTRIBUTED triangle touching
+    // the anchors leaves the repair without a surface to re-CDT in — bail.
+    //
+    // inc-4c-2 seam-run canonicalization (spec §5): Stage-4 relocation can
+    // land near-dup seam samples OUT OF ORDER along their analytic section
+    // curve (the chain reflects stale chordal positions), so the region
+    // boundaries self-cross in-chart and no keep-boundary CDT can run. The
+    // chain is connectivity: for every seam run (path of pinned/seam-pinned
+    // edges between exactly two attribution keys, fully inside the cluster
+    // regions — both sides re-CDT, so the chain is rewireable), sort the
+    // run's vertices by the pair's analytic curve parameter and constrain
+    // BOTH sides to the sorted chain. No vertex moves; ties bail; a
+    // disorder whose parameter extremes are not the run's path ends reaches
+    // beyond the current regions → grow the anchors by the run ends and
+    // rebuild (bounded).
     struct RegionPlan {
         key: (InputId, u32),
         boundary: std::collections::BTreeSet<(u32, u32)>,
         new_tris: Vec<[u32; 3]>,
     }
-    let mut plans: Vec<RegionPlan> = Vec::new();
-    // Regions split into edge-connected COMPONENTS: at a 4-strand crossing
-    // mint the kept surface of one face meets the cluster in two sectors
-    // pinched at the mint; each sector re-triangulates as its own disc.
-    let mut components: Vec<((InputId, u32), BTreeSet<usize>)> = Vec::new();
-    for (&key, rtris) in &regions {
-        let tlist: Vec<usize> = rtris.iter().copied().collect();
-        let mut parent: Vec<usize> = (0..tlist.len()).collect();
-        fn cfind(p: &mut [usize], x: usize) -> usize {
-            let mut r = x;
-            while p[r] != r {
-                r = p[r];
+    let mut anchors: BTreeSet<u32> = cluster.clone();
+    let mut grow_rounds = 0usize;
+    let (plans, in_regions, removed_chain, added_chain) = 'grow: loop {
+        let mut regions: BTreeMap<(InputId, u32), BTreeSet<usize>> = BTreeMap::new();
+        for (ti, tri) in mesh.tris.iter().enumerate() {
+            if !tri.iter().any(|v| anchors.contains(v)) {
+                continue;
             }
-            let mut c = x;
-            while p[c] != r {
-                let n = p[c];
-                p[c] = r;
-                c = n;
+            match attr_vec.get(ti).copied().flatten() {
+                Some(at) => {
+                    regions.entry((at.input, at.face)).or_default().insert(ti);
+                }
+                None => return bail("unattributed triangle in cluster"),
             }
-            r
         }
-        let mut edge_first: BTreeMap<(u32, u32), usize> = BTreeMap::new();
-        for (li, &ti) in tlist.iter().enumerate() {
-            let tri = mesh.tris[ti];
-            for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
-                let (u, w) = (tri[i], tri[j]);
-                let e = if u < w { (u, w) } else { (w, u) };
-                if let Some(&lj) = edge_first.get(&e) {
-                    let (ra, rb) = (cfind(&mut parent, li), cfind(&mut parent, lj));
-                    if ra != rb {
-                        parent[ra] = rb;
+        if regions.is_empty() {
+            return bail("empty cluster");
+        }
+        let in_regions: BTreeSet<usize> = regions.values().flatten().copied().collect();
+        // Every defective cluster edge must be fully inside the cluster's regions.
+        for (&(u, w), ts) in edge_use {
+            if ts.len() != 2
+                && (cluster.contains(&u) || cluster.contains(&w))
+                && !ts.iter().all(|t| in_regions.contains(t))
+            {
+                return bail("defective edge reaches outside the cluster regions");
+            }
+        }
+        // Rewireable seam edges by key pair.
+        let mut by_pair: BTreeMap<SeamKeyPair, BTreeSet<(u32, u32)>> = BTreeMap::new();
+        // ALL same-pair seam edges mesh-wide (anchor detection: a component
+        // vertex touching a same-pair seam edge OUTSIDE the rewireable set
+        // continues the chain beyond the regions).
+        let mut full_pair: BTreeMap<SeamKeyPair, BTreeSet<(u32, u32)>> = BTreeMap::new();
+        for (&e, ts) in edge_use {
+            if ts.is_empty() {
+                continue;
+            }
+            let mut keys: BTreeSet<(InputId, u32)> = BTreeSet::new();
+            let mut attributed = true;
+            for &ti in ts {
+                match attr_vec.get(ti).copied().flatten() {
+                    Some(at) => {
+                        keys.insert((at.input, at.face));
                     }
-                } else {
-                    edge_first.insert(e, li);
+                    None => attributed = false,
                 }
             }
+            if !attributed || keys.len() != 2 {
+                continue;
+            }
+            if !(ts.len() == 2 || seam_pinned(&e)) {
+                continue; // balanced fold chords are not chain members
+            }
+            let mut it = keys.into_iter();
+            let pair = (it.next().expect("2 keys"), it.next().expect("2 keys"));
+            full_pair.entry(pair).or_default().insert(e);
+            if ts.iter().all(|t| in_regions.contains(t)) {
+                by_pair.entry(pair).or_default().insert(e);
+            }
         }
-        let mut by_root: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
-        for (li, &ti) in tlist.iter().enumerate() {
-            by_root
-                .entry(cfind(&mut parent, li))
-                .or_default()
-                .insert(ti);
-        }
-        for comp in by_root.into_values() {
-            components.push((key, comp));
-        }
-    }
-    for (key, rtris) in &components {
-        let key = *key;
-        // Classify this component's edges.
-        let mut boundary: BTreeSet<(u32, u32)> = BTreeSet::new();
-        for &ti in rtris {
-            let tri = mesh.tris[ti];
-            for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
-                let (u, w) = (tri[i], tri[j]);
-                let e = if u < w { (u, w) } else { (w, u) };
-                let ts = &edge_use[&e];
-                let n_in = ts.iter().filter(|t| rtris.contains(t)).count();
-                match (ts.len(), n_in) {
-                    (2, 1) => {
-                        boundary.insert(e);
+        let mut removed_chain: BTreeSet<(u32, u32)> = BTreeSet::new();
+        let mut added_chain: Vec<(SeamKeyPair, (u32, u32))> = Vec::new();
+        // The FULL rewritten chains (before the unchanged-segment cancel) —
+        // used for component merging: an unchanged chain segment still ties
+        // the components it touches together.
+        let mut chain_merge_edges: Vec<(SeamKeyPair, (u32, u32))> = Vec::new();
+        let mut dropped_verts: BTreeSet<u32> = BTreeSet::new();
+        for (pair, edges) in &by_pair {
+            let mut adj: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+            for &(u, w) in edges {
+                adj.entry(u).or_default().push(w);
+                adj.entry(w).or_default().push(u);
+            }
+            let mut seen: BTreeSet<u32> = BTreeSet::new();
+            for &start in adj.keys() {
+                if seen.contains(&start) {
+                    continue;
+                }
+                let mut stack = vec![start];
+                let mut comp: BTreeSet<u32> = BTreeSet::new();
+                while let Some(v) = stack.pop() {
+                    if !comp.insert(v) {
+                        continue;
                     }
-                    (2, 2) => {} // healthy interior — CDT may rewire
-                    (n, _) if n != 2 && ts.iter().all(|t| in_regions.contains(t)) => {
-                        if seam_pinned(&e) {
-                            boundary.insert(e);
+                    for &n in &adj[&v] {
+                        if !comp.contains(&n) {
+                            stack.push(n);
                         }
                     }
-                    _ => return bail("unclassifiable region edge"),
                 }
-            }
-        }
-        if boundary.is_empty() {
-            return bail("region has no boundary");
-        }
-        // Region vertex pool.
-        let mut vset: BTreeSet<u32> = BTreeSet::new();
-        for &ti in rtris {
-            vset.extend(mesh.tris[ti]);
-        }
-        // Chart (Plane / Cylinder only).
-        let surf = surf_of(key);
-        let Some(chart) = crate::stage4_project::SurfaceChart::new(surf) else {
-            return bail("chartless surface");
-        };
-        // Project. Cylinder: re-centre θ on the region's circular mean and use
-        // the isometric u = r·Δθ; bail if the region straddles a quarter turn
-        // (the inc-2 branch-cut guard shape).
-        let is_cyl = matches!(surf, Surface::Cylinder { .. });
-        let radius = match surf {
-            Surface::Cylinder { radius, .. } => radius,
-            _ => 1.0,
-        };
-        let raw: Vec<(u32, cad_primitives::Point2)> = vset
-            .iter()
-            .map(|&v| (v, chart.project(mesh.verts[v as usize])))
-            .collect();
-        let theta0 = if is_cyl {
-            let (mut sx, mut sy) = (0.0f64, 0.0f64);
-            for (_, p) in &raw {
-                sx += p.x().cos();
-                sy += p.x().sin();
-            }
-            sy.atan2(sx)
-        } else {
-            0.0
-        };
-        let mut verts2d: Vec<cad_primitives::Point2> = Vec::with_capacity(raw.len());
-        let mut global_of_local: Vec<u32> = Vec::with_capacity(raw.len());
-        let mut local_of_global: HashMap<u32, u32> = HashMap::new();
-        for (v, p) in &raw {
-            let uv = if is_cyl {
-                let mut dt = p.x() - theta0;
-                while dt > std::f64::consts::PI {
-                    dt -= 2.0 * std::f64::consts::PI;
+                seen.extend(comp.iter().copied());
+                if comp.len() < 3 {
+                    continue; // a 2-vert run cannot be disordered
                 }
-                while dt < -std::f64::consts::PI {
-                    dt += 2.0 * std::f64::consts::PI;
+                let verts: Vec<u32> = comp.iter().copied().collect();
+                let Some(params) = seam_run_params(surf_of(pair.0), surf_of(pair.1), &verts, mesh)
+                else {
+                    if probe {
+                        eprintln!("[p3b-fanfix] seam run {pair:?} {verts:?}: no parameter");
+                    }
+                    continue; // unsupported pair: left as-is (the CDT verifies)
+                };
+                let mut order: Vec<usize> = (0..verts.len()).collect();
+                order.sort_by(|&a, &b| {
+                    params[a]
+                        .partial_cmp(&params[b])
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                if order.windows(2).any(|w| params[w[1]] == params[w[0]]) {
+                    return bail("seam run parameter tie");
                 }
-                if dt.abs() > std::f64::consts::FRAC_PI_2 {
-                    return bail("cylinder region straddles a quarter turn");
-                }
-                cad_primitives::Point2::new(radius * dt, p.y())
-            } else {
-                *p
-            };
-            local_of_global.insert(*v, verts2d.len() as u32);
-            global_of_local.push(*v);
-            verts2d.push(uv);
-        }
-        // Boundary loops. Every boundary vertex needs EVEN degree; a
-        // degree-2 vertex continues to its other neighbour; a higher even
-        // degree is a PINCH (a 4-strand crossing mint: two kept sectors of
-        // one face meeting at the vertex). At a pinch the walk pairs each
-        // incoming boundary edge with the other bounding edge of the
-        // INSIDE angular sector between them — the sector holding region
-        // triangles in the chart (folds only ever double-cover inside
-        // sectors, so the containment test is fold-tolerant).
-        let mut bnd_adj: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
-        for &(u, w) in &boundary {
-            let (lu, lw) = (local_of_global[&u], local_of_global[&w]);
-            bnd_adj.entry(lu).or_default().push(lw);
-            bnd_adj.entry(lw).or_default().push(lu);
-        }
-        if bnd_adj.values().any(|n| n.len() % 2 != 0) {
-            if probe {
-                let bad: Vec<(u32, usize)> = bnd_adj
-                    .iter()
-                    .filter(|(_, n)| n.len() % 2 != 0)
-                    .map(|(&l, n)| (global_of_local[l as usize], n.len()))
+                // The sorted chain's edge set; if it matches the existing run
+                // (already a parameter-ordered path), nothing to do.
+                let sorted_edges_raw: BTreeSet<(u32, u32)> = order
+                    .windows(2)
+                    .map(|w| {
+                        let (a, b) = (verts[w[0]], verts[w[1]]);
+                        if a < b {
+                            (a, b)
+                        } else {
+                            (b, a)
+                        }
+                    })
                     .collect();
-                eprintln!("[p3b-fanfix] region {key:?} odd boundary degrees {bad:?}");
-                for &(u, w) in &boundary {
-                    if bad.iter().any(|&(v, _)| v == u || v == w) {
+                if &sorted_edges_raw == edges {
+                    continue; // already in curve order
+                }
+                // External connections (same-pair seam edges leaving the
+                // rewireable set) may only attach at the parameter extremes;
+                // otherwise the disorder reaches past the regions — grow.
+                let outside_pair: BTreeSet<(u32, u32)> =
+                    full_pair[pair].difference(edges).copied().collect();
+                let (lo, hi) = (verts[order[0]], verts[*order.last().expect("nonempty")]);
+                let mut grow_verts: BTreeSet<u32> = BTreeSet::new();
+                for &(u, w) in &outside_pair {
+                    for (a, b) in [(u, w), (w, u)] {
+                        if comp.contains(&a) && a != lo && a != hi {
+                            grow_verts.insert(b); // pull the chain outward
+                        }
+                    }
+                }
+                if !grow_verts.is_empty() {
+                    grow_rounds += 1;
+                    if grow_rounds > 16 {
+                        return bail("seam disorder growth bound exceeded");
+                    }
+                    if probe {
                         eprintln!(
-                            "[p3b-fanfix]   bnd edge ({u},{w}) uses {:?}",
-                            edge_use[&(u, w)]
+                            "[p3b-fanfix] seam run {pair:?} disorder reaches its rim — \
+                             growing anchors by {grow_verts:?} (round {grow_rounds})"
                         );
                     }
+                    anchors.extend(grow_verts);
+                    continue 'grow;
                 }
-            }
-            return bail("region boundary has an odd-degree vertex");
-        }
-        // Pinch pairing: local vert -> (incoming nbr -> outgoing nbr), by
-        // COMBINATORIAL fan chains — at the pinch vertex, rotate through the
-        // component's triangles via shared at-vertex interior edges; each
-        // chain runs boundary-edge -> ... -> boundary-edge and pairs its two
-        // ends. Pure connectivity (fold geometry cannot confuse it); an
-        // at-vertex edge whose comp-triangle count is not 1 (boundary) or 2
-        // (interior) makes rotation ill-defined -> bail.
-        let mut pinch_pair: HashMap<(u32, u32), u32> = HashMap::new();
-        for (&v, nbrs) in &bnd_adj {
-            if nbrs.len() == 2 {
-                continue;
-            }
-            let gv = global_of_local[v as usize];
-            // Edges at v (by OTHER endpoint, global) -> comp tris incident.
-            let mut at_v: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
-            for &ti in rtris.iter() {
-                let tri = mesh.tris[ti];
-                let Some(pos) = tri.iter().position(|&g| g == gv) else {
-                    continue;
-                };
-                for other in [tri[(pos + 1) % 3], tri[(pos + 2) % 3]] {
-                    at_v.entry(other).or_default().push(ti);
-                }
-            }
-            let is_bnd = |other: u32| -> bool {
-                let e = if gv < other { (gv, other) } else { (other, gv) };
-                boundary.contains(&e)
-            };
-            for (&other, ts) in &at_v {
-                let want = if is_bnd(other) { 1 } else { 2 };
-                if ts.len() != want {
-                    return bail("pinch fan rotation ill-defined");
-                }
-            }
-            let bnd_others: Vec<u32> = at_v.keys().copied().filter(|&o| is_bnd(o)).collect();
-            let mut paired: BTreeSet<u32> = BTreeSet::new();
-            for &start_o in &bnd_others {
-                if paired.contains(&start_o) {
-                    continue;
-                }
-                // Rotate: current (edge-other, tri) -> tri's third at-v edge.
-                let mut cur_o = start_o;
-                let mut cur_t = at_v[&start_o][0];
-                let mut hops = 0usize;
-                let end_o = loop {
-                    hops += 1;
-                    if hops > 2 * at_v.len() + 4 {
-                        return bail("pinch fan chain does not terminate");
-                    }
-                    let tri = mesh.tris[cur_t];
-                    let pos = tri.iter().position(|&g| g == gv).expect("has v");
-                    let (o1, o2) = (tri[(pos + 1) % 3], tri[(pos + 2) % 3]);
-                    let next_o = if o1 == cur_o { o2 } else { o1 };
-                    if is_bnd(next_o) {
-                        break next_o;
-                    }
-                    let ts = &at_v[&next_o];
-                    let next_t = if ts[0] == cur_t { ts[1] } else { ts[0] };
-                    cur_o = next_o;
-                    cur_t = next_t;
-                };
-                if end_o == start_o || paired.contains(&end_o) {
-                    return bail("pinch fan chain closed on itself");
-                }
-                paired.insert(start_o);
-                paired.insert(end_o);
-                let (ls, le) = (local_of_global[&start_o], local_of_global[&end_o]);
-                pinch_pair.insert((v, ls), le);
-                pinch_pair.insert((v, le), ls);
-            }
-            if paired.len() != bnd_others.len() {
-                return bail("pinch pairing incomplete");
-            }
-        }
-        let mut loops_local: Vec<Vec<u32>> = Vec::new();
-        let mut used: BTreeSet<(u32, u32)> = BTreeSet::new(); // undirected, (min,max)
-        let bnd_local: Vec<(u32, u32)> = boundary
-            .iter()
-            .map(|&(u, w)| (local_of_global[&u], local_of_global[&w]))
-            .collect();
-        let continuation = |prev: u32, cur: u32| -> Option<u32> {
-            let nb = &bnd_adj[&cur];
-            if nb.len() == 2 {
-                Some(if nb[0] == prev { nb[1] } else { nb[0] })
-            } else {
-                pinch_pair.get(&(cur, prev)).copied()
-            }
-        };
-        for &(su, sw) in &bnd_local {
-            if used.contains(&(su.min(sw), su.max(sw))) {
-                continue;
-            }
-            let mut lp = vec![su];
-            let (mut prev, mut cur) = (su, sw);
-            used.insert((su.min(sw), su.max(sw)));
-            let mut steps = 0usize;
-            loop {
-                steps += 1;
-                if steps > 2 * bnd_local.len() + 4 {
-                    return bail("boundary walk does not close");
-                }
-                let Some(next) = continuation(prev, cur) else {
-                    return bail("pinch pairing missing");
-                };
-                if (cur, next) == (su, sw) {
-                    break; // closed: back at the starting directed edge
-                }
-                lp.push(cur);
-                if !used.insert((cur.min(next), cur.max(next))) {
-                    return bail("boundary walk re-traverses an edge");
-                }
-                prev = cur;
-                cur = next;
-            }
-            loops_local.push(lp);
-        }
-        let signed_area = |lp: &[u32]| -> f64 {
-            let mut a2 = 0.0;
-            for i in 0..lp.len() {
-                let p = verts2d[lp[i] as usize];
-                let q = verts2d[lp[(i + 1) % lp.len()] as usize];
-                a2 += p.x() * q.y() - q.x() * p.y();
-            }
-            a2 * 0.5
-        };
-        let outer_i = (0..loops_local.len()).max_by(|&x, &y| {
-            signed_area(&loops_local[x])
-                .abs()
-                .partial_cmp(&signed_area(&loops_local[y]).abs())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })?;
-        let outer = loops_local[outer_i].clone();
-        let holes: Vec<Vec<u32>> = loops_local
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != outer_i)
-            .map(|(_, l)| l.clone())
-            .collect();
-        let on_loop: BTreeSet<u32> = loops_local.iter().flatten().copied().collect();
-        let interior: Vec<u32> = (0..verts2d.len() as u32)
-            .filter(|l| !on_loop.contains(l))
-            .collect();
-        let tris_local = match cherchi_rs::cdt_polygon_with_holes_keep_interior(
-            &verts2d, &outer, &holes, &interior,
-        ) {
-            Ok(t) => t,
-            Err(e) => {
                 if probe {
                     eprintln!(
+                        "[p3b-fanfix] seam run reorder {pair:?}: {verts:?} -> {:?}",
+                        order.iter().map(|&i| verts[i]).collect::<Vec<_>>()
+                    );
+                }
+                // §4.3 loop cleanup on the sorted chain: a RELOCATED sample
+                // (moved, non-mint, every triangle inside the regions, on no
+                // other seam pair) whose deviation from its kept neighbours'
+                // chord is below the RENDER channel's resolution adds no
+                // representable geometry — carrying it into the output ring
+                // mints a render-degenerate sliver downstream (measured:
+                // R0061's needle verts, 8e-9–4e-8 off-chord vs a ~7.6e-8
+                // floor). Drop it from the chain and the region vertex pool;
+                // the analytic curve, not the sample set, is the geometry.
+                let height_floor = {
+                    let max_abs = mesh
+                        .verts
+                        .iter()
+                        .flat_map(|p| p.as_array())
+                        .fold(0.0f64, |m, c| m.max(c.abs()));
+                    4.0 * max_abs * (f32::EPSILON as f64)
+                };
+                let on_other_pair = |v: u32| {
+                    full_pair
+                        .iter()
+                        .any(|(op, oes)| op != pair && oes.iter().any(|&(a, b)| a == v || b == v))
+                };
+                let tris_all_in = |v: u32| {
+                    edge_use
+                        .iter()
+                        .filter(|(&(a, b), _)| a == v || b == v)
+                        .all(|(_, ts)| ts.iter().all(|t| in_regions.contains(t)))
+                };
+                let sorted_verts: Vec<u32> = order.iter().map(|&i| verts[i]).collect();
+                let mut kept: Vec<u32> = vec![sorted_verts[0]];
+                for i in 1..sorted_verts.len() - 1 {
+                    let v = sorted_verts[i];
+                    let droppable = moved.contains(&v)
+                        && !minted.contains(&v)
+                        && !on_other_pair(v)
+                        && tris_all_in(v);
+                    let mut drop = false;
+                    if droppable {
+                        let p = mesh.verts[v as usize].as_array();
+                        let a = mesh.verts[*kept.last().expect("nonempty") as usize].as_array();
+                        let b = mesh.verts[sorted_verts[i + 1] as usize].as_array();
+                        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                        let ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+                        let l2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+                        if l2 > 0.0 {
+                            let t = ((ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / l2)
+                                .clamp(0.0, 1.0);
+                            let d = [ap[0] - t * ab[0], ap[1] - t * ab[1], ap[2] - t * ab[2]];
+                            let dev = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                            drop = dev < height_floor;
+                        }
+                    }
+                    if drop {
+                        if probe {
+                            eprintln!(
+                                "[p3b-fanfix] chain sample v{v} dropped (sub-render \
+                                 deviation, pair {pair:?})"
+                            );
+                        }
+                        dropped_verts.insert(v);
+                    } else {
+                        kept.push(v);
+                    }
+                }
+                kept.push(*sorted_verts.last().expect("nonempty"));
+                let sorted_edges: BTreeSet<(u32, u32)> = kept
+                    .windows(2)
+                    .map(|w| {
+                        if w[0] < w[1] {
+                            (w[0], w[1])
+                        } else {
+                            (w[1], w[0])
+                        }
+                    })
+                    .collect();
+                removed_chain.extend(edges.iter().copied());
+                for e in &sorted_edges {
+                    added_chain.push((*pair, *e));
+                    chain_merge_edges.push((*pair, *e));
+                }
+            }
+        }
+        // Unchanged segments (present in both sets) stay classified normally.
+        let common: Vec<(u32, u32)> = added_chain
+            .iter()
+            .map(|&(_, e)| e)
+            .filter(|e| removed_chain.contains(e))
+            .collect();
+        for e in &common {
+            removed_chain.remove(e);
+        }
+        added_chain.retain(|(_, e)| !common.contains(e));
+        let mut plans: Vec<RegionPlan> = Vec::new();
+        // Regions split into edge-connected COMPONENTS: at a 4-strand crossing
+        // mint the kept surface of one face meets the cluster in two sectors
+        // pinched at the mint; each sector re-triangulates as its own disc.
+        let mut components: Vec<((InputId, u32), BTreeSet<usize>)> = Vec::new();
+        for (&key, rtris) in &regions {
+            let tlist: Vec<usize> = rtris.iter().copied().collect();
+            let mut parent: Vec<usize> = (0..tlist.len()).collect();
+            fn cfind(p: &mut [usize], x: usize) -> usize {
+                let mut r = x;
+                while p[r] != r {
+                    r = p[r];
+                }
+                let mut c = x;
+                while p[c] != r {
+                    let n = p[c];
+                    p[c] = r;
+                    c = n;
+                }
+                r
+            }
+            let mut edge_first: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+            for (li, &ti) in tlist.iter().enumerate() {
+                let tri = mesh.tris[ti];
+                for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                    let (u, w) = (tri[i], tri[j]);
+                    let e = if u < w { (u, w) } else { (w, u) };
+                    if let Some(&lj) = edge_first.get(&e) {
+                        let (ra, rb) = (cfind(&mut parent, li), cfind(&mut parent, lj));
+                        if ra != rb {
+                            parent[ra] = rb;
+                        }
+                    } else {
+                        edge_first.insert(e, li);
+                    }
+                }
+            }
+            let mut by_root: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+            for (li, &ti) in tlist.iter().enumerate() {
+                by_root
+                    .entry(cfind(&mut parent, li))
+                    .or_default()
+                    .insert(ti);
+            }
+            for comp in by_root.into_values() {
+                components.push((key, comp));
+            }
+        }
+        // inc-4c-2: a rewired chain can connect two components of the same key
+        // (the old chords defined the old sector split; the sorted chain defines
+        // the new one). Merge components joined by an added chain edge so the
+        // edge lands inside one region's vertex pool; the pinch fan-chain
+        // pairing still resolves the (possibly pinched) merged region.
+        if !chain_merge_edges.is_empty() {
+            let mut cparent: Vec<usize> = (0..components.len()).collect();
+            fn cfind2(p: &mut [usize], x: usize) -> usize {
+                let mut r = x;
+                while p[r] != r {
+                    r = p[r];
+                }
+                let mut c = x;
+                while p[c] != r {
+                    let n = p[c];
+                    p[c] = r;
+                    c = n;
+                }
+                r
+            }
+            let comp_verts: Vec<BTreeSet<u32>> = components
+                .iter()
+                .map(|(_, tris)| {
+                    let mut vs = BTreeSet::new();
+                    for &ti in tris {
+                        vs.extend(mesh.tris[ti]);
+                    }
+                    vs
+                })
+                .collect();
+            for &(pair, e) in &chain_merge_edges {
+                for want_key in [pair.0, pair.1] {
+                    let holders: Vec<usize> = (0..components.len())
+                        .filter(|&ci| {
+                            components[ci].0 == want_key
+                                && (comp_verts[ci].contains(&e.0) || comp_verts[ci].contains(&e.1))
+                        })
+                        .collect();
+                    for w in holders.windows(2) {
+                        let (ra, rb) = (cfind2(&mut cparent, w[0]), cfind2(&mut cparent, w[1]));
+                        if ra != rb {
+                            cparent[ra] = rb;
+                        }
+                    }
+                }
+            }
+            let mut merged: BTreeMap<usize, ((InputId, u32), BTreeSet<usize>)> = BTreeMap::new();
+            for (ci, (ckey, ctris)) in components.iter().enumerate() {
+                let root = cfind2(&mut cparent, ci);
+                let entry = merged
+                    .entry(root)
+                    .or_insert_with(|| (*ckey, BTreeSet::new()));
+                entry.1.extend(ctris.iter().copied());
+            }
+            components = merged.into_values().collect();
+            if probe {
+                for (k, tris) in &components {
+                    let mut vs: BTreeSet<u32> = BTreeSet::new();
+                    for &ti in tris {
+                        vs.extend(mesh.tris[ti]);
+                    }
+                    eprintln!(
+                        "[p3b-fanfix] post-merge comp {k:?}: {} tris, verts {vs:?}",
+                        tris.len()
+                    );
+                }
+            }
+        }
+        for (key, rtris) in &components {
+            let key = *key;
+            // Classify this component's edges.
+            let mut boundary: BTreeSet<(u32, u32)> = BTreeSet::new();
+            for &ti in rtris {
+                let tri = mesh.tris[ti];
+                for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                    let (u, w) = (tri[i], tri[j]);
+                    let e = if u < w { (u, w) } else { (w, u) };
+                    let ts = &edge_use[&e];
+                    let n_in = ts.iter().filter(|t| rtris.contains(t)).count();
+                    match (ts.len(), n_in) {
+                        (2, 1) => {
+                            if !removed_chain.contains(&e) {
+                                boundary.insert(e);
+                            }
+                        }
+                        (2, 2) => {} // healthy interior — CDT may rewire
+                        (n, _) if n != 2 && ts.iter().all(|t| in_regions.contains(t)) => {
+                            if seam_pinned(&e) && !removed_chain.contains(&e) {
+                                boundary.insert(e);
+                            }
+                        }
+                        _ => return bail("unclassifiable region edge"),
+                    }
+                }
+            }
+            // Region vertex pool (minus §4.3-dropped chain samples — they are
+            // sub-render-redundant and must not re-enter via the CDT).
+            let mut vset: BTreeSet<u32> = BTreeSet::new();
+            for &ti in rtris {
+                vset.extend(mesh.tris[ti]);
+            }
+            for v in &dropped_verts {
+                vset.remove(v);
+            }
+            // inc-4c-2: the rewritten (parameter-sorted) chain edges of any run
+            // touching this region's key are constrained boundary edges here.
+            for &(pair, e) in &added_chain {
+                if pair.0 != key && pair.1 != key {
+                    continue;
+                }
+                if vset.contains(&e.0) && vset.contains(&e.1) {
+                    boundary.insert(e);
+                } else if probe {
+                    eprintln!(
+                        "[p3b-fanfix] region {key:?} added edge {e:?} NOT in vset \
+                     ({} {})",
+                        vset.contains(&e.0),
+                        vset.contains(&e.1)
+                    );
+                }
+            }
+            if boundary.is_empty() {
+                return bail("region has no boundary");
+            }
+            // Chart (Plane / Cylinder only).
+            let surf = surf_of(key);
+            let Some(chart) = crate::stage4_project::SurfaceChart::new(surf) else {
+                return bail("chartless surface");
+            };
+            // Project. Cylinder: re-centre θ on the region's circular mean and use
+            // the isometric u = r·Δθ; bail if the region straddles a quarter turn
+            // (the inc-2 branch-cut guard shape).
+            let is_cyl = matches!(surf, Surface::Cylinder { .. });
+            let radius = match surf {
+                Surface::Cylinder { radius, .. } => radius,
+                _ => 1.0,
+            };
+            let raw: Vec<(u32, cad_primitives::Point2)> = vset
+                .iter()
+                .map(|&v| (v, chart.project(mesh.verts[v as usize])))
+                .collect();
+            let theta0 = if is_cyl {
+                let (mut sx, mut sy) = (0.0f64, 0.0f64);
+                for (_, p) in &raw {
+                    sx += p.x().cos();
+                    sy += p.x().sin();
+                }
+                sy.atan2(sx)
+            } else {
+                0.0
+            };
+            let mut verts2d: Vec<cad_primitives::Point2> = Vec::with_capacity(raw.len());
+            let mut global_of_local: Vec<u32> = Vec::with_capacity(raw.len());
+            let mut local_of_global: HashMap<u32, u32> = HashMap::new();
+            for (v, p) in &raw {
+                let uv = if is_cyl {
+                    let mut dt = p.x() - theta0;
+                    while dt > std::f64::consts::PI {
+                        dt -= 2.0 * std::f64::consts::PI;
+                    }
+                    while dt < -std::f64::consts::PI {
+                        dt += 2.0 * std::f64::consts::PI;
+                    }
+                    if dt.abs() > std::f64::consts::FRAC_PI_2 {
+                        return bail("cylinder region straddles a quarter turn");
+                    }
+                    cad_primitives::Point2::new(radius * dt, p.y())
+                } else {
+                    *p
+                };
+                local_of_global.insert(*v, verts2d.len() as u32);
+                global_of_local.push(*v);
+                verts2d.push(uv);
+            }
+            // Boundary loops. Every boundary vertex needs EVEN degree; a
+            // degree-2 vertex continues to its other neighbour; a higher even
+            // degree is a PINCH (a 4-strand crossing mint: two kept sectors of
+            // one face meeting at the vertex). At a pinch the walk pairs each
+            // incoming boundary edge with the other bounding edge of the
+            // INSIDE angular sector between them — the sector holding region
+            // triangles in the chart (folds only ever double-cover inside
+            // sectors, so the containment test is fold-tolerant).
+            let mut bnd_adj: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+            for &(u, w) in &boundary {
+                let (lu, lw) = (local_of_global[&u], local_of_global[&w]);
+                bnd_adj.entry(lu).or_default().push(lw);
+                bnd_adj.entry(lw).or_default().push(lu);
+            }
+            // inc-4c-2 guard: a rewritten chain edge is synthetic (it has no mesh
+            // triangles yet), so the pinch fan-chain pairing cannot rotate
+            // through it — every vertex of an added edge must sit on a plain
+            // degree-2 boundary. Extra edges at such a vertex belong to OTHER
+            // chains that still carry stale chords through it (measured: R0061's
+            // arc chain detouring through the wall-chain vert v195) — grow the
+            // anchors by those edges' far endpoints so the offending chains
+            // become rewireable next round; bail only when growth is exhausted.
+            {
+                let mut grow_verts: BTreeSet<u32> = BTreeSet::new();
+                for &(pair, e) in &added_chain {
+                    if pair.0 != key && pair.1 != key {
+                        continue;
+                    }
+                    for v in [e.0, e.1] {
+                        if let Some(&lv) = local_of_global.get(&v) {
+                            let nbrs: Vec<u32> = bnd_adj
+                                .get(&lv)
+                                .map(|n| n.iter().map(|&l| global_of_local[l as usize]).collect())
+                                .unwrap_or_default();
+                            if nbrs.len() != 2 {
+                                if probe {
+                                    eprintln!(
+                                        "[p3b-fanfix] rewritten seam vert v{v} degree {} \
+                                     nbrs {nbrs:?}",
+                                        nbrs.len()
+                                    );
+                                }
+                                grow_verts.insert(v);
+                                grow_verts.extend(nbrs);
+                            }
+                        }
+                    }
+                }
+                if !grow_verts.is_empty() {
+                    grow_rounds += 1;
+                    if grow_rounds > 16 {
+                        return bail("seam disorder growth bound exceeded");
+                    }
+                    if probe {
+                        eprintln!(
+                            "[p3b-fanfix] chain-junction disorder — growing anchors by \
+                         {grow_verts:?} (round {grow_rounds})"
+                        );
+                    }
+                    anchors.extend(grow_verts);
+                    continue 'grow;
+                }
+            }
+            if bnd_adj.values().any(|n| n.len() % 2 != 0) {
+                // An odd-degree boundary vertex is a chain truncated by the
+                // region rim (the disorder continues into un-rewired seam
+                // segments) — grow the anchors by the odd vertices and their
+                // boundary neighbours; bail only when growth is exhausted.
+                let mut grow_verts: BTreeSet<u32> = BTreeSet::new();
+                for (&lv, nbrs) in &bnd_adj {
+                    if nbrs.len() % 2 != 0 {
+                        grow_verts.insert(global_of_local[lv as usize]);
+                        for &ln in nbrs {
+                            grow_verts.insert(global_of_local[ln as usize]);
+                        }
+                    }
+                }
+                grow_rounds += 1;
+                let stagnant = grow_verts.iter().all(|v| anchors.contains(v));
+                if grow_rounds > 16 || stagnant {
+                    if probe {
+                        eprintln!(
+                            "[p3b-fanfix] region {key:?} odd boundary degrees persist \
+                         ({}) at {grow_verts:?}",
+                            if stagnant { "stagnant" } else { "growth bound" }
+                        );
+                        for (&lv, nbrs) in &bnd_adj {
+                            if nbrs.len() % 2 != 0 {
+                                let gv = global_of_local[lv as usize];
+                                let es: Vec<u32> =
+                                    nbrs.iter().map(|&l| global_of_local[l as usize]).collect();
+                                eprintln!("[p3b-fanfix]   odd v{gv} bnd nbrs {es:?}");
+                            }
+                        }
+                    }
+                    return bail("region boundary has an odd-degree vertex");
+                }
+                if probe {
+                    eprintln!(
+                        "[p3b-fanfix] region {key:?} odd boundary degree — growing anchors \
+                     by {grow_verts:?} (round {grow_rounds})"
+                    );
+                }
+                anchors.extend(grow_verts);
+                continue 'grow;
+            }
+            // Pinch pairing: local vert -> (incoming nbr -> outgoing nbr), by
+            // COMBINATORIAL fan chains — at the pinch vertex, rotate through the
+            // component's triangles via shared at-vertex interior edges; each
+            // chain runs boundary-edge -> ... -> boundary-edge and pairs its two
+            // ends. Pure connectivity (fold geometry cannot confuse it); an
+            // at-vertex edge whose comp-triangle count is not 1 (boundary) or 2
+            // (interior) makes rotation ill-defined -> bail.
+            let mut pinch_pair: HashMap<(u32, u32), u32> = HashMap::new();
+            for (&v, nbrs) in &bnd_adj {
+                if nbrs.len() == 2 {
+                    continue;
+                }
+                let gv = global_of_local[v as usize];
+                // Edges at v (by OTHER endpoint, global) -> comp tris incident.
+                let mut at_v: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+                for &ti in rtris.iter() {
+                    let tri = mesh.tris[ti];
+                    let Some(pos) = tri.iter().position(|&g| g == gv) else {
+                        continue;
+                    };
+                    for other in [tri[(pos + 1) % 3], tri[(pos + 2) % 3]] {
+                        at_v.entry(other).or_default().push(ti);
+                    }
+                }
+                let is_bnd = |other: u32| -> bool {
+                    let e = if gv < other { (gv, other) } else { (other, gv) };
+                    boundary.contains(&e)
+                };
+                for (&other, ts) in &at_v {
+                    let want = if is_bnd(other) { 1 } else { 2 };
+                    if ts.len() != want {
+                        return bail("pinch fan rotation ill-defined");
+                    }
+                }
+                let bnd_others: Vec<u32> = at_v.keys().copied().filter(|&o| is_bnd(o)).collect();
+                let mut paired: BTreeSet<u32> = BTreeSet::new();
+                for &start_o in &bnd_others {
+                    if paired.contains(&start_o) {
+                        continue;
+                    }
+                    // Rotate: current (edge-other, tri) -> tri's third at-v edge.
+                    let mut cur_o = start_o;
+                    let mut cur_t = at_v[&start_o][0];
+                    let mut hops = 0usize;
+                    let end_o = loop {
+                        hops += 1;
+                        if hops > 2 * at_v.len() + 4 {
+                            return bail("pinch fan chain does not terminate");
+                        }
+                        let tri = mesh.tris[cur_t];
+                        let pos = tri.iter().position(|&g| g == gv).expect("has v");
+                        let (o1, o2) = (tri[(pos + 1) % 3], tri[(pos + 2) % 3]);
+                        let next_o = if o1 == cur_o { o2 } else { o1 };
+                        if is_bnd(next_o) {
+                            break next_o;
+                        }
+                        let ts = &at_v[&next_o];
+                        let next_t = if ts[0] == cur_t { ts[1] } else { ts[0] };
+                        cur_o = next_o;
+                        cur_t = next_t;
+                    };
+                    if end_o == start_o || paired.contains(&end_o) {
+                        return bail("pinch fan chain closed on itself");
+                    }
+                    paired.insert(start_o);
+                    paired.insert(end_o);
+                    let (ls, le) = (local_of_global[&start_o], local_of_global[&end_o]);
+                    pinch_pair.insert((v, ls), le);
+                    pinch_pair.insert((v, le), ls);
+                }
+                if paired.len() != bnd_others.len() {
+                    return bail("pinch pairing incomplete");
+                }
+            }
+            let mut loops_local: Vec<Vec<u32>> = Vec::new();
+            let mut used: BTreeSet<(u32, u32)> = BTreeSet::new(); // undirected, (min,max)
+            let bnd_local: Vec<(u32, u32)> = boundary
+                .iter()
+                .map(|&(u, w)| (local_of_global[&u], local_of_global[&w]))
+                .collect();
+            let continuation = |prev: u32, cur: u32| -> Option<u32> {
+                let nb = &bnd_adj[&cur];
+                if nb.len() == 2 {
+                    Some(if nb[0] == prev { nb[1] } else { nb[0] })
+                } else {
+                    pinch_pair.get(&(cur, prev)).copied()
+                }
+            };
+            for &(su, sw) in &bnd_local {
+                if used.contains(&(su.min(sw), su.max(sw))) {
+                    continue;
+                }
+                let mut lp = vec![su];
+                let (mut prev, mut cur) = (su, sw);
+                used.insert((su.min(sw), su.max(sw)));
+                let mut steps = 0usize;
+                loop {
+                    steps += 1;
+                    if steps > 2 * bnd_local.len() + 4 {
+                        return bail("boundary walk does not close");
+                    }
+                    let Some(next) = continuation(prev, cur) else {
+                        return bail("pinch pairing missing");
+                    };
+                    if (cur, next) == (su, sw) {
+                        break; // closed: back at the starting directed edge
+                    }
+                    lp.push(cur);
+                    if !used.insert((cur.min(next), cur.max(next))) {
+                        return bail("boundary walk re-traverses an edge");
+                    }
+                    prev = cur;
+                    cur = next;
+                }
+                loops_local.push(lp);
+            }
+            // inc-4c-2: 2D self-crossing scan over this component's boundary
+            // loops. A crossing means a seam chain bounding the region is
+            // disordered but not (yet) rewireable — typically its other side's
+            // face has no triangles in the regions. Grow the anchors by the
+            // crossing vertices so that face joins the regions next round and
+            // the chain canonicalization can reorder it.
+            {
+                let mut loop_edges: Vec<(u32, u32)> = Vec::new();
+                for lp in &loops_local {
+                    let m = lp.len();
+                    for i in 0..m {
+                        loop_edges.push((lp[i], lp[(i + 1) % m]));
+                    }
+                }
+                let mut grow_verts: BTreeSet<u32> = BTreeSet::new();
+                for i in 0..loop_edges.len() {
+                    for j in (i + 1)..loop_edges.len() {
+                        let (a, b) = loop_edges[i];
+                        let (c, d) = loop_edges[j];
+                        if a == c || a == d || b == c || b == d {
+                            continue;
+                        }
+                        let (pa, pb, pc, pd) = (
+                            verts2d[a as usize],
+                            verts2d[b as usize],
+                            verts2d[c as usize],
+                            verts2d[d as usize],
+                        );
+                        let cr = |o: cad_primitives::Point2,
+                                  p: cad_primitives::Point2,
+                                  q: cad_primitives::Point2| {
+                            (p.x() - o.x()) * (q.y() - o.y()) - (p.y() - o.y()) * (q.x() - o.x())
+                        };
+                        let (d1, d2) = (cr(pc, pd, pa), cr(pc, pd, pb));
+                        let (d3, d4) = (cr(pa, pb, pc), cr(pa, pb, pd));
+                        if (d1 > 0.0) != (d2 > 0.0) && (d3 > 0.0) != (d4 > 0.0) {
+                            for &l in &[a, b, c, d] {
+                                grow_verts.insert(global_of_local[l as usize]);
+                            }
+                        }
+                    }
+                }
+                if !grow_verts.is_empty() {
+                    grow_rounds += 1;
+                    if grow_rounds > 16 {
+                        return bail("seam disorder growth bound exceeded");
+                    }
+                    if probe {
+                        eprintln!(
+                            "[p3b-fanfix] region {key:?} boundary self-crosses — growing \
+                         anchors by {grow_verts:?} (round {grow_rounds})"
+                        );
+                    }
+                    anchors.extend(grow_verts);
+                    continue 'grow;
+                }
+            }
+            let signed_area = |lp: &[u32]| -> f64 {
+                let mut a2 = 0.0;
+                for i in 0..lp.len() {
+                    let p = verts2d[lp[i] as usize];
+                    let q = verts2d[lp[(i + 1) % lp.len()] as usize];
+                    a2 += p.x() * q.y() - q.x() * p.y();
+                }
+                a2 * 0.5
+            };
+            let outer_i = (0..loops_local.len()).max_by(|&x, &y| {
+                signed_area(&loops_local[x])
+                    .abs()
+                    .partial_cmp(&signed_area(&loops_local[y]).abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })?;
+            let outer = loops_local[outer_i].clone();
+            let holes: Vec<Vec<u32>> = loops_local
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != outer_i)
+                .map(|(_, l)| l.clone())
+                .collect();
+            let on_loop: BTreeSet<u32> = loops_local.iter().flatten().copied().collect();
+            let interior: Vec<u32> = (0..verts2d.len() as u32)
+                .filter(|l| !on_loop.contains(l))
+                .collect();
+            let tris_local = match cherchi_rs::cdt_polygon_with_holes_keep_interior(
+                &verts2d, &outer, &holes, &interior,
+            ) {
+                Ok(t) => t,
+                Err(e) => {
+                    if probe {
+                        eprintln!(
                         "[p3b-fanfix] region {key:?} CDT error {e:?}: outer {} holes {} interior {} \
                          loop_verts {:?}",
                         outer.len(),
@@ -2150,91 +2727,94 @@ fn repair_fan_cluster(
                             .map(|lp| lp.iter().map(|&l| global_of_local[l as usize]).collect::<Vec<_>>())
                             .collect::<Vec<_>>()
                     );
-                    for lp in &loops_local {
-                        for &l in lp {
-                            let p = verts2d[l as usize];
-                            eprintln!(
-                                "[p3b-fanfix]   v{} 2d=({:.9},{:.9})",
-                                global_of_local[l as usize],
-                                p.x(),
-                                p.y()
-                            );
+                        for lp in &loops_local {
+                            for &l in lp {
+                                let p = verts2d[l as usize];
+                                eprintln!(
+                                    "[p3b-fanfix]   v{} 2d=({:.9},{:.9})",
+                                    global_of_local[l as usize],
+                                    p.x(),
+                                    p.y()
+                                );
+                            }
                         }
                     }
+                    return bail("keep-interior CDT failed");
                 }
-                return bail("keep-interior CDT failed");
-            }
-        };
-        // Winding: align to the region's pre-repair net orientation.
-        let dir_at = |g: &[u32; 3]| -> [f64; 3] {
-            match surf {
-                Surface::Plane { normal, .. } => normal.as_array(),
-                Surface::Cylinder {
-                    axis_point,
-                    axis_dir,
-                    ..
-                } => {
-                    let ap = axis_point.as_array();
-                    let ax = normalize3(axis_dir.as_array());
-                    let c = [
-                        (mesh.verts[g[0] as usize].x()
-                            + mesh.verts[g[1] as usize].x()
-                            + mesh.verts[g[2] as usize].x())
-                            / 3.0
-                            - ap[0],
-                        (mesh.verts[g[0] as usize].y()
-                            + mesh.verts[g[1] as usize].y()
-                            + mesh.verts[g[2] as usize].y())
-                            / 3.0
-                            - ap[1],
-                        (mesh.verts[g[0] as usize].z()
-                            + mesh.verts[g[1] as usize].z()
-                            + mesh.verts[g[2] as usize].z())
-                            / 3.0
-                            - ap[2],
-                    ];
-                    let z = c[0] * ax[0] + c[1] * ax[1] + c[2] * ax[2];
-                    [c[0] - z * ax[0], c[1] - z * ax[1], c[2] - z * ax[2]]
+            };
+            // Winding: align to the region's pre-repair net orientation.
+            let dir_at = |g: &[u32; 3]| -> [f64; 3] {
+                match surf {
+                    Surface::Plane { normal, .. } => normal.as_array(),
+                    Surface::Cylinder {
+                        axis_point,
+                        axis_dir,
+                        ..
+                    } => {
+                        let ap = axis_point.as_array();
+                        let ax = normalize3(axis_dir.as_array());
+                        let c = [
+                            (mesh.verts[g[0] as usize].x()
+                                + mesh.verts[g[1] as usize].x()
+                                + mesh.verts[g[2] as usize].x())
+                                / 3.0
+                                - ap[0],
+                            (mesh.verts[g[0] as usize].y()
+                                + mesh.verts[g[1] as usize].y()
+                                + mesh.verts[g[2] as usize].y())
+                                / 3.0
+                                - ap[1],
+                            (mesh.verts[g[0] as usize].z()
+                                + mesh.verts[g[1] as usize].z()
+                                + mesh.verts[g[2] as usize].z())
+                                / 3.0
+                                - ap[2],
+                        ];
+                        let z = c[0] * ax[0] + c[1] * ax[1] + c[2] * ax[2];
+                        [c[0] - z * ax[0], c[1] - z * ax[1], c[2] - z * ax[2]]
+                    }
+                    _ => [0.0, 0.0, 0.0],
                 }
-                _ => [0.0, 0.0, 0.0],
+            };
+            let mut ref_sign = 0.0f64;
+            for &ti in rtris {
+                let g = mesh.tris[ti];
+                let av = tri_area_vector(
+                    mesh.verts[g[0] as usize].as_array(),
+                    mesh.verts[g[1] as usize].as_array(),
+                    mesh.verts[g[2] as usize].as_array(),
+                );
+                let d = dir_at(&g);
+                ref_sign += av[0] * d[0] + av[1] * d[1] + av[2] * d[2];
             }
-        };
-        let mut ref_sign = 0.0f64;
-        for &ti in rtris {
-            let g = mesh.tris[ti];
-            let av = tri_area_vector(
-                mesh.verts[g[0] as usize].as_array(),
-                mesh.verts[g[1] as usize].as_array(),
-                mesh.verts[g[2] as usize].as_array(),
-            );
-            let d = dir_at(&g);
-            ref_sign += av[0] * d[0] + av[1] * d[1] + av[2] * d[2];
-        }
-        let ref_sign = if ref_sign >= 0.0 { 1.0 } else { -1.0 };
-        let mut new_tris: Vec<[u32; 3]> = Vec::with_capacity(tris_local.len());
-        for tl in &tris_local {
-            let mut g = [
-                global_of_local[tl[0] as usize],
-                global_of_local[tl[1] as usize],
-                global_of_local[tl[2] as usize],
-            ];
-            let av = tri_area_vector(
-                mesh.verts[g[0] as usize].as_array(),
-                mesh.verts[g[1] as usize].as_array(),
-                mesh.verts[g[2] as usize].as_array(),
-            );
-            let d = dir_at(&g);
-            if (av[0] * d[0] + av[1] * d[1] + av[2] * d[2]) * ref_sign < 0.0 {
-                g.swap(1, 2);
+            let ref_sign = if ref_sign >= 0.0 { 1.0 } else { -1.0 };
+            let mut new_tris: Vec<[u32; 3]> = Vec::with_capacity(tris_local.len());
+            for tl in &tris_local {
+                let mut g = [
+                    global_of_local[tl[0] as usize],
+                    global_of_local[tl[1] as usize],
+                    global_of_local[tl[2] as usize],
+                ];
+                let av = tri_area_vector(
+                    mesh.verts[g[0] as usize].as_array(),
+                    mesh.verts[g[1] as usize].as_array(),
+                    mesh.verts[g[2] as usize].as_array(),
+                );
+                let d = dir_at(&g);
+                if (av[0] * d[0] + av[1] * d[1] + av[2] * d[2]) * ref_sign < 0.0 {
+                    g.swap(1, 2);
+                }
+                new_tris.push(g);
             }
-            new_tris.push(g);
+            plans.push(RegionPlan {
+                key,
+                boundary,
+                new_tris,
+            });
         }
-        plans.push(RegionPlan {
-            key,
-            boundary,
-            new_tris,
-        });
-    }
+
+        break (plans, in_regions, removed_chain, added_chain);
+    };
     // Splice all regions at once; the postcondition below runs on the
     // CANDIDATE triangle list before any mutation, so a violation simply
     // bails with the mesh untouched.
@@ -2299,6 +2879,68 @@ fn repair_fan_cluster(
             let n = post_use.get(&(u, w)).copied().unwrap_or(0);
             if n != 0 && n != expected(&(u, w)) {
                 return bail("postcondition: defective edge not resolved");
+            }
+        }
+    }
+    // inc-4c-2: every removed chain edge either vanished or persists as an
+    // ordinary manifold chord; every rewritten chain edge is claimed by
+    // exactly TWO plans (one triangle per side — a chain constrained on one
+    // side only would leave an unpaired seam).
+    for &e in &removed_chain {
+        let n = post_use.get(&e).copied().unwrap_or(0);
+        if n != 0 && n != 2 {
+            return bail("postcondition: removed chain edge unresolved");
+        }
+    }
+    for &(_, e) in &added_chain {
+        let claims = plans.iter().filter(|p| p.boundary.contains(&e)).count();
+        if claims != 2 {
+            return bail("postcondition: rewritten chain edge not two-sided");
+        }
+        if post_use.get(&e).copied().unwrap_or(0) != 2 {
+            return bail("postcondition: rewritten chain edge not use-2");
+        }
+    }
+    // The repair may never mint a RENDER-DEGENERATE triangle (height below
+    // the render channel's resolution — the assay `no_degenerate_triangles`
+    // criterion): the re-CDT of a chain still carrying sub-render needle
+    // verts can be forced into such a sliver, which would ship as a
+    // silent-wrong. Fail closed instead (the loud STOP stands); the §4.3
+    // sub-render sample cleanup is its own increment.
+    {
+        let max_abs = mesh
+            .verts
+            .iter()
+            .flat_map(|p| p.as_array())
+            .fold(0.0f64, |m, c| m.max(c.abs()));
+        let height_floor = 4.0 * max_abs * (f32::EPSILON as f64);
+        for plan in &plans {
+            for g in &plan.new_tris {
+                let (a, b, c) = (
+                    mesh.verts[g[0] as usize].as_array(),
+                    mesh.verts[g[1] as usize].as_array(),
+                    mesh.verts[g[2] as usize].as_array(),
+                );
+                let av = tri_area_vector(a, b, c);
+                let area = (av[0] * av[0] + av[1] * av[1] + av[2] * av[2]).sqrt() / 2.0;
+                let d2 = |p: [f64; 3], q: [f64; 3]| {
+                    (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)
+                };
+                let longest = d2(a, b).max(d2(b, c)).max(d2(c, a)).sqrt();
+                if longest <= 0.0 || 2.0 * area / longest < height_floor {
+                    if probe {
+                        eprintln!(
+                            "[p3b-fanfix] render-degenerate new tri {g:?} \
+                             height {:.3e} < floor {height_floor:.3e}",
+                            if longest > 0.0 {
+                                2.0 * area / longest
+                            } else {
+                                0.0
+                            }
+                        );
+                    }
+                    return bail("postcondition: repair minted a render-degenerate triangle");
+                }
             }
         }
     }
@@ -5276,7 +5918,14 @@ pub(crate) fn stage4_relocate_and_correct(
         // only; per-cluster fail-closed; must run before ANY boundary-walking
         // pass (the sweep below recomputes Phase A — the inc-4a placement
         // lesson).
-        if retriangulate_collapsed_fan_regions(mesh, &mut attr_vec, brep_a, brep_b, &minted_verts) {
+        if retriangulate_collapsed_fan_regions(
+            mesh,
+            &mut attr_vec,
+            brep_a,
+            brep_b,
+            &moved,
+            &minted_verts,
+        ) {
             collapsed_any = true;
         }
     }

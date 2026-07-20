@@ -454,9 +454,15 @@ copies of the owner edge (per-loop fan-out, proven by the P3a fixtures).
   LOUDLY at the CDT on the newly-characterized next layer: the seam
   polylines carry Stage-4 RELOCATION-ORDER zigzag needles (samples
   relocated onto the analytic curves out of order; self-crossing at
-  ~1e-8 transverse) — inc-4c-2 in the sub-spec. Gate-ON flip stays
-  BLOCKED (R0061 is CORRECT gate-OFF; flipping now would regress it
-  C→E).
+  ~1e-8 transverse) — resolved by **inc-4c-2** (same sub-spec, SHIPPED
+  2026-07-20): cluster-level seam-run canonicalization (sort connected
+  same-key-pair chain components by the pair's analytic curve parameter;
+  disorder-triggered bounded anchor growth; §4.3 sub-render redundant-
+  sample drop — deviation N58, drop criterion pending ratification).
+  **R0061 gate-ON = SUPPORTED_CORRECT — the inc-4c flip blocker is
+  CLEARED.** The always-on flip (inc-5) now awaits the F0082 decision
+  (inc-4d greens it or its honest STOP is accepted) plus the standard
+  flip ledger (gate-ON full assay regression set, sidecar parity).
 - **inc-4d — curved-owner / rim-corner pierce widening (greens F0082,
   spec-first).** Circle-edge × planar-face pierce mint: closed-form
   circle∩plane roots, arc-param endpoint margins, transversality floor,
