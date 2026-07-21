@@ -106,6 +106,10 @@ mod stage1_tessellate;
 mod stage3_ssi;
 pub(crate) use stage3_ssi::*;
 mod stage4_correct;
+// #188 inc-0: read-only YANG_S5_OSCULATION_PROBE (spec
+// `specs/yang_188_f0082_j3_envelope_selection.md` §5). Probe-only module;
+// nothing exported.
+mod stage5_osculation_probe;
 mod stage5_topology;
 pub(crate) use stage5_topology::*;
 mod stage4_relocate;

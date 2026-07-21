@@ -1,7 +1,9 @@
 # #188 — Stage-5/6 boundary-envelope selection for osculating curve pairs
 
-**Status: SPEC (2026-07-21). Increments 0–4 below. Production untouched
-until inc-3; every increment lands behind the standard ledger.**
+**Status: SPEC (2026-07-21); inc-0 DONE (2026-07-21) — probe shipped, both
+§7.9 open questions answered, and §2's "v925 = mandatory free-space switch"
+premise REFUTED by measurement: see §7 before building inc-1. Production
+untouched until inc-3; every increment lands behind the standard ledger.**
 
 Successor to the F0082 J3 layer named by the P3b pierce spec
 (`yang_169_p3b_curved_partner_pierce.md` §7.6), **re-characterized by
@@ -168,3 +170,115 @@ Postconditions (all loud on failure — P10):
 - Meta-oracle: gate-ON minus gate-OFF may only move cases
   ERROR→CORRECT or ERROR→(different loud ERROR one layer deeper);
   any silent flip aborts the increment (P9/P10).
+
+## 7. inc-0 findings (2026-07-21, probe-only; production byte-identical)
+
+Probe `YANG_S5_OSCULATION_PROBE` shipped in
+`stage5_osculation_probe.rs`, hooked into `emit_topology`'s curved
+branch (`=walk` adds the per-vertex loop dump for firing pairs).
+Per pair it reports the analytic gap g(θ) = g0 + amp·cos(θ−φ), the
+combined chord-sagitta floor, the gap zeros with nearest output verts,
+`band_frac` (fraction of the circle with |g| < floor), and the weave
+signature (ambiguous-edge count, alternations, folds, bare switch
+chords, mixed-side counts) restricted to edges within the floor of a
+support. FIRE = ambiguous ≥ 3 + any weave signal.
+
+### 7.1 The pair, measured (F0082, failing-union tube patch info=373)
+
+int0 = tube∩A-top ellipse × orig = B's own cap plane: g0 = 4.4e-16
+(the §1 odd sinusoid — the planes' line passes through the axis),
+amp = 8.107403e-3, zeros antipodal to π at 6 digits: θ = −1.088507
+(5.8e-14 from v925) and θ = +2.053086 (J3; nearest output vert
+2.760e-3 away). **amp < floor = 1.234e-2 ⇒ band_frac = 1.0**: the
+ellipse and rim are sub-observable over the ENTIRE circle at this
+density — there is no "outside the weave band" for this pair; §3.3's
+"keep everything outside the band" degenerates to "outside the
+rebuilt segments".
+
+### 7.2 §7.9 open question (a) ANSWERED — u≈0.119 is a WALL junction
+
+The switch-chord endpoints are exact wall-plane junctions, not band
+edges: v921 (ellipse) and v949 (rim) lie on A's face-366 plane to
+≤7e-10; the opposite ends v951 (rim) and v926 (ellipse) likewise
+(≤7e-10). The "submerged rim run" spans exactly the azimuth band
+BEYOND face-366 (sd_366 > 0, e.g. v961 +2.38e-2), where A is absent —
+**the rim is the TRUE boundary there and the run is CORRECT**; §7.9
+defect #1 ("interior emitted as boundary") is hereby re-characterized.
+Symmetrically on the J3 side: v943/v937 are the rim×364 and
+ellipse×364 junctions (≤1.1e-9 on face-364's plane), and the rim run
+v959…v954…v943 is correct.
+
+### 7.3 BOTH triple points are wall-masked; "v925 mandatory" REFUTED
+
+J3 sits +1.2921e-3 beyond face-364; v925 sits +1.2921e-3 beyond
+face-366 (identical by model symmetry). Neither triple point is a
+live boundary junction: on each side the ellipse↔rim switch is
+subsumed by the wall-crossing complex (§2's masking argument applies
+at BOTH switches). v925 legitimately remains an output vertex (cap
+spokes) — it just must not be threaded into the tube loop.
+
+### 7.4 The actual defect, sharpened
+
+- **PRIMARY — dead-side detour at the v925-side wall exit**: after
+  v951 [rim×366] the cycle detours v951 → v926 [ellipse×366, 1.05e-4
+  BELOW the cap = dead side] → BACKWARD 2.76e-3 to v925 [beyond-wall
+  triple point] → forward to v959 [rim]. Correct: continue on the rim
+  v951 → v959. The three spurious segments create the azimuth
+  fold-back the render CDT rejects. (The mirror wall entry
+  v921→v949 is emitted correctly, as is the whole J3-side complex.)
+- **SECONDARY — micro-stubs**: near-dup verts v938 (1.9e-6 off
+  face-364) and v932 (1.2e-5) between v937 and the ellipse proper
+  (§7.9 defect #5, §4.3-sliver flavored).
+- All junctions needed for the correct loop ALREADY EXIST (inc-4d
+  mints); the F0082 fix is pure boundary SELECTION — drop dead
+  segments — not a new mint.
+
+### 7.5 §7.9 open question (b) ANSWERED — no Stage-2 label leak
+
+Weave-run rim edges each bound a kept cap-disc triangle (centroid
+sd_cap = 0, sd_top down to −5.1e-3 — within the 6.2e-3 sagitta band)
+plus a kept lateral triangle above: the kept mesh is consistent at
+mesh resolution, and per §7.2 the run is even analytically correct.
+The detour verts likewise bound kept triangles — the mesh-level chain
+walker is faithfully tracing a mesh-scale-jagged kept boundary; only
+the OUTPUT selection can fix it (the §1 premise stands).
+
+### 7.6 Design impact on §3.2 (binding for inc-1)
+
+The band classification (§3.2.2) must be an op-resolved liveness test
+against ALL crossing support planes — the osculating pair PLUS any
+masking wall whose plane crosses the band (F0082: rim live ⟺ beyond
+either wall OR above A's top; ellipse live ⟺ inside both walls AND
+above the cap) — with switch junctions at the wall crossings (minted)
+rather than at wall-masked triple points. A triple point is a switch
+junction ONLY when no masking plane covers it ("free-space" case —
+NOT exercised by F0082; keep the primitive's fail-closed arm for it).
+The §3.1 detector vocabulary is unchanged (the probe's FIRE already
+keys on the weave signature, not on triple-point liveness).
+
+### 7.7 Corpus fire set (312-case sweep, 2026-07-21)
+
+NOTE: the full-corpus assay driver discards subprocess stderr — probe
+sweeps must use the #171 xargs pattern over `ASSAY_CASE=<id>
+single_case` on the release test binary.
+
+9 cases fire; `band_frac` cleanly stratifies them:
+
+- **True osculating pairs (band_frac ≥ 0.7)**: F0082 (1.000, ERROR —
+  the red fixture), **F0085 (1.000 & 0.701, ERROR — the #171
+  "open-seam" S5/S6 output-ring case: two osculating pairs)**, F0084
+  (0.774, CORRECT), F0076 (1.000, CORRECT) — the last two are
+  GREEN cases carrying a genuine sub-observable pair: watch-list for
+  inc-3 (verify their emitted envelopes are correct, not lucky).
+- **Marginal**: R0095 (0.398, ERROR — Stage-4 non-mfd bucket).
+- **Transversal/graze noise (band_frac ≤ ~0.1)**: R0061 (664 fires @
+  ~0.1 — the inc-4c dense chained-mint cluster, CORRECT), R0011
+  (0.032, ERROR — fires on scale-1e4 sagitta, unrelated layer), F0048,
+  R0091 (both CORRECT, single fires).
+
+The raw FIRE criterion is therefore NOT promotable (fire set ⊄ broken
+— R0061 alone adds 664 green fires); the §3.1 promotion decision at
+inc-3 should add a band_frac (or amp<floor) gate, which by this sweep
+yields fire set = {F0082, F0085, F0084, F0076} ⊇ broken ∩ class.
+F0045 (the #171 candidate) does NOT fire — its defect is not an
+osculating-pair weave on a cylinder patch.

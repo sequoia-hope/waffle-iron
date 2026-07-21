@@ -493,6 +493,18 @@ pub(crate) fn emit_topology(
                 | Surface::Cone { .. }
                 | Surface::Torus { .. }
         ) {
+            // #188 inc-0 (spec yang_188_f0082_j3_envelope_selection §5):
+            // read-only osculating-boundary-pair probe. Byte-identical unset.
+            if std::env::var_os("YANG_S5_OSCULATION_PROBE").is_some() {
+                crate::stage5_osculation_probe::osculation_probe_for_patch(
+                    mesh,
+                    infos,
+                    info_index,
+                    &subdivided_cycles,
+                    intersection_curves,
+                );
+            }
+
             let push_loop = |edges: &mut Vec<BRepEdge>, cycle: &[(u32, u32)]| -> Vec<u32> {
                 let start_idx = edges.len() as u32;
                 for &(s, e) in cycle {
