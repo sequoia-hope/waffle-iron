@@ -153,6 +153,9 @@ pub(crate) fn stage1_tessellate_min_segments(
 /// (outside the bounded region — a silent one-sided mint is the exact
 /// conformality break this machinery exists to prevent). Bit-identical
 /// duplicates dedup.
+// Production migrated to the composed `stage1_tessellate_inner_overrides`
+// (P3b inc-4d-2); kept as the P3a increment-1b fixture seam.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn stage1_tessellate_with_edge_overrides(
     verts: &[BRepVertex],
     edges: &[BRepEdge],

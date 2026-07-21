@@ -648,3 +648,62 @@ the flip decision (inc-5) sees the full ledger.
   gate-ON F0082 (green or loud named next layer); gate-ON full ledger
   vs the inc-4c baseline (R0061 stays CORRECT; §7.4 watch-list; 0-WRONG
   ratchet).
+
+### 7.6 inc-4d-3 measurements (2026-07-21)
+
+**Gate-ON F0082: the J/J2 corner is FIXED; the STOP moved one layer down
+(loud), FaceId 3716 → 3727.** The rim arm fires across the chain's tube
+unions (`rim_b=2` / `rim_a=2` wire entries — own rim + the opposite-rim
+mirror); the failing union now mints `edge_a=6 face_a=3 face_b=1
+rim_b=2`. `KV2_OUT_VERT_PROBE` at the corner: output v937 = J EXACT and
+v943 = J2 EXACT (every digit of §7.2), joined by the 1.05e-4 wall×tube
+section arc; the top-face ellipse arc terminates at J; the wall∩cap
+section line and the cap-ring chords terminate at J2; the old relocated
+phantom is GONE from the corner neighbourhood. The original top-face
+ring (old FaceId 3716 / yang 362 class) assembles.
+
+**The next layer (FaceId 3727, the tube-side patch, ring measured via
+`KV2_RING_REJECT_PROBE`, 61 verts):** in the lateral unroll chart the
+bottom chain runs …→ J (u=0.328739, v≈1e-16) → J2 (u=0.328735,
+v=−1.0529e-4) → a vertex at (u=0.325977, v≈−6e-14) — the **J3
+position** (2.76e-3 back along u, ON the ellipse) — then forward along
+the baseline. The J→J2→J3 notch folds back UNDER the incoming ellipse
+chain at the same v≈0: a degenerate self-overlap the render CDT
+correctly rejects. This is the §7.2 J3 = tube∩cap∩top triple point
+surfacing in its REAL home: not a junction of A's top face (the §7.2
+exclusion stands) but of the TUBE-SIDE patch boundary, where the kept
+boundary switches between the section ellipse and the cap rim — two
+curves that OSCULATE across the ~1e-4 near-coplanar cap gap. That
+junction class is a **tangential curve×curve crossing on the curved
+surface** (edge×edge, grazing) — outside the pierce vocabulary by
+design (the transversality floor routes tangential contact to the #137
+family). The remaining work is a J3-class increment: either the #137
+grazing-junction machinery generalized to rim×section-ellipse
+osculation, or §4.3-class resolution of the sub-scale sliver (the
+rim/ellipse crescent's v-content is ≤1.05e-4 and pinches to 0 at J3).
+Honest state: ERROR both gate states, one layer deeper, fully named.
+
+**Gate-ON full ledger (vs the byte-identical gate-OFF baseline
+251C/0W/55E):** 249C/1W/57E. R0061 STAYS CORRECT; watch-list
+F0047/R0006/R0075/F0081 clean; F0085 TIMEOUT→ERROR (load flake class).
+Three real deltas, all characterized:
+- **C0102/C0103 CORRECT→ERROR (loud, the composition collision class):**
+  the rim arm's ring insertions (mints + opposite-rim mirrors) shift the
+  azimuth-merged lateral grid, so line-pierce interior mints that
+  previously sat strictly inside a grid triangle now land ON a ruling
+  (C0102: edge distance 5.55e-17 vs band 2e-7 — "guaranteed post-weld
+  sliver" gate) or outside every lateral triangle (C0103: consumed
+  postcondition). The §3.3 deferred "within band of a grid EDGE → 2+2
+  edge-split fan" arm is now DEMANDED by live cases — next increment.
+- **R0091 ERROR→SUPPORTED_WRONG (silent, THE inc-5 flip blocker):**
+  χ = V(611)−E(1795)+F(1180) = −4 — the §7.4 Case-IV history repeating
+  ("cut-tool rim insertions unmask the banked-§3b unverifiable-χ path"),
+  now as a silent wrong. The flip requires either the structural fix or
+  a production-side Euler/validity STOP that converts it to a loud
+  ERROR (P10: a new silent-wrong must become a loud STOP — this is the
+  legitimate use of a safety net, not a band).
+
+Production gate-OFF is per-case byte-identical (empty results.json
+diff), so inc-4d ships gated-off; the flip ledger now reads:
+R0061 ✓ cleared (inc-4c), F0082 moved to the named J3-osculation layer,
+C0102/C0103 = 2+2 edge-split arm, R0091 = loud-χ conversion or fix.

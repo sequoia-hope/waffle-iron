@@ -503,11 +503,11 @@ impl BRep {
     }
 
     /// P3a #146 increment 2 (spec `yang_146_conformal_junction_sampling.md`
-    /// §4): rebuild this B-Rep's Stage-1 mesh with exact junction pierce
-    /// points inserted into its `LineSegment` edge polylines (owner side)
-    /// and as interior Steiner vertices of its pierced faces (partner
-    /// side). Preserves an existing phantom-guard boost (`forced_rim_n`).
-    /// Topology is unchanged; insertion moves no existing sample.
+    /// §4): rebuild with `LineSegment` edge-polyline + face-interior
+    /// junction overrides only — the pre-4d entry, now a thin delegate of
+    /// [`Self::rebuilt_with_all_overrides`] kept as the P3a fixture seam
+    /// (production calls the composed form directly).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn rebuilt_with_junction_overrides(
         &self,
         edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,

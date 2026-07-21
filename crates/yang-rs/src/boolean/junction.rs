@@ -421,6 +421,78 @@ pub(crate) fn junction_pierce_points(
                 out.insert((input, ei), pierces.clone());
             }
         }
+        // P3b inc-4d-3 (spec §7): FULL-CIRCLE RIM owners join the pierce
+        // scope behind the same gate — the F0082 cap-rim×wall corner class
+        // (J2). Gate-OFF this arm is dead and the enumeration is
+        // byte-identical.
+        if std::env::var_os("YANG_P3B_PIERCE_ENABLE").is_some() {
+            // Group rim copies by undirected circle geometry + seam bits
+            // (the conformality-by-identity fan-out, circle edition).
+            type RimGroup = (Vec<u32>, Vec<Surface>);
+            let mut rim_groups: BTreeMap<([u64; 3], u64, [u64; 3]), RimGroup> = BTreeMap::new();
+            for f in x.faces() {
+                for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+                    let e = &x.edges()[ei as usize];
+                    let Curve::Circle { center, radius, .. } = e.curve else {
+                        continue;
+                    };
+                    if e.start != e.end {
+                        continue; // arc rims: a later widening (fail closed)
+                    }
+                    let key = (
+                        kb(center),
+                        radius.to_bits(),
+                        kb(x.vertices()[e.start as usize].point),
+                    );
+                    let g = rim_groups.entry(key).or_default();
+                    if !g.0.contains(&ei) {
+                        g.0.push(ei);
+                    }
+                    if !g.1.contains(&f.surface) {
+                        g.1.push(f.surface);
+                    }
+                }
+            }
+            for (copies, surfs) in rim_groups.values() {
+                // Canonical rim vocabulary: exactly two distinct incident
+                // surfaces (the cap and the lateral) — anything else is a
+                // border/defective incidence, fail closed.
+                let [s1, s2] = surfs.as_slice() else {
+                    continue;
+                };
+                let e = &x.edges()[copies[0] as usize];
+                let Curve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } = e.curve
+                else {
+                    unreachable!("grouped on circles above");
+                };
+                let seam = x.vertices()[e.start as usize].point;
+                let mut pierces: Vec<PiercePoint> = Vec::new();
+                for (f_idx, f) in y.faces().iter().enumerate() {
+                    pierces.extend(circle_edge_plane_face_pierce(
+                        center,
+                        normal,
+                        radius,
+                        seam,
+                        *s1,
+                        *s2,
+                        f_idx as u32,
+                        f,
+                        y,
+                    ));
+                }
+                if pierces.is_empty() {
+                    continue;
+                }
+                pierces.sort_by(|u, v| u.t.total_cmp(&v.t));
+                for &ei in copies {
+                    out.insert((input, ei), pierces.clone());
+                }
+            }
+        }
     }
     out
 }
@@ -758,6 +830,7 @@ fn plane_face_contains_with_margin(
 ///
 /// `PiercePoint.t` = seam-relative angle normalized to `[0,1)` (per-edge
 /// sort key, mirroring the chord parameter of the line arms).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn circle_edge_plane_face_pierce(
     center: Point3,
     normal: Vector3,
