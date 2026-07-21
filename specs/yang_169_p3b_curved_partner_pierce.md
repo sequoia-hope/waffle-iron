@@ -840,3 +840,69 @@ pair).
 - The committed `results.json` baseline is now the PRODUCTION-DEFAULT
   (arms-on) ledger; the dev knob's `off` state is the A/B measurement
   side going forward (the `weld_enabled` compliance-ledger pattern).
+
+### 7.9 The J3 layer RE-CHARACTERIZED (2026-07-21, task #188 — §7.6's
+attribution REFUTED by measurement)
+
+Post-flip re-probe of the F0082 Extrude-11 ring-reject (FaceId 3727,
+`KV2_RING_REJECT_PROBE` + `KV2_OUT_VERT_PROBE` r=0.25 around J, chart
+decoded: u = unroll azimuth·r, v = axial height above the CAP plane):
+
+**§7.6 was wrong about WHERE.** The reject notch (ring idx 13–15,
+chart u≈0.3287/0.3287/0.3260) is NOT the J/J2/J3 wall complex — the
+identical u/v numerology (1.0529e-4 drop, 2.76e-3 span) was an exact
+antipodal coincidence (the two planes' intersection line passes through
+the tube axis to ~1e-9, so the gap function is an odd sinusoid). The
+J/J2 wall corner sits at chart u=0.9958 (idx 22/23) and is CLEAN: J2→J
+joined by the wall×tube section-ellipse arc (edge 2657), exactly as
+inc-4d built it. Δu(notch↔J) = 0.667039 = HALF the unroll circumference
+exactly.
+
+**The two triple points.** The section ellipse (tube∩top) and the cap
+rim (tube∩cap) cross at exactly two azimuths — the tube's two hits of
+the top∩cap plane-intersection line, verified antipodal (π to 5
+digits), both on all three surfaces to ≤1e-9:
+- **J3 (original, θ≈2.0496)** — masked BEHIND the wall: the kept
+  boundary switches ellipse↔rim through the wall arc J→J2 instead, so
+  J3 is correctly not an output junction (§7.2 stands).
+- **v925 (antipode)** — in FREE SPACE: the boundary MUST switch curves
+  exactly there. **v925 IS an output vertex** (bit-exact in the ring,
+  idx 15), shared with the cap-disc spoke edges (v925↔v928 = the rim
+  CENTER — faces 362/370 triangulate the caps center+spokes). The
+  "mint the osculation junction" half is ALREADY DONE.
+
+**The actual defect = the Stage-5/6 bottom-boundary WEAVE around the
+switch (output-ring class, NOT a missing mint, NOT #137 grazing
+refinement):**
+1. **Wrong-side rim segment**: ring idx 10–13 runs the cap rim across
+   u∈[0.119, 0.326] where the rim is SUBMERGED inside A (sd_top < 0,
+   down to −6.7e-3) — interior points emitted as boundary.
+2. **Overshoot fold at v925**: the rim chain overshoots past v925 to a
+   sample at sd_top=+1.05e-4 (idx 13), chords to a DEAD ellipse sample
+   1.05e-4 BELOW the cap (idx 14 — no lateral surface exists there),
+   runs BACKWARD to v925, then forward on the rim — the degenerate
+   self-overlap the render CDT rightly rejects.
+3. **Raw switch chords**: at u≈0.119 the ring switches ellipse→rim via
+   a bare 6.7e-3 radial-plane chord with NO junction vertex and no wall
+   (idx 9→10); similar structure near u≈1.327 (idx 39→40). Open probe
+   question: what geometric feature (if any) selects u≈0.119.
+4. **Vocabulary loss**: parts of the rim-side boundary are B-Rep
+   `LineSegment` chords (edges 2611/2612: J2→v954→v955), not
+   Circle/curve edges — the #158 (F6) output-rim curve-typing gap.
+5. **Micro ellipse stubs at J**: the ellipse chain reaches J through
+   near-dup intermediate verts v938 (3.9e-6 from J) and v932 (2.5e-5)
+   — sub-scale stub edges 2658/2659 (§4.3-sliver flavored, secondary).
+
+**Correct target boundary** (per azimuth θ, union semantics): the live
+bottom curve is the ellipse where it lies ABOVE the cap plane (tube
+enters A there; rim is inside A), and the rim where the ellipse falls
+BELOW the cap (lateral ends at B's own cap; rim is outside A) — switch
+EXACTLY at the two triple points (v925 live; J3's switch subsumed by
+the wall arc). One simple monotone ring; no interior segments, no
+folds, no bare chords.
+
+**Fix vehicle (next increment, spec-first):** Stage-5/6 output-boundary
+envelope selection for osculating curve pairs — split both curves at
+the triple points, keep the per-band winner, drop submerged/dead
+complements; preserve curve vocabulary (#158 tie-in). The measured ring
+(61 verts, banked in this session's probe logs) is the red fixture.
