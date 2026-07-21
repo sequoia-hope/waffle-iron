@@ -95,7 +95,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N55 | PERMANENT (B) | the `subfeature` weld was Yang §4.4.1(b) all along; retighten its criterion → COMPLIANT always-on merge (re… |
 | N56 | PERMANENT (B) | `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the so… |
 | N57 | PERMANENT (P5) | #178 sub-resolution coplanar-gap STOP: cross pair of DISTINCT parallel planes (gap above rounding noise) re… |
-| N58 | PENDING user ratification (drop criterion) / P5 (repair machinery) | #169 P3b inc-4c: Stage-4 post-merge fan re-CDT + seam-order canonicalization (§4.4.1/§4.3); sub-render chain-sample drop keys on the RENDER floor — flagged for review |
+| N58 | RESOLVED by user directive 2026-07-21 (criterion swapped to the paper's own §4.3.4 h/l/α test, d_p=1e-7=TAU_MODEL) | #169 P3b inc-4c: Stage-4 post-merge fan re-CDT + seam-order canonicalization (§4.4.1/§4.3); chain-sample drop now uses Yang's published refinement acceptance test |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -2753,36 +2753,44 @@ exercises it — per the coverage directive a corpus case must land before
 
 ### N58 — #169 P3b inc-4c: Stage-4 post-merge fan re-triangulation + seam-order canonicalization; the sub-render chain-sample drop is PENDING ratification
 
-**State:** repair machinery (fan re-CDT, seam-run reorder) self-signed under
-the P5 solo-operator convention: 9 red/green oracles
-(`tests_unit/p3b_fan_retriangulation.rs`), full release assay gate-OFF
-per-case IDENTICAL to baseline (251C/0W/55E), R0061 gate-ON
-ERROR→SUPPORTED_CORRECT with all checks passing. **The §4.3 sub-render
-sample-drop CRITERION is PENDING user ratification**: it removes a
-relocated seam sample whose deviation from its kept chain neighbours'
-chord is below the render channel floor (4·max|coord|·ε_f32 — the same
-floor the retired N50 `f32` weld keyed on). Distinction argued for
-compliance: it is scoped to redundant SAMPLES of an analytically-known
-curve during a §4.3 loop cleanup inside a §4.4.1 triangulation update
-(`moved`, non-mint, single-pair, all-triangles-in-region — never a blind
-vertex merge), and without it the repaired ring carries the needle verts
-into the output and the RENDER tessellation mints a degenerate sliver
-(R0061 measured SUPPORTED_WRONG, `1 of 15306 triangles degenerate`). If
-the user rejects the criterion, the fallback is the render-degeneracy
-postcondition alone (also shipped): the repair then bails and R0061
-returns to its loud gate-ON ERROR.
+**State:** RESOLVED 2026-07-21 — the user reviewed the original
+render-floor criterion and DIRECTED the swap to the paper's own
+curve-refinement acceptance test, which is now what ships
+(`paper_chain_sample_redundant`): a relocated seam sample m between kept
+chain neighbours p, q is dropped iff **h < d_p·10², l < d_p·10³,
+α < π/18** (arc height, chord length max(|pm|,|mq|), turning angle) —
+verbatim the §4.3.4 termination condition
+(`refs/text/yang2025_hybrid_boolean.txt:586-592`), i.e. the resulting
+polyline is one the paper's own refinement loop would terminate at. The
+paper pins d_p = 1e-7 (`:744-745`), which equals this port's `TAU_MODEL`
+exactly; the sole port convention applied is the uniform
+scale-relativization d_p = TAU_MODEL·(1+scale). Eligibility fencing
+unchanged (`moved`, non-mint, single-pair, all-triangles-in-region). The
+earlier render-floor criterion (flagged here as N50-adjacent) is RETIRED
+from the drop path; the render floor survives only in the fail-closed
+postcondition (reject-only, never a merge). Measured under the paper
+criterion: R0061 gate-ON SUPPORTED_CORRECT (all checks); 4 predicate
+red/green pins (each bound individually violated → keep); full-assay
+ledger in the inc-4c-2b commit. History preserved below for the audit
+trail; the original PENDING framing is superseded.
 
 **Spec:** `specs/yang_169_p3b_inc4c_fan_retriangulation.md`. **Task:**
 #184 (parent #183/#169).
 
 **Paper relation:** §4.4.1 "the triangulation is updated accordingly" —
 the merge ops (weld/trim) existed without their triangulation-update
-half, and the stacked collapses manufactured non-manifold fan folds;
-§4.3 "remove a point too close to another on the same loop" — extended
-to points too close to the LOOP ITSELF (sub-resolution transverse) and
-to restoring along-curve ORDER for relocated samples (the curve
-parameter is analytic; the stale chain order is a discretization
-artifact, not geometry).
+half, and the stacked collapses manufactured non-manifold fan folds.
+§4.3/§4.3.4: point removal on intersection polylines is core paper
+machinery ("remove a point if it is too close to another point on the
+same loop", `:535-536`; the reversal handler "repetitively remove[s] the
+next point and reconnect[s] the curve", `:746-748`), and the drop's
+criterion is now the paper's OWN refinement acceptance test with the
+paper's OWN d_p. The one thing the paper never faces is the misorder
+itself: its polylines are built by parameter-domain midpoint subdivision
+(`:579-583`) and are ordered by construction — the disorder this pass
+sorts out is an artifact of the port's N2 relocation-only Stage 4, and
+the canonicalization restores exactly the ordered-by-parameter state the
+paper's pipeline maintains natively.
 
 ### Batch C — scope (D14)
 

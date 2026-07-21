@@ -519,3 +519,46 @@ fn seam_params_unsupported_pairs_are_none() {
         "parallel planes have no line direction"
     );
 }
+
+// ---- paper_chain_sample_redundant: the Yang §4.3.4 h/l/α acceptance test
+// (d_p = 1e-7 = TAU_MODEL, `refs/text/yang2025_hybrid_boolean.txt:586-592,744`).
+
+use super::super::stage4_correct::paper_chain_sample_redundant;
+
+#[test]
+fn paper_test_drops_a_needle_inside_all_three_bounds() {
+    // Neighbours 1e-5 apart, sample 1e-8 off-chord: h ≪ d_p·10²,
+    // l ≪ d_p·10³, α ≈ 0 — the paper's refinement would never insert it.
+    let a = [0.0, 0.0, 0.0];
+    let m = [5.0e-6, 1.0e-8, 0.0];
+    let b = [1.0e-5, 0.0, 0.0];
+    assert!(paper_chain_sample_redundant(a, m, b));
+}
+
+#[test]
+fn paper_test_keeps_a_sample_beyond_the_chord_length_bound() {
+    // Spacing 1.0 ≫ d_p·10³ (~1e-4): a genuinely load-bearing sample.
+    let a = [0.0, 0.0, 0.0];
+    let m = [0.5, 1.0e-8, 0.0];
+    let b = [1.0, 0.0, 0.0];
+    assert!(!paper_chain_sample_redundant(a, m, b));
+}
+
+#[test]
+fn paper_test_keeps_a_sample_beyond_the_arc_height_bound() {
+    // l ≈ 7.8e-5 < d_p·10³ but h = 6e-5 > d_p·10² (~1e-5): real curvature.
+    let a = [0.0, 0.0, 0.0];
+    let m = [5.0e-5, 6.0e-5, 0.0];
+    let b = [1.0e-4, 0.0, 0.0];
+    assert!(!paper_chain_sample_redundant(a, m, b));
+}
+
+#[test]
+fn paper_test_keeps_a_sample_beyond_the_turning_angle_bound() {
+    // Tiny h and l but a 20° turn at m (> π/18): a genuine corner sample.
+    let a = [0.0, 0.0, 0.0];
+    let m = [2.0e-6, 0.0, 0.0];
+    let turn = 20.0_f64.to_radians();
+    let b = [2.0e-6 + 2.0e-6 * turn.cos(), 2.0e-6 * turn.sin(), 0.0];
+    assert!(!paper_chain_sample_redundant(a, m, b));
+}

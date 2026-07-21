@@ -206,22 +206,24 @@ connectivity-only.
     segment still ties together the old components it touches (the
     common-cancel had emptied the merge set and left a boundary hole —
     measured, fixed).
-  - **§4.3 sub-render sample drop**: after sorting, a relocated
+  - **§4.3.4 chain-sample drop (paper criterion — user-directed swap
+    2026-07-21, deviation N58 RESOLVED)**: after sorting, a relocated
     (`moved`, non-mint, no-other-pair, all-triangles-in-region) chain
-    sample whose deviation from its kept neighbours' chord is below the
-    RENDER channel floor (4·max|coord|·ε_f32 — the assay
-    `no_degenerate_triangles` criterion) is dropped from the chain and
-    the region vertex pool. Measured necessity: without it the repair
-    completes but the output ring carries the needle verts and the
-    RENDER tessellation mints a degenerate sliver
-    (R0061 → SUPPORTED_WRONG, `1 of 15306 triangles degenerate`); the
-    render-degeneracy postcondition on new triangles (also added,
-    fail-closed) cannot see that downstream sliver, so the drop is
-    load-bearing. P9 note for ratification: the criterion is the render
-    channel's resolution — same floor the retired N50 f32 weld keyed on —
-    but scoped to redundant SAMPLES of an analytic curve during a §4.3
-    loop cleanup, not blind vertex merging; flagged for user review in
-    the deviations ledger.
+    sample m between kept neighbours p, q is dropped iff the paper's own
+    refinement acceptance test holds: **h < d_p·10², l < d_p·10³,
+    α < π/18** (`paper_chain_sample_redundant`;
+    `refs/text/yang2025_hybrid_boolean.txt:586-592`), with d_p = 1e-7
+    (`:744`) = `TAU_MODEL`, scale-relativized per the port convention.
+    The dropped sample is one the paper's refinement loop would never
+    have inserted. Measured necessity unchanged: without the drop the
+    output ring carries the needle verts and the RENDER tessellation
+    mints a degenerate sliver (R0061 → SUPPORTED_WRONG,
+    `1 of 15306 triangles degenerate`) that the mesh-level
+    render-degeneracy postcondition (fail-closed, reject-only — where
+    the render floor legitimately survives) cannot see. The original
+    render-floor DROP criterion is retired; measured under the paper
+    criterion R0061 stays SUPPORTED_CORRECT. 4 predicate pins (each
+    bound individually violated → keep).
   Unit: 9 fixtures total (`p3b_fan_retriangulation.rs`) — the 5 inc-4c-1
   fixtures + out-of-region zigzag scope discipline (a geometric zigzag
   outside the cluster regions is untouched) + 3 `seam_run_params` pins

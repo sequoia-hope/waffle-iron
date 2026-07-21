@@ -1753,6 +1753,57 @@ pub(crate) fn retriangulate_collapsed_fan_regions(
 /// `Some(())` = the mesh was mutated and the postcondition verified;
 /// `None` = bail, mesh guaranteed untouched.
 #[allow(clippy::too_many_lines)]
+/// Yang §4.3.4 curve-refinement acceptance test
+/// (`refs/text/yang2025_hybrid_boolean.txt:586-592`): for consecutive curve
+/// points p, q with an intermediate point m, no further subdivision is
+/// needed — i.e. m is REDUNDANT and the chord p→q suffices — iff
+///
+///   h < d_p·10²,  l < d_p·10³,  α < π/18
+///
+/// with h = the arc height (distance from m to segment pq), l = the chord
+/// length max(|pm|, |mq|), and α = the turning angle between p→m and m→q.
+/// The paper pins d_p = 1e-7 (`:744-745`), which is exactly this port's
+/// `TAU_MODEL`; scale-relative as everywhere else: d_p = TAU_MODEL·(1+scale).
+/// Used by the inc-4c-2 chain decimation: a sample the paper's own
+/// refinement loop would never have inserted may be removed (deviation N58,
+/// paper-criterion form).
+pub(crate) fn paper_chain_sample_redundant(a: [f64; 3], m: [f64; 3], b: [f64; 3]) -> bool {
+    let scale = a
+        .iter()
+        .chain(m.iter())
+        .chain(b.iter())
+        .fold(0.0f64, |acc, &c| acc.max(c.abs()));
+    let dp = cad_primitives::TAU_MODEL * (1.0 + scale);
+    let am = [m[0] - a[0], m[1] - a[1], m[2] - a[2]];
+    let mb = [b[0] - m[0], b[1] - m[1], b[2] - m[2]];
+    let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let n2 = |v: [f64; 3]| v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+    let dot = |x: [f64; 3], y: [f64; 3]| x[0] * y[0] + x[1] * y[1] + x[2] * y[2];
+    // l = max(|pm|, |mq|).
+    let (lam, lmb) = (n2(am).sqrt(), n2(mb).sqrt());
+    let l = lam.max(lmb);
+    if l >= dp * 1e3 {
+        return false;
+    }
+    // h = distance from m to segment ab.
+    let lab2 = n2(ab);
+    let h = if lab2 > 0.0 {
+        let t = (dot(am, ab) / lab2).clamp(0.0, 1.0);
+        n2([am[0] - t * ab[0], am[1] - t * ab[1], am[2] - t * ab[2]]).sqrt()
+    } else {
+        lam
+    };
+    if h >= dp * 1e2 {
+        return false;
+    }
+    // α = turning angle between a→m and m→b.
+    if lam <= 0.0 || lmb <= 0.0 {
+        return true; // coincident with a neighbour: trivially redundant
+    }
+    let cos_a = (dot(am, mb) / (lam * lmb)).clamp(-1.0, 1.0);
+    cos_a.acos() < std::f64::consts::PI / 18.0
+}
+
 /// inc-4c-2: analytic curve parameter for a seam run between the two faces'
 /// surfaces, or `None` for an unsupported pair (the run is then left as-is
 /// and the CDT stays the loud verifier).
@@ -2091,23 +2142,17 @@ fn repair_fan_cluster(
                         order.iter().map(|&i| verts[i]).collect::<Vec<_>>()
                     );
                 }
-                // §4.3 loop cleanup on the sorted chain: a RELOCATED sample
-                // (moved, non-mint, every triangle inside the regions, on no
-                // other seam pair) whose deviation from its kept neighbours'
-                // chord is below the RENDER channel's resolution adds no
-                // representable geometry — carrying it into the output ring
-                // mints a render-degenerate sliver downstream (measured:
-                // R0061's needle verts, 8e-9–4e-8 off-chord vs a ~7.6e-8
-                // floor). Drop it from the chain and the region vertex pool;
-                // the analytic curve, not the sample set, is the geometry.
-                let height_floor = {
-                    let max_abs = mesh
-                        .verts
-                        .iter()
-                        .flat_map(|p| p.as_array())
-                        .fold(0.0f64, |m, c| m.max(c.abs()));
-                    4.0 * max_abs * (f32::EPSILON as f64)
-                };
+                // §4.3/§4.3.4 loop cleanup on the sorted chain: a RELOCATED
+                // sample (moved, non-mint, every triangle inside the regions,
+                // on no other seam pair) is dropped iff the PAPER's own
+                // curve-refinement acceptance test says the chord between its
+                // kept neighbours suffices without it (h/l/α against
+                // d_p = TAU_MODEL·(1+scale), `paper_chain_sample_redundant`) —
+                // the resulting polyline is one the paper's refinement loop
+                // would itself terminate at. Without this cleanup the output
+                // ring carries needle samples and the render tessellation
+                // mints a degenerate sliver downstream (measured: R0061
+                // SUPPORTED_WRONG). Deviation N58, paper-criterion form.
                 let on_other_pair = |v: u32| {
                     full_pair
                         .iter()
@@ -2127,27 +2172,17 @@ fn repair_fan_cluster(
                         && !minted.contains(&v)
                         && !on_other_pair(v)
                         && tris_all_in(v);
-                    let mut drop = false;
-                    if droppable {
-                        let p = mesh.verts[v as usize].as_array();
-                        let a = mesh.verts[*kept.last().expect("nonempty") as usize].as_array();
-                        let b = mesh.verts[sorted_verts[i + 1] as usize].as_array();
-                        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-                        let ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
-                        let l2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
-                        if l2 > 0.0 {
-                            let t = ((ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / l2)
-                                .clamp(0.0, 1.0);
-                            let d = [ap[0] - t * ab[0], ap[1] - t * ab[1], ap[2] - t * ab[2]];
-                            let dev = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
-                            drop = dev < height_floor;
-                        }
-                    }
+                    let drop = droppable
+                        && paper_chain_sample_redundant(
+                            mesh.verts[*kept.last().expect("nonempty") as usize].as_array(),
+                            mesh.verts[v as usize].as_array(),
+                            mesh.verts[sorted_verts[i + 1] as usize].as_array(),
+                        );
                     if drop {
                         if probe {
                             eprintln!(
-                                "[p3b-fanfix] chain sample v{v} dropped (sub-render \
-                                 deviation, pair {pair:?})"
+                                "[p3b-fanfix] chain sample v{v} dropped (Yang §4.3.4 \
+                                 h/l/α redundant, pair {pair:?})"
                             );
                         }
                         dropped_verts.insert(v);
