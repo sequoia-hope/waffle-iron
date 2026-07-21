@@ -589,6 +589,20 @@ The ring builder's loud contracts (on-circle band, seam-bit authority,
 distinct-override slot collision) apply unchanged; our closed-form
 roots are on-circle to machine precision.
 
+**Opposite-rim mirror (measured 4d-2, the first composition wall):**
+the azimuth-merge lateral pairs its two rings 1:1 and REQUIRES matched
+sample counts (`azimuth-merge rims have mismatched / too-few samples`,
+loud). Every rim mint therefore mirrors onto the opposite rim by the
+production `collect_ring_crossings` exact AXIAL projection
+(`opposite_rim_projection`: strip the axial component, renormalize the
+radial offset to the opposite radius — lands ON the opposite circle to
+machine precision). The mirror is a plain exact ring sample, NOT a
+junction (no partner-side insert, no trim provenance). A rim with no
+canonical cylinder-lateral pairing (`lateral_for_cap` fails / torus
+profile) skips the mint on BOTH sides — fail closed: a rim entry
+without its mirror hits the loud count wall, and a partner-only insert
+would be the one-sided mint the junction contract forbids.
+
 **Partner-side insertion:** the existing planar `face_overrides`
 channel (interior Steiner mint into the partner face's CDT) — no new
 machinery.

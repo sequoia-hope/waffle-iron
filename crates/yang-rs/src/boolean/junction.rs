@@ -989,6 +989,12 @@ pub(crate) struct JunctionStage1Overrides {
     pub edge_b: BTreeMap<u32, Vec<Point3>>,
     /// B's face index → interior junction points (pierced by A's edges).
     pub face_b: BTreeMap<u32, Vec<Point3>>,
+    /// inc-4d: A's full-circle RIM edge index → junction points on that rim
+    /// (the curved-owner half of a rim×planar-face pierce; consumed by the
+    /// Stage-1 `rim_overrides` ring channel).
+    pub rim_a: BTreeMap<u32, Vec<Point3>>,
+    /// inc-4d: B's full-circle RIM edge index → junction points on that rim.
+    pub rim_b: BTreeMap<u32, Vec<Point3>>,
     /// inc-4b: mint bit-key → pierce-time trim provenance (owner side +
     /// geometric plane verdicts), for every kept (non-poisoned) pierce
     /// point above. Resolved against the boolean op in `boolean()` and
@@ -1003,7 +1009,68 @@ impl JunctionStage1Overrides {
             && self.face_a.is_empty()
             && self.edge_b.is_empty()
             && self.face_b.is_empty()
+            && self.rim_a.is_empty()
+            && self.rim_b.is_empty()
     }
+}
+
+/// inc-4d: the exact opposite-rim placement of rim-junction points — the
+/// azimuth-merge lateral pairs its two rings 1:1, so every rim insertion
+/// must be mirrored onto the opposite rim to keep the sample counts
+/// matched (the production `collect_ring_crossings` rule, CYLINDER axial
+/// projection: strip the axial component, renormalize the radial offset to
+/// the opposite radius). Returns the opposite rim edge + one exact
+/// ON-CIRCLE point per input point, or `None` when the rim has no
+/// canonical cylinder-lateral pairing (torus profile rims, defective
+/// loops) — the caller must then skip the mint entirely on BOTH sides
+/// (fail closed: a rim entry without its mirror hits the loud
+/// azimuth-merge count wall; a partner-only insert would be the one-sided
+/// mint this machinery exists to prevent).
+pub(crate) fn opposite_rim_projection(
+    owner: &BRep,
+    rim_edge: u32,
+    pts: &[Point3],
+) -> Option<(u32, Vec<Point3>)> {
+    let crate::stage0::CapLateral::Cylinder((_, opp_edge, axis_point, axis_dir, _)) =
+        crate::stage0::lateral_for_cap(owner, rim_edge).ok()?
+    else {
+        return None; // torus profile rims: out of inc-4d scope, fail closed
+    };
+    let Curve::Circle {
+        center: opp_center,
+        radius: opp_radius,
+        ..
+    } = owner.edges()[opp_edge as usize].curve
+    else {
+        return None;
+    };
+    let oc = opp_center.as_array();
+    let mut out = Vec::with_capacity(pts.len());
+    for pt in pts {
+        let p = pt.as_array();
+        let w = [
+            p[0] - axis_point[0],
+            p[1] - axis_point[1],
+            p[2] - axis_point[2],
+        ];
+        let axial = w[0] * axis_dir[0] + w[1] * axis_dir[1] + w[2] * axis_dir[2];
+        let radial = [
+            w[0] - axial * axis_dir[0],
+            w[1] - axial * axis_dir[1],
+            w[2] - axial * axis_dir[2],
+        ];
+        let rlen = (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+        if rlen < cad_primitives::TAU_WORK {
+            return None; // on-axis rim point: degenerate geometry, fail closed
+        }
+        let s = opp_radius / rlen;
+        out.push(Point3::new(
+            oc[0] + radial[0] * s,
+            oc[1] + radial[1] * s,
+            oc[2] + radial[2] * s,
+        ));
+    }
+    Some((opp_edge, out))
 }
 
 /// Build the Stage-1 override maps for both operands from the pierce
@@ -1076,11 +1143,66 @@ pub(crate) fn junction_stage1_overrides(a: &BRep, b: &BRep) -> JunctionStage1Ove
         if kept.is_empty() {
             continue;
         }
-        let (edge_map, face_map) = match input {
-            InputId::A => (&mut out.edge_a, &mut out.face_b),
-            InputId::B => (&mut out.edge_b, &mut out.face_a),
+        // inc-4d: the owner-side channel is picked by the owner edge's
+        // curve — full-circle RIM owners route to the Stage-1 rim-ring
+        // override channel; `LineSegment` owners to the edge-polyline
+        // channel (the pre-4d path, byte-identical).
+        let owner = match input {
+            InputId::A => a,
+            InputId::B => b,
         };
-        edge_map.insert(*ei, kept.iter().map(|pp| pp.point).collect());
+        let rim_owner = matches!(owner.edges()[*ei as usize].curve, Curve::Circle { .. });
+        let kept_pts: Vec<Point3> = kept.iter().map(|pp| pp.point).collect();
+        // A rim mint is viable only with its opposite-rim mirror (the
+        // azimuth-merge 1:1 ring pairing). No pairing ⇒ skip the mint on
+        // BOTH sides — fail closed, status quo, never a one-sided insert.
+        let rim_mirror = if rim_owner {
+            match opposite_rim_projection(owner, *ei, &kept_pts) {
+                Some(m) => Some(m),
+                None => {
+                    if std::env::var_os("YANG_JUNCTION_MINT_PROBE").is_some() {
+                        eprintln!(
+                            "[p3a-wire] rim mint SKIP {input:?} edge {ei}: no canonical \
+                             cylinder-lateral pairing (fail closed)"
+                        );
+                    }
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
+        let (edge_map, face_map) = match (input, rim_owner) {
+            (InputId::A, false) => (&mut out.edge_a, &mut out.face_b),
+            (InputId::B, false) => (&mut out.edge_b, &mut out.face_a),
+            (InputId::A, true) => (&mut out.rim_a, &mut out.face_b),
+            (InputId::B, true) => (&mut out.rim_b, &mut out.face_a),
+        };
+        let push_dedup = |entry: &mut Vec<Point3>, pts: Vec<Point3>| {
+            for p in pts {
+                let key = [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
+                if !entry
+                    .iter()
+                    .any(|q| [q.x().to_bits(), q.y().to_bits(), q.z().to_bits()] == key)
+                {
+                    entry.push(p);
+                }
+            }
+        };
+        if rim_owner {
+            // Merge-with-dedup: this rim's entry may already hold ANOTHER
+            // rim's mirror points (two rims can cross-mirror) — a plain
+            // insert would clobber them.
+            push_dedup(edge_map.entry(*ei).or_default(), kept_pts);
+        } else {
+            edge_map.insert(*ei, kept_pts);
+        }
+        if let Some((opp_edge, opp_pts)) = rim_mirror {
+            // The mirror points are plain exact ring samples (NOT junction
+            // mints — no partner-side insert, no trim provenance); bitwise
+            // dedup against entries another rim's own mints already placed.
+            push_dedup(edge_map.entry(opp_edge).or_default(), opp_pts);
+        }
         for pp in &kept {
             let list = face_map.entry(pp.partner_face).or_default();
             let key = kb(pp.point);

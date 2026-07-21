@@ -2,7 +2,7 @@
 //! attribution, and the `BRep` container (extracted verbatim from
 //! lib.rs — spec `specs/yang_rs_lib_decomposition.md`, increment 3).
 
-use crate::stage1_tessellate_with_edge_overrides;
+use crate::stage1_tessellate_inner_overrides;
 use crate::stage1_tessellate_with_rim_overrides;
 use crate::{ellipse_point, hyperbola_point, normalize3, ortho_basis, parabola_point};
 use crate::{Curve, Point3, Surface, YangError};
@@ -425,31 +425,6 @@ impl BRep {
         Self::from_topology_and_tess(verts, edges, faces, min_n_seg, tess)
     }
 
-    /// P3a #146 increment-2 constructor body (spec
-    /// `yang_146_conformal_junction_sampling.md` §4): [`from_topology`] plus
-    /// per-`LineSegment`-edge junction points inserted into the Stage-1 edge
-    /// polylines AND per-face interior junction points minted into the
-    /// pierced faces' CDTs. Empty maps are byte-identical to
-    /// [`from_topology`] (the Stage-1 empty-override identity).
-    fn from_topology_with_junction_overrides(
-        verts: Vec<BRepVertex>,
-        edges: Vec<BRepEdge>,
-        faces: Vec<BRepFace>,
-        min_n_seg: Option<usize>,
-        edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
-        face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
-    ) -> Result<Self, YangError> {
-        let tess = stage1_tessellate_with_edge_overrides(
-            &verts,
-            &edges,
-            &faces,
-            edge_overrides,
-            face_overrides,
-            min_n_seg,
-        )?;
-        Self::from_topology_and_tess(verts, edges, faces, min_n_seg, tess)
-    }
-
     /// Shared tail of the `from_topology*` constructors: fold a Stage-1
     /// tessellation into the B-Rep container (mesh, 1:1 tessellation map,
     /// per-triangle owning-face attribution).
@@ -538,7 +513,31 @@ impl BRep {
         edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
         face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     ) -> Result<Self, YangError> {
-        if edge_overrides.is_empty() && face_overrides.is_empty() {
+        self.rebuilt_with_all_overrides(
+            &std::collections::BTreeMap::new(),
+            edge_overrides,
+            face_overrides,
+        )
+    }
+
+    /// P3b inc-4d-2 (spec `yang_169_p3b_curved_partner_pierce.md` §7.3
+    /// "Composition"): [`Self::rebuilt_with_junction_overrides`] plus exact
+    /// junction points inserted into full-circle RIM rings
+    /// (`rim_overrides[e]` — the curved-owner half of a rim×planar-face
+    /// pierce; the cap CDT and the lateral strip both consume the shared
+    /// ring, so the owner's two incident faces are conformal by
+    /// construction). All three override kinds compose inside the ONE
+    /// Stage-1 tessellation (`stage1_tessellate_inner_overrides` accepts
+    /// them together). Empty maps are byte-identical to
+    /// [`Self::rebuilt_with_junction_overrides`] (the empty-override
+    /// identity). Preserves an existing phantom-guard boost.
+    pub(crate) fn rebuilt_with_all_overrides(
+        &self,
+        rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+        edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+        face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    ) -> Result<Self, YangError> {
+        if rim_overrides.is_empty() && edge_overrides.is_empty() && face_overrides.is_empty() {
             return Self::from_topology(
                 self.vertices.clone(),
                 self.edges.clone(),
@@ -546,13 +545,22 @@ impl BRep {
                 self.forced_rim_n,
             );
         }
-        Self::from_topology_with_junction_overrides(
+        let tess = stage1_tessellate_inner_overrides(
+            &self.vertices,
+            &self.edges,
+            &self.faces,
+            rim_overrides,
+            edge_overrides,
+            face_overrides,
+            self.forced_rim_n,
+        )
+        .map(|(t, _)| t)?;
+        Self::from_topology_and_tess(
             self.vertices.clone(),
             self.edges.clone(),
             self.faces.clone(),
             self.forced_rim_n,
-            edge_overrides,
-            face_overrides,
+            tess,
         )
     }
 

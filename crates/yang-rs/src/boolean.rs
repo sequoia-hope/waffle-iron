@@ -567,11 +567,13 @@ pub fn boolean(
         } else {
             if std::env::var_os("YANG_JUNCTION_MINT_PROBE").is_some() {
                 eprintln!(
-                    "[p3a-wire] edge_a={} face_a={} edge_b={} face_b={}",
+                    "[p3a-wire] edge_a={} face_a={} edge_b={} face_b={} rim_a={} rim_b={}",
                     jo.edge_a.len(),
                     jo.face_a.len(),
                     jo.edge_b.len(),
-                    jo.face_b.len()
+                    jo.face_b.len(),
+                    jo.rim_a.len(),
+                    jo.rim_b.len()
                 );
                 // Verbose arm (`=v`): the full override payload per operand —
                 // targeted edge topology (endpoint indices + coords) and the
@@ -604,6 +606,8 @@ pub fn boolean(
                 .chain(jo.face_a.values())
                 .chain(jo.edge_b.values())
                 .chain(jo.face_b.values())
+                .chain(jo.rim_a.values())
+                .chain(jo.rim_b.values())
             {
                 for p in pts {
                     let key = [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
@@ -625,8 +629,8 @@ pub fn boolean(
                 }
             }
             Some((
-                a.rebuilt_with_junction_overrides(&jo.edge_a, &jo.face_a)?,
-                b.rebuilt_with_junction_overrides(&jo.edge_b, &jo.face_b)?,
+                a.rebuilt_with_all_overrides(&jo.rim_a, &jo.edge_a, &jo.face_a)?,
+                b.rebuilt_with_all_overrides(&jo.rim_b, &jo.edge_b, &jo.face_b)?,
             ))
         }
     } else {
