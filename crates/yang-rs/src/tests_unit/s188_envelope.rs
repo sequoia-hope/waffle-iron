@@ -560,3 +560,283 @@ fn degenerate_configurations_fail_closed() {
         Err(EnvelopeError::UnsupportedSurface)
     );
 }
+
+// ===========================================================================
+// inc-2 — hand-built weave fixtures for the §3.3 rebuild (the e2e gate
+// test's benign union already emits a CORRECT loop, which proves firing +
+// idempotence but not repair; these fixtures contain deliberate F0082-§7.4
+// defects the selection must fix).
+// ===========================================================================
+
+use crate::stage5_envelope::rebuild_osculating_loops;
+use crate::{Curve, Mesh, PatchInfo};
+
+fn ring(ids: &[u32]) -> Vec<Vec<(u32, u32)>> {
+    vec![(0..ids.len())
+        .map(|i| (ids[i], ids[(i + 1) % ids.len()]))
+        .collect()]
+}
+
+fn pinfo(input: InputId, inherited: Surface, cycles: Vec<Vec<(u32, u32)>>) -> PatchInfo {
+    PatchInfo {
+        cycles,
+        input,
+        inherited,
+        face_idx: 0,
+        input_reversed: false,
+        had_fold_sliver: false,
+    }
+}
+
+/// Unit cylinder (axis z, r=1) with the tilted partner plane z = 0.05·x
+/// (owner cap z = 0): the inc-1 synthetic, now with a MESH loop.
+fn unit_tilted_fixture() -> (Surface, EnvPlane, EnvPlane, Curve) {
+    let cyl = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let s = (1.0f64 + 0.0025).sqrt(); // |(-0.05, 0, 1)|
+    let p_int = EnvPlane {
+        n: [-0.05 / s, 0.0, 1.0 / s],
+        d: 0.0,
+    };
+    let p_orig = EnvPlane {
+        n: [0.0, 0.0, -1.0],
+        d: 0.0,
+    };
+    // The attributed intersection conic (carrier = p_int).
+    let proj = {
+        // projection of ẑ onto the plane, normalized (major axis).
+        let na = 1.0 / s;
+        let p = [0.0 - na * (-0.05 / s), 0.0, 1.0 - na * (1.0 / s)];
+        let n = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
+        [p[0] / n, p[1] / n, p[2] / n]
+    };
+    let conic = Curve::Ellipse {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vector3::new(-0.05 / s, 0.0, 1.0 / s),
+        major_axis: Vector3::new(proj[0], proj[1], proj[2]),
+        major_radius: s / 1.0f64.max(1.0), // r / cosφ = 1 / (1/s) = s
+        minor_radius: 1.0,
+    };
+    (cyl, p_int, p_orig, conic)
+}
+
+/// Vertex on the ellipse (tube ∩ tilted plane) at azimuth θ.
+fn ell_pt(theta: f64) -> [f64; 3] {
+    [theta.cos(), theta.sin(), 0.05 * theta.cos()]
+}
+/// Vertex on the rim (tube ∩ cap) at azimuth θ.
+fn rim_pt(theta: f64) -> [f64; 3] {
+    [theta.cos(), theta.sin(), 0.0]
+}
+
+/// The §7.4 PRIMARY defect in miniature: the loop detours through a
+/// dead-side ellipse vert past the triple point (fold) and carries a
+/// dead-side rim vert inside the ellipse band. The rebuild must drop both,
+/// keep both triple junctions (mint-by-identity), and emit a monotone
+/// alternating loop with true curve vocabulary on the new edges.
+#[test]
+fn rebuild_drops_dead_side_detour_and_reorders() {
+    let (cyl, p_int, _p_orig, conic) = unit_tilted_fixture();
+    let mut pts: Vec<[f64; 3]> = Vec::new();
+    let mut add = |p: [f64; 3]| -> u32 {
+        pts.push(p);
+        (pts.len() - 1) as u32
+    };
+    let j1 = add([0.0, -1.0, 0.0]); // triple at θ = −π/2
+    let e_m10 = add(ell_pt(-1.0));
+    let e_m05 = add(ell_pt(-0.5));
+    let rim_dead = add(rim_pt(-0.3)); // rim inside the ellipse band: DEAD
+    let e_00 = add(ell_pt(0.0));
+    let e_05 = add(ell_pt(0.5));
+    let e_10 = add(ell_pt(1.0));
+    let ell_dead = add(ell_pt(1.7)); // ellipse past the triple: DEAD (fold)
+    let j2 = add([0.0, 1.0, 0.0]); // triple at θ = +π/2
+    let r_20 = add(rim_pt(2.0));
+    let r_25 = add(rim_pt(2.5));
+    let r_30 = add(rim_pt(3.0));
+    let r_m25 = add(rim_pt(-2.5));
+    let r_m20 = add(rim_pt(-2.0));
+    let mesh = Mesh {
+        verts: pts.iter().map(|p| Point3::new(p[0], p[1], p[2])).collect(),
+        tris: Vec::new(),
+    };
+
+    let broken = ring(&[
+        j1, e_m10, e_m05, rim_dead, e_00, e_05, e_10, ell_dead, j2, r_20, r_25, r_30, r_m25, r_m20,
+    ]);
+    let infos = vec![
+        pinfo(InputId::B, cyl, broken.clone()),
+        pinfo(
+            InputId::A,
+            Surface::Plane {
+                normal: Vector3::new(p_int.n[0], p_int.n[1], p_int.n[2]),
+                d: p_int.d,
+            },
+            Vec::new(),
+        ),
+        pinfo(
+            InputId::B,
+            Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                d: 0.0,
+            },
+            ring(&[r_20, r_25]),
+        ),
+    ];
+    let subdiv = vec![broken.clone(), Vec::new(), ring(&[r_20, r_25])];
+    let mut curves: std::collections::BTreeMap<(u32, u32), Curve> = Default::default();
+    for (s, e) in [(j1, e_m10), (e_m10, e_m05), (e_05, e_10)] {
+        curves.insert(if s < e { (s, e) } else { (e, s) }, conic);
+    }
+
+    let rebuilt =
+        rebuild_osculating_loops(&mesh, &infos, 0, &subdiv, &curves, crate::BoolOp::Union)
+            .expect("no postcondition failure")
+            .expect("the weave fixture must rebuild");
+
+    let expected = ring(&[
+        j1, e_m10, e_m05, e_00, e_05, e_10, j2, r_20, r_25, r_30, r_m25, r_m20,
+    ]);
+    assert_eq!(
+        rebuilt.cycles, expected,
+        "dead-side verts dropped, monotone order"
+    );
+
+    // New edges carry true curve vocabulary: ellipse on the int side
+    // (spanning the dropped rim vert and the closed triple), circle on the
+    // rim side (the cap is ⊥ the axis).
+    let key = |a: u32, b: u32| if a < b { (a, b) } else { (b, a) };
+    assert_eq!(rebuilt.curve_overrides.get(&key(e_m05, e_00)), Some(&conic));
+    assert_eq!(rebuilt.curve_overrides.get(&key(e_10, j2)), Some(&conic));
+    // (j2, r_20) was an ORIGINAL edge (the healthy exit of the detour):
+    // it keeps its original attribution — no override.
+    assert!(!rebuilt.curve_overrides.contains_key(&key(j2, r_20)));
+    assert_eq!(rebuilt.curve_overrides.len(), 2);
+}
+
+/// Wall-complex slivers with the F0082-WC364 curve-adjacency SWAP: a
+/// slightly tilted partner wall (x − 0.05z = 0.6) crosses the rim at
+/// θ = ±acos(0.6) and the ellipse at ±acos(0.6/0.9975) — on each side the
+/// crossing serving the ADJACENT band is the θ-far one, so pairing by θ
+/// order would connect the wrong curves. The healthy wall-arc traversals
+/// (with their physical micro-backsteps) must come through BYTE-IDENTICAL,
+/// while a dead ellipse vert in the far rim band is dropped.
+#[test]
+fn rebuild_keeps_wall_sections_byte_identical_with_swap_pairing() {
+    let (cyl, p_int, _p_orig, conic) = unit_tilted_fixture();
+    // Wall plane x − 0.05z = 0.6, outward from partner A.
+    let wn = (1.0f64 + 0.0025).sqrt();
+    let wall = EnvPlane {
+        n: [1.0 / wn, 0.0, -0.05 / wn],
+        d: -0.6 / wn,
+    };
+    let th_r = 0.6f64.acos(); // rim × wall
+    let x_e: f64 = 0.6 / (1.0 - 0.0025);
+    let th_e = x_e.acos(); // ellipse × wall (th_e < th_r)
+    let th_w = (th_r + th_e) / 2.0; // wall-arc sample azimuth
+    let wall_pt = |theta: f64| -> [f64; 3] {
+        // On the cylinder AND on the wall plane: v = (x − 0.6)/0.05.
+        let (x, y) = (theta.cos(), theta.sin());
+        [x, y, (x - 0.6) / 0.05]
+    };
+
+    let mut pts: Vec<[f64; 3]> = Vec::new();
+    let mut add = |p: [f64; 3]| -> u32 {
+        pts.push(p);
+        (pts.len() - 1) as u32
+    };
+    let j1 = add([0.0, -1.0, 0.0]);
+    let e_m12 = add(ell_pt(-1.2));
+    let ex_m = add(ell_pt(-th_e)); // ellipse × wall junction (−side)
+    let w_m = add(wall_pt(-th_w)); // wall-arc vert (−side)
+    let rx_m = add(rim_pt(-th_r)); // rim × wall junction (−side)
+    let r_m08 = add(rim_pt(-0.8));
+    let r_00 = add(rim_pt(0.0));
+    let r_08 = add(rim_pt(0.8));
+    let rx_p = add(rim_pt(th_r)); // rim × wall junction (+side)
+    let w_p = add(wall_pt(th_w)); // wall-arc vert (+side)
+    let ex_p = add(ell_pt(th_e)); // ellipse × wall junction (+side)
+    let e_12 = add(ell_pt(1.2));
+    let j2 = add([0.0, 1.0, 0.0]);
+    let r_22 = add(rim_pt(2.2));
+    let ell_dead = add(ell_pt(2.6)); // dead ellipse vert in the rim band
+    let r_30 = add(rim_pt(3.0));
+    let r_m24 = add(rim_pt(-2.4));
+    let mesh = Mesh {
+        verts: pts.iter().map(|p| Point3::new(p[0], p[1], p[2])).collect(),
+        tris: Vec::new(),
+    };
+
+    let broken = ring(&[
+        j1, e_m12, ex_m, w_m, rx_m, r_m08, r_00, r_08, rx_p, w_p, ex_p, e_12, j2, r_22, ell_dead,
+        r_30, r_m24,
+    ]);
+    let infos = vec![
+        pinfo(InputId::B, cyl, broken.clone()),
+        pinfo(
+            InputId::A,
+            Surface::Plane {
+                normal: Vector3::new(p_int.n[0], p_int.n[1], p_int.n[2]),
+                d: p_int.d,
+            },
+            Vec::new(),
+        ),
+        pinfo(
+            InputId::B,
+            Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                d: 0.0,
+            },
+            ring(&[r_00, r_08]),
+        ),
+        // The wall patch: shares the wall-arc vert with the loop.
+        pinfo(
+            InputId::A,
+            Surface::Plane {
+                normal: Vector3::new(wall.n[0], wall.n[1], wall.n[2]),
+                d: wall.d,
+            },
+            ring(&[w_p, rx_p]),
+        ),
+    ];
+    let subdiv = vec![
+        broken.clone(),
+        Vec::new(),
+        ring(&[r_00, r_08]),
+        ring(&[w_p, rx_p]),
+    ];
+    let mut curves: std::collections::BTreeMap<(u32, u32), Curve> = Default::default();
+    for (s, e) in [(j1, e_m12), (e_m12, ex_m), (ex_p, e_12), (e_12, j2)] {
+        curves.insert(if s < e { (s, e) } else { (e, s) }, conic);
+    }
+
+    let rebuilt =
+        rebuild_osculating_loops(&mesh, &infos, 0, &subdiv, &curves, crate::BoolOp::Union)
+            .expect("no postcondition failure")
+            .expect("the wall-weave fixture must rebuild");
+
+    // Identical to the healthy input minus the dead ellipse vert — the
+    // wall sections [ex_m, w_m, rx_m] and [rx_p, w_p, ex_p] byte-identical
+    // (swap pairing: each WC band's entry junction is on the PREVIOUS
+    // band's curve even though it is the θ-far crossing).
+    let expected = ring(&[
+        j1, e_m12, ex_m, w_m, rx_m, r_m08, r_00, r_08, rx_p, w_p, ex_p, e_12, j2, r_22, r_30, r_m24,
+    ]);
+    assert_eq!(rebuilt.cycles, expected);
+
+    // The only new edge spans the dropped dead vert, on the rim.
+    let key = |a: u32, b: u32| if a < b { (a, b) } else { (b, a) };
+    let rim_circle = Curve::Circle {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vector3::new(0.0, 0.0, -1.0),
+        radius: 1.0,
+    };
+    assert_eq!(
+        rebuilt.curve_overrides.get(&key(r_22, r_30)),
+        Some(&rim_circle)
+    );
+    assert_eq!(rebuilt.curve_overrides.len(), 1);
+}

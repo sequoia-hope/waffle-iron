@@ -505,11 +505,35 @@ pub(crate) fn emit_topology(
                 );
             }
 
+            // #188 inc-2 (spec §3.3): gated boundary-envelope rebuild for
+            // osculating curve pairs. Gate off ⇒ byte-identical (no call);
+            // gate on ⇒ selection-only rebuild of weaving cycles, with the
+            // untouched loop as the fail-closed path (`Ok(None)`).
+            let envelope_rebuild = if crate::stage5_envelope::envelope_gate_enabled() {
+                crate::stage5_envelope::rebuild_osculating_loops(
+                    mesh,
+                    infos,
+                    info_index,
+                    &subdivided_cycles,
+                    intersection_curves,
+                    op,
+                )?
+            } else {
+                None
+            };
+            let cycles = match &envelope_rebuild {
+                Some(r) => &r.cycles,
+                None => cycles,
+            };
+            let curve_overrides = envelope_rebuild.as_ref().map(|r| &r.curve_overrides);
+
             let push_loop = |edges: &mut Vec<BRepEdge>, cycle: &[(u32, u32)]| -> Vec<u32> {
                 let start_idx = edges.len() as u32;
                 for &(s, e) in cycle {
-                    let curve = intersection_curves
-                        .get(&if s < e { (s, e) } else { (e, s) })
+                    let key = if s < e { (s, e) } else { (e, s) };
+                    let curve = curve_overrides
+                        .and_then(|m| m.get(&key))
+                        .or_else(|| intersection_curves.get(&key))
                         .copied()
                         .unwrap_or(Curve::LineSegment);
                     edges.push(BRepEdge {

@@ -714,3 +714,767 @@ pub fn classify_bands(
         triples: classified,
     })
 }
+
+// ===========================================================================
+// inc-2 — §3.3 gated loop rebuild (spec §5 inc-2; wiring of the §3.2
+// primitives into `emit_topology`'s curved branch behind
+// `YANG_S5_ENVELOPE_ENABLE`).
+//
+// The rebuild is pure boundary SELECTION over EXISTING output vertices
+// (inc-0 §7.4: every junction the correct loop needs is already minted):
+// per §3.2.2 band, keep the verts lying ON the live support conic in
+// azimuth order, keep wall-complex sections byte-identical, and drop
+// dead-side verts. A configuration the machinery cannot handle exactly
+// (missing junction vert, foreign vert that would be dropped, multiple
+// osculating pairs) BAILS to the untouched loop — the existing loud STOP
+// downstream stays the failure mode (§3.2 fail-closed). A postcondition
+// failure AFTER committing to a rebuild is a loud typed error (P10).
+// ===========================================================================
+
+use crate::{non_manifold_at, Curve, Mesh, PatchInfo, YangError};
+use std::collections::BTreeMap;
+
+/// Dev gate for the §3.3 rebuild. `=0` / `=off` / unset ⇒ disabled
+/// (production byte-identical); anything else enables (the P3a/P3b idiom).
+pub(crate) fn envelope_gate_enabled() -> bool {
+    matches!(std::env::var("YANG_S5_ENVELOPE_ENABLE"), Ok(v) if !(v.is_empty() || v == "0" || v == "off"))
+}
+
+/// Read-only forensics for the gated rebuild (`YANG_S5_ENVELOPE_PROBE`):
+/// prints fire/bail/commit decisions so inc-3 corpus triage can tell WHY a
+/// case rebuilt or was left alone. Never affects behavior.
+fn probe(args: std::fmt::Arguments<'_>) {
+    if std::env::var_os("YANG_S5_ENVELOPE_PROBE").is_some() {
+        eprintln!("[s5-env] {args}");
+    }
+}
+
+/// The result of a §3.3 loop rebuild for one curved patch: replacement
+/// cycles (same shape as `subdivided_cycles[info_index]`) plus analytic
+/// `Curve` attributions for edges the rebuild created (existing edges keep
+/// their `intersection_curves` attribution — the #158 gap must not widen,
+/// but new envelope edges get true curve vocabulary).
+pub(crate) struct LoopRebuild {
+    pub cycles: Vec<Vec<(u32, u32)>>,
+    pub curve_overrides: BTreeMap<(u32, u32), Curve>,
+}
+
+/// Planar carrier of a conic `Curve` (the probe's vocabulary): plane
+/// through the conic's center/vertex with its stored normal.
+fn conic_carrier(c: &Curve) -> Option<([f64; 3], f64)> {
+    let (p, n) = match c {
+        Curve::Circle { center, normal, .. } => (center, normal),
+        Curve::Ellipse { center, normal, .. } => (center, normal),
+        Curve::Parabola { vertex, normal, .. } => (vertex, normal),
+        Curve::Hyperbola { center, normal, .. } => (center, normal),
+        Curve::LineSegment | Curve::SurfacePair { .. } => return None,
+    };
+    let n = n.as_array();
+    Some((n, -dot(n, p.as_array())))
+}
+
+/// Sign-normalized approximate plane equality (either orientation) — the
+/// probe's test, kept identical.
+fn planes_match(n1: [f64; 3], d1: f64, n2: [f64; 3], d2: f64) -> bool {
+    let same = norm(sub3(n1, n2)) < 1e-9 && (d1 - d2).abs() < 1e-9;
+    let anti = norm(sub3(n1, [-n2[0], -n2[1], -n2[2]])) < 1e-9 && (d1 + d2).abs() < 1e-9;
+    same || anti
+}
+
+/// The exact conic of `cylinder ∩ plane` (both from the fired pair): the
+/// analytic curve vocabulary for NEW envelope edges on that support.
+fn cylinder_plane_conic(frame: &CylFrame, plane: &EnvPlane) -> Curve {
+    use cad_primitives::{Point3, Vector3};
+    let na = dot(plane.n, frame.a_hat);
+    let t = -(dot(plane.n, frame.ap) + plane.d) / na;
+    let center = Point3::new(
+        frame.ap[0] + t * frame.a_hat[0],
+        frame.ap[1] + t * frame.a_hat[1],
+        frame.ap[2] + t * frame.a_hat[2],
+    );
+    let cos_phi = na.abs();
+    if (1.0 - cos_phi) < 1e-12 {
+        Curve::Circle {
+            center,
+            normal: Vector3::new(plane.n[0], plane.n[1], plane.n[2]),
+            radius: frame.r,
+        }
+    } else {
+        // Major axis = the projection of the cylinder axis onto the plane.
+        let proj = sub3(
+            frame.a_hat,
+            [na * plane.n[0], na * plane.n[1], na * plane.n[2]],
+        );
+        let pn = norm(proj);
+        Curve::Ellipse {
+            center,
+            normal: Vector3::new(plane.n[0], plane.n[1], plane.n[2]),
+            major_axis: Vector3::new(proj[0] / pn, proj[1] / pn, proj[2] / pn),
+            major_radius: frame.r / cos_phi,
+            minor_radius: frame.r,
+        }
+    }
+}
+
+/// Offset of `theta` past `start` going counter-clockwise, in [0, 2π).
+fn ccw_offset(theta: f64, start: f64) -> f64 {
+    let mut d = theta - start;
+    while d < 0.0 {
+        d += 2.0 * std::f64::consts::PI;
+    }
+    while d >= 2.0 * std::f64::consts::PI {
+        d -= 2.0 * std::f64::consts::PI;
+    }
+    d
+}
+
+/// §3.3 entry point: detect the (single) osculating pair on this cylinder
+/// patch, classify its bands, and rebuild the weaving cycle(s) by
+/// selection. `Ok(None)` = not applicable / fail closed (loop untouched);
+/// `Err` = a P10 postcondition violation after committing to a rebuild.
+pub(crate) fn rebuild_osculating_loops(
+    mesh: &Mesh,
+    infos: &[PatchInfo],
+    info_index: usize,
+    subdivided_cycles: &[Vec<Vec<(u32, u32)>>],
+    intersection_curves: &BTreeMap<(u32, u32), Curve>,
+    op: cad_primitives::BoolOp,
+) -> Result<Option<LoopRebuild>, YangError> {
+    let info = &infos[info_index];
+    if !matches!(info.inherited, Surface::Cylinder { .. }) {
+        return Ok(None);
+    }
+    let Ok(frame) = CylFrame::build(&info.inherited) else {
+        return Ok(None);
+    };
+    let cycles = &subdivided_cycles[info_index];
+    let owner = info.input;
+    let vert_set: std::collections::BTreeSet<u32> = cycles
+        .iter()
+        .flat_map(|c| c.iter().map(|&(s, _)| s))
+        .collect();
+
+    // --- Support enumeration (the probe's §3.1 vocabulary) -------------
+    // Intersection-conic candidates: distinct planar carriers among this
+    // patch's attributed loop edges, matched to a PARTNER planar patch so
+    // the outward normal orientation is known.
+    let mut int_cands: Vec<(EnvPlane, Curve)> = Vec::new();
+    for cycle in cycles {
+        for &(s, e) in cycle {
+            let key = if s < e { (s, e) } else { (e, s) };
+            let Some(curve) = intersection_curves.get(&key) else {
+                continue;
+            };
+            let Some((cn, cd)) = conic_carrier(curve) else {
+                continue;
+            };
+            let matched = infos.iter().find_map(|other| {
+                if other.input == owner {
+                    return None;
+                }
+                let Surface::Plane { normal, d } = other.inherited else {
+                    return None;
+                };
+                let n = normal.as_array();
+                planes_match(cn, cd, n, d).then_some(EnvPlane { n, d })
+            });
+            let Some(pl) = matched else { continue };
+            if !int_cands
+                .iter()
+                .any(|(p, _)| planes_match(p.n, p.d, pl.n, pl.d))
+            {
+                int_cands.push((pl, *curve));
+            }
+        }
+    }
+    // Original-conic candidates: OWNER planar patches sharing ≥2 loop verts.
+    let mut orig_cands: Vec<EnvPlane> = Vec::new();
+    for other in infos {
+        if other.input != owner {
+            continue;
+        }
+        let Surface::Plane { normal, d } = other.inherited else {
+            continue;
+        };
+        let pl = EnvPlane {
+            n: normal.as_array(),
+            d,
+        };
+        let shared = infos_shared_verts(other, &vert_set);
+        if shared >= 2
+            && !orig_cands
+                .iter()
+                .any(|p| planes_match(p.n, p.d, pl.n, pl.d))
+        {
+            orig_cands.push(pl);
+        }
+    }
+
+    // --- Osculation test per pair (C0118 floor; §7.7 band_frac gate) ----
+    let mut fired: Vec<(EnvPlane, Curve, EnvPlane, f64)> = Vec::new();
+    for (p_int, int_conic) in &int_cands {
+        for p_orig in &orig_cands {
+            if planes_match(p_int.n, p_int.d, p_orig.n, p_orig.d) {
+                continue;
+            }
+            let (Ok(pi), Ok(po)) = (frame.profile(p_int), frame.profile(p_orig)) else {
+                continue;
+            };
+            let (g0, gc, gs) = (pi.c0 - po.c0, pi.cc - po.cc, pi.cs - po.cs);
+            let amp = gc.hypot(gs);
+            let floor = observability_floor(mesh, cycles, &frame, &pi, &po);
+            let band_frac = if amp > 0.0 {
+                let lo = ((-floor - g0) / amp).clamp(-1.0, 1.0);
+                let hi = ((floor - g0) / amp).clamp(-1.0, 1.0);
+                (lo.acos() - hi.acos()) / std::f64::consts::PI
+            } else if g0.abs() < floor {
+                1.0
+            } else {
+                0.0
+            };
+            if band_frac >= 0.7 {
+                fired.push((*p_int, *int_conic, *p_orig, floor));
+            }
+        }
+    }
+    // Exactly ONE osculating pair is the inc-2 vocabulary (F0085's
+    // two-pair loop is an inc-3 concern) — else leave the loop alone.
+    if fired.len() != 1 {
+        if !fired.is_empty() {
+            probe(format_args!(
+                "patch info={info_index}: BAIL {} osculating pairs (inc-2 handles exactly 1)",
+                fired.len()
+            ));
+        }
+        return Ok(None);
+    }
+    let (p_int, int_conic, p_orig, floor) = fired.remove(0);
+    probe(format_args!(
+        "patch info={info_index}: osculating pair FIRED floor={floor:.3e} \
+         int n=({:.6},{:.6},{:.6}) d={:.6} orig n=({:.6},{:.6},{:.6}) d={:.6}",
+        p_int.n[0],
+        p_int.n[1],
+        p_int.n[2],
+        p_int.d,
+        p_orig.n[0],
+        p_orig.n[1],
+        p_orig.n[2],
+        p_orig.d
+    ));
+
+    // --- Masking walls: ALL crossing partner planes (§8.2, the face-365
+    // finding) — every planar patch of the partner operand sharing ≥1
+    // loop vert, except the pair plane itself.
+    let mut walls: Vec<EnvPlane> = Vec::new();
+    for other in infos {
+        if other.input == owner {
+            continue;
+        }
+        let Surface::Plane { normal, d } = other.inherited else {
+            continue;
+        };
+        let pl = EnvPlane {
+            n: normal.as_array(),
+            d,
+        };
+        if planes_match(pl.n, pl.d, p_int.n, p_int.d) {
+            continue;
+        }
+        if infos_shared_verts(other, &vert_set) >= 1
+            && !walls.iter().any(|w| planes_match(w.n, w.d, pl.n, pl.d))
+        {
+            walls.push(pl);
+        }
+    }
+
+    let bands = match classify_bands(&info.inherited, &p_int, &p_orig, &walls, op, owner) {
+        Ok(b) => b,
+        // Fail closed: outside the implemented vocabulary — keep the
+        // existing loop (and whatever loud STOP it produces downstream).
+        Err(e) => {
+            probe(format_args!(
+                "patch info={info_index}: BAIL classify_bands ({e:?}) walls={}",
+                walls.len()
+            ));
+            return Ok(None);
+        }
+    };
+    probe(format_args!(
+        "patch info={info_index}: bands={:?} boundaries={:?} triples={:?}",
+        bands.live,
+        bands
+            .boundaries
+            .iter()
+            .map(|b| (b.theta, b.kind))
+            .collect::<Vec<_>>(),
+        bands
+            .triples
+            .iter()
+            .map(|t| (t.point.theta, t.class))
+            .collect::<Vec<_>>()
+    ));
+
+    let prof_int = frame
+        .profile(&p_int)
+        .expect("profile checked during detection");
+    let prof_orig = frame
+        .profile(&p_orig)
+        .expect("profile checked during detection");
+    let orig_conic = cylinder_plane_conic(&frame, &p_orig);
+
+    // --- Per-cycle rebuild ---------------------------------------------
+    let mut out_cycles: Vec<Vec<(u32, u32)>> = Vec::with_capacity(cycles.len());
+    let mut overrides: BTreeMap<(u32, u32), Curve> = BTreeMap::new();
+    let mut any_rebuilt = false;
+    for cycle in cycles {
+        // A cycle participates iff it carries the sub-observability weave
+        // band: ≥3 verts within the floor of BOTH supports.
+        let ambiguous = cycle
+            .iter()
+            .filter(|&&(s, _)| {
+                let p = mesh.verts[s as usize].as_array();
+                let (t, v) = theta_v(&frame, p);
+                (v - prof_int.v(t)).abs() < floor && (v - prof_orig.v(t)).abs() < floor
+            })
+            .count();
+        if ambiguous < 3 {
+            out_cycles.push(cycle.clone());
+            continue;
+        }
+        match rebuild_cycle(
+            mesh, cycle, &frame, &bands, &p_int, &p_orig, &prof_int, &prof_orig,
+        )? {
+            None => {
+                probe(format_args!(
+                    "patch info={info_index}: BAIL rebuild_cycle (len={})",
+                    cycle.len()
+                ));
+                return Ok(None); // fail closed: loop untouched
+            }
+            Some(new_verts) => {
+                probe(format_args!(
+                    "patch info={info_index}: cycle REBUILT {} -> {} verts\n\
+                     [s5-env]   orig: {:?}\n\
+                     [s5-env]   new:  {:?}",
+                    cycle.len(),
+                    new_verts.len(),
+                    cycle.iter().map(|&(s, _)| s).collect::<Vec<_>>(),
+                    new_verts
+                ));
+                let m = new_verts.len();
+                let new_cycle: Vec<(u32, u32)> = (0..m)
+                    .map(|i| (new_verts[i], new_verts[(i + 1) % m]))
+                    .collect();
+                // Curve vocabulary for NEW edges — new = absent from the
+                // ORIGINAL cycle (an existing edge keeps its attribution,
+                // including the un-attributed LineSegment wall-arc chords;
+                // the #158 gap must not widen but also must not be
+                // misread as "new"). New edges get the live support's
+                // conic per band.
+                let orig_edges: std::collections::BTreeSet<(u32, u32)> = cycle
+                    .iter()
+                    .map(|&(s, e)| if s < e { (s, e) } else { (e, s) })
+                    .collect();
+                for &(s, e) in &new_cycle {
+                    let key = if s < e { (s, e) } else { (e, s) };
+                    if orig_edges.contains(&key) || intersection_curves.contains_key(&key) {
+                        continue;
+                    }
+                    let ps = mesh.verts[s as usize].as_array();
+                    let pe = mesh.verts[e as usize].as_array();
+                    let (ts, _) = theta_v(&frame, ps);
+                    let (te, _) = theta_v(&frame, pe);
+                    let tm = wrap(ts + wrap(te - ts) / 2.0);
+                    match bands.live_at(tm) {
+                        Some(BandLive::IntCurve) => {
+                            overrides.insert(key, int_conic);
+                        }
+                        Some(BandLive::OrigCurve) => {
+                            overrides.insert(key, orig_conic);
+                        }
+                        // A NEW edge inside a wall-complex sliver violates
+                        // the §3.3 "wall sections byte-identical"
+                        // postcondition — loud (P10).
+                        Some(BandLive::WallComplex { .. }) | None => {
+                            return Err(non_manifold_at(
+                                "s5-envelope-new-wall-edge",
+                                format_args!("edge {s}->{e} theta_mid={tm:.6}"),
+                            ));
+                        }
+                    }
+                }
+                out_cycles.push(new_cycle);
+                any_rebuilt = true;
+            }
+        }
+    }
+    if !any_rebuilt {
+        return Ok(None);
+    }
+    Ok(Some(LoopRebuild {
+        cycles: out_cycles,
+        curve_overrides: overrides,
+    }))
+}
+
+/// Shared-vertex count between another patch's loops and this loop's verts.
+fn infos_shared_verts(other: &PatchInfo, vert_set: &std::collections::BTreeSet<u32>) -> usize {
+    other
+        .cycles
+        .iter()
+        .flat_map(|c| c.iter().map(|&(s, _)| s))
+        .filter(|v| vert_set.contains(v))
+        .collect::<std::collections::BTreeSet<u32>>()
+        .len()
+}
+
+/// (azimuth, axial height) of a point in the patch frame.
+fn theta_v(frame: &CylFrame, p: [f64; 3]) -> (f64, f64) {
+    let q = sub3(p, frame.ap);
+    let v = dot(q, frame.a_hat);
+    let w = sub3(
+        q,
+        [v * frame.a_hat[0], v * frame.a_hat[1], v * frame.a_hat[2]],
+    );
+    (dot(w, frame.y_hat).atan2(dot(w, frame.x_hat)), v)
+}
+
+/// The C0118 combined chord-sagitta observability floor, measured from the
+/// ACTUAL loop edges (the probe's computation, kept identical): max chord
+/// sagitta of the edges nearest each support, summed; `2·max` if one side
+/// has no edges.
+fn observability_floor(
+    mesh: &Mesh,
+    cycles: &[Vec<(u32, u32)>],
+    frame: &CylFrame,
+    prof_int: &AxialProfile,
+    prof_orig: &AxialProfile,
+) -> f64 {
+    let (mut sag_i, mut sag_j) = (0.0f64, 0.0f64);
+    for cycle in cycles {
+        for &(s, e) in cycle {
+            let ps = mesh.verts[s as usize].as_array();
+            let pe = mesh.verts[e as usize].as_array();
+            let (ts, _) = theta_v(frame, ps);
+            let (te, _) = theta_v(frame, pe);
+            let mid = [
+                (ps[0] + pe[0]) / 2.0,
+                (ps[1] + pe[1]) / 2.0,
+                (ps[2] + pe[2]) / 2.0,
+            ];
+            let (tm, vm) = theta_v(frame, mid);
+            let sag = frame.r * (1.0 - (wrap(te - ts) / 2.0).cos());
+            if (vm - prof_int.v(tm)).abs() <= (vm - prof_orig.v(tm)).abs() {
+                sag_i = sag_i.max(sag);
+            } else {
+                sag_j = sag_j.max(sag);
+            }
+        }
+    }
+    if sag_i > 0.0 && sag_j > 0.0 {
+        sag_i + sag_j
+    } else {
+        2.0 * sag_i.max(sag_j)
+    }
+}
+
+/// Rebuild one weaving cycle by §3.2.2-band selection. `Ok(None)` = a
+/// configuration the selection cannot handle exactly (bail, loop
+/// untouched); `Err` = P10 violation after committing.
+#[allow(clippy::too_many_arguments)]
+fn rebuild_cycle(
+    mesh: &Mesh,
+    cycle: &[(u32, u32)],
+    frame: &CylFrame,
+    bands: &EnvelopeBands,
+    p_int: &EnvPlane,
+    p_orig: &EnvPlane,
+    prof_int: &AxialProfile,
+    prof_orig: &AxialProfile,
+) -> Result<Option<Vec<u32>>, YangError> {
+    let n_b = bands.boundaries.len();
+    let verts: Vec<u32> = cycle.iter().map(|&(s, _)| s).collect();
+    let vert_pos = |v: u32| mesh.verts[v as usize].as_array();
+    let on_plane =
+        |pl: &EnvPlane, p: [f64; 3]| pl.sd(p).abs() < cad_primitives::TAU_EVAL * (1.0 + norm(p));
+    let theta_of = |v: u32| theta_v(frame, vert_pos(v)).0;
+
+    // Nearest cycle vert to a 3D point, with its distance.
+    let nearest = |p: [f64; 3]| -> (u32, f64) {
+        let mut best = (u32::MAX, f64::INFINITY);
+        for &v in &verts {
+            let d = norm(sub3(vert_pos(v), p));
+            if d < best.1 {
+                best = (v, d);
+            }
+        }
+        best
+    };
+    let junction_tol = |p: [f64; 3]| TAU_MODEL * (1.0 + norm(p));
+
+    // --- Junction vertices per retained boundary ------------------------
+    // WC-flanking crossings and free triples map to ONE existing vert; a
+    // standalone crossing (Int↔Orig switch at a wall with no sliver) needs
+    // the crossing vert on EACH adjacent live curve. Selection-only: a
+    // missing junction vert bails (inc-0 measured every needed junction
+    // already minted; insertion is future vocabulary).
+    let mut junction_of_boundary: Vec<u32> = Vec::with_capacity(n_b);
+    for b in &bands.boundaries {
+        let (v, d) = nearest(b.p);
+        if d > junction_tol(b.p) {
+            return Ok(None);
+        }
+        junction_of_boundary.push(v);
+    }
+    // Standalone-crossing partner verts (per boundary, lazily resolved).
+    let crossing_vert_on = |prof: &AxialProfile, theta: f64| -> Option<u32> {
+        let p = frame.embed(theta, prof.v(theta));
+        let (v, d) = nearest(p);
+        (d <= junction_tol(p)).then_some(v)
+    };
+
+    let mut junction_set: std::collections::BTreeSet<u32> =
+        junction_of_boundary.iter().copied().collect();
+    // Resolve standalone-crossing connectors up front so their verts are
+    // excluded from band interiors too.
+    // connector[i] = verts to emit AT boundary i (between band i-1 and i).
+    let mut connectors: Vec<Vec<u32>> = vec![Vec::new(); n_b];
+    for i in 0..n_b {
+        let prev_band = bands.live[(i + n_b - 1) % n_b];
+        let next_band = bands.live[i];
+        let b = &bands.boundaries[i];
+        match b.kind {
+            BoundaryKind::FreeSpaceTriple => {
+                connectors[i] = vec![junction_of_boundary[i]];
+            }
+            BoundaryKind::WallCrossing { .. } => {
+                let flanks_wc = matches!(prev_band, BandLive::WallComplex { .. })
+                    || matches!(next_band, BandLive::WallComplex { .. });
+                if flanks_wc {
+                    // Absorbed into the WC section emission.
+                    continue;
+                }
+                // Standalone: need the crossing vert on each live curve.
+                let prof_for = |bl: BandLive| match bl {
+                    BandLive::IntCurve => Some(prof_int),
+                    BandLive::OrigCurve => Some(prof_orig),
+                    BandLive::WallComplex { .. } => None,
+                };
+                let (Some(pp), Some(pn)) = (prof_for(prev_band), prof_for(next_band)) else {
+                    return Ok(None);
+                };
+                let (Some(va), Some(vb)) =
+                    (crossing_vert_on(pp, b.theta), crossing_vert_on(pn, b.theta))
+                else {
+                    return Ok(None);
+                };
+                connectors[i] = if va == vb { vec![va] } else { vec![va, vb] };
+                junction_set.insert(va);
+                junction_set.insert(vb);
+            }
+        }
+    }
+
+    // --- Band interiors: on-live-curve verts in azimuth order -----------
+    let mut member_of_band: Vec<Vec<u32>> = vec![Vec::new(); n_b];
+    for (i, members) in member_of_band.iter_mut().enumerate() {
+        let live = bands.live[i];
+        let pl = match live {
+            BandLive::IntCurve => p_int,
+            BandLive::OrigCurve => p_orig,
+            BandLive::WallComplex { .. } => continue,
+        };
+        let start = bands.boundaries[i].theta;
+        let end = bands.boundaries[(i + 1) % n_b].theta;
+        let width = if n_b == 1 {
+            2.0 * std::f64::consts::PI
+        } else {
+            ccw_offset(end, start).max(f64::MIN_POSITIVE)
+        };
+        let mut sel: Vec<(f64, u32)> = verts
+            .iter()
+            .copied()
+            .filter(|v| !junction_set.contains(v))
+            .filter(|&v| on_plane(pl, vert_pos(v)))
+            .filter_map(|v| {
+                let off = ccw_offset(theta_of(v), start);
+                (off > 0.0 && off < width).then_some((off, v))
+            })
+            .collect();
+        sel.sort_by(|a, b| a.0.total_cmp(&b.0));
+        *members = sel.into_iter().map(|(_, v)| v).collect();
+    }
+
+    // --- WC sections: byte-identical original subsequences --------------
+    // For WC band i (boundaries i → i+1): entry junction = the flanking
+    // crossing vert on the PREVIOUS band's live curve, exit = on the NEXT
+    // band's (curve-adjacency pairing — the θ order of the two crossings
+    // is unrelated to which side they serve; §8 WC364).
+    let mut wc_section: Vec<Vec<u32>> = vec![Vec::new(); n_b];
+    for (i, section) in wc_section.iter_mut().enumerate() {
+        let BandLive::WallComplex { .. } = bands.live[i] else {
+            continue;
+        };
+        let prev_live = bands.live[(i + n_b - 1) % n_b];
+        let next_live = bands.live[(i + 1) % n_b];
+        let (BandLive::IntCurve | BandLive::OrigCurve) = prev_live else {
+            return Ok(None); // adjacent WC bands: outside vocabulary
+        };
+        let (BandLive::IntCurve | BandLive::OrigCurve) = next_live else {
+            return Ok(None);
+        };
+        let b0 = &bands.boundaries[i];
+        let b1 = &bands.boundaries[(i + 1) % n_b];
+        let on_int_of = |k: &BoundaryKind| match k {
+            BoundaryKind::WallCrossing { on_int_curve, .. } => Some(*on_int_curve),
+            BoundaryKind::FreeSpaceTriple => None,
+        };
+        let (Some(oi0), Some(oi1)) = (on_int_of(&b0.kind), on_int_of(&b1.kind)) else {
+            return Ok(None); // WC band must be flanked by wall crossings
+        };
+        let want_entry_int = prev_live == BandLive::IntCurve;
+        let (entry_b, exit_b) = if oi0 == want_entry_int && oi1 != want_entry_int {
+            (i, (i + 1) % n_b)
+        } else if oi1 == want_entry_int && oi0 != want_entry_int {
+            ((i + 1) % n_b, i)
+        } else {
+            return Ok(None); // both crossings on the same curve: not a sliver
+        };
+        let entry = junction_of_boundary[entry_b];
+        let exit = junction_of_boundary[exit_b];
+        let Some(path) = extract_wall_section(
+            &verts,
+            entry,
+            exit,
+            b0.theta,
+            b1.theta,
+            &junction_set,
+            &theta_of,
+        ) else {
+            return Ok(None);
+        };
+        *section = path;
+    }
+
+    // --- Assembly (ascending θ; reversed at the end if the original
+    // cycle winds the other way) ----------------------------------------
+    let mut out: Vec<u32> = Vec::with_capacity(verts.len());
+    for i in 0..n_b {
+        out.extend_from_slice(&connectors[i]);
+        match bands.live[i] {
+            BandLive::WallComplex { .. } => out.extend_from_slice(&wc_section[i]),
+            _ => out.extend_from_slice(&member_of_band[i]),
+        }
+    }
+
+    // Original winding: the sign of the total azimuth swept.
+    let total: f64 = (0..verts.len())
+        .map(|i| wrap(theta_of(verts[(i + 1) % verts.len()]) - theta_of(verts[i])))
+        .sum();
+    if total < 0.0 {
+        out.reverse();
+    }
+
+    // --- Bail conditions (can't apply exactly) --------------------------
+    // Every dropped vert must lie on a pair curve (dead-side removal);
+    // dropping a vert on NEITHER curve would break a foreign feature's
+    // conformal subdivision.
+    let out_set: std::collections::BTreeSet<u32> = out.iter().copied().collect();
+    for &v in &verts {
+        let dropped = !out_set.contains(&v);
+        let on_pair_curve = on_plane(p_int, vert_pos(v)) || on_plane(p_orig, vert_pos(v));
+        if dropped && !on_pair_curve {
+            return Ok(None);
+        }
+    }
+
+    // --- Postconditions (P10: loud after commit) ------------------------
+    if out.len() < 3 {
+        return Err(non_manifold_at(
+            "s5-envelope-degenerate-loop",
+            format_args!("rebuilt cycle len {}", out.len()),
+        ));
+    }
+    if out_set.len() != out.len() {
+        return Err(non_manifold_at(
+            "s5-envelope-repeated-vert",
+            format_args!("rebuilt cycle repeats a vertex: {out:?}"),
+        ));
+    }
+    for i in 0..out.len() {
+        let a = vert_pos(out[i]);
+        let b = vert_pos(out[(i + 1) % out.len()]);
+        if norm(sub3(a, b)) < TAU_WORK * (1.0 + norm(a)) {
+            return Err(non_manifold_at(
+                "s5-envelope-coincident-pair",
+                format_args!("verts {} and {}", out[i], out[(i + 1) % out.len()]),
+            ));
+        }
+    }
+    Ok(Some(out))
+}
+
+/// The byte-identical original traversal of a wall-complex sliver: the
+/// path along the ORIGINAL cycle from `entry` to `exit` whose interior
+/// verts all lie inside the sliver's azimuth interval and contain no other
+/// junction. Returns the vert sequence INCLUDING both endpoints, ordered
+/// entry → exit, or None if no unambiguous path exists.
+fn extract_wall_section(
+    verts: &[u32],
+    entry: u32,
+    exit: u32,
+    band_t0: f64,
+    band_t1: f64,
+    junction_set: &std::collections::BTreeSet<u32>,
+    theta_of: &dyn Fn(u32) -> f64,
+) -> Option<Vec<u32>> {
+    if entry == exit {
+        return None;
+    }
+    let m = verts.len();
+    let pos_of = |v: u32| -> Option<usize> {
+        let mut found = None;
+        for (i, &x) in verts.iter().enumerate() {
+            if x == v {
+                if found.is_some() {
+                    return None; // duplicated in cycle: ambiguous
+                }
+                found = Some(i);
+            }
+        }
+        found
+    };
+    let (ie, ix) = (pos_of(entry)?, pos_of(exit)?);
+    let width = ccw_offset(band_t1, band_t0);
+    let pad = 10.0 * ANG_EPS;
+    let in_band = |v: u32| {
+        let off = ccw_offset(theta_of(v), band_t0);
+        off <= width + pad || off >= 2.0 * std::f64::consts::PI - pad
+    };
+    let walk = |from: usize, to: usize, forward: bool| -> Option<Vec<u32>> {
+        let mut path = vec![verts[from]];
+        let mut i = from;
+        loop {
+            i = if forward {
+                (i + 1) % m
+            } else {
+                (i + m - 1) % m
+            };
+            if i == to {
+                path.push(verts[i]);
+                return Some(path);
+            }
+            let v = verts[i];
+            if junction_set.contains(&v) || !in_band(v) || path.len() > m {
+                return None;
+            }
+            path.push(v);
+        }
+    };
+    match (walk(ie, ix, true), walk(ie, ix, false)) {
+        (Some(p), None) | (None, Some(p)) => Some(p),
+        // Both valid: only possible when both are the direct 2-vert hop
+        // (a 2-cycle) — ambiguous, bail. Neither: bail.
+        _ => None,
+    }
+}

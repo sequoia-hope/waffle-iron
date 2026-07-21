@@ -4,8 +4,11 @@
 §7.9 open questions answered, and §2's "v925 = mandatory free-space switch"
 premise REFUTED by measurement: see §7 before building inc-1. inc-1 DONE
 (2026-07-21) — `stage5_envelope.rs` switch-point solver + §7.6 band
-classifier, UNWIRED, all pins green: see §8. Production untouched until
-inc-3; every increment lands behind the standard ledger.**
+classifier, UNWIRED, all pins green: see §8. inc-2 DONE (2026-07-21) —
+§3.3 selection rebuild WIRED gated (`YANG_S5_ENVELOPE_ENABLE`, off by
+default), e2e synthetic + two hand-built weave fixtures green, gate-OFF
+corpus byte-identical: see §9. Production untouched until inc-3; every
+increment lands behind the standard ledger.**
 
 Successor to the F0082 J3 layer named by the P3b pierce spec
 (`yang_169_p3b_curved_partner_pierce.md` §7.6), **re-characterized by
@@ -369,3 +372,104 @@ to 2e-9; every pinned junction at radius 0.212325266 ± 1.5e-9).
   set = the §3.1 detector's neighboring planar patches of the PARTNER
   operand sharing loop verts (both A-side walls and, per the 365 finding,
   ALL crossing walls, not only those masking a triple).
+
+## 9. inc-2 record (2026-07-21, gated `YANG_S5_ENVELOPE_ENABLE`, off in prod)
+
+Shipped the §3.3 rebuild as **pure boundary SELECTION over existing
+output vertices** (inc-0 §7.4: every junction the correct loop needs is
+already minted — insertion is deliberately NOT implemented; a missing
+junction vert bails). `stage5_envelope.rs` gains
+`rebuild_osculating_loops` (+ `LoopRebuild`), hooked into
+`emit_topology`'s curved branch after the probe; gate off ⇒ no call ⇒
+byte-identical.
+
+### 9.1 Mechanism
+
+- **Detection (wiring form of §3.1)**: per cylinder patch, intersection
+  conics on attributed loop edges are matched (either orientation) to a
+  PARTNER planar patch for outward orientation; owner planar patches
+  sharing ≥2 loop verts are original-conic candidates. A pair fires at
+  `band_frac ≥ 0.7` with the C0118 floor measured from the ACTUAL loop
+  edges (probe-identical computation). Exactly ONE osculating pair is the
+  inc-2 vocabulary (F0085's two-pair loop bails → inc-3). Walls = ALL
+  partner planar patches sharing ≥1 loop vert (§8.2's face-365 lesson).
+- **Rebuild (per weaving cycle, ≥3 ambiguous verts)**: §3.2.2 bands →
+  per live band keep the verts ON the live conic (TAU_EVAL-scale plane
+  membership) in azimuth order; wall-complex slivers copy the ORIGINAL
+  traversal byte-identically between their crossing junctions with
+  **curve-adjacency pairing** (the entry junction is the crossing on the
+  PREVIOUS band's curve even when it is the θ-far boundary — the F0082
+  WC364 swap); free-space triples mint BY IDENTITY onto existing verts;
+  standalone crossings emit both curves' crossing verts. Dead-side verts
+  (on a pair curve but in the other's band) are dropped.
+- **Fail-closed bails (`Ok(None)`, loop untouched)**: no/multiple pairs,
+  classify error, missing junction vert, ambiguous wall-section path, a
+  drop that would remove a vert on NEITHER pair curve (foreign
+  subdivision). **Loud P10 errors after commit**: repeated vert,
+  coincident adjacent pair, degenerate length, new edge inside a wall
+  sliver (sites `s5-envelope-*` under `NONMANIFOLD_SITE_PROBE`).
+- **Curve vocabulary**: NEW edges (absent from the original cycle) get
+  the live support's analytic conic — the attributed intersection conic
+  on the int side, the constructed `cylinder ∩ owner-plane`
+  Circle/Ellipse on the rim side. Existing edges keep their attribution
+  (the #158 LineSegment status quo is neither widened nor migrated).
+- **Forensics**: `YANG_S5_ENVELOPE_PROBE` prints fired pairs, band
+  tables, per-cycle orig→new vert lists, and every bail reason — the
+  inc-3 triage instrument.
+
+### 9.2 Evidence
+
+- **e2e (`tests/s188_envelope_gate.rs`, own process)**: slab ∪ tilted
+  tube (cap center ON the slab top, tilt 5e-3 ⇒ amp 1e-3 ≪ floor
+  1.36e-2; triples exactly (0, ±0.2, 1)): gate-ON boolean succeeds; the
+  probe shows the pair FIRING and the bottom cycle rebuilt; the emitted
+  bottom cycle is simple, winds exactly once with zero azimuth folds,
+  carries exactly the two triple junctions, and every other vert lies on
+  the classifier's band-live support. NOTE: this benign case's gate-OFF
+  loop is ALREADY correct — the rebuild reproduces it BYTE-IDENTICALLY
+  (idempotence / no-damage), so the repair semantics are pinned by the
+  hand-built fixtures instead.
+- **Repair fixtures (`tests_unit/s188_envelope.rs`)**:
+  `rebuild_drops_dead_side_detour_and_reorders` — a §7.4-miniature
+  (dead-side ellipse overshoot past the triple + fold + dead rim vert in
+  the ellipse band) rebuilds to the monotone alternating loop with both
+  triple junctions and true conic vocabulary on exactly the new edges;
+  `rebuild_keeps_wall_sections_byte_identical_with_swap_pairing` — a
+  tilted wall (x − 0.05z = 0.6) yields two WC slivers whose crossing
+  θ-order OPPOSES band adjacency on both sides (the WC364 shape): the
+  healthy wall-arc traversals (physical micro-backsteps included) come
+  through byte-identical while a dead ellipse vert in the far rim band
+  is dropped.
+- **Ledger**: gate-OFF full assay byte-identical (results.json
+  unchanged); rewrite tier green; clippy/fmt clean.
+
+### 9.3 inc-3 notes — F0082 gate-ON preview (measured 2026-07-21)
+
+Single-case gate-ON run (`YANG_S5_ENVELOPE_ENABLE=1
+YANG_S5_ENVELOPE_PROBE=1 ASSAY_CASE=F0082 … single_case`):
+
+- **The flagship tube patch (info=373) rebuilds EXACTLY as designed**:
+  pair fired with the §7.1 numbers; both triples WallMasked at
+  +1.2920777e-3 (inc-1 pins to 11 digits); the 8-boundary band table
+  matches §8.2 boundary-for-boundary; cycle REBUILT 30 → 28 verts — the
+  §7.4 detour is REPAIRED (v926 dropped; v925 re-seated in monotone
+  order between v960 and v951; the fold gone) and the near-dup stub
+  v938 dropped (v932 survives on-curve).
+- Three other osculating patches (info=326/360/2 — the case's earlier
+  ops' benign pairs, the F0084/F0076 class) rebuild BYTE-IDENTICALLY
+  (idempotence); one second pair on info=360 bails fail-closed
+  (len-41 cycle, junction lookup miss) — honest, loop untouched.
+- **The case moves to the next loud layer** (meta-oracle §6 satisfied):
+  gate-OFF `TessellationFailed FaceId(3727) "ring rejected by CDT"` →
+  gate-ON `InvalidBooleanOutput("an undirected output edge is not used
+  by exactly two directed edges")` — the §9.3(a) risk realized: the
+  dropped dead-side verts (v926/v938) still appear in NEIGHBOR patch
+  loops (cap ring / wall ring), so the shared solid edges now subdivide
+  differently. **inc-3's work = propagate the selection to the
+  neighbors' copies of the shared chains** (drop the same dead verts
+  from every loop that carries them), NOT re-adding the dead verts.
+- Remaining inc-3 items: (b) if the render CDT still rejects after
+  neighbor propagation, the §4.3-sliver dedup is the vehicle for
+  residual micro-stubs; (c) the §3.1 detector-promotion decision from
+  the §7.7 fire set (band_frac-gated) stands unchanged; (d) full
+  gate-ON assay ledger + sidecar parity per §5.
