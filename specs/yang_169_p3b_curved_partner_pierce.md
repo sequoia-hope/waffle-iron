@@ -463,15 +463,19 @@ copies of the owner edge (per-loop fan-out, proven by the P3a fixtures).
   CLEARED.** The always-on flip (inc-5) now awaits the F0082 decision
   (inc-4d greens it or its honest STOP is accepted) plus the standard
   flip ledger (gate-ON full assay regression set, sidecar parity).
-- **inc-4d — curved-owner / rim-corner pierce widening (greens F0082,
-  spec-first).** Circle-edge × planar-face pierce mint: closed-form
-  circle∩plane roots, arc-param endpoint margins, transversality floor,
-  2D all-line containment on the partner face; owner-side insertion into
-  the rim POLYLINE (both incident faces: the planar cap CDT and the tube
-  lateral rim ring — the `rebuilt_with_rim_overrides` machinery is the
-  existing precedent) + partner-side face-interior insertion. Note the
-  rim-override and junction-override rebuilds do not compose yet (the
-  documented SCOPE GATE) — composition is part of this increment.
+- **inc-4d — curved-owner / rim-corner pierce widening (spec-first;
+  geometry MEASURED 2026-07-21, see §7).** Circle-rim-edge × planar-face
+  pierce mint under the identical junction contract: closed-form
+  circle∩plane roots, seam-vertex margin, transversality floor, 2D
+  all-line containment on the partner face; owner-side insertion into
+  the rim RING (both incident faces conformal by construction: the cap
+  CDT and the lateral strip both consume the shared ring — the
+  `rim_overrides` Stage-1 channel, task-#143 vintage) + partner-side
+  planar face-interior insertion (the existing P3a channel). The
+  rim/edge/face override kinds compose inside ONE
+  `stage1_tessellate_inner_overrides` rebuild (the tessellator already
+  accepts all three maps; only the `BRep` wrapper + wiring are new).
+  Full design + measured F0082 geometry: **§7**.
 - **inc-5 — always-on** per the standard ledger once inc-4c clears
   R0061 gate-ON; then scope widenings (strip/holed laterals, cone
   partners, edge-split arms) as separate measured increments.
@@ -493,3 +497,140 @@ copies of the owner edge (per-loop fan-out, proven by the P3a fixtures).
 - **No global re-tessellation:** the 3-fan is local; rings, rims, and seam
   rulings stay byte-identical outside the containing triangle (the N54
   lesson: never move existing coordinates).
+
+## 7. inc-4d — circle-rim owner pierce (design, measured 2026-07-21)
+
+### 7.1 The failing union, definitively attributed
+
+`YANG_RUN_PROBE` + the group/wire probes on the live F0082 chain (15
+boolean runs) pin Extrude-11's failing auto-union as the run
+`op=Union a: 883v/367f b: 2v/3f`:
+
+- **A = the accumulated body** (owns the top×wall boundary edges — the
+  edge-2424 group with top plane `n=(0.05062681, -0.01784078,
+  0.99855828), d=-2.10521894` and wall plane `n=(-0.99871764,
+  -0.00090438, 0.05061873), d=-0.17079136`).
+- **B = the fresh canonical tube** (2 vertices / 3 faces: lateral +
+  two DISC caps; rim-0 `Circle` center `(0.1227322098851793,
+  -0.008327366889270053, 2.1018871743865217)`, normal = ∓axis
+  `(0.06821306, -0.05163710, 0.99633357)`, r `0.2123252664164556`).
+  The rims ARE `Curve::Circle` edges with `start == end` — the
+  curved-owner class.
+
+(The later runs where a tube appears with POLYLINE rim chords are
+post-failure chain ops on the standalone body — not this increment's
+target.)
+
+### 7.2 The micro-complex, closed-form
+
+With the probe-pinned planes and rim circle (exact circle∩plane roots):
+
+- **J** (minted since inc-3) `(-0.063991829, -0.109111255, 2.109553406)`
+  — ellipse×wall; sits `+1.0529e-4` axially INSIDE the tube span from
+  the cap plane (so the ellipse, not the cap section, is the live
+  boundary at this corner).
+- **J2 = rim-0 × wall plane** `(-0.063997163, -0.109109265,
+  2.109448193)` — `1.0537e-4` from J (straight down the wall).
+  In-face: `~1.05e-4` below the wall face's top boundary edge — far
+  above the `TAU_MODEL·(1+scale) ≈ 3.2e-7` boundary margin, and far
+  above the sub-weld cluster band vs J. **This is the inc-4d mint.**
+  On the wall face, B's section = (wall∩lateral curve) ⌣ (wall∩cap
+  line) joining AT J2; the cap ring crosses the wall exactly there.
+- **J3 = rim-0 × top plane** `(-0.065282249, -0.106674345,
+  2.109662370)` — matches the inc-3 "relocated chord-crossing phantom"
+  `(-0.0652822, -0.1066743)` to every printed digit: the phantom IS the
+  true tube∩cap∩top triple point. But it lies `1.291e-3` BEYOND the
+  wall — **outside A's bounded top face**, where B's rim is entirely
+  outside A: crossing A's top PLANE there is not a boolean event.
+  **J3 is NOT an output junction, and the partner-side bounded-face
+  containment gate excludes it automatically.** No J3 mint — by
+  design, not by limitation. (The phantom's fate: with J2 minted the
+  cap ring is exact at the wall; the relocated stand-in is expected to
+  land on the trimmed side or weld onto exact geometry — measured, not
+  assumed.)
+
+### 7.3 Design
+
+**Pierce primitive** `circle_edge_plane_face_pierce` (junction.rs,
+mirroring the line arms gate-for-gate):
+
+- Owner edge: `Curve::Circle` with `start == end` (full rim; arc rims
+  are a later widening), incident to exactly TWO distinct surfaces
+  (any mix — the canonical tube rim is Plane cap + Cylinder lateral).
+- Partner face: `Surface::Plane` with ALL-LINE loops (reuse the
+  existing exact 2D containment + boundary margin verbatim).
+- Roots: solve `n·p(θ)+d = 0` on `p(θ) = c + r(cosθ·u + sinθ·v)` —
+  `A·cosθ + B·sinθ = C` with `R = hypot(A,B)`; `R < |C|` ⇒ miss;
+  up to two roots. Near-tangency guard: root pair closer than
+  `TAU_MODEL·(1+scale)` in 3D ⇒ treat as tangential, no mint (the
+  A14.2 rule the Case-IV `circle_line_roots` also applies).
+- Transversality: `|t̂(θ)·n̂|` with the circle tangent at the root;
+  same `TRANSVERSALITY_MIN` floor (F0082's J2: ≈0.475 — well clear).
+- Seam-vertex margin `TAU_MODEL·(1+scale)`: a root near the rim's own
+  B-Rep seam vertex is a higher-order corner — fail closed (mirrors
+  the line arms' endpoint margin; also required by the ring builder's
+  seam-slot contract).
+- On-surface postcondition `TAU_EVAL·(1+scale)` on both owner incident
+  surfaces at the root (producer-fault guard, identical).
+- `PiercePoint.t` = seam-relative angle normalized to `[0,1)` (sort
+  key only). Trim provenance (`owner_planes`): the owner's incident
+  surfaces include a non-plane ⇒ `owner_trim_planes` yields the
+  fail-closed default — the Stage-4 beyond-corner trim stays inert for
+  rim mints this increment.
+
+**Owner-side insertion — the `rim_overrides` Stage-1 channel** (already
+production for M8 disc-rim crossings): `JunctionStage1Overrides` gains
+`rim_a`/`rim_b: BTreeMap<u32, Vec<Point3>>`; the builder routes
+circle-owner pierces there, fanned to EVERY copy of the geometric rim
+(grouped by center/normal/radius/seam bits — same conformality-by-
+identity rule as the line-edge fan-out; identical override lists keep
+per-index cached rings identical under either edge-sharing convention).
+The ring builder's loud contracts (on-circle band, seam-bit authority,
+distinct-override slot collision) apply unchanged; our closed-form
+roots are on-circle to machine precision.
+
+**Partner-side insertion:** the existing planar `face_overrides`
+channel (interior Steiner mint into the partner face's CDT) — no new
+machinery.
+
+**Composition:** `stage1_tessellate_inner_overrides` ALREADY accepts
+(rim, edge, face) maps in one call. New: `BRep::
+rebuilt_with_all_overrides(rim, edge, face)` (empty-rim ⇒ byte-
+identical to `rebuilt_with_junction_overrides` — the empty-override
+identity), and the two `boolean()` call sites pass `jo.rim_*`. The
+Case-IV rim-junction rebuild's mutual-exclusion SCOPE GATE with the
+P3a channel is UNTOUCHED (P3b rim overrides ride the P3a rebuild;
+composition is within the one rebuild, not across rebuilds).
+
+**Cluster filter:** rim mints join the global sub-weld scan unchanged
+(J vs J2 at 1.05e-4 ≫ band: no poisoning).
+
+### 7.4 The Case-IV one-sided precedent (watch-list, P9)
+
+`rim_junctions_against` increment-4 v1 MEASURED that blanket
+cylinder-rim × plane-face insertion (ONE-SIDED: rim ring only, no
+partner-side mint) REGRESSED F0047/R0006/R0075/F0081 and unmasked
+R0091's banked-§3b path — it is scoped to cone-flanked rims. inc-4d is
+structurally different (two-sided identity mint + cluster filter +
+containment margins, behind `YANG_P3B_PIERCE_ENABLE`), but those five
+cases are the named regression watch-list for the gate-ON assay. A
+regression there is a characterized next layer, not a silent cost —
+the flip decision (inc-5) sees the full ledger.
+
+### 7.5 Increments & ledger
+
+- **inc-4d-1:** primitive + unit fixtures (roots pinned to §7.2's J2
+  at 9 decimals on the live descriptors; tangential / seam-margin /
+  containment / off-owner / two-root red-green). Unwired: assay
+  byte-identical by construction.
+- **inc-4d-2:** rim channel + `rebuilt_with_all_overrides` composition
+  + builder fan-out + cross-operand contract fixture (J2 lands
+  bit-exactly in BOTH rebuilt Stage-1 meshes — tube ring/cap/lateral
+  AND partner wall CDT — as closed 2-manifolds). Production-unreachable
+  until 4d-3 (no caller emits rim overrides); gate-OFF assay
+  byte-identical.
+- **inc-4d-3:** circle-owner arm joins `junction_pierce_points` behind
+  `YANG_P3B_PIERCE_ENABLE`. Measure: gate-OFF full assay byte-identical;
+  gate-ON F0082 (green or loud named next layer); gate-ON full ledger
+  vs the inc-4c baseline (R0061 stays CORRECT; §7.4 watch-list; 0-WRONG
+  ratchet).

@@ -663,6 +663,229 @@ pub(crate) fn line_edge_cylinder_face_pierce(
     out
 }
 
+/// ALL-LINE partner-loop gate shared by the planar-partner pierce arms: the
+/// 2D containment below projects loop-edge START vertices, which is the
+/// exact bounded region only when every loop edge is straight (an
+/// arc-bounded face's chord polygon misjudges containment by up to the
+/// sagitta near the arc). Curved-bounded partners are a later increment
+/// (fail closed).
+fn plane_face_all_line(f: &BRepFace, y: &BRep) -> bool {
+    !f.outer_loop
+        .iter()
+        .chain(f.inner_loops.iter().flatten())
+        .any(|&ei| y.edges()[ei as usize].curve != Curve::LineSegment)
+}
+
+/// Exact 2D bounded-face containment with a boundary margin, shared by the
+/// planar-partner pierce arms: `ja` must lie strictly inside the outer
+/// loop, strictly outside every hole, and ≥ `margin` from every boundary
+/// segment (a pierce ON the partner's own boundary is a corner of higher
+/// order — never a mid-face mint). `n` is the partner plane's UNIT normal
+/// (the projection frame). Caller guarantees the ALL-LINE loop gate.
+fn plane_face_contains_with_margin(
+    f: &BRepFace,
+    y: &BRep,
+    n: [f64; 3],
+    ja: [f64; 3],
+    margin: f64,
+) -> bool {
+    let nv = Vector3::new(n[0], n[1], n[2]);
+    let (u, v) = ortho_basis(nv);
+    let (ua, va) = (u.as_array(), v.as_array());
+    let project = |p: Point3| -> [f64; 2] {
+        let q = p.as_array();
+        [
+            q[0] * ua[0] + q[1] * ua[1] + q[2] * ua[2],
+            q[0] * va[0] + q[1] * va[1] + q[2] * va[2],
+        ]
+    };
+    let j2 = [
+        ja[0] * ua[0] + ja[1] * ua[1] + ja[2] * ua[2],
+        ja[0] * va[0] + ja[1] * va[1] + ja[2] * va[2],
+    ];
+    let loop_pts = |lp: &[u32]| -> Vec<[f64; 2]> {
+        lp.iter()
+            .map(|&ei| {
+                let e = &y.edges()[ei as usize];
+                project(y.vertices()[e.start as usize].point)
+            })
+            .collect()
+    };
+    let outer = loop_pts(&f.outer_loop);
+    if outer.len() < 3 || !point_in_polygon(j2, &outer) {
+        return false;
+    }
+    if boundary_distance(j2, &outer) <= margin {
+        return false;
+    }
+    for hole in &f.inner_loops {
+        let hp = loop_pts(hole);
+        if hp.len() >= 3 && point_in_polygon(j2, &hp) {
+            return false;
+        }
+        if hp.len() >= 2 && boundary_distance(j2, &hp) <= margin {
+            return false;
+        }
+    }
+    true
+}
+
+/// P3b inc-4d (spec `yang_169_p3b_curved_partner_pierce.md` §7.3): the
+/// transversal pierces of a FULL-CIRCLE rim edge (center/normal/radius,
+/// seam = the rim's own B-Rep vertex; incident owner surfaces `s1`/`s2`)
+/// through the bounded ALL-LINE planar face `f` of operand `y` — up to TWO
+/// per rim×face (both circle∩plane roots are genuine crossings). UNWIRED
+/// this sub-increment: only unit fixtures call it; wiring into
+/// `junction_pierce_points` is inc-4d-3, behind `YANG_P3B_PIERCE_ENABLE`.
+///
+/// Gates mirror the line arms one-for-one — every margin is the existing
+/// derived vocabulary, fail-closed (a missed mint = status quo):
+/// - partner: `Surface::Plane` with ALL-LINE loops (exact 2D containment);
+/// - roots of `n·p(θ) + d = 0` on `p(θ) = c + r(cosθ·u + sinθ·v)`:
+///   `A·cosθ + B·sinθ = C`; `hypot(A,B) < |C|` ⇒ miss;
+/// - near-tangency guard (A14.2, the Case-IV `circle_line_roots` rule):
+///   the two roots closer than `TAU_MODEL·(1+scale)` in 3D are ONE
+///   tangential contact, not two transversal crossings — no mint;
+/// - seam-vertex margin `TAU_MODEL·(1+scale)` (a root at/near the rim's own
+///   B-Rep vertex is a higher-order corner; also the ring builder's
+///   seam-slot authority);
+/// - transversality `|t̂(θ)·n̂|` with the circle tangent at the root, same
+///   `TRANSVERSALITY_MIN` floor (tangential grazes route to #137);
+/// - on-surface postcondition `TAU_EVAL·(1+scale)` for `s1`/`s2` at the
+///   root (a rim lies ON both incident surfaces by construction — a
+///   violation is a producer fault);
+/// - 2D containment with the boundary margin (shared helper).
+///
+/// `PiercePoint.t` = seam-relative angle normalized to `[0,1)` (per-edge
+/// sort key, mirroring the chord parameter of the line arms).
+pub(crate) fn circle_edge_plane_face_pierce(
+    center: Point3,
+    normal: Vector3,
+    radius: f64,
+    seam: Point3,
+    s1: Surface,
+    s2: Surface,
+    f_idx: u32,
+    f: &BRepFace,
+    y: &BRep,
+) -> Vec<PiercePoint> {
+    let Surface::Plane { normal: pn, d } = f.surface else {
+        return Vec::new();
+    };
+    if !plane_face_all_line(f, y) {
+        return Vec::new();
+    }
+    let pn_raw = pn.as_array();
+    let pn_len = (pn_raw[0] * pn_raw[0] + pn_raw[1] * pn_raw[1] + pn_raw[2] * pn_raw[2]).sqrt();
+    if pn_len < cad_primitives::TAU_WORK {
+        return Vec::new(); // degenerate partner plane — producer fault, skip
+    }
+    let n = [pn_raw[0] / pn_len, pn_raw[1] / pn_len, pn_raw[2] / pn_len];
+    let d = d / pn_len;
+    let ca = center.as_array();
+    let nu_raw = normal.as_array();
+    let nu_len = (nu_raw[0] * nu_raw[0] + nu_raw[1] * nu_raw[1] + nu_raw[2] * nu_raw[2]).sqrt();
+    if nu_len < cad_primitives::TAU_WORK || radius <= 0.0 {
+        return Vec::new(); // degenerate rim descriptor — producer fault, skip
+    }
+    let (u, v) = ortho_basis(Vector3::new(
+        nu_raw[0] / nu_len,
+        nu_raw[1] / nu_len,
+        nu_raw[2] / nu_len,
+    ));
+    let (ua, va) = (u.as_array(), v.as_array());
+    let p_at = |theta: f64| -> [f64; 3] {
+        let (st, ct) = theta.sin_cos();
+        [
+            ca[0] + radius * (ct * ua[0] + st * va[0]),
+            ca[1] + radius * (ct * ua[1] + st * va[1]),
+            ca[2] + radius * (ct * ua[2] + st * va[2]),
+        ]
+    };
+    // n·p(θ) + d = A·cosθ + B·sinθ + (n·c + d) = 0.
+    let qa = radius * (n[0] * ua[0] + n[1] * ua[1] + n[2] * ua[2]);
+    let qb = radius * (n[0] * va[0] + n[1] * va[1] + n[2] * va[2]);
+    let qc = -(n[0] * ca[0] + n[1] * ca[1] + n[2] * ca[2] + d);
+    let big_r = qa.hypot(qb);
+    if big_r < qc.abs() || big_r == 0.0 {
+        return Vec::new(); // circle misses the plane (or lies parallel)
+    }
+    let phi = qb.atan2(qa);
+    let delta = (qc / big_r).clamp(-1.0, 1.0).acos();
+    let roots = [phi + delta, phi - delta];
+    let sa = seam.as_array();
+    // Near-tangency guard: the pair of roots closer than the model band in
+    // 3D is ONE tangential contact — never two transversal mints.
+    {
+        let (r0, r1) = (p_at(roots[0]), p_at(roots[1]));
+        let scale = r0
+            .iter()
+            .chain(r1.iter())
+            .chain(ca.iter())
+            .fold(0.0f64, |m, &c| m.max(c.abs()));
+        let band = cad_primitives::TAU_MODEL * (1.0 + scale);
+        let d2 = (r0[0] - r1[0]).powi(2) + (r0[1] - r1[1]).powi(2) + (r0[2] - r1[2]).powi(2);
+        if d2 < band * band {
+            return Vec::new();
+        }
+    }
+    // Seam-relative angle of a root (the sort key origin).
+    let ws = [sa[0] - ca[0], sa[1] - ca[1], sa[2] - ca[2]];
+    let phi0 = (ws[0] * va[0] + ws[1] * va[1] + ws[2] * va[2])
+        .atan2(ws[0] * ua[0] + ws[1] * ua[1] + ws[2] * ua[2]);
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let mut out = Vec::new();
+    for theta in roots {
+        let j = p_at(theta);
+        let scale = j
+            .iter()
+            .chain(sa.iter())
+            .chain(ca.iter())
+            .fold(0.0f64, |m, &c| m.max(c.abs()));
+        let margin = cad_primitives::TAU_MODEL * (1.0 + scale);
+        // Seam-vertex margin: a pierce at/near the rim's own B-Rep vertex is
+        // a corner of higher order — fail closed.
+        let ds2 = (j[0] - sa[0]).powi(2) + (j[1] - sa[1]).powi(2) + (j[2] - sa[2]).powi(2);
+        if ds2 <= margin * margin {
+            continue;
+        }
+        // Transversality via the circle tangent at the root (unit by the
+        // orthonormal frame).
+        let (st, ct) = theta.sin_cos();
+        let t_hat = [
+            -st * ua[0] + ct * va[0],
+            -st * ua[1] + ct * va[1],
+            -st * ua[2] + ct * va[2],
+        ];
+        let transversality = (t_hat[0] * n[0] + t_hat[1] * n[1] + t_hat[2] * n[2]).abs();
+        if transversality < TRANSVERSALITY_MIN {
+            continue; // tangential graze — the #137 route, never a mint
+        }
+        // On-surface postcondition for the owner's two incident surfaces.
+        let band = cad_primitives::TAU_EVAL * (1.0 + scale);
+        let on_owner = [s1, s2]
+            .into_iter()
+            .all(|s| surface_value_and_normal(s, j).is_some_and(|(fv, _)| fv.abs() <= band));
+        if !on_owner {
+            continue;
+        }
+        if !plane_face_contains_with_margin(f, y, n, j, margin) {
+            continue;
+        }
+        out.push(PiercePoint {
+            point: Point3::new(j[0], j[1], j[2]),
+            t: (theta - phi0).rem_euclid(two_pi) / two_pi,
+            transversality,
+            partner_face: f_idx,
+            // Rim owners have a curved incident surface — the trim
+            // provenance stays the fail-closed default (spec §7.3).
+            owner_planes: [PierceTrimPlane::default(); 2],
+        });
+    }
+    out.sort_by(|a, b| a.t.total_cmp(&b.t));
+    out
+}
+
 /// The transversal pierce of the segment `p0→p1` (whose two incident
 /// surfaces are `s1`/`s2`) through the bounded planar face `f` of operand
 /// `y` — or `None` if any gate rejects (fail-closed).
@@ -678,16 +901,9 @@ fn line_edge_plane_face_pierce(
     let Surface::Plane { normal, d } = f.surface else {
         return None; // increment-1a scope: planar partners only
     };
-    // Increment-2 scope: ALL-LINE partner loops only — the 2D containment
-    // below projects loop-edge START vertices, which is the exact bounded
-    // region only when every loop edge is straight (an arc-bounded face's
-    // chord polygon misjudges containment by up to the sagitta near the
-    // arc). Curved-bounded partners are a later increment (fail closed).
-    if f.outer_loop
-        .iter()
-        .chain(f.inner_loops.iter().flatten())
-        .any(|&ei| y.edges()[ei as usize].curve != Curve::LineSegment)
-    {
+    // Increment-2 scope: ALL-LINE partner loops only (shared gate — see
+    // `plane_face_all_line`). Curved-bounded partners fail closed.
+    if !plane_face_all_line(f, y) {
         return None;
     }
     let n = normalize3(normal.as_array());
@@ -744,44 +960,9 @@ fn line_edge_plane_face_pierce(
     // Exact 2D bounded-face containment with a boundary margin: J must lie
     // strictly inside the outer loop, strictly outside every hole, and
     // ≥ margin from every boundary segment (a pierce ON the partner's own
-    // boundary is a corner — P3b).
-    let nv = Vector3::new(n[0], n[1], n[2]);
-    let (u, v) = ortho_basis(nv);
-    let (ua, va) = (u.as_array(), v.as_array());
-    let project = |p: Point3| -> [f64; 2] {
-        let q = p.as_array();
-        [
-            q[0] * ua[0] + q[1] * ua[1] + q[2] * ua[2],
-            q[0] * va[0] + q[1] * va[1] + q[2] * va[2],
-        ]
-    };
-    let j2 = [
-        ja[0] * ua[0] + ja[1] * ua[1] + ja[2] * ua[2],
-        ja[0] * va[0] + ja[1] * va[1] + ja[2] * va[2],
-    ];
-    let loop_pts = |lp: &[u32]| -> Vec<[f64; 2]> {
-        lp.iter()
-            .map(|&ei| {
-                let e = &y.edges()[ei as usize];
-                project(y.vertices()[e.start as usize].point)
-            })
-            .collect()
-    };
-    let outer = loop_pts(&f.outer_loop);
-    if outer.len() < 3 || !point_in_polygon(j2, &outer) {
+    // boundary is a corner — P3b). Shared with the rim arm.
+    if !plane_face_contains_with_margin(f, y, n, ja, margin) {
         return None;
-    }
-    if boundary_distance(j2, &outer) <= margin {
-        return None;
-    }
-    for hole in &f.inner_loops {
-        let hp = loop_pts(hole);
-        if hp.len() >= 3 && point_in_polygon(j2, &hp) {
-            return None;
-        }
-        if hp.len() >= 2 && boundary_distance(j2, &hp) <= margin {
-            return None;
-        }
     }
     Some(PiercePoint {
         point: j,
