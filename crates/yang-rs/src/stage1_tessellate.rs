@@ -2460,10 +2460,18 @@ pub(crate) fn tessellate_lateral_holed_cdt(
 /// CONSUMED postcondition, all loud (a silent drop would be the one-sided
 /// mint conformality break; a silent double-insert would be the R0091-class
 /// sliver): exactly ONE containing triangle per point, non-degenerate, and
-/// the point at least the §4.3 weld band `TAU_MODEL·(1+scale)` from the
-/// triangle's corners and edges (a sub-band placement mints a guaranteed
+/// the point at least the §4.3 weld band `TAU_MODEL·(1+scale)` from every
+/// existing mesh vertex (a sub-band vertex placement mints a guaranteed
 /// post-weld sliver — the wiring's pre-filters must route those away; if
 /// one reaches here it is an error, never a guess).
+///
+/// inc-4e (spec §3.3 second arm): a point ON or within the weld band of a
+/// grid EDGE (rim-ring insertions shift the azimuth-merged grid, so a
+/// line-pierce mint can land exactly on a ruling — the C0102/C0103 class)
+/// splits the edge's TWO incident triangles into a 2+2 fan instead of a
+/// degenerate 3-fan. Still fail-closed: within band of more than one
+/// distinct edge, or an edge without exactly two incident triangles in this
+/// face's range, is a loud error.
 #[allow(clippy::too_many_arguments)]
 fn splice_lateral_interior_points(
     f_idx: usize,
@@ -2511,11 +2519,41 @@ fn splice_lateral_interior_points(
         let cross = |o: [f64; 2], p: [f64; 2], q: [f64; 2]| -> f64 {
             (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0])
         };
-        let mut found: Option<(usize, [[f64; 2]; 3])> = None;
+        let d2 =
+            |p: [f64; 2], q: [f64; 2]| -> f64 { (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) };
+        let seg_d2 = |a: [f64; 2], b: [f64; 2]| -> f64 {
+            let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+            let len2 = dx * dx + dy * dy;
+            let t = if len2 == 0.0 {
+                0.0
+            } else {
+                (((jc[0] - a[0]) * dx + (jc[1] - a[1]) * dy) / len2).clamp(0.0, 1.0)
+            };
+            d2(jc, [a[0] + t * dx, a[1] + t * dy])
+        };
+        let band2 = band * band;
+        // Single survey pass: strict containment, plus proximity to every
+        // grid vertex and every (undirected) grid edge in this face's range.
+        let mut found: Option<usize> = None;
+        let mut corner_min = f64::INFINITY;
+        let mut near_edges: std::collections::BTreeMap<(u32, u32), f64> =
+            std::collections::BTreeMap::new();
         for (k, &[a, b, c]) in out_tris.iter().enumerate().skip(range_start) {
             let (Some(ca), Some(cb), Some(cc)) = (chart(a), chart(b), chart(c)) else {
                 continue;
             };
+            for cg in [ca, cb, cc] {
+                corner_min = corner_min.min(d2(jc, cg));
+            }
+            for ((g0, c0), (g1, c1)) in [((a, ca), (b, cb)), ((b, cb), (c, cc)), ((c, cc), (a, ca))]
+            {
+                let dd = seg_d2(c0, c1);
+                if dd <= band2 {
+                    let key = (g0.min(g1), g0.max(g1));
+                    let e = near_edges.entry(key).or_insert(f64::INFINITY);
+                    *e = e.min(dd);
+                }
+            }
             let area2 = cross(ca, cb, cc);
             if area2 == 0.0 {
                 continue; // degenerate sliver cannot contain an interior point
@@ -2534,44 +2572,85 @@ fn splice_lateral_interior_points(
                     jp[0], jp[1], jp[2]
                 )));
             }
-            found = Some((k, [ca, cb, cc]));
+            found = Some(k);
         }
-        let Some((k, [ca, cb, cc])) = found else {
+        // Sub-band VERTEX placement stays loud: the mint duplicates an
+        // existing mesh vertex — the wiring pre-filters (multiplicity guard,
+        // skip on BOTH sides) must route it away; a splice here would mint a
+        // guaranteed post-weld sliver.
+        if corner_min <= band2 {
+            return Err(YangError::MalformedTopology(format!(
+                "face {f_idx}: interior junction ({},{},{}) is within the weld band of an \
+                 existing grid vertex ({:.3e} vs band {:.3e}) — a sub-band splice mints a \
+                 guaranteed post-weld sliver (fail loud; the wiring pre-filters must route \
+                 this placement away)",
+                jp[0],
+                jp[1],
+                jp[2],
+                corner_min.sqrt(),
+                band
+            )));
+        }
+        // inc-4e: within band of a grid EDGE → 2+2 edge-split fan. The point
+        // may sit exactly ON a ruling (strict containment fails on both
+        // sides) or a hair inside one incident triangle — both route here.
+        if !near_edges.is_empty() {
+            if near_edges.len() > 1 {
+                return Err(YangError::MalformedTopology(format!(
+                    "face {f_idx}: interior junction ({},{},{}) is within the weld band of \
+                     {} distinct grid edges — ambiguous edge-split (consumed postcondition)",
+                    jp[0],
+                    jp[1],
+                    jp[2],
+                    near_edges.len()
+                )));
+            }
+            let (&(ga, gb), _) = near_edges.iter().next().expect("len checked");
+            // The edge's incident triangles in this face's range: exactly two,
+            // or the split would tear cross-face conformality.
+            let incident: Vec<usize> = (range_start..out_tris.len())
+                .filter(|&k| {
+                    let [a, b, c] = out_tris[k];
+                    [(a, b), (b, c), (c, a)]
+                        .iter()
+                        .any(|&(p, q)| (p.min(q), p.max(q)) == (ga, gb))
+                })
+                .collect();
+            if incident.len() != 2 {
+                return Err(YangError::MalformedTopology(format!(
+                    "face {f_idx}: interior junction ({},{},{}) lies on a grid edge with {} \
+                     incident lateral triangles (need exactly 2) — the 2+2 split would tear \
+                     conformality (fail loud)",
+                    jp[0],
+                    jp[1],
+                    jp[2],
+                    incident.len()
+                )));
+            }
+            // Split each incident triangle across the edge, preserving its
+            // winding: [p,q,r] with the near edge as consecutive pair (p,q)
+            // becomes [p,ji,r] + [ji,q,r].
+            for &k in &incident {
+                let [a, b, c] = out_tris[k];
+                let (p, q, r) = if (a.min(b), a.max(b)) == (ga, gb) {
+                    (a, b, c)
+                } else if (b.min(c), b.max(c)) == (ga, gb) {
+                    (b, c, a)
+                } else {
+                    (c, a, b)
+                };
+                out_tris[k] = [p, ji, r];
+                out_tris.push([ji, q, r]);
+            }
+            continue;
+        }
+        let Some(k) = found else {
             return Err(YangError::MalformedTopology(format!(
                 "face {f_idx}: interior junction ({},{},{}) not contained by any lateral \
                  triangle — the mint would be silently dropped (consumed postcondition)",
                 jp[0], jp[1], jp[2]
             )));
         };
-        // Weld-band guards: corners, then edges (point-segment distance).
-        let d2 =
-            |p: [f64; 2], q: [f64; 2]| -> f64 { (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) };
-        let seg_d2 = |a: [f64; 2], b: [f64; 2]| -> f64 {
-            let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
-            let len2 = dx * dx + dy * dy;
-            let t = if len2 == 0.0 {
-                0.0
-            } else {
-                (((jc[0] - a[0]) * dx + (jc[1] - a[1]) * dy) / len2).clamp(0.0, 1.0)
-            };
-            d2(jc, [a[0] + t * dx, a[1] + t * dy])
-        };
-        let corner_min = d2(jc, ca).min(d2(jc, cb)).min(d2(jc, cc));
-        let edge_min = seg_d2(ca, cb).min(seg_d2(cb, cc)).min(seg_d2(cc, ca));
-        if corner_min <= band * band || edge_min <= band * band {
-            return Err(YangError::MalformedTopology(format!(
-                "face {f_idx}: interior junction ({},{},{}) is within the weld band of the \
-                 containing triangle's boundary (corner {:.3e} / edge {:.3e} vs band {:.3e}) \
-                 — a sub-band splice mints a guaranteed post-weld sliver (fail loud; the \
-                 wiring pre-filters must route this placement away)",
-                jp[0],
-                jp[1],
-                jp[2],
-                corner_min.sqrt(),
-                edge_min.sqrt(),
-                band
-            )));
-        }
         // The 3-fan: replace the containing triangle in place, push the
         // remaining two INSIDE this face's range (the caller closes the
         // face's tri range after this returns). Winding is preserved: each

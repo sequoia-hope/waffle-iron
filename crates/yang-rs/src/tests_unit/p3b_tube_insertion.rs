@@ -109,22 +109,78 @@ fn off_surface_interior_point_errors_loudly() {
     );
 }
 
-/// A point ON a tube grid edge (the vertical ruling between two ring
-/// samples) violates the weld-band guard — loud error naming the band, the
-/// wiring pre-filters' responsibility, never a sliver fan.
+/// inc-4e (spec §3.3 second arm, the C0103 class): a point EXACTLY on a
+/// tube grid edge (the seam ruling) splits the edge's two incident
+/// triangles into a 2+2 fan — bit-exact mint, +2 triangles, still a closed
+/// conformal 2-manifold. (Until inc-4e this placement was the deferred
+/// fail-closed loud error; rim-ring insertions made it a live class.)
 #[test]
-fn on_grid_edge_interior_point_errors_loudly() {
+fn on_grid_edge_interior_point_splits_2_plus_2() {
     let (tube, lat) = tube();
     // The seam ruling runs through (0.25, 0, v) — a mid-height point on it
     // sits exactly on a grid edge in the chart.
+    let j = Point3::new(0.25, 0.0, 0.5);
     let mut fo: BTreeMap<u32, Vec<Point3>> = BTreeMap::new();
-    fo.insert(lat, vec![Point3::new(0.25, 0.0, 0.5)]);
+    fo.insert(lat, vec![j]);
+    let rebuilt = tube
+        .rebuilt_with_junction_overrides(&BTreeMap::new(), &fo)
+        .expect("on-grid-edge placement splits 2+2");
+    let mesh = rebuilt.as_mesh();
+    assert_eq!(
+        mesh.tris.len(),
+        tube.as_mesh().tris.len() + 2,
+        "two incident triangles became four"
+    );
+    assert!(
+        mesh.verts.iter().any(|p| bits(*p) == bits(j)),
+        "the junction's EXACT bits are a mesh vertex"
+    );
+    assert!(
+        closed_conformal_2_manifold(&mesh.tris),
+        "2+2 split preserves the closed conformal 2-manifold"
+    );
+}
+
+/// inc-4e (the C0102 class): a point strictly inside a triangle but within
+/// the weld band of a grid ruling (post-composition shift, e.g. 5.55e-17
+/// off) routes to the SAME 2+2 edge-split — never the guaranteed-sliver
+/// 3-fan, never a loud error.
+#[test]
+fn near_grid_edge_interior_point_splits_2_plus_2() {
+    let (tube, lat) = tube();
+    // A hair off the seam ruling in azimuth: chart distance r·θ ≈ 1e-8,
+    // far below the weld band TAU_MODEL·(1+scale) ≈ 1.25e-7 yet nonzero.
+    let th = 4.0e-8f64;
+    let j = Point3::new(0.25 * th.cos(), 0.25 * th.sin(), 0.5);
+    let mut fo: BTreeMap<u32, Vec<Point3>> = BTreeMap::new();
+    fo.insert(lat, vec![j]);
+    let rebuilt = tube
+        .rebuilt_with_junction_overrides(&BTreeMap::new(), &fo)
+        .expect("near-grid-edge placement splits 2+2");
+    let mesh = rebuilt.as_mesh();
+    assert_eq!(mesh.tris.len(), tube.as_mesh().tris.len() + 2);
+    assert!(mesh.verts.iter().any(|p| bits(*p) == bits(j)));
+    assert!(closed_conformal_2_manifold(&mesh.tris));
+}
+
+/// A point within the weld band of an EXISTING mesh vertex (here: the
+/// previous mint in the same override list) is still the loud sub-band
+/// vertex error — that arm is the wiring pre-filters' skip-on-both-sides
+/// multiplicity guard, never a splice.
+#[test]
+fn sub_band_duplicate_of_prior_mint_errors_loudly() {
+    let (tube, lat) = tube();
+    let th = 0.7f64;
+    let j1 = Point3::new(0.25 * th.cos(), 0.25 * th.sin(), 0.5);
+    let j2 = Point3::new(j1.x(), j1.y(), j1.z() + 1.0e-9); // well inside the band
+    let mut fo: BTreeMap<u32, Vec<Point3>> = BTreeMap::new();
+    fo.insert(lat, vec![j1, j2]);
     let err = tube
         .rebuilt_with_junction_overrides(&BTreeMap::new(), &fo)
-        .expect_err("on-grid-edge placement must error");
+        .expect_err("sub-band duplicate must error");
     let msg = format!("{err:?}");
     assert!(
-        msg.contains("weld band") || msg.contains("not contained"),
+        msg.contains("weld band of an existing grid vertex"),
         "names the guard: {msg}"
     );
 }
