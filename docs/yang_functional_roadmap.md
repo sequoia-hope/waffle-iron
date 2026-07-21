@@ -277,7 +277,24 @@ in the ledger is PERMANENT with user sign-off.
       r0009/r0091 campaign trackers un-ignored. (3) F0082 J3 = honest
       STOP in BOTH gate states (flip-neutral), stays the named
       #137-family follow-up. Flip (inc-5) is now gated only on the
-      standard ledger (gate-ON ⊇ gate-OFF correctness, 0 WRONG).*
+      standard ledger (gate-ON ⊇ gate-OFF correctness, 0 WRONG).
+      inc-5 SHIPPED 2026-07-21 (task #187, spec §7.8): the pierce arms
+      are ALWAYS-ON in production; `YANG_P3B_PIERCE_ENABLE=off|0` is a
+      dev A/B knob (the P3a inc-3 / `weld_enabled` pattern). The flip
+      exposed one defect OUTSIDE the corpus, fixed pre-flip: when both
+      rims of a lateral pierce the same wall, each rim's own mint and
+      the opposite rim's azimuth-mirror (ulps apart, never bit-equal)
+      both survived the bitwise cross-mirror dedup → sub-weld ring
+      near-dups → needle triangles → loud NonManifoldInput on the n2
+      near-tangent fixture; fixed by deferring mirror placement after
+      all own mints with band dedup (`TAU_MODEL·(1+scale)`, own mint
+      wins; azimuth-preserving projection keeps rings 1:1). NEW
+      PRODUCTION BASELINE: 252C/0W/55E/1T; committed results.json is
+      the arms-on ledger (sole category deltas vs inc-4e gate-OFF:
+      R0091 ERROR→CORRECT + the F0085/F0090 flake pairs; R0016/F0082
+      within-ERROR detail drifts characterized in spec §7.8). P3b's
+      remaining named follow-up = the F0082 J3 rim×ellipse osculation
+      layer (#137-family).*
    c. **Curved-seam re-CDT** (R0072 class) and whatever the triage promotes.
    d. **§4.5.2 as guard shell only** (findings Q3: it recovers ~zero current
       cases — every confirmed LRR case is tangential/missing-solver/micro-

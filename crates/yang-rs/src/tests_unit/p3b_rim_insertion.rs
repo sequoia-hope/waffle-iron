@@ -191,3 +191,100 @@ fn empty_rim_map_is_byte_identical() {
     );
     assert_eq!(via_all.as_mesh().tris, via_junction.as_mesh().tris);
 }
+
+/// inc-5 regression (the n2 `i4_locality` near-tangent class, benign-scale
+/// frame): when BOTH rims of a lateral pierce the SAME wall, each rim's OWN
+/// circle∩plane mint and the opposite rim's azimuth-mirror are the same
+/// physical point computed through different arithmetic — ulps apart, never
+/// bit-equal. Bitwise-only dedup kept both copies and manufactured sub-weld
+/// ring near-dups (needle triangles → wedge-dedup winding REJECT → loud
+/// `NonManifoldInput`). The deferred mirror pass must band-dedup
+/// (`TAU_MODEL·(1+scale)`): own mints survive bit-exactly, mirrors of the
+/// same physical point yield, rings stay azimuth-merge 1:1.
+#[test]
+fn both_rims_pierce_same_wall_mirror_yields_to_own_mint() {
+    let (tube, _lat, _rim0) = tube();
+    // The wall at x=0.1 spans past BOTH caps — both rims own-mint on it.
+    let bx = rj_box([0.1, -0.4, -0.3], [0.8, 0.4, 1.3]);
+    let jo = crate::boolean::junction_stage1_overrides(&tube, &bx);
+    assert!(
+        jo.rim_b.is_empty() && jo.edge_a.is_empty() && jo.edge_b.is_empty(),
+        "only tube-rim overrides expected in this frame"
+    );
+    assert_eq!(
+        jo.rim_a.len(),
+        2,
+        "both rims carry ring overrides: {:?}",
+        jo.rim_a
+    );
+    let mut lens = Vec::new();
+    for (ei, pts) in &jo.rim_a {
+        lens.push(pts.len());
+        // No sub-band ring near-dup survives on any ring (the needle hazard).
+        for (i, p) in pts.iter().enumerate() {
+            for q in pts.iter().skip(i + 1) {
+                let (pa, qa) = (p.as_array(), q.as_array());
+                let scale = pa
+                    .iter()
+                    .chain(qa.iter())
+                    .fold(0.0f64, |m, &c| m.max(c.abs()));
+                let band = cad_primitives::TAU_MODEL * (1.0 + scale);
+                let d2 =
+                    (pa[0] - qa[0]).powi(2) + (pa[1] - qa[1]).powi(2) + (pa[2] - qa[2]).powi(2);
+                assert!(
+                    d2 >= band * band,
+                    "rim {ei} sub-band ring near-dup: {p:?} vs {q:?}"
+                );
+            }
+        }
+    }
+    assert_eq!(
+        lens,
+        vec![2, 2],
+        "each ring = its own two mints, mirrors yielded 1:1"
+    );
+    // Each rim's OWN circle∩plane mints survive bit-exactly (own wins).
+    let s_lat = tube
+        .faces()
+        .iter()
+        .find(|f| matches!(f.surface, Surface::Cylinder { .. }))
+        .map(|f| f.surface)
+        .expect("fixture has a lateral face");
+    for (ei, e) in tube.edges().iter().enumerate() {
+        let Curve::Circle {
+            center,
+            normal,
+            radius,
+        } = e.curve
+        else {
+            continue;
+        };
+        let seam = tube.vertices()[e.start as usize].point;
+        let s_cap = if center.z().abs() < 1e-15 {
+            Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                d: 0.0,
+            }
+        } else {
+            Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: -1.0,
+            }
+        };
+        let ring = jo
+            .rim_a
+            .get(&(ei as u32))
+            .expect("every rim has a ring entry");
+        for (fi, f) in bx.faces().iter().enumerate() {
+            for pp in circle_edge_plane_face_pierce(
+                center, normal, radius, seam, s_cap, s_lat, fi as u32, f, &bx,
+            ) {
+                assert!(
+                    ring.iter().any(|q| bits(*q) == bits(pp.point)),
+                    "rim {ei} own mint {:?} must survive bit-exactly",
+                    pp.point
+                );
+            }
+        }
+    }
+}

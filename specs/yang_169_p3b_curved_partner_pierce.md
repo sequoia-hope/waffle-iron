@@ -783,3 +783,60 @@ follow-up; greening it is NOT a flip precondition.
 
 The inc-5 flip precondition (gate-ON ⊇ gate-OFF correctness, 0 WRONG,
 zero uncharacterized regressions) is now MET on this evidence.
+
+### 7.8 inc-5: the always-on flip (2026-07-21, task #187)
+
+**Gate flipped to the P3a inc-3 pattern.** The two production arms in
+`junction_pierce_points` (cylinder-partner line pierce + full-circle rim
+pierce) now run by default; `YANG_P3B_PIERCE_ENABLE=off|0` disables them
+purely as a dev A/B knob (compliance-ledger measurement, the
+`weld_enabled` precedent). Unset = production default = on.
+
+**Flip-exposed defect (caught by the rewrite tier, FIXED pre-flip):**
+`n2_junction_cluster::i4_locality_noncoplanar_tangent_all_on_surface`
+(the R0072-scale near-tangent cylinder∪box, a fixture OUTSIDE the assay
+corpus) went `NonManifoldInput` gate-ON. Root: when BOTH rims of a
+lateral pierce the SAME wall, each rim's OWN circle∩plane mint and the
+opposite rim's azimuth-mirror (inc-4d `opposite_rim_projection`) are the
+same physical point computed through different arithmetic — ulps apart
+(measured 4.5e-20), never bit-equal — and the BITWISE cross-mirror dedup
+kept both, manufacturing sub-weld ring near-dups (needle triangles →
+i6 wedge-dedup winding REJECT → loud `NonManifoldInput`). The global
+sub-weld cluster scan could not see it: it covers pierce points only,
+and mirrors are synthesized later.
+
+Fix: mirror placements are DEFERRED to a second pass after ALL own
+mints, and dedup'd by BAND (`TAU_MODEL·(1+scale)`, the rim arm's own
+vocabulary) instead of bits — an own mint always wins over a mirror of
+the same physical point. The projection is azimuth-preserving, so paired
+rims drop symmetrically and the azimuth-merge 1:1 ring counts stay
+matched; a boundary-band asymmetry hits the loud count wall (fail
+closed, never silent). Regression fixtures: the n2 i4 fixture itself +
+`p3b_rim_insertion::both_rims_pierce_same_wall_mirror_yields_to_own_mint`
+(benign-scale frame, pins own-mint bit-survival and no sub-band ring
+pair).
+
+**Flip ledger (2026-07-21, release assay, production default = ON):**
+
+- Full corpus: **252C / 0W / 55E / 1T** (+2 UNSUPPORTED-coplanar,
+  1 EXPECTED_ERROR, 1 UNSUPPORTED-curved-profile). Per-case diff vs the
+  committed inc-4e gate-OFF baseline:
+  - **R0091 ERROR→SUPPORTED_CORRECT** — the expected sole category flip.
+  - F0090 T→C, F0085 T→E — the two known load-flake pairs.
+  - F0082 detail-only: same honest J3 ring-reject STOP, FaceId
+    3716→3727 (the R0044 re-index precedent class).
+  - R0016 detail-only WALL DRIFT (ERROR→ERROR): render ring-reject →
+    reassembly non-2-manifold. CHARACTERIZED: the deferred-mirror pass
+    changed ring-vector ORDER only (probe shows zero mirror drops on
+    R0016 and F0082, and zero drops ⇒ the band dedup kept exactly the
+    bitwise set), so the same mint set flows in a permuted ring order
+    and the case's loud STOP surfaces one layer earlier. Knob-off
+    reproduces the baseline detail byte-for-byte. Flip-neutral.
+- Sidecar parity: flagship `parity_native_vs_sidecar` 18/18 +
+  r0046_patch_label_parity + stage0_operand_inputcheck (parity tier)
+  green; yang-rs `backend_parity` 5/5 green (`--include-ignored`).
+- Rewrite tier + fast tier green; clippy/fmt clean; WASM rebuilt from
+  this stack and bundled in the same commit.
+- The committed `results.json` baseline is now the PRODUCTION-DEFAULT
+  (arms-on) ledger; the dev knob's `off` state is the A/B measurement
+  side going forward (the `weld_enabled` compliance-ledger pattern).

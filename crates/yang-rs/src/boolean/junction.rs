@@ -249,6 +249,18 @@ fn owner_trim_planes(
 /// tangential to the partner surface (the #137 route), never a mint.
 const TRANSVERSALITY_MIN: f64 = 1e-9;
 
+/// P3b curved-partner pierce arms (spec `yang_169_p3b_curved_partner_pierce.md`)
+/// are ALWAYS-ON in production since inc-5. `YANG_P3B_PIERCE_ENABLE=off|0`
+/// disables them purely as a dev A/B knob (compliance-ledger measurement,
+/// the `YANG_JUNCTION_SAMPLING_ENABLE` / `weld_enabled` pattern). Unset =
+/// production default = on.
+fn p3b_pierce_enabled() -> bool {
+    !matches!(
+        std::env::var("YANG_P3B_PIERCE_ENABLE").as_deref(),
+        Ok("off") | Ok("0")
+    )
+}
+
 /// All transversal pierce points of each operand's geometric `LineSegment`
 /// edges through the OTHER operand's bounded planar faces.
 ///
@@ -398,11 +410,13 @@ pub(crate) fn junction_pierce_points(
                     pierces.push(pp);
                 }
                 // P3b inc-3 (spec `yang_169_p3b_curved_partner_pierce.md`
-                // §5, gated `YANG_P3B_PIERCE_ENABLE`): canonical-tube
-                // CYLINDER partners join the pierce scope — the F0082
-                // ellipse×wall corner class. Gate-OFF this arm is dead and
-                // the enumeration is byte-identical.
-                if std::env::var_os("YANG_P3B_PIERCE_ENABLE").is_some() {
+                // §5, ALWAYS-ON since inc-5): canonical-tube CYLINDER
+                // partners join the pierce scope — the F0082 ellipse×wall
+                // corner class. `YANG_P3B_PIERCE_ENABLE=off|0` disables the
+                // arm purely as a dev A/B knob (compliance-ledger
+                // measurement, the P3a inc-3 pattern); with the arm off the
+                // enumeration is byte-identical to the pre-P3b pipeline.
+                if p3b_pierce_enabled() {
                     pierces.extend(
                         line_edge_cylinder_face_pierce(p0, p1, *s1, *s2, f_idx as u32, f, y)
                             .into_iter()
@@ -422,10 +436,9 @@ pub(crate) fn junction_pierce_points(
             }
         }
         // P3b inc-4d-3 (spec §7): FULL-CIRCLE RIM owners join the pierce
-        // scope behind the same gate — the F0082 cap-rim×wall corner class
-        // (J2). Gate-OFF this arm is dead and the enumeration is
-        // byte-identical.
-        if std::env::var_os("YANG_P3B_PIERCE_ENABLE").is_some() {
+        // scope behind the same knob — the F0082 cap-rim×wall corner class
+        // (J2). ALWAYS-ON since inc-5; `=off|0` disables (dev A/B only).
+        if p3b_pierce_enabled() {
             // Group rim copies by undirected circle geometry + seam bits
             // (the conformality-by-identity fan-out, circle edition).
             type RimGroup = (Vec<u32>, Vec<Surface>);
@@ -592,9 +605,9 @@ fn p3b_cylinder_pierce_probe(
 /// the transversal pierces of the segment `p0→p1` (whose two incident owner
 /// surfaces are `s1`/`s2`) through the bounded CANONICAL-TUBE cylinder face
 /// `f` of operand `y` — up to TWO per edge×face (both quadratic roots are
-/// genuine crossings, unlike the planar arm's single root). UNWIRED this
-/// increment: only the probe and the unit fixtures call it; wiring into
-/// `junction_pierce_points` is increment 3, behind `YANG_P3B_PIERCE_ENABLE`.
+/// genuine crossings, unlike the planar arm's single root). Wired into
+/// `junction_pierce_points` at increment 3; ALWAYS-ON since inc-5
+/// (`YANG_P3B_PIERCE_ENABLE=off|0` = dev A/B disable).
 ///
 /// Gates mirror `line_edge_plane_face_pierce` one-for-one — every margin is
 /// the existing derived vocabulary, fail-closed (a missed mint = status quo):
@@ -806,9 +819,9 @@ fn plane_face_contains_with_margin(
 /// transversal pierces of a FULL-CIRCLE rim edge (center/normal/radius,
 /// seam = the rim's own B-Rep vertex; incident owner surfaces `s1`/`s2`)
 /// through the bounded ALL-LINE planar face `f` of operand `y` — up to TWO
-/// per rim×face (both circle∩plane roots are genuine crossings). UNWIRED
-/// this sub-increment: only unit fixtures call it; wiring into
-/// `junction_pierce_points` is inc-4d-3, behind `YANG_P3B_PIERCE_ENABLE`.
+/// per rim×face (both circle∩plane roots are genuine crossings). Wired into
+/// `junction_pierce_points` at inc-4d-3; ALWAYS-ON since inc-5
+/// (`YANG_P3B_PIERCE_ENABLE=off|0` = dev A/B disable).
 ///
 /// Gates mirror the line arms one-for-one — every margin is the existing
 /// derived vocabulary, fail-closed (a missed mint = status quo):
@@ -1208,6 +1221,15 @@ pub(crate) fn junction_stage1_overrides(a: &BRep, b: &BRep) -> JunctionStage1Ove
         );
     }
     let mut out = JunctionStage1Overrides::default();
+    // inc-5: opposite-rim mirror placements are DEFERRED to a second pass
+    // below, so every rim's OWN mints land first and a mirror that is the
+    // same physical point computed through the projection arithmetic (a few
+    // ulps off the opposite rim's own circle∩plane solve — never bit-equal)
+    // can yield to the own mint by BAND dedup. Bitwise dedup alone kept
+    // both copies and manufactured sub-weld ring near-dups (needle
+    // triangles → wedge-dedup winding REJECT → loud NonManifoldInput on the
+    // n2 near-tangent fixture where BOTH rims pierce the same wall).
+    let mut deferred_mirrors: Vec<(InputId, u32, Vec<Point3>)> = Vec::new();
     for ((input, ei), pps) in &pierce {
         let kept: Vec<&PiercePoint> = pps
             .iter()
@@ -1272,9 +1294,9 @@ pub(crate) fn junction_stage1_overrides(a: &BRep, b: &BRep) -> JunctionStage1Ove
         }
         if let Some((opp_edge, opp_pts)) = rim_mirror {
             // The mirror points are plain exact ring samples (NOT junction
-            // mints — no partner-side insert, no trim provenance); bitwise
-            // dedup against entries another rim's own mints already placed.
-            push_dedup(edge_map.entry(opp_edge).or_default(), opp_pts);
+            // mints — no partner-side insert, no trim provenance). Deferred:
+            // inserted after ALL own mints, with band dedup (own mint wins).
+            deferred_mirrors.push((*input, opp_edge, opp_pts));
         }
         for pp in &kept {
             let list = face_map.entry(pp.partner_face).or_default();
@@ -1287,6 +1309,46 @@ pub(crate) fn junction_stage1_overrides(a: &BRep, b: &BRep) -> JunctionStage1Ove
                 owner: *input,
                 owner_planes: pp.owner_planes,
             });
+        }
+    }
+    // inc-5 second pass: opposite-rim mirrors, band-dedup'd (the arm's own
+    // `TAU_MODEL·(1+scale)` vocabulary) against everything already on the
+    // target ring — the opposite rim's OWN mints first among them. The
+    // projection is azimuth-preserving, so when both rims of a lateral
+    // pierce the same wall the collision drops symmetrically on both rings
+    // and the azimuth-merge 1:1 count stays matched; a boundary-band
+    // asymmetry hits the loud count wall (fail closed, never silent).
+    for (input, opp_edge, opp_pts) in deferred_mirrors {
+        let edge_map = match input {
+            InputId::A => &mut out.rim_a,
+            InputId::B => &mut out.rim_b,
+        };
+        let entry = edge_map.entry(opp_edge).or_default();
+        for p in opp_pts {
+            let pa = p.as_array();
+            let collides = entry.iter().any(|q| {
+                let qa = q.as_array();
+                let scale = pa
+                    .iter()
+                    .chain(qa.iter())
+                    .fold(0.0f64, |m, &c| m.max(c.abs()));
+                let band = cad_primitives::TAU_MODEL * (1.0 + scale);
+                let d2 =
+                    (pa[0] - qa[0]).powi(2) + (pa[1] - qa[1]).powi(2) + (pa[2] - qa[2]).powi(2);
+                d2 < band * band
+            });
+            if !collides {
+                entry.push(p);
+            } else if std::env::var_os("YANG_JUNCTION_MINT_PROBE").is_some() {
+                eprintln!(
+                    "[p3a-wire] rim mirror DROP {input:?} edge {opp_edge}: within model \
+                     band of an own mint / prior mirror at {:?}",
+                    p.as_array()
+                );
+            }
+        }
+        if entry.is_empty() {
+            edge_map.remove(&opp_edge);
         }
     }
     out
