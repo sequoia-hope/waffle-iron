@@ -193,7 +193,26 @@ fn historical_authoring_fixes_pinned() {
         "compute_euler_target(R0006) changed; revisit the frozen-corpus soundness note"
     );
 
-    eprintln!("historical_authoring_fixes_pinned: R0099 & R0006 targets held");
+    // R0091 was hand-corrected 2026-07-21 (task #186 / spec
+    // `yang_453_junction_protected_collapse` §3b unblock): the naive 3-op
+    // default 2 was refuted — the tilted wide-tube cut leaves 4 corner
+    // pillars (genus 3, χ=−4), verified by the Cherchi-2022 sidecar
+    // reference boolean on the exact operand meshes AND an independent
+    // voxel-CSG derivation from the authored numbers (both χ=−4, 1 shell).
+    // `compute_euler_target` still returns the conservative 2 for this
+    // class BY DESIGN (same divergence-by-design as R0006).
+    let r0091 = load_meta("R0091");
+    assert_eq!(
+        r0091.oracles.euler_target, -4,
+        "R0091 corrected target regressed (must stay genus-3 χ=−4)"
+    );
+    assert_eq!(
+        compute_euler_target(&r0091.operations),
+        2,
+        "compute_euler_target(R0091) changed; revisit the frozen-corpus soundness note"
+    );
+
+    eprintln!("historical_authoring_fixes_pinned: R0099, R0006 & R0091 targets held");
 }
 
 /// Check 4 — the randomized generator must only ever emit even targets.

@@ -1,14 +1,14 @@
 {
   "id": "R0091",
-  "description": "3 ops, scale=1.59e-4, revolve(circle,boss)+extrude(rectangle,boss)+extrude(circle,cut)",
+  "description": "3 ops, scale=1.59e-4, revolve(circle,boss)+extrude(rectangle,boss)+extrude(circle,cut) \u2014 euler_target hand-corrected 2026-07-21 (was the naive 3-op default 2): the tilted cut tube (r=3.905e-5, axis ~36deg off the box normal) spans the box's cross-section mid-bands (half-widths 2.153e-5/3.755e-5 < r) but not its corners (4.33e-5 > r), so the cut leaves 4 corner pillars bridging the two remaining slabs: genus-3, chi=-4. Verified by Cherchi-2022 sidecar reference boolean on the exact Stage-1 operand meshes (chi=-4, 1 shell, fully paired) AND an independent voxel-CSG Euler derivation from the authored numbers (chi_solid=-2 -> boundary chi=-4, 1 component). The revolve sausage is a separate standalone body (disjoint bbox) not measured by the last-body euler oracle.",
   "master_seed": 42,
   "test_seed": 9039304369631583676,
   "scale": 0.00015902086410845935,
   "log_scale": -3.7985458909454675,
   "plane_origin": [
     -0.00011798215119673686,
-    -0.00009035295465795552,
-    -0.00009170888617512346
+    -9.035295465795552e-05,
+    -9.170888617512346e-05
   ],
   "plane_normal": [
     0.3541675249692322,
@@ -19,19 +19,19 @@
     {
       "kind": "revolve",
       "profile_type": "circle",
-      "profile_size": 0.00006034705044252099,
+      "profile_size": 6.034705044252099e-05,
       "depth_or_angle": 219.42928010836604,
       "is_cut": false
     },
     {
       "kind": "extrude",
       "profile_type": "rectangle",
-      "profile_size": 0.00004306028047430074,
+      "profile_size": 4.306028047430074e-05,
       "depth_or_angle": 0.00011872715752722941,
       "is_cut": false,
       "plane_origin": [
         0.00012290808682657127,
-        0.0000785243634469235,
+        7.85243634469235e-05,
         0.00010818934424240698
       ],
       "plane_normal": [
@@ -43,12 +43,12 @@
     {
       "kind": "extrude",
       "profile_type": "circle",
-      "profile_size": 0.00003905396769679331,
-      "depth_or_angle": 0.00003816933852381711,
+      "profile_size": 3.905396769679331e-05,
+      "depth_or_angle": 3.816933852381711e-05,
       "is_cut": true,
       "plane_origin": [
         0.00010417584971069663,
-        5.593640856638412e-6,
+        5.593640856638412e-06,
         0.00010150730833445098
       ],
       "plane_normal": [
@@ -59,7 +59,7 @@
     }
   ],
   "oracles": {
-    "euler_target": 2,
+    "euler_target": -4,
     "expect_watertight": true,
     "max_bbox_extent": 0.0015902086410845935,
     "expect_positive_volume": true,
