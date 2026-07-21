@@ -251,7 +251,19 @@ in the ledger is PERMANENT with user sign-off.
       the flip blocker); gate-ON F0082 REFUTED as a lone-phantom case —
       it is a 3-junction micro-complex over a ~1e-4 near-coplanar cap
       (J2 = cap-rim×wall CURVED-owner pierce + J3 = tube∩cap∩top triple)
-      → inc-4d curved-owner/rim-corner widening is its named vehicle.*
+      → inc-4d curved-owner/rim-corner widening is its named vehicle.
+      inc-4c SHIPPED 2026-07-20/21 (fan re-CDT + seam-order
+      canonicalization + §4.3.4 chain-sample drop; R0061 gate-ON
+      CORRECT, that flip blocker cleared, N58 resolved). inc-4d SHIPPED
+      2026-07-21 (circle-rim×planar-face pierce + rim-ring channel with
+      opposite-rim mirrors + all-overrides composition; gate-OFF
+      byte-identical): gate-ON F0082's J/J2 corner assembles EXACTLY
+      (phantom gone) and the STOP moves to the named J3 layer —
+      rim×section-ellipse OSCULATION on the tube (tangential edge×edge,
+      #137-family / §4.3 sliver, spec §7.6). Flip (inc-5) ledger now:
+      R0091 ERROR→WRONG χ=−4 (silent — needs fix or a loud
+      production-side χ STOP) + C0102/C0103 grid-ruling collisions (the
+      §3.3 2+2 edge-split arm) + the F0082 J3 decision.*
    c. **Curved-seam re-CDT** (R0072 class) and whatever the triage promotes.
    d. **§4.5.2 as guard shell only** (findings Q3: it recovers ~zero current
       cases — every confirmed LRR case is tangential/missing-solver/micro-
