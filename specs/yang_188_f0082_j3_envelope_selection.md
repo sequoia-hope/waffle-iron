@@ -2,8 +2,10 @@
 
 **Status: SPEC (2026-07-21); inc-0 DONE (2026-07-21) — probe shipped, both
 §7.9 open questions answered, and §2's "v925 = mandatory free-space switch"
-premise REFUTED by measurement: see §7 before building inc-1. Production
-untouched until inc-3; every increment lands behind the standard ledger.**
+premise REFUTED by measurement: see §7 before building inc-1. inc-1 DONE
+(2026-07-21) — `stage5_envelope.rs` switch-point solver + §7.6 band
+classifier, UNWIRED, all pins green: see §8. Production untouched until
+inc-3; every increment lands behind the standard ledger.**
 
 Successor to the F0082 J3 layer named by the P3b pierce spec
 (`yang_169_p3b_curved_partner_pierce.md` §7.6), **re-characterized by
@@ -282,3 +284,88 @@ inc-3 should add a band_frac (or amp<floor) gate, which by this sweep
 yields fire set = {F0082, F0085, F0084, F0076} ⊇ broken ∩ class.
 F0045 (the #171 candidate) does NOT fire — its defect is not an
 osculating-pair weave on a cylinder patch.
+
+## 8. inc-1 record (2026-07-21, unwired; production byte-identical)
+
+Shipped `crates/yang-rs/src/stage5_envelope.rs` (`pub mod`, the
+stage4_update unwired idiom) + `tests_unit/s188_envelope.rs` (9 tests, all
+green). §3.2.1 + §3.2.2 as revised by §7.6; §3.2.3 (envelope chain
+output) and all wiring remain inc-2.
+
+### 8.1 What was built
+
+- **`cylinder_two_plane_switch_points`** (§3.2.1): exact two-plane
+  intersection line ∩ cylinder, closed form (Cramer on
+  {plane, plane, line-direction·p = u·axis_point}, then the perpendicular
+  quadratic). Fail-closed: `PlanesNearParallel`, `AxisParallelPairPlane`
+  (no axial profile ⇒ also covers line ∥ axis), `NoTripleContact`,
+  `TangentTripleContact` (hit separation < `TAU_MODEL`·scale),
+  `UnsupportedSurface`.
+- **`resolve_envelope_rule`** (op table, inc-4b `resolve_trim_beyond`
+  style): same-side max-envelope vocabulary = `Union` (either owner) and
+  `Subtract` with the patch on the BASE (partner-kept side = outside).
+  `Subtract`-on-tool / `Intersect` (pair bounds OPPOSITE ends of the kept
+  band — a pinch, not an envelope) and `Xor` fail closed `UnsupportedOp`.
+- **`classify_bands`** (§3.2.2 per §7.6): liveness at a band sample, each
+  support evaluated at ITS OWN curve point —
+  int conic live ⟺ owner-extent (`sd_orig ≤ 0`) AND inside every wall
+  (partner FACE extent, both existence tests, op-independent);
+  orig conic live ⟺ partner-kept side (`sd_int ≥ 0`, op-resolved) OR
+  beyond any wall (the §7.6 disjunct).
+  Band boundaries = free-space triples + wall×curve crossing zeros
+  (closed-form sinusoid zeros); adjacent same-liveness bands merge (their
+  shared candidate is NOT a junction); both-live/neither-live bands where
+  a wall passes BETWEEN the two curve points are `WallComplex` slivers
+  (inc-4d's property — §3.3 must keep them byte-identical); otherwise
+  loud `AmbiguousBand`. Triple ON a wall plane (±`TAU_MODEL`·scale),
+  triple↔crossing coincidence, and sub-`TAU_WORK` deciding signs are
+  `DegenerateBoundary`. Band samples avoid triple azimuths (a masked
+  triple sits INSIDE a band; pair sd's vanish there without changing
+  liveness — the wall disjunct covers the flip).
+
+### 8.2 F0082 pinned-fixture results (all green)
+
+Fixture from the inc-0 probe log: 9-decimal support planes; cylinder axis
+FITTED from five top-rim verts (two independent circumcenter triples agree
+to 2e-9; every pinned junction at radius 0.212325266 ± 1.5e-9).
+
+- Switch points land on **v925 to <1e-7** (bit-exact output vertex) and
+  the analytic **J3 to <1e-7**; θ = −1.088507 / +2.053086 (probe match
+  <1e-5); antipodal to π within 2e-5; on all three surfaces ≤ 5e-9.
+- **Both triples wall-masked** (§7.3): v925 → face-366, J3 → face-364,
+  margins +1.2921e-3 (±1e-6, model-symmetric). No `FreeSpaceTriple`
+  boundary exists.
+- **Union band structure = 8 boundaries / 8 bands**:
+  [v944·v923 | WC365] [ell] [v921·v949 | WC366] [rim] [v937·v943 | WC364]
+  [ell] [v935·v945 | WC365] [rim] — the six exact wall-crossing junctions
+  pinned to <1e-7 (v921/v949/v937/v943/v923/v935), the two rim×365
+  near-crossing verts to <1e-5. The rim band runs STRAIGHT through the
+  masked v925 AND through the absorbed wall-crossing pairs at u≈−0.228
+  (v926/v951) and u≈0.229 — §7.4's "correct = rim straight v951→v959"
+  falls out of the classifier with no special-casing. NOTE (new ground
+  truth): wall face-365 ALSO crosses the tube (ell×365 = v923/v935
+  exact, dist ≤1.6e-16 in the probe), giving the beyond-365 rim seam run
+  (v953/v944, sd_365 ≈ +2.4e-2) — the correct loop has FOUR wall-complex
+  slivers, not two; §2's "two-wall" narrative was incomplete.
+- **Wall-free contrast**: with `walls = []` the switches sit AT the
+  triples (2 `FreeSpaceTriple` boundaries, 2 bands) and θ=−2.0 / θ=3.0
+  flip rim→ellipse — the §7.6 masking discriminator, red/green.
+- **Op table red/green** on the live fixture: Union ok;
+  Subtract-tool/Intersect/Xor → `UnsupportedOp` end-to-end.
+- Synthetics: right cylinder + tilted plane (exact ±π/2 free triples);
+  masked-triple wall takeover with axis-parallel-wall crossing dedup;
+  degenerate reds (parallel planes, axis-parallel pair plane, line miss,
+  exact graze, wall through triple, non-cylinder surface).
+
+### 8.3 inc-2 notes
+
+- The envelope CHAIN assembly (§3.2.3: ordered (curve, from, to) segments
+  minted-by-identity onto existing verts) is NOT yet built — it needs the
+  emitted-loop context (which output verts realize which boundary) and
+  belongs with the §3.3 rebuild.
+- `EnvelopeBands::live_at` is the diagnostic/wiring query surface.
+- Wiring must map `emit_topology`'s supports to `EnvPlane`s with OUTWARD
+  normals per owner — the probe's support dump already carries them; wall
+  set = the §3.1 detector's neighboring planar patches of the PARTNER
+  operand sharing loop verts (both A-side walls and, per the 365 finding,
+  ALL crossing walls, not only those masking a triple).

@@ -33,6 +33,7 @@ mod p3b_fan_retriangulation;
 mod p3b_rim_insertion;
 mod p3b_rim_pierce;
 mod p3b_tube_insertion;
+mod s188_envelope;
 mod stage0_rim_projection;
 mod stage1_cdt_flap;
 mod topology;

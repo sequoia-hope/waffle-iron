@@ -110,6 +110,11 @@ mod stage4_correct;
 // `specs/yang_188_f0082_j3_envelope_selection.md` §5). Probe-only module;
 // nothing exported.
 mod stage5_osculation_probe;
+// #188 inc-1: §3.2 envelope-resolution primitives (exact switch-point
+// solver + §7.6 op-resolved band classifier), UNWIRED — de-risked on the
+// F0082 pinned fixture (`tests_unit/s188_envelope.rs`); inc-2 wires them
+// into `emit_topology` behind `YANG_S5_ENVELOPE_ENABLE`.
+pub mod stage5_envelope;
 mod stage5_topology;
 pub(crate) use stage5_topology::*;
 mod stage4_relocate;
