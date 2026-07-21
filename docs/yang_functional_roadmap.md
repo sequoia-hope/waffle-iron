@@ -293,8 +293,12 @@ in the ledger is PERMANENT with user sign-off.
       the arms-on ledger (sole category deltas vs inc-4e gate-OFF:
       R0091 ERROR→CORRECT + the F0085/F0090 flake pairs; R0016/F0082
       within-ERROR detail drifts characterized in spec §7.8). P3b's
-      remaining named follow-up = the F0082 J3 rim×ellipse osculation
-      layer (#137-family).*
+      remaining named follow-up = the F0082 J3 layer — RE-CHARACTERIZED
+      2026-07-21 (task #188): NOT osculation-stitch/#137-family but a
+      Stage-5/6 boundary-envelope selection defect at the antipodal
+      ellipse↔rim triple point (already minted); plan of record =
+      `specs/yang_188_f0082_j3_envelope_selection.md` (pierce spec §7.9
+      has the measurement).*
    c. **Curved-seam re-CDT** (R0072 class) and whatever the triage promotes.
    d. **§4.5.2 as guard shell only** (findings Q3: it recovers ~zero current
       cases — every confirmed LRR case is tangential/missing-solver/micro-

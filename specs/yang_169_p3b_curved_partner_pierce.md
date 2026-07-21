@@ -901,8 +901,10 @@ EXACTLY at the two triple points (v925 live; J3's switch subsumed by
 the wall arc). One simple monotone ring; no interior segments, no
 folds, no bare chords.
 
-**Fix vehicle (next increment, spec-first):** Stage-5/6 output-boundary
-envelope selection for osculating curve pairs — split both curves at
-the triple points, keep the per-band winner, drop submerged/dead
-complements; preserve curve vocabulary (#158 tie-in). The measured ring
-(61 verts, banked in this session's probe logs) is the red fixture.
+**Fix vehicle:** Stage-5/6 output-boundary envelope selection for
+osculating curve pairs — split both curves at the triple points, keep
+the per-band winner, drop submerged/dead complements; preserve curve
+vocabulary (#158 tie-in). The measured ring (61 verts, banked in this
+session's probe logs) is the red fixture. **SPEC WRITTEN:**
+`specs/yang_188_f0082_j3_envelope_selection.md` (task #188) — the J3
+layer's plan of record from here.
