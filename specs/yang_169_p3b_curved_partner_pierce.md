@@ -707,3 +707,79 @@ Production gate-OFF is per-case byte-identical (empty results.json
 diff), so inc-4d ships gated-off; the flip ledger now reads:
 R0061 ✓ cleared (inc-4c), F0082 moved to the named J3-osculation layer,
 C0102/C0103 = 2+2 edge-split arm, R0091 = loud-χ conversion or fix.
+
+### 7.7 inc-4e: the flip-blocker triple (2026-07-21, task #186)
+
+**inc-4e-1 — the §3.3 deferred "2+2 edge-split fan" arm SHIPPED
+(C0102/C0103).** `splice_lateral_interior_points` now surveys, in one
+pass, strict containment PLUS proximity to every grid vertex and every
+undirected grid edge in the face's range. Routing: within the §4.3 weld
+band of an existing VERTEX → loud error (unchanged — the pre-filters'
+skip-on-both-sides multiplicity arm); within band of exactly one grid
+EDGE (exactly ON a ruling — C0103's consumed-postcondition shape — or a
+hair inside one incident triangle — C0102's 5.55e-17 guaranteed-sliver
+shape) → split the edge's two incident triangles into a 2+2 fan (winding
+preserved; exactly-2-incident enforced loudly; >1 candidate edge
+ambiguity loud); otherwise the existing strict 3-fan. Unit fixtures:
+on-edge 2+2, near-edge (sub-band, 1e-8 off the seam ruling) 2+2,
+sub-band duplicate-of-prior-mint loud, all closed-conformal-2-manifold.
+Measured gate-ON: **C0102 and C0103 both SUPPORTED_CORRECT** (were
+CORRECT→ERROR loud at inc-4d).
+
+**inc-4e-2 — R0091 RESOLVED: the meta χ was the authoring error.** The
+§3b unblock path (spec `yang_453_junction_protected_collapse`) was
+executed BOTH ways:
+
+- *Sidecar reference parity:* the exact Stage-1 operand meshes of
+  R0091's only boolean (subtract: box 20v/36t, tool tube 50v/96t —
+  captured via `YANG_STAGE0_DUMP_DIR`; the revolve sausage is
+  bbox-disjoint and never enters a boolean) fed to the Cherchi-2022
+  `mesh_booleans` binary give a fully-paired 1-shell output with
+  **χ = V(92) − E(288) + F(192) = −4**.
+- *Authored-numbers derivation:* independent voxel-CSG (half-space box ∩
+  ¬tool, N=140) gives χ_solid = −2 → boundary **χ = −4**, one component.
+  Geometric mechanism: the tilted cut tube (r = 3.905e-5, axis ≈ 36° off
+  the box normal) spans the box's cross-section mid-bands (half-widths
+  2.153e-5 / 3.755e-5 < r) but not its corners (4.33e-5 > r) — the cut
+  removes the mid-band and leaves 4 corner pillars bridging the two
+  remaining slabs: genus 3. (At N=90 the voxelization disconnects a
+  sub-voxel pillar — the resolution sweep to N=140 converges.)
+
+`R0091.meta.json` `euler_target` corrected 2 → −4 (the naive 3-op
+default was never derived; same protocol as R0099/R0006, new pin in
+`assay_euler_consistency::historical_authoring_fixes_pinned`). Gate-ON
+R0091 = **SUPPORTED_CORRECT**; gate-OFF stays its honest merge-budget
+LRR ERROR (#171 class). The gate-ON χ=−4 output was never wrong — the
+"silent wrong" was a wrong oracle.
+
+**inc-4e-3 — spec-§3b ranked merge survivor WIRED always-on.** The bank
+condition (unverifiable R0091 χ) is resolved, so
+`sub_feature_merge_direction` (Yang Fig. 11(b): the exact vertex
+survives) now picks the §4.4.1(b) merge victim. Campaign trackers
+r0009/r0091 un-ignored (measured: their ellipse-endpoint walls had
+already drifted to the merge-budget LRR wall — still loud ERRORs, wall
+absent, ranked survivor keeps it absent). Corpus ledger: see the
+measurement blocks below.
+
+**F0082 J3 (item 3 of the triple) — honest STOP ACCEPTED for the flip.**
+The rim×section-ellipse osculation layer (§7.6) is ERROR in BOTH gate
+states — flip-neutral. It stays the named #137-family/§4.3-sliver
+follow-up; greening it is NOT a flip precondition.
+
+**inc-4e final ledgers (2026-07-21, full stack: 2+2 arm + meta fix +
+§3b wired):**
+
+- Gate-ON full corpus: **251C / 0W / 55E / 2T** (+2 UNSUPPORTED-coplanar,
+  1 EXPECTED_ERROR, 1 UNSUPPORTED-curved-profile; T = F0072/F0090, the
+  known load-flake pair). Per-case diff vs the committed gate-OFF
+  baseline: **R0091 ERROR→SUPPORTED_CORRECT and NOTHING else** (modulo
+  the two timeout flakes F0085 T↔E / F0090 C↔T). C0102/C0103 hold
+  CORRECT, R0061 holds CORRECT, the §7.4 watch-list is clean, F0082
+  keeps its honest J3 ERROR.
+- Gate-OFF: see the committed `results.json` of this increment (the §3b
+  wiring is the only production-reachable change gate-OFF; the 2+2 arm
+  is unreachable without pierce mints and the meta only affects
+  supported verdicts).
+
+The inc-5 flip precondition (gate-ON ⊇ gate-OFF correctness, 0 WRONG,
+zero uncharacterized regressions) is now MET on this evidence.

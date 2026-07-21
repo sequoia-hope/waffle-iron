@@ -70,24 +70,27 @@ carry the SAME curve, so `p_r` itself is not a junction.
   (the sweep is shared by the M8 fold-gate paths); F0086/F0087 corpus replays
   unchanged.
 
-## 3b. Second mechanism (R0091 + R0009): §4.4.1(b) merge survivor selection — DIAGNOSED, BANKED-UNWIRED
+## 3b. Second mechanism (R0091 + R0009): §4.4.1(b) merge survivor selection — WIRED (2026-07-21)
 
-> **Status (2026-07-08): the ranked-survivor fix below is implemented as the
-> banked primitive `sub_feature_merge_direction` (+ unit tests, mutation-
-> killed) but is DELIBERATELY NOT WIRED at the (3c) merge call site.** Wiring
-> it clears R0091's ellipse-endpoint wall but flips the case ERROR →
-> SUPPORTED_WRONG: the completed subtract tessellates to χ = −4 against the
-> meta's euler_target 2, with watertight/volume/monotonicity/bbox all
-> passing. χ = −4 (three handles, one shell) could not be verified OR refuted
-> in-session: the meta χ is the naive 3-op default (`compute_euler_target`
-> returns 2 for ≠2-op cases), but op 1 is a PARTIAL 219° circle-revolve
-> (genus 0 sausage, not a torus), so the honest handle count needs a real
-> derivation. Precedent: the world-space canonicalization pass stayed
-> unwired while it flipped any case to SUPPORTED_WRONG (roadmap §0.2 item 1
-> bullet 3). UNBLOCK PATH: verify the R0091 output's true χ via the Cherchi
-> sidecar reference parity (roadmap §6) or refute the meta χ from the
-> authored numbers (the R0078/C0035-F1 authoring-error protocol); then wire
-> the ranked survivor and un-ignore the R0091 tracker.
+> **Status (2026-07-21, task #186): WIRED always-on at the §4.4.1(b) merge
+> call site.** The bank condition is resolved — the unblock path was
+> executed BOTH ways (spec `yang_169_p3b_curved_partner_pierce.md` §7.7):
+> the Cherchi sidecar reference boolean on R0091's exact operand meshes
+> yields a fully-paired 1-shell χ=−4 output, and an independent voxel-CSG
+> derivation from the authored numbers confirms genus 3 (the tilted cut
+> tube covers the box cross-section's mid-bands but not its 4 corners —
+> 4 surviving corner pillars, χ=−4). **The meta euler_target=2 (naive 3-op
+> default) was the authoring error** — corrected to −4 per the
+> R0078/C0035-F1 protocol (pin: `assay_euler_consistency::
+> historical_authoring_fixes_pinned`). Trackers r0009/r0091 un-ignored;
+> measured 2026-07-21: both cases' ellipse-endpoint walls had already
+> drifted to the §4.4.1(b) merge-budget LRR wall (#171 u32::MAX class) —
+> still loud ERRORs gate-OFF, wall absent.
+>
+> Original bank rationale (2026-07-08), kept for history: wiring flipped
+> R0091 ERROR → SUPPORTED_WRONG (χ=−4 vs meta 2, unverifiable in-session);
+> precedent: the world-space canonicalization pass stayed unwired while it
+> flipped any case to SUPPORTED_WRONG (roadmap §0.2 item 1 bullet 3).
 
 The same output signature has a second producer, measured on R0091
 (`YANG_V_PROBE`, 2026-07-08): the Stage-4 §4.4.1(b) sub-feature merge picks its

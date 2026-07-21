@@ -6119,17 +6119,16 @@ pub(crate) fn stage4_relocate_and_correct(
                 }
                 if merge {
                     // Spec `yang_453_junction_protected_collapse` §3b: the
-                    // exactness-ranked survivor (`sub_feature_merge_direction`,
-                    // Yang Fig. 11(b) — the exact vertex survives) is BANKED,
-                    // DELIBERATELY UNWIRED: wiring it flips R0091 from its
-                    // loud ellipse-endpoint ERROR to SUPPORTED_WRONG
-                    // (χ = −4 vs meta 2; unverifiable in-session — see spec
-                    // §3b status). The index rule stays until the R0091
-                    // output's true χ is verified (sidecar reference parity)
-                    // or the meta χ is refuted from the authored numbers.
-                    let _ = &junction_verts;
-                    let survivor = u.min(v);
-                    let victim = u.max(v);
+                    // exactness-ranked survivor (Yang Fig. 11(b) — "merge p
+                    // with q": the exact intersection point q survives).
+                    // WIRED 2026-07-21 (task #186): the §3b blocker was the
+                    // unverified R0091 χ — resolved by verifying the output's
+                    // true χ = −4 via Cherchi sidecar reference parity on the
+                    // exact operand meshes + an independent voxel-CSG
+                    // derivation from the authored numbers (the meta's naive
+                    // 3-op default χ=2 was the authoring error; corrected).
+                    let (victim, survivor) =
+                        sub_feature_merge_direction(&junction_verts, &conic_endpoint, u, v);
                     to_merge = Some((victim, survivor));
                     break;
                 }

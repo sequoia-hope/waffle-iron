@@ -542,12 +542,11 @@ pub(crate) fn reversal_collapse_direction(
 /// vertex; equal ranks keep the lower-index-survives rule byte-identical to
 /// the pre-fix behavior.
 ///
-/// BANKED, DELIBERATELY UNWIRED (spec §3b status): wiring this at the (3c)
-/// merge call site flips R0091 ERROR → SUPPORTED_WRONG (χ = −4 vs meta 2,
-/// unverifiable in-session). Unit-tested + mutation-killed; wire it when the
-/// R0091 output's true χ is verified via sidecar reference parity or the
-/// meta χ is refuted.
-#[allow(dead_code)]
+/// WIRED at the §4.4.1(b) merge call site 2026-07-21 (task #186). The §3b
+/// bank condition is satisfied: R0091's output χ = −4 was VERIFIED (Cherchi
+/// sidecar reference parity on the exact operand meshes + independent
+/// voxel-CSG derivation from the authored numbers — the meta's naive 3-op
+/// default χ=2 was the authoring error, corrected in `R0091.meta.json`).
 pub(crate) fn sub_feature_merge_direction(
     junction_verts: &std::collections::BTreeSet<u32>,
     conic_endpoint: &std::collections::BTreeSet<u32>,

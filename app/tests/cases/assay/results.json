@@ -2,7 +2,7 @@
   "errored": 55,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 251,
+  "passed": 250,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1139,10 +1139,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 120s CPU (subprocess killed)",
       "id": "F0090",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",

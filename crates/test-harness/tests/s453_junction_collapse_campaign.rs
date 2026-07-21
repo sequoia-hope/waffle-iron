@@ -110,22 +110,24 @@ fn r0011_no_conic_endpoint_wall() {
 }
 
 #[test]
-#[ignore = "spec §3b BANKED-UNWIRED: R0009's ellipse-endpoint wall (micro scale, \
-            1.05e-4) is the §4.4.1(b) merge-survivor mechanism, same as R0091. \
-            Wiring sub_feature_merge_direction clears it (R0009 → 1 pre-existing \
-            non-2-manifold error, no WRONG) but is blocked on the R0091 χ \
-            verification (see r0091 tracker). Un-ignore together with it"]
 fn r0009_no_conic_endpoint_wall() {
+    // Un-ignored with the §3b wiring (task #186, 2026-07-21). Measured: the
+    // ellipse-endpoint wall had ALREADY drifted to the §4.4.1(b)
+    // merge-budget LocalRefinementRequired wall (the #171 u32::MAX LRR
+    // class) — the case still ERRORs loudly there, wall absent, and the
+    // ranked survivor keeps it absent.
     assert_no_conic_endpoint_wall("R0009");
 }
 
 #[test]
-#[ignore = "spec §3b BANKED-UNWIRED: the exactness-ranked §4.4.1(b) merge survivor \
-            (sub_feature_merge_direction) clears this wall but flips R0091 to \
-            SUPPORTED_WRONG (χ=−4 vs meta 2 — three handles the authored numbers \
-            don't obviously predict; partial 219° revolve is genus 0). RED until \
-            the output's true χ is verified (sidecar reference parity) or the \
-            meta χ is refuted, then wire the ranked survivor and un-ignore"]
 fn r0091_no_conic_endpoint_wall() {
+    // Un-ignored with the §3b wiring (task #186, 2026-07-21). The §3b bank
+    // condition was resolved: R0091's true output χ = −4 (genus 3 — the
+    // tilted wide-tube cut leaves 4 corner pillars) was verified via the
+    // Cherchi sidecar reference boolean on the exact operand meshes AND an
+    // independent voxel-CSG derivation from the authored numbers; the
+    // meta's naive 3-op default χ=2 was the authoring error (corrected).
+    // Measured gate-OFF: the ellipse wall had already drifted to the
+    // merge-budget LRR wall (#171 class) — still a loud ERROR, wall absent.
     assert_no_conic_endpoint_wall("R0091");
 }

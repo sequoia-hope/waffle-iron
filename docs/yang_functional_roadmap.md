@@ -260,10 +260,24 @@ in the ledger is PERMANENT with user sign-off.
       byte-identical): gate-ON F0082's J/J2 corner assembles EXACTLY
       (phantom gone) and the STOP moves to the named J3 layer —
       rim×section-ellipse OSCULATION on the tube (tangential edge×edge,
-      #137-family / §4.3 sliver, spec §7.6). Flip (inc-5) ledger now:
-      R0091 ERROR→WRONG χ=−4 (silent — needs fix or a loud
-      production-side χ STOP) + C0102/C0103 grid-ruling collisions (the
-      §3.3 2+2 edge-split arm) + the F0082 J3 decision.*
+      #137-family / §4.3 sliver, spec §7.6). inc-4e SHIPPED 2026-07-21
+      (task #186, spec §7.7) — ALL THREE flip blockers resolved:
+      (1) C0102/C0103 → the §3.3 "2+2 edge-split fan" arm (within weld
+      band of a grid EDGE → split both incident triangles; vertex-band
+      stays loud) — both SUPPORTED_CORRECT gate-ON; (2) R0091's "silent
+      χ=−4" REFUTED as a kernel defect: the output χ=−4 (genus 3 — the
+      tilted cut tube leaves 4 corner pillars) was VERIFIED via Cherchi
+      sidecar reference parity on the exact operand meshes + an
+      independent voxel-CSG derivation from the authored numbers; the
+      meta euler_target=2 (naive 3-op default) was the authoring error,
+      corrected → R0091 gate-ON SUPPORTED_CORRECT (gate-OFF keeps its
+      honest merge-budget LRR STOP). The spec-§3b ranked merge survivor
+      (`sub_feature_merge_direction`, Yang Fig. 11(b)) is now WIRED
+      always-on (its bank condition was exactly this verification);
+      r0009/r0091 campaign trackers un-ignored. (3) F0082 J3 = honest
+      STOP in BOTH gate states (flip-neutral), stays the named
+      #137-family follow-up. Flip (inc-5) is now gated only on the
+      standard ledger (gate-ON ⊇ gate-OFF correctness, 0 WRONG).*
    c. **Curved-seam re-CDT** (R0072 class) and whatever the triage promotes.
    d. **§4.5.2 as guard shell only** (findings Q3: it recovers ~zero current
       cases — every confirmed LRR case is tangential/missing-solver/micro-
@@ -909,19 +923,19 @@ the roadmap's remaining work:
    ellipses into single output edges). Fix `reversal_collapse_direction`:
    junction p_n survives; the overshooting p_r is the victim. R0011
    ERROR(ellipse wall) → deeper loud render-CDT wall (R0072 class).
-   **(b) DIAGNOSED, BANKED-UNWIRED:** the §4.4.1(b) sub-feature merge picks
-   its survivor by LOWER INDEX, destroying an exactly-relocated conic
-   endpoint in favor of an unrelocated chord vertex (R0091 AND R0009's
-   ellipse walls — both micro scale). The ranked-survivor primitive
-   `sub_feature_merge_direction` (junction > conic endpoint > plain; equal
-   rank keeps the index rule) is banked with unit tests + mutation kills
-   but NOT wired: wiring it clears both ellipse walls (R0009 → 1
-   pre-existing non-2-manifold error, no WRONG) but flips R0091 ERROR →
-   SUPPORTED_WRONG (χ=−4 vs meta 2, unverifiable in-session — spec §3b
-   status has the unblock path: sidecar reference parity on the R0091
-   output, or refute the meta χ). Trackers
-   `test-harness/tests/s453_junction_collapse_campaign.rs`: R0011 GREEN;
-   R0009/R0091 documented `#[ignore]` RED (un-ignore when §3b wires).
+   **(b) WIRED 2026-07-21 (task #186):** the §4.4.1(b) sub-feature merge
+   picked its survivor by LOWER INDEX, destroying an exactly-relocated
+   conic endpoint in favor of an unrelocated chord vertex (R0091 AND
+   R0009's ellipse walls — both micro scale). The ranked-survivor
+   primitive `sub_feature_merge_direction` (junction > conic endpoint >
+   plain; equal rank keeps the index rule) is now WIRED always-on: its
+   bank condition (the unverifiable R0091 χ) was resolved by verifying
+   the output's true χ=−4 via Cherchi sidecar reference parity + an
+   independent voxel-CSG derivation from the authored numbers — the meta
+   euler_target=2 was the authoring error (corrected; see the P3b spec
+   §7.7). Trackers `s453_junction_collapse_campaign.rs`: all three GREEN
+   and un-ignored (measured: the R0009/R0091 ellipse walls had already
+   drifted to the merge-budget LRR wall, the #171 u32::MAX class).
    **(c) §3c straight-run reversal sweep SHIPPED 2026-07-08 (same spec):**
    the sweep's `all_conic` loop gate never corrected reversed sequences on
    STRAIGHT intersection runs — R0072's seam mints (chord-crossing
