@@ -261,14 +261,21 @@ the payoff waiting on the flip.
   LRR shell (R0061), plus F0085 timing.
 - **Re-measured gate-ON ledger (post-meta-fix, full release assay):
   256C/0W/52E/2T — NET +1 CORRECT over baseline with zero silent
-  wrongs** (deltas exactly: R0063/R0072/R0095 ERROR→CORRECT;
-  R0021/R0061 CORRECT→ERROR; F0085 ERROR→TIMEOUT). The arm stays
-  gated per the flip precedent (#169 P3b inc-5 required zero
-  CORRECT→ERROR regressions), but the trade is now documented as
-  net-positive; the flip lands when inc-3 clears the output-ring
-  class (expected to recover R0021 and move F0082 further) and R0061
-  is resolved or accepted as an honest re-route to its family's
-  known wall.
+  wrongs at the standard budget** (deltas exactly:
+  R0063/R0072/R0095 ERROR→CORRECT; R0021/R0061 CORRECT→ERROR;
+  F0085 ERROR→TIMEOUT). The arm stays gated per the flip precedent
+  (#169 P3b inc-5 required zero CORRECT→ERROR regressions); the flip
+  lands when inc-3 clears the output-ring class and R0061 is resolved
+  or refuted.
+- **F0085 "timing" downgraded to a REAL blocker (same day, 400s
+  run): gate-ON F0085 COMPLETES past the 120s budget as
+  SUPPORTED_WRONG χ=1** — an odd χ is impossible for any valid
+  closed surface, so this is an emitted-topology defect (no meta
+  correction can apply), merely MASKED as TIMEOUT at the standard
+  budget. F0085 is #145 misorder family — a third customer of the
+  inc-3 output-ring class alongside F0082-E14 and R0021. The flip
+  therefore strictly requires inc-3; do NOT flip on a
+  budget-raise-plus-accept basis.
 
 ### 5f. Inc-3 first measurement (2026-07-22, gate-ON
 `YANG_CDT_PROBE=370` 3D dump) — the disorder is a BOUNDARY-SELECTION

@@ -3330,15 +3330,27 @@ swapped every consumer to `predicates::indirect`).
     correctly rejected loud by the input-conversion CDT at the next
     boolean). That is a DISTINCT defect (#145/#184 sample-order
     family, minted in op-11's output/`from_yang` path) → inc-3.
-    **Gate-ON corpus (spec §5e): 255C/1W/52E/2T — R0072/R0095
-    ERROR→CORRECT conversions banked, but R0063 ERROR→silent-WRONG
-    χ=0 (flip blocker), R0021/R0061 CORRECT→ERROR, F0085→TIMEOUT ⇒
-    the always-on flip is BLOCKED (P10) and the arm ships gated
-    off; gate-OFF corpus byte-identical.** Flip preconditions in spec
-    §5e; R0063's gate-ON WRONG is likely the same output-loop-disorder
-    class as the Extrude-14 frontier — inc-3 characterizes both.
-    `YANG_CDT_PROBE` extended with a 3D global-vert +
-    outer-edge/chain dump for tracing it.
+    **Gate-ON corpus (spec §5e, post-triage 099c8d39): 256C/0W/52E/2T
+    — NET +1 CORRECT over baseline, zero silent wrongs.** The
+    first-run "R0063 silent-WRONG flip blocker" was REFUTED as a meta
+    authoring error (euler_target 2→0; genus-1 derived exactly from
+    the authored numbers, the R0091/#186 pattern) — R0063 is the
+    THIRD conversion alongside R0072/R0095. Remaining gate-ON deltas
+    all route to KNOWN walls (no new defect class): R0021 = F0045
+    render ring-reject, the SAME output-ring detour class as F0082's
+    gate-ON Extrude-14 frontier (§5f — one inc-3 fix plausibly clears
+    both); R0061 = the u32::MAX LRR split_max_passes §4.5.2 shell
+    (#171 class); **F0085 = a REAL blocker, not timing — at a 400s
+    budget it COMPLETES as silent-WRONG χ=1 (odd χ = impossible for
+    any valid closed surface; the 120s TIMEOUT merely masks it);
+    #145 family = a third inc-3 output-ring customer.** The arm
+    stays gated per the zero-regression flip precedent; gate-OFF
+    corpus byte-identical.
+    Inc-3 = the output-ring boundary-selection detour (the #188
+    dead-side fingerprint at the newly-minted junction, spec §5f);
+    its fix is the flip path. `YANG_CDT_PROBE` extended with a 3D
+    global-vert + outer-edge/chain dump; `KV2_OUT_TOPO_PROBE` banked
+    (per-output-face pinch / outer-inner shared-vert scan).
   - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
     post-#143), with two fresh class diagnoses:**
     (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —
