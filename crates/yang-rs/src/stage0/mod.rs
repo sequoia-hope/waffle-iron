@@ -188,6 +188,47 @@ fn probe(tag: &str, detail: &str) {
 /// byte the pre-YR26 path). `Ok(Some(_))` = handled. `Err` = unsupported
 /// residue (loud typed YR24 wall).
 pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, YangError> {
+    // TEMP characterization probe (#130 F0082 Extrude-12 layer): dump B's
+    // full face list + A faces whose loop AABB covers the given (x,z)
+    // column, format "x,z". Read-only, env-gated.
+    if let Ok(spec) = std::env::var("YANG_OPFACE_DUMP") {
+        let parts: Vec<f64> = spec.split(',').filter_map(|s| s.parse().ok()).collect();
+        if parts.len() == 2 {
+            let (cx, cz) = (parts[0], parts[1]);
+            let tol = 1e-3;
+            for (tag, brep, filter) in [("B", b, false), ("A", a, true)] {
+                for (fi, f) in brep.faces().iter().enumerate() {
+                    if filter {
+                        let mut lo = [f64::INFINITY; 3];
+                        let mut hi = [f64::NEG_INFINITY; 3];
+                        for lp in std::iter::once(&f.outer_loop).chain(f.inner_loops.iter()) {
+                            for &e in lp {
+                                if let Some(edge) = brep.edges().get(e as usize) {
+                                    for vi in [edge.start, edge.end] {
+                                        if let Some(v) = brep.vertices().get(vi as usize) {
+                                            let p = v.point.as_array();
+                                            for k in 0..3 {
+                                                lo[k] = lo[k].min(p[k]);
+                                                hi[k] = hi[k].max(p[k]);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if !(lo[0] - tol <= cx
+                            && cx <= hi[0] + tol
+                            && lo[2] - tol <= cz
+                            && cz <= hi[2] + tol)
+                        {
+                            continue;
+                        }
+                    }
+                    eprintln!("[opface] {tag}#{fi} surface={:?}", f.surface);
+                }
+            }
+        }
+    }
     let scan = scan_near_coplanar(a, b);
 
     // Intra-solid near pairs stay the loud unsupported residue (see module

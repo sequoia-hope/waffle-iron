@@ -153,6 +153,25 @@ carries features between the clustering ceiling and TAU_MODEL.
   clamp; RED→GREEN unit
   `micro_scale_diagonal_legit_feature_survives_detection_band`). The
   UNSUPPORTED(coplanar-boolean) corpus tail is EMPTY.
+- 2026-07-22 (same day, follow-on characterization): **the F0082
+  Extrude-12 "M8 coplanar-residue" layer (#188 spec §10.10 defect 1) is
+  REFUTED as a Stage-0 class on the current tree** — probes
+  `YANG_SCAN_NEARMISS_PROBE` (new, banked in `scan_near_coplanar`: dumps
+  plane-test failures with gap<1e-3 and AABB-overlap failures) and
+  `YANG_OPFACE_DUMP=x,z` (new, banked in `stage0_preprocess`: per-op face
+  dump filtered to an (x,z) column). Measured: all 55 near-miss pairs in
+  the F0082 chain sit ≥4e-5 gap (≥400× band) with misaligned normals;
+  Extrude 12's tool is an 8-plane prism whose sketch-plane family is a
+  THIRD orientation (≥0.019 rad off both A wall families), and NO tool
+  plane contains the defect-cluster verts (seal column, axis point v935 —
+  residuals 0.015–0.5). The live Extrude-12 STOP signature today =
+  §10.10 defect 2 exactly: double-cover edges (930,931)/(930,934)/
+  (931,971)/(932,994) at the seal cluster and the edge-connected
+  sub-TAU_WORK twin v971/v972 at 5.5e-14, plus tool↔A shared-sketch-vert
+  re-mints — ALL arrangement-level. The whole Extrude-12 residual routes
+  to task #194; no Stage-0/M8 work is actionable on it. With all four
+  census mechanisms retired and the UNSUPPORTED(coplanar) tail empty,
+  the #130 campaign charter is COMPLETE.
 - 2026-07-22 full release ledger: **255C / 0W / 54E / 1T** on 312 (was
   252C/0W/55E/2U/1T). Deltas: R0007+R0071 UNSUPPORTED→CORRECT (targets);
   **F0069 ERROR→CORRECT bonus** — the #153 off-plane planar-face emission

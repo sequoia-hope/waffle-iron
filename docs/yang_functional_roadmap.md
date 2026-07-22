@@ -3239,10 +3239,22 @@ swapped every consumer to `predicates::indirect`).
     ERROR→CORRECT bonus** (#153's 3e-8@2m off-plane emission wall was
     manufactured by the un-clamped clustering band's legal 1e-7 coord
     moves — half of #153 resolved; F0072 remains, budget-TIMEOUT), R0081
-    detail-only shift. Parity + rewrite + fast tiers green. Remaining
-    #130 scope: the F0082 Extrude-12 coplanar layer (#188 spec §10.10
-    defect 1: tool base plane coplanar with the seal-region face, curved
-    rim crossings in the overlap — the C0048-class Stage-0 gap).
+    detail-only shift. Parity + rewrite + fast tiers green.
+    **Same-day follow-on: the F0082 Extrude-12 "M8 coplanar-residue"
+    layer (#188 spec §10.10 defect 1) is REFUTED as a Stage-0 class** —
+    new banked probes `YANG_SCAN_NEARMISS_PROBE` + `YANG_OPFACE_DUMP`
+    measured NO near-coplanar A×B pair anywhere in the F0082 chain (all
+    55 near-misses ≥400× band, misaligned normals; Extrude 12's 8-plane
+    tool is a third sketch-plane orientation and no tool plane contains
+    the defect-cluster verts). The live Extrude-12 STOP = §10.10
+    defect 2 exactly (edge-connected sub-TAU_WORK twin v971/v972 @
+    5.5e-14 + shared-sketch-vert re-mints) — the WHOLE residual routes
+    to task #194 (arrangement-level, spec-first). **Task #130 CLOSED:
+    the census's four mechanisms are all retired and the
+    UNSUPPORTED(coplanar-boolean) tail is empty.** Remaining M8-family
+    open items are the deeper typed walls of the ex-RoundingCollapse
+    trio (#144 opposite-rim snap-rounding for F0067/C0048) and #178's
+    cylinder/tilt analogs (need corpus cases first).
   - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
     post-#143), with two fresh class diagnoses:**
     (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —

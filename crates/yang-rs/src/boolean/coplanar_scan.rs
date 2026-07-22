@@ -311,6 +311,7 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
     // PR-YR26: collect ALL such pairs (Stage 0 overlays each), not just the
     // first.
     let mut cross: Vec<CrossCoplanarPair> = Vec::new();
+    let near_miss_probe = std::env::var_os("YANG_SCAN_NEARMISS_PROBE").is_some();
     for (ia, pa) in fa.iter().enumerate() {
         let Some(pa) = pa else { continue };
         for (ib, pb) in fb.iter().enumerate() {
@@ -324,6 +325,28 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
                         gap,
                         sub_resolution,
                     });
+                } else if near_miss_probe {
+                    eprintln!(
+                        "[scan-nearmiss] pair=({ia},{ib}) PASSED plane test (gap={gap:.3e} band={band:.3e}) but AABB overlap FAILED: a=[{:?},{:?}] b=[{:?},{:?}]",
+                        pa.lo, pa.hi, pb.lo, pb.hi
+                    );
+                }
+            } else if near_miss_probe {
+                // Re-derive the two rejection quantities for the dump.
+                let dot = pa.n[0] * pb.n[0] + pa.n[1] * pb.n[1] + pa.n[2] * pb.n[2];
+                let s = if dot >= 0.0 { 1.0 } else { -1.0 };
+                let gap = (pa.d - s * pb.d).abs();
+                if gap < 1e-3 {
+                    let cr = [
+                        pa.n[1] * pb.n[2] - pa.n[2] * pb.n[1],
+                        pa.n[2] * pb.n[0] - pa.n[0] * pb.n[2],
+                        pa.n[0] * pb.n[1] - pa.n[1] * pb.n[0],
+                    ];
+                    let sin = (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
+                    eprintln!(
+                        "[scan-nearmiss] pair=({ia},{ib}) plane test FAILED: gap={gap:.3e} sin={sin:.3e} na={:?} nb={:?} da={:.6e} db={:.6e}",
+                        pa.n, pb.n, pa.d, pb.d
+                    );
                 }
             }
         }
