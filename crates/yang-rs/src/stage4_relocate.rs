@@ -1828,6 +1828,37 @@ pub(crate) fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
         // closed orientable manifold → a real defect (NOT a tolerance/fallback
         // relaxation; P9/P10).
         if chi > 2 || chi.rem_euclid(2) != 0 {
+            // Probe-only forensics (#188 inc-7): an odd χ means double-cover
+            // edges (fwd == rev ≥ 2, admitted above per the tangency-seam
+            // record) unbalance the count — name them with coordinates and
+            // incident triangles so the site self-localizes.
+            if std::env::var("NONMANIFOLD_SITE_PROBE").is_ok() {
+                for (&(s, e), &fwd) in &dir {
+                    if s < e && fwd >= 2 {
+                        eprintln!(
+                            "NONMANIFOLD_SITE_PROBE s4-shell-euler double-cover \
+                             edge ({s},{e}) fwd={fwd} v{s}={:?} v{e}={:?}",
+                            mesh.verts[s as usize], mesh.verts[e as usize]
+                        );
+                        for (ti, tri) in mesh.tris.iter().enumerate() {
+                            let has = |a: u32, b: u32| {
+                                [(0, 1), (1, 2), (2, 0)]
+                                    .iter()
+                                    .any(|&(i, j)| tri[i] == a && tri[j] == b)
+                            };
+                            if has(s, e) || has(e, s) {
+                                eprintln!(
+                                    "NONMANIFOLD_SITE_PROBE   tri {ti}: {tri:?} \
+                                     [{:?} {:?} {:?}]",
+                                    mesh.verts[tri[0] as usize],
+                                    mesh.verts[tri[1] as usize],
+                                    mesh.verts[tri[2] as usize]
+                                );
+                            }
+                        }
+                    }
+                }
+            }
             return Err(non_manifold_at(
                 "s4-shell-euler",
                 format_args!("shell root {root} chi={chi} v={v} e={e} f={f}"),

@@ -777,3 +777,57 @@ non-2-manifold` — a new layer needing its own probe pass (inc-7).
 Candidate mechanisms to probe first: `to_yang` tessellation of the
 1e-4-scale cavity seal face as next-op input; the notch verts'
 junction handling in the next arrangement.
+
+### 10.10 inc-7 characterization (2026-07-22, probe-only so far)
+
+`NONMANIFOLD_SITE_PROBE` (with a new probe-only double-cover dump in
+`check_watertight_2manifold`): Extrude 12 STOPs at `s4-shell-euler
+χ=3` — the one-book-edge signature — and every double-cover edge sits
+in the SEAL NEIGHBORHOOD of the input body (the wall-plane column at
+x≈0.30945624841642, z≈2.0942; v932 = old v925 exactly). Findings:
+
+- **Twin pair v971/v972 separated ~5e-14** — 100× TAU_MODEL (exact
+  dedup can't see it), 9 orders below feature scale — with a
+  zero-area flap `[972,971,977]` spanning them; the twin micro-edge
+  carries 4 face-uses (tris 1904/1905/2029/2033, four DISTINCT
+  triangles — not a cancelling membrane pair, so
+  `remove_doubled_membranes` correctly does not fire).
+- Secondary near-dups: v970 within ~5e-5 of v936 (= the seal vert,
+  old v926's position); double-cover edges (934,936) and (972,994)
+  adjacent to the same cluster.
+- One triangle vertex (v935) lies AT the tube axis point — Extrude
+  12's tool is likely coaxial with the tube.
+
+Class: the "#146/#169 two-computations-of-one-junction are never
+bit-equal" mint family. Provenance (`CHERCHI_VERT_PROVENANCE=1e-13`)
+decomposes Extrude 12 into TWO known-family defects, both OUTSIDE
+the #188 envelope scope:
+
+1. **M8 coplanar-residue family (task #130)**: the tool's base plane
+   is COPLANAR with the seal-region face — shared input verts
+   (`A#926=B#34`, `A#929=B#35`) — and the tool's apex vertex `B#38`
+   sits exactly at the tube axis point ON that plane, so all six
+   incident tool edges re-mint it via LPI 1.5–4.3e-14 from the
+   explicit vert; a tool-base triangle spans from the seal column to
+   the axis (coplanar overlap with curved rim crossings = the C0048/
+   #130 class the Stage-0 overlay does not yet cover).
+2. **Sub-TAU_WORK edge-connected twin**: A's own mesh (the
+   seal-carrying body's tessellation) self-grazes at the seal corner;
+   the arrangement mints the same A-edge×A-edge junction TWICE with
+   swapped LPI roles (`line[A#925→A#986]×plane[A#1006,948,949]` vs
+   `line[A#949→A#948]×plane[A#925,986,967]`, both sin≈0.54,
+   d=5.5e-14), connected by a mesh EDGE, spawning the zero-area flap
+   `[972,971,977]` → the χ=3 book edge. The I6/KV15 near-weld
+   deliberately excludes curved-incident verts (the KV9 lens-tip
+   record), and Stage-4's KV9 collapse only reconciles THIS op's
+   curve junctions — nobody owns an edge-CONNECTED sub-TAU_WORK pair
+   from operand self-grazing. A candidate narrow fix (new spec
+   needed, P10): collapse mesh EDGES shorter than TAU_WORK·(1+scale)
+   — an edge below working precision is not a representable segment;
+   this is narrower than proximity welding and cannot touch KV9's
+   unconnected ring duplicates. NOT in #188 scope.
+
+inc-7 therefore CLOSES the #188-scoped F0082 work: every remaining
+layer belongs to the M8 coplanar campaign / the arrangement twin
+class. Next #188 step = the §5 flip track: full gate-ON corpus
+ledger (watch-list F0085/F0084/F0076) + detector promotion decision.
