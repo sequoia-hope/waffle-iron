@@ -35,6 +35,7 @@ mod p3b_rim_pierce;
 mod p3b_tube_insertion;
 mod s188_envelope;
 mod s194_edge_collapse;
+mod s195_rim_plane_graze;
 mod stage0_rim_projection;
 mod stage1_cdt_flap;
 mod topology;

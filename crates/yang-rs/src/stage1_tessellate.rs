@@ -1775,6 +1775,29 @@ pub(crate) fn tessellate_planar_curved_cdt_face(
                 p.y().to_bits()
             );
         }
+        // #195 inc-3: the 3D view of the same loop — global vert ids +
+        // world coords, to trace a disordered boundary back to the stage
+        // that minted it (the 2D dump alone cannot be inverted through
+        // the face-plane projection).
+        for (i, &g) in global_of_local.iter().enumerate() {
+            let p = out_verts[g as usize].as_array();
+            eprintln!(
+                "[cdt-probe] v {i} global {g} = ({:?}, {:?}, {:?})",
+                p[0], p[1], p[2]
+            );
+        }
+        // The loop's edge structure: which B-Rep edges compose the outer
+        // loop, with endpoints and curve kinds (chains expand between).
+        for &ei in &f.outer_loop {
+            let e = &edges[ei as usize];
+            eprintln!(
+                "[cdt-probe] outer edge {ei}: v{}→v{} {:?} chain_len={}",
+                e.start,
+                e.end,
+                std::mem::discriminant(&e.curve),
+                chains.get(&ei).map_or(0, Vec::len)
+            );
+        }
         eprintln!("[cdt-probe] outer = {outer_local:?}");
         eprintln!("[cdt-probe] holes = {holes_local:?}");
     }

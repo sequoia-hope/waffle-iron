@@ -3304,6 +3304,41 @@ swapped every consumer to `predicates::indirect`).
     trim (the deferred J3 osculation corner assembly) vs #172-pattern
     pre-tessellation graze rebuild; consumer-side normalization
     REJECTED (P9).
+  - **#195 inc-2 SHIPPED 2026-07-22 GATED OFF (spec §5,
+    `YANG_RIM_PLANE_GRAZE_ENABLE=1|on`): rim×plane graze-guard arm**
+    — the vehicle decision was measurement-grounded
+    (Phase-0 `YANG_NSEG_FLOOR` release sweep: baseline ERROR; floor 32
+    silent WRONG χ=1; 40/41/48/64 CORRECT with the whole chain's
+    operand meshes scanning CLEAN — the paper's §4.5.4
+    detect-and-refine remedy holds end-to-end on the shipped
+    pipeline). New `rim_plane_graze_n` /
+    `rim_plane_graze_min_segments` (boolean/rim_junction.rs) mirror
+    the #172 Case-III guard for a Circle rim shallowly crossing a
+    partner Plane face: `depth = r·k − |m̂·c+d̂|`, demand the minimal N
+    with `sag(r,N) ≤ depth/2` (the floor-32 WRONG row is the measured
+    proof the factor-2 margin is load-bearing), #178 noise line +
+    `2·10⁻³·r` render-observability line + self-limiting natural-N
+    gate; NO SubSagitta STOP arm and NO phase filter (spec §5c —
+    F0082's wall face legitimately intersects the tube elsewhere, a
+    face-global touch test would veto the needed boost). On F0082 the
+    guard fires on three tube unions (N=53/43/22), the producing
+    union's emitted B-Rep is no longer self-intersecting, and
+    **Extrude 12 SUCCEEDS — the #195 characterized defect is FIXED by
+    the mechanism; the case's frontier moves to never-before-reached
+    Extrude 14**: a disordered output-face boundary loop (one mid-arc
+    sample appended after the chain end → self-crossing loop,
+    correctly rejected loud by the input-conversion CDT at the next
+    boolean). That is a DISTINCT defect (#145/#184 sample-order
+    family, minted in op-11's output/`from_yang` path) → inc-3.
+    **Gate-ON corpus (spec §5e): 255C/1W/52E/2T — R0072/R0095
+    ERROR→CORRECT conversions banked, but R0063 ERROR→silent-WRONG
+    χ=0 (flip blocker), R0021/R0061 CORRECT→ERROR, F0085→TIMEOUT ⇒
+    the always-on flip is BLOCKED (P10) and the arm ships gated
+    off; gate-OFF corpus byte-identical.** Flip preconditions in spec
+    §5e; R0063's gate-ON WRONG is likely the same output-loop-disorder
+    class as the Extrude-14 frontier — inc-3 characterizes both.
+    `YANG_CDT_PROBE` extended with a 3D global-vert +
+    outer-edge/chain dump for tracing it.
   - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
     post-#143), with two fresh class diagnoses:**
     (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —

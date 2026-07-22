@@ -458,6 +458,134 @@ pub(crate) fn graze_min_rim_segments(a: &BRep, b: &BRep) -> Result<Option<usize>
     })
 }
 
+/// One rim×plane pair's shallow-crossing demand (#195 inc-2, spec
+/// `yang_195_seal_neighborhood_self_overlap` §5): a Circle rim edge
+/// (center `c`, unit normal `n`, radius `r`) of one operand crossing a
+/// partner PLANE face (`m̂·p + d̂ = 0`) at a shallow extent. The circle's
+/// signed distances to the plane span `s ± r·k` (`s = m̂·c + d̂`,
+/// `k = √(1−(n·m̂)²)`); it crosses iff `|s| < r·k`, and the shallow-side
+/// extent is `depth = r·k − |s|`. The rim's chords recede radially inward
+/// by at most `sag(r,N)`, so a crossing with `depth ≤ sag` can be MISSED
+/// by the Stage-1 mesh — the arrangement then mints no curve, labeling
+/// keeps the whole submerged region, and Stage-4 relocation mints the true
+/// junction BEYOND the plane, emitting a self-intersecting B-Rep (the
+/// measured F0082 producing-union defect; Yang §4.5.4 class, remedied by
+/// refinement exactly as the paper prescribes). Demand the smallest `N`
+/// with `sag(r, N) ≤ depth/2` — single-sided recession (the plane's mesh
+/// is exact), same factor-2 margin as Case-IV/III (measured: F0082 floor
+/// 32 = sag<depth but no margin → silent WRONG; derived 41 → CORRECT).
+///
+/// Scope lines (spec §5c): depth at or below the #178-calibrated noise
+/// line (authored flush-assembly rims) or below the render-observability
+/// line `2·10⁻³·r` (sub-render lens, §4.5.2 local-refinement territory)
+/// demands nothing; N > 4096 demands nothing for inc-2 (NO SubSagitta
+/// STOP arm — the emitted class detonates loudly at the next boolean's
+/// (4b) gate; a producer-side STOP is a named follow-up needing the
+/// plane-face extent witness). No phase-aware mesh-touch filter: the
+/// partner plane face may legitimately intersect the rim's operand
+/// ELSEWHERE (F0082's wall is crossed by the tube lateral) while the rim
+/// crossing is still missed — a face-global touch test would veto the
+/// needed boost, and the render line already bounds N ≈ 71.
+pub(crate) fn rim_plane_graze_n(
+    (c, n, r): ([f64; 3], [f64; 3], f64),
+    (m, d): ([f64; 3], f64),
+) -> Option<usize> {
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let mlen = dot(m, m).sqrt();
+    if mlen.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+        return None; // degenerate plane / NaN
+    }
+    let mh = [m[0] / mlen, m[1] / mlen, m[2] / mlen];
+    let dh = d / mlen;
+    let ndm = dot(n, mh);
+    let k = (1.0 - ndm * ndm).max(0.0).sqrt();
+    let s = dot(mh, c) + dh;
+    let depth = r * k - s.abs();
+    if depth.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+        return None; // no crossing / rim in-plane / NaN
+    }
+    // #178-calibrated coincidence-authoring noise line (same form as
+    // `cyl_pair_graze_demand`): flush-assembly rims arrive with sub-noise
+    // crossing residue and must not boost.
+    let mut scale = r;
+    for &v in c.iter() {
+        scale = scale.max(v.abs());
+    }
+    scale = scale.max(dh.abs());
+    let noise = cad_primitives::TAU_MODEL.max(scale * cad_primitives::TAU_WORK) / 100.0;
+    if depth <= noise {
+        return None;
+    }
+    // Render-observability line, single-radius form of #172 §3: a lens
+    // shallower than the render mesh's own rim sagitta cannot be
+    // represented at any output resolution; bounds the derived N ≈ 71.
+    if depth <= 2.0e-3 * r {
+        return None;
+    }
+    let sag = |n_seg: usize| r * (1.0 - (std::f64::consts::PI / n_seg as f64).cos());
+    let mut n_seg = 3usize;
+    while sag(n_seg) > depth / 2.0 {
+        n_seg += 1;
+        if n_seg > 4096 {
+            return None; // inc-2: no STOP arm (spec §5c)
+        }
+    }
+    Some(n_seg)
+}
+
+/// #195 inc-2 scan: the forced minimum rim segment count over all
+/// cross-operand rim-circle × plane-face pairs that shallowly cross
+/// (spec `yang_195_seal_neighborhood_self_overlap` §5). Self-limiting
+/// like the Case-IV/III guards: a demand both solids' natural Stage-1 N
+/// satisfies is dropped by the caller-shared gate here, keeping the
+/// common path byte-identical.
+pub(crate) fn rim_plane_graze_min_segments(a: &BRep, b: &BRep) -> Option<usize> {
+    let rims = |brep: &BRep| -> Vec<([f64; 3], [f64; 3], f64)> {
+        brep.edges()
+            .iter()
+            .filter_map(|e| match e.curve {
+                Curve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => Some((center.as_array(), normalize3(normal.as_array()), radius)),
+                _ => None,
+            })
+            .collect()
+    };
+    let planes = |brep: &BRep| -> Vec<([f64; 3], f64)> {
+        brep.faces()
+            .iter()
+            .filter_map(|f| match f.surface {
+                Surface::Plane { normal, d } => Some((normal.as_array(), d)),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut req: Option<usize> = None;
+    for (x, y) in [(a, b), (b, a)] {
+        for &rim in &rims(x) {
+            for &pl in &planes(y) {
+                if let Some(n) = rim_plane_graze_n(rim, pl) {
+                    req = Some(req.map_or(n, |r: usize| r.max(n)));
+                }
+            }
+        }
+    }
+    let gated = match req {
+        Some(n) if n > natural_rim_n(a) || n > natural_rim_n(b) => Some(n),
+        _ => None,
+    };
+    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+        eprintln!(
+            "[rim-plane-graze] req={req:?} natural=({},{}) gated={gated:?}",
+            natural_rim_n(a),
+            natural_rim_n(b),
+        );
+    }
+    gated
+}
+
 /// N2/F0059 epic increment 2, BANKED-UNWIRED (spec
 /// `yang_rim_junction_insertion`): per full-circle rim edge of `x`, the
 /// exact points where that rim circle transversally CROSSES one of `y`'s

@@ -138,7 +138,100 @@ Consumer-side normalization (re-arranging inherited self-overlap at
 Stage 1 of the next boolean) is REJECTED: it would silently launder
 invalid producer output (P9).
 
-## 4. Ledger
+## 5. Inc-2 — vehicle DECIDED: rim×plane graze-guard arm (#172 pattern)
+
+### 5a. Phase-0 measurement (2026-07-22, release single_case sweep,
+`YANG_NSEG_FLOOR` with the debug gate locally lifted)
+
+| rim-N floor | F0082 verdict |
+|---|---|
+| baseline | ERROR (the loud Extrude-12 χ=3 STOP) |
+| 32 | **SUPPORTED_WRONG χ=1** — under-sampling is worse than none (silent) |
+| 40 / 41 / 44 / 48 / 64 | SUPPORTED_CORRECT (all oracles) |
+
+Mechanism verified at floor 48 with `YANG_INPUT_SELFX_PROBE`: **every
+operand mesh in the whole chain scans clean** (baseline: Extrude-12's
+operand A improper=5). The producing union's emitted B-Rep stops being
+self-intersecting — the paper's §4.5.4 remedy ("we detect these illegal
+intersections and perform local refinement … these illegal intersections
+are eliminated", `refs/text/yang2025_hybrid_boolean.txt:752-757`) holds
+end-to-end on the shipped pipeline: once the Stage-1 mesh samples the
+cap×wall crossing, the arrangement mints the true curve, labeling trims
+the overhang, the junction/envelope machinery (#146/#169/#188) assembles
+the corner, and no submerged relocation occurs. This is the #172 Case-III
+fingerprint exactly (transversal graze, ERROR→CORRECT once sampled — not
+the #137 tangential-wander class).
+
+Vehicle 1 (Stage-4/5 corner-junction trim) is NOT needed for this class:
+the junctions assemble themselves once the crossing is sampled. It
+remains the named vehicle for true tangential/osculation classes (#137).
+
+### 5b. Detection class
+
+Cross-operand pair: a **Circle rim edge** (closed or arc) of operand X ×
+a **Plane face** of operand Y, both directions. With rim (center c, unit
+normal n, radius r) and plane (unit normal m̂, m̂·p + d̂ = 0):
+
+- `k = √(1 − (n·m̂)²)` (sine of the plane/rim-plane angle),
+- signed circle-point distance to the plane spans `s ± r·k`, `s = m̂·c + d̂`,
+- the rim crosses the plane iff `|s| < r·k`; the shallow-side extent is
+  `depth = r·k − |s|`.
+
+The rim's chords recede radially inward by at most `sag(r,N) =
+r(1−cos(π/N))`, so a crossing with `depth ≤ sag` can be missed by the
+mesh (the plane's own mesh is exact — single-sided recession, unlike
+#172's two-cylinder sum). Demand the smallest N with
+`sag(r, N) ≤ depth/2` — the same factor-2 margin as #172/Case-IV
+(guaranteed mesh-level penetration ≥ depth/2 regardless of chord phase;
+A14.3: a finer N is always chord-valid). The floor-32 WRONG row is the
+measured justification for the margin: bare sampling (sag < depth) is
+not enough; margin ≥ depth/2 is (F0082: derived N=41, measured green).
+
+### 5c. Branch table
+
+| Case | Behavior |
+|---|---|
+| `depth ≤ 0` (no crossing / rim in-plane k→0) | None |
+| `0 < depth ≤ noise` (#178-calibrated `max(TAU_MODEL, scale·TAU_WORK)/100`) | authored-coincidence residue → None (flush-assembly rims must not boost) |
+| `noise < depth ≤ 2·10⁻³·r` (render-observability line, single-radius form of #172 §3) | None — sub-render lens, §4.5.2 local-refinement territory (P3d); bounds derived N ≈ 71 |
+| `depth > 2·10⁻³·r`, derived N ≤ both naturals | self-limiting gate drops it → byte-identical |
+| `depth > 2·10⁻³·r`, derived N > natural | **Boost** both operands via `rebuilt_with_min_rim_segments` (same site as Case-IV/III) |
+| derived N > 4096 | None for inc-2 — NO SubSagitta STOP arm yet (unlike #172): the class detonates loudly at the next boolean's (4b) gate when emitted; a producer-side STOP (§3 vehicle 3) needs the plane-face extent witness and is a named follow-up, not silently folded in |
+| infinite-plane crossing off the bounded face | false boost, cost only (bounded N ≈ 71) — boost arm needs no extent check (mirror of #172) |
+| no phase-aware filter for this arm | #172's face-global tri-touch filter is WRONG here: F0082's wall face IS legitimately crossed by the tube lateral elsewhere, yet the cap-rim crossing is still missed — a face-global "meshes touch" test would veto the needed boost. The render line bounds N ≈ 71, so the C0057-class TIMEOUT hazard the filter existed for does not arise; the corpus assay is the P10 verdict |
+
+### 5d. Oracles
+
+- Unit (`tests_unit/s195_rim_plane_graze.rs`): F0082-analog pair →
+  Boost(41); deep crossing → tiny N (absorbed by natural N); depth
+  below noise → None; sub-render depth → None; rim
+  parallel-in-plane → None; tilted rim k-scaling.
+- Gate-ON F0082: the producing union's emitted B-Rep scans clean
+  (`YANG_INPUT_SELFX_PROBE` improper 5→0) and Extrude 12 succeeds.
+- Gate-OFF full assay: byte-identical to the 255C/0W/54E/1T baseline.
+
+### 5e. Gate-ON corpus ledger (2026-07-22 full release assay) — flip BLOCKED
+
+The guard ships GATED OFF (`YANG_RIM_PLANE_GRAZE_ENABLE=1|on` to
+enable). Gate-ON measured 255C/1W/52E/2T with these per-case deltas:
+
+| Case | Delta | Reading |
+|---|---|---|
+| F0082 | ERROR detail moves Extrude 12 → Extrude 14 | the #195 defect is FIXED; new frontier = disordered output-face loop (inc-3, distinct #145/#184-family defect in op-11's output path) |
+| R0072 | ERROR → **CORRECT** | conversion banked (the long-standing curved re-CDT micro-scale STOP clears once the graze is sampled) |
+| R0095 | ERROR → **CORRECT** | conversion banked |
+| R0063 | ERROR → **SUPPORTED_WRONG χ=0** | **THE FLIP BLOCKER** — the boost's chord-phase shift un-masks a silent-wrong path (R0063 is #145 misorder family; likely same class as the F0082 Extrude-14 frontier) |
+| R0021, R0061 | CORRECT → ERROR | loud regressions (R0061 = the known dense-mint-sensitive case, third recurrence) |
+| F0085 | ERROR → TIMEOUT | boost-induced slowdown |
+| 17 cases | detail-only churn within ERROR | the guard fires broadly; STOPs move within the same class |
+
+Flip preconditions (in order): (1) R0063 gate-ON must not be WRONG —
+characterize via the same output-loop-disorder lens as inc-3 (they are
+likely one class); (2) R0021/R0061 gate-ON regressions resolved or
+refuted; (3) F0085 timing within budget. Conversions R0072/R0095 are
+the payoff waiting on the flip.
+
+## 6. Ledger
 
 - 2026-07-22: task opened (#194 close-out). Output attribution + input
   selfx probes landed (`s4-dc-attr` arm in `stage4_correct.rs` (4b) gate;
@@ -147,6 +240,27 @@ invalid producer output (P9).
   defect — the producing union's output B-Rep is self-intersecting at
   the wall-masked seal corner v925 (+1.25e-3 beyond wall face 368, kept
   as a boundary vertex of faces 362/370/371/373).
+- 2026-07-22 inc-2 (same day): vehicle 2 DECIDED, built, SHIPPED
+  **GATED OFF** (`YANG_RIM_PLANE_GRAZE_ENABLE`, §5) —
+  `rim_plane_graze_n` + `rim_plane_graze_min_segments` in
+  `boolean/rim_junction.rs`, folded into the `boolean()` guard req
+  alongside the Case-IV/III arms; 4 unit tests
+  (`tests_unit/s195_rim_plane_graze.rs`, incl. the F0082 analog
+  deriving the measured-green N=41). Gate-ON F0082: the guard fires on
+  three tube unions (N=53/43/22); the producing union's emitted B-Rep
+  scans CLEAN (`YANG_INPUT_SELFX_PROBE`: baseline improper=5 → 0) and
+  **Extrude 12 succeeds — the characterized #195 defect is FIXED by
+  the mechanism**. The case's frontier moves one op deeper into
+  never-before-reached territory: Extrude 14's input conversion
+  rejects a DISORDERED output-face boundary loop (face 370, 10 verts,
+  one mid-arc sample appended after the chain end → self-crossing
+  loop; the loud CDT reject is correct) — a distinct #145/#184-family
+  defect minted in op-11's output/`from_yang` path → inc-3.
+  Gate-ON corpus ledger §5e: R0072/R0095 conversions banked, but
+  R0063 ERROR→silent-WRONG χ=0 + R0021/R0061 CORRECT→ERROR +
+  F0085→TIMEOUT block the always-on flip (P10) — hence the gate.
+  `YANG_CDT_PROBE` extended with a 3D global-vert + outer-edge/chain
+  dump for the inc-3 trace.
 - 2026-07-22 inc-1 (same day): producing-op mechanism MEASURED (§2d)
   via `YANG_SELFX_PROBE` chain sweep — inputs clean, kept mesh dirty
   (7 improper pairs at the seal corner incl. an intra-tool pair) ⇒ the

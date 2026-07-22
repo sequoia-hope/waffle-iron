@@ -377,14 +377,35 @@ pub fn boolean(
     // whose true trims interpenetrate). Boost so the meshes must sample
     // the wedge; a genuine sub-resolution graze STOPs loudly
     // (`SubSagittaGrazeIntersection`).
-    let req = match (
+    // Rim×plane graze arm (spec `yang_195_seal_neighborhood_self_overlap`
+    // §5, #195 inc-2): a rim circle shallowly crossing a partner PLANE face
+    // (extent below the rim's chord sagitta) is missed by the meshes; the
+    // labeling then keeps the submerged region and Stage-4 relocation mints
+    // the true junction beyond the plane — the producing op emits a
+    // self-intersecting B-Rep (measured F0082 Extrude-11; Yang §4.5.4).
+    // Refinement eliminates it, per the paper. GATED OFF in production
+    // (`YANG_RIM_PLANE_GRAZE_ENABLE=1|on`): the gate-ON corpus run fixes
+    // the characterized F0082 defect (Extrude 12 succeeds, emitted B-Rep
+    // scans clean) and converts R0072/R0095 ERROR→CORRECT, but the boost's
+    // chord-phase shift regresses R0063 ERROR→silent-WRONG χ=0 (the flip
+    // blocker), R0021/R0061 CORRECT→ERROR, F0085 ERROR→TIMEOUT — spec §5e
+    // ledger; flip after the blockers are resolved (inc-3+).
+    let rim_plane_req = if matches!(
+        std::env::var("YANG_RIM_PLANE_GRAZE_ENABLE").as_deref(),
+        Ok("1") | Ok("on")
+    ) {
+        rim_plane_graze_min_segments(a, b)
+    } else {
+        None
+    };
+    let req = [
         phantom_min_rim_segments(a, b),
         graze_min_rim_segments(a, b)?,
-    ) {
-        (Some(p), Some(g)) => Some(p.max(g)),
-        (p, None) => p,
-        (None, g) => g,
-    };
+        rim_plane_req,
+    ]
+    .into_iter()
+    .flatten()
+    .max();
     let boosted: Option<(BRep, BRep)> = match req {
         Some(n) => Some((
             a.rebuilt_with_min_rim_segments(n)?,
