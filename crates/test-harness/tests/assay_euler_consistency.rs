@@ -212,7 +212,31 @@ fn historical_authoring_fixes_pinned() {
         "compute_euler_target(R0091) changed; revisit the frozen-corpus soundness note"
     );
 
-    eprintln!("historical_authoring_fixes_pinned: R0099, R0006 & R0091 targets held");
+    // R0063 was hand-corrected 2026-07-22 (task #195 spec §5e flip-blocker
+    // triage): the naive 3-op default 2 was refuted by exact derivation from
+    // the authored sketch numbers. The concentric prism stack (circle boss
+    // r=4.538e-4 depth 9.354e-4; rectangle cut half-extents 4.761e-4 ×
+    // 4.222e-4 depth 6.393e-4; gear boss root≈8.49e-4 depth 6.3365e-4)
+    // satisfies w/2 > r (the slot spans the full cylinder), h/2 < r (two
+    // crescents survive in the slit band), rect ⊂ gear-root disc, and
+    // gear-top < cut-floor by 5.64e-6 — so the z-slabs stack disc(top) ↔
+    // {crescent A, crescent B} ↔ gear disc(bottom): one independent cycle
+    // through the two crescents = genus 1, single shell, χ=0. The passing
+    // volume-monotonicity oracle (increase/decrease/increase) confirms the
+    // cut direction. `compute_euler_target` still returns the conservative
+    // 2 for this class BY DESIGN (same divergence-by-design as R0006/R0091).
+    let r0063 = load_meta("R0063");
+    assert_eq!(
+        r0063.oracles.euler_target, 0,
+        "R0063 corrected target regressed (must stay genus-1 χ=0)"
+    );
+    assert_eq!(
+        compute_euler_target(&r0063.operations),
+        2,
+        "compute_euler_target(R0063) changed; revisit the frozen-corpus soundness note"
+    );
+
+    eprintln!("historical_authoring_fixes_pinned: R0099, R0006, R0091 & R0063 targets held");
 }
 
 /// Check 4 — the randomized generator must only ever emit even targets.

@@ -349,6 +349,70 @@ pub fn boolean_op(
             }
         }
     }
+    // #195 inc-3 diagnosis probe (read-only, env-gated):
+    // `KV2_OUT_TOPO_PROBE=1` scans every yang OUTPUT face for the two
+    // phantom-handle fingerprints (#188 inc-4a/inc-5): a vertex repeated
+    // WITHIN the outer loop (pinched ring) or shared between the outer and
+    // an inner loop (spliced annulus — renders as a handle, χ −2). Dumps
+    // per-face loop stats so a silent χ defect can be localized to the
+    // emitting face before the render mesh flattens the structure away.
+    if std::env::var_os("KV2_OUT_TOPO_PROBE").is_some() {
+        for (fi, f) in out.faces().iter().enumerate() {
+            let loop_verts = |edges: &[u32]| -> Vec<u32> {
+                let mut vs = Vec::new();
+                for &ei in edges {
+                    let e = &out.edges()[ei as usize];
+                    vs.push(e.start);
+                    vs.push(e.end);
+                }
+                vs.sort_unstable();
+                vs.dedup();
+                vs
+            };
+            let outer = loop_verts(&f.outer_loop);
+            let mut flags: Vec<String> = Vec::new();
+            // Pinch: an outer-loop vertex incident to >2 outer-loop edges.
+            let mut use_count: std::collections::BTreeMap<u32, usize> = Default::default();
+            for &ei in &f.outer_loop {
+                let e = &out.edges()[ei as usize];
+                for v in [e.start, e.end] {
+                    *use_count.entry(v).or_default() += 1;
+                }
+            }
+            let pinched: Vec<u32> = use_count
+                .iter()
+                .filter(|&(v, &c)| {
+                    // A closed single-edge loop (full circle) legitimately
+                    // uses its seam twice; anything above 2 uses is a pinch.
+                    c > 2 || (c == 2 && f.outer_loop.len() == 1 && *v == u32::MAX)
+                })
+                .map(|(&v, _)| v)
+                .collect();
+            if !pinched.is_empty() {
+                flags.push(format!("PINCHED outer at {pinched:?}"));
+            }
+            for (li, inner) in f.inner_loops.iter().enumerate() {
+                let iv = loop_verts(inner);
+                let shared: Vec<u32> = iv
+                    .iter()
+                    .copied()
+                    .filter(|v| outer.binary_search(v).is_ok())
+                    .collect();
+                if !shared.is_empty() {
+                    flags.push(format!("inner {li} SHARES outer verts {shared:?}"));
+                }
+            }
+            if !flags.is_empty() || !f.inner_loops.is_empty() {
+                eprintln!(
+                    "[out-topo-probe] face {fi} {:?}: outer_edges={} inner_loops={} {}",
+                    std::mem::discriminant(&f.surface),
+                    f.outer_loop.len(),
+                    f.inner_loops.len(),
+                    flags.join("; ")
+                );
+            }
+        }
+    }
     let (out_solid, out_face_ids) = from_yang_brep_indexed(arena, &out)?;
     // F1 (design review 2026-07-12): PRODUCTION planarity gate for the
     // assembled boolean output. The debug-only tripwire in `validate_solid`

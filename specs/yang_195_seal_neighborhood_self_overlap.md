@@ -231,6 +231,45 @@ likely one class); (2) R0021/R0061 gate-ON regressions resolved or
 refuted; (3) F0085 timing within budget. Conversions R0072/R0095 are
 the payoff waiting on the flip.
 
+**Blocker triage 2026-07-22 (same day):**
+
+- **R0063 "silent WRONG" REFUTED — meta authoring error, THIRD
+  conversion.** The gate-ON χ=0 is the TRUE topology: exact derivation
+  from the authored sketch numbers (concentric prisms; w/2 = 4.761e-4
+  > r = 4.538e-4 so the partial-depth slot spans the full cylinder;
+  h/2 = 4.222e-4 < r so two crescents survive; rect ⊂ gear-root disc
+  8.49e-4; gear-top 6.3365e-4 < cut-floor 6.393e-4 by 5.64e-6) — the
+  slit band's two crescents form one cycle between the top disc and
+  the gear slab: genus 1, single shell, χ=0. The volume-monotonicity
+  oracle (increase/decrease/increase, passing) pins the cut direction.
+  Meta `euler_target` corrected 2→0 (the R0091/#186 pattern — a target
+  never validated because the case never completed at baseline);
+  pinned in `assay_euler_consistency.rs`. Gate-ON R0063 is now
+  SUPPORTED_CORRECT; gate-OFF unchanged (loud LRR STOP, meta not
+  consulted). **No silent WRONG remains gate-ON.**
+- **R0021 gate-ON** (boost 11→12): render ring-reject
+  `TessellationFailed(FaceId 11, "ring rejected by CDT")` — the F0045
+  output-ring family, same class as F0082's gate-ON Extrude-14 detour
+  (§5f). One inc-3 fix plausibly clears both.
+- **R0061 gate-ON** (boost 9→19): the u32::MAX
+  `LocalRefinementRequired` STOP — the known split_max_passes §4.5.2
+  shell wall (#171 triage class; R0063's own baseline wall). Loud and
+  honest; a pre-existing capability gap re-routed to, not minted.
+- Consolidated: the guard mints NO new defect class — the chord-phase
+  shift re-routes cases among existing walls. Flip blockers = the
+  inc-3 output-ring assembly fix (F0082-E14 + R0021) and the §4.5.2
+  LRR shell (R0061), plus F0085 timing.
+- **Re-measured gate-ON ledger (post-meta-fix, full release assay):
+  256C/0W/52E/2T — NET +1 CORRECT over baseline with zero silent
+  wrongs** (deltas exactly: R0063/R0072/R0095 ERROR→CORRECT;
+  R0021/R0061 CORRECT→ERROR; F0085 ERROR→TIMEOUT). The arm stays
+  gated per the flip precedent (#169 P3b inc-5 required zero
+  CORRECT→ERROR regressions), but the trade is now documented as
+  net-positive; the flip lands when inc-3 clears the output-ring
+  class (expected to recover R0021 and move F0082 further) and R0061
+  is resolved or accepted as an honest re-route to its family's
+  known wall.
+
 ### 5f. Inc-3 first measurement (2026-07-22, gate-ON
 `YANG_CDT_PROBE=370` 3D dump) — the disorder is a BOUNDARY-SELECTION
 detour, not sample misorder
