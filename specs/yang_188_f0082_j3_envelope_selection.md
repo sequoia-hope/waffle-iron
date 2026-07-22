@@ -674,3 +674,64 @@ pre-existing stash `canon_u chart weld (inc-4 WIP, unvalidated)` held
 an earlier band-based (0.5·w_facet) draft of the kernel-v2 half; it
 is superseded by the exact pass-1.5 canonicalization and should be
 dropped.
+
+### 10.8 inc-5 record (2026-07-22) — notch = standalone CAVITY-SENSE
+### face; §10.7's (a)/(b) both REFUTED by the measured local topology
+
+**The measured local truth (new `final info=` probe dump in
+`envelope_prepass`, F0082 gate-ON).** F0082 is a TILTED tube unioned
+onto a plate, overhanging the plate's side; the tube's cap plane and
+the plate's top plane cross along a line through the axis (the §1 odd
+sinusoid), so on one half the cap FLOATS up to 8.1e-3 above the plate
+top — a sub-observable crevice (floor 1.234e-2). The strip
+{925, 926, 951} is the tube-surface triangle that SEALS the
+crevice-slot's inner end where the slot mouth (over the plate's side
+edge, height 1.053e-4) meets the tube. Its three edges pair with
+THREE DIFFERENT planar faces, all already emitted:
+`(925,926):Ell ↔ A-top sliver (info 362)`,
+`(926,951):Ell ↔ plate side (info 368, whose cycle legitimately
+reaches the cap-level crease 951→950→952→949 — the mouth seal)`,
+`(925,951):Cir ↔ cap overhang sliver (info 371)`. The pairing is real
+mesh-consistent topology — §10.7's option (a) (outer reroute) would
+render phantom strip area, and (b) (drop from tube) would strand
+those three edges at one use each: both refuted.
+
+**What §10.5 layer-4 actually got wrong.** Emitting the notch as a
+FACE failed the material-CCW gate because it was given the OWNER'S
+sense. The seal faces the void pocket — it is a REVERSED (cavity)
+cylinder patch, the washer-inner-tube vocabulary the system already
+carries (`BRepFace.reversed`). As an owner inner loop the strip (a)
+escapes the outer cycle (inc-4a refutation) and (b) splices a phantom
+HANDLE: annulus (χ 0) where two discs (χ 2) describe the same edge
+set — same V/E, genus one higher, the geometric lie made the Euler
+gate green by bending the surface, not the algebra. Hand-verified
+umbrellas at 925 (5-cycle), 926 (3-cycle), 951 (3-cycle): the
+standalone-face form is manifold.
+
+**Shipped (gated, `YANG_S5_ENVELOPE_ENABLE`, production
+byte-identical):** `LoopRebuild.notches: Vec<NotchFace>` (cycle + its
+own curve map) instead of appending notch cycles to the owner's
+cycles; `EnvelopeRewrites.extra_faces`; emission in
+`reconstruct_topology` appends one standalone `BRepFace` per notch —
+owner's surface + attribution, `reversed = !(owner sense)`, cycle
+direction UNCHANGED (pairing preserved byte-for-byte); the prepass
+pairing audit counts notch-face edges explicitly; `sliver_anchors`
+propagation unchanged.
+
+**Result (meta-oracle §6 satisfied — loud ERROR one layer deeper):**
+gate-ON F0082 passes EVERY from_yang gate including the mirrored-frame
+winding check AND the render CDT (the FaceId(3727) "ring rejected"
+wall is GONE; the seal renders as its own tiny patch). New STOP =
+`SelfIntersectingBooleanOutput { 3722×3727, penetrations: 1 }`
+(#173's render-level gate): the plate-side face's corner sliver
+triangle (from the seal pair ~926/951 chording 0.029 down the wall,
+across its concave tube-cut arc) crosses the tube's corner triangle
+at v925 (which sits +1.2926e-3 — the mask margin exactly — beyond the
+wall plane; probe `KV2_SELFX_SITE_PROBE` added, coordinates pinned).
+Analytically the faces only touch at the shared junctions; the
+crossing is pure render resolution (arc-chord + chord-sag overlap at
+a junction corner, beyond the 2.241e-4 depth guard). That is the
+DOCUMENTED §4.5.2/P3d "sub-render lens at corner junctions" family
+(#172 note) — the next increment (inc-6) is local render refinement
+of shared curved boundaries near junction corners in kernel-v2, NOT
+more Stage-5 topology.

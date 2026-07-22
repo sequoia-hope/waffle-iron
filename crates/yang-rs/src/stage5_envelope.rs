@@ -761,6 +761,15 @@ pub(crate) struct LoopRebuild {
     /// pair may carry DIFFERENT curves on different cycles (the §10.5
     /// lens: the main chain's Seg hop vs the sliver's conic arc).
     pub curve_overrides: BTreeMap<(usize, (u32, u32)), Curve>,
+    /// inc-5 (spec §10.8): notch/sliver cycles emitted as STANDALONE
+    /// REVERSED-SENSE faces of the owner's surface — the sub-observable
+    /// seal patch (e.g. the F0082 crevice-slot end cap), NOT an inner
+    /// loop of the owner (a strip below the owner's outer cycle escapes
+    /// it — the inc-4a containment refutation) and NOT owner-sense (the
+    /// §10.6 layer-4 winding refutation: the seal faces the void pocket,
+    /// i.e. cavity sense). Each carries its own curve map (the closing
+    /// hop's band conic; run edges resolve via `intersection_curves`).
+    pub notches: Vec<NotchFace>,
     /// non-pinch notch anchor → pinch: a neighbor run ending at a vert
     /// that now lives only on a notch cycle enters the main rail THROUGH
     /// the notch's closing edge (spec §10.5 propagation).
@@ -776,6 +785,13 @@ pub(crate) struct LoopRebuild {
 pub(crate) struct ChainRewrite {
     pub old_verts: Vec<u32>,
     pub new_verts: Vec<u32>,
+}
+
+/// inc-5 (spec §10.8): one notch/sliver cycle destined to become a
+/// standalone cavity-sense face of the owner's surface.
+pub(crate) struct NotchFace {
+    pub cycle: Vec<(u32, u32)>,
+    pub curves: BTreeMap<(u32, u32), Curve>,
 }
 
 /// Everything needed to assign a `Curve` to an edge created during
@@ -1090,11 +1106,9 @@ pub(crate) fn rebuild_osculating_loops(
     // --- Per-cycle rebuild ---------------------------------------------
     let mut out_cycles: Vec<Vec<(u32, u32)>> = Vec::with_capacity(cycles.len());
     let mut overrides: BTreeMap<(usize, (u32, u32)), Curve> = BTreeMap::new();
-    // Notch cycles (spec §10.5) to append as ADDITIONAL cycles of this
-    // patch — the curved branch emits them as inner loops (holes), which
-    // is what they are: the strip region has no kept mesh surface.
-    #[allow(clippy::type_complexity)]
-    let mut pending_notches: Vec<(Vec<(u32, u32)>, BTreeMap<(u32, u32), Curve>)> = Vec::new();
+    // Notch cycles (spec §10.5, re-plumbed by §10.8): standalone
+    // cavity-sense seal faces of this patch's surface.
+    let mut pending_notches: Vec<NotchFace> = Vec::new();
     let mut sliver_anchors: BTreeMap<u32, u32> = BTreeMap::new();
     let mut chains: Vec<ChainRewrite> = Vec::new();
     let mut any_rebuilt = false;
@@ -1213,9 +1227,12 @@ pub(crate) fn rebuild_osculating_loops(
                             return Ok(None);
                         }
                     };
-                    let mut sv_overrides = BTreeMap::new();
-                    sv_overrides.insert(hop, conic);
-                    pending_notches.push((sc, sv_overrides));
+                    let mut sv_curves = BTreeMap::new();
+                    sv_curves.insert(hop, conic);
+                    pending_notches.push(NotchFace {
+                        cycle: sc,
+                        curves: sv_curves,
+                    });
                     sliver_anchors.insert(sv.non_pinch, sv.pinch);
                 }
                 // inc-3: record the chain rewrite when the EDGE SET changed
@@ -1238,18 +1255,10 @@ pub(crate) fn rebuild_osculating_loops(
     if !any_rebuilt {
         return Ok(None);
     }
-    // Append the notch cycles after all input cycles, registering their
-    // curve overrides under their final cycle indices.
-    for (nc, nc_overrides) in pending_notches {
-        let idx = out_cycles.len();
-        for (k, c) in nc_overrides {
-            overrides.insert((idx, k), c);
-        }
-        out_cycles.push(nc);
-    }
     Ok(Some(LoopRebuild {
         cycles: out_cycles,
         curve_overrides: overrides,
+        notches: pending_notches,
         sliver_anchors,
         chains,
         band_ctx: BandCurveCtx {
@@ -1271,7 +1280,14 @@ pub(crate) struct EnvelopeRewrites {
     /// pair can carry different curves on different loops (§10.5), so
     /// overrides are per-loop, never global.
     pub curve_overrides: BTreeMap<(usize, usize, (u32, u32)), Curve>,
+    /// inc-5 (spec §10.8): notch seal patches emitted as STANDALONE
+    /// cavity-sense faces. The owner supplies the surface/attribution;
+    /// the sense is the OPPOSITE of the owner face's.
+    pub extra_faces: Vec<ExtraFace>,
 }
+
+/// §10.8: (owner info index, notch cycle, per-edge curves).
+pub(crate) type ExtraFace = (usize, Vec<(u32, u32)>, BTreeMap<(u32, u32), Curve>);
 
 fn und(s: u32, e: u32) -> (u32, u32) {
     if s < e {
@@ -1320,7 +1336,7 @@ pub(crate) fn envelope_prepass(
         for (&(cyc, k), c) in &rb.curve_overrides {
             overrides.insert((*i, cyc, k), *c);
         }
-        // Owner curve list = EVERY owner-cycle edge (incl. notch cycles)
+        // Owner curve list = EVERY owner-cycle edge (incl. notch faces)
         // with its RESOLVED curve (override → intersection_curves → Seg),
         // so a neighbor mirror of ANY owner edge — including an
         // un-attributed original chord — types identically to the owner.
@@ -1336,21 +1352,31 @@ pub(crate) fn envelope_prepass(
                 owner_edge_curves.entry(k).or_default().push(c);
             }
         }
+        for nf in &rb.notches {
+            for &(s, e) in &nf.cycle {
+                let k = und(s, e);
+                let c = nf
+                    .curves
+                    .get(&k)
+                    .or_else(|| intersection_curves.get(&k))
+                    .copied()
+                    .unwrap_or(Curve::LineSegment);
+                owner_edge_curves.entry(k).or_default().push(c);
+            }
+        }
     }
     let mut lens_claims: BTreeMap<(u32, u32), usize> = BTreeMap::new();
 
     // --- 2. Neighbor propagation per committed chain --------------------
     let mut watch: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     for (owner_idx, rb) in &rebuilds {
-        // Edges now living on a notch cycle (spec §10.5) are REAL
+        // Edges now living on a notch face (spec §10.5/§10.8) are REAL
         // topology the neighbors keep byte-identically — they must not
-        // read as stale runs. Notch cycles are the ones appended past the
-        // input cycle count.
+        // read as stale runs.
         let sliver_edges: std::collections::BTreeSet<(u32, u32)> = rb
-            .cycles
+            .notches
             .iter()
-            .skip(subdivided_cycles[*owner_idx].len())
-            .flat_map(|cyc| cyc.iter().map(|&(s, e)| und(s, e)))
+            .flat_map(|nf| nf.cycle.iter().map(|&(s, e)| und(s, e)))
             .collect();
         for chain in &rb.chains {
             watch.extend(chain.old_verts.iter().copied());
@@ -1442,6 +1468,26 @@ pub(crate) fn envelope_prepass(
             }
         }
     }
+    // Notch seal faces (§10.8) participate in the pairing exactly like
+    // any other loop — their edges supply the second use of the strip
+    // boundary (e.g. F0082: (925,926)↔A-top, (926,951)↔wall,
+    // (925,951)↔cap overhang).
+    for (_, rb) in &rebuilds {
+        for nf in &rb.notches {
+            for &(s, e) in &nf.cycle {
+                if watch.contains(&s) || watch.contains(&e) {
+                    let k = und(s, e);
+                    let c = nf
+                        .curves
+                        .get(&k)
+                        .or_else(|| intersection_curves.get(&k))
+                        .copied()
+                        .unwrap_or(Curve::LineSegment);
+                    uses.entry(k).or_default().push((c, s < e));
+                }
+            }
+        }
+    }
     for (k, us) in &uses {
         // Greedy match: each use pairs with an equal-curve opposite-
         // direction partner; any leftover is a violation.
@@ -1492,9 +1538,73 @@ pub(crate) fn envelope_prepass(
         }
     }
 
+    // Probe-only forensics (inc-5 spec §10.8): the FINAL local topology
+    // around the rewritten chains — every cycle touching a watched vert,
+    // with the owning info's surface identity and per-edge resolved
+    // curves. Never affects behavior.
+    if std::env::var_os("YANG_S5_ENVELOPE_PROBE").is_some() {
+        for (j, pristine) in subdivided_cycles.iter().enumerate() {
+            let cycles_j: &[Vec<(u32, u32)>] = match work.get(&j) {
+                Some(c) => c,
+                None => pristine,
+            };
+            for (cj, cyc) in cycles_j.iter().enumerate() {
+                if !cyc
+                    .iter()
+                    .any(|&(s, e)| watch.contains(&s) || watch.contains(&e))
+                {
+                    continue;
+                }
+                let surf = match &infos[j].inherited {
+                    Surface::Plane { normal, d } => {
+                        let n = normal.as_array();
+                        format!("Plane n=({:.6},{:.6},{:.6}) d={d:.6}", n[0], n[1], n[2])
+                    }
+                    other => format!("{other:?}"),
+                };
+                let edges: Vec<String> = cyc
+                    .iter()
+                    .map(|&(s, e)| {
+                        let tag = match resolve(j, cj, und(s, e)) {
+                            Curve::LineSegment => "Seg",
+                            Curve::Circle { .. } => "Cir",
+                            Curve::Ellipse { .. } => "Ell",
+                            Curve::Parabola { .. } => "Par",
+                            Curve::Hyperbola { .. } => "Hyp",
+                            Curve::SurfacePair { .. } => "SP",
+                        };
+                        format!("{s}->{e}:{tag}")
+                    })
+                    .collect();
+                probe(format_args!(
+                    "final info={j} cyc={cj} input={:?} face_idx={} {surf}\n[s5-env]   edges: {edges:?}",
+                    infos[j].input, infos[j].face_idx
+                ));
+            }
+        }
+        for (owner, rb) in &rebuilds {
+            for nf in &rb.notches {
+                let verts: Vec<u32> = nf.cycle.iter().map(|&(s, _)| s).collect();
+                probe(format_args!(
+                    "final NOTCH-FACE owner={owner} verts={verts:?} (cavity sense)"
+                ));
+            }
+        }
+    }
+
+    let extra_faces: Vec<ExtraFace> = rebuilds
+        .into_iter()
+        .flat_map(|(owner, rb)| {
+            rb.notches
+                .into_iter()
+                .map(move |nf| (owner, nf.cycle, nf.curves))
+        })
+        .collect();
+
     Ok(Some(EnvelopeRewrites {
         cycles: work,
         curve_overrides: overrides,
+        extra_faces,
     }))
 }
 

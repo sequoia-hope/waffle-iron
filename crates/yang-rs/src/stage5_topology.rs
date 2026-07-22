@@ -472,6 +472,9 @@ pub(crate) fn emit_topology(
     // byte-identical emission.
     let mut env_overrides: std::collections::BTreeMap<(usize, usize, (u32, u32)), Curve> =
         std::collections::BTreeMap::new();
+    // inc-5 (spec §10.8): notch seal patches to emit as STANDALONE
+    // cavity-sense faces after the main per-info emission.
+    let mut env_extra_faces: Vec<crate::stage5_envelope::ExtraFace> = Vec::new();
     if crate::stage5_envelope::envelope_gate_enabled() {
         if let Some(rw) = crate::stage5_envelope::envelope_prepass(
             mesh,
@@ -484,6 +487,7 @@ pub(crate) fn emit_topology(
                 subdivided_cycles[i] = cyc;
             }
             env_overrides = rw.curve_overrides;
+            env_extra_faces = rw.extra_faces;
         }
     }
     for (info_index, info) in infos.iter().enumerate() {
@@ -851,6 +855,45 @@ pub(crate) fn emit_topology(
             outer_loop,
             inner_loops,
             reversed: false,
+        });
+    }
+
+    // inc-5 (spec §10.8): emit each notch seal patch as a STANDALONE face
+    // of the owner's surface with CAVITY sense — the opposite of the owner
+    // face's. The seal faces the sub-observable void pocket (F0082: the
+    // crevice-slot end between plate top, plate side, and floating cap),
+    // so its outward normal points INTO the owner's surface (a reversed
+    // cylinder patch, the washer-inner-tube vocabulary). Its edges pair
+    // the strip boundary with three DIFFERENT planar neighbors — real
+    // topology; only the face bookkeeping differs from inc-3's inner-loop
+    // form (which spliced a phantom handle and escaped the owner's outer
+    // cycle — the inc-4a containment refutation).
+    for (owner, cycle, curves) in env_extra_faces {
+        let info = &infos[owner];
+        let start_idx = edges.len() as u32;
+        for &(s, e) in &cycle {
+            let key = if s < e { (s, e) } else { (e, s) };
+            let curve = curves
+                .get(&key)
+                .or_else(|| intersection_curves.get(&key))
+                .copied()
+                .unwrap_or(Curve::LineSegment);
+            edges.push(BRepEdge {
+                start: s,
+                end: e,
+                curve: orient_directed_curve(curve, s, e, &mesh.verts),
+            });
+        }
+        let outer_loop: Vec<u32> = (start_idx..edges.len() as u32).collect();
+        face_attribution.push(TriangleAttribution {
+            input: info.input,
+            face: info.face_idx as u32,
+        });
+        faces.push(BRepFace {
+            surface: info.inherited,
+            outer_loop,
+            inner_loops: Vec::new(),
+            reversed: !(info.input_reversed ^ (op == BoolOp::Subtract && info.input == InputId::B)),
         });
     }
 

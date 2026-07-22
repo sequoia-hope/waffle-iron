@@ -210,6 +210,13 @@ pub(crate) fn first_inter_face_penetration(mesh: &RenderMesh) -> Option<Penetrat
                         continue;
                     }
                     if triangles_intersect(&tri_a.pos, &tri_b.pos, depth_threshold) {
+                        if std::env::var_os("KV2_SELFX_SITE_PROBE").is_some() {
+                            eprintln!(
+                                "[selfx-site] faces {:?}x{:?} depth_thr={depth_threshold:.3e}\n\
+                                 [selfx-site]   a: {:?}\n[selfx-site]   b: {:?}",
+                                ga.face, gb.face, tri_a.pos, tri_b.pos
+                            );
+                        }
                         penetrations += 1;
                     }
                 }
