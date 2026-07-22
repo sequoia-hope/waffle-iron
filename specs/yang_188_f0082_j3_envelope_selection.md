@@ -831,3 +831,31 @@ inc-7 therefore CLOSES the #188-scoped F0082 work: every remaining
 layer belongs to the M8 coplanar campaign / the arrangement twin
 class. Next #188 step = the §5 flip track: full gate-ON corpus
 ledger (watch-list F0085/F0084/F0076) + detector promotion decision.
+
+## 11. FLIP record (2026-07-22) — envelope machinery always-on
+
+Flip bar (§5, P3a/P3b precedent), all met:
+- **Gate-ON corpus ledger**: full release assay, 312/312 cases
+  CATEGORY-IDENTICAL to the gate-OFF baseline (252C/0W/55E/1T);
+  0-WRONG. Watch-list: F0084/F0076 stay CORRECT (their rebuilds are
+  byte-identical and the §10.9 typing is restricted to chains whose
+  edge set rewrote, so they are untouched); F0085/R0095 stay ERROR
+  (their defects are not the F0082 class). F0082 stays ERROR but
+  strictly better within it: the flagship union (Extrude 11) now
+  SUCCEEDS; the remaining STOP is the §10.10 out-of-scope pair.
+- **Sidecar parity**: 18/18 green (`--include-ignored`).
+- **Suites**: yang-rs 867/0, rewrite tier green, clippy/fmt clean.
+
+`envelope_gate_enabled()` now defaults ON;
+`YANG_S5_ENVELOPE_ENABLE=0|off` is the dev A/B knob (the P3a idiom).
+The production assay baseline (results.json) is regenerated under the
+default-ON path — category-identical; only F0082's detail string
+moves to the §10.10 STOP.
+
+**Detector promotion decision (§3.1/§7.7): NOT promoted.** The
+band_frac-gated fire set {F0082, F0085, F0084, F0076} ⊇ broken∩class
+was the promotion candidate, but with the F0082 layer now fixed
+STRUCTURALLY (selection + seal + typing always-on) the detector's
+STOP role is superseded on this class; F0085 remains covered by its
+own existing loud STOP. `YANG_S5_OSCULATION_PROBE` stays banked as
+the diagnostic.

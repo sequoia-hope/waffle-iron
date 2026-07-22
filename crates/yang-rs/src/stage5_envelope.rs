@@ -735,10 +735,15 @@ pub fn classify_bands(
 use crate::{non_manifold_at, Curve, Mesh, PatchInfo, YangError};
 use std::collections::BTreeMap;
 
-/// Dev gate for the §3.3 rebuild. `=0` / `=off` / unset ⇒ disabled
-/// (production byte-identical); anything else enables (the P3a/P3b idiom).
+/// #188 flip (spec §11, the P3a inc-3 / P3b inc-5 idiom): the §3.3
+/// boundary-envelope rebuild — owner selection, notch seal faces (§10.8),
+/// band-conic chord typing (§10.9) — is ALWAYS-ON in production. The env
+/// var is a dev A/B knob only: `YANG_S5_ENVELOPE_ENABLE=0|off` disables
+/// for differential debugging. Flip bar met 2026-07-22: gate-ON corpus
+/// ledger 312/312 category-identical (252C/0W/55E), sidecar parity 18/18,
+/// rewrite tier green.
 pub(crate) fn envelope_gate_enabled() -> bool {
-    matches!(std::env::var("YANG_S5_ENVELOPE_ENABLE"), Ok(v) if !(v.is_empty() || v == "0" || v == "off"))
+    !matches!(std::env::var("YANG_S5_ENVELOPE_ENABLE"), Ok(v) if v == "0" || v == "off")
 }
 
 /// Read-only forensics for the gated rebuild (`YANG_S5_ENVELOPE_PROBE`):
