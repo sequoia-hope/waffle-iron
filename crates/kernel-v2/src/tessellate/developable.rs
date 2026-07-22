@@ -478,6 +478,87 @@ fn tessellate_developable_patch(
 
     // ---- pass 2: assemble one simple polygon + holes ----------------------
     let span = 2.0 * PI * r_unroll; // |u| span of one full wrap (sense-free)
+
+    // ---- pass 1.5: canonicalize shared boundary vertices across chains ----
+    // (#188 inc-4, spec `yang_188_f0082_j3_envelope_selection.md` §10.6.)
+    // A B-Rep vertex visited by TWO loops of this face — a pinched ring,
+    // e.g. a notch hole touching the outer at one vertex — is minted once
+    // per loop walk, and each walk accumulates its unroll azimuth `u`
+    // independently: the copies land a few ulps apart (accumulation
+    // rounding), or a full span apart (the later walk's atan2 anchor picks
+    // the (−π, π] branch while the earlier walk accumulated past the cut).
+    // The flood-fill CDT admits a vertex-touching hole ONLY by bitwise
+    // coincidence (spec `kv2_cdt_triangulation_core` §6b M3b weld), so all
+    // copies of one vertex must present ONE bit pattern. Identity is exact
+    // — same 3D position bits — never a distance band (P9).
+    //
+    // Per chain: the FIRST entry matching an earlier chain's vertex fixes
+    // the chain's window offset k = round(Δu/span); the whole chain is
+    // translated RIGIDLY by −k·span (a pinned hole is congruent to its
+    // host's frame), every matched entry is re-pointed to the earlier node
+    // (bit-equal by construction), and any second match must agree on k —
+    // a pinch spanning inconsistent seam windows is out of scope, loudly.
+    // Wrap chains are never translated (their absolute window anchors the
+    // seam cut): a wrap chain matching at k ≠ 0 is equally out of scope.
+    {
+        let mut canon_of: std::collections::BTreeMap<(u64, u64, u64), usize> =
+            std::collections::BTreeMap::new();
+        for c in &mut chains {
+            let mut anchored = false;
+            for i in 0..c.entries.len() {
+                let e = c.entries[i].0;
+                let p = nodes[e].pos;
+                let key = (p[0].to_bits(), p[1].to_bits(), p[2].to_bits());
+                let Some(&n0) = canon_of.get(&key) else {
+                    canon_of.insert(key, e);
+                    continue;
+                };
+                if n0 == e {
+                    continue;
+                }
+                let k = ((nodes[e].p2.x() - nodes[n0].p2.x()) / span).round();
+                if k != 0.0 {
+                    if anchored || c.wrap != 0 {
+                        return Err(fail("pinched loop spans inconsistent seam windows"));
+                    }
+                    // Rigid translate into the host's window; the matched
+                    // entry is then re-seated exactly by the re-point below.
+                    for j in 0..c.entries.len() {
+                        let nj = c.entries[j].0;
+                        let pj = nodes[nj].p2;
+                        nodes[nj].p2 = Point2::new(pj.x() - k * span, pj.y());
+                    }
+                }
+                anchored = true;
+                c.entries[i].0 = n0;
+            }
+        }
+    }
+    // Nodes referenced by MORE than one chain (possible only through the
+    // merge above). A chain sharing a node with another is frame-LOCKED to
+    // it: shifting one by k·span would tear the shared vertex, so the
+    // mid-window shifts below skip pinned chains (a pinned hole is already
+    // in its host's window through the shared node).
+    let shared_nodes: std::collections::BTreeSet<usize> = {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut shared = std::collections::BTreeSet::new();
+        for c in &chains {
+            for n in c
+                .entries
+                .iter()
+                .map(|&(n, _)| n)
+                .collect::<std::collections::BTreeSet<usize>>()
+            {
+                if !seen.insert(n) {
+                    shared.insert(n);
+                }
+            }
+        }
+        shared
+    };
+    let is_pinned =
+        |c: &Chain| -> bool { c.entries.iter().any(|&(n, _)| shared_nodes.contains(&n)) };
+
     fn mid_u(c: &Chain, nodes: &[PatchNode]) -> f64 {
         let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
         for &(n, _) in &c.entries {
@@ -533,7 +614,7 @@ fn tessellate_developable_patch(
             };
             let outer_mid = mid_u(&chains[outer_idx], &nodes);
             for (i, c) in chains.iter().enumerate() {
-                if i != outer_idx {
+                if i != outer_idx && !is_pinned(c) {
                     let k = ((outer_mid - mid_u(c, &nodes)) / span).round();
                     shift_chain(c, k, &mut nodes);
                 }
@@ -578,7 +659,7 @@ fn tessellate_developable_patch(
             // re-checked by bridge validity below).
             let pmid = mid_u(&chains[ci_p], &nodes);
             for (i, c) in chains.iter().enumerate() {
-                if i != ci_p && i != ci_m && c.wrap == 0 {
+                if i != ci_p && i != ci_m && c.wrap == 0 && !is_pinned(c) {
                     let k = ((pmid - mid_u(c, &nodes)) / span).round();
                     shift_chain(c, k, &mut nodes);
                 }
@@ -698,7 +779,7 @@ fn tessellate_developable_patch(
                 boundary.insert(key, PatchEdgeKind::Chord);
             }
             poly = ring;
-            holes = (0..chains.len())
+            let mut holes_v: Vec<Vec<Node>> = (0..chains.len())
                 .filter(|&i| i != ci_p && i != ci_m)
                 .map(|i| {
                     chains[i]
@@ -711,6 +792,34 @@ fn tessellate_developable_patch(
                         .collect()
                 })
                 .collect();
+            // A hole pinned to the outer ring (shared node — pass 1.5) must
+            // present its shared vertices at the ring copy's EXACT cut-frame
+            // p2: the CDT weld needs bit equality, and the ring assembly
+            // above may have moved the copy (±span past the wrap, or the
+            // −wrap chain's seam re-anchor). The rest of the hole translates
+            // rigidly by the first shared vertex's Δu so the hole stays
+            // congruent. A hole with no ring-shared node is untouched.
+            for hole in &mut holes_v {
+                let ring_copy = |vid: u32, near_u: f64| -> Option<Point2> {
+                    poly.iter()
+                        .filter(|rn| rn.vid == vid)
+                        .map(|rn| rn.p2)
+                        .min_by(|a, b| (a.x() - near_u).abs().total_cmp(&(b.x() - near_u).abs()))
+                };
+                let Some(du) = hole
+                    .iter()
+                    .find_map(|hn| ring_copy(hn.vid, hn.p2.x()).map(|rp| rp.x() - hn.p2.x()))
+                else {
+                    continue;
+                };
+                for hn in hole.iter_mut() {
+                    match ring_copy(hn.vid, hn.p2.x()) {
+                        Some(rp) => hn.p2 = rp,
+                        None => hn.p2 = Point2::new(hn.p2.x() + du, hn.p2.y()),
+                    }
+                }
+            }
+            holes = holes_v;
         }
         _ => return Err(fail("patch must have exactly 0 or 2 axis-wrapping loops")),
     }

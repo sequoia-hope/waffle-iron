@@ -1059,3 +1059,6 @@ mod cdt_core_round2_red_tests;
 
 #[cfg(test)]
 mod cdt_core_adversary_tests;
+
+#[cfg(test)]
+mod pinched_ring_patch_tests;

@@ -611,3 +611,66 @@ outer ring (keyhole decomposition at the shared vertex, or
 flood-fill-CDT admission of coincident ring points). Everything
 upstream of render is repaired and validated. Then: full gate-ON assay
 ledger + §7.7 detector-promotion decision + flip per §5.
+
+### 10.7 inc-4a record (2026-07-22) — capability SHIPPED; §10.6's
+### "sole blocker" premise REFUTED by measurement
+
+**Shipped always-on (kernel-v2, production gate-OFF byte-identical —
+see assay note):** pass 1.5 *shared-vertex canonicalization* in
+`tessellate_developable_patch`. Root cause class: each loop walk
+unrolls its azimuth independently, so ONE B-Rep vertex on TWO loops
+of a face (the pinched ring) is minted as two `PatchNode`s whose `u`
+differs — by Δθ-accumulation rounding (measured 2.3e-15 on F0082
+face 3727: outer[17] vs hole[2], heights bitwise-equal), or by a FULL
+SPAN when the later walk's atan2 anchor picks the other (−π, π]
+branch. Consequences pre-fix: (a) the §6b M3b flood-fill weld —
+which requires BITWISE coincidence (spade `insert` merges exact
+positions only) — engages only by luck; (b) even a lucky weld leaves
+the two copies with DISTINCT node ids, so the refinement's
+boundary-kind registry misses the pinch-adjacent hole edges (silently
+`Interior`) and lifts their split midpoints onto the SURFACE instead
+of the 3D chord — a ~1e-3 sagitta conformality crack vs the
+neighboring face's copy (silent-wrong class, P9). Fix: identity is
+exact (same 3D position bits, never a distance band); per chain the
+first match fixes the seam-window offset `k = round(Δu/span)`, the
+chain is rigidly translated by `−k·span` (wrap chains and
+double-anchored chains reject loudly), matched entries re-point to
+the canonical node, pinned chains skip the mid-window shift, and in
+the cut-frame (2-wrap) branch pinned holes re-seat their shared
+vertices on the ring copy EXACTLY with rigid Δu translation of the
+rest. Tests `pinched_ring_patch_tests.rs`: same-window barrel,
+across-seam-branch barrel (both RED pre-fix via the conformality
+pin), bounded-branch notch.
+
+**Measured refutation.** With the pinch bitwise-welded (probe: hole[2]
+= outer[17] to the bit), F0082 still STOPs at the same
+`TessellationFailed FaceId(3727)` — and exact orientation on the
+probe ring shows why, and why it MUST: the notch is not a contained
+tangent hole. Against outer edge 17→18 (the rim run u 0.3337→0.4116,
+y≈0): h0 = (0.336466, +3.3e-16) lies strictly ABOVE it (margin
+5.6e-14), h1 = (0.336462, −1.053e-4) lies far BELOW it, so hole edges
+h0→h1 and (pre-weld) h2→h0 CROSS the outer boundary. The emitted
+inner loop escapes the outer cycle — the outer ring retains the rim
+run THROUGH the notch's u-range while the notch strip (the beyond-wall
+phantom, thickness 1.05e-4) hangs OUTSIDE (below the rim). The
+kernel-v2 reject is therefore CORRECT (P10): no CDT capability can
+admit a hole that crosses its outer ring. inc-3's layer-4 resolution
+("emit the notch as an inner loop") satisfied the pairing/winding
+gates but is GEOMETRICALLY inconsistent as a face-minus-hole.
+
+**Corrected next layer (inc-5, yang-rs §10.3 revision).** The notch
+must reach render as a CONTAINED pinched ring or not at all. Evidence
+for the shape of the fix: the ANTIPODAL step of the same magnitude
+(outer indexes 24→27 at u≈1.0035, Δy = +1.053e-4 — the same
+beyond-wall margin) is woven INTO the outer cycle. The strip's
+boundary treatment must decide between (a) splitting the rim run
+17→18 at the strip's u-range and routing the outer along the strip's
+upper boundary (rim run under the strip goes to the removed side), or
+(b) resolving the strip's edges entirely within the wall-face complex
+so the tube face never carries them. Decide against the §2 contract +
+the kept-mesh oracle (the strip has ZERO kept tris; whatever routing
+is chosen, the rendered area must equal the kept-mesh area). NOTE: a
+pre-existing stash `canon_u chart weld (inc-4 WIP, unvalidated)` held
+an earlier band-based (0.5·w_facet) draft of the kernel-v2 half; it
+is superseded by the exact pass-1.5 canonicalization and should be
+dropped.
