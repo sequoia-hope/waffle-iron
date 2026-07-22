@@ -316,7 +316,7 @@ pub(crate) fn reconstruct_topology_stage4(
     // `specs/yang_173_selfx_detector.md` §4 — the always-on loud STOP ships
     // only after the corpus-wide false-positive measurement passes.
     if std::env::var_os("YANG_SELFX_PROBE").is_some() {
-        let t0 = std::time::Instant::now();
+        let t0 = std::time::Instant::now(); // wasm-ok: env-gated (env vars are unset in wasm)
         let contacts = cherchi_rs::detect_improper_contacts(&mesh.verts, &mesh.tris);
         eprintln!(
             "YANG_SELFX_CHECKED tris={} improper={} unresolved={} ms={}",

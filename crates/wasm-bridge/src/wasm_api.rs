@@ -33,6 +33,15 @@ struct WasmEngine {
 /// Initialize the WASM engine. Must be called once before any other function.
 #[wasm_bindgen]
 pub fn init() {
+    // Surface panic messages in the browser console: without a hook a
+    // panic reaches JS as a bare `unreachable` trap with no context (the
+    // 2026-07-22 deployed-app debugging cost). Production paths are
+    // Result-based and must not panic (crate contract) — this is the
+    // loud last-resort diagnostic when one slips through, not a recovery
+    // mechanism.
+    std::panic::set_hook(Box::new(|info| {
+        web_sys::console::error_1(&format!("WASM PANIC: {info}").into());
+    }));
     ENGINE_STATE.with(|cell| {
         *cell.borrow_mut() = Some(WasmEngine {
             state: EngineState::new(),

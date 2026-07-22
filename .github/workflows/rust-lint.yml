@@ -49,3 +49,23 @@ jobs:
 
       - name: clippy -D warnings
         run: cargo clippy --all-targets ${{ env.NEW_CRATES }} -- -D warnings
+
+      # `Instant::now`/`SystemTime::now` compile fine for wasm32 but PANIC at
+      # runtime ("time not implemented") — an unconditional call in the #173
+      # detector crashed every boolean in the deployed app (2026-07-22). Any
+      # clock read in a wasm-reachable crate must be provably unreachable in
+      # wasm (e.g. behind an env-var gate, which is always unset there) and
+      # carry a `wasm-ok:` marker on the same line.
+      - name: wasm clock-call guard
+        run: |
+          hits=$(grep -rn "Instant::now()\|SystemTime::now()" \
+            crates/cad-primitives/src crates/cherchi-rs/src crates/ssi-rs/src \
+            crates/yang-rs/src crates/kernel-v2/src crates/wasm-bridge/src \
+            crates/waffle-types/src crates/feature-engine/src \
+            crates/modeling-ops/src crates/file-format/src 2>/dev/null \
+            | grep -v "wasm-ok:" || true)
+          if [ -n "$hits" ]; then
+            echo "Unmarked clock calls in wasm-reachable crates (panics at runtime in wasm):"
+            echo "$hits"
+            exit 1
+          fi

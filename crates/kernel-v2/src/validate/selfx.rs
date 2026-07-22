@@ -54,13 +54,18 @@ pub fn validate_boolean_output_self_intersection(
     arena: &BrepArena,
     solid: SolidId,
 ) -> Result<(), KernelV2Error> {
+    // Timing is a native-only dev knob: `Instant::now` PANICS on
+    // wasm32-unknown-unknown ("time not implemented"), so the clock may
+    // only be read when the env var is set (env vars are always unset in
+    // wasm). An unconditional `now()` here crashed every boolean in the
+    // deployed app (2026-07-22).
     let timing = std::env::var_os("KV2_SELFX_TIME").is_some();
-    let t0 = std::time::Instant::now();
+    let t0 = timing.then(std::time::Instant::now); // wasm-ok: env-gated
     let mesh = tessellate(arena, solid)?;
-    let t_tess = t0.elapsed();
-    let t1 = std::time::Instant::now();
+    let t_tess = t0.map(|t| t.elapsed());
+    let t1 = timing.then(std::time::Instant::now); // wasm-ok: env-gated
     let hit = first_inter_face_penetration(&mesh);
-    if timing {
+    if let (Some(t_tess), Some(t1)) = (t_tess, t1) {
         eprintln!(
             "KV2_SELFX_TIME tris={} tess_ms={} scan_ms={}",
             mesh.indices.len() / 3,
