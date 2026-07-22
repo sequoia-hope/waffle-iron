@@ -226,6 +226,7 @@ impl EnvelopeBands {
 /// Deterministic cylinder chart — the same frame construction as the
 /// inc-0 probe (`stage5_osculation_probe`), so azimuths are comparable
 /// across the two modules.
+#[derive(Clone, Copy, Debug)]
 struct CylFrame {
     ap: [f64; 3],
     a_hat: [f64; 3],
@@ -756,7 +757,53 @@ fn probe(args: std::fmt::Arguments<'_>) {
 /// but new envelope edges get true curve vocabulary).
 pub(crate) struct LoopRebuild {
     pub cycles: Vec<Vec<(u32, u32)>>,
-    pub curve_overrides: BTreeMap<(u32, u32), Curve>,
+    /// Keyed by (index into `cycles`, undirected pair) — the same vert
+    /// pair may carry DIFFERENT curves on different cycles (the §10.5
+    /// lens: the main chain's Seg hop vs the sliver's conic arc).
+    pub curve_overrides: BTreeMap<(usize, (u32, u32)), Curve>,
+    /// non-pinch notch anchor → pinch: a neighbor run ending at a vert
+    /// that now lives only on a notch cycle enters the main rail THROUGH
+    /// the notch's closing edge (spec §10.5 propagation).
+    pub sliver_anchors: BTreeMap<u32, u32>,
+    /// inc-3 (spec §10): one entry per cycle whose EDGE SET changed —
+    /// the old and new vert sequences, for neighbor-chain propagation.
+    pub chains: Vec<ChainRewrite>,
+    /// Band context for typing propagation-created edges (spec §10.2).
+    band_ctx: BandCurveCtx,
+}
+
+/// An owner cycle rewrite: the original and rebuilt vert sequences.
+pub(crate) struct ChainRewrite {
+    pub old_verts: Vec<u32>,
+    pub new_verts: Vec<u32>,
+}
+
+/// Everything needed to assign a `Curve` to an edge created during
+/// neighbor propagation (a planar–planar strip edge absent from both the
+/// owner chain and `intersection_curves`): the band table plus the two
+/// support conics.
+struct BandCurveCtx {
+    frame: CylFrame,
+    bands: EnvelopeBands,
+    int_conic: Curve,
+    orig_conic: Curve,
+}
+
+impl BandCurveCtx {
+    /// Band-live conic at the edge's azimuth midpoint; None inside a
+    /// wall-complex band (outside the propagation vocabulary → bail).
+    fn curve_for(&self, mesh: &Mesh, s: u32, e: u32) -> Option<Curve> {
+        let ps = mesh.verts[s as usize].as_array();
+        let pe = mesh.verts[e as usize].as_array();
+        let (ts, _) = theta_v(&self.frame, ps);
+        let (te, _) = theta_v(&self.frame, pe);
+        let tm = wrap(ts + wrap(te - ts) / 2.0);
+        match self.bands.live_at(tm) {
+            Some(BandLive::IntCurve) => Some(self.int_conic),
+            Some(BandLive::OrigCurve) => Some(self.orig_conic),
+            Some(BandLive::WallComplex { .. }) | None => None,
+        }
+    }
 }
 
 /// Planar carrier of a conic `Curve` (the probe's vocabulary): plane
@@ -1022,9 +1069,34 @@ pub(crate) fn rebuild_osculating_loops(
         .expect("profile checked during detection");
     let orig_conic = cylinder_plane_conic(&frame, &p_orig);
 
+    // inc-3 (spec §10.3): planar-side adjacency over every OTHER patch's
+    // conformal cycles. An off-live-conic weave vert with degree ≥ 3 here
+    // is a planar junction — it must stay on the owner chain (erasing it
+    // cannot close the pairing); degree ≤ 2 is a splice-able pass-through.
+    let mut planar_adj: BTreeMap<u32, std::collections::BTreeSet<u32>> = BTreeMap::new();
+    for (j, cycles_j) in subdivided_cycles.iter().enumerate() {
+        if j == info_index {
+            continue;
+        }
+        for cyc in cycles_j {
+            for &(s, e) in cyc {
+                planar_adj.entry(s).or_default().insert(e);
+                planar_adj.entry(e).or_default().insert(s);
+            }
+        }
+    }
+    let is_planar_junction = |v: u32| planar_adj.get(&v).is_some_and(|s| s.len() >= 3);
+
     // --- Per-cycle rebuild ---------------------------------------------
     let mut out_cycles: Vec<Vec<(u32, u32)>> = Vec::with_capacity(cycles.len());
-    let mut overrides: BTreeMap<(u32, u32), Curve> = BTreeMap::new();
+    let mut overrides: BTreeMap<(usize, (u32, u32)), Curve> = BTreeMap::new();
+    // Notch cycles (spec §10.5) to append as ADDITIONAL cycles of this
+    // patch — the curved branch emits them as inner loops (holes), which
+    // is what they are: the strip region has no kept mesh surface.
+    #[allow(clippy::type_complexity)]
+    let mut pending_notches: Vec<(Vec<(u32, u32)>, BTreeMap<(u32, u32), Curve>)> = Vec::new();
+    let mut sliver_anchors: BTreeMap<u32, u32> = BTreeMap::new();
+    let mut chains: Vec<ChainRewrite> = Vec::new();
     let mut any_rebuilt = false;
     for cycle in cycles {
         // A cycle participates iff it carries the sub-observability weave
@@ -1042,7 +1114,15 @@ pub(crate) fn rebuild_osculating_loops(
             continue;
         }
         match rebuild_cycle(
-            mesh, cycle, &frame, &bands, &p_int, &p_orig, &prof_int, &prof_orig,
+            mesh,
+            cycle,
+            &frame,
+            &bands,
+            &p_int,
+            &p_orig,
+            &prof_int,
+            &prof_orig,
+            &is_planar_junction,
         )? {
             None => {
                 probe(format_args!(
@@ -1051,16 +1131,19 @@ pub(crate) fn rebuild_osculating_loops(
                 ));
                 return Ok(None); // fail closed: loop untouched
             }
-            Some(new_verts) => {
+            Some(rebuilt) => {
+                let new_verts = rebuilt.main;
                 probe(format_args!(
-                    "patch info={info_index}: cycle REBUILT {} -> {} verts\n\
+                    "patch info={info_index}: cycle REBUILT {} -> {} verts (+{} slivers)\n\
                      [s5-env]   orig: {:?}\n\
                      [s5-env]   new:  {:?}",
                     cycle.len(),
                     new_verts.len(),
+                    rebuilt.slivers.len(),
                     cycle.iter().map(|&(s, _)| s).collect::<Vec<_>>(),
                     new_verts
                 ));
+                let cyc_idx = out_cycles.len();
                 let m = new_verts.len();
                 let new_cycle: Vec<(u32, u32)> = (0..m)
                     .map(|i| (new_verts[i], new_verts[(i + 1) % m]))
@@ -1087,10 +1170,10 @@ pub(crate) fn rebuild_osculating_loops(
                     let tm = wrap(ts + wrap(te - ts) / 2.0);
                     match bands.live_at(tm) {
                         Some(BandLive::IntCurve) => {
-                            overrides.insert(key, int_conic);
+                            overrides.insert((cyc_idx, key), int_conic);
                         }
                         Some(BandLive::OrigCurve) => {
-                            overrides.insert(key, orig_conic);
+                            overrides.insert((cyc_idx, key), orig_conic);
                         }
                         // A NEW edge inside a wall-complex sliver violates
                         // the §3.3 "wall sections byte-identical"
@@ -1103,6 +1186,50 @@ pub(crate) fn rebuild_osculating_loops(
                         }
                     }
                 }
+                // Residual sliver faces (spec §10.5): the sliver keeps the
+                // original run edges byte-identically (their attributions
+                // resolve via `intersection_curves`); the closing
+                // (next → prev) hop gets the band-live conic. The main
+                // chain never touches the sliver's non-pinch anchor, so no
+                // lens retyping is needed.
+                for sv in &rebuilt.slivers {
+                    let vs = &sv.verts;
+                    let ns = vs.len();
+                    let mut sc: Vec<(u32, u32)> = (0..ns - 1).map(|i| (vs[i], vs[i + 1])).collect();
+                    sc.push((vs[ns - 1], vs[0]));
+                    let hop = und(vs[0], vs[ns - 1]);
+                    let ps = mesh.verts[vs[0] as usize].as_array();
+                    let pe = mesh.verts[vs[ns - 1] as usize].as_array();
+                    let (ts, _) = theta_v(&frame, ps);
+                    let (te, _) = theta_v(&frame, pe);
+                    let tm = wrap(ts + wrap(te - ts) / 2.0);
+                    let conic = match bands.live_at(tm) {
+                        Some(BandLive::IntCurve) => int_conic,
+                        Some(BandLive::OrigCurve) => orig_conic,
+                        Some(BandLive::WallComplex { .. }) | None => {
+                            probe(format_args!(
+                                "patch info={info_index}: BAIL sliver hop {hop:?} in WC band"
+                            ));
+                            return Ok(None);
+                        }
+                    };
+                    let mut sv_overrides = BTreeMap::new();
+                    sv_overrides.insert(hop, conic);
+                    pending_notches.push((sc, sv_overrides));
+                    sliver_anchors.insert(sv.non_pinch, sv.pinch);
+                }
+                // inc-3: record the chain rewrite when the EDGE SET changed
+                // (a rotation of the same cycle is a no-op for neighbors).
+                let new_edges: std::collections::BTreeSet<(u32, u32)> = new_cycle
+                    .iter()
+                    .map(|&(s, e)| if s < e { (s, e) } else { (e, s) })
+                    .collect();
+                if new_edges != orig_edges {
+                    chains.push(ChainRewrite {
+                        old_verts: cycle.iter().map(|&(s, _)| s).collect(),
+                        new_verts: new_verts.clone(),
+                    });
+                }
                 out_cycles.push(new_cycle);
                 any_rebuilt = true;
             }
@@ -1111,10 +1238,457 @@ pub(crate) fn rebuild_osculating_loops(
     if !any_rebuilt {
         return Ok(None);
     }
+    // Append the notch cycles after all input cycles, registering their
+    // curve overrides under their final cycle indices.
+    for (nc, nc_overrides) in pending_notches {
+        let idx = out_cycles.len();
+        for (k, c) in nc_overrides {
+            overrides.insert((idx, k), c);
+        }
+        out_cycles.push(nc);
+    }
     Ok(Some(LoopRebuild {
         cycles: out_cycles,
         curve_overrides: overrides,
+        sliver_anchors,
+        chains,
+        band_ctx: BandCurveCtx {
+            frame,
+            bands,
+            int_conic,
+            orig_conic,
+        },
     }))
+}
+
+/// inc-3 (spec §10.4): the full gate-ON pre-pass result — rewritten
+/// cycles per info index (owners AND neighbors) plus ONE global curve
+/// override map consulted by both emission branches, so every claimant
+/// of a rewritten edge emits the identical `Curve` by construction.
+pub(crate) struct EnvelopeRewrites {
+    pub cycles: BTreeMap<usize, Vec<Vec<(u32, u32)>>>,
+    /// Keyed by (info index, cycle index, undirected pair): one vert
+    /// pair can carry different curves on different loops (§10.5), so
+    /// overrides are per-loop, never global.
+    pub curve_overrides: BTreeMap<(usize, usize, (u32, u32)), Curve>,
+}
+
+fn und(s: u32, e: u32) -> (u32, u32) {
+    if s < e {
+        (s, e)
+    } else {
+        (e, s)
+    }
+}
+
+/// Gate-ON pre-pass: run the §3.3 owner rebuild for every curved patch,
+/// then propagate each committed chain rewrite to neighbor patches'
+/// copies of the shared chains (spec §10.2: replace each stale run of
+/// old-chain edges with the new chain's sub-path between the same
+/// endpoints, filtered to verts on the neighbor's surface). Every
+/// impossibility bails the WHOLE pre-pass (`Ok(None)`, all loops
+/// untouched) so gate-ON can never pair worse than gate-OFF; the final
+/// local pairing audit is the contract.
+pub(crate) fn envelope_prepass(
+    mesh: &Mesh,
+    infos: &[PatchInfo],
+    subdivided_cycles: &[Vec<Vec<(u32, u32)>>],
+    intersection_curves: &BTreeMap<(u32, u32), Curve>,
+    op: cad_primitives::BoolOp,
+) -> Result<Option<EnvelopeRewrites>, YangError> {
+    // --- 1. Owner rebuilds against the pristine cycles ------------------
+    let mut rebuilds: Vec<(usize, LoopRebuild)> = Vec::new();
+    for i in 0..infos.len() {
+        if let Some(r) =
+            rebuild_osculating_loops(mesh, infos, i, subdivided_cycles, intersection_curves, op)?
+        {
+            rebuilds.push((i, r));
+        }
+    }
+    if rebuilds.is_empty() {
+        return Ok(None);
+    }
+
+    let mut work: BTreeMap<usize, Vec<Vec<(u32, u32)>>> = BTreeMap::new();
+    let mut overrides: BTreeMap<(usize, usize, (u32, u32)), Curve> = BTreeMap::new();
+    // Owner curve list per pair — the §10.5 lens allocator: each planar
+    // claimant of a multiply-typed pair consumes the next owner curve in
+    // order (probe-logged; the orientation audit is the correctness gate).
+    let mut owner_edge_curves: BTreeMap<(u32, u32), Vec<Curve>> = BTreeMap::new();
+    for (i, rb) in &rebuilds {
+        work.insert(*i, rb.cycles.clone());
+        for (&(cyc, k), c) in &rb.curve_overrides {
+            overrides.insert((*i, cyc, k), *c);
+        }
+        // Owner curve list = EVERY owner-cycle edge (incl. notch cycles)
+        // with its RESOLVED curve (override → intersection_curves → Seg),
+        // so a neighbor mirror of ANY owner edge — including an
+        // un-attributed original chord — types identically to the owner.
+        for (cyc, cycle) in rb.cycles.iter().enumerate() {
+            for &(s, e) in cycle {
+                let k = und(s, e);
+                let c = rb
+                    .curve_overrides
+                    .get(&(cyc, k))
+                    .or_else(|| intersection_curves.get(&k))
+                    .copied()
+                    .unwrap_or(Curve::LineSegment);
+                owner_edge_curves.entry(k).or_default().push(c);
+            }
+        }
+    }
+    let mut lens_claims: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+
+    // --- 2. Neighbor propagation per committed chain --------------------
+    let mut watch: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    for (owner_idx, rb) in &rebuilds {
+        // Edges now living on a notch cycle (spec §10.5) are REAL
+        // topology the neighbors keep byte-identically — they must not
+        // read as stale runs. Notch cycles are the ones appended past the
+        // input cycle count.
+        let sliver_edges: std::collections::BTreeSet<(u32, u32)> = rb
+            .cycles
+            .iter()
+            .skip(subdivided_cycles[*owner_idx].len())
+            .flat_map(|cyc| cyc.iter().map(|&(s, e)| und(s, e)))
+            .collect();
+        for chain in &rb.chains {
+            watch.extend(chain.old_verts.iter().copied());
+            watch.extend(chain.new_verts.iter().copied());
+            let n_old = chain.old_verts.len();
+            let old_edges: std::collections::BTreeSet<(u32, u32)> = (0..n_old)
+                .map(|i| und(chain.old_verts[i], chain.old_verts[(i + 1) % n_old]))
+                .filter(|k| !sliver_edges.contains(k))
+                .collect();
+            let mut pos_in_new: BTreeMap<u32, usize> = BTreeMap::new();
+            for (p, &v) in chain.new_verts.iter().enumerate() {
+                if pos_in_new.insert(v, p).is_some() {
+                    probe(format_args!("prepass BAIL: repeated vert {v} in new chain"));
+                    return Ok(None);
+                }
+            }
+            #[allow(clippy::needless_range_loop)] // j indexes infos AND subdivided_cycles
+            for j in 0..infos.len() {
+                if j == *owner_idx {
+                    continue;
+                }
+                let neighbor_cycles: Vec<Vec<(u32, u32)>> = match work.get(&j) {
+                    Some(c) => c.clone(),
+                    None => subdivided_cycles[j].clone(),
+                };
+                let mut changed = false;
+                let mut rewritten: Vec<Vec<(u32, u32)>> = Vec::with_capacity(neighbor_cycles.len());
+                for (cj, cycle) in neighbor_cycles.iter().enumerate() {
+                    match rewrite_neighbor_cycle(
+                        mesh,
+                        infos,
+                        (j, cj),
+                        cycle,
+                        &old_edges,
+                        chain,
+                        &pos_in_new,
+                        &rb.band_ctx,
+                        intersection_curves,
+                        &mut overrides,
+                        &owner_edge_curves,
+                        &mut lens_claims,
+                        &rb.sliver_anchors,
+                    ) {
+                        NeighborRewrite::Unchanged => rewritten.push(cycle.clone()),
+                        NeighborRewrite::Rewritten(c) => {
+                            probe(format_args!(
+                                "prepass: info={j} cycle rewritten {} -> {} edges",
+                                cycle.len(),
+                                c.len()
+                            ));
+                            rewritten.push(c);
+                            changed = true;
+                        }
+                        NeighborRewrite::Bail => return Ok(None),
+                    }
+                }
+                if changed {
+                    work.insert(j, rewritten);
+                }
+            }
+        }
+    }
+
+    // --- 3. Contract audits over every touched vert ---------------------
+    // (a) Pairing: every (undirected pair, resolved curve) incident to a
+    //     watched vert must be used by exactly TWO directed edges in
+    //     OPPOSITE directions across all final loops (incl. slivers) —
+    //     the same contract kernel-v2's from_yang re-checks.
+    let resolve = |info: usize, cyc: usize, key: (u32, u32)| -> Curve {
+        overrides
+            .get(&(info, cyc, key))
+            .or_else(|| intersection_curves.get(&key))
+            .copied()
+            .unwrap_or(Curve::LineSegment)
+    };
+    let mut uses: BTreeMap<(u32, u32), Vec<(Curve, bool)>> = BTreeMap::new();
+    for (j, pristine) in subdivided_cycles.iter().enumerate() {
+        let cycles_j: &[Vec<(u32, u32)>] = match work.get(&j) {
+            Some(c) => c,
+            None => pristine,
+        };
+        for (cj, cyc) in cycles_j.iter().enumerate() {
+            for &(s, e) in cyc {
+                if watch.contains(&s) || watch.contains(&e) {
+                    uses.entry(und(s, e))
+                        .or_default()
+                        .push((resolve(j, cj, und(s, e)), s < e));
+                }
+            }
+        }
+    }
+    for (k, us) in &uses {
+        // Greedy match: each use pairs with an equal-curve opposite-
+        // direction partner; any leftover is a violation.
+        let mut matched = vec![false; us.len()];
+        for a in 0..us.len() {
+            if matched[a] {
+                continue;
+            }
+            let partner = (a + 1..us.len())
+                .find(|&b| !matched[b] && us[b].0 == us[a].0 && us[b].1 != us[a].1);
+            match partner {
+                Some(b) => {
+                    matched[a] = true;
+                    matched[b] = true;
+                }
+                None => {
+                    probe(format_args!(
+                        "prepass BAIL: audit — edge {k:?} uses {:?} do not pair",
+                        us.iter().map(|(_, f)| *f).collect::<Vec<_>>()
+                    ));
+                    return Ok(None);
+                }
+            }
+        }
+    }
+    // (b) Planarity: watched verts in rewritten PLANAR loops must satisfy
+    //     the s6 emission band (defensive mirror of the producer gate).
+    for (j, cycles_j) in &work {
+        let Surface::Plane { normal, d } = infos[*j].inherited else {
+            continue;
+        };
+        let n = normal.as_array();
+        for cyc in cycles_j {
+            for &(v, _) in cyc {
+                if !watch.contains(&v) {
+                    continue;
+                }
+                let p = mesh.verts[v as usize].as_array();
+                let dist = dot(p, n) + d;
+                let band = TAU_MODEL * (1.0 + p[0].abs().max(p[1].abs()).max(p[2].abs()));
+                if dist.abs() > band {
+                    probe(format_args!(
+                        "prepass BAIL: vert {v} off info={j} plane by {dist:.3e}"
+                    ));
+                    return Ok(None);
+                }
+            }
+        }
+    }
+
+    Ok(Some(EnvelopeRewrites {
+        cycles: work,
+        curve_overrides: overrides,
+    }))
+}
+
+enum NeighborRewrite {
+    Unchanged,
+    Rewritten(Vec<(u32, u32)>),
+    Bail,
+}
+
+/// Rewrite ONE neighbor cycle against one owner chain: locate maximal
+/// cyclic runs of old-chain edges and replace each with the new chain's
+/// sub-path between the same endpoints (shorter arc), filtered to verts
+/// on the neighbor's plane. Sub-path edges missing curve attribution get
+/// the band-live conic (the planar–planar strip-edge vocabulary).
+#[allow(clippy::too_many_arguments)]
+fn rewrite_neighbor_cycle(
+    mesh: &Mesh,
+    infos: &[PatchInfo],
+    (j, cj): (usize, usize),
+    cycle: &[(u32, u32)],
+    old_edges: &std::collections::BTreeSet<(u32, u32)>,
+    chain: &ChainRewrite,
+    pos_in_new: &BTreeMap<u32, usize>,
+    ctx: &BandCurveCtx,
+    intersection_curves: &BTreeMap<(u32, u32), Curve>,
+    overrides: &mut BTreeMap<(usize, usize, (u32, u32)), Curve>,
+    owner_edge_curves: &BTreeMap<(u32, u32), Vec<Curve>>,
+    lens_claims: &mut BTreeMap<(u32, u32), usize>,
+    sliver_anchors: &BTreeMap<u32, u32>,
+) -> NeighborRewrite {
+    let m = cycle.len();
+    let in_chain: Vec<bool> = cycle
+        .iter()
+        .map(|&(s, e)| old_edges.contains(&und(s, e)))
+        .collect();
+    if !in_chain.iter().any(|&b| b) {
+        return NeighborRewrite::Unchanged;
+    }
+    if in_chain.iter().all(|&b| b) {
+        probe(format_args!(
+            "prepass BAIL: info={j} cycle is a whole-loop chain copy"
+        ));
+        return NeighborRewrite::Bail;
+    }
+    let Surface::Plane { normal, d } = infos[j].inherited else {
+        probe(format_args!(
+            "prepass BAIL: chain run in non-planar neighbor info={j}"
+        ));
+        return NeighborRewrite::Bail;
+    };
+    let pl = EnvPlane {
+        n: normal.as_array(),
+        d,
+    };
+    let on_neighbor_plane = |v: u32| {
+        let p = mesh.verts[v as usize].as_array();
+        pl.sd(p).abs() < cad_primitives::TAU_EVAL * (1.0 + norm(p))
+    };
+
+    let n_new = chain.new_verts.len();
+    // Start the walk on a non-run edge so cyclic runs never split.
+    let start = match in_chain.iter().position(|&b| !b) {
+        Some(s) => s,
+        None => unreachable!("all-run case handled above"),
+    };
+    let mut out: Vec<(u32, u32)> = Vec::with_capacity(m);
+    let mut k = 0usize;
+    while k < m {
+        let idx = (start + k) % m;
+        if !in_chain[idx] {
+            out.push(cycle[idx]);
+            k += 1;
+            continue;
+        }
+        // Maximal run [idx .. run_end].
+        let mut len = 1usize;
+        while len < m && in_chain[(idx + len) % m] {
+            len += 1;
+        }
+        let a = cycle[idx].0;
+        let b = cycle[(idx + len - 1) % m].1;
+        // A run endpoint living only on a residual sliver (its non-pinch
+        // anchor) enters the main rail THROUGH the sliver's closing edge
+        // (spec §10.5): the path gains an [anchor → pinch] hop.
+        let rail_entry = |v: u32| -> Option<(u32, Option<u32>)> {
+            if pos_in_new.contains_key(&v) {
+                Some((v, None))
+            } else {
+                sliver_anchors.get(&v).map(|&pinch| (pinch, Some(v)))
+            }
+        };
+        let (Some((rail_a, pre_a)), Some((rail_b, pre_b))) = (rail_entry(a), rail_entry(b)) else {
+            probe(format_args!(
+                "prepass BAIL: info={j} run endpoint {a}/{b} missing from new chain"
+            ));
+            return NeighborRewrite::Bail;
+        };
+        let (&pa, &pb) = (&pos_in_new[&rail_a], &pos_in_new[&rail_b]);
+        let mut path: Vec<u32> = Vec::new();
+        if let Some(v) = pre_a {
+            path.push(v);
+        }
+        if pa == pb {
+            path.push(rail_a);
+        } else {
+            // Shorter cyclic arc pa -> pb in the new chain.
+            let fwd = (pb + n_new - pa) % n_new;
+            let bwd = (pa + n_new - pb) % n_new;
+            if fwd == bwd {
+                probe(format_args!(
+                    "prepass BAIL: info={j} ambiguous arc {a}->{b}"
+                ));
+                return NeighborRewrite::Bail;
+            }
+            let steps = fwd.min(bwd);
+            let forward = fwd <= bwd;
+            path.push(rail_a);
+            for s in 1..steps {
+                let p = if forward {
+                    (pa + s) % n_new
+                } else {
+                    (pa + n_new - s) % n_new
+                };
+                let v = chain.new_verts[p];
+                // Plane filter: interior verts off the neighbor's surface
+                // are the OTHER side's chain verts — skipped; the
+                // endpoints always survive.
+                if on_neighbor_plane(v) {
+                    path.push(v);
+                }
+            }
+            path.push(rail_b);
+        }
+        if let Some(v) = pre_b {
+            path.push(v);
+        }
+        if path.len() < 2 {
+            probe(format_args!(
+                "prepass BAIL: info={j} degenerate replacement path {a}->{b}"
+            ));
+            return NeighborRewrite::Bail;
+        }
+        for w in path.windows(2) {
+            let key = und(w[0], w[1]);
+            out.push((w[0], w[1]));
+            if intersection_curves.contains_key(&key) {
+                continue;
+            }
+            let curve = match owner_edge_curves.get(&key) {
+                Some(list) if list.len() == 1 => list[0],
+                // §10.5 lens: the owner types this pair differently on
+                // different loops (main Seg vs sliver conic); planar
+                // claimants consume the owner curves in order. The
+                // orientation audit adjudicates the assignment.
+                Some(list) => {
+                    let idx = lens_claims.entry(key).or_insert(0);
+                    if *idx >= list.len() {
+                        probe(format_args!(
+                            "prepass BAIL: info={j} lens pair {key:?} over-claimed"
+                        ));
+                        return NeighborRewrite::Bail;
+                    }
+                    let c = list[*idx];
+                    probe(format_args!(
+                        "prepass: lens {key:?} claim #{idx} -> info={j} cycle={cj}"
+                    ));
+                    *idx += 1;
+                    c
+                }
+                None => {
+                    let Some(c) = ctx.curve_for(mesh, w[0], w[1]) else {
+                        probe(format_args!(
+                            "prepass BAIL: info={j} no band conic for new edge {key:?}"
+                        ));
+                        return NeighborRewrite::Bail;
+                    };
+                    c
+                }
+            };
+            overrides.insert((j, cj, key), curve);
+        }
+        k += len;
+    }
+    // Simple-loop check: every vert appears once.
+    let starts: std::collections::BTreeSet<u32> = out.iter().map(|&(s, _)| s).collect();
+    if starts.len() != out.len() || out.len() < 3 {
+        probe(format_args!(
+            "prepass BAIL: info={j} rewritten cycle not a simple loop ({} edges, {} distinct verts)",
+            out.len(),
+            starts.len()
+        ));
+        return NeighborRewrite::Bail;
+    }
+    NeighborRewrite::Rewritten(out)
 }
 
 /// Shared-vertex count between another patch's loops and this loop's verts.
@@ -1191,7 +1765,8 @@ fn rebuild_cycle(
     p_orig: &EnvPlane,
     prof_int: &AxialProfile,
     prof_orig: &AxialProfile,
-) -> Result<Option<Vec<u32>>, YangError> {
+    is_planar_junction: &dyn Fn(u32) -> bool,
+) -> Result<Option<RebuiltCycle>, YangError> {
     let n_b = bands.boundaries.len();
     let verts: Vec<u32> = cycle.iter().map(|&(s, _)| s).collect();
     let vert_pos = |v: u32| mesh.verts[v as usize].as_array();
@@ -1219,8 +1794,14 @@ fn rebuild_cycle(
     // missing junction vert bails (inc-0 measured every needed junction
     // already minted; insertion is future vocabulary).
     let mut junction_of_boundary: Vec<u32> = Vec::with_capacity(n_b);
-    for b in &bands.boundaries {
+    for (bi, b) in bands.boundaries.iter().enumerate() {
         let (v, d) = nearest(b.p);
+        probe(format_args!(
+            "  junction[{bi}] theta={:.7} kind={:?} -> vert {v} d={d:.3e} (tol {:.3e})",
+            b.theta,
+            b.kind,
+            junction_tol(b.p)
+        ));
         if d > junction_tol(b.p) {
             return Ok(None);
         }
@@ -1351,8 +1932,14 @@ fn rebuild_cycle(
             &junction_set,
             &theta_of,
         ) else {
+            probe(format_args!(
+                "  wc[{i}] entry={entry} exit={exit}: extract FAILED"
+            ));
             return Ok(None);
         };
+        probe(format_args!(
+            "  wc[{i}] entry={entry} exit={exit} path={path:?}"
+        ));
         *section = path;
     }
 
@@ -1388,6 +1975,87 @@ fn rebuild_cycle(
         }
     }
 
+    // --- Residual sliver cycles (spec §10.5) ----------------------------
+    // A maximal ORIGINAL-cycle run of dropped verts containing a planar
+    // JUNCTION (non-owner degree ≥ 3, e.g. F0082's v926) cannot be erased
+    // — its arcs carry real solid edges whose traversal direction opposes
+    // the monotone main chain (the fold's raison d'être). The run splits
+    // off as a residual sliver face: [prev, run.., next] in ORIGINAL
+    // traversal order (preserving the paired directions byte-identically)
+    // closed with the (next → prev) hop. The main chain's matching
+    // (prev, next) hop becomes the lens's other side. Requires prev/next
+    // adjacent in the main chain; else fail closed. Junction-free runs
+    // (pass-throughs, e.g. v938) stay plain drops.
+    let n_orig = verts.len();
+    let mut slivers: Vec<SliverSpec> = Vec::new();
+    let mut oi = 0usize;
+    while oi < n_orig {
+        if out_set.contains(&verts[oi]) {
+            oi += 1;
+            continue;
+        }
+        let mut run = vec![verts[oi]];
+        let mut oj = oi + 1;
+        while oj < n_orig && !out_set.contains(&verts[oj % n_orig]) {
+            run.push(verts[oj]);
+            oj += 1;
+        }
+        // A run wrapping the array seam would have been caught starting at
+        // its true head only if verts[0] is kept; a wrapped run (verts[0]
+        // dropped AND verts[n-1] dropped) is out of vocabulary — bail.
+        if oi == 0 && !out_set.contains(&verts[n_orig - 1]) {
+            return Ok(None);
+        }
+        if run.iter().any(|&v| is_planar_junction(v)) {
+            let prev = verts[(oi + n_orig - 1) % n_orig];
+            let next = verts[oj % n_orig];
+            // The PINCH anchor lies on BOTH pair curves (the osculation
+            // point) and stays on the main chain; the other anchor lives
+            // on one curve only and moves to the sliver EXCLUSIVELY
+            // (keeping it on main pinches its vertex umbrella into two
+            // cones — an odd-χ non-manifold assembly, measured on F0082).
+            let on_both = |v: u32| {
+                let p = vert_pos(v);
+                on_plane(p_int, p) && on_plane(p_orig, p)
+            };
+            let (pinch, other) = match (on_both(prev), on_both(next)) {
+                (true, false) => (prev, next),
+                (false, true) => (next, prev),
+                _ => {
+                    probe(format_args!(
+                        "  sliver BAIL: run {run:?} anchors {prev}/{next} lack a unique pinch"
+                    ));
+                    return Ok(None);
+                }
+            };
+            if !out_set.contains(&pinch) {
+                probe(format_args!(
+                    "  sliver BAIL: pinch {pinch} not on main chain"
+                ));
+                return Ok(None);
+            }
+            let mut cyc = Vec::with_capacity(run.len() + 2);
+            cyc.push(prev);
+            cyc.extend_from_slice(&run);
+            cyc.push(next);
+            probe(format_args!(
+                "  sliver cycle {cyc:?} (closing {next}->{prev}, pinch {pinch}, main drops {other})"
+            ));
+            slivers.push(SliverSpec {
+                verts: cyc,
+                pinch,
+                non_pinch: other,
+            });
+        }
+        oi = oj;
+    }
+    // Remove the non-pinch sliver anchors from the main chain.
+    let removals: std::collections::BTreeSet<u32> = slivers.iter().map(|s| s.non_pinch).collect();
+    if !removals.is_empty() {
+        out.retain(|v| !removals.contains(v));
+    }
+    let out_set: std::collections::BTreeSet<u32> = out.iter().copied().collect();
+
     // --- Postconditions (P10: loud after commit) ------------------------
     if out.len() < 3 {
         return Err(non_manifold_at(
@@ -1411,7 +2079,24 @@ fn rebuild_cycle(
             ));
         }
     }
-    Ok(Some(out))
+    Ok(Some(RebuiltCycle { main: out, slivers }))
+}
+
+/// A rebuilt owner cycle: the monotone main chain plus any residual
+/// sliver cycles split off at masked-triple junction runs (spec §10.5).
+/// Each sliver is a vert sequence [prev, run.., next] whose consecutive
+/// edges are ORIGINAL cycle edges (direction preserved) and whose closing
+/// edge is (next → prev). The pinch anchor (on both pair curves) stays on
+/// the main chain; the non-pinch anchor lives on the sliver only.
+struct RebuiltCycle {
+    main: Vec<u32>,
+    slivers: Vec<SliverSpec>,
+}
+
+struct SliverSpec {
+    verts: Vec<u32>,
+    pinch: u32,
+    non_pinch: u32,
 }
 
 /// The byte-identical original traversal of a wall-complex sliver: the

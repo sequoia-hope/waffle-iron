@@ -450,6 +450,22 @@ pub fn from_yang_brep_indexed(
         let k1 = loops[u1.loop_idx].edges[u1.pos];
         if a != b {
             if u0.forward == u1.forward {
+                if std::env::var_os("KV2_OUT_TWIN_PROBE").is_some() {
+                    let pa = yverts[a as usize].point.as_array();
+                    let pb = yverts[b as usize].point.as_array();
+                    eprintln!(
+                        "[edge-pair-probe] SAME-DIRECTION key ({a},{b}) curve={_ck:?}\n  a: ({},{},{})\n  b: ({},{},{})\n    uses: faces {:?} loop_idx {:?} pos {:?}",
+                        pa[0],
+                        pa[1],
+                        pa[2],
+                        pb[0],
+                        pb[1],
+                        pb[2],
+                        uses.iter().map(|u| loops[u.loop_idx].face).collect::<Vec<_>>(),
+                        uses.iter().map(|u| u.loop_idx).collect::<Vec<_>>(),
+                        uses.iter().map(|u| u.pos).collect::<Vec<_>>()
+                    );
+                }
                 return Err(KernelV2Error::InvalidBooleanOutput(
                     "an undirected output edge is not used by two OPPOSITE directed edges",
                 ));

@@ -473,3 +473,141 @@ YANG_S5_ENVELOPE_PROBE=1 ASSAY_CASE=F0082 … single_case`):
   residual micro-stubs; (c) the §3.1 detector-promotion decision from
   the §7.7 fire set (band_frac-gated) stands unchanged; (d) full
   gate-ON assay ledger + sidecar parity per §5.
+
+## 10. inc-3 design (2026-07-22, measured before build)
+
+### 10.1 The §9.3 "drop the same dead verts everywhere" instruction is
+### WRONG as stated — measured refutation
+
+Junction forensics (probe extension in `rebuild_cycle`, run on F0082
+gate-ON) place the W0/W2 wall-crossing junctions at verts 937/943 and
+921/949 — **the 925/926/951 cluster is NOT at a wall crossing**. It sits
+mid-Orig-band at the **wall-masked triple** (θ = −1.0886; the stored
+mask margin +1.2920777e-3 equals x(v925) − x(wall) exactly). The full
+unpaired-edge set gate-ON (10 edges, measured via `KV2_OUT_TWIN_PROBE`)
+decomposes into two sites:
+
+- **W2-ellipse-run site (v938)**: v938 is a degree-2 pass-through in the
+  planar world (both non-owner edges in face 363, same conic) — the
+  plain splice `(932,938)+(938,937) → (932,937)` closes it, curve keys
+  already agree. The §9.3 instruction is RIGHT here.
+- **Masked-triple site (v925/v926/v951)**: v926 is a **degree-3 planar
+  junction** (edges to 925 [face 362, EllSmall], 951 [face 368, EllBig],
+  and wall-top 927 [shared 362/368]). No completion that erases v926
+  can close: exhaustive case analysis leaves odd edge-use parity at
+  v925/v951 or puts an off-plane vert (gap ≈ 1.05e-4 ≫ the TAU_MODEL
+  planarity band) into a planar loop (`s6-planar-loop-nonplanar`).
+
+### 10.2 The measured completion — the fold is a NOTCH; pinch-split
+### (final form, reached through three refuted intermediates: see §10.6)
+
+The fold segment `[951 → 926 → 925]` (θ-backward run) is not a defect
+to erase — it is the boundary of a NOTCH: the strip region between rim
+and ellipse at the masked triple has NO kept mesh surface (measured:
+zero kept triangles inside `{951,926,925}`), so it is genuinely not
+part of the tube face. The repaired owner is the PINCH-SPLIT of the
+original self-touching ring:
+
+- **Main chain**: azimuth-monotone on-live-conic members —
+  `[…960, 925, 959…]` (30→27). BOTH non-pinch fold verts leave the main
+  chain (951 and 926); only the PINCH (v925, on both pair curves — the
+  osculation point) stays. The main hop `(925,959)` is an ORIGINAL
+  gate-OFF edge — 370's chord pairs it untouched.
+- **Notch cycle**: the fold run byte-identical + a closing band-conic
+  arc — `[951→926, 926→925, 925→951(Circle)]` — emitted as an
+  ADDITIONAL CYCLE of the owner patch, i.e. an INNER LOOP (hole). Its
+  material-CW winding is exactly what a hole must do (the curved-branch
+  validator confirmed: as a standalone face it fails material-CCW; as a
+  hole it passes). Its run edges keep their original EllSmall/EllBig
+  attributions, pairing 362/368 byte-identically.
+- **Neighbor rewrite — ONE rule**: replace each stale maximal run of
+  old-owner-chain edges (EXCLUDING notch edges) with the new main
+  chain's sub-path between the same endpoints, filtered to verts on the
+  neighbor's surface. A run endpoint living only on the notch (the
+  non-pinch anchor, e.g. 371's 951) enters the rail THROUGH the notch's
+  closing edge: 371's chord `(951,960)` → `(951,925),(925,960)`; 363's
+  chain splices out the pass-through v938; 362/368/370 are
+  byte-unchanged.
+- **Curve keys**: per-(info, cycle, pair) override map (one vert pair
+  may carry different curves on different loops); each neighbor mirror
+  of an owner edge resolves to the owner's curve for that edge (owner
+  list in cycle order; multiply-typed pairs consumed in order,
+  probe-logged); both emission branches consult the map first.
+
+### 10.3 The keep/drop/notch rule (replaces "on the live conic" alone)
+
+For each maximal ORIGINAL-cycle run of verts dropped by the live-conic
+member selection:
+- **no planar junction in the run** (every vert has non-owner edge
+  degree ≤ 2): plain drop — the neighbors' chains splice (v938);
+- **run contains a planar junction** (degree ≥ 3, e.g. v926 carrying
+  the wall-top edge): the run becomes a NOTCH cycle
+  `[prev, run…, next]` + closing hop. Exactly one anchor must be the
+  PINCH (on BOTH pair curves); the other anchor is removed from the
+  main chain (keeping it provably pinches its vertex umbrella into two
+  cones — an odd-χ assembly, measured). No unique pinch ⇒ fail closed.
+
+The band table itself is UNCHANGED (the inc-1 8-boundary table stays
+authoritative; no new boundary vocabulary).
+
+### 10.4 Architecture and fail-closed contract
+
+The gated rebuild moves from a per-patch call inside `emit_topology`'s
+curved branch to a **pre-pass**: (1) run detection+rebuild for every
+curved patch against the pristine `subdivided_cycles`; (2) run neighbor
+propagation, producing rewritten cycles for affected infos plus the
+global curve-override map; (3) the main per-info loop consumes the
+rewritten cycles in both branches with no per-info rebuild call.
+
+Fail-closed (revert EVERYTHING for that owner — gate-ON can then not be
+worse than gate-OFF): a stale run whose endpoints are missing from the
+new chain; a plane-filter that would drop a kept junction; a rewrite
+that repeats a vert within one loop; two rebuilds touching the same
+neighbor edge; and a final **local pairing audit** — every touched
+undirected edge must have exactly 2 uses with equal curve keys, and
+every substituted vert must satisfy its face's TAU_MODEL planarity
+band. Audit failure ⇒ bail (the untouched loops keep the old loud
+STOP). Post-commit violations remain loud typed `s5-envelope-*` errors
+(P10).
+
+### 10.5 inc-3 record (2026-07-22, gated; production byte-identical)
+
+Shipped the §10.2/§10.3/§10.4 machinery: pre-pass in `emit_topology`
+(owner rebuilds → notch split → neighbor propagation → pairing +
+planarity audits; per-(info,cycle,pair) curve overrides consulted by
+both branches). Gate-OFF: F0082 byte-identical (same
+`TessellationFailed FaceId(3727)`); yang-rs 74/74 binaries + rewrite
+tier green.
+
+**F0082 gate-ON peeled FOUR defect layers, each measured**
+(`KV2_OUT_TWIN_PROBE` / `KV2_RING_REJECT_PROBE` forensics):
+1. `InvalidBooleanOutput("…exactly two directed edges")` — closed by
+   neighbor propagation + notch split (all 2-use).
+2. `…two OPPOSITE directed edges` on (925,926) — REFUTED the Option-W
+   "junction rides the main chain" design: the zig arcs must run
+   θ-backward (that is what the fold was); hence the notch SPLIT.
+3. `Euler characteristic not genus-representable` — REFUTED keeping the
+   non-pinch anchor (951) on the main chain: its umbrella pinches into
+   two cones (odd χ). Hence the §10.3 pinch rule.
+4. `CurvedGeometryMismatch "exactly one material-CCW loop"` — REFUTED
+   emitting the notch as its own FACE (it has no kept mesh surface —
+   phantom); as an INNER LOOP its CW winding is correct.
+
+**Landing state**: every boolean-output validation gate in `from_yang`
+passes (pairing counts, orientations, curve-key lens, Euler/genus,
+cylinder-patch winding). The case now STOPs one layer deeper, in
+RENDER tessellation: `TessellationFailed FaceId(3727) "ring rejected by
+CDT"` — the notch hole shares the pinch vertex v925 with the outer
+ring, and `cdt_polygon_with_holes_floodfill` rejects vertex-touching
+holes. The vertex umbrella at 925 is a SINGLE 5-edge cycle
+(surface-manifold); the self-touch is face-level only — a legitimate
+pinched-ring B-Rep the render CDT cannot yet triangulate.
+
+### 10.6 inc-4 = pinched-ring render tessellation (kernel-v2)
+
+The remaining F0082 blocker is a CAPABILITY gap in kernel-v2's
+`triangulate_ring`: support a hole sharing exactly one vertex with the
+outer ring (keyhole decomposition at the shared vertex, or
+flood-fill-CDT admission of coincident ring points). Everything
+upstream of render is repaired and validated. Then: full gate-ON assay
+ledger + §7.7 detector-promotion decision + flip per §5.

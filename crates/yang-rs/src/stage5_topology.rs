@@ -463,7 +463,29 @@ pub(crate) fn emit_topology(
     // foreign on-segment output vertices BEFORE emission, so a shared solid
     // edge subdivided differently on its two sides pairs segment-by-segment.
     // A strict no-op (byte-identical cycles) for output with no such vertices.
-    let subdivided_cycles = subdivide_loops_at_shared_vertices(infos, mesh);
+    let mut subdivided_cycles = subdivide_loops_at_shared_vertices(infos, mesh);
+    // #188 inc-3 (spec §10.4): gated boundary-envelope PRE-PASS. Owner
+    // rebuilds + neighbor-chain propagation + pairing/planarity audits run
+    // together BEFORE emission; on success the rewritten cycles replace the
+    // originals for every affected patch and `env_overrides` carries the one
+    // global curve map both branches consult. Gate off (or any bail) ⇒
+    // byte-identical emission.
+    let mut env_overrides: std::collections::BTreeMap<(usize, usize, (u32, u32)), Curve> =
+        std::collections::BTreeMap::new();
+    if crate::stage5_envelope::envelope_gate_enabled() {
+        if let Some(rw) = crate::stage5_envelope::envelope_prepass(
+            mesh,
+            infos,
+            &subdivided_cycles,
+            intersection_curves,
+            op,
+        )? {
+            for (i, cyc) in rw.cycles {
+                subdivided_cycles[i] = cyc;
+            }
+            env_overrides = rw.curve_overrides;
+        }
+    }
     for (info_index, info) in infos.iter().enumerate() {
         let cycles = &subdivided_cycles[info_index];
         let inherited = info.inherited;
@@ -505,47 +527,26 @@ pub(crate) fn emit_topology(
                 );
             }
 
-            // #188 inc-2 (spec §3.3): gated boundary-envelope rebuild for
-            // osculating curve pairs. Gate off ⇒ byte-identical (no call);
-            // gate on ⇒ selection-only rebuild of weaving cycles, with the
-            // untouched loop as the fail-closed path (`Ok(None)`).
-            let envelope_rebuild = if crate::stage5_envelope::envelope_gate_enabled() {
-                crate::stage5_envelope::rebuild_osculating_loops(
-                    mesh,
-                    infos,
-                    info_index,
-                    &subdivided_cycles,
-                    intersection_curves,
-                    op,
-                )?
-            } else {
-                None
-            };
-            let cycles = match &envelope_rebuild {
-                Some(r) => &r.cycles,
-                None => cycles,
-            };
-            let curve_overrides = envelope_rebuild.as_ref().map(|r| &r.curve_overrides);
-
-            let push_loop = |edges: &mut Vec<BRepEdge>, cycle: &[(u32, u32)]| -> Vec<u32> {
-                let start_idx = edges.len() as u32;
-                for &(s, e) in cycle {
-                    let key = if s < e { (s, e) } else { (e, s) };
-                    let curve = curve_overrides
-                        .and_then(|m| m.get(&key))
-                        .or_else(|| intersection_curves.get(&key))
-                        .copied()
-                        .unwrap_or(Curve::LineSegment);
-                    edges.push(BRepEdge {
-                        start: s,
-                        end: e,
-                        // Task #133: the undirected curve's normal oriented
-                        // for THIS traversal (spec `yang_stage6_arc_orientation`).
-                        curve: orient_directed_curve(curve, s, e, &mesh.verts),
-                    });
-                }
-                (start_idx..edges.len() as u32).collect()
-            };
+            let push_loop =
+                |edges: &mut Vec<BRepEdge>, cycle_idx: usize, cycle: &[(u32, u32)]| -> Vec<u32> {
+                    let start_idx = edges.len() as u32;
+                    for &(s, e) in cycle {
+                        let key = if s < e { (s, e) } else { (e, s) };
+                        let curve = env_overrides
+                            .get(&(info_index, cycle_idx, key))
+                            .or_else(|| intersection_curves.get(&key))
+                            .copied()
+                            .unwrap_or(Curve::LineSegment);
+                        edges.push(BRepEdge {
+                            start: s,
+                            end: e,
+                            // Task #133: the undirected curve's normal oriented
+                            // for THIS traversal (spec `yang_stage6_arc_orientation`).
+                            curve: orient_directed_curve(curve, s, e, &mesh.verts),
+                        });
+                    }
+                    (start_idx..edges.len() as u32).collect()
+                };
 
             // E2 degenerate-loop guard: each cycle's Newell area-vector
             // magnitude must exceed MIN_FEATURE_SIZE² (A14.3 shared constant).
@@ -603,11 +604,11 @@ pub(crate) fn emit_topology(
                 }
             }
 
-            let outer_loop = push_loop(&mut edges, &cycles[outer_idx]);
+            let outer_loop = push_loop(&mut edges, outer_idx, &cycles[outer_idx]);
             let mut inner_loops: Vec<Vec<u32>> = Vec::new();
             for (i, cycle) in cycles.iter().enumerate() {
                 if i != outer_idx {
-                    inner_loops.push(push_loop(&mut edges, cycle));
+                    inner_loops.push(push_loop(&mut edges, i, cycle));
                 }
             }
 
@@ -792,36 +793,38 @@ pub(crate) fn emit_topology(
         }
 
         let outer_cycle = &cycles[outer_idx];
-        let inner_cycles: Vec<&Vec<(u32, u32)>> = cycles
+        let inner_cycles: Vec<(usize, &Vec<(u32, u32)>)> = cycles
             .iter()
             .enumerate()
             .filter(|(i, _)| *i != outer_idx)
-            .map(|(_, c)| c)
             .collect();
 
         // Emit the outer loop's edges first, then each inner loop's edges.
-        let push_loop = |edges: &mut Vec<BRepEdge>, cycle: &[(u32, u32)]| -> Vec<u32> {
-            let start_idx = edges.len() as u32;
-            for &(s, e) in cycle {
-                let curve = intersection_curves
-                    .get(&if s < e { (s, e) } else { (e, s) })
-                    .copied()
-                    .unwrap_or(Curve::LineSegment);
-                edges.push(BRepEdge {
-                    start: s,
-                    end: e,
-                    // Task #133: the undirected curve's normal oriented for
-                    // THIS traversal (spec `yang_stage6_arc_orientation`).
-                    curve: orient_directed_curve(curve, s, e, &mesh.verts),
-                });
-            }
-            (start_idx..edges.len() as u32).collect()
-        };
+        let push_loop =
+            |edges: &mut Vec<BRepEdge>, cycle_idx: usize, cycle: &[(u32, u32)]| -> Vec<u32> {
+                let start_idx = edges.len() as u32;
+                for &(s, e) in cycle {
+                    let key = if s < e { (s, e) } else { (e, s) };
+                    let curve = env_overrides
+                        .get(&(info_index, cycle_idx, key))
+                        .or_else(|| intersection_curves.get(&key))
+                        .copied()
+                        .unwrap_or(Curve::LineSegment);
+                    edges.push(BRepEdge {
+                        start: s,
+                        end: e,
+                        // Task #133: the undirected curve's normal oriented for
+                        // THIS traversal (spec `yang_stage6_arc_orientation`).
+                        curve: orient_directed_curve(curve, s, e, &mesh.verts),
+                    });
+                }
+                (start_idx..edges.len() as u32).collect()
+            };
 
-        let outer_loop = push_loop(&mut edges, outer_cycle);
+        let outer_loop = push_loop(&mut edges, outer_idx, outer_cycle);
         let mut inner_loops: Vec<Vec<u32>> = Vec::with_capacity(inner_cycles.len());
-        for inner in &inner_cycles {
-            inner_loops.push(push_loop(&mut edges, inner));
+        for (i, inner) in &inner_cycles {
+            inner_loops.push(push_loop(&mut edges, *i, inner));
         }
 
         // Task #146 diagnosis probe (read-only, env-gated): a planar output

@@ -709,11 +709,17 @@ fn rebuild_drops_dead_side_detour_and_reorders() {
     // (spanning the dropped rim vert and the closed triple), circle on the
     // rim side (the cap is ⊥ the axis).
     let key = |a: u32, b: u32| if a < b { (a, b) } else { (b, a) };
-    assert_eq!(rebuilt.curve_overrides.get(&key(e_m05, e_00)), Some(&conic));
-    assert_eq!(rebuilt.curve_overrides.get(&key(e_10, j2)), Some(&conic));
+    assert_eq!(
+        rebuilt.curve_overrides.get(&(0, key(e_m05, e_00))),
+        Some(&conic)
+    );
+    assert_eq!(
+        rebuilt.curve_overrides.get(&(0, key(e_10, j2))),
+        Some(&conic)
+    );
     // (j2, r_20) was an ORIGINAL edge (the healthy exit of the detour):
     // it keeps its original attribution — no override.
-    assert!(!rebuilt.curve_overrides.contains_key(&key(j2, r_20)));
+    assert!(!rebuilt.curve_overrides.contains_key(&(0, key(j2, r_20))));
     assert_eq!(rebuilt.curve_overrides.len(), 2);
 }
 
@@ -835,7 +841,7 @@ fn rebuild_keeps_wall_sections_byte_identical_with_swap_pairing() {
         radius: 1.0,
     };
     assert_eq!(
-        rebuilt.curve_overrides.get(&key(r_22, r_30)),
+        rebuilt.curve_overrides.get(&(0, key(r_22, r_30))),
         Some(&rim_circle)
     );
     assert_eq!(rebuilt.curve_overrides.len(), 1);
