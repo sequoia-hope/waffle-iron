@@ -1289,6 +1289,54 @@ pub(crate) struct EnvelopeRewrites {
 /// §10.8: (owner info index, notch cycle, per-edge curves).
 pub(crate) type ExtraFace = (usize, Vec<(u32, u32)>, BTreeMap<(u32, u32), Curve>);
 
+/// EXACT on-conic membership for the §10.9 chord typing: the point must lie
+/// on the conic's carrier plane AND at the conic's radial locus, both within
+/// the scale-relative TAU_MODEL band. For ellipses the radial test uses the
+/// parametric foot at `t = atan2(y/b, x/a)` — first-order-accurate for
+/// near-on points, conservative as a membership test.
+fn on_conic(mesh: &Mesh, v: u32, conic: &Curve) -> bool {
+    let p = mesh.verts[v as usize].as_array();
+    let scale = p[0].abs().max(p[1].abs()).max(p[2].abs());
+    let band = TAU_MODEL * (1.0 + scale);
+    let Some((n, d)) = conic_carrier(conic) else {
+        return false;
+    };
+    if (dot(p, n) + d).abs() > band {
+        return false;
+    }
+    match conic {
+        Curve::Circle { center, radius, .. } => {
+            let c = center.as_array();
+            let w = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+            let h = dot(w, n);
+            let r_in = [w[0] - h * n[0], w[1] - h * n[1], w[2] - h * n[2]];
+            (norm(r_in) - radius).abs() <= band
+        }
+        Curve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } => {
+            let c = center.as_array();
+            let e1 = major_axis.as_array();
+            let na = normal.as_array();
+            let e2 = [
+                na[1] * e1[2] - na[2] * e1[1],
+                na[2] * e1[0] - na[0] * e1[2],
+                na[0] * e1[1] - na[1] * e1[0],
+            ];
+            let w = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+            let (x, y) = (dot(w, e1), dot(w, e2));
+            let t = (y / minor_radius).atan2(x / major_radius);
+            let (fx, fy) = (major_radius * t.cos(), minor_radius * t.sin());
+            ((x - fx).powi(2) + (y - fy).powi(2)).sqrt() <= band
+        }
+        _ => false,
+    }
+}
+
 fn und(s: u32, e: u32) -> (u32, u32) {
     if s < e {
         (s, e)
@@ -1435,6 +1483,85 @@ pub(crate) fn envelope_prepass(
                 }
                 if changed {
                     work.insert(j, rewritten);
+                }
+            }
+        }
+    }
+
+    // --- 2b. inc-6 (spec §10.9): band-conic typing of the rebuilt chains'
+    // ORIGINAL un-attributed chords — the fired-patch slice of the #158/F6
+    // rim-vocabulary migration. A surviving rim emitted as a bare
+    // `LineSegment` chord makes the render boundary SAG by the chord
+    // sagitta (F0082: 1.56e-3 at the (925,959) hop — the §10.8 selfx
+    // crossing at the junction corner); typing it with the band-live conic
+    // restores arc sampling. The override is recorded for EVERY final loop
+    // carrying the edge (owner + planar claimants), so both sides sample
+    // the identical curve — conformal by construction, and the pairing
+    // audit below re-checks the symmetry. Typing is a REPRESENTATION
+    // upgrade, never a repair (P9): it applies only when both endpoints
+    // lie ON the conic's carrier plane within the TAU_MODEL band (chain
+    // verts are on the owner cylinder by construction, so carrier-plane
+    // membership ⇔ on-conic); anything else — wall-complex bands, off-conic
+    // endpoints — keeps its original vocabulary.
+    {
+        let mut typed: Vec<((u32, u32), Curve)> = Vec::new();
+        for (owner_idx, rb) in &rebuilds {
+            // Only chains whose edge set actually REWROTE: the §3.3 rebuild
+            // guarantees on-live-conic membership for those verts. A
+            // byte-identical rebuild proves nothing about its verts (the
+            // sub-observable band admits off-conic originals up to the
+            // floor — measured: an Extrude-10 patch's carrier-plane-passing
+            // chord failed the kernel's on-ellipse gate), so it keeps its
+            // original vocabulary.
+            let chain_edges: std::collections::BTreeSet<(u32, u32)> = rb
+                .chains
+                .iter()
+                .flat_map(|c| {
+                    let n = c.new_verts.len();
+                    (0..n).map(move |i| und(c.new_verts[i], c.new_verts[(i + 1) % n]))
+                })
+                .collect();
+            if chain_edges.is_empty() {
+                continue;
+            }
+            let cycles_owner: &[Vec<(u32, u32)>] = match work.get(owner_idx) {
+                Some(c) => c,
+                None => &subdivided_cycles[*owner_idx],
+            };
+            for (cj, cyc) in cycles_owner.iter().enumerate() {
+                for &(s, e) in cyc {
+                    let k = und(s, e);
+                    if !chain_edges.contains(&k)
+                        || intersection_curves.contains_key(&k)
+                        || overrides.contains_key(&(*owner_idx, cj, k))
+                    {
+                        continue;
+                    }
+                    let Some(conic) = rb.band_ctx.curve_for(mesh, s, e) else {
+                        continue; // wall-complex band / outside table: keep Seg
+                    };
+                    // EXACT on-conic membership for BOTH endpoints — typing
+                    // is a representation upgrade, never a repair (P9).
+                    if !(on_conic(mesh, s, &conic) && on_conic(mesh, e, &conic)) {
+                        continue;
+                    }
+                    probe(format_args!(
+                        "typed chord {s}->{e} with band conic (owner info={owner_idx})"
+                    ));
+                    typed.push((k, conic));
+                }
+            }
+        }
+        for (k, conic) in typed {
+            for (j, pristine) in subdivided_cycles.iter().enumerate() {
+                let cycles_j: &[Vec<(u32, u32)>] = match work.get(&j) {
+                    Some(c) => c,
+                    None => pristine,
+                };
+                for (cj, cyc) in cycles_j.iter().enumerate() {
+                    if cyc.iter().any(|&(s, e)| und(s, e) == k) {
+                        overrides.insert((j, cj, k), conic);
+                    }
                 }
             }
         }

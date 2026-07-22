@@ -735,3 +735,45 @@ DOCUMENTED §4.5.2/P3d "sub-render lens at corner junctions" family
 (#172 note) — the next increment (inc-6) is local render refinement
 of shared curved boundaries near junction corners in kernel-v2, NOT
 more Stage-5 topology.
+
+### 10.9 inc-6 record (2026-07-22) — the sag source is the #158 rim
+### vocabulary gap; band-conic chord typing CLEARS the flagship union
+
+**Root sharpened.** §10.8's "local refinement" framing was one level
+off: the probe coordinates identify the crossing's tube-side vertex
+b1 as lying 1.56e-3 INSIDE the cylinder — ON the straight chord of
+the main-chain rim hop `(925,959)`, which (like the whole surviving
+rim run) is emitted as an un-attributed `LineSegment` (the #158/F6
+gap; `recover.rs`'s own KNOWN-DEBT note names the principled fix:
+type rims at emission inside yang). The kernel renders `LineSegment`
+as a straight chord — the boundary legitimately sags by the chord
+sagitta and no LOCAL refinement can fix a boundary whose curve
+vocabulary says "straight".
+
+**Shipped (gated, spec §10.9 = the fired-patch slice of #158/F6):**
+prepass step 2b in `envelope_prepass` — for every edge of a chain
+whose edge set actually REWROTE (only those; a byte-identical rebuild
+proves nothing about its verts — measured: an Extrude-10 patch's
+carrier-plane-passing chord failed the kernel's on-ellipse gate when
+typing was tried on all owner cycles), un-attributed and outside the
+wall-complex bands, with BOTH endpoints passing an EXACT on-conic
+membership test (`on_conic`: carrier plane + radial locus, TAU_MODEL
+scale-relative band; parametric foot for ellipses): assign the
+band-live conic and record the override for EVERY final loop carrying
+the edge (owner + planar claimants), so both sides sample the
+identical curve — conformal by construction; the pairing audit
+re-checks the symmetry downstream. F0082 gate-ON: 11 chords typed on
+the flagship chain (the rim run 949→961→960, 925→959→…→954→943, and
+the rim continuation 945→953→944 — all endpoint-verified on the rim
+circle).
+
+**Result: the J3 layer is CLEARED.** Extrude 11 — the failing union
+of this entire spec — SUCCEEDS gate-ON end-to-end (arrangement,
+envelope rebuild, notch seal face, from_yang gates, render, selfx).
+The case moves ONE OP DEEPER: Extrude 12, the NEXT boolean, operating
+on the now-real union body (which carries the cavity seal face and
+arc-typed rims), STOPs at `yang-rs: reassembled output would be
+non-2-manifold` — a new layer needing its own probe pass (inc-7).
+Candidate mechanisms to probe first: `to_yang` tessellation of the
+1e-4-scale cavity seal face as next-op input; the notch verts'
+junction handling in the next arrangement.
