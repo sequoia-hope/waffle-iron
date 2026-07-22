@@ -231,6 +231,27 @@ likely one class); (2) R0021/R0061 gate-ON regressions resolved or
 refuted; (3) F0085 timing within budget. Conversions R0072/R0095 are
 the payoff waiting on the flip.
 
+### 5f. Inc-3 first measurement (2026-07-22, gate-ON
+`YANG_CDT_PROBE=370` 3D dump) — the disorder is a BOUNDARY-SELECTION
+detour, not sample misorder
+
+The failing face-370 outer loop (10 verts, 5 B-Rep edges):
+`v1280 →seg→ v1302 →arc(5 samples)→ v1310 →arc(4 samples)→ v1308
+→seg→ v1277 →seg→ v1280`. Both v1308 = (0.30912, −0.10843, 2.0839)
+and **v1277 = (0.30946, 0.08934, 2.09417)** sit ON the wall column
+(x≈0.3095, the #188 wall trace) — v1277 is the on-wall seal-corner
+junction the boost now correctly mints (the CORRECTED position of the
+old beyond-wall v925, 1.3e-3 away). The 2D projection shows v1277
+landing mid-arc (its azimuth is INSIDE the second arc chain's sweep)
+and the closing chord v1277→v1280 crossing the arc chain in-plane:
+the ring arc OVERSHOOTS the junction azimuth and the loop doubles
+back via wall chords — the #188 inc-0 "dead-side detour" fingerprint
+(fix = boundary SELECTION at the junction / arc split at v1277's
+azimuth), now at the producing op's output-loop assembly with the
+properly-minted junction. Inc-3 = envelope-selection/arc-trim at the
+new junction on the seal-plane face (the #188 machinery's remit, one
+recursion deeper).
+
 ## 6. Ledger
 
 - 2026-07-22: task opened (#194 close-out). Output attribution + input
