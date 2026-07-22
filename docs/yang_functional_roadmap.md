@@ -369,7 +369,11 @@ cross pair of two genuinely DISTINCT parallel planes (offset gap above the
 rounding-noise class `TAU_WORK·(1+scale)`; corpus-measured legitimate
 femto-twin max 2.7e-12, ≥40× below the line) rejects with typed
 `SubResolutionCoplanarGap` before any overlay work. Committed baseline
-**250C / 0 WRONG / 55E / 3T on the 312-case corpus** (2026-07-17, after the
+**255C / 0 WRONG / 54E / 1T on the 312-case corpus** (2026-07-22, task #130
+DegenerateLoop-duo retirement — UNSUPPORTED(coplanar-boolean) tail EMPTY,
+R0007/R0071/F0069 recovered; prior rung 252C/0W/55E/1T at the #169 P3b/#188
+flips; before that
+250C / 0 WRONG / 55E / 3T on the 312-case corpus, 2026-07-17, after the
 #172 Case-III graze guard: C0116 ERROR→CORRECT, new designed-ERROR C0118;
 F0072/F0085/F0090 are 120s-budget-borderline TIMEOUT artifacts — F0090
 solo-verifies SUPPORTED_CORRECT at 115.6s vs a 115.4s pre-guard solo, i.e.
@@ -3209,6 +3213,36 @@ swapped every consumer to `predicates::indirect`).
     twins remain; + C0063 curved-profile by design). Oracle:
     `nary_mixed_orientation_group_stage0_watertight` (offset flush-stack,
     mutation-killable via the reverted swap).
+  - **M8 DegenerateLoop duo RETIRED 2026-07-22 (task #130, spec
+    `specs/m8_profile_subresolution_point_removal.md`):
+    UNSUPPORTED(coplanar-boolean) tail 2→0 — the bucket is EMPTY.** Three
+    absolute-vs-scale-relative defects, one increment each: (1)
+    kernel-v2 `Profile::new` now performs Yang §4.3 sub-resolution point
+    removal at the ingestion gate — consecutive loop points at POSITIVE
+    separation < TAU_MODEL·(1+scale) collapse to the min-index survivor
+    (open interval: exact repeats stay the loud `ProfileRepeatedVertex`);
+    retires the profile-congenital micro-twin class (R0007: 96 pairs @
+    7.790e-8; R0071: 36 @ 9.460e-8; legit floors 2.337e-7 / 1.089e-7).
+    (2) Harness `check_outward_normals`/`check_consistent_normals`
+    degenerate-triangle filter was ABSOLUTE (`area_sq < 1e-20`) — R0007's
+    healthy 280-tri final mesh (max area_sq 8.05e-21) read as "no valid
+    triangles" SUPPORTED_WRONG; now sine-based per-triangle
+    (|cross| < 1e-6·e_max², scale-free, above f32 vertex noise). (3) The
+    §2b/§2c in-frame clustering band reused the coplanar DETECTION band
+    (TAU_MODEL floor) though it reconciles frame-projection rounding
+    (O(scale·ε), measured 1e-19..1e-21); at micro scale it welded LEGIT
+    1.089e-7 features per-axis when diagonal (√2·band effective radius) →
+    bit-identical consecutive verts → DegenerateLoop; now clamped to
+    min(band, 1e-9·scale) inside `cluster_frame_coords_rim_aware`.
+    **NEW PRODUCTION BASELINE 255C / 0W / 54E / 1T on 312** (was
+    252C/0W/55E/2U/1T): R0007+R0071 UNSUPPORTED→CORRECT, **F0069
+    ERROR→CORRECT bonus** (#153's 3e-8@2m off-plane emission wall was
+    manufactured by the un-clamped clustering band's legal 1e-7 coord
+    moves — half of #153 resolved; F0072 remains, budget-TIMEOUT), R0081
+    detail-only shift. Parity + rewrite + fast tiers green. Remaining
+    #130 scope: the F0082 Extrude-12 coplanar layer (#188 spec §10.10
+    defect 1: tool base plane coplanar with the seal-region face, curved
+    rim crossings in the overlap — the C0048-class Stage-0 gap).
   - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
     post-#143), with two fresh class diagnoses:**
     (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —

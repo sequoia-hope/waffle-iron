@@ -742,9 +742,22 @@ pub fn check_consistent_normals(mesh: &RenderMesh) -> OracleVerdict {
         let gny = az * bx - ax * bz;
         let gnz = ax * by - ay * bx;
 
-        // Skip degenerate triangles — cross product unreliable for tiny areas
+        // Skip degenerate triangles — the cross-product DIRECTION is
+        // unreliable when the triangle is thin relative to its own edge
+        // length (f32 vertex rounding contributes ~1e-7·e² of cross noise).
+        // Sine-based and per-triangle (|cross| < 1e-6·e_max²), i.e.
+        // scale-free: the previous ABSOLUTE `area_sq < 1e-20` floor rejected
+        // EVERY triangle of a healthy ~1e-4-scale mesh (R0007: 280 tris, max
+        // area_sq 8.05e-21) and turned the verdict scale-dependent.
         let area_sq = gnx * gnx + gny * gny + gnz * gnz;
-        if area_sq < 1e-20 {
+        let e_max_sq = (ax * ax + ay * ay + az * az)
+            .max(bx * bx + by * by + bz * bz)
+            .max({
+                let (cx, cy, cz) = (bx - ax, by - ay, bz - az);
+                cx * cx + cy * cy + cz * cz
+            });
+        let thin = 1e-6 * e_max_sq;
+        if area_sq < thin * thin {
             continue;
         }
 
@@ -982,9 +995,22 @@ pub fn check_outward_normals(mesh: &RenderMesh, convexity_threshold: f64) -> Ora
         let gny = az * bx - ax * bz;
         let gnz = ax * by - ay * bx;
 
-        // Skip degenerate triangles — cross product unreliable for tiny areas
+        // Skip degenerate triangles — the cross-product DIRECTION is
+        // unreliable when the triangle is thin relative to its own edge
+        // length (f32 vertex rounding contributes ~1e-7·e² of cross noise).
+        // Sine-based and per-triangle (|cross| < 1e-6·e_max²), i.e.
+        // scale-free: the previous ABSOLUTE `area_sq < 1e-20` floor rejected
+        // EVERY triangle of a healthy ~1e-4-scale mesh (R0007: 280 tris, max
+        // area_sq 8.05e-21) and turned the verdict scale-dependent.
         let area_sq = gnx * gnx + gny * gny + gnz * gnz;
-        if area_sq < 1e-20 {
+        let e_max_sq = (ax * ax + ay * ay + az * az)
+            .max(bx * bx + by * by + bz * bz)
+            .max({
+                let (cx, cy, cz) = (bx - ax, by - ay, bz - az);
+                cx * cx + cy * cy + cz * cz
+            });
+        let thin = 1e-6 * e_max_sq;
+        if area_sq < thin * thin {
             continue;
         }
 
@@ -1001,6 +1027,34 @@ pub fn check_outward_normals(mesh: &RenderMesh, convexity_threshold: f64) -> Ora
     }
 
     if total == 0 {
+        if std::env::var_os("ASSAY_ORACLE_PROBE").is_some() {
+            let mut max_sq = 0.0f64;
+            let mut ntris = 0usize;
+            for tri in mesh.indices.chunks(3).filter(|t| t.len() == 3) {
+                let (i0, i1, i2) = (
+                    tri[0] as usize * 3,
+                    tri[1] as usize * 3,
+                    tri[2] as usize * 3,
+                );
+                if i2 + 2 >= verts.len() {
+                    continue;
+                }
+                let ax = (verts[i1] - verts[i0]) as f64;
+                let ay = (verts[i1 + 1] - verts[i0 + 1]) as f64;
+                let az = (verts[i1 + 2] - verts[i0 + 2]) as f64;
+                let bx = (verts[i2] - verts[i0]) as f64;
+                let by = (verts[i2 + 1] - verts[i0 + 1]) as f64;
+                let bz = (verts[i2 + 2] - verts[i0 + 2]) as f64;
+                let gnx = ay * bz - az * by;
+                let gny = az * bx - ax * bz;
+                let gnz = ax * by - ay * bx;
+                max_sq = max_sq.max(gnx * gnx + gny * gny + gnz * gnz);
+                ntris += 1;
+            }
+            eprintln!(
+                "[oracle-probe] outward_normals total=0: tris={ntris} max_area_sq={max_sq:e} filter=1e-20"
+            );
+        }
         return OracleVerdict::fail("outward_normals", "no valid triangles".to_string());
     }
 

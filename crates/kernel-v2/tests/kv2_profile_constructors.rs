@@ -691,3 +691,138 @@ fn identical_inputs_produce_identical_arenas() {
     assert_eq!(a1, a2, "identical inputs ⇒ identical arenas");
     assert_eq!(format!("{a1:?}"), format!("{a2:?}"));
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Sub-resolution point removal at the ingestion gate (Yang §4.3; spec
+// `m8_profile_subresolution_point_removal`, the R0007/R0071 profile-
+// congenital micro-twin class). Scale-relative criterion: consecutive points
+// at a POSITIVE separation below TAU_MODEL·(1+scale) collapse to the
+// min-index survivor; exact repeats stay the loud ProfileRepeatedVertex.
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Outer loop of a Polygon-region profile, for post-ingestion inspection.
+fn outer_loop(profile: &Profile) -> &[Point2] {
+    match profile.region() {
+        ProfileRegion::Polygon { outer, .. } => outer,
+        other => panic!("expected Polygon region, got {other:?}"),
+    }
+}
+
+/// R0007 class: a micro-scale (~1.2e-4) polygon whose corner is a twin pair
+/// separated by ~7.79e-8 (sub-TAU_MODEL, positive). The later twin collapses;
+/// the survivor keeps its own bits.
+#[test]
+fn micro_profile_subresolution_twin_collapses() {
+    let (o, u, v) = xy_frame();
+    let s = 1.2e-4;
+    let twin_a = p2(s, 0.0);
+    let twin_b = p2(s + 5.508e-8, 5.508e-8); // |twin_b − twin_a| ≈ 7.79e-8
+    let outer = vec![p2(0.0, 0.0), twin_a, twin_b, p2(s, s), p2(0.0, s)];
+    let profile = Profile::new(o, u, v, outer, vec![]).expect("twin profile canonicalizes");
+    let kept = outer_loop(&profile);
+    assert_eq!(kept.len(), 4, "one twin dropped");
+    assert!(
+        kept.contains(&twin_a) && !kept.contains(&twin_b),
+        "min-index survivor keeps its own bits"
+    );
+}
+
+/// R0071 margin: the smallest LEGITIMATE corpus feature (1.089e-7 at scale
+/// ~1.9e-4) sits just ABOVE TAU_MODEL·(1+scale) and must be kept. Mutation
+/// canary: widening the criterion to MIN_FEATURE_SIZE kills this test.
+#[test]
+fn micro_profile_legit_feature_above_tau_kept() {
+    let (o, u, v) = xy_frame();
+    let s = 1.9e-4;
+    let a = p2(s, 0.0);
+    let b = p2(s + 1.089e-7, 0.0); // 1.089e-7 > 1e-7·(1+1.9e-4)
+    let outer = vec![p2(0.0, 0.0), a, b, p2(s, s), p2(0.0, s)];
+    let profile = Profile::new(o, u, v, outer, vec![]).expect("legit feature profile valid");
+    assert_eq!(outer_loop(&profile).len(), 5, "above-tau feature preserved");
+}
+
+/// No chain-drift: two adjacent sub-tau segments sharing a point collapse
+/// pairwise only — the shared middle point drops, both span endpoints stay
+/// (a super-tau feature built from sub-tau steps cannot vanish).
+#[test]
+fn micro_profile_subresolution_chain_collapses_pairwise_only() {
+    let (o, u, v) = xy_frame();
+    let s = 1.0e-4;
+    let a = p2(s, 0.0);
+    let b = p2(s, 8.0e-8);
+    let c = p2(s, 1.6e-7); // a→b and b→c both sub-tau; a→c is above tau
+    let outer = vec![p2(0.0, 0.0), a, b, c, p2(s, s), p2(0.0, s)];
+    let profile = Profile::new(o, u, v, outer, vec![]).expect("chain profile canonicalizes");
+    let kept = outer_loop(&profile);
+    assert!(
+        kept.contains(&a) && kept.contains(&c) && !kept.contains(&b),
+        "middle point dropped, span endpoints kept"
+    );
+    assert_eq!(kept.len(), 5);
+}
+
+/// The closing segment (last, first) participates: a last point sub-tau from
+/// the first drops (index 0 is the global min-index survivor).
+#[test]
+fn micro_profile_closing_edge_twin_collapses() {
+    let (o, u, v) = xy_frame();
+    let s = 1.0e-4;
+    let first = p2(0.0, 0.0);
+    let last = p2(5.5e-8, -5.5e-8); // |last − first| ≈ 7.78e-8
+    let outer = vec![first, p2(s, 0.0), p2(s, s), p2(0.0, s), last];
+    let profile = Profile::new(o, u, v, outer, vec![]).expect("closing-edge twin canonicalizes");
+    let kept = outer_loop(&profile);
+    assert_eq!(kept.len(), 4);
+    assert!(kept.contains(&first) && !kept.contains(&last));
+}
+
+/// A loop that is ENTIRELY sub-resolution collapses below 3 points and is
+/// rejected loudly — refuse to guess.
+#[test]
+fn all_subresolution_loop_rejected_loudly() {
+    let (o, u, v) = xy_frame();
+    let outer = vec![p2(0.0, 0.0), p2(5.0e-8, 0.0), p2(2.5e-8, 4.0e-8)];
+    let err = Profile::new(o, u, v, outer, vec![]).expect_err("sub-resolution loop rejects");
+    assert_eq!(err, KernelV2Error::ProfileTooFewVertices { loop_index: 0 });
+}
+
+/// Bitwise-exact repeats are NOT swallowed by the canonicalization pass —
+/// the loud authoring-error contract is unchanged (open interval at 0).
+#[test]
+fn exact_repeat_still_loud_after_canonicalization() {
+    let (o, u, v) = xy_frame();
+    let s = 1.0e-4;
+    let outer = vec![p2(0.0, 0.0), p2(s, 0.0), p2(s, 0.0), p2(s, s), p2(0.0, s)];
+    let err = Profile::new(o, u, v, outer, vec![]).expect_err("exact repeat stays loud");
+    assert_eq!(err, KernelV2Error::ProfileRepeatedVertex { loop_index: 0 });
+}
+
+/// Unit-scale canary: an ordinary profile is untouched (byte-identical loop
+/// after CCW normalization of already-CCW input).
+#[test]
+fn unit_scale_profile_untouched_by_canonicalization() {
+    let (o, u, v) = xy_frame();
+    let outer = vec![p2(0.0, 0.0), p2(1.0, 0.0), p2(1.0, 1.0), p2(0.0, 1.0)];
+    let profile = Profile::new(o, u, v, outer.clone(), vec![]).expect("unit square valid");
+    assert_eq!(outer_loop(&profile), outer.as_slice());
+}
+
+/// Hole loops get the same treatment as the outer loop.
+#[test]
+fn hole_loop_subresolution_twin_collapses() {
+    let (o, u, v) = xy_frame();
+    let s = 1.0e-4;
+    let ha = p2(0.25 * s, 0.25 * s);
+    let hb = p2(0.25 * s + 5.5e-8, 0.25 * s + 5.5e-8);
+    let hole = vec![ha, hb, p2(0.75 * s, 0.25 * s), p2(0.5 * s, 0.75 * s)];
+    let outer = vec![p2(0.0, 0.0), p2(s, 0.0), p2(s, s), p2(0.0, s)];
+    let profile = Profile::new(o, u, v, outer, vec![hole]).expect("holed twin canonicalizes");
+    match profile.region() {
+        ProfileRegion::Polygon { holes, .. } => {
+            assert_eq!(holes.len(), 1);
+            assert_eq!(holes[0].len(), 3, "hole twin dropped");
+            assert!(holes[0].contains(&ha) && !holes[0].contains(&hb));
+        }
+        other => panic!("expected Polygon region, got {other:?}"),
+    }
+}

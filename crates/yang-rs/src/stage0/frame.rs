@@ -686,6 +686,24 @@ pub(crate) fn cluster_frame_coords_rim_aware(
     rim_excluded: &[&[Point2]],
     band: f64,
 ) {
+    // Scale-relative ceiling (spec `m8_profile_subresolution_point_removal`
+    // §R0071): the caller's `band` is the coplanar DETECTION band
+    // (max(TAU_MODEL, scale·TAU_WORK)), but what this pass reconciles is
+    // frame-PROJECTION rounding — O(scale·ε) ≈ 1e-19 at micro scale, never
+    // model-coincidence-sized. The KV10 safety note above ("real features
+    // are orders above the band") is FALSE for micro models: R0071's
+    // legitimate 1.089e-7 gear-tooth features sat ABOVE TAU_MODEL yet were
+    // welded per-axis by the 1e-7 floor whenever diagonal in the frame
+    // (per-axis gaps ~7.7e-8 each; effective diagonal weld radius √2·band),
+    // minting bit-identical consecutive polygon verts → DegenerateLoop.
+    // 1e-9·scale (the stage0 rim `snap_eps` shape) is ≫ the ULP noise and
+    // ≪ any representable feature at EVERY model scale.
+    let scale = polys
+        .iter()
+        .flat_map(|p| std::iter::once(&p.outer).chain(p.holes.iter()))
+        .flat_map(|lp| lp.iter())
+        .fold(0.0f64, |m, q| m.max(q.x().abs()).max(q.y().abs()));
+    let band = band.min(1e-9 * scale);
     for axis in 0..2 {
         // Rim sample coordinate values on this axis — excluded from the cluster
         // domain (C4b): never members, never seeds. A polygon coord within band
@@ -1027,6 +1045,44 @@ mod frame_cluster_tests {
         // u: distinct values are NOT touched by v clustering.
         assert_eq!(a.outer[0].x(), 1.0, "u untouched (independent axis)");
         assert_eq!(a.outer[1].x(), 2.0, "u untouched (independent axis)");
+    }
+
+    /// R0071 mechanism (spec `m8_profile_subresolution_point_removal`
+    /// §R0071): at micro model scale the caller's DETECTION band (TAU_MODEL
+    /// floor = 1e-7) exceeds legitimate feature sizes; the scale-relative
+    /// ceiling (1e-9·scale) must keep a LEGIT above-resolution diagonal pair
+    /// (1.089e-7, per-axis components 7.7e-8 — each under the un-clamped
+    /// band) bit-identical through the pass, while a genuine femto twin at
+    /// the same scale still welds.
+    #[test]
+    fn micro_scale_diagonal_legit_feature_survives_detection_band() {
+        let s: f64 = 2.0e-4; // R0071 frame-coordinate scale
+        let d = 1.089e-7 / std::f64::consts::SQRT_2; // per-axis component
+        let femto = f64::from_bits(s.to_bits() + 1); // 1-ULP twin of s
+        let mut a = poly(&[
+            (0.0, 0.0),
+            (s, 0.0),
+            (s + d, d), // legit diagonal feature partner of (s, 0)
+            (s, s),
+            (femto, s), // femto twin column of u = s
+        ]);
+        let band = 1.0e-7; // the un-clamped detection band (TAU_MODEL floor)
+        cluster_frame_coords(&mut [&mut a], band);
+        assert_eq!(
+            a.outer[2].x().to_bits(),
+            (s + d).to_bits(),
+            "legit diagonal feature u must NOT weld"
+        );
+        assert_eq!(
+            a.outer[2].y().to_bits(),
+            d.to_bits(),
+            "legit diagonal feature v must NOT weld"
+        );
+        assert_eq!(
+            a.outer[4].x().to_bits(),
+            s.to_bits(),
+            "femto ULP twin still welds to the representative"
+        );
     }
 
     // ── ADVERSARY (FIP Phase 4, governance/FEATURE_IMPLEMENTATION_PROTOCOL §6) ──

@@ -39,6 +39,18 @@
 //!   not external pure-Rust crates. The check is O(n²) in loop edges, which
 //!   is irrelevant at sketch-profile scale.
 //!
+//! ## Sub-resolution point removal (Yang §4.3 at the ingestion gate)
+//!
+//! Before validation, `Profile::new` collapses consecutive loop points whose
+//! separation is in the open interval `(0, TAU_MODEL·(1+scale))` (`scale` =
+//! max |coordinate| over all loops) to the min-index survivor — the paper's
+//! §4.3 "remove a point if it is too close to another point on the same
+//! loop", applied at the earliest point a loop exists so every face of the
+//! constructed solid agrees on the single corner (spec
+//! `m8_profile_subresolution_point_removal`; the R0007/R0071 profile-
+//! congenital micro-twin class). Bitwise-exact repeats are NOT collapsed —
+//! they remain the loud `ProfileRepeatedVertex` authoring error.
+//!
 //! Checks performed by [`Profile::new`] (all loud, all typed):
 //!
 //! 1. all coordinates / frame components finite (`ProfileNotFinite`);
@@ -204,6 +216,27 @@ impl Profile {
         // is total here.
         if sq < BASIS_MIN_SQ_CROSS_NORM {
             return Err(KernelV2Error::ProfileDegenerateBasis);
+        }
+
+        // 1b. Sub-resolution point removal (Yang §4.3 "remove a point if it
+        //     is too close to another point on the same loop", applied at the
+        //     ingestion gate; spec `m8_profile_subresolution_point_removal`).
+        //     Consecutive points separated by a POSITIVE distance below the
+        //     scale-relative resolution floor TAU_MODEL·(1+scale) collapse to
+        //     the min-index survivor (own bits kept). Every face of the
+        //     constructed solid then agrees on the single corner by
+        //     construction — the conformal property the Stage-0 overlay's
+        //     in-frame clustering cannot restore locally. The interval is
+        //     OPEN at 0: bitwise-exact repeats stay the loud
+        //     `ProfileRepeatedVertex` authoring error below (check 4).
+        let scale = std::iter::once(&outer)
+            .chain(holes.iter())
+            .flat_map(|lp| lp.iter())
+            .fold(0.0f64, |m, p| m.max(p.x().abs()).max(p.y().abs()));
+        let tau = cad_primitives::TAU_MODEL * (1.0 + scale);
+        collapse_subresolution_points(&mut outer, tau);
+        for hole in holes.iter_mut() {
+            collapse_subresolution_points(hole, tau);
         }
 
         // 2–5. Per-loop validation + CCW normalization (loop_index 0 = outer,
@@ -466,6 +499,45 @@ pub(crate) fn cross(a: Vector3, b: Vector3) -> [f64; 3] {
         a.z() * b.x() - a.x() * b.z(),
         a.x() * b.y() - a.y() * b.x(),
     ]
+}
+
+/// Sub-resolution point removal on one closed loop (Yang §4.3 at the
+/// ingestion gate; spec `m8_profile_subresolution_point_removal`). One sweep
+/// over the ORIGINAL consecutive segments, closing edge included: a segment
+/// whose length is in the OPEN interval `(0, tau)` drops its higher-index
+/// endpoint (the closing segment `(n−1, 0)` drops `n−1`), so the min-index
+/// survivor keeps its own bits. A segment fires only while BOTH endpoints are
+/// still alive, so a chain of sub-`tau` steps collapses pairwise only — a
+/// super-`tau` feature built from sub-`tau` steps cannot vanish (no
+/// chain-drift; the KV15b sweep rule). Exact-zero segments are left for the
+/// loud `ProfileRepeatedVertex` check. Loops shortened below 3 points are
+/// rejected by `validate_and_normalize_loop` (`ProfileTooFewVertices`).
+fn collapse_subresolution_points(pts: &mut Vec<Point2>, tau: f64) {
+    let n = pts.len();
+    if n < 3 {
+        return;
+    }
+    let tau_sq = tau * tau;
+    let mut alive = vec![true; n];
+    for i in 0..n {
+        let j = (i + 1) % n;
+        if !alive[i] || !alive[j] {
+            continue;
+        }
+        let dx = pts[j].x() - pts[i].x();
+        let dy = pts[j].y() - pts[i].y();
+        let d_sq = dx * dx + dy * dy;
+        if d_sq > 0.0 && d_sq < tau_sq {
+            // Min-index survivor: drop the later endpoint; on the closing
+            // segment the later endpoint in loop order is `n−1` (index 0 is
+            // the global min index and always survives).
+            alive[if j == 0 { i } else { j }] = false;
+        }
+    }
+    if alive.iter().any(|a| !a) {
+        let mut it = alive.iter();
+        pts.retain(|_| *it.next().unwrap());
+    }
 }
 
 /// Per-loop validation (steps 2–5 of the module-docs checklist), then
