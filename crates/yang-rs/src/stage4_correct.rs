@@ -3204,6 +3204,76 @@ pub(crate) fn collapse_subresolution_intersection_segments(
     any
 }
 
+/// #194 (spec `yang_194_subtauwork_edge_collapse`): collapse mesh EDGES
+/// shorter than working precision before Phase-B emission.
+///
+/// The exact arrangement can mint the SAME junction twice with swapped LPI
+/// roles when an operand's own tessellation self-grazes (the F0082
+/// Extrude-12 seal corner: two verts 5.5e-14 apart joined by a mesh edge,
+/// spawning a zero-area flap whose third edge use is the χ=3 book edge).
+/// Nothing existing owns the pair: the I6/KV15 near-weld excludes
+/// curved-incident verts (the KV9 lens-tip record), KV15b is
+/// provenance-restricted to `intersection_curves` keys (A×B junctions), and
+/// Stage-4's KV9 collapse reconciles only this op's curve junctions.
+///
+/// Domain = ALL undirected mesh edges (deterministic `BTreeSet` order); the
+/// band does the scoping: resolved length in the OPEN interval
+/// `(0, TAU_WORK·(1+scale))` — five orders TIGHTER than KV15b. An edge
+/// below working precision is not a representable segment; collapsing it is
+/// not proximity welding. Min-resolved-index survivor keeps its own bits
+/// (I1); resolved re-measure prevents chain drift (I2/B5); exact-zero edges
+/// are the M-B identification class and stay (B3). KV9's UNCONNECTED ring
+/// duplicates are untouched by construction — no edge joins them.
+pub(crate) fn collapse_subtauwork_mesh_edges(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+) -> bool {
+    let mut edges: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
+    for tri in &mesh.tris {
+        for k in 0..3 {
+            let (u, v) = (tri[k], tri[(k + 1) % 3]);
+            edges.insert((u.min(v), u.max(v)));
+        }
+    }
+    let mut redirect: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
+    fn resolve(redirect: &std::collections::BTreeMap<u32, u32>, mut v: u32) -> u32 {
+        while let Some(&n) = redirect.get(&v) {
+            v = n;
+        }
+        v
+    }
+    let mut any = false;
+    for &(u, v) in &edges {
+        let (ru, rv) = (resolve(&redirect, u), resolve(&redirect, v));
+        if ru == rv {
+            continue;
+        }
+        let p = mesh.verts[ru as usize].as_array();
+        let q = mesh.verts[rv as usize].as_array();
+        let d2 = (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2);
+        let scale = p
+            .iter()
+            .chain(q.iter())
+            .fold(0.0f64, |m, &c| m.max(c.abs()));
+        let band = cad_primitives::TAU_WORK * (1.0 + scale);
+        if d2 == 0.0 || d2 >= band * band {
+            continue;
+        }
+        let survivor = ru.min(rv);
+        let victim = ru.max(rv);
+        if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
+            eprintln!(
+                "[collapse-site] s194 victim={victim} survivor={survivor} dist={:.3e}",
+                d2.sqrt(),
+            );
+        }
+        collapse_vertex(mesh, attribution, victim, survivor);
+        redirect.insert(victim, survivor);
+        any = true;
+    }
+    any
+}
+
 /// PR-YR11 helper: drop mesh vertices no surviving triangle references and remap
 /// triangle indices + the Stage-4 `relocations` keys to the dense vertex set.
 ///
@@ -6728,6 +6798,20 @@ pub(crate) fn stage4_relocate_and_correct(
         attribution.attributions = attr_vec;
         r?;
     }
+    // #194 (spec `yang_194_subtauwork_edge_collapse`): collapse mesh edges
+    // below WORKING precision BEFORE the watertightness gate — the F0082
+    // Extrude-12 operand-self-graze twin (same junction minted twice with
+    // swapped LPI roles, 5.5e-14 apart, edge-connected; its zero-area flap's
+    // third edge use is the χ=3 book edge THIS gate stops on). Byte-identical
+    // no-op when no such edge exists; `collapsed_any` routes the caller into
+    // the standard compact + Phase-A recompute.
+    {
+        let mut attr_vec = std::mem::take(&mut attribution.attributions);
+        let c = collapse_subtauwork_mesh_edges(mesh, &mut attr_vec);
+        attribution.attributions = attr_vec;
+        collapsed_any |= c;
+    }
+
     // (4b) Explicit Stage-4 watertightness gate (§4.4.3).
     check_watertight_2manifold(mesh)?;
 

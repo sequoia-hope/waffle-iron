@@ -3255,6 +3255,26 @@ swapped every consumer to `predicates::indirect`).
     open items are the deeper typed walls of the ex-RoundingCollapse
     trio (#144 opposite-rim snap-rounding for F0067/C0048) and #178's
     cylinder/tilt analogs (need corpus cases first).
+  - **#194 sub-TAU_WORK edge collapse SHIPPED always-on 2026-07-22
+    (spec `specs/yang_194_subtauwork_edge_collapse.md`):**
+    `collapse_subtauwork_mesh_edges` — all mesh edges with resolved
+    length in `(0, TAU_WORK·(1+scale))` collapse to the min-index
+    survivor (KV15b sweep rules; no provenance restriction — the
+    five-orders-tighter band does the scoping; KV9's unconnected ring
+    duplicates carry no joining edge and cannot be touched). Two sites:
+    `stage4_relocate_and_correct` immediately before the (4b)
+    watertightness gate (the driver's STOP site) + the stage5 emission
+    block (all-planar path). Measured on F0082 Extrude 12: fires
+    exactly on the §10.10 twin (972→971 @5.487e-14); the twin edge +
+    zero-area flap leave the double-cover set. **F0082's residual layer
+    RE-CHARACTERIZED: the χ=3 imbalance persists off SIX REAL-length
+    double-cover edges ((930,931)@1.5e-3, (930,934)@8.2e-5, …) —
+    operand self-OVERLAP in the seal neighborhood (cap fan to the axis
+    vert vs seal-region triangles), the #146-family conformality scale,
+    NOT sub-resolution; the loud STOP is correct until the
+    seal-neighborhood emission is overlap-free (follow-up task #195).**
+    Corpus: byte-identical to the 255C/0W/54E/1T baseline (zero
+    category or detail deltas); yang-rs suite + rewrite + parity green.
   - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
     post-#143), with two fresh class diagnoses:**
     (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —

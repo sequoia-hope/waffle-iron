@@ -266,6 +266,26 @@ pub(crate) fn reconstruct_topology_stage4(
             infos = i3;
             intersection_curves = cv3;
         }
+        // #194 (spec `yang_194_subtauwork_edge_collapse`): collapse mesh
+        // edges below WORKING precision — the operand-self-graze twin class
+        // (F0082 Extrude-12: same junction minted twice with swapped LPI
+        // roles, 5.5e-14 apart, edge-connected, zero-area flap → χ=3 book
+        // edge). Runs AFTER KV15b at a five-orders-tighter band with no
+        // provenance restriction (the band does the scoping); KV9's
+        // unconnected ring duplicates carry no joining edge and cannot be
+        // touched. Byte-identical no-op when no such edge exists.
+        let s194_collapsed = {
+            let mut attr_vec = std::mem::take(&mut attribution.attributions);
+            let c = collapse_subtauwork_mesh_edges(mesh, &mut attr_vec);
+            attribution.attributions = attr_vec;
+            c
+        };
+        if s194_collapsed {
+            compact_unreferenced_verts(mesh, &mut relocations);
+            let (i4, _inc4, cv4) = compute_phase_a(mesh, attribution, a, b)?;
+            infos = i4;
+            intersection_curves = cv4;
+        }
         // EXPERIMENTAL probe (task #121): duplicate-triple scan AFTER the
         // KV15b collapse — if a dup appears here but not post-Stage-4, the
         // KV15b collapse is the mint site.
