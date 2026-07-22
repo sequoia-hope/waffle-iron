@@ -3275,6 +3275,27 @@ swapped every consumer to `predicates::indirect`).
     seal-neighborhood emission is overlap-free (follow-up task #195).**
     Corpus: byte-identical to the 255C/0W/54E/1T baseline (zero
     category or detail deltas); yang-rs suite + rewrite + parity green.
+  - **#195 CHARACTERIZED 2026-07-22 (probe-only, spec
+    `specs/yang_195_seal_neighborhood_self_overlap.md`): the F0082
+    residual is a PRODUCER defect — Extrude-11's union output B-Rep is
+    SELF-INTERSECTING at the wall-masked seal corner.** New probes: the
+    `s4-dc-attr` arm (double-cover-edge triangle attribution at the (4b)
+    gate) + `YANG_INPUT_SELFX_PROBE` (exact
+    `detect_improper_contacts` + double-cover scan + involved-face loop
+    dump on every operand mesh handed to the arrangement). Measured:
+    every boolean in the F0082 chain is clean EXCEPT Extrude-12's
+    operand A (5 improper tri-tri contacts); the four faces involved
+    (cap disc 362, wall 368, coplanar seal-plane duo 370/371, tube
+    lateral 373) share the B-Rep boundary vertex **v925 — #188's
+    antipodal triple point, +1.25e-3 BEYOND wall face 368's plane** —
+    i.e. a boundary vertex strictly inside the union's material. The
+    #188 "submerged rim run" was made output boundary; op-11's gates
+    missed it (hypotheses: sub-sagitta Case-III-class arrangement
+    blindness at the seal corner + #173 render-gate vertex-adjacency
+    skip on the adjacent 362/368 pair — verify in inc-1). Fix vehicles
+    (producer-side, structural-first) in spec §3: corner-junction trim
+    at the wall (the deferred J3 osculation assembly) vs #172-pattern
+    graze-guard rebuild; consumer-side normalization REJECTED (P9).
   - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
     post-#143), with two fresh class diagnoses:**
     (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —

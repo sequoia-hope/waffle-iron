@@ -6813,7 +6813,45 @@ pub(crate) fn stage4_relocate_and_correct(
     }
 
     // (4b) Explicit Stage-4 watertightness gate (§4.4.3).
-    check_watertight_2manifold(mesh)?;
+    if let Err(gate_err) = check_watertight_2manifold(mesh) {
+        // #195 probe-only forensics: attribute every double-cover-edge triangle
+        // to its input B-Rep face (operand + face id + surface) so the
+        // self-overlap self-localizes to the producing emission. Byte-identical
+        // when the probe env is unset (the gate error is returned unchanged).
+        if std::env::var("NONMANIFOLD_SITE_PROBE").is_ok() {
+            let mut dir: std::collections::BTreeMap<(u32, u32), i32> =
+                std::collections::BTreeMap::new();
+            for tri in &mesh.tris {
+                for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                    *dir.entry((tri[i], tri[j])).or_insert(0) += 1;
+                }
+            }
+            for (&(s, e), &fwd) in &dir {
+                if s < e && fwd >= 2 {
+                    eprintln!("NONMANIFOLD_SITE_PROBE s4-dc-attr edge ({s},{e})");
+                    for (ti, tri) in mesh.tris.iter().enumerate() {
+                        let uses = tri.contains(&s) && tri.contains(&e);
+                        if uses {
+                            let attr = attribution.lookup(ti as u32);
+                            let surf = attr.map(|at| {
+                                let br = if matches!(at.input, InputId::A) {
+                                    brep_a
+                                } else {
+                                    brep_b
+                                };
+                                (at.input, at.face, br.faces()[at.face as usize].surface)
+                            });
+                            eprintln!(
+                                "NONMANIFOLD_SITE_PROBE s4-dc-attr   tri {ti}: {tri:?} \
+                                 attr={surf:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        return Err(gate_err);
+    }
 
     // After a collapse the vertex set may have lost some relocated verts; keep
     // only relocations whose vertex still carries a conic output edge. The

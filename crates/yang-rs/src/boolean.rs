@@ -767,6 +767,114 @@ pub fn boolean(
         }
     }
 
+    // (#195 probe, print-only) Operand-mesh exact self-intersection scan: does
+    // the Stage-1/Stage-0 mesh handed to the arrangement ALREADY carry
+    // improper triangle-triangle contacts (operand self-overlap)?
+    // Distinguishes a self-overlap inherited from the producing op's emission
+    // from one minted in-boolean. Env-gated, no behavior change.
+    if std::env::var_os("YANG_INPUT_SELFX_PROBE").is_some() {
+        for (tag, m, brep) in [("A", mesh_a, a), ("B", mesh_b, b)] {
+            // Double-cover edge scan (fwd = rev ≥ 2): the balanced 4-page book
+            // seam the improper-contact sweep cannot see (its pairs share
+            // vertices) — the exact signature of the output-side χ=3 STOP.
+            {
+                use std::collections::BTreeMap;
+                let mut dir: BTreeMap<(u32, u32), i32> = BTreeMap::new();
+                for t in &m.tris {
+                    for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                        *dir.entry((t[i], t[j])).or_insert(0) += 1;
+                    }
+                }
+                for (&(s, e), &fwd) in &dir {
+                    if s < e && fwd >= 2 {
+                        eprintln!(
+                            "YANG_INPUT_SELFX {tag} double-cover edge ({s},{e}) fwd={fwd} \
+                             rev={} v{s}={:?} v{e}={:?}",
+                            dir.get(&(e, s)).copied().unwrap_or(0),
+                            m.verts[s as usize],
+                            m.verts[e as usize]
+                        );
+                    }
+                }
+            }
+            let contacts = cherchi_rs::detect_improper_contacts(&m.verts, &m.tris);
+            eprintln!(
+                "YANG_INPUT_SELFX {tag}: tris={} improper={} unresolved={}",
+                m.tris.len(),
+                contacts.improper_pairs.len(),
+                contacts.unresolved_pairs.len()
+            );
+            let face_of = |t: u32| -> Option<u32> {
+                (brep.tri_face().len() == m.tris.len())
+                    .then(|| brep.tri_face().get(t as usize).copied())
+                    .flatten()
+            };
+            for &(ta, tb) in contacts
+                .improper_pairs
+                .iter()
+                .chain(contacts.unresolved_pairs.iter())
+                .take(16)
+            {
+                let surf = |t: u32| {
+                    face_of(t).map(|f| (f, brep.faces().get(f as usize).map(|fa| fa.surface)))
+                };
+                eprintln!(
+                    "YANG_INPUT_SELFX {tag} pair ({ta},{tb}) faces=({:?},{:?}) \
+                     ta={:?} tb={:?}",
+                    surf(ta),
+                    surf(tb),
+                    m.tris
+                        .get(ta as usize)
+                        .map(|t| t.map(|v| m.verts[v as usize])),
+                    m.tris
+                        .get(tb as usize)
+                        .map(|t| t.map(|v| m.verts[v as usize])),
+                );
+            }
+            // For each face involved in an improper pair, dump its B-Rep
+            // boundary loops (vertex ids + coords): distinguishes a producer
+            // defect (the beyond-wall point IS a B-Rep boundary vertex of the
+            // previous op's output) from a Stage-1-minted interior sample.
+            let mut involved: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+            for &(ta, tb) in contacts
+                .improper_pairs
+                .iter()
+                .chain(contacts.unresolved_pairs.iter())
+            {
+                for t in [ta, tb] {
+                    if let Some(f) = face_of(t) {
+                        involved.insert(f);
+                    }
+                }
+            }
+            for &fi in &involved {
+                let Some(f) = brep.faces().get(fi as usize) else {
+                    continue;
+                };
+                for (li, lp) in std::iter::once(&f.outer_loop)
+                    .chain(f.inner_loops.iter())
+                    .enumerate()
+                {
+                    let pts: Vec<String> = lp
+                        .iter()
+                        .filter_map(|&e| brep.edges().get(e as usize))
+                        .map(|edge| {
+                            format!(
+                                "v{}={:?}",
+                                edge.start,
+                                brep.vertices().get(edge.start as usize).map(|v| v.point)
+                            )
+                        })
+                        .collect();
+                    eprintln!(
+                        "YANG_INPUT_SELFX {tag} face {fi} loop {li}: {}",
+                        pts.join(" ")
+                    );
+                }
+            }
+        }
+    }
+
     // (1) Stage 2: full labeled arrangement.
     let la = backend
         .labeled_arrangement(mesh_a, mesh_b)
