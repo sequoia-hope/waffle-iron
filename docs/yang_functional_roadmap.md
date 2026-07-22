@@ -3289,13 +3289,21 @@ swapped every consumer to `predicates::indirect`).
     lateral 373) share the B-Rep boundary vertex **v925 — #188's
     antipodal triple point, +1.25e-3 BEYOND wall face 368's plane** —
     i.e. a boundary vertex strictly inside the union's material. The
-    #188 "submerged rim run" was made output boundary; op-11's gates
-    missed it (hypotheses: sub-sagitta Case-III-class arrangement
-    blindness at the seal corner + #173 render-gate vertex-adjacency
-    skip on the adjacent 362/368 pair — verify in inc-1). Fix vehicles
-    (producer-side, structural-first) in spec §3: corner-junction trim
-    at the wall (the deferred J3 osculation assembly) vs #172-pattern
-    graze-guard rebuild; consumer-side normalization REJECTED (P9).
+    #188 "submerged rim run" was made output boundary. **Inc-1 (same
+    day) measured the producing-op mechanism**: the producing union's
+    inputs are CLEAN but its kept mesh already carries 7 improper
+    contacts at the seal corner (`YANG_SELFX_PROBE` chain sweep, incl.
+    an intra-tool (B,0)×(B,2) pair) — the crossing is
+    RELOCATION-MINTED in-boolean (true cap×wall penetration is
+    sub-sagitta in the input chords; Stage-4 mints v925 beyond the
+    wall) = the Yang §4.5.4 illegal-self-intersection class whose
+    removal half is N2's remit, now with its first 0-WRONG-blocking
+    customer. The #173 render gate misses it (depth 5.6× the grazing
+    band; suspected PR-KV11 vertex-adjacency skip — unverified). Fix
+    vehicles (producer-side, spec §3): §4.5.4 removal / wall-junction
+    trim (the deferred J3 osculation corner assembly) vs #172-pattern
+    pre-tessellation graze rebuild; consumer-side normalization
+    REJECTED (P9).
   - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
     post-#143), with two fresh class diagnoses:**
     (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —

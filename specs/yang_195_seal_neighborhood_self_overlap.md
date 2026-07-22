@@ -77,47 +77,66 @@ operand A (= Extrude-11's output B-Rep):
   **Extrude-11's union emits a self-intersecting B-Rep** (the #188
   "wall-masked triple / submerged rim run" made boundary).
 
-### 2d. Why op-11's own gates passed (hypotheses, to verify in inc-1)
+### 2d. Producing-op mechanism MEASURED (inc-1, same day)
 
-- **Arrangement blindness (likely root)**: at op 11 the tool's cap-disc
-  penetrates the chain body's wall by only ~1.25e-3 — plausibly
-  SUB-SAGITTA in the coarse boolean mesh, so the arrangement never
-  samples the cap×wall crossing; ray-cast labeling then classifies whole
-  straddling triangles by majority and keeps the entire overhang. This
-  is the C0116 / Yang §4.2.1 Case-III graze class, but at a
-  plane-near-tangent seal corner rather than cyl×cyl lateral (the #172
-  guard's scope).
-- **#173 render-gate evasion**: grazing band = max_abs·TAU_WELD_MAX ≈
-  2.2e-4 ≪ 1.25e-3 penetration, so the depth itself is over-band; the
-  suspected miss is the PR-KV11 vertex-adjacency skip — 362/368 are
-  ADJACENT (shared B-Rep edge v926–v927) and planar render CDT makes
-  large corner triangles sharing those verts. Verify before relying on
-  the gate as the regression fence (#177 family).
+`YANG_SELFX_PROBE` (the banked #173 exact final-mesh scan) across the
+whole F0082 chain, joined with §2b's input scan:
 
-## 3. Fix directions (producer-side; pick after inc-1 verification)
+- **The producing union's own kept mesh is already self-crossing at the
+  seal corner: 7 improper pairs** (chain boolean #10, output 1956 tris;
+  the dump's coords are the seal-corner cluster — v925, v926, v948, the
+  tube-axis point, all at z≈2.094). Attribution: (A,361)×(B,2),
+  (A,366)×(B,0), (A,366)×(B,2) and an INTRA-TOOL pair (B,0)×(B,2) —
+  A=accumulated chain body (361 cap-plane, 366 wall), B=the tube tool
+  (0 = cap disc, 2 = seal plane).
+- **That boolean's INPUT meshes are clean (§2b: improper=0 on both).**
+  So the crossing is MINTED IN-BOOLEAN, not inherited: the true
+  cap-surface × wall-surface penetration (~1.25e-3) is SUB-SAGITTA in
+  the input chord meshes (no input tri-tri crossing → the exact
+  arrangement rightly mints no cap×wall curve → labeling keeps the
+  whole cap), and **Stage-4 relocation then mints the true junction
+  v925 BEYOND the wall**, pulling the rim/cap sheets into crossing
+  position — the classic Yang §4.5.4 relocation-minted illegal
+  self-intersection (the N2-remit removal half, exactly the class the
+  #173 exact STOP was P10-refuted over: it fires on 33 CORRECT cases
+  because most relocation crossings are benign chord-noise; THIS one is
+  wall-masked, survives emission, and detonates one op later).
+- Gate ledger at the producing op: the exact probe SEES it
+  (improper=7, probe-only by design); the #173 production render gate
+  does NOT fire — depth 1.25e-3 is 5.6× the grazing band
+  (max_abs·TAU_WELD_MAX ≈ 2.2e-4), so the suspected miss is the
+  PR-KV11 vertex-adjacency skip (362/368 adjacent via shared edge
+  v926–v927; planar render CDT makes large corner tris sharing those
+  verts). Not yet verified in the gate itself.
 
-The producing op (Extrude-11's union) must not emit the submerged
-v925-corner overhang as boundary. Candidate vehicles, structural-first:
+## 3. Fix directions (producer-side; both live, spec-first)
 
-1. **Corner-junction trim (structural)**: mint the missing wall-crossing
-   junctions (362/370/371/373 × wall-plane intersection at the seal
-   corner) and terminate those faces AT the wall — the J3 osculation
-   corner assembly #188 §10.10 deferred. The needed junction is the
-   "old phantom to every digit" triple point (#188 inc-4d note).
-2. **Graze-guard extension (#172 pattern)**: detect the sub-sagitta
-   seal-corner penetration cross-operand at op 11 and rebuild at derived
-   rim N so the arrangement samples the crossing and labeling trims the
-   overhang naturally (paper-compliant §4.2.1 posture; scope lines
-   derived as in `specs/yang_172_case_iii_graze_guard.md`).
+The producing union must not emit the submerged v925-corner sheet
+regions as boundary. Candidate vehicles:
+
+1. **§4.5.4 removal via corner-junction trim (structural, paper's own
+   remedy)**: at the producing op's Stage-4/5, the relocation-minted
+   submerged regions (beyond the wall) must be removed and the boundary
+   terminated at the wall-crossing junction curve — the J3 osculation
+   corner assembly #188 §10.10 deferred; the needed junction is the
+   "old phantom to every digit" triple point (#188 inc-4d). This is the
+   N2 removal half with its first 0-WRONG-blocking customer.
+2. **Graze-guard extension (#172 pattern)**: the cap×wall penetration
+   is a genuine sub-sagitta Case-III-class graze of the TRUE surfaces
+   (inputs clean, true surfaces cross by 1.25e-3). Detect it
+   cross-operand pre-tessellation and rebuild at derived rim N so the
+   arrangement samples the crossing and labeling trims the overhang
+   naturally (scope lines derived as in
+   `specs/yang_172_case_iii_graze_guard.md`).
 3. **P10 net only (never in place of 1/2)**: producer-side loud STOP
    when an emitted boundary vertex measures beyond an adjacent face's
-   surface by more than the derived band — converts the op-11
+   surface by more than the derived band — converts the producing-op
    silent-wrong into a loud producer STOP (fails F0082 one op earlier,
    honestly).
 
 Consumer-side normalization (re-arranging inherited self-overlap at
-Stage 1 of op 12) is REJECTED: it would silently launder invalid
-producer output (P9).
+Stage 1 of the next boolean) is REJECTED: it would silently launder
+invalid producer output (P9).
 
 ## 4. Ledger
 
@@ -125,8 +144,16 @@ producer output (P9).
   selfx probes landed (`s4-dc-attr` arm in `stage4_correct.rs` (4b) gate;
   `YANG_INPUT_SELFX_PROBE` incl. double-cover + involved-face loop dump
   in `boolean.rs`). Measurements §2a–§2c: the class is a PRODUCER
-  defect — Extrude-11's union output B-Rep is self-intersecting at the
-  wall-masked seal corner v925 (+1.25e-3 beyond wall face 368, kept as
-  a boundary vertex of faces 362/370/371/373). Next increment (inc-1):
-  verify §2d hypotheses at op 11 (sub-sagitta measurement + render-gate
-  adjacency-skip check), then pick the §3 vehicle.
+  defect — the producing union's output B-Rep is self-intersecting at
+  the wall-masked seal corner v925 (+1.25e-3 beyond wall face 368, kept
+  as a boundary vertex of faces 362/370/371/373).
+- 2026-07-22 inc-1 (same day): producing-op mechanism MEASURED (§2d)
+  via `YANG_SELFX_PROBE` chain sweep — inputs clean, kept mesh dirty
+  (7 improper pairs at the seal corner incl. an intra-tool pair) ⇒ the
+  crossing is relocation-minted in-boolean (Yang §4.5.4 class, N2
+  removal remit), wall-masked, emitted, detonating at the next
+  boolean's (4b) gate. Both §3 vehicles remain live (removal/trim at
+  Stage-4/5 vs pre-tessellation graze rebuild); next increment picks
+  one spec-first, grounded in
+  `docs/yang_junction_research_findings.md` (refinement = guarded
+  shell) + the §4.5.2/§4.5.4 paper text.
