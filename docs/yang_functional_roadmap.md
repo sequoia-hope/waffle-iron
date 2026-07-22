@@ -299,6 +299,22 @@ in the ledger is PERMANENT with user sign-off.
       ellipse↔rim triple point (already minted); plan of record =
       `specs/yang_188_f0082_j3_envelope_selection.md` (pierce spec §7.9
       has the measurement).*
+      *#188 COMPLETE — FLIPPED ALWAYS-ON 2026-07-22 (commits
+      57d7b93b→a298d544, spec §§10.7–11): kernel-v2 pinched-ring
+      shared-vertex canonicalization (always-on); §3.3 envelope
+      selection + §10.5 neighbor propagation; §10.8 notch seal patches
+      as standalone CAVITY-SENSE faces (the inner-loop form escaped
+      the outer cycle and spliced a phantom handle); §10.9 band-conic
+      typing of rewritten-chain rim chords (the fired-patch slice of
+      the #158/F6 migration). F0082's flagship union (Extrude 11)
+      FIXED IN PRODUCTION — the corpus baseline detail moves to
+      Extrude 12, whose two defects are OUT of #188 scope (spec
+      §10.10): the M8 coplanar-residue family (#130) and a
+      sub-TAU_WORK edge-connected arrangement twin from operand
+      self-grazing (new spec needed; candidate = collapse
+      sub-TAU_WORK mesh EDGES, sparing KV9's unconnected ring
+      duplicates). Ledger 312/312 category-identical, 0-WRONG; parity
+      18/18; detector NOT promoted (§11).*
    c. **Curved-seam re-CDT** (R0072 class) and whatever the triage promotes.
    d. **§4.5.2 as guard shell only** (findings Q3: it recovers ~zero current
       cases — every confirmed LRR case is tangential/missing-solver/micro-
