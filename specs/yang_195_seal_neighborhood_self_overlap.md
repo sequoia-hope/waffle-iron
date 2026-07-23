@@ -405,21 +405,41 @@ crossings (R0021 one, F0085 many) that need no boost, and the global
 `rebuilt_with_min_rim_segments(N)` then degenerates render rings (R0021)
 or explodes compute + destabilizes topology (F0085). The arm correctly
 stays gated. **Inc-4 = narrow the guard** so it fires ONLY on the
-malignant configuration. Two candidate vehicles (spec-first, next
-session):
-  1. **Narrower detection** — distinguish F0082's malignant crossing
-     (a rim SUBMERGED beyond the partner plane whose beyond-region is
-     KEPT and relocates into a self-intersection) from a benign graze.
-     Hard pre-tessellation: it depends on the labeling/relocation
-     outcome. A tractable proxy may exist (e.g. only boost when the
-     crossing rim's operand and the partner plane's operand are the
-     SAME chained body — F0082's cap×wall is intra-body-after-union;
-     R0021's is a fresh tool×base — needs measurement).
+malignant configuration. Candidate vehicles (spec-first, next session):
+
+  1. **Detect-then-refine (the paper's own §4.5.4, most promising).**
+     Run the boolean at natural N first; only if the OUTPUT is
+     self-intersecting (the #173 exact selfx detector, already built)
+     boost and re-run. Malignant-only by construction: R0021 is correct
+     at natural N (no selfx → no boost → no regression); F0082 selfx
+     is detected → refine. This is exactly
+     `refs/text/yang2025_hybrid_boolean.txt:752-757` ("we detect these
+     illegal intersections and perform local refinement"). **CAVEAT to
+     measure first:** the #173 exact detector is known to fire on ~33
+     CORRECT cases (benign/masked crossings — the P10-refutation reason
+     it is not a STOP). Using it as a boost TRIGGER re-boosts those 33;
+     that is harmless only where the boost is a no-op or preserves the
+     correct output, and HARMFUL where it degenerates (R0021-style). So
+     detect-then-refine must pair with vehicle 2 (surgical scope) and/or
+     a re-run acceptance gate (keep the boosted output only if it is
+     ALSO selfx-clean AND its render rings triangulate — else fall back
+     to the natural-N output). This makes the loop strictly non-
+     regressing: a boost that breaks a case is rejected, the natural-N
+     result stands.
   2. **Surgical rebuild scope** — rebuild ONLY the specific crossing
      rim, not all rims of both operands. Shrinks the chord-phase blast
-     radius (helps F0085's many high-N global rebuilds; helps R0021
-     only if the thin-strip rim is NOT the crossing rim — must verify).
-The two compose; measure both before building.
+     radius (directly helps F0085's many high-N global rebuilds; helps
+     R0021 only if the thin-strip rim ≠ the crossing rim — must verify
+     which rim of operand b the guard's crossing belongs to).
+  3. **Purely-geometric narrower detection** — REJECTED as a clean
+     discriminator: F0082's malignant crossing and R0021's benign one
+     are BOTH tool-rim × body-plane shallow crossings; the malignancy
+     (a submerged rim region KEPT and relocated into a self-intersection)
+     is a labeling/relocation outcome, not a pre-tessellation geometric
+     invariant. No local geometric test separates them (the "same
+     chained body" proxy fails — both are tool×body). This is why
+     vehicle 1's detect-then-refine (which reads the actual output) is
+     the right altitude.
 
 ## 6. Ledger
 
