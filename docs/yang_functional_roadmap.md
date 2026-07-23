@@ -3378,6 +3378,25 @@ swapped every consumer to `predicates::indirect`).
     (R0061). R0021/F0085 must be re-probed: the unified "output-ring"
     class is refuted for F0082-E14 and can no longer be assumed to be
     one inc-3 fix.
+  - **#195 inc-3 continued (2026-07-23, probe-only, spec §5h):
+    R0021/F0085 RE-PROBED — both are the graze guard's OWN over-firing,
+    NOT external walls, and the arm is NOT flip-safe as designed.**
+    R0021 is a **false positive**: gate-OFF CORRECT at natural rim N=11,
+    but the guard fires (`req=12 natural=(MAX,11)` — a real
+    depth>render-line rim×plane crossing) and the forced global
+    rim-rebuild to N=12 degenerates an unrelated thin two-rim strip's
+    render ring (FaceId 11, measured NON-self-intersecting → DEGENERATE,
+    F0045 family). Crux: **under-sampling a shallow rim×plane crossing
+    does NOT imply a defect** — R0021 is correct at natural N with the
+    same crossing, so the guard's premise is false in general (F0082's
+    malignant relocation-minted crossing is the special case). F0085 is
+    the same root **at scale**: on a 6000+v chain the guard fires on
+    MANY ops with high N (66/65/59/70/67, `YANG_SPLIT_PROBE`); the
+    repeated global N≈60–70 rebuilds ARE the 400s/timeout and the χ=1
+    emission destabilization. **The flip path is NARROWING the guard
+    (inc-4: a malignant-only detection proxy and/or surgical single-rim
+    rebuild scope), not waiting on #130/§4.5.2.** The arm correctly
+    stays gated; the unified "output-ring" class is fully refuted.
   - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
     post-#143), with two fresh class diagnoses:**
     (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —

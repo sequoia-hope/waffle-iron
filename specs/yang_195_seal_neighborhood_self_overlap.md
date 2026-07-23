@@ -365,8 +365,73 @@ now refuted for F0082-E14 and must be RE-PROBED for R0021/F0085 before
 being treated as one inc-3 fix (they may be M8, output-ring, or a third
 class). #195's rim-plane-graze work on F0082 is COMPLETE.
 
+### 5h. Inc-3 continued (2026-07-23) — R0021/F0085 RE-PROBED: both are
+### the BOOST'S OWN over-firing, not external walls; the detection is
+### over-broad and the arm is NOT flip-safe as designed
+
+The §5e reading (R0021/F0085 share F0082-E14's "output-ring" class, one
+inc-3 fix clears all) is now FULLY refuted. Each of the three has a
+distinct story, and two are the guard's own false positives:
+
+- **F0082-E14 = #130 M8** (§5g).
+- **R0021 = boost FALSE-POSITIVE.** Gate-OFF R0021 is SUPPORTED_CORRECT
+  at natural rim N=11; the guard nonetheless fires on op-1
+  (`req=12 natural=(MAX,11) gated=12` — a real depth>render-line
+  rim(b)×plane(a) crossing, N=12 just one over b's natural 11). The
+  forced global rim-rebuild to N=12 shifts the chord phase of an
+  UNRELATED thin two-rim curved strip (output FaceId 11), whose render
+  ring then fails CDT — measured NON-self-intersecting (0 crossings on
+  the 26-pt loop, `KV2_RING_REJECT_PROBE`), so **DEGENERATE**, the F0045
+  render-ring family. The crux: **R0021 is CORRECT at natural N despite
+  the same under-sampled shallow crossing the guard boosts** — i.e.
+  under-sampling a shallow rim×plane crossing does NOT imply a
+  self-intersection defect. The guard's premise
+  ("under-sampled crossing ⇒ §4.5.4 self-intersection") is FALSE in
+  general; F0082's malignant relocation-minted crossing is a special
+  case, not the rule.
+- **F0085 = boost OVER-FIRE at scale.** On this large chained case
+  (grows to 6000+v / 2800+f) the guard fires on MANY ops with high N
+  (`gated=66/65/59/70/67…`, `YANG_SPLIT_PROBE`). The repeated global
+  rim-rebuilds to N≈60–70 both explode compute (the 400s run / 120s
+  TIMEOUT is these rebuilds, not an unrelated slowdown) and destabilize
+  emission across the chain (spec §5e: silent-WRONG χ=1). Same root as
+  R0021 — the detection over-fires and the global high-N rebuild has a
+  large chord-phase blast radius.
+
+**Consequence — the flip path is NARROWING, not waiting on walls.** The
+always-on flip is blocked not (only) by pre-existing external walls but
+by the guard's OWN breadth: it fires on benign under-sampled rim×plane
+crossings (R0021 one, F0085 many) that need no boost, and the global
+`rebuilt_with_min_rim_segments(N)` then degenerates render rings (R0021)
+or explodes compute + destabilizes topology (F0085). The arm correctly
+stays gated. **Inc-4 = narrow the guard** so it fires ONLY on the
+malignant configuration. Two candidate vehicles (spec-first, next
+session):
+  1. **Narrower detection** — distinguish F0082's malignant crossing
+     (a rim SUBMERGED beyond the partner plane whose beyond-region is
+     KEPT and relocates into a self-intersection) from a benign graze.
+     Hard pre-tessellation: it depends on the labeling/relocation
+     outcome. A tractable proxy may exist (e.g. only boost when the
+     crossing rim's operand and the partner plane's operand are the
+     SAME chained body — F0082's cap×wall is intra-body-after-union;
+     R0021's is a fresh tool×base — needs measurement).
+  2. **Surgical rebuild scope** — rebuild ONLY the specific crossing
+     rim, not all rims of both operands. Shrinks the chord-phase blast
+     radius (helps F0085's many high-N global rebuilds; helps R0021
+     only if the thin-strip rim is NOT the crossing rim — must verify).
+The two compose; measure both before building.
+
 ## 6. Ledger
 
+- 2026-07-23 inc-3 continued (probe-only, §5h): R0021/F0085 re-probed.
+  Both are the guard's OWN over-firing, not external walls. R0021 =
+  false-positive (CORRECT at natural N=11; forced N=12 degenerates an
+  unrelated thin-strip render ring — under-sampled ≠ defective, the
+  guard's premise is false in general). F0085 = over-fire at scale
+  (many high-N boosts on a 6000+v chain → timeout + χ=1). The flip path
+  is **narrowing the guard** (inc-4: narrower detection and/or surgical
+  rebuild scope), NOT waiting on #130/§4.5.2. The unified "output-ring"
+  class is fully refuted.
 - 2026-07-23 inc-3 (probe-only, §5g): the §5f "envelope arc-trim /
   boundary-selection detour" hypothesis REFUTED on three measurements
   (envelope machinery inert gate-ON; raw producing-union loop CLEAN with
