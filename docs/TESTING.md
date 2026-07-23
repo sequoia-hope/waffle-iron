@@ -260,7 +260,7 @@ prints the category table (CORRECT / WRONG / ERROR / UNSUPPORTED / …) and writ
 ```
 # Compile once (~9s incremental), then run the full corpus:
 cargo test -p test-harness --test assay_kv2 --release --no-run
-ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=120 \
+ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=240 \
   cargo test -p test-harness --test assay_kv2 --release full_corpus_categorized \
   -- --ignored --nocapture
 ```
@@ -280,8 +280,16 @@ give false timeouts under load — avoid that combination.)
   budgeting keeps verdicts stable; higher just risks a few borderline-slow cases
   needing a bigger budget.
 - `ASSAY_CASE_TIMEOUT_SECS` — per-case **CPU**-time budget (default 30).
-  **Use ≥120** for a clean full run — a too-tight budget flips genuinely-heavy
-  cases (e.g. `extrude_chains`-scale) to a spurious `TIMEOUT`.
+  **Use ≥240** for a clean full run — a too-tight budget flips genuinely-heavy
+  cases to a spurious `TIMEOUT`. The heaviest true-completing corpus cases are
+  the 20-op chained-boolean stacks: as the kernel improves and more of their
+  ops succeed, they legitimately grind through more exact-boolean work before
+  their (deeper) failure — measured 2026-07-23 at F0072 ≈ 132s (ERROR) and
+  R0081 ≈ 142s gate-ON (ERROR). 120s clips both to a spurious `TIMEOUT`; 240s
+  gives ~70% headroom over the current slowest. Their cost is the exact
+  boolean core (Cherchi arrangement + Stage-1/4), not any single gate — the
+  junction pierce layers and the #173 self-intersection gate were each
+  measured negligible (<2% of wall).
 - `ASSAY_FAST=1` — skip only the un-judgeable (previously timed-out) slow-list
   cases for a quick partial baseline.
 

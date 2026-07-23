@@ -95,7 +95,11 @@ Do NOT skip to lower-priority items because they are easier.
    artifact). Full recipe and env knobs (`ASSAY_JOBS`, `ASSAY_CASE_TIMEOUT_SECS`,
    `ASSAY_CASE=<id> single_case`): `docs/TESTING.md` §"Running the categorized
    assay". Quick form:
-   `ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=120 cargo test -p test-harness --test assay_kv2 --release full_corpus_categorized -- --ignored --nocapture`.
+   `ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=240 cargo test -p test-harness --test assay_kv2 --release full_corpus_categorized -- --ignored --nocapture`.
+   (Budget is ≥240s: the heaviest true-completing cases are the 20-op
+   chained-boolean stacks — F0072 ≈ 132s, R0081 ≈ 142s gate-ON, both honest
+   ERRORs — which a 120s budget clips to spurious `TIMEOUT`s. See
+   `docs/TESTING.md` §"Handling a budget TIMEOUT".)
 
    **The paper IS the spec.** Read `refs/yang2025_hybrid_boolean.pdf` before
    each session. Implement what the paper describes.
