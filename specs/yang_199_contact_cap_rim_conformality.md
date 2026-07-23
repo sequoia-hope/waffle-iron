@@ -200,11 +200,52 @@ no single triangle spans the whole cap (a strip/windowed triangulation keyed to
 the rim samples, or an interior grid), and the wall must be triangulated
 locally against a bottom edge that carries matching subdivision (or a windowed
 top↔bottom strip). Spec-first, gated, corpus category-identical 255C/0W,
-cherchi sidecar parity green. **H3 (near-duplicate ~4e-4 rim-sample dedup) is a
-co-lever** — it shrinks the rim-sample count that both sides fan over (the
-slivers are 81 % of the pairs); measure its standalone contribution in inc-1.
-The pure-perf alternative (cherchi dense-slab short-circuit, Direction B) is
-unaffected by this refutation and remains open.
+cherchi sidecar parity green.
+
+**inc-0 addendum — two design constraints the A/B numbers imply (why H2 is a
+size-bounded CDT, not a light conformality tweak):**
+
+1. **The wall's coarse BOTTOM edge cannot be subdivided** — it is shared with
+   the already-frozen mesh of the op below (the previous contact plane at
+   z=1.3642). Adding points there mints new T-junctions against frozen
+   geometry (unsafe). A rectangle with a coarse (2-vertex) bottom and a fine
+   (N-vertex) top has NO all-local triangulation (any triangle covering the
+   full-width bottom edge is width-W). The wall fix must therefore use
+   **interior Steiner rows** (points interior to the wall face, shared with no
+   neighbour) to reduce the width-W triangles from N (the current single-corner
+   fan) to ~1 (a thin bottom strip) with the rest local.
+2. **The cap cells are X-local but Y-TALL.** The overlay's vertical
+   decomposition (`coplanar_overlay.rs:455-553`) cuts the cap only in X (the
+   `xs` event columns); each cell spans the full Y-band between two active
+   sub-segments. A cap cell at the wall's x is thus tall in Y and its AABB
+   overlaps the wall sliver at that x REGARDLESS of how local the wall is —
+   which is exactly why `wall-local` alone was only 1.4× (the tall cap cell
+   still collides) and only `both-local` reached 3.7×. **The cap fix is a
+   size-bounded 2-D re-triangulation of the exact overlay mesh (horizontal cuts
+   / grid, not just the X sweep)** — it modifies the overlay's exact
+   coverage-certificate code, the most delicate exact-arithmetic in Stage-0.
+
+**H3 (near-duplicate ~4e-4 rim-sample dedup) is REFUTED as a clean lever** — the
+dumped rim samples are 1.4e-4…3.7e-3 apart, i.e. genuine gear/polygon profile
+crossings ~1000× the weld tolerance (1e-7), NOT numerical duplicates. Deduping
+them at 1e-4 drops real geometry (the P9/P10 hazard). Drop H3.
+
+**Direction decision (open — this is pure perf on a case that stays an honest
+ERROR either way):**
+- **A (yang conformal, this doc):** size-bounded CDT of the cap overlay +
+  interior-Steiner wall strip. ~3.7× on the heavy op. Multi-checkpoint,
+  correctness-ADJACENT (re-triangulates the exact mesh handed to the boolean;
+  the overlay's coverage certificate must be preserved bit-exactly). Aborts if
+  any corpus verdict moves.
+- **B (cherchi dense-slab short-circuit, Direction B / task #198 family):** in
+  `detect_intersecting_pairs` + `classify_all`, detect a large cluster of
+  benign shared-boundary contacts in one thin coplanar slab and resolve/skip
+  them without the full O(M²) exact classify. Pure Stage-2 speedup, ZERO
+  correctness risk (mesh unchanged; sidecar parity trivially holds), but a
+  substantial cherchi port.
+- **C (shelve #199):** it is a pure-perf win on an already-ERROR case; Lever B
+  rayon (#198) already cut wall-clock; the #1-priority correctness milestones
+  (KV6 revolve, M8 coplanar, M5 degree-4 SSI) outrank it.
 
 ## 7. Instrumentation (re-add for inc-0, revert before each commit)
 
