@@ -42,6 +42,8 @@
 //! `assert_pruned_subset_of_brute` (not `==` against brute-force).
 
 use cad_primitives::Point3;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 
 use crate::arrangements::FastTrimesh;
 use crate::predicates::{triangle_intersects_triangle_3d, TriangleIntersection};
@@ -57,13 +59,21 @@ use crate::predicates::{triangle_intersects_triangle_3d, TriangleIntersection};
 /// **Algorithm**: O(n²) pairwise iteration with AABB pre-pruning.
 /// Per-triangle AABBs are computed once upfront; each pair gets a
 /// cheap 6-component overlap check before the expensive
-/// triangle-triangle predicate. BVH/Octree is banked for a future
-/// PR (Hard Rule #1: no workspace deps).
+/// triangle-triangle predicate.
+///
+/// **Parallelism** (`parallel` feature, task #198): each ROW `i` (its
+/// surviving `(i, j)` pairs with `j > i`) is a pure function of the immutable
+/// soup + AABBs, so the rows are computed over a `rayon` pool. The rows are
+/// collected in ASCENDING `i` order (an indexed parallel iterator collected
+/// into a `Vec` preserves order) and flattened serially, so the result is
+/// BYTE-IDENTICAL to the serial nested loop — same pairs, same order. Off by
+/// default (Hard Rule #5); WASM never enables it.
 ///
 /// **Output invariants**:
 /// - Every pair satisfies `pair.0 < pair.1`.
 /// - Each unordered pair appears at most once.
 /// - The list contains exactly the non-`Disjoint` pairs.
+/// - Pairs are in ascending lexicographic `(t_a, t_b)` order.
 pub fn detect_intersecting_pairs(soup: &FastTrimesh) -> Vec<(u32, u32)> {
     let n = soup.num_tris();
     if n < 2 {
@@ -72,25 +82,43 @@ pub fn detect_intersecting_pairs(soup: &FastTrimesh) -> Vec<(u32, u32)> {
     // Pre-compute per-triangle AABBs once. O(n) up front saves
     // O(n²) recomputation in the pair loop.
     let aabbs: Vec<(Point3, Point3)> = (0..n).map(|t| tri_aabb(soup, t)).collect();
-    let mut out = Vec::new();
-    for i in 0..n {
+
+    // Row `i`: the surviving `(i, j)` pairs (j > i), in ascending `j`. Pure in
+    // `(soup, aabbs)`, so distinct `i` rows are independent.
+    let row = |i: u32| -> Vec<(u32, u32)> {
+        let (a_min, a_max) = aabbs[i as usize];
+        let a0 = soup.tri_vert(i, 0);
+        let a1 = soup.tri_vert(i, 1);
+        let a2 = soup.tri_vert(i, 2);
+        let mut local = Vec::new();
         for j in (i + 1)..n {
-            let (a_min, a_max) = aabbs[i as usize];
             let (b_min, b_max) = aabbs[j as usize];
             if !aabbs_overlap(a_min, a_max, b_min, b_max) {
                 continue;
             }
-            let a0 = soup.tri_vert(i, 0);
-            let a1 = soup.tri_vert(i, 1);
-            let a2 = soup.tri_vert(i, 2);
             let b0 = soup.tri_vert(j, 0);
             let b1 = soup.tri_vert(j, 1);
             let b2 = soup.tri_vert(j, 2);
-            match triangle_intersects_triangle_3d(a0, a1, a2, b0, b1, b2) {
-                TriangleIntersection::Disjoint => continue,
-                _ => out.push((i, j)),
+            if !matches!(
+                triangle_intersects_triangle_3d(a0, a1, a2, b0, b1, b2),
+                TriangleIntersection::Disjoint
+            ) {
+                local.push((i, j));
             }
         }
+        local
+    };
+
+    // Collect rows in index (`i`) order — identical whether the map ran serially
+    // or over the rayon pool — then flatten in order.
+    #[cfg(feature = "parallel")]
+    let rows: Vec<Vec<(u32, u32)>> = (0..n).into_par_iter().map(row).collect();
+    #[cfg(not(feature = "parallel"))]
+    let rows: Vec<Vec<(u32, u32)>> = (0..n).map(row).collect();
+
+    let mut out = Vec::with_capacity(rows.iter().map(Vec::len).sum());
+    for r in rows {
+        out.extend(r);
     }
     out
 }

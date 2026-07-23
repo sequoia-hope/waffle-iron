@@ -50,6 +50,9 @@
 //! `predicates::orient3d` results on explicit coordinates (matching
 //! `cinolib::orient3d` in the C++).
 
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 use crate::arrangements::FastTrimesh;
 use crate::predicates::{
     max_component_in_triangle_normal, orient2d, orient3d, point_in_segment_3d,
@@ -1323,10 +1326,24 @@ pub fn classify_all(
     soup: &FastTrimesh,
     pairs: &[(u32, u32)],
 ) -> Vec<((u32, u32), PairClassification)> {
-    pairs
-        .iter()
-        .map(|&(ta, tb)| ((ta, tb), classify_pair(soup, ta, tb)))
-        .collect()
+    // `classify_pair` is a pure function of the immutable `soup`, so the pairs
+    // classify independently. Under the `parallel` feature (task #198) they run
+    // over a `rayon` pool; `par_iter().map().collect()` on a slice preserves
+    // index order, so the output `Vec` is BYTE-IDENTICAL to the serial map.
+    #[cfg(feature = "parallel")]
+    {
+        pairs
+            .par_iter()
+            .map(|&(ta, tb)| ((ta, tb), classify_pair(soup, ta, tb)))
+            .collect()
+    }
+    #[cfg(not(feature = "parallel"))]
+    {
+        pairs
+            .iter()
+            .map(|&(ta, tb)| ((ta, tb), classify_pair(soup, ta, tb)))
+            .collect()
+    }
 }
 
 #[cfg(test)]

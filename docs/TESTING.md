@@ -305,6 +305,17 @@ ASSAY_CASE=<ID> ASSAY_CASE_TIMEOUT_SECS=280 \
   ./target/release/deps/assay_kv2-<hash> single_case --ignored --nocapture
 ```
 
+**Faster native runs (`cherchi-rs/parallel`):** add
+`--features cherchi-rs/parallel` to any of the above to run the arrangement's
+two per-pair maps (`detect_intersecting_pairs` + `classify_all`) over a `rayon`
+pool. Byte-identical output (order-preserving map — verdicts unchanged), off by
+default (WASM/production stay single-threaded). It cuts **wall-clock** on heavy
+cases (measured F0072 132s → 49s on 24 cores) but not **CPU time**, so it does
+NOT change a CPU-budgeted `TIMEOUT` verdict — use it for a faster single-case
+debug loop, not to rescue a budget artifact. Cap `RAYON_NUM_THREADS` × jobs to
+your core count on a full parallel corpus run to avoid oversubscription. See
+`specs/cherchi_arrangement_perf.md`.
+
 `ASSAY_CASE=<ID> … single_case` is also the go-to for debugging or
 byte-stability spot-checks of one case (fast, deterministic, generous budget).
 

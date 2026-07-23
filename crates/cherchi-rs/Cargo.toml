@@ -8,16 +8,28 @@ description = "Pure-Rust port of Cherchi 2020 + 2022 (mesh arrangements + intera
 # Strict layering: cherchi-rs sits directly above cad-primitives. It does NOT
 # depend on yang-rs, ssi-rs, kernel-v2, or any crate from the old kernel tree.
 #
-# No features (PR-CR-M7c): the former `indirect-predicates` feature gated the
-# LGPL C++ FFI sidecar during M6 development. M7 clean-roomed the indirect
-# predicates into `src/predicates/indirect/` (pure Rust, WASM-clean), so the
-# whole crate — arrangement, labeling, native boolean — now compiles
-# unconditionally, including for wasm32-unknown-unknown.
+# The indirect predicates are clean-roomed into `src/predicates/indirect/`
+# (pure Rust, WASM-clean), so the whole crate — arrangement, labeling, native
+# boolean — compiles unconditionally, including for wasm32-unknown-unknown.
+#
+# `parallel` (task #198, spec `specs/cherchi_arrangement_perf.md`): OPT-IN,
+# OFF by default (Hard Rule #5 — single-threaded is the default; determinism
+# trumps speed). When enabled it runs the two pure per-pair maps
+# (`detect_intersecting_pairs`, `classify_all`) over a `rayon` pool. The map is
+# order-preserving (an indexed parallel iterator collected into a `Vec`), so the
+# output is BYTE-IDENTICAL to the serial path — no reduction reordering, no
+# determinism risk. `rayon` is an OPTIONAL dep, so the default (and every WASM)
+# build never pulls it: `cargo check --target wasm32-unknown-unknown` (no
+# features) stays thread-free. Native consumers (test-harness / assay / any
+# native embedding) opt in via `--features cherchi-rs/parallel`.
+[features]
+parallel = ["dep:rayon"]
 
 [dependencies]
 cad-primitives = { path = "../cad-primitives" }
 dashu = "0.4"                 # Exact arithmetic backend (pure-Rust, WASM-compatible)
 geometry-predicates = "0.3"   # Shewchuk-style exact orient2d / orient3d / etc.
+rayon = { version = "1", optional = true }  # `parallel` feature only — never in WASM
 spade = "2"                   # Constrained Delaunay triangulation (CDT) for planar
                               # face tessellation. Pure-Rust, WASM-clean: exact
                               # orientation/in-circle predicates via `robust`
