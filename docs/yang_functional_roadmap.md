@@ -3351,6 +3351,33 @@ swapped every consumer to `predicates::indirect`).
     its fix is the flip path. `YANG_CDT_PROBE` extended with a 3D
     global-vert + outer-edge/chain dump; `KV2_OUT_TOPO_PROBE` banked
     (per-output-face pinch / outer-inner shared-vert scan).
+  - **#195 inc-3 (2026-07-23, probe-only, spec §5g): the §5f
+    "output-ring / envelope arc-trim" hypothesis is REFUTED for
+    F0082-E14 and the blocker RE-ROUTED to #130.** Three measurements:
+    (1) the #188 envelope machinery is INERT gate-ON
+    (`YANG_S5_ENVELOPE_PROBE` 0 lines) — the graze boost samples the
+    crossing directly, so there is no osculating pair to select;
+    (2) the producing union's RAW output face-370 loop is CLEAN (0
+    self-intersections, `KV2_RECOVER_PROBE`) and carries a spoke to the
+    **tube AXIS point** (`v1387` = the tube `axis_point` to 5e-6) — the
+    M8 coplanar tool-base signature (§10.10 finding #1, the SAME
+    structure the gate-OFF Extrude-12 χ=3 decomposed into, now surfacing
+    gate-ON one op later); (3) the self-cross is minted in the kernel-v2
+    round-trip — `recover.rs` correctly fuses the rim chords to a
+    `Circle` arc and `to_yang` re-samples it, and the near-rim junction
+    v1277 (1.457e-3 inside the circle) is attached by wall-chord + spoke
+    edges that BOTH cross the re-sampled arc (2 self-intersections),
+    CDT-rejected LOUD. So F0082's remaining gate-ON blocker is the
+    **#130 M8 coplanar tool-base residue** (real root: the seal face
+    should carry the tube rim as an inner-loop hole, no axis spoke),
+    OUTSIDE #195's rim-plane-graze scope; neutering recover's (correct)
+    fusion to launder it would be a P9 violation. **#195's F0082 work is
+    COMPLETE** (§5a: the §4.5.4 seal self-overlap is fixed; all chain
+    operand meshes scan clean gate-ON). The always-on flip stays blocked
+    by KNOWN walls only — #130 M8 (F0082) and the §4.5.2 LRR shell
+    (R0061). R0021/F0085 must be re-probed: the unified "output-ring"
+    class is refuted for F0082-E14 and can no longer be assumed to be
+    one inc-3 fix.
   - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
     post-#143), with two fresh class diagnoses:**
     (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —

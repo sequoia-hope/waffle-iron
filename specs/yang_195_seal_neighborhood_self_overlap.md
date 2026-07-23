@@ -298,8 +298,87 @@ properly-minted junction. Inc-3 = envelope-selection/arc-trim at the
 new junction on the seal-plane face (the #188 machinery's remit, one
 recursion deeper).
 
+### 5g. Inc-3 ROOT (2026-07-23) — §5f hypothesis REFUTED; the blocker
+### is the #130 M8 coplanar tool-base residue minted through the
+### kernel-v2 recover.rs arc fusion, NOT an envelope/selection detour
+
+Deepening §5f with the raw producing-union output loop
+(`KV2_RECOVER_PROBE`), the CDT-input loop (`YANG_CDT_PROBE=370`), and
+the producer sequence (`YANG_RUN_PROBE` + `KV2_OUT_VERT_PROBE`) refutes
+the "envelope arc-trim / boundary-selection detour" framing on three
+independent measurements:
+
+1. **The envelope machinery is INERT gate-ON** (`YANG_S5_ENVELOPE_PROBE`:
+   0 lines across the whole chain). The rim-plane graze boost samples the
+   cap×wall crossing directly, so the arrangement mints the true junction
+   and there is no osculating boundary pair for §3.2 to select — the #188
+   remit does not apply. The seal-plane face is assembled by ORDINARY
+   Stage-5/6 topology emission.
+
+2. **The producing union's RAW yang output face-370 loop is CLEAN**
+   (24-edge chord polyline, `KV2_RECOVER_PROBE`; tested: 0
+   self-intersections). Its structure is a rim-arc "pac-man" closed by a
+   wall chord and — decisively — **a spoke to the tube AXIS point**:
+   the boundary vertex `v1387 = (0.122732, −0.008322, 2.1019)` equals the
+   tube's `axis_point` (face-372 cylinder) to 5e-6. A seal-PLANE face
+   carrying the tube axis on its boundary is the **M8 coplanar tool-base
+   signature** — the tube tool's base disc is coplanar with the seal
+   plane and Stage-0 M8 did not segment it, leaving a center spoke
+   (§10.10 finding #1, the SAME structure named for the gate-OFF
+   Extrude-12 χ=3 failure — now surfacing gate-ON at Extrude 14).
+
+3. **The self-crossing is minted in the kernel-v2 round-trip**, not by
+   yang. `recover.rs` correctly fuses the rim chord run into a `Circle`
+   arc (the samples lie exactly on the tube∩seal circle, r=0.212 —
+   analytical primacy demands the fusion) and collapses the collinear
+   wall-chord and the collinear axis-spoke into single segments (dropping
+   the axis vertex). `to_yang` then re-samples the arc for Extrude 14's
+   input (CDT edges 3299/3300 are `Discriminant(1)`=Circle, chain_len
+   5/4). The near-rim junction v1277 (1.457e-3 INSIDE the circle, in the
+   thin sliver between an arc chord and the arc) is attached by the
+   wall-chord edge (v1308→v1277) and the axis-spoke edge (v1277→v1280),
+   **both of which cross the re-sampled arc chord** (tested: exactly 2
+   self-intersections, at arc-sample-pair 2421↔2422). CDT rightly
+   rejects the self-crossing loop — a LOUD ERROR, not a silent wrong.
+   Were `recover.rs` to bail (ship the raw chords), the loop is
+   non-self-crossing and CDT would pass.
+
+**Attribution.** The loop's odd SHAPE (axis spoke + near-rim junction)
+is the #130 M8 coplanar tool-base residue; `recover.rs`'s (individually
+correct) arc fusion turns that latent oddity into a self-crossing loop.
+The real structural root is M8 (the seal face should carry the tube rim
+as an INNER LOOP / hole, with no axis spoke), so the fix belongs to
+**#130**, not to #195's rim-plane-graze arm. Neutering recover's fusion
+to launder the artifact would be a P9 violation (right answer, wrong
+reason — a correct analytical fusion suppressed to hide upstream noise).
+
+**Consequences for #195 and the flip.** The rim-plane-graze arm has
+FIXED F0082's #195-scoped defect (§5a: the §4.5.4 relocation-minted seal
+self-overlap; all chain operand meshes scan clean gate-ON). F0082's
+remaining gate-ON blocker (Extrude 14) is the #130 M8 residue and is
+**outside #195 scope** — it fails LOUDLY (ERROR), so no P10 net is
+owed. The always-on flip stays blocked, but by KNOWN pre-existing walls
+only: **#130 M8** (F0082) and the **§4.5.2 LRR shell** (R0061) — neither
+a #195 residual. R0021 and F0085 were BELIEVED to share F0082-E14's
+"output-ring boundary-selection" class (§5e); that unified framing is
+now refuted for F0082-E14 and must be RE-PROBED for R0021/F0085 before
+being treated as one inc-3 fix (they may be M8, output-ring, or a third
+class). #195's rim-plane-graze work on F0082 is COMPLETE.
+
 ## 6. Ledger
 
+- 2026-07-23 inc-3 (probe-only, §5g): the §5f "envelope arc-trim /
+  boundary-selection detour" hypothesis REFUTED on three measurements
+  (envelope machinery inert gate-ON; raw producing-union loop CLEAN with
+  a spoke to the tube axis = M8 tool-base signature; self-crossing minted
+  by kernel-v2 `recover.rs` arc fusion + `to_yang` re-sampling of the
+  near-rim junction). F0082's remaining gate-ON Extrude-14 blocker is the
+  **#130 M8 coplanar tool-base residue** (§10.10 finding #1 surfacing one
+  op later), OUTSIDE #195 scope and LOUD (ERROR). The rim-plane-graze
+  arm's #195-scoped F0082 work is COMPLETE; the always-on flip stays
+  blocked by KNOWN walls only (#130 M8, §4.5.2 LRR R0061). R0021/F0085
+  must be re-probed — the unified "output-ring" class is refuted for
+  F0082-E14.
 - 2026-07-22: task opened (#194 close-out). Output attribution + input
   selfx probes landed (`s4-dc-attr` arm in `stage4_correct.rs` (4b) gate;
   `YANG_INPUT_SELFX_PROBE` incl. double-cover + involved-face loop dump
