@@ -3397,6 +3397,23 @@ swapped every consumer to `predicates::indirect`).
     (inc-4: a malignant-only detection proxy and/or surgical single-rim
     rebuild scope), not waiting on #130/§4.5.2.** The arm correctly
     stays gated; the unified "output-ring" class is fully refuted.
+  - **#195 inc-4 SHIPPED gated (2026-07-23, spec §5i): detect-then-refine
+    (paper §4.5.4) REPLACES the eager pre-tessellation boost —
+    `YANG_RIM_PLANE_GRAZE_ENABLE` now drives a wrapper around
+    `boolean_once(..., refine_rim_plane)`: pass 1 at natural resolution →
+    cheap graze gate → input-side (`NonManifoldInput`) skip → #173 selfx
+    detect → pass 2 refine ONLY a broken output → accept iff not-worse
+    (`improper <= n`). A CORRECT natural output is NEVER refined, so the
+    eager false-positive class is structurally excluded. **Gate-OFF
+    byte-identical (255C/0W/54E/1T); gate-ON 258C/0W/50E/2T — net +3,
+    ZERO correctness regressions**: R0063/R0072/R0095 ERROR→CORRECT
+    (conversions banked), R0021/R0061 stay CORRECT (eager's CORRECT→ERROR
+    regressions eliminated), F0085 an honest in-budget ERROR (was TIMEOUT
+    masking silent-WRONG χ=1), R0081 ERROR→TIMEOUT (a pre-existing slow
+    ERROR whose legit LRR refine doubles it past budget — not a
+    correctness regression). F0082 unchanged (Extrude-14 = #130 M8). The
+    always-on flip precondition (zero CORRECT→ERROR, #169 P3b inc-5
+    precedent) is MET; flip = inc-5.
   - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
     post-#143), with two fresh class diagnoses:**
     (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —

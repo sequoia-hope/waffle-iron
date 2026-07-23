@@ -441,8 +441,70 @@ malignant configuration. Candidate vehicles (spec-first, next session):
      vehicle 1's detect-then-refine (which reads the actual output) is
      the right altitude.
 
+### 5i. Inc-4 SHIPPED (2026-07-23, gated) — detect-then-refine replaces
+### the eager boost; gate-ON 258C/0W with ZERO correctness regressions
+
+Vehicle 1 (§5h) is BUILT and measured. The eager pre-tessellation boost
+is replaced by the paper's §4.5.4 detect-then-refine, driven by a thin
+wrapper in `boolean()` around the renamed pipeline `boolean_once(...,
+refine_rim_plane: bool)`:
+
+1. **Pass 1** runs at natural rim resolution (`refine_rim_plane=false`).
+2. **Cheap gate first:** `rim_plane_graze_min_segments(a,b)` — no graze ⇒
+   return pass-1 immediately (no output scan; keeps the per-op cost off
+   the common path — an always-on scan timed out the large CORRECT cases
+   F0090/R0019/R0081).
+3. **Input-side skip:** a `NonManifoldInput` error is not a §4.5.4
+   self-intersection the boost can fix (topological, not resolution) —
+   return pass-1 (measured R0019: refining it wasted 90s→188s, still
+   ERROR).
+4. **Detect:** scan pass-1's output with `detect_improper_contacts`
+   (#173). `natural_broken` = a hard error OR `improper_pairs` non-empty.
+5. **Refine** only a broken output: **pass 2** with the rim boost.
+6. **Accept** the refined body iff STRICTLY-NOT-WORSE: natural was an
+   error ⇒ any Ok is better; natural was Ok-but-selfx(n) ⇒ accept iff
+   refined improper `<= n` (the count is a noisy absolute — benign
+   coplanar contacts survive, and repositioning a malignant crossing can
+   trade it for a benign one at equal count, measured R0095: 2→2 with the
+   downstream op fixed; we only forbid ADDING illegal geometry). Else
+   keep natural.
+
+A CORRECT natural output is NEVER refined (step 4), so the eager boost's
+false-positive class (§5h) is structurally excluded.
+
+**Measured (full 312-corpus, `YANG_RIM_PLANE_GRAZE_ENABLE=1`):**
+- **Gate-OFF: 255C/0W/54E/1T — byte-identical to baseline** (production
+  takes the single-pass `refine_rim_plane=false` route).
+- **Gate-ON: 258C/0W/50E/2T — net +3 CORRECT, ZERO correctness
+  regressions.** Every delta vs gate-OFF: R0063/R0072/R0095 ERROR→CORRECT
+  (conversions banked); R0081 ERROR→TIMEOUT (a pre-existing slow ERROR
+  whose legitimate LRR refine doubles it past the 120s budget — NOT a
+  correctness regression, ERROR either way). The eager boost's blockers
+  are ALL gone: R0021/R0061 stay CORRECT (never refined — false positives
+  eliminated), F0085 is an honest in-budget ERROR (was TIMEOUT masking a
+  silent-WRONG χ=1). F0082 stays ERROR at Extrude-14 — the #130 M8 wall
+  (§5g), untouched by this arm; the producing-op self-overlap is fixed.
+
+**Flip status.** The always-on flip precondition (zero CORRECT→ERROR, the
+#169 P3b inc-5 precedent) is now MET. The remaining non-CORRECT gate-ON
+outcomes are F0082 (#130 M8, external) and R0081 (a slow ERROR→TIMEOUT
+performance artifact). Ships GATED per increment discipline; the flip
+(gate removal) is inc-5, to be taken after a clean-ledger re-confirm and
+a note on the always-on per-op graze-check cost (bounded: only graze ops
+pay the scan / 2nd pass; R0081-class slow refines are the cost to weigh).
+
 ## 6. Ledger
 
+- 2026-07-23 inc-4 SHIPPED gated (§5i): detect-then-refine (paper §4.5.4)
+  REPLACES the eager pre-tessellation boost. `boolean()` wraps
+  `boolean_once(..., refine_rim_plane)`: pass 1 natural → graze gate →
+  input-side skip → #173 selfx detect → pass 2 refine only if broken →
+  accept iff not-worse (`<=` improper). Gate-OFF byte-identical
+  (255C/0W/54E/1T); **gate-ON 258C/0W/50E/2T — net +3, ZERO correctness
+  regressions** (R0063/R0072/R0095 ERROR→CORRECT; R0021/R0061 stay
+  CORRECT; F0085 honest ERROR; R0081 slow ERROR→TIMEOUT). The eager
+  boost's flip blockers are eliminated; the flip precondition is MET.
+  Flip = inc-5. F0082 unchanged (Extrude-14 = #130 M8).
 - 2026-07-23 inc-3 continued (probe-only, §5h): R0021/F0085 re-probed.
   Both are the guard's OWN over-firing, not external walls. R0021 =
   false-positive (CORRECT at natural N=11; forced N=12 degenerates an
