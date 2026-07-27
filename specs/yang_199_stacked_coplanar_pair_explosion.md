@@ -159,3 +159,58 @@ short-circuit**. Both are real efforts; pick per appetite for correctness-risk
 
 All measured 2026-07-23 on `cargo test -p test-harness --test assay_kv2 --release
 single_case` with `ASSAY_CASE=F0072`.
+
+---
+
+## 7. Direction B — IMPLEMENTED (#200, 2026-07-27): profiling + the ceiling
+
+The user chose Direction B (pure-perf cherchi Stage-2 short-circuit, zero
+correctness risk). Implemented + shipped, but **the phase profiling reframed the
+problem and caps the win**:
+
+**Per-phase timing of `mesh_arrangement` (heavy op, 14342 tris / 666,731 pairs,
+total 32.9 s):** `detect`=16.3 s (49 %), `classify`=16.1 s (49 %),
+group-points 74 ms, group-segments+coplanar-integrate 429 ms, **step9 (split +
+enforce) = 1.3 ms** (negligible — the dense-slab pairs produce no splits). So
+detect and classify are **co-equal**, both driven by the raw count of overlapping
+pairs (the fan-sliver huge AABBs from #199 inc-0).
+
+**Classify path histogram (heavy op):** `sce` (single-coplanar-edge)=421,440
+(63 %), 92 % of which return the EMPTY vertex set; `coplanar`=203,279 (30 %);
+`transversal nonempty`=41,207 (6 %). The 342 K selfA-transversal pairs are `sce`
+pairs whose coplanar edge (the wall's top edge) lies in the cap plane but OUTSIDE
+the cap triangle → `classify_single_coplanar_edge` runs ~20 exact predicates to
+return empty. `triangle_intersects_triangle_3d` (detect) returns `Coplanar` for
+them (conservative: an edge-in-plane, regardless of containment), so they reach
+classify at all.
+
+**Shipped lever — exact projected-box reject in `triangle_intersects_triangle_3d`**
+(`predicates/triangle_intersect.rs`, ALWAYS-ON, dev knob
+`CHERCHI_SCE_SHORTCIRCUIT=0` to disable): when a segment lies in the other
+triangle's plane (`segment_intersects_triangle_3d` → `Coplanar`), project both
+onto the two axes off the triangle's dominant normal (an INJECTIVE map of that
+plane) and if their boxes are strictly disjoint the edge is provably outside →
+contributes `Disjoint`, not `Coplanar`. EXACT (component extraction + min/max +
+strict `<`, no rounding); the coplanar edge is exactly in-plane (its `orient3d`s
+are 0). Only `detect` consumes this, so tightening `Coplanar`→`Disjoint` for a
+genuinely-outside edge merely drops a pair the downstream classify would have
+resolved to empty — **byte-identical arrangement, fewer pairs.**
+
+**Measured (heavy op, gate-ON):** pairs 666,731 → 460,134 (206 K dropped);
+`classify` 16.1 s → 10.6 s; **`detect` UNCHANGED at 16.4 s**; total 32.9 s → 27.5 s.
+**F0072 wall-clock 133.2 s → 125.5 s (~6 %).** Full corpus **category-identical
+255C/0W/55E/0T** (parity proven, not just argued).
+
+**The ceiling (why B is only ~6-16 %):** `detect` still runs the exact
+`triangle_intersects_triangle_3d` on EVERY AABB-overlapping pair — the reject
+changes its *result*, not its *cost* — and detect is half the total. Cutting
+detect needs either a broad-phase that beats the fan-sliver AABBs (a prior grid
+attempt gave <1 % — the huge sliver boxes defeat spatial partitioning) or
+reducing the pair count at the source (**Direction A**, the mesh fix, which
+removes the slivers and shrinks BOTH detect and classify). Also note `detect`
+and `classify` each run an exact tri-tri pass on the survivors — a **redundant
+double** that a fused detect→classify interface could remove (a larger refactor).
+
+**Status:** Direction B shipped a safe, byte-identical **~6 % on F0072** (up to
+~16 % on the heaviest single arrangement). The transformative win remains
+**Direction A** (conformal contact re-triangulation, `yang_199_contact_cap_rim_conformality.md`).
