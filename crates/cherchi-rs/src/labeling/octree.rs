@@ -52,6 +52,11 @@ use cad_primitives::Point3;
 /// module-level design invariant).
 const MAX_DEPTH: u32 = 8;
 const LEAF_SPLIT_THRESHOLD: usize = 16;
+/// Most a single split may inflate the stored item count (summed over the
+/// eight children, relative to the parent). Bounds total stored ids by
+/// `MAX_SPLIT_DUPLICATION^MAX_DEPTH · n` rather than `8^MAX_DEPTH · n`. See
+/// the duplication-budget comment in [`TriOctree::split`].
+const MAX_SPLIT_DUPLICATION: usize = 2;
 
 /// Inclusive axis-aligned bounding box.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -163,6 +168,36 @@ impl TriOctree {
         }
         // No-progress guard: all items land in all eight children.
         if child_items.iter().all(|c| c.len() == n_items) {
+            return;
+        }
+        // DUPLICATION BUDGET. The guard above only fires on the perfect
+        // worst case — every item in every one of the eight children. That
+        // is far too narrow: an item straddling the midplanes lands in
+        // SEVERAL children without landing in all of them, so a node full of
+        // large triangles duplicates ~6x per level while sailing past the
+        // all-eight test. Compounded over `MAX_DEPTH` that is 6^8 ~ 1.7e6.
+        //
+        // Measured before this guard, on assay R0088's second extrude (a
+        // 7,506-triangle input — small!): 7,824,857 nodes holding
+        // 1,123,248,042 item ids, a **x149,647 duplication**, ~4.2 GiB of ids
+        // plus ~0.8 GiB of node overhead. That was the whole of the ~6 GiB
+        // `compute_inside_out` peak and, via the wasm32 4 GiB ceiling, the
+        // whole of the deployed "engine crashed" report.
+        //
+        // A split is only worth making if it divides more than it copies, so
+        // cap the copying: a node may hand its children at most
+        // `MAX_SPLIT_DUPLICATION x` its own item count in total. Stored items
+        // are then bounded by `MAX_SPLIT_DUPLICATION^MAX_DEPTH x n` instead of
+        // `8^MAX_DEPTH x n`.
+        //
+        // CORRECTNESS-NEUTRAL BY CONSTRUCTION, like every other parameter
+        // here: bailing early only makes a node a leaf, and a leaf returns
+        // its whole item list, so the query result stays a superset. The
+        // exact ray-AABB filter downstream is applied to every candidate
+        // unconditionally (see the module docs' DESIGN INVARIANT), and
+        // `compute_inside_out_brute` pins octree-vs-brute label equality.
+        let total_child_items: usize = child_items.iter().map(Vec::len).sum();
+        if total_child_items > MAX_SPLIT_DUPLICATION * n_items {
             return;
         }
 
