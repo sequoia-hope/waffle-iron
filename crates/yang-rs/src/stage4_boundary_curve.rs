@@ -14,18 +14,16 @@
 //! (6.840109e-7, exactly on the chord) and R0063 face 636 (3.126e-5, perturbed
 //! 2.409e-7 OFF the chord). This module is the pointwise repair.
 //!
-//! **inc-1 scope: pure planning only.** Nothing here mutates a mesh and nothing
-//! calls it yet. `plan_boundary_relocations` takes an already-derived map of
-//! rim curves and returns the moves it would make; deriving those curves from
-//! the same-input incidence (the `ssi_rs` call) and applying the moves is inc-2.
-
-// inc-1 ships the primitive UNWIRED by design (spec §6): the production path is
-// untouched and the corpus is provably byte-identical. The `dead_code` allow is
-// removed when inc-2 calls it from Stage 4.
-#![allow(dead_code)]
+//! **inc-2 status:** WIRED into `stage4_relocate_and_correct`, gated OFF by
+//! default behind `YANG_S4_RIM_SNAP_ENABLE` — every addition sits inside that
+//! `if`, so the production path is unchanged by construction. Gate-ON it fixes
+//! the n2 I1 reproduction (moves exactly `v6`) with the full yang-rs suite green
+//! and ZERO corpus category deltas. It does NOT yet reach the corpus tail
+//! (F0083/R0099 still `VertexOffSurface`) — see the spec's inc-3 question.
 
 use crate::errors::{Stage4InvalidReason, YangError};
-use crate::geom::Curve;
+use crate::geom::{Curve, Surface};
+use crate::InputId;
 use crate::Mesh;
 use cad_primitives::{Point3, TAU_WORK};
 
@@ -116,12 +114,23 @@ pub(crate) fn boundary_relocation_for_vertex(
 /// Plan the §4.4.1 relocations for a whole mesh (spec §4).
 ///
 /// `rim_curves` maps an operand's OWN boundary edges (same-input incidence with
-/// two DIFFERENT surfaces) to their analytic curve; deriving it is inc-2.
+/// two DIFFERENT surfaces) to their analytic curve (`collect_rim_curves`).
 /// `cross_curve_endpoints` is the set of vertices claimed by CROSS-input
 /// intersection curves — A×B junctions that are already relocated and are
 /// required to lie on BOTH curves. Moving one would break that, so they are
 /// excluded by construction (measured: the I1 fixture's exact junction `v5` at
 /// +7.0361° must not move, while `v6` must).
+///
+/// **Membership is VERIFIED per edge, not assumed** (inc-2, measured). A
+/// same-input `Cylinder`+`Plane` patch adjacency does NOT imply the shared edge
+/// lies on cylinder∩plane: after a boolean, a cylinder patch can be adjacent to
+/// a plane patch along a trimming boundary nowhere near the analytic rim
+/// (measured on `m8_nary_tessellated_overlay::flush_pocket_subtract_and_union_partition`,
+/// which STOPped when the candidate curve was trusted blindly). So the derived
+/// circle is a CANDIDATE, and an edge is accepted as lying on it only when BOTH
+/// endpoints are within `bound` of it. An endpoint outside the bound means "this
+/// edge is not that rim" — the pass makes no claim and skips the edge; it does
+/// NOT snap it and does not treat it as a defect.
 ///
 /// Returns the moves in deterministic vertex order. Pure: mutates nothing.
 pub(crate) fn plan_boundary_relocations(
@@ -129,20 +138,131 @@ pub(crate) fn plan_boundary_relocations(
     rim_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
     cross_curve_endpoints: &std::collections::BTreeSet<u32>,
     bound: f64,
-) -> Result<Vec<(u32, Point3)>, YangError> {
+) -> Vec<(u32, Point3)> {
     let mut moves: std::collections::BTreeMap<u32, Point3> = std::collections::BTreeMap::new();
-    for (&(s, e), curve) in rim_curves {
+    'edges: for (&(s, e), curve) in rim_curves {
+        // Verification pass: every endpoint must be ON this candidate curve
+        // within `bound`, else the edge is not this rim.
+        let mut pending: Vec<(u32, Point3)> = Vec::new();
         for v in [s, e] {
-            if cross_curve_endpoints.contains(&v) || moves.contains_key(&v) {
-                continue;
-            }
             let Some(&p) = mesh.verts.get(v as usize) else {
-                continue;
+                continue 'edges;
             };
-            if let Some(q) = boundary_relocation_for_vertex(v, p, curve, bound)? {
-                moves.insert(v, q);
+            match boundary_relocation_for_vertex(v, p, curve, bound) {
+                // Beyond the bound ⇒ not this rim ⇒ abandon the whole edge.
+                Err(_) => continue 'edges,
+                Ok(Some(q)) => pending.push((v, q)),
+                Ok(None) => {}
             }
         }
+        // Only now commit, and never for a vertex a cross-input curve owns.
+        for (v, q) in pending {
+            if cross_curve_endpoints.contains(&v) {
+                continue;
+            }
+            moves.entry(v).or_insert(q);
+        }
     }
-    Ok(moves.into_iter().collect())
+    moves.into_iter().collect()
+}
+
+/// Gate for the §4.4.1 boundary-curve relocation pass (inc-2). Default OFF;
+/// `YANG_S4_RIM_SNAP_ENABLE=1|on` enables it.
+pub(crate) fn rim_snap_enabled() -> bool {
+    matches!(
+        std::env::var("YANG_S4_RIM_SNAP_ENABLE").as_deref(),
+        Ok("1") | Ok("on")
+    )
+}
+
+/// The analytic rim curve of a same-operand surface PAIR, in closed form.
+///
+/// inc-2 scope is the measured class: a cylinder patch meeting a planar cap on
+/// a plane PERPENDICULAR to the cylinder axis, whose intersection is exactly a
+/// `Circle`. Anything else — an oblique plane (an ellipse), a non-cylinder pair
+/// — returns `None` and is skipped, never approximated. No SSI call is needed
+/// and no selection tolerance arises, because the pair itself names the curve.
+pub(crate) fn rim_circle_from_pair(surf0: Surface, surf1: Surface) -> Option<Curve> {
+    let (cyl, plane) = match (surf0, surf1) {
+        (Surface::Cylinder { .. }, Surface::Plane { .. }) => (surf0, surf1),
+        (Surface::Plane { .. }, Surface::Cylinder { .. }) => (surf1, surf0),
+        _ => return None,
+    };
+    let (
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        },
+        Surface::Plane { normal, d },
+    ) = (cyl, plane)
+    else {
+        return None;
+    };
+    let ax = axis_dir.as_array();
+    let axl = (ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]).sqrt();
+    let n = normal.as_array();
+    let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    if axl.is_nan()
+        || axl <= 0.0
+        || nl.is_nan()
+        || nl <= 0.0
+        || !radius.is_finite()
+        || radius <= 0.0
+    {
+        return None;
+    }
+    let au = [ax[0] / axl, ax[1] / axl, ax[2] / axl];
+    let nu = [n[0] / nl, n[1] / nl, n[2] / nl];
+    let cos = au[0] * nu[0] + au[1] * nu[1] + au[2] * nu[2];
+    // Perpendicular-plane ONLY: |cos| must be 1 to within TAU_WORK. An oblique
+    // plane cuts an ellipse, which this increment does not handle — skip it
+    // rather than approximate it with a circle.
+    if (cos.abs() - 1.0).abs() > TAU_WORK {
+        return None;
+    }
+    // Slide the axis point along the axis onto the plane: n·(P + h·a) + d/nl = 0.
+    let ap = axis_point.as_array();
+    let dn = d / nl;
+    let h = -((nu[0] * ap[0] + nu[1] * ap[1] + nu[2] * ap[2]) + dn) / cos;
+    Some(Curve::Circle {
+        center: Point3::new(ap[0] + h * au[0], ap[1] + h * au[1], ap[2] + h * au[2]),
+        normal: cad_primitives::Vector3::new(au[0], au[1], au[2]),
+        radius,
+    })
+}
+
+/// Collect the operand-own rim curves from the Stage-4 incidence map: exactly
+/// two entries, SAME `InputId` (an operand's own adjacency, not an A×B
+/// intersection) and DIFFERENT surfaces (equal surfaces are patch-interior).
+pub(crate) fn collect_rim_curves(
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+) -> std::collections::BTreeMap<(u32, u32), Curve> {
+    let mut out = std::collections::BTreeMap::new();
+    for (&key, entries) in incidence {
+        if entries.len() != 2 {
+            continue;
+        }
+        let (i0, s0) = entries[0];
+        let (i1, s1) = entries[1];
+        if i0 != i1 || s0 == s1 {
+            continue;
+        }
+        if let Some(c) = rim_circle_from_pair(s0, s1) {
+            out.insert(key, c);
+        }
+    }
+    out
+}
+
+/// Apply planned relocations in place. Returns the number of vertices moved.
+pub(crate) fn apply_boundary_relocations(mesh: &mut Mesh, moves: &[(u32, Point3)]) -> usize {
+    let mut n = 0;
+    for &(v, q) in moves {
+        if let Some(slot) = mesh.verts.get_mut(v as usize) {
+            *slot = q;
+            n += 1;
+        }
+    }
+    n
 }

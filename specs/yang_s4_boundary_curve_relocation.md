@@ -211,3 +211,50 @@ vertices should retain it — but `v6` is overlay-minted and probably will not.
 Measure the tag census on the I1 fixture and on R0063/F0083/R0099 BEFORE
 building, the same way §7's triage was run: if arm (a) covers nothing, build
 only (b); if it covers most, (b) stays a narrow fallback.
+
+---
+
+## 9. inc-2 RESULT (2026-07-28) — wired, safe, fixes the reproduction; does NOT reach the corpus tail
+
+**Census first (§8's arm (a) is REFUTED).** In-crate census of the I1 fixture's
+output: cylinder-loop vertex sources are `{BRepVertex: 304, BRepEdge: 14}` with
+the gate on, and **the defective `v6` is `BRepVertex(6)`** — not
+`BRepEdge { edge, t }`. The OUTPUT `TessellationMap` is essentially
+self-referential (output mesh vertex → output B-Rep vertex); it does NOT carry
+provenance back to the input operand's edge parameter. So there is no recorded
+`t` to re-evaluate and **arm (a) is unbuildable from the output map**. inc-2 is
+arm (b) only: the guarded projection, with the curve derived in closed form from
+the surface pair (`rim_circle_from_pair`: cylinder + PERPENDICULAR plane ⇒ an
+exact `Circle`; oblique planes cut ellipses and are skipped, never approximated).
+
+**A premise was refuted by a test, and the fix was to NARROW.** The first wiring
+trusted the derived circle and STOPped when a vertex was beyond the chord bound.
+That reddened `m8_nary_tessellated_overlay::flush_pocket_subtract_and_union_partition`:
+**a same-input `Cylinder`+`Plane` patch adjacency does NOT imply the shared edge
+lies on cylinder∩plane** — after a boolean a cylinder patch can be adjacent to a
+plane patch along a trimming boundary nowhere near the rim. The derived circle is
+therefore a CANDIDATE and membership is VERIFIED per edge: both endpoints must
+be within `bound`, else the whole edge is abandoned (including its in-band
+endpoint, which must not be snapped to a curve it may not belong to). "Beyond the
+bound" now means "not this rim", not "defect" — so the loud STOP is reachable
+only as a classification signal inside the pass, never as a boolean failure.
+
+**Measured.**
+- n2 `i1` with the #195 arm ON: **GREEN** — the pass moves exactly `v6`
+  (`rim_edges=146 cross_excluded=20 bound=6.386929e-6 moved=1`).
+- Full yang-rs suite: green in BOTH gate states.
+- Full corpus, gate ON: **252C/0W/58E/0T — ZERO category deltas.** No
+  regressions, and gate-OFF is unchanged by construction (every addition is
+  inside `if rim_snap_enabled()`).
+- **But no conversions.** F0083 and R0099 still fail `VertexOffSurface`.
+
+**inc-3 question (measured lead, do not guess).** On F0083 the pass RUNS and
+claims rim edges (`rim_edges=21`, then `15`) but `moved=0`, even though the
+defective residual (2.305e-3) is INSIDE that op's bound (2.542e-3). And the
+failure surfaces at a LATER op's import validation, i.e. the bad vertex is
+already in that op's INPUT B-Rep — minted by an earlier op whose Stage 4 did not
+claim it. So inc-3 must find out which of the three exclusions dropped it:
+(a) the pair is not Cylinder+perpendicular-Plane (an ellipse rim, or
+Cylinder+Cylinder), (b) membership verification abandoned the edge because the
+other endpoint is out of band, or (c) it was excluded as a cross-input endpoint.
+Probe `YANG_S4_RIM_SNAP_PROBE` per op on the PRODUCING op, not the failing one.

@@ -6853,6 +6853,58 @@ pub(crate) fn stage4_relocate_and_correct(
         return Err(gate_err);
     }
 
+    // §4.4.1 boundary-curve relocation (spec `yang_s4_boundary_curve_relocation.md`,
+    // inc-2), gated by `YANG_S4_RIM_SNAP_ENABLE`. Yang Fig. 11 requires the
+    // trimmed triangulation to "map boundary curves to boundary curves", which
+    // includes an operand's OWN rim — the case `build_intersection_curves`
+    // never claims (`input0 == input1`). Runs LAST so every cross-input
+    // junction is already seated and can be excluded by construction.
+    //
+    // Phase A is recomputed here rather than reusing `inc0`/`curves0`: the mesh
+    // has been relocated and possibly collapsed since, so the earlier maps can
+    // reference stale vertices.
+    if crate::stage4_boundary_curve::rim_snap_enabled() {
+        let (_infos_bc, inc_bc, curves_bc) = compute_phase_a(mesh, attribution, brep_a, brep_b)?;
+        let rim_curves = crate::stage4_boundary_curve::collect_rim_curves(&inc_bc);
+        if !rim_curves.is_empty() {
+            // Vertices claimed by a CROSS-input curve are A×B junctions that
+            // must lie on BOTH curves; moving one would break that.
+            let mut cross_endpoints: std::collections::BTreeSet<u32> = Default::default();
+            for &(s, e) in curves_bc.keys() {
+                cross_endpoints.insert(s);
+                cross_endpoints.insert(e);
+            }
+            // The bound is the owner's own Stage-1 chord guarantee. Both
+            // operands' rims are candidates, so take the larger of the two
+            // budgets — a vertex beyond even that is not this class and STOPs.
+            let bound = [InputId::A, InputId::B]
+                .into_iter()
+                .filter_map(|i| {
+                    crate::stage3_ssi::chord_tol_for_curved_owner(i, brep_a, brep_b, 0, (0, 0)).ok()
+                })
+                .fold(0.0f64, f64::max);
+            if bound > 0.0 {
+                let moves = crate::stage4_boundary_curve::plan_boundary_relocations(
+                    mesh,
+                    &rim_curves,
+                    &cross_endpoints,
+                    bound,
+                );
+                let n = crate::stage4_boundary_curve::apply_boundary_relocations(mesh, &moves);
+                if std::env::var_os("YANG_S4_RIM_SNAP_PROBE").is_some() {
+                    eprintln!(
+                        "[s4-rim-snap] rim_edges={} cross_excluded={} bound={bound:.6e} moved={n}",
+                        rim_curves.len(),
+                        cross_endpoints.len()
+                    );
+                    for (v, q) in &moves {
+                        eprintln!("[s4-rim-snap]   v={v} -> {:?}", q.as_array());
+                    }
+                }
+            }
+        }
+    }
+
     // After a collapse the vertex set may have lost some relocated verts; keep
     // only relocations whose vertex still carries a conic output edge. The
     // caller resolves the output-edge index; relocations referencing a

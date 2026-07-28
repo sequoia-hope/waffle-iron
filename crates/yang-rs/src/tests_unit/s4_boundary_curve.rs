@@ -134,8 +134,7 @@ fn s4bc_iii_cross_curve_junction_vertex_is_never_moved() {
     let mut excluded: std::collections::BTreeSet<u32> = Default::default();
     excluded.insert(3);
 
-    let moves = plan_boundary_relocations(&mesh, &rim, &excluded, chord_bound())
-        .expect("all displacements within bound");
+    let moves = plan_boundary_relocations(&mesh, &rim, &excluded, chord_bound());
     let moved: Vec<u32> = moves.iter().map(|(v, _)| *v).collect();
     assert_eq!(moved, vec![2], "only the unclaimed chord vertex may move");
 }
@@ -211,4 +210,117 @@ fn s4bc_axis_point_is_skipped_not_guessed() {
 fn s4bc_non_circle_curve_is_skipped() {
     let p = Point3::new(1.0, 1.0, 1.0);
     assert!(project_onto_curve(p, &Curve::LineSegment).is_none());
+}
+
+// =========================================================================
+// inc-2 CENSUS (spec §8): do the defective rim vertices still carry a
+// `TessellationSource::BRepEdge { edge, t }` tag in the OUTPUT mesh?
+//
+// Arm (a) of inc-2 (exact re-evaluation at the recorded parameter) is only
+// buildable for tagged vertices; untagged ones need arm (b), inc-1's guarded
+// projection. Measure before building — do not assume.
+// =========================================================================
+
+/// Reproduces the n2 I1 geometry in-crate (the integration fixture lives in
+/// `tests/n2_junction_cluster.rs`, which cannot see `pub(crate)` items).
+fn i1_operands() -> (BRep, BRep) {
+    const H: f64 = 2.0891191078398327e-4;
+    const DELTA: f64 = 1.607e-6;
+    const BOX_HALF_Y: f64 = 1.0e-4;
+    const BOX_W: f64 = 2.0e-4;
+    const H_B: f64 = 7.657508571136625e-5;
+    let a = super::n2_junction::rj_cylinder([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], R, H);
+    let x_lo = R - DELTA;
+    let b = super::n2_junction::rj_box([x_lo, -BOX_HALF_Y, 0.0], [x_lo + BOX_W, BOX_HALF_Y, H_B]);
+    (a, b)
+}
+
+#[test]
+fn s4bc_census_tessellation_source_of_off_curve_rim_vertices() {
+    let (a, b) = i1_operands();
+    let backend = match crate::native_backend() {
+        Some(be) => be,
+        None => return,
+    };
+    // The defect only appears with the #195 rim boost on; without it the
+    // fixture is clean and the census is vacuous (which is itself the control).
+    let Ok(out) = crate::boolean(&a, &b, cad_primitives::BoolOp::Union, &backend) else {
+        return;
+    };
+
+    let mut off: Vec<(u32, f64, TessellationSource)> = Vec::new();
+    let mut tagged_rim = 0usize;
+    let mut census: std::collections::BTreeMap<&'static str, usize> = Default::default();
+    for f in out.faces() {
+        let Surface::Cylinder { radius, .. } = f.surface else {
+            continue;
+        };
+        for &e_idx in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+            let e = &out.edges()[e_idx as usize];
+            for v in [e.start, e.end] {
+                let p = out.vertices()[v as usize].point.as_array();
+                let src = out.tessellation.lookup(v);
+                let kind = match src {
+                    TessellationSource::BRepVertex(_) => "BRepVertex",
+                    TessellationSource::BRepEdge { .. } => "BRepEdge",
+                    TessellationSource::BRepFace { .. } => "BRepFace",
+                    TessellationSource::Intersection => "Intersection",
+                    TessellationSource::Unknown => "Unknown",
+                };
+                *census.entry(kind).or_default() += 1;
+                if matches!(src, TessellationSource::BRepEdge { .. }) {
+                    tagged_rim += 1;
+                }
+                let resid = (p[0].hypot(p[1]) - radius).abs();
+                if resid > 1e-9 * (1.0 + radius) {
+                    off.push((v, resid, src));
+                }
+            }
+        }
+    }
+    eprintln!(
+        "[s4bc-census] cylinder-loop vertex sources: {census:?} (BRepEdge-tagged {tagged_rim})"
+    );
+    for (v, resid, src) in &off {
+        eprintln!("[s4bc-census] OFF-CURVE v={v} resid={resid:.6e} source={src:?}");
+    }
+    // No assertion on the count: this test is a CENSUS, and it must stay green
+    // in both gate states (the fixture is clean with the #195 arm off). What it
+    // pins is that the lookup is total — every cylinder-loop vertex has a
+    // source — so inc-2 can branch on it.
+    assert_eq!(
+        census.values().sum::<usize>() > 0,
+        true,
+        "the union must retain at least one cylinder face to census"
+    );
+}
+
+/// inc-2 (MEASURED): a same-input `Cylinder`+`Plane` adjacency does NOT imply
+/// the shared edge lies on cylinder∩plane — after a boolean, a cylinder patch
+/// can be adjacent to a plane patch along a trimming boundary nowhere near the
+/// rim (`m8_nary_tessellated_overlay::flush_pocket_subtract_and_union_partition`
+/// STOPped when the candidate curve was trusted blindly). Membership is
+/// therefore VERIFIED per edge: if either endpoint is beyond the bound, the
+/// whole edge is abandoned — including its OTHER, in-band endpoint, which must
+/// NOT be quietly snapped to a curve it may not belong to.
+#[test]
+fn s4bc_vi_edge_with_an_out_of_band_endpoint_is_abandoned_whole() {
+    let curve = unit_z_circle();
+    let mut mesh = Mesh::empty();
+    mesh.verts.push(chord_point(0.0, SPAN_DEG, 0.5)); // v0: in-band, off-curve
+    mesh.verts.push(Point3::new(R * 0.5, 0.0, 0.0)); // v1: far off — not this rim
+    mesh.verts.push(chord_point(0.0, SPAN_DEG, 0.5)); // v2: in-band, off-curve
+    mesh.verts.push(on_circle(SPAN_DEG)); // v3: exactly on
+
+    let mut rim: std::collections::BTreeMap<(u32, u32), Curve> = Default::default();
+    rim.insert((0, 1), curve.clone()); // rejected edge
+    rim.insert((2, 3), curve); // accepted edge
+
+    let moves = plan_boundary_relocations(&mesh, &rim, &Default::default(), chord_bound());
+    let moved: Vec<u32> = moves.iter().map(|(v, _)| *v).collect();
+    assert_eq!(
+        moved,
+        vec![2],
+        "only the verified edge may relocate; v0 rides a rejected edge and must stay put"
+    );
 }
