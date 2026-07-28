@@ -497,3 +497,44 @@ in order of preference:
 
 Do NOT widen `tol` — that is the tolerance-escalation pattern P9/P10 forbids, and
 it would admit genuinely-unrelated edges.
+
+## 15. Asymmetric acceptance ATTEMPTED and REVERTED (2026-07-28) — the exact witness does NOT discriminate
+
+§14's preferred fix was built behind `YANG_S3_ASYM_ONBOTH_ENABLE`: admit an edge
+when at least one endpoint is EXACTLY on both surfaces (`TAU_WORK`-scaled), on
+the reasoning that such a witness proves the edge IS the intersection. Measured,
+then **REVERTED**.
+
+- **F0083:** `VertexOffSurface` → a LOUD Stage-3 SSI refinement error. That is
+  the P10 direction (silent-wrong → loud) but NOT a conversion: with the edge
+  admitted, the unique-curve selection then rejects it because the far endpoint
+  is 1.9e-3 off, beyond `tol`.
+- **Corpus, gate ON: 252C/0W/58E/0T, ZERO deltas.**
+- **But it REDS two permanent PR-YR18 oracles:**
+  `oracle1_misclassified_edge_does_not_raise_ambiguous_matched_zero` and
+  `oracle2_no_ambiguous_from_off_cylinder_endpoint` (`tests/yr18_attribution.rs`).
+
+Those oracles exist precisely to pin that a misclassified edge / an off-cylinder
+endpoint must NOT raise `AmbiguousCurve` — which is what the `on_both` gate was
+introduced to guarantee. My gate admitted their fixtures, so **those fixtures
+also carry an exactly-on-both endpoint**.
+
+**Conclusion: the exact witness does NOT discriminate** between "a true
+intersection edge with one mis-seated endpoint" (F0083) and "a misclassified
+single-surface edge" (PR-YR18). Both present a witness. §14's option 1 is
+therefore REFUTED as specified, and the change is reverted rather than shipped
+against two permanent oracles.
+
+**What a real fix needs (open):** a discriminator the witness alone does not
+provide. Candidates, unmeasured:
+- the number of DISTINCT surfaces at the non-witness endpoint (a true
+  intersection edge's far endpoint should still be on ONE of the two surfaces —
+  F0083's v118 is exactly on `B:Plane`, off only the cylinder; is that also true
+  of the PR-YR18 fixtures?);
+- whether the candidate curve exists at all (run the SSI, and accept only if a
+  curve passes through the witness exactly — using the curve as the arbiter
+  rather than the endpoints);
+- §14's option 2 (restore the loud error) scoped to the shape F0083 presents.
+
+Start by measuring the PR-YR18 fixtures' non-witness endpoints against BOTH
+surfaces — that single measurement decides between the first two.
