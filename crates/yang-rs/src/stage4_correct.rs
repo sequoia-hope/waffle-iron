@@ -6896,6 +6896,29 @@ pub(crate) fn stage4_relocate_and_correct(
                          cross_excluded={}",
                         cross.contains(&v)
                     );
+                    // Which surfaces does this vertex ACTUALLY satisfy? A
+                    // triple point must satisfy all three; the implicit value
+                    // separates "on it" from "near it".
+                    {
+                        let mut surfs: Vec<(InputId, Surface)> = Vec::new();
+                        for (&(s2, e2), entries) in &inc_bc {
+                            if s2 != v && e2 != v {
+                                continue;
+                            }
+                            for &(i, sf) in entries {
+                                if !surfs.iter().any(|(i2, s3)| *i2 == i && *s3 == sf) {
+                                    surfs.push((i, sf));
+                                }
+                            }
+                        }
+                        for (i, sf) in surfs {
+                            let f = surface_value_and_normal(sf, p.as_array()).map(|(f, _)| f);
+                            eprintln!(
+                                "[rim-target]   SURFACE {i:?}:{} implicit_value={f:?}",
+                                surface_kind_name(sf)
+                            );
+                        }
+                    }
                     let mut seen_any = false;
                     for (&(s, e), entries) in &inc_bc {
                         if s != v && e != v {
@@ -6924,6 +6947,43 @@ pub(crate) fn stage4_relocate_and_correct(
                             circle.is_some()
                         );
                         if let Some(c) = circle {
+                            // Per-edge self-derived bound: this chord's OWN
+                            // sagitta, r*(1-cos(dtheta/2)) over its endpoints'
+                            // angular span — the guarantee Stage 1 makes for
+                            // THIS chord, not a global aggregate over the
+                            // owner's rims.
+                            if let (Some(&p0), Some(&p1)) =
+                                (mesh.verts.get(s as usize), mesh.verts.get(e as usize))
+                            {
+                                if let Curve::Circle {
+                                    center,
+                                    normal,
+                                    radius,
+                                } = c
+                                {
+                                    let cc = center.as_array();
+                                    let nn = normal.as_array();
+                                    let radial = |p: Point3| {
+                                        let a = p.as_array();
+                                        let d = [a[0] - cc[0], a[1] - cc[1], a[2] - cc[2]];
+                                        let h = d[0] * nn[0] + d[1] * nn[1] + d[2] * nn[2];
+                                        [d[0] - h * nn[0], d[1] - h * nn[1], d[2] - h * nn[2]]
+                                    };
+                                    let (r0, r1) = (radial(p0), radial(p1));
+                                    let n0 = (r0[0] * r0[0] + r0[1] * r0[1] + r0[2] * r0[2]).sqrt();
+                                    let n1 = (r1[0] * r1[0] + r1[1] * r1[1] + r1[2] * r1[2]).sqrt();
+                                    let cosang = ((r0[0] * r1[0] + r0[1] * r1[1] + r0[2] * r1[2])
+                                        / (n0 * n1))
+                                        .clamp(-1.0, 1.0);
+                                    let span = cosang.acos();
+                                    let sagitta = radius * (1.0 - (span / 2.0).cos());
+                                    eprintln!(
+                                        "[rim-target]     chord span={:.6}deg own_sagitta={sagitta:.6e}                                          global_bound={:.6e}",
+                                        span.to_degrees(),
+                                        bound_probe(brep_a, brep_b)
+                                    );
+                                }
+                            }
                             for w in [s, e] {
                                 if let Some(&wp) = mesh.verts.get(w as usize) {
                                     let proj =

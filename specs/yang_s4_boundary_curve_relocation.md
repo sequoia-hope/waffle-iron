@@ -311,3 +311,66 @@ mis-seat, not rounding.
 Open sub-question for inc-3: is v80's A×B curve itself exact (a conic), in which
 case circle∩conic is closed-form, or a procedural surface-pair curve, which
 needs the Newton pair-projection machinery (`relocate_onto_implicit_pair`)?
+
+---
+
+## 11. inc-3 fully specified (2026-07-28) — q is a TRIPLE POINT, and the guard is a certificate
+
+Two measurements settled the design, and the first REFUTED the hypothesis inc-3
+was about to be built on.
+
+**(1) Not a chord artifact.** The claimed rim edge (66,80) spans 12.752766°, so
+its OWN sagitta is **4.277442e-4** — yet v80's residual is **2.3046e-3, 5.4×
+that** (and 3.3× the global bound 6.929823e-4). So "the global bound was simply
+the wrong bound for this rim" is REFUTED: no Stage-1 chord error of this rim can
+explain the displacement. v80 is not un-relocated, it is *mis*-relocated.
+
+**(2) It lies exactly on two of its three surfaces.** Implicit values at v80:
+
+| surface | value |
+|---|---|
+| `A:Plane` | −5.551115123125783e-17 (exact) |
+| `B:Plane` | 0.0 (exact) |
+| `A:Cylinder` | **−2.3046436928503417e-3** |
+
+So v80 sits EXACTLY on the line `A:Plane ∩ B:Plane`, but at the wrong point
+along it — it never reaches `A:Cylinder`. Its correct position is the **triple
+point** `A:Plane ∩ B:Plane ∩ A:Cylinder`: equivalently, where that line pierces
+the cylinder, or where A's own rim circle (`A:Plane ∩ A:Cylinder`) crosses
+`B:Plane`. Both readings are the same point and both are CLOSED FORM.
+
+### The inc-3 pass
+
+Selection — a vertex that is ALL of:
+- an endpoint of a CLAIMED own-rim edge (so its rim circle `C` is known);
+- excluded from inc-2 as a cross-input endpoint (i.e. it is a Fig-11 q);
+- incident to exactly ONE distinct other-operand surface, and that surface is a
+  `Plane` (the measured instance; anything else returns `None` and is skipped,
+  never approximated — the inc-2 discipline).
+
+Solve — `C ∩ Plane` in closed form. With `C = (c, n̂, r)`, an orthonormal in-plane
+basis `(û, v̂)`, and the plane `m̂·x + d = 0`:
+
+```
+A = r(m̂·û),  B = r(m̂·v̂),  K = m̂·c + d
+A·cosθ + B·sinθ = −K      ⇒   Rr = hypot(A, B)
+|K| > Rr ⇒ NO intersection (skip — the rim does not reach the plane)
+θ = atan2(B, A) ± acos(−K / Rr)      (two roots)
+```
+
+Take the root nearest the current seat. **Guard is a CERTIFICATE, not a
+tolerance:** accept only if the chosen q satisfies all three surfaces to ~f64
+noise (each implicit value ≤ `TAU_WORK`-scaled), and it is the nearer root. A
+displacement band is explicitly WRONG here — measurement (1) proves the
+displacement is not chord-bounded, so any band would either refuse the real fix
+or admit anything.
+
+Do NOT reuse inc-2's `boundary_relocation_for_vertex` for this class: its band
+guard would refuse q (2.3e-3 > 4.28e-4). inc-2 and inc-3 are different classes
+with different acceptance rules, which is why inc-2 excludes these vertices.
+
+### Status
+
+NOT BUILT. Design is complete and measured; the remaining work is the solver,
+its tests (root selection, the no-intersection skip, the certificate refusal),
+the gated wiring, and a corpus run.
