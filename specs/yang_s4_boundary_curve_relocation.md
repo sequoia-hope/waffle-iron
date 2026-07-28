@@ -454,3 +454,46 @@ updating. It should be tracked as its own task, and this spec's remaining scope
 skipped `A:Cylinder × B:Plane` on this edge — a cylinder∩plane is a circle or
 ellipse, so the likely candidates are the unique-selection test failing
 (`matched != 1`) or the incidence entry count not being exactly 2.
+
+## 14. ROOT CAUSE of the F0083 residual (2026-07-28) — the `on_both` gate is CIRCULAR
+
+Confirmed with the existing `YANG_V_PROBE`. `build_intersection_curves`'
+`on_both` gate (`stage3_ssi.rs:615`) skipped BOTH of v118's edges:
+
+```
+on-both gate SKIP edge (80,118)   tol=6.930e-4  d_s=(2.305e-3, 0.000e0)   d_e=(1.914e-3, 5.551e-17)
+on-both gate SKIP edge (116,118)  tol=6.930e-4  d_s=(0.000e0, 5.551e-17)  d_e=(1.914e-3, 5.551e-17)
+```
+
+The gate requires BOTH endpoints to be on BOTH surfaces within the Stage-1 chord
+band `tol`, and treats a failure as "this is a single-surface internal edge, not a
+true intersection edge" → `continue` → `LineSegment` fallback.
+
+**On edge (116,118) that classification is provably wrong:** endpoint v116 is
+EXACTLY on both surfaces (0.0 and 5.551e-17). An edge with one endpoint exactly
+on both surfaces is a true `A:Cylinder ∩ B:Plane` intersection edge; only its
+other endpoint, v118, is off (1.914e-3 off the cylinder, exactly on the plane).
+
+**So the gate is CIRCULAR:** the vertex is off the surface ⇒ the gate concludes
+the edge is not an intersection edge ⇒ no analytic curve is built ⇒ Stage 4 never
+relocates that vertex ⇒ it stays off the surface. The gate's own precondition is
+the very thing the relocation exists to establish.
+
+Its design comment says it "can only reclassify edges that today raise
+`AmbiguousCurve` with an endpoint off a surface beyond `tol`" — i.e. it was
+introduced to convert a LOUD error into a silent skip. That trade is what
+produces this silently-wrong off-surface vertex, and it was invisible until
+`kernel-v2/strict-validation` (5b891ec2) made the on-surface tripwire visible in
+release.
+
+**Fix direction (a separate Stage-3 task, NOT §4.4.1):** the gate must not
+require the endpoint it is supposed to fix to already be correct. Candidates,
+in order of preference:
+1. **Asymmetric acceptance** — accept the edge when at least one endpoint is
+   exactly on both surfaces (a witness that the edge IS the intersection), then
+   let Stage 4 relocate the other. This uses the exact witness, not a band.
+2. Restore the loud `AmbiguousCurve` for this shape rather than a silent skip, so
+   the case fails visibly instead of emitting an off-surface vertex.
+
+Do NOT widen `tol` — that is the tolerance-escalation pattern P9/P10 forbids, and
+it would admit genuinely-unrelated edges.
