@@ -4463,15 +4463,29 @@ pub(crate) fn stage4_relocate_and_correct(
     }
 
     // Increment 5 (spec `yang_stage4_conic_triple_junction`, WIRED): a
-    // vertex on ≥2 of the six single-curve conic maps whose inc0 incidence
-    // dedups to EXACTLY 3 distinct surfaces is NOT ambiguous — it is the
-    // unique transversal common point of those surfaces (the R0017-class
-    // prism-edge × cone-lateral junction: exact on both planes,
-    // chord-inexact on the cone). Relocate it onto all three via the
-    // torus-block triple primitive instead of letting the over-determined
-    // audits below STOP. Newton failure leaves the vertex in its maps —
-    // the audits then STOP exactly as today (spec branch table). 2- or
-    // ≥4-surface configurations are untouched (spec I2).
+    // vertex on ≥2 single-curve maps whose inc0 incidence dedups to EXACTLY
+    // 3 distinct surfaces is NOT ambiguous — it is the unique transversal
+    // common point of those surfaces (the R0017-class prism-edge ×
+    // cone-lateral junction: exact on both planes, chord-inexact on the
+    // cone). Relocate it onto all three via the torus-block triple primitive
+    // instead of letting the over-determined audits below STOP. Newton
+    // failure leaves the vertex in its maps — the audits then STOP exactly
+    // as today (spec branch table). 2- or ≥4-surface configurations are
+    // untouched (spec I2).
+    //
+    // The R0044 BUCKET (R0044, R0020, R0035): `vert_surface_pair` joins the
+    // six conic maps as a curve-bearing map here. A procedural M5 surface-pair
+    // curve is a curve through the vertex exactly as a conic is — it is held
+    // apart from the conic bookkeeping only because it has no parameter `t`,
+    // not because it is a lesser claim on the vertex. Omitting it made every
+    // ellipse × surface-pair junction score `n_maps == 1`, fall out of this
+    // block, and reach the surface-pair loop's `endpoint_set` guard as the
+    // "out of v1 scope" endpoint-MIX STOP — while its incidence was the plain
+    // 3-surface triple this block already resolves. Probed: R0044 v8
+    // {cyl_A, plane_B, cone_B}, R0020 v44 {plane_A, cone_A, cyl_B}, R0035
+    // v194/195 {cyl_A, cyl_B, plane_B} — every one exactly 3, every one
+    // ellipse + pair. Nothing about the mix needed new machinery; the mix was
+    // never the difficulty.
     let mut triple_moved: Vec<u32> = Vec::new();
     {
         let mut cand: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
@@ -4482,6 +4496,7 @@ pub(crate) fn stage4_relocate_and_correct(
             .chain(vert_parabola.keys())
             .chain(vert_cone_hyperbola.keys())
             .chain(vert_line.keys())
+            .chain(vert_surface_pair.keys())
         {
             cand.insert(*v);
         }
@@ -4493,6 +4508,7 @@ pub(crate) fn stage4_relocate_and_correct(
                 vert_parabola.contains_key(&v),
                 vert_cone_hyperbola.contains_key(&v),
                 vert_line.contains_key(&v),
+                vert_surface_pair.contains_key(&v),
             ]
             .iter()
             .filter(|b| **b)
@@ -4565,6 +4581,13 @@ pub(crate) fn stage4_relocate_and_correct(
             vert_parabola.remove(&v);
             vert_cone_hyperbola.remove(&v);
             vert_line.remove(&v);
+            // R0044 bucket: also out of the procedural map, so the M5
+            // surface-pair loop below neither re-relocates the vertex onto
+            // only two of its three surfaces nor STOPs on the endpoint mix.
+            // (`vert_surface_pair` verts never enter `endpoints` — a
+            // procedural curve has no `t` — so the retain above is a no-op
+            // for a pair-only vertex, which by `n_maps < 2` never gets here.)
+            vert_surface_pair.remove(&v);
             endpoints.retain(|&u| u != v);
             if rho > cad_primitives::TAU_WORK {
                 mesh.verts[v as usize] = proj;
@@ -5575,6 +5598,42 @@ pub(crate) fn stage4_relocate_and_correct(
     // parallel normals or non-convergence — never a partial move, P9).
     for (&v, &(sa, sb)) in &vert_surface_pair {
         if endpoint_set.contains(&v) {
+            // Endpoint-mix diagnosis probe (read-only, env-gated): the R0044
+            // bucket's single STOP site. Dumps the surface pair carried by the
+            // procedural edge PLUS the deduped surface set over every `inc0`
+            // edge incident to `v` — the true junction incidence, which is what
+            // decides whether the mix is a 3-surface triple point (solvable by
+            // `relocate_onto_implicit_triple`) or something else.
+            if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                let mut inc_surfs: Vec<(InputId, Surface)> = Vec::new();
+                for (&(s, e), entries) in inc0.iter() {
+                    if s != v && e != v {
+                        continue;
+                    }
+                    for &(input, surf) in entries {
+                        if !inc_surfs.iter().any(|&(i, t)| i == input && t == surf) {
+                            inc_surfs.push((input, surf));
+                        }
+                    }
+                }
+                eprintln!(
+                    "YANG_LRR_SITE site=surface_pair_endpoint_mix v={v} p={:?} \
+                     pair=({sa:?}, {sb:?}) n_inc_surfs={} inc_surfs={inc_surfs:?} \
+                     circle={} ellipse={} cone_ell={} parab={} hyp={} line={} \
+                     ell_junction={} circle_junction={} line_circle_junction={}",
+                    mesh.verts.get(v as usize),
+                    inc_surfs.len(),
+                    vert_circle.contains_key(&v),
+                    vert_ellipse.contains_key(&v),
+                    vert_cone_ellipse.contains_key(&v),
+                    vert_parabola.contains_key(&v),
+                    vert_cone_hyperbola.contains_key(&v),
+                    vert_line.contains_key(&v),
+                    vert_ell_junction.contains_key(&v),
+                    vert_circle_junction.contains_key(&v),
+                    vert_junction.contains_key(&v),
+                );
+            }
             return Err(YangError::Stage4RegionInvalid {
                 vertex: v,
                 reason: Stage4InvalidReason::LocalRefinementRequired,

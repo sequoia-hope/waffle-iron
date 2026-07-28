@@ -1,8 +1,8 @@
 {
-  "errored": 55,
+  "errored": 54,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 255,
+  "passed": 256,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -120,7 +120,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 44 is invalid: LocalRefinementRequired\")",
+      "detail": "1 engine error(s): 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(21), reason: \"surface-pair refinement needs a positive finite chord tolerance\" }",
       "id": "R0020",
       "status": "error"
     },
@@ -209,10 +209,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 194 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0035",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -264,7 +264,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 8 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 13 is invalid: LocalRefinementRequired\"). Body created as standalone.",
       "id": "R0044",
       "status": "error"
     },

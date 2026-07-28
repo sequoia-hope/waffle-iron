@@ -316,6 +316,31 @@ in the ledger is PERMANENT with user sign-off.
       duplicates). Ledger 312/312 category-identical, 0-WRONG; parity
       18/18; detector NOT promoted (§11).*
    c. **Curved-seam re-CDT** (R0072 class) and whatever the triage promotes.
+      *R0044 SURFACE-PAIR ENDPOINT-MIX BUCKET CLOSED always-on 2026-07-28 —
+      corpus 255C/0W/55E/0T → **256C/0W/54E/0T**, exactly one category delta
+      (R0035 ERROR→CORRECT), zero CORRECT→ERROR, zero WRONG. Probed first, and
+      the probe killed the framing: every vertex in the bucket (R0044 v8/v12
+      `{cyl_A, plane_B, cone_B}`, R0020 v44 `{plane_A, cone_A, cyl_B}`, R0035
+      v194/195 `{cyl_A, cyl_B, plane_B}`) has EXACTLY 3 incident surfaces —
+      the plain triple point the increment-5 conic triple-junction block
+      (`stage4_correct.rs`, `relocate_onto_implicit_triple`) already resolves.
+      The bucket existed only because that block's candidate set enumerated the
+      six CONIC maps and not `vert_surface_pair`: an ellipse × surface-pair
+      junction scored `n_maps == 1`, fell out of the block, and reached the
+      surface-pair loop's `endpoint_set` guard as the "mixes closed-form and
+      implicit-pair relocations — out of v1 scope" STOP. A procedural
+      surface-pair curve is a curve through the vertex exactly as a conic is;
+      it is held apart from the conic bookkeeping only because it has no
+      parameter `t`. **The mix was never the difficulty, and "out of v1 scope"
+      named a case the code could already do.** Only R0035 was a
+      single-defect model: R0044 and R0020 now STOP at a PURE surface-pair
+      `relocate_onto_implicit_pair` divergence (new M5 pair-Newton vehicle,
+      kin to the torus `pair_newton_none` trio), R0020 fatally at a kernel-v2
+      `surface-pair refinement needs a positive finite chord tolerance` on an
+      output `Curve::SurfacePair` edge, and R0070 raises no LRR at all. All
+      re-vehicled in `docs/yang_tail_triage.md`. Sites were located with a
+      temporary `#[track_caller]` shim over every `LocalRefinementRequired`
+      construction — worth rebuilding rather than guessing next time.*
       *Stage-4 CONE-APEX GENERATOR arm SHIPPED always-on 2026-07-28 — the
       triage's one self-contained "small closed-form vocabulary gap"
       (`docs/yang_tail_triage.md`). Corpus 254C/0W/56E/0T → **255C/0W/55E/0T**,
