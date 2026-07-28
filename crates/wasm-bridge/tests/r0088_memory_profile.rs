@@ -1,13 +1,47 @@
-//! Where does assay R0088's ~6.8 GiB peak actually go?
+//! Peak-RSS profiler for a replayed assay document.
 //!
-//! R0088 is SIX features — three sketches and three extrudes — at coordinate
-//! magnitude ~700. That is wildly disproportionate to 6.8 GiB, so the first
-//! question is not "how do we allocate less" but "which operation allocates
-//! this much". This truncates the document's feature list and replays each
-//! prefix, sampling RSS throughout, so the cost lands on a specific feature.
+//! `ASSAY_CASE=<id>` selects the case (default R0088); `R0088_PREFIX=n`
+//! truncates the feature list to attribute cost to a single feature.
 //!
-//! Run explicitly (it is slow and memory-hungry by construction):
-//!   cargo test -p wasm-bridge --release --test r0088_memory_profile -- --ignored --nocapture
+//!   for n in 1 2 3 4 5 6; do R0088_PREFIX=$n cargo test -p wasm-bridge --release \
+//!     --test r0088_memory_profile -- --ignored --nocapture; done
+//!
+//! ONE PREFIX PER PROCESS is not a detail — it is the whole methodology. Within
+//! a single process the allocator's high-water mark never falls, so every
+//! prefix after the first is measured against an already-inflated baseline. The
+//! first version of this file looped in-process and reported ~800 MiB for
+//! R0088's prefixes 5 and 6; re-measured one-per-process those are +0.0 MiB and
+//! +0.5 MiB. **Those 800 MiB extrudes never existed.** A profiler that
+//! manufactures work is worse than none.
+//!
+//! ## Findings (2026-07-28, after the c932e45c octree duplication budget)
+//!
+//! R0088, per prefix: sketches and Extrude 1 ~5 MiB; Extrude 2 **92.9 MiB**
+//! (was 6,950); Sketch 3 +0.0; Extrude 3 **+0.5**. Stage breakdown of Extrude
+//! 2: arrangement +70.5 MiB, patches +0.0, `compute_inside_out` **+0.1 MiB**
+//! (was +6,036).
+//!
+//! Sweep over the ten heaviest corpus cases — peak RSS, whole document:
+//!
+//!     R0019  866 MiB    R0085  493    R0081  373    R0047  335    F0065  312
+//!     F0072  237 MiB    R0054  217    F0070  137    F0090  101    R0088   93
+//!
+//! All are an order of magnitude under the wasm32 4 GiB ceiling, so no other
+//! corpus case is at OOM risk today.
+//!
+//! **R0019, the worst, is NOT a pathology — it is a big model.** Its Revolve 2
+//! feeds the arrangement **207,400 input triangles** (R0088: 7,506) and gets
+//! 212,876 out, x1.03. The arrangement costs +668 MiB there, i.e. ~3.4 KB per
+//! triangle — actually BETTER per-triangle than R0088's ~10 KB, which carries
+//! fixed overhead over far fewer triangles. And `compute_inside_out` adds
+//! **+0.0 MiB at 207K triangles**, so the octree fix holds at 28x the scale it
+//! was diagnosed on.
+//!
+//! Consequence for anyone picking this up: the remaining lever is **Stage-1
+//! tessellation density** (why does that revolve emit 207K triangles?), NOT
+//! arrangement efficiency. That is a fidelity/performance trade-off and a
+//! design decision, not a defect — which is why it is written down here rather
+//! than quietly changed.
 
 use std::fs;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -90,7 +124,6 @@ fn replay(json: &str) -> (u64, std::time::Duration, &'static str) {
     ))
     .expect("LoadProject deserializes");
 
-    let base = rss_bytes();
     let sampler = PeakSampler::start();
     let t0 = std::time::Instant::now();
 
@@ -105,30 +138,45 @@ fn replay(json: &str) -> (u64, std::time::Duration, &'static str) {
         wasm_bridge::EngineToUi::ModelUpdated { .. } => "ModelUpdated",
         _ => "other",
     };
-    (peak.saturating_sub(base), elapsed, kind)
+    (peak, elapsed, kind)
 }
 
+/// Replay ONE prefix, selected by `R0088_PREFIX`. One prefix per PROCESS is the
+/// only honest way to read peak RSS: within a single process the allocator's
+/// high-water mark never falls, so every prefix after the first is measured
+/// against an already-inflated baseline and its "delta" is meaningless. The
+/// pre-fix run reported ~800 MiB for prefixes 5 and 6 that way; those were
+/// artifacts of prefix 4's 6.9 GiB peak, not costs of their own.
+///
+/// Driver:
+///   for n in 1 2 3 4 5 6; do R0088_PREFIX=$n cargo test -p wasm-bridge --release \
+///     --test r0088_memory_profile -- --ignored --nocapture; done
 #[test]
-#[ignore = "diagnostic: replays R0088 prefixes; multi-GiB and minutes by design"]
+#[ignore = "diagnostic: set R0088_PREFIX=n; one prefix per process (see doc comment)"]
 fn r0088_peak_memory_by_feature_prefix() {
-    let doc = case_json("R0088");
+    let case = std::env::var("ASSAY_CASE").unwrap_or_else(|_| "R0088".to_string());
+    let doc = case_json(&case);
     let names: Vec<String> = doc["tabs"][0]["kind"]["features"]["features"]
         .as_array()
         .expect("feature array")
         .iter()
         .map(|f| f["name"].as_str().unwrap_or("?").to_string())
         .collect();
-    eprintln!("R0088 features: {names:?}");
 
-    for n in 1..=names.len() {
-        let json = truncated(doc.clone(), n);
-        let (peak, elapsed, kind) = replay(&json);
-        eprintln!(
-            "  prefix {n}/{} (through {:<10}) peak_delta={:>8.2} MiB  {:>7.1}s  {kind}",
-            names.len(),
-            names[n - 1],
-            peak as f64 / 1024.0 / 1024.0,
-            elapsed.as_secs_f64(),
-        );
-    }
+    // Whole document by default; `R0088_PREFIX=n` truncates for attribution.
+    let n: usize = match std::env::var("R0088_PREFIX") {
+        Ok(v) => v.parse().expect("R0088_PREFIX must be an integer"),
+        Err(_) => names.len(),
+    };
+    assert!((1..=names.len()).contains(&n), "prefix out of range");
+
+    let json = truncated(doc, n);
+    let (peak, elapsed, kind) = replay(&json);
+    eprintln!(
+        "PEAK {case} {n}/{} through {:<12} peak_rss={:>8.2} MiB  {:>7.1}s  {kind}",
+        names.len(),
+        names[n - 1],
+        peak as f64 / 1024.0 / 1024.0,
+        elapsed.as_secs_f64(),
+    );
 }
