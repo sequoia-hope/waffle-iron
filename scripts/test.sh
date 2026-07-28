@@ -185,7 +185,12 @@ run_cargo_test() {
   local start rc=0
   start=$(timer_start)
 
-  mem_guard cargo test -p "$crate" "$@" -- --test-threads="$TEST_THREADS" || rc=$?
+  # --no-fail-fast: a crate has MANY test binaries and cargo otherwise stops at
+  # the first one that fails, silently skipping every later binary. That is how
+  # `assay_kv2` went unrun (and its red unseen) for eleven days behind an
+  # unrelated `assay_complexity_gen` failure. A tier whose contract is "any red
+  # is a regression" has to actually run everything before it reports.
+  mem_guard cargo test --no-fail-fast -p "$crate" "$@" -- --test-threads="$TEST_THREADS" || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$start")
@@ -222,6 +227,49 @@ run_cargo_test_binary() {
   start=$(timer_start)
 
   mem_guard cargo test -p "$crate" --test "$binary" -- --test-threads="$TEST_THREADS" || rc=$?
+
+  local elapsed
+  elapsed=$(timer_elapsed "$start")
+  if [[ $rc -eq 0 ]]; then
+    pass "$label (${elapsed}s)"
+  else
+    fail "$label (${elapsed}s)"
+  fi
+}
+
+# As above but --release. For binaries whose workload is only meaningful
+# optimized — corpus replay is RELEASE-only policy (docs/TESTING.md §"Running
+# the categorized assay").
+run_cargo_test_binary_release() {
+  local crate="$1"
+  local binary="$2"
+  local label="$crate --test $binary [release]"
+  local start rc=0
+  start=$(timer_start)
+
+  mem_guard cargo test --no-fail-fast -p "$crate" --release --test "$binary" \
+    -- --test-threads="$TEST_THREADS" || rc=$?
+
+  local elapsed
+  elapsed=$(timer_elapsed "$start")
+  if [[ $rc -eq 0 ]]; then
+    pass "$label (${elapsed}s)"
+  else
+    fail "$label (${elapsed}s)"
+  fi
+}
+
+# Crate-wide run with a test-name filter excluded (harness `--skip`, which must
+# follow `--`, so it cannot go through run_cargo_test's pass-through args).
+run_cargo_test_skipping() {
+  local crate="$1"
+  local skip="$2"
+  local label="$crate [skip: $skip]"
+  local start rc=0
+  start=$(timer_start)
+
+  mem_guard cargo test --no-fail-fast -p "$crate" \
+    -- --skip "$skip" --test-threads="$TEST_THREADS" || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$start")
@@ -334,10 +382,26 @@ run_rust_full() {
   # waffle-types with the MockKernel feature (kernel contract + test double)
   run_cargo_test waffle-types --features mock-kernel
 
-  # All crates except wasm-bridge (run with default features)
+  # All crates except wasm-bridge (run with default features).
+  #
+  # test-harness is special-cased: `assay_kv2::smoke_corpus_boundary_categories`
+  # replays real corpus cases, and corpus replay is RELEASE-only policy
+  # (docs/TESTING.md). Unoptimized it burns ~4.5x the CPU — C0116 alone measured
+  # 220.6s debug vs 49.5s release (2026-07-28) — which is both slow and a
+  # different workload from the one the corpus budgets are calibrated against.
+  # So it is skipped here and the whole binary re-runs in release below.
   for crate in "${RUST_FULL_CRATES[@]}"; do
-    run_cargo_test "$crate"
+    if [[ "$crate" == "test-harness" ]]; then
+      run_cargo_test_skipping "$crate" smoke_corpus_boundary_categories
+    else
+      run_cargo_test "$crate"
+    fi
   done
+
+  # assay_kv2 in RELEASE — the corpus-replay binary. The 12 fast smoke_* tests
+  # here also ran in debug above (seconds each); that overlap is deliberate,
+  # cheap extra coverage, not waste.
+  run_cargo_test_binary_release test-harness assay_kv2
 
   # wasm-bridge with --no-default-features
   run_cargo_test "$WASM_BRIDGE_CRATE" --no-default-features

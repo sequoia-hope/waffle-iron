@@ -6,7 +6,7 @@ version predated the Phase 6 migration and described the deleted legacy
 
 ## Test Tiers
 
-### Kernel Rewrite (`rewrite`, ~70s)
+### Kernel Rewrite (`rewrite`, ~490s)
 
 The kernel-stack inner loop — run after every meaningful kernel change:
 
@@ -29,7 +29,7 @@ The `#[ignore]`d "binding reference" sidecar oracles
 `--ignored`. Included in `full`; run standalone when touching cherchi-rs
 coplanar/inputcheck paths.
 
-### Rust Fast (`fast`, ~80s)
+### Rust Fast (`fast`, ~500s)
 
 Rewrite tier + consumer crates:
 
@@ -41,7 +41,7 @@ Rewrite tier + consumer crates:
 - **file-format** — Serialization/deserialization
 - **test-harness** — Fast binaries: `scenarios_mock`, `workflow_tests`, `oracle_tests`, `report_tests`, `scenarios_advanced`, `stl_tests`
 
-### Rust Full (`full`, ~2min)
+### Rust Full (`full`, ~27min)
 
 Everything: rewrite + parity + all consumer crates + the complete
 test-harness suite.
@@ -69,10 +69,10 @@ Everything in GUI Fast, plus heavy workflow and infrastructure specs:
 ## Running Tests
 
 ```bash
-./scripts/test.sh rewrite    # Kernel-stack inner loop (~70s)
+./scripts/test.sh rewrite    # Kernel-stack inner loop (~490s)
 ./scripts/test.sh parity     # Ignored sidecar reference oracles (~20s)
-./scripts/test.sh fast       # Rewrite + consumer crates (~80s)
-./scripts/test.sh full       # All Rust tests incl. parity (~2min)
+./scripts/test.sh fast       # Rewrite + consumer crates (~500s)
+./scripts/test.sh full       # All Rust tests incl. parity (~27min)
 ./scripts/test.sh gui-fast   # Quick GUI smoke tests
 ./scripts/test.sh gui-full   # All GUI tests
 ./scripts/test.sh all-fast   # Rust fast + GUI fast
@@ -284,15 +284,33 @@ loud `VertexOffSurface` ERROR. That is the P10 posture: they were always broken;
 the ledger just could not say so. **The honest baseline is 252C/0W/58E/0T**, not
 the 255C that predates the fix.
 
-**Why it's reliable (even under load):** with `ASSAY_JOBS > 1` each case runs as
-a killable subprocess whose per-case timeout is budgeted on **CPU time**, not
-wall time (`assay_kv2.rs`, `replay_case_subprocess`). A case starved by siblings
-or other machine load accrues wall time but **not** CPU time, so its verdict is
-**load-insensitive** — judged the same alone or under contention. Release mode
-slashes per-case CPU time, so heavy cases finish well under budget. The
-debug-mode "~20 false TIMEOUTs" episodes were unoptimized cases exceeding the
-CPU budget, *not* contention. (Debug + `ASSAY_JOBS=1` budgets on WALL and DOES
-give false timeouts under load — avoid that combination.)
+**Why it's reliable (even under load):** every per-case timeout is budgeted on
+**CPU time**, not wall time. A case starved by siblings or other machine load
+accrues wall time but **not** CPU time, so its verdict is **load-insensitive** —
+judged the same alone or under contention. Release mode slashes per-case CPU
+time, so heavy cases finish well under budget. The debug-mode "~20 false
+TIMEOUTs" episodes were unoptimized cases exceeding the CPU budget, *not*
+contention.
+
+Both replay paths are CPU-budgeted:
+- `ASSAY_JOBS > 1` → `replay_case_subprocess`, a killable subprocess billed via
+  `/proc/<pid>/stat`.
+- `ASSAY_JOBS = 1`, `single_case`, and the in-binary smoke tests →
+  `replay_case_with_timeout`, an in-process worker billed via
+  `/proc/self/task/<tid>/stat` (**CPU-budgeted since 2026-07-28**; it used to be
+  a plain wall deadline, and `smoke_corpus_boundary_categories` duly reported a
+  phantom C0116 TIMEOUT at 120s wall while the case measures 49.5s solo / 67s
+  in-binary — the exact artifact this section says the corpus runner avoids).
+
+Each path also carries a **wall cap** — `max(4 × budget, budget + 120s)` — as a
+safety net, because a genuinely BLOCKED case (deadlock, I/O wait) burns no CPU
+and would otherwise never trip a CPU budget. A wall-cap `TIMEOUT` says its own
+detail line: "blocked, not slow".
+
+Caveat: the in-process path bills the worker **thread**, which is correct only
+while the pipeline stays single-threaded (a hard rule for cherchi-rs and
+yang-rs). If a stage ever fans out, that path under-counts and its wall cap
+becomes the effective limit.
 
 **Env knobs:**
 - `ASSAY_JOBS` — parallel cases (default 4; 8 is fine on a ≥12-core box). CPU

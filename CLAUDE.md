@@ -190,13 +190,20 @@ Do NOT skip to lower-priority items because they are easier.
 Run the appropriate test tier for your workflow:
 
 - `./scripts/test.sh rewrite` — Kernel-stack inner loop: the seven kernel
-  crates + the FFI-feature cherchi-rs suite (~70s).
+  crates + the FFI-feature cherchi-rs suite (~490s).
 - `./scripts/test.sh fast` — Rewrite tier + consumer crates (waffle-types with
   `mock-kernel`, feature-engine, modeling-ops, file-format, wasm-bridge) +
-  test-harness fast binaries (~80s).
+  test-harness fast binaries (~500s).
 - `./scripts/test.sh full` — Everything: fast + the complete test-harness
-  suite (~2min). **All tiers are green** since the Phase 6 migration; a red
-  test is a regression, not legacy noise.
+  suite (~27min). **All tiers are green** as of 2026-07-28; a red test is a
+  regression, not legacy noise.
+
+  These timings were re-measured on 2026-07-28 and are much larger than the
+  ~70s/~80s/~2min previously documented. The old figures were not wrong so much
+  as they timed TRUNCATED runs: without `--no-fail-fast`, cargo aborted a crate
+  at its first failing test binary, so the tier "finished" early while silently
+  skipping the rest. It is what hid `assay_kv2` for eleven days. The tiers now
+  run everything, and cost what they actually cost.
 - `./scripts/test.sh gui-fast` — Quick GUI smoke tests (~2min)
 - `./scripts/test.sh gui-full` — All ~55 GUI spec files (~5min)
 - `./scripts/test.sh all-fast` — Rust fast + GUI fast combined

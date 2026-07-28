@@ -448,7 +448,31 @@ fn replay_case(case: &DiscoveredCase) -> CaseOutcome {
 
 /// Replay with a hang guard (booleans go through the yang-rs/cherchi-rs
 /// pipeline; a hung case must not wedge the whole run).
-fn replay_case_with_timeout(case: &DiscoveredCase, timeout: Duration) -> CaseOutcome {
+///
+/// `budget` is a **CPU-time** budget on Linux — the worker THREAD's own
+/// user+system time from [`thread_cpu_secs`] — with a wall-clock cap as a
+/// safety net, exactly like [`replay_case_subprocess`]. On non-Linux the CPU
+/// probe is unavailable and it degrades to a plain wall deadline (legacy).
+///
+/// Why this is not a plain `recv_timeout(budget)`: this helper is called from
+/// tests that `cargo test` runs CONCURRENTLY with their siblings
+/// (`--test-threads=8` in `scripts/test.sh`), so a case that is merely starved
+/// accrues wall time without accruing CPU and would be reported TIMEOUT for
+/// its neighbours' sins. That is not hypothetical — `smoke_corpus_boundary_
+/// categories` failed exactly this way on C0116 (TIMEOUT at a 120s wall
+/// budget) while the same case measures 49.5s solo and 67s in-binary, and the
+/// failure would not reproduce. It is the same load-sensitivity that made the
+/// old 120s CORPUS budget manufacture phantom TIMEOUTs; the parallel
+/// subprocess path was fixed then, this in-process path was not.
+///
+/// NOTE the CPU probe reads the worker thread ALONE. That is right only while
+/// the pipeline stays single-threaded (a hard rule for cherchi-rs and yang-rs);
+/// if a stage ever fans out, this under-counts and the wall cap becomes the
+/// real limit.
+fn replay_case_with_timeout(case: &DiscoveredCase, budget: Duration) -> CaseOutcome {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+
     let (tx, rx) = std::sync::mpsc::channel();
     let id = case.id.clone();
     let c = DiscoveredCase {
@@ -456,23 +480,100 @@ fn replay_case_with_timeout(case: &DiscoveredCase, timeout: Duration) -> CaseOut
         waffle_path: case.waffle_path.clone(),
         meta_path: case.meta_path.clone(),
     };
+    // Worker publishes its own tid so the watcher can bill it. 0 = not yet
+    // known; the watcher treats that as "no CPU accrued", never as a timeout.
+    let tid = Arc::new(AtomicU64::new(0));
+    let worker_tid = Arc::clone(&tid);
     let handle = std::thread::spawn(move || {
+        if let Some(t) = current_tid() {
+            worker_tid.store(t, Ordering::Relaxed);
+        }
         let _ = tx.send(replay_case(&c));
     });
-    match rx.recv_timeout(timeout) {
-        Ok(r) => {
-            let _ = handle.join();
-            r
+
+    let cpu_budget = budget.as_secs_f64();
+    // Same shape as the subprocess path: a BLOCKED worker (deadlock / I/O wait)
+    // accrues no CPU and would never trip the CPU budget, so cap wall at a
+    // generous multiple to still give up on it.
+    let wall_cap = Duration::from_secs_f64((cpu_budget * 4.0).max(cpu_budget + 120.0));
+    let started = std::time::Instant::now();
+    let poll = Duration::from_millis(250);
+
+    let timed_out = |detail: String| CaseOutcome {
+        id: id.clone(),
+        // Distinct from Error: the orphaned worker thread keeps running
+        // (heavy exact arithmetic can't be safely killed in-process), but
+        // the run moves on and the case is flagged TIMEOUT, not failed.
+        category: Category::Timeout,
+        detail,
+    };
+
+    loop {
+        match rx.recv_timeout(poll) {
+            Ok(r) => {
+                let _ = handle.join();
+                return r;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                // Worker died without sending (panic). Let join surface it the
+                // way it did before this helper grew a watcher loop.
+                let _ = handle.join();
+                return timed_out("worker thread ended without a result".to_string());
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                let t = tid.load(Ordering::Relaxed);
+                let cpu = if t == 0 { None } else { thread_cpu_secs(t) };
+                match cpu {
+                    Some(spent) if spent >= cpu_budget => {
+                        return timed_out(format!("timeout after {spent:.0}s CPU"));
+                    }
+                    // No CPU probe (non-Linux, or /proc unreadable): fall back
+                    // to the legacy wall deadline so behaviour never regresses
+                    // into "no guard at all".
+                    None if t != 0 && started.elapsed() >= budget => {
+                        return timed_out(format!("timeout after {}s", budget.as_secs()));
+                    }
+                    _ => {}
+                }
+                if started.elapsed() >= wall_cap {
+                    return timed_out(format!(
+                        "timeout after {}s wall (CPU budget {}s never reached — blocked, not slow)",
+                        wall_cap.as_secs(),
+                        cpu_budget as u64
+                    ));
+                }
+            }
         }
-        Err(_) => CaseOutcome {
-            id,
-            // Distinct from Error: the orphaned worker thread keeps running
-            // (heavy exact arithmetic can't be safely killed in-process), but
-            // the run moves on and the case is flagged TIMEOUT, not failed.
-            category: Category::Timeout,
-            detail: format!("timeout after {}s", timeout.as_secs()),
-        },
     }
+}
+
+/// The calling thread's kernel task id, from the `/proc/thread-self` symlink
+/// (`<pid>/task/<tid>`, Linux ≥ 3.17). Avoids a `gettid` syscall shim.
+#[cfg(target_os = "linux")]
+fn current_tid() -> Option<u64> {
+    std::fs::read_link("/proc/thread-self")
+        .ok()?
+        .file_name()?
+        .to_str()?
+        .parse()
+        .ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn current_tid() -> Option<u64> {
+    None // caller falls back to a wall-clock deadline.
+}
+
+/// CPU seconds consumed so far by ONE thread, from
+/// `/proc/self/task/<tid>/stat`. Same field layout as [`child_cpu_secs`].
+#[cfg(target_os = "linux")]
+fn thread_cpu_secs(tid: u64) -> Option<f64> {
+    parse_stat_cpu_secs(&format!("/proc/self/task/{tid}/stat"))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn thread_cpu_secs(_tid: u64) -> Option<f64> {
+    None
 }
 
 /// CPU seconds (user+system, summed across all threads) consumed so far by
@@ -484,12 +585,25 @@ fn replay_case_with_timeout(case: &DiscoveredCase, timeout: Duration) -> CaseOut
 /// (below) gives it the same verdict whether it ran alone or under contention
 /// — killing the timeout-cascade false-positives (see the campaign that traced
 /// 20 "timeouts" to a debug/loaded-box run of correct-but-slow cases).
+#[cfg(target_os = "linux")]
+fn child_cpu_secs(pid: u32) -> Option<f64> {
+    parse_stat_cpu_secs(&format!("/proc/{pid}/stat"))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn child_cpu_secs(_pid: u32) -> Option<f64> {
+    None // no /proc → the caller falls back to a wall-clock deadline.
+}
+
+/// Shared parser for a `/proc/.../stat` file — works for both a process
+/// (`/proc/<pid>/stat`) and a single thread (`/proc/self/task/<tid>/stat`),
+/// which have identical field layouts.
 ///
 /// USER_HZ (`sysconf(_SC_CLK_TCK)`) is 100 on effectively every Linux config;
 /// std exposes no sysconf, so we assume 100 (Ref: `man 5 proc`, "utime").
 #[cfg(target_os = "linux")]
-fn child_cpu_secs(pid: u32) -> Option<f64> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+fn parse_stat_cpu_secs(path: &str) -> Option<f64> {
+    let stat = std::fs::read_to_string(path).ok()?;
     // The `comm` field (2nd) may itself contain spaces and ')' — everything up
     // to and including the LAST ')' is `pid (comm)`, so split there first.
     let rest = stat.rsplit_once(')')?.1;
@@ -500,11 +614,6 @@ fn child_cpu_secs(pid: u32) -> Option<f64> {
     let utime: u64 = f.get(11)?.parse().ok()?;
     let stime: u64 = f.get(12)?.parse().ok()?;
     Some((utime + stime) as f64 / 100.0)
-}
-
-#[cfg(not(target_os = "linux"))]
-fn child_cpu_secs(_pid: u32) -> Option<f64> {
-    None // no /proc → the caller falls back to a wall-clock deadline.
 }
 
 /// ASSAY_JOBS driver: replay one case in a KILLABLE subprocess — this test
@@ -1263,12 +1372,28 @@ fn smoke_corpus_boundary_categories() {
         // two-lump emission below even the render gate's sagitta.
         ("C0118", Category::Error),
     ];
+    // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled
+    // for debug. `scripts/test.sh` runs test-harness WITHOUT `--release`, and
+    // an unoptimized build does not merely take more wall time — it burns
+    // genuinely more CPU, so CPU budgeting alone does not make the verdict
+    // build-mode-independent. Measured on the heaviest case here, C0116
+    // (2026-07-28, solo, this box): release 49.5s CPU, debug 220.6s CPU
+    // = 4.46x. The 6x factor is that ratio plus headroom.
+    //
+    // A flat 120s was therefore unreachable in debug and this test could not
+    // pass in `test.sh full`. It went unnoticed because cargo has no
+    // `--no-fail-fast` here, so the (unrelated) `assay_complexity_gen` failure
+    // aborted every later test-harness binary — assay_kv2 included — from the
+    // day #172 added the C0116 expectation until the gate was fixed.
+    const CPU_BUDGET_RELEASE_SECS: u64 = 120;
+    let budget =
+        Duration::from_secs(CPU_BUDGET_RELEASE_SECS * if cfg!(debug_assertions) { 6 } else { 1 });
     for (id, expect) in expected {
         let case = cases
             .iter()
             .find(|c| c.id == *id)
             .unwrap_or_else(|| panic!("case {id} not in corpus"));
-        let outcome = replay_case_with_timeout(case, Duration::from_secs(120));
+        let outcome = replay_case_with_timeout(case, budget);
         assert_eq!(
             &outcome.category,
             expect,

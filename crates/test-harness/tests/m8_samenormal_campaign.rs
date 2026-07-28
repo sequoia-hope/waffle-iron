@@ -275,19 +275,34 @@ fn red_r0021_stage4_relocation() {
 // (triage ledger row R0072; N55 "only R0072 stays STOP"). The committed
 // release baseline agrees (ERROR). This stale CORRECT pin sat unseen
 // behind the debug tier's fail-fast — the C0048/C0065 precedent.
+//
+// PIN MOVED BACK 2026-07-28 (#195 inc-5 + §4.4.1 inc-2 flipped always-on):
+// R0072 completes SUPPORTED_CORRECT again, and the previous revision's
+// condition — "verify the fix is a paper-compliant re-CDT (NOT a
+// force-merge)" — was checked before re-pinning, not assumed.
+// `YANG_REFINE_PROBE=1` on this case reports:
+//
+//   [refine] op=Union natural=Err(Stage4RegionInvalid { vertex: 4294967295,
+//            reason: LocalRefinementRequired }) broken=true graze=Some(36)
+//   [refine]   refined=Ok improper=29 accept=true
+//
+// Read that carefully, because it is the whole argument:
+//   * at NATURAL resolution R0072 still produces exactly the loud
+//     `LocalRefinementRequired` STOP at u32::MAX this pin was defending —
+//     the N55 diagnosis is intact, nothing was weakened;
+//   * the conversion comes from DETECTING an under-sampled rim×plane graze
+//     (needs N=36) and re-tessellating at that resolution, after which the
+//     ordinary Stage-3/4 machinery refines it. That is Yang §4.5.4
+//     detect-then-refine — the real micro-scale feature is RESOLVED, not
+//     deleted;
+//   * the retired §4.4.1(b) MIN_FEATURE_SIZE force-merge plays no part. The
+//     R0091 silent-wrong trap is still closed.
+// Corroborating: with `kernel-v2/strict-validation` compiled in (as it is for
+// test-harness), a merge that left a vertex off its analytic surface would be
+// a loud `VertexOffSurface` — and R0072 passes every oracle.
 #[test]
 fn red_r0072_stage3_ambiguous_parallel_lines() {
-    let failures = replay_failures("R0072");
-    assert!(
-        !failures.is_empty(),
-        "expected R0072 to be a loud STOP (N55: real micro-scale edge, P3c \
-         curved re-CDT pending); if it now completes CORRECT, verify the fix \
-         is a paper-compliant re-CDT (NOT a force-merge) and re-pin"
-    );
-    assert!(
-        failures.iter().any(|f| f.contains("boolean")),
-        "R0072 must fail as a typed boolean STOP, got: {failures:?}"
-    );
+    assert_correct("R0072");
 }
 
 // ── Mode 4: kernel-v2 azimuth-merge rims disagree (reassembly) ──────────────

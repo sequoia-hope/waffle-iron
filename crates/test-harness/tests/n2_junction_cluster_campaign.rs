@@ -94,13 +94,16 @@ fn replay_boolean_failures(case_id: &str) -> Vec<String> {
 /// **GREEN since N2-3a (15d00e7f).** R0072's replay must not fail with
 /// `VertexOffSurface` — Stage-0 now mints coplanar-overlay rim vertices on
 /// the exact rim circle (spec `n2_stage4_junction_cluster_merge` §3), which
-/// closed the off-surface-vertex class this test pins. R0072 is NOT yet
-/// fully green end-to-end: its remaining downstream mode is kernel-v2
-/// `TessellationFailed { face: FaceId(19), reason: "inverted final
-/// triangle" }` (a different wall, tracked by the still-`#[ignore]`d
-/// `red_r0072_stage3_ambiguous_parallel_lines` in
-/// `m8_samenormal_campaign.rs`) — this test stays green through it because
-/// it asserts only the absence of the `VertexOffSurface` mode.
+/// closed the off-surface-vertex class this test pins. This test asserts only
+/// the ABSENCE of the `VertexOffSurface` mode, so it stayed green through
+/// R0072's later downstream walls.
+///
+/// UPDATE 2026-07-28: R0072 is now fully green end-to-end (#195 inc-5 +
+/// §4.4.1 inc-2 always-on — §4.5.4 detect-then-refine resamples the
+/// under-sampled rim). `red_r0072_stage3_ambiguous_parallel_lines` in
+/// `m8_samenormal_campaign.rs` is re-pinned to `assert_correct` and is no
+/// longer `#[ignore]`d; see its comment for why the conversion is a
+/// paper-compliant refinement and not the retired force-merge.
 #[test]
 fn red_r0072_vertex_off_surface() {
     let failures = replay_boolean_failures("R0072");
