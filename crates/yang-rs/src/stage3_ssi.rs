@@ -618,6 +618,45 @@ pub(crate) fn build_intersection_curves(
                     .split(',')
                     .any(|t| t.trim().parse::<u32>() == Ok(s) || t.trim().parse::<u32>() == Ok(e))
                 {
+                    // §16 tangent test: at a point on BOTH surfaces the
+                    // intersection curve's tangent is exactly n0 x n1 (no SSI
+                    // needed). A TRUE intersection edge is a chord of that
+                    // curve, so its direction matches the tangent; a
+                    // misclassified internal edge runs away from it.
+                    for (wname, w) in [("s", p_s), ("e", p_e)] {
+                        let wa = w.as_array();
+                        let scale = wa[0].abs().max(wa[1].abs()).max(wa[2].abs()).max(1.0);
+                        let eps = cad_primitives::TAU_WORK * scale;
+                        if signed_distance_to_surface(surf0, w)?.abs() > eps
+                            || signed_distance_to_surface(surf1, w)?.abs() > eps
+                        {
+                            continue; // not a witness
+                        }
+                        let (n0, n1) = (
+                            crate::stage4_relocate::surface_value_and_normal(surf0, wa),
+                            crate::stage4_relocate::surface_value_and_normal(surf1, wa),
+                        );
+                        if let (Some((_, a0)), Some((_, a1))) = (n0, n1) {
+                            let t = [
+                                a0[1] * a1[2] - a0[2] * a1[1],
+                                a0[2] * a1[0] - a0[0] * a1[2],
+                                a0[0] * a1[1] - a0[1] * a1[0],
+                            ];
+                            let tl = (t[0] * t[0] + t[1] * t[1] + t[2] * t[2]).sqrt();
+                            let (sa, ea) = (p_s.as_array(), p_e.as_array());
+                            let d = [ea[0] - sa[0], ea[1] - sa[1], ea[2] - sa[2]];
+                            let dl = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                            if tl > 0.0 && dl > 0.0 {
+                                let cos = ((t[0] * d[0] + t[1] * d[1] + t[2] * d[2]) / (tl * dl))
+                                    .clamp(-1.0, 1.0);
+                                let ang = cos.abs().acos().to_degrees();
+                                eprintln!(
+                                    "YANG_V_PROBE tangent-test edge ({s},{e}) witness={wname} \
+                                     angle(edge, n0xn1)={ang:.6}deg edge_len={dl:.3e}"
+                                );
+                            }
+                        }
+                    }
                     eprintln!(
                         "YANG_V_PROBE on-both gate SKIP edge ({s},{e}) tol={tol:.3e} \
                          surf0={surf0:?} surf1={surf1:?} \

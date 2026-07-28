@@ -574,3 +574,41 @@ chord's turning angle), not a tuned band.
 Measure that on both fixtures BEFORE building — this is the fifth successive
 hypothesis on this thread, and the previous four were all refuted by exactly this
 kind of check.
+
+## 17. Tangent test MEASURED and REFUTED (2026-07-28) — and it explains all the others
+
+At a point on BOTH surfaces the intersection curve's tangent is exactly
+`n₀ × n₁` (no SSI needed), so the test is cheap and exact. Measured at each
+fixture's witness endpoint:
+
+| fixture | angle(edge, n₀×n₁) | edge length |
+|---|---|---|
+| PR-YR18 edges (0,1) and (0,46) — MISCLASSIFIED | **12.465233°** | 2.917e-1 |
+| F0083 edge (116,118) — TRUE intersection | **14.968750°** | 1.023e-2 |
+
+**REFUTED, and it points the WRONG WAY**: the true intersection edge is *less*
+aligned with the true tangent than the misclassified one. No threshold in this
+direction can work.
+
+**Worse, F0083 fails its own self-derived bound.** Its edge is 1.023e-2 long on a
+cylinder of radius 6.914e-2, so the chord subtends ≈8.5° and the edge direction
+should sit ≈4.2° off the tangent. It measures **14.97°**.
+
+**That discrepancy is the general explanation.** v118 is mis-seated by 1.914e-3,
+which on a 1.023e-2 edge is ~19% of its length — a large angular perturbation. So
+**the mis-seating corrupts the edge direction itself**: any predicate computed
+from the edge's own endpoints is contaminated by the very defect it is trying to
+detect. That is the same circularity as the original gate, one level up, and it
+retrospectively explains every refutation on this thread — endpoint distances
+(§16), the exact witness (§15), and now the tangent.
+
+**Conclusion: the `on_both` gate cannot be fixed from edge-local data.** The
+discriminating information must come from OUTSIDE the edge. The natural
+candidate, unmeasured: the CHAIN — a run of edges sharing the same surface pair,
+whose *witness* endpoints are all exact and collectively define the curve
+independently of any single mis-seated vertex. Fit/verify against the chain's
+exact vertices, then classify each edge against that, rather than asking each
+edge about itself.
+
+The probe (`YANG_V_PROBE` tangent-test line) is retained — it is the tool that
+produced this and costs nothing when unset.
