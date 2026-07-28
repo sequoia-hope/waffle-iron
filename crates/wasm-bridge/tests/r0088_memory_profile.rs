@@ -21,13 +21,18 @@
 //! 2: arrangement +70.5 MiB, patches +0.0, `compute_inside_out` **+0.1 MiB**
 //! (was +6,036).
 //!
-//! Sweep over the ten heaviest corpus cases — peak RSS, whole document:
+//! Sweep over the twelve heaviest corpus cases (by assay wall time) plus
+//! R0088 — peak RSS, whole document:
 //!
 //!     R0019  866 MiB    R0085  493    R0081  373    R0047  335    F0065  312
-//!     F0072  237 MiB    R0054  217    F0070  137    F0090  101    R0088   93
+//!     F0072  237 MiB    R0054  217    F0070  137    F0069  120    F0090  101
+//!     F0085   93 MiB    R0088   93    F0088   78
 //!
 //! All are an order of magnitude under the wasm32 4 GiB ceiling, so no other
-//! corpus case is at OOM risk today.
+//! corpus case is at OOM risk today. Note the sweep was ordered by TIME, which
+//! is only a proxy for memory: the slowest case (F0072, 135 s) is 237 MiB while
+//! the heaviest (R0019) is fourth by time. A memory-ordered sweep would need
+//! every case measured, which this tool can do but nothing yet demands.
 //!
 //! **R0019, the worst, is NOT a pathology — it is a big model.** Its Revolve 2
 //! feeds the arrangement **207,400 input triangles** (R0088: 7,506) and gets
