@@ -258,3 +258,56 @@ claim it. So inc-3 must find out which of the three exclusions dropped it:
 Cylinder+Cylinder), (b) membership verification abandoned the edge because the
 other endpoint is out of band, or (c) it was excluded as a cross-input endpoint.
 Probe `YANG_S4_RIM_SNAP_PROBE` per op on the PRODUCING op, not the failing one.
+
+---
+
+## 10. F0083 producing-op probe (2026-07-28) — a DIFFERENT class: the Fig-11 point q itself
+
+`YANG_S4_RIM_SNAP_TARGET=x,y,z,r` (banked) reports, per mesh vertex near a target
+point, every incident incidence edge and which filter dropped it. Aimed at
+F0083's off-surface point in the PRODUCING op:
+
+```
+[rim-target] v=80 dist_to_target=0.000000e0 cross_excluded=true
+[rim-target]   edge=(66,80) entries=["A:Plane", "A:Cylinder"] same_input=true diff_surf=true circle=true claimed=true
+[rim-target]     endpoint v=66 resid=6.99e-18  in_band=true
+[rim-target]     endpoint v=80 resid=2.304643692850343e-3  in_band=false
+[rim-target]   edge=(79,80) entries=["A:Plane", "B:Plane"]    same_input=false circle=false claimed=false
+[rim-target]   edge=(80,118) entries=["A:Cylinder", "B:Plane"] same_input=false circle=false claimed=false
+```
+
+**TWO independent exclusions fire, and both are correct as designed:**
+
+1. `cross_excluded=true` — v80 IS an endpoint of a CROSS-input curve. Its other
+   two edges are `A:Plane × B:Plane` and `A:Cylinder × B:Plane`.
+2. Membership verification fails — its residual against A's own rim circle is
+   2.3046e-3 against that op's bound 6.9298e-4, i.e. **3.3× outside**.
+
+So v80 is simultaneously on A's OWN rim (`A:Plane ∩ A:Cylinder`, edge claimed,
+whose other endpoint v66 is exact to 7e-18) AND on the A×B intersection curve.
+**It is exactly Yang Fig. 11's point q — "an intersection point ON the boundary
+curve" — and our pipeline seated it 2.3e-3 OFF the boundary curve it also
+belongs to.** The cross-input relocation satisfied the A×B curve and ignored A's
+rim.
+
+**Consequence: F0083 is NOT the `v6` class and inc-2 structurally cannot fix
+it — correctly.** Projecting v80 onto A's rim would break its A×B curve
+membership; that is precisely why junction vertices are excluded. The two classes
+are now cleanly separated:
+
+| class | vertex | fix |
+|---|---|---|
+| **v6 / n2 I1** | on the operand's own rim ONLY, unclaimed, left at a chord position | inc-2 (SHIPPED): guarded projection |
+| **v80 / F0083** | on the own rim AND the A×B curve — the Fig-11 q | inc-3: must satisfy BOTH |
+
+**inc-3 is therefore a curve-CURVE intersection, not a projection.** q must be
+placed at the intersection of the A×B intersection curve with the operand's own
+rim circle — Fig. 11(a)'s "locate the constrained edge containing q and split it
+using q", with q required to lie on the boundary curve. A projection onto either
+curve alone is wrong by construction. Note the 3.3×-over-bound displacement also
+says the junction is currently seated well off the rim, so this is a real
+mis-seat, not rounding.
+
+Open sub-question for inc-3: is v80's A×B curve itself exact (a conic), in which
+case circle∩conic is closed-form, or a procedural surface-pair curve, which
+needs the Newton pair-projection machinery (`relocate_onto_implicit_pair`)?

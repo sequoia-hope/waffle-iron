@@ -6866,6 +6866,90 @@ pub(crate) fn stage4_relocate_and_correct(
     if crate::stage4_boundary_curve::rim_snap_enabled() {
         let (_infos_bc, inc_bc, curves_bc) = compute_phase_a(mesh, attribution, brep_a, brep_b)?;
         let rim_curves = crate::stage4_boundary_curve::collect_rim_curves(&inc_bc);
+        // Per-vertex exclusion diagnosis: `YANG_S4_RIM_SNAP_TARGET=x,y,z,r`
+        // reports, for every mesh vertex within `r` of the given point, each
+        // incident incidence edge and WHICH of the pass's filters dropped it.
+        // The pass claiming rim edges but moving nothing says nothing about
+        // WHY; this does.
+        if let Ok(spec) = std::env::var("YANG_S4_RIM_SNAP_TARGET") {
+            let f: Vec<f64> = spec
+                .split(',')
+                .filter_map(|s| s.trim().parse().ok())
+                .collect();
+            if f.len() == 4 {
+                let (tx, ty, tz, tr) = (f[0], f[1], f[2], f[3]);
+                let mut cross: std::collections::BTreeSet<u32> = Default::default();
+                for &(s, e) in curves_bc.keys() {
+                    cross.insert(s);
+                    cross.insert(e);
+                }
+                for (vi, p) in mesh.verts.iter().enumerate() {
+                    let pa = p.as_array();
+                    let d =
+                        ((pa[0] - tx).powi(2) + (pa[1] - ty).powi(2) + (pa[2] - tz).powi(2)).sqrt();
+                    if d > tr {
+                        continue;
+                    }
+                    let v = vi as u32;
+                    eprintln!(
+                        "[rim-target] v={v} dist_to_target={d:.6e} p={pa:?} \
+                         cross_excluded={}",
+                        cross.contains(&v)
+                    );
+                    let mut seen_any = false;
+                    for (&(s, e), entries) in &inc_bc {
+                        if s != v && e != v {
+                            continue;
+                        }
+                        seen_any = true;
+                        let kinds: Vec<String> = entries
+                            .iter()
+                            .map(|(i, sf)| format!("{i:?}:{}", surface_kind_name(*sf)))
+                            .collect();
+                        let same_input = entries.len() == 2 && entries[0].0 == entries[1].0;
+                        let diff_surf = entries.len() == 2 && entries[0].1 != entries[1].1;
+                        let circle = if entries.len() == 2 {
+                            crate::stage4_boundary_curve::rim_circle_from_pair(
+                                entries[0].1,
+                                entries[1].1,
+                            )
+                        } else {
+                            None
+                        };
+                        let claimed = rim_curves.contains_key(&(s, e));
+                        eprintln!(
+                            "[rim-target]   edge=({s},{e}) entries={kinds:?} \
+                             same_input={same_input} diff_surf={diff_surf} \
+                             circle={} claimed={claimed}",
+                            circle.is_some()
+                        );
+                        if let Some(c) = circle {
+                            for w in [s, e] {
+                                if let Some(&wp) = mesh.verts.get(w as usize) {
+                                    let proj =
+                                        crate::stage4_boundary_curve::project_onto_curve(wp, &c);
+                                    let dd = proj.map(|q| {
+                                        let (x, y) = (wp.as_array(), q.as_array());
+                                        ((x[0] - y[0]).powi(2)
+                                            + (x[1] - y[1]).powi(2)
+                                            + (x[2] - y[2]).powi(2))
+                                        .sqrt()
+                                    });
+                                    eprintln!(
+                                        "[rim-target]     endpoint v={w} resid={dd:?} \
+                                         in_band={:?}",
+                                        dd.map(|x| x <= bound_probe(brep_a, brep_b))
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    if !seen_any {
+                        eprintln!("[rim-target]   NO incidence edge contains this vertex");
+                    }
+                }
+            }
+        }
         if !rim_curves.is_empty() {
             // Vertices claimed by a CROSS-input curve are A×B junctions that
             // must lie on BOTH curves; moving one would break that.
@@ -6917,3 +7001,23 @@ pub(crate) use reversal::*;
 
 mod validate;
 pub(crate) use validate::*;
+
+/// Diagnostic helper for `YANG_S4_RIM_SNAP_TARGET`: the same bound the rim-snap
+/// pass uses (the larger of the two operands' Stage-1 chord budgets).
+fn bound_probe(a: &BRep, b: &BRep) -> f64 {
+    [InputId::A, InputId::B]
+        .into_iter()
+        .filter_map(|i| crate::stage3_ssi::chord_tol_for_curved_owner(i, a, b, 0, (0, 0)).ok())
+        .fold(0.0f64, f64::max)
+}
+
+/// Diagnostic helper: short surface-kind name for probe output.
+fn surface_kind_name(s: Surface) -> &'static str {
+    match s {
+        Surface::Plane { .. } => "Plane",
+        Surface::Cylinder { .. } => "Cylinder",
+        Surface::Cone { .. } => "Cone",
+        Surface::Sphere { .. } => "Sphere",
+        Surface::Torus { .. } => "Torus",
+    }
+}
