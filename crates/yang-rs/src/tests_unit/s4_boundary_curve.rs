@@ -324,3 +324,88 @@ fn s4bc_vi_edge_with_an_out_of_band_endpoint_is_abandoned_whole() {
         "only the verified edge may relocate; v0 rides a rejected edge and must stay put"
     );
 }
+
+// =========================================================================
+// inc-3 — the Fig-11 point q as a TRIPLE POINT (spec §11)
+// =========================================================================
+
+use crate::geom::Surface;
+use crate::stage4_boundary_curve::{circle_plane_nearest_root, satisfies_all_surfaces};
+
+/// The solve is exact and picks the root NEAREST the current seat — the far
+/// root is a real intersection too, and choosing it would teleport the vertex
+/// across the rim.
+#[test]
+fn s4bc_iii_triple_point_picks_the_nearest_root() {
+    let curve = unit_z_circle();
+    // Plane x = R/2 cuts the unit-z circle at azimuth ±60°.
+    let n = Vector3::new(1.0, 0.0, 0.0);
+    let d = -R / 2.0;
+    for (seed_deg, want_deg) in [(50.0, 60.0), (70.0, 60.0), (-50.0, -60.0), (-160.0, -60.0)] {
+        let q = circle_plane_nearest_root(&curve, n, d, on_circle(seed_deg))
+            .expect("the plane cuts this circle");
+        let qa = q.as_array();
+        assert!(
+            (qa[0].hypot(qa[1]) - R).abs() <= TAU_WORK * (1.0 + R),
+            "root must be ON the circle"
+        );
+        assert!(
+            (qa[0] - R / 2.0).abs() <= TAU_WORK * (1.0 + R),
+            "root must be ON the plane"
+        );
+        let got = qa[1].atan2(qa[0]).to_degrees();
+        assert!(
+            (got - want_deg).abs() < 1e-6,
+            "seed {seed_deg}° should pick {want_deg}°, got {got}°"
+        );
+    }
+}
+
+/// A rim that never reaches the plane yields NO claim — the pass must not
+/// invent a nearest point.
+#[test]
+fn s4bc_iii_triple_point_skips_when_the_rim_never_reaches_the_plane() {
+    let curve = unit_z_circle();
+    // x = 2R is outside the circle entirely.
+    assert!(circle_plane_nearest_root(
+        &curve,
+        Vector3::new(1.0, 0.0, 0.0),
+        -2.0 * R,
+        on_circle(0.0)
+    )
+    .is_none());
+    // A plane parallel to the circle's own plane is ambiguous (none, or the
+    // whole circle) — also no claim.
+    assert!(
+        circle_plane_nearest_root(&curve, Vector3::new(0.0, 0.0, 1.0), 0.0, on_circle(0.0))
+            .is_none()
+    );
+}
+
+/// The certificate REFUSES a point that misses any of its surfaces — this is
+/// what replaces a displacement band for this class.
+#[test]
+fn s4bc_iii_certificate_refuses_a_point_off_any_surface() {
+    let cyl = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: R,
+    };
+    let cap = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: 0.0,
+    };
+    let cut = Surface::Plane {
+        normal: Vector3::new(1.0, 0.0, 0.0),
+        d: -R / 2.0,
+    };
+    // The true triple point: on the cylinder, on z=0, on x=R/2.
+    let good = Point3::new(R / 2.0, (R * R - R * R / 4.0).sqrt(), 0.0);
+    assert!(satisfies_all_surfaces(good, &[cyl, cap, cut]));
+    // Same azimuth but pulled inside the cylinder — must be refused.
+    let bad = Point3::new(R / 2.0 * 0.9, (R * R - R * R / 4.0).sqrt() * 0.9, 0.0);
+    assert!(!satisfies_all_surfaces(bad, &[cyl, cap, cut]));
+    // On the cylinder and cap but off the cutting plane — refused.
+    let off_cut = on_circle(10.0);
+    assert!(!satisfies_all_surfaces(off_cut, &[cyl, cap, cut]));
+}

@@ -374,3 +374,42 @@ with different acceptance rules, which is why inc-2 excludes these vertices.
 NOT BUILT. Design is complete and measured; the remaining work is the solver,
 its tests (root selection, the no-intersection skip, the certificate refusal),
 the gated wiring, and a corpus run.
+
+---
+
+## 12. inc-3 BUILT (2026-07-28) — works, peels one layer, corpus-neutral; F0083 has MORE than one q
+
+`circle_plane_nearest_root` (closed form, root nearest the current seat),
+`satisfies_all_surfaces` (the §11 certificate), `plan_triple_point_reseats`
+(selection per §11), wired behind its OWN gate `YANG_S4_TRIPLE_POINT_ENABLE` so
+the two classes measure independently. 13 unit tests total in the group.
+
+**It works.** On F0083's producing op: `candidates=2 reseated=2`, and v80 moves
+from `(-1.49702e-2, -5.47636e-2, 3.30980e-1)` to
+`(-1.54787e-2, -5.70093e-2, 3.31077e-1)` — a displacement of ≈2.31e-3, exactly
+the measured residual, i.e. it lands on the cylinder it was missing.
+
+**But F0083 still ERRORs, on a DIFFERENT vertex.** The tripwire now names
+`p=(-2.49052e-2, -5.21491e-2, 3.29829e-1)` at residual **1.914e-3** (was 2.305e-3
+at another point). So the fix is correct and the case simply has MORE THAN ONE
+Fig-11 q; inc-3's selection caught two of them in that op and the next one fails
+one of the three selection tests.
+
+**Corpus, BOTH gates ON: 252C/0W/58E/0T — ZERO deltas.** No regressions, no
+conversions. yang-rs suite green in all gate combinations; gate-OFF unchanged by
+construction.
+
+### inc-4 (the next layer)
+
+Probe the NEW vertex with `YANG_S4_RIM_SNAP_TARGET` exactly as §10 did and find
+which of the three selection tests drops it:
+- not an endpoint of a *claimed* rim edge (its rim pair may be
+  Cylinder+Cylinder, or an oblique plane ⇒ ellipse, both of which
+  `rim_circle_from_pair` skips by design);
+- not `cross_excluded` (then it is the inc-2 class, and inc-2's band refused it);
+- more than one distinct other-operand surface (a 4-surface corner, which needs a
+  genuine multi-surface solve rather than circle∩plane).
+
+The third is the interesting possibility and would be a real capability step, not
+a selection tweak. Measure before building — the last two increments were both
+re-scoped by exactly this kind of probe.

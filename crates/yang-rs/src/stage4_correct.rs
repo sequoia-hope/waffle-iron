@@ -7035,6 +7035,25 @@ pub(crate) fn stage4_relocate_and_correct(
                     bound,
                 );
                 let n = crate::stage4_boundary_curve::apply_boundary_relocations(mesh, &moves);
+                // inc-3 (spec §11): the Fig-11 point q — a vertex on the
+                // operand's own rim AND on an A×B curve — must be re-seated at
+                // the TRIPLE point, not projected onto either curve alone.
+                // Separate gate so the two classes measure independently.
+                if crate::stage4_boundary_curve::triple_point_enabled() {
+                    let tp = crate::stage4_boundary_curve::plan_triple_point_reseats(
+                        mesh,
+                        &inc_bc,
+                        &rim_curves,
+                        &cross_endpoints,
+                    );
+                    let tn = crate::stage4_boundary_curve::apply_boundary_relocations(mesh, &tp);
+                    if std::env::var_os("YANG_S4_RIM_SNAP_PROBE").is_some() {
+                        eprintln!("[s4-triple-point] candidates={} reseated={tn}", tp.len());
+                        for (v, q) in &tp {
+                            eprintln!("[s4-triple-point]   v={v} -> {:?}", q.as_array());
+                        }
+                    }
+                }
                 if std::env::var_os("YANG_S4_RIM_SNAP_PROBE").is_some() {
                     eprintln!(
                         "[s4-rim-snap] rim_edges={} cross_excluded={} bound={bound:.6e} moved={n}",

@@ -266,3 +266,167 @@ pub(crate) fn apply_boundary_relocations(mesh: &mut Mesh, moves: &[(u32, Point3)
     }
     n
 }
+
+// =========================================================================
+// inc-3 — the Fig-11 point q as a TRIPLE POINT (spec §11)
+// =========================================================================
+
+/// Gate for the inc-3 triple-point re-seat. Separate from the inc-2 gate so the
+/// two classes can be measured independently; default OFF.
+pub(crate) fn triple_point_enabled() -> bool {
+    matches!(
+        std::env::var("YANG_S4_TRIPLE_POINT_ENABLE").as_deref(),
+        Ok("1") | Ok("on")
+    )
+}
+
+/// Closed-form `Circle ∩ Plane`, returning the root NEAREST `current`.
+///
+/// With `C = (c, n̂, r)`, an orthonormal in-plane basis `(û, v̂)` and the plane
+/// `m̂·x + d = 0`, a circle point is `c + r(cosθ·û + sinθ·v̂)` and the plane
+/// equation becomes `A·cosθ + B·sinθ = −K` for `A = r(m̂·û)`, `B = r(m̂·v̂)`,
+/// `K = m̂·c + d`. Two roots at `atan2(B, A) ± acos(−K/‖(A,B)‖)`.
+///
+/// `None` when the rim does not reach the plane (`|K| > ‖(A,B)‖`) or the two
+/// planes are parallel (`‖(A,B)‖ = 0`: either no intersection or the whole
+/// circle lies on the plane — ambiguous, so the pass makes no claim).
+pub(crate) fn circle_plane_nearest_root(
+    circle: &Curve,
+    plane_normal: cad_primitives::Vector3,
+    plane_d: f64,
+    current: Point3,
+) -> Option<Point3> {
+    let Curve::Circle {
+        center,
+        normal,
+        radius,
+    } = *circle
+    else {
+        return None;
+    };
+    let m = plane_normal.as_array();
+    let ml = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt();
+    if ml.is_nan() || ml <= 0.0 || !radius.is_finite() || radius <= 0.0 {
+        return None;
+    }
+    let mu = [m[0] / ml, m[1] / ml, m[2] / ml];
+    let dn = plane_d / ml;
+    let (ub, vb) = crate::stage1_tessellate::ortho_basis(normal);
+    let (u, v) = (ub.as_array(), vb.as_array());
+    let c = center.as_array();
+    let a = radius * (mu[0] * u[0] + mu[1] * u[1] + mu[2] * u[2]);
+    let b = radius * (mu[0] * v[0] + mu[1] * v[1] + mu[2] * v[2]);
+    let k = mu[0] * c[0] + mu[1] * c[1] + mu[2] * c[2] + dn;
+    let rr = (a * a + b * b).sqrt();
+    if rr.is_nan() || rr <= 0.0 {
+        return None; // circle plane parallel to the cutting plane
+    }
+    let ratio = -k / rr;
+    if !(-1.0..=1.0).contains(&ratio) {
+        return None; // the rim never reaches the plane
+    }
+    let phi = b.atan2(a);
+    let da = ratio.acos();
+    let pt = |theta: f64| {
+        let (ct, st) = (theta.cos(), theta.sin());
+        Point3::new(
+            c[0] + radius * (ct * u[0] + st * v[0]),
+            c[1] + radius * (ct * u[1] + st * v[1]),
+            c[2] + radius * (ct * u[2] + st * v[2]),
+        )
+    };
+    let d2 = |p: Point3| {
+        let (x, y) = (p.as_array(), current.as_array());
+        (x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2)
+    };
+    let (q0, q1) = (pt(phi + da), pt(phi - da));
+    Some(if d2(q0) <= d2(q1) { q0 } else { q1 })
+}
+
+/// The inc-3 CERTIFICATE (spec §11): `q` is accepted only if it satisfies EVERY
+/// surface it is supposed to lie on, to f64 noise scaled by the point's own
+/// magnitude. Deliberately NOT a displacement band — the measured displacement
+/// of this class is not chord-bounded (F0083: 5.4× its chord's own sagitta), so
+/// a band would either refuse the real fix or admit anything.
+pub(crate) fn satisfies_all_surfaces(q: Point3, surfaces: &[Surface]) -> bool {
+    let qa = q.as_array();
+    let scale = qa[0].abs().max(qa[1].abs()).max(qa[2].abs()).max(1.0);
+    surfaces.iter().all(|&s| {
+        match crate::stage4_relocate::surface_value_and_normal(s, qa) {
+            // `surface_value_and_normal` returns the implicit value; for the
+            // quadrics in play it is a (squared-)distance-like residual, so the
+            // scaled f64-noise floor is the right acceptance.
+            Some((f, _)) => f.abs() <= TAU_WORK * scale,
+            None => false,
+        }
+    })
+}
+
+/// Plan the inc-3 triple-point re-seats (spec §11).
+///
+/// Selection — a vertex that is ALL of: an endpoint of a CLAIMED own-rim edge
+/// (so its rim circle is known); EXCLUDED from inc-2 as a cross-input endpoint
+/// (i.e. it is a Fig-11 q, not the `v6` class); and incident to exactly ONE
+/// distinct other-operand surface, that surface being a `Plane`. Anything else
+/// is skipped, never approximated.
+///
+/// Acceptance is the §11 certificate — q must satisfy all three surfaces — not
+/// a displacement band, because this class's displacement is provably not
+/// chord-bounded.
+pub(crate) fn plan_triple_point_reseats(
+    mesh: &Mesh,
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    rim_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    cross_curve_endpoints: &std::collections::BTreeSet<u32>,
+) -> Vec<(u32, Point3)> {
+    let mut moves: std::collections::BTreeMap<u32, Point3> = std::collections::BTreeMap::new();
+    for (&(s, e), circle) in rim_curves {
+        let Some(rim_entries) = incidence.get(&(s, e)) else {
+            continue;
+        };
+        if rim_entries.len() != 2 {
+            continue;
+        }
+        let owner = rim_entries[0].0;
+        let rim_surfs = [rim_entries[0].1, rim_entries[1].1];
+        for v in [s, e] {
+            // Only the Fig-11 q class: inc-2 already owns the rest.
+            if !cross_curve_endpoints.contains(&v) || moves.contains_key(&v) {
+                continue;
+            }
+            let Some(&p) = mesh.verts.get(v as usize) else {
+                continue;
+            };
+            // The OTHER operand's distinct surfaces at this vertex.
+            let mut others: Vec<Surface> = Vec::new();
+            for (&(s2, e2), entries) in incidence {
+                if s2 != v && e2 != v {
+                    continue;
+                }
+                for &(i, sf) in entries {
+                    if i != owner && !others.contains(&sf) {
+                        others.push(sf);
+                    }
+                }
+            }
+            let [other] = others[..] else { continue };
+            let Surface::Plane { normal, d } = other else {
+                continue;
+            };
+            let Some(q) = circle_plane_nearest_root(circle, normal, d, p) else {
+                continue;
+            };
+            if !satisfies_all_surfaces(q, &[rim_surfs[0], rim_surfs[1], other]) {
+                continue;
+            }
+            let (pa, qa) = (p.as_array(), q.as_array());
+            let disp =
+                ((qa[0] - pa[0]).powi(2) + (qa[1] - pa[1]).powi(2) + (qa[2] - pa[2]).powi(2))
+                    .sqrt();
+            if disp > TAU_WORK {
+                moves.insert(v, q);
+            }
+        }
+    }
+    moves.into_iter().collect()
+}
