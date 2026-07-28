@@ -8,7 +8,7 @@
 //! Group 2 milestone trackers are deliberately NOT gated here — their
 //! categories are pinned against the committed corpus in `assay_kv2.rs`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use test_harness::assay::gen::AssayMeta;
@@ -89,7 +89,38 @@ fn assert_case_correct(dir: &Path, id: &str) {
 fn complexity_generator_gate() {
     let dir = tempfile::tempdir().unwrap();
     let entries = generate_complexity_cases(dir.path());
-    assert_eq!(entries.len(), 117);
+
+    // The C-series is a contiguous, ordered C0001..=C{N} block. Assert the
+    // IDENTITY of the set, not just its size: a bare count told us only
+    // "118 != 117" when C0118 was added by #172 (commit 3955d23f, 2026-07-17)
+    // without updating this line, and the gate then sat red for eleven days
+    // because the message named nothing to go look for. This form names the
+    // offending ID in the panic.
+    const LAST_CASE: usize = 118;
+    let got: BTreeSet<&str> = entries.iter().map(|e| e.id.as_str()).collect();
+    let want: BTreeSet<String> = (1..=LAST_CASE).map(|i| format!("C{i:04}")).collect();
+    let unexpected: Vec<&&str> = got.iter().filter(|id| !want.contains(**id)).collect();
+    let missing: Vec<&String> = want
+        .iter()
+        .filter(|id| !got.contains(id.as_str()))
+        .collect();
+    assert!(
+        unexpected.is_empty() && missing.is_empty(),
+        "C-series generator emitted an unexpected case set (expected \
+         C0001..=C{LAST_CASE:04}).\n  unexpected: {unexpected:?}\n  missing: {missing:?}\n\
+         If you ADDED a case, bump LAST_CASE — and decide deliberately whether \
+         it belongs in the `gate` list below: only cases expected to be CORRECT \
+         go there (designed-ERROR cases like C0118 must NOT, see the note on it)."
+    );
+    // Order is part of the contract too (the corpus is written in sequence),
+    // and a set comparison cannot see a reordering.
+    assert!(
+        entries
+            .iter()
+            .map(|e| e.id.as_str())
+            .eq(want.iter().map(String::as_str)),
+        "C-series generator emitted the right cases in the WRONG order"
+    );
 
     // Representative in-boundary cases, one+ per Group 1/3 family:
     // 1a genus, 1b chains, 1c non-convex, 1d near-degenerate,
@@ -103,6 +134,13 @@ fn complexity_generator_gate() {
     // baseline) and is excluded from this generator gate per P9 — the gate
     // validates the GENERATOR, and blocking on an engine bug would invite
     // re-authoring the case to dodge it.
+    //
+    // C0118 (added by #172, the sub-sagitta cyl×cyl graze) is likewise absent
+    // from `gate`, for the opposite reason: it is a DESIGNED-ERROR case. Its
+    // whole point is that the guard rejects it loudly with
+    // `SubSagittaGrazeIntersection`, so `assert_case_correct` could never hold
+    // for it. Group 2/7 milestone trackers are pinned in `assay_kv2.rs`, not
+    // here.
     let gate: &[&str] = &[
         "C0001", "C0005", "C0007", "C0009", // 1a
         "C0013", "C0016", // 1b
