@@ -37,7 +37,7 @@ Re-generate the baseline column only from a committed `results.json`.
 | ~~R0072~~ | ~~Stage-4 LRR (u32::MAX)~~ | ~~real ~1e-7 micro-scale edge (0.4% span); force-merge is the R0091 silent-wrong trap — needs curved re-CDT~~ **FLIPPED CORRECT 2026-07-28 (#195 inc-5):** the §4.5.4 detect-then-refine rim boost + §4.4.1 rim-snap, both now always-on, resolve it WITHOUT a curved re-CDT — the micro-scale edge was an under-sampled rim, not an irreducible feature | — | ~~P3c~~ DONE |
 | C0058 | non-2-manifold (reassembly) | probe 2026-07-17: `NONMANIFOLD_SITE s6-curved-degenerate-loop` — Stage-6 curved face 2 emits a 64-vertex loop with \|Newell N\| = 2.3e-16 (degenerate junction loop) | CONFIRMED (#171 sweep) | P3a-#146 |
 | C0067 | Stage-4 LRR v128 | probe 2026-07-18 (#171 pass 2): v128 is a **circle×circle junction** (`circle_junction=true`, endpoint) — two sphere-section Circles (both r=0.371, centers [0.15,0,0.5]/[0,0.15,0.5], normals x̂/ŷ) meet at [0.15,0.15,0.83]; junction relocation region invalid. Needs two-curve junction relocation (mint-once contract) | CONFIRMED (#171 pass 2) | P3-junction |
-| R0008 | Stage-4 LRR v42 | probe 2026-07-18: `YANG_LRR_SITE site=lineseg_combo` edge (42,43) — LineSegment edge whose incidence is **Cone(A, half-angle 1.5525 rad ≈ 88.9°, near-flat) × Plane(B)**; the Stage-4 LineSegment arm has closed forms only for cyl×plane / cyl∥cyl / plane×plane — the **cone-generator line closed form is missing** (the "when a fixture demands them" fixture). #163/N45 residual theory REFUTED — it never reaches selection; same class as R0085-op2 | CONFIRMED (#171 pass 2) | Stage-4 cone-generator LineSegment arm (small closed-form vocabulary gap) |
+| ~~R0008~~ | ~~Stage-4 LRR v42~~ | ~~probe 2026-07-18: `YANG_LRR_SITE site=lineseg_combo` edge (42,43) — LineSegment edge whose incidence is **Cone(A, half-angle 1.5525 rad ≈ 88.9°, near-flat) × Plane(B)**; the Stage-4 LineSegment arm has closed forms only for cyl×plane / cyl∥cyl / plane×plane — the **cone-generator line closed form is missing**~~ **FLIPPED CORRECT 2026-07-28 (cone-generator arm):** the closed form was never missing — `ssi_rs::plane_cone` has emitted `SsiCurve::Line` for through-apex cuts all along and Stage 3 already banded them via `cone_chord_tol_for_owner`. TWO wiring gaps, both in Stage 4: (a) the LineSegment pair match classified `Cone` as `other_curved` → STOP before selection; (b) once admitted, the tie-break called the R0072-only `select_disjoint_parallel_line`, whose parallelism precheck rejects the two CROSSING apex generators (`AmbiguousCurve{2,2}`). **#163/N45 was not a "residual theory" — it was CORRECT and already shipped, at Stage 3 only**; the two stages had been running different tie-breaks since 9fca8393 | — | ~~Stage-4 cone-generator LineSegment arm~~ DONE |
 | R0009 | Stage-4 LRR (u32::MAX) | probe 2026-07-17: `site=split_max_passes` — the chord-split loop exhausts its pass budget (§4.5.2 refinement demand, non-convergent) | CONFIRMED (#171 sweep) | P3-§4.5.2 |
 | R0020 | Stage-4 LRR v44 | probe 2026-07-18: v44 is `ellipse=true + surface_pair=true + endpoint` — a conic (cyl×plane Ellipse) endpoint that is ALSO on a `SurfacePair{Cylinder×Cone}` curve → the **surface-pair endpoint-mix STOP** (`stage4_correct.rs` vert_surface_pair loop) — the R0044 class exactly | CONFIRMED (#171 pass 2) | P3-junction (R0044 class) |
 | R0025 | Stage-4 LRR v1760 | probe 2026-07-18: `YANG_TORUS_STOP site=pair_newton_none` — torus×plane implicit-pair **Newton non-convergence** at v1760 (torus R=494/r=329, scale ~1300; siblings on the same op relocate fine). #131/N28 rim-crossing theory refuted | CONFIRMED (#171 pass 2) | P3b-#137 (torus∩plane relocation family) |
@@ -91,7 +91,7 @@ zigzags/folds and #146 near-dup spikes (see per-row evidence).
 | R0016 | ring rejected by CDT (FaceId 1885) | probe 2026-07-18: 646-pt micro-scale ring (r≈0.03) with **15 periodic near-dup pairs** at (i, i+2) ~1.1e-4 apart (spike/needle pattern repeating with period ~310) + 1 crossing — the #146 near-duplicate junction-vert mint materialized in an output ring | CONFIRMED (#171 pass 2) | P3a-#146 (near-dup junction mint) |
 | R0028 | ring rejected by CDT (FaceId 32) | probe 2026-07-18: 146-pt ring, 2 crossings at the ring CLOSURE (segs 1×142, 4×138) — the chain tail folds back over the start (overlapping closure, not a mid-ring zigzag) | CONFIRMED (#171 pass 2) | P3-junction (S5/S6 output-ring closure) |
 | R0017 | KV9-F2 folded patch triangulation | probe 2026-07-17: error class CHANGED — kernel-v2 `TessellationFailed` FaceId(14) "patch triangulation folded (inverted triangle)" (unrolled ear-clip fold), not the old holed-lateral CDT | CONFIRMED (#171 sweep) | kernel-v2 KV9-F2 |
-| R0085 | op1: ring rejected by CDT (FaceId 566); op2: LRR v5 | probe 2026-07-18: TWO independent failures. **op1** (Revolve 2 union): 42-pt ring, 3 fold crossings (0×33, 6×32, 33×41) — output-ring fold, same family as R0028. **op2** (Revolve 3 union): `YANG_LRR_SITE site=lineseg_combo` edge (5,550) — LineSegment edge with **Plane(A) × Cone(B, half-angle 0.0149 rad ≈ 0.85°, needle cone)**: the missing cone-generator LineSegment closed form, same class as R0008 | CONFIRMED (#171 pass 2) | op1: P3-junction (output ring); op2: Stage-4 cone-generator LineSegment arm |
+| R0085 | op1: ring rejected by CDT (FaceId 566); op2: LRR v5 | probe 2026-07-18: TWO independent failures. **op1** (Revolve 2 union): 42-pt ring, 3 fold crossings (0×33, 6×32, 33×41) — output-ring fold, same family as R0028. **op2** (Revolve 3 union): ~~`YANG_LRR_SITE site=lineseg_combo` edge (5,550) — the missing cone-generator LineSegment closed form~~ **op2's lineseg layer RESOLVED 2026-07-28 (cone-generator arm)**; the case stays ERROR on op1 regardless, and op2 now STOPs one layer deeper: `YANG_V_PROBE` v5 = `line=true + torus=true + endpoint=true` → the TORUS block's `endpoint_set` guard (`stage4_correct.rs`, "a torus-edge endpoint that is also a CONIC endpoint mixes the implicit-pair and closed-form relocations — out of v1 scope"). A torus × cone-generator junction: the R0044 endpoint-mix class with a line instead of a conic | CONFIRMED (2026-07-28 probe) | op1: P3-junction (output ring); op2: P3-junction (R0044 endpoint-mix, torus×line) |
 | R0100 | KV9-F2 folded patch triangulation | probe 2026-07-17: error class CHANGED — kernel-v2 `TessellationFailed` FaceId(15) folded ear-clip, same class as R0017 | CONFIRMED (#171 sweep) | kernel-v2 KV9-F2 |
 | F0067 | converted-input CDT failed (face 272) | M8 opposite-rim projection class (#142/#143/#144) | CONFIRMED (task #144) | M8 |
 
@@ -108,7 +108,7 @@ zigzags/folds and #146 near-dup spikes (see per-row evidence).
 |---|---|---|---|---|
 | F0069 | NonPlanarFace FaceId(6227) | off-plane planar-face emission 3e-8 @ 2m | CONFIRMED (task #153) | #153 |
 | F0072 | NonPlanarFace FaceId(10329) | same class (also the known assay-timeout artifact case) | CONFIRMED (#153) | #153 |
-| R0081 | NonPlanarFace FaceId(666) | likely same class | SUSPECTED | #153 |
+| R0081 | ~~NonPlanarFace FaceId(666)~~ non-2-manifold (reassembly) | ~~likely same class~~ **RE-DIAGNOSED 2026-07-28 (cone-generator arm): the #153 vehicle was wrong.** R0081's live failure was a Stage-4 LRR at v590, and `YANG_LRR_SITE site=lineseg_combo` edge (590,592) shows **Plane(A) × Cone(B, half-angle 0.954 rad ≈ 54.7°)** — the R0008 class, a THIRD case this bucket never identified (it was never probed; the row was `SUSPECTED` by proximity). With the arm wired, that layer is gone and R0081 STOPs at Stage-6 `reassembled output would be non-2-manifold` | CONFIRMED (2026-07-28 probe) | P3a-#146 (reassembly non-2-manifold) |
 
 ### Misc structural (5)
 
@@ -214,9 +214,15 @@ buckets:
   surface_pair + endpoint`, the exact R0044 class; now a **4-case bucket**);
   (b) torus×plane pair-Newton non-convergence (R0025, R0077);
   (c) torus×cone pair-Newton non-convergence (R0032);
-  (d) missing cone-generator LineSegment closed form (R0008 near-flat cone
+  (d) ~~missing cone-generator LineSegment closed form (R0008 near-flat cone
   88.9°, R0085-op2 needle cone 0.85° — the Stage-4 lineseg arm only knows
-  cyl×plane / cyl∥cyl / plane×plane);
+  cyl×plane / cyl∥cyl / plane×plane)~~ **CLOSED 2026-07-28** — and the
+  "missing closed form" framing was wrong: `ssi_rs::plane_cone` had the
+  through-apex `Line` all along, Stage 3 had the band and (since N45) the
+  crossing tie-break. Both gaps were Stage-4 WIRING. Lesson for the rest of
+  this table: a row that names a *missing capability* deserves a check for
+  whether the capability exists one stage over and is merely unreferenced —
+  the cheapest fixes in this tail have all been of that shape;
   (e) circle×circle junction (C0067) and empty-partner incidence gap (R0050).
 - **The OffCurve trio's N51 "no-curve-type" diagnosis is REFUTED**: R0015 and
   R0026 are torus-map vertices whose pair Newton relocates them exactly
@@ -244,15 +250,15 @@ buckets:
 | Vehicle | Cases |
 |---|---|
 | P2-M5 (SSI solvers) | 0 open (R0096 flipped CORRECT #172; R0044 → P3-junction) |
-| P3a-#146 (junction mint / incidence) | 8 open (C0058, R0049, F0082, C0044, F0058, F0060, R0016, R0050) + F0064 partial + R0051 suspected; ~~R0095~~ FLIPPED CORRECT (#195 inc-5) |
+| P3a-#146 (junction mint / incidence) | 9 open (C0058, R0049, F0082, C0044, F0058, F0060, R0016, R0050, R0081) + F0064 partial + R0051 suspected; ~~R0095~~ FLIPPED CORRECT (#195 inc-5) |
 | P3b-#137 (torus∩plane + grazing/tangency Stage-4) | 8 confirmed (C0065, R0074, R0038, R0015, R0026, R0025, R0077, R0032-torus×cone) + F0085 (open seam, R0038-type) |
 | P3c (curved re-CDT) | **0 open** — ~~R0072~~ FLIPPED CORRECT 2026-07-28 (#195 inc-5); the vehicle has no remaining case |
-| P3-junction (other junction vocabulary) | 8 confirmed (R0003, R0044, C0067, R0020, R0035, R0070, F0045, R0011, R0028, R0085-op1 — last four are S5/S6 output-ring assembly) |
-| Stage-4 cone-generator LineSegment arm (new, small closed form) | 2 confirmed (R0008, R0085-op2) |
+| P3-junction (other junction vocabulary) | 8 confirmed (R0003, R0044, C0067, R0020, R0035, R0070, F0045, R0011, R0028, R0085-op1 — last four are S5/S6 output-ring assembly) + R0085-op2 (torus×line endpoint-mix, re-vehicled here 2026-07-28) |
+| Stage-4 cone-generator LineSegment arm | **0 open** — ~~R0008~~ FLIPPED CORRECT 2026-07-28; ~~R0085-op2~~ and ~~R0081~~ resolved at this layer but still ERROR one layer deeper. The vehicle has no remaining case. **It had 3 cases, not 2** — R0081 sat under `#153 / SUSPECTED` and was found only by re-probing after the fix |
 | Stage-2/3 arrangement incidence (near-coincident surfaces) | 1 confirmed (R0053; R0050 kin, counted under P3a) |
 | P3-§4.5.2 (split budget) | 4 confirmed (R0009, R0047, R0063, R0091) |
 | M8 residue | 4 confirmed (R0007, R0071, C0048, F0067) |
-| #153 NonPlanarFace | 2 confirmed + 1 suspected (R0081) |
+| #153 NonPlanarFace | 2 confirmed (~~R0081~~ re-diagnosed 2026-07-28 → P3a-#146; it was never a #153 case) |
 | kernel-v2 KV9-F2 folded ear-clip | 2 confirmed (R0017, R0100) |
 | KV6/scope + designed degeneracies | 7 (C0063, R0004, R0019, C0043, C0056, C0046, C0075 — the last four sign-off candidates) |
 | **PROBE queue** | **0** (was 26 → 14 after pass 1 → 0 after pass 2) |

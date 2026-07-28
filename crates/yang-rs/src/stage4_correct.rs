@@ -4094,8 +4094,18 @@ pub(crate) fn stage4_relocate_and_correct(
                 // SAME rule Stage 3's `build_intersection_curves` used).
                 // Plane∩plane segments are exact → skip. Any OTHER curved
                 // surface on a LineSegment edge is out of scope → loud STOP
-                // (P9; cone generator lines arrive with their own closed form
-                // when a fixture demands them).
+                // (P9).
+                //
+                // The `cone × plane` GENERATOR line is the third convertible
+                // pair (the fixture the PR-F3 note deferred has arrived:
+                // corpus R0008 + R0085-op2). A cutting plane through the cone
+                // APEX degenerates the conic section into generator lines
+                // (`ssi_rs::plane_cone` AP-line / AP-lines) — the same
+                // recompute-and-reselect rule, with the CONE owner's Stage-1
+                // band (`cone_chord_tol_for_owner`, PR-YR17) as `tol`, exactly
+                // as Stage 3 derives it for a cone-owning edge. See the
+                // band note at `line_tol` below for why the pair takes the
+                // FLAT band and why that is the derived value, not a default.
                 let key = if s < e { (s, e) } else { (e, s) };
                 let Some(entries) = inc0.get(&key) else {
                     continue;
@@ -4111,12 +4121,14 @@ pub(crate) fn stage4_relocate_and_correct(
                     continue;
                 }
                 let mut cyls: Vec<(InputId, Surface)> = Vec::new();
+                let mut cones: Vec<(InputId, Surface)> = Vec::new();
                 let mut plane_surf: Option<Surface> = None;
                 let mut pp: Vec<(Vector3, f64)> = Vec::new();
                 let mut other_curved = false;
                 for &(input, surf) in entries {
                     match surf {
                         Surface::Cylinder { .. } => cyls.push((input, surf)),
+                        Surface::Cone { .. } => cones.push((input, surf)),
                         Surface::Plane { normal, d } => {
                             plane_surf = Some(surf);
                             pp.push((normal, d));
@@ -4124,14 +4136,25 @@ pub(crate) fn stage4_relocate_and_correct(
                         _ => other_curved = true,
                     }
                 }
-                // Two convertible pairs: cylinder × ⊥plane (F3) and PARALLEL
-                // cylinder × cylinder (PR-KV9, ssi cyl∥cyl ruling lines).
-                // Other curved-bearing line edges stay a loud STOP.
+                // Three convertible pairs: cylinder × ⊥plane (F3), PARALLEL
+                // cylinder × cylinder (PR-KV9, ssi cyl∥cyl ruling lines), and
+                // cone × through-apex plane (the generator arm). Other
+                // curved-bearing line edges stay a loud STOP. Every arm is
+                // guarded on the OTHER curved kind being absent so a
+                // three-surface incidence (cyl + cone + plane) cannot be
+                // silently read as a two-surface pair.
                 let (surf_a, surf_b, tol) = match (cyls.as_slice(), plane_surf) {
-                    ([(ci, cs)], Some(pl)) if !other_curved => {
+                    // Cone × plane FIRST: `cones` is not part of the scrutinee,
+                    // so the `([], _)` plane∩plane arm below would otherwise
+                    // swallow a cone-bearing edge as an exact pp segment.
+                    ([], Some(pl)) if !other_curved && cones.len() == 1 => {
+                        let (ci, cs) = cones[0];
+                        (cs, pl, cone_chord_tol_for_owner(cs, ci, a, b, 0, (s, e))?)
+                    }
+                    ([(ci, cs)], Some(pl)) if !other_curved && cones.is_empty() => {
                         (*cs, pl, chord_tol_for_curved_owner(*ci, a, b, 0, (s, e))?)
                     }
-                    ([(i1, c1), (i2, c2)], None) if !other_curved => {
+                    ([(i1, c1), (i2, c2)], None) if !other_curved && cones.is_empty() => {
                         // Both meshes' facet chords contribute to the crossing
                         // vertex — the combined band is the SUM of the two
                         // owners' Stage-1 bounds (derived, not widening).
@@ -4139,7 +4162,7 @@ pub(crate) fn stage4_relocate_and_correct(
                             + chord_tol_for_curved_owner(*i2, a, b, 0, (s, e))?;
                         (*c1, *c2, t)
                     }
-                    ([], _) if !other_curved => {
+                    ([], _) if !other_curved && cones.is_empty() => {
                         // plane∩plane — the segment is exact, but record the
                         // line's planes per endpoint for the PR-KV11 triple-
                         // point pass below.
@@ -4159,10 +4182,11 @@ pub(crate) fn stage4_relocate_and_correct(
                         if std::env::var_os("YANG_LRR_PROBE").is_some() {
                             eprintln!(
                                 "YANG_LRR_SITE site=lineseg_combo edge=({s},{e}) p={:?} \
-                                 n_cyls={} n_pp={} other_curved={other_curved} \
+                                 n_cyls={} n_cones={} n_pp={} other_curved={other_curved} \
                                  entries={entries:?}",
                                 mesh.verts.get(s as usize),
                                 cyls.len(),
+                                cones.len(),
                                 pp.len()
                             );
                         }
@@ -4193,6 +4217,24 @@ pub(crate) fn stage4_relocate_and_correct(
                 // R0026's `AmbiguousCurve{2,0}` reaches THIS Stage-4 relocation
                 // once Stage-3 selection passes). Non-cyl/plane pairs keep the
                 // linear factor (cyl∩cyl Steinmetz, cone-apex lines).
+                //
+                // CONE-APEX GENERATORS take the flat band, and that is the
+                // DERIVED value rather than a fallback default. Both helpers
+                // return `None` for a cone pair, so the amplification is 1.0 —
+                // which is exactly right here: the general membership factor is
+                // `1/‖ĝ_plane × ĝ_cone‖` (the form the cyl×plane `r/√(r²−d²)`
+                // specializes), and along a generator d̂ = â·cosα + û·sinα the
+                // cone's unit normal is `n̂_c = û·cosα − â·sinα`. A plane that
+                // meets the cone in TWO crossed generators contains the axis
+                // (`k = n̂·â = 0` — the AP-lines branch), so û = ±(n̂ × â) ⊥ n̂
+                // and â ⊥ n̂ give `n̂ · n̂_c = 0`: the gradients are exactly
+                // orthogonal, sin = 1, amplification = 1. The TANGENT-generator
+                // case (AP-line, one candidate) has n̂ ∥ n̂_c and a diverging
+                // factor; the flat band UNDER-admits there, so such an edge
+                // fails `matched_n == 1` and STOPs loud — the P9-correct
+                // posture, never a silent match. This matches Stage 3's Line
+                // band for the same pair byte-for-byte, so selection here
+                // cannot disagree with the selection that produced the edge.
                 let line_tol = cyl_plane_generator_band(surf_a, surf_b, tol).unwrap_or_else(|| {
                     line_band_amplification(surf_a, surf_b).unwrap_or(1.0) * tol
                 });
@@ -4218,10 +4260,23 @@ pub(crate) fn stage4_relocate_and_correct(
                 // parallel generators that both pass the band; the edge lies on
                 // exactly one. Break the tie by position (the disjoint-lowest
                 // endpoint-distance interval) — the SAME rule Stage 3 uses. If no
-                // unambiguous winner (overlapping intervals / non-parallel), the
-                // loud `AmbiguousCurve` below stands.
+                // unambiguous winner (overlapping intervals), the loud
+                // `AmbiguousCurve` below stands.
+                //
+                // R0008: this site used the R0072-only
+                // `select_disjoint_parallel_line` wrapper, whose mutual-parallelism
+                // precheck rejects the two CROSSING generators of a cone sectioned
+                // through its apex. Stage 3 was generalized to the
+                // parallelism-free core by N45 (#163, commit 9fca8393) and this
+                // site was not, so the two stages have been running DIFFERENT
+                // tie-breaks — a latent violation of the "selection here cannot
+                // disagree with Stage 3" contract this arm rests on. It was
+                // unobservable while every cone-apex edge STOPped earlier, in the
+                // pair match above. Calling the core restores the invariant; the
+                // criterion is identical for parallel candidates (the wrapper
+                // delegates to it), so the R0072 path is unchanged.
                 if matched_n > 1 {
-                    if let Some(wk) = select_disjoint_parallel_line(&matched_lines, p_s, p_e) {
+                    if let Some(wk) = select_disjoint_line_by_distance(&matched_lines, p_s, p_e) {
                         let (point, dir) = matched_lines[wk];
                         matched_n = 1;
                         matched = Some(LineReloc {

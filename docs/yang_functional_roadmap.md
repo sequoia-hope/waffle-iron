@@ -316,6 +316,32 @@ in the ledger is PERMANENT with user sign-off.
       duplicates). Ledger 312/312 category-identical, 0-WRONG; parity
       18/18; detector NOT promoted (§11).*
    c. **Curved-seam re-CDT** (R0072 class) and whatever the triage promotes.
+      *Stage-4 CONE-APEX GENERATOR arm SHIPPED always-on 2026-07-28 — the
+      triage's one self-contained "small closed-form vocabulary gap"
+      (`docs/yang_tail_triage.md`). Corpus 254C/0W/56E/0T → **255C/0W/55E/0T**,
+      both runs same-session back-to-back; **exactly one category delta,
+      R0008 ERROR→CORRECT, zero CORRECT→ERROR, zero WRONG.** The "missing
+      closed form" diagnosis was WRONG: `ssi_rs::plane_cone` has emitted the
+      through-apex `SsiCurve::Line` all along and Stage 3 has banded it via
+      `cone_chord_tol_for_owner` since PR-YR17. Both gaps were Stage-4 WIRING —
+      (a) the `Curve::LineSegment` pair match binned `Surface::Cone` as
+      `other_curved` and STOPped before selection; (b) once admitted, the
+      tie-break called the R0072-only `select_disjoint_parallel_line`, whose
+      parallelism precheck rejects the two CROSSING apex generators. **(b) is
+      the more instructive half: N45 (#163, 9fca8393) generalized Stage 3 to
+      the parallelism-free `select_disjoint_line_by_distance` and did not
+      update this site, so the two stages ran DIFFERENT tie-breaks for two
+      weeks under a comment asserting they used "the SAME rule".** A shared
+      rule stated in prose is not a shared rule; the wrapper's own doc even
+      named the generalization it was not being asked for. Three cases were in
+      this class, not the ledger's two — R0081 sat under `#153 / SUSPECTED`,
+      unprobed, and surfaced only when re-probing after the fix showed the
+      identical `lineseg_combo` cone×plane site. R0085-op2 and R0081 advance a
+      layer and stay ERROR (torus×line endpoint-mix; Stage-6 non-2-manifold).
+      Test: `crates/yang-rs/tests/cone_apex_generator.rs` — two frustum
+      fixtures, each red-verified against its own half of the fix (a 45° cone
+      does NOT reach the tie-break; only a near-flat one puts both generators
+      inside the band).*
    d. **§4.5.2 as guard shell only** (findings Q3: it recovers ~zero current
       cases — every confirmed LRR case is tangential/missing-solver/micro-
       feature): transversality entry gate, per-pass strict-decrease monitor,
