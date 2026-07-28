@@ -493,8 +493,46 @@ performance artifact). Ships GATED per increment discipline; the flip
 a note on the always-on per-op graze-check cost (bounded: only graze ops
 pay the scan / 2nd pass; R0081-class slow refines are the cost to weigh).
 
+## 5j. inc-5 — the FLIP, re-measured and SHIPPED (2026-07-28)
+
+The §5i "+3" was measured against the pre-`strict-validation` 255C
+baseline, which could not see an off-surface vertex (see
+`memory/session_2026_07_28_onsurface_ledger_blind_spot.md`). Re-measured
+against the honest baseline, two runs back-to-back, same box, same knobs
+(`ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=240`):
+
+| | CORRECT | WRONG | ERROR | TIMEOUT |
+|---|---|---|---|---|
+| baseline (both gates off) | 252 | 0 | 58 | 0 |
+| graze + rim-snap ON | **254** | 0 | 56 | 0 |
+
+**Per-case diff over all 312 cases — exactly two deltas, both
+improvements: R0072 and R0095 ERROR→CORRECT. Zero CORRECT→ERROR.**
+
+Three corrections to the §5i reading, all in the honest direction:
+- the "+3" is really **+2** — R0063 is ERROR in BOTH states (the
+  `VertexOffSurface` ledger catches it independently of this arm);
+- **R0081 does NOT go TIMEOUT.** It is an honest in-budget ERROR in both
+  states at 240s, so §5i's ERROR→TIMEOUT was a 120s budget artifact, not
+  a cost of the refinement. The flip's perf caveat is therefore weaker
+  than §5i feared;
+- the flip is **NOT independent**: it requires the §4.4.1 rim-snap pass
+  (`stage4_boundary_curve`, spec `yang_s4_boundary_curve_relocation.md`).
+  Boosting the rim exposes the same latent Stage-4 relocation gap that
+  rim-snap closes — `n2_junction_cluster::i1` is GREEN with both gates
+  off, **RED with this arm alone** (1 vertex 6.840109e-7 off the cylinder
+  vs a 1.000213e-9 band), and GREEN again with rim-snap on. The two ship
+  as ONE flip and must stay on together.
+
 ## 6. Ledger
 
+- 2026-07-28 **inc-5 SHIPPED — GATE REMOVED, always-on** (§5j).
+  `YANG_RIM_PLANE_GRAZE_ENABLE` deleted from `boolean()`, paired with the
+  removal of `YANG_S4_RIM_SNAP_ENABLE` in the same commit (the arm depends
+  on it — `n2_junction_cluster::i1` is the witness). Re-measured on the
+  honest 252C/0W/58E/0T baseline: **254C/0W/56E/0T, exactly two deltas
+  (R0072, R0095 ERROR→CORRECT), zero CORRECT→ERROR, zero WRONG, zero
+  TIMEOUT.** Full `yang-rs` suite green with the gates gone.
 - 2026-07-23 inc-4 SHIPPED gated (§5i): detect-then-refine (paper §4.5.4)
   REPLACES the eager pre-tessellation boost. `boolean()` wraps
   `boolean_once(..., refine_rim_plane)`: pass 1 natural → graze gate →

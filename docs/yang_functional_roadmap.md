@@ -3438,6 +3438,23 @@ swapped every consumer to `predicates::indirect`).
     correctness regression). F0082 unchanged (Extrude-14 = #130 M8). The
     always-on flip precondition (zero CORRECT→ERROR, #169 P3b inc-5
     precedent) is MET; flip = inc-5.
+  - **#195 inc-5 SHIPPED ALWAYS-ON (2026-07-28, spec §5j) — the gate is
+    GONE**, flipped in one commit together with the §4.4.1 rim-snap pass
+    (`YANG_S4_RIM_SNAP_ENABLE`, spec `yang_s4_boundary_curve_relocation.md`
+    §18), which it DEPENDS on. Re-measured against the honest
+    `strict-validation` baseline, two back-to-back full-corpus runs:
+    **baseline 252C/0W/58E/0T → gates-ON 254C/0W/56E/0T; per-case diff over
+    all 312 cases = exactly two deltas, R0072 and R0095 ERROR→CORRECT, zero
+    CORRECT→ERROR.** Three corrections to the inc-4 reading: the "+3" is
+    really **+2** (R0063 is ERROR in BOTH states — the `VertexOffSurface`
+    ledger catches it independently); **R0081 does NOT go TIMEOUT** (honest
+    in-budget ERROR both states at 240s, so inc-4's ERROR→TIMEOUT was a
+    120s budget artifact, not a cost of the refinement); and the arm is
+    **not independent** — boosting the rim exposes the same latent Stage-4
+    relocation gap rim-snap closes, so `n2_junction_cluster::i1` is GREEN
+    with both gates off, RED with the graze arm ALONE (1 vertex 6.84e-7 off
+    the cylinder vs a 1.00e-9 band), GREEN with both. `YANG_S4_TRIPLE_POINT_ENABLE`
+    (§4.4.1 inc-3) stays GATED — it was not in the measured combination.
   - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
     post-#143), with two fresh class diagnoses:**
     (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —

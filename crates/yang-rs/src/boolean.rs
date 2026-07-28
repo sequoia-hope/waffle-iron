@@ -353,35 +353,32 @@ fn output_improper_count(brep: &BRep) -> usize {
 
 /// Boolean entry point.
 ///
-/// Production (the common path) is a single pipeline pass with NO rim×plane
-/// graze refinement — byte-identical to the pre-#195 behavior.
+/// Runs the paper's §4.5.4 detect-then-refine (spec
+/// `yang_195_seal_neighborhood_self_overlap.md` §5h, inc-4/inc-5): pass 1 at
+/// natural rim resolution; ONLY if that output self-intersects (or errors)
+/// AND a rim×plane graze is geometrically present do we re-run with the
+/// crossing-sampling rim boost, ACCEPTING the refined output only when it is
+/// self-intersection-free. A CORRECT natural-N result is never refined, so the
+/// refinement provably cannot regress a passing case — the eager-boost
+/// false-positive class (R0021 / F0085 over-fire, spec §5h) is structurally
+/// excluded. This replaces the eager pre-tessellation boost, which fired on
+/// every geometric graze whether or not it produced a defect.
 ///
-/// Under `YANG_RIM_PLANE_GRAZE_ENABLE=1|on` this runs the paper's §4.5.4
-/// detect-then-refine (spec `yang_195_seal_neighborhood_self_overlap.md`
-/// §5h, inc-4): pass 1 at natural rim resolution; ONLY if that output
-/// self-intersects (or errors) AND a rim×plane graze is geometrically
-/// present do we re-run with the crossing-sampling rim boost, ACCEPTING the
-/// refined output only when it is self-intersection-free. A CORRECT
-/// natural-N result is never refined, so the refinement provably cannot
-/// regress a passing case — the eager-boost false-positive class (R0021 /
-/// F0085 over-fire, spec §5h) is structurally excluded. This replaces the
-/// eager pre-tessellation boost, which fired on every geometric graze
-/// whether or not it produced a defect.
+/// ALWAYS-ON since inc-5 (was `YANG_RIM_PLANE_GRAZE_ENABLE`). Flip measured on
+/// the full 312-case corpus against the honest 252C/0W/58E/0T baseline:
+/// **254C/0W/56E/0T, exactly two deltas — R0072 and R0095 ERROR→CORRECT — and
+/// zero CORRECT→ERROR.** The flip is paired with the §4.4.1 rim-snap pass
+/// (`stage4_boundary_curve`), which the refinement depends on: boosting the rim
+/// exposes a latent Stage-4 relocation gap that rim-snap closes (the
+/// `n2_junction_cluster::i1` oracle is RED with this arm alone and GREEN with
+/// both). The two must stay on together.
 pub fn boolean(
     a: &BRep,
     b: &BRep,
     op: BoolOp,
     backend: &dyn MeshBoolean,
 ) -> Result<BRep, YangError> {
-    let rim_plane_enabled = matches!(
-        std::env::var("YANG_RIM_PLANE_GRAZE_ENABLE").as_deref(),
-        Ok("1") | Ok("on")
-    );
-    if !rim_plane_enabled {
-        // Production default: single pass, no refinement (byte-identical).
-        return boolean_once(a, b, op, backend, false);
-    }
-    // Detect-then-refine (gate-ON). Pass 1 at natural resolution.
+    // Detect-then-refine. Pass 1 at natural resolution.
     let natural = boolean_once(a, b, op, backend, false);
     let probe = std::env::var_os("YANG_REFINE_PROBE").is_some();
     // CHEAP GATE FIRST: a rim×plane graze the natural resolution
@@ -515,9 +512,9 @@ fn boolean_once(
     // never eagerly. Pass 1 (natural resolution) always sees `None`, so a
     // shallow crossing that produces no self-intersection (the R0021/F0085
     // eager-boost false-positive class, spec §5h) is never boosted. The
-    // whole detect-then-refine path is gated by `YANG_RIM_PLANE_GRAZE_ENABLE`
-    // in `boolean`; production takes the single-pass `refine_rim_plane=false`
-    // route (byte-identical).
+    // detect-then-refine path in `boolean` is always-on since inc-5; pass 1
+    // still takes the `refine_rim_plane=false` route, so a case that never
+    // trips detection is byte-identical to the pre-#195 behavior.
     let rim_plane_req = if refine_rim_plane {
         rim_plane_graze_min_segments(a, b)
     } else {

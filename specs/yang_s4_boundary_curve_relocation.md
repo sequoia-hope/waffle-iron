@@ -79,7 +79,8 @@ pointwise on vertices that are already off their own model's boundary curve.
 
 ## 4. The pass
 
-`stage4_boundary_curve_relocate` (gate `YANG_S4_RIM_SNAP_ENABLE`, default OFF).
+`stage4_boundary_curve_relocate` (**always-on since inc-5, 2026-07-28**; was
+gated behind `YANG_S4_RIM_SNAP_ENABLE`, default OFF — see §18).
 Runs in Stage 4 AFTER the existing cross-input relocation (so junction vertices
 are already seated and can be excluded).
 
@@ -612,3 +613,36 @@ edge about itself.
 
 The probe (`YANG_V_PROBE` tangent-test line) is retained — it is the tool that
 produced this and costs nothing when unset.
+
+## 18. inc-2 FLIPPED ALWAYS-ON (2026-07-28) — as the dependency of #195 inc-5
+
+The rim-snap pass shipped corpus-NEUTRAL (§ above: 252C/0W, zero deltas), which
+on its own is not a flip case — a corpus-neutral pass has no measured value to
+weigh against always-on cost. What changed is that a SECOND arm turned out to
+depend on it.
+
+#195's §4.5.4 rim×plane graze refinement (spec
+`yang_195_seal_neighborhood_self_overlap.md`) boosts the rim sampling on a
+detected graze. That boost EXPOSES exactly the latent Stage-4 blind spot this
+pass repairs — an operand's own rim vertex left at its Stage-1 chord position,
+because `build_intersection_curves` skips same-input edges (`stage3_ssi.rs:534`).
+Measured on the `n2_junction_cluster::i1` oracle:
+
+| gates | i1 |
+|---|---|
+| both off | GREEN (0 off-band) |
+| `YANG_RIM_PLANE_GRAZE_ENABLE` alone | **RED** — 1 vertex 6.840109e-7 off the cylinder vs band 1.000213e-9 |
+| + `YANG_S4_RIM_SNAP_ENABLE` | GREEN |
+| + `YANG_S4_TRIPLE_POINT_ENABLE` too | GREEN |
+
+So the graze arm's +2 CORRECT (R0072, R0095) is only available WITH this pass.
+Both gates were removed in one commit; the combined flip re-measured on the
+honest baseline is **252C → 254C, 0W, zero CORRECT→ERROR** over all 312 cases.
+
+**`YANG_S4_TRIPLE_POINT_ENABLE` (inc-3) stays GATED.** It was not part of the
+measured combination and has no conversion of its own yet; flipping it is a
+separate increment with its own measurement.
+
+This is the general shape worth remembering: **a corpus-neutral repair can be
+the enabling dependency of a converting one.** Neutral is not the same as
+valueless — it can be the floor another arm needs in order to stand on.

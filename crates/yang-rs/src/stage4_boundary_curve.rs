@@ -14,12 +14,18 @@
 //! (6.840109e-7, exactly on the chord) and R0063 face 636 (3.126e-5, perturbed
 //! 2.409e-7 OFF the chord). This module is the pointwise repair.
 //!
-//! **inc-2 status:** WIRED into `stage4_relocate_and_correct`, gated OFF by
-//! default behind `YANG_S4_RIM_SNAP_ENABLE` — every addition sits inside that
-//! `if`, so the production path is unchanged by construction. Gate-ON it fixes
-//! the n2 I1 reproduction (moves exactly `v6`) with the full yang-rs suite green
-//! and ZERO corpus category deltas. It does NOT yet reach the corpus tail
-//! (F0083/R0099 still `VertexOffSurface`) — see the spec's inc-3 question.
+//! **Status: ALWAYS-ON since inc-5** (was gated OFF behind
+//! `YANG_S4_RIM_SNAP_ENABLE`). Wired into `stage4_relocate_and_correct`. It
+//! fixes the n2 I1 reproduction (moves exactly `v6`) and is corpus-neutral on
+//! its own; it was flipped together with the §4.5.4 rim×plane graze refinement
+//! in `boolean`, which DEPENDS on it — boosting the rim exposes this same
+//! latent relocation gap, so `n2_junction_cluster::i1` is RED with the graze
+//! arm alone and GREEN with both. Combined flip measured on the full 312-case
+//! corpus: 252C→254C (R0072, R0095 ERROR→CORRECT), 0W, zero CORRECT→ERROR.
+//!
+//! It does NOT reach the corpus tail (F0083/R0099 still `VertexOffSurface`) —
+//! the spec's §17 records why: that class is a Stage-3 `on_both` gate defect,
+//! not a §4.4.1 one, and cannot be fixed from edge-local data.
 
 use crate::errors::{Stage4InvalidReason, YangError};
 use crate::geom::{Curve, Surface};
@@ -164,15 +170,6 @@ pub(crate) fn plan_boundary_relocations(
         }
     }
     moves.into_iter().collect()
-}
-
-/// Gate for the §4.4.1 boundary-curve relocation pass (inc-2). Default OFF;
-/// `YANG_S4_RIM_SNAP_ENABLE=1|on` enables it.
-pub(crate) fn rim_snap_enabled() -> bool {
-    matches!(
-        std::env::var("YANG_S4_RIM_SNAP_ENABLE").as_deref(),
-        Ok("1") | Ok("on")
-    )
 }
 
 /// The analytic rim curve of a same-operand surface PAIR, in closed form.

@@ -34,7 +34,7 @@ Re-generate the baseline column only from a committed `results.json`.
 | R0044 | Stage-4 LRR v11 | ~~torus×torus (N52)~~ **RE-DIAGNOSED (probe 2026-07-17, #172):** v11 is a cylinder×cone `SurfacePair` endpoint that is ALSO a conic endpoint — the surface-pair endpoint-mix STOP (`stage4_correct.rs` `vert_surface_pair` loop), a mixed conic×degree-4 junction, NOT torus×torus. Needs a junction relocation onto the shared surface set | CONFIRMED (#172 probe) | P3-junction |
 | ~~R0096~~ | ~~Stage-4 LRR v7~~ | ~~torus×torus~~ **FLIPPED CORRECT 2026-07-17 (#172):** torus×torus lateral∩lateral + torus×torus×plane junctions now relocate via the implicit-pair/triple Newton (torus-block scope lift) | — | ~~P2-M5~~ DONE |
 | R0038 | Stage-4 LRR (u32::MAX) | plane tangent to cylinder along one generator; degree-2 gate self-validates (`bad_degree=[(18,4),(19,4)]`) — near-tangency pinch, NOT a CDT ring | CONFIRMED (#168 WIP4, 9f4cb604) | P3b-#137 |
-| R0072 | Stage-4 LRR (u32::MAX) | real ~1e-7 micro-scale edge (0.4% span); force-merge is the R0091 silent-wrong trap — needs curved re-CDT | CONFIRMED (N55) | P3c |
+| ~~R0072~~ | ~~Stage-4 LRR (u32::MAX)~~ | ~~real ~1e-7 micro-scale edge (0.4% span); force-merge is the R0091 silent-wrong trap — needs curved re-CDT~~ **FLIPPED CORRECT 2026-07-28 (#195 inc-5):** the §4.5.4 detect-then-refine rim boost + §4.4.1 rim-snap, both now always-on, resolve it WITHOUT a curved re-CDT — the micro-scale edge was an under-sampled rim, not an irreducible feature | — | ~~P3c~~ DONE |
 | C0058 | non-2-manifold (reassembly) | probe 2026-07-17: `NONMANIFOLD_SITE s6-curved-degenerate-loop` — Stage-6 curved face 2 emits a 64-vertex loop with \|Newell N\| = 2.3e-16 (degenerate junction loop) | CONFIRMED (#171 sweep) | P3a-#146 |
 | C0067 | Stage-4 LRR v128 | probe 2026-07-18 (#171 pass 2): v128 is a **circle×circle junction** (`circle_junction=true`, endpoint) — two sphere-section Circles (both r=0.371, centers [0.15,0,0.5]/[0,0.15,0.5], normals x̂/ŷ) meet at [0.15,0.15,0.83]; junction relocation region invalid. Needs two-curve junction relocation (mint-once contract) | CONFIRMED (#171 pass 2) | P3-junction |
 | R0008 | Stage-4 LRR v42 | probe 2026-07-18: `YANG_LRR_SITE site=lineseg_combo` edge (42,43) — LineSegment edge whose incidence is **Cone(A, half-angle 1.5525 rad ≈ 88.9°, near-flat) × Plane(B)**; the Stage-4 LineSegment arm has closed forms only for cyl×plane / cyl∥cyl / plane×plane — the **cone-generator line closed form is missing** (the "when a fixture demands them" fixture). #163/N45 residual theory REFUTED — it never reaches selection; same class as R0085-op2 | CONFIRMED (#171 pass 2) | Stage-4 cone-generator LineSegment arm (small closed-form vocabulary gap) |
@@ -66,7 +66,7 @@ Re-generate the baseline column only from a committed `results.json`.
 | Case | Loud error | Root cause | Confidence | Vehicle |
 |---|---|---|---|---|
 | F0082 | non-2-manifold | near-duplicate junction verts v588≈v601 (0.012 apart 3D, ~4e-4 in-plane = off-plane); spurious in-patch overlap triangle; re-CDT REFUTED as tool | CONFIRMED (#169 Phase B, 0b655da2) | P3a-#146 |
-| R0095 | non-2-manifold | EVERY face has a ~1e-24-area boundary triple — upstream degenerate junction geometry | CONFIRMED (#169, 0b655da2) | P3a-#146 |
+| ~~R0095~~ | ~~non-2-manifold~~ | ~~EVERY face has a ~1e-24-area boundary triple — upstream degenerate junction geometry~~ **FLIPPED CORRECT 2026-07-28 (#195 inc-5):** the always-on rim boost + rim-snap remove the degenerate boundary triples at the source | — | ~~P3a-#146~~ DONE |
 | C0044 | non-2-manifold | 3-patch junction fires the Stage-4 gate. **P3a increment-0 probe (2026-07-18): ZERO transversal pierce candidates — the junction is coplanar contact (flush annular stack), NOT the pierce-mint class** | CONFIRMED (#169 Phase 0 + #146 inc-0) | ~~P3a-#146~~ Stage-0/M8 coplanar-seam family |
 | F0064 | non-2-manifold | wall vert 0.083 off floor plane; minted in Stage-4 mutation window OR inherited via lineage-less chained B (4 hypotheses eliminated, N51 session) | PARTIAL (#146) | P3a-#146 |
 | R0051 | non-2-manifold | in the #146 Newell-normal class per task | SUSPECTED | P3a-#146 |
@@ -244,9 +244,9 @@ buckets:
 | Vehicle | Cases |
 |---|---|
 | P2-M5 (SSI solvers) | 0 open (R0096 flipped CORRECT #172; R0044 → P3-junction) |
-| P3a-#146 (junction mint / incidence) | 9 confirmed (C0058, R0049, F0082, R0095, C0044, F0058, F0060, R0016, R0050) + F0064 partial + R0051 suspected |
+| P3a-#146 (junction mint / incidence) | 8 open (C0058, R0049, F0082, C0044, F0058, F0060, R0016, R0050) + F0064 partial + R0051 suspected; ~~R0095~~ FLIPPED CORRECT (#195 inc-5) |
 | P3b-#137 (torus∩plane + grazing/tangency Stage-4) | 8 confirmed (C0065, R0074, R0038, R0015, R0026, R0025, R0077, R0032-torus×cone) + F0085 (open seam, R0038-type) |
-| P3c (curved re-CDT) | 1 confirmed (R0072) |
+| P3c (curved re-CDT) | **0 open** — ~~R0072~~ FLIPPED CORRECT 2026-07-28 (#195 inc-5); the vehicle has no remaining case |
 | P3-junction (other junction vocabulary) | 8 confirmed (R0003, R0044, C0067, R0020, R0035, R0070, F0045, R0011, R0028, R0085-op1 — last four are S5/S6 output-ring assembly) |
 | Stage-4 cone-generator LineSegment arm (new, small closed form) | 2 confirmed (R0008, R0085-op2) |
 | Stage-2/3 arrangement incidence (near-coincident surfaces) | 1 confirmed (R0053; R0050 kin, counted under P3a) |

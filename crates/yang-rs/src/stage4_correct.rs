@@ -6854,16 +6854,20 @@ pub(crate) fn stage4_relocate_and_correct(
     }
 
     // §4.4.1 boundary-curve relocation (spec `yang_s4_boundary_curve_relocation.md`,
-    // inc-2), gated by `YANG_S4_RIM_SNAP_ENABLE`. Yang Fig. 11 requires the
-    // trimmed triangulation to "map boundary curves to boundary curves", which
-    // includes an operand's OWN rim — the case `build_intersection_curves`
-    // never claims (`input0 == input1`). Runs LAST so every cross-input
-    // junction is already seated and can be excluded by construction.
+    // inc-2). Yang Fig. 11 requires the trimmed triangulation to "map boundary
+    // curves to boundary curves", which includes an operand's OWN rim — the
+    // case `build_intersection_curves` never claims (`input0 == input1`). Runs
+    // LAST so every cross-input junction is already seated and can be excluded
+    // by construction.
+    //
+    // ALWAYS-ON since inc-5 (was `YANG_S4_RIM_SNAP_ENABLE`); flipped together
+    // with the §4.5.4 rim×plane graze refinement in `boolean`, which depends on
+    // it — see that function's note for the corpus measurement.
     //
     // Phase A is recomputed here rather than reusing `inc0`/`curves0`: the mesh
     // has been relocated and possibly collapsed since, so the earlier maps can
     // reference stale vertices.
-    if crate::stage4_boundary_curve::rim_snap_enabled() {
+    {
         let (_infos_bc, inc_bc, curves_bc) = compute_phase_a(mesh, attribution, brep_a, brep_b)?;
         let rim_curves = crate::stage4_boundary_curve::collect_rim_curves(&inc_bc);
         // Per-vertex exclusion diagnosis: `YANG_S4_RIM_SNAP_TARGET=x,y,z,r`
