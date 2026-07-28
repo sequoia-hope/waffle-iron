@@ -126,6 +126,7 @@ pub(crate) use stage1_tessellate::*;
 pub use stage1_tessellate::{tessellate_sphere_patch, tessellate_torus_patch};
 pub(crate) use stage4_correct::*;
 pub(crate) use stage4_relocate::*;
+mod stage4_boundary_curve;
 mod stage4_project;
 pub mod stage4_update;
 pub use errors::{SsiRefinementError, Stage4InvalidReason, YangError};
