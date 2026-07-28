@@ -233,8 +233,29 @@ pub(crate) fn relocate_onto_implicit_pair(p: Point3, s0: Surface, s1: Surface) -
     const MAX_ITERS: usize = 32;
     // Converge tightly (well below the 1e-12 on-surface validation band; the
     // torus residual is ~2·minor·|F|): Newton is quadratic so this is a few
-    // extra cheap steps. Absolute tol suits the unit-scale model corpus.
-    let tau = 1e-13_f64;
+    // extra cheap steps.
+    //
+    // The floor is the EVALUATION-PRECISION term `8·ε·L`, not the bare 1e-13 —
+    // the identical amendment `relocate_onto_implicit_triple` already carries
+    // (increment 5). Every `surface_value_and_normal` residual is a LENGTH
+    // (plane: signed distance; sphere/cylinder/torus: `l − radius`; cone:
+    // `l − |h|·tanα`), so at coordinate magnitude `L` no residual can be
+    // evaluated below ~8·ε·L: demanding 1e-13 at the R0044 scale (L ≈ 6.2e3,
+    // 8·ε·L ≈ 1.1e-11) demands ~100× BELOW one ULP and can never be met, so a
+    // fully converged root ran out of iterations and returned the loud STOP.
+    // Measured on the corpus group: R0044 exits with f=(0, 2.3e-12), R0025
+    // with (−2.8e-13, 0) at det = 1.0 (perfectly transversal), R0077 with
+    // (0, 4.5e-13) — every one already BELOW its own 8·ε·L. This is a
+    // reachability correction, NOT a band widening: at unit scale
+    // 8·ε·L ≈ 5e-15 < 1e-13, so the shipped unit-scale behavior is
+    // byte-identical, exactly as it was for the triple.
+    //
+    // `L` comes from the SEED `p`, never the iterate: a DIVERGING iterate
+    // (R0044 has a second vertex that blows up to |x| ≈ 5e25) would otherwise
+    // inflate its own acceptance threshold and turn a divergence into a
+    // silent accept. Seed-scaled keeps divergence loud.
+    let mag3 = |v: [f64; 3]| v[0].abs().max(v[1].abs()).max(v[2].abs());
+    let tau = TORUS_RELOC_WORK_FLOOR.max(8.0 * f64::EPSILON * mag3(p.as_array()));
     let rank_eps = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
     let mut x = p.as_array();
     for _ in 0..=MAX_ITERS {

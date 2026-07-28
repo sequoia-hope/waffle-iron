@@ -204,6 +204,104 @@ pub(crate) fn m5_cone_pair_relocation_onto_both() {
     assert!(signed_distance_to_surface(cyl, p).unwrap().abs() < 1e-9);
 }
 
+/// The pair Newton's convergence floor must be REACHABLE at the coordinate
+/// magnitude it is asked to work at.
+///
+/// `relocate_onto_implicit_pair` used a bare absolute `tau = 1e-13`. Every
+/// `surface_value_and_normal` residual is a LENGTH, so at coordinate magnitude
+/// `L` no residual can be evaluated below ~`8·ε·L`; at R0044's scale
+/// (L ≈ 6.2e3) that floor is ~1.1e-11, more than 100× ABOVE the demanded
+/// 1e-13. A fully converged root therefore ran out of iterations and returned
+/// `None` — a loud STOP for a point that was already exactly on both surfaces.
+/// `relocate_onto_implicit_triple` had carried the `8·ε·L` amendment since
+/// increment 5; the pair sibling had not, so the two shared a metric and
+/// disagreed about it.
+///
+/// The numbers are R0025's LIVE PROBE VALUES — a torus x plane pair and the
+/// seed recorded at one of its `relocate_onto_implicit_pair` calls. Real
+/// coordinates are REQUIRED here, and two earlier attempts at this test were
+/// wrong for instructive reasons:
+///
+///  - a synthetic large-coordinate fixture with tidy axis-aligned values
+///    (6000, 100, 42) cancels exactly, both residuals reach 0.0, and the test
+///    passes even on the broken build; and
+///  - R0044's probed vertex is a THREE-surface junction, so its cylinder x cone
+///    pair has no root near that seed and returns `None` in both builds.
+///
+/// This witness was captured from the `MAX_ITERS` exit itself on a build pinned
+/// back to the old constant: it stalls at `f0 = 1.14e-13`, `f1 = -5.68e-14` —
+/// f1 already converged, f0 parked just ABOVE the old absolute 1e-13 and far
+/// BELOW this seed's `8*eps*L` floor of ~2.4e-12. Newton cannot close that last
+/// factor of 1.1 because it is below one ULP at |x| ~ 1.3e3, so the old build
+/// burned all 32 iterations on an already-converged root and returned `None`.
+///
+/// Note it is specifically a STALLED seed, not merely a large-coordinate one:
+/// an earlier attempt used a seed that converges by iteration 3 on BOTH builds
+/// and so passed without the fix. A witness has to come from the failing exit.
+#[test]
+pub(crate) fn pair_newton_converges_at_large_coordinate_magnitude() {
+    let torus = Surface::Torus {
+        center: Point3::new(
+            -1168.034_411_526_669_1,
+            -337.362_669_297_692_83,
+            -504.810_811_776_372,
+        ),
+        axis_dir: Vector3::new(0.0, 0.347_027_534_189_695_1, -0.937_854_941_083_225_3),
+        major_radius: 494.229_467_044_109_13,
+        minor_radius: 329.486_311_362_739_46,
+    };
+    let plane = Surface::Plane {
+        normal: Vector3::new(
+            -0.500_859_978_671_093_7,
+            -0.373_465_296_917_343_9,
+            0.780_809_166_034_846_1,
+        ),
+        d: -463.872_489_046_618_45,
+    };
+    let seed = Point3::new(
+        -1339.501_095_147_644_7,
+        -357.541_286_003_184_7,
+        -436.161_969_211_728_3,
+    );
+
+    let p = relocate_onto_implicit_pair(seed, torus, plane)
+        .expect("a converged root at |x| ~ 1.3e3 must be ACCEPTED — 1e-13 is below one ULP there");
+
+    // Assert against what is representable at this magnitude, rather than
+    // restating the old impossible demand.
+    let l = seed.x().abs().max(seed.y().abs()).max(seed.z().abs());
+    let floor = 8.0 * f64::EPSILON * l;
+    assert!(
+        signed_distance_to_surface(torus, p).unwrap().abs() <= floor,
+        "torus residual must reach the {floor:.3e} evaluation floor"
+    );
+    assert!(
+        signed_distance_to_surface(plane, p).unwrap().abs() <= floor,
+        "plane residual must reach the {floor:.3e} evaluation floor"
+    );
+
+    // (The floor is SEED-scaled, never iterate-scaled, so a diverging iterate
+    // cannot inflate its own acceptance threshold. That property is asserted
+    // where it is observable — on the corpus, which stays 0-WRONG — not here.)
+
+    // Unit-scale behaviour is unchanged: 8*eps*L there is ~5e-15, well under
+    // the 1e-13 floor, so the constant still governs and the shipped path is
+    // byte-identical.
+    let unit_cyl = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let unit_plane = Surface::Plane {
+        normal: Vector3::new(0.0, 1.0, 0.0),
+        d: 0.0,
+    };
+    let q = relocate_onto_implicit_pair(Point3::new(1.02, 0.03, 0.5), unit_cyl, unit_plane)
+        .expect("unit-scale relocation is unaffected");
+    assert!(signed_distance_to_surface(unit_cyl, q).unwrap().abs() <= 1e-13);
+    assert!(signed_distance_to_surface(unit_plane, q).unwrap().abs() <= 1e-13);
+}
+
 // ── Case-IV phantom guard (spec `yang_case_iv_phantom_guard`) ────────
 
 /// Minimal solid cylinder B-Rep (two rims + seam) for the guard tests.
