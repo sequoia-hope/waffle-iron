@@ -87,13 +87,15 @@ For each undirected output boundary edge with **exactly two** incidence entries
 where `input0 == input1` **and `surf0 != surf1`** (the operand's own rim — two
 adjacent surfaces of one solid; equal surfaces are patch-interior and skipped):
 
-1. **Derive the boundary curve.** The two surfaces' analytic intersection, via
-   the same `ssi_rs::intersect` + unique-selection path
-   `build_intersection_curves` already uses, with the SAME selection tolerance
-   (`chord_tol_for_curved_owner` on the owning input). `matched != 1` ⇒ this edge
-   is not a clean analytic rim ⇒ **skip it** (do not STOP: unlike a cross-input
-   intersection edge, a same-input adjacency is not required to be a conic, e.g.
-   plane∩plane rims and swept profiles).
+1. **Derive the boundary curve — NO SSI NEEDED (revised, see §8).** An operand's
+   own rim already HAS its analytic curve in the input B-Rep
+   (`BRepEdge.curve`). Prefer the Stage-1 bijection over re-deriving anything:
+   `TessellationSource::BRepEdge { edge, t }` (`brep.rs:151`) records, per mesh
+   vertex, the owning B-Rep edge AND its parameter — and for a `Curve::Circle`
+   "`t` is an **angle in radians**" (PR-YR7). Where that tag survives, the
+   vertex's canonical position is simply the curve evaluated at `t`: exact by
+   construction, no projection and no selection tolerance. Fall back to §4's
+   projection only for vertices with no such tag (see §8).
 2. **Select vertices.** Both endpoints, EXCEPT any vertex that:
    - is an endpoint of a cross-input curve (a key of `curves0`) — those are
      A×B junctions already relocated and required to lie on BOTH curves;
@@ -171,3 +173,41 @@ Per the "structural fixes first / do not tune bands" posture, R0027 gets its own
 increment in `kernel-v2` and is explicitly NOT a success criterion for inc-2.
 Expected inc-2 conversions are therefore **F0083 and R0099** (plus the n2 `i1`
 test and R0063 under the #195 arm) — not the full tail.
+
+---
+
+## 8. inc-2 design revision (2026-07-28) — use the Stage-1 bijection, not SSI
+
+Found while closing inc-1. `TessellationSource::BRepEdge { edge: u32, t: f64 }`
+(`crates/yang-rs/src/brep.rs:151`) already carries exactly what this pass needs:
+the owning B-Rep edge and the parameter along it, with `t` an **angle in
+radians** for a `Curve::Circle`. This is the Stage-1 bijection the crate's own
+rules call first-class ("TessellationMap is first-class... Stages 5/6 consult
+it").
+
+So inc-2 has TWO arms, and the exact one is preferred:
+
+- **(a) Tagged vertex — exact re-evaluation.** A vertex still carrying
+  `BRepEdge { edge, t }` has a canonical position: its owning edge's curve
+  evaluated at `t`. Re-seat it there. This is "boundary curves map to boundary
+  curves" implemented literally and exactly — no projection, no selection
+  tolerance, no SSI call, and no ambiguity about WHICH curve (the tag names the
+  edge, so `matched != 1` cannot arise).
+- **(b) Untagged vertex — inc-1's projection.** A vertex MINTED after Stage 1
+  (the Stage-0 overlay insertions — the measured `v6` class — arrives as
+  `Intersection`/`Unknown`) has no parameter to re-evaluate, so it needs the
+  closest-point projection with the chord-bound guard that inc-1 shipped.
+
+Both arms keep the §4 guards: junction vertices excluded, displacement beyond
+the owner's Stage-1 chord bound is a LOUD STOP. On arm (a) the guard becomes a
+pure P10 safety net — a tagged vertex further from its OWN recorded parameter
+than the chord bound means something upstream corrupted the bijection, which
+must be loud rather than silently re-seated.
+
+**Open question for inc-2 (measure first, do not assume):** how many of the
+defective vertices still carry a `BRepEdge` tag in the OUTPUT mesh? `boolean()`
+spatially re-matches output vertices to input ones (`brep.rs:161`), so some rim
+vertices should retain it — but `v6` is overlay-minted and probably will not.
+Measure the tag census on the I1 fixture and on R0063/F0083/R0099 BEFORE
+building, the same way §7's triage was run: if arm (a) covers nothing, build
+only (b); if it covers most, (b) stays a narrow fallback.
