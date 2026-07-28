@@ -413,3 +413,44 @@ which of the three selection tests drops it:
 The third is the interesting possibility and would be a real capability step, not
 a selection tweak. Measure before building — the last two increments were both
 re-scoped by exactly this kind of probe.
+
+---
+
+## 13. inc-4 probe (2026-07-28) — the next layer is NOT a §4.4.1 class; it is an UNBUILT cross-input curve
+
+Probing F0083's new off-surface vertex:
+
+```
+[rim-target] v=118  dist=0  cross_excluded=FALSE
+  SURFACE A:Cylinder implicit_value=-1.9143943665599628e-3
+  SURFACE B:Plane    implicit_value=-5.551115123125783e-17   (exact)
+  edge=(80,118)  ["A:Cylinder","B:Plane"]  same_input=false  circle=false claimed=false
+  edge=(116,118) ["A:Cylinder","B:Plane"]  same_input=false  circle=false claimed=false
+```
+
+Three facts, and none of them matches the §4.4.1 classes:
+
+1. **Only TWO surfaces**, not three — so it is not a triple point, and §12's
+   "4-surface corner" guess is REFUTED.
+2. **It has NO own-rim edge at all.** Both incident edges are CROSS-input, so no
+   rim circle is claimed and inc-2/inc-3 correctly never look at it.
+3. **It lies EXACTLY on `B:Plane` (−5.55e-17) but 1.9e-3 OFF `A:Cylinder`** — and
+   `cross_excluded=false`, meaning neither of its edges is a key of `curves0`.
+
+(3) is the diagnosis. A vertex on the `A:Cylinder ∩ B:Plane` intersection edge
+must lie on BOTH surfaces. It does not, AND its edges are absent from the
+cross-input curve map — so **`build_intersection_curves` never produced a curve
+for them, and Stage 4 therefore never relocated their vertices onto it.** Had the
+curve been built, the existing cross-input machinery would have seated this
+vertex correctly.
+
+**So F0083's remaining defect is upstream of this spec entirely: an A×B
+intersection edge whose analytic curve was never built.** That is PR-YR9 /
+Stage-3 territory (`build_intersection_curves` selection), not §4.4.1 mesh
+updating. It should be tracked as its own task, and this spec's remaining scope
+(inc-2 + inc-3) is COMPLETE as designed.
+
+**Next step for that task, not this one:** find why `build_intersection_curves`
+skipped `A:Cylinder × B:Plane` on this edge — a cylinder∩plane is a circle or
+ellipse, so the likely candidates are the unique-selection test failing
+(`matched != 1`) or the incidence entry count not being exactly 2.
