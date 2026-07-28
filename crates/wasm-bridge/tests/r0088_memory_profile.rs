@@ -42,11 +42,21 @@
 //! **+0.0 MiB at 207K triangles**, so the octree fix holds at 28x the scale it
 //! was diagnosed on.
 //!
-//! Consequence for anyone picking this up: the remaining lever is **Stage-1
-//! tessellation density** (why does that revolve emit 207K triangles?), NOT
-//! arrangement efficiency. That is a fidelity/performance trade-off and a
-//! design decision, not a defect — which is why it is written down here rather
-//! than quietly changed.
+//! ANSWERED: that revolve is a GEAR, and its 207K triangles are correct rather
+//! than wasteful. R0019 is a 5 mm cylinder cut by a **23-tooth involute gear**
+//! (module 1.15 mm, 20 deg pressure angle) revolved **243.25 deg** about a
+//! tilted axis. `waffle_types::gear` builds each tooth as
+//! `root line -> left involute -> tip arc -> right involute -> root line` with
+//! `num_inv_samples = 12` per flank, so ~30 points/tooth x 23 teeth ~= 690
+//! profile points; swept at ~150 angular steps (~1.6 deg) that is
+//! ~690 x 150 x 2 ~= 207K triangles — the measured 207,400.
+//!
+//! So there is NO tessellation-density lever worth pulling here: both factors
+//! are load-bearing. Coarsening the involute sampling flattens the tooth
+//! flanks — the one thing a gear exists to get right — and coarsening the
+//! angular step facets the sweep. The memory is proportionate to genuinely fine
+//! geometry. (Cf. CLAUDE.md's "Gear / arc-segment profiles (non-convex CDT)"
+//! Phase 2 tail item; the triage ledger files R0019 under KV6/scope.)
 
 use std::fs;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
