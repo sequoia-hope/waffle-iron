@@ -538,3 +538,39 @@ provide. Candidates, unmeasured:
 
 Start by measuring the PR-YR18 fixtures' non-witness endpoints against BOTH
 surfaces — that single measurement decides between the first two.
+
+## 16. §15 measurement TAKEN (2026-07-28) — both proposed discriminators are REFUTED
+
+`YANG_V_PROBE` over the PR-YR18 oracle fixtures, versus F0083:
+
+| | non-witness endpoint | witness endpoint | off / `tol` |
+|---|---|---|---|
+| PR-YR18 oracle1+2, edges (0,1) and (0,46) | `d=(1.005e-1, 0.000e0)` — off surf0 ONLY | `(0, 0)` | 1.005e-1 / 3.464e-2 = **2.90×** |
+| F0083 edge (116,118) | `d=(1.914e-3, 5.551e-17)` — off cylinder ONLY | `(0, 5.551e-17)` | 1.914e-3 / 6.930e-4 = **2.76×** |
+
+**Both §15 candidates die on this table:**
+
+1. *"the far endpoint is still on ONE of the two surfaces"* — TRUE of both. The
+   PR-YR18 fixtures' bad endpoint is exactly on surf1 and off surf0, precisely
+   like F0083's v118. **REFUTED.**
+2. *A magnitude/ratio threshold* — the two are 2.90× and 2.76× of their
+   respective `tol`. Indistinguishable. **REFUTED.**
+
+So at the level of information the `on_both` gate has — two surfaces, two
+endpoints, their four distances — a true intersection edge with one mis-seated
+endpoint and a misclassified single-surface edge are **structurally identical**.
+No endpoint-distance predicate can separate them, which retrospectively explains
+why the symmetric gate was written the way it was: it is not over-conservative by
+oversight, it is at the limit of its own inputs.
+
+**The discriminator must therefore come from the CURVE, not the endpoints.**
+Surviving lead (unmeasured): run the SSI, then test whether the EDGE DIRECTION
+aligns with the candidate curve's TANGENT at the witness. A true intersection
+edge is a chord of the curve, so its direction matches the tangent to within the
+chord's own turning angle; a misclassified internal edge runs away from the
+curve and will not. That is a geometric test with a self-derived bound (the
+chord's turning angle), not a tuned band.
+
+Measure that on both fixtures BEFORE building — this is the fifth successive
+hypothesis on this thread, and the previous four were all refuted by exactly this
+kind of check.
