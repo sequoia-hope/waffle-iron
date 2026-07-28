@@ -11,6 +11,76 @@ let wasmModule = null;
 let basePath = '';
 
 /**
+ * The wasm instance's raw exports (what `__wbg_finalize_init` returns), kept
+ * only for `exports.memory` — the `WebAssembly.Memory` object survives a trap,
+ * so its size is readable afterwards and is what distinguishes an OUT-OF-MEMORY
+ * abort from an ordinary panic. See `classifyTrap`.
+ */
+let wasmExports = null;
+
+/**
+ * wasm32 is a 32-bit address space: 4 GiB is the architectural ceiling, and
+ * browsers cap a single memory below it. Past this mark a trap is
+ * overwhelmingly an allocation failure rather than a logic panic.
+ */
+const OOM_SUSPECT_BYTES = 1024 * 1024 * 1024; // 1 GiB
+
+/** Current wasm heap size in bytes, or 0 if unavailable. */
+function wasmHeapBytes() {
+	try {
+		return wasmExports?.memory?.buffer?.byteLength ?? 0;
+	} catch {
+		return 0; // buffer detached mid-growth
+	}
+}
+
+function formatGiB(bytes) {
+	return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+/**
+ * Turn a wasm trap into a message that says what actually happened.
+ *
+ * A trap reaches JS as a bare `unreachable` with no context. Two very different
+ * causes produce it:
+ *
+ *  - a Rust `panic!`, which DOES run the `init()` panic hook and therefore
+ *    prints a `WASM PANIC: ...` line to this worker's console; and
+ *  - an allocation failure, which calls `alloc::handle_alloc_error` ->
+ *    `abort()`. That path is NOT a panic, so no hook runs and no message is
+ *    printed — historically indistinguishable from a logic bug.
+ *
+ * The heap size at trap time separates them. Measured case: assay R0088 needs
+ * ~6.8 GB peak (verified natively, where it completes successfully) and so
+ * cannot fit in wasm32 at all.
+ *
+ * This is a classification, not a certainty, and the message says so rather
+ * than asserting a cause it cannot prove.
+ */
+function classifyTrap(rawMessage) {
+	const bytes = wasmHeapBytes();
+	if (bytes >= OOM_SUSPECT_BYTES) {
+		return {
+			message:
+				`Out of memory: this model needs more than the browser engine can address. ` +
+				`The engine had grown to ${formatGiB(bytes)} when it failed; WASM is 32-bit and ` +
+				`cannot exceed 4 GB. The same model may still build in a native (64-bit) run. ` +
+				`(underlying trap: ${rawMessage})`,
+			oom: true,
+			heapBytes: bytes
+		};
+	}
+	return {
+		message:
+			`Engine crashed: ${rawMessage}. Restarting... ` +
+			`(heap ${formatGiB(bytes)}; check this worker's console for a "WASM PANIC:" line — ` +
+			`if there is none, the cause was not a Rust panic)`,
+		oom: false,
+		heapBytes: bytes
+	};
+}
+
+/**
  * Initialize the WASM module.
  * @param {string} wasmUrl - URL to the wasm_bridge.js module
  */
@@ -18,7 +88,9 @@ async function initEngine(wasmUrl) {
 	try {
 		lastWasmUrl = wasmUrl;
 		const wasm = await import(/* @vite-ignore */ wasmUrl);
-		await wasm.default();
+		// `__wbg_finalize_init` returns the instance exports; hold them for
+		// `memory` (trap classification), not for calling into.
+		wasmExports = await wasm.default();
 		wasm.init();
 		wasmModule = wasm;
 
@@ -69,13 +141,19 @@ function processMessage(msg) {
 		// module's memory is corrupted and cannot accept further calls.
 		if (err instanceof WebAssembly.RuntimeError ||
 			err.message?.includes('unreachable')) {
-			console.error('WASM module crashed, marking for restart:', err.message);
+			const verdict = classifyTrap(err.message);
+			console.error(
+				`WASM module crashed (heap ${formatGiB(verdict.heapBytes)}, ` +
+				`${verdict.oom ? 'OUT OF MEMORY' : 'cause unclassified'}), marking for restart:`,
+				err.message
+			);
 			wasmModule = null;
 			return {
 				type: 'Error',
-				message: `Engine crashed: ${err.message}. Restarting...`,
+				message: verdict.message,
 				feature_id: null,
-				needsRestart: true
+				needsRestart: true,
+				oom: verdict.oom
 			};
 		}
 		return {
@@ -291,11 +369,16 @@ self.onmessage = async function (event) {
 			// Initialize with the default URL (will fetch .wasm relative to blob)
 			// Pass explicit wasm URL since blob URL can't resolve relative paths
 			const wasmBinaryUrl = lastWasmUrl.replace(/\.js$/, '_bg.wasm');
-			await freshWasm.default(wasmBinaryUrl);
+			wasmExports = await freshWasm.default(wasmBinaryUrl);
 			freshWasm.init();
 			wasmModule = freshWasm;
 			console.log('WASM module restarted successfully');
-			response.message = `Engine recovered: ${response.message}`;
+			// An OOM message already states the cause and the limit; burying it
+			// behind "Engine recovered:" would hide the actionable part. Say the
+			// engine restarted, but keep the diagnosis first.
+			response.message = response.oom
+				? `${response.message} The engine has been restarted.`
+				: `Engine recovered: ${response.message}`;
 			response.needsRestart = false;
 		} catch (restartErr) {
 			console.error('WASM module restart failed:', restartErr.message);

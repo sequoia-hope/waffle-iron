@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Waffle Iron pre-commit hook.
 #
-# Auto-stage the assay UI snapshot if it has unstaged changes, so a fresh
-# assay run's `app/tests/cases/assay/results.json` is never left out of a
-# commit. This file is the source of truth the deploy's `prebuild`
-# (sync-assay) copies into static/ and serves on GitHub Pages, so the
-# published AssayBrowser stays in sync with the shipped WASM.
-#
 # Enable once per clone:  ./scripts/setup-hooks.sh   (sets core.hooksPath)
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 0
 
+# ---------------------------------------------------------------------------
+# 1. Assay UI snapshot: auto-stage if regenerated.
+#
+# This file is the source of truth the deploy's `prebuild` (sync-assay) copies
+# into static/ and serves on GitHub Pages, so the published AssayBrowser stays
+# in sync with the shipped WASM.
+# ---------------------------------------------------------------------------
 results='app/tests/cases/assay/results.json'
 
 # `git diff --quiet` exits non-zero when the working tree differs from the
@@ -18,6 +19,53 @@ results='app/tests/cases/assay/results.json'
 if ! git diff --quiet -- "$results" 2>/dev/null; then
     git add -- "$results"
     printf 'pre-commit: auto-staged updated %s\n' "$results" >&2
+fi
+
+# ---------------------------------------------------------------------------
+# 2. WASM bundle freshness: BLOCK if the deployed bundle predates the sources.
+#
+# CLAUDE.md: "Include the updated WASM bundle in the same commit as the Rust
+# changes so the app stays in sync." On 2026-07-28 that was violated twice in
+# one session (707618f7 and 441d969c both shipped a kernel the GitHub Pages
+# deployment did not have), because nothing enforced it. Now something does.
+#
+# Unlike the assay snapshot above this cannot auto-fix: a rebuild is ~2.5
+# minutes, far too slow to run inside a hook. So it fails loudly, with the
+# exact command to run.
+#
+# Escape hatch: `SKIP_WASM_CHECK=1 git commit ...` — for commits that genuinely
+# cannot carry a bundle (bisecting, or a docs-only follow-up split out of an
+# already-built change).
+# ---------------------------------------------------------------------------
+if [ "${SKIP_WASM_CHECK:-0}" != "1" ]; then
+    fingerprint_script='scripts/wasm-fingerprint.sh'
+    stored='app/static/pkg/.build-fingerprint'
+
+    if [ -x "$fingerprint_script" ]; then
+        current="$("$fingerprint_script" 2>/dev/null)"
+
+        if [ -z "$current" ]; then
+            printf 'pre-commit: WARNING could not compute the WASM fingerprint; skipping the freshness check\n' >&2
+        elif [ ! -f "$stored" ]; then
+            printf '\npre-commit: BLOCKED — no %s\n\n' "$stored" >&2
+            printf '  The deployed bundle has no recorded provenance, so it cannot be shown\n' >&2
+            printf '  to match these sources. Build it once to establish one:\n\n' >&2
+            printf '      ./scripts/build-wasm.sh\n\n' >&2
+            printf '  (override for this commit: SKIP_WASM_CHECK=1 git commit ...)\n\n' >&2
+            exit 1
+        elif [ "$current" != "$(cat "$stored")" ]; then
+            printf '\npre-commit: BLOCKED — the WASM bundle is STALE\n\n' >&2
+            printf '  Sources that feed app/static/pkg/ have changed since the bundle was\n' >&2
+            printf '  built, so committing now would ship a deployment running an older\n' >&2
+            printf '  kernel than this commit claims.\n\n' >&2
+            printf '      built from: %s\n' "$(cat "$stored")" >&2
+            printf '      sources at: %s\n\n' "$current" >&2
+            printf '  Rebuild, then commit app/static/pkg/ with this change:\n\n' >&2
+            printf '      ./scripts/build-wasm.sh\n\n' >&2
+            printf '  (override for this commit: SKIP_WASM_CHECK=1 git commit ...)\n\n' >&2
+            exit 1
+        fi
+    fi
 fi
 
 exit 0
