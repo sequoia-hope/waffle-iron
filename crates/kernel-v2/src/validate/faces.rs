@@ -111,8 +111,8 @@ pub(crate) fn validate_planar_face(
         }
     }
 
-    // ---- debug-tier geometric tripwires (see module docs) -----------------
-    #[cfg(debug_assertions)]
+    // ---- strict-tier geometric tripwires (see module docs) ----------------
+    #[cfg(any(debug_assertions, feature = "strict-validation"))]
     {
         let mut loops = vec![face.outer_loop];
         loops.extend(face.inner_loops.iter().copied());
@@ -435,7 +435,7 @@ pub(crate) fn validate_cylinder_face(
         }
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "strict-validation"))]
     {
         let dist_to_axis = |p: Point3| {
             let d = [
@@ -550,7 +550,7 @@ pub(crate) fn validate_torus_face(
         return Err(mismatch("torus axis_dir must be unit-length"));
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "strict-validation"))]
     {
         let on_torus_residual = |p: Point3| {
             let d = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
@@ -615,7 +615,7 @@ pub(crate) fn validate_sphere_face(
         return Err(mismatch("sphere center must be finite"));
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "strict-validation"))]
     {
         // `sphere_residual` is a plain length; scale the band by the radius
         // (a length·length tolerance, matching the torus convention).
@@ -643,7 +643,7 @@ pub(crate) fn validate_sphere_face(
             }
         }
     }
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(any(debug_assertions, feature = "strict-validation")))]
     {
         let _ = (arena, face);
     }
@@ -772,7 +772,7 @@ fn validate_cylinder_patch(
                             "patch arc's circle axis is not parallel to the cylinder axis",
                         ));
                     }
-                    #[cfg(debug_assertions)]
+                    #[cfg(any(debug_assertions, feature = "strict-validation"))]
                     {
                         // Arc center on the axis (import band — see fn docs).
                         let dc = [center.x() - ap[0], center.y() - ap[1], center.z() - ap[2]];
@@ -992,8 +992,8 @@ fn validate_cylinder_patch(
         }
     }
 
-    // ---- debug-tier geometric tripwire: loop vertices on the surface ------
-    #[cfg(debug_assertions)]
+    // ---- strict-tier geometric tripwire: loop vertices on the surface -----
+    #[cfg(any(debug_assertions, feature = "strict-validation"))]
     {
         for &lid in &all_loops {
             for p in arena.loop_points(lid)? {
@@ -1002,6 +1002,33 @@ fn validate_cylinder_patch(
                 let r = [d[0] - h * a[0], d[1] - h * a[1], d[2] - h * a[2]];
                 let rl = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
                 if (rl - radius).abs() > import_band(radius, p) {
+                    // Under `KV2_OFFSURF_PROBE`, dump the WHOLE failing loop
+                    // alongside the single offending point. The off-surface
+                    // classes met so far are all "one intermediate loop vertex
+                    // left at its Stage-1 CHORD position while its neighbours
+                    // are exact", and they are only identifiable from the
+                    // NEIGHBOURS: equal axial height `h` plus a residual equal
+                    // to the chord sagitta of the neighbours' angular span is
+                    // the fingerprint (#195 characterization, 2026-07-28).
+                    // The lone point the tripwire names cannot show that.
+                    if std::env::var_os("KV2_OFFSURF_PROBE").is_some() {
+                        for &l2 in &all_loops {
+                            for (i, q) in arena.loop_points(l2)?.into_iter().enumerate() {
+                                let dq = [q.x() - ap[0], q.y() - ap[1], q.z() - ap[2]];
+                                let hq = dq[0] * a[0] + dq[1] * a[1] + dq[2] * a[2];
+                                let rq = [dq[0] - hq * a[0], dq[1] - hq * a[1], dq[2] - hq * a[2]];
+                                let rlq = (rq[0] * rq[0] + rq[1] * rq[1] + rq[2] * rq[2]).sqrt();
+                                eprintln!(
+                                    "[offsurf-loop] face {f:?} loop {l2:?} i={i} \
+                                     p=({:.17e},{:.17e},{:.17e}) h={hq:.17e} resid={:.6e}",
+                                    q.x(),
+                                    q.y(),
+                                    q.z(),
+                                    (rlq - radius).abs()
+                                );
+                            }
+                        }
+                    }
                     return Err(vertex_off_surface(
                         f,
                         "cylpatch-vertex",

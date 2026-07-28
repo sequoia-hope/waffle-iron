@@ -41,8 +41,11 @@
 //! construction** (the Euler operators create geometry only at
 //! caller-supplied points, and the KV2 consumers — planar profile →
 //! extrude — supply coplanar points by construction), so the f64 residual
-//! check below is a *debug-tier tripwire for construction-sequence bugs*,
-//! compiled only under `debug_assertions`.
+//! check below is a *strict-tier tripwire for construction-sequence bugs*,
+//! compiled under `debug_assertions` OR the `strict-validation` feature.
+//! Production and WASM builds pay nothing; `test-harness` turns the feature on
+//! so the `--release` categorized assay can see off-surface geometry, which it
+//! was blind to before 2026-07-28 (see `docs/TESTING.md`).
 //!
 //! For BOOLEAN-path solids that rationale is FALSE — yang output re-enters
 //! with real-scale f64 noise, and the F0064/R0051 class (task #146) shipped

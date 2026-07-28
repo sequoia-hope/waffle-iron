@@ -46,3 +46,18 @@ grep -rhoE 'env::var(_os)?\("[A-Z0-9_]+"\)' \
 Any probe added to a kernel crate that **alters output** must be added to the
 neuter table above AND gated with `cfg!(debug_assertions)`. A tracing probe
 that only `eprintln!`s needs no registry entry.
+
+## Validation STRENGTH is a cargo feature, never an env var
+
+The mirror image of a neuter is a *strengthener* — a check that makes the kernel
+refuse geometry it would otherwise accept. The same policy applies in reverse:
+it must not be flippable at runtime in a shipped build, so it is a **compile-time
+cargo feature**, not an environment variable.
+
+- `kernel-v2/strict-validation` — compiles the debug-tier GEOMETRIC tripwires
+  (loop vertices on their face's analytic surface, at the scale-relative
+  `import_band`) into an optimized build. Default off; `test-harness` enables it
+  so the `--release` categorized assay can see off-surface vertices at all.
+  Before 2026-07-28 it could not: a body scored SUPPORTED_CORRECT while carrying
+  a loop vertex 6.9 % of a cylinder radius off its own surface. See
+  `docs/TESTING.md` and roadmap §0.0 item 6.

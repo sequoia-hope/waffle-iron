@@ -5,7 +5,11 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
-kernel-v2 = { path = "../kernel-v2" }
+# `strict-validation` compiles kernel-v2's debug-tier geometric tripwires
+# (loop vertices on their face's analytic surface) into the OPTIMIZED build the
+# assay runs. Without it a `--release` corpus verdict cannot see an off-surface
+# loop vertex at all — the ledger's SUPPORTED_CORRECT was blind to it.
+kernel-v2 = { path = "../kernel-v2", features = ["strict-validation"] }
 cad-primitives = { path = "../cad-primitives" }
 feature-engine = { path = "../feature-engine" }
 modeling-ops = { path = "../modeling-ops" }

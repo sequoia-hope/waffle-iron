@@ -129,7 +129,7 @@ pub(crate) fn validate_cone_face(
         }
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "strict-validation"))]
     {
         let on_cone_residual = |p: Point3| {
             let d = [p.x() - apex.x(), p.y() - apex.y(), p.z() - apex.z()];
@@ -283,7 +283,7 @@ fn validate_cone_patch(
                     if (r_arc - expected).abs() > 1e-9 * expected.max(1.0) {
                         return Err(mismatch("patch arc radius disagrees with the cone surface"));
                     }
-                    #[cfg(debug_assertions)]
+                    #[cfg(any(debug_assertions, feature = "strict-validation"))]
                     {
                         // Arc center on the axis (import band — see
                         // `validate_cylinder_patch`'s arc-center check).
@@ -427,8 +427,9 @@ fn validate_cone_patch(
         }
     }
 
-    // ---- debug-tier geometric tripwire: loop vertices on the surface ------
-    #[cfg(debug_assertions)]
+    // ---- strict-tier geometric tripwire: loop vertices on the surface -----
+    // (debug builds, or any build with the `strict-validation` feature)
+    #[cfg(any(debug_assertions, feature = "strict-validation"))]
     {
         for &lid in &all_loops {
             for p in arena.loop_points(lid)? {

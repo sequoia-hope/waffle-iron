@@ -265,6 +265,25 @@ ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=240 \
   -- --ignored --nocapture
 ```
 
+**The assay runs with `kernel-v2/strict-validation` ON** (declared in
+`crates/test-harness/Cargo.toml`). kernel-v2's *geometric* tripwires — every
+loop vertex on its face's analytic surface, at the scale-relative
+`import_band` — are `cfg(debug_assertions)` by default, so before 2026-07-28 a
+`--release` corpus verdict **could not see an off-surface loop vertex at all**:
+a body scored SUPPORTED_CORRECT while carrying a vertex 6.9% of a cylinder
+radius off its own surface (R0063, found via #195). The feature compiles those
+checks into the optimized build so the ledger sees them. It is a cargo feature,
+not an env var, per the probe-registry policy (validation strength must not be
+runtime-switchable in a shipped build); the WASM bundle is built from
+`crates/wasm-bridge`, which does not depend on `test-harness`, so it is
+unaffected.
+
+Enabling it moved **three** cases that had been silently passing —
+F0083, R0027 (a `revolve`, not a boolean), R0099 — from SUPPORTED_CORRECT to a
+loud `VertexOffSurface` ERROR. That is the P10 posture: they were always broken;
+the ledger just could not say so. **The honest baseline is 252C/0W/58E/0T**, not
+the 255C that predates the fix.
+
 **Why it's reliable (even under load):** with `ASSAY_JOBS > 1` each case runs as
 a killable subprocess whose per-case timeout is budgeted on **CPU time**, not
 wall time (`assay_kv2.rs`, `replay_case_subprocess`). A case starved by siblings

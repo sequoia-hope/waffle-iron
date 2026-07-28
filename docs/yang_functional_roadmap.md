@@ -342,6 +342,30 @@ in the ledger is PERMANENT with user sign-off.
 5. **Capability tails** (interleavable): M8 coplanar residue (#130) +
    rim-projection (#144), KV6 revolve leftovers, non-convex/curved profiles,
    #153 NonPlanarFace wall.
+6. **On-surface (`VertexOffSurface`) tail — NEW 2026-07-28.** kernel-v2's
+   geometric tripwires (loop vertex on its face's analytic surface, at
+   `import_band`) were `cfg(debug_assertions)`-only, so the `--release` assay
+   was BLIND to them. Now compiled into the corpus build via the
+   `kernel-v2/strict-validation` feature (`crates/test-harness/Cargo.toml`;
+   `docs/TESTING.md`). **The honest baseline is 252C/0W/58E/0T** — three cases
+   that had been silently passing are now loud:
+   - **F0083** — Extrude 3 auto-union, `VertexOffSurface` face 388.
+   - **R0027** — fails in **`revolve`**, face 654: NOT a boolean defect, so
+     this tail is not yang-only.
+   - **R0099** — `boolean_subtract`, face 18. (Note its history: the earlier
+     R0099 WRONG was resolved as an oracle-authoring error; this is a
+     different, real defect.)
+   The measured class so far (spec-level, from #195): **one intermediate
+   cylinder-patch loop vertex left at its Stage-1 CHORD position while both
+   azimuthal neighbours are exact** — same axial height, residual ≈ the chord
+   sagitta of the neighbours' angular span. It is never relocated because
+   `build_intersection_curves` skips same-input rim edges
+   (`stage3_ssi.rs:534`), so Stage 4 never claims those vertices. The fix is
+   §4.4.1 relocation of overlay-inserted rim vertices onto their analytic rim
+   (Fig-11(b) "boundary curves map to boundary curves") — i.e. the #169
+   mesh-updating remit. Diagnose with `KV2_OFFSURF_PROBE=1`, which dumps the
+   offending point AND its whole loop (the neighbours are what identify the
+   class).
 
 **Continuous:** the verification substrate ratchets — assay 0-WRONG gate, weld
 delta (`YANG_WELD_ENABLE=all` vs prod may only shrink), deviations OPEN-count

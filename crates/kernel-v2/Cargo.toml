@@ -7,6 +7,20 @@ description = "Clean-sheet CAD kernel. Half-edge B-Rep with enforced face.normal
 
 # kernel-v2 sits at the top of the new tier. Implements the public Kernel
 # trait used by wasm-bridge, feature-engine, etc.
+[features]
+# Compile the debug-tier GEOMETRIC tripwires (loop vertices on their face's
+# analytic surface, at the scale-relative `import_band`) into an OPTIMIZED
+# build. These checks are `cfg(debug_assertions)` by default — they cost a
+# pass over every loop point of every validated solid, which production and
+# WASM should not pay — but that made them invisible to the `--release`
+# categorized assay, so a body could score SUPPORTED_CORRECT while carrying a
+# loop vertex far off its own surface (measured 2026-07-28: R0063 at 6.9% of
+# a cylinder radius). `test-harness` enables this so the corpus ledger sees
+# them. Deliberately a CARGO FEATURE, not an env var: per the probe-registry
+# policy, validation strength must not be switchable at runtime in a shipped
+# build.
+strict-validation = []
+
 [dependencies]
 cad-primitives = { path = "../cad-primitives" }
 waffle-types = { path = "../waffle-types" }
