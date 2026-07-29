@@ -387,6 +387,18 @@ Both are `max_disp / min_pre_spacing > 1`; driving that ratio below 1 is the cor
 shared acceptance criterion, and the two fixes are the two ways to do it (shrink the
 correction by refining; or remove the sub-spacing pair by merging).
 
+**⚠ The `merge` column above is REFUTED (same day).** Reading the built primitive
+(`stage4_update.rs:176-234`): every Fig-11 case KEEPS existing mesh vertices in place
+— a boundary-vertex merge snaps the CURVE POINT onto the vertex and holds the vertex
+fixed (there is a regression test at `:901` because an earlier version dragged it and
+broke area conservation). `merge` never fuses two mesh vertices, so it cannot address
+R0074, whose fold is two MESH vertices 9.1e-6 apart each relocated ~3e-4. And the only
+near-dup removal pass (#194, TAU_WORK = 1e-12) is seven orders away; widening it is the
+barred tolerance tuning. Both cases therefore need the SAME thing — the relocated curve
+re-derived as a proper monotone polyline (§4.3.4) with the patch re-triangulated
+(§4.4.1) — which is a HYPOTHESIS by elimination, not a measurement. Full reasoning and
+the verification it needs first: epic spec §8i.
+
 **The earned-relocation result is UNIFORM across all three cases** — every moved
 vertex in R0074 (37 sampled across its 16 minted folds) and F0045's single minted
 vertex show the same shape: pre-residual comparable to the displacement, post-residual

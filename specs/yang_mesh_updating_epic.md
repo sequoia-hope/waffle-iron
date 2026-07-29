@@ -541,6 +541,55 @@ primitive exists and is unit-tested; it only removes a sub-spacing pair) and its
 target R0074 cannot convert. §4.5.2 local refinement is the larger arm and owns the
 only case that can convert (R0011, 10/10 minted). Do `merge` first as the wiring
 de-risk — gated, byte-identical, fold-delta measured on R0074 — then refinement.
+**⚠ The premise of this paragraph is WRONG — see §8i.**
+
+### 8i. REFUTED — Fig-11 `merge` does not fuse two mesh vertices; R0074 has no merge arm (2026-07-29)
+
+§8f and §8h both scoped R0074's fix as "Fig-11 `merge` — fuse a vertex within
+`merge_tol` of a curve point instead of moving both independently". **Reading the
+built primitive refutes that description of it.** `stage4_update.rs:176-234`
+enumerates the four Fig-11 cases, and every one leaves the existing mesh vertices in
+place:
+
+- **boundary-VERTEX merge** — reuse the boundary vertex and **KEEP IT FIXED**; the
+  CURVE POINT snaps onto it. (A regression test, `probe_merge_moves_boundary_vertex_
+  off_edge_breaks_area` at `:901`, exists precisely because an earlier version DID
+  drag the vertex and violated area conservation I4.)
+- **boundary-EDGE split** — project the curve point onto the edge line; boundary
+  unchanged.
+- **interior merge** — move an INTERIOR patch vertex onto the curve point.
+- **interior append** — a free interior curve vertex.
+
+So `merge` governs how a CURVE POINT attaches to an existing triangulation. It never
+fuses two mesh vertices to each other, and it never removes one. **R0074's fold needs
+the opposite thing:** two MESH vertices 9.1e-6 apart are each relocated ~3e-4, and
+the fix has to stop those two from being carried independently. `merge` leaves both.
+
+**And no band-widening route is available.** The only pass that removes a near-dup
+mesh edge is #194 `collapse_subtauwork_mesh_edges`, at TAU_WORK = 1e-12; R0074's pair
+is 9.1e-6, seven orders above it. Raising that band is exactly the tolerance tuning
+`feedback_stop_band_tuning_build_mesh_updating` bars, and §8e already recorded the
+P10 line for welding near-duplicates.
+
+**Consequence — the two arms collapse into one, and it is not `merge`.** What both
+cases actually need is for the relocated intersection curve to be re-derived as a
+PROPER POLYLINE along the analytic curve — the paper's §4.3.4 curve-polyline
+refinement — with monotone parameterization, and the patch then re-triangulated to
+match (§4.4.1). Relocating each mesh vertex independently and keeping the old
+connectivity is the defect; it cannot be repaired by choosing better destinations
+(§8h proved every destination is already exact) nor by attaching curve points to the
+old vertices (`merge`, this section).
+
+**This is a HYPOTHESIS, not a measured claim** — it is the only remaining structural
+option after three eliminations, which is weaker evidence than a probe. Verify before
+building: take one R0074 minted fold and check whether re-sampling that curve's
+polyline monotonically, at the same vertex count, removes the fold; and confirm
+`intersection_curves` is even populated for it (R0074 reports
+`n_intersection_curves=0`, so its plane∩torus chains may have no analytic curve to
+re-sample from — which would make Stage 3 curve construction the actual blocker and
+would re-route this case again).
+
+Nothing was built against the refuted framing.
 
 **Read:** ~15 cases route to Phase B (8 reassembly + 4 render-CDT + 3 re-entry-CDT),
 ~4 to Phase C/D (grazing), 5 eject (2 → #146, 1 → §4.5.3, 2 → M5). The Phase-B
