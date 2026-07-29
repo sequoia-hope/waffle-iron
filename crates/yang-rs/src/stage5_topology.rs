@@ -6,6 +6,24 @@
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 
+thread_local! {
+    /// Diagnostic only (`YANG_S5_FOLD_PROBE`): the set of mesh vertices whose
+    /// POSITION changed across Stage 4, captured by diffing `mesh.verts`
+    /// before/after. Written only under the env gate.
+    ///
+    /// This is the correct "was it relocated?" oracle. The `relocations` vector
+    /// is NOT — it carries conic `(vertex, circle-frame angle t)` retags only,
+    /// and the torus arm (`stage4_correct.rs`, `vert_torus`) moves vertices via
+    /// `relocate_onto_implicit_pair` WITHOUT pushing to it (torus edges are
+    /// degree-4 polylines: no analytic curve, no `t` retag). Keying a probe on
+    /// `relocations` is therefore blind on any torus model.
+    ///
+    /// `None` = unavailable (Stage 4 skipped, or a §4.5.3 collapse renumbered
+    /// the vertices so a positional diff is not index-comparable).
+    static S4_MOVED: std::cell::RefCell<Option<std::collections::HashSet<u32>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// PR-YR5: rebuild output `BRep` topology (`vertices`, `edges`,
 /// `faces`) from the per-triangle attribution map.
 ///
@@ -158,10 +176,56 @@ pub(crate) fn reconstruct_topology_stage4(
     // vertex. Mapped to `BRepEdge { edge, t }` sources in `emit_topology` once
     // the output edges exist.
     let mut relocations: Vec<(u32, f64)> = Vec::new();
+    if std::env::var_os("YANG_S5_FOLD_PROBE").is_some() {
+        let mut kinds: std::collections::BTreeMap<&'static str, usize> = Default::default();
+        for c in intersection_curves.values() {
+            *kinds
+                .entry(match c {
+                    Curve::LineSegment => "LineSegment",
+                    Curve::Circle { .. } => "Circle",
+                    Curve::Ellipse { .. } => "Ellipse",
+                    Curve::Parabola { .. } => "Parabola",
+                    Curve::Hyperbola { .. } => "Hyperbola",
+                    Curve::SurfacePair { .. } => "SurfacePair",
+                })
+                .or_default() += 1;
+        }
+        let mut surfs: std::collections::BTreeMap<&'static str, usize> = Default::default();
+        for es in incidence.values() {
+            for (_, s) in es {
+                *surfs
+                    .entry(match s {
+                        Surface::Plane { .. } => "Plane",
+                        Surface::Cylinder { .. } => "Cylinder",
+                        Surface::Cone { .. } => "Cone",
+                        Surface::Sphere { .. } => "Sphere",
+                        Surface::Torus { .. } => "Torus",
+                    })
+                    .or_default() += 1;
+            }
+        }
+        eprintln!(
+            "YANG_S5_STAGE4_GATE has_conic={has_conic} has_torus={has_torus} \
+             n_intersection_curves={} curve_kinds={kinds:?} incidence_keys={} \
+             incidence_surfaces={surfs:?}",
+            intersection_curves.len(),
+            incidence.len(),
+        );
+    }
+    // Positional snapshot for the S4_MOVED oracle (env-gated; the clone is not
+    // taken on the production path).
+    let s4_probe = std::env::var_os("YANG_S5_FOLD_PROBE").is_some();
+    let verts_pre: Option<Vec<Point3>> = if s4_probe && has_conic {
+        Some(mesh.verts.clone())
+    } else {
+        None
+    };
+    let mut s4_collapsed = false;
     if has_conic {
         let (relocs, collapsed) =
             stage4_relocate_and_correct(mesh, attribution, a, b, minted_junction_keys)?;
         relocations = relocs;
+        s4_collapsed = collapsed;
         // A §4.5.3 collapse mutated the mesh topology + attribution, so the
         // pre-collapse Phase-A loops are stale (spec §4.1 note). Recompute them
         // before the Phase-B emission re-validates the corrected mesh.
@@ -176,6 +240,45 @@ pub(crate) fn reconstruct_topology_stage4(
             infos = i2;
             intersection_curves = cv2;
         }
+    }
+
+    if s4_probe {
+        // Build the moved-vertex set by positional diff. A §4.5.3 collapse
+        // renumbers vertices, so the diff is only index-comparable when the
+        // vertex count is unchanged — otherwise report unavailable rather than
+        // fabricate a set.
+        let moved = match &verts_pre {
+            Some(pre) if !s4_collapsed && pre.len() == mesh.verts.len() => {
+                let set: std::collections::HashSet<u32> = pre
+                    .iter()
+                    .zip(mesh.verts.iter())
+                    .enumerate()
+                    .filter(|(_, (p, q))| p.as_array() != q.as_array())
+                    .map(|(i, _)| i as u32)
+                    .collect();
+                eprintln!(
+                    "YANG_S5_MOVED_SET n_moved={} n_verts={} collapsed={s4_collapsed} \
+                     (positional diff across Stage 4)",
+                    set.len(),
+                    mesh.verts.len(),
+                );
+                Some(set)
+            }
+            Some(_) => {
+                eprintln!(
+                    "YANG_S5_MOVED_SET UNAVAILABLE collapsed={s4_collapsed} \
+                     pre_len={:?} post_len={}",
+                    verts_pre.as_ref().map(Vec::len),
+                    mesh.verts.len(),
+                );
+                None
+            }
+            None => {
+                eprintln!("YANG_S5_MOVED_SET UNAVAILABLE (Stage 4 not entered)");
+                None
+            }
+        };
+        S4_MOVED.with(|c| *c.borrow_mut() = moved);
     }
 
     // EXPERIMENTAL probe (task #121 increment 1, read-only, env-gated):
@@ -468,6 +571,14 @@ pub(crate) fn emit_topology(
     relocations: &[(u32, f64)],
     op: BoolOp,
 ) -> Result<ReconstructedTopology, YangError> {
+    if std::env::var_os("YANG_S5_FOLD_PROBE").is_some() {
+        eprintln!(
+            "YANG_S5_RELOC_SET n_relocations={} n_verts={} n_patches={}",
+            relocations.len(),
+            mesh.verts.len(),
+            infos.len(),
+        );
+    }
     // (1) Vertices: 1:1 with the (possibly relocated) mesh.verts.
     let vertices: Vec<BRepVertex> = mesh
         .verts
@@ -864,6 +975,97 @@ pub(crate) fn emit_topology(
                             "[t146] face {face_idx} ({:?}) off-plane vert {s} dist={dist:.3e} \
                              p={p:?} plane_n={n:?} d={d}",
                             info.input
+                        );
+                    }
+                }
+            }
+        }
+        // Ring-fold probe (read-only, env-gated) — the yang-side counterpart of
+        // kernel-v2's `KV2_RING_PROVENANCE`. The planar seam-overlap class
+        // (R0074/R0011/F0045) shows up downstream as a near-180 deg fold in the
+        // rendered ring; this asks whether the fold is ALREADY present in the
+        // loop this stage emits, and if so which mesh verts and curves carry it.
+        if std::env::var_os("YANG_S5_FOLD_PROBE").is_some() {
+            let cname = |c: &Curve| -> &'static str {
+                match c {
+                    Curve::LineSegment => "LineSegment",
+                    Curve::Circle { .. } => "Circle",
+                    Curve::Ellipse { .. } => "Ellipse",
+                    Curve::Parabola { .. } => "Parabola",
+                    Curve::Hyperbola { .. } => "Hyperbola",
+                    Curve::SurfacePair { .. } => "SurfacePair",
+                }
+            };
+            for (tag, lp) in std::iter::once(("outer", &outer_loop)).chain(
+                inner_loops
+                    .iter()
+                    .enumerate()
+                    .map(|(i, l)| (if i == 0 { "inner0" } else { "innerN" }, l)),
+            ) {
+                let n_e = lp.len();
+                for k in 0..n_e {
+                    let e_prev = &edges[lp[(k + n_e - 1) % n_e] as usize];
+                    let e_cur = &edges[lp[k] as usize];
+                    let a = mesh.verts[e_prev.start as usize].as_array();
+                    let b = mesh.verts[e_cur.start as usize].as_array();
+                    let c = mesh.verts[e_cur.end as usize].as_array();
+                    let v1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                    let v2 = [c[0] - b[0], c[1] - b[1], c[2] - b[2]];
+                    let l1 = (v1[0] * v1[0] + v1[1] * v1[1] + v1[2] * v1[2]).sqrt();
+                    let l2 = (v2[0] * v2[0] + v2[1] * v2[1] + v2[2] * v2[2]).sqrt();
+                    if l1 == 0.0 || l2 == 0.0 {
+                        continue;
+                    }
+                    let dot = (v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]) / (l1 * l2);
+                    let turn = dot.clamp(-1.0, 1.0).acos().to_degrees();
+                    if turn > 120.0 {
+                        // Was the fold APEX (and its neighbours) moved by the
+                        // Stage-4 relocation, or is the spur inherited from the
+                        // Stage-2/3 patch boundary cycle? This is the
+                        // discriminator between the two candidate mints.
+                        // MOVED = positional diff across Stage 4 (the correct
+                        // oracle; covers the torus arm). reloc = conic t-retag
+                        // only, kept for the conic cases but BLIND on tori.
+                        let mv = |v: u32| -> &'static str {
+                            S4_MOVED.with(|c| match &*c.borrow() {
+                                Some(set) => {
+                                    if set.contains(&v) {
+                                        "MOVED"
+                                    } else {
+                                        "still"
+                                    }
+                                }
+                                None => "n/a",
+                            })
+                        };
+                        let rl = |v: u32| -> String {
+                            match relocations.iter().find(|(rv, _)| *rv == v) {
+                                Some((_, t)) => format!("reloc(t={t:.6e})"),
+                                None => "none".to_string(),
+                            }
+                        };
+                        eprintln!(
+                            "YANG_S5_FOLD face={face_idx} input={:?} loop={tag} k={k} \
+                             turn={turn:.2} verts=({},{},{}) prev_curve={:?} cur_curve={:?} \
+                             len_prev={l1:.6e} len_cur={l2:.6e} \
+                             moved=({},{},{}) \
+                             reloc_prev={} reloc_apex={} reloc_next={} \
+                             p=[{:.12},{:.12},{:.12}]",
+                            info.input,
+                            e_prev.start,
+                            e_cur.start,
+                            e_cur.end,
+                            cname(&e_prev.curve),
+                            cname(&e_cur.curve),
+                            mv(e_prev.start),
+                            mv(e_cur.start),
+                            mv(e_cur.end),
+                            rl(e_prev.start),
+                            rl(e_cur.start),
+                            rl(e_cur.end),
+                            b[0],
+                            b[1],
+                            b[2],
                         );
                     }
                 }
