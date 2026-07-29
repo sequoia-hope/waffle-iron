@@ -158,6 +158,52 @@ Open residual: the **11 all-moved folds on R0074** are not explained by partial
 relocation — either those vertices were moved to mutually inconsistent targets,
 or a second mechanism overlaps. Not blocking; worth its own probe.
 
+### CORRECTION — "partial relocation" is a MISNOMER (2026-07-29, same probe)
+
+Anchoring the fix revealed the framing above is still one step off, and in a way
+that changes the VEHICLE. Two measurements:
+
+**1. The un-moved vertices are not relocation candidates at all.** Per-vertex
+incidence at every fold: `MOVED` vertices carry `Plane+Torus`, `still` vertices
+carry **`Plane` only**. They sit on the planar face's own rim, not on the A∩B
+intersection curve. **Stage 4 was RIGHT not to move them.** There is no
+enumeration bug, and "relocate the rest" would be actively wrong — it would drag
+rim vertices onto a curve they are not on.
+
+**2. The relocation displacement is O(local edge length) and frequently larger.**
+
+| max displacement / shortest incident edge | value |
+|---|---|
+| median | 0.42 |
+| p90 | 6.74 |
+| **max** | **101.4×** |
+| folds where displacement ≥ shortest incident edge | **25 of 78 (32%)** |
+
+Clinching row: `verts=(126,124,117)`, vertex 126 displaced **7.404e-4** while the
+edge joining it to its un-moved neighbour 124 is **5.213e-4** long. Moving an
+endpoint further than the edge is long **cannot** preserve local ordering — the
+fold is not a tolerance accident, it is arithmetically forced.
+
+**THE ACTUAL DEFECT: Stage 4 relocates intersection-curve vertices by
+displacements up to 101× the incident mesh edge length and does not update the
+incident mesh.** Yang §4.4.1 requires the mesh to be updated when vertices move;
+§4.5.2 requires local refinement of the affected neighbourhood. Neither runs.
+The rim edge that used to bracket the chain now crosses it.
+
+**VEHICLE: the §4.4.1/§4.5.2 mesh-updating epic** (#169 / deviation N2; specs
+already exist — `specs/yang_n2_stage4_cdt_mesh_updating.md`,
+`specs/yang_mesh_updating_epic.md`). This is NOT a new bucket and NOT a
+self-contained quick fix; the three cases are customers of the epic that is
+already the default kernel priority. The measurement above gives that epic a
+concrete **acceptance criterion it did not have: drive
+`max_displacement / shortest_incident_edge` below 1 at every relocated
+boundary-chain vertex** (equivalently, refine the incident edges until the
+relocation fits inside them). `YANG_S5_FOLD_PROBE` measures it directly.
+
+Retracted with this correction: the vehicle row "Stage-4 partial relocation of a
+boundary chain" (committed 0a3d56b8) — the relocation SET is correct; what is
+missing is the mesh update that must accompany it.
+
 **The two DEVELOPABLE cases are NOT this class** and must not be folded into its
 spec (R0028: fold at the ring CLOSURE, 13 from any seam; R0049: ~97 runs makes
 the seam test vacuous). **And R0004, which the error-string grouping pulled into
@@ -355,7 +401,7 @@ buckets:
 | P3b-#137 (torus∩plane + grazing/tangency Stage-4) | 7 confirmed (C0065, R0038, R0015, R0026, R0025, R0077, R0032-torus×cone) + F0085 (open seam, R0038-type); ~~R0074~~ **re-vehicled 2026-07-29** → planar output-loop seam-overlap (the OffCurve layer is gone; it is now a ring-reject and the lead witness of that class) |
 | P3c (curved re-CDT) | **0 open** — ~~R0072~~ FLIPPED CORRECT 2026-07-28 (#195 inc-5); the vehicle has no remaining case |
 | P3-junction (other junction vocabulary) | 4 confirmed (R0003, C0067, R0070-v1028, R0085-op1) + R0085-op2 (torus×line endpoint-mix). **The R0044 surface-pair endpoint-mix sub-bucket is CLOSED 2026-07-28** — ~~R0035~~ CORRECT; R0044/R0020/R0070-op2 cleared this layer and re-vehicled to their deeper causes. ~~F0045, R0011, R0028~~ **split out 2026-07-29** into the two rows below |
-| **Stage-4 PARTIAL RELOCATION of a boundary chain** (new, 2026-07-29) | **3 confirmed — R0074, R0011, F0045.** Stage 4 relocates a SUBSET of a boundary chain onto the exact analytic geometry and leaves the rest at their Stage-1/2 mesh positions; the moved↔still boundary retraces as a near-180° fold, which kernel-v2's render CDT loudly rejects. **81 of 92 folds straddle that boundary; ZERO lie entirely in un-moved geometry.** Measured at yang's own emission site (`stage5_topology.rs` `push_loop`), so the mint is Stage 4, not Stage 5 ordering and not kernel-v2. **This is the bucket's real conversion target** — one mechanism, one fix site, smallest scope in the tail. (Was filed 2026-07-29 as "S5/S6 planar output-loop seam-overlap"; that named the symptom.) |
+| **§4.4.1/§4.5.2 MESH UPDATING after relocation** (new, 2026-07-29; supersedes the same day's "partial relocation" and "seam-overlap" framings) | **3 confirmed — R0074, R0011, F0045.** Stage 4 relocates a SUBSET of a boundary chain onto the exact analytic geometry and leaves the rest at their Stage-1/2 mesh positions; the moved↔still boundary retraces as a near-180° fold, which kernel-v2's render CDT loudly rejects. **81 of 92 folds straddle that boundary; ZERO lie entirely in un-moved geometry.** Measured at yang's own emission site (`stage5_topology.rs` `push_loop`), so the mint is Stage 4, not Stage 5 ordering and not kernel-v2. **CORRECTED same day:** the relocation SET is CORRECT — un-moved fold vertices carry `Plane`-only incidence and are genuinely not on the intersection curve. The defect is that Stage 4 displaces relocated vertices by up to **101x the incident mesh edge length** (25/78 folds displace further than their shortest incident edge) **without updating the incident mesh**, which Yang §4.4.1/§4.5.2 require. These 3 cases are therefore CUSTOMERS OF THE MESH-UPDATING EPIC (#169 / N2, specs already written), not a standalone fix site. Acceptance criterion the epic gains from this: drive `max_displacement / shortest_incident_edge < 1` at every relocated boundary-chain vertex (`YANG_S5_FOLD_PROBE` measures it). |
 | **Developable-patch ring rejects** (new, 2026-07-29) | 2 open (R0028 closure-fold, R0049 ~97-run fragmentation) — different builder (`tessellate_developable_patch`), different mints, both PARTIAL. Do NOT fold into the planar seam-overlap spec |
 | M5 surface-pair Newton convergence (new, 2026-07-28) | 2 confirmed (R0044 v13, R0020) — pure `vert_surface_pair` vertices whose `relocate_onto_implicit_pair` diverges; kin to the torus `pair_newton_none` trio (R0025, R0032, R0077) |
 | kernel-v2 surface-pair render band (new, 2026-07-28) | 1 confirmed (R0020, fatal) — `surface-pair refinement needs a positive finite chord tolerance` on an output `Curve::SurfacePair` edge |

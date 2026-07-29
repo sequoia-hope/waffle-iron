@@ -20,8 +20,15 @@ thread_local! {
     ///
     /// `None` = unavailable (Stage 4 skipped, or a §4.5.3 collapse renumbered
     /// the vertices so a positional diff is not index-comparable).
-    static S4_MOVED: std::cell::RefCell<Option<std::collections::HashSet<u32>>> =
+    static S4_MOVED: std::cell::RefCell<Option<std::collections::HashMap<u32, f64>>> =
         const { std::cell::RefCell::new(None) };
+
+    /// Diagnostic only (`YANG_S5_FOLD_PROBE`): per-vertex set of incident
+    /// SURFACE kinds, from the pre-Stage-4 incidence map. Lets the fold probe
+    /// say whether an un-moved fold vertex was even a relocation CANDIDATE.
+    static S4_VERT_SURF: std::cell::RefCell<
+        Option<std::collections::HashMap<u32, std::collections::BTreeSet<&'static str>>>,
+    > = const { std::cell::RefCell::new(None) };
 }
 
 /// PR-YR5: rebuild output `BRep` topology (`vertices`, `edges`,
@@ -211,6 +218,28 @@ pub(crate) fn reconstruct_topology_stage4(
             intersection_curves.len(),
             incidence.len(),
         );
+        // Per-vertex incidence: is this vertex an endpoint of ANY intersection
+        // edge at all? This is the discriminator for the partial-relocation
+        // anchor — a fold's un-moved vertex that HAS curved incidence was
+        // wrongly skipped (a Stage-4 enumeration bug); one with NO incidence is
+        // legitimately off the analytic curve, and the fix is §4.5.2 chain
+        // re-sampling, not "relocate more".
+        let mut vs: std::collections::HashMap<u32, std::collections::BTreeSet<&'static str>> =
+            Default::default();
+        for (&(s, e), es) in incidence.iter() {
+            for &(_, surf) in es {
+                let n = match surf {
+                    Surface::Plane { .. } => "Plane",
+                    Surface::Cylinder { .. } => "Cylinder",
+                    Surface::Cone { .. } => "Cone",
+                    Surface::Sphere { .. } => "Sphere",
+                    Surface::Torus { .. } => "Torus",
+                };
+                vs.entry(s).or_default().insert(n);
+                vs.entry(e).or_default().insert(n);
+            }
+        }
+        S4_VERT_SURF.with(|c| *c.borrow_mut() = Some(vs));
     }
     // Positional snapshot for the S4_MOVED oracle (env-gated; the clone is not
     // taken on the production path).
@@ -249,12 +278,18 @@ pub(crate) fn reconstruct_topology_stage4(
         // fabricate a set.
         let moved = match &verts_pre {
             Some(pre) if !s4_collapsed && pre.len() == mesh.verts.len() => {
-                let set: std::collections::HashSet<u32> = pre
+                let set: std::collections::HashMap<u32, f64> = pre
                     .iter()
                     .zip(mesh.verts.iter())
                     .enumerate()
                     .filter(|(_, (p, q))| p.as_array() != q.as_array())
-                    .map(|(i, _)| i as u32)
+                    .map(|(i, (p, q))| {
+                        let (a, b) = (p.as_array(), q.as_array());
+                        let d =
+                            ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2))
+                                .sqrt();
+                        (i as u32, d)
+                    })
                     .collect();
                 eprintln!(
                     "YANG_S5_MOVED_SET n_moved={} n_verts={} collapsed={s4_collapsed} \
@@ -1026,16 +1061,22 @@ pub(crate) fn emit_topology(
                         // MOVED = positional diff across Stage 4 (the correct
                         // oracle; covers the torus arm). reloc = conic t-retag
                         // only, kept for the conic cases but BLIND on tori.
-                        let mv = |v: u32| -> &'static str {
+                        let mv = |v: u32| -> String {
                             S4_MOVED.with(|c| match &*c.borrow() {
-                                Some(set) => {
-                                    if set.contains(&v) {
-                                        "MOVED"
-                                    } else {
-                                        "still"
-                                    }
-                                }
-                                None => "n/a",
+                                Some(set) => match set.get(&v) {
+                                    Some(d) => format!("MOVED({d:.3e})"),
+                                    None => "still".to_string(),
+                                },
+                                None => "n/a".to_string(),
+                            })
+                        };
+                        let inc_of = |v: u32| -> String {
+                            S4_VERT_SURF.with(|c| match &*c.borrow() {
+                                Some(m) => match m.get(&v) {
+                                    Some(set) => set.iter().copied().collect::<Vec<_>>().join("+"),
+                                    None => "NO-INCIDENCE".to_string(),
+                                },
+                                None => "n/a".to_string(),
                             })
                         };
                         let rl = |v: u32| -> String {
@@ -1049,6 +1090,7 @@ pub(crate) fn emit_topology(
                              turn={turn:.2} verts=({},{},{}) prev_curve={:?} cur_curve={:?} \
                              len_prev={l1:.6e} len_cur={l2:.6e} \
                              moved=({},{},{}) \
+                             inc=[{} | {} | {}] \
                              reloc_prev={} reloc_apex={} reloc_next={} \
                              p=[{:.12},{:.12},{:.12}]",
                             info.input,
@@ -1060,6 +1102,9 @@ pub(crate) fn emit_topology(
                             mv(e_prev.start),
                             mv(e_cur.start),
                             mv(e_cur.end),
+                            inc_of(e_prev.start),
+                            inc_of(e_cur.start),
+                            inc_of(e_cur.end),
                             rl(e_prev.start),
                             rl(e_cur.start),
                             rl(e_cur.end),
