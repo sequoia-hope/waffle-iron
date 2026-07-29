@@ -1132,6 +1132,106 @@ pub(crate) fn emit_topology(
                 }
             }
         }
+        // §4.3.4 monotone-re-sample test (read-only, env-gated `YANG_S5_CHAIN`).
+        // Spec §8j: the remaining Phase-C hypothesis is that a relocated chain must
+        // be re-derived as a MONOTONE polyline along its analytic curve. That is
+        // only a fix if the chain is currently NON-monotone, so measure it: for each
+        // maximal run of consecutive loop edges carrying the SAME ellipse, report
+        // every vertex's exact ellipse parameter in traversal order.
+        //
+        // Monotone (mod the 2pi wrap) ⇒ re-sampling that chain at the same vertex
+        // count reproduces the same order and CANNOT clear the fold; the defect is
+        // then at the chain's junction with its neighbour, not inside it.
+        if std::env::var_os("YANG_S5_CHAIN").is_some() {
+            for (tag, lp) in std::iter::once(("outer", &outer_loop)).chain(
+                inner_loops
+                    .iter()
+                    .enumerate()
+                    .map(|(i, l)| (if i == 0 { "inner0" } else { "innerN" }, l)),
+            ) {
+                let n_e = lp.len();
+                let mut k = 0usize;
+                while k < n_e {
+                    let e = &edges[lp[k] as usize];
+                    let Curve::Ellipse {
+                        center,
+                        normal,
+                        major_axis,
+                        major_radius,
+                        minor_radius,
+                    } = e.curve
+                    else {
+                        k += 1;
+                        continue;
+                    };
+                    // Extend while the next edge carries a bit-identical ellipse.
+                    let same = |c: &Curve| -> bool {
+                        matches!(c, Curve::Ellipse { center: c2, normal: n2, major_axis: m2, major_radius: a2, minor_radius: b2 }
+                            if c2.as_array() == center.as_array()
+                                && n2.as_array() == normal.as_array()
+                                && m2.as_array() == major_axis.as_array()
+                                && *a2 == major_radius
+                                && *b2 == minor_radius)
+                    };
+                    let mut run = vec![e.start, e.end];
+                    let mut j = k + 1;
+                    while j < n_e && same(&edges[lp[j] as usize].curve) {
+                        run.push(edges[lp[j] as usize].end);
+                        j += 1;
+                    }
+                    let params: Vec<f64> = run
+                        .iter()
+                        .map(|&v| {
+                            crate::geom::ellipse_param(
+                                mesh.verts[v as usize],
+                                center,
+                                normal,
+                                major_axis,
+                                major_radius,
+                                minor_radius,
+                            )
+                        })
+                        .collect();
+                    // Monotone test on the UNWRAPPED sequence: lift each successive
+                    // parameter into the branch nearest its predecessor, so a chain
+                    // crossing the atan2 seam is not misreported as a reversal.
+                    let mut lifted = Vec::with_capacity(params.len());
+                    let two_pi = std::f64::consts::TAU;
+                    for (i, &t) in params.iter().enumerate() {
+                        if i == 0 {
+                            lifted.push(t);
+                            continue;
+                        }
+                        let prev: f64 = lifted[i - 1];
+                        let mut u = t;
+                        while u - prev > std::f64::consts::PI {
+                            u -= two_pi;
+                        }
+                        while prev - u > std::f64::consts::PI {
+                            u += two_pi;
+                        }
+                        lifted.push(u);
+                    }
+                    let deltas: Vec<f64> = lifted.windows(2).map(|w| w[1] - w[0]).collect();
+                    let n_pos = deltas.iter().filter(|d| **d > 0.0).count();
+                    let n_neg = deltas.iter().filter(|d| **d < 0.0).count();
+                    let monotone = n_pos == 0 || n_neg == 0;
+                    eprintln!(
+                        "YANG_S5_CHAIN face={face_idx} input={:?} loop={tag} k={k} \
+                         len={} MONOTONE={monotone} n_pos={n_pos} n_neg={n_neg} \
+                         verts={run:?} params={:?} deltas={:?}",
+                        info.input,
+                        run.len(),
+                        lifted.iter().map(|t| format!("{t:.9}")).collect::<Vec<_>>(),
+                        deltas
+                            .iter()
+                            .map(|d| format!("{d:.3e}"))
+                            .collect::<Vec<_>>(),
+                    );
+                    k = j.max(k + 1);
+                }
+            }
+        }
         // Ring-fold probe (read-only, env-gated) — the yang-side counterpart of
         // kernel-v2's `KV2_RING_PROVENANCE`. The planar seam-overlap class
         // (R0074/R0011/F0045) shows up downstream as a near-180 deg fold in the

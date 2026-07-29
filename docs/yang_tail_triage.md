@@ -412,7 +412,53 @@ new capability (curve tracing/marching on the implicit plane∩torus pair), adja
 the KV6d torus scope, not a wiring of existing parts. **R0011 is the only viable
 Phase-C target** — it carries real analytic `Ellipse` curves (28/45), which do have a
 closed-form parameterization, and it is the only case whose folds are 100 %
-Stage-4-minted.
+Stage-4-minted. **⚠ Superseded: the re-sample was RUN on R0011 and is a NO-OP — see
+below.**
+
+### RUN + CORRECTED — re-sample is a no-op on R0011, and the own-rim counts were a probe artifact (2026-07-29)
+
+**The monotone re-sample was tried on R0011 and does nothing.** `YANG_S5_CHAIN` walks
+each loop's maximal runs of consecutive edges sharing a bit-identical ellipse and reports
+every vertex's exact `ellipse_param` in traversal order (unwrapped across the atan2 seam
+first). **All 31 ellipse chains are MONOTONE** (31/31, run lengths 2–7), so re-sampling
+at the same vertex count reproduces the existing order and cannot clear a fold. It could
+not have anyway: **not one R0011 fold has both incident edges on an ellipse** — the 10
+split Line→Ellipse ×4, Ellipse→Line ×2, Line→Line ×4, so every apex is a chain JUNCTION,
+never a chain interior. The §4.3.4 hypothesis is refuted for both cases; Phase C has no
+grounded lead case left here. Full detail: epic spec §8k.
+
+**CORRECTION to the own-rim rows above — the error was in my own probe.** Increment 1
+stored per-vertex incidence as `BTreeSet<String>` keyed on the operand-qualified LABEL,
+collapsing two DISTINCT surfaces that share a label (a vertex on two different
+`A:Plane`s) into one entry. Increment 2 changed it to `Vec<(String, Surface)>`. Same
+fold, same vertices: `inc=[B:Plane | B:Plane | A:Cylinder+B:Plane]` became
+`inc=[B:Plane+B:Plane+B:Plane | B:Plane+B:Plane+B:Plane | A:Cylinder+B:Plane+B:Plane]`.
+
+| case | apex own-rim | apex is Fig-11 q | previously published |
+|---|---|---|---|
+| R0074 | **67/78** | **66/78** (`A:Plane+A:Plane+B:Torus`) | "0/78" ✗ |
+| R0011 | **10/10** | **6/10** (`A:Cylinder+B:Plane+B:Plane`) | "0/10" ✗ |
+| F0045 | 4/4 | 3/4 | 4/4 ✓ |
+
+**This UNIFIES the bucket** rather than splitting it in three: all three cases are
+dominated by Fig-11 **q** points (on one operand's own rim AND the other operand's
+surface) — the F0083/v80 class — consistent with every fold sitting at a
+cross-chain/own-rim junction.
+
+**Next measurement, sharply defined.** §8h already showed these q vertices satisfy all
+their surfaces to ~1e-13, so a triple-point reseat is a no-op on them. What is NOT
+established is whether each sits at the **nearest** valid root: `A:Cylinder ∩
+(B:Plane₁ ∩ B:Plane₂)` has up to 2 roots and a vertex can be exactly on all three
+surfaces at the WRONG one. Solve both roots in closed form and compare distances to the
+pre-relocation position — the same test `circle_plane_nearest_root`
+(`stage4_boundary_curve.rs:290`) already encodes for inc-3's geometry.
+
+**METRIC CAVEAT — this inflates every fold count in this section.** `turn > 120°` is a
+proxy for "self-intersecting ring", not the thing itself, and conflates legitimate sharp
+corners with genuine retraces. R0074's turns are bimodal: 63 in a 120–146° cluster, 15
+at ≥153°, 11 at ≥177°. And kernel-v2's ring probe found **ONE** proper self-crossing in
+R0011's 392-point ring, not 10. Future increments should be scored against the ring
+self-crossing count (`KV2_RING_PROVENANCE`), with turn angle used only to localize.
 
 Recorded for whoever lifts the torus boundary: a second, redundant skip fires first.
 The selection-tolerance ladder (`stage3_ssi.rs:559-593`) has arms for Cylinder, Sphere

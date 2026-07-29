@@ -647,13 +647,87 @@ of any existing part. That is its own task, adjacent to the KV6d torus scope
 (`docs/kv6d_torus_boolean_scope.md`) and M5, and it should not be smuggled into this
 epic.
 
-**⇒ R0011 is the only viable Phase-C target, and it is viable.** It carries real
+**⇒ R0011 is the only viable Phase-C target, and it is viable.** — **superseded by §8k: the
+re-sample was RUN on R0011 and is a NO-OP there too.** It carries real
 analytic `Ellipse` curves (28 on op1, 45 on op2; its fold apexes report
 `curve=[… | Ellipse | …]`), which DO have a closed-form parameterization, so monotone
 re-sampling is available there. Combined with §8g (R0011 is the only case whose folds
 are 100 % Stage-4-minted, hence the only one that can convert), Phase C now has
 exactly one grounded lead case and a testable first step: re-sample one R0011 minted
 fold's ellipse chain monotonically at the same vertex count and check the fold clears.
+
+### 8k. RUN — the monotone re-sample is a NO-OP on R0011; and §8f/§8g's own-rim counts were MY OWN probe artifact (2026-07-29)
+
+§8j proposed the one remaining testable step: re-sample an R0011 minted fold's ellipse
+chain monotonically at the same vertex count and see whether the fold clears. It was
+run (`YANG_S5_CHAIN`, which walks each loop's maximal runs of consecutive edges sharing
+a bit-identical ellipse and reports every vertex's exact `ellipse_param` in traversal
+order, unwrapped across the atan2 seam before the monotonicity test).
+
+**Result: all 31 ellipse chains on R0011 are MONOTONE** (`n_pos == 0 || n_neg == 0`,
+31/31; run lengths 2–7 vertices). A monotone re-sample at the same vertex count
+therefore reproduces the existing order exactly and **cannot clear any fold**.
+
+**And it could not have, structurally: not one R0011 fold has both incident edges on an
+ellipse.** The 10 folds split `LineSegment→Ellipse` ×4, `Ellipse→LineSegment` ×2,
+`LineSegment→LineSegment` ×4. Every fold apex is a chain JUNCTION, never the interior
+of a relocated chain — so an intra-chain re-parameterization is the wrong tool by
+construction. **§8i/§8j's hypothesis is now refuted for BOTH cases, and Phase C has no
+grounded lead case left in this bucket.**
+
+**CORRECTION — §8f and §8g's own-rim statistics are wrong, and the error was in my own
+probe.** Increment 1 stored the per-vertex incidence as `BTreeSet<String>` keyed on the
+operand-qualified LABEL, which silently collapsed two DISTINCT surfaces sharing a label
+(a vertex on two different `A:Plane`s) into one entry. Increment 2 changed the store to
+`Vec<(String, Surface)>` deduped on `(label, surface)`. Same fold, same vertices, the
+two binaries:
+
+```
+v3 (set):  inc=[B:Plane          | B:Plane                | A:Cylinder+B:Plane]
+v5 (vec):  inc=[B:Plane+B:Plane+B:Plane | B:Plane+B:Plane+B:Plane | A:Cylinder+B:Plane+B:Plane]
+```
+
+Recomputed on the corrected output, the "own-rim = 0" claims invert completely:
+
+| case | apex own-rim (≥2 distinct surfaces of ONE operand) | apex is Fig-11 q (own-rim AND cross) | published in §8f/§8g |
+|---|---|---|---|
+| R0074 | **67/78** | **66/78** (`A:Plane+A:Plane+B:Torus`) | "0/78 own-rim" ✗ |
+| R0011 | **10/10** | **6/10** (`A:Cylinder+B:Plane+B:Plane`) | "0/10 own-rim" ✗ |
+| F0045 | 4/4 | 3/4 | 4/4 ✓ (its labels differed, so the set did not collapse) |
+
+**This UNIFIES the bucket instead of splitting it into three classes.** All three cases
+are dominated by Fig-11 **q** points — a vertex on one operand's OWN RIM (two distinct
+surfaces of that operand) *and* on the other operand's surface. That is the F0083/v80
+class of `specs/yang_s4_boundary_curve_relocation.md`, and it is consistent with §8k's
+other finding: the folds sit at the junction where a relocated cross-input chain meets
+the operand's own rim chain, which is exactly what a q point is.
+
+**But the obvious follow-up is already excluded.** §8h measured these q vertices as
+satisfying ALL their incident surfaces to ~1e-13, so they are already seated at a valid
+triple point and `plan_triple_point_reseats` would be a no-op on them even with the
+cylinder/torus arm added. What §8h does NOT establish is whether each is at the
+**nearest** valid triple point: a cylinder ∩ (plane∩plane line) has up to 2 roots, and
+a vertex can be exactly on all three surfaces while sitting at the WRONG root. The
+pre-residual only proves it had to move, not that it moved to the right one.
+
+**THE next measurement, sharply defined:** for R0011's q apexes, solve the ≤2 roots of
+`A:Cylinder ∩ (B:Plane₁ ∩ B:Plane₂)` in closed form and check whether the vertex landed
+on the root NEAREST its pre-relocation position. This is exactly the test
+`circle_plane_nearest_root` already encodes for inc-3's own geometry
+(`stage4_boundary_curve.rs:290`), applied to a different surface triple. If it is at
+the farther root, the defect is root selection at the junction and the fix is a
+nearest-root constraint — cheap, local, and precedented. If it is at the nearest root,
+the q vertices are correct and the fold must come from the chain that ARRIVES at them.
+
+**METRIC CAVEAT, recorded because it inflates every fold count in §8f–§8k.** The
+`turn > 120°` threshold is a proxy for "self-intersecting ring", not the thing itself,
+and it conflates legitimate sharp corners with genuine retraces. R0074's turn
+distribution is clearly bimodal — a 120–146° cluster of 63 folds, then a tail of 15 at
+≥153° with 11 at ≥177° (a retrace). kernel-v2's own ring probe found **ONE** proper
+self-crossing in R0011's 392-point ring, not 10. So "10/10 minted" and "16 minted"
+count turn-angle outliers, and the confirmed-defect population is materially smaller.
+Any future increment should be measured against the ring self-crossing count
+(`KV2_RING_PROVENANCE`), with the turn angle used only to localize.
 
 **Read:** ~15 cases route to Phase B (8 reassembly + 4 render-CDT + 3 re-entry-CDT),
 ~4 to Phase C/D (grazing), 5 eject (2 → #146, 1 → §4.5.3, 2 → M5). The Phase-B
