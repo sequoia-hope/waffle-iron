@@ -301,6 +301,52 @@ read as "inherited". Making `S4_MOVED` survive a collapse (compose the
 ⇒ **This bucket is three classes, not one.** Only R0074's 16 minted folds are a
 direct §4.4.1/§4.5.2 customer. Do not build one machinery against all three.
 
+### MEASURED — all three cases, collapse-aware oracle (2026-07-29, second pass)
+
+The blocking gap above is closed: `S4_PRE_POS` now stores each vertex's
+**pre-Stage-4 position** (not a displacement) and is re-keyed through **all four**
+`compact_unreferenced_verts` sites (§4.5.3, KV15b, #194 sub-TAU collapse, N50 f32
+weld — `YANG_S5_REMAP` reports each). Storing the position rather than the
+displacement is what makes it survive: `pre = post − disp` is only valid if nothing
+moves the vertex again, and the last three sites run **even when Stage 4 did not
+collapse**.
+
+**First result: R0074's earlier numbers were index-aligned after all** — no remap
+site fires on it (`YANG_S5_REMAP` silent), so the 16/62 split stands as committed.
+F0045 and R0011 each fire `site=s453` only (88 kept/1 dropped; 847/6 and 993/6).
+
+| case | folds | MINTED | INHERITED | minted ratio >1 | minted apex |
+|---|---|---|---|---|---|
+| **R0011** | 10 | **10** | 0 | **10/10** (med 7.21, max 16.80) | 6/10 TANGENTIAL |
+| R0074 | 78 | 16 | 62 | 14/16 (med 3.85, max 81.35) | 3/16 tangential (13 NORMAL) |
+| F0045 | 4 | 1 | 3 | 1/1 (1.86) | 0/1 (NORMAL) |
+
+**The `max_disp / min_pre_spacing < 1` criterion holds up across all three:**
+violated by **25 of 27** minted folds (93%) and respected by **58 of 65** inherited
+ones (89%). It discriminates rather than correlating.
+
+**R0011 replaces R0074 as the epic's lead case — but NOT as a Fig-11 `merge`
+customer.** It is the only case whose folds are 100% Stage-4-minted, so fixing the
+mint could actually convert it (R0074 keeps 62 inherited folds regardless). But its
+mechanism differs from R0074's: minted-fold displacements are **tangential**-dominant
+(e.g. `apex_tan=324.1` vs `apex_nrm=51.3`; `316.0` vs `88.2`) and enormous in
+absolute terms — up to **328 units on a ~5000-span model (~7%)**. A vertex sliding
+7% of the model ALONG its own curve is not off-curve tessellation error being
+corrected; it is the relocation choosing the wrong POINT on the curve. R0074's
+minted folds are the opposite (~97% normal, `tan≈1e-5` vs `nrm≈3e-4`) — genuine
+off-curve correction whose order breaks only because the move dwarfs a
+near-duplicate spacing.
+
+⇒ **Two different fixes.** Fig-11 `merge` addresses R0074's near-dup class only.
+R0011 needs the relocation to pick the right point along the curve. Do NOT infer
+mis-relocation from the printed `reloc(t=…)` values — a vertex on two curves carries
+one `t`, and `t` from different curve frames is not comparable (adjacent verts 38/39
+read `t=-0.428` and `t=+2.182`, which proves nothing on its own). The decisive
+measurement is the **per-surface implicit residual of the final position** (the F0083
+method): if R0011's moved vertices satisfy `A:Cylinder` and `B:Plane` exactly, they
+are ON the curve at the wrong place ⇒ point-selection defect; if not, they never
+reached it. That probe is the next increment and also serves F0045.
+
 **The two DEVELOPABLE cases are NOT this class** and must not be folded into its
 spec (R0028: fold at the ring CLOSURE, 13 from any seam; R0049: ~97 runs makes
 the seam test vacuous). **And R0004, which the error-string grouping pulled into

@@ -472,6 +472,42 @@ existing `relocate_onto_implicit_triple` Newton under the existing
 `satisfies_all_surfaces` certificate. R0011 is a third signature (0/10 apexes
 own-rim; 6/10 `A:Cylinder+B:Plane` on an `Ellipse`).
 
+### 8g. All three measured — R0011 is the lead case, and it is NOT a `merge` customer (2026-07-29)
+
+§8f's blocking gap is closed. `S4_PRE_POS` stores each vertex's pre-Stage-4
+POSITION and is re-keyed through all FOUR `compact_unreferenced_verts` sites
+(§4.5.3, KV15b, #194, N50 f32 weld). Storing the position rather than the
+displacement is load-bearing: `pre = post − disp` breaks if anything moves the
+vertex again, and the last three sites run even when Stage 4 did not collapse.
+**R0074's §8f numbers are confirmed index-aligned** (no remap site fires on it).
+
+| case | folds | MINTED | INHERITED | minted ratio >1 | minted apex displacement |
+|---|---|---|---|---|---|
+| **R0011** | 10 | **10** | 0 | **10/10** (med 7.21) | 6/10 TANGENTIAL, up to 328 abs |
+| R0074 | 78 | 16 | 62 | 14/16 (med 3.85) | 13/16 NORMAL (~97%) |
+| F0045 | 4 | 1 | 3 | 1/1 | NORMAL |
+
+The acceptance criterion generalizes: violated by **25 of 27** minted folds, respected
+by **58 of 65** inherited ones.
+
+**Sequencing change.** R0011 becomes the lead case — it is the only one whose folds
+are 100% Stage-4-minted, so fixing the mint can actually convert it, whereas R0074
+retains 62 inherited folds no matter what this epic does. **But R0011 is not a
+Fig-11 `merge` customer.** Its minted displacements are tangential-dominant and
+enormous (up to 328 on a ~5000-span model, ~7%); sliding 7% of the model ALONG a
+curve is a wrong-point-on-curve selection, not off-curve error being corrected.
+R0074's are ~97% NORMAL — genuine correction whose order breaks only because the
+move dwarfs a near-duplicate spacing. So Fig-11 `merge` remains scoped to R0074's
+near-dup class, and R0011 needs correct point selection along the curve instead.
+
+**Do not read the printed `reloc(t=…)` as evidence of mis-relocation** — a vertex on
+two curves carries one `t`, and `t` from different curve frames is incomparable
+(R0011's adjacent verts 38/39 read `-0.428` and `+2.182`, which alone proves
+nothing). The decisive measurement is the per-surface implicit residual of the FINAL
+position (§8f's F0045 note, the F0083 method): satisfying both surfaces ⇒ on the
+curve at the wrong place ⇒ point-selection defect; not satisfying them ⇒ it never
+arrived. One probe serves R0011 and F0045 both, and it is the next increment.
+
 **Read:** ~15 cases route to Phase B (8 reassembly + 4 render-CDT + 3 re-entry-CDT),
 ~4 to Phase C/D (grazing), 5 eject (2 → #146, 1 → §4.5.3, 2 → M5). The Phase-B
 reassembly bucket is the largest single lever and the ★★ hypothesis (post-relocation

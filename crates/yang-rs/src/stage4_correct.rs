@@ -3286,7 +3286,14 @@ pub(crate) fn collapse_subtauwork_mesh_edges(
 /// `relocations` untouched) when every vertex is already referenced — so the
 /// no-collapse paths (planar / perpendicular-circle / on-curve mock) stay
 /// byte-identical.
-pub(crate) fn compact_unreferenced_verts(mesh: &mut Mesh, relocations: &mut Vec<(u32, f64)>) {
+///
+/// Returns the old→new index remap when it compacted (`None` on the no-op path),
+/// so callers holding vertex-keyed side tables can re-key them. `None` in a slot
+/// means that vertex did not survive.
+pub(crate) fn compact_unreferenced_verts(
+    mesh: &mut Mesh,
+    relocations: &mut Vec<(u32, f64)>,
+) -> Option<Vec<Option<u32>>> {
     let n = mesh.verts.len();
     let mut referenced = vec![false; n];
     for tri in &mesh.tris {
@@ -3295,7 +3302,7 @@ pub(crate) fn compact_unreferenced_verts(mesh: &mut Mesh, relocations: &mut Vec<
         }
     }
     if referenced.iter().all(|&r| r) {
-        return; // no danglers — byte-identical no-op.
+        return None; // no danglers — byte-identical no-op.
     }
     // Dense remap preserving the relative order of surviving vertices.
     let mut remap: Vec<Option<u32>> = vec![None; n];
@@ -3326,6 +3333,7 @@ pub(crate) fn compact_unreferenced_verts(mesh: &mut Mesh, relocations: &mut Vec<
         .filter_map(|&(v, t)| remap[v as usize].map(|nv| (nv, t)))
         .collect();
     *relocations = remapped;
+    Some(remap)
 }
 
 /// PR-YR10 (Yang §4.4.1 + §4.5.3): Stage 4 — relocate the mesh intersection

@@ -18,17 +18,21 @@ thread_local! {
     /// degree-4 polylines: no analytic curve, no `t` retag). Keying a probe on
     /// `relocations` is therefore blind on any torus model.
     ///
-    /// `None` = unavailable (Stage 4 skipped, or a §4.5.3 collapse renumbered
-    /// the vertices so a positional diff is not index-comparable).
+    /// `None` = unavailable (Stage 4 was not entered).
     ///
-    /// The value is the full displacement VECTOR, not just its magnitude: the
-    /// pre-Stage-4 position is recoverable as `post - disp`, which lets the fold
-    /// probe (a) decompose the displacement into components tangent / normal to
-    /// the local boundary chain and (b) re-evaluate each fold's turn angle at the
-    /// PRE-Stage-4 positions. Both are needed to tell a relocation that fixed
-    /// off-curve error (normal, order-preserving) from one that slid a vertex
-    /// ALONG its chain (tangential — the only way to inverse local order).
-    static S4_MOVED: std::cell::RefCell<Option<std::collections::HashMap<u32, [f64; 3]>>> =
+    /// Holds each vertex's PRE-Stage-4 POSITION, keyed by its index in the CURRENT
+    /// mesh — not a displacement, and not a moved-only set. Displacement is then
+    /// `post − pre` at report time, "moved" is `post != pre`, and a vertex with no
+    /// entry was minted during Stage 4 (reported as `new`, never as `still`).
+    ///
+    /// Storing the position rather than the displacement is what makes this
+    /// survive the rest of the pipeline. `pre = post − disp` is only valid if
+    /// nothing moves the vertex again, but the KV15b collapse, the #194 sub-TAU
+    /// edge collapse and the N50 f32 render weld all run AFTER Stage 4 and can
+    /// move or drop a vertex; each is followed by a `compact_unreferenced_verts`
+    /// that RENUMBERS. So the map is re-keyed through every one of those remaps
+    /// (`probe_remap_pre_pos`), and the pre positions stay exact regardless.
+    static S4_PRE_POS: std::cell::RefCell<Option<std::collections::HashMap<u32, [f64; 3]>>> =
         const { std::cell::RefCell::new(None) };
 
     /// Diagnostic only (`YANG_S5_FOLD_PROBE`): per-vertex set of incident
@@ -56,6 +60,42 @@ thread_local! {
     static S4_VERT_CURVE: std::cell::RefCell<
         Option<std::collections::HashMap<u32, std::collections::BTreeSet<&'static str>>>,
     > = const { std::cell::RefCell::new(None) };
+}
+
+/// Diagnostic only (`YANG_S5_FOLD_PROBE`): re-key [`S4_PRE_POS`] through a
+/// `compact_unreferenced_verts` remap, dropping vertices that did not survive.
+///
+/// MUST be called at EVERY compaction site. There are four (§4.5.3, KV15b, #194
+/// sub-TAU edge collapse, N50 f32 weld), and the last three run even when Stage 4
+/// itself did not collapse — so skipping them leaves the map keyed on indices that
+/// name different vertices in the emitted loops, which is worse than having no
+/// map: every column would still be populated, just wrong.
+fn probe_remap_pre_pos(site: &str, remap: Option<&Vec<Option<u32>>>) {
+    if std::env::var_os("YANG_S5_FOLD_PROBE").is_none() {
+        return;
+    }
+    let Some(remap) = remap else { return };
+    S4_PRE_POS.with(|c| {
+        let mut slot = c.borrow_mut();
+        if let Some(old) = slot.take() {
+            let before = old.len();
+            let mut new: std::collections::HashMap<u32, [f64; 3]> =
+                std::collections::HashMap::with_capacity(before);
+            for (v, p) in old {
+                if let Some(Some(nv)) = remap.get(v as usize) {
+                    new.insert(*nv, p);
+                }
+            }
+            // Report every re-key: which site fired is exactly what decides
+            // whether a previous run's columns were index-aligned.
+            eprintln!(
+                "YANG_S5_REMAP site={site} kept={} dropped={} (pre-position map re-keyed)",
+                new.len(),
+                before - new.len(),
+            );
+            *slot = Some(new);
+        }
+    });
 }
 
 /// Diagnostic only (`YANG_S5_FOLD_PROBE`): record the per-vertex incidence and
@@ -316,72 +356,54 @@ pub(crate) fn reconstruct_topology_stage4(
     } else {
         None
     };
-    let mut s4_collapsed = false;
     if has_conic {
         let (relocs, collapsed) =
             stage4_relocate_and_correct(mesh, attribution, a, b, minted_junction_keys)?;
         relocations = relocs;
-        s4_collapsed = collapsed;
         // A §4.5.3 collapse mutated the mesh topology + attribution, so the
         // pre-collapse Phase-A loops are stale (spec §4.1 note). Recompute them
         // before the Phase-B emission re-validates the corrected mesh.
+        // Snapshot the pre-Stage-4 positions BEFORE the first compaction can
+        // renumber. `collapse_vertex` itself never touches `mesh.verts` (it
+        // rewrites triangle indices and drops degenerate tris), so indices are
+        // still 1:1 with `verts_pre` at this point even when `collapsed`.
+        if s4_probe {
+            if let Some(pre) = &verts_pre {
+                let map: std::collections::HashMap<u32, [f64; 3]> = pre
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| (i as u32, p.as_array()))
+                    .collect();
+                let n_moved = pre
+                    .iter()
+                    .zip(mesh.verts.iter())
+                    .filter(|(p, q)| p.as_array() != q.as_array())
+                    .count();
+                eprintln!(
+                    "YANG_S5_MOVED_SET n_moved={n_moved} n_verts={} collapsed={collapsed} \
+                     (pre-Stage-4 positions, re-keyed through every compaction)",
+                    pre.len(),
+                );
+                S4_PRE_POS.with(|c| *c.borrow_mut() = Some(map));
+            } else {
+                eprintln!("YANG_S5_MOVED_SET UNAVAILABLE (Stage 4 not entered)");
+            }
+        }
         if collapsed {
             // PR-YR11: drop the vertices the collapse left unreferenced (and
             // remap triangle indices + `relocations`) BEFORE recomputing Phase A,
             // so the emitted output mesh carries no dangling vertices (a global
             // V−E+F = 2 for a single closed shell). Strict no-op when there were
             // no danglers.
-            compact_unreferenced_verts(mesh, &mut relocations);
+            let remap = compact_unreferenced_verts(mesh, &mut relocations);
             let (i2, inc2, cv2) = compute_phase_a(mesh, attribution, a, b)?;
             // The collapse renumbered vertices: re-key the probe maps or their
             // columns name the wrong vertices (no-op when the gate is off).
+            probe_remap_pre_pos("s453", remap.as_ref());
             probe_record_incidence(&inc2, &cv2);
             infos = i2;
             intersection_curves = cv2;
         }
-    }
-
-    if s4_probe {
-        // Build the moved-vertex set by positional diff. A §4.5.3 collapse
-        // renumbers vertices, so the diff is only index-comparable when the
-        // vertex count is unchanged — otherwise report unavailable rather than
-        // fabricate a set.
-        let moved = match &verts_pre {
-            Some(pre) if !s4_collapsed && pre.len() == mesh.verts.len() => {
-                let set: std::collections::HashMap<u32, [f64; 3]> = pre
-                    .iter()
-                    .zip(mesh.verts.iter())
-                    .enumerate()
-                    .filter(|(_, (p, q))| p.as_array() != q.as_array())
-                    .map(|(i, (p, q))| {
-                        // post - pre, so `pre = post - disp` is recoverable.
-                        let (a, b) = (p.as_array(), q.as_array());
-                        (i as u32, [b[0] - a[0], b[1] - a[1], b[2] - a[2]])
-                    })
-                    .collect();
-                eprintln!(
-                    "YANG_S5_MOVED_SET n_moved={} n_verts={} collapsed={s4_collapsed} \
-                     (positional diff across Stage 4)",
-                    set.len(),
-                    mesh.verts.len(),
-                );
-                Some(set)
-            }
-            Some(_) => {
-                eprintln!(
-                    "YANG_S5_MOVED_SET UNAVAILABLE collapsed={s4_collapsed} \
-                     pre_len={:?} post_len={}",
-                    verts_pre.as_ref().map(Vec::len),
-                    mesh.verts.len(),
-                );
-                None
-            }
-            None => {
-                eprintln!("YANG_S5_MOVED_SET UNAVAILABLE (Stage 4 not entered)");
-                None
-            }
-        };
-        S4_MOVED.with(|c| *c.borrow_mut() = moved);
     }
 
     // EXPERIMENTAL probe (task #121 increment 1, read-only, env-gated):
@@ -467,9 +489,12 @@ pub(crate) fn reconstruct_topology_stage4(
             c
         };
         if kv15b_collapsed {
-            compact_unreferenced_verts(mesh, &mut relocations);
+            let remap = compact_unreferenced_verts(mesh, &mut relocations);
             let (i3, inc3, cv3) = compute_phase_a(mesh, attribution, a, b)?;
-            // Same re-keying as the §4.5.3 site above.
+            // Same re-keying as the §4.5.3 site above. NOTE this site runs even
+            // when Stage 4 did not collapse, so omitting it silently misaligns
+            // the probe columns on cases that looked unaffected.
+            probe_remap_pre_pos("kv15b", remap.as_ref());
             probe_record_incidence(&inc3, &cv3);
             infos = i3;
             intersection_curves = cv3;
@@ -489,8 +514,10 @@ pub(crate) fn reconstruct_topology_stage4(
             c
         };
         if s194_collapsed {
-            compact_unreferenced_verts(mesh, &mut relocations);
-            let (i4, _inc4, cv4) = compute_phase_a(mesh, attribution, a, b)?;
+            let remap = compact_unreferenced_verts(mesh, &mut relocations);
+            let (i4, inc4, cv4) = compute_phase_a(mesh, attribution, a, b)?;
+            probe_remap_pre_pos("s194", remap.as_ref());
+            probe_record_incidence(&inc4, &cv4);
             infos = i4;
             intersection_curves = cv4;
         }
@@ -531,10 +558,12 @@ pub(crate) fn reconstruct_topology_stage4(
         let f32_welded = weld_f32_render_twins(mesh, &mut attr_vec);
         attribution.attributions = attr_vec;
         if f32_welded {
-            compact_unreferenced_verts(mesh, &mut relocations);
-            let (i4, _inc4, cv4) = compute_phase_a(mesh, attribution, a, b)?;
-            infos = i4;
-            intersection_curves = cv4;
+            let remap = compact_unreferenced_verts(mesh, &mut relocations);
+            let (i5, inc5, cv5) = compute_phase_a(mesh, attribution, a, b)?;
+            probe_remap_pre_pos("f32weld", remap.as_ref());
+            probe_record_incidence(&inc5, &cv5);
+            infos = i5;
+            intersection_curves = cv5;
         }
     }
 
@@ -1132,16 +1161,25 @@ pub(crate) fn emit_topology(
                         // oracle; covers the torus arm). reloc = conic t-retag
                         // only, kept for the conic cases but BLIND on tori.
                         let disp = |v: u32| -> Option<[f64; 3]> {
-                            S4_MOVED.with(|c| c.borrow().as_ref().and_then(|s| s.get(&v).copied()))
+                            S4_PRE_POS
+                                .with(|c| c.borrow().as_ref().and_then(|s| s.get(&v).copied()))
                         };
-                        let mv = |v: u32| -> String {
-                            S4_MOVED.with(|c| match &*c.borrow() {
+                        // Displacement is derived (post − pre) rather than stored,
+                        // so it stays exact even for a vertex a later collapse or
+                        // weld moved again. A vertex with no pre position was
+                        // minted during Stage 4 — reported as `new`, not `still`.
+                        let mv = |v: u32, post: [f64; 3]| -> String {
+                            S4_PRE_POS.with(|c| match &*c.borrow() {
                                 Some(set) => match set.get(&v) {
-                                    Some(d) => {
-                                        let m = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                                    Some(p) if *p == post => "still".to_string(),
+                                    Some(p) => {
+                                        let m = ((post[0] - p[0]).powi(2)
+                                            + (post[1] - p[1]).powi(2)
+                                            + (post[2] - p[2]).powi(2))
+                                        .sqrt();
                                         format!("MOVED({m:.3e})")
                                     }
-                                    None => "still".to_string(),
+                                    None => "new".to_string(),
                                 },
                                 None => "n/a".to_string(),
                             })
@@ -1173,23 +1211,22 @@ pub(crate) fn emit_topology(
                         // there is INHERITED from the Stage-2/3 boundary cycle;
                         // only one that is clean before and folded after was minted
                         // by relocation.
-                        let sub = |p: [f64; 3], d: Option<[f64; 3]>| -> [f64; 3] {
-                            match d {
-                                Some(d) => [p[0] - d[0], p[1] - d[1], p[2] - d[2]],
-                                None => p,
-                            }
-                        };
+                        // A vertex with no recorded pre position (minted during
+                        // Stage 4) contributes its post position — it has no
+                        // "before" to compare against.
+                        let pre_of =
+                            |v: u32, post: [f64; 3]| -> [f64; 3] { disp(v).unwrap_or(post) };
                         let (a_pre, b_pre, c_pre) = (
-                            sub(a, disp(e_prev.start)),
-                            sub(b, disp(e_cur.start)),
-                            sub(c, disp(e_cur.end)),
+                            pre_of(e_prev.start, a),
+                            pre_of(e_cur.start, b),
+                            pre_of(e_cur.end, c),
                         );
                         // Honest unavailability: with no moved-set the "pre"
                         // positions ARE the post positions, so a computed number
                         // would equal `turn` exactly and read as "inherited fold"
                         // — a measurement that was never taken must not look like
                         // one that was.
-                        let have_moved = S4_MOVED.with(|c| c.borrow().is_some());
+                        let have_moved = S4_PRE_POS.with(|c| c.borrow().is_some());
                         // The PRE-Stage-4 spacing of the fold triple. This — not
                         // the post-relocation edge length — is the denominator the
                         // relocation had to respect: two vertices that start
@@ -1236,7 +1273,8 @@ pub(crate) fn emit_topology(
                         // only a TANGENTIAL component can slide a vertex past its
                         // neighbour and invert the traversal.
                         let (d_tan, d_nrm) = match disp(e_cur.start) {
-                            Some(d) => {
+                            Some(p0) => {
+                                let d = [b[0] - p0[0], b[1] - p0[1], b[2] - p0[2]];
                                 let t = [
                                     c_pre[0] - a_pre[0],
                                     c_pre[1] - a_pre[1],
@@ -1278,9 +1316,9 @@ pub(crate) fn emit_topology(
                             e_cur.end,
                             cname(&e_prev.curve),
                             cname(&e_cur.curve),
-                            mv(e_prev.start),
-                            mv(e_cur.start),
-                            mv(e_cur.end),
+                            mv(e_prev.start, a),
+                            mv(e_cur.start, b),
+                            mv(e_cur.end, c),
                             inc_of(e_prev.start),
                             inc_of(e_cur.start),
                             inc_of(e_cur.end),
