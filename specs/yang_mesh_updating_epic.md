@@ -738,3 +738,30 @@ bug and re-triages out. Two ★ LRR cases (C0067, R0077) still need a routing pr
 before they are assigned. The render-CDT ★ cases (F0045/R0011/R0016/R0028) need one
 probe each to confirm the degenerate ring is a yang-emitted OUTPUT face (Phase B)
 rather than a kernel-v2 render-tessellation bug (out of yang scope).
+
+### §8l — the nearest-root measurement RUN (2026-07-29): R0011's q apexes are ALL at the nearest root
+
+The §8k "next measurement" is taken (`YANG_S5_QROOT`, env-gated print-only inside
+the fold probe, `stage5_topology.rs`): for each fold apex whose incidence is one
+`Cylinder` + ≥2 distinct `Plane`s, solve the ≤2 roots of
+`cylinder ∩ (plane₁∩plane₂ line)` in closed form; report the distance from the
+FINAL and the PRE-Stage-4 position to each root. On R0011 (four distinct q apexes
+measurable this run):
+
+| apex | root separation | d(final, seated root) | d(pre, seated) | d(pre, other) |
+|---|---|---|---|---|
+| v34 | 2.516e4 | 2.9e-12 | 245.5 | 24,919 |
+| v25 | 1.435e4 | 3.2e-12 | 328.1 | 14,019 |
+| v38 | 5.924e3 | 1.7e-12 | 245.2 | 5,679 |
+| v74 | 6.444e3 | 1.3e-12 | 22.2 | 6,422 |
+
+**Verdict: NEAREST at every apex, by two orders of magnitude.** The far root was
+never in play (separations 5.9e3–2.5e4 vs displacements 22–328). Combined with
+§8h (pre-residuals large ⇒ moves earned) and the exact seating (~1e-12), Stage 4's
+per-vertex relocation on R0011 is now verified correct in EVERY measurable
+dimension: right vertices (§8f operand-qualified), right destinations (§8h), right
+root (this section). **The wrong-root hypothesis — the last open mis-relocation
+theory for this bucket — is REFUTED.** The defect is solely the absent §4.4.1
+mesh update / §4.5.2 local refinement around relocations that are large relative
+to the local chain spacing (245 vs 34). No shortcut exists for R0011; it waits on
+the epic's Phase-C machinery proper.

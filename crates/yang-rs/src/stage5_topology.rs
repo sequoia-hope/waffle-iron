@@ -1496,6 +1496,147 @@ pub(crate) fn emit_topology(
                             b[1],
                             b[2],
                         );
+                        // Fig-11 q nearest-root check (epic spec §8k "next
+                        // measurement"): an apex on a Cylinder + two DISTINCT
+                        // Planes sits on `cylinder ∩ (plane∩plane line)`,
+                        // which has ≤2 roots. §8h proved the FINAL position
+                        // is ON all three surfaces (~1e-13) — exactly ON one
+                        // of the two roots — but the residual cannot say
+                        // WHICH. Solve both in closed form and compare each
+                        // to the PRE-Stage-4 position: a vertex seated at the
+                        // root FARTHER from where it started is a
+                        // point-selection defect invisible to every residual
+                        // test (both roots satisfy the certificate).
+                        S4_VERT_SURF.with(|cell| {
+                            let borrow = cell.borrow();
+                            let Some(m) = &*borrow else { return };
+                            let Some(set) = m.get(&e_cur.start) else { return };
+                            let cyls: Vec<(String, Surface)> = set
+                                .iter()
+                                .filter(|(_, s)| matches!(s, Surface::Cylinder { .. }))
+                                .cloned()
+                                .collect();
+                            let planes: Vec<(String, Surface)> = set
+                                .iter()
+                                .filter(|(_, s)| matches!(s, Surface::Plane { .. }))
+                                .cloned()
+                                .collect();
+                            if cyls.len() != 1 || planes.len() < 2 {
+                                return;
+                            }
+                            let Surface::Cylinder {
+                                axis_point,
+                                axis_dir,
+                                radius,
+                            } = cyls[0].1
+                            else {
+                                return;
+                            };
+                            let al = axis_dir.as_array();
+                            let alen = (al[0] * al[0] + al[1] * al[1] + al[2] * al[2]).sqrt();
+                            if alen <= 0.0 {
+                                return;
+                            }
+                            let ah = [al[0] / alen, al[1] / alen, al[2] / alen];
+                            let pre = disp(e_cur.start).unwrap_or(b);
+                            for i in 0..planes.len() {
+                                for j in (i + 1)..planes.len() {
+                                    let (
+                                        Surface::Plane { normal: n1, d: d1 },
+                                        Surface::Plane { normal: n2, d: d2 },
+                                    ) = (planes[i].1, planes[j].1)
+                                    else {
+                                        continue;
+                                    };
+                                    let (n1, n2) = (n1.as_array(), n2.as_array());
+                                    let dir = [
+                                        n1[1] * n2[2] - n1[2] * n2[1],
+                                        n1[2] * n2[0] - n1[0] * n2[2],
+                                        n1[0] * n2[1] - n1[1] * n2[0],
+                                    ];
+                                    let dl2 = dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2];
+                                    let g11 = n1[0] * n1[0] + n1[1] * n1[1] + n1[2] * n1[2];
+                                    let g22 = n2[0] * n2[0] + n2[1] * n2[1] + n2[2] * n2[2];
+                                    let g12 = n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2];
+                                    let det = g11 * g22 - g12 * g12;
+                                    if dl2.sqrt() <= 1e-12 * (g11 * g22).sqrt() || det <= 0.0 {
+                                        continue; // same/parallel plane pair — no line
+                                    }
+                                    let alpha = (-d1 * g22 + d2 * g12) / det;
+                                    let beta = (-d2 * g11 + d1 * g12) / det;
+                                    let q0 = [
+                                        alpha * n1[0] + beta * n2[0],
+                                        alpha * n1[1] + beta * n2[1],
+                                        alpha * n1[2] + beta * n2[2],
+                                    ];
+                                    let dl = dl2.sqrt();
+                                    let dh = [dir[0] / dl, dir[1] / dl, dir[2] / dl];
+                                    let ap = axis_point.as_array();
+                                    let w = [q0[0] - ap[0], q0[1] - ap[1], q0[2] - ap[2]];
+                                    let wa = w[0] * ah[0] + w[1] * ah[1] + w[2] * ah[2];
+                                    let wp =
+                                        [w[0] - wa * ah[0], w[1] - wa * ah[1], w[2] - wa * ah[2]];
+                                    let da = dh[0] * ah[0] + dh[1] * ah[1] + dh[2] * ah[2];
+                                    let dp = [
+                                        dh[0] - da * ah[0],
+                                        dh[1] - da * ah[1],
+                                        dh[2] - da * ah[2],
+                                    ];
+                                    let qa = dp[0] * dp[0] + dp[1] * dp[1] + dp[2] * dp[2];
+                                    let qb = 2.0 * (wp[0] * dp[0] + wp[1] * dp[1] + wp[2] * dp[2]);
+                                    let qc = wp[0] * wp[0] + wp[1] * wp[1] + wp[2] * wp[2]
+                                        - radius * radius;
+                                    if qa <= 0.0 {
+                                        eprintln!(
+                                            "YANG_S5_QROOT apex={} pair=({},{})x{} AXIS-PARALLEL",
+                                            e_cur.start, planes[i].0, planes[j].0, cyls[0].0
+                                        );
+                                        continue;
+                                    }
+                                    let disc = qb * qb - 4.0 * qa * qc;
+                                    if disc < 0.0 {
+                                        eprintln!(
+                                            "YANG_S5_QROOT apex={} pair=({},{})x{} MISS disc={disc:.3e}",
+                                            e_cur.start, planes[i].0, planes[j].0, cyls[0].0
+                                        );
+                                        continue;
+                                    }
+                                    let sq = disc.sqrt();
+                                    let (t0, t1) =
+                                        ((-qb - sq) / (2.0 * qa), (-qb + sq) / (2.0 * qa));
+                                    let root = |t: f64| {
+                                        [q0[0] + t * dh[0], q0[1] + t * dh[1], q0[2] + t * dh[2]]
+                                    };
+                                    let (x0, x1) = (root(t0), root(t1));
+                                    let dist = |p: [f64; 3], q: [f64; 3]| {
+                                        ((p[0] - q[0]).powi(2)
+                                            + (p[1] - q[1]).powi(2)
+                                            + (p[2] - q[2]).powi(2))
+                                        .sqrt()
+                                    };
+                                    let sep = dist(x0, x1);
+                                    let (d_post0, d_post1) = (dist(b, x0), dist(b, x1));
+                                    let (d_pre0, d_pre1) = (dist(pre, x0), dist(pre, x1));
+                                    let post_at = if d_post0 <= d_post1 { 0 } else { 1 };
+                                    let pre_near = if d_pre0 <= d_pre1 { 0 } else { 1 };
+                                    eprintln!(
+                                        "YANG_S5_QROOT apex={} pair=({},{})x{} sep={sep:.6e} \
+                                         d_post=({d_post0:.3e},{d_post1:.3e}) \
+                                         d_pre=({d_pre0:.6e},{d_pre1:.6e}) \
+                                         post_at=root{post_at} pre_near=root{pre_near} verdict={}",
+                                        e_cur.start,
+                                        planes[i].0,
+                                        planes[j].0,
+                                        cyls[0].0,
+                                        if post_at == pre_near {
+                                            "NEAREST"
+                                        } else {
+                                            "FAR-ROOT"
+                                        },
+                                    );
+                                }
+                            }
+                        });
                     }
                 }
             }
