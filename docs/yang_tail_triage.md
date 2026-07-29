@@ -204,6 +204,103 @@ Retracted with this correction: the vehicle row "Stage-4 partial relocation of a
 boundary chain" (committed 0a3d56b8) — the relocation SET is correct; what is
 missing is the mesh update that must accompany it.
 
+### SCOPED — the epic owns 16 of R0074's 78 folds, not all of them (2026-07-29)
+
+Verifying the anchor before building the machinery split this bucket again. Two of
+the previous section's load-bearing statements do not survive direct measurement,
+and the third is confirmed with a corrected denominator.
+
+**Probe upgrades** (`stage5_topology.rs`, all still env-gated print-only behind
+`YANG_S5_FOLD_PROBE`): incidence is now **operand-qualified** (`A:Plane`,
+`B:Torus`); a separate per-vertex oracle records which incident edges are actually
+**keys of `intersection_curves`** (the map Stage 4 relocates onto); `S4_MOVED`
+carries the displacement **vector**, giving both a tangential/normal split and the
+**pre-Stage-4** turn angle and spacing; and the maps are **re-keyed after a
+§4.5.3 / KV15b collapse**, without which their columns name the wrong vertices.
+
+**1. The kind-only incidence signature could not support its conclusion.**
+`incidence` is built from EVERY patch boundary-cycle edge (`compute_phase_a`), so
+an operand's OWN rim — A's plane patch meeting A's torus patch — carries the same
+`{Plane, Torus}` kind signature as a cross-input A×B edge, while only the latter
+is a relocation candidate (`build_intersection_curves` skips `input0 == input1`).
+Operand-qualified, the conclusion **holds for R0074** (77/78 fold apexes are
+`A:Plane+B:Torus`, cross-input, 0/78 own-rim) but **fails for F0045**, whose
+apexes are 4/4 own-rim — see §"F0045 is a different class" below.
+
+**2. "Straddles a moved/still boundary" does NOT mean Stage 4 minted the fold.**
+The 81-of-92 straddle statistic is a correlation; the direct measurement is each
+fold's turn angle re-evaluated at the pre-Stage-4 positions. For R0074 (the one
+case whose positional oracle is live):
+
+| | folds | median &#124;turn − turn_pre&#124; |
+|---|---|---|
+| **MINTED** by Stage 4 (turn_pre ≤ 120°) | **16** | **179.84°** |
+| **INHERITED** (turn_pre > 120°) | **62** | 1.25° |
+
+The minted folds flip 0.00° → 179.9x°. The inherited 62 were **already folds
+before Stage 4 ran** and it barely perturbed them (max 4.12°) — they come from the
+Stage-2/3 boundary cycle and are NOT this epic's defect. All 78 have ≥1 moved
+vertex, so the straddle test cannot separate them; only the pre/post turn can.
+(Valid because a non-collapsing Stage 4 moves positions without changing topology,
+so the same cycle adjacency exists before it.)
+
+**3. The acceptance metric is confirmed, with the PRE-relocation spacing as the
+denominator.** The previous section's "shortest incident edge" is measured after
+the move; what the relocation actually had to respect is how far apart the
+vertices were beforehand. That ratio separates the two populations cleanly:
+
+| max displacement / min PRE spacing | MINTED (16) | INHERITED (62) |
+|---|---|---|
+| median | **3.85** | 0.22 |
+| p90 | 14.16 | 0.94 |
+| max | **81.35** | 3.55 |
+| folds with ratio > 1 | **14 / 16** | 6 / 62 |
+
+So `ratio < 1` is the right criterion — it is violated by 88% of the folds Stage 4
+minted and respected by 90% of the ones it inherited. The clinching row is
+sharper than the previous section's: pre-spacing **9.101e-6** against a
+displacement of **7.404e-4** — a ratio of **81×**, and that pair is the known
+near-duplicate. Its fold triple is 3 collinear vertices (turn_pre = 0.00°) all
+relocated ~97% NORMAL to their chain; what inverts their order is not the
+direction of the move but that its size dwarfs their separation. Two vertices
+9.1e-6 apart cannot be independently projected 3e-4 onto the same curve and keep
+their order. This is what Yang Fig-11 `merge` exists for (fuse a vertex within
+`merge_tol` of a curve point instead of moving both) — the primitive is built and
+unit-tested in `stage4_update::stage4_mesh_update`, still unwired.
+
+**Consequence for scope: R0074 will NOT green from mesh-updating alone.** The epic
+owns its 16 minted folds; the other 62 route upstream to the Stage-2/3 near-dup
+boundary-cycle class (#146). Promise no conversion for this case.
+
+**F0045 is a different class — the Fig-11 q, with a CYLINDER third surface.** Its
+4 fold apexes are all own-rim (≥2 surfaces of one operand) and 3 of 4 also span
+both operands: `A:Cylinder+A:Plane+B:Cylinder`. That is exactly Fig-11's point q
+("an intersection point ON the boundary curve") — the F0083/v80 class. What is
+measured is the incidence SIGNATURE (definitional for q); that F0045's q is
+MIS-seated is not yet measured, since its collapse blocks the positional oracle.
+Confirm it first with the apex's per-surface implicit residual (a static property of
+the final position — no pre/post needed; this is what named F0083's defect). The
+inc-3 machinery for it already exists (`plan_triple_point_reseats` +
+`satisfies_all_surfaces`, gated `YANG_S4_TRIPLE_POINT_ENABLE`) but **skips these
+vertices by construction**: it requires the other operand's surface to be a
+`Plane` (`stage4_boundary_curve.rs:410`) because its closed form is circle∩plane.
+The capability step is a rim-circle ∩ **cylinder** seat — for which
+`relocate_onto_implicit_triple` (the ≥3-surface Newton) and the
+`satisfies_all_surfaces` certificate both already exist.
+
+**R0011 is a third signature:** 0/10 apexes own-rim, 6/10 `A:Cylinder+B:Plane` on
+an `Ellipse` curve, 4/10 `B:Plane`-only with no curve.
+
+**Blocking gap for two of the three cases.** F0045 and R0011 both take a §4.5.3
+collapse (89→88, 853→847 verts), so the positional oracle is unavailable and
+neither minting nor displacement can be measured for them at all — the probe now
+reports `turn_pre=NaN` rather than a number that would silently equal `turn` and
+read as "inherited". Making `S4_MOVED` survive a collapse (compose the
+`compact_unreferenced_verts` remap) is the enabling increment for both.
+
+⇒ **This bucket is three classes, not one.** Only R0074's 16 minted folds are a
+direct §4.4.1/§4.5.2 customer. Do not build one machinery against all three.
+
 **The two DEVELOPABLE cases are NOT this class** and must not be folded into its
 spec (R0028: fold at the ring CLOSURE, 13 from any seam; R0049: ~97 runs makes
 the seam test vacuous). **And R0004, which the error-string grouping pulled into
@@ -401,7 +498,7 @@ buckets:
 | P3b-#137 (torus∩plane + grazing/tangency Stage-4) | 7 confirmed (C0065, R0038, R0015, R0026, R0025, R0077, R0032-torus×cone) + F0085 (open seam, R0038-type); ~~R0074~~ **re-vehicled 2026-07-29** → planar output-loop seam-overlap (the OffCurve layer is gone; it is now a ring-reject and the lead witness of that class) |
 | P3c (curved re-CDT) | **0 open** — ~~R0072~~ FLIPPED CORRECT 2026-07-28 (#195 inc-5); the vehicle has no remaining case |
 | P3-junction (other junction vocabulary) | 4 confirmed (R0003, C0067, R0070-v1028, R0085-op1) + R0085-op2 (torus×line endpoint-mix). **The R0044 surface-pair endpoint-mix sub-bucket is CLOSED 2026-07-28** — ~~R0035~~ CORRECT; R0044/R0020/R0070-op2 cleared this layer and re-vehicled to their deeper causes. ~~F0045, R0011, R0028~~ **split out 2026-07-29** into the two rows below |
-| **§4.4.1/§4.5.2 MESH UPDATING after relocation** (new, 2026-07-29; supersedes the same day's "partial relocation" and "seam-overlap" framings) | **3 confirmed — R0074, R0011, F0045.** Stage 4 relocates a SUBSET of a boundary chain onto the exact analytic geometry and leaves the rest at their Stage-1/2 mesh positions; the moved↔still boundary retraces as a near-180° fold, which kernel-v2's render CDT loudly rejects. **81 of 92 folds straddle that boundary; ZERO lie entirely in un-moved geometry.** Measured at yang's own emission site (`stage5_topology.rs` `push_loop`), so the mint is Stage 4, not Stage 5 ordering and not kernel-v2. **CORRECTED same day:** the relocation SET is CORRECT — un-moved fold vertices carry `Plane`-only incidence and are genuinely not on the intersection curve. The defect is that Stage 4 displaces relocated vertices by up to **101x the incident mesh edge length** (25/78 folds displace further than their shortest incident edge) **without updating the incident mesh**, which Yang §4.4.1/§4.5.2 require. These 3 cases are therefore CUSTOMERS OF THE MESH-UPDATING EPIC (#169 / N2, specs already written), not a standalone fix site. Acceptance criterion the epic gains from this: drive `max_displacement / shortest_incident_edge < 1` at every relocated boundary-chain vertex (`YANG_S5_FOLD_PROBE` measures it). |
+| **§4.4.1/§4.5.2 MESH UPDATING after relocation** (new, 2026-07-29; supersedes the same day's "partial relocation" and "seam-overlap" framings) | **3 confirmed — R0074, R0011, F0045.** Stage 4 relocates a SUBSET of a boundary chain onto the exact analytic geometry and leaves the rest at their Stage-1/2 mesh positions; the moved↔still boundary retraces as a near-180° fold, which kernel-v2's render CDT loudly rejects. **81 of 92 folds straddle that boundary; ZERO lie entirely in un-moved geometry.** Measured at yang's own emission site (`stage5_topology.rs` `push_loop`), so the mint is Stage 4, not Stage 5 ordering and not kernel-v2. **CORRECTED same day:** the relocation SET is CORRECT — un-moved fold vertices carry `Plane`-only incidence and are genuinely not on the intersection curve. The defect is that Stage 4 displaces relocated vertices by up to **101x the incident mesh edge length** (25/78 folds displace further than their shortest incident edge) **without updating the incident mesh**, which Yang §4.4.1/§4.5.2 require. These 3 cases are therefore CUSTOMERS OF THE MESH-UPDATING EPIC (#169 / N2, specs already written), not a standalone fix site. **RE-SCOPED again 2026-07-29 (anchor verification, §"SCOPED — the epic owns 16 of R0074's 78 folds"): this row is THREE classes, not one.** Operand-qualified incidence + the pre-Stage-4 turn angle show R0074 = **16 folds MINTED** by Stage 4 (turn_pre 0.00° → 179.9x°) and **62 INHERITED** from the Stage-2/3 boundary cycle (already folds before Stage 4, which perturbed them by a median 1.25°) ⇒ the epic owns 16, the rest route upstream to #146, and **R0074 cannot green from mesh-updating alone**. F0045 is instead the **Fig-11 q triple point** with a CYLINDER third surface (`A:Cylinder+A:Plane+B:Cylinder`, 4/4 apexes own-rim) — the built inc-3 `plan_triple_point_reseats` skips it because its closed form requires a `Plane`. R0011 is a third signature. The acceptance criterion is CONFIRMED but with the **pre-relocation spacing** as denominator (not the post-move incident edge): `max_disp / min_pre_spacing` is >1 for 14/16 minted (median 3.85, max **81×**) and ≤1 for 56/62 inherited (median 0.22) — it separates the populations. Blocking gap: F0045 and R0011 both take a §4.5.3 collapse, so their positional oracle is unavailable and their minting is UNMEASURED. |
 | **Developable-patch ring rejects** (new, 2026-07-29) | 2 open (R0028 closure-fold, R0049 ~97-run fragmentation) — different builder (`tessellate_developable_patch`), different mints, both PARTIAL. Do NOT fold into the planar seam-overlap spec |
 | M5 surface-pair Newton convergence (new, 2026-07-28) | 2 confirmed (R0044 v13, R0020) — pure `vert_surface_pair` vertices whose `relocate_onto_implicit_pair` diverges; kin to the torus `pair_newton_none` trio (R0025, R0032, R0077) |
 | kernel-v2 surface-pair render band (new, 2026-07-28) | 1 confirmed (R0020, fatal) — `surface-pair refinement needs a positive finite chord tolerance` on an output `Curve::SurfacePair` edge |

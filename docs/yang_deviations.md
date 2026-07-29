@@ -304,6 +304,40 @@ re-triangulation) are the remaining N2 work. Paper basis: §4.4.1 "Mesh updating
 (`refs/text/yang2025_hybrid_boolean.txt:605+`) + §4.5.2 "Local refinement"
 (`:659+`).
 
+**Update (2026-07-29) — the ring-fold trio is measured; N2 owns a 16-fold subset
+of ONE of the three cases.** The three cases routed here on 2026-07-29 (R0074,
+R0011, F0045 — see `docs/yang_tail_triage.md` §"SCOPED") were re-probed before any
+machinery was built, with the fold probe upgraded to record operand-qualified
+incidence, the actual `intersection_curves` candidate set, the displacement
+vector, and each fold's turn angle at the **pre-Stage-4** positions. Results:
+
+- **R0074: 16 folds MINTED by Stage 4** (turn_pre 0.00° → 179.9x°) and **62
+  INHERITED** from the Stage-2/3 boundary cycle (already >120° before Stage 4,
+  perturbed by a median 1.25°). The straddle statistic that routed all 78 here is
+  a correlation the direct pre/post turn measurement does not support. N2 owns the
+  16; the 62 route upstream (#146 near-dup). **R0074 will not green from
+  mesh-updating alone.**
+- The minted subset's mechanism is precise: relocation displacement exceeds the
+  **pre-relocation spacing** of adjacent chain vertices — median **3.85×**, max
+  **81×** (pre-spacing 9.101e-6 vs displacement 7.404e-4, the known near-duplicate
+  pair). The displacement is ~97% NORMAL to the chain, so what inverts local order
+  is its magnitude relative to the spacing, not its direction. `ratio < 1` is
+  violated by 14/16 minted and respected by 56/62 inherited — a working acceptance
+  criterion. Yang Fig-11 `merge` (fuse a vertex within `merge_tol` of a curve point
+  rather than moving both independently) is the paper's prescribed handling, and
+  the primitive is the already-built, unit-tested, still-unwired
+  `stage4_update::stage4_mesh_update`.
+- **F0045 is not this class** — its 4 fold apexes are own-rim Fig-11 q triple
+  points (`A:Cylinder+A:Plane+B:Cylinder`). The inc-3 handler for q
+  (`stage4_boundary_curve.rs::plan_triple_point_reseats`) skips them because its
+  closed form requires the third surface to be a `Plane`; the capability step is a
+  rim-circle ∩ cylinder seat via the existing `relocate_onto_implicit_triple`
+  Newton under the existing `satisfies_all_surfaces` certificate.
+- **Blocking gap:** F0045 and R0011 both take a §4.5.3 collapse (89→88, 853→847
+  verts), which renumbers vertices and makes the positional oracle unavailable —
+  their minting and displacement are UNMEASURED. Composing the
+  `compact_unreferenced_verts` remap into `S4_MOVED` is the enabling increment.
+
 **Update (2026-07-15) — R0038 REMOVED from the N2/CDT class; it is near-tangency
 (#137).** The exploratory `replan_degenerate_cylinder_patches`
 (`stage4_correct.rs`, gated `YANG_N2_RECDT_ENABLE`, off in production) targeted

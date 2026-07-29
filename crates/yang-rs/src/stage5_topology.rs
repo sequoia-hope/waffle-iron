@@ -20,15 +20,103 @@ thread_local! {
     ///
     /// `None` = unavailable (Stage 4 skipped, or a §4.5.3 collapse renumbered
     /// the vertices so a positional diff is not index-comparable).
-    static S4_MOVED: std::cell::RefCell<Option<std::collections::HashMap<u32, f64>>> =
+    ///
+    /// The value is the full displacement VECTOR, not just its magnitude: the
+    /// pre-Stage-4 position is recoverable as `post - disp`, which lets the fold
+    /// probe (a) decompose the displacement into components tangent / normal to
+    /// the local boundary chain and (b) re-evaluate each fold's turn angle at the
+    /// PRE-Stage-4 positions. Both are needed to tell a relocation that fixed
+    /// off-curve error (normal, order-preserving) from one that slid a vertex
+    /// ALONG its chain (tangential — the only way to inverse local order).
+    static S4_MOVED: std::cell::RefCell<Option<std::collections::HashMap<u32, [f64; 3]>>> =
         const { std::cell::RefCell::new(None) };
 
     /// Diagnostic only (`YANG_S5_FOLD_PROBE`): per-vertex set of incident
-    /// SURFACE kinds, from the pre-Stage-4 incidence map. Lets the fold probe
-    /// say whether an un-moved fold vertex was even a relocation CANDIDATE.
+    /// surfaces from the pre-Stage-4 incidence map, qualified by OPERAND
+    /// (`A:Plane`, `B:Torus` — the `YANG_S4_RIM_SNAP_TARGET` format).
+    ///
+    /// The operand qualifier is load-bearing, not cosmetic. `incidence` is built
+    /// from EVERY patch boundary-cycle edge (`stage4_correct.rs`
+    /// `compute_phase_a`), so an operand's OWN rim — A's plane patch meeting A's
+    /// torus patch — lands in it with the same {Plane, Torus} kind signature as a
+    /// cross-input A×B intersection edge. Recording kinds alone therefore cannot
+    /// distinguish "on the A∩B curve" from "on A's own rim", and only the former
+    /// is a Stage-4 relocation candidate (`build_intersection_curves` skips
+    /// `input0 == input1`).
     static S4_VERT_SURF: std::cell::RefCell<
+        Option<std::collections::HashMap<u32, std::collections::BTreeSet<String>>>,
+    > = const { std::cell::RefCell::new(None) };
+
+    /// Diagnostic only (`YANG_S5_FOLD_PROBE`): per-vertex names of the incident
+    /// edges that are KEYS of the pre-Stage-4 `intersection_curves` map.
+    ///
+    /// This — not the surface-kind set — is the exact "was this vertex a
+    /// relocation candidate?" oracle, because that map is what Stage 4 relocates
+    /// onto. Empty means Stage 4 had no analytic curve through the vertex at all.
+    static S4_VERT_CURVE: std::cell::RefCell<
         Option<std::collections::HashMap<u32, std::collections::BTreeSet<&'static str>>>,
     > = const { std::cell::RefCell::new(None) };
+}
+
+/// Diagnostic only (`YANG_S5_FOLD_PROBE`): record the per-vertex incidence and
+/// intersection-curve maps the fold probe reports.
+///
+/// MUST be re-called after any §4.5.3 / KV15b collapse. A collapse renumbers
+/// vertices (`compact_unreferenced_verts`), so maps captured before it are keyed
+/// on indices that no longer name the same vertices — and the fold probe looks
+/// its columns up by the POST-collapse index. Reporting the stale map would
+/// attribute one vertex's incidence to a different vertex, which reads as
+/// evidence rather than as a missing measurement.
+fn probe_record_incidence(
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+) {
+    if std::env::var_os("YANG_S5_FOLD_PROBE").is_none() {
+        return;
+    }
+    let mut vs: std::collections::HashMap<u32, std::collections::BTreeSet<String>> =
+        Default::default();
+    for (&(s, e), es) in incidence {
+        for &(input, surf) in es {
+            let n = match surf {
+                Surface::Plane { .. } => "Plane",
+                Surface::Cylinder { .. } => "Cylinder",
+                Surface::Cone { .. } => "Cone",
+                Surface::Sphere { .. } => "Sphere",
+                Surface::Torus { .. } => "Torus",
+            };
+            // Operand-qualified: an own-rim edge (A:Plane|A:Torus) is NOT a
+            // relocation candidate but is kind-indistinguishable from a
+            // cross-input A×B edge. See the S4_VERT_SURF doc comment.
+            let q = format!(
+                "{}:{n}",
+                match input {
+                    InputId::A => "A",
+                    InputId::B => "B",
+                }
+            );
+            vs.entry(s).or_default().insert(q.clone());
+            vs.entry(e).or_default().insert(q);
+        }
+    }
+    S4_VERT_SURF.with(|c| *c.borrow_mut() = Some(vs));
+    // The precise relocation-candidate oracle: which incident edges actually
+    // carry an entry in the map Stage 4 relocates onto.
+    let mut vc: std::collections::HashMap<u32, std::collections::BTreeSet<&'static str>> =
+        Default::default();
+    for (&(s, e), c) in curves {
+        let n = match c {
+            Curve::LineSegment => "LineSegment",
+            Curve::Circle { .. } => "Circle",
+            Curve::Ellipse { .. } => "Ellipse",
+            Curve::Parabola { .. } => "Parabola",
+            Curve::Hyperbola { .. } => "Hyperbola",
+            Curve::SurfacePair { .. } => "SurfacePair",
+        };
+        vc.entry(s).or_default().insert(n);
+        vc.entry(e).or_default().insert(n);
+    }
+    S4_VERT_CURVE.with(|c| *c.borrow_mut() = Some(vc));
 }
 
 /// PR-YR5: rebuild output `BRep` topology (`vertices`, `edges`,
@@ -218,28 +306,7 @@ pub(crate) fn reconstruct_topology_stage4(
             intersection_curves.len(),
             incidence.len(),
         );
-        // Per-vertex incidence: is this vertex an endpoint of ANY intersection
-        // edge at all? This is the discriminator for the partial-relocation
-        // anchor — a fold's un-moved vertex that HAS curved incidence was
-        // wrongly skipped (a Stage-4 enumeration bug); one with NO incidence is
-        // legitimately off the analytic curve, and the fix is §4.5.2 chain
-        // re-sampling, not "relocate more".
-        let mut vs: std::collections::HashMap<u32, std::collections::BTreeSet<&'static str>> =
-            Default::default();
-        for (&(s, e), es) in incidence.iter() {
-            for &(_, surf) in es {
-                let n = match surf {
-                    Surface::Plane { .. } => "Plane",
-                    Surface::Cylinder { .. } => "Cylinder",
-                    Surface::Cone { .. } => "Cone",
-                    Surface::Sphere { .. } => "Sphere",
-                    Surface::Torus { .. } => "Torus",
-                };
-                vs.entry(s).or_default().insert(n);
-                vs.entry(e).or_default().insert(n);
-            }
-        }
-        S4_VERT_SURF.with(|c| *c.borrow_mut() = Some(vs));
+        probe_record_incidence(&incidence, &intersection_curves);
     }
     // Positional snapshot for the S4_MOVED oracle (env-gated; the clone is not
     // taken on the production path).
@@ -265,7 +332,10 @@ pub(crate) fn reconstruct_topology_stage4(
             // V−E+F = 2 for a single closed shell). Strict no-op when there were
             // no danglers.
             compact_unreferenced_verts(mesh, &mut relocations);
-            let (i2, _inc2, cv2) = compute_phase_a(mesh, attribution, a, b)?;
+            let (i2, inc2, cv2) = compute_phase_a(mesh, attribution, a, b)?;
+            // The collapse renumbered vertices: re-key the probe maps or their
+            // columns name the wrong vertices (no-op when the gate is off).
+            probe_record_incidence(&inc2, &cv2);
             infos = i2;
             intersection_curves = cv2;
         }
@@ -278,17 +348,15 @@ pub(crate) fn reconstruct_topology_stage4(
         // fabricate a set.
         let moved = match &verts_pre {
             Some(pre) if !s4_collapsed && pre.len() == mesh.verts.len() => {
-                let set: std::collections::HashMap<u32, f64> = pre
+                let set: std::collections::HashMap<u32, [f64; 3]> = pre
                     .iter()
                     .zip(mesh.verts.iter())
                     .enumerate()
                     .filter(|(_, (p, q))| p.as_array() != q.as_array())
                     .map(|(i, (p, q))| {
+                        // post - pre, so `pre = post - disp` is recoverable.
                         let (a, b) = (p.as_array(), q.as_array());
-                        let d =
-                            ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2))
-                                .sqrt();
-                        (i as u32, d)
+                        (i as u32, [b[0] - a[0], b[1] - a[1], b[2] - a[2]])
                     })
                     .collect();
                 eprintln!(
@@ -400,7 +468,9 @@ pub(crate) fn reconstruct_topology_stage4(
         };
         if kv15b_collapsed {
             compact_unreferenced_verts(mesh, &mut relocations);
-            let (i3, _inc3, cv3) = compute_phase_a(mesh, attribution, a, b)?;
+            let (i3, inc3, cv3) = compute_phase_a(mesh, attribution, a, b)?;
+            // Same re-keying as the §4.5.3 site above.
+            probe_record_incidence(&inc3, &cv3);
             infos = i3;
             intersection_curves = cv3;
         }
@@ -1061,10 +1131,16 @@ pub(crate) fn emit_topology(
                         // MOVED = positional diff across Stage 4 (the correct
                         // oracle; covers the torus arm). reloc = conic t-retag
                         // only, kept for the conic cases but BLIND on tori.
+                        let disp = |v: u32| -> Option<[f64; 3]> {
+                            S4_MOVED.with(|c| c.borrow().as_ref().and_then(|s| s.get(&v).copied()))
+                        };
                         let mv = |v: u32| -> String {
                             S4_MOVED.with(|c| match &*c.borrow() {
                                 Some(set) => match set.get(&v) {
-                                    Some(d) => format!("MOVED({d:.3e})"),
+                                    Some(d) => {
+                                        let m = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                                        format!("MOVED({m:.3e})")
+                                    }
                                     None => "still".to_string(),
                                 },
                                 None => "n/a".to_string(),
@@ -1073,11 +1149,110 @@ pub(crate) fn emit_topology(
                         let inc_of = |v: u32| -> String {
                             S4_VERT_SURF.with(|c| match &*c.borrow() {
                                 Some(m) => match m.get(&v) {
-                                    Some(set) => set.iter().copied().collect::<Vec<_>>().join("+"),
+                                    Some(set) => set.iter().cloned().collect::<Vec<_>>().join("+"),
                                     None => "NO-INCIDENCE".to_string(),
                                 },
                                 None => "n/a".to_string(),
                             })
+                        };
+                        // The precise candidate oracle (see S4_VERT_CURVE): does
+                        // an analytic intersection curve pass through the vertex
+                        // at all? `inc_of` cannot answer this — an own-rim
+                        // A:Plane|A:Torus vertex has curved incidence and NO curve.
+                        let cv_of = |v: u32| -> String {
+                            S4_VERT_CURVE.with(|c| match &*c.borrow() {
+                                Some(m) => match m.get(&v) {
+                                    Some(set) => set.iter().copied().collect::<Vec<_>>().join("+"),
+                                    None => "NO-CURVE".to_string(),
+                                },
+                                None => "n/a".to_string(),
+                            })
+                        };
+                        // Control: re-evaluate this fold's turn angle at the
+                        // PRE-Stage-4 positions. A fold that is already >120 deg
+                        // there is INHERITED from the Stage-2/3 boundary cycle;
+                        // only one that is clean before and folded after was minted
+                        // by relocation.
+                        let sub = |p: [f64; 3], d: Option<[f64; 3]>| -> [f64; 3] {
+                            match d {
+                                Some(d) => [p[0] - d[0], p[1] - d[1], p[2] - d[2]],
+                                None => p,
+                            }
+                        };
+                        let (a_pre, b_pre, c_pre) = (
+                            sub(a, disp(e_prev.start)),
+                            sub(b, disp(e_cur.start)),
+                            sub(c, disp(e_cur.end)),
+                        );
+                        // Honest unavailability: with no moved-set the "pre"
+                        // positions ARE the post positions, so a computed number
+                        // would equal `turn` exactly and read as "inherited fold"
+                        // — a measurement that was never taken must not look like
+                        // one that was.
+                        let have_moved = S4_MOVED.with(|c| c.borrow().is_some());
+                        // The PRE-Stage-4 spacing of the fold triple. This — not
+                        // the post-relocation edge length — is the denominator the
+                        // relocation had to respect: two vertices that start
+                        // `len_pre` apart cannot be independently displaced by
+                        // more than that without risking an order inversion.
+                        let seg = |p: [f64; 3], q: [f64; 3]| -> f64 {
+                            ((q[0] - p[0]).powi(2) + (q[1] - p[1]).powi(2) + (q[2] - p[2]).powi(2))
+                                .sqrt()
+                        };
+                        let (l1_pre, l2_pre) = if have_moved {
+                            (seg(a_pre, b_pre), seg(b_pre, c_pre))
+                        } else {
+                            (f64::NAN, f64::NAN)
+                        };
+                        let turn_pre = if !have_moved {
+                            f64::NAN
+                        } else {
+                            let w1 = [
+                                b_pre[0] - a_pre[0],
+                                b_pre[1] - a_pre[1],
+                                b_pre[2] - a_pre[2],
+                            ];
+                            let w2 = [
+                                c_pre[0] - b_pre[0],
+                                c_pre[1] - b_pre[1],
+                                c_pre[2] - b_pre[2],
+                            ];
+                            let m1 = (w1[0] * w1[0] + w1[1] * w1[1] + w1[2] * w1[2]).sqrt();
+                            let m2 = (w2[0] * w2[0] + w2[1] * w2[1] + w2[2] * w2[2]).sqrt();
+                            if m1 == 0.0 || m2 == 0.0 {
+                                f64::NAN
+                            } else {
+                                ((w1[0] * w2[0] + w1[1] * w2[1] + w1[2] * w2[2]) / (m1 * m2))
+                                    .clamp(-1.0, 1.0)
+                                    .acos()
+                                    .to_degrees()
+                            }
+                        };
+                        // Decompose the apex displacement against the chain
+                        // direction it was moved along (measured PRE-Stage-4, so
+                        // the frame is not itself contaminated by the move).
+                        // Relocation that merely removes off-curve tessellation
+                        // error is NORMAL to the chain and preserves local order;
+                        // only a TANGENTIAL component can slide a vertex past its
+                        // neighbour and invert the traversal.
+                        let (d_tan, d_nrm) = match disp(e_cur.start) {
+                            Some(d) => {
+                                let t = [
+                                    c_pre[0] - a_pre[0],
+                                    c_pre[1] - a_pre[1],
+                                    c_pre[2] - a_pre[2],
+                                ];
+                                let tl = (t[0] * t[0] + t[1] * t[1] + t[2] * t[2]).sqrt();
+                                if tl == 0.0 {
+                                    (f64::NAN, f64::NAN)
+                                } else {
+                                    let u = [t[0] / tl, t[1] / tl, t[2] / tl];
+                                    let dt = d[0] * u[0] + d[1] * u[1] + d[2] * u[2];
+                                    let r = [d[0] - dt * u[0], d[1] - dt * u[1], d[2] - dt * u[2]];
+                                    (dt.abs(), (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt())
+                                }
+                            }
+                            None => (f64::NAN, f64::NAN),
                         };
                         let rl = |v: u32| -> String {
                             match relocations.iter().find(|(rv, _)| *rv == v) {
@@ -1087,10 +1262,14 @@ pub(crate) fn emit_topology(
                         };
                         eprintln!(
                             "YANG_S5_FOLD face={face_idx} input={:?} loop={tag} k={k} \
-                             turn={turn:.2} verts=({},{},{}) prev_curve={:?} cur_curve={:?} \
+                             turn={turn:.2} turn_pre={turn_pre:.2} \
+                             apex_tan={d_tan:.6e} apex_nrm={d_nrm:.6e} \
+                             len_pre_prev={l1_pre:.6e} len_pre_cur={l2_pre:.6e} \
+                             verts=({},{},{}) prev_curve={:?} cur_curve={:?} \
                              len_prev={l1:.6e} len_cur={l2:.6e} \
                              moved=({},{},{}) \
                              inc=[{} | {} | {}] \
+                             curve=[{} | {} | {}] \
                              reloc_prev={} reloc_apex={} reloc_next={} \
                              p=[{:.12},{:.12},{:.12}]",
                             info.input,
@@ -1105,6 +1284,9 @@ pub(crate) fn emit_topology(
                             inc_of(e_prev.start),
                             inc_of(e_cur.start),
                             inc_of(e_cur.end),
+                            cv_of(e_prev.start),
+                            cv_of(e_cur.start),
+                            cv_of(e_cur.end),
                             rl(e_prev.start),
                             rl(e_cur.start),
                             rl(e_cur.end),

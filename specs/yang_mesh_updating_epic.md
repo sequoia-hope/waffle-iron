@@ -409,6 +409,69 @@ spurious-triangle-over-clean-boundary case appears, or once the upstream
 degeneracy is resolved. This is the "abort the fix, report what you learned"
 guardrail: the Phase-B-greens-the-bucket diagnosis was wrong.
 
+### 8f. Phase C gets its first MEASURED customer — and it is 16 folds, not 3 cases (2026-07-29)
+
+The 2026-07-29 ring-fold triage routed R0074/R0011/F0045 here as "customers of the
+mesh-updating epic". Verifying that anchor before building Phase C narrowed it
+substantially. Full evidence in `docs/yang_tail_triage.md` §"SCOPED — the epic owns
+16 of R0074's 78 folds"; the parts that bind THIS spec:
+
+**What Phase C actually owns: R0074's 16 Stage-4-MINTED folds.** Re-evaluating each
+fold's turn angle at the pre-Stage-4 vertex positions (the probe now records the
+displacement VECTOR, so `pre = post − disp`) splits R0074's 78 folds into 16 that
+Stage 4 minted (turn_pre 0.00° → 179.9x°) and **62 it merely inherited** from the
+Stage-2/3 boundary cycle (already >120° beforehand; Stage 4 moved them a median
+1.25°). §8's routing rested on "81 of 92 folds straddle a moved/still boundary",
+which is a correlation — every one of the 78 has ≥1 moved vertex, so the straddle
+test cannot separate minted from inherited. **Consequence: no phase of this epic
+greens R0074**; its other 62 folds are an upstream (#146) defect. Report the fold
+delta, not the case.
+
+**The mechanism is Fig-11 `merge`, and it is a MERGE not a refinement.** For the
+minted subset the relocation displacement exceeds the **pre-relocation spacing** of
+adjacent chain vertices: median **3.85×**, max **81×** (spacing 9.101e-6 against a
+7.404e-4 displacement — the known near-duplicate pair). The displacement is ~97%
+NORMAL to the chain, so the order inversion is caused by its magnitude relative to
+the spacing, not by sliding along the curve. Two vertices 9.1e-6 apart cannot be
+independently projected 3e-4 onto the same curve and keep their order — no amount
+of subdividing the incident edges fixes that, which **narrows §5's Phase-C plan**:
+the first increment is Fig-11 `merge` (fuse a vertex within `merge_tol` of a curve
+point instead of moving both), NOT the local-refinement loop. The primitive is
+already built and unit-tested — `stage4_update::stage4_mesh_update` — and still
+unwired, so this is a wiring increment, matching §7's "de-risk on fixtures first".
+
+**Acceptance criterion for Phase C** (validated, replaces the 2026-07-29 triage's
+first formulation): `max_displacement / min_pre_spacing < 1` at every relocated
+boundary-chain vertex. Measured against the two known populations it is violated by
+14/16 minted folds and respected by 56/62 inherited ones, so it discriminates
+rather than merely correlating. `YANG_S5_FOLD_PROBE` reports it per fold, making
+each increment checkable without a corpus run.
+
+**Two of the three cases are NOT measurable yet — this blocks their triage.** F0045
+and R0011 both take a §4.5.3 collapse (89→88 and 853→847 verts). The collapse
+renumbers vertices, so the positional oracle reports UNAVAILABLE and neither
+minting nor displacement can be measured for them. (The probe now prints
+`turn_pre=NaN` there; previously the "pre" positions silently WERE the post
+positions, so the number equalled `turn` exactly and read as "inherited fold".)
+**Enabling increment: compose the `compact_unreferenced_verts` remap into
+`S4_MOVED`** so the diff survives a collapse. Until then, do not assign either case
+to a phase.
+
+**F0045 re-routes OUT of this epic** to the boundary-curve-relocation spec: its 4
+fold apexes are own-rim Fig-11 q triple points (`A:Cylinder+A:Plane+B:Cylinder`),
+the F0083/v80 class. Measured so far is the INCIDENCE SIGNATURE (which is
+definitional for q: on the operand's own rim AND on another operand's surface); that
+its q is actually MIS-seated is not yet measured, because F0045's collapse blocks
+the positional oracle. The cheap confirmation needs no pre/post state — dump the
+apex's implicit residual against each of its three incident surfaces, the way the
+F0083 probe did (`A:Plane` −5.55e-17, `B:Plane` 0.0, `A:Cylinder` −2.3046e-3 named
+that defect outright). Do that before building the cylinder arm. `plan_triple_point_reseats` already handles q but skips these
+because its closed form requires a `Plane` third surface
+(`stage4_boundary_curve.rs:410`); the step is a rim-circle ∩ cylinder seat via the
+existing `relocate_onto_implicit_triple` Newton under the existing
+`satisfies_all_surfaces` certificate. R0011 is a third signature (0/10 apexes
+own-rim; 6/10 `A:Cylinder+B:Plane` on an `Ellipse`).
+
 **Read:** ~15 cases route to Phase B (8 reassembly + 4 render-CDT + 3 re-entry-CDT),
 ~4 to Phase C/D (grazing), 5 eject (2 → #146, 1 → §4.5.3, 2 → M5). The Phase-B
 reassembly bucket is the largest single lever and the ★★ hypothesis (post-relocation
