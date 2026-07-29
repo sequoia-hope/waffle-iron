@@ -44,7 +44,7 @@ Re-generate the baseline column only from a committed `results.json`.
 | R0032 | Stage-4 LRR v32 | probe 2026-07-18: `YANG_TORUS_STOP site=pair_newton_none` — **torus×Cone** implicit-pair Newton non-convergence (torus R=45.6/r=30.4 × cone half-angle 1.19 rad); sibling verts with cone partners relocate fine — v32's specific pair diverges | CONFIRMED (#171 pass 2) | P3b/M5-residual (torus×cone pair Newton) |
 | ~~R0035~~ | ~~Stage-4 LRR v194~~ | ~~v194 is `ellipse=true + surface_pair=true + endpoint` — Ellipse endpoint also on `SurfacePair{Cylinder×Cylinder}` → surface-pair endpoint-mix STOP, R0044 class~~ **FLIPPED CORRECT 2026-07-28 (triple-block wiring):** v194/v195 have exactly 3 incident surfaces `{cyl_A, cyl_B, plane_B}` — the increment-5 conic triple junction, which had simply never counted `vert_surface_pair` as a curve-bearing map | — | ~~P3-junction~~ DONE |
 | R0047 | Stage-4 LRR (u32::MAX) | probe 2026-07-17: `site=split_max_passes` — same class as R0009 | CONFIRMED (#171 sweep) | P3-§4.5.2 |
-| R0049 | non-2-manifold (reassembly) | probe 2026-07-17: `s6-planar-loop-nonplanar` face 134 vert 337 off-plane 1.449e-6 (band 1.0e-7) — the F0064 class (N51) | CONFIRMED (#171 sweep) | P3a-#146 |
+| R0049 | ~~non-2-manifold (reassembly)~~ ring rejected by CDT (FaceId 575) | ~~probe 2026-07-17: `s6-planar-loop-nonplanar` face 134 vert 337 off-plane 1.449e-6 (band 1.0e-7) — the F0064 class (N51)~~ **DRIFTED 2026-07-29:** now fails as a ring-reject on a **developable** patch (FaceId 575, `tessellate_developable_patch` — not planar). 214 origin nodes, 0 arc samples, folds at idx 1/45/46 (144.2°, 180.0°, 176.6°). **NOT counted as seam-class:** the ring breaks into **~97 adjacency runs**, so ~45% of ring indices are seams and "fold near seam" carries no information. The **fragmentation itself** is the signal — a boundary shattered into ~97 micro-chains against different neighbour faces, which reads as the near-coincident-surface incidence family (R0050/R0053 kin) and is consistent with the old `s6-planar-loop-nonplanar` diagnosis. **CAVEAT: the run-splitting heuristic (twin-id delta > 12 or sign change) is crude and may over-fragment on irregular id allocation — verify the 97 before building on it** | PARTIAL (builder + fragmentation measured 2026-07-29; mint unconfirmed) | Stage-2/3 incidence (near-coincident surfaces) — was P3a-#146 |
 | R0050 | Stage-4 LRR v58 | probe 2026-07-18: `YANG_TORUS_STOP site=gt2_partners` with **partners=[] (EMPTY)** — v58 (and v362 on the sibling torus) sit on torus intersection edges whose incidence records only ONE distinct surface (the base torus itself); the model has two near-identical revolve tori (R=3.95/r=2.63 vs R=3.78/r=2.52) — a Stage-2/3 **incidence gap between near-coincident revolve surfaces** (no partner to relocate onto). #131/N28 theory refuted | CONFIRMED (#171 pass 2) | P3a-#146 / Stage-2/3 incidence (near-coincident surfaces) |
 | R0063 | Stage-4 LRR (u32::MAX) | probe 2026-07-17: `site=split_max_passes` — same class as R0009 (the #145 zigzag residual resolves into the split-budget class) | CONFIRMED (#171 sweep) | P3-§4.5.2 |
 | R0077 | Stage-4 LRR v3 | probe 2026-07-18: `YANG_TORUS_STOP site=pair_newton_none` — torus×plane implicit-pair Newton non-convergence at extreme scale (torus R=2051/r=1367, coords ~2700; the op's other two torus verts converge with rho ≈ 2e-13). Same class as R0025 | CONFIRMED (#171 pass 2) | P3b-#137 (torus∩plane relocation family) |
@@ -55,7 +55,7 @@ Re-generate the baseline column only from a committed `results.json`.
 | Case | Loud error | Root cause | Confidence | Vehicle |
 |---|---|---|---|---|
 | C0065 | Stage-4 OffCurve v8 | torus∩plane grazing loop reaches \|y\|=0.384 outside the box face; needs exact triple-junction corner insert + stitch (primitive proven, N-137.1) | CONFIRMED (#137 spec) | P3b-#137 |
-| R0074 | Stage-4 OffCurve v89 | torus∩plane grazing — same class as C0065 | CONFIRMED (#137) | P3b-#137 |
+| R0074 | ~~Stage-4 OffCurve v89~~ ring rejected by CDT (FaceId 593) | ~~torus∩plane grazing — same class as C0065~~ **DRIFTED + RE-DIAGNOSED 2026-07-29 (`KV2_RING_PROVENANCE`, 70ccf32c): this is no longer a #137 grazing case.** The OffCurve layer is gone; R0074 now fails as a ring-reject and is the **cleanest witness of the planar seam-overlap class**. PLANAR builder, 541 half-edges, **all LineSegment, ZERO interior samples** (sampler exonerated). 7 adjacency runs; all three crossings (111×113/114/115) sit on the run-B→run-C seam at idx 114, with folds of 179.90° / 156.70° / 177.15° against a ring median of 2.86°. The four fold points project onto the v111→v116 chord at t = 0.588, 0.590, 0.471, 0.263 — monotone **DESCENDING** where traversal demands ascending — and v112/v113 are **9.1e-6 apart (near-dup pair)** at the seam. **Control: the ring's OTHER seam (idx 58) turns a genuine 86.6°/80.9° corner and is clean** ⇒ seam does not imply fold; overlapping chain RANGES do. This is the "mint once exactly, share by identity" contract (`docs/yang_junction_research_findings.md`) violated in Stage-5/6 **OUTPUT** assembly, not the Stage-1 input sampling #146 chases | CONFIRMED (2026-07-29) | **P3-junction / S5-S6 planar output-loop seam-overlap** (lead case; with R0011, F0045) |
 | R0003 | Stage-4 OffCurve v4233 | multi-map over-band chain (v4233→v8508); needs ellipse×hyperbola junction handling, band-fixing exhausted (N45/N46) | CONFIRMED (N51/N52) | P3-junction |
 | R0015 | Stage-4 OffCurve v84 | probe 2026-07-18: N51 "no-curve-type" REFUTED — v84 IS in the torus map (`torus=true`); `YANG_TORUS_PROBE` shows the pair Newton relocates it EXACTLY (rho=0, F_torus(proj)=0) and it passes the displacement gate, so the STOP is the **bounded-face containment** check below the gate (`stage4_correct.rs:4225`) — the C0065 grazing-loop-outside-face signature, at MICRO scale (torus R=5.97e-5/r=3.98e-5, coords ~1e-4) | CONFIRMED (#171 pass 2) | P3b-#137 (C0065 containment class, micro-scale) |
 | R0026 | Stage-4 OffCurve v218 | probe 2026-07-18: same as R0015 — v218 `torus=true`, pair Newton rho=9.65e-6 ≪ gate 3.0e-3, then bounded-face containment STOP; micro torus∩plane (R=0.0214/r=0.0143) | CONFIRMED (#171 pass 2) | P3b-#137 (C0065 containment class, micro-scale) |
@@ -80,16 +80,66 @@ Re-generate the baseline column only from a committed `results.json`.
 junction verts in that output then poison CDT. Suspected downstream of P3a.~~
 **REFRAMED by #171 pass 2 (2026-07-18):** the defective rings are boolean
 OUTPUT face boundaries rejected by kernel-v2's render CDT — chaining is not
-required (F0045 fails at its FIRST boolean). The mint is the boolean's own
+required (F0045 fails at its FIRST boolean). ~~The mint is the boolean's own
 Stage-5/6 output-ring assembly; two signatures: sample-misorder
-zigzags/folds and #146 near-dup spikes (see per-row evidence).
+zigzags/folds and #146 near-dup spikes (see per-row evidence).~~
+
+**RE-REFRAMED 2026-07-29 (`KV2_RING_PROVENANCE` sweep, 70ccf32c) — this was
+never ONE bucket.** Two facts reorganize it:
+
+1. **The universal symptom is a near-180° FOLD, not a "zigzag" or a "closure".**
+   Every rejected ring in the bucket carries a vertex whose turn angle is
+   137–180° against a ring median of 0.00–3.8° (a 50×–4500× outlier). The
+   self-intersection is the CONSEQUENCE; the fold is the defect. The three
+   pass-2 signatures ("mid-ring zigzag", "closure fold", "fine arc doubling
+   back over a coarse return") are the same shape at different ring positions.
+   The density framing was a red herring — at the crossing the two segments are
+   usually comparable in length (1.0×–10.9×).
+2. **There are TWO ring builders, and the bucket splits across them.** Planar
+   faces go through `sampled_loop_points` (`tessellate/mod.rs`); curved laterals
+   go through `tessellate_developable_patch` (`tessellate/developable.rs`) in an
+   unrolled (u,v) cut frame. They share nothing but the CDT call.
+
+| Case | Builder | Ring composition | Runs | Folds | At a seam? |
+|---|---|---|---|---|---|
+| R0074 | planar | 541 LineSegment, 0 samples | 7 | 113–115 | **yes** |
+| R0011 | planar | 380 LineSeg + 12 EllipseArc, 0 samples | 9 | 28 | **yes** |
+| F0045 | planar | 8 Arc + 5 LineSeg, 8 samples | 4 | 12, 16 | **yes** (seam+1) |
+| R0028 | developable | 25 origin + 121 arc samples | 3 | 0 | **no** (13 away) |
+| R0049 | developable | 214 origin, 0 samples | ~97 | 1, 45, 46 | inconclusive |
+
+**The three PLANAR cases are one confirmed mechanism** — the output loop joins
+two boundary chains whose parameter ranges OVERLAP, so the ring walks the same
+stretch forward-back-forward. Crucially **seam does NOT imply fold**, which is
+what makes it a mechanism rather than a correlation: R0074's other seam turns a
+genuine 86.6°/80.9° corner and is clean, and R0011 has six clean seams including
+two ~85° corners. The fix site is yang's Stage-5/6 output-loop assembly.
+
+**The two DEVELOPABLE cases are NOT this class** and must not be folded into its
+spec (R0028: fold at the ring CLOSURE, 13 from any seam; R0049: ~97 runs makes
+the seam test vacuous). **And R0004, which the error-string grouping pulled into
+this bucket, cannot convert from a ring fix at all** — its op1
+`RevolveAxisIntersectsProfile` scope failure is independent and survives.
+
+**Conversion target for the planar fix: 3 cases (R0074, R0011, F0045)** — not
+the 4–6 this section previously implied.
+
+Two dead ends, closed by measurement (do not re-walk them):
+- **The SAMPLER is exonerated for the planar trio.** R0074 and R0011 carry ZERO
+  interior samples, so `arc_interior_samples`' twin-reversal logic cannot be
+  involved; kernel-v2 faithfully walks a loop that already folds.
+- **`brep.rs` `clean_spike_loop` is the wrong fix site.** It requires
+  LineSegment × LineSegment and collinearity to `1e-9` relative (5.7e-8°),
+  which R0074's 179.90° fold misses by ~1.7e6× and F0045's 167.3° by ~2.2e8×.
+  Widening that band would merge the fold away and leave the duplicated chain
+  stretch underneath — the R0091 silent-wrong trap. **Structural fix only.**
 
 | Case | Loud error | Root cause | Confidence | Vehicle |
 |---|---|---|---|---|
-| F0045 | ring rejected by CDT (FaceId 9) | probe 2026-07-18 (`KV2_RING_REJECT_PROBE` + polygon analysis): 21-pt ring with ONE proper self-crossing (segs 10-11 × 12-13) — a fine-sampled arc that doubles back over itself via a coarse return chain (two different samplings of overlapping curve sections in one ring). **NOT chained-input**: F0045 is two primitive extrudes (parallel cyl boss+boss, gen.rs F0041-45) and this is the FIRST boolean — the defective ring is minted by THIS boolean's own Stage-5/6 output emission, then rejected by kernel-v2 render CDT (loud, correct) | CONFIRMED (#171 pass 2) | P3-junction (S5/S6 output-ring assembly; refutes the "chained casualties" header) |
-| R0011 | ring rejected by CDT (FaceId 407) | probe 2026-07-18: 398-pt ring at scale ~2900 with 3 LOCAL zigzag crossings (each within a 4-index window: 23-27, 28-32, 390-394) — the #145 sample-misorder signature surviving in an output ring | CONFIRMED (#171 pass 2) | P3-junction (S5/S6 output-ring ordering, #145 residual class) |
+| F0045 | ring rejected by CDT (FaceId 9) | probe 2026-07-18 (`KV2_RING_REJECT_PROBE` + polygon analysis): 21-pt ring with ONE proper self-crossing (segs 10-11 × 12-13) — a fine-sampled arc that doubles back over itself via a coarse return chain (two different samplings of overlapping curve sections in one ring). **NOT chained-input**: F0045 is two primitive extrudes (parallel cyl boss+boss, gen.rs F0041-45) and this is the FIRST boolean — the defective ring is minted by THIS boolean's own Stage-5/6 output emission, then rejected by kernel-v2 render CDT (loud, correct). **CONFIRMED SEAM-OVERLAP 2026-07-29 (`KV2_RING_PROVENANCE`, 70ccf32c):** PLANAR builder (`sampled_loop_points`), 13 half-edges (8 Arc + 5 LineSegment, 8 interior samples), 4 adjacency runs. Folds at idx 12 (167.3°) and 16 (165.3°), each exactly seam+1; control seam idx 8 turns 4.2° and is clean. The "coarse return chain" framing was directionally right but named the wrong quantity — the crossing segments are only 4.7x apart in length; the defect is chain-range OVERLAP at the seam, not sampling density | CONFIRMED (#171 pass 2; mechanism 2026-07-29) | **P3-junction / S5-S6 planar output-loop seam-overlap** (with R0074, R0011) |
+| R0011 | ring rejected by CDT (FaceId 407) | ~~probe 2026-07-18: 398-pt ring at scale ~2900 with 3 LOCAL zigzag crossings (each within a 4-index window: 23-27, 28-32, 390-394) — the #145 sample-misorder signature surviving in an output ring~~ **IMPROVED + RE-DIAGNOSED 2026-07-29 (`KV2_RING_PROVENANCE`, 70ccf32c):** the ring is now 392 pts with **ONE** crossing (26×28), down from 398/3 — something upstream between 07-18 and 07-29 removed two of them. PLANAR builder, 392 half-edges (380 LineSegment + 12 EllipseArc), **ZERO interior samples** ⇒ the sampler is exonerated; kernel-v2 walks a loop that already folds. 9 adjacency runs; fold at idx 28 (176.8°), seam+1. **Strongest control in the bucket:** six seams do NOT fold, including two genuine corners at 83.7° and 85.5°. "Sample-misorder" is the wrong name — ring order is monotone; two chain RANGES overlap | CONFIRMED (#171 pass 2; mechanism 2026-07-29) | **P3-junction / S5-S6 planar output-loop seam-overlap** (with R0074, F0045) |
 | R0016 | ring rejected by CDT (FaceId 1885) | probe 2026-07-18: 646-pt micro-scale ring (r≈0.03) with **15 periodic near-dup pairs** at (i, i+2) ~1.1e-4 apart (spike/needle pattern repeating with period ~310) + 1 crossing — the #146 near-duplicate junction-vert mint materialized in an output ring | CONFIRMED (#171 pass 2) | P3a-#146 (near-dup junction mint) |
-| R0028 | ring rejected by CDT (FaceId 32) | probe 2026-07-18: 146-pt ring, 2 crossings at the ring CLOSURE (segs 1×142, 4×138) — the chain tail folds back over the start (overlapping closure, not a mid-ring zigzag) | CONFIRMED (#171 pass 2) | P3-junction (S5/S6 output-ring closure) |
+| R0028 | ring rejected by CDT (FaceId 32) | probe 2026-07-18: 146-pt ring, 2 crossings at the ring CLOSURE (segs 1×142, 4×138) — the chain tail folds back over the start (overlapping closure, not a mid-ring zigzag). **SPLIT OFF THE SEAM CLASS 2026-07-29 (`KV2_RING_PROVENANCE`, 70ccf32c):** FaceId 32 is **NOT planar** — it never calls `sampled_loop_points`; it is a **developable** patch (`tessellate_developable_patch`, unrolled (u,v) cut frame). Ring = 25 origin nodes + **121 arc-sample nodes**; only 3 adjacency runs (seams at 13, 71) and the single fold is at **idx 0 — the ring closure, 13 indices from any seam**. This is NOT the planar seam-overlap mechanism and must not be folded into its spec. Undiagnosed; the unroll cut at u≈0 is the obvious first suspect (idx 0 sits at x=4.3e-19) | PARTIAL (site + builder confirmed 2026-07-29; mint unknown) | **developable-patch ring (own row)** — was P3-junction S5/S6 |
 | R0017 | KV9-F2 folded patch triangulation | probe 2026-07-17: error class CHANGED — kernel-v2 `TessellationFailed` FaceId(14) "patch triangulation folded (inverted triangle)" (unrolled ear-clip fold), not the old holed-lateral CDT | CONFIRMED (#171 sweep) | kernel-v2 KV9-F2 |
 | R0085 | op1: ring rejected by CDT (FaceId 566); op2: LRR v5 | probe 2026-07-18: TWO independent failures. **op1** (Revolve 2 union): 42-pt ring, 3 fold crossings (0×33, 6×32, 33×41) — output-ring fold, same family as R0028. **op2** (Revolve 3 union): ~~`YANG_LRR_SITE site=lineseg_combo` edge (5,550) — the missing cone-generator LineSegment closed form~~ **op2's lineseg layer RESOLVED 2026-07-28 (cone-generator arm)**; the case stays ERROR on op1 regardless, and op2 now STOPs one layer deeper: `YANG_V_PROBE` v5 = `line=true + torus=true + endpoint=true` → the TORUS block's `endpoint_set` guard (`stage4_correct.rs`, "a torus-edge endpoint that is also a CONIC endpoint mixes the implicit-pair and closed-form relocations — out of v1 scope"). A torus × cone-generator junction: the R0044 endpoint-mix class with a line instead of a conic | CONFIRMED (2026-07-28 probe) | op1: P3-junction (output ring); op2: P3-junction (R0044 endpoint-mix, torus×line) |
 | R0100 | KV9-F2 folded patch triangulation | probe 2026-07-17: error class CHANGED — kernel-v2 `TessellationFailed` FaceId(15) folded ear-clip, same class as R0017 | CONFIRMED (#171 sweep) | kernel-v2 KV9-F2 |
@@ -127,7 +177,7 @@ zigzags/folds and #146 near-dup spikes (see per-row evidence).
 | R0007 | NotSupported: coplanar input pair | Stage-0 M8 residue | CONFIRMED (#130) | M8 |
 | R0071 | NotSupported: coplanar input pair | Stage-0 M8 residue | CONFIRMED (#130) | M8 |
 | C0063 | NotSupported: curved partial-patch cone operand | curved-profile capability tail | CONFIRMED (scope) | KV6/scope |
-| R0004 | RevolveAxisIntersectsProfile | self-intersecting revolve — capability boundary | CONFIRMED (scope) | KV6/scope |
+| R0004 | RevolveAxisIntersectsProfile **+ a second, independent ring-reject (FaceId 514)** | self-intersecting revolve — capability boundary. **AMENDED 2026-07-29: R0004 is a TWO-FAILURE case** (like R0085). op1 still fails `RevolveAxisIntersectsProfile` — the scope boundary this row always named, unchanged. A *second* engine error is a `boolean_subtract` ring-reject whose ring carries the same fold signature (1 crossing 244×246, folds at v245/v246 = 136.2°/180.0°, plus a near-dup pair at (249,251) 9.6e-5 apart). **Consequence: R0004 cannot convert from any ring fix** — the revolve scope failure survives it. Do not count it in the ring bucket's conversion target | CONFIRMED (scope; second failure measured 2026-07-29) | KV6/scope (ring half is downstream noise) |
 
 ## Group-7 additions (task #176, 2026-07-17 — designed cases, root cause known by construction)
 
@@ -258,19 +308,21 @@ buckets:
 | Vehicle | Cases |
 |---|---|
 | P2-M5 (SSI solvers) | 0 open (R0096 flipped CORRECT #172; R0044 → P3-junction) |
-| P3a-#146 (junction mint / incidence) | 9 open (C0058, R0049, F0082, C0044, F0058, F0060, R0016, R0050, R0081) + F0064 partial + R0051 suspected; ~~R0095~~ FLIPPED CORRECT (#195 inc-5) |
-| P3b-#137 (torus∩plane + grazing/tangency Stage-4) | 8 confirmed (C0065, R0074, R0038, R0015, R0026, R0025, R0077, R0032-torus×cone) + F0085 (open seam, R0038-type) |
+| P3a-#146 (junction mint / incidence) | 8 open (C0058, F0082, C0044, F0058, F0060, R0016, R0050, R0081) + F0064 partial + R0051 suspected; ~~R0095~~ FLIPPED CORRECT (#195 inc-5); ~~R0049~~ **re-vehicled 2026-07-29** → Stage-2/3 incidence (its error class drifted to a developable ring-reject) |
+| P3b-#137 (torus∩plane + grazing/tangency Stage-4) | 7 confirmed (C0065, R0038, R0015, R0026, R0025, R0077, R0032-torus×cone) + F0085 (open seam, R0038-type); ~~R0074~~ **re-vehicled 2026-07-29** → planar output-loop seam-overlap (the OffCurve layer is gone; it is now a ring-reject and the lead witness of that class) |
 | P3c (curved re-CDT) | **0 open** — ~~R0072~~ FLIPPED CORRECT 2026-07-28 (#195 inc-5); the vehicle has no remaining case |
-| P3-junction (other junction vocabulary) | 6 confirmed (R0003, C0067, R0070-v1028, F0045, R0011, R0028, R0085-op1 — last four are S5/S6 output-ring assembly) + R0085-op2 (torus×line endpoint-mix). **The R0044 surface-pair endpoint-mix sub-bucket is CLOSED 2026-07-28** — ~~R0035~~ CORRECT; R0044/R0020/R0070-op2 cleared this layer and re-vehicled to their deeper causes |
+| P3-junction (other junction vocabulary) | 4 confirmed (R0003, C0067, R0070-v1028, R0085-op1) + R0085-op2 (torus×line endpoint-mix). **The R0044 surface-pair endpoint-mix sub-bucket is CLOSED 2026-07-28** — ~~R0035~~ CORRECT; R0044/R0020/R0070-op2 cleared this layer and re-vehicled to their deeper causes. ~~F0045, R0011, R0028~~ **split out 2026-07-29** into the two rows below |
+| **S5/S6 planar output-loop seam-overlap** (new, 2026-07-29) | **3 confirmed — R0074 (lead), R0011, F0045.** One mechanism, one fix site: the output loop joins two boundary chains whose parameter ranges OVERLAP, producing a near-180° fold that kernel-v2's render CDT loudly rejects. Controls hold (clean seams at genuine corners in both R0074 and R0011). **This is the bucket's real conversion target** — the highest confirmed-mechanism / smallest-scope item in the tail |
+| **Developable-patch ring rejects** (new, 2026-07-29) | 2 open (R0028 closure-fold, R0049 ~97-run fragmentation) — different builder (`tessellate_developable_patch`), different mints, both PARTIAL. Do NOT fold into the planar seam-overlap spec |
 | M5 surface-pair Newton convergence (new, 2026-07-28) | 2 confirmed (R0044 v13, R0020) — pure `vert_surface_pair` vertices whose `relocate_onto_implicit_pair` diverges; kin to the torus `pair_newton_none` trio (R0025, R0032, R0077) |
 | kernel-v2 surface-pair render band (new, 2026-07-28) | 1 confirmed (R0020, fatal) — `surface-pair refinement needs a positive finite chord tolerance` on an output `Curve::SurfacePair` edge |
 | Stage-4 cone-generator LineSegment arm | **0 open** — ~~R0008~~ FLIPPED CORRECT 2026-07-28; ~~R0085-op2~~ and ~~R0081~~ resolved at this layer but still ERROR one layer deeper. The vehicle has no remaining case. **It had 3 cases, not 2** — R0081 sat under `#153 / SUSPECTED` and was found only by re-probing after the fix |
-| Stage-2/3 arrangement incidence (near-coincident surfaces) | 1 confirmed (R0053; R0050 kin, counted under P3a) |
+| Stage-2/3 arrangement incidence (near-coincident surfaces) | 1 confirmed (R0053; R0050 kin, counted under P3a) + **R0049 PARTIAL** (2026-07-29: ~97 adjacency runs on one 214-edge ring — fragmentation consistent with this family, mint unconfirmed, run-count caveated) |
 | P3-§4.5.2 (split budget) | 4 confirmed (R0009, R0047, R0063, R0091) |
 | M8 residue | 4 confirmed (R0007, R0071, C0048, F0067) |
 | #153 NonPlanarFace | 2 confirmed (~~R0081~~ re-diagnosed 2026-07-28 → P3a-#146; it was never a #153 case) |
 | kernel-v2 KV9-F2 folded ear-clip | 2 confirmed (R0017, R0100) |
-| KV6/scope + designed degeneracies | 7 (C0063, R0004, R0019, C0043, C0056, C0046, C0075 — the last four sign-off candidates) |
+| KV6/scope + designed degeneracies | 7 (C0063, R0004, R0019, C0043, C0056, C0046, C0075 — the last four sign-off candidates). **R0004 amended 2026-07-29:** two-failure case — its op1 scope failure stands, and its second (ring-reject) failure means no ring fix can convert it |
 | **PROBE queue** | **0** (was 26 → 14 after pass 1 → 0 after pass 2) |
 
 **Reading:** Phase 1 (triage) is COMPLETE — every failing case has a confirmed
@@ -284,3 +336,20 @@ chained-input theory). The cone-generator LineSegment arm (2 cases) is the
 one small self-contained closed-form gap — a candidate quick win before the
 junction epic. Sign-off batch candidate: C0043/C0056/C0046/C0075 designed
 degeneracies (with C0107–C0110).
+
+**AMENDED 2026-07-29 (ring-reject provenance sweep, 70ccf32c).** The "S5/S6
+output-ring assembly defects (4-5 cases)" line above is superseded: that group
+was assembled from ERROR-STRING similarity, and probing split it 3 / 1 / 1 / 1
+across four different vehicles (planar seam-overlap ×3, developable closure-fold
+×1, near-coincident incidence ×1, plus R0004 which cannot convert at all).
+**The confirmed, self-contained conversion target is the 3-case planar
+seam-overlap class** — one mechanism, one fix site, controls that hold.
+
+Method note worth carrying forward: this is the **fourth** time a row grouped by
+proximity or shared error text has split under a targeted probe (R0081 under
+`#153/SUSPECTED`; the endpoint-mix group into five; the "chained casualties"
+header; now this bucket). Two rows here had also silently DRIFTED to a different
+error class since pass 2 (R0074 OffCurve → ring-reject, R0049 non-2-manifold →
+ring-reject) and one had partially self-healed (R0011, 3 crossings → 1). **Re-run
+the case before trusting any row's error class; group by measured mechanism,
+never by error string.**
