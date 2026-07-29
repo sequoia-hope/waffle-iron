@@ -444,6 +444,31 @@ impl BRep {
                 tri_face[ti] = fi as u32;
             }
         }
+        if std::env::var_os("YANG_FACE_CENSUS").is_some() {
+            use std::collections::BTreeMap;
+            let mut by_kind: BTreeMap<&'static str, (usize, usize)> = BTreeMap::new();
+            for (fi, range) in tess.face_tri_ranges.iter().enumerate() {
+                let kind = match faces[fi].surface {
+                    Surface::Plane { .. } => "plane",
+                    Surface::Cylinder { .. } => "cylinder",
+                    Surface::Cone { .. } => "cone",
+                    Surface::Sphere { .. } => "sphere",
+                    Surface::Torus { .. } => "torus",
+                };
+                let e = by_kind.entry(kind).or_default();
+                e.0 += 1;
+                e.1 += range.len();
+            }
+            let total: usize = by_kind.values().map(|v| v.1).sum();
+            eprintln!("[face-census] total_tris={total} faces={}", faces.len());
+            for (k, (nf, nt)) in &by_kind {
+                eprintln!(
+                    "   {k:<9} faces={nf:>5} tris={nt:>8}  ({:.1}% of mesh, {:.0} tris/face)",
+                    100.0 * *nt as f64 / total.max(1) as f64,
+                    *nt as f64 / (*nf).max(1) as f64
+                );
+            }
+        }
         let mesh = Mesh::new(tess.verts, tess.tris);
         let tessellation = TessellationMap {
             sources: tess.sources,

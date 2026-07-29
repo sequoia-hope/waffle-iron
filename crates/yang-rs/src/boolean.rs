@@ -644,7 +644,24 @@ fn boolean_once(
                 eprintln!("[rim-junction] overrides a={map_a:?} b={map_b:?}");
             }
             Some((
-                a.rebuilt_with_rim_overrides(&map_a)?,
+                {
+                    // Rim-override volume probe. The §4b coaxial propagation
+                    // makes every coaxial rim carry the UNION of all junction
+                    // angles, so this count is `rims x distinct_angles` and is
+                    // the dominant Stage-1 density term on revolve-heavy models
+                    // (measured R0019: 644 rims x 133 angles = 85,652 points,
+                    // turning a 36,060-triangle natural mesh into 207,364).
+                    if std::env::var_os("YANG_RIMOV_PROBE").is_some() {
+                        let pa: usize = map_a.values().map(Vec::len).sum();
+                        let pb: usize = map_b.values().map(Vec::len).sum();
+                        eprintln!(
+                            "[rim-ov] a_rims={} a_pts={pa} b_rims={} b_pts={pb}",
+                            map_a.len(),
+                            map_b.len()
+                        );
+                    }
+                    a.rebuilt_with_rim_overrides(&map_a)?
+                },
                 b.rebuilt_with_rim_overrides(&map_b)?,
             ))
         }
