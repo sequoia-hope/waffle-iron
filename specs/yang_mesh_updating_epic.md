@@ -591,6 +591,70 @@ would re-route this case again).
 
 Nothing was built against the refuted framing.
 
+### 8j. ANSWERED — R0074 has NO analytic curve to re-sample, by design; §8i is refuted for it (2026-07-29)
+
+§8i flagged this as the specific way its hypothesis could still be wrong. It is wrong.
+
+**1. The torus skip is deliberate and documented.** `stage3_ssi.rs:711-718` (KV6d
+Tier B) `continue`s on ANY torus edge:
+
+> a TORUS intersection edge is degree-4 — there is no analytic SSI curve
+> (`surface_to_quadric` refuses a torus). Leave it as the `Curve::LineSegment`
+> fallback; Stage 4 relocates its endpoints onto the exact torus∩surface curve via
+> the implicit-pair Newton.
+
+R0074 is entirely plane×torus, which is exactly why it reports
+`n_intersection_curves=0` / `curve_kinds={}` and why all 78 folds read `NO-CURVE`.
+This is a recorded capability boundary, not a defect.
+
+**2. A second, redundant skip fires FIRST — worth recording for whoever lifts the
+boundary.** The on-both-surfaces gate (`:615`) already rejects these edges before the
+deliberate torus skip is reached, because the selection-tolerance ladder (`:559-593`)
+has arms for Cylinder, Sphere and Cone but **none for Torus**, so `tol` falls through
+to `TAU_WORK = 1e-12`. Measured with `YANG_V_PROBE=125,123,126` on R0074:
+
+```
+on-both gate SKIP edge (122,125) tol=1.000e-12
+  surf0=Plane  surf1=Torus{major_radius: 0.17568, minor_radius: 0.11712}
+  d_s=(0.000e0, 3.472e-4)   d_e=(0.000e0, 2.883e-4)
+```
+
+The endpoints are EXACTLY on the plane (0.000e0) and 2.806e-4–3.472e-4 off the torus
+— its Stage-1 chord error, which the ladder is supposed to admit. Those numbers match
+§8h's pre-residuals for the same vertices to every digit (v125 2.883e-4, v123
+2.880e-4, v126 2.806e-4), cross-validating both probes. Harmless today because the
+torus arm would skip anyway, but **anyone implementing a torus curve must add the
+torus chord bound to the ladder first**, or the gate will silently eat every torus
+edge. Note also that the `YANG_V_PROBE` "on-both gate SKIP" line misattributes the
+cause for torus edges — the design decision at `:716` is the real reason.
+
+**3. Promoting these edges to `Curve::SurfacePair` would NOT enable §8i either.** The
+variant does accept a (Plane, Torus) pair — it holds yang `Surface`s (`geom.rs:144`) —
+but its own contract rules out what §8i needs:
+
+> There is no closed-form parameterization — endpoints come from the mesh edge,
+> interior samples from downstream (kernel-v2) projection.
+
+A monotone re-sampling needs a parameter to be monotone IN, and `SurfacePair` supplies
+none. Nor can ssi-rs mint one here: every ssi-rs `SurfacePair` producer is
+quadric-pair based and `surface_to_quadric` refuses a torus, so `ssi_rs::intersect` is
+not even callable for this pair.
+
+**⇒ R0074 re-routes OUT of Phase C.** Giving it a monotone polyline requires genuine
+new capability — curve TRACING/marching on the implicit (plane, torus) pair (e.g.
+poloidal/toroidal-angle marching with Newton projection per sample) — not the wiring
+of any existing part. That is its own task, adjacent to the KV6d torus scope
+(`docs/kv6d_torus_boolean_scope.md`) and M5, and it should not be smuggled into this
+epic.
+
+**⇒ R0011 is the only viable Phase-C target, and it is viable.** It carries real
+analytic `Ellipse` curves (28 on op1, 45 on op2; its fold apexes report
+`curve=[… | Ellipse | …]`), which DO have a closed-form parameterization, so monotone
+re-sampling is available there. Combined with §8g (R0011 is the only case whose folds
+are 100 % Stage-4-minted, hence the only one that can convert), Phase C now has
+exactly one grounded lead case and a testable first step: re-sample one R0011 minted
+fold's ellipse chain monotonically at the same vertex count and check the fold clears.
+
 **Read:** ~15 cases route to Phase B (8 reassembly + 4 render-CDT + 3 re-entry-CDT),
 ~4 to Phase C/D (grazing), 5 eject (2 → #146, 1 → §4.5.3, 2 → M5). The Phase-B
 reassembly bucket is the largest single lever and the ★★ hypothesis (post-relocation

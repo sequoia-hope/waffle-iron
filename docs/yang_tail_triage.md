@@ -399,6 +399,32 @@ re-derived as a proper monotone polyline (§4.3.4) with the patch re-triangulate
 (§4.4.1) — which is a HYPOTHESIS by elimination, not a measurement. Full reasoning and
 the verification it needs first: epic spec §8i.
 
+**⚠ That hypothesis is now REFUTED FOR R0074 (epic spec §8j): it has no analytic curve
+to re-sample, by design.** `stage3_ssi.rs:711-718` (KV6d Tier B) deliberately skips
+ANY torus edge — "a TORUS intersection edge is degree-4 … Leave it as the
+`Curve::LineSegment` fallback; Stage 4 relocates its endpoints via the implicit-pair
+Newton" — which is exactly why R0074 reports `n_intersection_curves=0`. Promoting to
+`Curve::SurfacePair` does not help: that variant explicitly has "no closed-form
+parameterization" (`geom.rs:144`), and ssi-rs's SurfacePair producers are all
+quadric-based (`surface_to_quadric` refuses a torus). A monotone re-sampling needs a
+parameter to be monotone in. **⇒ R0074 leaves Phase C**; giving it one needs genuine
+new capability (curve tracing/marching on the implicit plane∩torus pair), adjacent to
+the KV6d torus scope, not a wiring of existing parts. **R0011 is the only viable
+Phase-C target** — it carries real analytic `Ellipse` curves (28/45), which do have a
+closed-form parameterization, and it is the only case whose folds are 100 %
+Stage-4-minted.
+
+Recorded for whoever lifts the torus boundary: a second, redundant skip fires first.
+The selection-tolerance ladder (`stage3_ssi.rs:559-593`) has arms for Cylinder, Sphere
+and Cone but **none for Torus**, so `tol` falls through to `TAU_WORK = 1e-12` and the
+on-both gate (`:615`) rejects every torus edge before the deliberate skip is reached.
+Measured (`YANG_V_PROBE=125,123,126`): `tol=1.000e-12` against `d_s=(0.000e0,
+3.472e-4)` — exactly on the plane, and off the torus by its Stage-1 chord error, which
+the ladder is meant to admit. Those distances match this bucket's pre-residuals to
+every digit, cross-validating both probes. Harmless today (the torus arm would skip
+anyway) but it must be fixed BEFORE any torus curve is implemented, and the probe's
+"on-both gate SKIP" line misattributes the cause for these edges.
+
 **The earned-relocation result is UNIFORM across all three cases** — every moved
 vertex in R0074 (37 sampled across its 16 minted folds) and F0045's single minted
 vertex show the same shape: pre-residual comparable to the displacement, post-residual
