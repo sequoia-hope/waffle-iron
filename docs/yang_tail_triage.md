@@ -337,15 +337,65 @@ minted folds are the opposite (~97% normal, `tan≈1e-5` vs `nrm≈3e-4`) — ge
 off-curve correction whose order breaks only because the move dwarfs a
 near-duplicate spacing.
 
-⇒ **Two different fixes.** Fig-11 `merge` addresses R0074's near-dup class only.
-R0011 needs the relocation to pick the right point along the curve. Do NOT infer
-mis-relocation from the printed `reloc(t=…)` values — a vertex on two curves carries
-one `t`, and `t` from different curve frames is not comparable (adjacent verts 38/39
-read `t=-0.428` and `t=+2.182`, which proves nothing on its own). The decisive
-measurement is the **per-surface implicit residual of the final position** (the F0083
-method): if R0011's moved vertices satisfy `A:Cylinder` and `B:Plane` exactly, they
-are ON the curve at the wrong place ⇒ point-selection defect; if not, they never
-reached it. That probe is the next increment and also serves F0045.
+⇒ **Two different sub-mechanisms, one criterion.** Do NOT infer mis-relocation from
+the printed `reloc(t=…)` values — a vertex on two curves carries one `t`, and `t`
+from different curve frames is not comparable (adjacent verts 38/39 read `t=-0.428`
+and `t=+2.182`, which proves nothing on its own). The decisive measurement is the
+per-surface implicit residual, taken at BOTH the final and the pre-relocation
+position — see the next subsection, which refutes the point-selection reading.
+
+### REFUTED — R0011's relocations are EARNED; it is a §4.5.2 refinement case (2026-07-29)
+
+The point-selection hypothesis above ("moved 7% of the model along its curve ⇒ wrong
+root") is **refuted by measurement**. The probe now reports each fold vertex's
+implicit residual against every incident surface at the final position AND at the
+pre-relocation position (`resid=` / `resid_pre=`). On R0011, for every moved vertex:
+
+| vertex | displacement | max&#124;resid&#124; PRE | max&#124;resid&#124; POST |
+|---|---|---|---|
+| v34 | 245.5 | **84.68** | 1.8e-12 |
+| v38 | 245.2 | **107.5** | 9.1e-13 |
+| v25 | 328.1 | **52.21** | 2.8e-14 |
+| v24 | 179.9 | **46.82** | 9.1e-13 |
+| v18 | 46.08 | **42.96** | 9.1e-13 |
+| v74 | 22.21 | **10.31** | 9.1e-13 |
+
+Still vertices have PRE ≡ POST at ~1e-13 throughout (they were already exact and
+were correctly left alone). Every moved vertex was genuinely far OFF its surfaces
+beforehand and is exactly ON them afterwards — **the destinations are correct and the
+moves are earned.** A teleport to a different root of the same constraints would show
+a SMALL pre-residual; none does.
+
+So the tangential dominance has a different explanation: at a shallow-angle
+intersection the mesh curve is offset from the true SSI curve substantially ALONG the
+curve, so the nearest true-curve point lies mostly in the chain direction. That is
+near-tangency — **exactly §4.5.2's target**. R0011's minted folds are therefore
+genuine **local-refinement** customers: the mesh intersection curve approximates the
+true curve so poorly that the per-vertex correction (245) exceeds the chain spacing
+(34), and a correction larger than the spacing can reorder the polyline however
+exact each individual destination is.
+
+⇒ **Both sub-mechanisms are in scope for the epic, and the ratio criterion unifies
+them:**
+
+| case | sub-mechanism | spacing vs correction | fix |
+|---|---|---|---|
+| R0011 | mesh curve poorly approximates the true curve (near-tangency) | 34 vs 245 | **§4.5.2 local refinement** + re-intersect |
+| R0074 | near-DUPLICATE vertices, small but relatively huge correction | 9.1e-6 vs 3e-4 | **Fig-11 `merge`** |
+
+Both are `max_disp / min_pre_spacing > 1`; driving that ratio below 1 is the correct
+shared acceptance criterion, and the two fixes are the two ways to do it (shrink the
+correction by refining; or remove the sub-spacing pair by merging).
+
+**The earned-relocation result is UNIFORM across all three cases** — every moved
+vertex in R0074 (37 sampled across its 16 minted folds) and F0045's single minted
+vertex show the same shape: pre-residual comparable to the displacement, post-residual
+at f64 noise (R0074 e.g. v125 disp 3.005e-4 / pre 2.883e-4 / post 4.2e-17; F0045 v68
+disp 2.382e-2 / pre 1.027e-2 / post 0.0). **So there is no mis-relocation anywhere in
+this bucket**: Stage 4's per-vertex destinations are all correct, and the entire
+defect is the absent mesh update. This is what a0182010's original instinct claimed;
+it is now measured rather than inferred, and the two intervening hypotheses
+(partial-relocation set, then wrong-root selection) are both retired.
 
 **The two DEVELOPABLE cases are NOT this class** and must not be folded into its
 spec (R0028: fold at the ring CLOSURE, 13 from any seam; R0049: ~97 runs makes

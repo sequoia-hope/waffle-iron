@@ -6,6 +6,10 @@
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 
+/// Diagnostic only: per-vertex incident surfaces, each with its operand-qualified
+/// label (`A:Plane`) and the `Surface` itself so residuals can be evaluated.
+type VertSurfMap = std::collections::HashMap<u32, Vec<(String, Surface)>>;
+
 thread_local! {
     /// Diagnostic only (`YANG_S5_FOLD_PROBE`): the set of mesh vertices whose
     /// POSITION changed across Stage 4, captured by diffing `mesh.verts`
@@ -47,9 +51,13 @@ thread_local! {
     /// distinguish "on the A∩B curve" from "on A's own rim", and only the former
     /// is a Stage-4 relocation candidate (`build_intersection_curves` skips
     /// `input0 == input1`).
-    static S4_VERT_SURF: std::cell::RefCell<
-        Option<std::collections::HashMap<u32, std::collections::BTreeSet<String>>>,
-    > = const { std::cell::RefCell::new(None) };
+    /// The `Surface` itself is retained alongside the label so the probe can
+    /// evaluate each one's implicit residual at the vertex's FINAL position. That
+    /// residual is the only way to tell a vertex that never reached its curve from
+    /// one that reached it at the WRONG POINT along it — the two have opposite
+    /// fixes, and no displacement statistic distinguishes them.
+    static S4_VERT_SURF: std::cell::RefCell<Option<VertSurfMap>> =
+        const { std::cell::RefCell::new(None) };
 
     /// Diagnostic only (`YANG_S5_FOLD_PROBE`): per-vertex names of the incident
     /// edges that are KEYS of the pre-Stage-4 `intersection_curves` map.
@@ -114,8 +122,7 @@ fn probe_record_incidence(
     if std::env::var_os("YANG_S5_FOLD_PROBE").is_none() {
         return;
     }
-    let mut vs: std::collections::HashMap<u32, std::collections::BTreeSet<String>> =
-        Default::default();
+    let mut vs: VertSurfMap = Default::default();
     for (&(s, e), es) in incidence {
         for &(input, surf) in es {
             let n = match surf {
@@ -135,9 +142,20 @@ fn probe_record_incidence(
                     InputId::B => "B",
                 }
             );
-            vs.entry(s).or_default().insert(q.clone());
-            vs.entry(e).or_default().insert(q);
+            for v in [s, e] {
+                let slot = vs.entry(v).or_default();
+                // Dedup on the qualified label AND the surface, so two distinct
+                // co-labelled surfaces (a vertex on two different `A:Plane`s) are
+                // both kept — collapsing them would hide a junction.
+                if !slot.iter().any(|(l, sf)| l == &q && *sf == surf) {
+                    slot.push((q.clone(), surf));
+                }
+            }
         }
+    }
+    // Deterministic report order.
+    for slot in vs.values_mut() {
+        slot.sort_by(|a, b| a.0.cmp(&b.0));
     }
     S4_VERT_SURF.with(|c| *c.borrow_mut() = Some(vs));
     // The precise relocation-candidate oracle: which incident edges actually
@@ -1187,7 +1205,38 @@ pub(crate) fn emit_topology(
                         let inc_of = |v: u32| -> String {
                             S4_VERT_SURF.with(|c| match &*c.borrow() {
                                 Some(m) => match m.get(&v) {
-                                    Some(set) => set.iter().cloned().collect::<Vec<_>>().join("+"),
+                                    Some(set) => set
+                                        .iter()
+                                        .map(|(l, _)| l.clone())
+                                        .collect::<Vec<_>>()
+                                        .join("+"),
+                                    None => "NO-INCIDENCE".to_string(),
+                                },
+                                None => "n/a".to_string(),
+                            })
+                        };
+                        // THE DISCRIMINATOR (spec §8g): the implicit residual of the
+                        // vertex's FINAL position against every surface it is
+                        // incident to. A relocated vertex that satisfies all of them
+                        // is ON its curve and any fold is a point-SELECTION defect
+                        // (it arrived at the wrong place along the curve); one that
+                        // fails a surface never arrived at all. Displacement
+                        // magnitude and direction cannot tell these apart.
+                        let resid_of = |v: u32, post: [f64; 3]| -> String {
+                            S4_VERT_SURF.with(|c| match &*c.borrow() {
+                                Some(m) => match m.get(&v) {
+                                    Some(set) => set
+                                        .iter()
+                                        .map(|(l, sf)| {
+                                            match crate::stage4_relocate::surface_value_and_normal(
+                                                *sf, post,
+                                            ) {
+                                                Some((f, _)) => format!("{l}={f:.3e}"),
+                                                None => format!("{l}=?"),
+                                            }
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join(","),
                                     None => "NO-INCIDENCE".to_string(),
                                 },
                                 None => "n/a".to_string(),
@@ -1307,6 +1356,8 @@ pub(crate) fn emit_topology(
                              len_prev={l1:.6e} len_cur={l2:.6e} \
                              moved=({},{},{}) \
                              inc=[{} | {} | {}] \
+                             resid=[{} | {} | {}] \
+                             resid_pre=[{} | {} | {}] \
                              curve=[{} | {} | {}] \
                              reloc_prev={} reloc_apex={} reloc_next={} \
                              p=[{:.12},{:.12},{:.12}]",
@@ -1322,6 +1373,19 @@ pub(crate) fn emit_topology(
                             inc_of(e_prev.start),
                             inc_of(e_cur.start),
                             inc_of(e_cur.end),
+                            resid_of(e_prev.start, a),
+                            resid_of(e_cur.start, b),
+                            resid_of(e_cur.end, c),
+                            // Same residuals at the PRE-relocation position. If a
+                            // vertex was ALREADY on its surfaces before Stage 4 and
+                            // then moved far, the move went to a DIFFERENT root of
+                            // the same constraints — a selection defect the
+                            // exactness certificate cannot see, because both points
+                            // satisfy it. If instead the pre-residual is large, the
+                            // mesh really was that far off and the move is earned.
+                            resid_of(e_prev.start, a_pre),
+                            resid_of(e_cur.start, b_pre),
+                            resid_of(e_cur.end, c_pre),
                             cv_of(e_prev.start),
                             cv_of(e_cur.start),
                             cv_of(e_cur.end),

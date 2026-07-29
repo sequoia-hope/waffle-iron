@@ -503,10 +503,44 @@ near-dup class, and R0011 needs correct point selection along the curve instead.
 **Do not read the printed `reloc(t=…)` as evidence of mis-relocation** — a vertex on
 two curves carries one `t`, and `t` from different curve frames is incomparable
 (R0011's adjacent verts 38/39 read `-0.428` and `+2.182`, which alone proves
-nothing). The decisive measurement is the per-surface implicit residual of the FINAL
-position (§8f's F0045 note, the F0083 method): satisfying both surfaces ⇒ on the
-curve at the wrong place ⇒ point-selection defect; not satisfying them ⇒ it never
-arrived. One probe serves R0011 and F0045 both, and it is the next increment.
+nothing). Settled by §8h below.
+
+### 8h. REFUTED — R0011's relocations are EARNED; it is a §4.5.2 case, and the ratio unifies both (2026-07-29)
+
+§8g's point-selection reading is **refuted**. The probe now reports each fold
+vertex's implicit residual against every incident surface at BOTH the final and the
+pre-relocation position (`resid=` / `resid_pre=`). Every moved vertex on R0011 has a
+LARGE pre-residual and a ~1e-13 post-residual — v34 84.68→1.8e-12, v38 107.5→9.1e-13,
+v25 52.21→2.8e-14, v24 46.82→9.1e-13, v18 42.96→9.1e-13, v74 10.31→9.1e-13 — while
+still vertices hold PRE ≡ POST at ~1e-13 (correctly left alone). **The destinations
+are correct and the moves are earned.** A teleport to a different root of the same
+constraints would show a SMALL pre-residual; none does.
+
+The tangential dominance has a benign explanation: at a shallow-angle intersection
+the mesh curve is offset from the true SSI curve largely ALONG the curve, so the
+nearest true-curve point lies mostly in the chain direction. That is near-tangency —
+**§4.5.2's own target**. R0011's minted folds are genuine local-refinement customers:
+the mesh curve approximates the true curve so poorly that the correction (245)
+exceeds the chain spacing (34), and a correction larger than the spacing can reorder
+the polyline no matter how exact each individual destination is.
+
+**Both sub-mechanisms belong to this epic, and the acceptance ratio unifies them:**
+
+| case | sub-mechanism | spacing vs correction | Phase-C fix |
+|---|---|---|---|
+| R0011 | mesh curve poorly approximates the true curve (near-tangency) | 34 vs 245 | §4.5.2 LOCAL REFINEMENT + re-intersect |
+| R0074 | near-DUPLICATE verts, small correction but huge relative to spacing | 9.1e-6 vs 3e-4 | Fig-11 `merge` |
+
+Driving `max_disp / min_pre_spacing` below 1 is the shared criterion, and these are
+the two ways to achieve it — shrink the correction by refining, or remove the
+sub-spacing pair by merging. §5's Phase C therefore keeps BOTH arms; §8f's narrowing
+to "merge first, not the refinement loop" applies to R0074 only.
+
+**Ordering for the build.** Fig-11 `merge` is the smaller, better-de-risked arm (the
+primitive exists and is unit-tested; it only removes a sub-spacing pair) and its
+target R0074 cannot convert. §4.5.2 local refinement is the larger arm and owns the
+only case that can convert (R0011, 10/10 minted). Do `merge` first as the wiring
+de-risk — gated, byte-identical, fold-delta measured on R0074 — then refinement.
 
 **Read:** ~15 cases route to Phase B (8 reassembly + 4 render-CDT + 3 re-entry-CDT),
 ~4 to Phase C/D (grazing), 5 eject (2 → #146, 1 → §4.5.3, 2 → M5). The Phase-B
