@@ -488,6 +488,20 @@ residual is the documented conic deferral above).
 intersection-edge invariant; the producer-provenance route remains the durable
 target.
 
+**Cost measured 2026-07-29 (strict-validation exposure):** the gate's "cannot
+regress correctly-classified edges" claim has a counterexample — a TRUE
+intersection edge with ONE drifted endpoint is skipped (the gate's precondition
+is the very thing Stage-4 relocation exists to establish), leaving the vertex
+silently off-surface: F0083 (v118, 1.914e-3 off `A:Cylinder`, 2.76× tol) and
+R0099 (8.651e-2, 2.8% of radius). Six geometric repairs refuted
+(`specs/yang_s4_boundary_curve_relocation.md` §14–§17 + the chain lead, killed
+at design review by the YR18 fixture itself). **The durable target is now
+specified: `specs/yang_s3_intersection_edge_provenance.md`** — arrangement-side
+constrained-edge provenance (`group_constraint_segments` /`set_edge_constr`
+already compute it) surfaced as `LabeledArrangement::intersection_edges`,
+provenance-first classification with this gate retained as the provenance-less
+fallback (sidecar parity byte-identical). Yang §4.2.3 is the paper anchor.
+
 ### N11 — sphere section `Circle` membership uses a projection-scaled radial band (PR-YR19)
 
 **State:** PERMANENT — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.

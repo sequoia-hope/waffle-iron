@@ -297,7 +297,10 @@ pub(crate) fn validate_planar_face(
                     let band = if is_arc {
                         import_band(radius, p)
                     } else {
+                        // Canonical band floored at evaluation precision
+                        // (see `eval_floor_linear`).
                         CURVED_SURFACE_DEBUG_TOLERANCE
+                            .max(eval_floor_linear(coord_mag(p).max(coord_mag(center))))
                     };
                     let dr = ((p.x() - center.x()).powi(2)
                         + (p.y() - center.y()).powi(2)
@@ -358,10 +361,12 @@ pub(crate) fn validate_planar_face(
 /// non-wrapping loop CW (a barrel segment with windows).
 ///
 /// Debug tier: loop vertices on the surface, rim/arc centers on the axis —
-/// at [`CURVED_SURFACE_DEBUG_TOLERANCE`] for exact-constructed canonical
-/// solids, at the scale-relative [`import_band`] for imported patches;
-/// canonical seam segments parallel to the axis (partial patches carry
-/// genuine chord segments, which are NOT rulings, so no seam rule there).
+/// at [`CURVED_SURFACE_DEBUG_TOLERANCE`] (floored at the coordinate-scale
+/// evaluation precision, [`eval_floor_linear`]) for exact-constructed
+/// canonical solids, at the scale-relative [`import_band`] for imported
+/// patches; canonical seam segments parallel to the axis (partial patches
+/// carry genuine chord segments, which are NOT rulings, so no seam rule
+/// there).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_cylinder_face(
     arena: &BrepArena,
@@ -464,25 +469,31 @@ pub(crate) fn validate_cylinder_face(
             )
         };
         for p in arena.loop_points(face.outer_loop)? {
-            if (dist_to_axis(p) - radius).abs() > CURVED_SURFACE_DEBUG_TOLERANCE {
+            // Canonical band floored at evaluation precision (see
+            // `eval_floor_linear` — the linear analog of the torus site).
+            let band = CURVED_SURFACE_DEBUG_TOLERANCE
+                .max(eval_floor_linear(coord_mag(p).max(coord_mag(axis_point))));
+            if (dist_to_axis(p) - radius).abs() > band {
                 return Err(vertex_off_surface(
                     f,
                     "cyl-canonical-vertex",
                     p,
                     (dist_to_axis(p) - radius).abs(),
-                    CURVED_SURFACE_DEBUG_TOLERANCE,
+                    band,
                     &cyl_desc(),
                 ));
             }
         }
         for &(c, _, _) in &rims {
-            if dist_to_axis(c) > CURVED_SURFACE_DEBUG_TOLERANCE {
+            let band = CURVED_SURFACE_DEBUG_TOLERANCE
+                .max(eval_floor_linear(coord_mag(c).max(coord_mag(axis_point))));
+            if dist_to_axis(c) > band {
                 return Err(vertex_off_surface(
                     f,
                     "cyl-rim-center-off-axis",
                     c,
                     dist_to_axis(c),
-                    CURVED_SURFACE_DEBUG_TOLERANCE,
+                    band,
                     &cyl_desc(),
                 ));
             }
@@ -569,14 +580,23 @@ pub(crate) fn validate_torus_face(
         for lid in loops {
             for p in arena.loop_points(lid)? {
                 // The residual is in length², so compare against a band scaled
-                // by the minor radius (a length·length tolerance).
-                if on_torus_residual(p) > CURVED_SURFACE_DEBUG_TOLERANCE * minor_radius.max(1.0) {
+                // by the minor radius (a length·length tolerance), floored at
+                // evaluation precision: a linear deviation δ appears in the
+                // residual as ≈ 2·minor·δ near the tube, and the closing
+                // algebra (d² + τ² − minor²) rounds at ulp(minor²) — so the
+                // floor is 2·minor·(8εl) + 8ε·minor². R0027/R0025 are the
+                // measured witnesses (see `eval_floor_linear`).
+                let l = coord_mag(p).max(coord_mag(center));
+                let floor = 2.0 * minor_radius * eval_floor_linear(l)
+                    + 8.0 * f64::EPSILON * minor_radius * minor_radius;
+                let band = (CURVED_SURFACE_DEBUG_TOLERANCE * minor_radius.max(1.0)).max(floor);
+                if on_torus_residual(p) > band {
                     return Err(vertex_off_surface(
                         f,
                         "torus-vertex",
                         p,
                         on_torus_residual(p),
-                        CURVED_SURFACE_DEBUG_TOLERANCE * minor_radius.max(1.0),
+                        band,
                         &format!(
                             "torus center=({:.17e},{:.17e},{:.17e}) \
                              major_r={major_radius:.17e} minor_r={minor_radius:.17e}",
@@ -618,12 +638,14 @@ pub(crate) fn validate_sphere_face(
     #[cfg(any(debug_assertions, feature = "strict-validation"))]
     {
         // `sphere_residual` is a plain length; scale the band by the radius
-        // (a length·length tolerance, matching the torus convention).
-        let band = CURVED_SURFACE_DEBUG_TOLERANCE * radius.max(1.0);
+        // (a length·length tolerance, matching the torus convention),
+        // floored at evaluation precision (see `eval_floor_linear`).
         let mut loops = vec![face.outer_loop];
         loops.extend(face.inner_loops.iter().copied());
         for lid in loops {
             for p in arena.loop_points(lid)? {
+                let band = (CURVED_SURFACE_DEBUG_TOLERANCE * radius.max(1.0))
+                    .max(eval_floor_linear(coord_mag(p).max(coord_mag(center))));
                 let res = geom::sphere_residual(p, center, radius).abs();
                 if res > band {
                     return Err(vertex_off_surface(

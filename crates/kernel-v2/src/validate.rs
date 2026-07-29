@@ -90,6 +90,41 @@ fn planarity_band(p: Point3) -> f64 {
     PLANARITY_DEBUG_TOLERANCE * (1.0 + p.x().abs().max(p.y().abs()).max(p.z().abs()))
 }
 
+/// Evaluation-precision floor for the strict-tier on-surface residual
+/// comparisons: `8·ε·scale`, with `scale` the largest coordinate magnitude
+/// entering the residual arithmetic (the tested point and the surface
+/// anchor — take the max of their [`coord_mag`]s).
+///
+/// An f64 point at coordinate magnitude `L` is quantized at `ulp(L)/2 ≈
+/// ε·L/2` per component, and each arithmetic step of a residual evaluation
+/// rounds at the same scale, so no LINEAR residual below ~`8·ε·L` is
+/// distinguishable from zero — a band tighter than this rejects
+/// mathematically perfect geometry. It is the same floor the yang-rs
+/// relocation Newtons carry (`relocate_onto_implicit_pair`/`_triple`,
+/// stage4_relocate.rs): the producer converges to `8·ε·L`, so a consumer
+/// demanding tighter re-rejects the producer's own acceptance contract.
+///
+/// Measured (2026-07-29): R0027's canonical revolve-torus seam vertex at
+/// coordinates ~6.7e3 sits ONE ulp of ρ off its surface (9.1e-13 linear)
+/// and failed the un-floored torus band (5e-13 linear-equivalent); R0025's
+/// boolean-output torus vertex at ~4 ulps of its ~1.3e3 coordinates
+/// likewise. At unit scale this floor is ~1.8e-15 — far below every
+/// canonical band, so unit-scale verdicts are unchanged. A reachability
+/// correction in the 3892080e sense, NOT band widening: the band may never
+/// demand more than f64 evaluation can certify, and this floor is exactly
+/// that limit (real defects in this tail start at ~1e-3, five orders up).
+#[cfg(any(debug_assertions, feature = "strict-validation"))]
+pub(crate) fn eval_floor_linear(scale: f64) -> f64 {
+    8.0 * f64::EPSILON * scale
+}
+
+/// Largest |coordinate| of a point — the `scale` argument for
+/// [`eval_floor_linear`].
+#[cfg(any(debug_assertions, feature = "strict-validation"))]
+pub(crate) fn coord_mag(p: Point3) -> f64 {
+    p.x().abs().max(p.y().abs()).max(p.z().abs())
+}
+
 /// Tolerance on `1 − dot(stored_normal, newell_unit)` for invariant 5.
 /// Both vectors are unit-length f64; agreement is by construction, so this
 /// only absorbs normalization rounding (= the central

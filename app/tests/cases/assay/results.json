@@ -1,8 +1,8 @@
 {
-  "errored": 54,
+  "errored": 53,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 256,
+  "passed": 257,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -150,7 +150,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(859) }",
+      "detail": "1 engine error(s): aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(588), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
       "id": "R0025",
       "status": "error"
     },
@@ -161,10 +161,10 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): ee06ff04-16c2-4c2f-9202-1443c15f41ab: operation error: kernel error: kernel error: kernel-v2 revolve failed: VertexOffSurface { face: FaceId(654) }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0027",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",

@@ -144,13 +144,20 @@ pub(crate) fn validate_cone_face(
             (rho - geom::cone_radius_at(t, half_angle)).abs()
         };
         for p in arena.loop_points(face.outer_loop)? {
-            if on_cone_residual(p) > CURVED_SURFACE_DEBUG_TOLERANCE {
+            // Canonical band floored at evaluation precision (see
+            // `eval_floor_linear`); the residual multiplies the ε·l-noisy
+            // axial coordinate τ by tan(half_angle), so a near-flat cone
+            // amplifies the floor by that factor.
+            let band = CURVED_SURFACE_DEBUG_TOLERANCE.max(
+                eval_floor_linear(coord_mag(p).max(coord_mag(apex))) * half_angle.tan().max(1.0),
+            );
+            if on_cone_residual(p) > band {
                 return Err(vertex_off_surface(
                     f,
                     "cone-vertex",
                     p,
                     on_cone_residual(p),
-                    CURVED_SURFACE_DEBUG_TOLERANCE,
+                    band,
                     &format!(
                         "cone apex=({:.17e},{:.17e},{:.17e}) half_angle={half_angle:.17e}",
                         apex.x(),

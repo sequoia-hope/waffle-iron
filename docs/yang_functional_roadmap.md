@@ -417,6 +417,20 @@ in the ledger is PERMANENT with user sign-off.
    mesh-updating remit. Diagnose with `KV2_OFFSURF_PROBE=1`, which dumps the
    offending point AND its whole loop (the neighbours are what identify the
    class).
+   *SPLIT 2026-07-29 (`docs/yang_tail_triage.md` §"strict-validation
+   VertexOffSurface tail"): the tail is TWO classes. (1) **Validator false
+   positives at coordinate scale** — the canonical strict bands sat BELOW the
+   f64 evaluation floor `8·ε·L`, so a 1-ulp-exact vertex failed; fixed by
+   `validate::eval_floor_linear` max'd into all six canonical-band sites.
+   **R0027 CONVERTED (ERROR→CORRECT), corpus 256C→257C/0W/53E/0T, exactly
+   two deltas, zero regressions**; R0025 peeled to a ring-reject. (2) **Real
+   off-surface defects** — F0083 (2.3e-3) and R0099 (8.65e-2, 2.8% of
+   radius): the on_both gate (deviation N10) skips true intersection edges
+   whose endpoint drifted, and NO edge-local or chain-level discriminator can
+   exist (six refuted — `specs/yang_s3_intersection_edge_provenance.md` §2).
+   Fix = N10's named durable target, arrangement-side intersection-edge
+   provenance; spec inc-0 written, inc-1 = cherchi-rs constrained-edge marks
+   → `LabeledArrangement::intersection_edges`.*
 
 **Continuous:** the verification substrate ratchets — assay 0-WRONG gate, weld
 delta (`YANG_WELD_ENABLE=all` vs prod may only shrink), deviations OPEN-count
@@ -444,7 +458,12 @@ cross pair of two genuinely DISTINCT parallel planes (offset gap above the
 rounding-noise class `TAU_WORK·(1+scale)`; corpus-measured legitimate
 femto-twin max 2.7e-12, ≥40× below the line) rejects with typed
 `SubResolutionCoplanarGap` before any overlay work. Committed baseline
-**255C / 0 WRONG / 54E / 1T on the 312-case corpus** (2026-07-22, task #130
+**257C / 0 WRONG / 53E / 0T on the 312-case corpus** (2026-07-29, R0027
+ERROR→CORRECT via the `eval_floor_linear` strict-validation floor; prior rungs
+256C after the R0035 triple-junction surface-pair count, 255C after the R0008
+cone-apex arm, 254C at the #195 inc-5 + §4.4.1 inc-2 flip, 252C honest
+strict-validation baseline; before the strict-validation re-basing:
+**255C / 0 WRONG / 54E / 1T** at 2026-07-22, task #130
 DegenerateLoop-duo retirement — UNSUPPORTED(coplanar-boolean) tail EMPTY,
 R0007/R0071/F0069 recovered; prior rung 252C/0W/55E/1T at the #169 P3b/#188
 flips; before that

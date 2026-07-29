@@ -40,7 +40,7 @@ Re-generate the baseline column only from a committed `results.json`.
 | ~~R0008~~ | ~~Stage-4 LRR v42~~ | ~~probe 2026-07-18: `YANG_LRR_SITE site=lineseg_combo` edge (42,43) — LineSegment edge whose incidence is **Cone(A, half-angle 1.5525 rad ≈ 88.9°, near-flat) × Plane(B)**; the Stage-4 LineSegment arm has closed forms only for cyl×plane / cyl∥cyl / plane×plane — the **cone-generator line closed form is missing**~~ **FLIPPED CORRECT 2026-07-28 (cone-generator arm):** the closed form was never missing — `ssi_rs::plane_cone` has emitted `SsiCurve::Line` for through-apex cuts all along and Stage 3 already banded them via `cone_chord_tol_for_owner`. TWO wiring gaps, both in Stage 4: (a) the LineSegment pair match classified `Cone` as `other_curved` → STOP before selection; (b) once admitted, the tie-break called the R0072-only `select_disjoint_parallel_line`, whose parallelism precheck rejects the two CROSSING apex generators (`AmbiguousCurve{2,2}`). **#163/N45 was not a "residual theory" — it was CORRECT and already shipped, at Stage 3 only**; the two stages had been running different tie-breaks since 9fca8393 | — | ~~Stage-4 cone-generator LineSegment arm~~ DONE |
 | R0009 | Stage-4 LRR (u32::MAX) | probe 2026-07-17: `site=split_max_passes` — the chord-split loop exhausts its pass budget (§4.5.2 refinement demand, non-convergent) | CONFIRMED (#171 sweep) | P3-§4.5.2 |
 | R0020 | ~~Stage-4 LRR v44~~ TessellationFailed FaceId(21) | ~~probe 2026-07-18: v44 is the surface-pair endpoint-mix STOP — the R0044 class exactly~~ **ENDPOINT-MIX LAYER RESOLVED 2026-07-28:** v44's incidence is exactly 3 (`{plane_A, cone_A, cyl_B}`) and relocates through the triple block. Two deeper layers now: a pure surface-pair Newton divergence at `:5646` (R0044's new class), and the fatal one — kernel-v2 **`surface-pair refinement needs a positive finite chord tolerance`**, i.e. the OUTPUT B-Rep now carries a `Curve::SurfacePair` edge that kernel-v2's render tessellation cannot band | CONFIRMED (2026-07-28) | kernel-v2 surface-pair render band + M5 pair-Newton |
-| R0025 | Stage-4 LRR v1760 | probe 2026-07-18: `YANG_TORUS_STOP site=pair_newton_none` — torus×plane implicit-pair **Newton non-convergence** at v1760 (torus R=494/r=329, scale ~1300; siblings on the same op relocate fine). #131/N28 rim-crossing theory refuted | CONFIRMED (#171 pass 2) | P3b-#137 (torus∩plane relocation family) |
+| R0025 | ~~Stage-4 LRR v1760~~ ~~VertexOffSurface(859)~~ ring rejected by CDT (FaceId 588) | ~~probe 2026-07-18: `YANG_TORUS_STOP site=pair_newton_none` — torus×plane implicit-pair **Newton non-convergence** at v1760 (torus R=494/r=329, scale ~1300; siblings on the same op relocate fine). #131/N28 rim-crossing theory refuted~~ **TWO LAYERS PEELED 2026-07-28/29, both evaluation-floor defects:** (1) the pair-Newton `tau=1e-13` was below one ulp at scale ~1300 (3892080e — Newton had CONVERGED); (2) the strict-validation torus band (1e-12·minor length² ⇒ 5e-13 linear) was below the f64 evaluation floor — the "off-surface" vertex measured **8.6e-13 linear ≈ 4 ulps of its coordinates**, i.e. exact (floored via `eval_floor_linear`, with R0027). Now fails as a **ring-reject** (FaceId 588) — the ring-fold family | CONFIRMED (2026-07-29 `KV2_OFFSURF_PROBE`) | ring-reject family (re-probe with `KV2_RING_PROVENANCE` to sub-classify; was P3b-#137) |
 | R0032 | Stage-4 LRR v32 | probe 2026-07-18: `YANG_TORUS_STOP site=pair_newton_none` — **torus×Cone** implicit-pair Newton non-convergence (torus R=45.6/r=30.4 × cone half-angle 1.19 rad); sibling verts with cone partners relocate fine — v32's specific pair diverges | CONFIRMED (#171 pass 2) | P3b/M5-residual (torus×cone pair Newton) |
 | ~~R0035~~ | ~~Stage-4 LRR v194~~ | ~~v194 is `ellipse=true + surface_pair=true + endpoint` — Ellipse endpoint also on `SurfacePair{Cylinder×Cylinder}` → surface-pair endpoint-mix STOP, R0044 class~~ **FLIPPED CORRECT 2026-07-28 (triple-block wiring):** v194/v195 have exactly 3 incident surfaces `{cyl_A, cyl_B, plane_B}` — the increment-5 conic triple junction, which had simply never counted `vert_surface_pair` as a curve-bearing map | — | ~~P3-junction~~ DONE |
 | R0047 | Stage-4 LRR (u32::MAX) | probe 2026-07-17: `site=split_max_passes` — same class as R0009 | CONFIRMED (#171 sweep) | P3-§4.5.2 |
@@ -675,7 +675,7 @@ buckets:
 |---|---|
 | P2-M5 (SSI solvers) | 0 open (R0096 flipped CORRECT #172; R0044 → P3-junction) |
 | P3a-#146 (junction mint / incidence) | 8 open (C0058, F0082, C0044, F0058, F0060, R0016, R0050, R0081) + F0064 partial + R0051 suspected; ~~R0095~~ FLIPPED CORRECT (#195 inc-5); ~~R0049~~ **re-vehicled 2026-07-29** → Stage-2/3 incidence (its error class drifted to a developable ring-reject) |
-| P3b-#137 (torus∩plane + grazing/tangency Stage-4) | 7 confirmed (C0065, R0038, R0015, R0026, R0025, R0077, R0032-torus×cone) + F0085 (open seam, R0038-type); ~~R0074~~ **re-vehicled 2026-07-29** → planar output-loop seam-overlap (the OffCurve layer is gone; it is now a ring-reject and the lead witness of that class) |
+| P3b-#137 (torus∩plane + grazing/tangency Stage-4) | 6 confirmed (C0065, R0038, R0015, R0026, R0077, R0032-torus×cone) + F0085 (open seam, R0038-type); ~~R0074~~ **re-vehicled 2026-07-29** → planar output-loop seam-overlap (the OffCurve layer is gone; it is now a ring-reject and the lead witness of that class); ~~R0025~~ **re-vehicled 2026-07-29** → ring-reject family (both its STOPs were evaluation-floor artifacts, peeled by 3892080e + the `eval_floor_linear` validation floor) |
 | P3c (curved re-CDT) | **0 open** — ~~R0072~~ FLIPPED CORRECT 2026-07-28 (#195 inc-5); the vehicle has no remaining case |
 | P3-junction (other junction vocabulary) | 4 confirmed (R0003, C0067, R0070-v1028, R0085-op1) + R0085-op2 (torus×line endpoint-mix). **The R0044 surface-pair endpoint-mix sub-bucket is CLOSED 2026-07-28** — ~~R0035~~ CORRECT; R0044/R0020/R0070-op2 cleared this layer and re-vehicled to their deeper causes. ~~F0045, R0011, R0028~~ **split out 2026-07-29** into the two rows below |
 | **§4.4.1/§4.5.2 MESH UPDATING after relocation** (new, 2026-07-29; supersedes the same day's "partial relocation" and "seam-overlap" framings) | **3 confirmed — R0074, R0011, F0045.** Stage 4 relocates a SUBSET of a boundary chain onto the exact analytic geometry and leaves the rest at their Stage-1/2 mesh positions; the moved↔still boundary retraces as a near-180° fold, which kernel-v2's render CDT loudly rejects. **81 of 92 folds straddle that boundary; ZERO lie entirely in un-moved geometry.** Measured at yang's own emission site (`stage5_topology.rs` `push_loop`), so the mint is Stage 4, not Stage 5 ordering and not kernel-v2. **CORRECTED same day:** the relocation SET is CORRECT — un-moved fold vertices carry `Plane`-only incidence and are genuinely not on the intersection curve. The defect is that Stage 4 displaces relocated vertices by up to **101x the incident mesh edge length** (25/78 folds displace further than their shortest incident edge) **without updating the incident mesh**, which Yang §4.4.1/§4.5.2 require. These 3 cases are therefore CUSTOMERS OF THE MESH-UPDATING EPIC (#169 / N2, specs already written), not a standalone fix site. **RE-SCOPED again 2026-07-29 (anchor verification, §"SCOPED — the epic owns 16 of R0074's 78 folds"): this row is THREE classes, not one.** Operand-qualified incidence + the pre-Stage-4 turn angle show R0074 = **16 folds MINTED** by Stage 4 (turn_pre 0.00° → 179.9x°) and **62 INHERITED** from the Stage-2/3 boundary cycle (already folds before Stage 4, which perturbed them by a median 1.25°) ⇒ the epic owns 16, the rest route upstream to #146, and **R0074 cannot green from mesh-updating alone**. F0045 is instead the **Fig-11 q triple point** with a CYLINDER third surface (`A:Cylinder+A:Plane+B:Cylinder`, 4/4 apexes own-rim) — the built inc-3 `plan_triple_point_reseats` skips it because its closed form requires a `Plane`. R0011 is a third signature. The acceptance criterion is CONFIRMED but with the **pre-relocation spacing** as denominator (not the post-move incident edge): `max_disp / min_pre_spacing` is >1 for 14/16 minted (median 3.85, max **81×**) and ≤1 for 56/62 inherited (median 0.22) — it separates the populations. Blocking gap: F0045 and R0011 both take a §4.5.3 collapse, so their positional oracle is unavailable and their minting is UNMEASURED. |
@@ -719,3 +719,48 @@ error class since pass 2 (R0074 OffCurve → ring-reject, R0049 non-2-manifold �
 ring-reject) and one had partially self-healed (R0011, 3 crossings → 1). **Re-run
 the case before trusting any row's error class; group by measured mechanism,
 never by error string.**
+
+## The strict-validation VertexOffSurface tail is TWO classes, not one (2026-07-29)
+
+The three cases 5b891ec2 exposed (F0083, R0027, R0099) plus R0025's post-3892080e
+layer were all `VertexOffSurface` and looked like one "constructor/relocation
+exactness" family. Probing each split them:
+
+| Case | residual | linear equivalent | class | outcome |
+|---|---|---|---|---|
+| **R0027** | 3.725e-9 (length², torus minor 2137.7) | **9.1e-13 = 1 ulp of ρ(5344)** | validator false positive | **CONVERTED 2026-07-29** (ERROR → CORRECT, 257C) |
+| **R0025** (layer 2) | 5.675e-10 (length², minor 329.5) | **8.6e-13 ≈ 4 ulps of coords ~1300** | validator false positive | layer peeled → ring-reject (see its row) |
+| F0083 | 2.3046e-3 / 1.914e-3 | 3.3× / 2.76× the op chord band | REAL — unclaimed Fig-11 q + unbuilt cross curve | `specs/yang_s3_intersection_edge_provenance.md` |
+| R0099 | 8.651e-2 (`cylpatch-vertex`) | **2.8% of r=3.125** | REAL — F0083 family (producing op unprobed) | same spec, inc-2 measurement |
+
+**The false-positive mechanism:** the canonical strict-validation bands
+(`CURVED_SURFACE_DEBUG_TOLERANCE` = 1e-12, absolute for cylinder/cone/planar-
+anchor, ·minor for the length² torus form ⇒ **5e-13 linear** — the length²
+convention silently HALVES the linear tolerance) sit BELOW the f64 evaluation
+floor `8·ε·L` once coordinates reach L ≳ 1e3. A mathematically perfect vertex
+cannot pass: the validator's own arithmetic rounds by more than the band. Fix:
+`validate::eval_floor_linear` (8·ε·L, the yang-rs Newton convention) max'd into
+all six canonical-band sites (torus, cyl vertex, cyl rim-center, cone with
+tan(α) amplification, sphere, planar-circle-anchor). Unit-scale verdicts
+unchanged (floor ~1.8e-15 ≪ every band); real defects unaffected (the tail's
+smallest real residual is 1.9e-3, eight orders above the floor at its scale).
+Witness regression tests: `kv6a_revolve.rs` §12 (R0027's authored revolve
+verbatim — RED pre-fix, GREEN post; plus oracle-power and unit-scale guards).
+
+**Corpus: 256C/0W/54E/0T → 257C/0W/53E/0T, exactly two deltas** (R0027
+converted; R0025 error-string only). This is the 3892080e lesson at the next
+gate down: **when a producer and a consumer share a metric, they must share its
+floor** — Stage-4's Newton accepts at 8·ε·L, so a validator demanding 5e-13 at
+L=6700 re-rejects the producer's own contract.
+
+**The REAL-defect half (F0083/R0099) got its structural spec:**
+`specs/yang_s3_intersection_edge_provenance.md` (N10's named durable target).
+The §17 chain-discriminator lead is REFUTED at design review by the YR18
+fixture itself — its seam ring is 45/46-exact yet must be skipped, while
+F0083's chain is 1/3-exact yet must be admitted; chain health points the wrong
+way, and admit-by-witness / which-surface-off each mis-handle a legitimate
+vertex class. Sixth refuted discriminator on the thread, first one refuted
+BEFORE building. Only the producer (the arrangement's constraint segments,
+already computed in `cherchi-rs::group_constraint_segments` and enforced via
+`set_edge_constr`) knows which edges are intersection-minted — Yang §4.2.3
+assumes exactly this provenance.

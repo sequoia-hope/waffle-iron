@@ -1597,3 +1597,135 @@ fn full_revolve_diamond_ring_deterministic() {
         "diamond-ring revolve must be deterministic"
     );
 }
+
+// =========================================================================
+// 12. Strict-tier evaluation-precision floor (R0027 witness, 2026-07-29)
+// =========================================================================
+
+/// R0027's authored revolve, verbatim from the assay corpus: a circle
+/// profile (r = 2137.715522861295) on a plane at ~(-1.5e3, -1.2e3, -7.1e3)
+/// revolved 330.72357…° about an in-plane axis ~3.2e3 away.
+fn r0027_witness_revolve(arena: &mut BrepArena) -> Result<RevolveResult, KernelV2Error> {
+    let n = [
+        0.7592178558986921_f64,
+        -0.2856971169570957,
+        0.5847780815377713,
+    ];
+    // The app's sketch basis (feature-engine `tangent_x_from_normal`):
+    // ex = normalize(ẑ × n̂), ey = n̂ × ex (unnormalized, |ey| ≈ 1).
+    let cx = [-n[1], n[0], 0.0];
+    let len = (cx[0] * cx[0] + cx[1] * cx[1]).sqrt();
+    let ex = [cx[0] / len, cx[1] / len, 0.0];
+    let ey = [
+        n[1] * ex[2] - n[2] * ex[1],
+        n[2] * ex[0] - n[0] * ex[2],
+        n[0] * ex[1] - n[1] * ex[0],
+    ];
+    let profile = Profile::circle(
+        Point3::new(-1527.5134218720932, -1228.5989113468231, -7071.7140095928),
+        Vector3::new(ex[0], ex[1], ex[2]),
+        Vector3::new(ey[0], ey[1], ey[2]),
+        Point2::new(0.0, 0.0),
+        2137.715522861295,
+    )
+    .expect("R0027 circle profile");
+    revolve(
+        arena,
+        &profile,
+        Point3::new(-2253.2899265682186, -4301.522112340404, -7630.734307579604),
+        Vector3::new(-0.6102117270266365, 0.0, 0.7922383783932522),
+        330.72357275429266_f64.to_radians(),
+    )
+}
+
+/// The torus seam vertex v0 = center + (major+minor)·ŵ of the R0027 revolve
+/// lands at coordinates ~6.7e3, where a single ulp of ρ (≈9.1e-13) exceeds
+/// the un-floored torus band's 5e-13 linear equivalent — strict validation
+/// rejected a vertex that is exact to one ulp of what f64 can represent
+/// (the R0027 assay failure). The band is now floored at evaluation
+/// precision (`validate::eval_floor_linear`), so the revolve validates.
+#[test]
+fn r0027_scale_torus_revolve_validates_at_evaluation_floor() {
+    let mut arena = BrepArena::new();
+    let r = r0027_witness_revolve(&mut arena)
+        .expect("R0027-scale torus revolve builds + validates at the evaluation floor");
+    let report = validate_solid(&arena, r.solid).expect("R0027-scale torus validates");
+    assert_eq!(report.faces, 3, "2 caps + 1 toroidal lateral");
+}
+
+/// Oracle power retained: a vertex displaced 1e-6 radially (five orders
+/// above the evaluation floor, three below the tube radius) at the SAME
+/// coordinate scale still rejects loudly — the floor admits only what f64
+/// arithmetic cannot distinguish from exact, never a real defect.
+#[test]
+fn r0027_scale_genuinely_off_vertex_still_rejects() {
+    let mut arena = BrepArena::new();
+    let r = r0027_witness_revolve(&mut arena).expect("R0027-scale torus revolve builds");
+    let torus_face = *r
+        .walls
+        .iter()
+        .find(|&&w| matches!(arena.face(w).unwrap().surface, Some(Surface::Torus { .. })))
+        .expect("torus lateral face");
+    let Some(Surface::Torus { center, .. }) = arena.face(torus_face).unwrap().surface else {
+        unreachable!()
+    };
+    // Displace the seam vertex radially in the tube plane (normal to the
+    // surface at poloidal 0): rho grows by 1e-6, residual ≈ 2·minor·1e-6.
+    let v0 = arena.vertices[0].as_ref().unwrap().point;
+    let d = [
+        v0.x() - center.x(),
+        v0.y() - center.y(),
+        v0.z() - center.z(),
+    ];
+    let dl = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    let s = 1e-6 / dl;
+    arena.vertices[0].as_mut().unwrap().point =
+        Point3::new(v0.x() + d[0] * s, v0.y() + d[1] * s, v0.z() + d[2] * s);
+    let err = validate_solid(&arena, r.solid).expect_err("1e-6 off-surface vertex must reject");
+    assert!(
+        matches!(err, KernelV2Error::VertexOffSurface { .. }),
+        "typed VertexOffSurface, got {err:?}"
+    );
+}
+
+/// Unit-scale behavior unchanged: at unit scale the evaluation floor
+/// (~1.8e-15) sits far below the canonical band, so the band still governs
+/// — a vertex 3e-12 off a unit-scale torus rejects exactly as before the
+/// floor landed.
+#[test]
+fn unit_scale_torus_band_still_governs() {
+    let profile = Profile::circle(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        Point2::new(0.0, 3.0),
+        1.0,
+    )
+    .expect("unit circle profile");
+    let mut arena = BrepArena::new();
+    let r = revolve(&mut arena, &profile, AXIS_O, AXIS_D, PI / 2.0).expect("unit partial torus");
+    let torus_face = *r
+        .walls
+        .iter()
+        .find(|&&w| matches!(arena.face(w).unwrap().surface, Some(Surface::Torus { .. })))
+        .expect("torus lateral face");
+    let Some(Surface::Torus { center, .. }) = arena.face(torus_face).unwrap().surface else {
+        unreachable!()
+    };
+    let v0 = arena.vertices[0].as_ref().unwrap().point;
+    let d = [
+        v0.x() - center.x(),
+        v0.y() - center.y(),
+        v0.z() - center.z(),
+    ];
+    let dl = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    let s = 3e-12 / dl;
+    arena.vertices[0].as_mut().unwrap().point =
+        Point3::new(v0.x() + d[0] * s, v0.y() + d[1] * s, v0.z() + d[2] * s);
+    let err =
+        validate_solid(&arena, r.solid).expect_err("3e-12 off a unit torus rejects as before");
+    assert!(
+        matches!(err, KernelV2Error::VertexOffSurface { .. }),
+        "typed VertexOffSurface, got {err:?}"
+    );
+}
