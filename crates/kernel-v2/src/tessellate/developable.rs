@@ -236,6 +236,16 @@ fn tessellate_developable_patch(
     }
     let mut nodes: Vec<PatchNode> = Vec::new();
     let mut chains: Vec<Chain> = Vec::new();
+    // Dev-only ring provenance (env-gated, print-only): which half-edge minted
+    // each ORIGIN node. Arc-sample nodes get no entry and print as "sample".
+    // Companion to the planar `KV2_RING_PROVENANCE` probe in `sampled_loop_points`.
+    // The map is only POPULATED under the env gate, so the production path keeps
+    // its allocation profile unchanged.
+    let prov_on = std::env::var_os("KV2_RING_PROVENANCE").is_some();
+    let mut node_prov: std::collections::HashMap<
+        usize,
+        (crate::arena::HalfEdgeId, crate::arena::HalfEdgeId),
+    > = std::collections::HashMap::new();
     for &lid in &all_loops {
         let hes = arena.loop_half_edges(lid)?;
         if hes.len() < 3 {
@@ -257,6 +267,9 @@ fn tessellate_developable_patch(
                 p2: Point2::new(u_cur, hp),
                 pos: [p.x(), p.y(), p.z()],
             });
+            if prov_on {
+                node_prov.insert(origin_node, (h, he.twin));
+            }
             match he.curve {
                 Curve::LineSegment => {
                     let (theta_q, _) = theta_h(q, e1, e2)?;
@@ -882,6 +895,25 @@ fn tessellate_developable_patch(
     // Branch C4: any CDT rejection (coincident verts / crossing constraints /
     // zero area) is a loud typed failure — never a fallback (P9). The M1
     // grid-degeneracy flip pass (spec §6b) runs BEFORE pass 4 refinement.
+    if prov_on {
+        for (i, nd) in poly.iter().enumerate() {
+            let nid = nd.vid as usize;
+            let (he_s, tw_s) = match node_prov.get(&nid) {
+                Some((h, t)) => (format!("{h:?}"), format!("{t:?}")),
+                None => ("sample".to_string(), "sample".to_string()),
+            };
+            let p = nodes[nid].pos;
+            eprintln!(
+                "KV2_PATCH_PROV face={fid:?} idx={i} node={nid} he={he_s} twin={tw_s} \
+                 p2=[{:.12},{:.12}] pos=[{:.12},{:.12},{:.12}]",
+                nd.p2.x(),
+                nd.p2.y(),
+                p[0],
+                p[1],
+                p[2],
+            );
+        }
+    }
     let cdt_tris =
         triangulate_with_pinch_split(&pool_p2, &pool_p3, &outer_cdt, &holes_cdt).map_err(fail)?;
 

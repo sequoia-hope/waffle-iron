@@ -270,9 +270,14 @@ fn sampled_loop_points(
     n_seg: u32,
 ) -> Result<Vec<Point3>, KernelV2Error> {
     let mut pts = Vec::new();
+    // Dev-only ring provenance (env-gated, print-only): maps each ring index
+    // range back to the half-edge that emitted it, so a self-intersecting
+    // output ring can be traced to the edge whose samples fold.
+    let prov = std::env::var_os("KV2_RING_PROVENANCE").is_some();
     for h in arena.loop_half_edges(lid)? {
         let he = arena.half_edge(h)?;
         let origin = arena.vertex(he.origin)?.point;
+        let prov_idx = pts.len();
         pts.push(origin);
         if let Curve::Circle {
             center,
@@ -319,6 +324,28 @@ fn sampled_loop_points(
             });
         } else {
             pts.extend(arc_interior_samples(arena, h, n_seg)?);
+        }
+        if prov {
+            let fid = arena.loop_(he.loop_id)?.face;
+            let kind = match he.curve {
+                Curve::LineSegment => "LineSegment",
+                Curve::Arc { .. } => "Arc",
+                Curve::Circle { .. } => "Circle",
+                Curve::EllipseArc { .. } => "EllipseArc",
+                Curve::HyperbolaArc { .. } => "HyperbolaArc",
+                Curve::SurfacePair { .. } => "SurfacePair",
+            };
+            let o = origin.as_array();
+            eprintln!(
+                "KV2_RING_PROV face={fid:?} loop={lid:?} idx={prov_idx} he={h:?} twin={:?} \
+                 canon={} kind={kind} n_interior={} origin=[{:.12},{:.12},{:.12}]",
+                he.twin,
+                h <= he.twin,
+                pts.len() - prov_idx - 1,
+                o[0],
+                o[1],
+                o[2],
+            );
         }
     }
     Ok(pts)
