@@ -842,3 +842,14 @@ env-gated full run away.
 Spec written 2026-07-30: **`specs/m8_stage0_multiclass_cavity_arm.md`**
 (amendment 12 — per-class WEDGE decomposition of the deferred cavity, the
 two-sided Fig-11 form at the overlay level; the census above is its inc-0).
+
+**inc-0 census COMPLETE same day (spec §7): 19 revert cases — 10 ERROR
+(R0099 the only PROVEN revert-caused one; the rest name varied walls,
+several with existing vehicles) + 9 SUPPORTED_CORRECT carrying 63
+chord-lift revert events that pass every current check (the latent class —
+includes freshly-converted R0063/R0072/R0021). ZERO n-ary events (inc-4
+deferred, no customers). The `interior vertex` reject arm out-weighs
+`multi-class` 616:139 event-wise — inc-1 instruments the class-transition
+count at that reject site to measure the wedge arm's true coverage.
+Sweep method: parallel `single_case` subprocesses with stderr captured
+(the ASSAY_JOBS driver nulls child stderr); 312/312, zero verdict drift.**

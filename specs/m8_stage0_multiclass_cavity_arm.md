@@ -1,7 +1,7 @@
 # SPEC — M8 Stage-0 overlay mesh-updating: the MULTI-CLASS cavity arm (amendment 12)
 
-**Status: inc-0 (this spec). Baseline 259C/0W/51E/0T (2026-07-30, post
-1a9cee36/1f576621).**
+**Status: inc-0 CENSUS COMPLETE (2026-07-30, see §7). Baseline 259C/0W/51E/0T
+(post 1a9cee36/1f576621). Next: inc-1.**
 
 Named target of the R0099 producing-op probe (`docs/yang_tail_triage.md`
 §"R0099 producing-op probe COMPLETE (2026-07-30)", commit 1f576621). This is
@@ -175,20 +175,18 @@ then disappears — no permanent mode.
 
 ## 4. Increments
 
-- **inc-0 — this spec + the fold-revert CENSUS.** Both leak sites are now
-  observable (1f576621): `[fold-revert]` under `YANG_SPLIT_PROBE` (1×1,
-  `mod.rs:1257`) and `nary-fold-revert` under `YANG_COPLANAR_PROBE`
-  (`nary.rs:624`). Run the full categorized assay in **release** with both
-  probe vars set, capture stderr, tabulate per case: which of the 51E hit
-  reverts, at which site, with which reject strings (multi-class vs
-  interior vs singleton-NonSimple vs n-ary-no-ladder) — and whether any
-  CORRECT case reverts (a latent silent-wrong the tripwire never sees
-  because the vertex doesn't survive to a kept face). The census fixes
-  inc-2's expected-conversion list and decides whether inc-3/inc-4 have
-  customers. Recipe: `docs/TESTING.md` §assay + probe env vars; do not run
-  cargo concurrently with the assay (memory `session_2026_07_21`).
+- **inc-0 — this spec + the fold-revert CENSUS. ✅ COMPLETE 2026-07-30,
+  results in §7.** Both leak sites observable (1f576621): `[fold-revert]`
+  under `YANG_SPLIT_PROBE` (1×1, `mod.rs:1257`) and `nary-fold-revert`
+  under `YANG_COPLANAR_PROBE` (`nary.rs:624`). Headline: 19 revert cases
+  (10 ERROR + 9 CORRECT-latent), zero n-ary events, interior arm 616 vs
+  multi-class 139 reject events.
 - **inc-1 — the amendment-12 primitive, env-gated.** Wedge decomposition in
-  `relocate_minted_vertex` per §3a-3c. Unit fixtures in `reloc_tests`
+  `relocate_minted_vertex` per §3a-3c. **Census addendum (§7.2): extend the
+  interior-reject probe line with the link's class-transition count**, so
+  the first gated run measures the arm's true coverage of the dominant
+  616-event interior class (≥2 transitions covered; 0 transitions stays
+  rejected by design). Unit fixtures in `reloc_tests`
   (P4, z=0 identity-frame style): (a) boundary mint, 2 wedges, both fan —
   commit; (b) boundary mint, folded wedge ear-clips while the other fans —
   commit, exact-cover oracle, constraint spokes present in the result's
@@ -218,8 +216,10 @@ then disappears — no permanent mode.
   between different `(poly_a, poly_b)` attributions is a face boundary —
   as immovable as a class boundary, already the flip constraint at
   `nary.rs:566-571`; wedges cut at class OR attribution transitions).
-  Only if the census shows n-ary `nary-fold-revert` leak cases; update
+  Only if a census shows n-ary `nary-fold-revert` leak cases; update
   `specs/m8_nary_tessellated_faces.md` B8 in the same increment.
+  **inc-0 census verdict: ZERO n-ary events corpus-wide — DEFERRED with
+  no current customers (§7.1).**
 
 ## 5. Oracles and validation
 
@@ -254,3 +254,88 @@ then disappears — no permanent mode.
   is disjoint by construction: this op class has ZERO arrangement
   constraint edges — there is nothing to vouch for. Kin in theme (Fig-11
   mesh updating), disjoint in mechanism.
+
+## 7. inc-0 CENSUS COMPLETE (2026-07-30) — 19 cases, zero n-ary, interior arm dominates 616:139
+
+**Method.** The `ASSAY_JOBS` driver nulls child stderr (`assay_kv2.rs:659`),
+so the census ran as a parallel sweep of `single_case` subprocesses (the
+sanctioned manual-probe path, same invocation the driver uses), 8 jobs,
+`YANG_SPLIT_PROBE=1 YANG_COPLANAR_PROBE=1`, in-child wall guard 300s,
+stderr captured per case. **312/312 completed, zero exit failures, zero
+verdict drift vs the canonical 259C/0W/51E/0T baseline** — the census is
+directly comparable. Counts below are probe EVENTS (the gate loop
+re-attempts folds across passes, and one fold's revert covers several
+mints), not distinct vertices.
+
+### The 19-case roster
+
+| case | canonical | flips | reloc | region | **reverts** | dominant rejects |
+|---|---|---:|---:|---:|---:|---|
+| C0048 | ERROR | 4 | 7 | 3 | **43** | interior ×34, not-simple ×20, multi-class ×13, not-CCW ×5; region: ungrowable ×14, all-rejected ×10 |
+| F0064 | ERROR | 1 | 0 | 0 | **17** | interior ×11, multi-class ×8 |
+| F0067 | ERROR | 31 | 18 | 0 | **183** | interior ×243, multi-class ×60 |
+| F0072 | ERROR | 21 | 11 | 0 | **77** | interior ×87, multi-class ×25 |
+| R0025 | ERROR | 3 | 0 | 0 | **22** | interior ×32 |
+| R0026 | ERROR | 0 | 0 | 0 | **4** | interior ×3, multi-class ×2 |
+| R0050 | ERROR | 0 | 0 | 0 | **7** | multi-class ×5, interior ×3 |
+| R0051 | ERROR | 1 | 0 | 0 | **5** | interior ×4, multi-class ×2 |
+| R0085 | ERROR | 8 | 0 | 0 | **65** | interior ×130, multi-class ×5 |
+| R0099 | ERROR | 0 | 0 | 0 | **6** | multi-class ×4, interior ×1, not-simple ×1; region: ungrowable/too-small/all-rejected ×1 each |
+| F0090 | CORRECT | 56 | 35 | 28 | **4** | not-simple ×47, interior ×7 |
+| R0007 | CORRECT | 2 | 2 | 0 | **4** | interior ×4 |
+| R0013 | CORRECT | 0 | 0 | 0 | **5** | interior ×9 |
+| R0021 | CORRECT | 0 | 0 | 0 | **4** | interior ×3, multi-class ×2 |
+| R0024 | CORRECT | 2 | 2 | 0 | **7** | interior ×8 |
+| R0059 | CORRECT | 2 | 0 | 0 | **16** | interior ×10, multi-class ×8 |
+| R0063 | CORRECT | 0 | 0 | 0 | **2** | interior ×1, multi-class ×1 |
+| R0072 | CORRECT | 4 | 0 | 0 | **9** | interior ×6, multi-class ×4 |
+| R0088 | CORRECT | 3 | 0 | 0 | **12** | interior ×20 |
+
+Reject-event totals: `interior vertex with constraint-blocked fan` **616**,
+`multi-class cavity with constraint-blocked fan` **139**, `cavity polygon
+not simple` 69, `not CCW` 5; region form: `crossing edges ungrowable` 16,
+`every folded class sub-region rejected` 12, `too small` 1, `not CCW` 1.
+Ladder successes on the same 19 cases: 165 flips, 103 per-vertex
+relocations, 37 region relocations — F0090 is the showcase (119 commits,
+4 reverts, CORRECT), R0099 the anti-showcase (0 commits, 6 reverts, ERROR).
+
+### Findings
+
+1. **Zero n-ary reverts corpus-wide.** The slice-g B8 reduced gate has no
+   corpus customers today — **inc-4 stays deferred** (probe stays banked;
+   revisit only if a future census shows events).
+2. **The interior arm out-weighs the multi-class arm ~4.4:1.** The wedge
+   decomposition (§3a) covers interior on-curve mints (closed link, ≥2
+   class transitions); a zero-transition interior reject stays rejected by
+   design. The census cannot split those two sub-classes from reject
+   strings — **inc-1 must extend the reject probe line with the link's
+   class-transition count** so the arm's true coverage is measured before
+   the flip.
+3. **ERROR-bucket customers: R0099 is the only PROVEN revert-caused ERROR**
+   (`[fold-revert] vert=9` = the VertexOffSurface point digit-for-digit).
+   The other nine carry reverts but their canonical errors name varied
+   walls, several with existing vehicles: R0026 → Stage-3 AmbiguousCurve
+   (provenance spec's loud stop), R0025 → ring-reject row, F0067 + C0048 →
+   the #144 opposite-rim snap-rounding family, F0064/F0067/R0085 →
+   TessellationFailed, C0048/F0072 → azimuth-merge rim mismatch, R0050 →
+   Stage-4 relocation region, R0051 → SelfIntersectingBooleanOutput.
+   Plausible kin (chord-lift verts feeding downstream walls), **causality
+   unproven** — the fourth error-string-proximity lesson applies: expected
+   inc-2 conversions = R0099 + whatever the arm actually flips; anchor
+   each survivor separately before claiming it.
+4. **The latent class is real: 9 SUPPORTED_CORRECT cases carry 63
+   chord-lift revert events that pass every current check** (canonical
+   verdicts INCLUDE `strict-validation` — the reverted verts either don't
+   survive into kept faces or sit inside the validator bands). Includes
+   three freshly-converted cases (R0063, R0072, R0021) whose headline
+   defects were fixed by other arms while Stage-0 reverts persist
+   elsewhere in their chains. This list is inc-2's regression watch AND
+   the P10 argument for the arm: today's gate is already emitting
+   chord-position vertices into CORRECT outputs — repairing the
+   triangulation is strictly better than reverting correct mints.
+5. Region-form rejects are rare (30 events total) and concentrated in
+   C0048/R0099 — consistent with §2's analysis that the joint form's gaps
+   are secondary to the per-vertex arms. inc-3 keeps its census gate.
+
+Raw logs: session-scratchpad `census/` (ephemeral); these tables are the
+durable record.
