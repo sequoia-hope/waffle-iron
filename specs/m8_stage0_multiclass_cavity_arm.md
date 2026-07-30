@@ -11,7 +11,10 @@ rim-chain boundary-order settle check + split-table merge identification
 census-armed-no-customer (zero proven customers post-conversion); next
 anchors in evidence order = the F0064 collapsed-planar-triangle wall,
 the C0048 #144 azimuth-merge family, and the split-open-link class (74
-events). The latent chord-lift watch list is 5 CORRECT cases / 25
+events). **§13 (2026-07-30, F0064 anchor investigation): anchors #1
+and #3 are the SAME defect — F0064 is the split-open-link class's
+proven loud customer; the open-link split is RE-ARMED as
+amendment-15 (design frame §13f, anatomy census inc-0 §13g).** The latent chord-lift watch list is 5 CORRECT cases / 25
 revert events. Amendment-12's §9
 armed-joint-path win stands (R0085 fold-reverts 65 → 10).
 
@@ -941,3 +944,157 @@ split already fires in-chain there), the C0048 #144 azimuth-merge
 family (named vehicle exists), and the split-open-link class (74
 events). Raw logs: `/tmp/census3/` (ephemeral); this section is the
 durable record.
+
+## 13. F0064 ANCHOR INVESTIGATION (2026-07-30) — the wall traced INTO split-open-link; amendment-15 design frame
+
+**Verdict up front: the §12 anchors #1 and #3 are the SAME defect.**
+F0064's `TessellationFailed(1800, "planar triangle collapsed at render
+precision")` is a proven, loud customer of the **split-open-link**
+class (§12 finding 3, 74 events) — the §11 split's boundary-vertex
+form, deliberately guarded off at `reloc.rs:1362`. Per §12 verdict 1's
+re-arming rule (an anchored investigation tracing a wall INTO a
+census-armed class), the open-link split is RE-ARMED as
+**amendment-15**.
+
+### 13a. The case, decoded
+
+F0064 = 5 stacked coplanar extrudes. Poly1 (op 1) is a **PLUS/CROSS
+12-gon** (arm half-width `w = 0.05656…`, reach `0.27571…`); op 2
+stacks a circle `r = 0.16910…` whose disc SPILLS sideways past all
+four arm edges (`w < r`). Both failures are rim×arm-edge junction
+sites on a coplanar interface:
+
+- **Extrude 3** (circle onto plus, interface z = 0.4771…, Stage-0 pair
+  `(590,0)`): 9 fold-reverts; output dies at kernel-v2's G1 gate
+  (`tessellate/mod.rs:1025`) on the AOnly cap fragment.
+- **Extrude 4** (square poly2 onto the circle body, z = 0.7339…, pair
+  `(1,1)`): 18 fold-reverts (+1 split commit vert 37, +1 merge commit
+  62→59); dies `non-2-manifold` — same class, second interface
+  (`[s4-exact-junction]` shows v=59/64/69/70 `exact=false` on poly2's
+  y = −0.16210 edge lines).
+
+### 13b. The mechanism — three generations of one crossing, two
+authorities disagreeing
+
+On the −x arm's y = −0.05656 edge (mirror on +x), the log carries the
+same geometric point in three generations:
+
+| generation | position (x on the arm edge) | who | state |
+|---|---|---|---|
+| chord world | −0.154147 (arr. v=1198; mirror v=1219) | Stage-1 13-gon × edge crossing | `exact=false`, cylinder residual −4.9e-3 = the n_seg=13 sagitta |
+| stale station | −0.158111 (overlay vert 8; mirror 66) | a B-mesh-edge × arm-edge crossing, r=0.16792 BETWEEN chord and rim | AOnly, 1-incident, survives to the output loop |
+| true junction | −0.159361 (4-surface junction) | rim × arm-edge | `exact=true` where Stage-0 committed |
+
+Causal chain, all sites named:
+
+1. **Stage 0** mints the chord→rim upgrade for the crossing (vert 12
+   slides ALONG the arm edge, −0.154147 → −0.159361, exactly
+   collinear with its own chord `(2,5)`). The move passes OVER the
+   stale station vert 8 → local folds. Ladder: wedge/region reject on
+   the collinear-overlap ring (`o=(0,0,0,0)`, "crossing edges
+   ungrowable"); merge p=8→q=12 rejected by §10d containment
+   (overshoot 1.248e-3 ≫ sagitta 9.86e-5 — CORRECT, they are distinct
+   points); split rejected `split-open-link` (`reloc.rs:1362` — q=12
+   is a BOUNDARY vertex, the unarmed class). Amendment-2 REVERTS.
+   Settled overlay = coherent chord world. **The gate's verdict:
+   "this upgrade cannot be absorbed without re-cutting the
+   neighborhood."**
+2. **Stage 4** (`stage4_correct.rs:5568`, the #146 circle×pp-line
+   junction loop, spec `yang_stage4_circle_pp_line_junction` branches
+   4–6): v=1198 fails the §exactness certificate (4 distinct surfaces,
+   inexact on the cylinder), lands in `vert_pp_circle_junction`, and
+   is reseated onto the exact line∩circle junction via
+   `pp_line_circle_junction` + `project_onto_circle` (trig round-trip
+   → the output's 1–2-ULP variant of Stage-0's refused mint position).
+   **Stage 4 REDOES the exact move Stage 0 reverted** — correctly per
+   its own contract, with a derived corridor gate — but with no fold
+   gate, no boundary-order check, and no §4.4.1 mesh update: vert 8
+   (now strictly INSIDE the disc) keeps its AOnly loop membership.
+3. **Stage 5/6** emits vertices 1:1 (`stage5_topology.rs:772`). The
+   output face loop walks corner → vert 8 (−0.158111) → junction
+   (−0.159361): a **backtracking needle 3e-17 thin** along the arm
+   edge. kernel-v2's always-on G1 render gate fails the face LOUDLY.
+   (§4.4.1 rim-snap moved 0 verts; inc-5 triple bails at 4 surfaces;
+   P3a junction minting skips on the Stage-0 path — all measured,
+   `[s4-rim-snap] moved=0`.)
+
+### 13c. Paper grounding — this IS Fig. 11's primary case
+
+Yang §4.4.1 (`refs/text/yang2025_hybrid_boolean.txt:545-575`): "point
+q is an intersection point **on the boundary curve** … (a) We locate
+the constrained edge containing q (the red edge) and **split it using
+q**. (b) If an endpoint p of the split edge is too close to q, **we
+merge p with q** … To improve remeshing quality, **we remove a mesh
+vertex if it is too close to the intersection curve** on the mesh."
+The open-link split = Fig-11(a) applied to a DOMAIN-BOUNDARY vertex;
+the stale-station absorption (verts 5/8) = the paper's
+remove-too-close rule. Nothing here is invented mechanism.
+
+### 13d. The end-state proof is inside the same case
+
+Of the 8 rim×arm-edge junctions at z = 0.4771, **six committed at
+Stage 0** and flowed through every stage as certified-exact 4-surface
+junctions (`[s4-exact-junction] … exact=true`, e.g. v=1195 =
+bit-identical output loop vertex), needle-free. The two that FOLDED
+(and reverted) are the two that died. The committed-mint path is the
+proven template; amendment-15 extends it to the open-link form.
+
+### 13e. Standing P10 exposure (recorded, not actioned)
+
+Two relocation authorities now demonstrably disagree on refused work:
+every Stage-0 fold-REVERTED rim junction whose arrangement vertex is
+claimed by a cross curve will be re-upgraded by the Stage-4 #146
+reseat without the mesh update — a latent needle per revert (§12
+scoreboard: 295 revert events / 12 cases). F0064 is the class's loud
+witness; in a case where CDT dodges the collinear triple the needle
+ships SILENTLY (sub-f32 sliver on a CORRECT verdict). The general
+closure is #169's Stage-4-side "remove a mesh vertex too close to the
+intersection curve" (the paper's own sentence); amendment-15 shrinks
+the revert population at the designed site first. Do NOT "fix" this
+by suppressing the Stage-4 reseat — the reseat is paper-correct; the
+missing piece is the update, not the move.
+
+### 13f. Amendment-15 — the OPEN-LINK split arm (design frame)
+
+Scope: the §11 vertex-inserting split, extended to split candidates
+whose q is a DOMAIN-BOUNDARY (open-link) vertex of the overlay — the
+`reloc.rs:1362` reject class. Form observed in F0064 (both
+interfaces): **q's mint target lies ON its own chord C** (exactly
+collinear, a 1D slide along the host model edge), with 1–2 stale
+stations between the chord position and the target. Design
+obligations beyond the §11c closed-link op:
+
+1. **Half-star cavity.** q's link is open (q sits on the face
+   boundary); the re-cut region is bounded by the domain boundary
+   itself. The §11c star walk must terminate at the two boundary
+   edges instead of closing.
+2. **Stale-station absorption** (the genuinely new part): stations
+   passed over by the slide (F0064: verts 5, 8 — between old and new
+   crossing on the host line) flip from own-only to Overlap side.
+   Per Fig-11(b)/remove-too-close, absorb them into the re-cut (merge
+   into q or re-classify their wedge) — LOUD pair-fail if any station
+   is not consumed (the §11c unconsumed-extras posture).
+3. **Boundary-order invariant at commit**: post-split, the host
+   line's station sequence must be strictly monotone in the line
+   parameter (the amendment-13 settle predicate, applied on the
+   model-edge chain at the commit site). This is the needle's direct
+   negation.
+4. Guards kept from §11d: exactly-collinear chord (already exact
+   here), class-pair, own-chord-exists, one-live-commit,
+   build-then-commit unwind. Crossing-count re-derived for the
+   half-star (the closed-link "exactly 2 proper crossings" becomes
+   "exactly 1 interior crossing + the 2 boundary terminations" —
+   measure in inc-0 before fixing the count).
+5. **Acceptance**: F0064 Extrude-3 converts (G1 needle gone,
+   `single_case` SUPPORTED_CORRECT or the next honest wall);
+   Extrude-4's non-2-manifold re-measured (same class, second
+   customer); corpus gate-OFF byte-identical; gate-ON zero
+   CORRECT→ERROR (the §12 latent watch list is the regression
+   canary); i6 fwd/rev clean at every commit site.
+
+inc-0 (anatomy census over the 74 open-link events) runs first: how
+many are the F0064 1D-slide form (mint exactly-collinear with C) vs
+the perpendicular-bulge form (R0099-like but at a boundary vertex) —
+the two forms need different cavity re-cuts, and the census decides
+whether the bulge form is deferred to its own increment. Census
+results append here as §13g.
