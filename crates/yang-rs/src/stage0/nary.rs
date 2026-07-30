@@ -620,6 +620,14 @@ pub(crate) fn overlay_nary_group(
                     let q = overlay.verts[vi];
                     let lifted = frame.lift(q.x(), q.y());
                     if coords[vi] != lifted {
+                        probe(
+                            "nary-fold-revert",
+                            &format!(
+                                "v={vi} exact={:?} chord_lift={:?}",
+                                coords[vi].as_array(),
+                                lifted.as_array()
+                            ),
+                        );
                         coords[vi] = lifted;
                         changed = true;
                     }

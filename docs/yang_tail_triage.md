@@ -731,7 +731,7 @@ exactness" family. Probing each split them:
 | **R0027** | 3.725e-9 (length², torus minor 2137.7) | **9.1e-13 = 1 ulp of ρ(5344)** | validator false positive | **CONVERTED 2026-07-29** (ERROR → CORRECT, 257C) |
 | **R0025** (layer 2) | 5.675e-10 (length², minor 329.5) | **8.6e-13 ≈ 4 ulps of coords ~1300** | validator false positive | layer peeled → ring-reject (see its row) |
 | F0083 | 2.3046e-3 / 1.914e-3 | 3.3× / 2.76× the op chord band | REAL — unclaimed Fig-11 q + unbuilt cross curve | `specs/yang_s3_intersection_edge_provenance.md` |
-| R0099 | 8.651e-2 (`cylpatch-vertex`) | **2.8% of r=3.125** | REAL — F0083 family (producing op unprobed) | same spec, inc-2 measurement |
+| R0099 | 8.651e-2 (`cylpatch-vertex`) | **2.8% of r=3.125** | REAL — ~~F0083 family~~ **RE-DIAGNOSED 2026-07-30: Stage-0 fold-gate revert leak** (coplanar-only op, Stage 4 never runs; see the dated section below) | M8 overlay mesh-updating, multi-class cavity arm |
 
 **The false-positive mechanism:** the canonical strict-validation bands
 (`CURVED_SURFACE_DEBUG_TOLERANCE` = 1e-12, absolute for cylinder/cone/planar-
@@ -793,3 +793,48 @@ Permanent pins: yr18 oracle3 (closed provenance fixture — boolean succeeds,
 the 2.9×-band drifted vertex is gone, its exact projection present;
 stash-verified RED pre-inc-2); oracle1/2 hold the provenance-less path
 byte-identical.
+
+## R0099 producing-op probe COMPLETE (2026-07-30) — Stage-0 fold-gate REVERT leak, not the F0083 family
+
+The 2026-07-29 "F0083 family" classification is RETRACTED — provenance
+measured zero constraint edges at its failing op, and the producing-op probe
+names a different mechanism entirely.
+
+**The op:** Revolve 3's cut contacts the tube ONLY coplanarly — its θ=0 and
+θ=180 profile rectangles lie exactly in the bottom-cap plane (Stage-0
+cross-pairs, gaps 0 and 1.8e-15); everything else of B is outside and
+dropped (`YANG_KEEP_PROBE`: 480 A tris kept, 308 B dropped, 52 shared-sheet
+tris). Zero transversal intersections ⇒ `has_conic = false` ⇒ **Stage 4
+never runs on this op** — no rim-snap, no relocation, nothing downstream
+can rescue a mis-positioned vertex.
+
+**The mint (`YANG_SPLIT_PROBE`, exact-position match to the failing loop):**
+Stage-0's overlay mints exact on-rim-circle vertices where the wedge
+rectangles cross the cap's rim chords (the rectangle u-extent ±3.1205 vs
+r=3.1251 — crossings hug the rim). Moving those mints chord→circle folds
+local overlay slivers; the repair ladder then fails end to end: flips
+constraint-blocked (`class-boundary` / `domain-boundary` / `replacements
+invalid`), amendment-5 cavity relocation rejects — **`multi-class cavity
+with constraint-blocked fan`** (verts 4/9/116/153/182…) and `cavity polygon
+not simple` (vert 120) — and amendment-2 REVERTS the mints to chord lifts,
+deliberately loud ("observable via kernel-v2's vertex-on-surface tripwire —
+never silently blessed"). `[fold-revert] vert=9 … -> chord (-2.24898,
+-7.43299, 8.03287)` IS the `VertexOffSurface(18)` point digit-for-digit;
+vert 120 is the loop's i7. Three reverted mints survive into face 18's
+boundary at 6.1e-2/8.7e-2/9.1e-2 inside the cylinder (chord depths of the
+13-gon rim).
+
+**Vehicle: M8 Stage-0 overlay mesh-updating — the MULTI-CLASS cavity arm.**
+The mints sit ON the intersection curve (class boundary), so their cavity
+spans ≥2 region classes and a single-class re-fan is constraint-blocked by
+construction. The amendment-5/6 machinery needs the two-sided form: carve
+per class along the constraint polyline, move the boundary WITH the mint,
+re-fan each side (Yang Fig 11 at the overlay level — same theme as #169).
+Kin to, but distinct from, the transversal provenance relocation that
+converted F0083/R0063 — that path never sees this op (no arrangement
+constraints exist to vouch for anything).
+
+Probe banked: `nary-fold-revert` (under `YANG_COPLANAR_PROBE`) mirrors the
+1×1 path's `[fold-revert]` (under `YANG_SPLIT_PROBE`) so both fold-gate
+leak sites are now observable; a corpus census of this class is one
+env-gated full run away.

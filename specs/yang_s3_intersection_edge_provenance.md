@@ -248,11 +248,17 @@ provenance populated — the boolean succeeds, the 2.9×-band drifted S0 is
 GONE from the output, and its exact on-circle projection is present.
 oracle1/2 pin the provenance-less path unchanged.
 
-**R0099 is NOT this class (measured).** Its failing subtract has an
-arrangement with ZERO constraint edges (`la had 0`), and its producing
-boolean's 34 confirmed edges all pass the gate — the 8.65e-2 off-surface
-vertex has a different mint. Own investigation; removed from this spec's
-candidate list.
+**R0099 is NOT this class (measured, then probed to root 2026-07-30).** Its
+failing subtract has an arrangement with ZERO constraint edges (`la had 0`)
+— the op's only contact is COPLANAR (two revolve wedge faces in the cap
+plane), so no transversal constraint exists to vouch for anything and
+`has_conic = false` means Stage 4 never runs at all. The 8.65e-2 vertex is
+a Stage-0 overlay mint REVERTED to its chord lift by the fold gate
+(amendment-2 fallback) after flips and the amendment-5 cavity relocation
+both reject (`multi-class cavity with constraint-blocked fan`) —
+`[fold-revert] vert=9` matches the failing vertex digit-for-digit. Vehicle:
+M8 Stage-0 overlay mesh-updating, multi-class cavity arm
+(`docs/yang_tail_triage.md` §"R0099 producing-op probe COMPLETE").
 
 **Open follow-ups:** coplanar-overlap harvest fixture (§4.5.5 boundaries
 route through the same enforcement — verify with a test when M8 work
