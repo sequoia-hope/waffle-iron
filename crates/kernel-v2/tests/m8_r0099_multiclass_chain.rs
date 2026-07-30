@@ -16,21 +16,22 @@
 //! into the outer-cylinder face boundary 6.1e-2..9.1e-2 inside r —
 //! `VertexOffSurface`, caught by the debug/strict validation tripwire.
 //!
-//! RED (gate OFF, `r0099_chain_gate_off_pins_vertex_off_surface`): the pin
-//! asserts today's loud revert leak. It FLIPS to the green oracle when the
+//! RED (`r0099_chain_pins_vertex_off_surface_residual`): the pin asserts
+//! today's loud revert leak. It FLIPS to the green oracle when the
 //! conversion lands — update it in that commit.
-//! Gate ON (`YANG_S0_MULTICLASS_RELOC_ENABLE`), MEASURED 2026-07-30 at
-//! inc-1: the wedge decomposition fires at all four multi-class mints
-//! (verts 4/9/116/182 — vert 9 the closed interior form) and fans their
-//! valid wedges, but every FOLDED wedge polygon is exactly NON-SIMPLE —
-//! the interacting-mints signature (vert 4's ring: a neighbor mint's
-//! collapsed chord passes through v's minted position). The NonSimple now
+//! MEASURED 2026-07-30 at inc-1 (and unchanged by the inc-2 always-on
+//! flip, which the corpus passed with zero category changes): the wedge
+//! decomposition fires at all four multi-class mints (verts 4/9/116/182 —
+//! vert 9 the closed interior form) and fans their valid wedges, but
+//! every FOLDED wedge polygon is exactly NON-SIMPLE — the
+//! interacting-mints signature (vert 4's ring: a neighbor mint's
+//! collapsed chord passes through v's minted position). The NonSimple
 //! propagates crossing-narrowed seeds into the amendment-6 joint path
-//! (new region attempts [178,182], [115,116,120,126]) whose sub-region
+//! (region attempts [178,182], [115,116,120,126]) whose sub-region
 //! guards reject: `crossing edges ungrowable (region polygon not simple)`
 //! / `region too small` — exactly the spec's inc-3 region-form-parity
 //! scope, now census-armed. In-chain reverts drop 6 → 3; the leak
-//! remains, so the gate-ON test stays quarantined on inc-3.
+//! remains, so the conversion oracle stays quarantined on inc-3.
 //!
 //! Chain values are R0099's bit-exact parameters (master seed 42, case
 //! seed 9039304369631583684), replayed through direct constructors in the
@@ -38,8 +39,6 @@
 //! digit-for-digit from feature-engine `rebuild.rs`, y = n̂ × x̂ per the
 //! adapter's `make_faces_from_profiles` — the `m8_swiss_cheese_chain.rs`
 //! pattern.
-
-use std::sync::Mutex;
 
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use kernel_v2::{
@@ -67,20 +66,6 @@ const RECT_HV: f64 = 1.143228783649328;
 const AXIS_O: [f64; 3] = [-2.896139917617264, -13.563135193291696, 10.142277141133917];
 const AXIS_D: [f64; 3] = [0.7579338931491432, -0.0, 0.6523313679532691];
 const ANGLE_DEG: f64 = 323.7129961571792;
-
-/// The two tests toggle a process-global env var read by yang-rs's fold
-/// gate; serialize them (and scope the var) so a `--include-ignored` run
-/// cannot race.
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-const GATE: &str = "YANG_S0_MULTICLASS_RELOC_ENABLE";
-
-/// Restores gate-OFF even if the guarded test panics.
-struct GateOff;
-impl Drop for GateOff {
-    fn drop(&mut self) {
-        std::env::remove_var(GATE);
-    }
-}
 
 /// feature-engine `rebuild.rs::tangent_x_from_normal`, digit-for-digit:
 /// ref = Z (|n_z| < 0.99 here), x̂ = normalize(Z × n).
@@ -197,19 +182,18 @@ fn run_chain() -> Result<(BrepArena, SolidId, [f64; 3]), String> {
     Ok((a, body, [v1, v2, v3]))
 }
 
-/// RED pin (gate OFF — today's shipping behavior): the amendment-2
-/// fold-gate revert leaks chord-position vertices into the outer-cylinder
-/// face and the chain dies LOUDLY at the on-surface tripwire
-/// (`VertexOffSurface`, compiled under debug_assertions or
-/// `strict-validation`). This pin flips to the green volume oracle in the
-/// amendment-12 inc-2 flip — update it in the same commit.
+/// RED pin (today's shipping behavior, wedge arm always-on): the residual
+/// interacting-mints reverts leak chord-position vertices into the
+/// outer-cylinder face and the chain dies LOUDLY at the on-surface
+/// tripwire (`VertexOffSurface`, compiled under debug_assertions or
+/// `strict-validation`). This pin flips to the green volume oracle when
+/// the inc-3 region-form parity arm converts the case — update it in the
+/// same commit.
 #[test]
-fn r0099_chain_gate_off_pins_vertex_off_surface() {
-    let _lock = ENV_LOCK.lock().unwrap();
-    std::env::remove_var(GATE);
+fn r0099_chain_pins_vertex_off_surface_residual() {
     let err = run_chain().expect_err(
-        "R0099 chain unexpectedly GREEN gate-OFF — if the amendment-12 flip \
-         (or another arm) converted it, rewrite this pin as the green oracle",
+        "R0099 chain unexpectedly GREEN — if the inc-3 arm (or another) \
+         converted it, rewrite this pin as the green oracle",
     );
     assert!(
         err.contains("VertexOffSurface"),
@@ -222,20 +206,17 @@ fn r0099_chain_gate_off_pins_vertex_off_surface() {
     );
 }
 
-/// The conversion oracle (gate ON): the chain completes and the meta's
-/// oracles hold (volume monotonicity increase → decrease → decrease,
-/// positive final). MEASURED RED at inc-1 (see the module docs): R0099's
-/// folded wedge polygons are non-simple, so the conversion additionally
-/// needs the inc-3 region-form parity arm. Run with
+/// The conversion oracle: the chain completes and the meta's oracles hold
+/// (volume monotonicity increase → decrease → decrease, positive final).
+/// MEASURED RED at inc-1/inc-2 (see the module docs): R0099's folded
+/// wedge polygons are non-simple, so the conversion needs the inc-3
+/// region-form parity arm. Run with
 /// `cargo test -p kernel-v2 --test m8_r0099_multiclass_chain -- --ignored`.
 #[test]
 #[ignore = "M8 amendment-12 inc-3 region-form parity (spec m8_stage0_multiclass_cavity_arm §4; wedge polygons at R0099's mints measured NON-SIMPLE at inc-1)"]
-fn r0099_chain_gate_on_expected_green() {
-    let _lock = ENV_LOCK.lock().unwrap();
-    std::env::set_var(GATE, "1");
-    let _off = GateOff;
-    let (a, body, [v1, v2, v3]) = run_chain()
-        .unwrap_or_else(|e| panic!("R0099 chain must complete with the wedge arm ON: {e}"));
+fn r0099_chain_conversion_oracle() {
+    let (a, body, [v1, v2, v3]) =
+        run_chain().unwrap_or_else(|e| panic!("R0099 chain must complete once inc-3 lands: {e}"));
     validate_solid(&a, body).expect("final solid must validate");
     // Op-1 boss is a plain cylinder: 1.5% chord-deficit band around the
     // analytic volume (the swiss-cheese band rationale).

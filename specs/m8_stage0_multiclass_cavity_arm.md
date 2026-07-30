@@ -1,15 +1,15 @@
 # SPEC — M8 Stage-0 overlay mesh-updating: the MULTI-CLASS cavity arm (amendment 12)
 
-**Status: inc-1 PRIMITIVE SHIPPED + MEASURED (2026-07-30, see §8). Baseline
-259C/0W/51E/0T unchanged (the arm is env-gated OFF). Headline measurements:
-the interior-reject class is 100% 2-transition (428/428 events across the 5
-heaviest cases — the wedge arm's structural coverage of the dominant census
-class is total), but at the actual failing mints the FOLDED wedge polygon is
-NON-SIMPLE (interacting mints), so R0099 stays ERROR gate-ON and the wall
-moves to the inc-3 region form (now census-armed). Next: inc-2 corpus OFF/ON
-(the flip bar is unchanged — zero CORRECT→ERROR; conversions are NOT
-expected, but the latent-revert reduction is real: R0085 reverts 65 → 10)
-and/or inc-3 region-form parity, which R0099's conversion requires.**
+**Status: inc-2 FLIPPED ALWAYS-ON (2026-07-30, see §9) — the env gate is
+removed. Corpus OFF/ON: ZERO category changes (259C/0W/51E/0T both ways;
+gate-OFF replay byte-identical to canonical; 6 ERROR cases shifted detail
+only). Headline inc-1 measurements (§8): the interior-reject class is 100%
+2-transition (428/428 across the 5 heaviest cases — structural coverage of
+the dominant census class is total), but at the actual failing mints the
+FOLDED wedge polygon is NON-SIMPLE (interacting mints), so R0099 stays
+ERROR and its conversion is quarantined on **inc-3 region-form parity**
+(census gate armed). The shipped win is the armed joint path: R0085
+fold-reverts 65 → 10, region commits 0 → 6. Next: inc-3.**
 
 Named target of the R0099 producing-op probe (`docs/yang_tail_triage.md`
 §"R0099 producing-op probe COMPLETE (2026-07-30)", commit 1f576621). This is
@@ -207,10 +207,14 @@ then disappears — no permanent mode.
   (VertexOffSurface, `op3`, FaceId(18) — digit-identical to the corpus);
   the gate-ON green oracle is quarantined on **inc-3**, not inc-2: at
   R0099's actual mints every folded wedge polygon is NON-SIMPLE (§8).
-- **inc-2 — flip.** `ASSAY_CASE=R0099 single_case` first, then full corpus
-  OFF/ON back-to-back; flip always-on on zero CORRECT→ERROR. Candidate
-  conversions: R0099 + whatever the inc-0 census rostered. Ledger + triage
-  rows updated; `docs/yang_deviations.md` if any paper deviation is taken.
+- **inc-2 — flip. ✅ COMPLETE 2026-07-30, results in §9.** R0099
+  `single_case` OFF/ON first (ERROR both ways, digit-identical — as §8
+  predicted), then full corpus OFF/ON back-to-back: gate-OFF byte-identical
+  to canonical (0 category + 0 detail changes — the determinism bar), gate-ON
+  ZERO category changes, zero conversions, 6 ERROR detail shifts. Bar met ⇒
+  flipped always-on and the env var removed (no permanent mode, §3e). No
+  paper deviation taken (`docs/yang_deviations.md` untouched — the arm IS
+  the §4.4.1/§4.5.5 composition). Triage rows updated.
 - **inc-3 — joint-form parity (census gate ARMED 2026-07-30, §8).** The
   measured case list exists: R0099 gate-ON reaches the joint path via the
   wedges' NonSimple propagation (region attempts [178,182] and
@@ -390,3 +394,25 @@ expected payoff; the payoff is chord-lift reverts repaired out of CORRECT
 and ERROR meshes alike (the §7 finding-4 latent class), and the risk is
 that those same triangulation changes perturb the 9 CORRECT-latent cases —
 zero CORRECT→ERROR remains the bar.
+
+## 9. inc-2 CORPUS RESULT (2026-07-30) — flipped always-on, zero category changes
+
+- **Determinism bar:** full corpus gate-OFF vs the canonical 2026-07-30
+  baseline — **0 category changes, 0 detail changes** across 312 cases
+  (259C / 51E / 1 EXPECTED_ERROR / 1 UNSUPPORTED). inc-1's code is provably
+  inert when gated off.
+- **Flip bar:** gate-OFF vs gate-ON — **0 category changes** (all 259
+  CORRECT stay CORRECT, incl. all nine §7 latent-revert watch cases; no new
+  TIMEOUTs; zero conversions, as §8 predicted). **Bar met ⇒ always-on; the
+  env var and the `_impl` gate parameter are removed** (fixture (h) became
+  the single-class exact-output pin per the amendment-8 test-replacement
+  precedent).
+- **6 ERROR detail shifts** (ERROR→ERROR, acceptable): C0048, F0067, F0072,
+  R0085 (same walls, shifted ids/details), and — notable — **R0025**
+  (TessellationFailed(588) at subtract → `input B-Rep is not 2-manifold` at
+  the Extrude-2 auto-union) and **R0026** (Stage-3 AmbiguousCurve → the
+  same non-manifold-input signature). The repaired Stage-0 meshes moved
+  both cases onto a SHARED wall — a candidate common defect to anchor
+  during inc-3 (do not assume it is the region form; anchor first).
+- The assay UI snapshot (`app/tests/cases/assay/results.json`) now carries
+  the always-on detail strings.

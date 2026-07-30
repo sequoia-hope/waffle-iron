@@ -150,13 +150,13 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(588), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"). Body created as standalone.",
       "id": "R0025",
       "status": "error"
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (225, 226): AmbiguousCurve { candidates: 2, matched: 0 }\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"). Body created as standalone.",
       "id": "R0026",
       "status": "error"
     },
@@ -510,7 +510,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "2 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(566), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.; Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 5 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "detail": "2 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(566), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.; Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"). Body created as standalone.",
       "id": "R0085",
       "status": "error"
     },
@@ -1002,7 +1002,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "3 auto-union failure(s): Extrude 5: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(1138), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.; Extrude 6: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(1182), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.; Extrude 10: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 2: azimuth-merge rims have mismatched / too-few samples (572 vs 571)\"). Body created as standalone.",
+      "detail": "3 auto-union failure(s): Extrude 5: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(1138), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.; Extrude 6: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(1182), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.; Extrude 10: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 2: azimuth-merge rims have mismatched / too-few samples (570 vs 569)\"). Body created as standalone.",
       "id": "F0067",
       "status": "error"
     },
@@ -1032,7 +1032,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 11: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 1742: azimuth-merge rims have mismatched / too-few samples (229 vs 230)\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 11: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 1742: azimuth-merge rims have mismatched / too-few samples (228 vs 229)\"). Body created as standalone.",
       "id": "F0072",
       "status": "error"
     },
@@ -1452,7 +1452,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 5: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 2: azimuth-merge rims have mismatched / too-few samples (66 vs 69)\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 5: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 2: azimuth-merge rims have mismatched / too-few samples (64 vs 67)\"). Body created as standalone.",
       "id": "C0048",
       "status": "error"
     },

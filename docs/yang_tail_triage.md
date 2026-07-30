@@ -731,7 +731,7 @@ exactness" family. Probing each split them:
 | **R0027** | 3.725e-9 (length², torus minor 2137.7) | **9.1e-13 = 1 ulp of ρ(5344)** | validator false positive | **CONVERTED 2026-07-29** (ERROR → CORRECT, 257C) |
 | **R0025** (layer 2) | 5.675e-10 (length², minor 329.5) | **8.6e-13 ≈ 4 ulps of coords ~1300** | validator false positive | layer peeled → ring-reject (see its row) |
 | F0083 | 2.3046e-3 / 1.914e-3 | 3.3× / 2.76× the op chord band | REAL — unclaimed Fig-11 q + unbuilt cross curve | `specs/yang_s3_intersection_edge_provenance.md` |
-| R0099 | 8.651e-2 (`cylpatch-vertex`) | **2.8% of r=3.125** | REAL — ~~F0083 family~~ **RE-DIAGNOSED 2026-07-30: Stage-0 fold-gate revert leak** (coplanar-only op, Stage 4 never runs; see the dated section below) | M8 overlay mesh-updating, multi-class cavity arm — `specs/m8_stage0_multiclass_cavity_arm.md` |
+| R0099 | 8.651e-2 (`cylpatch-vertex`) | **2.8% of r=3.125** | REAL — ~~F0083 family~~ **RE-DIAGNOSED 2026-07-30: Stage-0 fold-gate revert leak** (coplanar-only op, Stage 4 never runs; see the dated section below) | M8 overlay mesh-updating, multi-class cavity arm — `specs/m8_stage0_multiclass_cavity_arm.md` (inc-1/2 SHIPPED always-on 2026-07-30; residual = inc-3 region-form parity, wedge polygons NON-SIMPLE at the mints) |
 
 **The false-positive mechanism:** the canonical strict-validation bands
 (`CURVED_SURFACE_DEBUG_TOLERANCE` = 1e-12, absolute for cylinder/cone/planar-
@@ -853,3 +853,18 @@ deferred, no customers). The `interior vertex` reject arm out-weighs
 count at that reject site to measure the wedge arm's true coverage.
 Sweep method: parallel `single_case` subprocesses with stderr captured
 (the ASSAY_JOBS driver nulls child stderr); 312/312, zero verdict drift.**
+
+**inc-1 + inc-2 SHIPPED 2026-07-30 (spec §8): the wedge arm is ALWAYS-ON.**
+Corpus OFF/ON measured ZERO category changes (259C/0W/51E/0T both ways;
+6 ERROR cases shifted detail only — R0025/R0026 now share an
+`input B-Rep is not 2-manifold` signature worth an inc-3-era look). The
+§7.2 transition census: interior rejects are **100% 2-transition**
+(428/428 across R0099/R0085/F0067/C0048/R0088) — the arm structurally
+covers the whole dominant class. **R0099 remains ERROR**: its folded wedge
+polygons are NON-SIMPLE (interacting mints — a neighbor mint's collapsed
+chord passes through v's minted position), the NonSimple propagation now
+ARMS the amendment-6 joint path (R0085: region commits 0→6, fold-reverts
+65→10), and the REGION form's guards are the residual wall (`crossing
+edges ungrowable` / `region too small`) — **inc-3 region-form parity is
+R0099's named vehicle** (census gate armed, spec §4/§8; conversion pin
+`kernel-v2/tests/m8_r0099_multiclass_chain.rs` quarantined on it).**

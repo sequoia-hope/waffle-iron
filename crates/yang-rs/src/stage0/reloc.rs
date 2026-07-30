@@ -282,14 +282,14 @@ pub(crate) fn earclip_cavity_polygon(
 /// replacement overwrites the cavity slots in place and `edge_map` is
 /// maintained incrementally.
 ///
-/// Amendment 12 (spec `m8_stage0_multiclass_cavity_arm` §3, gated behind
-/// `YANG_S0_MULTICLASS_RELOC_ENABLE` until the inc-2 flip): a MULTI-CLASS
-/// deferred cavity — the on-curve mint class the single-class ear-clip
-/// guard rejects, R0099's leak — is cut at its class-transition spokes
-/// (the intersection polyline through the mint, which moves WITH it) and
-/// each per-class WEDGE is re-fanned/ear-clipped independently with the
-/// shared spokes as preserved polygon edges. Gate OFF is byte-identical
-/// to the pre-amendment rejects.
+/// Amendment 12 (spec `m8_stage0_multiclass_cavity_arm` §3, ALWAYS-ON
+/// since the inc-2 flip — corpus OFF/ON measured zero category changes):
+/// a MULTI-CLASS deferred cavity — the on-curve mint class the
+/// single-class ear-clip guard used to reject, R0099's leak — is cut at
+/// its class-transition spokes (the intersection polyline through the
+/// mint, which moves WITH it) and each per-class WEDGE is
+/// re-fanned/ear-clipped independently with the shared spokes as
+/// preserved polygon edges.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn relocate_minted_vertex(
     tris: &mut [[u32; 3]],
@@ -300,35 +300,6 @@ pub(crate) fn relocate_minted_vertex(
     frame: &Frame,
     minted_mark: &[bool],
     probe: bool,
-) -> RelocOutcome {
-    let wedge_arm = std::env::var_os("YANG_S0_MULTICLASS_RELOC_ENABLE").is_some();
-    relocate_minted_vertex_impl(
-        tris,
-        class,
-        edge_map,
-        v,
-        coords,
-        frame,
-        minted_mark,
-        probe,
-        wedge_arm,
-    )
-}
-
-/// [`relocate_minted_vertex`] with the amendment-12 gate as an explicit
-/// parameter — the unit-testable form (reloc_tests exercise both gate
-/// states in one process without env mutation).
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn relocate_minted_vertex_impl(
-    tris: &mut [[u32; 3]],
-    class: &mut [RegionClass],
-    edge_map: &mut BTreeMap<[u32; 2], Vec<usize>>,
-    v: u32,
-    coords: &[Point3],
-    frame: &Frame,
-    minted_mark: &[bool],
-    probe: bool,
-    wedge_arm: bool,
 ) -> RelocOutcome {
     let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
     let reject = |why: &str| {
@@ -454,26 +425,21 @@ pub(crate) fn relocate_minted_vertex_impl(
             eprintln!("  [reloc-fan] vert {v} cavity={} tris", cavity.len());
         }
         link.iter().map(|&(a, b, cls)| ([v, a, b], cls)).collect()
-    } else if !(wedge_arm && link.iter().any(|&(_, _, c)| c != link[0].2)) {
-        // The cavity is not star-shaped from v's minted position (the mint
-        // crossed the LINE of a constraint chord). Ear-clip the cavity
-        // polygon [v, w0..wk] instead — the constraint edge stays a cavity
-        // BOUNDARY, connected to other link vertices.
+    } else if !link.iter().any(|&(_, _, c)| c != link[0].2) {
+        // SINGLE-CLASS deferred cavity: the mint crossed the LINE of a
+        // constraint chord, so the cavity is not star-shaped from v's
+        // minted position. Ear-clip the cavity polygon [v, w0..wk] —
+        // the constraint edge stays a cavity BOUNDARY, connected to
+        // other link vertices. (Multi-class cavities take the
+        // amendment-12 wedge decomposition below.)
         if starts.is_empty() {
-            // Census probe (amendment-12 spec §7.2): the cyclic
-            // class-transition count separates the wedge arm's coverage
-            // (≥ 2 transitions: an on-curve mint) from the by-design
-            // reject (0 transitions: ear-clipping would orphan v).
-            let n = link.len();
-            let trans = (0..n).filter(|&i| link[i].2 != link[(i + 1) % n].2).count();
-            return reject(&format!(
-                "interior vertex with constraint-blocked fan (class transitions: {trans})"
-            ));
+            // A single-class closed link has zero class transitions by
+            // definition: not on the intersection curve, and ear-clipping
+            // the ring [w0..wk] would orphan v. The count stays in the
+            // message for §7.2 census-probe continuity.
+            return reject("interior vertex with constraint-blocked fan (class transitions: 0)");
         }
         let cls0 = link[0].2;
-        if link.iter().any(|&(_, _, c)| c != cls0) {
-            return reject("multi-class cavity with constraint-blocked fan");
-        }
         let mut poly: Vec<u32> = Vec::with_capacity(link.len() + 2);
         poly.push(v);
         poly.push(link[0].0);
@@ -524,7 +490,7 @@ pub(crate) fn relocate_minted_vertex_impl(
             Err(EarclipErr::Other(why)) => return reject(why),
         }
     } else {
-        // ── Amendment 12: per-class WEDGE decomposition (gated) ──────────
+        // ── Amendment 12: per-class WEDGE decomposition ──────────────────
         // A multi-class deferred cavity: the mint sits ON the intersection
         // polyline (that is what a rim crossing is — amendment 7's founding
         // observation), so its grown link straddles ≥ 2 region classes. Cut
@@ -1062,10 +1028,7 @@ mod reloc_tests {
     //! frame, so the resolved 3D coords ARE the 2D positions.
 
     use super::RelocOutcome;
-    use super::{
-        gate_tri_valid, relocate_minted_region, relocate_minted_vertex,
-        relocate_minted_vertex_impl, Frame,
-    };
+    use super::{gate_tri_valid, relocate_minted_region, relocate_minted_vertex, Frame};
     use crate::coplanar_overlay::RegionClass;
     use cad_primitives::Point3;
     use std::collections::BTreeMap;
@@ -1728,17 +1691,17 @@ mod reloc_tests {
         assert!((total - 6.4).abs() < 1e-12, "cover area {total} != 6.4");
     }
 
-    // ── Amendment 12: per-class wedge decomposition (gated) ──────────────
+    // ── Amendment 12: per-class wedge decomposition ──────────────────────
     //
-    // Spec `m8_stage0_multiclass_cavity_arm` §3/§4 inc-1. All fixtures call
-    // `relocate_minted_vertex_impl` with the gate as an explicit parameter
-    // (no env mutation — lib tests share one process). NOTE on the spec's
-    // fixture (a) "2 wedges, both fan": that shape is UNREACHABLE — the
-    // deferred path only runs when some link edge kept an invalid fan
-    // triangle (growth defers on nothing else), and that edge's wedge can
-    // never fan, so every reachable wedge decomposition ear-clips at least
-    // one wedge. Fixtures (a)/(b) therefore share the minimal reachable
-    // form: the folded wedge ear-clips while the other wedge fans.
+    // Spec `m8_stage0_multiclass_cavity_arm` §3/§4 (ALWAYS-ON since the
+    // inc-2 flip; the inc-1 env gate measured zero corpus category changes
+    // and was removed with it). NOTE on the spec's fixture (a) "2 wedges,
+    // both fan": that shape is UNREACHABLE — the deferred path only runs
+    // when some link edge kept an invalid fan triangle (growth defers on
+    // nothing else), and that edge's wedge can never fan, so every
+    // reachable wedge decomposition ear-clips at least one wedge. Fixtures
+    // (a)/(b) therefore share the minimal reachable form: the folded wedge
+    // ear-clips while the other wedge fans.
 
     /// Shared amendment-12 fixture: the pinch fixture's geometry with the
     /// star SPLIT at spoke (v, tl) — star tris (v,a,tl), (v,b,a), (v,w3,b)
@@ -1796,24 +1759,10 @@ mod reloc_tests {
             !gate_tri_valid(&[0, 4, 3], &coords, &frame),
             "fixture must start folded in wedge B"
         );
-        // Gate OFF: byte-identical to the pre-amendment reject.
-        {
-            let (mut t0, mut c0, mut e0) = (tris.clone(), class.clone(), em.clone());
-            let minted = vec![true, false, false, false, false, false, false];
-            assert!(matches!(
-                relocate_minted_vertex_impl(
-                    &mut t0, &mut c0, &mut e0, 0, &coords, &frame, &minted, false, false
-                ),
-                RelocOutcome::Rejected
-            ));
-            assert_eq!(t0, tris, "gate OFF must reject without mutation");
-            assert_eq!(c0, class);
-            assert_eq!(e0, em);
-        }
         let minted = vec![true, false, false, false, false, false, false];
         assert!(matches!(
-            relocate_minted_vertex_impl(
-                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false, true
+            relocate_minted_vertex(
+                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false
             ),
             RelocOutcome::Committed
         ));
@@ -1869,8 +1818,8 @@ mod reloc_tests {
     /// transitions (the intersection polyline runs through spokes (v,w0)
     /// and (v,w3)). The B wedge ear-clips the proven 7-gon while the A
     /// wedge fans; both curve spokes survive with one triangle per side.
-    /// Gate OFF this is the `interior vertex with constraint-blocked fan`
-    /// reject (the census's dominant class); gate ON it commits.
+    /// Pre-amendment this was the `interior vertex with constraint-blocked
+    /// fan` reject — the census's dominant (100% 2-transition) class.
     #[test]
     fn wedge_interior_oncurve_closed_link_commits() {
         let (mut tris, mut class, mut coords) = wedge_base();
@@ -1889,22 +1838,10 @@ mod reloc_tests {
             !gate_tri_valid(&[0, 4, 3], &coords, &frame),
             "fixture must start folded in wedge B"
         );
-        // Gate OFF: the interior reject, no mutation.
-        {
-            let (mut t0, mut c0, mut e0) = (tris.clone(), class.clone(), em.clone());
-            let minted = vec![true, false, false, false, false, false, false, false];
-            assert!(matches!(
-                relocate_minted_vertex_impl(
-                    &mut t0, &mut c0, &mut e0, 0, &coords, &frame, &minted, false, false
-                ),
-                RelocOutcome::Rejected
-            ));
-            assert_eq!(t0, tris);
-        }
         let minted = vec![true, false, false, false, false, false, false, false];
         assert!(matches!(
-            relocate_minted_vertex_impl(
-                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false, true
+            relocate_minted_vertex(
+                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false
             ),
             RelocOutcome::Committed
         ));
@@ -1957,8 +1894,8 @@ mod reloc_tests {
         let frame = frame_z0();
         let minted = vec![true, false, false, false, false, false, false, false];
         assert!(matches!(
-            relocate_minted_vertex_impl(
-                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false, true
+            relocate_minted_vertex(
+                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false
             ),
             RelocOutcome::Committed
         ));
@@ -2000,8 +1937,8 @@ mod reloc_tests {
         let frame = frame_z0();
         let minted = vec![true, false, false, false, false, false, false];
         assert!(matches!(
-            relocate_minted_vertex_impl(
-                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false, true
+            relocate_minted_vertex(
+                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false
             ),
             RelocOutcome::Committed
         ));
@@ -2034,8 +1971,8 @@ mod reloc_tests {
         );
         let minted = vec![true, false, false, false, false];
         assert!(matches!(
-            relocate_minted_vertex_impl(
-                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false, true
+            relocate_minted_vertex(
+                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false
             ),
             RelocOutcome::Rejected
         ));
@@ -2060,8 +1997,8 @@ mod reloc_tests {
         let mut em = edge_map_of(&tris);
         let frame = frame_z0();
         let minted = vec![true, false, false, true, false, false, true];
-        let out = relocate_minted_vertex_impl(
-            &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false, true,
+        let out = relocate_minted_vertex(
+            &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false,
         );
         let RelocOutcome::NonSimple { ring_mints } = out else {
             panic!("the non-simple wedge polygon must surface the joint trigger");
@@ -2075,55 +2012,65 @@ mod reloc_tests {
         assert_eq!(tris, tris0, "NonSimple must not mutate");
     }
 
-    /// Fixture (h): a SINGLE-CLASS deferred cavity takes the pre-amendment
-    /// ear-clip path byte-identically with the gate ON — the wedge arm
-    /// activates only on multi-class links.
+    /// Fixture (h) (was: `wedge_arm_single_class_path_byte_identical`,
+    /// which pinned OFF/ON gate parity while the arm was env-gated; the
+    /// inc-2 flip removed the gate): a SINGLE-CLASS deferred cavity still
+    /// takes the pre-amendment single-polygon ear-clip path — pinned by
+    /// EXACT output. Any future change that routes single-class cavities
+    /// through the wedge decomposition (or otherwise perturbs the
+    /// single-class ear order) breaks this literal.
     #[test]
-    fn wedge_arm_single_class_path_byte_identical() {
-        // The pinch fixture (single class): run gate OFF and gate ON on
-        // clones; outputs must be bit-identical.
-        let build = || {
-            let tris = vec![
-                [1, 0, 2],
-                [0, 3, 2],
-                [0, 4, 3],
-                [0, 5, 4],
-                [4, 5, 6],
-                [3, 4, 6],
-                [2, 3, 6],
-            ];
-            let class = vec![RegionClass::AOnly; 7];
-            let coords = vec![
-                p(2.2, -0.3),
-                p(0.0, 0.0),
-                p(0.0, 2.0),
-                p(2.0, 1.5),
-                p(2.0, 0.5),
-                p(4.0, 0.0),
-                p(4.0, 2.0),
-            ];
-            (tris, class, coords)
-        };
+    fn wedge_arm_single_class_path_output_pinned() {
+        // The pinch fixture, single class throughout.
+        let mut tris = vec![
+            [1, 0, 2],
+            [0, 3, 2],
+            [0, 4, 3],
+            [0, 5, 4],
+            [4, 5, 6],
+            [3, 4, 6],
+            [2, 3, 6],
+        ];
+        let mut class = vec![RegionClass::AOnly; 7];
+        let coords = vec![
+            p(2.2, -0.3),
+            p(0.0, 0.0),
+            p(0.0, 2.0),
+            p(2.0, 1.5),
+            p(2.0, 0.5),
+            p(4.0, 0.0),
+            p(4.0, 2.0),
+        ];
+        let mut em = edge_map_of(&tris);
         let frame = frame_z0();
         let minted = vec![true, false, false, false, false, false, false];
-        let (mut t_off, mut c_off, coords) = build();
-        let mut e_off = edge_map_of(&t_off);
         assert!(matches!(
-            relocate_minted_vertex_impl(
-                &mut t_off, &mut c_off, &mut e_off, 0, &coords, &frame, &minted, false, false
+            relocate_minted_vertex(
+                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false
             ),
             RelocOutcome::Committed
         ));
-        let (mut t_on, mut c_on, _) = build();
-        let mut e_on = edge_map_of(&t_on);
-        assert!(matches!(
-            relocate_minted_vertex_impl(
-                &mut t_on, &mut c_on, &mut e_on, 0, &coords, &frame, &minted, false, true
-            ),
-            RelocOutcome::Committed
-        ));
-        assert_eq!(t_on, t_off, "single-class path must be byte-identical");
-        assert_eq!(c_on, c_off);
-        assert_eq!(e_on, e_off);
+        // Cavity slots {0,1,2,3,5} carry the 7-gon's ears in
+        // first-clippable order (w0 is the fan hub the ear-clip settles
+        // on); slots 4 and 6 are untouched.
+        assert_eq!(
+            tris,
+            vec![
+                [1, 0, 5],
+                [1, 5, 4],
+                [1, 4, 6],
+                [1, 6, 3],
+                [4, 5, 6],
+                [3, 2, 1],
+                [2, 3, 6],
+            ],
+            "single-class ear-clip output must stay pinned"
+        );
+        assert!(class.iter().all(|&c| c == RegionClass::AOnly));
+        assert_eq!(
+            canon(&em),
+            canon(&edge_map_of(&tris)),
+            "edge map must be maintained incrementally"
+        );
     }
 }
