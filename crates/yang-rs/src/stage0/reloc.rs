@@ -668,6 +668,7 @@ pub(crate) fn relocate_minted_vertex(
 /// interior vertices has exactly (cycle length − 2) triangles, so the
 /// replacement count equals the region size and the region's slots are
 /// overwritten in place.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn relocate_minted_region(
     tris: &mut [[u32; 3]],
     class: &mut [RegionClass],
@@ -675,6 +676,7 @@ pub(crate) fn relocate_minted_region(
     seeds: &[u32],
     coords: &[Point3],
     frame: &Frame,
+    minted_mark: &[bool],
     probe: bool,
 ) -> bool {
     let reject = |why: &str| {
@@ -740,7 +742,16 @@ pub(crate) fn relocate_minted_region(
                 continue;
             }
             if relocate_region_single_class(
-                tris, class, edge_map, seeds, &component, cls0, coords, frame, probe,
+                tris,
+                class,
+                edge_map,
+                seeds,
+                &component,
+                cls0,
+                coords,
+                frame,
+                minted_mark,
+                probe,
             ) {
                 committed_any = true;
             }
@@ -767,6 +778,7 @@ pub(crate) fn relocate_region_single_class(
     cls0: RegionClass,
     coords: &[Point3],
     frame: &Frame,
+    minted_mark: &[bool],
     probe: bool,
 ) -> bool {
     let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
@@ -777,6 +789,28 @@ pub(crate) fn relocate_region_single_class(
         false
     };
     if region.len() < 2 {
+        // inc-3.0 measurement probe: the 1-triangle class sub-region at an
+        // on-curve seed — which triangle, which vertices are seeds, where.
+        if probe {
+            for &ti in region {
+                let t = tris[ti];
+                let at: Vec<_> = t
+                    .iter()
+                    .map(|&vv| {
+                        (
+                            vv,
+                            seeds.contains(&vv),
+                            minted_mark[vv as usize],
+                            frame.project(coords[vv as usize]),
+                        )
+                    })
+                    .collect();
+                eprintln!(
+                    "  [reloc-region-toosmall] seeds {seeds:?} class {cls0:?} \
+                     tri {ti} (id, is_seed, minted, uv): {at:?}"
+                );
+            }
+        }
         return reject("region too small");
     }
 
@@ -873,9 +907,16 @@ pub(crate) fn relocate_region_single_class(
             break poly;
         };
         let mut grew = false;
+        // inc-3.0 measurement probe: per crossing edge, WHY it could not
+        // be crossed (the reject string alone cannot separate the
+        // domain-boundary, intersection-curve, and pinch sub-cases).
+        let mut why: Vec<String> = Vec::new();
         for e in [ei, ej] {
             let (a, b) = (poly[e], poly[(e + 1) % poly.len()]);
             let Some(inc) = edge_map.get(&edge_key(a, b)) else {
+                if probe {
+                    why.push(format!("({a},{b}): missing from edge map"));
+                }
                 continue;
             };
             let ext: Vec<usize> = inc
@@ -884,16 +925,34 @@ pub(crate) fn relocate_region_single_class(
                 .filter(|t| !region.contains(t))
                 .collect();
             if ext.len() != 1 {
+                if probe {
+                    why.push(format!(
+                        "({a},{b}): {} externals (domain boundary/pinched)",
+                        ext.len()
+                    ));
+                }
                 continue; // domain boundary (or pinched): uncrossable
             }
             let tj = ext[0];
             if class[tj] != cls0 {
+                if probe {
+                    why.push(format!(
+                        "({a},{b}): external tri {tj} is {:?} (intersection curve)",
+                        class[tj]
+                    ));
+                }
                 continue; // class boundary IS the intersection curve
             }
             let Some(x) = tris[tj].iter().copied().find(|&v| v != a && v != b) else {
+                if probe {
+                    why.push(format!("({a},{b}): degenerate external {tj}"));
+                }
                 continue;
             };
             if on_cycle.contains(&x) {
+                if probe {
+                    why.push(format!("({a},{b}): apex {x} already on cycle (pinch)"));
+                }
                 continue; // absorbing would pinch the ring
             }
             if probe {
@@ -907,6 +966,30 @@ pub(crate) fn relocate_region_single_class(
             break;
         }
         if !grew {
+            if probe {
+                if let Some((pp, qq)) = fig11_backtrack_pair(&poly, ei, ej, minted_mark) {
+                    eprintln!(
+                        "  [reloc-region-fig11] seeds {seeds:?} class {cls0:?} \
+                         backtrack p={pp} (unminted, {:?}) q={qq} (minted, {:?})",
+                        coords[pp as usize], coords[qq as usize]
+                    );
+                }
+                let pos = |k: usize| frame.project(coords[poly[k] as usize]);
+                let ring_at: Vec<(u32, bool, (f64, f64))> = (0..poly.len())
+                    .map(|k| (poly[k], minted_mark[poly[k] as usize], pos(k)))
+                    .collect();
+                eprintln!(
+                    "  [reloc-region-ungrowable] seeds {seeds:?} class {cls0:?} \
+                     ring {} (id, minted, uv) {ring_at:?}; crossing e{ei}({:?}->{:?}) x \
+                     e{ej}({:?}->{:?}); {}",
+                    poly.len(),
+                    pos(ei),
+                    pos((ei + 1) % poly.len()),
+                    pos(ej),
+                    pos((ej + 1) % poly.len()),
+                    why.join("; ")
+                );
+            }
             return reject("crossing edges ungrowable (region polygon not simple)");
         }
     };
@@ -955,6 +1038,36 @@ pub(crate) fn relocate_region_single_class(
         }
     }
     true
+}
+
+/// Amendment-13 measurement (spec `m8_stage0_multiclass_cavity_arm`): the
+/// Fig-11(b→c) BACKTRACK detector. The two crossing ring edges sit exactly
+/// two apart, sandwiching one short edge whose endpoints are an UNMINTED
+/// vertex p and a MINTED vertex q — the "endpoint p of the split edge is
+/// too close to q" configuration of [#24 Yang §4.4.1 Fig 11] (the boundary
+/// walks out past the mint and backtracks, so the overshooting constrained
+/// chord crosses the mint's exit edge by a hair). Purely combinatorial +
+/// mintedness — no distance band. Returns (p, q).
+pub(crate) fn fig11_backtrack_pair(
+    poly: &[u32],
+    ei: usize,
+    ej: usize,
+    minted_mark: &[bool],
+) -> Option<(u32, u32)> {
+    let n = poly.len();
+    let mid = if (ei + 2) % n == ej {
+        (ei + 1) % n
+    } else if (ej + 2) % n == ei {
+        (ej + 1) % n
+    } else {
+        return None;
+    };
+    let (a, b) = (poly[mid], poly[(mid + 1) % n]);
+    match (minted_mark[a as usize], minted_mark[b as usize]) {
+        (false, true) => Some((a, b)),
+        (true, false) => Some((b, a)),
+        _ => None,
+    }
 }
 
 /// Amendment 8 (spec `n2_stage4_junction_cluster_merge` §3, M8 increment
@@ -1267,6 +1380,8 @@ mod reloc_tests {
             !gate_tri_valid(&[0, 4, 3], &coords, &frame),
             "fixture must start folded"
         );
+        let mut minted = vec![false; coords.len()];
+        minted[0] = true;
         assert!(relocate_minted_region(
             &mut tris,
             &mut class,
@@ -1274,6 +1389,7 @@ mod reloc_tests {
             &[0],
             &coords,
             &frame,
+            &minted,
             false
         ));
         // Non-region slots untouched.
@@ -1314,6 +1430,8 @@ mod reloc_tests {
         let (mut tris, mut class, coords) = base();
         let mut em = edge_map_of(&tris);
         let frame = frame_z0();
+        let mut minted = vec![false; coords.len()];
+        minted[0] = true;
         assert!(relocate_minted_region(
             &mut tris,
             &mut class,
@@ -1321,6 +1439,7 @@ mod reloc_tests {
             &[0],
             &coords,
             &frame,
+            &minted,
             false
         ));
         for t in &tris {
@@ -1365,6 +1484,8 @@ mod reloc_tests {
         let mut em = edge_map_of(&tris);
         let em0 = em.clone();
         let frame = frame_z0();
+        let mut minted = vec![false; coords.len()];
+        minted[0] = true;
         assert!(!relocate_minted_region(
             &mut tris,
             &mut class,
@@ -1372,6 +1493,7 @@ mod reloc_tests {
             &[0],
             &coords,
             &frame,
+            &minted,
             false
         ));
         assert_eq!(tris, tris0, "reject must not mutate triangles");
@@ -1394,6 +1516,8 @@ mod reloc_tests {
         let mut em = edge_map_of(&tris);
         let em0 = em.clone();
         let frame = frame_z0();
+        let mut minted = vec![false; coords.len()];
+        minted[0] = true;
         assert!(!relocate_minted_region(
             &mut tris,
             &mut class,
@@ -1401,6 +1525,7 @@ mod reloc_tests {
             &[0],
             &coords,
             &frame,
+            &minted,
             false
         ));
         assert_eq!(tris, tris0, "reject must not mutate triangles");
@@ -1452,6 +1577,8 @@ mod reloc_tests {
             gate_tri_valid(&[1, 0, 2], &coords, &frame),
             "the Overlap sub-region must start valid (it is skipped)"
         );
+        let mut minted = vec![false; coords.len()];
+        minted[0] = true;
         assert!(relocate_minted_region(
             &mut tris,
             &mut class,
@@ -1459,6 +1586,7 @@ mod reloc_tests {
             &[0],
             &coords,
             &frame,
+            &minted,
             false
         ));
         // The Overlap sub-region and the non-region slots are untouched.
@@ -1528,6 +1656,8 @@ mod reloc_tests {
         let mut em = edge_map_of(&tris);
         let frame = frame_z0();
         let overlap_before = (tris[0], class[0]);
+        let mut minted = vec![false; coords.len()];
+        minted[0] = true;
         assert!(relocate_minted_region(
             &mut tris,
             &mut class,
@@ -1535,6 +1665,7 @@ mod reloc_tests {
             &[0],
             &coords,
             &frame,
+            &minted,
             false
         ));
         assert_eq!(
@@ -1660,6 +1791,9 @@ mod reloc_tests {
                 && !gate_tri_valid(&tris[4 + 1], &coords, &frame),
             "both copies must start folded"
         );
+        let mut minted = vec![false; coords.len()];
+        minted[0] = true;
+        minted[off as usize] = true;
         assert!(relocate_minted_region(
             &mut tris,
             &mut class,
@@ -1667,6 +1801,7 @@ mod reloc_tests {
             &[0, off],
             &coords,
             &frame,
+            &minted,
             false
         ));
         for t in &tris {

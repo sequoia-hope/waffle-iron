@@ -416,3 +416,89 @@ zero CORRECT→ERROR remains the bar.
   during inc-3 (do not assume it is the region form; anchor first).
 - The assay UI snapshot (`app/tests/cases/assay/results.json`) now carries
   the always-on detail strings.
+
+## 10. AMENDMENT 13 — the Fig-11(b→c) MERGE arm (inc-3, measured 2026-07-30)
+
+### 10a. The measured residual, fully anchored
+
+inc-3.0 probes (`[reloc-region-ungrowable]` with per-edge block reasons +
+ring mintedness, `[reloc-region-fig11]`, `[reloc-region-toosmall]`, and the
+`YANG_INPUT_VERT_PROBE` branch classifier) pin R0099's two region rejects
+to ONE shape — the **Z-fold backtrack**:
+
+| ring | crossing | backtrack pair (p → q) | ‖p−q‖ | p branch |
+|---|---|---|---|---|
+| [178,181,184,187,185,182] BOnly | e3(187→185) × e5(182→178) | p=185 → q=182 | 0.029 | `lift_or_snap` |
+| [109,115,120,126,132,127,121,116,110] AOnly | e5(127→121) × e7(116→110) | p=121 → q=116 | 0.0046 | `lift_or_snap` |
+
+The boundary walks out past the mint to p, then BACKTRACKS to q (the mint),
+so the overshooting chord crosses the mint's exit edge by a hair (q sits
+~2.5e-5 past the (187,185) chord line; 184/185 share a sweep-column x
+bit-exactly). Every crossing partner is a CONSTRAINT edge (domain chord
+with 0 externals, or a curve edge whose external is the other class) —
+amendment-8 growth is definitionally impossible. The `region too small`
+reject is the SAME defect: tri 145 = [116(mint), **121(p)**, 122] — the
+unmerged pair again. And p is UNMINTED + `lift_or_snap` in both cases: a
+pure sweep-event discretization vertex, not an input corner, not a rim
+sample.
+
+### 10b. The paper operation (this is the spec)
+
+Yang §4.4.1 Fig 11 caption, verbatim: *"(a). We locate the constrained
+edge containing q (the red edge) and split it using q. (b). If an endpoint
+p of the split edge is too close to q, we merge p with q as shown in (c)
+to improve the mesh quality."* Body: *"we remove a mesh vertex if it is
+too close to the intersection curve on the mesh."* The gate ladder today
+has NONE of split/merge/remove — every arm re-triangulates a FIXED vertex
+set. The measured residual is exactly the missing MERGE.
+
+### 10c. Design — amendment 13
+
+- **Trigger (exact, no distance band — P10-clean):** the region form's
+  growth is exhausted AND `fig11_backtrack_pair` fires: the two crossing
+  ring edges sit exactly two apart, sandwiching one edge joining unminted
+  p ↔ minted q (`reloc.rs::fig11_backtrack_pair`, shipped with inc-3.0 as
+  the probe). Guard: p must be MERGEABLE — resolution branch
+  `lift_or_snap` (NOT a corner of either input, NOT a rim sample, NOT
+  itself minted); the branch data lives in mod.rs's resolution maps, so
+  the mergeable mask is precomputed there once per pair.
+- **Action:** `coords[p] = coords[q]` — a POSITION merge; p becomes a
+  bit-twin of q. No topology surgery: the existing machinery was built
+  for twins (ring dedup in the ear-clip, shared-position/zero-length
+  skips in `first_ring_crossing`, `gate_tri_degenerate` → M-B emission
+  drop for the collapsed slivers).
+- **Placement:** a LADDER arm in mod.rs between the joint attempt and the
+  amendment-2 revert. The region form returns the candidate on reject
+  (richer return), the ladder merges (probe `[fold-merge]`), sets
+  `changed`, and the next gate pass re-attempts everything with the
+  merged geometry — the per-vertex wedge rings containing p become simple
+  too (p's UV appears in vert 116's rejected wedge ring), so the wedge
+  arm commits without the joint form where possible.
+- **Termination:** lexicographic. A merge strictly reduces the count of
+  distinct resolved positions (bounded by V) and is idempotent (bit-equal
+  after; the crossing scan skips shared positions, so the same pair never
+  re-fires); between merges the existing strict-fold-decrease invariant
+  holds. A merge may transiently fold p's other incident triangles —
+  those get their own ladder passes.
+- **Non-goals:** the SPLIT operation (Fig 11a — inserting q into a
+  constrained edge as a new chain vertex) is NOT needed by any measured
+  customer (q is always already a mesh vertex here); build it only when a
+  census names a case. Singleton NonSimple at the wedge/single-class site
+  (no joint trigger) keeps today's behavior — the measured customers all
+  reach the joint path with ≥2 seeds.
+
+### 10d. Increments
+
+- **inc-3.0 — measurement + this design. ✅ COMPLETE 2026-07-30** (probe
+  extensions: per-edge ungrowable reasons, ring mintedness dump,
+  `fig11_backtrack_pair` detector, too-small context; `minted_mark`
+  threaded through the region form).
+- **inc-3.1 — the gated merge arm** (`YANG_S0_FIG11_MERGE_ENABLE`):
+  mergeable mask in mod.rs; region-form richer return (candidate on
+  reject); the ladder merge arm; reloc_tests fixtures (backtrack ring
+  merges then commits; non-mergeable p — corner/rim/minted — stays a
+  loud reject; idempotence); R0099 chain gate-ON measure.
+- **inc-3.2 — flip** on the standard bar (R0099 single_case OFF/ON, full
+  corpus OFF/ON, zero CORRECT→ERROR). R0025/R0026's shared
+  non-manifold-input wall (§9) gets anchored HERE — measure whether the
+  merge arm moves them before assuming kinship.

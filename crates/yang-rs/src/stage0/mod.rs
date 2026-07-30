@@ -1224,6 +1224,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                         &seeds,
                         &coords,
                         frame,
+                        &minted_mark,
                         probe_flip,
                     ) {
                         if probe_flip {
