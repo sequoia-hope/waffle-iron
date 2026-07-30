@@ -671,3 +671,160 @@ set. The measured residual is exactly the missing MERGE.
     `input B-Rep is not 2-manifold` wall (anchor before assuming it is
     the region form), the inc-3.2 vertex-inserting split (vert 9 = the
     R0099 conversion), and inc-3 region-form parity.
+
+## 11. AMENDMENT 14 — the Fig-11(a) vertex-inserting SPLIT (inc-3.2, designed 2026-07-30)
+
+### 11a. The measured customer, exact (R0099 pair (0,0), vert 9)
+
+In-frame numbers from the `[fold-split-anatomy]` probe (shipped this
+increment — offline frame reconstruction is lossy at 1e-4 scale; these are
+the gate's own projections):
+
+- **The constrained chord C** = overlay edge (10,6) — a sub-segment of the
+  OTHER input's real model edge (B's wedge-profile rectangle edge,
+  subdivided at sweep columns into the chain v6 → v10 → v14), 1-incident
+  (union boundary). C runs 6=(-9.565485, -3.670012) → 10=(-9.424864,
+  -3.283462), length 0.41133.
+- **The mint chain** = A's cap rim boundary v5 → v9 → v13 (v13 a `rim_a`
+  sample; v5, v9 rim mints — v5 KEPT at (-9.602203, -3.916052), v9 the
+  residual customer). This rim is SHARED with the outer cylinder lateral —
+  the `VertexOffSurface(FaceId(18))` leak site.
+- v9 chord UV (-9.424864, -3.535514) sits **8.616805e-2** on the inside of
+  C's line; minted (-9.507622, -3.510301) lands **2.232875e-4 PAST it** —
+  A's rim circle is near-tangent to B's edge; the chord-geometry
+  arrangement never saw a crossing (no junction vertex within 8e-2).
+- The moved chain crosses C twice: **q1** = (v5m→v9m) × C at
+  t_chain=0.99552, t_edge=0.40847; **q2** = (v9m→v13) × C at
+  t_chain=0.00258, t_edge=0.41872. Span |q1q2| = 4.216e-3, both strictly
+  interior to C's segment. Note t_chain ≈ 1 and ≈ 0: the crossings are
+  each within 0.5% of the mint along the chain — the paper's Fig-11(b)
+  "too close" configuration, but BOTH merge directions are
+  constraint-deadlocked (v9m must stay on A's exact circle; q1/q2 must
+  stay on B's real edge) ⇒ the SPLIT with chain subdivision is the only
+  exact resolution.
+- Star damage at minted geometry (signed areas): t10 [9m,10,6] = −4.59e-5
+  (THE fold, gate area −9.18e-5 in 2× convention); t9 [6,5m,9m] and t15
+  [10,9m,13] stay positive but OVERSPILL past C by thin slivers (their
+  9m-incident edges leave immediately from C's on-chord endpoints);
+  stretched Overlap t14 [12,13,9m] covers the below-C lens correctly for
+  BOTH sides but also overspills past C on B's side. Containment tests:
+  the bulge point is covered by t14 (+) and folded t10 (−); the lens
+  point by t14 alone. **A's emission is already truthful; the entire
+  defect is B-side cover past its own boundary + the folded sliver.**
+
+### 11b. The paper operation (this is the spec)
+
+Yang §4.4.1 Fig 11 (`refs/text/yang2025_hybrid_boolean.txt:546-566`):
+the inserted intersection polyline must be THE BOUNDARY of the trimmed
+triangle meshes; "(a) We locate the constrained edge containing q (the
+red edge) and split it using q"; CDT re-triangulates each trimmed side
+against the polyline, "contains no flipping triangles". Composed with
+§4.5.5 (shared boundaries sample identically on both models), the
+overlay form is: **where the moved class-boundary chain crosses a
+constrained chord, the crossing points become vertices of BOTH the chord
+and the chain, and the mint's star re-triangulates so every sub-region
+lies on one side of each** — the overlay's first vertex-INSERTING
+operation (every prior arm re-triangulates a fixed vertex set).
+
+### 11c. Design — amendment 14: cavity-scoped split
+
+Trigger (exact, census-armed): the per-vertex ladder's `NonSimple` reject
+carries `split_chord = C` (the shipped detector: exactly one crossing
+ring edge touches v) AND the merge arm did not fire. Compute the
+crossings of v's two class-boundary chain edges (at CURRENT positions)
+with C's segment; the armed form requires EXACTLY TWO proper crossings
+(entered and exited — the bulge), each with t_edge strictly interior to
+C and t_chain ∈ (0,1). Any other multiplicity is a DIFFERENT class:
+loud probe, amendment-2 revert unchanged.
+
+Action (build-then-commit, all-or-nothing like every reloc arm):
+1. **Mint q1, q2** as new overlay vertices ON C: UV = exact rational
+   `sa_exact + t·(sb_exact − sa_exact)` with t the rational lift of the
+   f64 crossing parameter — EXACTLY collinear with B's model edge in
+   `exact_verts` arithmetic, so `collect_edge_splits` propagates them
+   into B's adjacent faces with zero new machinery (the B-leg is
+   automatic). `coords` = `frame.lift(uv)` (on the straight in-plane
+   model edge by construction); `minted_mark = false` (they are not rim
+   mints); mergeable = false (junction-like, immovable).
+2. **Re-cut the star.** Carve star(v) (the amendment-5 cavity); the
+   cavity ring is unchanged. Re-triangulate the ring polygon + interior
+   vertex v (at its minted position) + q1 + q2 with the constraint set:
+   chain pieces (prev→q1), (q1→v), (v→q2), (q2→next) and C pieces
+   (ca→q1), (q1→q2), (q2→cb) as constrained edges. Sub-regions and
+   classes (exact orientation predicates in the frame, the gate's own
+   arithmetic):
+   - below-C ∧ chain's non-material side → the two BOnly remnants
+     (t9/t15 trimmed back to C at q1/q2);
+   - below-C ∧ chain's material side → **Overlap** (the lens — B-side
+     cover up to its true boundary; A-side unchanged truth);
+   - past-C ∧ material side → **AOnly** (the bulge [q1, v, q2] — A pokes
+     past B's edge, B correctly absent);
+   - past-C ∧ non-material side cannot occur inside the cavity (no ring
+     vertex is past C) — assert-guarded, loud reject if violated.
+   C's sub-segment (q1,q2) becomes a 2-incident class boundary
+   (AOnly | Overlap) — it IS B's face boundary there; (ca,q1)/(q2,cb)
+   stay 1-incident union boundary.
+3. **A-leg propagation (the rim side-channel).** The chain gains q1/q2,
+   and the chain is A's cap rim shared with its lateral — without
+   propagation this is a T-junction at exactly today's leak face. q1/q2
+   lie 2.2e-4 INSIDE A's rim circle — within the ring builder's sagitta
+   band (its on-rim validation admits [r − sagitta, r]) — so record them
+   in a per-pair `extra_rim_points` side-channel that
+   `collect_rim_crossings` merges into the cap edge's override entry
+   (they are NOT UV-collinear with any rim chord — the standard scan
+   cannot see them). Ordering across consumers is exactly what the
+   inc-3.5 settle check polices; the settle check must treat q1/q2 as
+   immovable chord points (minted_mark=false ⇒ never a revert victim ✓).
+4. **Gate interplay.** The split sets `changed`; the next gate pass
+   re-attempts everything on the new triangulation (the fold is gone by
+   construction — every new triangle is on one side of each constraint).
+   The split fires at most once per (v, C) pair (idempotence: after the
+   split the chain no longer crosses C, so the detector cannot re-arm);
+   vertex count grows by exactly 2 per firing, bounded by the folded-set
+   size — termination composes with the existing lexicographic argument.
+
+### 11d. Guards (each a loud reject → amendment-2 revert)
+
+| Case | Behavior |
+|---|---|
+| crossing count ≠ 2 on C (single graze, colinear touch, >2) | reject `split-crossing-count`, probe with count |
+| t_edge outside (0,1) or t_chain outside (0,1) | reject `split-param-window` (the crossing belongs to a NEIGHBOR chord — a different customer; census first) |
+| bulge depth > the mint's own rim-slot sagitta | reject `split-bulge-depth` (premise check: the bulge is a near-tangency artifact; a deep crossing is real geometry the arrangement should have seen — never silently split it) |
+| re-triangulation produces any invalid / degenerate sub-triangle | reject, NO mutation (build-then-commit) |
+| q1/q2 UV fails the exact-collinearity self-check against B's model edge | reject `split-collinearity` (construction bug tripwire, P9) |
+
+### 11e. Increments
+
+- **inc-3.2a — detector + anatomy probes. ✅ COMPLETE 2026-07-30**
+  (`fig11_split_chord`, `RelocOutcome::NonSimple.split_chord`,
+  `[fold-split-reject]`, `i6-input-overuse` triangle enrichment; this
+  session added `[fold-split-anatomy]` — exact in-frame UVs of the mint,
+  chord, and class-boundary neighbors; §11a is its measured record).
+  Two refuted non-inserting designs (delete / reverse) stripped per P9
+  with i6 fwd/rev evidence (§10d inc-3.2).
+- **inc-3.2b — the gated primitive (`YANG_S0_FIG11_SPLIT_ENABLE`):
+  steps 1+2+4 (mint, re-cut, gate interplay) WITHOUT the A-leg.**
+  Unit fixtures for the re-cut (fan/class/orientation rows + each §11d
+  guard); R0099 chain measurement: the fold must repair (fold-revert
+  vert=9 gone) and the EXPECTED residual is the A-rim T-junction seam
+  (i6 at the (5, q1, v9m, q2, 13) chain vs the lateral) — measured
+  loudly, not shipped silently: the arm stays gated until 3.2c.
+- **inc-3.2c — the A-leg (`extra_rim_points` → `collect_rim_crossings`
+  merge + settle-check interplay).** R0099 chain: i6 clean, chain green
+  oracle attempt (the conversion pin flips per its own comment if the
+  downstream survives).
+- **inc-3.2d — corpus OFF (byte-identity) / ON (zero CORRECT→ERROR) →
+  flip always-on, env var removed** (the §3e discipline; the settle
+  check precedent). Census the §11d reject probes corpus-wide before
+  widening any guard.
+
+### 11f. Non-goals
+
+- No arrangement re-run, no exact re-classification — the split is a
+  LOCAL cavity operation; classes outside the star are untouched.
+- The single-crossing graze and >2-crossing forms stay rejected until a
+  census names a customer (measure-first; the inc-3.1 "singleton
+  non-goal" refutation is the cautionary precedent for guessing).
+- No change to mint placement or to the merge arm; the split composes
+  AFTER the merge attempt in the ladder (merge outranks split when both
+  arm — cheaper op first, same §10c ordering).

@@ -1422,6 +1422,44 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                         eprintln!(
                             "  [fold-split-reject] q={sq} chord=({sa},{sb}) {inc_n}-incident                              (vertex-inserting split not built — inc-3.2)"
                         );
+                        // inc-3.2 anatomy probe: exact in-frame UVs of the
+                        // candidate mint (current = minted position), its
+                        // pre-mint UV, the chord endpoints, and every
+                        // class-boundary / boundary neighbor of sq — the
+                        // measured inputs of the §11 split design (offline
+                        // frame reconstruction is too lossy at 1e-4 scale).
+                        let pr = |v: u32| frame.project(coords[v as usize]);
+                        let (mu, mv) = pr(sq);
+                        let quv = overlay.verts[sq as usize];
+                        eprintln!(
+                            "  [fold-split-anatomy] q={sq} minted_uv=({mu},{mv}) \
+                             chord_uv=({},{})",
+                            quv.x(),
+                            quv.y()
+                        );
+                        for (&[ka, kb], inc) in edge_map.iter() {
+                            if ka != sq && kb != sq {
+                                continue;
+                            }
+                            let w = if ka == sq { kb } else { ka };
+                            let classes: Vec<_> =
+                                inc.iter().map(|&ti2| overlay.class[ti2]).collect();
+                            let boundaryish =
+                                inc.len() == 1 || classes.windows(2).any(|c| c[0] != c[1]);
+                            if boundaryish {
+                                let (wu, wv) = pr(w);
+                                eprintln!(
+                                    "  [fold-split-anatomy]   nbr {w} uv=({wu},{wv}) \
+                                     inc={} classes={classes:?}",
+                                    inc.len()
+                                );
+                            }
+                        }
+                        let (au, av) = pr(sa);
+                        let (bu, bv) = pr(sb);
+                        eprintln!(
+                            "  [fold-split-anatomy]   chord {sa}=({au},{av}) {sb}=({bu},{bv})"
+                        );
                     }
                 }
                 if relocated || merged {
