@@ -886,11 +886,20 @@ fn boolean_once(
                 }
             }
             let mut any = false;
-            for (&(s, e), &fwd) in &dir {
-                if s > e {
-                    continue;
+            // inc-3.5 probe fix: aggregate per CANONICAL pair before
+            // comparing. The old skip-s>e iteration silently missed any
+            // one-sided edge whose s<e direction never occurs (measured on
+            // R0059: 3 of 5 seam edges unreported).
+            let mut canon: BTreeMap<(u32, u32), (i32, i32)> = BTreeMap::new();
+            for (&(s, e), &n) in &dir {
+                let ent = canon.entry((s.min(e), s.max(e))).or_insert((0, 0));
+                if s < e {
+                    ent.0 += n;
+                } else {
+                    ent.1 += n;
                 }
-                let rev = dir.get(&(e, s)).copied().unwrap_or(0);
+            }
+            for (&(s, e), &(fwd, rev)) in &canon {
                 if fwd != rev {
                     any = true;
                     eprintln!(

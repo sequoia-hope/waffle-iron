@@ -868,3 +868,23 @@ ARMS the amendment-6 joint path (R0085: region commits 0→6, fold-reverts
 edges ungrowable` / `region too small`) — **inc-3 region-form parity is
 R0099's named vehicle** (census gate armed, spec §4/§8; conversion pin
 `kernel-v2/tests/m8_r0099_multiclass_chain.rs` quarantined on it).**
+
+**Amendment-13 inc-3.5/3.6 SHIPPED 2026-07-30 (spec §10d): the Fig-11
+MERGE arm is ALWAYS-ON, protected by the rim-chain boundary-order settle
+check.** The R0059 no-flip counterexample was anchored to a BOUNDARY-ORDER
+inversion, not a guard gap: a kept junction mint (circle∩line — azimuthally
+displaced from its chord anchor by up to the snap displacement) leapt past
+a fold-reverted neighbor, so the cap overlay (chord-parameter order) and
+the ring builder (azimuth order — the revolved lateral's arc-length
+parameter) desynchronized on the shared rim chain. The settle check runs at
+gate quiescence, reverts the displaced member of an exactly-inverted pair,
+restores merge partners (merges now propagate through the revert path), and
+re-runs the ladder; `collect_edge_splits` collapses a surviving merge's
+duplicate same-position entries. Corpus flip: zero CORRECT→ERROR; new
+canonical **259C/0W/49E/0T** — F0067 + F0072 recategorized ERROR →
+UNSUPPORTED(coplanar-boolean) (their repaired meshes now reach the loud
+typed M8 wall). The same-order inversion class existed MERGE-FREE in
+canonical outputs (R0059 op 002, absorbed downstream by luck) and is now
+policed everywhere. R0099 unchanged (merges fire, settle discriminates);
+its conversion still awaits the inc-3.2 vertex-inserting split + inc-3
+region-form parity.

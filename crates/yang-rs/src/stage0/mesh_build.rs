@@ -156,6 +156,18 @@ pub(crate) fn dump_pair_overlay(
 /// edges (exact 2D on-open-segment test over the overlay's rational
 /// coordinates) and record them, with the SAME resolved 3D coordinates the
 /// override triangles use, for propagation into adjacent faces.
+///
+/// `merged_pts` (amendment 13 inc-3.5, spec `m8_stage0_multiclass_cavity_arm`
+/// §10d): resolved positions of SURVIVING Fig-11 merge targets. Two distinct
+/// overlay vertices identified by a merge still carry distinct exact chord
+/// parameters, so without this a merged pair registers the same 3D point
+/// TWICE on the shared edge (measured: R0059 splits_b edge (5,6),
+/// t=0.62276 and t=0.62517 both at the junction) — the adjacent face's
+/// chain then gains a zero-length segment the overlay side dropped at
+/// emission (M-B). Deduping by merged position carries the §4.4.1 merge
+/// identification through the §4.5.5 propagation — the same argument as the
+/// M-B drop itself. Scoped to merge targets so gate-OFF stays byte-identical
+/// (an empty set is the historical behavior, bit for bit).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn collect_edge_splits(
     brep: &BRep,
@@ -166,6 +178,7 @@ pub(crate) fn collect_edge_splits(
     overlay: &ClassifiedOverlay,
     side_classes: [RegionClass; 2],
     resolved: &[Point3],
+    merged_pts: &std::collections::BTreeSet<[u64; 3]>,
     splits: &mut SplitMap,
 ) {
     // Overlay vertices used by THIS side's triangles (the conforming
@@ -265,7 +278,16 @@ pub(crate) fn collect_edge_splits(
                 continue;
             }
             let entry = splits.entry((lo, hi)).or_default();
-            if !entry.iter().any(|(t0, _)| *t0 == t) {
+            let key = {
+                let a = resolved[i].as_array();
+                [a[0].to_bits(), a[1].to_bits(), a[2].to_bits()]
+            };
+            let merged_dup = merged_pts.contains(&key)
+                && entry.iter().any(|(_, p0)| {
+                    let b = p0.as_array();
+                    [b[0].to_bits(), b[1].to_bits(), b[2].to_bits()] == key
+                });
+            if !merged_dup && !entry.iter().any(|(t0, _)| *t0 == t) {
                 entry.push((t, resolved[i]));
             }
         }
@@ -1625,5 +1647,102 @@ mod ring_exact_projection_tests {
         assert_eq!(covered, ring_abs, "exact coverage certificate");
         // I4: no vertex minted beyond the optional centroid.
         assert!(verts.len() <= n_before + 1, "at most one centroid vertex");
+    }
+}
+
+#[cfg(test)]
+mod edge_split_merge_dedup_tests {
+    //! Amendment 13 inc-3.5 (spec `m8_stage0_multiclass_cavity_arm` §10d):
+    //! a SURVIVING Fig-11 merge identifies two overlay vertices with
+    //! distinct exact chord parameters to one 3D point; the split
+    //! collector must propagate the identification (one entry), while the
+    //! historical no-merge path keeps both entries bit-for-bit (the
+    //! gate-OFF byte-identity pin).
+
+    use super::collect_edge_splits;
+    use crate::coplanar_overlay::{ClassifiedOverlay, ExactPoint2, RegionClass};
+    use crate::stage0::Frame;
+    use crate::tests_unit::n2_junction::rj_box;
+    use cad_primitives::{Point2, Point3};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    #[test]
+    fn merged_twin_collapses_to_one_split_entry() {
+        let b = rj_box([0.0; 3], [1.0; 3]);
+        let va: Vec<Point3> = b.vertices().iter().map(|v| v.point).collect();
+        // The face whose outer loop carries edge 0 (0→1 along y=0, z=0).
+        let fi = b
+            .faces()
+            .iter()
+            .position(|f| f.outer_loop.contains(&0))
+            .expect("rj_box bottom face");
+        let frame = Frame {
+            n: [0.0, 0.0, 1.0],
+            d: 0.0,
+            o: [0.0, 0.0, 0.0],
+            e1: [1.0, 0.0, 0.0],
+            e2: [0.0, 1.0, 0.0],
+        };
+        let uv = [(0.3, 0.0), (0.5, 0.0), (0.5, 0.5)];
+        let overlay = ClassifiedOverlay {
+            verts: uv.iter().map(|&(u, v)| Point2::new(u, v)).collect(),
+            exact_verts: uv
+                .iter()
+                .map(|&(u, v)| ExactPoint2::from_f64(u, v).unwrap())
+                .collect(),
+            tris: vec![[0, 1, 2]],
+            class: vec![RegionClass::AOnly],
+            poly_a: vec![0],
+            poly_b: vec![u32::MAX],
+            fused: BTreeMap::new(),
+        };
+        // Both edge vertices resolve to ONE junction point (a survived
+        // position merge); the apex resolves elsewhere.
+        let junction = Point3::new(0.4, 0.0, 0.0);
+        let resolved = vec![junction, junction, Point3::new(0.5, 0.5, 0.0)];
+        let classes = [RegionClass::AOnly, RegionClass::Overlap];
+
+        // Historical path (no merge): BOTH entries, distinct parameters.
+        let mut splits = BTreeMap::new();
+        collect_edge_splits(
+            &b,
+            fi,
+            &va,
+            &frame,
+            &BTreeMap::new(),
+            &overlay,
+            classes,
+            &resolved,
+            &BTreeSet::new(),
+            &mut splits,
+        );
+        let entry = splits.get(&(0, 1)).expect("edge (0,1) split");
+        assert_eq!(entry.len(), 2, "no-merge path keeps both entries");
+        assert!(entry.iter().all(|(_, p)| *p == junction));
+
+        // Merge-aware path: the identification propagates — ONE entry.
+        let merged: BTreeSet<[u64; 3]> = [[
+            junction.x().to_bits(),
+            junction.y().to_bits(),
+            junction.z().to_bits(),
+        ]]
+        .into_iter()
+        .collect();
+        let mut splits2 = BTreeMap::new();
+        collect_edge_splits(
+            &b,
+            fi,
+            &va,
+            &frame,
+            &BTreeMap::new(),
+            &overlay,
+            classes,
+            &resolved,
+            &merged,
+            &mut splits2,
+        );
+        let entry2 = splits2.get(&(0, 1)).expect("edge (0,1) split");
+        assert_eq!(entry2.len(), 1, "merged twin collapses to one entry");
+        assert_eq!(entry2[0].1, junction);
     }
 }

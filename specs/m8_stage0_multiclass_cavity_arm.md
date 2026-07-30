@@ -1,15 +1,18 @@
 # SPEC — M8 Stage-0 overlay mesh-updating: the MULTI-CLASS cavity arm (amendment 12)
 
-**Status: inc-2 FLIPPED ALWAYS-ON (2026-07-30, see §9) — the env gate is
-removed. Corpus OFF/ON: ZERO category changes (259C/0W/51E/0T both ways;
-gate-OFF replay byte-identical to canonical; 6 ERROR cases shifted detail
-only). Headline inc-1 measurements (§8): the interior-reject class is 100%
-2-transition (428/428 across the 5 heaviest cases — structural coverage of
-the dominant census class is total), but at the actual failing mints the
-FOLDED wedge polygon is NON-SIMPLE (interacting mints), so R0099 stays
-ERROR and its conversion is quarantined on **inc-3 region-form parity**
-(census gate armed). The shipped win is the armed joint path: R0085
-fold-reverts 65 → 10, region commits 0 → 6. Next: inc-3.**
+**Status: amendment-13 inc-3.6 FLIPPED ALWAYS-ON (2026-07-30, §10d) — the
+Fig-11(b→c) MERGE arm + the inc-3.5 rim-chain boundary-order settle check
++ the split-table merge identification are live; the env gate is removed.
+Corpus: gate-OFF byte-identical to canonical (0/0 across 312); flip zero
+CORRECT→ERROR; new canonical 259C/0W/49E/0T (F0067/F0072 recategorized
+ERROR → UNSUPPORTED(coplanar-boolean), the loud typed M8 wall). R0059's
+CORRECT is settle-protected; its canonical-latent op-002 seam is repaired
+(0 i6 lines). Residuals: inc-3 region-form parity (R0099's conversion,
+census gate armed), the inc-3.2 vertex-inserting split (vert 9), and the
+R0025/R0026 shared non-manifold-input wall (anchor, don't assume).
+Amendment-12 (inc-2, §9) remains always-on beneath it: wedge-arm corpus
+was ZERO category changes; the armed joint path is the win (R0085
+fold-reverts 65 → 10).**
 
 Named target of the R0099 producing-op probe (`docs/yang_tail_triage.md`
 §"R0099 producing-op probe COMPLETE (2026-07-30)", commit 1f576621). This is
@@ -574,3 +577,97 @@ set. The measured residual is exactly the missing MERGE.
   through the same override path or guard on "p referenced by a rim
   override". The merge arm STAYS GATED until that lands; then the
   corpus bar, and R0025/R0026's shared wall anchored at the flip.
+- **inc-3.5 TRACE COMPLETE (2026-07-30): both "missing propagation"
+  guesses REFUTED — the propagation tables are position-correct; the
+  defect is a BOUNDARY-ORDER inversion between the two consumers of one
+  rim table.** The full mechanism, measured end to end on R0059 op 001
+  pair (0,1) (overlay dump + i6 + azimuth reconstruction):
+  1. Face 0's outer rim chord (v31→v2) carries four crossing vertices;
+     in chord-parameter order: junction mint v25 (t=0.061), mint v19
+     (t=0.086), mint v13 (t=0.258), mint v7 (t=0.487). Gate-OFF the
+     ladder reverts BOTH v19 and v25 to chord positions → every rim
+     consumer agrees on order → conformal → CORRECT (canonical).
+  2. Gate-ON, the merge (p=20→q=25) repairs enough folds that junction
+     mint v25 SURVIVES on-circle while v19 still reverts. A junction
+     mint is circle∩line — azimuthally displaced from its chord anchor
+     by up to the snap displacement (2.78 here, a coarse 10-gon rim at
+     r≈90.6). Measured azimuths: v31 −108.000°, **v19rev −105.055°,
+     v25M −104.281°** (LEAPT PAST v19), v13 −98.934°, v7 −90.488°.
+  3. The cap-side overlay emits the chain in chord-parameter order
+     (v25 before v19); the ring builder
+     (`stage1_tessellate.rs` slot sort) orders by azimuth (v19 before
+     v25). The lateral's rim chain SWAPS the pair → 5 unpaired directed
+     edges in mesh_a (i6 under-reports 2 of 5: its canonical-key loop
+     skips a pair whose s<e direction never occurs — probe fix due).
+  4. **The class is NOT merge-specific: canonical gate-OFF op 002
+     carries the SAME latent seam** (kept junction leapt past reverted
+     v23, i6 edges (48,50)/(49,51)) and survives only because the
+     downstream arrangement happens to absorb it. The merge merely
+     created the first instance that reaches the reassembly wall.
+  Also found: `collect_edge_splits` dedups by exact parameter t only,
+  so a SURVIVING merge leaves two same-position split entries on the
+  other input's edge (measured: splits_b edge (5,6) t=0.62276 and
+  t=0.62517, both at the junction) — a second, latent conformality
+  wound for every merge whose p sits on an input edge.
+  **Design (this increment, all gated on `YANG_S0_FIG11_MERGE_ENABLE`
+  so gate-OFF stays byte-identical):**
+  - *Rim-chain boundary-order settle check* (`settle_rim_chain_order`,
+    rim_chords.rs): when a gate pass ends quiescent, re-scan every rim
+    chord's crossing set (the exact collinearity + parameter-window
+    predicate of `collect_ring_crossings`, so the policed set IS the
+    propagated set); in chord-parameter order the resolved azimuthal
+    offsets must be monotone. On an adjacent inversion, revert the
+    DISPLACED member(s) (coords ≠ lift — two undisplaced chord points
+    cannot invert, so a victim always exists) to their chord lift
+    (amendment-2 semantics at chord granularity), restore any merge
+    partners of a reverted target, mark it merge-ineligible, set
+    `changed`, and let the gate ladder re-run. One inversion per
+    firing; termination: the reverted set grows monotonically.
+    P10-clean: an exact order invariant plus the sanctioned loud
+    fallback — no acceptance band. The azimuth sort itself is the
+    revolved lateral's arc-length parameterization and cannot honor a
+    non-monotone chain (forcing boundary order would emit bowtie
+    laterals); the chain must be MADE monotone, not the sort changed.
+  - *Merge bookkeeping*: record (p, q, p_orig); ANY revert of q (settle
+    check or amendment-2) restores p to p_orig — merges propagate
+    through the revert path exactly like mints do.
+  - *Split-table identification*: `collect_edge_splits` additionally
+    dedups an entry whose resolved position equals a SURVIVING merge
+    target's position (scoped to merge-produced twins via a
+    merged-positions set, so gate-OFF stays byte-identical) — the
+    §4.4.1 merge identification carried through the §4.5.5 propagation,
+    the same argument as the M-B emission drop.
+  - *i6 probe fix* (boolean.rs, diagnostic-only): aggregate per
+    canonical pair before comparing so one-sided edges are reported.
+  Then the corpus bar (R0099 win preserved, zero CORRECT→ERROR), and
+  R0025/R0026's shared wall anchored at the flip.
+- **inc-3.6 — FLIPPED ALWAYS-ON 2026-07-30; the env var is removed.**
+  Increment results, measured end to end:
+  - R0059 gate-ON `single_case`: **SUPPORTED_CORRECT** (the settle check
+    reverts the leaping junction, restores partner v20; op 002's
+    canonical-latent leap settles too — **0 i6 seam lines gate-ON vs 4 in
+    canonical gate-OFF**). R0099: behavior identical to inc-3.1 (3 merges
+    fire, settle never triggers — the check discriminates; the chain pin
+    is green both modes; `single_case` stays the digit-identical
+    VertexOffSurface(18) ERROR awaiting the split arm / region parity).
+  - **Determinism bar:** full corpus gate-OFF vs the TRUE canonical —
+    0 category + 0 detail changes across 312. (Found while comparing:
+    commit 673a5426 had accidentally committed the inc-3.3 GATE-ON
+    `results.json` — the runner overwrites that committed file on every
+    full run, so a measured-then-rejected experiment leaves its
+    regression in the tree unless restored. Corrected in this commit;
+    compare future baselines against `git show`, not the working tree.)
+  - **Flip bar:** gate-OFF vs gate-ON — **zero CORRECT→ERROR** (all 259
+    CORRECT stay CORRECT, R0059 included). 2 category changes, both
+    non-CORRECT recategorizations onto the loud typed M8 wall:
+    **F0067, F0072 ERROR → UNSUPPORTED(coplanar-boolean)** (their
+    repaired Stage-0 meshes now reach the coplanar-input-pair check —
+    the inc-3.3 pattern, with F0072 replacing F0064, which stays ERROR
+    under the settle check). 2 ERROR detail shifts: C0048, R0026.
+    Bar met ⇒ merge arm + settle check + split-table identification
+    always-on; the ON run's `results.json` is the new canonical
+    (259C/0W/49E/0T + 2 recategorized UNSUPPORTED).
+  - Residuals carried forward: the R0025/R0026 shared
+    `input B-Rep is not 2-manifold` wall (anchor before assuming it is
+    the region form), the inc-3.2 vertex-inserting split (vert 9 = the
+    R0099 conversion), and inc-3 region-form parity.

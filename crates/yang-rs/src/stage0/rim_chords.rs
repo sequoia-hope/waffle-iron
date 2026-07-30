@@ -1041,3 +1041,362 @@ pub(crate) fn arc_lateral_opposite(
     }
     Err("mixed-arc-no-lateral")
 }
+
+/// Amendment 13 inc-3.5 (spec `m8_stage0_multiclass_cavity_arm` §10d):
+/// rim-chain boundary-order settle check.
+///
+/// Every rim chord's crossing set is consumed by TWO orderings: the cap
+/// overlay emits the chain in chord-parameter order, while the ring builder
+/// (`stage1_tessellate` slot sort) orders the same points by azimuth — the
+/// revolved lateral's arc-length parameterization, which cannot honor a
+/// non-monotone chain (forcing boundary order there would emit bowtie
+/// laterals). A JUNCTION mint (exact circle∩line) is azimuthally displaced
+/// from its chord anchor by up to the snap displacement, so a kept junction
+/// beside a fold-REVERTED neighbor can azimuthally leap past it (measured:
+/// R0059 op 001, v25M −104.281° vs v19rev −105.055° at chord order
+/// v25 < v19) — the two consumers then disagree and the shared boundary
+/// desynchronizes (unpaired mesh edges).
+///
+/// This check runs when a gate pass ends quiescent: per chord, gather the
+/// crossing set with the SAME exact collinearity + parameter-window
+/// predicate as `collect_ring_crossings` (the policed set IS the propagated
+/// set), and verify the resolved points' angular order about the rim center
+/// matches chord-parameter order — decided in EXACT rational arithmetic
+/// (orientation signs; no f64 atan2, no band). On an adjacent inversion,
+/// revert the DISPLACED member(s) — two undisplaced chord points cannot
+/// invert, so a victim always exists — to their chord lift (amendment-2
+/// semantics at chord granularity), restore any merge partner of a
+/// reverted target, and mark the target merge-ineligible (`settled`).
+/// One inversion per firing; the caller re-runs the gate ladder and calls
+/// again. Termination: `settled` grows monotonically. Interior-pair scope
+/// only: a leap past the chord's END CORNER is a named non-goal (no
+/// measured customer; corners are not revertable anchors).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn settle_rim_chain_order(
+    ctxs: &[RimChordCtx],
+    overlay: &ClassifiedOverlay,
+    coords: &mut [Point3],
+    minted_mark: &[bool],
+    frame: &Frame,
+    merges: &[(u32, u32, Point3)],
+    settled: &mut std::collections::BTreeSet<u32>,
+    probe_flip: bool,
+) -> usize {
+    let rat2 = |u: f64, v: f64| ExactPoint2::from_f64(u, v);
+    for ctx in ctxs {
+        let (cu, cv) = frame.project(ctx.center);
+        let Some(c2) = rat2(cu, cv) else { continue };
+        for (s2, e2) in &ctx.chords {
+            // Chord arc direction about the center, exact.
+            let sx = &s2.x - &c2.x;
+            let sy = &s2.y - &c2.y;
+            let ex = &e2.x - &c2.x;
+            let ey = &e2.y - &c2.y;
+            let dir = &sx * &ey - &sy * &ex;
+            if dir == RBig::ZERO {
+                continue; // degenerate (antipodal) — not this check's class
+            }
+            let ccw = dir > RBig::ZERO;
+            // Crossing set: exact collinearity, interior parameter window —
+            // mirrors `collect_ring_crossings` verbatim.
+            let dx = &e2.x - &s2.x;
+            let dy = &e2.y - &s2.y;
+            let len2 = &dx * &dx + &dy * &dy;
+            if len2 == RBig::ZERO {
+                continue;
+            }
+            let mut found: Vec<(RBig, usize)> = Vec::new();
+            for (vi, q) in overlay.exact_verts.iter().enumerate() {
+                let wx = &q.x - &s2.x;
+                let wy = &q.y - &s2.y;
+                if &dx * &wy - &dy * &wx != RBig::ZERO {
+                    continue;
+                }
+                let t = (&dx * &wx + &dy * &wy) / &len2;
+                let tf = t.to_f64().value();
+                if !(tf > 1.0e-6 && tf < 1.0 - 1.0e-6) {
+                    continue;
+                }
+                found.push((t, vi));
+            }
+            if found.len() < 2 {
+                continue;
+            }
+            found.sort_by(|a, b| a.0.cmp(&b.0));
+            // Resolved angular positions (exact rationals of the resolved
+            // projections — deterministic, jitter-free order predicate).
+            let proj: Vec<Option<ExactPoint2>> = found
+                .iter()
+                .map(|&(_, vi)| {
+                    let (u, v) = frame.project(coords[vi]);
+                    rat2(u, v)
+                })
+                .collect();
+            for i in 0..found.len() - 1 {
+                let (Some(pi), Some(pj)) = (&proj[i], &proj[i + 1]) else {
+                    continue;
+                };
+                let ax = &pi.x - &c2.x;
+                let ay = &pi.y - &c2.y;
+                let bx = &pj.x - &c2.x;
+                let by = &pj.y - &c2.y;
+                let cross = &ax * &by - &ay * &bx;
+                let inverted = if ccw {
+                    cross < RBig::ZERO
+                } else {
+                    cross > RBig::ZERO
+                };
+                if !inverted {
+                    continue;
+                }
+                // Revert the displaced member(s) of the pair.
+                let mut reverted = 0usize;
+                for &(_, vi) in [&found[i], &found[i + 1]] {
+                    let q = overlay.verts[vi];
+                    let lift = frame.lift(q.x(), q.y());
+                    if let Some(&(mp, mq, orig)) =
+                        merges.iter().find(|&&(mp, _, _)| mp as usize == vi)
+                    {
+                        // A merged partner out of order: restore it and
+                        // block its target from re-absorbing it.
+                        if coords[vi] != orig {
+                            if probe_flip {
+                                eprintln!(
+                                    "[rim-order-settle] partner {vi} restored \
+                                     (target {mq}) {:?} -> {orig:?}",
+                                    coords[vi]
+                                );
+                            }
+                            coords[vi] = orig;
+                            settled.insert(mq);
+                            let _ = mp;
+                            reverted += 1;
+                        }
+                    } else if minted_mark[vi] && coords[vi] != lift {
+                        if probe_flip {
+                            eprintln!(
+                                "[rim-order-settle] vert {vi} angular-order \
+                                 inversion -> chord {lift:?} (was {:?})",
+                                coords[vi]
+                            );
+                        }
+                        coords[vi] = lift;
+                        settled.insert(vi as u32);
+                        for &(mp, mq, orig) in merges {
+                            if mq as usize == vi && coords[mp as usize] != orig {
+                                if probe_flip {
+                                    eprintln!(
+                                        "[rim-order-settle]   partner {mp} of \
+                                         reverted target {mq} restored"
+                                    );
+                                }
+                                coords[mp as usize] = orig;
+                            }
+                        }
+                        reverted += 1;
+                    }
+                }
+                if reverted > 0 {
+                    return reverted;
+                }
+                // Defensive: an inversion with no displaced member should be
+                // geometrically impossible — probe loudly, keep scanning.
+                if probe_flip {
+                    eprintln!(
+                        "[rim-order-settle] UNREVERTABLE inversion verts \
+                         {} / {} (no displaced member)",
+                        found[i].1,
+                        found[i + 1].1
+                    );
+                }
+            }
+        }
+    }
+    0
+}
+
+#[cfg(test)]
+mod settle_tests {
+    //! Amendment 13 inc-3.5 unit oracles (spec
+    //! `m8_stage0_multiclass_cavity_arm` §10d): rim-chain boundary-order
+    //! settle check. Fixtures live on the z=0 plane with the identity
+    //! frame and the UNIT circle centered at the origin; the policed chord
+    //! is the vertical secant x = cos 30° spanning azimuth [−30°, +30°].
+    //! R0059's measured shape in miniature: a kept junction mint whose
+    //! on-circle azimuth LEAPS PAST a fold-reverted neighbor's chord
+    //! azimuth, with a merged partner twinned onto the junction.
+
+    use super::{settle_rim_chain_order, Frame, RimChordCtx};
+    use crate::coplanar_overlay::{ClassifiedOverlay, ExactPoint2};
+    use cad_primitives::{Point2, Point3};
+    use std::collections::BTreeMap;
+    use std::collections::BTreeSet;
+
+    const CX: f64 = 0.866_025_403_784_438_7; // cos 30°
+
+    fn frame_z0() -> Frame {
+        Frame {
+            n: [0.0, 0.0, 1.0],
+            d: 0.0,
+            o: [0.0, 0.0, 0.0],
+            e1: [1.0, 0.0, 0.0],
+            e2: [0.0, 1.0, 0.0],
+        }
+    }
+
+    fn overlay_of(uv: &[(f64, f64)]) -> ClassifiedOverlay {
+        ClassifiedOverlay {
+            verts: uv.iter().map(|&(u, v)| Point2::new(u, v)).collect(),
+            exact_verts: uv
+                .iter()
+                .map(|&(u, v)| ExactPoint2::from_f64(u, v).unwrap())
+                .collect(),
+            tris: Vec::new(),
+            class: Vec::new(),
+            poly_a: Vec::new(),
+            poly_b: Vec::new(),
+            fused: BTreeMap::new(),
+        }
+    }
+
+    fn ctx_unit_circle() -> RimChordCtx {
+        RimChordCtx {
+            chords: vec![(
+                ExactPoint2::from_f64(CX, -0.5).unwrap(),
+                ExactPoint2::from_f64(CX, 0.5).unwrap(),
+            )],
+            other_segs: Vec::new(),
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+        }
+    }
+
+    fn on_circle(deg: f64) -> Point3 {
+        let (s, c) = deg.to_radians().sin_cos();
+        Point3::new(c, s, 0.0)
+    }
+
+    /// Radial projection of a chord point onto the circle — azimuth-true.
+    fn radial(u: f64, v: f64) -> Point3 {
+        let r = (u * u + v * v).sqrt();
+        Point3::new(u / r, v / r, 0.0)
+    }
+
+    /// The measured R0059 shape: kept junction (chord t=0.2) resolved at
+    /// azimuth +10°, PAST the reverted neighbor (t=0.4, at its chord lift,
+    /// azimuth ≈ −6.6°). One settle call reverts exactly the junction,
+    /// restores its merged partner, and blocks the target; a second call
+    /// finds the chord monotone.
+    #[test]
+    fn junction_leap_reverts_and_restores_partner() {
+        let overlay = overlay_of(&[(CX, -0.3), (CX, -0.1), (CX, 0.2), (2.0, 2.0)]);
+        let p_orig = Point3::new(2.0, 2.0, 0.0);
+        let junction = on_circle(10.0);
+        let mut coords = vec![
+            junction,                   // v0 kept junction mint — the leaper
+            Point3::new(CX, -0.1, 0.0), // v1 reverted mint (at lift)
+            radial(CX, 0.2),            // v2 kept radial mint — azimuth-true
+            junction,                   // v3 merged partner (bit-twin of v0)
+        ];
+        let minted = vec![true, true, true, false];
+        let merges = vec![(3u32, 0u32, p_orig)];
+        let mut settled: BTreeSet<u32> = BTreeSet::new();
+        let frame = frame_z0();
+        let n = settle_rim_chain_order(
+            &[ctx_unit_circle()],
+            &overlay,
+            &mut coords,
+            &minted,
+            &frame,
+            &merges,
+            &mut settled,
+            false,
+        );
+        assert_eq!(n, 1, "exactly the junction reverts");
+        assert_eq!(
+            coords[0],
+            Point3::new(CX, -0.3, 0.0),
+            "leaper reverted to its chord lift"
+        );
+        assert_eq!(coords[3], p_orig, "merged partner restored");
+        assert_eq!(coords[1], Point3::new(CX, -0.1, 0.0), "neighbor untouched");
+        assert_eq!(coords[2], radial(CX, 0.2), "azimuth-true mint untouched");
+        assert!(settled.contains(&0), "target blocked from re-merge");
+        let snapshot = coords.clone();
+        let n2 = settle_rim_chain_order(
+            &[ctx_unit_circle()],
+            &overlay,
+            &mut coords,
+            &minted,
+            &frame,
+            &merges,
+            &mut settled,
+            false,
+        );
+        assert_eq!(n2, 0, "settled chord is monotone");
+        assert_eq!(coords, snapshot, "no further mutation");
+    }
+
+    /// The partner itself sits ON the chord and was merged onto an
+    /// off-chord target: the settle restores the PARTNER (not a mint
+    /// revert) and blocks the target — the re-merge livelock guard.
+    #[test]
+    fn out_of_order_partner_is_restored_and_target_settled() {
+        let overlay = overlay_of(&[(CX, -0.3), (CX, -0.1), (1.2, 0.7)]);
+        let p_orig = Point3::new(CX, -0.3, 0.0);
+        let target = on_circle(20.0);
+        let mut coords = vec![
+            target,                     // v0 partner, twinned onto the target
+            Point3::new(CX, -0.1, 0.0), // v1 plain chord vertex
+            target,                     // v2 the (off-chord) merge target
+        ];
+        let minted = vec![false, false, true];
+        let merges = vec![(0u32, 2u32, p_orig)];
+        let mut settled: BTreeSet<u32> = BTreeSet::new();
+        let frame = frame_z0();
+        let n = settle_rim_chain_order(
+            &[ctx_unit_circle()],
+            &overlay,
+            &mut coords,
+            &minted,
+            &frame,
+            &merges,
+            &mut settled,
+            false,
+        );
+        assert_eq!(n, 1);
+        assert_eq!(coords[0], p_orig, "partner restored to its origin");
+        assert_eq!(coords[2], target, "off-chord target itself untouched");
+        assert!(settled.contains(&2), "target blocked from re-merge");
+    }
+
+    /// A monotone chord — junction kept INSIDE its azimuthal slot beside a
+    /// reverted neighbor — is untouched (the discriminating case: R0099's
+    /// merges must survive the check).
+    #[test]
+    fn monotone_chord_is_untouched() {
+        let overlay = overlay_of(&[(CX, -0.3), (CX, -0.1), (CX, 0.2)]);
+        let mut coords = vec![
+            on_circle(-12.0),           // v0 junction kept, azimuth between −30° and v1
+            Point3::new(CX, -0.1, 0.0), // v1 reverted (lift)
+            radial(CX, 0.2),            // v2 radial mint
+        ];
+        let minted = vec![true, true, true];
+        let mut settled: BTreeSet<u32> = BTreeSet::new();
+        let frame = frame_z0();
+        let snapshot = coords.clone();
+        let n = settle_rim_chain_order(
+            &[ctx_unit_circle()],
+            &overlay,
+            &mut coords,
+            &minted,
+            &frame,
+            &[],
+            &mut settled,
+            false,
+        );
+        assert_eq!(n, 0);
+        assert_eq!(coords, snapshot);
+        assert!(settled.is_empty());
+    }
+}

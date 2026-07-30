@@ -714,6 +714,9 @@ pub(crate) fn overlay_nary_group(
     // face's boundary edges propagate into the adjacent faces (existing
     // per-face collector; `used` spans the whole side, the exact
     // on-open-segment test scopes splits to each face's own edges). ─────
+    // No merge arm on the n-ary path (slice-g B8 deferral) — the
+    // merged-target dedup set is empty, i.e. the historical behavior.
+    let no_merged_pts = std::collections::BTreeSet::new();
     for &fa in &group.faces_a {
         collect_edge_splits(
             a,
@@ -724,6 +727,7 @@ pub(crate) fn overlay_nary_group(
             &overlay,
             [RegionClass::AOnly, RegionClass::Overlap],
             &coords,
+            &no_merged_pts,
             splits_a,
         );
     }
@@ -737,6 +741,7 @@ pub(crate) fn overlay_nary_group(
             &overlay,
             [RegionClass::BOnly, RegionClass::Overlap],
             &coords,
+            &no_merged_pts,
             splits_b,
         );
     }

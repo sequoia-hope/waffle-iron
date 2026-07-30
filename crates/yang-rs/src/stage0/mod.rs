@@ -1063,11 +1063,23 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             }
         }
 
-        // Amendment 13 gate (spec `m8_stage0_multiclass_cavity_arm` §10d):
-        // the Fig-11(b→c) MERGE arm (inc-3.1), env-gated until its corpus
-        // flip. The Fig-11(a) SPLIT arm is measurement-only pending the
-        // vertex-inserting design (§10d inc-3.2).
-        let merge_arm = std::env::var_os("YANG_S0_FIG11_MERGE_ENABLE").is_some();
+        // Amendment 13 (spec `m8_stage0_multiclass_cavity_arm` §10d): the
+        // Fig-11(b→c) MERGE arm (inc-3.1) + the rim-chain boundary-order
+        // settle check (inc-3.5), ALWAYS-ON since the inc-3.6 corpus flip
+        // (2026-07-30: zero CORRECT→ERROR; F0067/F0072 recategorized onto
+        // the loud typed coplanar wall). The Fig-11(a) SPLIT arm is
+        // measurement-only pending the vertex-inserting design (§10d
+        // inc-3.2).
+        // Amendment 13 inc-3.5 bookkeeping (spec §10d): every committed
+        // merge is recorded as (p, q, p's original position) so a later
+        // revert of the TARGET — by the amendment-2 fallback or the
+        // boundary-order settle check below — restores its partner:
+        // merges propagate through the revert path exactly like mints do.
+        // `merge_settled` marks targets that are no longer mergeable (their
+        // keep was reverted); both are inert gate-OFF (no merges recorded).
+        let mut merges: Vec<(u32, u32, Point3)> = Vec::new();
+        let mut merge_settled: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        let probe_flip = std::env::var_os("YANG_SPLIT_PROBE").is_some();
         loop {
             let mut changed = false;
             for ti in 0..overlay.tris.len() {
@@ -1090,7 +1102,6 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 // folds crossing another input's edges are NOT flippable —
                 // their edges are class boundaries).
                 let mut flipped = false;
-                let probe_flip = std::env::var_os("YANG_SPLIT_PROBE").is_some();
                 for k in 0..3 {
                     let (ea, eb) = (t[k], t[(k + 1) % 3]);
                     let c = t[(k + 2) % 3];
@@ -1299,7 +1310,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 // strictly reduce distinct positions (bounded), so the
                 // lexicographic (merges, folds) termination argument holds.
                 let mut merged = false;
-                if !relocated && merge_arm {
+                if !relocated {
                     if let Some((mp, mq, overshoot, chord_len)) = merge_pair {
                         // Displacement guard (§10c): the merge may only
                         // absorb a vertex inside the zone the mint's own
@@ -1352,6 +1363,13 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                         }
                         if mergeable_mark[mp as usize]
                             && coords[mp as usize] != coords[mq as usize]
+                            && !merge_settled.contains(&mq)
+                            // One live merge per partner: a second absorb of
+                            // the same p would record a corrupted origin (the
+                            // first target's position) and make restoration
+                            // ambiguous — refuse it, the amendment-2 revert
+                            // stays the fallback (no measured customer).
+                            && !merges.iter().any(|&(pp, _, _)| pp == mp)
                             && gap <= disp
                             && contained
                         {
@@ -1363,15 +1381,19 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                                     p.face_a, p.face_b, coords[mp as usize], coords[mq as usize]
                                 );
                             }
+                            merges.push((mp, mq, coords[mp as usize]));
                             coords[mp as usize] = coords[mq as usize];
                             merged = true;
                             changed = true;
                         } else if probe_flip {
                             eprintln!(
                                 "[fold-merge-reject] pair=({},{}) tri {ti} p={mp} q={mq} \
-                                 mergeable={} gap={gap:e} disp={disp:e} \
+                                 mergeable={} settled={} gap={gap:e} disp={disp:e} \
                                  overshoot={overshoot:e} sagitta={sagitta:?}",
-                                p.face_a, p.face_b, mergeable_mark[mp as usize],
+                                p.face_a,
+                                p.face_b,
+                                mergeable_mark[mp as usize],
+                                merge_settled.contains(&mq),
                             );
                         }
                     }
@@ -1426,11 +1448,64 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                             }
                             coords[vi] = lifted;
                             changed = true;
+                            // inc-3.5: a reverted mint is no longer a valid
+                            // merge target — restore any partner merged into
+                            // it (else the partner is a stale bit-twin of a
+                            // position no vertex holds) and block re-merges.
+                            merge_settled.insert(v);
+                            for &(mp, mq, orig) in &merges {
+                                if mq == v && coords[mp as usize] != orig {
+                                    if probe_flip {
+                                        eprintln!(
+                                            "[fold-revert]   merge partner {mp} of \
+                                             reverted target {mq} restored"
+                                        );
+                                    }
+                                    coords[mp as usize] = orig;
+                                }
+                            }
                         }
                     }
                 }
             }
             if !changed {
+                // ── Amendment 13 inc-3.5 (spec §10d): rim-chain boundary-
+                // order settle check, run at quiescence. The cap overlay
+                // emits each rim chord's crossing chain in chord-parameter
+                // order; the ring builder re-orders the same points by
+                // azimuth. A kept junction mint beside a fold-reverted
+                // neighbor can azimuthally leap past it, desynchronizing
+                // the two consumers (the R0059 seam). The check reverts the
+                // displaced member of an inverted pair (amendment-2
+                // semantics at chord granularity), restores merge partners,
+                // and re-runs the ladder. The inversion class also exists
+                // merge-free (R0059 op 002, canonical-latent), so the
+                // check polices every pair, not just merged ones.
+                let mut n = settle_rim_chain_order(
+                    &rim_ctxs_a,
+                    &overlay,
+                    &mut coords,
+                    &minted_mark,
+                    frame,
+                    &merges,
+                    &mut merge_settled,
+                    probe_flip,
+                );
+                if n == 0 {
+                    n = settle_rim_chain_order(
+                        &rim_ctxs_b,
+                        &overlay,
+                        &mut coords,
+                        &minted_mark,
+                        frame,
+                        &merges,
+                        &mut merge_settled,
+                        probe_flip,
+                    );
+                }
+                if n > 0 {
+                    continue;
+                }
                 break;
             }
         }
@@ -1482,6 +1557,17 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // §4.5.5 shared boundary sampling: overlay vertices subdividing a
         // face's boundary edges propagate to the adjacent faces. (Disc pairs
         // never reach here — they `continue` from the direct builder above.)
+        // inc-3.5: positions of SURVIVING merge targets — the split
+        // collector collapses a merged pair's two same-position entries to
+        // one (empty gate-OFF, so the historical path is byte-identical).
+        let merged_pts: std::collections::BTreeSet<[u64; 3]> = merges
+            .iter()
+            .filter(|&&(mp, mq, _)| coords[mp as usize] == coords[mq as usize])
+            .map(|&(_, mq, _)| {
+                let a = coords[mq as usize].as_array();
+                [a[0].to_bits(), a[1].to_bits(), a[2].to_bits()]
+            })
+            .collect();
         collect_edge_splits(
             a,
             p.face_a,
@@ -1491,6 +1577,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             &overlay,
             [RegionClass::AOnly, RegionClass::Overlap],
             &coords,
+            &merged_pts,
             &mut splits_a,
         );
         collect_edge_splits(
@@ -1502,6 +1589,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             &overlay,
             [RegionClass::BOnly, RegionClass::Overlap],
             &coords,
+            &merged_pts,
             &mut splits_b,
         );
 
