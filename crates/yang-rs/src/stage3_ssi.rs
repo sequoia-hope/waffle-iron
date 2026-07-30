@@ -10,36 +10,38 @@ use crate::*;
 // =========================================================================
 
 /// A position-keyed undirected edge set: sorted pairs of coordinate bit
-/// triples (see [`pos_key`]).
+/// triples (see [`pos_key`]). The producer's per-EDGE intersection
+/// provenance (`LabeledArrangement::intersection_edges`) travels to Stage 3
+/// in this form — POSITION-keyed through the weld so it survives the
+/// compaction between the arrangement and the Stage-3/4 mesh (the
+/// `minted_junction_keys` bit-pattern precedent). Position keys are valid
+/// only BEFORE Stage-4 relocation moves vertices (spec
+/// `specs/yang_s3_intersection_edge_provenance.md`, inc-2 measurement), so
+/// only the FIRST `compute_phase_a` pass receives a non-empty set; every
+/// post-relocation recompute passes [`NO_EDGE_PROVENANCE`] and keeps
+/// today's geometric-gate behavior.
 pub(crate) type PosKeyedEdgeSet = std::collections::BTreeSet<([u64; 3], [u64; 3])>;
 
-thread_local! {
-    /// Diagnostic only (`YANG_S3_PROVENANCE_PROBE`): the producer's per-EDGE
-    /// intersection provenance (`LabeledArrangement::intersection_edges`,
-    /// spec `specs/yang_s3_intersection_edge_provenance.md` inc-2 first
-    /// measurement), POSITION-keyed as sorted pairs of coordinate bit
-    /// triples so it survives the weld + compaction between the arrangement
-    /// and the Stage-3/4 mesh (the `minted_junction_keys` precedent).
-    /// Set by `boolean_once` under the same env gate; read by
-    /// `build_intersection_curves` to report, per incidence edge, whether
-    /// the producer minted it — INDEPENDENTLY of the on-both geometric gate.
-    static S3_EDGE_PROVENANCE: std::cell::RefCell<Option<PosKeyedEdgeSet>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-/// Diagnostic only (`YANG_S3_PROVENANCE_PROBE`): install the position-keyed
-/// provenance set for the CURRENT boolean (overwrites the previous one —
-/// single-threaded pipeline). No-op storage when the gate is off (callers
-/// check the gate before building the set).
-pub(crate) fn probe_set_edge_provenance(set: PosKeyedEdgeSet) {
-    S3_EDGE_PROVENANCE.with(|c| *c.borrow_mut() = Some(set));
-}
+/// The empty provenance set for call sites where provenance is unavailable
+/// or (post-relocation) no longer position-valid.
+pub(crate) static NO_EDGE_PROVENANCE: PosKeyedEdgeSet = PosKeyedEdgeSet::new();
 
 /// Position bit-key of a mesh vertex for the provenance lookup.
 pub(crate) fn pos_key(p: Point3) -> [u64; 3] {
     let a = p.as_array();
     [a[0].to_bits(), a[1].to_bits(), a[2].to_bits()]
 }
+
+// The inc-2 provenance-first classification (spec
+// `specs/yang_s3_intersection_edge_provenance.md` §3b/§3c) is ALWAYS-ON as
+// of 2026-07-30: it engages exactly when the producer supplied per-edge
+// provenance (`!edge_provenance.is_empty()`), so provenance-less producers
+// (the sidecar parity oracle, hand-built fixtures) keep the historical
+// geometric-gate behavior byte-identically. Flip measurement, back-to-back
+// full-corpus runs: OFF 257C/0W/53E/0T byte-identical; ON 258C/0W/52E/0T —
+// exactly one category delta (F0083 ERROR→CORRECT), zero CORRECT→ERROR,
+// plus four already-ERROR cases advancing to later ops (F0082 3→1 failing
+// ops, F0085 2→1).
 
 /// PR-YR9: convert a yang `Surface` into the analytical `ssi_rs::QuadricSurface`
 /// for Stage-3 SSI (spec §5.2).
@@ -555,24 +557,24 @@ pub(crate) fn build_intersection_curves(
     mesh: &Mesh,
     a: &BRep,
     b: &BRep,
+    edge_provenance: &PosKeyedEdgeSet,
 ) -> Result<std::collections::BTreeMap<(u32, u32), Curve>, YangError> {
     let mut out: std::collections::BTreeMap<(u32, u32), Curve> = std::collections::BTreeMap::new();
-    // `YANG_S3_PROVENANCE_PROBE` accounting (spec inc-2 first measurement):
-    // per-edge producer provenance vs this function's own classification.
+    // Producer per-EDGE provenance (spec §3b): a CONFIRMED edge is one the
+    // arrangement itself minted as an intersection constraint. Behavior
+    // changes only behind `edge_provenance_enabled()`; the
+    // `YANG_S3_PROVENANCE_PROBE` reporting observes either way.
     let probe_on = std::env::var_os("YANG_S3_PROVENANCE_PROBE").is_some();
+    let prov_enabled = !edge_provenance.is_empty();
     let prov_of = |s: u32, e: u32| -> Option<bool> {
-        if !probe_on {
+        if edge_provenance.is_empty() {
             return None;
         }
-        S3_EDGE_PROVENANCE.with(|c| {
-            c.borrow().as_ref().map(|set| {
-                let (ka, kb) = (
-                    pos_key(mesh.verts[s as usize]),
-                    pos_key(mesh.verts[e as usize]),
-                );
-                set.contains(&(ka.min(kb), ka.max(kb)))
-            })
-        })
+        let (ka, kb) = (
+            pos_key(mesh.verts[s as usize]),
+            pos_key(mesh.verts[e as usize]),
+        );
+        Some(edge_provenance.contains(&(ka.min(kb), ka.max(kb))))
     };
     let mut probe_counts = [0usize; 6]; // [seen, confirmed, c_len, c_same_input, c_onboth, c_other]
     for (&(s, e), entries) in incidence {
@@ -584,7 +586,7 @@ pub(crate) fn build_intersection_curves(
             }
         }
         if entries.len() != 2 {
-            if prov == Some(true) {
+            if probe_on && prov == Some(true) {
                 probe_counts[2] += 1;
                 eprintln!(
                     "YANG_S3_PROV confirmed-SKIP site=len edge=({s},{e}) n_entries={}",
@@ -596,7 +598,7 @@ pub(crate) fn build_intersection_curves(
         let (input0, surf0) = entries[0];
         let (input1, surf1) = entries[1];
         if input0 == input1 {
-            if prov == Some(true) {
+            if probe_on && prov == Some(true) {
                 probe_counts[3] += 1;
                 eprintln!(
                     "YANG_S3_PROV confirmed-SKIP site=same_input edge=({s},{e}) surf={surf0:?}"
@@ -682,7 +684,18 @@ pub(crate) fn build_intersection_curves(
             Ok(signed_distance_to_surface(surf0, pt)?.abs() <= tol
                 && signed_distance_to_surface(surf1, pt)?.abs() <= tol)
         };
-        if !(on_both(p_s)? && on_both(p_e)?) {
+        let s_on = on_both(p_s)?;
+        let e_on = on_both(p_e)?;
+        // Provenance override (spec §3b, gated): a producer-CONFIRMED edge is
+        // an intersection edge by construction; the on-both gate must not
+        // veto it because of the very endpoint drift Stage-4 relocation
+        // exists to fix. It proceeds in WITNESS mode: the curve is selected
+        // through the endpoint(s) that ARE on both surfaces, and the drifted
+        // endpoint becomes a Stage-4 relocation obligation onto that curve.
+        // A confirmed edge with NO witness still reaches the loud
+        // `AmbiguousCurve` below (P9 — never silently guess).
+        let overridden = prov_enabled && prov == Some(true) && !(s_on && e_on);
+        if !(s_on && e_on) && !overridden {
             if let Ok(list) = std::env::var("YANG_V_PROBE") {
                 if list
                     .split(',')
@@ -738,7 +751,7 @@ pub(crate) fn build_intersection_curves(
                     );
                 }
             }
-            if prov == Some(true) {
+            if probe_on && prov == Some(true) {
                 probe_counts[4] += 1;
                 eprintln!(
                     "YANG_S3_PROV confirmed-SKIP site=on_both edge=({s},{e}) tol={tol:.3e} \
@@ -751,13 +764,23 @@ pub(crate) fn build_intersection_curves(
             }
             continue;
         }
-        if prov == Some(false) {
+        if probe_on && prov == Some(false) {
             // Past the gate with NO producer provenance: either a plane∩plane
             // seam (legitimately curve-bearing without a constraint — the
             // §4.5.5 overlay route), or a gate admission the producer would
             // refuse. Count under "other" and report for the census.
             probe_counts[5] += 1;
             eprintln!("YANG_S3_PROV unconfirmed-ADMIT edge=({s},{e}) surfs=({surf0:?},{surf1:?})");
+        }
+        if probe_on && overridden {
+            eprintln!(
+                "YANG_S3_PROV override-ADMIT edge=({s},{e}) witness=({s_on},{e_on}) tol={tol:.3e} \
+                 d_s=({:.3e},{:.3e}) d_e=({:.3e},{:.3e})",
+                signed_distance_to_surface(surf0, p_s)?.abs(),
+                signed_distance_to_surface(surf1, p_s)?.abs(),
+                signed_distance_to_surface(surf0, p_e)?.abs(),
+                signed_distance_to_surface(surf1, p_e)?.abs(),
+            );
         }
 
         // Plane∩Plane: the curve is the unique line through the two (gate-
@@ -889,11 +912,31 @@ pub(crate) fn build_intersection_curves(
                 _ => tol,
             }
         };
+        // Witness-aware selection points (spec §3c): in provenance-override
+        // mode only the endpoint(s) verified on both surfaces vouch for the
+        // curve — the drifted endpoint cannot (its position is the defect) —
+        // and it becomes a Stage-4 relocation obligation onto the selected
+        // curve. Off-override this is exactly the historical both-endpoint
+        // rule. An overridden edge with NO witness keeps both points, so no
+        // candidate matches and the loud `AmbiguousCurve` below reports it.
+        let sel_both = [p_s, p_e];
+        let sel_s = [p_s];
+        let sel_e = [p_e];
+        let sel_pts: &[Point3] = if !overridden {
+            &sel_both
+        } else if s_on {
+            &sel_s
+        } else if e_on {
+            &sel_e
+        } else {
+            &sel_both
+        };
         let mut matched_idx: Option<usize> = None;
         let mut matched = 0usize;
         for (i, curve) in returned.iter().enumerate() {
-            if curve_contains_point(curve, p_s, point_tol(p_s, curve), source_radius)
-                && curve_contains_point(curve, p_e, point_tol(p_e, curve), source_radius)
+            if sel_pts
+                .iter()
+                .all(|&p| curve_contains_point(curve, p, point_tol(p, curve), source_radius))
             {
                 matched += 1;
                 matched_idx = Some(i);
@@ -906,7 +949,11 @@ pub(crate) fn build_intersection_curves(
         // aligns with exactly one curve's tangent. Selected only with a
         // clear margin; otherwise the loud ambiguity stands (P9 — a
         // tie-break, never a band widening).
-        if matched > 1 {
+        // All three tie-break blocks below are BOTH-endpoint machinery
+        // (their re-tests and their geometric premises assume two on-curve
+        // endpoints), so a provenance-overridden edge never enters them —
+        // a witness multi-match stays a loud `AmbiguousCurve` (P9).
+        if matched > 1 && !overridden {
             let edge_dir = {
                 let d = [p_e.x() - p_s.x(), p_e.y() - p_s.y(), p_e.z() - p_s.z()];
                 normalize3(d)
@@ -950,7 +997,7 @@ pub(crate) fn build_intersection_curves(
         // qualifies and the loud `AmbiguousCurve` stands (P9 — a proximity
         // tie-break on geometry the on-both gate already verified, never a band
         // widening). Spec: `specs/yr_r0072_parallel_line_position_tiebreak.md`.
-        if matched > 1 {
+        if matched > 1 && !overridden {
             // Collect the matched candidates that are lines, paired with their
             // `returned` index; bail if any matched candidate is NOT a line (a
             // mixed line/conic multi-match is not the parallel-generator case).
@@ -994,7 +1041,7 @@ pub(crate) fn build_intersection_curves(
         // the loud `AmbiguousCurve` stands (P9 — a proximity tie-break on
         // geometry the on-both gate already verified, never a band widening).
         // Spec `specs/yr_r0008_cone_apex_generators.md`.
-        if matched > 1 {
+        if matched > 1 && !overridden {
             let mut cands: Vec<(Point3, Vector3)> = Vec::new();
             let mut cand_idx: Vec<usize> = Vec::new();
             let mut all_matched_are_lines = true;
@@ -1022,6 +1069,21 @@ pub(crate) fn build_intersection_curves(
 
         let idx = match (matched, matched_idx) {
             (1, Some(idx)) => idx,
+            // Provenance-confirmed edge with NO witness endpoint (both
+            // endpoints drifted — the chain-interior case, e.g. F0083's
+            // (80,118) joining two mis-seated vertices): no containment test
+            // can anchor the selection, but with exactly ONE candidate there
+            // is nothing to be ambiguous about — the producer vouches the
+            // edge lies on this pair's intersection, and this is that
+            // intersection's only curve. Both endpoints become Stage-4
+            // relocation obligations onto it. Multi-candidate no-witness
+            // stays loud (P9 — never guess between branches).
+            (0, None) if overridden && !s_on && !e_on && returned.len() == 1 => {
+                if probe_on {
+                    eprintln!("YANG_S3_PROV no-witness-single-candidate edge=({s},{e}) selected");
+                }
+                0
+            }
             _ => {
                 // Stage-3 diagnosis probe (read-only, env-gated): full selector
                 // context at the loud stop — surfaces, band, candidates, and
@@ -1083,7 +1145,7 @@ pub(crate) fn build_intersection_curves(
         out.insert((s, e), curve);
     }
     if probe_on {
-        let have_set = S3_EDGE_PROVENANCE.with(|c| c.borrow().is_some());
+        let have_set = !edge_provenance.is_empty();
         eprintln!(
             "YANG_S3_PROV summary have_set={have_set} edges_seen={} confirmed={} \
              confirmed_skip_len={} confirmed_skip_same_input={} confirmed_skip_on_both={} \

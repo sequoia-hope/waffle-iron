@@ -684,7 +684,7 @@ buckets:
 | kernel-v2 surface-pair render band (new, 2026-07-28) | 1 confirmed (R0020, fatal) — `surface-pair refinement needs a positive finite chord tolerance` on an output `Curve::SurfacePair` edge |
 | Stage-4 cone-generator LineSegment arm | **0 open** — ~~R0008~~ FLIPPED CORRECT 2026-07-28; ~~R0085-op2~~ and ~~R0081~~ resolved at this layer but still ERROR one layer deeper. The vehicle has no remaining case. **It had 3 cases, not 2** — R0081 sat under `#153 / SUSPECTED` and was found only by re-probing after the fix |
 | Stage-2/3 arrangement incidence (near-coincident surfaces) | 1 confirmed (R0053; R0050 kin, counted under P3a) + **R0049 PARTIAL** (2026-07-29: ~97 adjacency runs on one 214-edge ring — fragmentation consistent with this family, mint unconfirmed, run-count caveated) |
-| P3-§4.5.2 (split budget) | 4 confirmed (R0009, R0047, R0063, R0091) |
+| P3-§4.5.2 (split budget) | 4 confirmed (R0009, R0047, ~~R0063~~ **CONVERTED 2026-07-30** (provenance inc-2 — its live failure had drifted to the silent off-surface class), R0091) |
 | M8 residue | 4 confirmed (R0007, R0071, C0048, F0067) |
 | #153 NonPlanarFace | 2 confirmed (~~R0081~~ re-diagnosed 2026-07-28 → P3a-#146; it was never a #153 case) |
 | kernel-v2 KV9-F2 folded ear-clip | 2 confirmed (R0017, R0100) |
@@ -764,3 +764,32 @@ BEFORE building. Only the producer (the arrangement's constraint segments,
 already computed in `cherchi-rs::group_constraint_segments` and enforced via
 `set_edge_constr`) knows which edges are intersection-minted — Yang §4.2.3
 assumes exactly this provenance.
+
+## Provenance inc-2 SHIPPED ALWAYS-ON (2026-07-30) — +2 CORRECT (F0083, R0063), 259C/0W/51E/0T
+
+`specs/yang_s3_intersection_edge_provenance.md` inc-2: provenance-first
+classification (witness selection + single-candidate no-witness arm) plus
+provenance-vouched exemptions on four Stage-4 band gates (circle, ellipse,
+and both their junction loops — each destination is a closed-form point ON
+the defining surfaces, a certificate the band cannot strengthen). Flip
+measurement: OFF byte-identical (257C); ellipse-arms-only ON 258C (F0083);
+with the circle arms **259C/0W/51E/0T — R0063 converts too** (its
+6.9%-of-radius silently-off vertex, the case that motivated
+strict-validation, now relocates onto its circle). Zero CORRECT→ERROR at
+every step. Collateral: F0082 3→1 failing ops (Extrude-7/10 defects FIXED,
+frontier = the known #130 Extrude-14 wall), F0085 2→1 (chain runs to op 20),
+R0026 reclassifies to a loud Stage-3 stop.
+
+- **~~F0083~~ CONVERTED** — the three provenance-confirmed edges the on_both
+  gate refused are admitted; v118 nearest-point-relocates 1.914e-3 onto its
+  ellipse; v73/v80 resolve through the `(plane∩plane)∩cylinder` junction.
+- **~~R0063~~ CONVERTED** — circle-arm provenance relocation.
+- **R0099 is NOT this class (measured):** its failing subtract has an
+  arrangement with ZERO constraint edges and its producing boolean's 34
+  confirmed edges all pass the gate — the 8.65e-2 vertex has a different,
+  unprobed mint. Stays in the tail as its own row.
+
+Permanent pins: yr18 oracle3 (closed provenance fixture — boolean succeeds,
+the 2.9×-band drifted vertex is gone, its exact projection present;
+stash-verified RED pre-inc-2); oracle1/2 hold the provenance-less path
+byte-identical.

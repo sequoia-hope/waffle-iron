@@ -214,7 +214,13 @@ pub(crate) fn reconstruct_topology(
     // and emit with NO Stage-4 relocation (these fixtures carry no conic edges,
     // so Stage 4 would be a strict no-op anyway). The Stage-4-aware entry point
     // is `reconstruct_topology_stage4`, called by `boolean()`.
-    let (infos, _incidence, intersection_curves) = compute_phase_a(mesh, attribution, a, b)?;
+    let (infos, _incidence, intersection_curves) = compute_phase_a(
+        mesh,
+        attribution,
+        a,
+        b,
+        &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+    )?;
     let (vertices, edges, faces, _sources, _face_attr) =
         emit_topology(mesh, &infos, &intersection_curves, &[], BoolOp::Union)?;
     Ok((vertices, edges, faces))
@@ -233,10 +239,12 @@ pub(crate) fn reconstruct_topology_stage4(
     b: &BRep,
     op: BoolOp,
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
+    edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
 ) -> Result<ReconstructedTopology, YangError> {
     // (4) Phase A: per-patch ordered loops + inherited surface (`infos`), and the
     // exact per-edge intersection `Curve` map.
-    let (mut infos, incidence, mut intersection_curves) = compute_phase_a(mesh, attribution, a, b)?;
+    let (mut infos, incidence, mut intersection_curves) =
+        compute_phase_a(mesh, attribution, a, b, edge_provenance)?;
 
     // KV9-F1 diagnosis probe (read-only, env-gated): kept-set attribution
     // census + per-patch summary at Stage-6 entry.
@@ -375,8 +383,14 @@ pub(crate) fn reconstruct_topology_stage4(
         None
     };
     if has_conic {
-        let (relocs, collapsed) =
-            stage4_relocate_and_correct(mesh, attribution, a, b, minted_junction_keys)?;
+        let (relocs, collapsed) = stage4_relocate_and_correct(
+            mesh,
+            attribution,
+            a,
+            b,
+            minted_junction_keys,
+            edge_provenance,
+        )?;
         relocations = relocs;
         // A §4.5.3 collapse mutated the mesh topology + attribution, so the
         // pre-collapse Phase-A loops are stale (spec §4.1 note). Recompute them
@@ -414,7 +428,13 @@ pub(crate) fn reconstruct_topology_stage4(
             // V−E+F = 2 for a single closed shell). Strict no-op when there were
             // no danglers.
             let remap = compact_unreferenced_verts(mesh, &mut relocations);
-            let (i2, inc2, cv2) = compute_phase_a(mesh, attribution, a, b)?;
+            let (i2, inc2, cv2) = compute_phase_a(
+                mesh,
+                attribution,
+                a,
+                b,
+                &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+            )?;
             // The collapse renumbered vertices: re-key the probe maps or their
             // columns name the wrong vertices (no-op when the gate is off).
             probe_remap_pre_pos("s453", remap.as_ref());
@@ -508,7 +528,13 @@ pub(crate) fn reconstruct_topology_stage4(
         };
         if kv15b_collapsed {
             let remap = compact_unreferenced_verts(mesh, &mut relocations);
-            let (i3, inc3, cv3) = compute_phase_a(mesh, attribution, a, b)?;
+            let (i3, inc3, cv3) = compute_phase_a(
+                mesh,
+                attribution,
+                a,
+                b,
+                &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+            )?;
             // Same re-keying as the §4.5.3 site above. NOTE this site runs even
             // when Stage 4 did not collapse, so omitting it silently misaligns
             // the probe columns on cases that looked unaffected.
@@ -533,7 +559,13 @@ pub(crate) fn reconstruct_topology_stage4(
         };
         if s194_collapsed {
             let remap = compact_unreferenced_verts(mesh, &mut relocations);
-            let (i4, inc4, cv4) = compute_phase_a(mesh, attribution, a, b)?;
+            let (i4, inc4, cv4) = compute_phase_a(
+                mesh,
+                attribution,
+                a,
+                b,
+                &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+            )?;
             probe_remap_pre_pos("s194", remap.as_ref());
             probe_record_incidence(&inc4, &cv4);
             infos = i4;
@@ -577,7 +609,13 @@ pub(crate) fn reconstruct_topology_stage4(
         attribution.attributions = attr_vec;
         if f32_welded {
             let remap = compact_unreferenced_verts(mesh, &mut relocations);
-            let (i5, inc5, cv5) = compute_phase_a(mesh, attribution, a, b)?;
+            let (i5, inc5, cv5) = compute_phase_a(
+                mesh,
+                attribution,
+                a,
+                b,
+                &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+            )?;
             probe_remap_pre_pos("f32weld", remap.as_ref());
             probe_record_incidence(&inc5, &cv5);
             infos = i5;

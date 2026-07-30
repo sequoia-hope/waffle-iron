@@ -42,7 +42,8 @@ pub(crate) fn sweep_reversed_intersections(
         let map = TriangleAttributionMap {
             attributions: std::mem::take(attribution),
         };
-        let phase_a = compute_phase_a(mesh, &map, a, b);
+        // Post-relocation context: position keys are stale, pass no provenance.
+        let phase_a = compute_phase_a(mesh, &map, a, b, &crate::stage3_ssi::NO_EDGE_PROVENANCE);
         *attribution = map.attributions;
         let (infos, incidence, curves) = phase_a?;
 

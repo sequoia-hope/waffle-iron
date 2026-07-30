@@ -488,6 +488,14 @@ residual is the documented conic deferral above).
 intersection-edge invariant; the producer-provenance route remains the durable
 target.
 
+**Durable target LANDED 2026-07-30:** `specs/yang_s3_intersection_edge_provenance.md`
+inc-1+inc-2 always-on — the arrangement's constraint-edge marks now reach
+Stage 3 (`LabeledArrangement::intersection_edges`) and provenance-CONFIRMED
+edges bypass this gate via witness selection with certificate-based Stage-4
+relocation. The on-both gate remains ONLY as the provenance-less fallback
+(sidecar parity, hand-built fixtures — byte-identical there). F0083 + R0063
+ERROR→CORRECT, 259C/0W/51E/0T, zero regressions.
+
 **Cost measured 2026-07-29 (strict-validation exposure):** the gate's "cannot
 regress correctly-classified edges" claim has a counterexample — a TRUE
 intersection edge with ONE drifted endpoint is skipped (the gate's precondition

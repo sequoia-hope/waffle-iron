@@ -200,3 +200,62 @@ so its `intersection_edges` is empty → provenance-less fallback → today's ga
 - The N10 "deferred follow-up" (oblique cone∩plane conics) is untouched —
   a provenance-confirmed conic edge still raises its deliberate loud
   `AmbiguousCurve` until analytic conic support lands (N7).
+
+## inc-2 IMPLEMENTED + FLIPPED ALWAYS-ON (2026-07-30) — +2 CORRECT (F0083, R0063), 259C/0W/51E/0T
+
+**Classification (§3b/§3c), as built.** `build_intersection_curves` takes
+`edge_provenance: &PosKeyedEdgeSet` (built per boolean in `boolean_once`,
+weld-translated position keys). A provenance-CONFIRMED edge failing the
+on-both gate proceeds in WITNESS mode: selection matches candidates against
+the endpoint(s) verified on both surfaces; the drifted endpoint(s) become
+Stage-4 relocation obligations. A confirmed edge with NO witness (both
+endpoints drifted — F0083's (80,118), the chain-interior case) selects iff
+the SSI returns exactly ONE candidate (nothing to be ambiguous about;
+multi-candidate stays loud). The three multi-match tie-breaks are
+both-endpoint machinery and never run in witness mode. Provenance reaches
+Stage 4 through `stage4_relocate_and_correct`'s own `compute_phase_a` scan —
+which runs PRE-relocation, where position keys are valid; every
+post-relocation recompute passes `NO_EDGE_PROVENANCE` and keeps historical
+behavior.
+
+**Relocation obligation (§3c), as built.** `prov_verts` = endpoints of
+confirmed curve edges. Four Stage-4 band gates exempt them — ellipse
+(nearest-point projection replaces the azimuth path), ellipse junction
+(destination already the exact nearest-root `(plane∩plane)∩cylinder` triple
+point), circle (`project_onto_circle` is already distance-minimizing), and
+circle junction (exact circle∩circle corner). The exemption is a
+CERTIFICATE argument, not band widening: each destination is exactly on the
+defining surfaces by closed-form construction, and the band's
+wrong-assignment role is covered by the producer's own constraint marks.
+Cone-conic and line arms are NOT extended (no witness case; extend when one
+appears, with its own measurement).
+
+**Flip measurement (back-to-back full corpus).** Gate-OFF: 257C/0W/53E/0T,
+results.json byte-identical. Gate-ON (ellipse+junction arms): 258C —
+F0083 ERROR→CORRECT, zero CORRECT→ERROR, four already-ERROR cases advance
+(F0082 3→1 failing ops, its Extrude-7/10 defects FIXED; F0085 2→1, chain
+runs to op 20; R0063's silent-wrong vertex stops loudly inside yang; R0026
+reclassifies to a Stage-3 loud stop). With the circle arms: **259C/0W/51E/0T
+— R0063 ERROR→CORRECT as well** (its 6.9%-of-radius drifted vertex — the
+case that motivated strict-validation — now relocates onto its circle).
+Flipped always-on in the same increment (the #195 inc-5 precedent);
+provenance-less producers (sidecar, fixtures) are byte-identical by the
+empty-set fallback, re-verified by yr18 oracle1/2.
+
+**Permanent tests.** `yr18_attribution.rs` oracle3 (stash-verified RED
+pre-inc-2): the yr18 seam geometry CLOSED (top cap + outward disk) with
+provenance populated — the boolean succeeds, the 2.9×-band drifted S0 is
+GONE from the output, and its exact on-circle projection is present.
+oracle1/2 pin the provenance-less path unchanged.
+
+**R0099 is NOT this class (measured).** Its failing subtract has an
+arrangement with ZERO constraint edges (`la had 0`), and its producing
+boolean's 34 confirmed edges all pass the gate — the 8.65e-2 off-surface
+vertex has a different mint. Own investigation; removed from this spec's
+candidate list.
+
+**Open follow-ups:** coplanar-overlap harvest fixture (§4.5.5 boundaries
+route through the same enforcement — verify with a test when M8 work
+resumes); cone-conic/line arm exemptions when a witness case appears;
+consider re-keying provenance through Stage-4 moves (S4_PRE_POS-style) if a
+post-relocation consumer ever needs it.

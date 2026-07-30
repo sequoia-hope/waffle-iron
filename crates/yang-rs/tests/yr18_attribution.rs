@@ -577,3 +577,131 @@ fn oracle2_no_ambiguous_from_off_cylinder_endpoint() {
         }
     }
 }
+
+// =========================================================================
+// Oracle 3 (inc-2, spec `yang_s3_intersection_edge_provenance.md`,
+// ALWAYS-ON 2026-07-30) — the SAME seam geometry with producer PROVENANCE
+// populated and the shell CLOSED (top cap added; bottom disk wound outward)
+// so the pipeline runs to completion. The provenance-first classification
+// ADMITS the two S0-incident seam edges the geometric gate refuses (witness
+// selection through their exact endpoint), and Stage 4's provenance-vouched
+// relocation moves S0 the full `off ≈ 2.9·tol` onto the exact seam circle.
+// The drifted position must be GONE from the output; its on-circle
+// projection must be present. This is the end-to-end pin of the F0083
+// conversion mechanism on hand-built geometry.
+// =========================================================================
+
+fn provenance_arrangement_closed() -> LabeledArrangement {
+    let mut verts: Vec<Point3> = Vec::new();
+    let mut idx: BTreeMap<[u64; 3], u32> = BTreeMap::new();
+    let mut push_v = |pt: Point3| -> u32 {
+        let key = [pt.x().to_bits(), pt.y().to_bits(), pt.z().to_bits()];
+        if let Some(&i) = idx.get(&key) {
+            return i;
+        }
+        let i = verts.len() as u32;
+        verts.push(pt);
+        idx.insert(key, i);
+        i
+    };
+
+    let mut tris: Vec<[u32; 3]> = Vec::new();
+    let mut surface: Vec<Vec<LaInputId>> = Vec::new();
+    let mut intersection_edges: std::collections::BTreeSet<(u32, u32)> =
+        std::collections::BTreeSet::new();
+
+    // Cylinder WALL band (label B), outward radial winding.
+    for k in 0..N {
+        let s0 = push_v(seam_pt(k));
+        let s1 = push_v(seam_pt(k + 1));
+        let t1 = push_v(top_pt(k + 1));
+        let t0 = push_v(top_pt(k));
+        tris.push([s0, s1, t1]);
+        surface.push(vec![LaInputId(1)]);
+        tris.push([s0, t1, t0]);
+        surface.push(vec![LaInputId(1)]);
+        // The seam-ring edge (s_k, s_{k+1}) IS the A×B intersection curve —
+        // the producer's constraint edge. This is the per-EDGE provenance a
+        // native arrangement harvests from `set_edge_constr`.
+        intersection_edges.insert((s0.min(s1), s0.max(s1)));
+    }
+
+    // BOX-TOP plane disk fan (label A), wound OUTWARD (−z) for the closed
+    // shell's bottom face.
+    let center = push_v(p(0.0, 0.0, SEAM_Z));
+    for k in 0..N {
+        let s0 = push_v(seam_pt(k));
+        let s1 = push_v(seam_pt(k + 1));
+        tris.push([center, s1, s0]);
+        surface.push(vec![LaInputId(0)]);
+    }
+
+    // Cylinder TOP cap fan (label B), outward (+z), closing the shell.
+    let c_top = push_v(p(0.0, 0.0, TOP_Z));
+    for k in 0..N {
+        let t0 = push_v(top_pt(k));
+        let t1 = push_v(top_pt(k + 1));
+        tris.push([c_top, t0, t1]);
+        surface.push(vec![LaInputId(1)]);
+    }
+
+    let n = tris.len();
+    let mesh = Mesh::new(verts, tris);
+    let inside: Vec<Vec<bool>> = vec![vec![false, false]; n];
+    let patch = vec![0u32; n];
+    LabeledArrangement {
+        mesh,
+        surface,
+        inside,
+        patch,
+        source: Vec::new(),
+        intersection_edges,
+        num_inputs: 2,
+    }
+}
+
+#[test]
+fn oracle3_provenance_admits_and_relocates_the_drifted_seam_vertex() {
+    let bx = input_box();
+    let cyl = input_cyl();
+    let mock = LabelMock {
+        arrangement: provenance_arrangement_closed(),
+    };
+    let result = boolean(&bx, &cyl, BoolOp::Union, &mock);
+    let brep = match result {
+        Ok(b) => b,
+        Err(e) => panic!(
+            "yr18 O3: with per-edge provenance the boolean must succeed — the \
+             confirmed seam edges are admitted (witness selection) and S0 is \
+             relocated onto the exact seam circle. Got: {e:?}"
+        ),
+    };
+    // The drifted position (radius 1+off at θ=0, z=2) must be GONE...
+    let drifted = seam_pt(0);
+    let off = off_dist();
+    assert!(
+        !brep.vertices().iter().any(|v| {
+            let d = [
+                v.point.x() - drifted.x(),
+                v.point.y() - drifted.y(),
+                v.point.z() - drifted.z(),
+            ];
+            (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() < off / 2.0
+        }),
+        "yr18 O3: the drifted S0 (radius 1+off) survived into the output — the \
+         provenance-vouched relocation did not run"
+    );
+    // ...and its exact on-circle projection (radius 1 at θ=0, z=2) present.
+    let home = p(CYL_R, 0.0, SEAM_Z);
+    assert!(
+        brep.vertices().iter().any(|v| {
+            let d = [
+                v.point.x() - home.x(),
+                v.point.y() - home.y(),
+                v.point.z() - home.z(),
+            ];
+            (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() <= 1e-9
+        }),
+        "yr18 O3: S0's on-circle projection (1, 0, 2) is missing from the output"
+    );
+}

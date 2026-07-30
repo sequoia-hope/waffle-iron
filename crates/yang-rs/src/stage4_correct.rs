@@ -95,6 +95,7 @@ pub(crate) fn compute_phase_a(
     attribution: &TriangleAttributionMap,
     a: &BRep,
     b: &BRep,
+    edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
 ) -> Result<PhaseA, YangError> {
     let adjacency = triangle_adjacency(mesh);
     let patches = flood_fill_patches(mesh, attribution, &adjacency);
@@ -147,7 +148,7 @@ pub(crate) fn compute_phase_a(
             }
         }
     }
-    let curves = build_intersection_curves(&incidence, mesh, a, b)?;
+    let curves = build_intersection_curves(&incidence, mesh, a, b, edge_provenance)?;
     Ok((infos, incidence, curves))
 }
 
@@ -3367,6 +3368,7 @@ pub(crate) fn stage4_relocate_and_correct(
     a: &BRep,
     b: &BRep,
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
+    edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
 ) -> Result<(Vec<(u32, f64)>, bool), YangError> {
     use std::collections::{BTreeMap, HashSet};
 
@@ -3394,7 +3396,32 @@ pub(crate) fn stage4_relocate_and_correct(
     // (1) Collect + classify every conic-edge endpoint from the CURRENT Phase A.
     // PR-YR11: the incidence map (no longer discarded) supplies the TRUE cylinder
     // + cutting plane per Ellipse edge for the closed-form cylinder relocation.
-    let (_infos0, inc0, curves0) = compute_phase_a(mesh, attribution, a, b)?;
+    // This scan runs BEFORE any relocation moves a vertex, so the
+    // position-keyed provenance is valid here — this is the classification
+    // the relocation maps are built from (spec inc-2).
+    let (_infos0, inc0, curves0) = compute_phase_a(mesh, attribution, a, b, edge_provenance)?;
+
+    // Provenance-vouched vertices (spec inc-2 §3c): endpoints of a
+    // producer-confirmed intersection edge. Their curve assignment is
+    // vouched by the arrangement itself, so the chord-band gates below —
+    // whose role is catching WRONG-curve assignments — do not apply to
+    // them: a beyond-band vouched vertex is a DRIFTED intersection vertex,
+    // and moving it onto its exact curve is the very relocation obligation
+    // the witness selection created. Empty (and every gate byte-identical)
+    // unless `YANG_S3_EDGE_PROVENANCE_ENABLE` supplied provenance.
+    let prov_verts: HashSet<u32> = if edge_provenance.is_empty() {
+        HashSet::new()
+    } else {
+        curves0
+            .keys()
+            .filter(|&&(s, e)| {
+                let ka = crate::stage3_ssi::pos_key(mesh.verts[s as usize]);
+                let kb = crate::stage3_ssi::pos_key(mesh.verts[e as usize]);
+                edge_provenance.contains(&(ka.min(kb), ka.max(kb)))
+            })
+            .flat_map(|&(s, e)| [s, e])
+            .collect()
+    };
 
     // Per-vertex Circle assignment (deterministic via BTreeMap). PR-YR19: the
     // 4th tuple element carries the originating sphere radius `Some(R)` for a
@@ -4779,7 +4806,11 @@ pub(crate) fn stage4_relocate_and_correct(
             Some(big_r) if radius > cad_primitives::MIN_FEATURE_SIZE => (big_r / radius) * d_eps,
             _ => d_eps,
         };
-        if axial > d_eps || radial_dev > radial_band {
+        if (axial > d_eps || radial_dev > radial_band) && !prov_verts.contains(&v) {
+            // (Provenance-vouched vertices are exempt — spec inc-2 §3c: the
+            // assignment is producer-confirmed, and `project_onto_circle`
+            // below is already the distance-minimizing projection onto the
+            // exact curve, a certificate the band cannot strengthen.)
             return Err(YangError::Stage4RegionInvalid {
                 vertex: v,
                 reason: Stage4InvalidReason::OffCurveBeyondChordBand,
@@ -4836,7 +4867,9 @@ pub(crate) fn stage4_relocate_and_correct(
         ];
         let sin_theta = (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
         let gate = tangent_plane_corridor(d_eps, sin_theta);
-        if rho > gate {
+        if rho > gate && !prov_verts.contains(&v) {
+            // (Provenance-vouched exemption — spec inc-2 §3c; `j` is the
+            // exact circle∩circle corner on both curves by construction.)
             return Err(YangError::Stage4RegionInvalid {
                 vertex: v,
                 reason: Stage4InvalidReason::OffCurveBeyondChordBand,
@@ -4872,6 +4905,30 @@ pub(crate) fn stage4_relocate_and_correct(
             None => d_eps,
         };
         if rho > gate {
+            if prov_verts.contains(&v) {
+                // Provenance-vouched relocation obligation (spec inc-2 §3c):
+                // the producer confirmed this vertex's edge lies on the
+                // pair's intersection curve, so the band's wrong-assignment
+                // role is covered and the vertex is a DRIFTED intersection
+                // vertex — this move IS the §4.4.1 correction the witness
+                // selection created. Take the distance-minimizing projection
+                // onto the exact ellipse (on cylinder∩plane by construction
+                // — a certificate, not a band), bypassing the azimuth path
+                // whose tangential amplification is meaningless this far off.
+                let (proj, t) = project_onto_ellipse_nearest(p, er)
+                    .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+                if std::env::var("KV11_PROBE").is_ok() {
+                    eprintln!(
+                        "KV11_PROBE ellipse provenance reloc: v={v} rho={rho:.3e} \
+                         gate={gate:.3e} p={p:?} proj={proj:?}"
+                    );
+                }
+                mesh.verts[v as usize] = proj;
+                moved.insert(v);
+                relocations.push((v, t));
+                processed.insert(v);
+                continue;
+            }
             if std::env::var("KV11_PROBE").is_ok() {
                 eprintln!(
                     "KV11_PROBE ellipse band reject: v={v} rho={rho:.3e} gate={gate:.3e} p={p:?}"
@@ -5100,7 +5157,12 @@ pub(crate) fn stage4_relocate_and_correct(
                     .map(|(sp, sd, bud)| (sp.as_array(), sd.as_array(), bud)),
             );
         }
-        if rho > gate {
+        if rho > gate && !prov_verts.contains(&v) {
+            // (Provenance-vouched vertices are exempt from this displacement
+            // gate — spec inc-2 §3c: their assignment is producer-confirmed
+            // and the destination `j` is the EXACT nearest-root junction on
+            // all defining surfaces, a certificate the displacement
+            // magnitude cannot strengthen.)
             if std::env::var("KV11_PROBE").is_ok() {
                 eprintln!(
                     "KV11_PROBE junction band reject: v={v} rho={rho:.3e} gate={gate:.3e} p={p:?} j={j:?}"
@@ -6990,7 +7052,13 @@ pub(crate) fn stage4_relocate_and_correct(
     // has been relocated and possibly collapsed since, so the earlier maps can
     // reference stale vertices.
     {
-        let (_infos_bc, inc_bc, curves_bc) = compute_phase_a(mesh, attribution, brep_a, brep_b)?;
+        let (_infos_bc, inc_bc, curves_bc) = compute_phase_a(
+            mesh,
+            attribution,
+            brep_a,
+            brep_b,
+            &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+        )?;
         let rim_curves = crate::stage4_boundary_curve::collect_rim_curves(&inc_bc);
         // Per-vertex exclusion diagnosis: `YANG_S4_RIM_SNAP_TARGET=x,y,z,r`
         // reports, for every mesh vertex within `r` of the given point, each

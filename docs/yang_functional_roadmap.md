@@ -431,6 +431,12 @@ in the ledger is PERMANENT with user sign-off.
    Fix = N10's named durable target, arrangement-side intersection-edge
    provenance; spec inc-0 written, inc-1 = cherchi-rs constrained-edge marks
    → `LabeledArrangement::intersection_edges`.*
+   *LANDED 2026-07-30 — inc-1 (harvest, corpus byte-identical) + inc-2
+   (provenance-first classification + witness selection + certificate
+   relocation) SHIPPED ALWAYS-ON: **F0083 and R0063 ERROR→CORRECT,
+   259C/0W/51E/0T, zero regressions**; F0082/F0085 advance ops. R0099
+   measured NOT this class (zero constraint edges at its failing op) —
+   its 8.65e-2 vertex needs its own probe.*
 
 **Continuous:** the verification substrate ratchets — assay 0-WRONG gate, weld
 delta (`YANG_WELD_ENABLE=all` vs prod may only shrink), deviations OPEN-count
@@ -458,8 +464,11 @@ cross pair of two genuinely DISTINCT parallel planes (offset gap above the
 rounding-noise class `TAU_WORK·(1+scale)`; corpus-measured legitimate
 femto-twin max 2.7e-12, ≥40× below the line) rejects with typed
 `SubResolutionCoplanarGap` before any overlay work. Committed baseline
-**257C / 0 WRONG / 53E / 0T on the 312-case corpus** (2026-07-29, R0027
-ERROR→CORRECT via the `eval_floor_linear` strict-validation floor; prior rungs
+**259C / 0 WRONG / 51E / 0T on the 312-case corpus** (2026-07-30, F0083 +
+R0063 ERROR→CORRECT via the always-on Stage-3 intersection-edge PROVENANCE,
+`specs/yang_s3_intersection_edge_provenance.md`; prior rungs 257C at the
+2026-07-29 R0027
+ERROR→CORRECT via the `eval_floor_linear` strict-validation floor,
 256C after the R0035 triple-junction surface-pair count, 255C after the R0008
 cone-apex arm, 254C at the #195 inc-5 + §4.4.1 inc-2 flip, 252C honest
 strict-validation baseline; before the strict-validation re-basing:
