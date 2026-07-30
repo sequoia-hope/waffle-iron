@@ -1312,6 +1312,32 @@ fn boolean_once(
     // (3) Stage 4: which arrangement tris survive `op`.
     let kept = la.keep_set(op);
 
+    // `YANG_S3_PROVENANCE_PROBE` (spec `yang_s3_intersection_edge_provenance.md`
+    // inc-2 first measurement, read-only): install the producer's per-EDGE
+    // intersection provenance for this boolean, POSITION-keyed through the
+    // weld so it survives the compaction below (the `minted_junction_keys`
+    // position-key precedent). A pair whose endpoints weld together carries
+    // no edge and is dropped.
+    if std::env::var_os("YANG_S3_PROVENANCE_PROBE").is_some() {
+        let mut set: std::collections::BTreeSet<([u64; 3], [u64; 3])> =
+            std::collections::BTreeSet::new();
+        for &(g0, g1) in &la.intersection_edges {
+            let (w0, w1) = (weld[g0 as usize], weld[g1 as usize]);
+            if w0 == w1 {
+                continue;
+            }
+            let ka = crate::stage3_ssi::pos_key(la.mesh.verts[w0 as usize]);
+            let kb = crate::stage3_ssi::pos_key(la.mesh.verts[w1 as usize]);
+            set.insert((ka.min(kb), ka.max(kb)));
+        }
+        eprintln!(
+            "YANG_S3_PROV install n_pairs={} (la had {})",
+            set.len(),
+            la.intersection_edges.len()
+        );
+        crate::stage3_ssi::probe_set_edge_provenance(set);
+    }
+
     // KV9-F1 diagnosis probe (read-only, env-gated): per-input label + keep
     // census over the labeled arrangement.
     if std::env::var_os("YANG_KEEP_PROBE").is_some() {

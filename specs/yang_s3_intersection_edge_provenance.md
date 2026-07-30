@@ -26,8 +26,44 @@ any split that dropped its constr mark).
 
 Deferred to inc-2 (with the consumption): a coplanar-overlap fixture pinning
 that §4.5.5 overlap-boundary segments are harvested (they route through the
-same enforcement, so they should be — verify, don't assume); and the F0083
-producing-op measurement (are v118's edges provenance-confirmed?).
+same enforcement, so they should be — verify, don't assume).
+
+## inc-2 first measurement TAKEN (2026-07-30) — F0083's edges ARE provenance-confirmed; premise proven
+
+`YANG_S3_PROVENANCE_PROBE` (read-only): `boolean_once` installs the pair set
+POSITION-keyed through the weld (the `minted_junction_keys` bit-pattern
+precedent), and `build_intersection_curves` reports, per incidence edge,
+producer provenance vs its own classification. On F0083's producing op
+(1141 incidence edges, 46 installed pairs):
+
+```
+confirmed-SKIP site=on_both edge=(73,82)   d_s=(2.305e-3, 0)       d_e=(1.663e-5, 0)
+confirmed-SKIP site=on_both edge=(80,118)  d_s=(2.305e-3, 0)       d_e=(1.914e-3, 5.6e-17)
+confirmed-SKIP site=on_both edge=(116,118) d_s=(0,        5.6e-17) d_e=(1.914e-3, 5.6e-17)
+summary edges_seen=1141 confirmed=46 confirmed_skip_on_both=3 curves_built=43
+```
+
+**The gate skips exactly and only THREE provenance-confirmed edges, and they
+are exactly F0083's defective chain** (v118's two edges + v73/v80's edge —
+the 1.914e-3/2.305e-3 signatures from §10/§13 of the boundary-curve spec).
+The other 43 confirmed edges all pass the gate and build curves; zero
+confirmed edges are lost at the len/same-input sites. The provenance route
+admits precisely what the geometric gate wrongly refuses — the §3b premise is
+MEASURED, not assumed.
+
+Two design facts for inc-2's implementation, discovered by the same probe:
+
+1. **Position keys are valid only BEFORE Stage-4 relocation.** The
+   post-collapse `compute_phase_a` recompute (stage5_topology §4.5.3 arm)
+   re-runs `build_intersection_curves` on MOVED vertices, where the stale
+   position keys read `unconfirmed` (measured: an earlier op's recompute
+   shows `confirmed=3 unconfirmed_admit=16` against a first-pass 19/19).
+   The production classification must therefore either consume provenance on
+   the FIRST pass only (and let the recompute inherit its verdicts by edge
+   identity), or carry the set through relocation the way `S4_PRE_POS`
+   re-keys through the four compaction sites.
+2. The first boolean of the chain shows `install n_pairs=19 (la had 24)` —
+   five pairs weld away (coincident-endpoint clusters); expected, harmless.
 **Deviation:** N10 (`docs/yang_deviations.md`) — the on-both-surfaces gate.
 **Customers (measured):** F0083 (`VertexOffSurface` face 388, v118 1.914e-3 off
 `A:Cylinder`, exactly on `B:Plane`, both incidence edges skipped by the gate —

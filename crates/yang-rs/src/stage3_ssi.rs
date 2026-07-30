@@ -9,6 +9,38 @@ use crate::*;
 // PR-YR9 (P3) — Stage 3: analytical SSI refinement of intersection edges
 // =========================================================================
 
+/// A position-keyed undirected edge set: sorted pairs of coordinate bit
+/// triples (see [`pos_key`]).
+pub(crate) type PosKeyedEdgeSet = std::collections::BTreeSet<([u64; 3], [u64; 3])>;
+
+thread_local! {
+    /// Diagnostic only (`YANG_S3_PROVENANCE_PROBE`): the producer's per-EDGE
+    /// intersection provenance (`LabeledArrangement::intersection_edges`,
+    /// spec `specs/yang_s3_intersection_edge_provenance.md` inc-2 first
+    /// measurement), POSITION-keyed as sorted pairs of coordinate bit
+    /// triples so it survives the weld + compaction between the arrangement
+    /// and the Stage-3/4 mesh (the `minted_junction_keys` precedent).
+    /// Set by `boolean_once` under the same env gate; read by
+    /// `build_intersection_curves` to report, per incidence edge, whether
+    /// the producer minted it — INDEPENDENTLY of the on-both geometric gate.
+    static S3_EDGE_PROVENANCE: std::cell::RefCell<Option<PosKeyedEdgeSet>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Diagnostic only (`YANG_S3_PROVENANCE_PROBE`): install the position-keyed
+/// provenance set for the CURRENT boolean (overwrites the previous one —
+/// single-threaded pipeline). No-op storage when the gate is off (callers
+/// check the gate before building the set).
+pub(crate) fn probe_set_edge_provenance(set: PosKeyedEdgeSet) {
+    S3_EDGE_PROVENANCE.with(|c| *c.borrow_mut() = Some(set));
+}
+
+/// Position bit-key of a mesh vertex for the provenance lookup.
+pub(crate) fn pos_key(p: Point3) -> [u64; 3] {
+    let a = p.as_array();
+    [a[0].to_bits(), a[1].to_bits(), a[2].to_bits()]
+}
+
 /// PR-YR9: convert a yang `Surface` into the analytical `ssi_rs::QuadricSurface`
 /// for Stage-3 SSI (spec §5.2).
 ///
@@ -525,13 +557,51 @@ pub(crate) fn build_intersection_curves(
     b: &BRep,
 ) -> Result<std::collections::BTreeMap<(u32, u32), Curve>, YangError> {
     let mut out: std::collections::BTreeMap<(u32, u32), Curve> = std::collections::BTreeMap::new();
+    // `YANG_S3_PROVENANCE_PROBE` accounting (spec inc-2 first measurement):
+    // per-edge producer provenance vs this function's own classification.
+    let probe_on = std::env::var_os("YANG_S3_PROVENANCE_PROBE").is_some();
+    let prov_of = |s: u32, e: u32| -> Option<bool> {
+        if !probe_on {
+            return None;
+        }
+        S3_EDGE_PROVENANCE.with(|c| {
+            c.borrow().as_ref().map(|set| {
+                let (ka, kb) = (
+                    pos_key(mesh.verts[s as usize]),
+                    pos_key(mesh.verts[e as usize]),
+                );
+                set.contains(&(ka.min(kb), ka.max(kb)))
+            })
+        })
+    };
+    let mut probe_counts = [0usize; 6]; // [seen, confirmed, c_len, c_same_input, c_onboth, c_other]
     for (&(s, e), entries) in incidence {
+        let prov = prov_of(s, e);
+        if probe_on {
+            probe_counts[0] += 1;
+            if prov == Some(true) {
+                probe_counts[1] += 1;
+            }
+        }
         if entries.len() != 2 {
+            if prov == Some(true) {
+                probe_counts[2] += 1;
+                eprintln!(
+                    "YANG_S3_PROV confirmed-SKIP site=len edge=({s},{e}) n_entries={}",
+                    entries.len()
+                );
+            }
             continue;
         }
         let (input0, surf0) = entries[0];
         let (input1, surf1) = entries[1];
         if input0 == input1 {
+            if prov == Some(true) {
+                probe_counts[3] += 1;
+                eprintln!(
+                    "YANG_S3_PROV confirmed-SKIP site=same_input edge=({s},{e}) surf={surf0:?}"
+                );
+            }
             continue;
         }
 
@@ -668,7 +738,26 @@ pub(crate) fn build_intersection_curves(
                     );
                 }
             }
+            if prov == Some(true) {
+                probe_counts[4] += 1;
+                eprintln!(
+                    "YANG_S3_PROV confirmed-SKIP site=on_both edge=({s},{e}) tol={tol:.3e} \
+                     d_s=({:.3e},{:.3e}) d_e=({:.3e},{:.3e})",
+                    signed_distance_to_surface(surf0, p_s)?.abs(),
+                    signed_distance_to_surface(surf1, p_s)?.abs(),
+                    signed_distance_to_surface(surf0, p_e)?.abs(),
+                    signed_distance_to_surface(surf1, p_e)?.abs(),
+                );
+            }
             continue;
+        }
+        if prov == Some(false) {
+            // Past the gate with NO producer provenance: either a plane∩plane
+            // seam (legitimately curve-bearing without a constraint — the
+            // §4.5.5 overlay route), or a gate admission the producer would
+            // refuse. Count under "other" and report for the census.
+            probe_counts[5] += 1;
+            eprintln!("YANG_S3_PROV unconfirmed-ADMIT edge=({s},{e}) surfs=({surf0:?},{surf1:?})");
         }
 
         // Plane∩Plane: the curve is the unique line through the two (gate-
@@ -992,6 +1081,21 @@ pub(crate) fn build_intersection_curves(
             }
         }
         out.insert((s, e), curve);
+    }
+    if probe_on {
+        let have_set = S3_EDGE_PROVENANCE.with(|c| c.borrow().is_some());
+        eprintln!(
+            "YANG_S3_PROV summary have_set={have_set} edges_seen={} confirmed={} \
+             confirmed_skip_len={} confirmed_skip_same_input={} confirmed_skip_on_both={} \
+             unconfirmed_admit={} curves_built={}",
+            probe_counts[0],
+            probe_counts[1],
+            probe_counts[2],
+            probe_counts[3],
+            probe_counts[4],
+            probe_counts[5],
+            out.len(),
+        );
     }
     Ok(out)
 }
