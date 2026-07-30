@@ -258,7 +258,8 @@ a Stage-0 overlay mint REVERTED to its chord lift by the fold gate
 both reject (`multi-class cavity with constraint-blocked fan`) —
 `[fold-revert] vert=9` matches the failing vertex digit-for-digit. Vehicle:
 M8 Stage-0 overlay mesh-updating, multi-class cavity arm
-(`docs/yang_tail_triage.md` §"R0099 producing-op probe COMPLETE").
+(`docs/yang_tail_triage.md` §"R0099 producing-op probe COMPLETE"; spec
+`specs/m8_stage0_multiclass_cavity_arm.md`, amendment 12).
 
 **Open follow-ups:** coplanar-overlap harvest fixture (§4.5.5 boundaries
 route through the same enforcement — verify with a test when M8 work

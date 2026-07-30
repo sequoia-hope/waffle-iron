@@ -731,7 +731,7 @@ exactness" family. Probing each split them:
 | **R0027** | 3.725e-9 (length², torus minor 2137.7) | **9.1e-13 = 1 ulp of ρ(5344)** | validator false positive | **CONVERTED 2026-07-29** (ERROR → CORRECT, 257C) |
 | **R0025** (layer 2) | 5.675e-10 (length², minor 329.5) | **8.6e-13 ≈ 4 ulps of coords ~1300** | validator false positive | layer peeled → ring-reject (see its row) |
 | F0083 | 2.3046e-3 / 1.914e-3 | 3.3× / 2.76× the op chord band | REAL — unclaimed Fig-11 q + unbuilt cross curve | `specs/yang_s3_intersection_edge_provenance.md` |
-| R0099 | 8.651e-2 (`cylpatch-vertex`) | **2.8% of r=3.125** | REAL — ~~F0083 family~~ **RE-DIAGNOSED 2026-07-30: Stage-0 fold-gate revert leak** (coplanar-only op, Stage 4 never runs; see the dated section below) | M8 overlay mesh-updating, multi-class cavity arm |
+| R0099 | 8.651e-2 (`cylpatch-vertex`) | **2.8% of r=3.125** | REAL — ~~F0083 family~~ **RE-DIAGNOSED 2026-07-30: Stage-0 fold-gate revert leak** (coplanar-only op, Stage 4 never runs; see the dated section below) | M8 overlay mesh-updating, multi-class cavity arm — `specs/m8_stage0_multiclass_cavity_arm.md` |
 
 **The false-positive mechanism:** the canonical strict-validation bands
 (`CURVED_SURFACE_DEBUG_TOLERANCE` = 1e-12, absolute for cylinder/cone/planar-
@@ -838,3 +838,7 @@ Probe banked: `nary-fold-revert` (under `YANG_COPLANAR_PROBE`) mirrors the
 1×1 path's `[fold-revert]` (under `YANG_SPLIT_PROBE`) so both fold-gate
 leak sites are now observable; a corpus census of this class is one
 env-gated full run away.
+
+Spec written 2026-07-30: **`specs/m8_stage0_multiclass_cavity_arm.md`**
+(amendment 12 — per-class WEDGE decomposition of the deferred cavity, the
+two-sided Fig-11 form at the overlay level; the census above is its inc-0).

@@ -3534,7 +3534,25 @@ swapped every consumer to `predicates::indirect`).
     with both gates off, RED with the graze arm ALONE (1 vertex 6.84e-7 off
     the cylinder vs a 1.00e-9 band), GREEN with both. `YANG_S4_TRIPLE_POINT_ENABLE`
     (§4.4.1 inc-3) stays GATED — it was not in the measured combination.
-  - **ERROR-bucket census 2026-07-12 (assay 238C/0W/53E/4U/0T report,
+  - **MULTI-CLASS cavity arm SPEC WRITTEN 2026-07-30 —
+    `specs/m8_stage0_multiclass_cavity_arm.md` (amendment 12).** The R0099
+    producing-op probe (1f576621) named the fold gate's structural gap: a
+    rim-crossing mint sits ON the intersection curve by construction, so
+    its constraint-blocked cavity is multi-class by construction, and the
+    amendment-5 ear-clip's single-class polygon form rejects
+    (`multi-class cavity with constraint-blocked fan`) → amendment-2
+    reverts the correct on-circle mint to its chord lift →
+    `VertexOffSurface` (or silent-wrong pre-strict-validation; Stage 4
+    never runs on coplanar-only ops, so nothing downstream can rescue).
+    Design: per-class WEDGE decomposition of the grown cavity — cut the
+    link at class-transition spokes (the intersection polyline through the
+    mint, moved WITH it), re-fan/ear-clip each wedge against its own class
+    with the shared `earclip_cavity_polygon`; conformality across the
+    moved polyline is by shared spoke identity (Yang §4.4.1 Fig 11 at the
+    overlay level; the #169 Phase-A principle one stage earlier). inc-0 =
+    the fold-revert corpus census (both probe sites banked in 1f576621);
+    inc-1 primitive + R0099 chain pin; inc-2 flip; inc-3 joint-form and
+    inc-4 n-ary reduced-gate (slice-g B8) parity, census-gated.
     post-#143), with two fresh class diagnoses:**
     (1) **6× render ring-reject** (F0045 R0011 R0016 R0028 R0059 R0072) —
     `TessellationFailed("ring rejected by CDT")` on a SUCCESSFUL solid;
