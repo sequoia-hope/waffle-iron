@@ -911,3 +911,18 @@ tan(36.31°)·ρ⊥ ≥ 4.58 exceeds the tube height 1.95): true Δv = 0 and
 the +0.069% is chord→circle mint volume restored toward the analytic.
 The R0099 row above is CLOSED; inc-3 region-form parity keeps its
 census gate but has lost its lead customer — re-census before building.
+
+**inc-3 region-form parity RE-CENSUS (2026-07-30, post-amendment-14,
+spec §12): NO PROVEN CUSTOMER — DEMOTED to census-armed.** 312-case
+probe sweep, zero verdict drift vs the 260C canonical. R0099 (the only
+proven revert-caused ERROR) is converted with ZERO residual reverts;
+every remaining ERROR carrier of region rejects fails at a wall named
+elsewhere (C0048 #144 azimuth-merge, F0064 TessellationFailed
+collapsed-planar-tri, R0085 TessellationFailed CDT-ring, R0050 Stage-4
+relocation, R0026 Stage-3 AmbiguousCurve, R0051 SelfIntersecting).
+The split arm found two in-chain customers beyond R0099 (F0064 genuine;
+C0048 femto-endpoint, watch); its reject census names the future §11
+extension classes (open-link 74, crossing-count 48, class-pair 18,
+chord-not-boundary 18). Latent chord-lift watch list: 5 CORRECT cases /
+25 revert events (R0059 14). Next anchors in evidence order: F0064's
+collapsed-planar-triangle, C0048's #144 family, split-open-link.

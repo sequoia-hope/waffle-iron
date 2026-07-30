@@ -6,11 +6,13 @@ the Fig-11(a) vertex-inserting SPLIT is live and R0099 is CONVERTED
 at i6). New canonical: 260C/0W/48E/0T.** The full amendment stack is
 now always-on: wedge decomposition (12, §3), the Fig-11(b→c) MERGE arm +
 rim-chain boundary-order settle check + split-table merge identification
-(13, §10d), and the vertex-inserting split (14, §11). Residuals carried:
-inc-3 region-form parity (census gate armed; R0099 no longer its
-customer — measure before building), the R0025/R0026 shared
-non-manifold-input wall (anchor, don't assume), and the §11d reject
-probes' corpus census before any guard widening. Amendment-12's §9
+(13, §10d), and the vertex-inserting split (14, §11). Residuals carried
+(§12 re-census, 2026-07-30): inc-3 region-form parity DEMOTED to
+census-armed-no-customer (zero proven customers post-conversion); next
+anchors in evidence order = the F0064 collapsed-planar-triangle wall,
+the C0048 #144 azimuth-merge family, and the split-open-link class (74
+events). The latent chord-lift watch list is 5 CORRECT cases / 25
+revert events. Amendment-12's §9
 armed-joint-path win stands (R0085 fold-reverts 65 → 10).
 
 Named target of the R0099 producing-op probe (`docs/yang_tail_triage.md`
@@ -860,3 +862,82 @@ Action (build-then-commit, all-or-nothing like every reloc arm):
 - No change to mint placement or to the merge arm; the split composes
   AFTER the merge attempt in the ladder (merge outranks split when both
   arm — cheaper op first, same §10c ordering).
+
+## 12. inc-3 REGION-FORM PARITY RE-CENSUS (2026-07-30, post-amendment-14) — NO PROVEN CUSTOMER; DEMOTED to census-armed
+
+**Method.** 312-case `single_case` sweep (the §7 driver-nulls-stderr
+trap), 8 jobs, `YANG_SPLIT_PROBE=1 YANG_COPLANAR_PROBE=1`, 300s
+in-child wall guard, binary at the amendment-14 flip (f1100cf8).
+**312/312 completed, zero exit failures, ZERO verdict drift vs the
+260C/0W/48E/0T canonical** — directly comparable. Counts are probe
+EVENTS (gate passes re-attempt; one defect fires repeatedly).
+
+### Ladder scoreboard, whole corpus
+
+| arm | events | cases |
+|---|---:|---:|
+| per-vertex commits + region commits | (many) + 138 | — / 15 |
+| merge commits | 25 | 6 |
+| settle firings | 50 | 9 |
+| split commits | **3** | 3 (R0099, C0048, F0064) |
+| region-form rejects | 535 | 13 |
+| split rejects | 158 | 12 |
+| **fold-reverts (residual leak)** | **295** | **12** |
+
+### The region-reject roster (the would-be inc-3 customers)
+
+| case | verdict | region rejects | reverts | canonical wall |
+|---|---|---:|---:|---|
+| F0067 | UNSUPPORTED(coplanar) | 329 | 174 | typed M8 coplanar-input wall |
+| F0072 | UNSUPPORTED(coplanar) | 51 | 22 | typed M8 coplanar-input wall |
+| C0048 | ERROR | 42 | 36 | azimuth-merge rims mismatched (#144 family) |
+| F0064 | ERROR | 25 | 17 | TessellationFailed(1800, planar tri collapsed at render precision) + non-2-manifold |
+| R0059 | CORRECT | 25 | 14 | — (latent) |
+| R0085 | ERROR | 21 | 10 | TessellationFailed(566, ring rejected by CDT) |
+| R0050 | ERROR | 11 | 6 | Stage-4 relocation region invalid |
+| R0021/R0026/R0051/R0072/R0063 | mixed | 3–6 each | 2–4 each | varied (R0026: Stage-3 AmbiguousCurve; R0051: SelfIntersectingBooleanOutput) |
+| **R0099** | **CORRECT** | **5** | **0** | **converted — zero residual reverts** |
+
+Reject reasons: `crossing edges ungrowable (region polygon not simple)`
+270, `every folded class sub-region rejected` 219, `cavity polygon not
+CCW` ≈ 44 (F0067's periodic seed clusters — one defect re-attempted per
+pass), `region too small` 1.
+
+### Verdict
+
+1. **inc-3 has NO PROVEN customer.** The §7 census's only proven
+   revert-caused ERROR (R0099) is converted; every remaining ERROR
+   carrier's wall is named ELSEWHERE (azimuth-merge #144, two
+   TessellationFailed classes, Stage-4 relocation, Stage-3
+   AmbiguousCurve, SelfIntersectingBooleanOutput). Region-repair work
+   here would be error-string-proximity guessing — the §7 finding-3
+   lesson. **inc-3 is DEMOTED to census-armed-no-customer** (the inc-4
+   n-ary precedent); re-arm only when an anchored investigation traces
+   a wall INTO a region reject.
+2. **The split found two customers beyond R0099**: F0064 (genuine —
+   t_c 0.0895/0.0089, overshoot 6.96e-4) and C0048 (committed with
+   t_edge ≈ 2.6e-15 — a femto-endpoint crossing, WATCH: the q lands
+   within femto reach of the ring vertex; handled by the M-B
+   degenerate machinery today, an endpoint window is NOT warranted
+   without a failing customer). Both stay ERROR at their own walls.
+3. **Split-reject census (the §11d guard classes, future §11
+   extensions, census-armed):** `split-open-link` 74 (the
+   boundary-vertex form — the largest named residual), 
+   `split-crossing-count` 48 (single-graze / >2 forms),
+   `split-class-pair` 18, `split-chord-not-boundary` 18 (2-incident
+   chords — real triangles beyond, the larger re-cut op).
+4. **The latent chord-lift class persists**: 5 CORRECT cases carry 25
+   revert events (R0059 14, R0072 4, R0021 3, R0063 2, R0099 0) — the
+   standing P10 watch list and the argument for continuing
+   mesh-updating; today's arms repair 3 split-commits' + 25 merges'
+   worth of mints the gate previously reverted.
+5. The settle check fires corpus-wide (50 events, 9 cases) — the
+   boundary-order invariant is doing standing work well beyond its
+   R0059 birth case.
+
+Next anchors, in evidence order: the F0064 wall (a COLLAPSED PLANAR
+TRIANGLE at tessellation — nearest kin to Stage-0 emission, and the
+split already fires in-chain there), the C0048 #144 azimuth-merge
+family (named vehicle exists), and the split-open-link class (74
+events). Raw logs: `/tmp/census3/` (ephemeral); this section is the
+durable record.
