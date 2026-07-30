@@ -277,9 +277,19 @@ pub(crate) fn earclip_cavity_polygon(
 /// first-invalid-link-edge growth, first-clippable-ear order (I6). Cavity
 /// size equals link-edge count throughout (a boundary star of k triangles
 /// has a k-edge open chain, an interior star a k-edge cycle; each growth
-/// step adds one of each; a (k+2)-gon ear-clips to k triangles), so the
+/// step adds one of each; a (k+2)-gon ear-clips to k triangles; a wedge
+/// decomposition sums per-wedge counts to the same total), so the
 /// replacement overwrites the cavity slots in place and `edge_map` is
 /// maintained incrementally.
+///
+/// Amendment 12 (spec `m8_stage0_multiclass_cavity_arm` §3, gated behind
+/// `YANG_S0_MULTICLASS_RELOC_ENABLE` until the inc-2 flip): a MULTI-CLASS
+/// deferred cavity — the on-curve mint class the single-class ear-clip
+/// guard rejects, R0099's leak — is cut at its class-transition spokes
+/// (the intersection polyline through the mint, which moves WITH it) and
+/// each per-class WEDGE is re-fanned/ear-clipped independently with the
+/// shared spokes as preserved polygon edges. Gate OFF is byte-identical
+/// to the pre-amendment rejects.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn relocate_minted_vertex(
     tris: &mut [[u32; 3]],
@@ -290,6 +300,35 @@ pub(crate) fn relocate_minted_vertex(
     frame: &Frame,
     minted_mark: &[bool],
     probe: bool,
+) -> RelocOutcome {
+    let wedge_arm = std::env::var_os("YANG_S0_MULTICLASS_RELOC_ENABLE").is_some();
+    relocate_minted_vertex_impl(
+        tris,
+        class,
+        edge_map,
+        v,
+        coords,
+        frame,
+        minted_mark,
+        probe,
+        wedge_arm,
+    )
+}
+
+/// [`relocate_minted_vertex`] with the amendment-12 gate as an explicit
+/// parameter — the unit-testable form (reloc_tests exercise both gate
+/// states in one process without env mutation).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn relocate_minted_vertex_impl(
+    tris: &mut [[u32; 3]],
+    class: &mut [RegionClass],
+    edge_map: &mut BTreeMap<[u32; 2], Vec<usize>>,
+    v: u32,
+    coords: &[Point3],
+    frame: &Frame,
+    minted_mark: &[bool],
+    probe: bool,
+    wedge_arm: bool,
 ) -> RelocOutcome {
     let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
     let reject = |why: &str| {
@@ -415,13 +454,21 @@ pub(crate) fn relocate_minted_vertex(
             eprintln!("  [reloc-fan] vert {v} cavity={} tris", cavity.len());
         }
         link.iter().map(|&(a, b, cls)| ([v, a, b], cls)).collect()
-    } else {
+    } else if !(wedge_arm && link.iter().any(|&(_, _, c)| c != link[0].2)) {
         // The cavity is not star-shaped from v's minted position (the mint
         // crossed the LINE of a constraint chord). Ear-clip the cavity
         // polygon [v, w0..wk] instead — the constraint edge stays a cavity
         // BOUNDARY, connected to other link vertices.
         if starts.is_empty() {
-            return reject("interior vertex with constraint-blocked fan");
+            // Census probe (amendment-12 spec §7.2): the cyclic
+            // class-transition count separates the wedge arm's coverage
+            // (≥ 2 transitions: an on-curve mint) from the by-design
+            // reject (0 transitions: ear-clipping would orphan v).
+            let n = link.len();
+            let trans = (0..n).filter(|&i| link[i].2 != link[(i + 1) % n].2).count();
+            return reject(&format!(
+                "interior vertex with constraint-blocked fan (class transitions: {trans})"
+            ));
         }
         let cls0 = link[0].2;
         if link.iter().any(|&(_, _, c)| c != cls0) {
@@ -476,6 +523,123 @@ pub(crate) fn relocate_minted_vertex(
             }
             Err(EarclipErr::Other(why)) => return reject(why),
         }
+    } else {
+        // ── Amendment 12: per-class WEDGE decomposition (gated) ──────────
+        // A multi-class deferred cavity: the mint sits ON the intersection
+        // polyline (that is what a rim crossing is — amendment 7's founding
+        // observation), so its grown link straddles ≥ 2 region classes. Cut
+        // the link at its class transitions — each happens exactly at the
+        // shared spoke v→bᵢ, a class-boundary edge through v: the
+        // intersection polyline through the mint, moved WITH it ([#24 Yang
+        // §4.4.1 Fig 11] composed with §4.5.5's "overlap boundaries are
+        // intersection curves", at the overlay level). Each maximal
+        // same-class run (WEDGE) is re-fanned or ear-clipped independently
+        // over the polygon [v, aᵢ, bᵢ, …, b_j] — v INCLUDED, its two
+        // bounding spokes as preserved polygon edges (each a constraint
+        // spoke at the mint's CURRENT position, or a domain-boundary end).
+        // The two wedges flanking a spoke re-triangulate against the SAME
+        // edge — same vertex ids, same coordinates — so the union covers
+        // the grown cavity with no gap and no overlap across the moved
+        // polyline: conformality by shared identity, the #169 two-sided
+        // principle one stage earlier. Growth never crosses a class
+        // boundary, so class runs (hence transition spokes) are exactly the
+        // original constraint spokes. Build-then-commit: any wedge reject
+        // leaves NO mutation and falls to the amendment-2 revert.
+        let n = link.len();
+        let order: Vec<usize> = if starts.is_empty() {
+            // Closed link (interior on-curve mint): rotate so every wedge
+            // is contiguous — start at the first entry whose CYCLIC
+            // predecessor differs in class (exists: the link is
+            // multi-class, and a non-constant cyclic sequence has ≥ 2
+            // transitions). The rotation also guarantees the first and
+            // last runs differ in class, so no cyclic merge is needed.
+            let t0 = (0..n)
+                .find(|&i| link[(i + n - 1) % n].2 != link[i].2)
+                .unwrap();
+            (0..n).map(|k| (t0 + k) % n).collect()
+        } else {
+            (0..n).collect()
+        };
+        let mut wedges: Vec<Vec<usize>> = Vec::new();
+        for &i in &order {
+            match wedges.last_mut() {
+                Some(w) if link[w[w.len() - 1]].2 == link[i].2 => w.push(i),
+                _ => wedges.push(vec![i]),
+            }
+        }
+        if probe {
+            eprintln!(
+                "  [reloc-wedges] vert {v} closed={} wedges {:?}",
+                starts.is_empty(),
+                wedges
+                    .iter()
+                    .map(|w| (link[w[0]].2, w.len()))
+                    .collect::<Vec<_>>(),
+            );
+        }
+        let mut ears: Vec<([u32; 3], RegionClass)> = Vec::with_capacity(n);
+        for (wi, w) in wedges.iter().enumerate() {
+            let cls = link[w[0]].2;
+            // A wedge whose fan triangles are all valid saw no growth
+            // deferral (growth defers only on an invalid fan triangle):
+            // the fan IS its re-triangulation and v keeps every spoke.
+            if w.iter()
+                .all(|&i| gate_tri_valid(&[v, link[i].0, link[i].1], coords, frame))
+            {
+                if probe {
+                    eprintln!(
+                        "  [reloc-wedge-fan] vert {v} wedge {wi} ({cls:?}) {} tris",
+                        w.len()
+                    );
+                }
+                ears.extend(w.iter().map(|&i| ([v, link[i].0, link[i].1], cls)));
+                continue;
+            }
+            let mut poly: Vec<u32> = Vec::with_capacity(w.len() + 2);
+            poly.push(v);
+            poly.push(link[w[0]].0);
+            for &i in w {
+                poly.push(link[i].1);
+            }
+            match earclip_cavity_polygon(
+                &poly,
+                &cavity,
+                cls,
+                coords,
+                frame,
+                edge_map,
+                probe,
+                &format!("vert {v} wedge {wi}"),
+            ) {
+                Ok(we) => ears.extend(we),
+                Err(EarclipErr::NotSimple { crossing }) => {
+                    if probe {
+                        eprintln!(
+                            "  [reloc-reject] vert {v} wedge {wi} ({cls:?}) \
+                             cavity polygon not simple"
+                        );
+                    }
+                    // Amendment-10 narrowing, per wedge: the joint seeds are
+                    // the mints on THIS wedge polygon's crossing edges (the
+                    // interacting set — Fig-11 locality).
+                    return RelocOutcome::NonSimple {
+                        ring_mints: poly
+                            .iter()
+                            .copied()
+                            .filter(|&pi| {
+                                pi != v
+                                    && minted_mark[pi as usize]
+                                    && crossing.contains(&frame.project(coords[pi as usize]))
+                            })
+                            .collect(),
+                    };
+                }
+                Err(EarclipErr::Other(why)) => {
+                    return reject(&format!("wedge {wi} ({cls:?}): {why}"));
+                }
+            }
+        }
+        ears
     };
     if new_tris.len() != cavity.len() {
         return reject("replacement/cavity size mismatch");
@@ -898,7 +1062,10 @@ mod reloc_tests {
     //! frame, so the resolved 3D coords ARE the 2D positions.
 
     use super::RelocOutcome;
-    use super::{gate_tri_valid, relocate_minted_region, relocate_minted_vertex, Frame};
+    use super::{
+        gate_tri_valid, relocate_minted_region, relocate_minted_vertex,
+        relocate_minted_vertex_impl, Frame,
+    };
     use crate::coplanar_overlay::RegionClass;
     use cad_primitives::Point3;
     use std::collections::BTreeMap;
@@ -1559,5 +1726,404 @@ mod reloc_tests {
         };
         let total: f64 = tris.iter().map(|t| area(t)).sum();
         assert!((total - 6.4).abs() < 1e-12, "cover area {total} != 6.4");
+    }
+
+    // ── Amendment 12: per-class wedge decomposition (gated) ──────────────
+    //
+    // Spec `m8_stage0_multiclass_cavity_arm` §3/§4 inc-1. All fixtures call
+    // `relocate_minted_vertex_impl` with the gate as an explicit parameter
+    // (no env mutation — lib tests share one process). NOTE on the spec's
+    // fixture (a) "2 wedges, both fan": that shape is UNREACHABLE — the
+    // deferred path only runs when some link edge kept an invalid fan
+    // triangle (growth defers on nothing else), and that edge's wedge can
+    // never fan, so every reachable wedge decomposition ear-clips at least
+    // one wedge. Fixtures (a)/(b) therefore share the minimal reachable
+    // form: the folded wedge ear-clips while the other wedge fans.
+
+    /// Shared amendment-12 fixture: the pinch fixture's geometry with the
+    /// star SPLIT at spoke (v, tl) — star tris (v,a,tl), (v,b,a), (v,w3,b)
+    /// and the growth/pinch blockers are BOnly; (w0,v,tl) and the far
+    /// non-star (tl,a,tr) are AOnly. Spoke (v,tl) is the intersection
+    /// polyline through the mint. At v's minted position (2.2,−0.3) the
+    /// fold sits in wedge B ((v,b,a) — the column hop), growth absorbs
+    /// (a,b,tr) then pinch-defers at (b,tr), and the wedge decomposition
+    /// must ear-clip wedge B over [v,w3,b,tr,a,tl] while wedge A fans its
+    /// single valid triangle [v,tl,w0].
+    fn wedge_base() -> (Vec<[u32; 3]>, Vec<RegionClass>, Vec<Point3>) {
+        let tris = vec![
+            [1, 0, 2], // (w0, v, tl) — wedge A
+            [0, 3, 2], // (v, a, tl)
+            [0, 4, 3], // (v, b, a) — folded at the minted position
+            [0, 5, 4], // (v, w3, b)
+            [4, 5, 6], // (b, w3, tr) — pinch blocker (non-star)
+            [3, 4, 6], // (a, b, tr) — absorbed by growth (non-star)
+            [2, 3, 6], // (tl, a, tr) — untouched non-star
+        ];
+        let mut class = vec![RegionClass::BOnly; 7];
+        class[0] = RegionClass::AOnly;
+        class[6] = RegionClass::AOnly;
+        let coords = vec![
+            p(2.2, -0.3), // v (minted)
+            p(0.0, 0.0),  // w0
+            p(0.0, 2.0),  // tl
+            p(2.0, 1.5),  // a
+            p(2.0, 0.5),  // b
+            p(4.0, 0.0),  // w3
+            p(4.0, 2.0),  // tr
+        ];
+        (tris, class, coords)
+    }
+
+    /// Signed area helper shared by the wedge exact-cover oracles.
+    fn tri_area2d(t: &[u32; 3], coords: &[Point3], frame: &Frame) -> f64 {
+        let q = |i: u32| frame.project(coords[i as usize]);
+        let (p0, p1, p2) = (q(t[0]), q(t[1]), q(t[2]));
+        ((p1.0 - p0.0) * (p2.1 - p0.1) - (p1.1 - p0.1) * (p2.0 - p0.0)) / 2.0
+    }
+
+    /// Fixtures (a)+(b): boundary mint, 2 wedges — the folded wedge
+    /// ear-clips while the other wedge fans; commit with the exact-cover
+    /// oracle and the conformality invariant (§3b): the transition spoke
+    /// (v,tl) — the intersection polyline through the mint, at its CURRENT
+    /// position — survives into the result with exactly one triangle per
+    /// side, and each side carries its own class.
+    #[test]
+    fn wedge_boundary_mint_earclips_folded_wedge_fans_other() {
+        let (mut tris, mut class, coords) = wedge_base();
+        let mut em = edge_map_of(&tris);
+        let frame = frame_z0();
+        assert!(
+            !gate_tri_valid(&[0, 4, 3], &coords, &frame),
+            "fixture must start folded in wedge B"
+        );
+        // Gate OFF: byte-identical to the pre-amendment reject.
+        {
+            let (mut t0, mut c0, mut e0) = (tris.clone(), class.clone(), em.clone());
+            let minted = vec![true, false, false, false, false, false, false];
+            assert!(matches!(
+                relocate_minted_vertex_impl(
+                    &mut t0, &mut c0, &mut e0, 0, &coords, &frame, &minted, false, false
+                ),
+                RelocOutcome::Rejected
+            ));
+            assert_eq!(t0, tris, "gate OFF must reject without mutation");
+            assert_eq!(c0, class);
+            assert_eq!(e0, em);
+        }
+        let minted = vec![true, false, false, false, false, false, false];
+        assert!(matches!(
+            relocate_minted_vertex_impl(
+                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false, true
+            ),
+            RelocOutcome::Committed
+        ));
+        // Non-cavity slots untouched (cavity = star {0,1,2,3} + absorbed 5).
+        assert_eq!(tris[4], [4, 5, 6]);
+        assert_eq!(class[4], RegionClass::BOnly);
+        assert_eq!(tris[6], [2, 3, 6]);
+        assert_eq!(class[6], RegionClass::AOnly);
+        for t in &tris {
+            assert!(
+                gate_tri_valid(t, &coords, &frame),
+                "{t:?} invalid after wedge relocation"
+            );
+        }
+        assert_eq!(
+            canon(&em),
+            canon(&edge_map_of(&tris)),
+            "edge map must be maintained incrementally"
+        );
+        // Conformality by shared spoke identity: the class-transition spoke
+        // (v,tl) has exactly one incident triangle per side, each in its
+        // wedge's class.
+        let key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+        let inc = em.get(&key(0, 2)).expect("spoke (v,tl) must survive");
+        assert_eq!(inc.len(), 2, "spoke (v,tl) must have one side per wedge");
+        let side_classes: Vec<RegionClass> = inc.iter().map(|&ti| class[ti]).collect();
+        assert!(
+            side_classes.contains(&RegionClass::AOnly)
+                && side_classes.contains(&RegionClass::BOnly),
+            "the intersection polyline must separate the two classes: {side_classes:?}"
+        );
+        // The wedge-A fan keeps v's spoke to w0 (domain end); the B-side
+        // ear-clip re-hangs a's triangles off other link vertices.
+        assert!(em.contains_key(&key(0, 1)), "domain spoke (v,w0) kept");
+        assert!(
+            !em.contains_key(&key(0, 3)),
+            "spoke (v,a) must be re-hung by the wedge-B ear-clip"
+        );
+        // Class accounting: the replacement carries 4 BOnly ears + 1 AOnly
+        // fan triangle (Σ per-wedge ears = grown-cavity size).
+        let b_count = class.iter().filter(|&&c| c == RegionClass::BOnly).count();
+        assert_eq!(b_count, 5, "4 B ears + untouched blocker: {class:?}");
+        // Exact cover: same domain as the pinch fixture (rect 8.0 + the
+        // boundary-V dip 0.6); every triangle positive ⇒ no overlap.
+        for t in &tris {
+            assert!(tri_area2d(t, &coords, &frame) > 0.0);
+        }
+        let total: f64 = tris.iter().map(|t| tri_area2d(t, &coords, &frame)).sum();
+        assert!((total - 8.6).abs() < 1e-12, "cover area {total} != 8.6");
+    }
+
+    /// Fixture (c): INTERIOR on-curve mint — closed link, exactly 2 class
+    /// transitions (the intersection polyline runs through spokes (v,w0)
+    /// and (v,w3)). The B wedge ear-clips the proven 7-gon while the A
+    /// wedge fans; both curve spokes survive with one triangle per side.
+    /// Gate OFF this is the `interior vertex with constraint-blocked fan`
+    /// reject (the census's dominant class); gate ON it commits.
+    #[test]
+    fn wedge_interior_oncurve_closed_link_commits() {
+        let (mut tris, mut class, mut coords) = wedge_base();
+        // Close the link below the curve: dn(2,−1.5), lower star AOnly.
+        coords.push(p(2.0, -1.5)); // dn = 7
+        tris.push([0, 1, 7]); // (v, w0, dn)
+        tris.push([0, 7, 5]); // (v, dn, w3)
+        class.push(RegionClass::AOnly);
+        class.push(RegionClass::AOnly);
+        // One class per curve side: (w0,v,tl) joins wedge B above the
+        // curve; the non-star (tl,a,tr) is irrelevant to the star walk.
+        class[0] = RegionClass::BOnly;
+        let mut em = edge_map_of(&tris);
+        let frame = frame_z0();
+        assert!(
+            !gate_tri_valid(&[0, 4, 3], &coords, &frame),
+            "fixture must start folded in wedge B"
+        );
+        // Gate OFF: the interior reject, no mutation.
+        {
+            let (mut t0, mut c0, mut e0) = (tris.clone(), class.clone(), em.clone());
+            let minted = vec![true, false, false, false, false, false, false, false];
+            assert!(matches!(
+                relocate_minted_vertex_impl(
+                    &mut t0, &mut c0, &mut e0, 0, &coords, &frame, &minted, false, false
+                ),
+                RelocOutcome::Rejected
+            ));
+            assert_eq!(t0, tris);
+        }
+        let minted = vec![true, false, false, false, false, false, false, false];
+        assert!(matches!(
+            relocate_minted_vertex_impl(
+                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false, true
+            ),
+            RelocOutcome::Committed
+        ));
+        assert_eq!(tris[4], [4, 5, 6], "non-cavity slots untouched");
+        assert_eq!(tris[6], [2, 3, 6]);
+        for t in &tris {
+            assert!(
+                gate_tri_valid(t, &coords, &frame),
+                "{t:?} invalid after closed-link wedge relocation"
+            );
+        }
+        assert_eq!(
+            canon(&em),
+            canon(&edge_map_of(&tris)),
+            "edge map must be maintained incrementally"
+        );
+        // Both curve spokes survive, one side per class — the two-sided
+        // form through an interior mint.
+        let key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+        for spoke in [key(0, 1), key(0, 5)] {
+            let inc = em.get(&spoke).expect("curve spoke must survive");
+            assert_eq!(inc.len(), 2, "curve spoke {spoke:?} needs both sides");
+            let cs: Vec<RegionClass> = inc.iter().map(|&ti| class[ti]).collect();
+            assert!(
+                cs.contains(&RegionClass::AOnly) && cs.contains(&RegionClass::BOnly),
+                "spoke {spoke:?} must separate the classes: {cs:?}"
+            );
+        }
+        // Exact cover: the boundary-mint domain (8.6) plus the lower quad
+        // (w0, dn, w3, v) = 2.4.
+        for t in &tris {
+            assert!(tri_area2d(t, &coords, &frame) > 0.0);
+        }
+        let total: f64 = tris.iter().map(|t| tri_area2d(t, &coords, &frame)).sum();
+        assert!((total - 11.0).abs() < 1e-12, "cover area {total} != 11.0");
+    }
+
+    /// Fixture (d): JUNCTION mint — >2 constraint spokes at v (two class
+    /// transitions plus two domain ends), 3 wedges, same walk with no
+    /// special case. Wedge B ear-clips; the A and Overlap wedges fan one
+    /// triangle each; both transition spokes keep one side per wedge.
+    #[test]
+    fn wedge_junction_three_wedges_commit() {
+        let (mut tris, mut class, mut coords) = wedge_base();
+        // Extend the chain past w0: bl(−1,0), star tri (v,w0,bl) Overlap.
+        coords.push(p(-1.0, 0.0)); // bl = 7
+        tris.push([0, 1, 7]); // (v, w0, bl)
+        class.push(RegionClass::Overlap);
+        let mut em = edge_map_of(&tris);
+        let frame = frame_z0();
+        let minted = vec![true, false, false, false, false, false, false, false];
+        assert!(matches!(
+            relocate_minted_vertex_impl(
+                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false, true
+            ),
+            RelocOutcome::Committed
+        ));
+        for t in &tris {
+            assert!(
+                gate_tri_valid(t, &coords, &frame),
+                "{t:?} invalid after junction wedge relocation"
+            );
+        }
+        assert_eq!(
+            canon(&em),
+            canon(&edge_map_of(&tris)),
+            "edge map must be maintained incrementally"
+        );
+        // Both transition spokes survive with exactly two sides.
+        let key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+        assert_eq!(em.get(&key(0, 2)).map(|e| e.len()), Some(2), "(v,tl)");
+        assert_eq!(em.get(&key(0, 1)).map(|e| e.len()), Some(2), "(v,w0)");
+        // One triangle per 1-entry wedge, in its own class.
+        assert_eq!(
+            class.iter().filter(|&&c| c == RegionClass::AOnly).count(),
+            2,
+            "wedge-A fan + untouched (tl,a,tr): {class:?}"
+        );
+        assert_eq!(
+            class.iter().filter(|&&c| c == RegionClass::Overlap).count(),
+            1,
+            "the Overlap wedge fans exactly its own triangle: {class:?}"
+        );
+    }
+
+    /// Fixture (e): a 1-triangle wedge that is VALID at the minted
+    /// coordinates fans trivially — its triangle appears verbatim in the
+    /// committed result (wedge A of the shared fixture).
+    #[test]
+    fn wedge_single_triangle_valid_wedge_fans_trivially() {
+        let (mut tris, mut class, coords) = wedge_base();
+        let mut em = edge_map_of(&tris);
+        let frame = frame_z0();
+        let minted = vec![true, false, false, false, false, false, false];
+        assert!(matches!(
+            relocate_minted_vertex_impl(
+                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false, true
+            ),
+            RelocOutcome::Committed
+        ));
+        let fan_slot = tris
+            .iter()
+            .position(|t| *t == [0, 2, 1])
+            .expect("wedge A's 1-triangle fan [v,tl,w0] must appear verbatim");
+        assert_eq!(class[fan_slot], RegionClass::AOnly);
+    }
+
+    /// Fixture (f): a 1-triangle FOLDED wedge is ungrowable (its only
+    /// link edge is blocked by the intersection curve) and its 3-gon
+    /// ear-clip cannot invert the fold — the wedge rejects LOUDLY with no
+    /// mutation and the caller's amendment-2 revert stays the fallback.
+    #[test]
+    fn wedge_single_triangle_folded_wedge_rejects_without_mutation() {
+        let (mut tris, mut class, coords) = base();
+        // Split the base fixture at spoke (v,w1): (v,w2,w1) stays AOnly,
+        // the folded (v,w1,w0) becomes BOnly, and the external neighbor
+        // (w0,w1,far) stays AOnly — a class boundary, so growth defers.
+        class[1] = RegionClass::BOnly;
+        let tris0 = tris.clone();
+        let class0 = class.clone();
+        let mut em = edge_map_of(&tris);
+        let em0 = em.clone();
+        let frame = frame_z0();
+        assert!(
+            !gate_tri_valid(&[0, 3, 1], &coords, &frame),
+            "fixture must start folded"
+        );
+        let minted = vec![true, false, false, false, false];
+        assert!(matches!(
+            relocate_minted_vertex_impl(
+                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false, true
+            ),
+            RelocOutcome::Rejected
+        ));
+        assert_eq!(tris, tris0, "reject must not mutate triangles");
+        assert_eq!(class, class0, "reject must not mutate classes");
+        assert_eq!(em, em0, "reject must not mutate the edge map");
+    }
+
+    /// Fixture (g): a NON-SIMPLE wedge polygon propagates
+    /// `RelocOutcome::NonSimple` with the amendment-10 crossing-narrowed
+    /// seeds — the mints on THIS wedge's crossing edges only. Here the
+    /// wedge-B polygon [v,w3,b,tr,a] crosses at (w3→b) × (a→v): the minted
+    /// `a` is a seed; the minted `tr` sits on the ring but NOT on the
+    /// crossing and must be excluded.
+    #[test]
+    fn wedge_nonsimple_propagates_crossing_narrowed_ring_mints() {
+        let (mut tris, mut class, coords) = wedge_base();
+        // Third class beyond spoke (v,a): wedge B loses tl, so its polygon
+        // closes a→v and crosses its own chords under the minted position.
+        class[1] = RegionClass::Overlap; // (v,a,tl)
+        let tris0 = tris.clone();
+        let mut em = edge_map_of(&tris);
+        let frame = frame_z0();
+        let minted = vec![true, false, false, true, false, false, true];
+        let out = relocate_minted_vertex_impl(
+            &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false, true,
+        );
+        let RelocOutcome::NonSimple { ring_mints } = out else {
+            panic!("the non-simple wedge polygon must surface the joint trigger");
+        };
+        assert_eq!(
+            ring_mints,
+            vec![3],
+            "seeds must be the crossing-edge mints of the wedge only \
+             (a=3 in; ring mint tr=6 out)"
+        );
+        assert_eq!(tris, tris0, "NonSimple must not mutate");
+    }
+
+    /// Fixture (h): a SINGLE-CLASS deferred cavity takes the pre-amendment
+    /// ear-clip path byte-identically with the gate ON — the wedge arm
+    /// activates only on multi-class links.
+    #[test]
+    fn wedge_arm_single_class_path_byte_identical() {
+        // The pinch fixture (single class): run gate OFF and gate ON on
+        // clones; outputs must be bit-identical.
+        let build = || {
+            let tris = vec![
+                [1, 0, 2],
+                [0, 3, 2],
+                [0, 4, 3],
+                [0, 5, 4],
+                [4, 5, 6],
+                [3, 4, 6],
+                [2, 3, 6],
+            ];
+            let class = vec![RegionClass::AOnly; 7];
+            let coords = vec![
+                p(2.2, -0.3),
+                p(0.0, 0.0),
+                p(0.0, 2.0),
+                p(2.0, 1.5),
+                p(2.0, 0.5),
+                p(4.0, 0.0),
+                p(4.0, 2.0),
+            ];
+            (tris, class, coords)
+        };
+        let frame = frame_z0();
+        let minted = vec![true, false, false, false, false, false, false];
+        let (mut t_off, mut c_off, coords) = build();
+        let mut e_off = edge_map_of(&t_off);
+        assert!(matches!(
+            relocate_minted_vertex_impl(
+                &mut t_off, &mut c_off, &mut e_off, 0, &coords, &frame, &minted, false, false
+            ),
+            RelocOutcome::Committed
+        ));
+        let (mut t_on, mut c_on, _) = build();
+        let mut e_on = edge_map_of(&t_on);
+        assert!(matches!(
+            relocate_minted_vertex_impl(
+                &mut t_on, &mut c_on, &mut e_on, 0, &coords, &frame, &minted, false, true
+            ),
+            RelocOutcome::Committed
+        ));
+        assert_eq!(t_on, t_off, "single-class path must be byte-identical");
+        assert_eq!(c_on, c_off);
+        assert_eq!(e_on, e_off);
     }
 }

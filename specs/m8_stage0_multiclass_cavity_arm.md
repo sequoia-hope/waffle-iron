@@ -1,7 +1,15 @@
 # SPEC — M8 Stage-0 overlay mesh-updating: the MULTI-CLASS cavity arm (amendment 12)
 
-**Status: inc-0 CENSUS COMPLETE (2026-07-30, see §7). Baseline 259C/0W/51E/0T
-(post 1a9cee36/1f576621). Next: inc-1.**
+**Status: inc-1 PRIMITIVE SHIPPED + MEASURED (2026-07-30, see §8). Baseline
+259C/0W/51E/0T unchanged (the arm is env-gated OFF). Headline measurements:
+the interior-reject class is 100% 2-transition (428/428 events across the 5
+heaviest cases — the wedge arm's structural coverage of the dominant census
+class is total), but at the actual failing mints the FOLDED wedge polygon is
+NON-SIMPLE (interacting mints), so R0099 stays ERROR gate-ON and the wall
+moves to the inc-3 region form (now census-armed). Next: inc-2 corpus OFF/ON
+(the flip bar is unchanged — zero CORRECT→ERROR; conversions are NOT
+expected, but the latent-revert reduction is real: R0085 reverts 65 → 10)
+and/or inc-3 region-form parity, which R0099's conversion requires.**
 
 Named target of the R0099 producing-op probe (`docs/yang_tail_triage.md`
 §"R0099 producing-op probe COMPLETE (2026-07-30)", commit 1f576621). This is
@@ -181,35 +189,42 @@ then disappears — no permanent mode.
   under `YANG_COPLANAR_PROBE` (`nary.rs:624`). Headline: 19 revert cases
   (10 ERROR + 9 CORRECT-latent), zero n-ary events, interior arm 616 vs
   multi-class 139 reject events.
-- **inc-1 — the amendment-12 primitive, env-gated.** Wedge decomposition in
-  `relocate_minted_vertex` per §3a-3c. **Census addendum (§7.2): extend the
-  interior-reject probe line with the link's class-transition count**, so
-  the first gated run measures the arm's true coverage of the dominant
-  616-event interior class (≥2 transitions covered; 0 transitions stays
-  rejected by design). Unit fixtures in `reloc_tests`
-  (P4, z=0 identity-frame style): (a) boundary mint, 2 wedges, both fan —
-  commit; (b) boundary mint, folded wedge ear-clips while the other fans —
-  commit, exact-cover oracle, constraint spokes present in the result's
-  edge map; (c) interior on-curve mint (closed link, 2 transitions) —
-  commit; (d) junction mint, 3 wedges; (e) 1-triangle wedge, valid at
-  minted coords — trivial commit; (f) 1-triangle folded wedge, ungrowable —
-  reject with NO mutation; (g) wedge NonSimple propagates `ring_mints`
-  (amendment-10 semantics); (h) single-class path byte-identical (existing
-  tests re-run gate-ON). Plus the R0099 engine-frame chain fixture
-  (extrude-boss + extrude-cut + revolve-cut, direct constructors, the
-  `m8_swiss_cheese_chain.rs` pattern): RED gate-OFF (VertexOffSurface),
-  expected GREEN gate-ON, volume oracle.
+- **inc-1 — the amendment-12 primitive, env-gated. ✅ COMPLETE 2026-07-30,
+  measurements in §8.** Wedge decomposition in `relocate_minted_vertex`
+  per §3a-3c (`reloc.rs`, `relocate_minted_vertex_impl` with the gate as
+  an explicit parameter — reloc_tests exercise both states without env
+  mutation; production reads `YANG_S0_MULTICLASS_RELOC_ENABLE`). The §7.2
+  interior-reject probe now prints the link's cyclic class-transition
+  count. Unit fixtures shipped as specced with ONE correction: fixture (a)
+  "2 wedges, both fan" is UNREACHABLE — the deferred path only runs when
+  some link edge kept an invalid fan triangle, and that edge's wedge can
+  never fan, so every reachable decomposition ear-clips ≥ 1 wedge; (a)/(b)
+  share the minimal reachable form (folded wedge ear-clips, other fans).
+  Fixtures (c)–(h) as specced, incl. the closed-link interior commit, the
+  3-wedge junction, and the crossing-narrowed NonSimple propagation. The
+  R0099 engine-frame chain fixture
+  (`kernel-v2/tests/m8_r0099_multiclass_chain.rs`) pins RED gate-OFF
+  (VertexOffSurface, `op3`, FaceId(18) — digit-identical to the corpus);
+  the gate-ON green oracle is quarantined on **inc-3**, not inc-2: at
+  R0099's actual mints every folded wedge polygon is NON-SIMPLE (§8).
 - **inc-2 — flip.** `ASSAY_CASE=R0099 single_case` first, then full corpus
   OFF/ON back-to-back; flip always-on on zero CORRECT→ERROR. Candidate
   conversions: R0099 + whatever the inc-0 census rostered. Ledger + triage
   rows updated; `docs/yang_deviations.md` if any paper deviation is taken.
-- **inc-3 — joint-form parity (census-gated).** Only with a measured case:
-  (a) widen the amendment-6 trigger to fire on ≥2 multi-class-rejected
-  seeds without a NonSimple sighting; (b) region-form wedge parity — teach
-  `relocate_region_single_class` callers that a 1-triangle class wedge at
-  an on-curve seed is the per-vertex arm's job, or grow it within class
-  (`region too small` today). Measure first; no speculative branches
-  (the increment-14 singleton-relaxation revert is the cautionary tale).
+- **inc-3 — joint-form parity (census gate ARMED 2026-07-30, §8).** The
+  measured case list exists: R0099 gate-ON reaches the joint path via the
+  wedges' NonSimple propagation (region attempts [178,182] and
+  [115,116,120,126]) and the REGION form is the wall — `crossing edges
+  ungrowable (region polygon not simple)` (both sub-cases), `region too
+  small` (the [115,…] Overlap sub-region — exactly the 1-triangle class
+  wedge named in (b)), `every folded class sub-region rejected`. Note
+  (a)'s trigger widening is now LESS urgent than drafted: the wedge arm
+  itself supplies the NonSimple sightings that the old multi-class reject
+  never did, so the trigger fires on these cases already; the residual
+  work is the region form's own on-curve growth/decomposition — the
+  region-level analog of the §3a wedge cut. Measure per sub-case before
+  building (the increment-14 singleton-relaxation revert is the
+  cautionary tale).
 - **inc-4 — n-ary gate parity (census-gated).** Lift the slice-g B8
   deferral: wire the amendment 4→5(+12)→6 ladder into `nary.rs`'s reduced
   gate, with face attribution as an additional wedge-cut axis (an edge
@@ -339,3 +354,39 @@ relocations, 37 region relocations — F0090 is the showcase (119 commits,
 
 Raw logs: session-scratchpad `census/` (ephemeral); these tables are the
 durable record.
+
+## 8. inc-1 MEASUREMENTS (2026-07-30) — coverage total, wall moved to the region form
+
+Probe method: `single_case` release runs, `YANG_SPLIT_PROBE=1`, gate ON via
+`YANG_S0_MULTICLASS_RELOC_ENABLE=1` (the driver-nulls-stderr trap from §7
+applies — never census through the `ASSAY_JOBS` driver).
+
+**§7.2 transition census — the interior class is ALL on-curve.** Every
+interior-reject event across the five heaviest census cases carries exactly
+2 cyclic class transitions (gate-OFF probe): R0099 1/1, R0085 130/130,
+F0067 243/243, C0048 34/34, R0088 20/20 — 428/428, zero 0-transition
+events. The by-design reject class (constraint LINE crossed, segment
+elsewhere) is EMPTY in the measured set: the wedge arm structurally covers
+the entire dominant census class. Coverage ≠ repair, though — see below.
+
+**Gate-ON at the failing mints: the folded wedge polygon is NON-SIMPLE.**
+R0099 (fixture + corpus, identical behavior): all four multi-class mints
+(verts 4/9/116/182; vert 9 the closed interior form, wedges
+`[(Overlap,3),(BOnly,3)]`) decompose and FAN their valid wedges, but each
+FOLDED wedge's polygon is exactly non-simple — the interacting-mints
+signature; vert 4's ring shows a neighbor mint's collapsed chord passing
+through v's minted position. `NonSimple` propagates crossing-narrowed
+seeds; the joint path fires (region attempts it never made gate-OFF); the
+region form rejects (§4 inc-3). R0099 stays ERROR (VertexOffSurface(18)),
+in-chain reverts 6 → 3.
+
+**The indirect win is real and large.** R0085 gate-OFF → gate-ON:
+per-vertex commits 0 → 1, REGION commits 0 → 6 (the wedges' NonSimple
+seeds arm the joint path), fold-reverts **65 → 10**; verdict unchanged
+(its own TessellationFailed(566) wall, as §7 predicted). Residual wedge
+rejects on R0085: 25× `cavity polygon not simple`, 1× `not CCW` — the
+same interacting class. Flip calculus for inc-2: conversions are NOT the
+expected payoff; the payoff is chord-lift reverts repaired out of CORRECT
+and ERROR meshes alike (the §7 finding-4 latent class), and the risk is
+that those same triangulation changes perturb the 9 CORRECT-latent cases —
+zero CORRECT→ERROR remains the bar.
