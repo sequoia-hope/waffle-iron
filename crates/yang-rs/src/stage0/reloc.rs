@@ -18,8 +18,32 @@ pub(crate) enum RelocOutcome {
     /// CROSSING edges (amendment 10: the interacting set per Fig-11
     /// locality — NOT every mint on the ring; a hole-encircling ring lists
     /// dozens of mints and seeding them all inflates the joint region into
-    /// an annulus). No mutation.
-    NonSimple { ring_mints: Vec<u32> },
+    /// an annulus). `merge_candidate` is the amendment-13 BACKTRACK pair
+    /// (unminted p, minted q) when the polygon's first crossing carries the
+    /// Fig-11(b→c) signature — the SINGLETON NonSimple class (empty
+    /// `ring_mints`) never reaches the joint form, so the ladder merges
+    /// directly from here (measured: R0099 verts 4/9). No mutation.
+    NonSimple {
+        ring_mints: Vec<u32>,
+        merge_candidate: Option<(u32, u32)>,
+    },
+}
+
+/// Outcome of the joint region relocation (amendments 6–9 + 13).
+pub(crate) enum RegionOutcome {
+    /// At least one class sub-region was re-triangulated and committed.
+    Committed,
+    /// Nothing committed; no Fig-11 merge candidate was identified.
+    Rejected,
+    /// Nothing committed, but a rejecting sub-region's boundary carried
+    /// the amendment-13 BACKTRACK signature (spec
+    /// `m8_stage0_multiclass_cavity_arm` §10): its two crossing ring
+    /// edges sandwich one edge joining an UNMINTED vertex `p` to a
+    /// MINTED vertex `q` — the [#24 Yang §4.4.1 Fig 11(b→c)] "endpoint p
+    /// of the split edge is too close to q" configuration. The LADDER
+    /// decides whether p is mergeable (provenance mask) and performs the
+    /// position merge; this form only reports. No mutation.
+    MergeCandidate { p: u32, q: u32 },
 }
 
 /// Reject reason of [`earclip_cavity_polygon`]: exact non-simplicity is
@@ -474,7 +498,8 @@ pub(crate) fn relocate_minted_vertex(
                 // seeds are the minted vertices ON the crossing edges (the
                 // interacting set — Fig-11 locality), identified by exact
                 // position match against the same frame projection the
-                // ear-clip used.
+                // ear-clip used. Amendment 13: the first raw-poly crossing
+                // may carry the backtrack merge pair.
                 return RelocOutcome::NonSimple {
                     ring_mints: poly
                         .iter()
@@ -485,6 +510,8 @@ pub(crate) fn relocate_minted_vertex(
                                 && crossing.contains(&frame.project(coords[pi as usize]))
                         })
                         .collect(),
+                    merge_candidate: first_ring_crossing(&poly, coords, frame)
+                        .and_then(|(ci, cj)| fig11_backtrack_pair(&poly, ci, cj, minted_mark)),
                 };
             }
             Err(EarclipErr::Other(why)) => return reject(why),
@@ -587,7 +614,9 @@ pub(crate) fn relocate_minted_vertex(
                     }
                     // Amendment-10 narrowing, per wedge: the joint seeds are
                     // the mints on THIS wedge polygon's crossing edges (the
-                    // interacting set — Fig-11 locality).
+                    // interacting set — Fig-11 locality). Amendment 13: the
+                    // first raw-poly crossing may carry the backtrack merge
+                    // pair (the singleton-NonSimple customers, R0099 4/9).
                     return RelocOutcome::NonSimple {
                         ring_mints: poly
                             .iter()
@@ -598,6 +627,8 @@ pub(crate) fn relocate_minted_vertex(
                                     && crossing.contains(&frame.project(coords[pi as usize]))
                             })
                             .collect(),
+                        merge_candidate: first_ring_crossing(&poly, coords, frame)
+                            .and_then(|(ci, cj)| fig11_backtrack_pair(&poly, ci, cj, minted_mark)),
                     };
                 }
                 Err(EarclipErr::Other(why)) => {
@@ -678,14 +709,7 @@ pub(crate) fn relocate_minted_region(
     frame: &Frame,
     minted_mark: &[bool],
     probe: bool,
-) -> bool {
-    let reject = |why: &str| {
-        if probe {
-            eprintln!("  [reloc-region-reject] seeds {seeds:?} {why}");
-        }
-        false
-    };
-
+) -> RegionOutcome {
     // ── 1. Region = union of the seeds' stars, PARTITIONED by class ──────
     // Amendment 7 (M8 increment 10): rim mints are minted exactly ON the
     // intersection curve — that is what a rim crossing is — so the star
@@ -702,6 +726,9 @@ pub(crate) fn relocate_minted_region(
         }
     }
     let mut committed_any = false;
+    // Amendment 13: the first Fig-11 backtrack pair reported by a
+    // rejecting sub-region (deterministic: class order, component order).
+    let mut merge_candidate: Option<(u32, u32)> = None;
     for (cls0, region) in by_class {
         // Amendment 9 (M8 increment 12): a class sub-region may be
         // DISCONNECTED — the joint trigger accumulates seeds from several
@@ -752,15 +779,25 @@ pub(crate) fn relocate_minted_region(
                 frame,
                 minted_mark,
                 probe,
+                &mut merge_candidate,
             ) {
                 committed_any = true;
             }
         }
     }
-    if !committed_any {
-        return reject("every folded class sub-region rejected");
+    if committed_any {
+        return RegionOutcome::Committed;
     }
-    true
+    if probe {
+        eprintln!("  [reloc-region-reject] seeds {seeds:?} every folded class sub-region rejected");
+    }
+    // Amendment 13: surface the first (deterministic — class order, then
+    // component BFS order) Fig-11 backtrack pair found among the rejecting
+    // sub-regions, so the ladder can merge instead of reverting.
+    match merge_candidate {
+        Some((p, q)) => RegionOutcome::MergeCandidate { p, q },
+        None => RegionOutcome::Rejected,
+    }
 }
 
 /// One class sub-region of the amendment-6/7 joint relocation: oriented
@@ -780,6 +817,7 @@ pub(crate) fn relocate_region_single_class(
     frame: &Frame,
     minted_mark: &[bool],
     probe: bool,
+    merge_candidate: &mut Option<(u32, u32)>,
 ) -> bool {
     let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
     let reject = |why: &str| {
@@ -966,14 +1004,22 @@ pub(crate) fn relocate_region_single_class(
             break;
         }
         if !grew {
-            if probe {
-                if let Some((pp, qq)) = fig11_backtrack_pair(&poly, ei, ej, minted_mark) {
+            // Amendment 13: an ungrowable crossing in the Fig-11 BACKTRACK
+            // configuration is a merge candidate — report it to the caller
+            // (first one wins; no mutation here).
+            if let Some((pp, qq)) = fig11_backtrack_pair(&poly, ei, ej, minted_mark) {
+                if probe {
                     eprintln!(
                         "  [reloc-region-fig11] seeds {seeds:?} class {cls0:?} \
                          backtrack p={pp} (unminted, {:?}) q={qq} (minted, {:?})",
                         coords[pp as usize], coords[qq as usize]
                     );
                 }
+                if merge_candidate.is_none() {
+                    *merge_candidate = Some((pp, qq));
+                }
+            }
+            if probe {
                 let pos = |k: usize| frame.project(coords[poly[k] as usize]);
                 let ring_at: Vec<(u32, bool, (f64, f64))> = (0..poly.len())
                     .map(|k| (poly[k], minted_mark[poly[k] as usize], pos(k)))
@@ -1055,19 +1101,25 @@ pub(crate) fn fig11_backtrack_pair(
     minted_mark: &[bool],
 ) -> Option<(u32, u32)> {
     let n = poly.len();
-    let mid = if (ei + 2) % n == ej {
-        (ei + 1) % n
-    } else if (ej + 2) % n == ei {
-        (ej + 1) % n
-    } else {
-        return None;
-    };
-    let (a, b) = (poly[mid], poly[(mid + 1) % n]);
-    match (minted_mark[a as usize], minted_mark[b as usize]) {
-        (false, true) => Some((a, b)),
-        (true, false) => Some((b, a)),
-        _ => None,
+    // On a 4-gon the two crossing edges sandwich BOTH remaining edges —
+    // try each sandwiched mid (deterministic order) and take the first
+    // that carries exactly one mint.
+    let mut mids = [None, None];
+    if (ei + 2) % n == ej {
+        mids[0] = Some((ei + 1) % n);
     }
+    if (ej + 2) % n == ei {
+        mids[1] = Some((ej + 1) % n);
+    }
+    for mid in mids.into_iter().flatten() {
+        let (a, b) = (poly[mid], poly[(mid + 1) % n]);
+        match (minted_mark[a as usize], minted_mark[b as usize]) {
+            (false, true) => return Some((a, b)),
+            (true, false) => return Some((b, a)),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Amendment 8 (spec `n2_stage4_junction_cluster_merge` §3, M8 increment
@@ -1141,7 +1193,9 @@ mod reloc_tests {
     //! frame, so the resolved 3D coords ARE the 2D positions.
 
     use super::RelocOutcome;
-    use super::{gate_tri_valid, relocate_minted_region, relocate_minted_vertex, Frame};
+    use super::{
+        gate_tri_valid, relocate_minted_region, relocate_minted_vertex, Frame, RegionOutcome,
+    };
     use crate::coplanar_overlay::RegionClass;
     use cad_primitives::Point3;
     use std::collections::BTreeMap;
@@ -1382,15 +1436,18 @@ mod reloc_tests {
         );
         let mut minted = vec![false; coords.len()];
         minted[0] = true;
-        assert!(relocate_minted_region(
-            &mut tris,
-            &mut class,
-            &mut em,
-            &[0],
-            &coords,
-            &frame,
-            &minted,
-            false
+        assert!(matches!(
+            relocate_minted_region(
+                &mut tris,
+                &mut class,
+                &mut em,
+                &[0],
+                &coords,
+                &frame,
+                &minted,
+                false
+            ),
+            RegionOutcome::Committed
         ));
         // Non-region slots untouched.
         assert_eq!(tris[4], [4, 5, 6]);
@@ -1432,15 +1489,18 @@ mod reloc_tests {
         let frame = frame_z0();
         let mut minted = vec![false; coords.len()];
         minted[0] = true;
-        assert!(relocate_minted_region(
-            &mut tris,
-            &mut class,
-            &mut em,
-            &[0],
-            &coords,
-            &frame,
-            &minted,
-            false
+        assert!(matches!(
+            relocate_minted_region(
+                &mut tris,
+                &mut class,
+                &mut em,
+                &[0],
+                &coords,
+                &frame,
+                &minted,
+                false
+            ),
+            RegionOutcome::Committed
         ));
         for t in &tris {
             assert!(
@@ -1469,8 +1529,13 @@ mod reloc_tests {
     /// Amendment 8 reject, no mutation: the same non-simple boundary, but
     /// every neighbor beyond the crossing edges is across the intersection
     /// curve (class boundary) — growth is blocked on both sides, the
-    /// sub-region rejects, and nothing is mutated (the caller's
-    /// amendment-2 revert stays the loud fallback).
+    /// sub-region rejects, and nothing is mutated. Amendment 13: the
+    /// combinatorial backtrack detector legitimately SURFACES the (w0, v)
+    /// sandwich here as a candidate — but this shape is a large fold, not
+    /// a hair backtrack, and the LADDER's displacement guard
+    /// (‖p−q‖ = 0.89 vs a rim-snap-scale displacement) plus the
+    /// provenance mask refuse the merge there; the amendment-2 revert
+    /// stays the fallback.
     #[test]
     fn region_nonsimple_ungrowable_rejects_without_mutation() {
         let (mut tris, mut class, coords) = base();
@@ -1486,15 +1551,18 @@ mod reloc_tests {
         let frame = frame_z0();
         let mut minted = vec![false; coords.len()];
         minted[0] = true;
-        assert!(!relocate_minted_region(
-            &mut tris,
-            &mut class,
-            &mut em,
-            &[0],
-            &coords,
-            &frame,
-            &minted,
-            false
+        assert!(matches!(
+            relocate_minted_region(
+                &mut tris,
+                &mut class,
+                &mut em,
+                &[0],
+                &coords,
+                &frame,
+                &minted,
+                false
+            ),
+            RegionOutcome::MergeCandidate { p: 1, q: 0 }
         ));
         assert_eq!(tris, tris0, "reject must not mutate triangles");
         assert_eq!(class, class0, "reject must not mutate classes");
@@ -1518,15 +1586,18 @@ mod reloc_tests {
         let frame = frame_z0();
         let mut minted = vec![false; coords.len()];
         minted[0] = true;
-        assert!(!relocate_minted_region(
-            &mut tris,
-            &mut class,
-            &mut em,
-            &[0],
-            &coords,
-            &frame,
-            &minted,
-            false
+        assert!(matches!(
+            relocate_minted_region(
+                &mut tris,
+                &mut class,
+                &mut em,
+                &[0],
+                &coords,
+                &frame,
+                &minted,
+                false
+            ),
+            RegionOutcome::Rejected
         ));
         assert_eq!(tris, tris0, "reject must not mutate triangles");
         assert_eq!(class, class0, "reject must not mutate classes");
@@ -1579,15 +1650,18 @@ mod reloc_tests {
         );
         let mut minted = vec![false; coords.len()];
         minted[0] = true;
-        assert!(relocate_minted_region(
-            &mut tris,
-            &mut class,
-            &mut em,
-            &[0],
-            &coords,
-            &frame,
-            &minted,
-            false
+        assert!(matches!(
+            relocate_minted_region(
+                &mut tris,
+                &mut class,
+                &mut em,
+                &[0],
+                &coords,
+                &frame,
+                &minted,
+                false
+            ),
+            RegionOutcome::Committed
         ));
         // The Overlap sub-region and the non-region slots are untouched.
         assert_eq!(tris[0], [1, 0, 2]);
@@ -1658,15 +1732,18 @@ mod reloc_tests {
         let overlap_before = (tris[0], class[0]);
         let mut minted = vec![false; coords.len()];
         minted[0] = true;
-        assert!(relocate_minted_region(
-            &mut tris,
-            &mut class,
-            &mut em,
-            &[0],
-            &coords,
-            &frame,
-            &minted,
-            false
+        assert!(matches!(
+            relocate_minted_region(
+                &mut tris,
+                &mut class,
+                &mut em,
+                &[0],
+                &coords,
+                &frame,
+                &minted,
+                false
+            ),
+            RegionOutcome::Committed
         ));
         assert_eq!(
             (tris[0], class[0]),
@@ -1709,7 +1786,7 @@ mod reloc_tests {
         let out = relocate_minted_vertex(
             &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false,
         );
-        let RelocOutcome::NonSimple { ring_mints } = out else {
+        let RelocOutcome::NonSimple { ring_mints, .. } = out else {
             panic!("fixture must reach the non-simple cavity polygon");
         };
         assert_eq!(
@@ -1749,7 +1826,7 @@ mod reloc_tests {
         let out = relocate_minted_vertex(
             &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false,
         );
-        let RelocOutcome::NonSimple { ring_mints } = out else {
+        let RelocOutcome::NonSimple { ring_mints, .. } = out else {
             panic!(
                 "net-CW bow-tie must surface NonSimple (joint trigger), \
                  not a terminal orientation reject"
@@ -1794,15 +1871,18 @@ mod reloc_tests {
         let mut minted = vec![false; coords.len()];
         minted[0] = true;
         minted[off as usize] = true;
-        assert!(relocate_minted_region(
-            &mut tris,
-            &mut class,
-            &mut em,
-            &[0, off],
-            &coords,
-            &frame,
-            &minted,
-            false
+        assert!(matches!(
+            relocate_minted_region(
+                &mut tris,
+                &mut class,
+                &mut em,
+                &[0, off],
+                &coords,
+                &frame,
+                &minted,
+                false
+            ),
+            RegionOutcome::Committed
         ));
         for t in &tris {
             assert!(
@@ -2135,7 +2215,7 @@ mod reloc_tests {
         let out = relocate_minted_vertex(
             &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false,
         );
-        let RelocOutcome::NonSimple { ring_mints } = out else {
+        let RelocOutcome::NonSimple { ring_mints, .. } = out else {
             panic!("the non-simple wedge polygon must surface the joint trigger");
         };
         assert_eq!(
@@ -2145,6 +2225,97 @@ mod reloc_tests {
              (a=3 in; ring mint tr=6 out)"
         );
         assert_eq!(tris, tris0, "NonSimple must not mutate");
+    }
+
+    // ── Amendment 13: Fig-11(b→c) merge candidate surfacing ──────────────
+
+    /// The Z-fold BACKTRACK pentagon (the R0099 [178,182] ring, §10a,
+    /// scaled): the boundary walks W→M→F out to p, BACKTRACKS to the mint
+    /// q (‖p−q‖ = 0.031), and closes q→W; the overshooting chord F→p
+    /// crosses q's exit edge q→W a hair past q. Both crossing edges are
+    /// domain boundary (star-only mesh), so amendment-8 growth is
+    /// impossible — and the ungrowable reject must surface the
+    /// amendment-13 merge candidate (p unminted, q minted) with NO
+    /// mutation. The LADDER performs the actual merge (mod.rs, gated).
+    fn fig11_pentagon() -> (Vec<[u32; 3]>, Vec<RegionClass>, Vec<Point3>) {
+        let tris = vec![
+            [0, 1, 2], // (W, M, F)
+            [0, 2, 3], // (W, F, p)
+            [0, 3, 4], // (W, p, q) — folded at q's minted position
+        ];
+        let class = vec![RegionClass::AOnly; 3];
+        let coords = vec![
+            p(0.0, -1.0),   // W
+            p(0.35, -0.55), // M
+            p(0.33, -0.07), // F
+            p(0.11, 0.01),  // p — unminted discretization vertex
+            p(0.14, 0.004), // q — the mint (backtrack target)
+        ];
+        (tris, class, coords)
+    }
+
+    #[test]
+    fn region_fig11_backtrack_surfaces_merge_candidate() {
+        let (mut tris, mut class, coords) = fig11_pentagon();
+        let tris0 = tris.clone();
+        let class0 = class.clone();
+        let mut em = edge_map_of(&tris);
+        let em0 = em.clone();
+        let frame = frame_z0();
+        assert!(
+            !gate_tri_valid(&[0, 3, 4], &coords, &frame),
+            "fixture must start folded at (W,p,q)"
+        );
+        let mut minted = vec![false; coords.len()];
+        minted[4] = true; // q
+        let out = relocate_minted_region(
+            &mut tris,
+            &mut class,
+            &mut em,
+            &[0, 4],
+            &coords,
+            &frame,
+            &minted,
+            false,
+        );
+        let RegionOutcome::MergeCandidate { p, q } = out else {
+            panic!("ungrowable backtrack ring must surface the Fig-11 merge candidate");
+        };
+        assert_eq!(
+            (p, q),
+            (3, 4),
+            "p = the unminted backtrack vertex, q = the mint"
+        );
+        assert_eq!(tris, tris0, "candidate surfacing must not mutate triangles");
+        assert_eq!(class, class0, "candidate surfacing must not mutate classes");
+        assert_eq!(em, em0, "candidate surfacing must not mutate the edge map");
+    }
+
+    /// The backtrack detector requires EXACTLY one mint on the sandwiched
+    /// edge: with p minted too (an interacting-mints pair, not a Fig-11
+    /// too-close endpoint), no candidate surfaces and the reject stays the
+    /// plain loud one.
+    #[test]
+    fn region_fig11_pair_needs_exactly_one_mint() {
+        let (mut tris, mut class, coords) = fig11_pentagon();
+        let mut em = edge_map_of(&tris);
+        let frame = frame_z0();
+        let mut minted = vec![false; coords.len()];
+        minted[3] = true; // p minted as well
+        minted[4] = true;
+        assert!(matches!(
+            relocate_minted_region(
+                &mut tris,
+                &mut class,
+                &mut em,
+                &[0, 4],
+                &coords,
+                &frame,
+                &minted,
+                false,
+            ),
+            RegionOutcome::Rejected
+        ));
     }
 
     /// Fixture (h) (was: `wedge_arm_single_class_path_byte_identical`,

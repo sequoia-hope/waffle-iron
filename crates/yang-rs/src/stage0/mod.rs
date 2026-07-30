@@ -783,6 +783,13 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // below (spec §3 amendment 2: coordinate-comparison inference is
         // FORBIDDEN — it falsely captures ULP-snapped rim vertices).
         let mut minted_mark = vec![false; overlay.verts.len()];
+        // Amendment 13 (spec `m8_stage0_multiclass_cavity_arm` §10): a
+        // vertex is MERGEABLE iff it is a pure sweep-event discretization
+        // vertex — not a corner of either input, not an input rim sample,
+        // not itself minted (the `lift_or_snap` resolution branch). Only
+        // such a vertex may be position-merged into a mint by the Fig-11
+        // merge arm below; every other provenance stays immovable (P10).
+        let mut mergeable_mark = vec![false; overlay.verts.len()];
         // Increment 4 (spec `m8_holed_disc_coplanar_overlay` §8): per-mint
         // record (overlay vertex, rim-ctx slot, crossing-branch flag) for the
         // sub-floor shared-mint collapse below. Slot-scoped so a collapse
@@ -806,6 +813,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     let (du, dv) = (u - qx, v - qy);
                     du * du + dv * dv <= snap_eps2
                 }) {
+                    mergeable_mark[i] = true;
                     pt
                 } else {
                     // N2-3a: a vertex the overlay minted STRICTLY INTERIOR to
@@ -853,6 +861,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                         }
                     }
                     *mark = minted.is_some();
+                    mergeable_mark[i] = minted.is_none();
                     minted.unwrap_or_else(|| frame.lift(qx, qy))
                 }
             };
@@ -1054,6 +1063,10 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             }
         }
 
+        // Amendment 13 gate (spec `m8_stage0_multiclass_cavity_arm` §10d
+        // inc-3.1): the Fig-11(b→c) merge arm, env-gated until its inc-3.2
+        // corpus flip.
+        let merge_arm = std::env::var_os("YANG_S0_FIG11_MERGE_ENABLE").is_some();
         loop {
             let mut changed = false;
             for ti in 0..overlay.tris.len() {
@@ -1179,6 +1192,11 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 let mut joint_seeds: std::collections::BTreeSet<u32> =
                     std::collections::BTreeSet::new();
                 let mut saw_nonsimple = false;
+                // Amendment 13: the first Fig-11 backtrack pair surfaced by
+                // a per-vertex NonSimple reject (the SINGLETON class never
+                // reaches the joint form); a region-form candidate below
+                // takes precedence when the joint path runs.
+                let mut merge_pair: Option<(u32, u32)> = None;
                 for &vv in &t {
                     if !minted_mark[vv as usize] {
                         continue;
@@ -1205,10 +1223,16 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                             changed = true;
                             break;
                         }
-                        RelocOutcome::NonSimple { ring_mints } => {
+                        RelocOutcome::NonSimple {
+                            ring_mints,
+                            merge_candidate,
+                        } => {
                             saw_nonsimple = true;
                             joint_seeds.insert(vv);
                             joint_seeds.extend(ring_mints);
+                            if merge_pair.is_none() {
+                                merge_pair = merge_candidate;
+                            }
                         }
                         RelocOutcome::Rejected => {
                             joint_seeds.insert(vv);
@@ -1217,7 +1241,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 }
                 if !relocated && saw_nonsimple && joint_seeds.len() >= 2 {
                     let seeds: Vec<u32> = joint_seeds.into_iter().collect();
-                    if relocate_minted_region(
+                    match relocate_minted_region(
                         &mut overlay.tris,
                         &mut overlay.class,
                         &mut edge_map,
@@ -1227,18 +1251,83 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                         &minted_mark,
                         probe_flip,
                     ) {
-                        if probe_flip {
-                            eprintln!(
-                                "[fold-reloc-region] pair=({},{}) tri {ti} seeds {seeds:?} \
-                                 region re-triangulated at minted positions",
-                                p.face_a, p.face_b
-                            );
+                        RegionOutcome::Committed => {
+                            if probe_flip {
+                                eprintln!(
+                                    "[fold-reloc-region] pair=({},{}) tri {ti} seeds {seeds:?} \
+                                     region re-triangulated at minted positions",
+                                    p.face_a, p.face_b
+                                );
+                            }
+                            relocated = true;
+                            changed = true;
                         }
-                        relocated = true;
-                        changed = true;
+                        RegionOutcome::MergeCandidate { p: mp, q: mq } => {
+                            // The region form's candidate outranks a
+                            // wedge-level one (it is derived from the
+                            // deeper, grown form).
+                            merge_pair = Some((mp, mq));
+                        }
+                        RegionOutcome::Rejected => {}
                     }
                 }
-                if relocated {
+                // ── Amendment 13 (spec `m8_stage0_multiclass_cavity_arm`
+                // §10, gated): the Fig-11(b→c) MERGE. A rejecting ring
+                // walks out past the mint mq and BACKTRACKS — the
+                // overshooting constrained chord crosses mq's exit edge,
+                // and no growth can cross a constraint. The paper's
+                // operation: the too-close endpoint mp merges with mq. mp
+                // must be a pure discretization vertex (`mergeable_mark`)
+                // and the merge is position-only: mp becomes a bit-twin of
+                // mq, the backtrack edge collapses, its slivers go
+                // bit-degenerate (dropped at emission, M-B), and the next
+                // gate pass re-attempts the whole ladder on the merged
+                // geometry. Idempotent by the bit-inequality guard; merges
+                // strictly reduce distinct positions (bounded), so the
+                // lexicographic (merges, folds) termination argument holds.
+                let mut merged = false;
+                if !relocated && merge_arm {
+                    if let Some((mp, mq)) = merge_pair {
+                        // Displacement guard (§10c): the merge may only
+                        // absorb a vertex inside the zone the mint's own
+                        // displacement SWEPT OVER — ‖p−q‖ ≤ ‖q − chord(q)‖.
+                        // Per-mint and scale-free, not a tuned band: p
+                        // beyond the swept zone is real geometry the moved
+                        // boundary never touched (the base()-shaped false
+                        // positive fails this by an order of magnitude).
+                        let qv = overlay.verts[mq as usize];
+                        let chord = frame.lift(qv.x(), qv.y());
+                        let d3 = |a: Point3, b: Point3| {
+                            let (da, db) = (a.as_array(), b.as_array());
+                            let d = [da[0] - db[0], da[1] - db[1], da[2] - db[2]];
+                            (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+                        };
+                        let disp = d3(coords[mq as usize], chord);
+                        let gap = d3(coords[mp as usize], coords[mq as usize]);
+                        if mergeable_mark[mp as usize]
+                            && coords[mp as usize] != coords[mq as usize]
+                            && gap <= disp
+                        {
+                            if probe_flip {
+                                eprintln!(
+                                    "[fold-merge] pair=({},{}) tri {ti} p={mp} -> q={mq} \
+                                     gap={gap:e} disp={disp:e} ({:?} -> {:?})",
+                                    p.face_a, p.face_b, coords[mp as usize], coords[mq as usize]
+                                );
+                            }
+                            coords[mp as usize] = coords[mq as usize];
+                            merged = true;
+                            changed = true;
+                        } else if probe_flip {
+                            eprintln!(
+                                "[fold-merge-reject] pair=({},{}) tri {ti} p={mp} q={mq} \
+                                 mergeable={} gap={gap:e} disp={disp:e}",
+                                p.face_a, p.face_b, mergeable_mark[mp as usize],
+                            );
+                        }
+                    }
+                }
+                if relocated || merged {
                     continue;
                 }
 

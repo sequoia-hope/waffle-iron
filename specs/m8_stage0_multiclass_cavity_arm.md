@@ -493,12 +493,39 @@ set. The measured residual is exactly the missing MERGE.
   extensions: per-edge ungrowable reasons, ring mintedness dump,
   `fig11_backtrack_pair` detector, too-small context; `minted_mark`
   threaded through the region form).
-- **inc-3.1 — the gated merge arm** (`YANG_S0_FIG11_MERGE_ENABLE`):
-  mergeable mask in mod.rs; region-form richer return (candidate on
-  reject); the ladder merge arm; reloc_tests fixtures (backtrack ring
-  merges then commits; non-mergeable p — corner/rim/minted — stays a
-  loud reject; idempotence); R0099 chain gate-ON measure.
-- **inc-3.2 — flip** on the standard bar (R0099 single_case OFF/ON, full
-  corpus OFF/ON, zero CORRECT→ERROR). R0025/R0026's shared
-  non-manifold-input wall (§9) gets anchored HERE — measure whether the
-  merge arm moves them before assuming kinship.
+- **inc-3.1 — the gated merge arm (`YANG_S0_FIG11_MERGE_ENABLE`).
+  ✅ SHIPPED + MEASURED 2026-07-30.** Mergeable mask in mod.rs
+  (`lift_or_snap` provenance); `RegionOutcome::MergeCandidate` on region
+  reject; `RelocOutcome::NonSimple.merge_candidate` at BOTH per-vertex
+  NotSimple sites (the census refuted §10c's singleton non-goal within
+  hours: R0099 verts 4/9 are singleton NonSimple — empty `ring_mints` —
+  and never reach the joint form); `fig11_backtrack_pair` tries both
+  sandwich mids (a 4-ring's crossing sandwiches TWO edges; vert 4's true
+  pair sat on the second). Ladder arm merges after the joint stage with
+  TWO guards: provenance (`mergeable_mark`) and the **displacement
+  guard** — ‖p−q‖ ≤ ‖q − chord(q)‖, i.e. p must lie inside the zone the
+  mint's own displacement swept over. Per-mint and scale-free, not a
+  tuned band; the base()-shaped combinatorial false positive (gap 0.89
+  vs rim-snap-scale displacement) fails it by 10×, the measured true
+  cases pass by 2–15× (gaps 0.0047/0.018/0.029 vs disps
+  0.073/0.082/0.065). **R0099 chain gate-ON: THREE merges fire (121→116,
+  185→182, and singleton vert 4's 1→4), fold-reverts 6 → 1.** The
+  residual revert is vert 9 — a DIFFERENT paper operation (below).
+- **inc-3.2 — the Fig-11(a) SPLIT arm (census-armed by vert 9).**
+  Vert 9's BOnly wedge ring (pair-frame ~(−9.5,−3.5)): the mint's exit
+  edge crosses the link chord (n2→n3) ~1.7e-4 PAST it, but the chord's
+  endpoints sit 0.17/0.24 away — no too-close endpoint, nothing to
+  merge; the sandwich edge is unminted-unminted so the detector
+  correctly stays silent. The paper's operation is Fig 11(a): *split the
+  constrained edge containing q* — reroute the chord chain a—b to
+  a—q—b. Mechanically NEW for the gate ladder: split the neighbor
+  triangle across (a,b) into (a,q,x)+(q,b,x) (slot append) and retire
+  the now-zero-area sliver star triangle (v,a,b) (first
+  triangle-count-changing op in the gate — needs a deletion/tombstone
+  story the in-place slot machinery lacks). Design first; then the
+  standard gated-primitive → fixtures → chain → corpus arc.
+- **inc-3.3 — flip** both sub-arms on the standard bar (R0099
+  single_case OFF/ON, full corpus OFF/ON, zero CORRECT→ERROR).
+  R0025/R0026's shared non-manifold-input wall (§9) gets anchored HERE —
+  measure whether the merge/split arms move them before assuming
+  kinship.
