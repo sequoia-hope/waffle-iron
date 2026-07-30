@@ -1098,3 +1098,50 @@ the perpendicular-bulge form (R0099-like but at a boundary vertex) —
 the two forms need different cavity re-cuts, and the census decides
 whether the bulge form is deferred to its own increment. Census
 results append here as §13g.
+
+### 13g. inc-0 anatomy census (2026-07-30) — the SLIDE form is the customer-bearing form; v1 scope = pure slides
+
+**Method.** 312-case `single_case` sweep (§7 stderr trap respected),
+8 jobs, `YANG_SPLIT_PROBE=1 YANG_COPLANAR_PROBE=1`, 300s in-child
+guard, binary at f1b70016 (code identical to the f1100cf8 canonical).
+**312/312 completed, ZERO verdict drift (260C/0W/48E/0T)** — directly
+comparable. Per open-link event, the `[fold-split-anatomy]` block
+yields: perpendicular offset of the MINT from chord C's supporting
+line (`perp/c`), the same for the PRE-mint position (`pre_perp/c`),
+and the mint's line parameter `t` on C.
+
+**Form classification, CUSTOMERS ONLY** (F0067/F0072 excluded — their
+41 events sit behind the typed UNSUPPORTED(coplanar) wall):
+
+| form | definition | events / cases | verdicts |
+|---|---|---|---|
+| **pure SLIDE** | mint AND pre-position exactly on C (perp = 0 to f64), t strictly interior | **3 / 1 (F0064: q=63 t=0.0895, q=12 t=0.9105, q=22 t=0.8912)** | ERROR — **the anchor's needle sites themselves** |
+| endpoint-coincident | mint exactly at a C endpoint (t = 0.0000 / 1.0000 ± ulp) | 6 / 1 (C0048) | ERROR (wall named elsewhere: #144 azimuth-merge; the §12 femto-endpoint WATCH family) |
+| boundary bulge | pre on/near C, mint perpendicular off it (perp/c 2e-3…6.5e-2), t interior | 5 / 5 (F0064 q=20+q=29, R0021, R0026, R0050, R0059×2) | 2 latent-CORRECT, 3 ERROR with walls named elsewhere |
+| non-host chord | t far outside (0,1) or perp/c ≳ 1 (C is not the host segment) | 4 / 2 (R0085×3, C0048 q=286) | ERROR, walls named elsewhere (CDT-ring / #144) |
+
+**Verdict.**
+
+1. **Amendment-15 v1 scope = the pure-slide form ONLY**: mint
+   exactly-collinear with C (exact-rational test, both mint and
+   pre-position), t strictly interior. Its full customer population
+   is F0064's two interfaces — including both Extrude-3 needle
+   mirrors (q=12/63) AND the Extrude-4 square-edge slide (q=22).
+   Every non-slide form's carrier has its wall named elsewhere or is
+   latent-CORRECT; arming them now would be error-string-proximity
+   work (§7 finding-3).
+2. The 1D slide needs NO 2D cavity re-cut design: the op is a
+   STATION-ORDER repair along one host line — insert q at its exact
+   position on C, then absorb the passed-over stations per Fig-11(b)
+   / remove-too-close (the §13f obligations 2–3 collapse to the same
+   1D monotonicity invariant). The half-star machinery (§13f-1) is
+   only needed by the BULGE form — deferred, census-armed, with
+   R0021/R0059's latent events as its future witnesses.
+3. Extrude-4's q=20/q=29 (bulge/near-slide at the same interface) may
+   still block its conversion after the slide arm ships — acceptance
+   (§13f-5) treats Extrude-4 as re-measure, not promise.
+4. C0048's endpoint-coincident family stays with the §12 femto WATCH
+   (merge-at-endpoint territory, not a split).
+
+Raw logs: scratchpad `census_ol/` (ephemeral); this table is the
+durable record.
