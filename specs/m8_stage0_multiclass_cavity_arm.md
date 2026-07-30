@@ -511,21 +511,36 @@ set. The measured residual is exactly the missing MERGE.
   0.073/0.082/0.065). **R0099 chain gate-ON: THREE merges fire (121→116,
   185→182, and singleton vert 4's 1→4), fold-reverts 6 → 1.** The
   residual revert is vert 9 — a DIFFERENT paper operation (below).
-- **inc-3.2 — the Fig-11(a) SPLIT arm (census-armed by vert 9).**
-  Vert 9's BOnly wedge ring (pair-frame ~(−9.5,−3.5)): the mint's exit
-  edge crosses the link chord (n2→n3) ~1.7e-4 PAST it, but the chord's
-  endpoints sit 0.17/0.24 away — no too-close endpoint, nothing to
-  merge; the sandwich edge is unminted-unminted so the detector
-  correctly stays silent. The paper's operation is Fig 11(a): *split the
-  constrained edge containing q* — reroute the chord chain a—b to
-  a—q—b. Mechanically NEW for the gate ladder: split the neighbor
-  triangle across (a,b) into (a,q,x)+(q,b,x) (slot append) and retire
-  the now-zero-area sliver star triangle (v,a,b) (first
-  triangle-count-changing op in the gate — needs a deletion/tombstone
-  story the in-place slot machinery lacks). Design first; then the
-  standard gated-primitive → fixtures → chain → corpus arc.
-- **inc-3.3 — flip** both sub-arms on the standard bar (R0099
-  single_case OFF/ON, full corpus OFF/ON, zero CORRECT→ERROR).
-  R0025/R0026's shared non-manifold-input wall (§9) gets anchored HERE —
-  measure whether the merge/split arms move them before assuming
-  kinship.
+- **inc-3.2 — the vertex-inserting split (census-armed by vert 9;
+  detector + probes SHIPPED, actions deliberately NOT — two designs
+  refuted by measurement).** The full anatomy, three probes deep:
+  vert 9's 1-incident chord (10,6) is **the OTHER INPUT's real model
+  edge** (B's rectangle edge), not the rim owner's chord. A's rim
+  circle is near-TANGENT to that edge: the on-circle mint bulges
+  ~1.7e-4 past it over a ~0.065 span, the chord-geometry arrangement
+  never saw a crossing (**no junction vertex exists within 8e-2** —
+  `YANG_INPUT_VERT_PROBE` scan), and the sliver's BOnly class — correct
+  at chord geometry — is INVALIDATED by the mint (the strip up to B's
+  edge becomes Overlap; the bulge past it becomes AOnly). Refuted
+  fixes, with evidence: (a) deleting the sliver holes B's face-0
+  emission (`i6-input-overuse` fwd=1 rev=0 at the mint — B's neighbors
+  already route through it); (b) reversing it to "B-material winding"
+  double-books the spoke (fwd=2 rev=0: the sliver and its Overlap
+  spoke-neighbor are BOTH B-emitted). The truthful §4.4.1 operation
+  needs a NEW VERTEX: split B's edge at the mint's projection,
+  re-decompose the sliver into the Overlap strip + the AOnly bulge, and
+  propagate the edge split into B's own tessellation
+  (`collect_edge_splits` territory) — the overlay's first
+  vertex-INSERTING operation. Design spec first (a §11 of its own);
+  then the gated-primitive → fixtures → chain → corpus arc. What
+  shipped in this increment: `fig11_split_chord`,
+  `RelocOutcome::NonSimple.split_chord`, the `[fold-split-reject]`
+  census probe (candidate + chord incidence), and the
+  `i6-input-overuse` incident-triangle enrichment.
+- **inc-3.3 — flip the MERGE arm alone** on the standard bar (R0099
+  single_case OFF/ON, full corpus OFF/ON, zero CORRECT→ERROR) — the
+  split arm re-scoped to its own arc above, and the merge arm is
+  measured, self-contained, and strictly revert-reducing (R0099 6→3
+  reverts merge-only). R0025/R0026's shared non-manifold-input wall
+  (§9) gets anchored HERE — measure whether the merge arm moves them
+  before assuming kinship.

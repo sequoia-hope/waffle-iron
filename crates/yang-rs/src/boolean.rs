@@ -898,6 +898,18 @@ fn boolean_once(
                          fwd={fwd} rev={rev} coords {:?} {:?}",
                         m.verts[s as usize], m.verts[e as usize]
                     );
+                    // Amendment-13 inc-3.2 enrichment: name the incident
+                    // triangles so the unpaired side self-localizes.
+                    for (ti, t) in m.tris.iter().enumerate() {
+                        if t.contains(&s) && t.contains(&e) {
+                            let third = t.iter().copied().find(|&x| x != s && x != e);
+                            eprintln!(
+                                "NONMANIFOLD_SITE_PROBE i6-input-overuse:   tri {ti} {t:?} \
+                                 third {:?}",
+                                third.map(|x| m.verts[x as usize])
+                            );
+                        }
+                    }
                 }
             }
             // Small-operand topology dump: join the defective mesh back to

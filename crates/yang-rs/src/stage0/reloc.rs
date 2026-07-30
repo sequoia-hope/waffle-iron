@@ -22,10 +22,17 @@ pub(crate) enum RelocOutcome {
     /// (unminted p, minted q) when the polygon's first crossing carries the
     /// Fig-11(b→c) signature — the SINGLETON NonSimple class (empty
     /// `ring_mints`) never reaches the joint form, so the ladder merges
-    /// directly from here (measured: R0099 verts 4/9). No mutation.
+    /// directly from here (measured: R0099 verts 4/9). `split_chord` is
+    /// the Fig-11(a) signature: the crossing pairs v's OWN boundary edge
+    /// with a link CHORD — the mint pokes past a constrained edge with no
+    /// endpoint in merging reach (measured: R0099 vert 9, overshoot
+    /// 1.7e-4, endpoints 0.17/0.24 away); the ladder reroutes the chord
+    /// through the mint (split-at-existing-vertex = the Lawson flip of
+    /// the chord, both products taking the external class). No mutation.
     NonSimple {
         ring_mints: Vec<u32>,
         merge_candidate: Option<(u32, u32)>,
+        split_chord: Option<(u32, u32)>,
     },
 }
 
@@ -499,7 +506,8 @@ pub(crate) fn relocate_minted_vertex(
                 // interacting set — Fig-11 locality), identified by exact
                 // position match against the same frame projection the
                 // ear-clip used. Amendment 13: the first raw-poly crossing
-                // may carry the backtrack merge pair.
+                // may carry the backtrack merge pair or the split chord.
+                let cross_idx = first_ring_crossing(&poly, coords, frame);
                 return RelocOutcome::NonSimple {
                     ring_mints: poly
                         .iter()
@@ -510,8 +518,9 @@ pub(crate) fn relocate_minted_vertex(
                                 && crossing.contains(&frame.project(coords[pi as usize]))
                         })
                         .collect(),
-                    merge_candidate: first_ring_crossing(&poly, coords, frame)
+                    merge_candidate: cross_idx
                         .and_then(|(ci, cj)| fig11_backtrack_pair(&poly, ci, cj, minted_mark)),
+                    split_chord: cross_idx.and_then(|(ci, cj)| fig11_split_chord(&poly, ci, cj)),
                 };
             }
             Err(EarclipErr::Other(why)) => return reject(why),
@@ -616,7 +625,9 @@ pub(crate) fn relocate_minted_vertex(
                     // the mints on THIS wedge polygon's crossing edges (the
                     // interacting set — Fig-11 locality). Amendment 13: the
                     // first raw-poly crossing may carry the backtrack merge
-                    // pair (the singleton-NonSimple customers, R0099 4/9).
+                    // pair or the split chord (the singleton-NonSimple
+                    // customers, R0099 verts 4/9).
+                    let cross_idx = first_ring_crossing(&poly, coords, frame);
                     return RelocOutcome::NonSimple {
                         ring_mints: poly
                             .iter()
@@ -627,8 +638,10 @@ pub(crate) fn relocate_minted_vertex(
                                     && crossing.contains(&frame.project(coords[pi as usize]))
                             })
                             .collect(),
-                        merge_candidate: first_ring_crossing(&poly, coords, frame)
+                        merge_candidate: cross_idx
                             .and_then(|(ci, cj)| fig11_backtrack_pair(&poly, ci, cj, minted_mark)),
+                        split_chord: cross_idx
+                            .and_then(|(ci, cj)| fig11_split_chord(&poly, ci, cj)),
                     };
                 }
                 Err(EarclipErr::Other(why)) => {
@@ -1094,6 +1107,24 @@ pub(crate) fn relocate_region_single_class(
 /// walks out past the mint and backtracks, so the overshooting constrained
 /// chord crosses the mint's exit edge by a hair). Purely combinatorial +
 /// mintedness — no distance band. Returns (p, q).
+/// Amendment-13 Fig-11(a) SPLIT detector (spec
+/// `m8_stage0_multiclass_cavity_arm` §10d inc-3.2): the ring crossing
+/// pairs v's OWN boundary edge (poly position 0 is v, so its edges are
+/// e0 and e_{n−1}) with a link CHORD — the mint pokes past a constrained
+/// edge whose endpoints are beyond merging reach. Returns the chord's
+/// (a, b) in poly order; the ladder verifies incidence/validity and
+/// reroutes the chord through the mint. Purely combinatorial.
+pub(crate) fn fig11_split_chord(poly: &[u32], ei: usize, ej: usize) -> Option<(u32, u32)> {
+    let n = poly.len();
+    let touches_v = |e: usize| e == 0 || e == n - 1;
+    let chord = match (touches_v(ei), touches_v(ej)) {
+        (true, false) => ej,
+        (false, true) => ei,
+        _ => return None,
+    };
+    Some((poly[chord], poly[(chord + 1) % n]))
+}
+
 pub(crate) fn fig11_backtrack_pair(
     poly: &[u32],
     ei: usize,
@@ -1310,12 +1341,24 @@ mod reloc_tests {
         let em0 = em.clone();
         let frame = frame_z0();
         let minted = vec![true, false, false, false, false];
-        assert!(matches!(
-            relocate_minted_vertex(
-                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false
-            ),
-            RelocOutcome::NonSimple { .. }
-        ));
+        let out = relocate_minted_vertex(
+            &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false,
+        );
+        let RelocOutcome::NonSimple {
+            merge_candidate,
+            split_chord,
+            ..
+        } = out
+        else {
+            panic!("fixture must reach the non-simple cavity polygon");
+        };
+        // Amendment-13 detectors on the [v,w2,w1,w0] ring (crossing
+        // e0(v→w2) × e2(w1→w0)): the second sandwich mid (w0,v) carries
+        // the one-mint pair — a candidate the LADDER's displacement guard
+        // then refuses (gap 0.89 ≫ any rim-snap displacement) — and the
+        // chord not touching v is (w1,w0), the Fig-11(a) split chord.
+        assert_eq!(merge_candidate, Some((1, 0)), "backtrack pair (w0, v)");
+        assert_eq!(split_chord, Some((3, 1)), "split chord (w1, w0)");
         assert_eq!(tris, tris0, "reject must not mutate triangles");
         assert_eq!(class, class0, "reject must not mutate classes");
         assert_eq!(em, em0, "reject must not mutate the edge map");

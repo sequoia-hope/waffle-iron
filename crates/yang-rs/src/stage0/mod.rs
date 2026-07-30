@@ -1063,9 +1063,10 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             }
         }
 
-        // Amendment 13 gate (spec `m8_stage0_multiclass_cavity_arm` §10d
-        // inc-3.1): the Fig-11(b→c) merge arm, env-gated until its inc-3.2
-        // corpus flip.
+        // Amendment 13 gate (spec `m8_stage0_multiclass_cavity_arm` §10d):
+        // the Fig-11(b→c) MERGE arm (inc-3.1), env-gated until its corpus
+        // flip. The Fig-11(a) SPLIT arm is measurement-only pending the
+        // vertex-inserting design (§10d inc-3.2).
         let merge_arm = std::env::var_os("YANG_S0_FIG11_MERGE_ENABLE").is_some();
         loop {
             let mut changed = false;
@@ -1195,8 +1196,11 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 // Amendment 13: the first Fig-11 backtrack pair surfaced by
                 // a per-vertex NonSimple reject (the SINGLETON class never
                 // reaches the joint form); a region-form candidate below
-                // takes precedence when the joint path runs.
+                // takes precedence when the joint path runs. `split_pair`
+                // is the Fig-11(a) form: (q, a, b) — reroute chord (a,b)
+                // through the mint q.
                 let mut merge_pair: Option<(u32, u32)> = None;
+                let mut split_pair: Option<(u32, u32, u32)> = None;
                 for &vv in &t {
                     if !minted_mark[vv as usize] {
                         continue;
@@ -1226,12 +1230,16 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                         RelocOutcome::NonSimple {
                             ring_mints,
                             merge_candidate,
+                            split_chord,
                         } => {
                             saw_nonsimple = true;
                             joint_seeds.insert(vv);
                             joint_seeds.extend(ring_mints);
                             if merge_pair.is_none() {
                                 merge_pair = merge_candidate;
+                            }
+                            if split_pair.is_none() {
+                                split_pair = split_chord.map(|(a, b)| (vv, a, b));
                             }
                         }
                         RelocOutcome::Rejected => {
@@ -1325,6 +1333,32 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                                 p.face_a, p.face_b, mergeable_mark[mp as usize],
                             );
                         }
+                    }
+                }
+                // ── Amendment 13 Fig-11(a) SPLIT — MEASUREMENT ONLY (spec
+                // `m8_stage0_multiclass_cavity_arm` §10d inc-3.2). The
+                // reroute/reverse/delete actions built for this arm were
+                // REFUTED by the measured anatomy (R0099 vert 9): the
+                // 1-incident chord is the OTHER INPUT's real model edge —
+                // the rim circle is near-tangent to it and the mint's
+                // on-circle position bulges a hair past it, with NO
+                // junction vertex minted (the chord-geometry arrangement
+                // never saw the crossing). The truthful repair needs a NEW
+                // vertex (split the other input's edge at the mint's
+                // projection; re-decompose the sliver into an Overlap
+                // strip + an own-side bulge) — the first vertex-inserting
+                // overlay operation, designed in §10d. Until then the
+                // candidate is PROBED loudly and falls to the amendment-2
+                // revert.
+                if probe_flip && !relocated && !merged {
+                    if let Some((sq, sa, sb)) = split_pair {
+                        let inc_n = edge_map
+                            .get(&edge_key(sa, sb))
+                            .map(|e| e.len())
+                            .unwrap_or(0);
+                        eprintln!(
+                            "  [fold-split-reject] q={sq} chord=({sa},{sb}) {inc_n}-incident                              (vertex-inserting split not built — inc-3.2)"
+                        );
                     }
                 }
                 if relocated || merged {
