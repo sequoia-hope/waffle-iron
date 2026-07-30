@@ -1655,6 +1655,7 @@ mod tests {
             tris: vec![[e0, e1, lpi]],
             labels: vec![vec![A]],
             source: Vec::new(), // BL2 test fixture; provenance not exercised
+            intersection_edges: Default::default(),
             jolly_count: 0,
             in_tris: cube_tris,
             in_labels: cube_labels,

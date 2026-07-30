@@ -346,6 +346,10 @@ fn parse_labels(mesh: Mesh, text: &str) -> Result<LabeledArrangement, SidecarErr
         // contract; yang-rs consumes the NATIVE arrangement's `source` in
         // production and falls back to geometric attribution when it is empty.
         source: Vec::new(),
+        // Same contract for the per-EDGE provenance: the sidecar does not
+        // dump constrained edges; empty = "producer does not track it"
+        // (spec `yang_s3_intersection_edge_provenance.md`).
+        intersection_edges: Default::default(),
         num_inputs,
     })
 }

@@ -112,6 +112,20 @@ pub struct ArrangementSoup {
     /// geometric centroid-proximity (deviation N4). Base indices are in the
     /// concatenated soup space; the consumer maps them to `(InputId, local)`.
     pub source: Vec<Vec<u32>>,
+    /// Undirected output-mesh edges minted by tri×tri intersection-constraint
+    /// enforcement (Cherchi's constrained edges), as `(min, max)` GLOBAL
+    /// vertex-id pairs — the arrangement's own record of which output edges
+    /// lie on an input×input intersection polyline (including the coplanar
+    /// overlap boundaries, whose segments route through the same
+    /// enforcement). Harvested per base triangle right after
+    /// `enforce_constraints` — `set_edge_constr` fires only there, never on
+    /// borders per se — and welded through the same §7 global interner as
+    /// the emitted triangles, so the pairs are in `verts` id space. Empty
+    /// when no pair intersects (every base triangle takes the fast path).
+    /// This is the per-EDGE provenance of the Stage-2 contract, complementing
+    /// the per-TRIANGLE `source`
+    /// (spec `specs/yang_s3_intersection_edge_provenance.md`, inc-1).
+    pub intersection_edges: std::collections::BTreeSet<(u32, u32)>,
     /// Count of jolly points appended at the tail of `verts` (always 5). The
     /// real arrangement vertices are `verts[..verts.len() - jolly_count]`.
     pub jolly_count: u32,
@@ -796,6 +810,10 @@ pub fn mesh_arrangement(
     // came from (parallel to `out_tris`). One index per triangle normally; a
     // coplanar overlap pocket gets the partner base triangle OR-appended below.
     let mut out_source: Vec<Vec<u32>> = Vec::new();
+    // Per-EDGE provenance: the global (min, max) pairs of every constrained
+    // submesh edge (see the `ArrangementSoup::intersection_edges` docs).
+    let mut intersection_edges: std::collections::BTreeSet<(u32, u32)> =
+        std::collections::BTreeSet::new();
 
     // (PR-4) Global pocket dedup state, threaded across the whole step-9 loop
     // (one instance). `registry` maps a pocket's GLOBAL boundary-vertex SET to
@@ -980,6 +998,31 @@ pub fn mesh_arrangement(
                 out_source.push(kept_source[t as usize].clone());
             }
         }
+
+        // Per-EDGE provenance harvest (spec
+        // `specs/yang_s3_intersection_edge_provenance.md` inc-1): after
+        // `enforce_constraints`, the LIVE constr-marked submesh edges are
+        // exactly the final intersection-polyline sub-edges within this base
+        // triangle (splits remove the original edge and re-mark the halves as
+        // their sub-segments are realized). Weld their endpoints into the same
+        // global id space the triangles use and record the undirected pairs.
+        // Runs AFTER the emit branch above so every endpoint is already
+        // interned by a triangle weld (each submesh vertex belongs to a
+        // submesh triangle; a dedup-skipped pocket's vertices were interned by
+        // its partner's emission at the same exact coords) — the harvest
+        // therefore assigns NO new global ids and the pre-existing soup is
+        // byte-identical. Coincident-endpoint pairs (a tangential touch
+        // welded to one id) carry no edge and are skipped.
+        for e in 0..subm.num_edges() {
+            if subm.edge_is_constr(e) {
+                let (l0, l1) = subm.edge(e);
+                let g0 = weld_local(l0, &mut globals);
+                let g1 = weld_local(l1, &mut globals);
+                if g0 != g1 {
+                    intersection_edges.insert((g0.min(g1), g0.max(g1)));
+                }
+            }
+        }
     }
 
     // 10. Append the 5 jolly points at the tail.
@@ -1008,11 +1051,20 @@ pub fn mesh_arrangement(
     }
 
     // 12. Return the assembled soup.
+    if std::env::var_os("CHERCHI_XEDGE_PROBE").is_some() {
+        eprintln!(
+            "[xedge-probe] intersection_edges={} (tris={} verts={})",
+            intersection_edges.len(),
+            out_tris.len(),
+            globals.verts.len(),
+        );
+    }
     Ok(ArrangementSoup {
         verts: globals.verts,
         tris: out_tris,
         labels: out_labels,
         source: out_source,
+        intersection_edges,
         jolly_count: 5,
         in_tris: arr_in_tris,
         in_labels: arr_in_labels,
@@ -1656,6 +1708,79 @@ mod tests {
             for id in lab {
                 assert!(*id == A || *id == B, "labels only over input solids A/B");
             }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Per-EDGE provenance (`intersection_edges` — spec
+    // `specs/yang_s3_intersection_edge_provenance.md`, inc-1).
+    // ════════════════════════════════════════════════════════════════
+
+    /// Disjoint pair → every base triangle takes the fast path, no constraint
+    /// is ever enforced → the harvested edge set is EMPTY.
+    #[test]
+    fn intersection_edges_empty_for_disjoint_pair() {
+        let a = cube(0.0, 0.0, 0.0, 1.0, A);
+        let b = cube(5.0, 5.0, 5.0, 1.0, B);
+        let (coords, tris, labels) = concat(a, b);
+        let soup = mesh_arrangement(&coords, &tris, &labels).expect("disjoint pair must not error");
+        assert!(
+            soup.intersection_edges.is_empty(),
+            "a disjoint pair mints no intersection edges (got {})",
+            soup.intersection_edges.len()
+        );
+    }
+
+    /// Interpenetrating boxes A = [0,2]³, B = [1,3]³: the harvested set is the
+    /// ∂A∩∂B polyline (the closed hexagonal loop around the shared corner
+    /// [1,2]³). Three exact invariants, all decidable in the scaled-integer
+    /// coordinate space (the multiplier is a power of two, so every bound is
+    /// exactly representable):
+    ///
+    /// 1. non-empty (the boxes DO intersect);
+    /// 2. every edge endpoint lies EXACTLY on the surface of BOTH boxes — an
+    ///    intersection edge is on the intersection curve or it is mislabeled;
+    /// 3. every vertex of the edge graph has even degree — the intersection
+    ///    of two closed surfaces is a union of CLOSED loops, so an odd-degree
+    ///    vertex means a dropped sub-segment (e.g. a split that lost its
+    ///    constr mark).
+    #[test]
+    fn intersection_edges_trace_the_box_box_polyline() {
+        let a = cube(0.0, 0.0, 0.0, 2.0, A);
+        let b = cube(1.0, 1.0, 1.0, 2.0, B);
+        let (coords, tris, labels) = concat(a, b);
+        let soup = mesh_arrangement(&coords, &tris, &labels).expect("box overlap must not error");
+
+        assert!(
+            !soup.intersection_edges.is_empty(),
+            "interpenetrating boxes must mint intersection edges"
+        );
+
+        let m = soup.multiplier;
+        let on_box = |p: &[RBig; 3], lo: f64, hi: f64| -> bool {
+            let (lo, hi) = (to_r(lo * m), to_r(hi * m));
+            let inside = p.iter().all(|c| *c >= lo && *c <= hi);
+            let on_face = p.iter().any(|c| *c == lo || *c == hi);
+            inside && on_face
+        };
+        let mut degree: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
+        for &(g0, g1) in &soup.intersection_edges {
+            for g in [g0, g1] {
+                *degree.entry(g).or_default() += 1;
+                let p = exact_coords(&soup.verts[g as usize]);
+                assert!(
+                    on_box(&p, 0.0, 2.0) && on_box(&p, 1.0, 3.0),
+                    "intersection-edge vertex {g} must lie exactly on BOTH box \
+                     surfaces (scaled coords {p:?})"
+                );
+            }
+        }
+        for (g, d) in &degree {
+            assert!(
+                d % 2 == 0 && *d >= 2,
+                "intersection-edge graph vertex {g} has odd/isolated degree {d} — \
+                 the ∂A∩∂B polyline must be a union of closed loops"
+            );
         }
     }
 

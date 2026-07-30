@@ -746,6 +746,7 @@ fn build_parabola_cap_arrangement(delta: f64) -> LabeledArrangement {
         inside,
         patch,
         source: Vec::new(),
+        intersection_edges: Default::default(),
         num_inputs: 2,
     }
 }

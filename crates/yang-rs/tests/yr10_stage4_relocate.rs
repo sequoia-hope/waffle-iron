@@ -603,6 +603,7 @@ fn build_tube_from_ring(
         inside,
         patch,
         source: Vec::new(),
+        intersection_edges: Default::default(),
         num_inputs: 2,
     }
 }
@@ -665,6 +666,7 @@ fn build_tube_from_3d_rings(
         inside,
         patch,
         source: Vec::new(),
+        intersection_edges: Default::default(),
         num_inputs: 2,
     }
 }
@@ -1400,6 +1402,7 @@ fn hand_built_planar_box_arrangement() -> LabeledArrangement {
         inside,
         patch,
         source: Vec::new(),
+        intersection_edges: Default::default(),
         num_inputs: 2,
     }
 }

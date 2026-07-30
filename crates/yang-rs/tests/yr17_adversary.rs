@@ -431,6 +431,7 @@ fn adv_arrangement() -> LabeledArrangement {
         inside,
         patch,
         source: Vec::new(),
+        intersection_edges: Default::default(),
         num_inputs: 2,
     }
 }

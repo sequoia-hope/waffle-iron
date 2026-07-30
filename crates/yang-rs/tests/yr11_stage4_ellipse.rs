@@ -736,6 +736,7 @@ fn build_tube_from_3d_rings(
         inside,
         patch,
         source: Vec::new(),
+        intersection_edges: Default::default(),
         num_inputs: 2,
     }
 }

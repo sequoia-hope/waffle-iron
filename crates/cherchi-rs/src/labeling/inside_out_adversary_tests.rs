@@ -731,6 +731,7 @@ fn adversary_empty_soup_is_ok_empty() {
         tris: Vec::new(),
         labels: Vec::new(),
         source: Vec::new(),
+        intersection_edges: Default::default(),
         jolly_count: 0,
         in_tris: Vec::new(),
         in_labels: Vec::new(),

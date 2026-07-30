@@ -352,6 +352,7 @@ fn hand_built_tube_arrangement_n(n_facets: usize) -> LabeledArrangement {
         inside,
         patch,
         source: Vec::new(),
+        intersection_edges: Default::default(),
         num_inputs: 2,
     }
 }

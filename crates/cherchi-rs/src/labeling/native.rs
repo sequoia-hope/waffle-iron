@@ -190,12 +190,24 @@ pub fn native_labeled_arrangement(
 
     vert_provenance_probe(&soup, &remap, &out_verts, a, b);
 
+    // Per-EDGE provenance through the same first-reference compaction: a
+    // pair survives only when BOTH ends are referenced by an emitted
+    // triangle (an edge of never-emitted geometry has no output edge to
+    // vouch for). Ids land in `mesh.verts` space.
+    let mut intersection_edges = std::collections::BTreeSet::new();
+    for &(g0, g1) in &soup.intersection_edges {
+        if let (Some(o0), Some(o1)) = (remap[g0 as usize], remap[g1 as usize]) {
+            intersection_edges.insert((o0.min(o1), o0.max(o1)));
+        }
+    }
+
     Ok(LabeledArrangement {
         mesh: Mesh::new(out_verts, out_tris),
         surface,
         inside,
         patch,
         source,
+        intersection_edges,
         num_inputs: 2,
     })
 }

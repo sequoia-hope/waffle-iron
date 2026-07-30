@@ -1,6 +1,33 @@
 # SPEC — Stage-3 intersection-edge PROVENANCE (N10's durable target)
 
-**Status: increment 0 (this spec). Nothing built.**
+**Status: inc-1 LANDED 2026-07-30 (corpus byte-identical, 257C/0W/53E/0T,
+zero deltas incl. detail strings). inc-2 next.**
+
+## inc-1 result (2026-07-30)
+
+`ArrangementSoup::intersection_edges` + `LabeledArrangement::intersection_edges`
+(`BTreeSet<(u32, u32)>`, `(min, max)` pairs in `mesh.verts` space). Harvested in
+`mesh_arrangement` step 9 per base triangle AFTER the emit branch — every
+constr-marked live submesh edge, endpoints welded through the same §7 global
+interner; harvesting after emission guarantees every endpoint is already
+interned, so global-id assignment order is untouched (measured: full corpus
+byte-identical). Remapped through `native_labeled_arrangement`'s
+first-reference compaction (both-ends-referenced pairs only). The sidecar and
+every hand-built fixture declare `Default::default()` (the documented
+provenance-less contract, `source` precedent).
+
+**The MEASURE-FIRST gate passed on the first run:** the constr marks DO
+survive splits to assembly. Unit tests (`soup.rs`):
+`intersection_edges_empty_for_disjoint_pair` and
+`intersection_edges_trace_the_box_box_polyline` — the box×box harvest is
+non-empty, every endpoint lies EXACTLY (RBig) on BOTH box surfaces, and the
+edge graph is even-degree everywhere (closed loops — this assert would catch
+any split that dropped its constr mark).
+
+Deferred to inc-2 (with the consumption): a coplanar-overlap fixture pinning
+that §4.5.5 overlap-boundary segments are harvested (they route through the
+same enforcement, so they should be — verify, don't assume); and the F0083
+producing-op measurement (are v118's edges provenance-confirmed?).
 **Deviation:** N10 (`docs/yang_deviations.md`) — the on-both-surfaces gate.
 **Customers (measured):** F0083 (`VertexOffSurface` face 388, v118 1.914e-3 off
 `A:Cylinder`, exactly on `B:Plane`, both incidence edges skipped by the gate —

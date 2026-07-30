@@ -743,6 +743,7 @@ fn build_cone_cap_arrangement(delta: f64) -> LabeledArrangement {
         inside,
         patch,
         source: Vec::new(),
+        intersection_edges: Default::default(),
         num_inputs: 2,
     }
 }
@@ -1534,6 +1535,7 @@ fn build_parabola_cap_arrangement() -> LabeledArrangement {
         inside,
         patch,
         source: Vec::new(),
+        intersection_edges: Default::default(),
         num_inputs: 2,
     }
 }

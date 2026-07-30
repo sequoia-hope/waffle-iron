@@ -420,6 +420,7 @@ fn a4_bit_exact_coincident_verts_trip_weld_guard() {
         inside: vec![vec![false, false]; 2],
         patch: vec![0u32, 0],
         source: Vec::new(),
+        intersection_edges: Default::default(),
         num_inputs: 2,
     };
     let backend = WeldMockBackend { arrangement: la };
@@ -458,6 +459,7 @@ fn a4_near_coincident_within_tau_work_trips_guard_planar() {
         inside: vec![vec![false, false]; 2],
         patch: vec![0u32, 0],
         source: Vec::new(),
+        intersection_edges: Default::default(),
         num_inputs: 2,
     };
     let backend = WeldMockBackend { arrangement: la };
@@ -569,6 +571,7 @@ fn a6_equidistant_two_planes_tie_fails_resolution() {
         inside: vec![vec![false, false]],
         patch: vec![0],
         source: Vec::new(),
+        intersection_edges: Default::default(),
         num_inputs: 2,
     };
     let backend = LabelMock { arrangement: la };
@@ -594,6 +597,7 @@ fn a6_mislabeled_tri_on_a_plane_but_labeled_b_fails() {
         inside: vec![vec![false, false]],
         patch: vec![0],
         source: Vec::new(),
+        intersection_edges: Default::default(),
         num_inputs: 2,
     };
     let backend = LabelMock { arrangement: la };

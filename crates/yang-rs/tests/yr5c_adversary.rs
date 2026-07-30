@@ -863,6 +863,7 @@ mod tjunction {
             inside: vec![vec![false, false]; 3],
             patch: vec![0, 0, 0],
             source: Vec::new(),
+            intersection_edges: Default::default(),
             num_inputs: 2,
         }
     }

@@ -616,6 +616,7 @@ mod tests {
             tris,
             labels,
             source: Vec::new(),
+            intersection_edges: Default::default(),
             jolly_count: 0,
             in_tris: Vec::new(),
             in_labels: Vec::new(),

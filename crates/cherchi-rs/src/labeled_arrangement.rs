@@ -61,6 +61,17 @@ pub struct LabeledArrangement {
     /// from a producer that does not track provenance (e.g. the sidecar parity
     /// oracle); a native arrangement always populates it.
     pub source: Vec<TriangleSource>,
+    /// Undirected mesh edges minted by tri×tri intersection-constraint
+    /// enforcement, as `(min, max)` vertex-index pairs into `mesh.verts` —
+    /// the producer's own record of which edges lie on an input×input
+    /// intersection polyline (Yang §4.2.3's "intersection curves … from the
+    /// mesh intersection step"; includes §4.5.5 coplanar overlap
+    /// boundaries). The per-EDGE provenance of the Stage-2 contract,
+    /// complementing the per-TRIANGLE `source`. May be empty from a
+    /// producer that does not track it (e.g. the sidecar parity oracle, or
+    /// hand-built test fixtures); the native arrangement always populates
+    /// it. Spec: `specs/yang_s3_intersection_edge_provenance.md` (inc-1).
+    pub intersection_edges: std::collections::BTreeSet<(u32, u32)>,
     /// Number of input solids (2 for a binary boolean).
     pub num_inputs: u32,
 }
@@ -197,6 +208,7 @@ mod tests {
                 vec![(InputId(0), 1)],
                 vec![(InputId(1), 0)],
             ],
+            intersection_edges: Default::default(),
             num_inputs: 2,
         }
     }
