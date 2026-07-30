@@ -888,3 +888,26 @@ canonical outputs (R0059 op 002, absorbed downstream by luck) and is now
 policed everywhere. R0099 unchanged (merges fire, settle discriminates);
 its conversion still awaits the inc-3.2 vertex-inserting split + inc-3
 region-form parity.
+
+**Amendment-14 SHIPPED 2026-07-30 (spec §11): the Fig-11(a)
+vertex-inserting SPLIT is ALWAYS-ON and R0099 is CONVERTED — the corpus
+flip's only category change was R0099 ERROR → SUPPORTED_CORRECT (i6
+seam-free; new canonical 260C/0W/48E/0T).** Vert 9's true repair: A's
+rim circle near-tangent to B's real wedge edge (bulge 2.23e-4 over a
+4.2e-3 span, crossings at t_chain 0.9955/0.0026 — the Fig-11(b)
+too-close form with BOTH merge directions constraint-deadlocked), so
+q_a/q_b are minted with exact rational UVs ON B's edge (the
+`collect_edge_splits` leg rides for free), the mint's star re-cuts into
+side remnants + material (closed along C's sub-segment — the 2-incident
+AOnly|Overlap boundary) + the AOnly bulge fanning the mint alone
+(count = cavity + 1), and the subdivided chain propagates into A's rim
+chains via the `ExtraRimPoint` side-channel with an unconsumed-extras
+loud pair-fail. The build's double-cover misstep (material closed
+THROUGH the mint) was caught by the i6 fwd/rev oracle before any
+corpus exposure — the emission-side invariant again. The chain
+fixture's strict `v3 < v2` oracle was corrected by deriving op 3 as a
+MEASURE-ZERO cut (the 36.31° unswept sector's uncovered bound
+tan(36.31°)·ρ⊥ ≥ 4.58 exceeds the tube height 1.95): true Δv = 0 and
+the +0.069% is chord→circle mint volume restored toward the analytic.
+The R0099 row above is CLOSED; inc-3 region-form parity keeps its
+census gate but has lost its lead customer — re-census before building.

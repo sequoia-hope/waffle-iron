@@ -1,18 +1,17 @@
 # SPEC — M8 Stage-0 overlay mesh-updating: the MULTI-CLASS cavity arm (amendment 12)
 
-**Status: amendment-13 inc-3.6 FLIPPED ALWAYS-ON (2026-07-30, §10d) — the
-Fig-11(b→c) MERGE arm + the inc-3.5 rim-chain boundary-order settle check
-+ the split-table merge identification are live; the env gate is removed.
-Corpus: gate-OFF byte-identical to canonical (0/0 across 312); flip zero
-CORRECT→ERROR; new canonical 259C/0W/49E/0T (F0067/F0072 recategorized
-ERROR → UNSUPPORTED(coplanar-boolean), the loud typed M8 wall). R0059's
-CORRECT is settle-protected; its canonical-latent op-002 seam is repaired
-(0 i6 lines). Residuals: inc-3 region-form parity (R0099's conversion,
-census gate armed), the inc-3.2 vertex-inserting split (vert 9), and the
-R0025/R0026 shared non-manifold-input wall (anchor, don't assume).
-Amendment-12 (inc-2, §9) remains always-on beneath it: wedge-arm corpus
-was ZERO category changes; the armed joint path is the win (R0085
-fold-reverts 65 → 10).**
+**Status: amendment-14 inc-3.2d FLIPPED ALWAYS-ON (2026-07-30, §11) —
+the Fig-11(a) vertex-inserting SPLIT is live and R0099 is CONVERTED
+(ERROR → SUPPORTED_CORRECT, the flip's only category change, seam-free
+at i6). New canonical: 260C/0W/48E/0T.** The full amendment stack is
+now always-on: wedge decomposition (12, §3), the Fig-11(b→c) MERGE arm +
+rim-chain boundary-order settle check + split-table merge identification
+(13, §10d), and the vertex-inserting split (14, §11). Residuals carried:
+inc-3 region-form parity (census gate armed; R0099 no longer its
+customer — measure before building), the R0025/R0026 shared
+non-manifold-input wall (anchor, don't assume), and the §11d reject
+probes' corpus census before any guard widening. Amendment-12's §9
+armed-joint-path win stands (R0085 fold-reverts 65 → 10).
 
 Named target of the R0099 producing-op probe (`docs/yang_tail_triage.md`
 §"R0099 producing-op probe COMPLETE (2026-07-30)", commit 1f576621). This is
@@ -802,21 +801,54 @@ Action (build-then-commit, all-or-nothing like every reloc arm):
   chord, and class-boundary neighbors; §11a is its measured record).
   Two refuted non-inserting designs (delete / reverse) stripped per P9
   with i6 fwd/rev evidence (§10d inc-3.2).
-- **inc-3.2b — the gated primitive (`YANG_S0_FIG11_SPLIT_ENABLE`):
-  steps 1+2+4 (mint, re-cut, gate interplay) WITHOUT the A-leg.**
-  Unit fixtures for the re-cut (fan/class/orientation rows + each §11d
-  guard); R0099 chain measurement: the fold must repair (fold-revert
-  vert=9 gone) and the EXPECTED residual is the A-rim T-junction seam
-  (i6 at the (5, q1, v9m, q2, 13) chain vs the lateral) — measured
-  loudly, not shipped silently: the arm stays gated until 3.2c.
-- **inc-3.2c — the A-leg (`extra_rim_points` → `collect_rim_crossings`
-  merge + settle-check interplay).** R0099 chain: i6 clean, chain green
-  oracle attempt (the conversion pin flips per its own comment if the
-  downstream survives).
-- **inc-3.2d — corpus OFF (byte-identity) / ON (zero CORRECT→ERROR) →
-  flip always-on, env var removed** (the §3e discipline; the settle
-  check precedent). Census the §11d reject probes corpus-wide before
-  widening any guard.
+- **inc-3.2b — the gated primitive (`YANG_S0_FIG11_SPLIT_ENABLE`).
+  ✅ BUILT + MEASURED 2026-07-30.** `carve_star_cavity` extracted
+  verbatim (shared walk+growth; 479 tests byte-green through the
+  refactor); `fig11_split_cavity` in reloc.rs with every §11d guard.
+  **Build correction, caught by i6:** the first cut built the material
+  polygon THROUGH v (`[…, q_b, v, q_a]`), whose interior contains the
+  bulge — a DOUBLE COVER (i6: fwd=2 edges at the mint) that still
+  "converted" the corpus case. The §11c constrained-edge list was
+  already right: the material closes along C's (q_b→q_a) sub-segment,
+  v belongs to the BULGE alone, and the true count invariant is
+  **cavity + 1** (the bulge is the only new cover). Post-fix: R0099
+  single_case SUPPORTED_CORRECT, B-side seam-free, exactly the
+  predicted A-leg T-junction remaining (6 unpaired edges: overlay
+  chain [5, q_a, v, q_b, 13] vs lateral [5, v, 13]).
+- **inc-3.2c — the A-leg. ✅ BUILT + MEASURED 2026-07-30.**
+  `ExtraRimPoint` side-channel (owning sub-chord identified by exact
+  endpoint equality; exact projection parameter for boundary order)
+  consumed by `collect_ring_crossings`; the ladder fails the pair
+  LOUDLY if any extra goes unconsumed (`split-extras-unconsumed` — the
+  mixed-path / no-rim-crossing configurations can not silently
+  T-junction). **R0099: SUPPORTED_CORRECT with i6-count ZERO** — the
+  conversion is seam-free, not absorbed-by-luck. Chain fixture: the
+  conversion oracle is GREEN under the env var; its original strict
+  `v3 < v2` assertion was WRONG — op 3 is a MEASURE-ZERO cut (the
+  36.31° unswept sector hugs the tube's side: uncovered when
+  h < tan(36.31°)·ρ⊥ ≥ 4.58 > the tube's 1.95 height), so the truthful
+  oracle is v3 in the same analytic annulus band as v2; the observed
+  +0.069% is chord→circle mint volume RESTORED toward the analytic
+  (the corpus meta's "decrease" is the op-type default; its evaluator
+  is the weak `vol_r ≤ vol_a + tol` form). Fixed with the derivation
+  in the fixture docs; quarantine reason updated to the amendment-14
+  flip. Unit fixtures: the vert-9 miniature (commit + re-cut + extras
+  + 2-incident mid-segment) and the §11d guard rows (bulge-depth,
+  other-edge, own-chord — each no-mutation).
+- **inc-3.2d — FLIPPED ALWAYS-ON 2026-07-30; the env var is removed.**
+  Corpus gate-OFF byte-identical to canonical (0 category + 0 detail
+  changes across 312 — all inc-3.2 machinery provably inert gated).
+  Gate-ON: **the ONLY category change is R0099 ERROR →
+  SUPPORTED_CORRECT — the conversion itself** — plus one C0048 ERROR
+  detail shift. Zero CORRECT→ERROR ⇒ bar met ⇒ always-on. **New
+  canonical: 260C/0W/48E/0T.** The chain conversion oracle is
+  un-quarantined and the RED VertexOffSurface pin rewritten as the
+  green completes-through-tripwire pin (per its own instruction).
+  R0099 — the anti-showcase of the entire fold-gate series (0 commits,
+  6 reverts at the §7 census) — is the amendment arc's headline
+  conversion: wedge decomposition (12) armed the seeds, the merge arm +
+  settle check (13) repaired three mints and protected the boundary
+  order, and the vertex-inserting split (14) repaired the last.
 
 ### 11f. Non-goals
 

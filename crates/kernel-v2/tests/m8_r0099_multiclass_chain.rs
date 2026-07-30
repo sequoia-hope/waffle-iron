@@ -16,11 +16,16 @@
 //! into the outer-cylinder face boundary 6.1e-2..9.1e-2 inside r —
 //! `VertexOffSurface`, caught by the debug/strict validation tripwire.
 //!
-//! RED (`r0099_chain_pins_vertex_off_surface_residual`): the pin asserts
-//! today's loud revert leak. It FLIPS to the green oracle when the
-//! conversion lands — update it in that commit.
-//! MEASURED 2026-07-30 at inc-1 (and unchanged by the inc-2 always-on
-//! flip, which the corpus passed with zero category changes): the wedge
+//! CONVERTED 2026-07-30 (amendment 14, spec §11): the vertex-inserting
+//! split repairs vert 9 — q_a/q_b split B's real edge where the moved
+//! chain crosses it, the cavity re-cuts into remnants + material + the
+//! AOnly bulge, and the chain subdivision propagates through BOTH
+//! inputs' boundary chains (`collect_edge_splits` + the rim-override
+//! extras). Both tests below are GREEN pins of the converted state.
+//!
+//! Historical arc — MEASURED 2026-07-30 at inc-1 (and unchanged by the
+//! inc-2 always-on flip, which the corpus passed with zero category
+//! changes): the wedge
 //! decomposition fires at all four multi-class mints (verts 4/9/116/182 —
 //! vert 9 the closed interior form) and fans their valid wedges, but
 //! every FOLDED wedge polygon is exactly NON-SIMPLE — the
@@ -30,8 +35,9 @@
 //! (region attempts [178,182], [115,116,120,126]) whose sub-region
 //! guards reject: `crossing edges ungrowable (region polygon not simple)`
 //! / `region too small` — exactly the spec's inc-3 region-form-parity
-//! scope, now census-armed. In-chain reverts drop 6 → 3; the leak
-//! remains, so the conversion oracle stays quarantined on inc-3.
+//! scope, now census-armed. In-chain reverts drop 6 → 3; the residual
+//! leak (vert 9) was the inc-1-era quarantine reason, since lifted by
+//! the amendment-14 split above.
 //!
 //! Chain values are R0099's bit-exact parameters (master seed 42, case
 //! seed 9039304369631583684), replayed through direct constructors in the
@@ -182,41 +188,53 @@ fn run_chain() -> Result<(BrepArena, SolidId, [f64; 3]), String> {
     Ok((a, body, [v1, v2, v3]))
 }
 
-/// RED pin (today's shipping behavior, wedge arm always-on): the residual
-/// interacting-mints reverts leak chord-position vertices into the
-/// outer-cylinder face and the chain dies LOUDLY at the on-surface
-/// tripwire (`VertexOffSurface`, compiled under debug_assertions or
-/// `strict-validation`). This pin flips to the green volume oracle when
-/// the inc-3 region-form parity arm converts the case — update it in the
-/// same commit.
+/// GREEN pin (flipped 2026-07-30 at the amendment-14 inc-3.2d corpus
+/// flip, per this pin's original instruction): the historical RED form
+/// asserted the `VertexOffSurface` revert leak at op 3. The
+/// vertex-inserting split (spec §11) repairs vert 9's fold truthfully —
+/// q_a/q_b split B's real edge, the chain subdivision propagates through
+/// BOTH inputs' boundary chains — so the chain now completes THROUGH the
+/// on-surface tripwire (debug_assertions / `strict-validation`), which
+/// remains armed: a regression re-introducing the leak fails here loudly.
 #[test]
-fn r0099_chain_pins_vertex_off_surface_residual() {
-    let err = run_chain().expect_err(
-        "R0099 chain unexpectedly GREEN — if the inc-3 arm (or another) \
-         converted it, rewrite this pin as the green oracle",
-    );
-    assert!(
-        err.contains("VertexOffSurface"),
-        "R0099 must die at the on-surface tripwire (fold-gate revert leak), \
-         not elsewhere: {err}"
-    );
-    assert!(
-        err.starts_with("op3"),
-        "the leak is op 3's Stage-0-only revolve cut: {err}"
-    );
+fn r0099_chain_completes_through_on_surface_tripwire() {
+    let (a, body, _) = run_chain().unwrap_or_else(|e| {
+        panic!(
+            "R0099 chain must complete since the amendment-14 split \
+             (historical wall: op3 VertexOffSurface): {e}"
+        )
+    });
+    validate_solid(&a, body).expect("final solid must validate");
 }
 
-/// The conversion oracle: the chain completes and the meta's oracles hold
-/// (volume monotonicity increase → decrease → decrease, positive final).
-/// MEASURED RED at inc-1/inc-2 (see the module docs): R0099's folded
-/// wedge polygons are non-simple, so the conversion needs the inc-3
-/// region-form parity arm. Run with
-/// `cargo test -p kernel-v2 --test m8_r0099_multiclass_chain -- --ignored`.
+/// The conversion oracle: the chain completes, validates (including the
+/// debug/strict on-surface tripwire — the historical leak site), and the
+/// volumes agree with the analytics.
+///
+/// **Op 3 is a MEASURE-ZERO cut** (derived at amendment-14 inc-3.2,
+/// 2026-07-30, correcting this oracle's original strict `v3 < v2`): the
+/// revolve axis is in-plane and perpendicular to the tube's axis
+/// (n̂·AXIS_D ≈ 1e-4), with PLANE_O at the axis foot (offset ≈ 9.362
+/// along the in-plane perpendicular). The 36.31° UNSWEPT sector hugs the
+/// tube's side of the plane: a tube point at height h is uncovered when
+/// h < tan(36.31°)·ρ⊥ and ρ⊥ ≥ 6.24 everywhere on the tube, so the bound
+/// (≥ 4.58) exceeds the tube's full height (1.95) — the wedge's material
+/// NEVER enters the tube; contact is exactly the coplanar faces (the
+/// module docs' "only coplanarly", now quantified). TRUE Δv = 0, so the
+/// truthful assertion is v3 in the SAME analytic annulus band as v2 —
+/// and v3 may legitimately EXCEED v2: the split keeps rim mints ON their
+/// circles, restoring chord-cut sliver volume (measured +0.069%, toward
+/// the analytic). The corpus meta's "decrease" entry is the op-type
+/// default; its evaluator is the weak `vol_r ≤ vol_a + tol` form, which
+/// this satisfies.
+///
+/// Un-quarantined 2026-07-30: the amendment-14 split is ALWAYS-ON since
+/// the inc-3.2d corpus flip (the only category change was this case's
+/// ERROR → SUPPORTED_CORRECT conversion).
 #[test]
-#[ignore = "M8 amendment-12 inc-3 region-form parity (spec m8_stage0_multiclass_cavity_arm §4; wedge polygons at R0099's mints measured NON-SIMPLE at inc-1)"]
 fn r0099_chain_conversion_oracle() {
-    let (a, body, [v1, v2, v3]) =
-        run_chain().unwrap_or_else(|e| panic!("R0099 chain must complete once inc-3 lands: {e}"));
+    let (a, body, [v1, v2, v3]) = run_chain()
+        .unwrap_or_else(|e| panic!("R0099 chain must complete once the split lands: {e}"));
     validate_solid(&a, body).expect("final solid must validate");
     // Op-1 boss is a plain cylinder: 1.5% chord-deficit band around the
     // analytic volume (the swiss-cheese band rationale).
@@ -231,8 +249,11 @@ fn r0099_chain_conversion_oracle() {
         (v2 - analytic2).abs() / analytic2 < 0.015,
         "annulus volume {v2} outside band of analytic {analytic2}"
     );
-    // Op-3 revolve cut removes material: decrease, positive (the meta's
-    // volume_monotonicity oracle).
+    // Op-3 is the measure-zero cut: the annulus band again, positive.
     assert!(v3 > 0.0, "final volume must be positive: {v3}");
-    assert!(v3 < v2, "op 3 is a cut: {v3} must be < {v2}");
+    assert!(
+        (v3 - analytic2).abs() / analytic2 < 0.015,
+        "post-cut volume {v3} outside band of analytic {analytic2} \
+         (true Δv = 0 — see the oracle docs)"
+    );
 }

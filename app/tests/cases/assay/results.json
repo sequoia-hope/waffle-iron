@@ -1,8 +1,8 @@
 {
-  "errored": 49,
+  "errored": 48,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 259,
+  "passed": 260,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -593,10 +593,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 03c04280-8758-4d9b-8f37-b93314b3c217: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(18) }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0099",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -1452,7 +1452,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 5: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 2: azimuth-merge rims have mismatched / too-few samples (68 vs 67)\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 5: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 2: azimuth-merge rims have mismatched / too-few samples (69 vs 68)\"). Body created as standalone.",
       "id": "C0048",
       "status": "error"
     },

@@ -267,6 +267,151 @@ pub(crate) fn earclip_cavity_polygon(
     Ok(ears)
 }
 
+/// Carved star cavity: the output of amendment-5's steps 1–2, shared by
+/// `relocate_minted_vertex` and the amendment-14 split (§11).
+pub(crate) struct Carved {
+    /// Cavity triangle indices (the star, plus any growth absorptions).
+    pub(crate) cavity: std::collections::BTreeSet<usize>,
+    /// Oriented link chain around `v`: (tail, head, class) per cavity
+    /// triangle, head-to-tail; cyclic iff `starts` is empty.
+    pub(crate) link: Vec<(u32, u32, RegionClass)>,
+    /// Open-chain start tails (empty ⇔ closed link / interior vertex).
+    pub(crate) starts: Vec<u32>,
+    /// Some link edge deferred at a constraint/pinch (fan invalid there).
+    pub(crate) deferred: bool,
+}
+
+/// Steps 1–2 of the amendment-5 relocation, extracted verbatim: star +
+/// oriented link chain + visibility-growth cavity carve (deferring at
+/// constraints). Read-only; `Err` strings are the caller's probe-visible
+/// reject reasons (byte-identical to the historical inline path).
+pub(crate) fn carve_star_cavity(
+    tris: &[[u32; 3]],
+    class: &[RegionClass],
+    edge_map: &BTreeMap<[u32; 2], Vec<usize>>,
+    v: u32,
+    coords: &[Point3],
+    frame: &Frame,
+) -> Result<Carved, &'static str> {
+    let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+
+    // ── 1. Star + oriented link chain ────────────────────────────────────
+    let star: Vec<usize> = tris
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| t.contains(&v))
+        .map(|(i, _)| i)
+        .collect();
+    if star.is_empty() {
+        return Err("empty star");
+    }
+    // Oriented opposite edge of each star triangle (consistent-CCW mesh ⇒
+    // the link edges chain head-to-tail around v).
+    let mut out: BTreeMap<u32, (u32, RegionClass)> = BTreeMap::new();
+    let mut heads: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    for &ti in &star {
+        let t = tris[ti];
+        let k = t.iter().position(|&x| x == v).unwrap();
+        let (a, b) = (t[(k + 1) % 3], t[(k + 2) % 3]);
+        if out.insert(a, (b, class[ti])).is_some() {
+            return Err("non-manifold star (duplicate link tail)");
+        }
+        heads.insert(b);
+    }
+    // Open chain (boundary vertex): exactly one tail that is never a head.
+    // Closed chain (interior vertex): none — start at the smallest tail.
+    let starts: Vec<u32> = out.keys().copied().filter(|a| !heads.contains(a)).collect();
+    let start = match starts.len() {
+        0 => *out.keys().next().unwrap(),
+        1 => starts[0],
+        _ => return Err("disconnected star (multiple open chains)"),
+    };
+    let mut link: Vec<(u32, u32, RegionClass)> = Vec::with_capacity(star.len());
+    let mut visited: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    let mut cur = start;
+    for _ in 0..star.len() {
+        if !visited.insert(cur) {
+            // A revisit before covering every star triangle = a shorter
+            // subloop (non-manifold star).
+            return Err("link chain revisits a vertex (subloop)");
+        }
+        let Some(&(next, cls)) = out.get(&cur) else {
+            return Err("broken link chain");
+        };
+        link.push((cur, next, cls));
+        cur = next;
+    }
+    if link.len() != star.len() || (starts.is_empty() && cur != start) {
+        return Err("link chain does not cover the star");
+    }
+
+    // ── 2. Cavity carve by visibility growth (deferring at constraints) ──
+    let mut cavity: std::collections::BTreeSet<usize> = star.iter().copied().collect();
+    let mut deferred = false;
+    let mut i = 0;
+    while i < link.len() {
+        let (a, b, cls) = link[i];
+        if gate_tri_valid(&[v, a, b], coords, frame) {
+            i += 1;
+            continue;
+        }
+        let Some(inc) = edge_map.get(&edge_key(a, b)) else {
+            return Err("link edge missing from edge map");
+        };
+        let ext: Vec<usize> = inc
+            .iter()
+            .copied()
+            .filter(|t| !cavity.contains(t))
+            .collect();
+        if ext.len() != 1 {
+            // Domain boundary (or a pinched edge both of whose sides were
+            // absorbed): uncrossable — defer to the ear-clip.
+            deferred = true;
+            i += 1;
+            continue;
+        }
+        let tj = ext[0];
+        if class[tj] != cls {
+            // Class boundary IS the intersection curve: uncrossable — defer.
+            deferred = true;
+            i += 1;
+            continue;
+        }
+        // The external neighbor traverses (b, a); its apex joins the link.
+        let tn = tris[tj];
+        let Some(k) = (0..3).find(|&k| tn[k] == b && tn[(k + 1) % 3] == a) else {
+            return Err("inconsistent neighbor orientation");
+        };
+        let x = tn[(k + 2) % 3];
+        if x == v
+            || link.iter().any(|&(la, lb, _)| la == x || lb == x)
+            || edge_map.contains_key(&edge_key(v, x))
+        {
+            // Absorbing would pinch the cavity (apex already on the link /
+            // spoke already exists): defer to the ear-clip.
+            deferred = true;
+            i += 1;
+            continue;
+        }
+        let ncls = class[tj];
+        cavity.insert(tj);
+        link.splice(i..=i, [(a, x, ncls), (x, b, ncls)]);
+        // Re-check from the first replacement edge. Edges before i cannot
+        // regress (fan validity is coordinate-determined) and blocked edges
+        // cannot become growable (externals only shrink) — one scan is a
+        // fixpoint.
+    }
+    if cavity.len() != link.len() {
+        return Err("cavity/link size mismatch");
+    }
+    Ok(Carved {
+        cavity,
+        link,
+        starts,
+        deferred,
+    })
+}
+
 /// Amendment 5 (spec `n2_stage4_junction_cluster_merge` §3, M8 increment 8):
 /// delete-and-reinsert cavity relocation of one minted vertex — the full
 /// [#24 Yang §4.4.1 Fig 11] mesh-updating form, for folds a single Lawson
@@ -345,115 +490,18 @@ pub(crate) fn relocate_minted_vertex(
         RelocOutcome::Rejected
     };
 
-    // ── 1. Star + oriented link chain ────────────────────────────────────
-    let star: Vec<usize> = tris
-        .iter()
-        .enumerate()
-        .filter(|(_, t)| t.contains(&v))
-        .map(|(i, _)| i)
-        .collect();
-    if star.is_empty() {
-        return reject("empty star");
-    }
-    // Oriented opposite edge of each star triangle (consistent-CCW mesh ⇒
-    // the link edges chain head-to-tail around v).
-    let mut out: BTreeMap<u32, (u32, RegionClass)> = BTreeMap::new();
-    let mut heads: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
-    for &ti in &star {
-        let t = tris[ti];
-        let k = t.iter().position(|&x| x == v).unwrap();
-        let (a, b) = (t[(k + 1) % 3], t[(k + 2) % 3]);
-        if out.insert(a, (b, class[ti])).is_some() {
-            return reject("non-manifold star (duplicate link tail)");
-        }
-        heads.insert(b);
-    }
-    // Open chain (boundary vertex): exactly one tail that is never a head.
-    // Closed chain (interior vertex): none — start at the smallest tail.
-    let starts: Vec<u32> = out.keys().copied().filter(|a| !heads.contains(a)).collect();
-    let start = match starts.len() {
-        0 => *out.keys().next().unwrap(),
-        1 => starts[0],
-        _ => return reject("disconnected star (multiple open chains)"),
+    // ── 1+2. Star + link + visibility-growth carve (shared with the
+    // amendment-14 split, §11 — extracted verbatim; Err strings are the
+    // historical probe reasons, byte for byte). ─────────────────────────
+    let Carved {
+        cavity,
+        link,
+        starts,
+        deferred,
+    } = match carve_star_cavity(tris, class, edge_map, v, coords, frame) {
+        Ok(c) => c,
+        Err(why) => return reject(why),
     };
-    let mut link: Vec<(u32, u32, RegionClass)> = Vec::with_capacity(star.len());
-    let mut visited: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
-    let mut cur = start;
-    for _ in 0..star.len() {
-        if !visited.insert(cur) {
-            // A revisit before covering every star triangle = a shorter
-            // subloop (non-manifold star).
-            return reject("link chain revisits a vertex (subloop)");
-        }
-        let Some(&(next, cls)) = out.get(&cur) else {
-            return reject("broken link chain");
-        };
-        link.push((cur, next, cls));
-        cur = next;
-    }
-    if link.len() != star.len() || (starts.is_empty() && cur != start) {
-        return reject("link chain does not cover the star");
-    }
-
-    // ── 2. Cavity carve by visibility growth (deferring at constraints) ──
-    let mut cavity: std::collections::BTreeSet<usize> = star.iter().copied().collect();
-    let mut deferred = false;
-    let mut i = 0;
-    while i < link.len() {
-        let (a, b, cls) = link[i];
-        if gate_tri_valid(&[v, a, b], coords, frame) {
-            i += 1;
-            continue;
-        }
-        let Some(inc) = edge_map.get(&edge_key(a, b)) else {
-            return reject("link edge missing from edge map");
-        };
-        let ext: Vec<usize> = inc
-            .iter()
-            .copied()
-            .filter(|t| !cavity.contains(t))
-            .collect();
-        if ext.len() != 1 {
-            // Domain boundary (or a pinched edge both of whose sides were
-            // absorbed): uncrossable — defer to the ear-clip.
-            deferred = true;
-            i += 1;
-            continue;
-        }
-        let tj = ext[0];
-        if class[tj] != cls {
-            // Class boundary IS the intersection curve: uncrossable — defer.
-            deferred = true;
-            i += 1;
-            continue;
-        }
-        // The external neighbor traverses (b, a); its apex joins the link.
-        let tn = tris[tj];
-        let Some(k) = (0..3).find(|&k| tn[k] == b && tn[(k + 1) % 3] == a) else {
-            return reject("inconsistent neighbor orientation");
-        };
-        let x = tn[(k + 2) % 3];
-        if x == v
-            || link.iter().any(|&(la, lb, _)| la == x || lb == x)
-            || edge_map.contains_key(&edge_key(v, x))
-        {
-            // Absorbing would pinch the cavity (apex already on the link /
-            // spoke already exists): defer to the ear-clip.
-            deferred = true;
-            i += 1;
-            continue;
-        }
-        let ncls = class[tj];
-        cavity.insert(tj);
-        link.splice(i..=i, [(a, x, ncls), (x, b, ncls)]);
-        // Re-check from the first replacement edge. Edges before i cannot
-        // regress (fan validity is coordinate-determined) and blocked edges
-        // cannot become growable (externals only shrink) — one scan is a
-        // fixpoint.
-    }
-    if cavity.len() != link.len() {
-        return reject("cavity/link size mismatch");
-    }
 
     // ── 3. Re-triangulation: fan, or constrained exact ear-clip ──────────
     let new_tris: Vec<([u32; 3], RegionClass)> = if !deferred {
@@ -1253,6 +1301,403 @@ pub(crate) fn first_ring_crossing(
         }
     }
     None
+}
+
+/// Amendment 14 (spec `m8_stage0_multiclass_cavity_arm` §11, ALWAYS-ON
+/// since the inc-3.2d flip): the Fig-11(a) vertex-inserting SPLIT — the
+/// overlay's first vertex-inserting operation.
+///
+/// The armed customer (R0099 vert 9, §11a): an interior mint `v` whose
+/// on-circle position pokes a hair PAST a constrained ring chord `C` that
+/// is the OTHER input's real model edge (near-tangency the chord-geometry
+/// arrangement never saw). Every fixed-vertex-set arm correctly refuses;
+/// the paper's operation is to SPLIT the constrained edge where the moved
+/// boundary polyline crosses it (Yang §4.4.1 Fig 11(a)) and CDT the
+/// trimmed sides so the polyline is their boundary.
+///
+/// Two new vertices q_a/q_b are minted with exact rational UVs ON C (so
+/// `collect_edge_splits` propagates the other-input leg with zero new
+/// machinery), the carved cavity re-cuts into two side-class remnants +
+/// the material polygon + the past-C bulge, and the chain through `v`
+/// (its two class-transition spokes) becomes the union boundary around
+/// the bulge. Build-then-commit: any guard reject leaves NO mutation
+/// (pushed vertices are unwound) and the amendment-2 revert stays the
+/// caller's fallback. Guards per §11d — each loud, census-visible.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn fig11_split_cavity(
+    overlay: &mut ClassifiedOverlay,
+    edge_map: &mut BTreeMap<[u32; 2], Vec<usize>>,
+    v: u32,
+    chord: (u32, u32),
+    coords: &mut Vec<Point3>,
+    minted_mark: &mut Vec<bool>,
+    mergeable_mark: &mut Vec<bool>,
+    frame: &Frame,
+    sagitta: Option<f64>,
+    own_chords: &[(ExactPoint2, ExactPoint2)],
+    other_segs: &[(ExactPoint2, ExactPoint2)],
+    other_is_b: bool,
+    out_extras: &mut Vec<ExtraRimPoint>,
+    probe: bool,
+) -> bool {
+    let reject = |why: &str| {
+        if probe {
+            eprintln!("  [split-reject] vert {v} {why}");
+        }
+        false
+    };
+    let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+
+    // ── 1. Shared carve (star + link + growth). ──────────────────────────
+    let Carved {
+        cavity,
+        link,
+        starts,
+        deferred: _,
+    } = match carve_star_cavity(&overlay.tris, &overlay.class, edge_map, v, coords, frame) {
+        Ok(c) => c,
+        Err(why) => return reject(why),
+    };
+    if !starts.is_empty() {
+        return reject("split-open-link (boundary vertex — not the armed class)");
+    }
+    let n = link.len();
+
+    // ── 2. Exactly two class transitions ⇒ the chain spokes. ─────────────
+    let trans: Vec<usize> = (0..n)
+        .filter(|&i| link[(i + n - 1) % n].2 != link[i].2)
+        .collect();
+    if trans.len() != 2 {
+        return reject(&format!("split-chain-transitions ({})", trans.len()));
+    }
+    // C must be a ring edge of the carved link.
+    let Some(e_c) = (0..n).find(|&i| {
+        let (a, b, _) = link[i];
+        (a, b) == chord || (b, a) == chord
+    }) else {
+        return reject("split-chord-not-on-ring");
+    };
+    // The two single-class runs; the C-containing run is the SIDE, the
+    // other the MATERIAL (§11c). Cyclic run [s, e).
+    let in_run = |i: usize, s: usize, e: usize| {
+        if s <= e {
+            i >= s && i < e
+        } else {
+            i >= s || i < e
+        }
+    };
+    let (t0, t1) = (trans[0], trans[1]);
+    let (side_start, mat_start) = if in_run(e_c, t0, t1) {
+        (t0, t1)
+    } else {
+        (t1, t0)
+    };
+    let side_cls = link[side_start].2;
+    let mat_cls = link[mat_start].2;
+    // Armed class pair (§11c): material Overlap, side = the own-input-only
+    // class; the bulge takes the other input's membership flipped.
+    let (want_side, bulge_cls) = if other_is_b {
+        (RegionClass::BOnly, RegionClass::AOnly)
+    } else {
+        (RegionClass::AOnly, RegionClass::BOnly)
+    };
+    if mat_cls != RegionClass::Overlap || side_cls != want_side {
+        return reject(&format!(
+            "split-class-pair (mat {mat_cls:?} side {side_cls:?})"
+        ));
+    }
+    // C must be a domain boundary (1-incident): the bulge grows into
+    // territory no triangle covers. A 2-incident C means real triangles
+    // beyond — a larger op, not the armed form.
+    let (r_k, r_k1) = (link[e_c].0, link[e_c].1);
+    if edge_map.get(&edge_key(r_k, r_k1)).map(|e| e.len()) != Some(1) {
+        return reject("split-chord-not-boundary");
+    }
+    // C on the OTHER input's real edge: both endpoints exactly collinear
+    // with one common boundary sub-segment (exact rationals).
+    let on_seg = |p: &ExactPoint2, s: &ExactPoint2, e: &ExactPoint2| {
+        let dx = &e.x - &s.x;
+        let dy = &e.y - &s.y;
+        let wx = &p.x - &s.x;
+        let wy = &p.y - &s.y;
+        &dx * &wy - &dy * &wx == RBig::ZERO
+    };
+    let (ka, kb) = (
+        &overlay.exact_verts[r_k as usize],
+        &overlay.exact_verts[r_k1 as usize],
+    );
+    if !other_segs
+        .iter()
+        .any(|(s, e)| on_seg(ka, s, e) && on_seg(kb, s, e))
+    {
+        return reject("split-chord-not-other-input-edge");
+    }
+    // The A-leg (§11c step 3): v's OWN rim sub-chord — the chain through v
+    // is that rim's boundary, and q_a/q_b must join its override chain in
+    // boundary order. Identified by exact collinearity of v's pre-mint UV
+    // with a sub-chord, interior parameter; absent ⇒ the propagation leg
+    // has no vehicle ⇒ reject (a silent T-junction is the disease).
+    let v_ex = &overlay.exact_verts[v as usize];
+    let own = own_chords.iter().find(|(s, e)| {
+        if !on_seg(v_ex, s, e) {
+            return false;
+        }
+        let dx = &e.x - &s.x;
+        let dy = &e.y - &s.y;
+        let len2 = &dx * &dx + &dy * &dy;
+        if len2 == RBig::ZERO {
+            return false;
+        }
+        let t = (&(&v_ex.x - &s.x) * &dx + &(&v_ex.y - &s.y) * &dy) / &len2;
+        t > RBig::ZERO && t < RBig::ONE
+    });
+    let Some((own_s, own_e)) = own else {
+        return reject("split-no-own-chord");
+    };
+
+    // ── 3. Crossings of the chain spokes with C (frame f64). ─────────────
+    let c_first = link[mat_start].0; // material arc start (chain vertex)
+    let c_last = link[side_start].0; // material arc end = side arc start
+    let p2 = |i: u32| frame.project(coords[i as usize]);
+    let (pk, pk1, pv) = (p2(r_k), p2(r_k1), p2(v));
+    let dc = (pk1.0 - pk.0, pk1.1 - pk.1);
+    let cross2 = |a: (f64, f64), b: (f64, f64)| a.0 * b.1 - a.1 * b.0;
+    let seg_cross = |a: (f64, f64), b: (f64, f64)| -> Option<(f64, f64)> {
+        let ds = (b.0 - a.0, b.1 - a.1);
+        let den = cross2(ds, dc);
+        if den == 0.0 || !den.is_finite() {
+            return None;
+        }
+        let w = (pk.0 - a.0, pk.1 - a.1);
+        let t_s = cross2(w, dc) / den; // along the spoke a→b
+        let t_c = cross2(w, ds) / den; // along C (r_k → r_k1)
+        (t_s > 0.0 && t_s < 1.0 && t_c > 0.0 && t_c < 1.0).then_some((t_s, t_c))
+    };
+    let Some((_, tc_a)) = seg_cross(p2(c_first), pv) else {
+        return reject("split-crossing-count (first spoke)");
+    };
+    let Some((_, tc_b)) = seg_cross(pv, p2(c_last)) else {
+        return reject("split-crossing-count (second spoke)");
+    };
+    // Along the ring direction (r_k → r_k1), the side arc reaches C from
+    // the r_k end through part1 ending at r_k; its q (on c_last's spoke)
+    // must come FIRST: t_c(q_b) < t_c(q_a).
+    if tc_b >= tc_a {
+        return reject("split-crossing-order");
+    }
+    // Bulge-depth premise: v's overshoot past C within the mint's own
+    // rim-slot sagitta (a near-tangency artifact, never a real crossing
+    // the arrangement should have seen).
+    let clen = (dc.0 * dc.0 + dc.1 * dc.1).sqrt();
+    let overshoot = (cross2(dc, (pv.0 - pk.0, pv.1 - pk.1)) / clen).abs();
+    match sagitta {
+        Some(s) if overshoot <= s => {}
+        _ => {
+            return reject(&format!(
+                "split-bulge-depth (overshoot {overshoot:e} vs sagitta {sagitta:?})"
+            ))
+        }
+    }
+
+    // ── 4. Mint q_a / q_b: exact rational UVs ON C. ──────────────────────
+    let (Ok(ra), Ok(rb)) = (
+        crate::coplanar_overlay::rat(tc_a),
+        crate::coplanar_overlay::rat(tc_b),
+    ) else {
+        return reject("split-param-nonfinite");
+    };
+    let q_uv = |t: &RBig| -> ExactPoint2 {
+        ExactPoint2 {
+            x: &ka.x + &(t * &(&kb.x - &ka.x)),
+            y: &ka.y + &(t * &(&kb.y - &ka.y)),
+        }
+    };
+    let (qa_ex, qb_ex) = (q_uv(&ra), q_uv(&rb));
+    let base = overlay.verts.len();
+    let (qa_id, qb_id) = (base as u32, base as u32 + 1);
+    for ex in [&qa_ex, &qb_ex] {
+        let (ux, uy) = (ex.x.to_f64().value(), ex.y.to_f64().value());
+        overlay.verts.push(Point2::new(ux, uy));
+        overlay.exact_verts.push(ex.clone());
+        coords.push(frame.lift(ux, uy));
+        minted_mark.push(false);
+        mergeable_mark.push(false);
+    }
+    let unwind = |overlay: &mut ClassifiedOverlay,
+                  coords: &mut Vec<Point3>,
+                  minted_mark: &mut Vec<bool>,
+                  mergeable_mark: &mut Vec<bool>| {
+        overlay.verts.truncate(base);
+        overlay.exact_verts.truncate(base);
+        coords.truncate(base);
+        minted_mark.truncate(base);
+        mergeable_mark.truncate(base);
+    };
+    if coords[qa_id as usize] == coords[qb_id as usize] {
+        unwind(overlay, coords, minted_mark, mergeable_mark);
+        return reject("split-degenerate-crossings");
+    }
+
+    // ── 5. The four sub-polygons (§11c) and their triangulations. ────────
+    // Material: ring tails of the material run, closed along C's
+    // (q_b → q_a) sub-segment — v belongs to the BULGE only; the C piece
+    // between the crossings is the AOnly|Overlap class boundary (2-incident
+    // post-commit), which is exactly B's face boundary there.
+    let mut p_mat: Vec<u32> = Vec::with_capacity(n + 3);
+    let mut i = mat_start;
+    while i != side_start {
+        p_mat.push(link[i].0);
+        i = (i + 1) % n;
+    }
+    p_mat.push(c_last);
+    p_mat.push(qb_id);
+    p_mat.push(qa_id);
+    // Side arc split at C: part1 = c_last..r_k, part2 = r_k1..c_first.
+    let mut p_rem_out: Vec<u32> = Vec::new();
+    let mut i = side_start;
+    loop {
+        p_rem_out.push(link[i].0);
+        if i == e_c {
+            break;
+        }
+        i = (i + 1) % n;
+    }
+    p_rem_out.push(qb_id);
+    let mut p_rem_in: Vec<u32> = vec![qa_id];
+    let mut i = (e_c + 1) % n;
+    while i != mat_start {
+        p_rem_in.push(link[i].0);
+        i = (i + 1) % n;
+    }
+    p_rem_in.push(c_first);
+    let p_bulge = [qa_id, qb_id, v];
+
+    let build = || -> Result<Vec<([u32; 3], RegionClass)>, String> {
+        let mut ears: Vec<([u32; 3], RegionClass)> = Vec::with_capacity(cavity.len() + 2);
+        if !gate_tri_valid(&p_bulge, coords, frame) || gate_tri_degenerate(&p_bulge, coords) {
+            return Err("split-bulge-invalid".into());
+        }
+        ears.push((p_bulge, bulge_cls));
+        for (poly, cls, who) in [
+            (&p_mat, mat_cls, "split-mat"),
+            (&p_rem_out, side_cls, "split-rem-out"),
+            (&p_rem_in, side_cls, "split-rem-in"),
+        ] {
+            match earclip_cavity_polygon(
+                poly,
+                &cavity,
+                cls,
+                coords,
+                frame,
+                edge_map,
+                probe,
+                &format!("vert {v} {who}"),
+            ) {
+                Ok(we) => ears.extend(we),
+                Err(EarclipErr::NotSimple { .. }) => {
+                    return Err(format!("{who} polygon not simple"));
+                }
+                Err(EarclipErr::Other(why)) => return Err(format!("{who}: {why}")),
+            }
+        }
+        // Count invariant: remnants (k-gons summing to side-run size + 2
+        // ears) + material ((mat+3)-gon → mat+1 ears) + the bulge = the
+        // old cavity + 1 — the bulge is NEW territory (previously
+        // exterior), the only cover the op adds.
+        if ears.len() != cavity.len() + 1 {
+            return Err(format!(
+                "split ear count {} != cavity {} + 1",
+                ears.len(),
+                cavity.len()
+            ));
+        }
+        Ok(ears)
+    };
+    let new_tris = match build() {
+        Ok(e) => e,
+        Err(why) => {
+            unwind(overlay, coords, minted_mark, mergeable_mark);
+            return reject(&why);
+        }
+    };
+
+    // ── 6. Commit: overwrite the cavity slots + push the two extras. ─────
+    let cavity: Vec<usize> = cavity.into_iter().collect();
+    for &ti in &cavity {
+        let t = overlay.tris[ti];
+        for k in 0..3 {
+            let kk = edge_key(t[k], t[(k + 1) % 3]);
+            if let Some(e) = edge_map.get_mut(&kk) {
+                e.retain(|&x| x != ti);
+                if e.is_empty() {
+                    edge_map.remove(&kk);
+                }
+            }
+        }
+    }
+    // 1×1-overlay attribution conventions for the two pushed slots.
+    let attr = |cls: RegionClass| -> (u32, u32) {
+        (
+            if matches!(cls, RegionClass::AOnly | RegionClass::Overlap) {
+                0
+            } else {
+                u32::MAX
+            },
+            if matches!(cls, RegionClass::BOnly | RegionClass::Overlap) {
+                0
+            } else {
+                u32::MAX
+            },
+        )
+    };
+    let mut slots: Vec<usize> = cavity.clone();
+    for &(t, cls) in new_tris.iter().skip(cavity.len()) {
+        let ti = overlay.tris.len();
+        overlay.tris.push(t);
+        overlay.class.push(cls);
+        let (pa, pb) = attr(cls);
+        overlay.poly_a.push(pa);
+        overlay.poly_b.push(pb);
+        slots.push(ti);
+    }
+    for (&ti, &(t, cls)) in slots.iter().zip(&new_tris) {
+        overlay.tris[ti] = t;
+        overlay.class[ti] = cls;
+        for k in 0..3 {
+            edge_map
+                .entry(edge_key(t[k], t[(k + 1) % 3]))
+                .or_default()
+                .push(ti);
+        }
+    }
+    // §11c step 3 (the A-leg): q_a/q_b join v's own rim override chain,
+    // ordered by their exact projection parameter along v's sub-chord.
+    // Consumed by `collect_ring_crossings` after the gate loop; the ladder
+    // fails loudly if any extra finds no owning sub-chord there.
+    for &qi in &[qa_id, qb_id] {
+        let q_ex = &overlay.exact_verts[qi as usize];
+        let dx = &own_e.x - &own_s.x;
+        let dy = &own_e.y - &own_s.y;
+        let len2 = &dx * &dx + &dy * &dy;
+        let t = (&(&q_ex.x - &own_s.x) * &dx + &(&q_ex.y - &own_s.y) * &dy) / &len2;
+        out_extras.push(ExtraRimPoint {
+            s: own_s.clone(),
+            e: own_e.clone(),
+            t,
+            pt: coords[qi as usize],
+            // v's rim belongs to input A exactly when the OTHER input is B.
+            side_a: other_is_b,
+        });
+    }
+    if probe {
+        eprintln!(
+            "[fold-split] vert {v} chord ({r_k},{r_k1}) q=({qa_id},{qb_id}) \
+             t_c=({tc_a},{tc_b}) overshoot={overshoot:e} cavity={} -> {} tris",
+            cavity.len(),
+            new_tris.len()
+        );
+    }
+    true
 }
 
 #[cfg(test)]
@@ -2483,5 +2928,253 @@ mod reloc_tests {
             canon(&edge_map_of(&tris)),
             "edge map must be maintained incrementally"
         );
+    }
+}
+
+#[cfg(test)]
+mod split_tests {
+    //! Amendment-14 split unit oracles (spec `m8_stage0_multiclass_cavity_arm`
+    //! §11): the vert-9 anatomy in miniature on the z=0 plane — an interior
+    //! mint v (closed 6-ring, exactly two class transitions) whose resolved
+    //! position pokes 0.05 past the constrained ring chord C (the other
+    //! input's edge, 1-incident), folding C's star triangle. The split must
+    //! mint q_a/q_b ON C with exact rational UVs, re-cut into
+    //! side-remnants + material + bulge (cavity + 1 triangles), emit the
+    //! rim extras in boundary order, and reject loudly on each §11d guard.
+
+    use super::{fig11_split_cavity, Frame};
+    use crate::coplanar_overlay::{ClassifiedOverlay, ExactPoint2, RegionClass};
+    use crate::stage0::rim_chords::ExtraRimPoint;
+    use cad_primitives::{Point2, Point3};
+    use std::collections::BTreeMap;
+
+    fn frame_z0() -> Frame {
+        Frame {
+            n: [0.0, 0.0, 1.0],
+            d: 0.0,
+            o: [0.0, 0.0, 0.0],
+            e1: [1.0, 0.0, 0.0],
+            e2: [0.0, 1.0, 0.0],
+        }
+    }
+
+    fn p(u: f64, v: f64) -> Point3 {
+        Point3::new(u, v, 0.0)
+    }
+
+    fn edge_map_of(tris: &[[u32; 3]]) -> BTreeMap<[u32; 2], Vec<usize>> {
+        let key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+        let mut m: BTreeMap<[u32; 2], Vec<usize>> = BTreeMap::new();
+        for (ti, t) in tris.iter().enumerate() {
+            for k in 0..3 {
+                m.entry(key(t[k], t[(k + 1) % 3])).or_default().push(ti);
+            }
+        }
+        m
+    }
+
+    /// v=0; ring CCW: rk1=1 (0,0), c_first=2 (-0.3,-0.5), deep1=3 (0.2,-1),
+    /// deep2=4 (1.8,-1), c_last=5 (2.3,-0.5), rk=6 (2,0). C = (rk,rk1) along
+    /// y=0. v's UV sits on its own rim chord y=-0.4; its RESOLVED position
+    /// (1.0, +0.05) pokes past C, folding star triangle (v,rk,rk1).
+    #[allow(clippy::type_complexity)]
+    fn fixture() -> (
+        ClassifiedOverlay,
+        BTreeMap<[u32; 2], Vec<usize>>,
+        Vec<Point3>,
+        Vec<bool>,
+        Vec<bool>,
+    ) {
+        let uv = [
+            (1.0, -0.4),  // v — pre-mint UV on its own chord
+            (0.0, 0.0),   // rk1
+            (-0.3, -0.5), // c_first
+            (0.2, -1.0),  // deep1
+            (1.8, -1.0),  // deep2
+            (2.3, -0.5),  // c_last
+            (2.0, 0.0),   // rk
+        ];
+        let tris = vec![
+            [0u32, 1, 2], // (v, rk1, c_first)   BOnly
+            [0, 2, 3],    // (v, c_first, deep1) Overlap
+            [0, 3, 4],    // (v, deep1, deep2)   Overlap
+            [0, 4, 5],    // (v, deep2, c_last)  Overlap
+            [0, 5, 6],    // (v, c_last, rk)     BOnly
+            [0, 6, 1],    // (v, rk, rk1)        BOnly — folds under the mint
+        ];
+        let class = vec![
+            RegionClass::BOnly,
+            RegionClass::Overlap,
+            RegionClass::Overlap,
+            RegionClass::Overlap,
+            RegionClass::BOnly,
+            RegionClass::BOnly,
+        ];
+        let overlay = ClassifiedOverlay {
+            verts: uv.iter().map(|&(u, v)| Point2::new(u, v)).collect(),
+            exact_verts: uv
+                .iter()
+                .map(|&(u, v)| ExactPoint2::from_f64(u, v).unwrap())
+                .collect(),
+            poly_a: vec![0; tris.len()],
+            poly_b: vec![0; tris.len()],
+            class,
+            tris,
+            fused: BTreeMap::new(),
+        };
+        let edge_map = edge_map_of(&overlay.tris);
+        let mut coords: Vec<Point3> = uv.iter().map(|&(u, v)| p(u, v)).collect();
+        coords[0] = p(1.0, 0.05); // the mint, past C
+        let minted = vec![true, false, false, false, false, false, false];
+        let mergeable = vec![false; 7];
+        (overlay, edge_map, coords, minted, mergeable)
+    }
+
+    fn own_chords() -> Vec<(ExactPoint2, ExactPoint2)> {
+        vec![(
+            ExactPoint2::from_f64(-0.5, -0.4).unwrap(),
+            ExactPoint2::from_f64(2.5, -0.4).unwrap(),
+        )]
+    }
+
+    fn other_segs() -> Vec<(ExactPoint2, ExactPoint2)> {
+        vec![(
+            ExactPoint2::from_f64(-1.0, 0.0).unwrap(),
+            ExactPoint2::from_f64(3.0, 0.0).unwrap(),
+        )]
+    }
+
+    #[test]
+    fn split_commits_recut_and_extras() {
+        let (mut overlay, mut edge_map, mut coords, mut minted, mut mergeable) = fixture();
+        let mut extras: Vec<ExtraRimPoint> = Vec::new();
+        let frame = frame_z0();
+        let ok = fig11_split_cavity(
+            &mut overlay,
+            &mut edge_map,
+            0,
+            (6, 1),
+            &mut coords,
+            &mut minted,
+            &mut mergeable,
+            &frame,
+            Some(0.1),
+            &own_chords(),
+            &other_segs(),
+            true,
+            &mut extras,
+            false,
+        );
+        assert!(ok, "the armed form must commit");
+        // Two q vertices minted, exactly collinear with C (y == 0 exactly).
+        assert_eq!(overlay.verts.len(), 9);
+        assert_eq!(coords.len(), 9);
+        for qi in [7usize, 8] {
+            assert_eq!(
+                overlay.exact_verts[qi].y,
+                ExactPoint2::from_f64(0.0, 0.0).unwrap().y
+            );
+            assert!(!minted[qi] && !mergeable[qi]);
+        }
+        // Cavity 6 → 7 triangles: one AOnly bulge, side remnants BOnly,
+        // material Overlap; every triangle gate-valid (the fold is gone).
+        assert_eq!(overlay.tris.len(), 7);
+        let bulges: Vec<usize> = (0..7)
+            .filter(|&i| overlay.class[i] == RegionClass::AOnly)
+            .collect();
+        assert_eq!(bulges.len(), 1, "exactly one bulge triangle");
+        assert!(overlay.tris[bulges[0]].contains(&0), "bulge fans the mint");
+        for (i, t) in overlay.tris.iter().enumerate() {
+            assert!(
+                super::gate_tri_valid(t, &coords, &frame),
+                "tri {i} {t:?} must be gate-valid post-split"
+            );
+        }
+        // C's old edge is replaced by the three sub-segments; the middle
+        // one (between the q's) is the 2-incident AOnly|Overlap boundary.
+        let key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+        assert!(!edge_map.contains_key(&key(6, 1)), "old C edge gone");
+        let mid = edge_map.get(&key(7, 8)).expect("mid C sub-segment");
+        assert_eq!(mid.len(), 2, "bulge|material boundary is 2-incident");
+        // Rim extras: both q's, owned by v's own chord, in boundary order.
+        assert_eq!(extras.len(), 2);
+        for x in &extras {
+            assert!(x.side_a);
+            assert_eq!(x.s, own_chords()[0].0);
+            assert_eq!(x.e, own_chords()[0].1);
+        }
+        assert!(extras[0].t != extras[1].t);
+    }
+
+    #[test]
+    fn bulge_depth_guard_rejects_without_mutation() {
+        let (mut overlay, mut edge_map, mut coords, mut minted, mut mergeable) = fixture();
+        let snapshot = (overlay.tris.clone(), overlay.verts.len(), coords.clone());
+        let mut extras: Vec<ExtraRimPoint> = Vec::new();
+        let ok = fig11_split_cavity(
+            &mut overlay,
+            &mut edge_map,
+            0,
+            (6, 1),
+            &mut coords,
+            &mut minted,
+            &mut mergeable,
+            &frame_z0(),
+            Some(0.01), // overshoot 0.05 exceeds the sagitta premise
+            &own_chords(),
+            &other_segs(),
+            true,
+            &mut extras,
+            false,
+        );
+        assert!(!ok);
+        assert_eq!(overlay.tris, snapshot.0);
+        assert_eq!(overlay.verts.len(), snapshot.1);
+        assert_eq!(coords, snapshot.2);
+        assert!(extras.is_empty());
+    }
+
+    #[test]
+    fn other_edge_and_own_chord_guards_reject() {
+        let (mut overlay, mut edge_map, mut coords, mut minted, mut mergeable) = fixture();
+        let mut extras: Vec<ExtraRimPoint> = Vec::new();
+        // C not on the other input's boundary → reject.
+        let ok = fig11_split_cavity(
+            &mut overlay,
+            &mut edge_map,
+            0,
+            (6, 1),
+            &mut coords,
+            &mut minted,
+            &mut mergeable,
+            &frame_z0(),
+            Some(0.1),
+            &own_chords(),
+            &[],
+            true,
+            &mut extras,
+            false,
+        );
+        assert!(!ok);
+        // No own chord carries v → reject (the A-leg has no vehicle).
+        let ok = fig11_split_cavity(
+            &mut overlay,
+            &mut edge_map,
+            0,
+            (6, 1),
+            &mut coords,
+            &mut minted,
+            &mut mergeable,
+            &frame_z0(),
+            Some(0.1),
+            &[],
+            &other_segs(),
+            true,
+            &mut extras,
+            false,
+        );
+        assert!(!ok);
+        assert_eq!(overlay.tris.len(), 6, "no mutation on either reject");
+        assert!(extras.is_empty());
     }
 }

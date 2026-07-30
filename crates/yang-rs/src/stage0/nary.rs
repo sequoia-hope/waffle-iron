@@ -770,7 +770,9 @@ pub(crate) fn overlay_nary_group(
                 if !any_ring_subdivided(poly, &overlay) {
                     continue;
                 }
-                collect_rim_crossings(brep, fi, poly, &overlay, &coords, rim_overrides)
+                // No split arm on the n-ary path (slice-g B8): no extras.
+                collect_rim_crossings(brep, fi, poly, &overlay, &coords, &[], rim_overrides)
+                    .map(|_| ())
             };
             if let Err(tag) = res {
                 probe(tag, &format!("{} face={fi}", group_tag()));

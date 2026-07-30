@@ -87,7 +87,7 @@ pub(crate) fn opposite_rim_projection_lands_on_circle_within_band() {
     let overlay = overlay_of(vec![q_exact]);
 
     let mut ov: RimSplitMap = Default::default();
-    collect_ring_crossings(&brep, 0, &ring, &overlay, &[cap_pt], &mut ov)
+    collect_ring_crossings(&brep, 0, &ring, &overlay, &[cap_pt], &[], &mut ov)
         .expect("ring crossings must collect");
 
     let cap_entry = ov.get(&0).expect("cap rim entry");
@@ -144,7 +144,7 @@ pub(crate) fn opposite_rim_projection_same_ray_twins_land_on_circle() {
     let overlay = overlay_of(vec![qa_exact, qb_exact]);
 
     let mut ov: RimSplitMap = Default::default();
-    collect_ring_crossings(&brep, 0, &ring, &overlay, &[pa, pb], &mut ov)
+    collect_ring_crossings(&brep, 0, &ring, &overlay, &[pa, pb], &[], &mut ov)
         .expect("ring crossings must collect");
 
     assert_eq!(
@@ -200,7 +200,7 @@ pub(crate) fn opposite_rim_projection_unequal_radius_keeps_renormalisation() {
     let overlay = overlay_of(vec![q_exact]);
 
     let mut ov: RimSplitMap = Default::default();
-    collect_ring_crossings(&brep, 0, &ring, &overlay, &[cap_pt], &mut ov)
+    collect_ring_crossings(&brep, 0, &ring, &overlay, &[cap_pt], &[], &mut ov)
         .expect("ring crossings must collect");
 
     // Legacy renormalisation, same expression sequence as the fallback arm.

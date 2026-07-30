@@ -1080,6 +1080,14 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         let mut merges: Vec<(u32, u32, Point3)> = Vec::new();
         let mut merge_settled: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
         let probe_flip = std::env::var_os("YANG_SPLIT_PROBE").is_some();
+        // Amendment 14 (spec §11): the vertex-inserting split, ALWAYS-ON
+        // since the inc-3.2d corpus flip (2026-07-30: the only category
+        // change was R0099 ERROR → SUPPORTED_CORRECT — the conversion
+        // itself). `split_extras` carries the split's q-points into the
+        // rim-override chains (§11c step 3 — the A-leg); any extra left
+        // unconsumed by the collectors below is a T-junction in waiting
+        // and fails the pair loudly.
+        let mut split_extras: Vec<ExtraRimPoint> = Vec::new();
         loop {
             let mut changed = false;
             for ti in 0..overlay.tris.len() {
@@ -1398,22 +1406,56 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                         }
                     }
                 }
-                // ── Amendment 13 Fig-11(a) SPLIT — MEASUREMENT ONLY (spec
-                // `m8_stage0_multiclass_cavity_arm` §10d inc-3.2). The
-                // reroute/reverse/delete actions built for this arm were
-                // REFUTED by the measured anatomy (R0099 vert 9): the
-                // 1-incident chord is the OTHER INPUT's real model edge —
-                // the rim circle is near-tangent to it and the mint's
-                // on-circle position bulges a hair past it, with NO
-                // junction vertex minted (the chord-geometry arrangement
-                // never saw the crossing). The truthful repair needs a NEW
-                // vertex (split the other input's edge at the mint's
-                // projection; re-decompose the sliver into an Overlap
-                // strip + an own-side bulge) — the first vertex-inserting
-                // overlay operation, designed in §10d. Until then the
-                // candidate is PROBED loudly and falls to the amendment-2
-                // revert.
-                if probe_flip && !relocated && !merged {
+                // ── Amendment 14 Fig-11(a) SPLIT (spec
+                // `m8_stage0_multiclass_cavity_arm` §11, ALWAYS-ON since
+                // the inc-3.2d flip): the vertex-inserting split. The
+                // 1-incident chord is the OTHER input's real model edge;
+                // the mint's on-circle position bulges a hair past it
+                // (near-tangency the chord-geometry arrangement never
+                // saw). q_a/q_b are minted with exact rational UVs ON the
+                // chord — the other-input propagation leg rides
+                // `collect_edge_splits` for free — and the cavity re-cuts
+                // per §11c; the A-leg propagates via `split_extras` into
+                // the rim-override chains below.
+                let mut split_done = false;
+                if !relocated && !merged {
+                    if let Some((sq, sa, sb)) = split_pair {
+                        let slot = minted_info
+                            .iter()
+                            .find(|&&(vi, _, _)| vi == sq as usize)
+                            .map(|&(_, slot, _)| slot);
+                        let ctx =
+                            slot.and_then(|s| rim_ctxs_a.iter().chain(rim_ctxs_b.iter()).nth(s));
+                        if let (Some(slot), Some(ctx)) = (slot, ctx) {
+                            let (au, av) = frame.project(coords[sa as usize]);
+                            let (bu, bv) = frame.project(coords[sb as usize]);
+                            let clen = ((au - bu).powi(2) + (av - bv).powi(2)).sqrt();
+                            let sag = clen * clen / (8.0 * ctx.radius);
+                            if fig11_split_cavity(
+                                &mut overlay,
+                                &mut edge_map,
+                                sq,
+                                (sa, sb),
+                                &mut coords,
+                                &mut minted_mark,
+                                &mut mergeable_mark,
+                                frame,
+                                Some(sag),
+                                &ctx.chords,
+                                &ctx.other_segs,
+                                slot < rim_ctxs_a.len(),
+                                &mut split_extras,
+                                probe_flip,
+                            ) {
+                                split_done = true;
+                                changed = true;
+                            }
+                        } else if probe_flip {
+                            eprintln!("  [split-reject] vert {sq} no rim-slot context");
+                        }
+                    }
+                }
+                if probe_flip && !relocated && !merged && !split_done {
                     if let Some((sq, sa, sb)) = split_pair {
                         let inc_n = edge_map
                             .get(&edge_key(sa, sb))
@@ -1462,7 +1504,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                         );
                     }
                 }
-                if relocated || merged {
+                if relocated || merged || split_done {
                     continue;
                 }
 
@@ -1635,30 +1677,43 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // crosses propagates each crossing point into its OWN cap rim AND the
         // opposite cap rim of the same cylinder (and thus the lateral, which
         // shares both rims). OPPOSITE-normal only (the SCOPE GATE above).
+        let extras_a: Vec<ExtraRimPoint> =
+            split_extras.iter().filter(|x| x.side_a).cloned().collect();
+        let extras_b: Vec<ExtraRimPoint> =
+            split_extras.iter().filter(|x| !x.side_a).cloned().collect();
+        let mut extras_consumed = 0usize;
         if rim_cross_a {
-            if let Err(tag) = collect_rim_crossings(
+            match collect_rim_crossings(
                 a,
                 p.face_a,
                 &poly_a,
                 &overlay,
                 &coords,
+                &extras_a,
                 &mut rim_overrides_a,
             ) {
-                probe(tag, &format!("pair=({},{})", p.face_a, p.face_b));
-                return Err(pair_err(p.face_a, p.face_b));
+                Ok(n) => extras_consumed += n,
+                Err(tag) => {
+                    probe(tag, &format!("pair=({},{})", p.face_a, p.face_b));
+                    return Err(pair_err(p.face_a, p.face_b));
+                }
             }
         }
         if rim_cross_b {
-            if let Err(tag) = collect_rim_crossings(
+            match collect_rim_crossings(
                 b,
                 p.face_b,
                 &poly_b,
                 &overlay,
                 &coords,
+                &extras_b,
                 &mut rim_overrides_b,
             ) {
-                probe(tag, &format!("pair=({},{})", p.face_a, p.face_b));
-                return Err(pair_err(p.face_a, p.face_b));
+                Ok(n) => extras_consumed += n,
+                Err(tag) => {
+                    probe(tag, &format!("pair=({},{})", p.face_a, p.face_b));
+                    return Err(pair_err(p.face_a, p.face_b));
+                }
             }
         }
 
@@ -1695,6 +1750,23 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 probe(tag, &format!("pair=({},{})", p.face_a, p.face_b));
                 return Err(pair_err(p.face_a, p.face_b));
             }
+        }
+        // §11c step 3 accounting: every split-minted rim point must have
+        // reached a rim-override chain — an unconsumed extra is a
+        // T-junction between this pair's emission and the rim's other
+        // consumers (the lateral, the opposite cap). Fail the pair loudly
+        // rather than emit the seam (P10).
+        if extras_consumed < split_extras.len() {
+            probe(
+                "split-extras-unconsumed",
+                &format!(
+                    "pair=({},{}) consumed {extras_consumed} of {}",
+                    p.face_a,
+                    p.face_b,
+                    split_extras.len()
+                ),
+            );
+            return Err(pair_err(p.face_a, p.face_b));
         }
 
         // M-C diagnosis (read-only observer, spec I6 pattern): with

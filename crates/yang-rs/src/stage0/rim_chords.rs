@@ -482,43 +482,73 @@ pub(crate) fn lateral_for_cap(brep: &BRep, cap_edge: u32) -> Result<CapLateral, 
     Err("rim-lateral-none")
 }
 
+/// Amendment 14 inc-3.2c (spec `m8_stage0_multiclass_cavity_arm` §11c
+/// step 3): a rim point the SPLIT minted that is NOT UV-collinear with any
+/// rim sub-chord (q_a/q_b live exactly on the OTHER input's edge), carried
+/// into the rim-override chain through a side-channel. `s`/`e` identify
+/// the owning rim sub-chord by exact endpoint equality; `t` is the exact
+/// projection parameter along it (boundary ORDER only — the inserted
+/// position is `pt`, bit-identical with the overlay emission).
+#[derive(Clone)]
+pub(crate) struct ExtraRimPoint {
+    pub(crate) s: ExactPoint2,
+    pub(crate) e: ExactPoint2,
+    pub(crate) t: RBig,
+    pub(crate) pt: Point3,
+    /// True when the owning rim belongs to input A's face of the pair.
+    pub(crate) side_a: bool,
+}
+
 /// PR-M8 disc-rim crossing (§4.5.5 shared sampling for a CROSSING disc rim):
 /// for each overlay vertex strictly interior to one of the disc rim polygon's
 /// sub-chords, resolve it to its BIT-EXACT shared 3D point (`coords[vi]` — the
 /// SAME point the cap override uses, so no T-junction) and record it on the
 /// cap rim edge; also project that crossing's azimuth (in the cylinder axis
 /// frame) onto the OPPOSITE rim circle and record the exact-radius point there
-/// (so the opposite cap + the lateral stay conformal).
+/// (so the opposite cap + the lateral stay conformal). Returns the number of
+/// `extra` split points consumed (the §11c A-leg accounting — the caller
+/// fails LOUDLY if any extra found no owning sub-chord).
 pub(crate) fn collect_rim_crossings(
     brep: &BRep,
     fi: usize,
     poly: &PolygonWithHoles,
     overlay: &ClassifiedOverlay,
     coords: &[Point3],
+    extra: &[ExtraRimPoint],
     rim_overrides: &mut RimSplitMap,
-) -> Result<(), &'static str> {
+) -> Result<usize, &'static str> {
     // Disc: one rim (the outer circle). Annular (M8 holed-disc): the outer rim
     // PLUS each hole rim — each propagated into ITS OWN cylinder lateral +
     // opposite rim via `lateral_for_cap(rim_edge)`. `poly.holes[k]` corresponds
     // to `annular_disc_face`'s hole-edge `k` (both follow `f.inner_loops` order;
     // `face_polygon_2d_tessellated` builds the hole rings in that order).
     if let Some(cap_edge) = disc_circle_edge(brep, fi) {
-        return collect_ring_crossings(brep, cap_edge, &poly.outer, overlay, coords, rim_overrides);
+        return collect_ring_crossings(
+            brep,
+            cap_edge,
+            &poly.outer,
+            overlay,
+            coords,
+            extra,
+            rim_overrides,
+        );
     }
     if let Some((outer_edge, hole_edges)) = annular_disc_face(brep, fi) {
-        collect_ring_crossings(
+        let mut consumed = collect_ring_crossings(
             brep,
             outer_edge,
             &poly.outer,
             overlay,
             coords,
+            extra,
             rim_overrides,
         )?;
         for (k, &he) in hole_edges.iter().enumerate() {
             let ring = poly.holes.get(k).ok_or("rim-hole-count-mismatch")?;
-            collect_ring_crossings(brep, he, ring, overlay, coords, rim_overrides)?;
+            consumed +=
+                collect_ring_crossings(brep, he, ring, overlay, coords, extra, rim_overrides)?;
         }
-        return Ok(());
+        return Ok(consumed);
     }
     Err("rim-not-disc")
 }
@@ -560,14 +590,16 @@ fn push_opp(
 /// (`cap_edge`) into that rim's override AND its cylinder's opposite rim (so the
 /// shared lateral stays conformal). Called once per rim by
 /// [`collect_rim_crossings`] (outer + each hole for an annular cap).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn collect_ring_crossings(
     brep: &BRep,
     cap_edge: u32,
     ring: &[Point2],
     overlay: &ClassifiedOverlay,
     coords: &[Point3],
+    extra: &[ExtraRimPoint],
     rim_overrides: &mut RimSplitMap,
-) -> Result<(), &'static str> {
+) -> Result<usize, &'static str> {
     // The cap circle's own geometry is not needed (crossing points come from
     // the resolved `coords`); only the OPPOSITE rim + the lateral's frame are.
     let lateral = lateral_for_cap(brep, cap_edge)?;
@@ -603,6 +635,7 @@ pub(crate) fn collect_ring_crossings(
     // longer depends on it (the ring sort has an exact tie-break), but the
     // deterministic order keeps probes readable and future consumers safe.
     let mut found: Vec<(usize, RBig, Point3)> = Vec::new();
+    let mut consumed = 0usize;
     for i in 0..n {
         let s = &ring[i];
         let e = &ring[(i + 1) % n];
@@ -655,6 +688,28 @@ pub(crate) fn collect_ring_crossings(
                 eprintln!("[rim-cross-probe] edge={cap_edge} chord {i} vert {vi} t={tf} KEPT");
             }
             found.push((i, t, pt));
+        }
+        // Amendment 14 inc-3.2c (§11c step 3): split-minted extra rim
+        // points owned by THIS sub-chord (exact endpoint identity). Their
+        // `t` is the exact projection parameter — boundary ORDER — and the
+        // inserted position is the split's own resolved point, bit-shared
+        // with the overlay emission.
+        for ex in extra {
+            if ex.s != s2 || ex.e != e2 {
+                continue;
+            }
+            if found.iter().any(|(_, _, p)| *p == ex.pt) {
+                consumed += 1; // bit-identical repeat — already carried
+                continue;
+            }
+            if rim_probe {
+                eprintln!(
+                    "[rim-cross-probe] edge={cap_edge} chord {i} SPLIT-EXTRA t={} KEPT",
+                    ex.t.to_f64().value()
+                );
+            }
+            found.push((i, ex.t.clone(), ex.pt));
+            consumed += 1;
         }
     }
     found.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
@@ -778,7 +833,7 @@ pub(crate) fn collect_ring_crossings(
             rim_overrides.get(&opp_edge).map(|v| v.len()).unwrap_or(0),
         );
     }
-    Ok(())
+    Ok(consumed)
 }
 
 /// M8-mixed (spec `m8_mixed_loop_coplanar_overlay` amendment 1): propagate
@@ -819,8 +874,11 @@ pub(crate) fn collect_mixed_crossings(
             if be.start == be.end {
                 // Full-circle loop: the ring IS this edge's polyline — the
                 // disc-rim propagation applies wholesale (own + opposite rim
-                // of the cylinder found via `lateral_for_cap`).
-                collect_ring_crossings(brep, e, ring, overlay, coords, rim_overrides)?;
+                // of the cylinder found via `lateral_for_cap`). No split
+                // extras on the mixed path (§11e inc-3.2c scope: a
+                // mixed-face split customer is caught by the ladder's
+                // unconsumed-extras check, loud).
+                collect_ring_crossings(brep, e, ring, overlay, coords, &[], rim_overrides)?;
                 continue;
             }
             // ARC: gather split points strictly interior to THIS edge's
