@@ -1199,7 +1199,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 // takes precedence when the joint path runs. `split_pair`
                 // is the Fig-11(a) form: (q, a, b) — reroute chord (a,b)
                 // through the mint q.
-                let mut merge_pair: Option<(u32, u32)> = None;
+                let mut merge_pair: Option<(u32, u32, f64, f64)> = None;
                 let mut split_pair: Option<(u32, u32, u32)> = None;
                 for &vv in &t {
                     if !minted_mark[vv as usize] {
@@ -1270,11 +1270,16 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                             relocated = true;
                             changed = true;
                         }
-                        RegionOutcome::MergeCandidate { p: mp, q: mq } => {
+                        RegionOutcome::MergeCandidate {
+                            p: mp,
+                            q: mq,
+                            overshoot,
+                            chord_len,
+                        } => {
                             // The region form's candidate outranks a
                             // wedge-level one (it is derived from the
                             // deeper, grown form).
-                            merge_pair = Some((mp, mq));
+                            merge_pair = Some((mp, mq, overshoot, chord_len));
                         }
                         RegionOutcome::Rejected => {}
                     }
@@ -1295,7 +1300,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 // lexicographic (merges, folds) termination argument holds.
                 let mut merged = false;
                 if !relocated && merge_arm {
-                    if let Some((mp, mq)) = merge_pair {
+                    if let Some((mp, mq, overshoot, chord_len)) = merge_pair {
                         // Displacement guard (§10c): the merge may only
                         // absorb a vertex inside the zone the mint's own
                         // displacement SWEPT OVER — ‖p−q‖ ≤ ‖q − chord(q)‖.
@@ -1312,14 +1317,49 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                         };
                         let disp = d3(coords[mq as usize], chord);
                         let gap = d3(coords[mp as usize], coords[mq as usize]);
+                        // Containment guard (§10d inc-3.4): Fig 11(b)'s
+                        // premise is that q lies ON the split edge — the
+                        // overshoot must be within the chord's own
+                        // circle-approximation error (sagitta from the
+                        // mint's rim-slot radius). The R0059 counterexample
+                        // (overshoot/chord ≈ 0.5, a unit-scale
+                        // interpenetration admitted by the displacement
+                        // guard alone at model scale ~300) fails this by
+                        // orders; the R0099 true grazes (≈ 1e-4) pass.
+                        let sagitta = minted_info
+                            .iter()
+                            .find(|&&(vi, _, _)| vi == mq as usize)
+                            .and_then(|&(_, slot, _)| {
+                                rim_ctxs_a.iter().chain(rim_ctxs_b.iter()).nth(slot)
+                            })
+                            .map(|ctx| chord_len * chord_len / (8.0 * ctx.radius));
+                        let contained = sagitta.is_some_and(|s| overshoot <= s);
+                        // inc-3.5 measurement: is p on the union boundary
+                        // (any 1-incident edge at p)? A boundary-vertex
+                        // merge moves geometry other faces' meshes were
+                        // built against — the R0059 seam suspect.
+                        if probe_flip {
+                            let p_boundary = edge_map
+                                .iter()
+                                .any(|(k, e)| (k[0] == mp || k[1] == mp) && e.len() == 1);
+                            let q_boundary = edge_map
+                                .iter()
+                                .any(|(k, e)| (k[0] == mq || k[1] == mq) && e.len() == 1);
+                            eprintln!(
+                                "  [fold-merge-boundary] p={mp} on_union_boundary={p_boundary} \
+                                 q={mq} on_union_boundary={q_boundary}"
+                            );
+                        }
                         if mergeable_mark[mp as usize]
                             && coords[mp as usize] != coords[mq as usize]
                             && gap <= disp
+                            && contained
                         {
                             if probe_flip {
                                 eprintln!(
                                     "[fold-merge] pair=({},{}) tri {ti} p={mp} -> q={mq} \
-                                     gap={gap:e} disp={disp:e} ({:?} -> {:?})",
+                                     gap={gap:e} disp={disp:e} overshoot={overshoot:e} \
+                                     sagitta={sagitta:?} ({:?} -> {:?})",
                                     p.face_a, p.face_b, coords[mp as usize], coords[mq as usize]
                                 );
                             }
@@ -1329,7 +1369,8 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                         } else if probe_flip {
                             eprintln!(
                                 "[fold-merge-reject] pair=({},{}) tri {ti} p={mp} q={mq} \
-                                 mergeable={} gap={gap:e} disp={disp:e}",
+                                 mergeable={} gap={gap:e} disp={disp:e} \
+                                 overshoot={overshoot:e} sagitta={sagitta:?}",
                                 p.face_a, p.face_b, mergeable_mark[mp as usize],
                             );
                         }

@@ -31,7 +31,7 @@ pub(crate) enum RelocOutcome {
     /// the chord, both products taking the external class). No mutation.
     NonSimple {
         ring_mints: Vec<u32>,
-        merge_candidate: Option<(u32, u32)>,
+        merge_candidate: Option<(u32, u32, f64, f64)>,
         split_chord: Option<(u32, u32)>,
     },
 }
@@ -50,7 +50,12 @@ pub(crate) enum RegionOutcome {
     /// of the split edge is too close to q" configuration. The LADDER
     /// decides whether p is mergeable (provenance mask) and performs the
     /// position merge; this form only reports. No mutation.
-    MergeCandidate { p: u32, q: u32 },
+    MergeCandidate {
+        p: u32,
+        q: u32,
+        overshoot: f64,
+        chord_len: f64,
+    },
 }
 
 /// Reject reason of [`earclip_cavity_polygon`]: exact non-simplicity is
@@ -518,8 +523,9 @@ pub(crate) fn relocate_minted_vertex(
                                 && crossing.contains(&frame.project(coords[pi as usize]))
                         })
                         .collect(),
-                    merge_candidate: cross_idx
-                        .and_then(|(ci, cj)| fig11_backtrack_pair(&poly, ci, cj, minted_mark)),
+                    merge_candidate: cross_idx.and_then(|(ci, cj)| {
+                        fig11_backtrack_pair(&poly, ci, cj, minted_mark, coords, frame)
+                    }),
                     split_chord: cross_idx.and_then(|(ci, cj)| fig11_split_chord(&poly, ci, cj)),
                 };
             }
@@ -638,8 +644,9 @@ pub(crate) fn relocate_minted_vertex(
                                     && crossing.contains(&frame.project(coords[pi as usize]))
                             })
                             .collect(),
-                        merge_candidate: cross_idx
-                            .and_then(|(ci, cj)| fig11_backtrack_pair(&poly, ci, cj, minted_mark)),
+                        merge_candidate: cross_idx.and_then(|(ci, cj)| {
+                            fig11_backtrack_pair(&poly, ci, cj, minted_mark, coords, frame)
+                        }),
                         split_chord: cross_idx
                             .and_then(|(ci, cj)| fig11_split_chord(&poly, ci, cj)),
                     };
@@ -741,7 +748,7 @@ pub(crate) fn relocate_minted_region(
     let mut committed_any = false;
     // Amendment 13: the first Fig-11 backtrack pair reported by a
     // rejecting sub-region (deterministic: class order, component order).
-    let mut merge_candidate: Option<(u32, u32)> = None;
+    let mut merge_candidate: Option<(u32, u32, f64, f64)> = None;
     for (cls0, region) in by_class {
         // Amendment 9 (M8 increment 12): a class sub-region may be
         // DISCONNECTED — the joint trigger accumulates seeds from several
@@ -808,7 +815,12 @@ pub(crate) fn relocate_minted_region(
     // component BFS order) Fig-11 backtrack pair found among the rejecting
     // sub-regions, so the ladder can merge instead of reverting.
     match merge_candidate {
-        Some((p, q)) => RegionOutcome::MergeCandidate { p, q },
+        Some((p, q, overshoot, chord_len)) => RegionOutcome::MergeCandidate {
+            p,
+            q,
+            overshoot,
+            chord_len,
+        },
         None => RegionOutcome::Rejected,
     }
 }
@@ -830,7 +842,7 @@ pub(crate) fn relocate_region_single_class(
     frame: &Frame,
     minted_mark: &[bool],
     probe: bool,
-    merge_candidate: &mut Option<(u32, u32)>,
+    merge_candidate: &mut Option<(u32, u32, f64, f64)>,
 ) -> bool {
     let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
     let reject = |why: &str| {
@@ -1020,16 +1032,19 @@ pub(crate) fn relocate_region_single_class(
             // Amendment 13: an ungrowable crossing in the Fig-11 BACKTRACK
             // configuration is a merge candidate — report it to the caller
             // (first one wins; no mutation here).
-            if let Some((pp, qq)) = fig11_backtrack_pair(&poly, ei, ej, minted_mark) {
+            if let Some((pp, qq, ov, cl)) =
+                fig11_backtrack_pair(&poly, ei, ej, minted_mark, coords, frame)
+            {
                 if probe {
                     eprintln!(
                         "  [reloc-region-fig11] seeds {seeds:?} class {cls0:?} \
-                         backtrack p={pp} (unminted, {:?}) q={qq} (minted, {:?})",
+                         backtrack p={pp} (unminted, {:?}) q={qq} (minted, {:?}) \
+                         overshoot={ov:e} chord={cl:e}",
                         coords[pp as usize], coords[qq as usize]
                     );
                 }
                 if merge_candidate.is_none() {
-                    *merge_candidate = Some((pp, qq));
+                    *merge_candidate = Some((pp, qq, ov, cl));
                 }
             }
             if probe {
@@ -1125,12 +1140,22 @@ pub(crate) fn fig11_split_chord(poly: &[u32], ei: usize, ej: usize) -> Option<(u
     Some((poly[chord], poly[(chord + 1) % n]))
 }
 
+/// Returns `(p, q, overshoot, split_chord_len)` — additionally measuring
+/// the inc-3.4 CONTAINMENT quantities: `overshoot` is q's distance to the
+/// LINE of the crossing edge INCIDENT TO p (Fig 11(b)'s split edge — the
+/// "constrained edge containing q"), `split_chord_len` that edge's length.
+/// The ladder accepts the merge only when the overshoot is within the
+/// chord's own circle-approximation error (sagitta) — the R0059
+/// counterexample (overshoot/chord ≈ 0.5, a unit-scale interpenetration)
+/// fails it while the R0099 true cases (≈ 1e-4, hair grazes) pass.
 pub(crate) fn fig11_backtrack_pair(
     poly: &[u32],
     ei: usize,
     ej: usize,
     minted_mark: &[bool],
-) -> Option<(u32, u32)> {
+    coords: &[Point3],
+    frame: &Frame,
+) -> Option<(u32, u32, f64, f64)> {
     let n = poly.len();
     // On a 4-gon the two crossing edges sandwich BOTH remaining edges —
     // try each sandwiched mid (deterministic order) and take the first
@@ -1144,11 +1169,29 @@ pub(crate) fn fig11_backtrack_pair(
     }
     for mid in mids.into_iter().flatten() {
         let (a, b) = (poly[mid], poly[(mid + 1) % n]);
-        match (minted_mark[a as usize], minted_mark[b as usize]) {
-            (false, true) => return Some((a, b)),
-            (true, false) => return Some((b, a)),
-            _ => {}
+        let (p, q) = match (minted_mark[a as usize], minted_mark[b as usize]) {
+            (false, true) => (a, b),
+            (true, false) => (b, a),
+            _ => continue,
+        };
+        // The split edge = the crossing edge whose endpoint is p: the mid
+        // edge runs positions mid → mid+1; p's flanking crossing edge is
+        // the ring edge on p's side of the sandwich.
+        let p_edge = if poly[mid] == p {
+            (mid + n - 1) % n
+        } else {
+            (mid + 1) % n
+        };
+        let ea = frame.project(coords[poly[p_edge] as usize]);
+        let eb = frame.project(coords[poly[(p_edge + 1) % n] as usize]);
+        let qq = frame.project(coords[q as usize]);
+        let (dx, dy) = (eb.0 - ea.0, eb.1 - ea.1);
+        let len = (dx * dx + dy * dy).sqrt();
+        if !(len > 0.0) {
+            continue;
         }
+        let overshoot = ((qq.0 - ea.0) * dy - (qq.1 - ea.1) * dx).abs() / len;
+        return Some((p, q, overshoot, len));
     }
     None
 }
@@ -1357,7 +1400,10 @@ mod reloc_tests {
         // the one-mint pair — a candidate the LADDER's displacement guard
         // then refuses (gap 0.89 ≫ any rim-snap displacement) — and the
         // chord not touching v is (w1,w0), the Fig-11(a) split chord.
-        assert_eq!(merge_candidate, Some((1, 0)), "backtrack pair (w0, v)");
+        assert!(
+            matches!(merge_candidate, Some((1, 0, _, _))),
+            "backtrack pair (w0, v): {merge_candidate:?}"
+        );
         assert_eq!(split_chord, Some((3, 1)), "split chord (w1, w0)");
         assert_eq!(tris, tris0, "reject must not mutate triangles");
         assert_eq!(class, class0, "reject must not mutate classes");
@@ -1605,7 +1651,7 @@ mod reloc_tests {
                 &minted,
                 false
             ),
-            RegionOutcome::MergeCandidate { p: 1, q: 0 }
+            RegionOutcome::MergeCandidate { p: 1, q: 0, .. }
         ));
         assert_eq!(tris, tris0, "reject must not mutate triangles");
         assert_eq!(class, class0, "reject must not mutate classes");
@@ -2321,13 +2367,29 @@ mod reloc_tests {
             &minted,
             false,
         );
-        let RegionOutcome::MergeCandidate { p, q } = out else {
+        let RegionOutcome::MergeCandidate {
+            p,
+            q,
+            overshoot,
+            chord_len,
+        } = out
+        else {
             panic!("ungrowable backtrack ring must surface the Fig-11 merge candidate");
         };
         assert_eq!(
             (p, q),
             (3, 4),
             "p = the unminted backtrack vertex, q = the mint"
+        );
+        // inc-3.4 containment quantities: q sits ~4.6e-3 off the split
+        // chord F→p (length ~0.234) — a graze, overshoot ≪ chord.
+        assert!(
+            overshoot > 0.0 && overshoot < 0.01,
+            "overshoot {overshoot} out of the graze range"
+        );
+        assert!(
+            (chord_len - 0.234).abs() < 0.01,
+            "split chord length {chord_len} != ~0.234"
         );
         assert_eq!(tris, tris0, "candidate surfacing must not mutate triangles");
         assert_eq!(class, class0, "candidate surfacing must not mutate classes");

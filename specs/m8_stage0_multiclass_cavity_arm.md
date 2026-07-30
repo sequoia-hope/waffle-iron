@@ -537,10 +537,40 @@ set. The measured residual is exactly the missing MERGE.
   `RelocOutcome::NonSimple.split_chord`, the `[fold-split-reject]`
   census probe (candidate + chord incidence), and the
   `i6-input-overuse` incident-triangle enrichment.
-- **inc-3.3 — flip the MERGE arm alone** on the standard bar (R0099
-  single_case OFF/ON, full corpus OFF/ON, zero CORRECT→ERROR) — the
-  split arm re-scoped to its own arc above, and the merge arm is
-  measured, self-contained, and strictly revert-reducing (R0099 6→3
-  reverts merge-only). R0025/R0026's shared non-manifold-input wall
-  (§9) gets anchored HERE — measure whether the merge arm moves them
-  before assuming kinship.
+- **inc-3.3 — merge-arm corpus flip ATTEMPTED 2026-07-30: NO FLIP, bar
+  failed on R0059.** Gate-OFF replay byte-identical to the inc-2
+  canonical (all inc-3 machinery provably inert gated). Gate-ON: 3
+  category changes — F0064/F0067 ERROR→UNSUPPORTED(coplanar-boolean)
+  (their repaired meshes now reach the loud typed M8 wall; non-CORRECT
+  recategorizations, acceptable) and **R0059 SUPPORTED_CORRECT → ERROR**
+  (`reassembled output would be non-2-manifold`) — one CORRECT
+  regression ⇒ the arm STAYS GATED. The counterexample, anchored:
+  `[fold-merge] pair=(0,1) p=20 → q=25 gap=2.178 disp=2.781` at model
+  scale ~300 — a coarse rim's snap displacement (2.78) admitted a
+  2.18-unit merge that destroyed real geometry; the candidate's ring
+  crossing is a UNIT-SCALE interpenetration of ~2–4-long edges, not a
+  graze. The displacement guard is necessary but not sufficient.
+- **inc-3.4 — the CONTAINMENT guard: SHIPPED but measured
+  NON-DISCRIMINATING (2026-07-30).** Built as designed (detector
+  measures overshoot(q → p's crossing edge) + chord length; ladder
+  compares against the rim-slot sagitta). Measurement overturned the
+  design premise: ALL these mints are JUNCTION mints (exact circle∩line
+  onto that very edge), so overshoot is machine-zero by construction —
+  R0099 1e-16..1e-17, **R0059 7e-15 (passes; still merges; still
+  CORRECT→ERROR)**. The guard stays (cheap, and a true premise-check
+  for any future non-junction candidate) but does not gate R0059.
+- **inc-3.5 — the R0059 discriminator is NOT a guard predicate (three
+  measured dead ends); the lead is MISSING PROPAGATION.** Measured:
+  boundary status does not discriminate either (`[fold-merge-boundary]`
+  probe: true cases p=1 and p=185 are ALSO union-boundary vertices,
+  like R0059's p=20; only p=121 is interior). R0059's breakage is
+  input **A**'s seam (i6: edges (47,49),(48,50) fwd=1 rev=0 at the
+  moved neighborhood) — the position-merge moved a boundary vertex the
+  face's OTHER meshes were built against, i.e. merges bypass the
+  rim-override/edge-split propagation that MINTS get
+  (`collect_rim_crossings`/`collect_edge_splits`). Next measurement:
+  trace input-A verts 47/49/50's provenance (which propagation table
+  references the un-merged position), then either propagate merges
+  through the same override path or guard on "p referenced by a rim
+  override". The merge arm STAYS GATED until that lands; then the
+  corpus bar, and R0025/R0026's shared wall anchored at the flip.
