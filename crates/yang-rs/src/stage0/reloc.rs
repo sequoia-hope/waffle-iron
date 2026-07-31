@@ -1481,6 +1481,17 @@ pub(crate) fn fig11_split_cavity(
     let Some((own_s, own_e)) = own else {
         return reject("split-no-own-chord");
     };
+    // Amendment 15 inc-3 (spec §13i): the §10d settle predicate applied
+    // PREVENTIVELY here too — measured F0064 ops[3] vert 37: this split
+    // COMMITTED, then `settle_rim_chain_order` reverted v at quiescence,
+    // stranding the re-cut (non-identical interface meshes → cherchi
+    // `CoplanarPairDeferred`). A commit the settle would undo must reject
+    // instead, falling to the coherent amendment-2 revert.
+    match chord_crossing_order_inverted(overlay, &*coords, frame, own_s, own_e, rim_center, v) {
+        Some(false) => {}
+        Some(true) => return reject("split-order-inversion (settle would strand the re-cut)"),
+        None => return reject("split-order-nonfinite"),
+    }
 
     // ── 3. Crossings of the chain spokes with C (frame f64). ─────────────
     let c_first = link[mat_start].0; // material arc start (chain vertex)
@@ -1763,6 +1774,91 @@ pub(crate) fn fig11_split_cavity(
 ///   conserved EXACTLY (rational equality — the folded cover's signed sum
 ///   already equals the clean cover's, so any mis-fan breaks it); count =
 ///   cavity + |tail|.
+/// The §10d settle predicate applied PREVENTIVELY at a commit site
+/// (amendment 15 inc-1.5 slide / inc-3 closed-link split): with the
+/// CURRENT resolved coords, would the crossing set of ONE rim sub-chord
+/// `(s2, e2)` be angularly inverted about `rim_center`? The collection
+/// mirrors `settle_rim_chain_order` verbatim (exact collinearity over
+/// `exact_verts`, the same interior parameter window); order is decided in
+/// exact rationals of the resolved frame projections. `None` on non-finite
+/// input — the caller rejects loudly. Only adjacent pairs INVOLVING
+/// `focus` count: an inversion among OTHER in-flight mints is the settle's
+/// own normal business (reverting the displaced member) and must not veto
+/// this vertex's commit — measured: the whole-set form falsely rejected
+/// C0048's femto split for an unrelated pair, shifting its azimuth-merge
+/// wall counts. A commit that would invert gets reverted by the settle at
+/// quiescence, STRANDING the op's structural rewiring (measured: F0064
+/// ops[3] verts 22/37), so the op must reject instead.
+pub(crate) fn chord_crossing_order_inverted(
+    overlay: &ClassifiedOverlay,
+    coords: &[Point3],
+    frame: &Frame,
+    s2: &ExactPoint2,
+    e2: &ExactPoint2,
+    rim_center: Point3,
+    focus: u32,
+) -> Option<bool> {
+    let (cu, cv) = frame.project(rim_center);
+    let c2 = ExactPoint2::from_f64(cu, cv)?;
+    let sxc = &s2.x - &c2.x;
+    let syc = &s2.y - &c2.y;
+    let exc = &e2.x - &c2.x;
+    let eyc = &e2.y - &c2.y;
+    let dir = &sxc * &eyc - &syc * &exc;
+    if dir == RBig::ZERO {
+        return Some(false); // degenerate (antipodal) — not this check's class
+    }
+    let ccw = dir > RBig::ZERO;
+    let sdx = &e2.x - &s2.x;
+    let sdy = &e2.y - &s2.y;
+    let sl2 = &sdx * &sdx + &sdy * &sdy;
+    if sl2 == RBig::ZERO {
+        return Some(false);
+    }
+    let mut found: Vec<(RBig, usize)> = Vec::new();
+    for (vi, q) in overlay.exact_verts.iter().enumerate() {
+        let wx = &q.x - &s2.x;
+        let wy = &q.y - &s2.y;
+        if &sdx * &wy - &sdy * &wx != RBig::ZERO {
+            continue;
+        }
+        let t = (&sdx * &wx + &sdy * &wy) / &sl2;
+        let tf = t.to_f64().value();
+        if !(tf > 1.0e-6 && tf < 1.0 - 1.0e-6) {
+            continue;
+        }
+        found.push((t, vi));
+    }
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    for w in found.windows(2) {
+        if w[0].1 != focus as usize && w[1].1 != focus as usize {
+            continue;
+        }
+        let mut proj = |vi: usize| -> Option<(RBig, RBig)> {
+            let (u, v) = frame.project(coords[vi]);
+            Some((
+                crate::coplanar_overlay::rat(u).ok()?,
+                crate::coplanar_overlay::rat(v).ok()?,
+            ))
+        };
+        let (pi, pj) = (proj(w[0].1)?, proj(w[1].1)?);
+        let ax = &pi.0 - &c2.x;
+        let ay = &pi.1 - &c2.y;
+        let bx = &pj.0 - &c2.x;
+        let by = &pj.1 - &c2.y;
+        let cross = &ax * &by - &ay * &bx;
+        let inverted = if ccw {
+            cross < RBig::ZERO
+        } else {
+            cross > RBig::ZERO
+        };
+        if inverted {
+            return Some(true);
+        }
+    }
+    Some(false)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fig11_slide_splice(
     overlay: &mut ClassifiedOverlay,
@@ -1869,8 +1965,7 @@ pub(crate) fn fig11_slide_splice(
     // angular order of v's OWN rim sub-chord's crossing set — else the
     // §10d settle check would revert v right back at quiescence, undoing
     // the splice's structural rewiring (measured: the F0064 ops[3] vert-22
-    // settle × slide fight ends in cherchi's CoplanarPairDeferred). The
-    // collection predicate mirrors `settle_rim_chain_order` verbatim. ─────
+    // settle × slide fight ends in cherchi's CoplanarPairDeferred). ──────
     {
         let v_ex = &overlay.exact_verts[v as usize];
         let own = own_chords.iter().find(|(s, e)| {
@@ -1891,53 +1986,10 @@ pub(crate) fn fig11_slide_splice(
         let Some((s2, e2)) = own else {
             return reject("no own chord");
         };
-        let (cu, cv) = frame.project(rim_center);
-        let Some(c2) = ExactPoint2::from_f64(cu, cv) else {
-            return reject("non-finite rim center");
-        };
-        let sxc = &s2.x - &c2.x;
-        let syc = &s2.y - &c2.y;
-        let exc = &e2.x - &c2.x;
-        let eyc = &e2.y - &c2.y;
-        let dir = &sxc * &eyc - &syc * &exc;
-        if dir != RBig::ZERO {
-            let ccw = dir > RBig::ZERO;
-            let sdx = &e2.x - &s2.x;
-            let sdy = &e2.y - &s2.y;
-            let sl2 = &sdx * &sdx + &sdy * &sdy;
-            let mut found: Vec<(RBig, usize)> = Vec::new();
-            for (vi, q) in overlay.exact_verts.iter().enumerate() {
-                let wx = &q.x - &s2.x;
-                let wy = &q.y - &s2.y;
-                if &sdx * &wy - &sdy * &wx != RBig::ZERO {
-                    continue;
-                }
-                let t = (&sdx * &wx + &sdy * &wy) / &sl2;
-                let tf = t.to_f64().value();
-                if !(tf > 1.0e-6 && tf < 1.0 - 1.0e-6) {
-                    continue;
-                }
-                found.push((t, vi));
-            }
-            found.sort_by(|a, b| a.0.cmp(&b.0));
-            for w in found.windows(2) {
-                let (Some(pi), Some(pj)) = (rp(w[0].1 as u32), rp(w[1].1 as u32)) else {
-                    return reject("non-finite position");
-                };
-                let ax = &pi.0 - &c2.x;
-                let ay = &pi.1 - &c2.y;
-                let bx = &pj.0 - &c2.x;
-                let by = &pj.1 - &c2.y;
-                let cross = &ax * &by - &ay * &bx;
-                let inverted = if ccw {
-                    cross < RBig::ZERO
-                } else {
-                    cross > RBig::ZERO
-                };
-                if inverted {
-                    return reject("would invert rim-chain angular order");
-                }
-            }
+        match chord_crossing_order_inverted(overlay, coords, frame, s2, e2, rim_center, v) {
+            Some(false) => {}
+            Some(true) => return reject("would invert rim-chain angular order"),
+            None => return reject("non-finite rim frame"),
         }
     }
 
@@ -3571,6 +3623,52 @@ mod split_tests {
             ExactPoint2::from_f64(-1.0, 0.0).unwrap(),
             ExactPoint2::from_f64(3.0, 0.0).unwrap(),
         )]
+    }
+
+    /// Amendment-15 inc-3: a second crossing on v's own rim sub-chord
+    /// whose resolved position angularly inverts against v's mint (the
+    /// F0064 ops[3] vert-37 configuration — a committed split the §10d
+    /// settle would revert at quiescence, stranding the re-cut) must
+    /// REJECT the split with no mutation.
+    #[test]
+    fn split_rejects_settle_order_inversion_no_mutation() {
+        let (mut overlay, mut edge_map, mut coords, mut minted, mut mergeable) = fixture();
+        // A neighbor on v's own sub-chord (y = -0.4, param 0.833) whose
+        // resolved position sits angularly BEHIND v's mint about the rim
+        // center (0, -5): chord dir is CW there, and cross(v_cur, w_cur)
+        // = +2.025 > 0 — inverted.
+        overlay.verts.push(Point2::new(2.0, -0.4));
+        overlay
+            .exact_verts
+            .push(ExactPoint2::from_f64(2.0, -0.4).unwrap());
+        coords.push(p(0.5, -0.45));
+        minted.push(true);
+        mergeable.push(false);
+        let mut extras: Vec<ExtraRimPoint> = Vec::new();
+        let frame = frame_z0();
+        let n_tris = overlay.tris.len();
+        let n_verts = overlay.verts.len();
+        let ok = fig11_split_cavity(
+            &mut overlay,
+            &mut edge_map,
+            0,
+            (6, 1),
+            &mut coords,
+            &mut minted,
+            &mut mergeable,
+            &frame,
+            Some(0.1),
+            &own_chords(),
+            &other_segs(),
+            true,
+            p(0.0, -5.0),
+            &mut extras,
+            true,
+        );
+        assert!(!ok, "an order-inverting split must reject");
+        assert_eq!(overlay.tris.len(), n_tris, "no re-cut");
+        assert_eq!(overlay.verts.len(), n_verts, "no q_a/q_b minted");
+        assert!(extras.is_empty());
     }
 
     #[test]

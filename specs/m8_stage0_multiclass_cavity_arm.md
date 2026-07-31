@@ -1214,3 +1214,52 @@ Residuals carried: the bulge form (§13g, census-armed; R0021/R0059
 latents as witnesses), the settle×closed-link-split WATCH above, and
 F0064's own next wall (ops[3] N17 deferral — an M8 Stage-0 coverage
 item, not a fold-gate item).
+
+### 13i. inc-3 (2026-07-31) — the order cert extended to the CLOSED-link split; the strand class had TWO customers hiding; §13h deferral attribution corrected
+
+**The change.** The §13h slide guard's angular-order check is extracted
+as `chord_crossing_order_inverted` (reloc.rs) and now runs in BOTH
+arms: the slide (inc-1.5, as before) and the §11c closed-link split —
+inserted after the own-chord lookup, BEFORE q_a/q_b are minted, so a
+reject leaves nothing to unwind
+(`split-order-inversion (settle would strand the re-cut)`).
+**Focus-narrowed** (measured necessity): only adjacent pairs INVOLVING
+the committing vertex count — the whole-set form falsely rejected
+C0048's femto split for an inversion among two OTHER in-flight mints,
+which is the settle's own normal business (revert the displaced
+member), not this vertex's veto. Unit oracle:
+`split_rejects_settle_order_inversion_no_mutation` (the vert-37
+configuration in the §11 fixture frame).
+
+**The strand class had TWO measured customers, one hiding since
+amendment-14 shipped:**
+
+1. F0064 ops[3] vert 37 (the §13h WATCH) — split committed, settle
+   reverted it same-pass.
+2. **Canonical C0048 vert 265** — the inc-0 census log shows
+   `[fold-split] vert 265` (t_c 0.6875 / 2.6e-15, the §12 femto
+   commit) at line 553 and `[rim-order-settle] vert 265 → chord` at
+   line 796: the split the census recorded as C0048's commit was
+   STRANDED at quiescence all along. Its canonical azimuth-merge wall
+   counts (`69 vs 68`) were measured on the stranded state; the
+   coherent state reads `68 vs 67` — same wall (#144 family), same
+   category, one fewer sample on each rim.
+
+**§13h attribution CORRECTION.** With BOTH strand sources guarded (a
+fully coherent ladder), F0064 ops[3]'s cherchi `CoplanarPairDeferred`
+PERSISTS — so the deferral was never (only) a strand artifact: it is a
+GENUINE N17 real-overlap coplanar pair the Stage-0 overlay does not
+pre-handle — the true M8 coverage residual. The strands were real
+incoherences worth eliminating (each was a latent
+non-identical-interface hazard), but the typed wall stands on its own.
+
+**Corpus (312/312, guard always-on):** ZERO category deltas
+(260C/0W/47E/0T unchanged); exactly ONE same-category detail drift —
+C0048's wall counts `69 vs 68 → 68 vs 67`, the strand-removal above.
+R0099 re-verified SUPPORTED_CORRECT (its split has no inversion and
+still commits); R0059 stays CORRECT.
+
+Residuals: unchanged from §13h (bulge form census-armed, C0048 femto
+WATCH — now with the sharper statement that its split coherently
+REJECTS rather than committing-then-stranding — and F0064's genuine
+N17 coverage wall).
