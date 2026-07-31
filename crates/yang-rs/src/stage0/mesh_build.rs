@@ -1209,6 +1209,76 @@ mod lift_absorb_band_tests {
             "the E-C1b distinct-twin population must stay OUTSIDE the band"
         );
     }
+
+    /// Amendment 19 (spec §17): the absorption predicate must reach a
+    /// SINGLETON cluster — one mint plus its non-minted lifts — which is the
+    /// F0067 crack-field class the §15 multi-mint group filter could never see.
+    /// Pins all four exclusion arms at the same time: a minted vertex, an
+    /// existing group member, a rim anchor and a corner are each left alone,
+    /// while an out-of-band vertex at the E-C1b distance stays out.
+    #[test]
+    fn singleton_cluster_absorbs_its_lifts_and_respects_every_exclusion() {
+        use crate::coplanar_overlay::{ClassifiedOverlay, ExactPoint2};
+        use crate::stage0::{absorbable_sub_band_lifts, rim_chords::CollapseGroups};
+        use cad_primitives::{Point2, Point3};
+        use std::collections::BTreeMap;
+
+        // One geometric crossing at uv scale ≈ 0.2, sampled seven ways.
+        let (ux, uy) = (0.2027775970276196_f64, -0.0121599983069508_f64);
+        let d = 3.0e-17; // the measured 1-ulp cluster spread
+        let pts = [
+            (ux, uy),          // 0 the mint (elected)
+            (ux + d, uy),      // 1 lift  — absorbable
+            (ux, uy + d),      // 2 lift  — absorbable
+            (ux - d, uy - d),  // 3 minted elsewhere — excluded
+            (ux + d, uy + d),  // 4 already a group member — excluded
+            (ux - d, uy),      // 5 rim anchor — excluded by design
+            (ux, uy - d),      // 6 corner — excluded by design
+            (ux + 1.0e-9, uy), // 7 E-C1b distinct twin — out of band
+        ];
+        let verts: Vec<Point2> = pts.iter().map(|&(x, y)| Point2::new(x, y)).collect();
+        let exact_verts: Vec<ExactPoint2> = pts
+            .iter()
+            .map(|&(x, y)| ExactPoint2::from_f64(x, y).expect("finite"))
+            .collect();
+        let overlay = ClassifiedOverlay {
+            verts,
+            exact_verts,
+            tris: Vec::new(),
+            class: Vec::new(),
+            poly_a: Vec::new(),
+            poly_b: Vec::new(),
+            fused: BTreeMap::new(),
+        };
+        let mut minted_mark = vec![false; pts.len()];
+        minted_mark[0] = true;
+        minted_mark[3] = true;
+        let mut groups = CollapseGroups::default();
+        groups.members.insert(4, vec![4]);
+        let mut corners: BTreeMap<ExactPoint2, u32> = BTreeMap::new();
+        corners.insert(overlay.exact_verts[6].clone(), 0);
+        let mut rims: BTreeMap<ExactPoint2, Point3> = BTreeMap::new();
+        rims.insert(overlay.exact_verts[5].clone(), Point3::new(0.0, 0.0, 0.0));
+        let empty_c: BTreeMap<ExactPoint2, u32> = BTreeMap::new();
+        let empty_r: BTreeMap<ExactPoint2, Point3> = BTreeMap::new();
+
+        let got = absorbable_sub_band_lifts(
+            &overlay,
+            0,
+            &[0],
+            &minted_mark,
+            &groups,
+            &corners,
+            &empty_c,
+            &rims,
+            &empty_r,
+        );
+        assert_eq!(
+            got,
+            vec![1, 2],
+            "only the two non-minted, non-anchored, in-band lifts absorb"
+        );
+    }
 }
 
 #[cfg(test)]

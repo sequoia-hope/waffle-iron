@@ -3648,6 +3648,40 @@ swapped every consumer to `predicates::indirect`).
     verbatim), exactly the two justified detail deltas. LRR site census
     banked: R0009/R0047 = `split_max_passes` runaway (own queue);
     R0032/R0050/C0067 specific-vertex region-invalid; R0044 = M5.
+  - **AMENDMENT 19 SHIPPED ALWAYS-ON 2026-07-31 (spec
+    `specs/m8_stage0_multiclass_cavity_arm.md` §17): sub-band lift
+    absorption extended to SINGLETON mint clusters — F0067's Stage-4
+    crack field 16 unbalanced edges → 0.** After the mutual-pair arm,
+    F0067 stood at the (4b) Stage-4 watertight gate; the new
+    `YANG_S4_BALANCE_PROBE` census reported the SAME 16 unbalanced
+    edges at `s4-entry`, `pre-degen-loop` and `post-degen-loop`,
+    proving the imbalance arrives from upstream and that no Stage-4
+    pass mints it. Root: the coplanar interface (A face 328 × B face
+    0) carries femto twin vertices — 74 pairs in operand A, 33 in B,
+    **the same two 1-ulp values present in BOTH solids** — because the
+    §15 absorption is nested inside `for g in groups.filter(|g| g.len()
+    > 1)` and a cluster with exactly ONE mint plus N lifts forms a
+    SINGLETON group the filter drops. Measured: F0067 fires 72 groups
+    and 68 absorbs while the offending cluster (`mint(rev)` + five
+    `lift`) is touched by none; the new `[mint-collapse] SINGLETON`
+    census finds 24 such sites in that case. Fix: the §15 predicate is
+    factored into `absorbable_sub_band_lifts` and shared by the
+    multi-mint path, the singleton path and the census — **band
+    unchanged**, only its reach; a singleton that absorbs nothing
+    returns before any mutation (byte-identical), one that absorbs
+    becomes an ordinary group covered by the amendment-16 atomic
+    revert. F0067 clears the Stage-4 gate and advances to
+    `s6-planar-loop-nonplanar` (face 888, off-plane 4.1e-5 — a REAL
+    defect, #153/#146 family). Corpus 312/312: **zero category deltas,
+    canonical 261C/0W/47E/0T preserved**, one detail delta — R0050,
+    bisected rather than assumed: its pre-Stage-0 inputs are
+    byte-identical between states, every singleton fusion in both
+    customers measures **sub-ulp to 2-ulp** (banked ulp census), and
+    the 3.75e-2 defect it exposes is four orders beyond any possible
+    fusion displacement — a latent Stage-6 defect behind a Stage-4 STOP
+    that used to fire first. The band was deliberately NOT tightened
+    (it would fork §15's metric and is the tuning the constitution
+    forbids).
   - **MULTI-CLASS cavity arm SPEC WRITTEN 2026-07-30 —
     `specs/m8_stage0_multiclass_cavity_arm.md` (amendment 12).** The R0099
     producing-op probe (1f576621) named the fold gate's structural gap: a

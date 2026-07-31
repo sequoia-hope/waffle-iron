@@ -1668,3 +1668,169 @@ F0067 now stands at the (4b) Stage-4 watertight gate (pre-existing
 #146-class triple-incidence the STOP had masked); the §13g bulge
 form and §12 census-armed classes; the `[rim-table-twin]`
 full-corpus census (rides the next YANG_SPLIT_PROBE sweep).
+
+## 17. AMENDMENT 19 — sub-band lift absorption for SINGLETON mint clusters: F0067's Stage-4 crack field (2026-07-31)
+
+### 17a. The anchor chain (measured)
+
+F0067's mutual-pair advance (`yang_n2_stage4_cdt_mesh_updating.md`
+§5c.11) left the case at the (4b) Stage-4 watertight gate. The new
+`YANG_S4_BALANCE_PROBE` census settles where that defect is minted —
+it reports the mesh's unbalanced undirected edges (`fwd != rev`) at
+three checkpoints:
+
+```
+at=s4-entry        tris=7873 unbalanced=16
+at=pre-degen-loop  tris=7863 unbalanced=16
+at=post-degen-loop tris=7863 unbalanced=16
+```
+
+**Identical at every checkpoint** — the relocation, the §4.4.1
+mesh-updating loop and the mutual-pair arm mint ZERO imbalance. The
+16-edge crack field arrives from UPSTREAM; the LRR STOP had simply
+been aborting before the gate could ever see it. (This is the
+general lesson: a loud STOP masks every defect downstream of it, so
+"the wall moved and a new error appeared" is not evidence of a
+regression until the new gate is shown to have been reachable.)
+
+Op 008 is the customer: `pair_plane: face_a=328 face_b=0` — A's top
+plane against B's base plane, the flush-stack coplanar pair, exactly
+the faces the crack edges carry. Offline analysis of the dumped
+operand meshes (`YANG_STAGE0_DUMP_DIR`):
+
+- Each operand mesh is INDIVIDUALLY watertight (0 unbalanced edges).
+- Mesh A carries **74 femto twin vertex pairs**, mesh B **33**, all
+  1e-17…4e-16 apart (1 ulp at that magnitude).
+- **The same two values appear in BOTH solids** — e.g.
+  `(0.012159998306939817, 0.20277759702761958)` and
+  `(0.012159998306939819, 0.2027775970276196)` are each present in
+  mesh A (verts 3064/3072, both on faces 328+637) and in mesh B
+  (verts 1512/269). One feature, two worlds — the §14/§15/§16 family.
+
+The pair-overlay dump names the producers. At that one crossing there
+are **six overlay vertices** in a 3e-17 cluster: `v2083 tag=mint(rev)`
+and `v2055, v2065, v2074, v2092, v2101` all `tag=lift`.
+
+### 17b. The protection boundary (the fix site)
+
+The §15 absorption is nested inside
+
+```rust
+for g in groups.iter().filter(|g| g.len() > 1) { … if sub_floor_anchored { …absorb… } }
+```
+
+so it is reachable **only from a multi-mint group**. This cluster has
+exactly ONE mint, forms a SINGLETON group, is filtered out, and the
+absorption never runs — the five lifts keep their own 1-ulp-different
+resolutions, both values ship into both solids' interface meshes, and
+the arrangement/emission cracks. Verified directly: F0067 fires 72
+groups and 68 lift-absorbs, and **none of the six cluster vertices is
+touched by any of them**.
+
+New census probe (`YANG_SPLIT_PROBE`, `[mint-collapse] SINGLETON`):
+report each singleton group together with the number of vertices that
+WOULD absorb under the §15 predicate. **F0067: 24 singleton sites
+carrying sub-band lifts**, including `vert 2083 sub_band_lifts=5
+[2055, 2065, 2074, 2092, 2101]` — precisely the overlay cluster.
+
+This is the fourth application of the amendment-18 lesson: when a
+femto pair survives every identification, name the protection each
+member hides behind. Here the protection is the *multi-mint group
+requirement* itself.
+
+### 17c. Design — extend §15 to singletons, band UNCHANGED
+
+The band stays `TAU_WORK·(1+uv_scale)` and the exclusions stay
+(minted / already-grouped / corner / rim anchor). **Nothing is tuned**;
+the change is purely which clusters the existing identification can
+reach. Implementation:
+
+- `absorbable_sub_band_lifts` — the §15 predicate factored into ONE
+  function, used by the multi-mint path, the singleton path and the
+  census probe alike (one predicate, one place). The static scan is
+  equivalent to the incremental in-loop form it replaces (candidates
+  are pairwise distinct, so a member added mid-loop can never be a
+  later candidate).
+- The group loop drops its `len() > 1` filter, with a guard: a
+  singleton whose absorption set is EMPTY `continue`s before any
+  mutation, so it writes no coordinate and creates no `collapse_groups`
+  entry — that path stays byte-identical. A singleton with lifts runs
+  the ordinary body and becomes a genuine group, so the amendment-16
+  atomic revert covers it in both directions like any other.
+- `sub_floor_anchored` is vacuously true for a singleton (distance to
+  itself), which is the correct semantics: there is no second member
+  whose chord lift could disagree.
+
+Unit oracles: the existing band tripwire
+`band_admits_cluster_rejects_distinct_twins` still pins the band, and
+`singleton_cluster_absorbs_its_lifts_and_respects_every_exclusion`
+pins the new path — a seven-vertex cluster where two lifts absorb and
+a minted vertex, an existing group member, a rim anchor, a corner and
+an E-C1b-distance (1e-9) twin are each left alone.
+
+### 17d. Results
+
+**F0067: the crack field is GONE** — `unbalanced=16 → 0` at all three
+checkpoints (7873→7824 tris, 3934→3913 verts: the duplicated lifts
+fuse). The case clears the Stage-4 watertight gate and advances to a
+Stage-6 wall, `s6-planar-loop-nonplanar: face 888 vert 1049 off-plane
+d=4.096e-5 band=2.752e-7` — an off-plane distance ~150× the band, so a
+REAL geometric defect (the #153 NonPlanarFace / #146 family), not
+femto noise. That is the next anchor, and a different mechanism.
+
+### 17e. R0050 — the second customer, and why the band was NOT tuned
+
+The corpus sweep produced ONE detail delta besides F0067: **R0050**
+moves from `Stage-4 … vertex 58 … LocalRefinementRequired` to
+`s6-planar-loop-nonplanar: face 5 vert 145 off-plane d=3.754e-2
+band=1.357e-6`. ERROR in both states, but a different wall, so it was
+bisected rather than waved through (a temporary `YANG_A19_BISECT_OFF`
+switch, since removed — the shipped code is single-path).
+
+Measured, A19 OFF vs ON on R0050:
+
+- op000's **pre**-Stage-0 operand meshes are byte-identical (56v / 86v,
+  zero displacement) — the inputs are the same, so any difference is
+  Stage-0's.
+- op000's **post**-Stage-0 operand A goes 97v → 96v, and the two
+  tessellations differ STRUCTURALLY: one ON vertex has no OFF
+  counterpart within 4.5e-2, and two OFF vertices have none within
+  4.5e-2 / 8.1e-2.
+- Operand A's femto-twin-pair count is **9 in BOTH states** — on R0050,
+  unlike F0067, the absorption removes no twin population.
+
+A 4.5e-2 structural difference cannot be the fusion's geometry: the
+absorption only ever writes `coords[vi] = target` for a vertex already
+inside the band. The measured absorption distances settle it — the
+probe now reports `d_uv` and the local ulp scale for every absorb:
+
+| case | singleton absorptions | separation |
+|---|---|---|
+| F0067 | 38 | 0.0 – 0.1 ulps (0 … 2.8e-17) |
+| R0050 | 8 | 0.0 – 2.0 ulps (0 … 7.1e-15) |
+
+Every singleton fusion in both customers is **sub-ulp to 2-ulp** — true
+rounding noise, which is exactly the class §15 names. So the fusions
+are legitimate; what changes on R0050 is that the overlay polygon,
+having lost a duplicate, re-triangulates differently, and the Stage-0
+mesh is rebuilt from it. The 3.75e-2 off-plane loop vertex is four
+orders beyond anything the fusion can displace (≤7e-15), so it is a
+LATENT assembly defect surfacing behind a STOP that used to fire
+first — the same masked-defect pattern §17a established for F0067,
+now in the other direction (the Stage-4 STOP was masking a Stage-6
+one).
+
+**The band is deliberately NOT tuned.** The measurements above would
+justify a much tighter singleton band (a few ulps instead of
+`TAU_WORK·(1+uv_scale)`), and it would be a no-op on both known
+customers — but that would fork §15's metric into two bands, which is
+precisely the drift `fix_all_gates_sharing_a_metric` warns about, and
+band-narrowing to dodge a case is the tuning the constitution forbids.
+The shared band stays; the ulp census is banked as the evidence that
+nothing is exploiting its width, and is the tripwire if a future case
+absorbs at a genuinely large sub-band distance.
+
+**Residual / next anchor:** R0050's `s6-planar-loop-nonplanar` and
+F0067's (`face 888 vert 1049`, 4.096e-5) are the same Stage-6
+face-loop-assembly family (#153 NonPlanarFace / #146), and are now
+the frontier for both cases.

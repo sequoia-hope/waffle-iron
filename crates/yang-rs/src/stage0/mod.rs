@@ -183,6 +183,71 @@ fn probe(tag: &str, detail: &str) {
     }
 }
 
+/// The §15 sub-band LIFT absorption predicate (amendments 17 + 19): every
+/// overlay vertex that belongs to `target_vi`'s femto crossing cluster but was
+/// produced by different machinery, so no mint roster can name it.
+///
+/// A vertex qualifies when it is NOT minted, NOT already a group member, NOT a
+/// corner or rim anchor (those are protected by design — a rim anchor must stay
+/// on its circle), and its EXACT uv distance to the elected member is within the
+/// rounding-noise band `TAU_WORK · (1 + uv_scale)`. That band sits five orders
+/// above the measured clusters (~4e-14) and three below the protected E-C1b
+/// genuinely-distinct twin population (~1e-9); it is pinned by the
+/// `band_admits_cluster_rejects_distinct_twins` tripwire and is NOT tuned here.
+///
+/// Factored out so the multi-mint group path (§15) and the singleton path (§17)
+/// share ONE predicate rather than two copies that can drift apart.
+/// Order-independent: the incremental in-loop form it replaces skipped members
+/// as they accumulated, which for pairwise-distinct candidates is the same set.
+#[allow(clippy::too_many_arguments)]
+fn absorbable_sub_band_lifts(
+    overlay: &crate::coplanar_overlay::ClassifiedOverlay,
+    target_vi: usize,
+    exclude: &[usize],
+    minted_mark: &[bool],
+    collapse_groups: &rim_chords::CollapseGroups,
+    corners_a: &BTreeMap<ExactPoint2, u32>,
+    corners_b: &BTreeMap<ExactPoint2, u32>,
+    rim_a: &BTreeMap<ExactPoint2, Point3>,
+    rim_b: &BTreeMap<ExactPoint2, Point3>,
+) -> Vec<usize> {
+    let elected_exact = &overlay.exact_verts[target_vi];
+    let tq = overlay.verts[target_vi];
+    let uv_scale = tq.x().abs().max(tq.y().abs());
+    let band = cad_primitives::TAU_WORK * (1.0 + uv_scale);
+    let Ok(band_r) = rat(band) else {
+        return Vec::new();
+    };
+    let band2 = &band_r * &band_r;
+    let mut out = Vec::new();
+    // `minted_mark` is sized from `overlay.verts`, which is 1:1 with
+    // `exact_verts`, so the zip covers every vertex.
+    for (vi, (exact, &minted)) in overlay
+        .exact_verts
+        .iter()
+        .zip(minted_mark.iter())
+        .enumerate()
+    {
+        if minted || exclude.contains(&vi) || collapse_groups.members.contains_key(&vi) {
+            continue;
+        }
+        if corners_a.contains_key(exact)
+            || corners_b.contains_key(exact)
+            || rim_a.contains_key(exact)
+            || rim_b.contains_key(exact)
+        {
+            continue;
+        }
+        let du = &exact.x - &elected_exact.x;
+        let dv = &exact.y - &elected_exact.y;
+        if &du * &du + &dv * &dv > band2 {
+            continue;
+        }
+        out.push(vi);
+    }
+    out
+}
+
 /// Run §4.5.5 Stage-0 coplanar preprocessing. `Ok(None)` = no near-coplanar
 /// cross pairs (the caller uses the B-Reps' own Stage-1 meshes, byte-for-
 /// byte the pre-YR26 path). `Ok(Some(_))` = handled. `Err` = unsupported
@@ -1121,8 +1186,61 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     None => groups.push(vec![(vi, crossing)]),
                 }
             }
-            for g in groups.iter().filter(|g| g.len() > 1) {
+            // Census probe (read-only, spec §17 inc-0): a SINGLETON group is
+            // skipped by the `len() > 1` filter below, so the amendment-17
+            // lift absorption nested inside it is UNREACHABLE for a femto
+            // cluster carrying exactly one mint. Report each singleton with
+            // the number of non-minted, non-corner, non-rim overlay vertices
+            // inside the same §15 band — i.e. the lifts that WOULD be
+            // absorbed if the arm covered singletons. A nonzero count is a
+            // divergent-value site shipping two values for one crossing.
+            if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                for g in groups.iter().filter(|g| g.len() == 1) {
+                    let target_vi = g[0].0;
+                    let cands = absorbable_sub_band_lifts(
+                        &overlay,
+                        target_vi,
+                        &[target_vi],
+                        &minted_mark,
+                        &collapse_groups,
+                        &corners_a,
+                        &corners_b,
+                        &rim_a,
+                        &rim_b,
+                    );
+                    if !cands.is_empty() {
+                        eprintln!(
+                            "[mint-collapse] SINGLETON slot={slot} vert {target_vi} \
+                             sub_band_lifts={} {cands:?}",
+                            cands.len(),
+                        );
+                    }
+                }
+            }
+            for g in groups.iter() {
                 let target_vi = g.iter().find(|&&(_, c)| c).map_or(g[0].0, |&(vi, _)| vi);
+                // Amendment 19 (spec §17): a SINGLETON cluster — one mint plus
+                // N non-minted lifts — reaches this loop too. Everything the
+                // body does for a singleton is a no-op EXCEPT the §15
+                // absorption, so skip unless that absorption would actually
+                // enroll a lift; a singleton with none stays byte-identical
+                // (no coord write, no `collapse_groups` entry).
+                if g.len() == 1
+                    && absorbable_sub_band_lifts(
+                        &overlay,
+                        target_vi,
+                        &[target_vi],
+                        &minted_mark,
+                        &collapse_groups,
+                        &corners_a,
+                        &corners_b,
+                        &rim_a,
+                        &rim_b,
+                    )
+                    .is_empty()
+                {
+                    continue;
+                }
                 let target = coords[target_vi];
                 if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
                     eprintln!(
@@ -1162,45 +1280,41 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     // amendment-16 atomic revert covers it in both
                     // directions. ALWAYS-ON since the inc-2 corpus flip
                     // (2026-07-31: zero category deltas; F0067 advances two
-                    // stages past cherchi to the §4.5.2 wall).
-                    {
-                        let elected_exact = overlay.exact_verts[target_vi].clone();
-                        let tq = overlay.verts[target_vi];
-                        let uv_scale = tq.x().abs().max(tq.y().abs());
-                        let band = cad_primitives::TAU_WORK * (1.0 + uv_scale);
-                        if let Ok(band_r) = rat(band) {
-                            let band2 = &band_r * &band_r;
-                            for vi in 0..overlay.exact_verts.len() {
-                                if minted_mark[vi]
-                                    || member_ids.contains(&vi)
-                                    || collapse_groups.members.contains_key(&vi)
-                                {
-                                    continue;
-                                }
-                                let exact = &overlay.exact_verts[vi];
-                                if corners_a.contains_key(exact)
-                                    || corners_b.contains_key(exact)
-                                    || rim_a.contains_key(exact)
-                                    || rim_b.contains_key(exact)
-                                {
-                                    continue;
-                                }
-                                let du = &exact.x - &elected_exact.x;
-                                let dv = &exact.y - &elected_exact.y;
-                                if &du * &du + &dv * &dv > band2 {
-                                    continue;
-                                }
-                                if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
-                                    eprintln!(
-                                        "[mint-collapse] lift-absorb vert {vi} -> vert \
-                                         {target_vi} {target:?} (spec §15)"
-                                    );
-                                }
-                                coords[vi] = target;
-                                minted_mark[vi] = true;
-                                member_ids.push(vi);
-                            }
+                    // stages past cherchi to the §4.5.2 wall). Amendment 19
+                    // (spec §17) reaches this from SINGLETON clusters too —
+                    // one predicate, one place ([[fix_all_gates_sharing_a_metric]]).
+                    for vi in absorbable_sub_band_lifts(
+                        &overlay,
+                        target_vi,
+                        &member_ids,
+                        &minted_mark,
+                        &collapse_groups,
+                        &corners_a,
+                        &corners_b,
+                        &rim_a,
+                        &rim_b,
+                    ) {
+                        if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                            // Report the uv separation and the local ulp scale:
+                            // a TRUE rounding-noise duplicate sits at a few ulps
+                            // of the coordinate magnitude, while a sub-band but
+                            // ulp-scale-DISTANT vertex is a genuine sample the
+                            // absorption would be distorting (spec §17e).
+                            let q = overlay.verts[vi];
+                            let t2 = overlay.verts[target_vi];
+                            let d = ((q.x() - t2.x()).powi(2) + (q.y() - t2.y()).powi(2)).sqrt();
+                            let ulp = t2.x().abs().max(t2.y().abs()).max(1.0) * f64::EPSILON;
+                            eprintln!(
+                                "[mint-collapse] lift-absorb vert {vi} -> vert \
+                                 {target_vi} {target:?} group_len={} d_uv={d:e} \
+                                 ulps={:.1} (spec §15)",
+                                g.len(),
+                                d / ulp
+                            );
                         }
+                        coords[vi] = target;
+                        minted_mark[vi] = true;
+                        member_ids.push(vi);
                     }
                     for &vi in &member_ids {
                         collapse_groups.members.insert(vi, member_ids.clone());

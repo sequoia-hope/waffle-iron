@@ -904,6 +904,40 @@ pub(crate) fn replan_degenerate_cylinder_patches(
     Ok(remeshed)
 }
 
+/// Probe-only (`YANG_S4_BALANCE_PROBE`): census the mesh's unbalanced undirected
+/// edges (`fwd != rev`) at a named checkpoint. Reports the count and the sorted
+/// edge list, so the SAME census can be compared across checkpoints — the only
+/// way to tell a defect a downstream gate MASKED from one an intervening pass
+/// MINTED. Read-only; no effect when the env is unset.
+fn balance_census(mesh: &Mesh, checkpoint: &str) {
+    if std::env::var_os("YANG_S4_BALANCE_PROBE").is_none() {
+        return;
+    }
+    let mut dir: std::collections::BTreeMap<(u32, u32), i32> = std::collections::BTreeMap::new();
+    for tri in &mesh.tris {
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            *dir.entry((tri[i], tri[j])).or_insert(0) += 1;
+        }
+    }
+    let mut bad: Vec<String> = Vec::new();
+    for (&(s, e), &fwd) in &dir {
+        if s >= e {
+            continue;
+        }
+        let rev = dir.get(&(e, s)).copied().unwrap_or(0);
+        if fwd != rev {
+            bad.push(format!("({s},{e}):{fwd}/{rev}"));
+        }
+    }
+    eprintln!(
+        "YANG_S4_BALANCE at={checkpoint} tris={} verts={} unbalanced={} {}",
+        mesh.tris.len(),
+        mesh.verts.len(),
+        bad.len(),
+        bad.join(" ")
+    );
+}
+
 /// A mutual degenerate pair (spec `yang_n2_stage4_cdt_mesh_updating.md` §5c.11):
 /// both incident triangles of one long edge are degenerate and report that SAME
 /// edge as their long edge — a zero-area quad astride `a–c` with the two
@@ -3520,6 +3554,8 @@ pub(crate) fn stage4_relocate_and_correct(
     // to per-triangle vertex indices, so diagnostics/lookups that need the BReps
     // use these).
     let (brep_a, brep_b) = (a, b);
+
+    balance_census(mesh, "s4-entry");
 
     // d_ε relocation budget (a conic edge implies a curved input ⇒ Some).
     let d_eps = match stage4_chord_band(a, b) {
@@ -6690,6 +6726,7 @@ pub(crate) fn stage4_relocate_and_correct(
     // triangle with no non-degenerate neighbour is a genuine §4.5.2 STOP. Spec
     // `specs/yang_n2_stage4_cdt_mesh_updating.md`.
     {
+        balance_census(mesh, "pre-degen-loop");
         let degen_area = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
         let is_degen = |ti: usize, mesh: &Mesh| -> bool {
             let t = mesh.tris[ti];
@@ -7109,6 +7146,7 @@ pub(crate) fn stage4_relocate_and_correct(
             collapsed_any = true;
         }
         attribution.attributions = attr_vec;
+        balance_census(mesh, "post-degen-loop");
     }
 
     // KV9-F3 diagnosis probe (read-only, env-gated): census near-twin mesh
@@ -7269,8 +7307,19 @@ pub(crate) fn stage4_relocate_and_correct(
                 }
             }
             for (&(s, e), &fwd) in &dir {
-                if s < e && fwd >= 2 {
-                    eprintln!("NONMANIFOLD_SITE_PROBE s4-dc-attr edge ({s},{e})");
+                // Report an undirected edge once (canonical `s < e`) when it is
+                // either double-covered (`fwd >= 2`) or UNBALANCED (`fwd != rev`,
+                // the gate's own failure condition — the doubling may sit on the
+                // reverse direction, which the old `s < e && fwd >= 2` form
+                // silently skipped).
+                let rev = dir.get(&(e, s)).copied().unwrap_or(0);
+                if s < e && (fwd >= 2 || rev >= 2 || fwd != rev) {
+                    eprintln!(
+                        "NONMANIFOLD_SITE_PROBE s4-dc-attr edge ({s},{e}) fwd={fwd} rev={rev} \
+                         p{s}={:?} p{e}={:?}",
+                        mesh.verts[s as usize].as_array(),
+                        mesh.verts[e as usize].as_array()
+                    );
                     for (ti, tri) in mesh.tris.iter().enumerate() {
                         let uses = tri.contains(&s) && tri.contains(&e);
                         if uses {
@@ -7283,9 +7332,24 @@ pub(crate) fn stage4_relocate_and_correct(
                                 };
                                 (at.input, at.face, br.faces()[at.face as usize].surface)
                             });
+                            // Direction this triangle presents the edge in, plus
+                            // its off-vertex position — two pages of a book edge
+                            // whose off-vertices COINCIDE are a duplicated sheet
+                            // (the #146 upstream class), which the ids alone hide.
+                            let dirn = if tri
+                                .iter()
+                                .zip([tri[1], tri[2], tri[0]])
+                                .any(|(&u, v)| u == s && v == e)
+                            {
+                                "fwd"
+                            } else {
+                                "rev"
+                            };
+                            let off = tri.iter().copied().find(|&v| v != s && v != e);
+                            let offp = off.map(|v| mesh.verts[v as usize].as_array());
                             eprintln!(
-                                "NONMANIFOLD_SITE_PROBE s4-dc-attr   tri {ti}: {tri:?} \
-                                 attr={surf:?}"
+                                "NONMANIFOLD_SITE_PROBE s4-dc-attr   tri {ti}: {tri:?} {dirn} \
+                                 off={off:?} offp={offp:?} attr={surf:?}"
                             );
                         }
                     }
