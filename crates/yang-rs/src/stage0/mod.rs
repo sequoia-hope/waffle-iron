@@ -1444,6 +1444,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                                 &ctx.chords,
                                 &ctx.other_segs,
                                 slot < rim_ctxs_a.len(),
+                                ctx.center,
                                 &mut split_extras,
                                 probe_flip,
                             ) {
@@ -1462,7 +1463,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                             .map(|e| e.len())
                             .unwrap_or(0);
                         eprintln!(
-                            "  [fold-split-reject] q={sq} chord=({sa},{sb}) {inc_n}-incident                              (vertex-inserting split not built — inc-3.2)"
+                            "  [fold-split-reject] q={sq} chord=({sa},{sb}) {inc_n}-incident                              (no split arm accepted)"
                         );
                         // inc-3.2 anatomy probe: exact in-frame UVs of the
                         // candidate mint (current = minted position), its

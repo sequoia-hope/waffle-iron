@@ -1145,3 +1145,72 @@ and the mint's line parameter `t` on C.
 
 Raw logs: scratchpad `census_ol/` (ephemeral); this table is the
 durable record.
+
+### 13h. Amendment-15 inc-1/inc-2 (2026-07-31) — the pure-SLIDE splice BUILT and FLIPPED ALWAYS-ON; F0064 ERROR → UNSUPPORTED(coplanar); new canonical 260C/0W/47E/0T
+
+**The op as shipped** (`fig11_slide_splice`, `stage0/reloc.rs`; wired
+inside `fig11_split_cavity`'s open-link branch): purely combinatorial —
+NO vertex minted, NO coordinate moved. The side wedge's ring drops the
+collinear tail (C's near endpoint + stations), closes `c_k → v`, and
+re-ear-clips; the dropped tail re-embeds into the far collinear spoke
+`(v, w*)` by splitting both flank fans (the exact T-junctions the slide
+swept). Certificates, all exact-rational over the same frame
+projections the ring tests use, ANY failure → the amendment-2 revert:
+the §11c chord certs (1-incident, other-input real edge); v's PRE UV on
+that model line AND v's mint exactly interior to C (the §13g slide
+signature); exactly ONE chain end reachable through on-line side-class
+edges; tail unminted, fully carved, strictly inside the `(v, w*)` span;
+`w*` unique and 2-incident-carved; every rebuilt triangle exact-CCW and
+gate-valid; count = cavity + |tail|; **per-class SIGNED area conserved
+as an EXACT rational equality** (the folded cover's signed sum already
+equals the clean cover's — any mis-fan breaks it). Unit oracles: the
+F0064 vert-12 miniature (commit, 6→8, station handoff to
+Overlap|BOnly), the vert-63 mirror (start-side tail), and four
+no-mutation reject rows (`slide_tests`, yang-rs lib).
+
+**inc-1.5 finding — the settle × slide fight** (measured before the
+guard): a committed slide leaves v MINTED at a leaped position, so the
+§10d `settle_rim_chain_order` check reverts it at quiescence
+(`minted_mark[vi] && coords[vi] != lift`, rim_chords.rs) — UNDOING the
+splice's structural rewiring while the topology stays spliced; the
+interface meshes desync and cherchi defers
+(`CoplanarPairDeferred`, measured F0064 ops[3] vert 22). Fix shipped:
+the settle predicate applied PREVENTIVELY as a slide commit
+certificate — gather v's OWN rim sub-chord's crossing set (the settle's
+collection, verbatim) and reject when any adjacent pair's exact angular
+order would invert with v at its mint
+(`slide: would invert rim-chain angular order`). WATCH (not actioned):
+the same fight can hit the §11c CLOSED-link split — the new F0064
+ops[3] state shows the settle reverting a §11c-committed mint's
+neighborhood (vert-37-class events); if a §11c customer ever measures a
+settle-undone split, the same preventive cert belongs there.
+
+**§13b ERRATUM (op attribution).** Assay failure labels are 0-BASED
+("Extrude 3" = ops[3], the second polygon). The fold-reverts at pair
+(590,0) fire in ops[2]'s union (the circle onto the plus), which
+SUCCEEDS and ships the settled chord world in its OUTPUT B-Rep; the
+needle is then created in ops[3]'s pipeline when its Stage-4 #146
+reseat upgrades A's carried-in latent chord junction (v=1198-class)
+past the stale station. The two disagreeing authorities live in
+DIFFERENT boolean invocations — the §13e exposure is therefore
+STRONGER than §13b stated: a fold-revert's chord junction survives a
+full B-Rep round-trip and detonates one op later (the census's latent
+chord-lift watch class, mechanized).
+
+**Corpus (312/312, sweep at the gated build; then flipped):** exactly
+ONE category change — **F0064 ERROR → UNSUPPORTED(coplanar-boolean)**;
+ZERO same-category detail drift; R0059/R0099/C0048/R0085 spot-verified
+byte-stable. With both ops[2] slides committed, ops[2]'s output carries
+exact 4-surface junctions (Stage-4 certifies, no reseat, no needle) and
+ops[3] proceeds past the old G1 wall into cherchi's N17 typed deferral
+— a REAL-overlap coplanar pair the Stage-0 overlay does not yet
+pre-handle (the F0067/F0072 wall class). The defect is gone; the
+residual is a NAMED M8 capability boundary. Per §13f-5 acceptance:
+"the next honest wall". **New canonical: 260C/0W/47E/0T** (UNSUPPORTED
++1). The stale `(vertex-inserting split not built — inc-3.2)` probe
+annotation is retired to `(no split arm accepted)`.
+
+Residuals carried: the bulge form (§13g, census-armed; R0021/R0059
+latents as witnesses), the settle×closed-link-split WATCH above, and
+F0064's own next wall (ops[3] N17 deferral — an M8 Stage-0 coverage
+item, not a fold-gate item).

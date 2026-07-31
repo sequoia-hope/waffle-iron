@@ -1337,6 +1337,7 @@ pub(crate) fn fig11_split_cavity(
     own_chords: &[(ExactPoint2, ExactPoint2)],
     other_segs: &[(ExactPoint2, ExactPoint2)],
     other_is_b: bool,
+    rim_center: Point3,
     out_extras: &mut Vec<ExtraRimPoint>,
     probe: bool,
 ) -> bool {
@@ -1349,18 +1350,44 @@ pub(crate) fn fig11_split_cavity(
     let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
 
     // ── 1. Shared carve (star + link + growth). ──────────────────────────
-    let Carved {
-        cavity,
-        link,
-        starts,
-        deferred: _,
-    } = match carve_star_cavity(&overlay.tris, &overlay.class, edge_map, v, coords, frame) {
+    let carved = match carve_star_cavity(&overlay.tris, &overlay.class, edge_map, v, coords, frame)
+    {
         Ok(c) => c,
         Err(why) => return reject(why),
     };
-    if !starts.is_empty() {
+    if !carved.starts.is_empty() {
+        // Amendment 15 (spec `m8_stage0_multiclass_cavity_arm` §13f/§13g,
+        // ALWAYS-ON since the inc-2 flip — corpus measured exactly ONE
+        // category change, F0064 ERROR → UNSUPPORTED(coplanar), zero
+        // collateral): the OPEN-LINK pure-SLIDE splice — the
+        // boundary-vertex form whose mint slid ALONG the other input's
+        // model edge (v exactly on C's interior). Any certificate failure
+        // falls through to today's loud reject + amendment-2 revert.
+        if fig11_slide_splice(
+            overlay,
+            edge_map,
+            v,
+            chord,
+            coords,
+            minted_mark,
+            frame,
+            own_chords,
+            other_segs,
+            other_is_b,
+            rim_center,
+            &carved,
+            probe,
+        ) {
+            return true;
+        }
         return reject("split-open-link (boundary vertex — not the armed class)");
     }
+    let Carved {
+        cavity,
+        link,
+        starts: _,
+        deferred: _,
+    } = carved;
     let n = link.len();
 
     // ── 2. Exactly two class transitions ⇒ the chain spokes. ─────────────
@@ -1693,6 +1720,508 @@ pub(crate) fn fig11_split_cavity(
         eprintln!(
             "[fold-split] vert {v} chord ({r_k},{r_k1}) q=({qa_id},{qb_id}) \
              t_c=({tc_a},{tc_b}) overshoot={overshoot:e} cavity={} -> {} tris",
+            cavity.len(),
+            new_tris.len()
+        );
+    }
+    true
+}
+
+/// Amendment 15 (spec `m8_stage0_multiclass_cavity_arm` §13f/§13g): the
+/// OPEN-LINK pure-SLIDE splice — [#24 Yang §4.4.1 Fig 11(a)] for a point q
+/// ON the boundary curve, in the 1D form the §13g census proved is the only
+/// customer-bearing one (F0064 q=12/63/22): the mint slid ALONG the other
+/// input's model edge, landing exactly ON its own reroute chord C's
+/// interior, and the link chain BACKTRACKS past it (C's near endpoint plus
+/// zero or more stations sit collinearly between the mint and the chain
+/// end — the zero-area lobe whose emission is the G1 needle).
+///
+/// The op is purely combinatorial — NO vertex is minted and NO coordinate
+/// changes:
+/// 1. v splices into C: the side wedge's ring drops the collinear tail
+///    (C's near endpoint + stations) and closes `c_k → v`, re-ear-clipped.
+/// 2. The dropped tail re-embeds into the OPPOSITE side: the collinear far
+///    spoke (v, w*) — the Overlap|other-class line edge the mint's slide
+///    swept over the tail (the exact T-junctions of the folded state) — is
+///    split at each tail vertex, fanning both flank triangles (the paper's
+///    "remove a mesh vertex if it is too close to the intersection curve",
+///    executed as re-embedding since the stations are exact crossings that
+///    persist in both geometries).
+///
+/// Certificates (each exact-rational over the same frame projections the
+/// ring tests use; ANY failure rejects with no mutation and falls to the
+/// amendment-2 revert):
+/// - C 1-incident, on the other input's real model edge (the §11c certs);
+///   v's PRE-mint exact UV on that same model line (the §13g slide
+///   signature) and v's minted position exactly on C's line, strictly
+///   interior;
+/// - exactly ONE chain end is reachable from C through on-line, side-class
+///   link edges (the tail side); every tail vertex unminted, its whole
+///   triangle incidence inside the carved cavity, and strictly inside the
+///   (v, w*) span; w* unique, its spoke 2-incident with both flanks carved;
+/// - every rebuilt triangle exact-CCW and gate-valid; per-class SIGNED area
+///   conserved EXACTLY (rational equality — the folded cover's signed sum
+///   already equals the clean cover's, so any mis-fan breaks it); count =
+///   cavity + |tail|.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn fig11_slide_splice(
+    overlay: &mut ClassifiedOverlay,
+    edge_map: &mut BTreeMap<[u32; 2], Vec<usize>>,
+    v: u32,
+    chord: (u32, u32),
+    coords: &[Point3],
+    minted_mark: &[bool],
+    frame: &Frame,
+    own_chords: &[(ExactPoint2, ExactPoint2)],
+    other_segs: &[(ExactPoint2, ExactPoint2)],
+    other_is_b: bool,
+    rim_center: Point3,
+    carved: &Carved,
+    probe: bool,
+) -> bool {
+    let reject = |why: &str| {
+        if probe {
+            eprintln!("  [split-reject] vert {v} split-open-link (slide: {why})");
+        }
+        false
+    };
+    let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+    let link = &carved.link;
+    let cavity = &carved.cavity;
+    let n = link.len();
+
+    // Rational frame positions — the SAME projection every exact ring test
+    // uses (`rat` is exact on finite f64s).
+    let rp = |i: u32| -> Option<(RBig, RBig)> {
+        let (x, y) = frame.project(coords[i as usize]);
+        Some((
+            crate::coplanar_overlay::rat(x).ok()?,
+            crate::coplanar_overlay::rat(y).ok()?,
+        ))
+    };
+
+    // ── C on the link ring, side class, boundary + other-edge certs ──────
+    let Some(e_c) = (0..n).find(|&i| {
+        let (a, b, _) = link[i];
+        (a, b) == chord || (b, a) == chord
+    }) else {
+        return reject("chord not on ring");
+    };
+    let side_cls = link[e_c].2;
+    let want_side = if other_is_b {
+        RegionClass::BOnly
+    } else {
+        RegionClass::AOnly
+    };
+    if side_cls != want_side {
+        return reject("class pair");
+    }
+    let (la, lb) = (link[e_c].0, link[e_c].1);
+    if edge_map.get(&edge_key(la, lb)).map(|e| e.len()) != Some(1) {
+        return reject("chord not boundary");
+    }
+    let on_seg = |p: &ExactPoint2, s: &ExactPoint2, e: &ExactPoint2| {
+        let dx = &e.x - &s.x;
+        let dy = &e.y - &s.y;
+        let wx = &p.x - &s.x;
+        let wy = &p.y - &s.y;
+        &dx * &wy - &dy * &wx == RBig::ZERO
+    };
+    let (ka, kb) = (
+        &overlay.exact_verts[la as usize],
+        &overlay.exact_verts[lb as usize],
+    );
+    let Some((seg_s, seg_e)) = other_segs
+        .iter()
+        .find(|(s, e)| on_seg(ka, s, e) && on_seg(kb, s, e))
+        .map(|(s, e)| (s, e))
+    else {
+        return reject("chord not other-input edge");
+    };
+    // The §13g slide signature: the crossing lived on this model line in
+    // chord geometry too (pre-mint exact UV collinear with the same edge).
+    if !on_seg(&overlay.exact_verts[v as usize], seg_s, seg_e) {
+        return reject("pre position off the model line");
+    }
+
+    // ── v's minted position exactly ON C's line, strictly interior ───────
+    let (Some(pa), Some(pb), Some(pv)) = (rp(la), rp(lb), rp(v)) else {
+        return reject("non-finite position");
+    };
+    let dx = &pb.0 - &pa.0;
+    let dy = &pb.1 - &pa.1;
+    let len2 = &dx * &dx + &dy * &dy;
+    if len2 == RBig::ZERO {
+        return reject("degenerate chord");
+    }
+    let cross_l = |p: &(RBig, RBig)| &dx * &(&p.1 - &pa.1) - &dy * &(&p.0 - &pa.0);
+    let param = |p: &(RBig, RBig)| (&(&p.0 - &pa.0) * &dx + &(&p.1 - &pa.1) * &dy) / &len2;
+    if cross_l(&pv) != RBig::ZERO {
+        return reject("mint off the chord line");
+    }
+    let t_v = param(&pv);
+    if !(t_v > RBig::ZERO && t_v < RBig::ONE) {
+        return reject("mint not interior to C");
+    }
+
+    // ── Rim-chain angular-order guard (the amendment-13 settle predicate,
+    // applied PREVENTIVELY): committing v at its mint must not invert the
+    // angular order of v's OWN rim sub-chord's crossing set — else the
+    // §10d settle check would revert v right back at quiescence, undoing
+    // the splice's structural rewiring (measured: the F0064 ops[3] vert-22
+    // settle × slide fight ends in cherchi's CoplanarPairDeferred). The
+    // collection predicate mirrors `settle_rim_chain_order` verbatim. ─────
+    {
+        let v_ex = &overlay.exact_verts[v as usize];
+        let own = own_chords.iter().find(|(s, e)| {
+            let sdx = &e.x - &s.x;
+            let sdy = &e.y - &s.y;
+            let wx = &v_ex.x - &s.x;
+            let wy = &v_ex.y - &s.y;
+            if &sdx * &wy - &sdy * &wx != RBig::ZERO {
+                return false;
+            }
+            let l2 = &sdx * &sdx + &sdy * &sdy;
+            if l2 == RBig::ZERO {
+                return false;
+            }
+            let t = (&wx * &sdx + &wy * &sdy) / &l2;
+            t > RBig::ZERO && t < RBig::ONE
+        });
+        let Some((s2, e2)) = own else {
+            return reject("no own chord");
+        };
+        let (cu, cv) = frame.project(rim_center);
+        let Some(c2) = ExactPoint2::from_f64(cu, cv) else {
+            return reject("non-finite rim center");
+        };
+        let sxc = &s2.x - &c2.x;
+        let syc = &s2.y - &c2.y;
+        let exc = &e2.x - &c2.x;
+        let eyc = &e2.y - &c2.y;
+        let dir = &sxc * &eyc - &syc * &exc;
+        if dir != RBig::ZERO {
+            let ccw = dir > RBig::ZERO;
+            let sdx = &e2.x - &s2.x;
+            let sdy = &e2.y - &s2.y;
+            let sl2 = &sdx * &sdx + &sdy * &sdy;
+            let mut found: Vec<(RBig, usize)> = Vec::new();
+            for (vi, q) in overlay.exact_verts.iter().enumerate() {
+                let wx = &q.x - &s2.x;
+                let wy = &q.y - &s2.y;
+                if &sdx * &wy - &sdy * &wx != RBig::ZERO {
+                    continue;
+                }
+                let t = (&sdx * &wx + &sdy * &wy) / &sl2;
+                let tf = t.to_f64().value();
+                if !(tf > 1.0e-6 && tf < 1.0 - 1.0e-6) {
+                    continue;
+                }
+                found.push((t, vi));
+            }
+            found.sort_by(|a, b| a.0.cmp(&b.0));
+            for w in found.windows(2) {
+                let (Some(pi), Some(pj)) = (rp(w[0].1 as u32), rp(w[1].1 as u32)) else {
+                    return reject("non-finite position");
+                };
+                let ax = &pi.0 - &c2.x;
+                let ay = &pi.1 - &c2.y;
+                let bx = &pj.0 - &c2.x;
+                let by = &pj.1 - &c2.y;
+                let cross = &ax * &by - &ay * &bx;
+                let inverted = if ccw {
+                    cross < RBig::ZERO
+                } else {
+                    cross > RBig::ZERO
+                };
+                if inverted {
+                    return reject("would invert rim-chain angular order");
+                }
+            }
+        }
+    }
+
+    // ── The tail side: exactly ONE chain end reachable from C through
+    // on-line, side-class link edges ──────────────────────────────────────
+    let on_line = |w: u32| rp(w).is_some_and(|p| cross_l(&p) == RBig::ZERO);
+    let end_ok = (e_c + 1..n).all(|j| link[j].2 == side_cls && on_line(link[j].1));
+    let start_ok = (0..e_c).all(|j| link[j].2 == side_cls && on_line(link[j].0));
+    let dir_end = match (end_ok, start_ok) {
+        (true, false) => true,
+        (false, true) => false,
+        _ => return reject("ambiguous or absent collinear tail"),
+    };
+    // Tail = C's near endpoint + every link vertex to that chain end,
+    // ordered outward. The far endpoint c_k is KEPT.
+    let (tail, c_k): (Vec<u32>, u32) = if dir_end {
+        let mut t = vec![lb];
+        t.extend((e_c + 1..n).map(|j| link[j].1));
+        (t, la)
+    } else {
+        let mut t = vec![la];
+        t.extend((0..e_c).rev().map(|j| link[j].0));
+        (t, lb)
+    };
+    for &w in &tail {
+        if w == v || w == c_k {
+            return reject("degenerate tail");
+        }
+        if minted_mark[w as usize] {
+            return reject("tail vert minted");
+        }
+    }
+    // Tail params: strictly beyond the mint, toward the tail side.
+    let mut t_tail: Vec<(RBig, u32)> = Vec::with_capacity(tail.len());
+    for &w in &tail {
+        let Some(pw) = rp(w) else {
+            return reject("non-finite position");
+        };
+        let tw = param(&pw);
+        let beyond = if dir_end { tw > t_v } else { tw < t_v };
+        if !beyond {
+            return reject("tail vert not beyond the mint");
+        }
+        t_tail.push((tw, w));
+    }
+
+    // ── w*: the unique far collinear spoke of v, past the whole tail ─────
+    let mut w_star: Option<(u32, RBig)> = None;
+    for (key, inc) in edge_map.iter() {
+        let x = if key[0] == v {
+            key[1]
+        } else if key[1] == v {
+            key[0]
+        } else {
+            continue;
+        };
+        if x == c_k || tail.contains(&x) {
+            continue;
+        }
+        let Some(px) = rp(x) else {
+            continue;
+        };
+        if cross_l(&px) != RBig::ZERO {
+            continue;
+        }
+        let tx = param(&px);
+        let beyond = if dir_end { tx > t_v } else { tx < t_v };
+        if !beyond {
+            continue;
+        }
+        if inc.len() != 2 || inc.iter().any(|t| !cavity.contains(t)) {
+            return reject("far spoke not a 2-incident cavity edge");
+        }
+        if w_star.is_some() {
+            return reject("multiple far collinear spokes");
+        }
+        w_star = Some((x, tx));
+    }
+    let Some((w_star, t_ws)) = w_star else {
+        return reject("no far collinear spoke");
+    };
+    for (tw, _) in &t_tail {
+        let inside = if dir_end { *tw < t_ws } else { *tw > t_ws };
+        if !inside {
+            return reject("tail vert outside the far-spoke span");
+        }
+    }
+    // Stations ordered from v outward along the spoke.
+    let mut stations = t_tail;
+    stations.sort_by(|a, b| {
+        if dir_end {
+            a.0.cmp(&b.0)
+        } else {
+            b.0.cmp(&a.0)
+        }
+    });
+    let stations: Vec<u32> = stations.into_iter().map(|(_, w)| w).collect();
+
+    // ── Tail incidence closure: every triangle at a tail vert is carved ──
+    for &w in &tail {
+        for (key, inc) in edge_map.iter() {
+            if key[0] != w && key[1] != w {
+                continue;
+            }
+            if inc.iter().any(|t| !cavity.contains(t)) {
+                return reject("tail vert has external incidence");
+            }
+        }
+    }
+
+    // ── The three rebuild pieces ──────────────────────────────────────────
+    // (a) side wedge, tail dropped, closed c_k → v.
+    let side_range = if dir_end {
+        let mut r = e_c;
+        while r > 0 && link[r - 1].2 == side_cls {
+            r -= 1;
+        }
+        r..n
+    } else {
+        let mut r = e_c;
+        while r + 1 < n && link[r + 1].2 == side_cls {
+            r += 1;
+        }
+        0..r + 1
+    };
+    let mut side_poly: Vec<u32> = vec![v];
+    if dir_end {
+        side_poly.push(link[side_range.start].0);
+        side_poly.extend(link[side_range.start..e_c].iter().map(|&(_, b, _)| b));
+    } else {
+        side_poly.push(lb);
+        side_poly.extend(link[e_c + 1..side_range.end].iter().map(|&(_, b, _)| b));
+    }
+    if side_poly.len() < 3 {
+        return reject("empty side region after tail drop");
+    }
+    // (b) flank link edges at w* (both mid-chain by the 2-incidence cert).
+    let j_in = (0..n).find(|&j| link[j].1 == w_star);
+    let j_out = (0..n).find(|&j| link[j].0 == w_star);
+    let (Some(j_in), Some(j_out)) = (j_in, j_out) else {
+        return reject("far spoke not mid-chain");
+    };
+    if side_range.contains(&j_in) || side_range.contains(&j_out) {
+        return reject("far spoke inside the side run");
+    }
+
+    let mut new_tris: Vec<([u32; 3], RegionClass)> = Vec::with_capacity(cavity.len() + tail.len());
+    match earclip_cavity_polygon(
+        &side_poly,
+        cavity,
+        side_cls,
+        coords,
+        frame,
+        edge_map,
+        probe,
+        &format!("vert {v} slide-side"),
+    ) {
+        Ok(ears) => new_tris.extend(ears),
+        Err(EarclipErr::NotSimple { .. }) => return reject("side polygon not simple"),
+        Err(EarclipErr::Other(why)) => return reject(why),
+    }
+    let pos2 = |i: u32| frame.project(coords[i as usize]);
+    let push_checked = |t: [u32; 3], cls: RegionClass, out: &mut Vec<([u32; 3], RegionClass)>| {
+        if gate_tri_degenerate(&t, coords)
+            || !gate_tri_valid(&t, coords, frame)
+            || orient_sign_exact(pos2(t[0]), pos2(t[1]), pos2(t[2])) != Some(1)
+        {
+            return false;
+        }
+        out.push((t, cls));
+        true
+    };
+    // (b) the two flank fans re-embedding the stations.
+    {
+        let (a, _, cls_in) = link[j_in];
+        let d = stations.len();
+        let mut ok = push_checked([a, w_star, stations[d - 1]], cls_in, &mut new_tris);
+        for k in (1..d).rev() {
+            ok = ok && push_checked([a, stations[k], stations[k - 1]], cls_in, &mut new_tris);
+        }
+        ok = ok && push_checked([a, stations[0], v], cls_in, &mut new_tris);
+        let (_, b, cls_out) = link[j_out];
+        ok = ok && push_checked([b, v, stations[0]], cls_out, &mut new_tris);
+        for k in 1..d {
+            ok = ok && push_checked([b, stations[k - 1], stations[k]], cls_out, &mut new_tris);
+        }
+        ok = ok && push_checked([b, stations[d - 1], w_star], cls_out, &mut new_tris);
+        if !ok {
+            return reject("flank fan triangle invalid");
+        }
+    }
+    // (c) every other wedge's fan, unchanged.
+    for (j, &(a, b, cls)) in link.iter().enumerate() {
+        if side_range.contains(&j) || j == j_in || j == j_out {
+            continue;
+        }
+        if !push_checked([v, a, b], cls, &mut new_tris) {
+            return reject("unchanged fan triangle invalid");
+        }
+    }
+
+    // ── Invariants: count and EXACT per-class signed-area conservation ───
+    if new_tris.len() != cavity.len() + tail.len() {
+        return reject("slide tri count invariant");
+    }
+    let cls_idx = |c: RegionClass| match c {
+        RegionClass::AOnly => 0usize,
+        RegionClass::BOnly => 1,
+        RegionClass::Overlap => 2,
+    };
+    let tri_2a = |t: &[u32; 3]| -> Option<RBig> {
+        let (a, b, c) = (rp(t[0])?, rp(t[1])?, rp(t[2])?);
+        Some((&b.0 - &a.0) * (&c.1 - &a.1) - (&b.1 - &a.1) * (&c.0 - &a.0))
+    };
+    let mut old_sum = [RBig::ZERO, RBig::ZERO, RBig::ZERO];
+    for &ti in cavity.iter() {
+        let Some(a2) = tri_2a(&overlay.tris[ti]) else {
+            return reject("non-finite position");
+        };
+        old_sum[cls_idx(overlay.class[ti])] += a2;
+    }
+    let mut new_sum = [RBig::ZERO, RBig::ZERO, RBig::ZERO];
+    for (t, cls) in &new_tris {
+        let Some(a2) = tri_2a(t) else {
+            return reject("non-finite position");
+        };
+        new_sum[cls_idx(*cls)] += a2;
+    }
+    if old_sum != new_sum {
+        return reject("per-class signed area not conserved");
+    }
+    // Attribution donors: any carved triangle of the same class.
+    let mut donor: [Option<(u32, u32)>; 3] = [None; 3];
+    for &ti in cavity.iter() {
+        donor[cls_idx(overlay.class[ti])].get_or_insert((overlay.poly_a[ti], overlay.poly_b[ti]));
+    }
+    if new_tris
+        .iter()
+        .any(|&(_, cls)| donor[cls_idx(cls)].is_none())
+    {
+        return reject("no attribution donor for a rebuilt class");
+    }
+
+    // ── Commit: overwrite the cavity slots + push the tail extras ────────
+    let cavity: Vec<usize> = cavity.iter().copied().collect();
+    for &ti in &cavity {
+        let t = overlay.tris[ti];
+        for k in 0..3 {
+            let kk = edge_key(t[k], t[(k + 1) % 3]);
+            if let Some(e) = edge_map.get_mut(&kk) {
+                e.retain(|&x| x != ti);
+                if e.is_empty() {
+                    edge_map.remove(&kk);
+                }
+            }
+        }
+    }
+    let mut slots: Vec<usize> = cavity.clone();
+    for &(t, cls) in new_tris.iter().skip(cavity.len()) {
+        let ti = overlay.tris.len();
+        let (pa2, pb2) = donor[cls_idx(cls)].unwrap();
+        overlay.tris.push(t);
+        overlay.class.push(cls);
+        overlay.poly_a.push(pa2);
+        overlay.poly_b.push(pb2);
+        slots.push(ti);
+    }
+    for (&ti, &(t, cls)) in slots.iter().zip(&new_tris) {
+        overlay.tris[ti] = t;
+        overlay.class[ti] = cls;
+        let (pa2, pb2) = donor[cls_idx(cls)].unwrap();
+        overlay.poly_a[ti] = pa2;
+        overlay.poly_b[ti] = pb2;
+        for k in 0..3 {
+            edge_map
+                .entry(edge_key(t[k], t[(k + 1) % 3]))
+                .or_default()
+                .push(ti);
+        }
+    }
+    if probe {
+        eprintln!(
+            "[fold-slide] vert {v} chord ({la},{lb}) tail={tail:?} w*={w_star} \
+             cavity={} -> {} tris",
             cavity.len(),
             new_tris.len()
         );
@@ -3062,6 +3591,7 @@ mod split_tests {
             &own_chords(),
             &other_segs(),
             true,
+            p(0.0, -5.0),
             &mut extras,
             false,
         );
@@ -3124,6 +3654,7 @@ mod split_tests {
             &own_chords(),
             &other_segs(),
             true,
+            p(0.0, -5.0),
             &mut extras,
             false,
         );
@@ -3152,6 +3683,7 @@ mod split_tests {
             &own_chords(),
             &[],
             true,
+            p(0.0, -5.0),
             &mut extras,
             false,
         );
@@ -3170,11 +3702,455 @@ mod split_tests {
             &[],
             &other_segs(),
             true,
+            p(0.0, -5.0),
             &mut extras,
             false,
         );
         assert!(!ok);
         assert_eq!(overlay.tris.len(), 6, "no mutation on either reject");
         assert!(extras.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod slide_tests {
+    //! Amendment-15 slide-splice unit oracles (spec
+    //! `m8_stage0_multiclass_cavity_arm` §13f/§13g): the F0064 vert-12
+    //! anatomy in miniature on the z=0 plane — an OPEN-link mint v that
+    //! slid ALONG the other input's model edge (y=0), landing exactly ON
+    //! its reroute chord C's interior; the chain backtracks over two
+    //! collinear stations (C's near endpoint + one more). The splice must
+    //! drop the tail from the side wedge, close c_k → v, re-embed the
+    //! stations into the far spoke's two flank fans (cavity + |tail|
+    //! triangles, per-class signed area EXACTLY conserved), and reject
+    //! loudly — with no mutation — on each §13f certificate.
+
+    use super::{carve_star_cavity, fig11_slide_splice, Carved, Frame};
+    use crate::coplanar_overlay::{ClassifiedOverlay, ExactPoint2, RegionClass};
+    use cad_primitives::{Point2, Point3};
+    use std::collections::BTreeMap;
+
+    fn frame_z0() -> Frame {
+        Frame {
+            n: [0.0, 0.0, 1.0],
+            d: 0.0,
+            o: [0.0, 0.0, 0.0],
+            e1: [1.0, 0.0, 0.0],
+            e2: [0.0, 1.0, 0.0],
+        }
+    }
+
+    fn p(u: f64, v: f64) -> Point3 {
+        Point3::new(u, v, 0.0)
+    }
+
+    fn edge_map_of(tris: &[[u32; 3]]) -> BTreeMap<[u32; 2], Vec<usize>> {
+        let key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+        let mut m: BTreeMap<[u32; 2], Vec<usize>> = BTreeMap::new();
+        for (ti, t) in tris.iter().enumerate() {
+            for k in 0..3 {
+                m.entry(key(t[k], t[(k + 1) % 3])).or_default().push(ti);
+            }
+        }
+        m
+    }
+
+    fn canon(m: &BTreeMap<[u32; 2], Vec<usize>>) -> BTreeMap<[u32; 2], Vec<usize>> {
+        m.iter()
+            .map(|(k, v)| {
+                let mut v = v.clone();
+                v.sort_unstable();
+                (*k, v)
+            })
+            .collect()
+    }
+
+    /// F0064 vert-12 miniature. Host line y=0. v=0 minted at (-1.5, 0) —
+    /// exactly ON C = (5,6) = ((-4,0) → (-1,0)) at t = 5/6 — with pre-mint
+    /// UV (-0.7, 0) on the same model line, PAST the stations 6 (-1,0) and
+    /// 7 (-0.8,0). The AOnly sliver (4 tris) backtracks over them; the far
+    /// spoke (v, 2=(3,0)) carries the Overlap|BOnly line to the right.
+    #[allow(clippy::type_complexity)]
+    fn fixture() -> (
+        ClassifiedOverlay,
+        BTreeMap<[u32; 2], Vec<usize>>,
+        Vec<Point3>,
+        Vec<bool>,
+    ) {
+        let uv = [
+            (-0.7, 0.0), // v — pre-mint UV on the model line
+            (3.0, -2.0), // below-line B vert
+            (3.0, 0.0),  // w* — far collinear spoke
+            (0.5, 1.5),  // class-boundary apex (the "9" chain vert)
+            (0.0, 2.0),  // upper AOnly vert (the "6" chain vert)
+            (-4.0, 0.0), // c_k — C's kept endpoint ("2")
+            (-1.0, 0.0), // C's near endpoint ("5") — dropped by the splice
+            (-0.8, 0.0), // station ("8") — dropped by the splice
+        ];
+        let tris = vec![
+            [7u32, 0, 3], // (8, v, 9)  AOnly — folds under the mint
+            [6, 7, 3],    // (5, 8, 9)  AOnly
+            [6, 3, 4],    // (5, 9, 6)  AOnly
+            [5, 6, 4],    // (2, 5, 6)  AOnly
+            [0, 2, 3],    // (v, w*, 9) Overlap
+            [0, 1, 2],    // (v, 15, w*) BOnly
+        ];
+        let class = vec![
+            RegionClass::AOnly,
+            RegionClass::AOnly,
+            RegionClass::AOnly,
+            RegionClass::AOnly,
+            RegionClass::Overlap,
+            RegionClass::BOnly,
+        ];
+        let overlay = ClassifiedOverlay {
+            verts: uv.iter().map(|&(u, v)| Point2::new(u, v)).collect(),
+            exact_verts: uv
+                .iter()
+                .map(|&(u, v)| ExactPoint2::from_f64(u, v).unwrap())
+                .collect(),
+            poly_a: vec![0; tris.len()],
+            poly_b: vec![0; tris.len()],
+            class,
+            tris,
+            fused: BTreeMap::new(),
+        };
+        let edge_map = edge_map_of(&overlay.tris);
+        let mut coords: Vec<Point3> = uv.iter().map(|&(u, v)| p(u, v)).collect();
+        coords[0] = p(-1.5, 0.0); // the mint: slid LEFT along y=0, past 6 and 7
+        let minted = vec![true, false, false, false, false, false, false, false];
+        (overlay, edge_map, coords, minted)
+    }
+
+    fn other_segs() -> Vec<(ExactPoint2, ExactPoint2)> {
+        vec![(
+            ExactPoint2::from_f64(-4.0, 0.0).unwrap(),
+            ExactPoint2::from_f64(3.0, 0.0).unwrap(),
+        )]
+    }
+
+    /// v's own rim sub-chord: a vertical segment through the pre-mint UV
+    /// (-0.7, 0) — v is its only crossing, so the angular-order guard is
+    /// trivially satisfied.
+    fn own_chords_v() -> Vec<(ExactPoint2, ExactPoint2)> {
+        vec![(
+            ExactPoint2::from_f64(-0.7, -1.0).unwrap(),
+            ExactPoint2::from_f64(-0.7, 1.0).unwrap(),
+        )]
+    }
+
+    fn own_chords_mirror() -> Vec<(ExactPoint2, ExactPoint2)> {
+        vec![(
+            ExactPoint2::from_f64(0.7, -1.0).unwrap(),
+            ExactPoint2::from_f64(0.7, 1.0).unwrap(),
+        )]
+    }
+
+    fn carve(
+        overlay: &ClassifiedOverlay,
+        edge_map: &BTreeMap<[u32; 2], Vec<usize>>,
+        coords: &[Point3],
+    ) -> Carved {
+        carve_star_cavity(
+            &overlay.tris,
+            &overlay.class,
+            edge_map,
+            0,
+            coords,
+            &frame_z0(),
+        )
+        .expect("fixture star carves")
+    }
+
+    #[test]
+    fn slide_commits_f0064_miniature() {
+        let (mut overlay, mut edge_map, coords, minted) = fixture();
+        let frame = frame_z0();
+        let carved = carve(&overlay, &edge_map, &coords);
+        // Pin the fixture shape: open chain 1 → 2 → 3 → 4 → 5 → 6 → 7 with
+        // the grown AOnly run ending at the open head (the backtrack tail).
+        assert_eq!(carved.starts, vec![1]);
+        assert_eq!(carved.cavity.len(), 6);
+        assert_eq!(carved.link.last().map(|&(a, b, _)| (a, b)), Some((6, 7)));
+        let ok = fig11_slide_splice(
+            &mut overlay,
+            &mut edge_map,
+            0,
+            (5, 6),
+            &coords,
+            &minted,
+            &frame,
+            &own_chords_v(),
+            &other_segs(),
+            false, // chord on input A's edge ⇒ side class AOnly
+            p(0.0, 0.0),
+            &carved,
+            true,
+        );
+        assert!(ok, "the armed slide form must commit");
+        // cavity + |tail| = 6 + 2.
+        assert_eq!(overlay.tris.len(), 8);
+        let count = |c: RegionClass| overlay.class.iter().filter(|&&x| x == c).count();
+        assert_eq!(count(RegionClass::AOnly), 2, "side wedge re-cut");
+        assert_eq!(count(RegionClass::Overlap), 3, "far flank fan (Ov)");
+        assert_eq!(count(RegionClass::BOnly), 3, "far flank fan (B)");
+        // The stations re-embedded: every swept line edge is now 2-incident
+        // {Overlap, BOnly}; the backtrack edge (7, v) is GONE; the side
+        // wedge closes c_k → v.
+        let em = edge_map_of(&overlay.tris);
+        assert_eq!(
+            canon(&edge_map),
+            canon(&em),
+            "edge map maintained incrementally"
+        );
+        let inc_classes = |a: u32, b: u32| -> Vec<RegionClass> {
+            let key = if a < b { [a, b] } else { [b, a] };
+            let mut c: Vec<RegionClass> = em
+                .get(&key)
+                .into_iter()
+                .flatten()
+                .map(|&ti| overlay.class[ti])
+                .collect();
+            c.sort_by_key(|x| format!("{x:?}"));
+            c
+        };
+        use RegionClass::{AOnly, BOnly, Overlap};
+        assert_eq!(inc_classes(0, 6), vec![BOnly, Overlap], "(v,5) split in");
+        assert_eq!(inc_classes(6, 7), vec![BOnly, Overlap], "(5,8) handed off");
+        assert_eq!(inc_classes(7, 2), vec![BOnly, Overlap], "(8,w*) split in");
+        assert!(!em.contains_key(&[0, 7]), "the backtrack edge is gone");
+        assert_eq!(inc_classes(0, 5), vec![AOnly], "side closes c_k -> v");
+        // Every rebuilt triangle is valid at the minted coordinates.
+        for t in &overlay.tris {
+            assert!(super::gate_tri_valid(t, &coords, &frame));
+        }
+    }
+
+    #[test]
+    fn slide_rejects_minted_tail_no_mutation() {
+        let (mut overlay, mut edge_map, coords, mut minted) = fixture();
+        minted[7] = true; // the station is another mint — not consumable
+        let carved = carve(&overlay, &edge_map, &coords);
+        let (tris0, class0, em0) = (
+            overlay.tris.clone(),
+            overlay.class.clone(),
+            canon(&edge_map),
+        );
+        let ok = fig11_slide_splice(
+            &mut overlay,
+            &mut edge_map,
+            0,
+            (5, 6),
+            &coords,
+            &minted,
+            &frame_z0(),
+            &own_chords_v(),
+            &other_segs(),
+            false,
+            p(0.0, 0.0),
+            &carved,
+            true,
+        );
+        assert!(!ok);
+        assert_eq!(overlay.tris, tris0);
+        assert_eq!(overlay.class, class0);
+        assert_eq!(canon(&edge_map), em0);
+    }
+
+    #[test]
+    fn slide_rejects_mint_off_line_no_mutation() {
+        let (mut overlay, mut edge_map, mut coords, minted) = fixture();
+        let carved = carve(&overlay, &edge_map, &coords);
+        coords[0] = p(-1.5, 0.05); // perpendicular bulge — NOT the armed form
+        let (tris0, class0, em0) = (
+            overlay.tris.clone(),
+            overlay.class.clone(),
+            canon(&edge_map),
+        );
+        let ok = fig11_slide_splice(
+            &mut overlay,
+            &mut edge_map,
+            0,
+            (5, 6),
+            &coords,
+            &minted,
+            &frame_z0(),
+            &own_chords_v(),
+            &other_segs(),
+            false,
+            p(0.0, 0.0),
+            &carved,
+            true,
+        );
+        assert!(!ok);
+        assert_eq!(overlay.tris, tris0);
+        assert_eq!(overlay.class, class0);
+        assert_eq!(canon(&edge_map), em0);
+    }
+
+    #[test]
+    fn slide_rejects_external_tail_incidence_no_mutation() {
+        let (mut overlay, _, mut coords, mut minted) = fixture();
+        // A foreign BOnly triangle below the line hangs off the tail verts:
+        // dropping them would orphan it.
+        overlay.verts.push(Point2::new(-1.0, -3.0));
+        overlay
+            .exact_verts
+            .push(ExactPoint2::from_f64(-1.0, -3.0).unwrap());
+        coords.push(p(-1.0, -3.0));
+        minted.push(false);
+        overlay.tris.push([7, 6, 8]);
+        overlay.class.push(RegionClass::BOnly);
+        overlay.poly_a.push(0);
+        overlay.poly_b.push(0);
+        let mut edge_map = edge_map_of(&overlay.tris);
+        let carved = carve(&overlay, &edge_map, &coords);
+        let (tris0, class0, em0) = (
+            overlay.tris.clone(),
+            overlay.class.clone(),
+            canon(&edge_map),
+        );
+        let ok = fig11_slide_splice(
+            &mut overlay,
+            &mut edge_map,
+            0,
+            (5, 6),
+            &coords,
+            &minted,
+            &frame_z0(),
+            &own_chords_v(),
+            &other_segs(),
+            false,
+            p(0.0, 0.0),
+            &carved,
+            true,
+        );
+        assert!(!ok);
+        assert_eq!(overlay.tris, tris0);
+        assert_eq!(overlay.class, class0);
+        assert_eq!(canon(&edge_map), em0);
+    }
+
+    /// The amendment-13 settle predicate, applied preventively: a second
+    /// crossing on v's own rim sub-chord whose CURRENT position angularly
+    /// inverts against v's mint (the F0064 ops[3] vert-22 configuration —
+    /// a kept slide the §10d settle would revert at quiescence) must
+    /// REJECT the slide, leaving no mutation.
+    #[test]
+    fn slide_rejects_settle_order_inversion_no_mutation() {
+        let (mut overlay, mut edge_map, mut coords, mut minted) = fixture();
+        // A reverted-mint neighbor on v's own sub-chord (exact UV on the
+        // vertical chord x=-0.7, param 0.7) whose resolved position sits
+        // angularly BEHIND v's mint about the rim center (0,0).
+        overlay.verts.push(Point2::new(-0.7, 0.4));
+        overlay
+            .exact_verts
+            .push(ExactPoint2::from_f64(-0.7, 0.4).unwrap());
+        coords.push(p(-0.9, -0.1));
+        minted.push(true);
+        let carved = carve(&overlay, &edge_map, &coords);
+        let (tris0, class0, em0) = (
+            overlay.tris.clone(),
+            overlay.class.clone(),
+            canon(&edge_map),
+        );
+        let ok = fig11_slide_splice(
+            &mut overlay,
+            &mut edge_map,
+            0,
+            (5, 6),
+            &coords,
+            &minted,
+            &frame_z0(),
+            &own_chords_v(),
+            &other_segs(),
+            false,
+            p(0.0, 0.0),
+            &carved,
+            true,
+        );
+        assert!(!ok, "an order-inverting slide must reject");
+        assert_eq!(overlay.tris, tris0);
+        assert_eq!(overlay.class, class0);
+        assert_eq!(canon(&edge_map), em0);
+    }
+
+    /// The mirrored form (tail on C's START side — the F0064 vert-63
+    /// orientation): everything negated in x with windings restored.
+    #[test]
+    fn slide_commits_mirrored_tail_side() {
+        let uv = [
+            (0.7, 0.0), // v — pre-mint UV
+            (-3.0, -2.0),
+            (-3.0, 0.0), // w*
+            (-0.5, 1.5), // apex
+            (0.0, 2.0),
+            (4.0, 0.0), // c_k (now C's FAR endpoint, kept)
+            (1.0, 0.0), // C's near endpoint — dropped
+            (0.8, 0.0), // station — dropped
+        ];
+        let tris = vec![
+            [0u32, 7, 3], // (v, 8, 9) AOnly — folds under the mint
+            [7, 6, 3],    // (8, 5, 9) AOnly
+            [3, 6, 4],    // (9, 5, 6) AOnly
+            [6, 5, 4],    // (5, 2, 6) AOnly
+            [2, 0, 3],    // (w*, v, 9) Overlap
+            [1, 0, 2],    // (15, v, w*) BOnly
+        ];
+        let class = vec![
+            RegionClass::AOnly,
+            RegionClass::AOnly,
+            RegionClass::AOnly,
+            RegionClass::AOnly,
+            RegionClass::Overlap,
+            RegionClass::BOnly,
+        ];
+        let mut overlay = ClassifiedOverlay {
+            verts: uv.iter().map(|&(u, v)| Point2::new(u, v)).collect(),
+            exact_verts: uv
+                .iter()
+                .map(|&(u, v)| ExactPoint2::from_f64(u, v).unwrap())
+                .collect(),
+            poly_a: vec![0; tris.len()],
+            poly_b: vec![0; tris.len()],
+            class,
+            tris,
+            fused: BTreeMap::new(),
+        };
+        let mut edge_map = edge_map_of(&overlay.tris);
+        let mut coords: Vec<Point3> = uv.iter().map(|&(u, v)| p(u, v)).collect();
+        coords[0] = p(1.5, 0.0); // slid RIGHT along y=0, past 6 and 7
+        let minted = vec![true, false, false, false, false, false, false, false];
+        let segs = vec![(
+            ExactPoint2::from_f64(-3.0, 0.0).unwrap(),
+            ExactPoint2::from_f64(4.0, 0.0).unwrap(),
+        )];
+        let frame = frame_z0();
+        let carved =
+            carve_star_cavity(&overlay.tris, &overlay.class, &edge_map, 0, &coords, &frame)
+                .expect("mirror star carves");
+        let ok = fig11_slide_splice(
+            &mut overlay,
+            &mut edge_map,
+            0,
+            (6, 5),
+            &coords,
+            &minted,
+            &frame,
+            &own_chords_mirror(),
+            &segs,
+            false,
+            p(0.0, 0.0),
+            &carved,
+            true,
+        );
+        assert!(ok, "the mirrored slide form must commit");
+        assert_eq!(overlay.tris.len(), 8);
+        let em = edge_map_of(&overlay.tris);
+        assert_eq!(canon(&edge_map), canon(&em));
+        assert!(!em.contains_key(&[0, 7]), "the backtrack edge is gone");
+        for t in &overlay.tris {
+            assert!(super::gate_tri_valid(t, &coords, &frame));
+        }
     }
 }
