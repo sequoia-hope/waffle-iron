@@ -1542,3 +1542,88 @@ mesh-updating epic's territory — deviation/#169 family, NOT a
 Stage-0 item); the u32::MAX vertex id in that message (cosmetic
 attribution gap worth a probe when #169 takes the case); C0048
 DegenerateTpi; the §14d wide-anchor WATCH; §13g bulge form.
+
+## 16. C0048 DegenerateTpi ANCHOR (2026-07-31) — congruent-rim cross-solid TABLE divergence; amendment-18 design frame
+
+### 16a. The anchor chain (measured)
+
+C0048 ops[4] fails at cherchi `DeepRecursionRequired { base_tri: 207,
+detail: DegenerateTpi }` — constraint enforcement inside base tri 207
+needs a TPI whose three supporting planes are not in general position.
+`CHERCHI_ENFORCE_PROBE` shows the configuration: **base tri 207 is a
+femto NEEDLE** — corners c1/c2 are ulp twins (soup
+`(1.3016512173526738, 2.702906603707258)` vs `(…746, …2575)`; model ÷2
+= `(0.6508256086763369, 1.351453301853629)` vs `(…373, …288)`), and
+the pending segments are jolly-LPIs (the classification-stage
+machinery ran correctly upstream) with femto sub-segments between
+coincident implicit points.
+
+The reference mechanism for a degenerate TPI is IN HAND (C++
+`computeTriangleOfSegmentInCoplanarCase`, triangulation.cpp:1080: a
+coplanar source plane is replaced by [segment's two explicit
+endpoints + first non-coplanar jolly point] — the jolly-plane cuts
+the base exactly along the segment's line, so the TPI is the in-plane
+crossing, never degenerate). That AR3b port is a legitimate future
+cherchi increment — but it would only make cherchi robust to THIS
+input; the input itself is the defect:
+
+`YANG_INPUT_VERT_PROBE` + `[s0-build-probe]` at the model point:
+**BOTH solids' Stage-0 interface meshes carry BOTH values** —
+mesh A: vert 137@`…373` (own tess, `BRepEdge{edge 4, t=1.1220}`) +
+vert 227@`…369` (interned from the overlay emission); mesh B: vert
+33@`…369` (own tess, `BRepEdge{edge 0, t=5.1612}`) + vert
+164@`…373` (from the overlay). The point is a junction azimuth on
+the SHARED CONGRUENT r=1.5 circle (flush plates: A's rim and B's rim
+are the same geometric circle, different B-Rep edges, different
+frames/seams — edge-4 angle 1.1220 in A's frame ≡ edge-0 angle
+5.1612 in B's frame). **A's rim table resolves the junction through
+A's frame (`…373`), B's through B's (`…369`) — two overlay vertices
+one ulp apart, one `rim_a`-anchored, one `rim_b`-anchored.** Both are
+excluded from the #61 collapse (not minted) AND from the §15
+absorption (rim-table anchors are protected by design). The emission
+carries the femto pair plus bridging slivers into both meshes; base
+tri 207 is such a sliver; cherchi's exact enforcement then meets
+degenerate TPIs on it. Same family as §14/§15 (one feature, two
+worlds), new member: the two worlds are the two SOLIDS' rim frames.
+
+### 16b. Amendment-18 design frame (not yet implemented)
+
+Identify `rim_a × rim_b` anchor pairs on CONGRUENT circles (exact
+same-circle test on the two rim contexts) whose exact uv distance is
+sub-band (the §15 rounding-noise band), and fuse each pair to ONE
+value — election deterministic (frame-independent; e.g. the
+lexicographically smaller bit pattern). The adopting solid's RING
+must then take the fused bits at that azimuth: route the fused point
+through that solid's `rim_overrides` so the #143 uniform-slot merge
+adopts it ("the slot takes the override's exact bits") — no new
+ring mechanism. The E7 clustering already remaps the tables; the fix
+is either a clustering extension (cross-table sub-band pairs on
+congruent rims) or a post-cluster table-unification pass — decide
+after reading the cluster criterion (inc-0).
+
+Increments: inc-0 — read the E7 cluster criterion + census how many
+corpus cases carry cross-table sub-band pairs (probe: scan rim_a ×
+rim_b for sub-band uv pairs at pair-processing time, print
+congruence + distance). inc-1 — gated fusion + ring propagation +
+unit oracle (congruent-rim pair fuses; distinct-circle near pair does
+NOT). inc-2 — C0048 end to end (expect past DegenerateTpi), sweep,
+flip. The cherchi AR3b jolly-plane port stays a SEPARATE, additive
+increment (reference-faithful robustness; do not conflate).
+
+### 16c. inc-0 RESULTS (2026-07-31)
+
+**Cluster criterion read**: `cluster_frame_coords_rim_aware` protects
+on-circle points from being moved (clustering would drag them off
+their circle) — so cross-solid rim twins survive clustering BY
+DESIGN, and the amendment-18 fix is a POST-CLUSTER table election
+(pick one exact on-circle value per congruent-rim junction, propagate
+the fused bits into the adopting solid's ring via `rim_overrides` so
+the #143 uniform-slot merge adopts them), NOT a clustering extension.
+
+**Census** (`[rim-table-twin]` probe, banked): **C0048 carries 13
+cross-table sub-band pairs; F0064, F0072, R0059, F0086 carry ZERO** —
+the class is concentrated in the congruent-rim flush-stack geometry
+(C0048's defining configuration: two r=1.5 plates whose rims are the
+SAME circle). C0048 is the proven customer; a full-corpus census
+rides the next cycle's sweep (the probe is in the standard
+`YANG_SPLIT_PROBE` vocabulary).

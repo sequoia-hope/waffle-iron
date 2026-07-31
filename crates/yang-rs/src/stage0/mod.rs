@@ -634,6 +634,37 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             (ca, cb, ra, rb, key_map)
         };
 
+        // §16 inc-0 census probe (read-only, spec
+        // `m8_stage0_multiclass_cavity_arm` §16): cross-table sub-band
+        // rim-anchor pairs — the congruent-rim cross-solid divergence class
+        // (C0048 base-tri-207 femto needle → cherchi DegenerateTpi). The
+        // rim-aware clustering PROTECTS on-circle points (moving one drags
+        // it off its circle), so a junction azimuth on a SHARED congruent
+        // circle survives as one rim_a anchor + one rim_b anchor at
+        // ulp-different exact on-circle values. Census before designing the
+        // amendment-18 election.
+        if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+            for (ka, pa3) in &rim_a {
+                for (kb, pb3) in &rim_b {
+                    let du = (&ka.x - &kb.x).to_f64().value();
+                    let dv = (&ka.y - &kb.y).to_f64().value();
+                    let d2 = du * du + dv * dv;
+                    let scale = ka.x.to_f64().value().abs().max(ka.y.to_f64().value().abs());
+                    let band = cad_primitives::TAU_WORK * (1.0 + scale);
+                    if d2 < band * band && pa3 != pb3 {
+                        eprintln!(
+                            "[rim-table-twin] pair=({},{}) uv_dist={:e} a={:?} b={:?}",
+                            p.face_a,
+                            p.face_b,
+                            d2.sqrt(),
+                            pa3.as_array(),
+                            pb3.as_array()
+                        );
+                    }
+                }
+            }
+        }
+
         let mut overlay = coplanar_overlay(&poly_a, &poly_b).map_err(|e| {
             probe(
                 "overlay-failed",
