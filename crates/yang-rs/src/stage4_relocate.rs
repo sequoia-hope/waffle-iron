@@ -1772,6 +1772,14 @@ pub(crate) fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
                      v{s}={:?} v{e}={:?}",
                     mesh.verts[s as usize], mesh.verts[e as usize]
                 );
+                for (ti, tri) in mesh.tris.iter().enumerate() {
+                    if tri.contains(&s) && tri.contains(&e) {
+                        eprintln!(
+                            "NONMANIFOLD_SITE_PROBE s4-halfedge-pairing incident: \
+                             tri {ti} {tri:?}"
+                        );
+                    }
+                }
             }
             return Err(non_manifold_at(
                 "s4-halfedge-pairing",

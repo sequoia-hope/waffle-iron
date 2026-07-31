@@ -1662,6 +1662,9 @@ F0064/F0072 typed; F0067 at its §4.5.2 wall; R0070 unchanged.
 
 Residuals: the cherchi AR3b jolly-plane port (separate robustness
 increment, unreferenced by any current customer); F0067's §4.5.2
-LocalRefinementRequired (epic #169); the §13g bulge form and §12
-census-armed classes; the `[rim-table-twin]` full-corpus census
-(rides the next YANG_SPLIT_PROBE sweep).
+LocalRefinementRequired (epic #169) — RESOLVED 2026-07-31 by the
+mutual-pair arm (`yang_n2_stage4_cdt_mesh_updating.md` §5c.11);
+F0067 now stands at the (4b) Stage-4 watertight gate (pre-existing
+#146-class triple-incidence the STOP had masked); the §13g bulge
+form and §12 census-armed classes; the `[rim-table-twin]`
+full-corpus census (rides the next YANG_SPLIT_PROBE sweep).

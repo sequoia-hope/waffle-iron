@@ -228,7 +228,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): b184cc49-01cb-4d27-8984-d4c87b1362cd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 4294967295 is invalid: LocalRefinementRequired\")",
+      "detail": "1 engine error(s): b184cc49-01cb-4d27-8984-d4c87b1362cd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
       "id": "R0038",
       "status": "error"
     },
@@ -1002,7 +1002,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 10: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 4294967295 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 10: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
       "id": "F0067",
       "status": "error"
     },

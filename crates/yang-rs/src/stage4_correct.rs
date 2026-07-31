@@ -904,6 +904,150 @@ pub(crate) fn replan_degenerate_cylinder_patches(
     Ok(remeshed)
 }
 
+/// A mutual degenerate pair (spec `yang_n2_stage4_cdt_mesh_updating.md` §5c.11):
+/// both incident triangles of one long edge are degenerate and report that SAME
+/// edge as their long edge — a zero-area quad astride `a–c` with the two
+/// off-vertices `bl`/`bh` interleaved strictly inside the segment
+/// (`0 < t(bl) < t(bh) < 1` along `a→c`). `nl`/`nh` are the OUTER neighbours
+/// across the two insertion edges `(bl,c)` / `(a,bh)`, both non-degenerate.
+struct MutualPair {
+    t1: usize,
+    t2: usize,
+    nl: usize,
+    nh: usize,
+    a: u32,
+    c: u32,
+    bl: u32,
+    bh: u32,
+}
+
+/// Validate the mutual-pair configuration for degenerate triangle `ti` whose
+/// long-edge neighbour `n` is also degenerate. `None` unless: `n`'s long edge is
+/// the SAME edge `(a,c)`; the off vertices are distinct and strictly interleaved
+/// inside the open segment; and both insertion edges have exactly two incident
+/// triangles whose outer member (not `ti`/`n`) is non-degenerate. Anything else
+/// keeps the loud STOP (honest deferral, no partial action).
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn mutual_pair_candidate(
+    mesh: &Mesh,
+    edge_tris: &std::collections::HashMap<(u32, u32), Vec<u32>>,
+    is_degen: &dyn Fn(usize, &Mesh) -> bool,
+    long_edge_off: &dyn Fn(&[u32; 3], &Mesh) -> (u32, u32, u32),
+    ti: usize,
+    n: usize,
+    a: u32,
+    c: u32,
+    b: u32,
+) -> Option<MutualPair> {
+    let (na, nc, nb) = long_edge_off(&mesh.tris[n], mesh);
+    let key = if a < c { (a, c) } else { (c, a) };
+    let nkey = if na < nc { (na, nc) } else { (nc, na) };
+    if nkey != key || nb == b {
+        return None;
+    }
+    let pa = mesh.verts[a as usize].as_array();
+    let pc = mesh.verts[c as usize].as_array();
+    let e = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
+    let l2 = e[0] * e[0] + e[1] * e[1] + e[2] * e[2];
+    if l2 == 0.0 {
+        return None;
+    }
+    let tof = |v: u32| {
+        let p = mesh.verts[v as usize].as_array();
+        ((p[0] - pa[0]) * e[0] + (p[1] - pa[1]) * e[1] + (p[2] - pa[2]) * e[2]) / l2
+    };
+    let (tb, tnb) = (tof(b), tof(nb));
+    let (bl, bh, tl, th) = if tb <= tnb {
+        (b, nb, tb, tnb)
+    } else {
+        (nb, b, tnb, tb)
+    };
+    // Equal parameters give no deterministic chain order — keep the STOP.
+    if !(0.0 < tl && tl < th && th < 1.0) {
+        return None;
+    }
+    let outer = |u: u32, v: u32| -> Option<usize> {
+        let k = if u < v { (u, v) } else { (v, u) };
+        let list = edge_tris.get(&k)?;
+        if list.len() != 2 {
+            return None;
+        }
+        let o = list
+            .iter()
+            .map(|&x| x as usize)
+            .find(|&x| x != ti && x != n)?;
+        if is_degen(o, mesh) {
+            return None;
+        }
+        Some(o)
+    };
+    let nl = outer(bl, c)?;
+    let nh = outer(a, bh)?;
+    Some(MutualPair {
+        t1: ti,
+        t2: n,
+        nl,
+        nh,
+        a,
+        c,
+        bl,
+        bh,
+    })
+}
+
+/// Execute the mutual-pair update (spec §5c.11): drop both zero-area members and
+/// Fig-11(a)-split the two outer neighbours — `nl` (across `(bl,c)`) at `bh`,
+/// `nh` (across `(a,bh)`) at `bl` — so both sides of the former quad carry the
+/// identical vertex chain `a–bl–bh–c`. Pure connectivity: no vertex moves, none
+/// is added or dropped; each split piece inherits its parent's winding (restored
+/// against the parent's area normal) and attribution. Watertight by
+/// construction: the long edge `(a,c)` and both insertion edges vanish together
+/// with their two incident triangles each, and every chain edge pairs one piece
+/// from each side.
+fn resolve_mutual_degenerate_pair(
+    mesh: &mut Mesh,
+    attr_vec: &mut Vec<Option<TriangleAttribution>>,
+    m: &MutualPair,
+) {
+    let split = |parent: [u32; 3], u: u32, v: u32, ins: u32| -> ([u32; 3], [u32; 3]) {
+        let dd = parent
+            .iter()
+            .copied()
+            .find(|&x| x != u && x != v)
+            .expect("split parent shares the insertion edge, has a third vertex");
+        let norm = tri_area_vector(
+            mesh.verts[parent[0] as usize].as_array(),
+            mesh.verts[parent[1] as usize].as_array(),
+            mesh.verts[parent[2] as usize].as_array(),
+        );
+        let mut p1 = [u, ins, dd];
+        let mut p2 = [ins, v, dd];
+        orient_tri(&mesh.verts, &mut p1, norm);
+        orient_tri(&mesh.verts, &mut p2, norm);
+        (p1, p2)
+    };
+    let (l1, l2) = split(mesh.tris[m.nl], m.bl, m.c, m.bh);
+    let (h1, h2) = split(mesh.tris[m.nh], m.a, m.bh, m.bl);
+    let nl_attr = attr_vec.get(m.nl).copied().flatten();
+    let nh_attr = attr_vec.get(m.nh).copied().flatten();
+    let drop = [m.t1, m.t2, m.nl, m.nh];
+    let mut new_tris: Vec<[u32; 3]> = Vec::with_capacity(mesh.tris.len());
+    let mut new_attr: Vec<Option<TriangleAttribution>> = Vec::with_capacity(attr_vec.len());
+    for (i, t) in mesh.tris.iter().enumerate() {
+        if drop.contains(&i) {
+            continue;
+        }
+        new_tris.push(*t);
+        new_attr.push(attr_vec.get(i).copied().flatten());
+    }
+    for (t, at) in [(l1, nl_attr), (l2, nl_attr), (h1, nh_attr), (h2, nh_attr)] {
+        new_tris.push(t);
+        new_attr.push(at);
+    }
+    *mesh = Mesh::new(std::mem::take(&mut mesh.verts), new_tris);
+    *attr_vec = new_attr;
+}
+
 /// #169 Phase B — the §4.4.1 mesh-update splice for the non-manifold reassembly
 /// bucket. For each patch flagged by [`detect_nonmanifold_seams`] whose defect is
 /// a spurious/overlapping triangle (F0082: `tri1217` doubling a seam edge inside
@@ -6603,6 +6747,18 @@ pub(crate) fn stage4_relocate_and_correct(
             }
             // Pick a degenerate triangle whose long-edge neighbour is non-degenerate.
             let mut action: Option<(usize, usize, u32, u32, u32)> = None;
+            // Fallback: a MUTUAL pair — both incident triangles of one long edge
+            // degenerate with that same edge as their long edge (a zero-area quad
+            // astride the edge, off-vertices interleaved along it). No simple
+            // action can ever fire on either member (each is the other's
+            // neighbour), so when only such pairs remain the loop STOPs. The
+            // mutual arm resolves the quad: drop both, and Fig-11(a)-split the
+            // two OUTER neighbours so both sides carry the identical fine chain
+            // a–bL–bH–c (two-sided conformal by construction, no geometry moved).
+            // ALWAYS-ON since 2026-07-31 (was `YANG_S4_MUTUAL_PAIR_ENABLE`;
+            // spec §5c.11 — corpus sweep: zero category deltas, F0067/R0038
+            // advance to their deeper pre-existing walls).
+            let mut mutual: Option<MutualPair> = None;
             let mut any_degen = false;
             for ti in 0..mesh.tris.len() {
                 if !is_degen(ti, mesh) {
@@ -6621,6 +6777,23 @@ pub(crate) fn stage4_relocate_and_correct(
                     inc[0]
                 } as usize;
                 if is_degen(n, mesh) {
+                    // Simple arm defers to let the neighbour resolve first; if the
+                    // neighbour's long edge is the SAME edge, neither ever will —
+                    // record the pair as a mutual-arm candidate (executed only when
+                    // no simple action exists anywhere this pass).
+                    if mutual.is_none() {
+                        mutual = mutual_pair_candidate(
+                            mesh,
+                            &edge_tris,
+                            &is_degen,
+                            &long_edge_off,
+                            ti,
+                            n,
+                            a,
+                            c,
+                            b,
+                        );
+                    }
                     continue; // defer until the neighbour is resolved
                 }
                 action = Some((ti, n, a, c, b));
@@ -6629,6 +6802,18 @@ pub(crate) fn stage4_relocate_and_correct(
             let (d_idx, n_idx, a, c, b) = match action {
                 Some(x) => x,
                 None => {
+                    if let Some(m) = mutual.take() {
+                        if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                            eprintln!(
+                                "YANG_LRR_ACTION mutual t1={} t2={} nl={} nh={} \
+                                 a={} c={} bl={} bh={}",
+                                m.t1, m.t2, m.nl, m.nh, m.a, m.c, m.bl, m.bh
+                            );
+                        }
+                        resolve_mutual_degenerate_pair(mesh, &mut attr_vec, &m);
+                        collapsed_any = true;
+                        continue;
+                    }
                     if any_degen {
                         // Degenerate triangles remain but none has a non-degenerate
                         // long-edge neighbour — genuine local-refinement territory.
@@ -6666,6 +6851,76 @@ pub(crate) fn stage4_relocate_and_correct(
                                     mesh.verts[c as usize].as_array(),
                                     mesh.verts[b as usize].as_array(),
                                 );
+                                // Mutual-pair anatomy: both incident triangles of the
+                                // long edge are degenerate and report the SAME long
+                                // edge (the quad-astride-one-edge configuration). For
+                                // that configuration the candidate update is: drop
+                                // both, insert bH into (bL,c) and bL into (a,bH) —
+                                // so dump the off-vertex edge parameters plus the
+                                // OUTER neighbours across those two insertion edges
+                                // (their attribution decides the cross-face risk).
+                                if let Some(incv) = edge_tris.get(&key) {
+                                    if incv.len() == 2 {
+                                        let n = if incv[0] as usize == ti {
+                                            incv[1]
+                                        } else {
+                                            incv[0]
+                                        } as usize;
+                                        let (na, nc, nb) = long_edge_off(&mesh.tris[n], mesh);
+                                        let nkey = if na < nc { (na, nc) } else { (nc, na) };
+                                        if ti < n && is_degen(n, mesh) && nkey == key {
+                                            let pa = mesh.verts[a as usize].as_array();
+                                            let pc = mesh.verts[c as usize].as_array();
+                                            let e = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
+                                            let l2 = e[0] * e[0] + e[1] * e[1] + e[2] * e[2];
+                                            let tof = |v: u32| {
+                                                let p = mesh.verts[v as usize].as_array();
+                                                ((p[0] - pa[0]) * e[0]
+                                                    + (p[1] - pa[1]) * e[1]
+                                                    + (p[2] - pa[2]) * e[2])
+                                                    / l2
+                                            };
+                                            let (tb, tnb) = (tof(b), tof(nb));
+                                            let (bl, bh) =
+                                                if tb <= tnb { (b, nb) } else { (nb, b) };
+                                            let attr_of = |t: usize| {
+                                                attr_vec.get(t).and_then(|o| o.as_ref()).map(|at| {
+                                                    (matches!(at.input, InputId::A), at.face)
+                                                })
+                                            };
+                                            let probe_edge = |u: u32, v: u32| {
+                                                let k = if u < v { (u, v) } else { (v, u) };
+                                                match edge_tris.get(&k) {
+                                                    Some(list) => {
+                                                        let others: Vec<_> = list
+                                                            .iter()
+                                                            .map(|&x| x as usize)
+                                                            .filter(|&x| x != ti && x != n)
+                                                            .map(|x| {
+                                                                (x, is_degen(x, mesh), attr_of(x))
+                                                            })
+                                                            .collect();
+                                                        format!(
+                                                            "inc={} others={others:?}",
+                                                            list.len()
+                                                        )
+                                                    }
+                                                    None => "missing".into(),
+                                                }
+                                            };
+                                            eprintln!(
+                                                "YANG_LRR_MUTUAL tri={ti} partner={n} \
+                                                 long=({a},{c}) offs=({b}@{tb:.4},{nb}@{tnb:.4}) \
+                                                 pair_attr=({:?},{:?}) \
+                                                 edge_bLc[{}] edge_abH[{}]",
+                                                attr_of(ti),
+                                                attr_of(n),
+                                                probe_edge(bl, c),
+                                                probe_edge(a, bh),
+                                            );
+                                        }
+                                    }
+                                }
                             }
                             eprintln!("YANG_LRR_STOP site=degenerate_no_longedge ndeg={ndeg}");
                             // Grounding: for each attribution carrying a degenerate
@@ -6815,6 +7070,9 @@ pub(crate) fn stage4_relocate_and_correct(
                 }
             };
             // Split N=[a,c,d] at b → [a,b,d] + [b,c,d], wound like N; drop D.
+            if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                eprintln!("YANG_LRR_ACTION simple d={d_idx} n={n_idx} a={a} c={c} b={b}");
+            }
             let nt = mesh.tris[n_idx];
             let dd = nt
                 .iter()
@@ -7292,5 +7550,186 @@ fn surface_kind_name(s: Surface) -> &'static str {
         Surface::Cone { .. } => "Cone",
         Surface::Sphere { .. } => "Sphere",
         Surface::Torus { .. } => "Torus",
+    }
+}
+
+#[cfg(test)]
+mod mutual_pair_tests {
+    use super::*;
+
+    /// The §5c.11 "pillow" fixture: a closed, coherently wound 8-triangle
+    /// surface whose equator carries a mutual degenerate pair — T1=[c,bl,a] and
+    /// T2=[bh,c,a] astride the shared long edge (a,c), off-vertices bl/bh
+    /// interleaved strictly inside the segment (t = 0.25 / 0.6, off-line height
+    /// 1e-13 → areas 5e-14 < MIN_FEATURE_SIZE²).
+    fn pillow() -> (Mesh, Vec<Option<TriangleAttribution>>, MutualPair) {
+        let d = 1.0e-13;
+        let verts = vec![
+            Point3::new(0.0, 0.0, 0.0),  // 0 = a
+            Point3::new(1.0, 0.0, 0.0),  // 1 = c
+            Point3::new(0.25, d, 0.0),   // 2 = bl
+            Point3::new(0.6, -d, 0.0),   // 3 = bh
+            Point3::new(0.5, 1.0, 0.0),  // 4 = x (NL apex)
+            Point3::new(0.5, -1.0, 0.0), // 5 = y (NH apex)
+        ];
+        let tris = vec![
+            [0, 2, 4], // 0 M1
+            [1, 4, 2], // 1 NL (outer across (bl,c))
+            [1, 2, 0], // 2 T1 (degenerate, off = bl)
+            [3, 1, 0], // 3 T2 (degenerate, off = bh)
+            [3, 0, 5], // 4 NH (outer across (a,bh))
+            [1, 3, 5], // 5 M2
+            [5, 0, 4], // 6 E1
+            [4, 1, 5], // 7 E2
+        ];
+        let mut attrs: Vec<Option<TriangleAttribution>> = vec![None; 8];
+        attrs[1] = Some(TriangleAttribution {
+            input: InputId::A,
+            face: 7,
+        });
+        attrs[4] = Some(TriangleAttribution {
+            input: InputId::B,
+            face: 3,
+        });
+        let m = MutualPair {
+            t1: 2,
+            t2: 3,
+            nl: 1,
+            nh: 4,
+            a: 0,
+            c: 1,
+            bl: 2,
+            bh: 3,
+        };
+        (Mesh::new(verts, tris), attrs, m)
+    }
+
+    fn directed_edge_census(tris: &[[u32; 3]]) -> std::collections::HashMap<(u32, u32), usize> {
+        let mut m = std::collections::HashMap::new();
+        for t in tris {
+            for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+                *m.entry((t[i], t[j])).or_insert(0) += 1;
+            }
+        }
+        m
+    }
+
+    fn assert_closed_coherent(tris: &[[u32; 3]]) {
+        let m = directed_edge_census(tris);
+        for (&(u, v), &n) in &m {
+            assert_eq!(n, 1, "directed edge ({u},{v}) used {n} times");
+            assert_eq!(m.get(&(v, u)), Some(&1), "edge ({u},{v}) has no reverse");
+        }
+    }
+
+    fn area(mesh: &Mesh, t: [u32; 3]) -> f64 {
+        let av = tri_area_vector(
+            mesh.verts[t[0] as usize].as_array(),
+            mesh.verts[t[1] as usize].as_array(),
+            mesh.verts[t[2] as usize].as_array(),
+        );
+        0.5 * (av[0] * av[0] + av[1] * av[1] + av[2] * av[2]).sqrt()
+    }
+
+    fn edge_incidence(tris: &[[u32; 3]]) -> std::collections::HashMap<(u32, u32), Vec<u32>> {
+        let mut m: std::collections::HashMap<(u32, u32), Vec<u32>> =
+            std::collections::HashMap::new();
+        for (ti, tri) in tris.iter().enumerate() {
+            for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+                let (u, v) = (tri[i], tri[j]);
+                let key = if u < v { (u, v) } else { (v, u) };
+                m.entry(key).or_default().push(ti as u32);
+            }
+        }
+        m
+    }
+
+    #[test]
+    fn pillow_fixture_is_closed_and_carries_the_pair() {
+        let (mesh, _, m) = pillow();
+        assert_closed_coherent(&mesh.tris);
+        let thr = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
+        assert!(area(&mesh, mesh.tris[m.t1]) < thr);
+        assert!(area(&mesh, mesh.tris[m.t2]) < thr);
+    }
+
+    #[test]
+    fn resolve_drops_the_quad_and_stays_watertight_with_the_fine_chain() {
+        let (mut mesh, mut attrs, m) = pillow();
+        resolve_mutual_degenerate_pair(&mut mesh, &mut attrs, &m);
+        assert_eq!(mesh.tris.len(), 8);
+        assert_eq!(attrs.len(), 8);
+        assert_closed_coherent(&mesh.tris);
+        let thr = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
+        for &t in &mesh.tris {
+            assert!(area(&mesh, t) >= thr, "degenerate tri {t:?} survived");
+        }
+        // The long edge is gone; both sides carry the fine chain a–bl–bh–c.
+        let und = edge_incidence(&mesh.tris);
+        assert!(!und.contains_key(&(0, 1)), "long edge (a,c) survived");
+        for k in [(0, 2), (2, 3), (1, 3)] {
+            assert_eq!(
+                und.get(&k).map(Vec::len),
+                Some(2),
+                "chain edge {k:?} not paired"
+            );
+        }
+        // Split pieces inherit their parents' attributions.
+        let n_a7 = attrs
+            .iter()
+            .flatten()
+            .filter(|at| at.input == InputId::A && at.face == 7)
+            .count();
+        let n_b3 = attrs
+            .iter()
+            .flatten()
+            .filter(|at| at.input == InputId::B && at.face == 3)
+            .count();
+        assert_eq!((n_a7, n_b3), (2, 2));
+    }
+
+    #[test]
+    fn candidate_accepts_the_pair_and_rejects_equal_parameters() {
+        let (mesh, _, want) = pillow();
+        let edge_tris = edge_incidence(&mesh.tris);
+        let thr = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
+        let is_degen = |ti: usize, mesh: &Mesh| area(mesh, mesh.tris[ti]) < thr;
+        let long_edge_off = |t: &[u32; 3], mesh: &Mesh| -> (u32, u32, u32) {
+            let d = |i: usize, j: usize| {
+                let p = mesh.verts[t[i] as usize].as_array();
+                let q = mesh.verts[t[j] as usize].as_array();
+                (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)
+            };
+            let (e01, e12, e20) = (d(0, 1), d(1, 2), d(2, 0));
+            if e01 >= e12 && e01 >= e20 {
+                (t[0], t[1], t[2])
+            } else if e12 >= e20 {
+                (t[1], t[2], t[0])
+            } else {
+                (t[2], t[0], t[1])
+            }
+        };
+        let (a, c, b) = long_edge_off(&mesh.tris[2], &mesh);
+        let got =
+            mutual_pair_candidate(&mesh, &edge_tris, &is_degen, &long_edge_off, 2, 3, a, c, b)
+                .expect("mutual pair accepted");
+        assert_eq!((got.t1, got.t2, got.nl, got.nh), (2, 3, want.nl, want.nh));
+        assert_eq!((got.bl, got.bh), (want.bl, want.bh));
+        // Same parameter along a→c (no deterministic chain order) → rejected.
+        let mut mesh2 = pillow().0;
+        mesh2.verts[2] = Point3::new(0.6, 1.0e-13, 0.0);
+        let (a2, c2, b2) = long_edge_off(&mesh2.tris[2], &mesh2);
+        assert!(mutual_pair_candidate(
+            &mesh2,
+            &edge_tris,
+            &is_degen,
+            &long_edge_off,
+            2,
+            3,
+            a2,
+            c2,
+            b2
+        )
+        .is_none());
     }
 }

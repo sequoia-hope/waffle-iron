@@ -3626,6 +3626,28 @@ swapped every consumer to `predicates::indirect`).
     The C++ AR3b jolly-plane fallback
     (computeTriangleOfSegmentInCoplanarCase, extracted and recorded
     in spec §16a) stays a SEPARATE cherchi robustness increment.
+  - **Epic #169 §4.4.1 MUTUAL-PAIR arm SHIPPED ALWAYS-ON 2026-07-31
+    (spec `specs/yang_n2_stage4_cdt_mesh_updating.md` §5c.11).** F0067's
+    post-amendment LRR wall anchored: `degenerate_no_longedge` was a
+    DEADLOCK — two zero-area triangles astride ONE shared long edge
+    (off-vertices strictly interleaved ON the segment; a relocation-moved
+    endpoint), each the other's long-edge neighbour, so the committed
+    strip-unzip's "defer until the neighbour resolves" never fires. Fix:
+    when no simple action exists, drop both members and Fig-11(a)-split
+    the two OUTER neighbours so both sides adopt the identical fine chain
+    `a–bL–bH–c` — two-sided conformal by construction, pure connectivity,
+    per-edge fwd/rev balance conserved; unit-oracled on a closed pillow
+    fixture. F0067 (both quads) and R0038 (its §5c.10 triple = mutual
+    pair + one chained simple action — two-sided insertion removes the
+    tangency caps the one-sided re-CDT refutation could not) clear the
+    STOP and advance to PRE-EXISTING walls the STOP had masked: F0067 →
+    the (4b) Stage-4 watertight gate (edge fwd=1 rev=2 in a region the
+    arm never touched — flush-stack coincident-sheet, #146-class
+    upstream family); R0038 → `s6-planar-loop-nonplanar` (#137 tangency
+    reassembly). Sweep 312/312: ZERO category deltas (261C/0W/47E/0T
+    verbatim), exactly the two justified detail deltas. LRR site census
+    banked: R0009/R0047 = `split_max_passes` runaway (own queue);
+    R0032/R0050/C0067 specific-vertex region-invalid; R0044 = M5.
   - **MULTI-CLASS cavity arm SPEC WRITTEN 2026-07-30 —
     `specs/m8_stage0_multiclass_cavity_arm.md` (amendment 12).** The R0099
     producing-op probe (1f576621) named the fold gate's structural gap: a

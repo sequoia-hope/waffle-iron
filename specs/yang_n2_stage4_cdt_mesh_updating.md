@@ -642,7 +642,97 @@ byte-identical to baseline. R0038 is **reclassified to task #137** (near-tangenc
 it is not greenable by the CDT mesh-update and must be resolved by the tangency
 treatment (recognize the grazing contact; do not emit a zero-width strip patch).
 
-## 6. Risks & guardrails
+### 5c.11 The MUTUAL-PAIR arm (epic #169, 2026-07-31) — F0067's `degenerate_no_longedge` deadlock is a quad astride ONE long edge; resolve by two-sided Fig-11(a) insertion, `YANG_S4_MUTUAL_PAIR_ENABLE`
+
+**Customer census (probe runs, 2026-07-31).** The post-amendment-18 canonical
+(261C/0W/47E/0T) carries 8 `LocalRefinementRequired` ERRORs. Site attribution:
+F0067 + R0038 = `degenerate_no_longedge`; R0009 + R0047 = `split_max_passes`
+(runaway split loop — a DIFFERENT mechanism, own queue); R0032/R0044/R0050/C0067
+= specific-vertex region-invalid sites (R0044 = M5 SSI track). F0067 arrived at
+this site fresh from the M8 amendment 16→18 arc (its Stage-0/cherchi walls are
+retired; `Extrude 10` auto-union is the failing op).
+
+**The anchor (F0067, `YANG_LRR_PROBE`).** STOP `site=degenerate_no_longedge
+ndeg=4`: TWO independent pairs of zero-area triangles — 3952/3953 on plane face
+A/471, 4308/4309 on A/583 (both VERTICAL side-wall planes; every quad vertex on
+the horizontal top plane z≈1.7518978673859236, spread ~1.4e-15). Each pair
+SHARES its long edge (1345–2873, 1783–2935): the two incident triangles of that
+edge are the pair itself, so the §5c-committed strip-unzip ("split the
+non-degenerate long-edge neighbour") deadlocks — each member's neighbour is the
+other member, and the loop's `defer until the neighbour is resolved` never
+terminates the pair. Off-vertices lie ON the shared edge, strictly ordered
+along it (pair 1: t=0.0986/0.2325; collinearity ~7e-9 = relocation output, one
+long-edge endpoint per pair is `moved`). The configuration is a ZERO-AREA QUAD
+astride one interior edge — a §4.4.1 mesh-updating case, not a resolution
+(§4.5.2) case, and NOT the §5c.10 tangency class: both members carry the SAME
+attribution (the quad is interior to one patch), so no zero-width cross-surface
+strip needs the caps as its conformal presentation.
+
+**`YANG_LRR_MUTUAL` anatomy probe (banked in the STOP dump).** For each
+degenerate tri whose long-edge partner is degenerate with the SAME long edge:
+off-vertex edge parameters + the OUTER neighbours across the two insertion
+edges. Measured: F0067 pair 1 → outers 3951 (same face A/471) and 5917
+(**B/0 — the other solid's top plane**), both non-degenerate; pair 2 → 4307
+(A/583) and 6138 (B/0). R0038's triple 83/84/85 CONTAINS mutual pair 83/84
+(long edge 18–19, offs 23@0.682 / 14@0.410) with both outers on the PLANE side
+(A/2, non-degenerate) — the §5c.10 tangency's caps are removable by two-sided
+insertion (which the keep-interior re-CDT refutation never considered: it
+re-meshed ONE side; this arm refines BOTH).
+
+**Design (shipped).** When the action scan finds no simple unzip and the gate
+`YANG_S4_MUTUAL_PAIR_ENABLE` is set, execute the FIRST validated mutual pair:
+
+- `mutual_pair_candidate` (stage4_correct.rs): accept iff the partner's long
+  edge is the SAME edge `(a,c)`; off vertices distinct with parameters strictly
+  interleaved inside the open segment (`0 < t(bL) < t(bH) < 1`; equal
+  parameters = no deterministic chain → keep the STOP); each insertion edge
+  `(bL,c)` / `(a,bH)` has exactly 2 incident tris whose outer member (≠ the
+  pair) is non-degenerate. Anything else defers honestly to the loud STOP.
+- `resolve_mutual_degenerate_pair`: drop both members; Fig-11(a)-split the
+  outer across `(bL,c)` at `bH` and the outer across `(a,bH)` at `bL` (same
+  split mechanics as the committed simple arm: pieces wound to the parent's
+  area normal, inherit the parent's attribution). Both sides of the former quad
+  then carry the identical vertex chain `a–bL–bH–c`. Pure connectivity — no
+  vertex moves, none added or dropped. Per-edge balance conservation: `(a,c)`
+  and both insertion edges vanish with exactly their two incidents; each chain
+  edge gains one piece from each side; `(bL,bH)` is created as a properly
+  paired fwd/rev couple. The existing loop re-scans after the action (chained
+  simple actions may follow) and the Stage-4 watertight gate remains the proof
+  gate.
+
+**Unit oracles (`mutual_pair_tests`, yang-rs lib):** the closed coherently-wound
+8-triangle "pillow" fixture — `resolve` keeps the surface closed+orientable,
+removes every degenerate tri, deletes `(a,c)`, pairs the fine chain, and pieces
+inherit attributions; `candidate` accepts the pillow pair and REJECTS the
+equal-parameter variant.
+
+**Gate-ON results (2026-07-31).** F0067: five simple actions fire first
+(unchanged), then BOTH mutual pairs resolve; the case advances past
+`degenerate_no_longedge` and now FAILS the (4b) Stage-4 watertightness gate
+itself (stage4_correct.rs:7260; the `NonManifoldOutput` display text says
+"reassembled output" but the site probe names `s4-halfedge-pairing`): edge
+(1937,1938) fwd=1 rev=2 at (0.012–0.049, 0.2028, top-plane) — a THIRD region
+the arm never touched (incident tris: original fan pair 2535/2536 balanced +
+arrangement-era [1937,3664,1938] adding an unbalanced reverse — the
+flush-stack coincident-sheet / #146-class upstream family). Gate-off, this
+gate was NEVER REACHED (the LRR STOP aborts upstream), so the imbalance is
+pre-existing state UNMASKED, not a product of the arm. R0038: mutual (83,84)
+fires, the leftover sliver then resolves via the EXISTING simple arm (the
+§5c.10 "cannot green" verdict applied to one-sided re-CDT, not to this), and
+the case advances to `s6-planar-loop-nonplanar: face 3 vert 44 off-plane
+d=-7.5` — a Stage-6 face-loop assembly defect on the tangency output (#137
+territory, as §5c.10 already routed it). Both walls are NEW anchors (epic
+#169 continuation), not regressions: LRR → a deeper named wall, ERROR either
+way.
+
+**Full-corpus sweep (312/312 gate-ON, 2026-07-31) → FLIPPED ALWAYS-ON.**
+Zero category deltas — canonical **261C/0W/47E/0T preserved verbatim** —
+and exactly TWO detail deltas: F0067 and R0038, the justified advances above.
+R0009/R0047 (`split_max_passes`) and every other case byte-identical. The
+flip precondition (amendment-17 precedent: wall-retiring change, zero
+category drift, justified detail drift only) is met; the env gate is REMOVED
+and the arm is unconditional. The updated results.json (two detail lines) is
+the new canonical.
 
 - **Conformality** (§3.3): the dominant risk; mitigated by fixed-boundary + the
   watertight re-gate after every patch. Any breach → loud STOP, never shipped.
