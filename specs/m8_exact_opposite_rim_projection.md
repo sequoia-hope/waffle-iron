@@ -1,6 +1,17 @@
 # M8: Exact opposite-rim projection — task #144 P10 REFUTATION RECORD
 
-**Status:** REFUTED / ABORTED (2026-07-12). The planned fix was implemented,
+**Status:** REFUTED / ABORTED (2026-07-12); **SUPERSEDED for the measured
+customer class 2026-07-31** by amendment 16
+(`specs/m8_stage0_multiclass_cavity_arm.md` §14, group-atomic mint-collapse
+revert): the C0048 re-measure with the partner-source probe showed the
+"inseparable same-ray radial twins" were ONE sub-floor mint-collapse group
+TORN by the fold gate's per-member revert (one member left on-circle, one at
+its chord lift) — not two legitimate samples. Group-atomic reverts fuse the
+pair; the count wall died without any tangential separation, and every
+constraint below is satisfied by construction (nothing new is projected).
+The Hobby-grade separation design remains valid ONLY for a future customer
+with two GENUINELY-distinct exact-same-azimuth samples — none measured.
+The planned fix was implemented,
 caught by the adversary suite, and reverted per P10. This file is the design
 record for the real (future) increment.
 **Corpus drivers:** C0048 (`azimuth-merge rims have mismatched / too-few

@@ -464,7 +464,15 @@ cross pair of two genuinely DISTINCT parallel planes (offset gap above the
 rounding-noise class `TAU_WORK·(1+scale)`; corpus-measured legitimate
 femto-twin max 2.7e-12, ≥40× below the line) rejects with typed
 `SubResolutionCoplanarGap` before any overlay work. Committed baseline
-**259C / 0 WRONG / 51E / 0T on the 312-case corpus** (2026-07-30, F0083 +
+**260C / 0 WRONG / 48E / 0T on the 312-case corpus** (2026-07-31,
+amendment-16 group-atomic mint-collapse revert ALWAYS-ON, spec
+`m8_stage0_multiclass_cavity_arm.md` §14 — the C0048 #144 azimuth-merge
+count wall structurally DEAD and F0067's desync-manufactured N17 deferral
+gone, typed coplanar tail 3→2 with F0064/F0072 the genuine remainder;
+prior rungs 260C/47E at the 2026-07-30/31 amendments 14+15 — R0099
+ERROR→CORRECT via the Fig-11(a) vertex-inserting split, F0064
+ERROR→UNSUPPORTED via the open-link pure-SLIDE splice + settle order cert;
+259C/51E at 2026-07-30, F0083 +
 R0063 ERROR→CORRECT via the always-on Stage-3 intersection-edge PROVENANCE,
 `specs/yang_s3_intersection_edge_provenance.md`; prior rungs 257C at the
 2026-07-29 R0027
@@ -3534,6 +3542,35 @@ swapped every consumer to `predicates::indirect`).
     with both gates off, RED with the graze arm ALONE (1 vertex 6.84e-7 off
     the cylinder vs a 1.00e-9 band), GREEN with both. `YANG_S4_TRIPLE_POINT_ENABLE`
     (§4.4.1 inc-3) stays GATED — it was not in the measured combination.
+  - **AMENDMENTS 12–16 SHIPPED 2026-07-30/31 (spec
+    `specs/m8_stage0_multiclass_cavity_arm.md` §3–§14, ALWAYS-ON).** The
+    fold-gate repair ladder grew, in order: the per-class WEDGE cavity
+    decomposition (§3, amendment 12); the Fig-11(b→c) MERGE arm behind the
+    rim-chain boundary-order settle check (§10, amendment 13 — R0059's
+    boundary-order inversion fixed en route); the Fig-11(a)
+    vertex-inserting SPLIT (§11, amendment 14 — **R0099 ERROR→CORRECT,
+    260C**); the open-link pure-SLIDE splice with the settle predicate as
+    a preventive commit certificate on BOTH split arms (§13, amendment 15
+    — **F0064 ERROR→UNSUPPORTED(coplanar)**, its ops[3] deferral proven a
+    GENUINE N17 real-overlap pair; canonical C0048's stranded split
+    re-cohered); and the GROUP-ATOMIC mint-collapse revert (§14,
+    amendment 16): the task-#61 sub-floor shared-mint groups now revert
+    WHOLE — every member to ONE shared chord target — at BOTH revert
+    authorities (the amendment-2 fallback and the settle check), closing
+    the tear that shipped real-scale phantom same-ray station pairs.
+    Amendment-16 results: **the C0048 #144 azimuth-merge count wall is
+    structurally DEAD** (68v67 was an ulp lottery over torn groups; the
+    case advances to the deeper cherchi `DegenerateTpi` arrangement wall
+    the 2026-07-12 refuted translation arm also uncovered), and
+    **F0067's N17 deferral is exposed as a DESYNC ARTIFACT** of the same
+    tearing — with coherent fused interface meshes (§4.5.5 mesh identity
+    restored) its coplanar pair CONSTRUCTS and the case proceeds to a
+    cherchi `LabelMismatch` flood-fill wall (UNSUPPORTED→ERROR, the typed
+    coplanar tail 3→2; F0064/F0072 remain genuine). Canonical
+    **260C/0W/48E/0T**. The `specs/m8_exact_opposite_rim_projection.md`
+    tangential-separation design is OBSOLETE for this customer class —
+    the "inseparable same-ray twins" were ONE feature torn in two, not
+    two legitimate samples.
   - **MULTI-CLASS cavity arm SPEC WRITTEN 2026-07-30 —
     `specs/m8_stage0_multiclass_cavity_arm.md` (amendment 12).** The R0099
     producing-op probe (1f576621) named the fold gate's structural gap: a

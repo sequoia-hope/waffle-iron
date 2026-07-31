@@ -984,6 +984,19 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // (a shared target cannot lie on two circles) — and isolated (real
         // crossings are ≥ MIN_FEATURE_SIZE apart), so greedy first-seen
         // grouping cannot chain-drift.
+        // Amendment 16 (spec §14): the groups are RECORDED for the revert
+        // authorities (the amendment-2 fallback below and the §10d settle
+        // check) — a qualified group reverts WHOLE to ONE shared chord
+        // target, or the tear ships a real-scale phantom pair (the C0048
+        // 68v67 azimuth-merge wall) and DESYNCS the pair's interface
+        // meshes (F0067's manufactured N17 deferral). Qualification is
+        // sub-floor ANCHORING: every member's own chord lift within
+        // MIN_FEATURE_SIZE of the elected member's — the class the
+        // collapse was designed for. A wide-anchored group (coincident
+        // junction images from far anchors, the measured (222,286) class)
+        // is NOT qualified: per-member semantics, byte-identical,
+        // census-probed. ALWAYS-ON since the inc-2 corpus flip.
+        let mut collapse_groups = CollapseGroups::default();
         for slot in 0..n_mint_slots {
             let members: Vec<(usize, bool)> = minted_info
                 .iter()
@@ -1015,6 +1028,28 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 }
                 for &(vi, _) in g {
                     coords[vi] = target;
+                }
+                let elected_2d = overlay.verts[target_vi];
+                let shared = frame.lift(elected_2d.x(), elected_2d.y());
+                let sf = cad_primitives::MIN_FEATURE_SIZE;
+                let sub_floor_anchored = g.iter().all(|&(vi, _)| {
+                    let q = overlay.verts[vi];
+                    let l = frame.lift(q.x(), q.y()).as_array();
+                    let s = shared.as_array();
+                    let d = [l[0] - s[0], l[1] - s[1], l[2] - s[2]];
+                    d[0] * d[0] + d[1] * d[1] + d[2] * d[2] < sf * sf
+                });
+                if sub_floor_anchored {
+                    let member_ids: Vec<usize> = g.iter().map(|&(vi, _)| vi).collect();
+                    for &(vi, _) in g {
+                        collapse_groups.members.insert(vi, member_ids.clone());
+                        collapse_groups.shared_lift.insert(vi, shared);
+                    }
+                } else if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                    eprintln!(
+                        "[mint-collapse] slot={slot} group -> vert {target_vi} NOT \
+                         sub-floor-anchored (revert stays per-member; spec §14d WATCH)"
+                    );
                 }
             }
         }
@@ -1512,38 +1547,47 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 // ── Amendment 2 fallback: revert the fold's minted
                 // vertices to today's chord lift (still observable via
                 // kernel-v2's vertex-on-surface tripwire — never silently
-                // blessed).
+                // blessed). Amendment 16 (spec §14): a qualified sub-floor
+                // collapse group reverts WHOLE — every member to the ONE
+                // shared chord target — or not at all; a per-member revert
+                // tears the A14.2 identification into a real-scale phantom
+                // pair (the C0048 68v67 azimuth-merge wall).
                 let area = tri_area(&t, &coords);
                 for &v in &t {
                     let vi = v as usize;
-                    if minted_mark[vi] {
-                        let q = overlay.verts[vi];
-                        let lifted = frame.lift(q.x(), q.y());
-                        if coords[vi] != lifted {
-                            if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
-                                eprintln!(
-                                    "[fold-revert] pair=({},{}) vert={vi} area={area:e} \
-                                     minted={:?} -> chord {lifted:?}",
-                                    p.face_a, p.face_b, coords[vi]
-                                );
-                            }
-                            coords[vi] = lifted;
-                            changed = true;
-                            // inc-3.5: a reverted mint is no longer a valid
-                            // merge target — restore any partner merged into
-                            // it (else the partner is a stale bit-twin of a
-                            // position no vertex holds) and block re-merges.
-                            merge_settled.insert(v);
-                            for &(mp, mq, orig) in &merges {
-                                if mq == v && coords[mp as usize] != orig {
-                                    if probe_flip {
-                                        eprintln!(
-                                            "[fold-revert]   merge partner {mp} of \
-                                             reverted target {mq} restored"
-                                        );
-                                    }
-                                    coords[mp as usize] = orig;
+                    if !minted_mark[vi] {
+                        continue;
+                    }
+                    for m in collapse_groups.revert_unit(vi) {
+                        let q = overlay.verts[m];
+                        let lifted = collapse_groups.effective_lift(m, frame.lift(q.x(), q.y()));
+                        if coords[m] == lifted {
+                            continue;
+                        }
+                        if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                            let tag = if m == vi { "" } else { " (group-atomic)" };
+                            eprintln!(
+                                "[fold-revert] pair=({},{}) vert={m} area={area:e} \
+                                 minted={:?} -> chord {lifted:?}{tag}",
+                                p.face_a, p.face_b, coords[m]
+                            );
+                        }
+                        coords[m] = lifted;
+                        changed = true;
+                        // inc-3.5: a reverted mint is no longer a valid
+                        // merge target — restore any partner merged into
+                        // it (else the partner is a stale bit-twin of a
+                        // position no vertex holds) and block re-merges.
+                        merge_settled.insert(m as u32);
+                        for &(mp, mq, orig) in &merges {
+                            if mq as usize == m && coords[mp as usize] != orig {
+                                if probe_flip {
+                                    eprintln!(
+                                        "[fold-revert]   merge partner {mp} of \
+                                         reverted target {mq} restored"
+                                    );
                                 }
+                                coords[mp as usize] = orig;
                             }
                         }
                     }
@@ -1570,6 +1614,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     frame,
                     &merges,
                     &mut merge_settled,
+                    &collapse_groups,
                     probe_flip,
                 );
                 if n == 0 {
@@ -1581,6 +1626,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                         frame,
                         &merges,
                         &mut merge_settled,
+                        &collapse_groups,
                         probe_flip,
                     );
                 }

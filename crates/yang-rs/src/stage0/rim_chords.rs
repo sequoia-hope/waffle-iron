@@ -563,6 +563,7 @@ fn push_opp(
     opp_pt: Point3,
     pt: Point3,
     opp_preexisting: usize,
+    pushed_srcs: &mut Vec<Point3>,
     rim_probe: bool,
     cap_edge: u32,
     opp_edge: u32,
@@ -574,15 +575,27 @@ fn push_opp(
             } else {
                 "PAIRWISE-COLLAPSE"
             };
+            // For a pairwise collapse, name the OTHER cap sample whose image
+            // this one collided with — the twin-pair identity is the whole
+            // diagnosis (task #144).
+            let partner = if hit >= opp_preexisting {
+                pushed_srcs
+                    .get(hit - opp_preexisting)
+                    .map(|s| format!(" partner_src={:?}", s.as_array()))
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
             eprintln!(
                 "[opp-proj] cap_edge={cap_edge} opp_edge={opp_edge} pt={:?} \
-                 opp_pt={:?} SKIPPED ({kind} idx={hit})",
+                 opp_pt={:?} SKIPPED ({kind} idx={hit}){partner}",
                 pt.as_array(),
                 opp_pt.as_array()
             );
         }
     } else {
         opp_entry.push(opp_pt);
+        pushed_srcs.push(pt);
     }
 }
 
@@ -755,6 +768,7 @@ pub(crate) fn collect_ring_crossings(
     let opp_entry = rim_overrides.entry(opp_edge).or_default();
     let opp_preexisting = opp_entry.len();
     let rim_probe = std::env::var_os("YANG_SPLIT_PROBE").is_some();
+    let mut pushed_srcs: Vec<Point3> = Vec::new();
     for &pt in &cap_pts {
         let p = pt.as_array();
         let w = [
@@ -820,6 +834,7 @@ pub(crate) fn collect_ring_crossings(
             opp_pt,
             pt,
             opp_preexisting,
+            &mut pushed_srcs,
             rim_probe,
             cap_edge,
             opp_edge,
@@ -1100,6 +1115,40 @@ pub(crate) fn arc_lateral_opposite(
     Err("mixed-arc-no-lateral")
 }
 
+/// Amendment 16 (spec `m8_stage0_multiclass_cavity_arm` §14): the
+/// increment-4 sub-floor shared-mint collapse groups, carried into the
+/// revert authorities. A qualified (sub-floor-ANCHORED) group reverts
+/// WHOLE — every member to the ONE shared chord target (the elected
+/// member's lift) — or not at all: a per-member revert tears the A14.2
+/// identification into a real-scale phantom pair whose opposite-rim
+/// images bit-collide by ulp lottery (the C0048 68v67 azimuth-merge
+/// wall). Wide-anchored groups (coincident junction images from far
+/// anchors) are NOT qualified and keep per-member semantics. ALWAYS-ON
+/// since the inc-2 corpus flip (2026-07-31: zero CORRECT→ERROR; C0048
+/// past the count wall; F0067's desync-manufactured N17 deferral gone).
+#[derive(Default)]
+pub(crate) struct CollapseGroups {
+    /// member vi → all members of its qualified group (incl. itself).
+    pub(crate) members: std::collections::BTreeMap<usize, Vec<usize>>,
+    /// member vi → the group's shared chord target (elected member's
+    /// lift, bit-identical across the group).
+    pub(crate) shared_lift: std::collections::BTreeMap<usize, Point3>,
+}
+
+impl CollapseGroups {
+    /// The revert target for `vi`: the group's shared chord target for a
+    /// qualified member, else the caller's own chord lift.
+    pub(crate) fn effective_lift(&self, vi: usize, own: Point3) -> Point3 {
+        self.shared_lift.get(&vi).copied().unwrap_or(own)
+    }
+
+    /// The revert unit containing `vi`: the whole qualified group, else
+    /// the singleton.
+    pub(crate) fn revert_unit(&self, vi: usize) -> Vec<usize> {
+        self.members.get(&vi).cloned().unwrap_or_else(|| vec![vi])
+    }
+}
+
 /// Amendment 13 inc-3.5 (spec `m8_stage0_multiclass_cavity_arm` §10d):
 /// rim-chain boundary-order settle check.
 ///
@@ -1138,6 +1187,7 @@ pub(crate) fn settle_rim_chain_order(
     frame: &Frame,
     merges: &[(u32, u32, Point3)],
     settled: &mut std::collections::BTreeSet<u32>,
+    groups: &CollapseGroups,
     probe_flip: bool,
 ) -> usize {
     let rat2 = |u: f64, v: f64| ExactPoint2::from_f64(u, v);
@@ -1211,7 +1261,12 @@ pub(crate) fn settle_rim_chain_order(
                 let mut reverted = 0usize;
                 for &(_, vi) in [&found[i], &found[i + 1]] {
                     let q = overlay.verts[vi];
-                    let lift = frame.lift(q.x(), q.y());
+                    // Amendment 16 (spec §14): a qualified collapse-group
+                    // member's chord target is the group's SHARED lift, and
+                    // its revert is group-atomic — the identification either
+                    // holds or reverts whole, so quiescence can never strand
+                    // a half-fused group (the §13i class, preventively).
+                    let lift = groups.effective_lift(vi, frame.lift(q.x(), q.y()));
                     if let Some(&(mp, mq, orig)) =
                         merges.iter().find(|&&(mp, _, _)| mp as usize == vi)
                     {
@@ -1231,27 +1286,35 @@ pub(crate) fn settle_rim_chain_order(
                             reverted += 1;
                         }
                     } else if minted_mark[vi] && coords[vi] != lift {
-                        if probe_flip {
-                            eprintln!(
-                                "[rim-order-settle] vert {vi} angular-order \
-                                 inversion -> chord {lift:?} (was {:?})",
-                                coords[vi]
-                            );
-                        }
-                        coords[vi] = lift;
-                        settled.insert(vi as u32);
-                        for &(mp, mq, orig) in merges {
-                            if mq as usize == vi && coords[mp as usize] != orig {
-                                if probe_flip {
-                                    eprintln!(
-                                        "[rim-order-settle]   partner {mp} of \
-                                         reverted target {mq} restored"
-                                    );
-                                }
-                                coords[mp as usize] = orig;
+                        for m in groups.revert_unit(vi) {
+                            let qm = overlay.verts[m];
+                            let lm = groups.effective_lift(m, frame.lift(qm.x(), qm.y()));
+                            if coords[m] == lm {
+                                continue;
                             }
+                            if probe_flip {
+                                let tag = if m == vi { "" } else { " (group-atomic)" };
+                                eprintln!(
+                                    "[rim-order-settle] vert {m} angular-order \
+                                     inversion -> chord {lm:?} (was {:?}){tag}",
+                                    coords[m]
+                                );
+                            }
+                            coords[m] = lm;
+                            settled.insert(m as u32);
+                            for &(mp, mq, orig) in merges {
+                                if mq as usize == m && coords[mp as usize] != orig {
+                                    if probe_flip {
+                                        eprintln!(
+                                            "[rim-order-settle]   partner {mp} of \
+                                             reverted target {mq} restored"
+                                        );
+                                    }
+                                    coords[mp as usize] = orig;
+                                }
+                            }
+                            reverted += 1;
                         }
-                        reverted += 1;
                     }
                 }
                 if reverted > 0 {
@@ -1284,7 +1347,7 @@ mod settle_tests {
     //! on-circle azimuth LEAPS PAST a fold-reverted neighbor's chord
     //! azimuth, with a merged partner twinned onto the junction.
 
-    use super::{settle_rim_chain_order, Frame, RimChordCtx};
+    use super::{settle_rim_chain_order, CollapseGroups, Frame, RimChordCtx};
     use crate::coplanar_overlay::{ClassifiedOverlay, ExactPoint2};
     use cad_primitives::{Point2, Point3};
     use std::collections::BTreeMap;
@@ -1368,6 +1431,7 @@ mod settle_tests {
             &frame,
             &merges,
             &mut settled,
+            &CollapseGroups::default(),
             false,
         );
         assert_eq!(n, 1, "exactly the junction reverts");
@@ -1389,6 +1453,7 @@ mod settle_tests {
             &frame,
             &merges,
             &mut settled,
+            &CollapseGroups::default(),
             false,
         );
         assert_eq!(n2, 0, "settled chord is monotone");
@@ -1420,6 +1485,7 @@ mod settle_tests {
             &frame,
             &merges,
             &mut settled,
+            &CollapseGroups::default(),
             false,
         );
         assert_eq!(n, 1);
@@ -1451,10 +1517,97 @@ mod settle_tests {
             &frame,
             &[],
             &mut settled,
+            &CollapseGroups::default(),
             false,
         );
         assert_eq!(n, 0);
         assert_eq!(coords, snapshot);
         assert!(settled.is_empty());
+    }
+
+    /// Amendment 16 (spec §14): the torn-group configuration. A qualified
+    /// sub-floor collapse group (ulp-twin anchors near (CX, −0.1)) sits
+    /// minted at a leaped shared position; the settle finds the inversion
+    /// against the next chord point and must revert BOTH members to the ONE
+    /// shared chord target bit-identically — never one alone.
+    #[test]
+    fn group_atomic_settle_reverts_whole_group() {
+        let anchor_twin = -0.1 + 1.0e-15;
+        let overlay = overlay_of(&[(CX, -0.1), (CX, anchor_twin), (CX, 0.2)]);
+        let leaped = on_circle(15.0); // past v2's chord azimuth ≈ 13.0°
+        let mut coords = vec![leaped, leaped, Point3::new(CX, 0.2, 0.0)];
+        let minted = vec![true, true, false];
+        let shared = Point3::new(CX, -0.1, 0.0); // elected member v0's lift
+        let mut groups = CollapseGroups::default();
+        for vi in [0usize, 1] {
+            groups.members.insert(vi, vec![0, 1]);
+            groups.shared_lift.insert(vi, shared);
+        }
+        let mut settled: BTreeSet<u32> = BTreeSet::new();
+        let frame = frame_z0();
+        let n = settle_rim_chain_order(
+            &[ctx_unit_circle()],
+            &overlay,
+            &mut coords,
+            &minted,
+            &frame,
+            &[],
+            &mut settled,
+            &groups,
+            false,
+        );
+        assert_eq!(n, 2, "both group members revert in one firing");
+        assert_eq!(coords[0], shared, "member 0 on the shared chord target");
+        assert_eq!(coords[1], shared, "member 1 bit-identical — group intact");
+        assert_eq!(coords[2], Point3::new(CX, 0.2, 0.0), "neighbor untouched");
+        assert!(settled.contains(&0) && settled.contains(&1));
+        let snapshot = coords.clone();
+        let n2 = settle_rim_chain_order(
+            &[ctx_unit_circle()],
+            &overlay,
+            &mut coords,
+            &minted,
+            &frame,
+            &[],
+            &mut settled,
+            &groups,
+            false,
+        );
+        assert_eq!(n2, 0, "fused group is quiescent — no settle×revert fight");
+        assert_eq!(coords, snapshot);
+    }
+
+    /// Verts with NO registered collapse group (an empty `CollapseGroups`)
+    /// keep per-member revert semantics — the displaced member reverts to
+    /// its OWN lift while the other mint stays leaped. This is the tear the
+    /// group discipline exists to prevent, preserved here as the documented
+    /// baseline for unregistered (non-group / wide-anchored) mints.
+    #[test]
+    fn unregistered_verts_revert_per_member() {
+        let anchor_twin = -0.1 + 1.0e-15;
+        let overlay = overlay_of(&[(CX, -0.1), (CX, anchor_twin), (CX, 0.2)]);
+        let leaped = on_circle(15.0);
+        let mut coords = vec![leaped, leaped, Point3::new(CX, 0.2, 0.0)];
+        let minted = vec![true, true, false];
+        let mut settled: BTreeSet<u32> = BTreeSet::new();
+        let frame = frame_z0();
+        let n = settle_rim_chain_order(
+            &[ctx_unit_circle()],
+            &overlay,
+            &mut coords,
+            &minted,
+            &frame,
+            &[],
+            &mut settled,
+            &CollapseGroups::default(),
+            false,
+        );
+        assert_eq!(n, 1, "only the inversion's displaced member reverts");
+        assert_eq!(
+            coords[1],
+            Point3::new(CX, anchor_twin, 0.0),
+            "displaced member at its OWN lift"
+        );
+        assert_eq!(coords[0], leaped, "group partner left leaped — the tear");
     }
 }

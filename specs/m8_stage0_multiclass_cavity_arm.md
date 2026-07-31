@@ -1263,3 +1263,173 @@ Residuals: unchanged from §13h (bulge form census-armed, C0048 femto
 WATCH — now with the sharper statement that its split coherently
 REJECTS rather than committing-then-stranding — and F0064's genuine
 N17 coverage wall).
+
+## 14. AMENDMENT 16 — group-atomic mint-collapse revert: the C0048 #144 azimuth-merge wall traced INTO a TORN sub-floor group (2026-07-31)
+
+The §12 queue's next anchor. The `m8_exact_opposite_rim_projection`
+P10 refutation record framed the C0048/F0067 count deficit as same-ray
+radial twins that "arbitrary precision cannot separate" — two
+LEGITIMATE samples needing Hobby-grade tangential separation. The
+re-measure refutes that premise for the surviving customer: the twins
+are ONE feature, torn in two by a gate incoherence.
+
+### 14a. Measured mechanism (C0048 single_case, `YANG_SPLIT_PROBE=1`, canonical 260C/0W/47E/0T binary + the inc-0 partner probe)
+
+Wall: ops[4] (plate-2 flush union), `face 2: azimuth-merge rims have
+mismatched / too-few samples (68 vs 67)`. Exactly ONE
+`PAIRWISE-COLLAPSE`:
+`pt=[0.7132232521764882, 1.3016928416332871, 0.4]` (chord-deep,
+r=1.4843) vs `partner_src=[0.7207762519259645, 1.3154777058770546,
+0.4]` (on-circle, r=1.5) — same exact ray. These are overlay verts 262
+and 268: the increment-4 sub-floor shared-mint collapse (task #61)
+grouped them (`[mint-collapse] slot=4 group=[(262,false),(268,false)]
+-> vert 262 @ O`) and set both coords to the shared on-circle target
+O; a REAL fold elsewhere in 262's star (area −8.0e-18, the femto
+sliver against the A-side twin group (263,269) whose per-slot target
+sits 2 ulps away) then hit the amendment-2 fallback, which reverted
+**262 alone** to its own chord lift C. The increment-4 skip only
+protects the group's own degenerate wedge from un-collapsing it; a
+genuine fold in one member's star tears the group. Post-tear the
+overlay carries 268@O and 262@C — bit-distinct, 0.0157 apart (15700×
+MIN_FEATURE_SIZE) — the cap ring admits BOTH (57 entries), while
+their opposite-rim images renormalise to the SAME f64 point (56) →
+the count wall.
+
+**The wall is an ulp lottery over pervasive tearing.** The same op
+tears at least six groups the same way (+y and −y mirror sites, the
+(274,280)/(291,297)/(303,309)/(315,320) family — elected member kept
+at O, partner at chord, or vice versa; WHICH member the fold touches
+is star-shape luck). Only the +y site's two images bit-collide; the
+−y mirror's differ by 1 ulp and ship a phantom same-ray station pair
+instead (count-consistent, geometrically doubled). The historical
+3-collapse → 1-collapse drift across amendments 12–15 is the same
+lottery re-rolling as coordinates moved, NOT progress on the class.
+
+### 14b. Why fusion, not separation
+
+Group-atomically reverting the whole group to ONE shared chord target
+satisfies every pinned refutation-record constraint by construction:
+(1) on-circle-band — the shared target is the elected member's chord
+lift, within the stage1 sagitta band like every reverted mint today;
+(2) injectivity — restored by SHRINKING the cap multiset to bit-one
+entry (rim scan dedup), not by expanding the opposite; (3)
+merge-mirroring and (4) exact-order — untouched (no new positions,
+no reordering); (5) stacked-cap bit-absorption — untouched (the
+projection is unchanged). The refuted translation arm's failure mode
+(off-surface scaffolding) cannot occur: nothing new is projected.
+
+### 14c. Doctrine grounding
+
+A14.2: a sub-floor group "cannot be two real features" — that holds in
+chord world exactly as in rim world, so the revert must preserve the
+identification, not dissolve it. M-B emission identification: members
+sharing bit-identical coords drop their degenerate wedge at emission
+and the neighbors pair directly — the proven intact-group path, now
+reached from the reverted side too. Inc-3.5 precedent: "merges
+propagate through the revert path exactly like mints do" — collapses
+now do as well. §13i lesson applied at design time: BOTH revert
+authorities (the amendment-2 fallback and the §10d settle check) get
+the group discipline in the same increment — no waiting for the
+second fight to be measured. Yang §4.4.1's remove-too-close rule is
+the paper form: the group IS one intersection point.
+
+### 14d. Design
+
+1. The increment-4 collapse pass RECORDS its groups: `(elected_vi,
+   members)` per group with len > 1, plus a member→group map. 2D verts
+   never move, so groups and lifts are stable across gate passes.
+2. **Sub-floor-anchored qualification**: a group qualifies iff every
+   member's own chord lift lies within MIN_FEATURE_SIZE of the elected
+   member's chord lift. Qualified groups get ONE shared chord target =
+   the elected member's lift (bit-identical for all members —
+   deterministic, insertion-order-free). NON-qualified groups (the
+   measured `[mint-collapse] group=[(222,true),(286,true)]` anomaly,
+   chord anchors 0.25 apart — the grouping's "isolated" premise
+   violated by coincident junction images from far anchors) keep
+   today's per-member behavior byte-identical and print a census probe
+   line — a recorded WATCH, not this increment's customer.
+3. **Amendment-2 fallback**: reverting any member of a qualified group
+   reverts ALL members to the shared target (per-member probe +
+   merge-partner restore + `merge_settled`), idempotently.
+4. **Settle check**: the displaced-member predicate and revert target
+   use the same effective lift (shared target for qualified members),
+   and a settle revert of a qualified member is likewise group-atomic.
+   A group-reverted member is then NOT "displaced" at quiescence
+   (coords == effective lift), so no settle×revert fight can strand a
+   half-fused group — the §13i class, closed preventively.
+
+### 14e. Increments
+
+- **inc-0 (DONE, banked)**: `[opp-proj] … partner_src=…` — the
+  collision partner's source coordinates (the twin-pair identity is
+  the diagnosis). Purely additive, env-gated.
+- **inc-1**: gated implementation (`YANG_S0_GROUP_REVERT=1`) + unit
+  oracle in the §11 fixture frame (torn-group configuration: fold one
+  member, assert BOTH land on the shared target bit-identically;
+  non-qualified group untouched).
+- **inc-2**: C0048 end to end (expect past the 68v67 wall; next wall
+  characterized honestly), then the 312-case sweep gate-ON. Zero
+  CORRECT→ERROR to flip; same-category detail drift audited
+  individually (fused stations legitimately change ring counts on
+  revert-carrying CORRECT cases).
+
+Acceptance: the azimuth-merge count wall never again fires from a
+torn qualified group (the collapse either holds or reverts WHOLE);
+C0048's verdict change, if any, is category-honest; corpus
+byte-stable gate-OFF.
+
+### 14f. inc-1/inc-2 RESULTS (2026-07-31) — FLIPPED ALWAYS-ON; the C0048 count wall is DEAD and F0067's N17 deferral was a DESYNC ARTIFACT
+
+**Unit oracles** (settle_tests, yang-rs lib): the torn-group
+configuration reverts BOTH members to the shared target in one firing
+and is quiescent on the re-check (no settle×revert fight); an empty
+`CollapseGroups` reproduces per-member semantics (the documented
+baseline for unregistered mints). 491 lib tests green.
+
+**C0048 gated end-to-end**: B's cap `cap_pts=47 → opp_entry=47` —
+exact 1:1, ZERO pairwise collapses (was 57→56); rings 58 vs 58 (was
+68 vs 67); A's rims 58/58 (was 69/69). TEN phantom same-ray station
+pairs fused out of this one op — the tearing was broader than the six
+pairs visible in the fold-revert roster. The two wide-anchor groups
+census-probed, untouched. New wall: cherchi arrangement
+`DeepRecursionRequired { base_tri: 207, detail: DegenerateTpi }` —
+the deeper arrangement wall the refuted #144 translation arm ALSO
+uncovered in 2026-07-12: the case's own next defect, now reached by a
+correct route.
+
+**Corpus (312/312 gate-ON sweep, 334s)**: zero CORRECT→ERROR; all 260
+CORRECT hold; R0078 (the samenormal mode-4 azimuth pin) and R0070
+unchanged. Exactly TWO deltas, both wall-advances:
+
+1. **C0048** (same-category detail): azimuth-merge 68v67 →
+   `DegenerateTpi`. The #144 count-wall class is structurally dead —
+   never again count-by-count luck.
+2. **F0067 UNSUPPORTED(coplanar) → ERROR** at the SAME op (Extrude
+   10): `patch flood-fill failed: LabelMismatch { seed: 0, tri: 6556
+   }`. Mechanism: fusion moves vertices only WITHIN the interface
+   plane, so pair coplanarity cannot change — what the tearing had
+   been doing was DESYNCING the two solids' interface meshes (one
+   side carrying the on-circle member, the other the chord member),
+   which manufactured an unconstructible real-overlap coplanar pair →
+   cherchi N17 deferral → the typed wall. The coherent fused meshes
+   restore the §4.5.5 identical-meshes contract, the pair CONSTRUCTS
+   (soup.rs PR-4 path), and the boolean proceeds to its true next
+   defect in patch labeling. The typed coplanar population shrinks
+   3→2; **F0064 and F0072 still defer — their N17 walls are genuine**
+   (consistent with §13i's F0064 attribution, now with the sharper
+   converse: the SAME torn-group incoherence manufactured both
+   C0048's count wall and F0067's deferral).
+
+**New canonical: 260C / 0W / 48E / 0T** (UNSUPPORTED(coplanar) 3→2,
+EXPECTED_ERROR 1, UNSUPPORTED(curved-profile) 1). The E count rose by
+one because a typed boundary became an attempted-and-loud ERROR — the
+M8 typed wall shrinking is the direction of travel, per
+`feedback_capability_gaps_are_failures` both categories are failures
+and this one now names a real defect (cherchi patch labeling) instead
+of a manufactured deferral.
+
+**Residuals carried**: the §14d wide-anchor WATCH (2 groups in
+C0048's failing op, census-probed, no customer); F0067's LabelMismatch
+(cherchi labeling — its own anchor investigation when queued); C0048's
+DegenerateTpi (cherchi arrangement recursion); the §13g bulge form and
+§12 census-armed classes unchanged.
