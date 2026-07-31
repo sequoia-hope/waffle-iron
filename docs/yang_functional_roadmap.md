@@ -464,7 +464,13 @@ cross pair of two genuinely DISTINCT parallel planes (offset gap above the
 rounding-noise class `TAU_WORK·(1+scale)`; corpus-measured legitimate
 femto-twin max 2.7e-12, ≥40× below the line) rejects with typed
 `SubResolutionCoplanarGap` before any overlay work. Committed baseline
-**260C / 0 WRONG / 48E / 0T on the 312-case corpus** (2026-07-31,
+**261C / 0 WRONG / 47E / 0T on the 312-case corpus** (2026-07-31,
+amendment-18 congruent-rim cross-solid table ELECTION ALWAYS-ON, spec
+`m8_stage0_multiclass_cavity_arm.md` §16 — **C0048 ERROR→CORRECT**, its
+whole canonical wall chain (azimuth-merge 68v67 → cherchi DegenerateTpi)
+retired by the amendment 16→18 coherence arc; prior rungs 260C/48E at
+amendment-17 (sub-band lift absorption; F0067 clears cherchi to the
+§4.5.2 wall) and 260C/48E at
 amendment-16 group-atomic mint-collapse revert ALWAYS-ON, spec
 `m8_stage0_multiclass_cavity_arm.md` §14 — the C0048 #144 azimuth-merge
 count wall structurally DEAD and F0067's desync-manufactured N17 deferral
@@ -3596,6 +3602,30 @@ swapped every consumer to `predicates::indirect`).
     Canonical unchanged 260C/0W/48E/0T — the amendment removes a
     divergence CLASS (one value per femto crossing cluster, §4.5.5
     mesh identity at every absorbed site corpus-wide).
+  - **AMENDMENT 18 SHIPPED 2026-07-31 (spec §16, ALWAYS-ON):
+    congruent-rim cross-solid table ELECTION — C0048
+    ERROR→SUPPORTED_CORRECT, canonical 261C/0W/47E/0T.** C0048's
+    DegenerateTpi wall traced to a femto NEEDLE input triangle whose
+    ulp-twin corners are one `rim_a` anchor + one `rim_b` anchor at
+    the SAME junction azimuth of the SHARED congruent r=1.5 circle
+    (flush plates; A's frame angle 1.1220 ≡ B's 5.1612) — protected
+    from every existing identification BY DESIGN (rim-aware
+    clustering must not move on-circle points; #61 covers only mints;
+    §15 excludes rim anchors). Fix: post-cluster table ELECTION
+    (adopt the lexicographically-smaller 3D bit pattern's (uv, point)
+    wholesale; rewrite the losing table key, polygon corners, and the
+    E7 cluster map) + ring propagation (elected point →
+    `rim_overrides` of the resolved losing cap edge; the #143
+    uniform-slot merge adopts the bits — the losing corner is a
+    uniform slot since the sextet class sits at chord endpoints,
+    which the override endpoint window excludes — counts unchanged
+    by construction; unresolvable losing edge SKIPS the fusion
+    whole). Census: 13 pairs ALL in C0048 (F0064/F0072/R0059/F0086
+    zero) — the class is the congruent-rim flush-stack geometry.
+    Corpus: exactly ONE delta (the conversion), zero detail drift.
+    The C++ AR3b jolly-plane fallback
+    (computeTriangleOfSegmentInCoplanarCase, extracted and recorded
+    in spec §16a) stays a SEPARATE cherchi robustness increment.
   - **MULTI-CLASS cavity arm SPEC WRITTEN 2026-07-30 —
     `specs/m8_stage0_multiclass_cavity_arm.md` (amendment 12).** The R0099
     producing-op probe (1f576621) named the fold gate's structural gap: a

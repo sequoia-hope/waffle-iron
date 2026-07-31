@@ -1,8 +1,8 @@
 {
-  "errored": 48,
+  "errored": 47,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 260,
+  "passed": 261,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1451,10 +1451,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 5: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: mesh boolean backend failed: native boolean: arrangement failed: DeepRecursionRequired { base_tri: 207, detail: DegenerateTpi }\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0048",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

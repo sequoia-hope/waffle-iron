@@ -24,6 +24,134 @@ pub(crate) type SplitMap = BTreeMap<(u32, u32), Vec<(RBig, Point3)>>;
 /// and the opposite cap all share the SAME subdivided rim (no T-junction).
 pub(crate) type RimSplitMap = BTreeMap<u32, Vec<Point3>>;
 
+// ════════════════════════════════════════════════════════════════════════
+// Amendment 18 (spec `m8_stage0_multiclass_cavity_arm` §16b): congruent-rim
+// cross-solid table ELECTION. On stacked congruent caps the two solids' rims
+// are the SAME geometric circle in different frames; a shared junction
+// azimuth then survives as one `rim_a` anchor + one `rim_b` anchor at
+// ulp-different exact on-circle values — protected from the rim-aware
+// clustering (on-circle points must not move), from the #61 collapse (not
+// minted) and from the §15 absorption (rim anchors excluded) BY DESIGN. The
+// emission then carries the femto pair plus bridging slivers into both
+// meshes (C0048 base-tri-207 needle → cherchi DegenerateTpi). Fuse each
+// such pair to ONE member's (uv, point) adopted wholesale.
+// ════════════════════════════════════════════════════════════════════════
+
+/// One detected congruent-rim cross-table fusion: adopt `(win_key, v)`
+/// wholesale; rewrite the losing member's key/value, polygon corner, and
+/// cluster-map image.
+pub(crate) struct RimTableFusion {
+    pub(crate) win_key: ExactPoint2,
+    pub(crate) v: Point3,
+    pub(crate) lose_key: ExactPoint2,
+    pub(crate) lose_pt: Point3,
+    /// True when the LOSING member lives in B's table/polygon.
+    pub(crate) losing_is_b: bool,
+}
+
+/// Scan `rim_a × rim_b` for cross-solid same-junction pairs: exact uv
+/// distance AND f64 3D distance both within the §15 rounding-noise band
+/// `TAU_WORK·(1+scale)` (five orders above the measured 4.3e-14 cluster,
+/// three below the protected E-C1b distinct-twin population), 3D values
+/// bit-DIFFERENT (bit-equal pairs are already the handled M-B
+/// identification class). Election is the lexicographically smaller 3D bit
+/// pattern — deterministic and frame-independent. Each key participates in
+/// at most one fusion (first-seen in BTreeMap order — sub-band pairs are
+/// isolated in practice; a chained cluster fuses pairwise deterministically).
+pub(crate) fn detect_rim_table_fusions(
+    rim_a: &BTreeMap<ExactPoint2, Point3>,
+    rim_b: &BTreeMap<ExactPoint2, Point3>,
+) -> Vec<RimTableFusion> {
+    let bits = |p: &Point3| [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
+    let mut used_a: std::collections::BTreeSet<ExactPoint2> = std::collections::BTreeSet::new();
+    let mut used_b: std::collections::BTreeSet<ExactPoint2> = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for (ka, pa) in rim_a {
+        if used_a.contains(ka) {
+            continue;
+        }
+        for (kb, pb) in rim_b {
+            if used_b.contains(kb) || bits(pa) == bits(pb) {
+                continue;
+            }
+            let uv_scale = ka.x.to_f64().value().abs().max(ka.y.to_f64().value().abs());
+            let band = cad_primitives::TAU_WORK * (1.0 + uv_scale);
+            let Ok(band_r) = rat(band) else { continue };
+            let band2 = &band_r * &band_r;
+            let du = &ka.x - &kb.x;
+            let dv = &ka.y - &kb.y;
+            if &du * &du + &dv * &dv > band2 {
+                continue;
+            }
+            let d3 = [pa.x() - pb.x(), pa.y() - pb.y(), pa.z() - pb.z()];
+            if d3[0] * d3[0] + d3[1] * d3[1] + d3[2] * d3[2] > band * band {
+                continue;
+            }
+            let a_wins = bits(pa) <= bits(pb);
+            out.push(if a_wins {
+                RimTableFusion {
+                    win_key: ka.clone(),
+                    v: *pa,
+                    lose_key: kb.clone(),
+                    lose_pt: *pb,
+                    losing_is_b: true,
+                }
+            } else {
+                RimTableFusion {
+                    win_key: kb.clone(),
+                    v: *pb,
+                    lose_key: ka.clone(),
+                    lose_pt: *pa,
+                    losing_is_b: false,
+                }
+            });
+            used_a.insert(ka.clone());
+            used_b.insert(kb.clone());
+            break;
+        }
+    }
+    out
+}
+
+/// Apply one fusion: the losing table's entry is re-keyed to the elected
+/// `(win_key, v)`, every bit-equal losing polygon corner is rewritten to the
+/// winning uv, and the cluster pre→post map is chained (pre-images of the
+/// losing uv now land on the winning uv — the M-A/E7 contract for every
+/// consumer that re-derives 2D coordinates).
+pub(crate) fn apply_rim_table_fusion(
+    f: &RimTableFusion,
+    rim_a: &mut BTreeMap<ExactPoint2, Point3>,
+    rim_b: &mut BTreeMap<ExactPoint2, Point3>,
+    poly_a: &mut PolygonWithHoles,
+    poly_b: &mut PolygonWithHoles,
+    key_map: &mut BTreeMap<(u64, u64), (u64, u64)>,
+) {
+    let (lose_tbl, lose_poly) = if f.losing_is_b {
+        (rim_b, poly_b)
+    } else {
+        (rim_a, poly_a)
+    };
+    lose_tbl.remove(&f.lose_key);
+    lose_tbl.insert(f.win_key.clone(), f.v);
+    let (lu, lv) = (f.lose_key.x.to_f64().value(), f.lose_key.y.to_f64().value());
+    let (wu, wv) = (f.win_key.x.to_f64().value(), f.win_key.y.to_f64().value());
+    for ring in std::iter::once(&mut lose_poly.outer).chain(lose_poly.holes.iter_mut()) {
+        for q in ring.iter_mut() {
+            if q.x().to_bits() == lu.to_bits() && q.y().to_bits() == lv.to_bits() {
+                *q = Point2::new(wu, wv);
+            }
+        }
+    }
+    let lb = (lu.to_bits(), lv.to_bits());
+    let wb = (wu.to_bits(), wv.to_bits());
+    for post in key_map.values_mut() {
+        if *post == lb {
+            *post = wb;
+        }
+    }
+    key_map.insert(lb, wb);
+}
+
 /// M-C diagnosis dump (read-only observer; fires only with
 /// `YANG_STAGE0_DUMP_DIR` set — never in production/WASM). One file per
 /// processed overlay pair: per-vertex resolution provenance (which map the
@@ -953,6 +1081,110 @@ pub(crate) fn triangulate_ring(
     covered += fin;
     tris.push([ring[work[0]], ring[work[1]], ring[work[2]]]);
     (covered == area_abs).then_some(tris)
+}
+
+#[cfg(test)]
+mod rim_table_fusion_tests {
+    //! Amendment 18 unit oracles (spec §16b): congruent-rim cross-table
+    //! election. An ulp pair fuses to the lexicographically-smaller 3D bit
+    //! pattern; an E-C1b-scale (1e-9) near pair does NOT; application
+    //! rewrites the losing table key, the losing polygon corner, and chains
+    //! the cluster pre→post map.
+
+    use super::{apply_rim_table_fusion, detect_rim_table_fusions};
+    use crate::coplanar_overlay::{ExactPoint2, PolygonWithHoles};
+    use cad_primitives::{Point2, Point3};
+    use std::collections::BTreeMap;
+
+    fn ep(u: f64, v: f64) -> ExactPoint2 {
+        ExactPoint2::from_f64(u, v).unwrap()
+    }
+
+    fn ulp_up(x: f64) -> f64 {
+        f64::from_bits(x.to_bits() + 1)
+    }
+
+    #[test]
+    fn ulp_pair_fuses_to_smaller_bits_far_and_band_scale_pairs_do_not() {
+        let mut rim_a: BTreeMap<ExactPoint2, Point3> = BTreeMap::new();
+        let mut rim_b: BTreeMap<ExactPoint2, Point3> = BTreeMap::new();
+        // The fusing ulp pair (a's value has the smaller bit pattern).
+        rim_a.insert(ep(1.0, 2.0), Point3::new(1.0, 2.0, 0.5));
+        rim_b.insert(ep(ulp_up(1.0), 2.0), Point3::new(ulp_up(1.0), 2.0, 0.5));
+        // An E-C1b-scale near pair (1e-9 — genuinely distinct, protected).
+        rim_a.insert(ep(3.0, 1.0), Point3::new(3.0, 1.0, 0.5));
+        rim_b.insert(ep(3.0 + 1.0e-9, 1.0), Point3::new(3.0 + 1.0e-9, 1.0, 0.5));
+        // A far singleton.
+        rim_b.insert(ep(5.0, 5.0), Point3::new(5.0, 5.0, 0.5));
+
+        let fusions = detect_rim_table_fusions(&rim_a, &rim_b);
+        assert_eq!(fusions.len(), 1, "exactly the ulp pair fuses");
+        let f = &fusions[0];
+        assert!(f.losing_is_b, "a's smaller bit pattern wins");
+        assert_eq!(f.v, Point3::new(1.0, 2.0, 0.5));
+        assert_eq!(f.lose_pt, Point3::new(ulp_up(1.0), 2.0, 0.5));
+    }
+
+    #[test]
+    fn apply_rewrites_table_polygon_and_cluster_map() {
+        let mut rim_a: BTreeMap<ExactPoint2, Point3> = BTreeMap::new();
+        let mut rim_b: BTreeMap<ExactPoint2, Point3> = BTreeMap::new();
+        rim_a.insert(ep(1.0, 2.0), Point3::new(1.0, 2.0, 0.5));
+        rim_b.insert(ep(ulp_up(1.0), 2.0), Point3::new(ulp_up(1.0), 2.0, 0.5));
+        let mut poly_a = PolygonWithHoles {
+            outer: vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(1.0, 2.0),
+                Point2::new(0.0, 4.0),
+            ],
+            holes: vec![],
+        };
+        let mut poly_b = PolygonWithHoles {
+            outer: vec![
+                Point2::new(0.5, 0.0),
+                Point2::new(ulp_up(1.0), 2.0),
+                Point2::new(0.5, 4.0),
+            ],
+            holes: vec![],
+        };
+        let mut key_map: BTreeMap<(u64, u64), (u64, u64)> = BTreeMap::new();
+        // A pre-cluster image already landing on the losing uv must chain.
+        let pre = (9.0f64.to_bits(), 9.0f64.to_bits());
+        key_map.insert(pre, (ulp_up(1.0).to_bits(), 2.0f64.to_bits()));
+
+        let fusions = detect_rim_table_fusions(&rim_a, &rim_b);
+        assert_eq!(fusions.len(), 1);
+        apply_rim_table_fusion(
+            &fusions[0],
+            &mut rim_a,
+            &mut rim_b,
+            &mut poly_a,
+            &mut poly_b,
+            &mut key_map,
+        );
+
+        assert_eq!(
+            rim_b.get(&ep(1.0, 2.0)),
+            Some(&Point3::new(1.0, 2.0, 0.5)),
+            "losing table re-keyed to the elected (uv, point)"
+        );
+        assert!(rim_b.get(&ep(ulp_up(1.0), 2.0)).is_none());
+        assert_eq!(
+            (poly_b.outer[1].x(), poly_b.outer[1].y()),
+            (1.0, 2.0),
+            "losing polygon corner rewritten to the winning uv"
+        );
+        assert_eq!(
+            key_map.get(&pre),
+            Some(&(1.0f64.to_bits(), 2.0f64.to_bits())),
+            "existing cluster image chained onto the winning uv"
+        );
+        assert_eq!(
+            key_map.get(&(ulp_up(1.0).to_bits(), 2.0f64.to_bits())),
+            Some(&(1.0f64.to_bits(), 2.0f64.to_bits())),
+            "losing uv itself remapped"
+        );
+    }
 }
 
 #[cfg(test)]

@@ -534,7 +534,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             .keys()
             .map(|ex| Point2::new(ex.x.to_f64().value(), ex.y.to_f64().value()))
             .collect();
-        let (corners_a, corners_b, rim_a, rim_b, cluster_map) = {
+        let (corners_a, corners_b, mut rim_a, mut rim_b, mut cluster_map) = {
             let pre_a = poly_a.clone();
             let pre_b = poly_b.clone();
             cluster_frame_coords_rim_aware(
@@ -661,6 +661,79 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                             pb3.as_array()
                         );
                     }
+                }
+            }
+        }
+
+        // Amendment 18 inc-1 (spec §16b, gated `YANG_S0_RIM_TABLE_FUSE`):
+        // fuse each congruent-rim cross-table pair to ONE elected exact
+        // on-circle value and propagate the elected bits into the losing
+        // solid's ring via `rim_overrides` — the #143 uniform-slot merge
+        // adopts override bits, and the losing corner IS a uniform slot
+        // (the sextet class sits at chord endpoints, which the override
+        // endpoint window excludes), so the propagated point MERGES and
+        // ring counts are unchanged. A fusion whose losing rim edge cannot
+        // be resolved (a non-disc/annular face class) is SKIPPED WHOLE —
+        // never a partial application. ALWAYS-ON since the inc-2 corpus
+        // flip (2026-07-31: C0048 ERROR→SUPPORTED_CORRECT, the only
+        // delta; 261C/0W/47E/0T).
+        {
+            let fusions = detect_rim_table_fusions(&rim_a, &rim_b);
+            for f in &fusions {
+                let (brep_l, fi_l) = if f.losing_is_b {
+                    (b, p.face_b)
+                } else {
+                    (a, p.face_a)
+                };
+                let mut cap_edges: Vec<u32> = Vec::new();
+                if let Some(e) = disc_circle_edge(brep_l, fi_l) {
+                    cap_edges.push(e);
+                } else if let Some((outer_e, hole_es)) = annular_disc_face(brep_l, fi_l) {
+                    cap_edges.push(outer_e);
+                    cap_edges.extend(hole_es);
+                }
+                let hit = cap_edges.iter().copied().find(|&e| {
+                    let Curve::Circle { center, radius, .. } = brep_l.edges()[e as usize].curve
+                    else {
+                        return false;
+                    };
+                    let c = center.as_array();
+                    let q = f.v.as_array();
+                    let d = [q[0] - c[0], q[1] - c[1], q[2] - c[2]];
+                    let dist = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                    (dist - radius).abs() <= 1e-9 * (1.0 + radius)
+                });
+                let Some(rim_edge) = hit else {
+                    probe(
+                        "rim-fuse-skip",
+                        &format!("pair=({},{}) no losing rim edge", p.face_a, p.face_b),
+                    );
+                    continue;
+                };
+                apply_rim_table_fusion(
+                    f,
+                    &mut rim_a,
+                    &mut rim_b,
+                    &mut poly_a,
+                    &mut poly_b,
+                    &mut cluster_map,
+                );
+                let ov = if f.losing_is_b {
+                    &mut rim_overrides_b
+                } else {
+                    &mut rim_overrides_a
+                };
+                ov.entry(rim_edge).or_default().push(f.v);
+                if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                    eprintln!(
+                        "[rim-table-fuse] pair=({},{}) losing_{} {:?} -> {:?} (ring edge \
+                         {rim_edge})",
+                        p.face_a,
+                        p.face_b,
+                        if f.losing_is_b { "b" } else { "a" },
+                        f.lose_pt.as_array(),
+                        f.v.as_array()
+                    );
                 }
             }
         }

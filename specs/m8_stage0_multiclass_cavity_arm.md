@@ -1627,3 +1627,41 @@ the class is concentrated in the congruent-rim flush-stack geometry
 SAME circle). C0048 is the proven customer; a full-corpus census
 rides the next cycle's sweep (the probe is in the standard
 `YANG_SPLIT_PROBE` vocabulary).
+
+### 16d. inc-1/inc-2 RESULTS (2026-07-31) — FLIPPED ALWAYS-ON; **C0048 ERROR → SUPPORTED_CORRECT, canonical 261C/0W/47E/0T**
+
+Shipped as designed: `detect_rim_table_fusions` (exact-uv AND f64-3D
+sub-band, election = lexicographically smaller 3D bit pattern —
+deterministic, frame-independent; each key fuses at most once) +
+`apply_rim_table_fusion` (losing table re-keyed to the elected
+`(uv, point)`, losing polygon corners rewritten, cluster pre→post map
+chained per the M-A/E7 contract) + the ring propagation (elected
+point pushed into the losing solid's `rim_overrides` for the resolved
+cap edge — resolved via `disc_circle_edge`/`annular_disc_face` +
+exact-band on-circle membership; an unresolvable losing edge SKIPS
+the fusion whole). The #143 uniform-slot merge adopts the propagated
+bits (the losing corner is a uniform slot — the sextet class sits at
+chord endpoints, which the override endpoint window excludes), so
+ring counts are unchanged by construction. Unit oracles:
+`ulp_pair_fuses_to_smaller_bits_far_and_band_scale_pairs_do_not`
+(election + the E-C1b 1e-9 protection) and
+`apply_rewrites_table_polygon_and_cluster_map`.
+
+**C0048 gated end to end: all 13 fusions fire, the base-tri-207
+femto needle never forms, and the case converts ERROR →
+SUPPORTED_CORRECT — all checks pass** (winding, Euler,
+strict-validation on-surface, volume). The full canonical wall chain
+of this case — azimuth-merge 68v67 (§14) → DegenerateTpi (§16) — is
+retired end to end by the amendment 16→18 arc.
+
+**Corpus (312/312 gate-ON sweep → flipped):** exactly ONE category
+delta — C0048's conversion — and ZERO detail drift anywhere else.
+Spot holds: R0059/R0099/R0088 (E-C1b protected)/F0086 CORRECT;
+F0064/F0072 typed; F0067 at its §4.5.2 wall; R0070 unchanged.
+**New canonical: 261C / 0W / 47E / 0T.**
+
+Residuals: the cherchi AR3b jolly-plane port (separate robustness
+increment, unreferenced by any current customer); F0067's §4.5.2
+LocalRefinementRequired (epic #169); the §13g bulge form and §12
+census-armed classes; the `[rim-table-twin]` full-corpus census
+(rides the next YANG_SPLIT_PROBE sweep).
