@@ -1017,6 +1017,26 @@ fn mutual_pair_candidate(
     };
     let nl = outer(bl, c)?;
     let nh = outer(a, bh)?;
+    // Two-sidedness. The §5c.11 watertightness argument assumes `nl` and `nh`
+    // lie on OPPOSITE sides of the degenerate quad, so the four split pieces are
+    // distinct and every chain edge pairs one piece from each side. When both
+    // outer neighbours share their third vertex they are instead the SAME fan
+    // over the chain: `nl`'s first piece `[bl,bh,dd]` and `nh`'s second piece
+    // `[bl,bh,dd]` are then the identical triangle, so the update emits it TWICE
+    // — a double cover that does not bound a 2-manifold. Measured on R0038
+    // (dd = 17 on both sides): the doubled piece propagated a foreign vertex
+    // into an unrelated planar face's loop and surfaced as `NonManifoldOutput`
+    // two stages downstream, 7.5e0 off that face's plane. Exact index equality,
+    // no tolerance — it is precisely the condition under which the four pieces
+    // fail to be distinct. Keep the loud STOP (honest deferral, no partial
+    // action): the same-apex fan is a DIFFERENT configuration needing its own
+    // repair (a 3-triangle refan of the chain), not this arm.
+    let third = |t: usize, u: u32, v: u32| -> Option<u32> {
+        mesh.tris[t].iter().copied().find(|&x| x != u && x != v)
+    };
+    if third(nl, bl, c)? == third(nh, a, bh)? {
+        return None;
+    }
     Some(MutualPair {
         t1: ti,
         t2: n,
@@ -7795,5 +7815,93 @@ mod mutual_pair_tests {
             b2
         )
         .is_none());
+    }
+
+    /// The SAME-APEX fan (measured on R0038): both outer neighbours across the
+    /// two insertion edges share their third vertex, so they are one fan over
+    /// the chain rather than two opposite sides. `nl`'s piece `[bl,bh,dd]` and
+    /// `nh`'s piece `[bl,bh,dd]` are then the identical triangle and the update
+    /// would emit it TWICE — a double cover. The candidate must reject, keeping
+    /// the loud STOP. The second half proves the rejection is caused by the
+    /// shared apex specifically: give `nh` its own apex and the SAME
+    /// configuration is accepted.
+    #[test]
+    fn candidate_rejects_the_same_apex_fan() {
+        let thr = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
+        let is_degen = |ti: usize, mesh: &Mesh| area(mesh, mesh.tris[ti]) < thr;
+        let long_edge_off = |t: &[u32; 3], mesh: &Mesh| -> (u32, u32, u32) {
+            let d = |i: usize, j: usize| {
+                let p = mesh.verts[t[i] as usize].as_array();
+                let q = mesh.verts[t[j] as usize].as_array();
+                (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)
+            };
+            let (e01, e12, e20) = (d(0, 1), d(1, 2), d(2, 0));
+            if e01 >= e12 && e01 >= e20 {
+                (t[0], t[1], t[2])
+            } else if e12 >= e20 {
+                (t[1], t[2], t[0])
+            } else {
+                (t[2], t[0], t[1])
+            }
+        };
+        // Chain a–bl–bh–c collinear (t = 0.41 / 0.68, off-line height 1e-13 so
+        // both quad members are degenerate), apex 4 shared by BOTH neighbours.
+        let dy = 1.0e-13;
+        let verts = vec![
+            Point3::new(0.0, 0.0, 0.0),  // 0 = a
+            Point3::new(1.0, 0.0, 0.0),  // 1 = c
+            Point3::new(0.41, dy, 0.0),  // 2 = bl
+            Point3::new(0.68, -dy, 0.0), // 3 = bh
+            Point3::new(0.5, 1.0, 0.0),  // 4 = shared apex
+            Point3::new(0.5, -1.0, 0.0), // 5 = distinct apex (two-sided case)
+        ];
+        let same_apex = vec![
+            [1, 2, 0], // 0 T1 degenerate, off = bl
+            [3, 1, 0], // 1 T2 degenerate, off = bh
+            [1, 4, 2], // 2 NL across (bl,c), third = 4
+            [3, 0, 4], // 3 NH across (a,bh), third = 4  ← same apex
+        ];
+        let mesh = Mesh::new(verts.clone(), same_apex);
+        let edge_tris = edge_incidence(&mesh.tris);
+        let (a, c, b) = long_edge_off(&mesh.tris[0], &mesh);
+        assert!(
+            is_degen(0, &mesh) && is_degen(1, &mesh),
+            "quad is degenerate"
+        );
+        assert!(
+            !is_degen(2, &mesh) && !is_degen(3, &mesh),
+            "both outer neighbours are non-degenerate"
+        );
+        assert!(
+            mutual_pair_candidate(&mesh, &edge_tris, &is_degen, &long_edge_off, 0, 1, a, c, b)
+                .is_none(),
+            "same-apex fan must be rejected — the arm would double-cover [bl,bh,dd]"
+        );
+
+        // Identical configuration, `nh` re-apexed to its own vertex: accepted,
+        // and the four split pieces are then distinct.
+        let two_sided = vec![
+            [1, 2, 0], // T1
+            [3, 1, 0], // T2
+            [1, 4, 2], // NL, third = 4
+            [3, 0, 5], // NH, third = 5  ← distinct
+        ];
+        let mesh2 = Mesh::new(verts, two_sided);
+        let edge_tris2 = edge_incidence(&mesh2.tris);
+        let (a2, c2, b2) = long_edge_off(&mesh2.tris[0], &mesh2);
+        let got = mutual_pair_candidate(
+            &mesh2,
+            &edge_tris2,
+            &is_degen,
+            &long_edge_off,
+            0,
+            1,
+            a2,
+            c2,
+            b2,
+        )
+        .expect("two-sided pair still accepted");
+        assert_eq!((got.nl, got.nh), (2, 3));
+        assert_eq!((got.bl, got.bh), (2, 3));
     }
 }

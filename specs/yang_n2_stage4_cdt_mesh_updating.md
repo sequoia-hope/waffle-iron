@@ -734,6 +734,66 @@ category drift, justified detail drift only) is met; the env gate is REMOVED
 and the arm is unconditional. The updated results.json (two detail lines) is
 the new canonical.
 
+### 5c.11a Two-sidedness precondition — R0038's advance was MINTED, not unmasked (2026-07-31)
+
+**Correction to §5c.11's R0038 paragraph.** That paragraph routed R0038's
+`s6-planar-loop-nonplanar: face 3 vert 44 off-plane d=-7.5` to "#137 territory"
+as a pre-existing Stage-6 defect the LRR STOP had masked. It is not. A
+checkpoint census (the §17a masked-vs-minted method, applied to attribution
+instead of edge balance) settles it: scanning **every attributed triangle**
+against the plane of the input face it is attributed to reports **0** off-plane
+vertices at Stage-6 entry and **2** immediately after Stage 4 — `tri[1,44,34]`
+A/face 3 and `tri[48,50,26]` A/face 5, both at exactly `-7.5056e0`. A temporary
+arm-disable switch confirms it directly: arm ON → 2, arm OFF → 0 (and the case
+returns to its `LocalRefinementRequired` STOP). **The arm mints the defect.**
+
+**Mechanism — the same-apex fan.** R0038's pair (t1=83 `[bh,a,c]`, t2=84
+`[c,a,bl]`) is geometrically well-formed: `|ac| = 7.505609e0`, `bl`/`bh` on the
+line to 1.6e-15, interleaved at t = 0.410 / 0.682. The defect is in the OUTER
+neighbours. `nl = [bl,17,c]` and `nh = [bh,17,a]` **share their third vertex**
+(dd = 17 on both sides) — they are one fan over the chain, not two opposite
+sides, and their bases overlap on `(bl,bh)`. The splits then produce
+`nl → [bl,bh,17] + [bh,c,17]` and `nh → [a,bl,17] + [bl,bh,17]`: the middle
+piece `[bl,bh,17]` is emitted **TWICE**, both copies carrying the same
+attribution (A/2). That double cover is what §5c.11's watertightness argument
+excludes by assumption ("each chain edge pairs one piece from EACH SIDE") but
+never checked. Downstream it drags a foreign vertex into an unrelated planar
+face's loop, surfacing two stages later as `NonManifoldOutput` — the long edge
+`a–c` runs parallel to face 3's normal, so the imported vertex lands exactly
+`|ac|` off that plane, which is why the deviation equals a model dimension.
+
+**Fix (shipped, always-on).** `mutual_pair_candidate` rejects when the two outer
+neighbours share their third vertex. Exact index equality, no tolerance: it is
+*precisely* the condition under which the four split pieces fail to be distinct
+(`nl`'s first piece and `nh`'s second are both `[bl,bh,dd]`). Honest deferral to
+the loud STOP — the same-apex fan is a different configuration needing its own
+repair (a 3-triangle refan `[a,bl,dd] + [bl,bh,dd] + [bh,c,dd]` replacing all
+four triangles), which is NOT built here.
+
+**Blast radius (312-case probe sweep).** The mutual arm fires on exactly TWO
+corpus cases: F0067 (6 firings, all genuinely two-sided — dd pairs
+1338/2861, 1789/3347, 1949/1935) and R0038 (1 firing, the only same-apex one).
+**No SUPPORTED_CORRECT case fires the arm at all**, so no passing output was
+carrying a silent double cover and the precondition cannot regress one.
+Full corpus after the fix: canonical **261C/0W/47E/0T preserved**, zero category
+deltas, one detail delta (R0038 → `LocalRefinementRequired`). F0067's advance
+is unaffected and its §5c.11 paragraph stands.
+
+**Unit oracle.** `candidate_rejects_the_same_apex_fan` builds the R0038
+configuration (collinear chain, shared apex) and asserts rejection, then
+re-apexes `nh` to a distinct vertex and asserts the SAME configuration is
+accepted — so the test pins the shared apex as the cause, not an incidental
+property of the fixture.
+
+**LESSON (third application of the masked-vs-minted census).** §5c.11 called
+R0038's new wall "pre-existing state UNMASKED, not a product of the arm" on the
+strength of the gate being unreachable before. That reasoning is sound for
+F0067 (where the balance census confirmed it) but was *extended* to R0038
+without its own measurement. Reachability proves a wall was masked; it does not
+prove the DEFECT was. Only a checkpoint census of the defect's own quantity —
+here, off-plane attributed triangles — distinguishes the two, and it must be run
+per case, not inferred from a sibling.
+
 - **Conformality** (§3.3): the dominant risk; mitigated by fixed-boundary + the
   watertight re-gate after every patch. Any breach → loud STOP, never shipped.
 - **No tolerance widening / no hack-to-green** (P9/P10): the only "merge" allowed

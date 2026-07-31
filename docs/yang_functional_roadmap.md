@@ -3648,6 +3648,28 @@ swapped every consumer to `predicates::indirect`).
     verbatim), exactly the two justified detail deltas. LRR site census
     banked: R0009/R0047 = `split_max_passes` runaway (own queue);
     R0032/R0050/C0067 specific-vertex region-invalid; R0044 = M5.
+  - **TWO-SIDEDNESS PRECONDITION SHIPPED ALWAYS-ON 2026-07-31 (spec §5c.11a)
+    — R0038's advance above was MINTED by the arm, not unmasked.** The
+    "PRE-EXISTING walls" claim holds for F0067 (balance-census confirmed)
+    but was extended to R0038 without its own measurement. An
+    attribution-planarity census (0 off-plane attributed triangle vertices
+    at Stage-6 entry, 2 immediately after Stage 4; arm-disable switch: ON
+    → 2, OFF → 0) shows the arm mints it. Mechanism: R0038's two OUTER
+    neighbours SHARE their third vertex (dd=17 both sides) — one fan over
+    the chain, not two opposite sides — so `nl`'s piece `[bl,bh,dd]` and
+    `nh`'s piece `[bl,bh,dd]` are the same triangle and the update emits
+    it TWICE. That double cover imports a foreign vertex into an unrelated
+    planar face's loop `|ac|` = 7.5056 off its plane (the long edge runs
+    parallel to that face's normal), surfacing as `NonManifoldOutput`.
+    Fix: `mutual_pair_candidate` rejects when the outer neighbours share
+    their third vertex — exact index equality, precisely the condition
+    under which the four pieces are not distinct; honest deferral to the
+    loud STOP. Arm-firing sweep 312/312: only F0067 (6, all two-sided) and
+    R0038 (1, the only same-apex) fire it at all — **no SUPPORTED_CORRECT
+    case fires it**, so no passing output carried a silent double cover.
+    Corpus: 261C/0W/47E/0T verbatim, one detail delta (R0038 →
+    `LocalRefinementRequired`). The same-apex fan's real repair (a
+    3-triangle refan) is NOT built — it is the next #169 increment.
   - **AMENDMENT 19 SHIPPED ALWAYS-ON 2026-07-31 (spec
     `specs/m8_stage0_multiclass_cavity_arm.md` §17): sub-band lift
     absorption extended to SINGLETON mint clusters — F0067's Stage-4
