@@ -838,7 +838,10 @@ fn boolean_once(
                 }
             }
             if let Some(s0) = &stage0 {
-                for (tag, m) in [("A", &s0.mesh_a), ("B", &s0.mesh_b)] {
+                for (tag, m, tf) in [
+                    ("A", &s0.mesh_a, &s0.tri_face_a),
+                    ("B", &s0.mesh_b, &s0.tri_face_b),
+                ] {
                     for (i, v) in m.verts.iter().enumerate() {
                         if near(v) {
                             let q = v.as_array();
@@ -846,6 +849,17 @@ fn boolean_once(
                                 "[input-vert-probe] stage0 mesh {tag} vert {i}: ({},{},{})",
                                 q[0], q[1], q[2]
                             );
+                            // Face attribution (F0067 LabelMismatch anchor):
+                            // which owning faces' triangles reference this
+                            // vertex — the two members of an input ulp pair
+                            // living on DIFFERENT faces names the chain
+                            // divergence site.
+                            for (ti, t) in m.tris.iter().enumerate() {
+                                if t.contains(&(i as u32)) {
+                                    let f = tf.get(ti).copied().unwrap_or(u32::MAX);
+                                    eprintln!("[input-vert-probe]   tri {ti} face {f} verts {t:?}");
+                                }
+                            }
                         }
                     }
                 }

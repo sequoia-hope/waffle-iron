@@ -435,6 +435,61 @@ pub(crate) fn build_stage0_mesh(
         brep.forced_rim_n(),
     )?;
 
+    // Twin-origin drill-down (read-only, shares `YANG_INPUT_VERT_PROBE=x,y,z,r`
+    // with the boolean.rs input scan): name the PRODUCER of every Stage-0
+    // container entry near the target — base-tessellation vertices with their
+    // `TessellationSource`, propagated straight-edge splits, and rim
+    // overrides — so an interface ulp-twin pair self-localizes to the
+    // machinery that minted each member (F0067 LabelMismatch anchor).
+    if let Some(spec) = std::env::var_os("YANG_INPUT_VERT_PROBE") {
+        let nums: Vec<f64> = spec
+            .to_string_lossy()
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
+        if let [x, y, z, r] = nums[..] {
+            let near = |p: &Point3| {
+                let q = p.as_array();
+                let d = [q[0] - x, q[1] - y, q[2] - z];
+                (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() <= r
+            };
+            for (i, p) in tess.verts.iter().enumerate() {
+                if near(p) {
+                    let q = p.as_array();
+                    eprintln!(
+                        "[s0-build-probe] tess vert {i} ({},{},{}) source {:?}",
+                        q[0], q[1], q[2], tess.sources[i]
+                    );
+                }
+            }
+            for (&(lo, hi), pts) in splits.iter() {
+                for (t, p) in pts {
+                    if near(p) {
+                        let q = p.as_array();
+                        eprintln!(
+                            "[s0-build-probe] split edge ({lo},{hi}) t={} ({},{},{})",
+                            t.to_f64().value(),
+                            q[0],
+                            q[1],
+                            q[2]
+                        );
+                    }
+                }
+            }
+            for (&e, pts) in rim_overrides.iter() {
+                for p in pts {
+                    if near(p) {
+                        let q = p.as_array();
+                        eprintln!(
+                            "[s0-build-probe] rim_override edge {e} ({},{},{})",
+                            q[0], q[1], q[2]
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     // Bit-exact coordinate interner seeded with the base tessellation's
     // vertex pool (B-Rep vertices occupy slots 0..n, so override corners
     // resolve back to the B-Rep vertex slots automatically).
@@ -898,6 +953,30 @@ pub(crate) fn triangulate_ring(
     covered += fin;
     tris.push([ring[work[0]], ring[work[1]], ring[work[2]]]);
     (covered == area_abs).then_some(tris)
+}
+
+#[cfg(test)]
+mod lift_absorb_band_tests {
+    /// Amendment 17 (spec §15b): the lift-absorption band is the
+    /// rounding-noise class `TAU_WORK·(1+uv_scale)`. It must ADMIT the
+    /// measured F0067 femto cluster (uv spread 4.3e-14 at uv scale ≈ 0.204)
+    /// and REJECT the protected E-C1b genuinely-distinct band-close twin
+    /// population (~1e-9, R0088/R0070 — both members must enter the ring).
+    /// A future band widening that swallows the twin population regresses
+    /// those cases; this pin is the tripwire.
+    #[test]
+    fn band_admits_cluster_rejects_distinct_twins() {
+        let uv_scale = 0.2043166720325753_f64; // the measured F0067 site
+        let band = cad_primitives::TAU_WORK * (1.0 + uv_scale);
+        assert!(
+            4.3e-14 < band,
+            "measured cluster spread must fall inside the absorption band"
+        );
+        assert!(
+            1.0e-9 > band,
+            "the E-C1b distinct-twin population must stay OUTSIDE the band"
+        );
+    }
 }
 
 #[cfg(test)]

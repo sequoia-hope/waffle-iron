@@ -3571,6 +3571,31 @@ swapped every consumer to `predicates::indirect`).
     tangential-separation design is OBSOLETE for this customer class —
     the "inseparable same-ray twins" were ONE feature torn in two, not
     two legitimate samples.
+  - **AMENDMENT 17 SHIPPED 2026-07-31 (spec §15, ALWAYS-ON): sub-band
+    LIFT absorption into mint-collapse groups — F0067's cherchi
+    LabelMismatch traced to a NON-minted femto-cluster member.** One
+    geometric crossing (A's gear edge × B's rim) existed as a 2D femto
+    cluster (spread 4.3e-14): two rim MINTS (fused by #61 to the exact
+    on-circle value) plus one chord-world LIFT that can never join a
+    collapse group (groups form over `minted_info` only) — it resolved
+    1 ulp away, BOTH values shipped, the two solids' interface chains
+    diverged, and cherchi's flood-fill caught the label stitch across
+    the resulting manifold gap. Fix: during the #61 pass, absorb every
+    non-minted, non-corner, non-rim-anchored vertex within the
+    rounding-noise band `TAU_WORK·(1+uv_scale)` of a qualified group's
+    elected member (five orders above the measured cluster, three below
+    the protected E-C1b R0088/R0070 distinct-twin population — band
+    pinned by a unit tripwire) and ENROLL it as a full group member so
+    the amendment-16 atomic revert covers it both ways. Corpus: ZERO
+    category deltas, one justified detail drift — **F0067 clears
+    cherchi entirely (arrangement + labeling + emission) and advances
+    two stages to the NAMED §4.5.2 `LocalRefinementRequired` wall**
+    (the mesh-updating epic's territory). Probes banked:
+    `CHERCHI_PATCH_PROBE` crossing anatomy, boolean.rs face
+    attribution, `[s0-build-probe]` Stage-0 container drill-down.
+    Canonical unchanged 260C/0W/48E/0T — the amendment removes a
+    divergence CLASS (one value per femto crossing cluster, §4.5.5
+    mesh identity at every absorbed site corpus-wide).
   - **MULTI-CLASS cavity arm SPEC WRITTEN 2026-07-30 —
     `specs/m8_stage0_multiclass_cavity_arm.md` (amendment 12).** The R0099
     producing-op probe (1f576621) named the fold gate's structural gap: a

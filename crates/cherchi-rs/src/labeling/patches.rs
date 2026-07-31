@@ -134,6 +134,42 @@ pub fn compute_all_patches(soup: &ArrangementSoup) -> Result<Patches, PatchError
                              ref_l={ref_l:?} cl={cl:?} patch_len={}",
                             patch.len()
                         );
+                        // The crossing anatomy (task: F0067 LabelMismatch
+                        // anchor): for each edge of the mismatching triangle,
+                        // the incidence count, every incident tri's label +
+                        // visited state, whether the edge carries
+                        // intersection-constraint provenance, and the endpoint
+                        // coordinate constructions. The edge whose incident set
+                        // holds a VISITED ref_l-labeled tri is the manifold
+                        // stitch the flood crossed.
+                        let tri = soup.tris[curr as usize];
+                        for k in 0..3 {
+                            let (u, v) = (tri[k], tri[(k + 1) % 3]);
+                            let key = (u.min(v), u.max(v));
+                            let inc = &e2t[&key];
+                            let constr = soup.intersection_edges.contains(&key);
+                            eprintln!(
+                                "  edge ({},{}) incident={} constr={constr}",
+                                key.0,
+                                key.1,
+                                inc.len()
+                            );
+                            for &t2 in inc {
+                                eprintln!(
+                                    "    tri {t2} label={:?} visited={} verts={:?}",
+                                    soup.labels[t2 as usize],
+                                    visited[t2 as usize],
+                                    soup.tris[t2 as usize]
+                                );
+                            }
+                            eprintln!(
+                                "    v{} = {:?}\n    v{} = {:?}",
+                                key.0,
+                                soup.verts[key.0 as usize],
+                                key.1,
+                                soup.verts[key.1 as usize]
+                            );
+                        }
                     }
                     return Err(PatchError::LabelMismatch { seed, tri: curr });
                 }

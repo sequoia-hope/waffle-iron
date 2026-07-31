@@ -1433,3 +1433,112 @@ C0048's failing op, census-probed, no customer); F0067's LabelMismatch
 (cherchi labeling — its own anchor investigation when queued); C0048's
 DegenerateTpi (cherchi arrangement recursion); the §13g bulge form and
 §12 census-armed classes unchanged.
+
+## 15. AMENDMENT 17 — sub-band LIFT absorption into mint-collapse groups: the F0067 LabelMismatch anchor (2026-07-31)
+
+### 15a. The anchor chain (measured end to end)
+
+F0067 (10 chained stacked-Z extrudes) fails its last op (pair
+(328,0): A's gear top face × B's circle bottom cap) at cherchi
+`patch flood-fill LabelMismatch { seed: 0, tri: 6556 }` — an
+[InputId(0)]-seeded flood crossing a MANIFOLD, non-constraint edge
+into an [InputId(1)] triangle after 4625 triangles. The crossing edge
+(soup verts 837,838) is real-scale; the adjacent constraint edge
+(838,845) is 1 ulp long: **soup verts 838/845 are ulp twins** —
+`x = −0.03675477045733393` vs `…3934` (÷2 descaling: model
+`…963` / `…967`), both Explicit (input-mesh vertices).
+
+`YANG_INPUT_VERT_PROBE` (+ the new face-attribution and
+`[s0-build-probe]` container drill-downs, banked): NO input B-Rep
+vertex near; stage0 mesh A carries BOTH (vert 1959@…963 on face 328
+only; vert 1965@…967 shared by faces 328 and 331 — A's own interface
+mesh contains the bridging femto sliver tri 1492); mesh B carries
+ONE (vert 9@…963, its rim ring). Container provenance: `…963` =
+`rim_override edge 0` (B's ring, the resolved crossing) and `…967` =
+`split edge (618,619) t=0.8176` (A's straight-edge split map). Both
+collectors read the SAME post-ladder `coords` — so the divergence is
+TWO overlay vertices, and the pair-overlay dump confirms a femto 2D
+cluster (Δv ≈ 4.3e-14, sub-band by five orders):
+
+    v 188 tag=mint      → …963   (committed rim mint, B's exact circle)
+    v 189 tag=lift      → …967   (chord-world lift, exactly collinear
+                                  with A's edge — feeds splits_a)
+    v 196 tag=mint(rev) → …963
+
+**One geometric crossing, tripled by sweep-event columns. The #61
+sub-floor mint-collapse fused the MINTED members; the LIFT member can
+never join a collapse group (groups form over `minted_info` only), so
+it keeps its 1-ulp-different chord lift.** Emission uses both values;
+A's face-328 override mesh and its face-331 neighbor chain diverge;
+cherchi's exact interner (correctly) keeps both; the constraint
+chains split around the sliver; the [A]-flood leaks across the
+unmarked manifold edge where A's cover of the (837,838) segment is
+missing → LabelMismatch. The wall is honest; the defect is Stage-0's.
+
+### 15b. Design — absorb sub-band lifts into the group
+
+Third application of Yang §4.4.1's remove-too-close rule (after
+amendment-15's stale-station absorption and amendment-16's atomic
+revert): during the #61 collapse pass, after electing a group's
+shared target, any USED, NON-minted, NON-corner, NON-rim-anchored
+overlay vertex whose EXACT uv distance to the elected member's uv is
+within the rounding-noise band `TAU_WORK·(1+uv_scale)` is the SAME
+feature expressed through a different sweep column: set its coords to
+the group target AND enroll it as a group member (the §14
+`CollapseGroups` carrier), so the amendment-16 atomic revert covers
+it in both directions — the identification holds or reverts WHOLE,
+lifts included.
+
+**Band discipline (why NOT MIN_FEATURE_SIZE):** the E-C1b
+genuinely-distinct band-close crossing population (R0088/R0070 twins,
+~1e-9 apart) MUST both enter the ring; absorbing at the #61 floor
+(1e-6) would swallow them. The rounding-noise band (~1.2e-12 at the
+measured scale) sits five orders above the measured cluster (4.3e-14)
+and three below the protected population — the same line the #178
+sub-resolution STOP and the I6 weld nomination already draw.
+Corners and rim-table anchors are NEVER absorbed (B-Rep / rim-table
+authority).
+
+### 15c. Increments
+
+- inc-0 (DONE, banked): the cherchi crossing-anatomy probe
+  (`CHERCHI_PATCH_PROBE` edge dump), the boolean.rs face attribution,
+  and the `[s0-build-probe]` container drill-down.
+- inc-1: the absorption in the #61 pass + unit oracle (absorbed lift
+  joins the group; a band-distant lift does not).
+- inc-2: F0067 + C0048 singles (C0048's `DegenerateTpi` is plausibly
+  the same class — ulp-twin Explicit points feeding a degenerate
+  TPI); 312-case sweep; flip on zero CORRECT→ERROR.
+
+### 15d. inc-1/inc-2 RESULTS (2026-07-31) — FLIPPED ALWAYS-ON; F0067 clears cherchi entirely, two stages past the old wall
+
+Shipped as designed: absorbed lifts join the §14 `CollapseGroups`
+carrier as full members (`minted_mark` set, so every ladder arm and
+both revert authorities treat them first-class); the unit pin is the
+BAND-DOCTRINE tripwire (`band_admits_cluster_rejects_distinct_twins`,
+mesh_build.rs — admits 4.3e-14, rejects 1e-9; a future widening that
+would swallow the E-C1b twins fails it).
+
+**F0067 gated**: 68 absorptions fire; the cherchi LabelMismatch is
+GONE — arrangement, labeling, and emission all complete — and the
+pipeline advances to Stage-4: `relocation region around vertex
+u32::MAX is invalid: LocalRefinementRequired`, the NAMED §4.5.2
+local-refinement capability wall. Two full stages past the old wall
+on one coherence fix. **C0048**: `DegenerateTpi` unmoved — a
+different mechanism (recorded, next in its own queue). Spot holds:
+R0059/R0099/R0088 (the E-C1b protected case) CORRECT; F0064/F0072
+typed walls stand.
+
+**Corpus (312/312 sweep, gate-ON → flipped)**: ZERO category deltas;
+exactly ONE detail delta — F0067's wall advance above. All 260
+CORRECT hold. **Canonical unchanged: 260C/0W/48E/0T** (the amendment
+converts no case yet; it removes a whole divergence CLASS — the
+emission now carries ONE value per femto crossing cluster, and the
+§4.5.5 identical-meshes contract holds at every absorbed site
+corpus-wide).
+
+Residuals: F0067's §4.5.2 LocalRefinementRequired wall (the
+mesh-updating epic's territory — deviation/#169 family, NOT a
+Stage-0 item); the u32::MAX vertex id in that message (cosmetic
+attribution gap worth a probe when #169 takes the case); C0048
+DegenerateTpi; the §14d wide-anchor WATCH; §13g bulge form.

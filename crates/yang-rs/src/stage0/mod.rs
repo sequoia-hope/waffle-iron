@@ -1040,8 +1040,65 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     d[0] * d[0] + d[1] * d[1] + d[2] * d[2] < sf * sf
                 });
                 if sub_floor_anchored {
-                    let member_ids: Vec<usize> = g.iter().map(|&(vi, _)| vi).collect();
-                    for &(vi, _) in g {
+                    let mut member_ids: Vec<usize> = g.iter().map(|&(vi, _)| vi).collect();
+                    // Amendment 17 (spec §15): sub-band LIFT absorption. A
+                    // femto 2D cluster can carry NON-minted members (a
+                    // chord-world lift from another sweep column — F0067's
+                    // vert 189) that the slot machinery never groups; left
+                    // out, the lift resolves 1 ulp from the group target and
+                    // the emission carries BOTH values (divergent interface
+                    // chains → cherchi LabelMismatch). Absorb every
+                    // non-minted, non-corner, non-rim-anchored vertex whose
+                    // EXACT uv distance to the elected member is within the
+                    // rounding-noise band TAU_WORK·(1+uv_scale) — five
+                    // orders above the measured cluster (4.3e-14), three
+                    // below the protected E-C1b genuinely-distinct twin
+                    // population (~1e-9) — and enroll it as a full group
+                    // member (minted_mark + the §14 carrier), so the
+                    // amendment-16 atomic revert covers it in both
+                    // directions. ALWAYS-ON since the inc-2 corpus flip
+                    // (2026-07-31: zero category deltas; F0067 advances two
+                    // stages past cherchi to the §4.5.2 wall).
+                    {
+                        let elected_exact = overlay.exact_verts[target_vi].clone();
+                        let tq = overlay.verts[target_vi];
+                        let uv_scale = tq.x().abs().max(tq.y().abs());
+                        let band = cad_primitives::TAU_WORK * (1.0 + uv_scale);
+                        if let Ok(band_r) = rat(band) {
+                            let band2 = &band_r * &band_r;
+                            for vi in 0..overlay.exact_verts.len() {
+                                if minted_mark[vi]
+                                    || member_ids.contains(&vi)
+                                    || collapse_groups.members.contains_key(&vi)
+                                {
+                                    continue;
+                                }
+                                let exact = &overlay.exact_verts[vi];
+                                if corners_a.contains_key(exact)
+                                    || corners_b.contains_key(exact)
+                                    || rim_a.contains_key(exact)
+                                    || rim_b.contains_key(exact)
+                                {
+                                    continue;
+                                }
+                                let du = &exact.x - &elected_exact.x;
+                                let dv = &exact.y - &elected_exact.y;
+                                if &du * &du + &dv * &dv > band2 {
+                                    continue;
+                                }
+                                if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                                    eprintln!(
+                                        "[mint-collapse] lift-absorb vert {vi} -> vert \
+                                         {target_vi} {target:?} (spec §15)"
+                                    );
+                                }
+                                coords[vi] = target;
+                                minted_mark[vi] = true;
+                                member_ids.push(vi);
+                            }
+                        }
+                    }
+                    for &vi in &member_ids {
                         collapse_groups.members.insert(vi, member_ids.clone());
                         collapse_groups.shared_lift.insert(vi, shared);
                     }
