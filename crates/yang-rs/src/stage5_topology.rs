@@ -382,6 +382,71 @@ pub(crate) fn reconstruct_topology_stage4(
     } else {
         None
     };
+    // Diagnostic only (`YANG_S4_COINCIDENT_PROBE`, read-only): the duplicate-vertex
+    // census at STAGE-4 ENTRY — the point at which every Stage-4 arm still sees the
+    // mesh Stage 0/2/3 handed it.
+    //
+    // Two columns, because they answer different questions. The bit-exact
+    // `coincident_sites` count is the cheap corpus-wide screen. The optional
+    // `=x,y,z` target then lists EVERY vertex within 1e-9 of one point and prints
+    // their pairwise separations at full precision — which is the measurement that
+    // matters, because the defect class this was built for is NOT bit-exact:
+    // F0067's triple-point twins sit 1.35e-15 apart, three orders BELOW `TAU_WORK`,
+    // so they are invisible to the bit-exact count and to every identification the
+    // pipeline runs, yet Stage 4 relocates them by two different rules and blows
+    // them 4.1e-5 apart. A femto pair is a duplicate; only the separation says so.
+    //
+    // Placed BEFORE `stage4_relocate_and_correct` on purpose: comparing this census
+    // across an upstream switch is what separates a defect Stage 0 MINTED from one
+    // it merely un-MASKED (F0067: identical under `YANG_A19_OFF` ⇒ pre-existing).
+    if let Ok(spec) = std::env::var("YANG_S4_COINCIDENT_PROBE") {
+        let mut by_pos: std::collections::HashMap<[u64; 3], Vec<u32>> = Default::default();
+        for (i, p) in mesh.verts.iter().enumerate() {
+            let a = p.as_array();
+            by_pos
+                .entry([a[0].to_bits(), a[1].to_bits(), a[2].to_bits()])
+                .or_default()
+                .push(i as u32);
+        }
+        let dup: usize = by_pos.values().filter(|v| v.len() > 1).count();
+        let dup_verts: usize = by_pos.values().filter(|v| v.len() > 1).map(Vec::len).sum();
+        eprintln!(
+            "YANG_S4_COINCIDENT n_verts={} coincident_sites={dup} coincident_verts={dup_verts}",
+            mesh.verts.len()
+        );
+        let t: Vec<f64> = spec
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
+        if let [tx, ty, tz] = t[..] {
+            let mut near: Vec<u32> = Vec::new();
+            for (i, p) in mesh.verts.iter().enumerate() {
+                let a = p.as_array();
+                let dd = ((a[0] - tx).powi(2) + (a[1] - ty).powi(2) + (a[2] - tz).powi(2)).sqrt();
+                if dd < 1.0e-9 {
+                    near.push(i as u32);
+                    eprintln!(
+                        "YANG_S4_COINCIDENT near v={i} d={dd:.3e} p=({:.17e},{:.17e},{:.17e})",
+                        a[0], a[1], a[2]
+                    );
+                }
+            }
+            for w in near.windows(2) {
+                let (p, q) = (
+                    mesh.verts[w[0] as usize].as_array(),
+                    mesh.verts[w[1] as usize].as_array(),
+                );
+                let s =
+                    ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt();
+                eprintln!(
+                    "YANG_S4_COINCIDENT sep v{}-v{} = {s:.6e}  (TAU_WORK={:.1e})",
+                    w[0],
+                    w[1],
+                    cad_primitives::TAU_WORK
+                );
+            }
+        }
+    }
     if has_conic {
         let (relocs, collapsed) = stage4_relocate_and_correct(
             mesh,
@@ -1100,8 +1165,68 @@ pub(crate) fn emit_topology(
                                 let q = mesh.verts[vv as usize].as_array();
                                 let dd = q[0] * n[0] + q[1] * n[1] + q[2] * n[2] + d;
                                 let reloc = relocations.iter().find(|(rv, _)| *rv == vv);
+                                // Provenance columns (populated only under
+                                // `YANG_S5_FOLD_PROBE`): the PRE-Stage-4 position
+                                // and its own off-plane residual answer the
+                                // masked-vs-minted question directly — an equal
+                                // residual before and after means Stage 4 did not
+                                // mint this defect. `inc`/`curve` say whether the
+                                // vertex was a relocation CANDIDATE at all.
+                                let pre = S4_PRE_POS.with(|c| {
+                                    c.borrow().as_ref().and_then(|m| m.get(&vv).copied())
+                                });
+                                let pre_s = match pre {
+                                    Some(p) => {
+                                        let pd = p[0] * n[0] + p[1] * n[1] + p[2] * n[2] + d;
+                                        let disp = ((q[0] - p[0]).powi(2)
+                                            + (q[1] - p[1]).powi(2)
+                                            + (q[2] - p[2]).powi(2))
+                                        .sqrt();
+                                        format!(
+                                            "pre=({:.12},{:.12},{:.12}) pre_dist={pd:.4e} disp={disp:.4e}",
+                                            p[0], p[1], p[2]
+                                        )
+                                    }
+                                    None => "pre=NEW".to_string(),
+                                };
+                                let inc_s = S4_VERT_SURF.with(|c| {
+                                    c.borrow().as_ref().map_or_else(
+                                        || "?".to_string(),
+                                        |m| {
+                                            m.get(&vv).map_or_else(
+                                                || "-".to_string(),
+                                                // NOT deduped: two DISTINCT
+                                                // surfaces of one operand share
+                                                // a label (`A:Plane`), and at a
+                                                // flush junction that
+                                                // multiplicity is the whole
+                                                // point — deduping it reads as
+                                                // "one plane" and hides the
+                                                // coplanar duplicate.
+                                                |v| {
+                                                    let mut l: Vec<&str> =
+                                                        v.iter().map(|(s, _)| s.as_str()).collect();
+                                                    l.sort_unstable();
+                                                    l.join(",")
+                                                },
+                                            )
+                                        },
+                                    )
+                                });
+                                let cur_s = S4_VERT_CURVE.with(|c| {
+                                    c.borrow().as_ref().map_or_else(
+                                        || "?".to_string(),
+                                        |m| {
+                                            m.get(&vv).map_or_else(
+                                                || "-".to_string(),
+                                                |v| v.iter().copied().collect::<Vec<_>>().join(","),
+                                            )
+                                        },
+                                    )
+                                });
                                 eprintln!(
-                                    "  cyc{ci} v={vv} p=({:.6},{:.6},{:.6}) dist={dd:.4e} reloc={reloc:?}",
+                                    "  cyc{ci} v={vv} p=({:.12},{:.12},{:.12}) dist={dd:.4e} \
+                                     reloc={reloc:?} {pre_s} inc=[{inc_s}] curve=[{cur_s}]",
                                     q[0], q[1], q[2]
                                 );
                             }

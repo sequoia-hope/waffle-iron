@@ -646,3 +646,107 @@ separate increment with its own measurement.
 This is the general shape worth remembering: **a corpus-neutral repair can be
 the enabling dependency of a converting one.** Neutral is not the same as
 valueless — it can be the floor another arm needs in order to stand on.
+
+## 19. F0067 ANCHORED (2026-08-01) — inc-2 drops a constraint at a QUADRUPLE point, and inc-3's uniqueness guard cannot pick it up
+
+F0067's post-amendment-19 wall is `s6-planar-loop-nonplanar`: face 888 (an A
+gear-tooth flank, inherited plane `n=(0.856701,-0.515813,0)`, `d=-0.0069008`),
+loop vertex 1049 **4.096e-5** off that plane against band 2.752e-7 — 149×. The
+failing op is the 10th of 10 stacked extrudes: a circle `r=0.20884629` whose
+BASE plane `z=1.7518978673859` is FLUSH with the op-9 gear's top cap.
+
+### The measurement
+
+Extended `YANG_S6_NONPLANAR_PROBE` with the pre-Stage-4 provenance columns
+(`pre`/`disp`/`inc`/`curve`, populated under `YANG_S5_FOLD_PROBE`). The loop's
+two top-corner vertices report:
+
+| v | `curve` | `reloc` | `disp` | post | verdict |
+|---|---|---|---|---|---|
+| 1050 | `Circle,LineSegment` | `t=-2.0797041` | 1.2329e-3 | r=0.2088466 @ the exact root angle | ON plane (1.4e-17) |
+| 1049 | **none** | none | 1.2322e-3 | r=0.2088465 @ its ORIGINAL angle | **4.096e-5 OFF plane** |
+
+Both carry the SAME pre-Stage-4 position and the same incidence
+`[A:Plane, B:Cylinder, B:Plane]`. `YANG_S4_RIM_SNAP_PROBE` names the mover
+outright: `[s4-rim-snap] v=1050 -> [-0.10171908174514499, -0.18240066210493067,
+1.7518978673859231]` — exactly final v1049's off-plane position.
+
+### The mechanism
+
+The junction point is represented by a **femto pair**: two vertices
+**1.347289e-15** apart (`YANG_S4_COINCIDENT_PROBE`) — three orders BELOW
+`TAU_WORK`, so it is invisible to a bit-exact duplicate census and to every
+identification the pipeline runs. Stage 4 then relocates the two members by
+two DIFFERENT authorities:
+
+- the member whose edges are keyed into `intersection_curves` is excluded from
+  inc-2 as a `cross_curve_endpoint` and is relocated onto the exact
+  `Circle ∩ Plane` root — correct;
+- the member with no curve key falls to inc-2, whose projection is
+  nearest-point-on-the-rim-circle. That projection **preserves the tessellated
+  angle and silently drops the A-flank-plane constraint**, landing 4.1e-5 off it.
+
+Both land in face 888's loop, so the flank face is non-planar and Stage 6
+rejects it. Note what inc-2 does here is not a tolerance slip: it is an exact
+projection onto the RIGHT curve, having discarded a constraint it never knew
+about.
+
+inc-3 exists for precisely this class — but it cannot pick this vertex up, for
+TWO independent reasons, both measured:
+
+1. its selection requires `cross_curve_endpoints.contains(&v)`, i.e. only
+   vertices inc-2 EXCLUDED. This vertex is one inc-2 CLAIMED. (Removing the
+   requirement alone changes nothing — reason 2 still bites.)
+2. with the requirement removed, the candidate probe reports `v=1050 owner=B
+   n_others=2`. At a FLUSH junction the other operand contributes the gear's
+   TOP cap plane `d=-1.7518978673859236` **coplanar with the rim's own bottom
+   cap** (`d=-1.7518978673859231`, 5e-16 apart) ALONGSIDE the real flank plane.
+   That redundant plane adds no constraint but makes `others.len() == 2`, and
+   `let [other] = others[..] else { continue }` refuses.
+
+So the point is really a QUADRUPLE point whose fourth surface is a duplicate of
+its first. Every guard in the chain is individually defensible; the vertex falls
+between them.
+
+### Anchor CONFIRMED causally, not by inference
+
+Behind a temporary gate (widened inc-3 selection + `others` de-duplicated
+against the rim's own planes by coplanarity), F0067's face-888 wall
+**disappears** and the case advances to a deeper, unrelated wall
+(`TessellationFailed FaceId(3994)`, "ring rejected by CDT"). The experiment was
+REVERTED — it is a proof of mechanism, not a fix: the same de-duplication also
+dropped 6 previously-reseated inc-3 candidates from 7 to 1, which a shipped
+version must account for.
+
+### MASKED, not MINTED (censused per case, not inherited)
+
+Per the R0038 lesson, the sibling verdict was NOT assumed. Re-adding a
+temporary `YANG_A19_OFF` and censusing at Stage-4 entry: the femto pair is
+present with amendment-19 both ON and OFF, at the same position and the same
+multiplicity. Stage 0 did not mint it; amendment-19 only made the Stage-6 gate
+REACHABLE. inc-2 (always-on since §18) is the mover, and predates both of this
+week's amendments.
+
+### What a fix must do (NOT built)
+
+The structural repair is an IDENTIFICATION at each of the two boundaries this
+defect slipped through, not a band:
+
+1. identify the sub-`TAU_WORK` twins as ONE junction so a single authority
+   relocates them, and/or
+2. identify the coplanar duplicate plane against the rim's own surfaces, so a
+   flush junction presents its true constraint count — then let the 3-surface
+   certificate seat it, with inc-2 refusing any vertex that carries a further
+   other-operand surface rather than projecting onto the rim alone.
+
+Scoping either one needs the corpus-wide census of how often inc-2 snaps a
+vertex that carries an unconsumed other-operand surface (the "census the arm's
+firings BEFORE fixing it" rule), which this session did not run.
+
+**LESSON (5th application).** *When a femto pair survives every identification,
+enumerate which protection each member hides behind.* Here the answer is
+symmetric and is what makes the case new: one member hides behind
+`cross_curve_endpoints`, the other behind inc-2's own claim — and the guard
+built to catch the survivor is itself defeated by a SECOND sub-`TAU_WORK`
+duplicate, this time of a SURFACE rather than a vertex. A uniqueness guard
+(`let [other] = ...`) is an identification decision in disguise.
