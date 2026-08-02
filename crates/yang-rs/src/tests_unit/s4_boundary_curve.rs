@@ -134,7 +134,8 @@ fn s4bc_iii_cross_curve_junction_vertex_is_never_moved() {
     let mut excluded: std::collections::BTreeSet<u32> = Default::default();
     excluded.insert(3);
 
-    let moves = plan_boundary_relocations(&mesh, &rim, &excluded, chord_bound());
+    let moves =
+        plan_boundary_relocations(&mesh, &rim, &Default::default(), &excluded, chord_bound());
     let moved: Vec<u32> = moves.iter().map(|(v, _)| *v).collect();
     assert_eq!(moved, vec![2], "only the unclaimed chord vertex may move");
 }
@@ -316,7 +317,13 @@ fn s4bc_vi_edge_with_an_out_of_band_endpoint_is_abandoned_whole() {
     rim.insert((0, 1), curve.clone()); // rejected edge
     rim.insert((2, 3), curve); // accepted edge
 
-    let moves = plan_boundary_relocations(&mesh, &rim, &Default::default(), chord_bound());
+    let moves = plan_boundary_relocations(
+        &mesh,
+        &rim,
+        &Default::default(),
+        &Default::default(),
+        chord_bound(),
+    );
     let moved: Vec<u32> = moves.iter().map(|(v, _)| *v).collect();
     assert_eq!(
         moved,
@@ -489,4 +496,159 @@ fn s4bc_dup_planes_non_plane_pairs_are_never_duplicates() {
     assert!(!crate::stage4_boundary_curve::planes_are_duplicates(
         degenerate, plane
     ));
+}
+
+// =========================================================================
+// inc-6 (spec §20) — seating a rim vertex that carries an UNCONSUMED surface
+// =========================================================================
+
+use crate::stage4_boundary_curve::{seat_against_unconsumed, unconsumed_surfaces_for_vertex};
+
+/// A plane `x = R·cos(deg)`, whose two roots on the unit-z rim are `±deg`.
+fn cutting_plane_at(deg: f64) -> Surface {
+    Surface::Plane {
+        normal: Vector3::new(1.0, 0.0, 0.0),
+        d: -R * deg.to_radians().cos(),
+    }
+}
+
+/// No unconsumed surface ⇒ the rim projection stands, bit-for-bit. This is the
+/// measured majority (89 of inc-2's 101 corpus snaps) and must not move.
+#[test]
+fn s4bc_vi_no_unconsumed_surface_keeps_the_projection_bit_exact() {
+    let curve = unit_z_circle();
+    let p = chord_point(0.0, SPAN_DEG, 0.5);
+    let q = project_onto_curve(p, &curve).expect("chord point projects");
+    let seat = seat_against_unconsumed(p, q, &curve, &[], chord_bound())
+        .expect("no unconsumed surface ⇒ the projection is the answer");
+    assert_eq!(
+        seat.as_array(),
+        q.as_array(),
+        "the empty case must be bit-identical, not merely close"
+    );
+}
+
+/// ONE unconsumed plane ⇒ the seat is the `Circle ∩ Plane` certificate: on the
+/// rim AND on the plane the projection would have dropped. This is F0067's
+/// class, at F0067's scale (the seat differs from the projection by 1.9e-7,
+/// three orders above `TAU_WORK`).
+#[test]
+fn s4bc_vi_one_unconsumed_plane_seats_at_the_certificate() {
+    let curve = unit_z_circle();
+    let p = chord_point(0.0, SPAN_DEG, 0.25);
+    let q = project_onto_curve(p, &curve).expect("chord point projects");
+    // A plane cutting the rim 0.05° past the projection's angle — inside the
+    // chord budget, but a DIFFERENT point.
+    let target_deg = 2.4780438484538493;
+    let plane = cutting_plane_at(target_deg);
+    let seat = seat_against_unconsumed(p, q, &curve, &[plane], chord_bound())
+        .expect("root within the chord bound ⇒ seated");
+
+    assert!(
+        dist(seat, q) > TAU_WORK,
+        "the certificate must actually differ from the projection ({:.3e})",
+        dist(seat, q)
+    );
+    // ON the rim.
+    let sa = seat.as_array();
+    assert!(
+        (sa[0].hypot(sa[1]) - R).abs() <= TAU_WORK * (1.0 + R),
+        "seat must lie on the rim circle"
+    );
+    // ON the plane the projection would have dropped — the whole point.
+    let Surface::Plane { normal, d } = plane else {
+        unreachable!()
+    };
+    let n = normal.as_array();
+    let resid = n[0] * sa[0] + n[1] * sa[1] + n[2] * sa[2] + d;
+    assert!(
+        resid.abs() <= TAU_WORK * (1.0 + R),
+        "seat must satisfy the unconsumed plane (resid {resid:.3e})"
+    );
+}
+
+/// The certificate is still subject to the pass's `bound`: a root further from
+/// the vertex than the owner's Stage-1 chord guarantee is not this class, and
+/// the pass makes NO claim rather than dragging the vertex there.
+#[test]
+fn s4bc_vi_certificate_beyond_the_chord_bound_makes_no_claim() {
+    let curve = unit_z_circle();
+    let p = chord_point(0.0, SPAN_DEG, 0.25);
+    let q = project_onto_curve(p, &curve).expect("chord point projects");
+    // 0.3° past the projection: 1.26e-6 away, against a 7.69e-7 bound.
+    let plane = cutting_plane_at(2.7280438484538493);
+    assert!(seat_against_unconsumed(p, q, &curve, &[plane], chord_bound()).is_none());
+}
+
+/// A non-plane unconsumed surface, or more than one, has no closed-form seat
+/// here. The pass must make no claim — never fall back to the rim projection,
+/// which is the measured F0067 defect.
+#[test]
+fn s4bc_vi_underivable_seats_make_no_claim() {
+    let curve = unit_z_circle();
+    let p = chord_point(0.0, SPAN_DEG, 0.25);
+    let q = project_onto_curve(p, &curve).expect("chord point projects");
+    let sphere = Surface::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: R,
+    };
+    assert!(
+        seat_against_unconsumed(p, q, &curve, &[sphere], chord_bound()).is_none(),
+        "a non-plane unconsumed surface has no closed-form seat in this increment"
+    );
+    let two = [cutting_plane_at(2.478), cutting_plane_at(2.6)];
+    assert!(
+        seat_against_unconsumed(p, q, &curve, &two, chord_bound()).is_none(),
+        "an over-determined seat must refuse, not pick one"
+    );
+}
+
+/// The unconsumed set: own surfaces are consumed, a coplanar duplicate of an own
+/// surface is NOT a constraint (F0067's flush cap), and a genuine third surface
+/// is reported.
+#[test]
+fn s4bc_vi_unconsumed_set_filters_own_and_duplicate_surfaces() {
+    let cyl = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: R,
+    };
+    let cap = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: 0.0,
+    };
+    // The other operand's cap at the same flush junction: opposite normal, 5e-16
+    // offset — an identical surface wearing a different label.
+    let dup_cap = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, -1.0),
+        d: 5e-16,
+    };
+    let flank = Surface::Plane {
+        normal: Vector3::new(1.0, 0.0, 0.0),
+        d: -R / 2.0,
+    };
+    let own = [(InputId::B, cyl), (InputId::B, cap)];
+    let mut incidence: std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>> =
+        Default::default();
+    incidence.insert((0, 1), vec![(InputId::B, cyl), (InputId::B, cap)]);
+    incidence.insert((1, 2), vec![(InputId::A, dup_cap), (InputId::A, flank)]);
+    // An edge not touching vertex 1 must contribute nothing.
+    incidence.insert(
+        (3, 4),
+        vec![(
+            InputId::A,
+            Surface::Sphere {
+                center: Point3::new(0.0, 0.0, 0.0),
+                radius: 1.0,
+            },
+        )],
+    );
+
+    let got = unconsumed_surfaces_for_vertex(1, &own, &incidence);
+    assert_eq!(
+        got,
+        vec![flank],
+        "only the genuine third surface survives: own pair consumed, flush \
+         duplicate identified away, distant edge irrelevant"
+    );
 }

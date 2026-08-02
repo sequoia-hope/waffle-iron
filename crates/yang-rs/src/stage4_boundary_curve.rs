@@ -142,6 +142,7 @@ pub(crate) fn boundary_relocation_for_vertex(
 pub(crate) fn plan_boundary_relocations(
     mesh: &Mesh,
     rim_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
     cross_curve_endpoints: &std::collections::BTreeSet<u32>,
     bound: f64,
 ) -> Vec<(u32, Point3)> {
@@ -162,14 +163,99 @@ pub(crate) fn plan_boundary_relocations(
             }
         }
         // Only now commit, and never for a vertex a cross-input curve owns.
+        let own: &[(InputId, Surface)] = incidence
+            .get(&(s, e))
+            .map(|es| es.as_slice())
+            .unwrap_or(&[]);
         for (v, q) in pending {
             if cross_curve_endpoints.contains(&v) {
                 continue;
             }
-            moves.entry(v).or_insert(q);
+            // inc-6 (spec §21), ALWAYS-ON: the projection consumes the rim pair
+            // ONLY, so a further incident surface is a constraint it would
+            // silently drop — F0067's vertex was ON its flank plane to 2.8e-17
+            // and 4.1e-5 off it after the snap. Seat at the certificate instead.
+            let Some(&p) = mesh.verts.get(v as usize) else {
+                continue;
+            };
+            let others = unconsumed_surfaces_for_vertex(v, own, incidence);
+            match seat_against_unconsumed(p, q, curve, &others, bound) {
+                Some(q2) => {
+                    moves.entry(v).or_insert(q2);
+                }
+                // No derivable seat ⇒ make no claim, exactly as this pass does
+                // for an edge it cannot verify. Projecting onto the rim alone is
+                // the measured defect, not an acceptable fallback.
+                None => continue,
+            }
         }
     }
     moves.into_iter().collect()
+}
+
+/// The surfaces incident to `v` that the rim projection does NOT consume.
+///
+/// `own` is the rim edge's own surface pair — the two the projection accounts
+/// for. Everything else incident to the vertex is a further constraint, EXCEPT
+/// a coplanar duplicate of an own surface: at a flush junction the other operand
+/// contributes a cap 5e-16 from the rim's own cap, which constrains nothing and
+/// is the reason F0067's quadruple point defeats a uniqueness guard (§19).
+///
+/// Deduped by VALUE only; labels are never deduped.
+pub(crate) fn unconsumed_surfaces_for_vertex(
+    v: u32,
+    own: &[(InputId, Surface)],
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+) -> Vec<Surface> {
+    let mut out: Vec<Surface> = Vec::new();
+    for (&(a, b), entries) in incidence {
+        if a != v && b != v {
+            continue;
+        }
+        for &(_, sf) in entries {
+            if own.iter().any(|&(_, s2)| s2 == sf) {
+                continue;
+            }
+            if own.iter().any(|&(_, s2)| planes_are_duplicates(sf, s2)) {
+                continue;
+            }
+            if !out.contains(&sf) {
+                out.push(sf);
+            }
+        }
+    }
+    out
+}
+
+/// Where a rim vertex carrying `others` must actually be seated.
+///
+/// - **no unconsumed surface** — the rim projection `q` is the whole answer
+///   (measured: 89 of inc-2's 101 corpus snaps, byte-identical);
+/// - **exactly one, a plane** — the seat is the `Circle ∩ Plane` root, a
+///   CERTIFICATE satisfying both the rim and the surface the projection would
+///   have dropped. Subject to the pass's existing `bound`: a root further from
+///   the vertex than the owner's own Stage-1 chord guarantee is not this class.
+/// - **anything else** (a non-plane surface, or more than one) — `None`: the
+///   seat is not derivable in closed form here, and projecting onto the rim
+///   alone is the measured defect, not an acceptable fallback.
+pub(crate) fn seat_against_unconsumed(
+    p: Point3,
+    q: Point3,
+    curve: &Curve,
+    others: &[Surface],
+    bound: f64,
+) -> Option<Point3> {
+    match others {
+        [] => Some(q),
+        [Surface::Plane { normal, d }] => {
+            let seat = circle_plane_nearest_root(curve, *normal, *d, p)?;
+            let (a, b) = (p.as_array(), seat.as_array());
+            let dist =
+                ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+            (dist.is_finite() && dist <= bound).then_some(seat)
+        }
+        _ => None,
+    }
 }
 
 /// The analytic rim curve of a same-operand surface PAIR, in closed form.

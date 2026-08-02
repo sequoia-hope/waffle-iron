@@ -7567,6 +7567,7 @@ pub(crate) fn stage4_relocate_and_correct(
                 let moves = crate::stage4_boundary_curve::plan_boundary_relocations(
                     mesh,
                     &rim_curves,
+                    &inc_bc,
                     &cross_endpoints,
                     bound,
                 );

@@ -850,3 +850,84 @@ advances to an unrelated CDT wall (`TessellationFailed FaceId(3994)`) once this
 vertex is seated. The value is paper compliance — Fig. 11's q must satisfy every
 surface through it — and the retirement of a silent constraint drop; it is not a
 score move, and must not be sold as one.
+
+---
+
+## 21. inc-6 SHIPPED ALWAYS-ON (2026-08-02) — inc-2 seats at a certificate instead of dropping the constraint
+
+The fix §20 scoped, built and measured. F0067's dropped constraint is retired;
+the corpus is unchanged.
+
+### What changed
+
+`plan_boundary_relocations` now takes the Stage-4 incidence map, and before
+committing any snap it asks what the rim projection would NOT account for:
+
+```
+others = surfaces incident to v
+       − the rim edge's own pair (by VALUE)
+       − any `planes_are_duplicates` of an own surface   (§20's flush-cap identification)
+
+[]            → commit the projection q                     (unchanged, bit-exact)
+[Plane]       → commit `circle_plane_nearest_root(curve, plane, p)`, subject to
+                the pass's existing `bound`                  (a CERTIFICATE)
+non-plane, >1 → make no claim                                (no closed-form seat)
+```
+
+The third branch is deliberate and is the P9 posture: projecting onto the rim
+alone is the measured defect, so it is not available as a fallback. Nothing here
+is a band — the acceptance test is unchanged (`bound`, the owner's Stage-1 chord
+guarantee), and the seat is an exact closed-form root.
+
+Note the predicate is owner-AGNOSTIC, per §20's correction of §19: 10 of the 12
+measured live carriers are same-operand third surfaces.
+
+### Measured
+
+| | verdicts | F0067 |
+|---|---|---|
+| gate OFF (baseline) | 261C / 0W / 47E / 0T | `s6-planar-loop-nonplanar`, v1049 4.096e-5 off the A flank plane |
+| gate ON (312 cases) | 261C / 0W / 47E / 0T, **0 verdict changes** | `TessellationFailed FaceId(3994)` — "ring rejected by CDT" |
+| ALWAYS-ON (312 cases) | identical to gate-ON, verdict AND detail, on every case | same |
+
+The seated vertex, under the §20 probe:
+
+```
+GATE OFF: v=1050 own=["B:Plane","B:Cylinder"] dup=1 live=1 dropped=1
+            live A:Plane pre=-2.775558e-17 post=4.095633e-5
+GATE ON : v=1050 own=["B:Plane","B:Cylinder"] dup=1 live=1 dropped=0
+            live A:Plane pre=-2.775558e-17 post=1.387779e-17
+```
+
+F0067's advance to the CDT wall matches, independently, what §19's temporary
+widened-inc-3 experiment predicted — the structural fix lands on the same next
+wall the diagnostic gate did. That is a second, mechanism-level confirmation of
+the §19 anchor, and it is the whole of the corpus delta: **zero conversions, as
+§20 said to expect.** R0011, the only other case where inc-2 moves anything,
+keeps its verdict and its 99 moves; its 5 carriers now seat at the certificate
+too, shifting them by ≤1e-12.
+
+The gate (`YANG_S4_UNCONSUMED_SEAT_ENABLE`) was deleted at the flip — a measured
+switch is not kept as configuration. `YANG_S4_UNCONSUMED_PROBE` (read-only) stays.
+
+### Oracles
+
+Five new unit tests on the two pure functions, at the measured scale:
+the empty case is asserted **bit-identical** (not merely close); one unconsumed
+plane seats on BOTH the rim and that plane to `TAU_WORK`, differing from the
+projection by 1.9e-7; a root beyond the chord bound makes no claim; a non-plane
+and an over-determined set both refuse; and the unconsumed set filters the own
+pair and a 5e-16 flush duplicate while keeping the genuine third surface. Plus
+three on `planes_are_duplicates` built on F0067's measured planes (§20).
+
+### What this does NOT fix
+
+F0067 is still ERROR, now at a CDT wall in Stage 5/6 (`FaceId(3994)`, "ring
+rejected by CDT (degenerate/self-intersecting)") — a different class, unrelated
+to §4.4.1 relocation, and the next thing to anchor on this case. The §19 femto
+pair itself is also NOT retired: the two twins 1.347289e-15 apart still exist and
+are still relocated by two authorities. inc-6 makes both authorities produce the
+SAME answer for the surfaces the vertex carries, which is why the wall clears —
+but the identification of the twins as one junction (§19 fix option 1) remains
+unbuilt, and a future case where the two authorities disagree for a reason other
+than a dropped surface would not be covered by this.
