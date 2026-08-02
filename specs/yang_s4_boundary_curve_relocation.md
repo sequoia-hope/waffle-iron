@@ -750,3 +750,103 @@ symmetric and is what makes the case new: one member hides behind
 built to catch the survivor is itself defeated by a SECOND sub-`TAU_WORK`
 duplicate, this time of a SURFACE rather than a vertex. A uniqueness guard
 (`let [other] = ...`) is an identification decision in disguise.
+
+---
+
+## 20. THE CENSUS (2026-08-02) — inc-2's firings, corpus-wide: it moves 101 vertices in 2 cases, and drops a constraint at exactly ONE
+
+§19 named the census that must precede any fix ("census the arm's firings
+BEFORE fixing it"). It is now taken, on the full 312-case corpus in `--release`,
+under a new read-only probe.
+
+### The instrument
+
+`YANG_S4_UNCONSUMED_PROBE` (`census_unconsumed_surfaces`, called at the inc-2
+site BEFORE `apply_boundary_relocations`, so the mesh still holds pre-snap
+positions and `moves` holds the post-snap ones). For every vertex the pass is
+about to snap it reports the surfaces incident to that vertex that the
+projection does NOT consume — the rim projection constrains the vertex to the
+rim pair only, so a THIRD incident surface is a constraint the snap has no
+knowledge of. Each is classified:
+
+- **`dup`** — a coplanar duplicate of one of the rim's own surfaces
+  (`planes_are_duplicates`: `|n̂·n̂'| = 1` and the offsets agree, both within
+  `TAU_WORK`, either orientation). F0067's flush-junction cap. Carries no
+  constraint; only breaks a uniqueness guard downstream.
+- **`live`** — a genuine further constraint, reported with the vertex's
+  normalized distance to it BEFORE and AFTER the snap. "Carries a live surface"
+  and "the snap moved off it" are different questions and only the second is a
+  defect; the probe answers both and decides neither.
+
+Incident-surface labels are deduped by VALUE only, never by label (the §19
+lesson: two distinct planes of one operand share a label).
+
+### The measurement
+
+Sweep of `single_case` over all 312 cases, 8-way (the `ASSAY_JOBS` driver nulls
+child stderr, so a probe census must sweep). Corpus verdicts under the probe:
+**261C / 47E / 2 UNSUPPORTED(coplanar) / 1 UNSUPPORTED(curved-profile) /
+1 EXPECTED_ERROR** — canonical, i.e. the probe is production-neutral.
+
+| quantity | count |
+|---|---|
+| invocations of the pass (rim curves present, bound > 0) | 219 |
+| vertices MOVED | 101, in **2 cases only** (R0011 99, F0067 2) |
+| moved vertices carrying an unconsumed surface | 12 firings / **6 distinct vertices** |
+| …of those, carrying a `dup` (flush coplanar) plane | 2 firings / **1 distinct vertex** (F0067) |
+| …of those, where the snap DROPPED a satisfied constraint | 2 firings / **1 distinct vertex** (F0067) |
+
+(Firings are double-counted at 2× because `stage4_relocate_and_correct` runs the
+pass twice per op; the distinct-vertex column is the real one.)
+
+**F0067, the known instance, reproduces exactly and sharpens §19:**
+
+```
+[s4-unconsumed] v=1050 own=["B:Plane", "B:Cylinder"] dup=1 live=1 dropped=1
+[s4-unconsumed]   live A:Plane pre=-2.775558e-17 post=4.095633e-5
+```
+
+The vertex was **ON the A flank plane to 2.8e-17** before the snap and 4.096e-5
+off it after — the same number as the §19 Stage-6 wall. So inc-2 does not merely
+fail to enforce a constraint it never knew about; it **destroys one that was
+exactly satisfied**. And `dup=1` confirms the quadruple point independently of
+the inc-3 probe that first found it.
+
+**R0011, the only other mover, is NOT this defect.** Its 5 distinct carriers
+(`own=[A:Cylinder, A:Plane]`, live `A:Plane`) stay on the live plane across the
+snap: `pre=0` → `post ∈ {0, −2.3e-13, −4.5e-13}`, all sub-`TAU_WORK`. The rim
+projection happens to be consistent with the third surface there.
+
+### What the census changes
+
+1. **§19's framing "an unconsumed OTHER-OPERAND surface" is too narrow.** 10 of
+   the 12 live carriers are SAME-operand third surfaces (own `A:Cylinder` +
+   `A:Plane`, live a second `A:Plane`); only F0067's is cross-operand. The
+   correct predicate is "a further incident surface the projection did not
+   consume", regardless of owner.
+2. **The blast radius of a fix is 2 cases, both already ERROR.** No
+   SUPPORTED_CORRECT case has inc-2 move a vertex at all. A rule that changes
+   what the pass does with a live unconsumed surface cannot regress a correct
+   case through this pass — it is measurable on R0011 + F0067 alone. This is
+   the scoping answer §19 asked for, and it clears fix option 2.
+3. **The defect is one vertex, and the seat for it already exists in this
+   file.** `circle_plane_nearest_root` (built for inc-3, §11) is exactly the
+   `Circle ∩ Plane` certificate the dropped constraint demands.
+
+### The fix this scopes (not yet built)
+
+Inside inc-2, before committing a move: collect the vertex's incident surfaces,
+discard the rim pair's own and any `planes_are_duplicates` of them, then
+
+- **0 remaining** → project as today (89 of 101 moves; byte-identical);
+- **exactly 1, a plane** → seat at `circle_plane_nearest_root` against it,
+  subject to the pass's existing `bound` acceptance — a certificate, not a band;
+- **1 non-plane, or >1** → make no claim (leave the vertex), because the seat is
+  not derivable in closed form here and projecting onto the rim alone is the
+  measured defect.
+
+Expected corpus delta: **zero conversions.** §19 already measured that F0067
+advances to an unrelated CDT wall (`TessellationFailed FaceId(3994)`) once this
+vertex is seated. The value is paper compliance — Fig. 11's q must satisfy every
+surface through it — and the retirement of a silent constraint drop; it is not a
+score move, and must not be sold as one.

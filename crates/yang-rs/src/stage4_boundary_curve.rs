@@ -265,6 +265,175 @@ pub(crate) fn apply_boundary_relocations(mesh: &mut Mesh, moves: &[(u32, Point3)
 }
 
 // =========================================================================
+// CENSUS — how often does inc-2 snap a vertex carrying a surface it never
+// consumed? (spec §19 "what a fix must do", the census that must precede it)
+// =========================================================================
+
+/// Are two surfaces the SAME plane, up to a sub-`TAU_WORK` offset and either
+/// orientation?
+///
+/// This is the identification F0067's quadruple point needs and inc-3's
+/// `let [other] = ...` lacks: at a FLUSH junction the other operand contributes
+/// a cap plane 5e-16 from the rim's own cap, which adds no constraint but does
+/// add an element. Planes only — a duplicate of any other kind has not been
+/// measured, and the census must not invent one.
+pub(crate) fn planes_are_duplicates(a: Surface, b: Surface) -> bool {
+    let (Surface::Plane { normal: na, d: da }, Surface::Plane { normal: nb, d: db }) = (a, b)
+    else {
+        return false;
+    };
+    let (va, vb) = (na.as_array(), nb.as_array());
+    let la = (va[0] * va[0] + va[1] * va[1] + va[2] * va[2]).sqrt();
+    let lb = (vb[0] * vb[0] + vb[1] * vb[1] + vb[2] * vb[2]).sqrt();
+    // NaN-safe, the module idiom: a NaN length must report "not duplicates".
+    if la.is_nan() || la <= 0.0 || lb.is_nan() || lb <= 0.0 {
+        return false;
+    }
+    let dot = (va[0] * vb[0] + va[1] * vb[1] + va[2] * vb[2]) / (la * lb);
+    if (dot.abs() - 1.0).abs() > TAU_WORK {
+        return false;
+    }
+    // Same orientation ⇒ the offsets must match; opposite ⇒ they must negate.
+    let (oa, ob) = (da / la, db / lb);
+    let delta = if dot > 0.0 { oa - ob } else { oa + ob };
+    delta.abs() <= TAU_WORK
+}
+
+/// Signed distance of `x` to `s`, normalized so a plane reports metres.
+fn surface_distance(s: Surface, x: Point3) -> Option<f64> {
+    let (f, _) = crate::stage4_relocate::surface_value_and_normal(s, x.as_array())?;
+    match s {
+        Surface::Plane { normal, .. } => {
+            let n = normal.as_array();
+            let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            if l > 0.0 {
+                Some(f / l)
+            } else {
+                None
+            }
+        }
+        _ => Some(f),
+    }
+}
+
+/// Corpus census for `YANG_S4_UNCONSUMED_PROBE` — read-only, no mutation, no
+/// effect on the production path.
+///
+/// For each vertex inc-2 is about to snap, report the surfaces incident to that
+/// vertex that the pass did NOT consume: the rim projection constrains the
+/// vertex to the rim's own two surfaces only, so any THIRD incident surface is a
+/// constraint the snap has no knowledge of. Each is classified:
+///
+/// - `dup` — a coplanar duplicate of one of the rim's own surfaces (F0067's
+///   flush-junction cap). It carries no constraint; it only breaks a
+///   uniqueness guard downstream.
+/// - `live` — a genuine further constraint. Reported with the vertex's distance
+///   to it BEFORE and AFTER the snap, because "carries a live surface" and "the
+///   snap moved off it" are different questions and only the second is a defect.
+///
+/// Called before `apply_boundary_relocations`, so `mesh` holds pre-snap
+/// positions and `moves` holds the post-snap ones.
+pub(crate) fn census_unconsumed_surfaces(
+    mesh: &Mesh,
+    moves: &[(u32, Point3)],
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    rim_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+) {
+    let (mut n_with_other, mut n_dup_only, mut n_live, mut n_dropped) = (0usize, 0usize, 0usize, 0);
+    for &(v, q) in moves {
+        let Some(&p) = mesh.verts.get(v as usize) else {
+            continue;
+        };
+        // The rim edges that CLAIM this vertex give the pass's own surfaces and
+        // the owning operand.
+        let mut own: Vec<(InputId, Surface)> = Vec::new();
+        for &(s, e) in rim_curves.keys() {
+            if s != v && e != v {
+                continue;
+            }
+            if let Some(entries) = incidence.get(&(s, e)) {
+                for &(i, sf) in entries {
+                    if !own.iter().any(|&(i2, s2)| i2 == i && s2 == sf) {
+                        own.push((i, sf));
+                    }
+                }
+            }
+        }
+        // Every surface incident to the vertex, deduped by VALUE only. Labels
+        // are never deduped: two distinct planes of one operand share a label,
+        // and at a flush junction that multiplicity is the whole point.
+        let mut all: Vec<(InputId, Surface)> = Vec::new();
+        for (&(s, e), entries) in incidence {
+            if s != v && e != v {
+                continue;
+            }
+            for &(i, sf) in entries {
+                if !all.iter().any(|&(i2, s2)| i2 == i && s2 == sf) {
+                    all.push((i, sf));
+                }
+            }
+        }
+        let mut dups = 0usize;
+        let mut live: Vec<(InputId, Surface, f64, f64)> = Vec::new();
+        for &(i, sf) in &all {
+            if own.iter().any(|&(i2, s2)| i2 == i && s2 == sf) {
+                continue;
+            }
+            if own.iter().any(|&(_, s2)| planes_are_duplicates(sf, s2)) {
+                dups += 1;
+                continue;
+            }
+            let (Some(dp), Some(dq)) = (surface_distance(sf, p), surface_distance(sf, q)) else {
+                continue;
+            };
+            live.push((i, sf, dp, dq));
+        }
+        if dups == 0 && live.is_empty() {
+            continue;
+        }
+        n_with_other += 1;
+        if live.is_empty() {
+            n_dup_only += 1;
+        } else {
+            n_live += 1;
+        }
+        // A DROP is the F0067 defect proper: the vertex was on the unconsumed
+        // surface before the snap and is materially off it after. `TAU_MODEL` is
+        // the reporting threshold, not an acceptance band — nothing here decides
+        // anything.
+        let dropped: Vec<_> = live
+            .iter()
+            .filter(|(_, _, dp, dq)| {
+                dp.abs() <= cad_primitives::TAU_MODEL && dq.abs() > cad_primitives::TAU_MODEL
+            })
+            .collect();
+        if !dropped.is_empty() {
+            n_dropped += 1;
+        }
+        let owners: Vec<String> = own
+            .iter()
+            .map(|(i, s)| format!("{i:?}:{}", crate::stage4_correct::surface_kind_name(*s)))
+            .collect();
+        eprintln!(
+            "[s4-unconsumed] v={v} own={owners:?} dup={dups} live={} dropped={}",
+            live.len(),
+            dropped.len()
+        );
+        for (i, sf, dp, dq) in &live {
+            eprintln!(
+                "[s4-unconsumed]   live {i:?}:{} pre={dp:.6e} post={dq:.6e}",
+                crate::stage4_correct::surface_kind_name(*sf)
+            );
+        }
+    }
+    eprintln!(
+        "[s4-unconsumed] SUMMARY moved={} with_other={n_with_other} dup_only={n_dup_only} \
+         live={n_live} dropped={n_dropped}",
+        moves.len()
+    );
+}
+
+// =========================================================================
 // inc-3 — the Fig-11 point q as a TRIPLE POINT (spec §11)
 // =========================================================================
 

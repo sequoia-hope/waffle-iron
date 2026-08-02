@@ -409,3 +409,84 @@ fn s4bc_iii_certificate_refuses_a_point_off_any_surface() {
     let off_cut = on_circle(10.0);
     assert!(!satisfies_all_surfaces(off_cut, &[cyl, cap, cut]));
 }
+
+// =========================================================================
+// §20 census — the flush-junction duplicate-plane identification
+// =========================================================================
+
+/// F0067's measured pair: the rim's own bottom cap and the OTHER operand's top
+/// cap, 5e-16 apart with OPPOSITE normals. `let [other] = ...` counted these as
+/// two constraints; they are one surface.
+#[test]
+fn s4bc_dup_planes_flush_junction_pair_is_identified() {
+    let z = 1.7518978673859231_f64;
+    let own_cap = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: -z,
+    };
+    // The other operand's cap: outward the other way, and 5e-16 offset.
+    let other_cap = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, -1.0),
+        d: 1.7518978673859236,
+    };
+    assert!(crate::stage4_boundary_curve::planes_are_duplicates(
+        own_cap, other_cap
+    ));
+    assert!(crate::stage4_boundary_curve::planes_are_duplicates(
+        other_cap, own_cap
+    ));
+}
+
+/// The real flank plane at that same junction must NOT be identified away — it
+/// is the constraint inc-2 dropped, and the census exists to count it.
+#[test]
+fn s4bc_dup_planes_refuses_a_genuinely_different_plane() {
+    let cap = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: -1.7518978673859231,
+    };
+    let flank = Surface::Plane {
+        normal: Vector3::new(0.856701, -0.515813, 0.0),
+        d: -0.0069008,
+    };
+    assert!(!crate::stage4_boundary_curve::planes_are_duplicates(
+        cap, flank
+    ));
+    // Parallel but genuinely offset (1e-9 ≫ TAU_WORK) is also NOT a duplicate.
+    let shifted = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: -1.7518978673859231 - 1e-9,
+    };
+    assert!(!crate::stage4_boundary_curve::planes_are_duplicates(
+        cap, shifted
+    ));
+}
+
+/// A non-plane pair is never a duplicate — the identification is measured for
+/// planes only and must not be extrapolated to a kind nothing has exercised.
+#[test]
+fn s4bc_dup_planes_non_plane_pairs_are_never_duplicates() {
+    let cyl = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: R,
+    };
+    let plane = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: 0.0,
+    };
+    assert!(!crate::stage4_boundary_curve::planes_are_duplicates(
+        cyl, cyl
+    ));
+    assert!(!crate::stage4_boundary_curve::planes_are_duplicates(
+        cyl, plane
+    ));
+    // A zero-length normal cannot be compared: refuse, never divide by zero.
+    let degenerate = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 0.0),
+        d: 0.0,
+    };
+    assert!(!crate::stage4_boundary_curve::planes_are_duplicates(
+        degenerate, plane
+    ));
+}

@@ -7570,6 +7570,18 @@ pub(crate) fn stage4_relocate_and_correct(
                     &cross_endpoints,
                     bound,
                 );
+                // Census (spec §19): which of these snaps move a vertex that
+                // carries a surface the projection never consumed? Read-only,
+                // and taken BEFORE the apply so `mesh` still holds the pre-snap
+                // positions.
+                if std::env::var_os("YANG_S4_UNCONSUMED_PROBE").is_some() {
+                    crate::stage4_boundary_curve::census_unconsumed_surfaces(
+                        mesh,
+                        &moves,
+                        &inc_bc,
+                        &rim_curves,
+                    );
+                }
                 let n = crate::stage4_boundary_curve::apply_boundary_relocations(mesh, &moves);
                 // inc-3 (spec §11): the Fig-11 point q — a vertex on the
                 // operand's own rim AND on an A×B curve — must be re-seated at
@@ -7627,7 +7639,7 @@ fn bound_probe(a: &BRep, b: &BRep) -> f64 {
 }
 
 /// Diagnostic helper: short surface-kind name for probe output.
-fn surface_kind_name(s: Surface) -> &'static str {
+pub(crate) fn surface_kind_name(s: Surface) -> &'static str {
     match s {
         Surface::Plane { .. } => "Plane",
         Surface::Cylinder { .. } => "Cylinder",
