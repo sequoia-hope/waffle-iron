@@ -177,6 +177,53 @@ fn probe_record_incidence(
     S4_VERT_CURVE.with(|c| *c.borrow_mut() = Some(vc));
 }
 
+/// Diagnostic only: one vertex's Stage-4 provenance, in the
+/// `YANG_S6_NONPLANAR_PROBE` column format (pre position, displacement, incident
+/// surfaces, intersection-curve keys). Populated only under
+/// `YANG_S5_FOLD_PROBE`; `pre=NEW` means the vertex was minted during Stage 4.
+fn probe_vertex_prov(vv: u32, q: [f64; 3]) -> String {
+    let pre_s = match S4_PRE_POS.with(|c| c.borrow().as_ref().and_then(|m| m.get(&vv).copied())) {
+        Some(p) => {
+            let disp =
+                ((q[0] - p[0]).powi(2) + (q[1] - p[1]).powi(2) + (q[2] - p[2]).powi(2)).sqrt();
+            format!(
+                "pre=({:.12},{:.12},{:.12}) disp={disp:.4e}",
+                p[0], p[1], p[2]
+            )
+        }
+        None => "pre=NEW".to_string(),
+    };
+    let inc_s = S4_VERT_SURF.with(|c| {
+        c.borrow().as_ref().map_or_else(
+            || "?".to_string(),
+            |m| {
+                m.get(&vv).map_or_else(
+                    || "-".to_string(),
+                    // NOT deduped by label: two distinct surfaces of one operand
+                    // share one label, and that multiplicity is load-bearing.
+                    |v| {
+                        let mut l: Vec<&str> = v.iter().map(|(s, _)| s.as_str()).collect();
+                        l.sort_unstable();
+                        l.join(",")
+                    },
+                )
+            },
+        )
+    });
+    let cur_s = S4_VERT_CURVE.with(|c| {
+        c.borrow().as_ref().map_or_else(
+            || "?".to_string(),
+            |m| {
+                m.get(&vv).map_or_else(
+                    || "-".to_string(),
+                    |v| v.iter().copied().collect::<Vec<_>>().join(","),
+                )
+            },
+        )
+    });
+    format!("{pre_s} inc=[{inc_s}] curve=[{cur_s}]")
+}
+
 /// PR-YR5: rebuild output `BRep` topology (`vertices`, `edges`,
 /// `faces`) from the per-triangle attribution map.
 ///
@@ -1238,6 +1285,52 @@ pub(crate) fn emit_topology(
                             "face {face_idx} vert {v} off-plane d={dist:.3e} band={band:.3e}"
                         ),
                     ));
+                }
+            }
+        }
+
+        // Diagnosis probe (read-only, env-gated): `YANG_S6_LOOP_PROV=x,y,z,r`
+        // dumps every emitted loop that passes within `r` of the target point,
+        // each vertex with its Stage-4 provenance. Unlike the nonplanar probe's
+        // columns, this one is NOT gated on a wall firing — a loop can be
+        // geometrically invalid (self-intersecting, so refused downstream by an
+        // exact CDT) while every one of its vertices sits perfectly ON the
+        // inherited plane, and that class has no producer-side gate at all.
+        if let Ok(spec) = std::env::var("YANG_S6_LOOP_PROV") {
+            let f: Vec<f64> = spec
+                .split(',')
+                .filter_map(|s| s.trim().parse().ok())
+                .collect();
+            if f.len() == 4 {
+                let (tx, ty, tz, tr) = (f[0], f[1], f[2], f[3]);
+                for (ci, cyc) in cycles.iter().enumerate() {
+                    let near = cyc.iter().any(|&(v, _)| {
+                        let p = mesh.verts[v as usize].as_array();
+                        ((p[0] - tx).powi(2) + (p[1] - ty).powi(2) + (p[2] - tz).powi(2)).sqrt()
+                            <= tr
+                    });
+                    if !near {
+                        continue;
+                    }
+                    eprintln!(
+                        "[s6-loop-prov] face={face_idx} input={:?} cycle={ci} len={} \
+                         n=({:.9},{:.9},{:.9}) d={d:.12}",
+                        info.input,
+                        cyc.len(),
+                        n[0],
+                        n[1],
+                        n[2]
+                    );
+                    for (k, &(v, _)) in cyc.iter().enumerate() {
+                        let p = mesh.verts[v as usize].as_array();
+                        eprintln!(
+                            "[s6-loop-prov]   {k:3} v={v} p=({:.15},{:.15},{:.15}) {}",
+                            p[0],
+                            p[1],
+                            p[2],
+                            probe_vertex_prov(v, p)
+                        );
+                    }
                 }
             }
         }
