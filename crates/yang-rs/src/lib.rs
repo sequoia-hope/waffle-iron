@@ -110,6 +110,10 @@ mod stage4_correct;
 // `specs/yang_188_f0082_j3_envelope_selection.md` §5). Probe-only module;
 // nothing exported.
 mod stage5_osculation_probe;
+// Read-only `YANG_S6_LOOP_SIMPLICITY` census scan for the
+// planar-and-self-intersecting emitted-loop class (F0067's CDT wall, anchored
+// at commit 922a9892). Measurement only — never a gate; nothing exported.
+mod stage5_loop_simplicity;
 // #188 inc-1: §3.2 envelope-resolution primitives (exact switch-point
 // solver + §7.6 op-resolved band classifier), UNWIRED — de-risked on the
 // F0082 pinned fixture (`tests_unit/s188_envelope.rs`); inc-2 wires them

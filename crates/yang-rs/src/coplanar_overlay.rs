@@ -1003,8 +1003,10 @@ pub(crate) fn cross_r(a: &ExactPoint2, b: &ExactPoint2, c: &ExactPoint2) -> RBig
 }
 
 /// `q` within the closed axis-aligned bounding box of `[a, b]` (used with
-/// exactly collinear `q` for on-segment tests).
-fn between_box(a: &ExactPoint2, b: &ExactPoint2, q: &ExactPoint2) -> bool {
+/// exactly collinear `q` for on-segment tests). (`pub(crate)` since the
+/// `YANG_S6_LOOP_SIMPLICITY` scan — `stage5_loop_simplicity` — which needs the
+/// same exact on-segment test for its closed-segment contact classification.)
+pub(crate) fn between_box(a: &ExactPoint2, b: &ExactPoint2, q: &ExactPoint2) -> bool {
     let (xlo, xhi) = if a.x <= b.x {
         (&a.x, &b.x)
     } else {

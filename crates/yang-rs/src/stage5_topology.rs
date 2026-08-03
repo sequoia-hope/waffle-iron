@@ -881,6 +881,15 @@ pub(crate) fn emit_topology(
             infos.len(),
         );
     }
+    // `YANG_S6_LOOP_SIMPLICITY` census counters (read-only; see
+    // `stage5_loop_simplicity`). Reported as one SUMMARY line before returning
+    // so the sweep can tell "no self-intersecting loop" from "nothing was
+    // measured" — the curved branch has no exact 2D projection and is counted,
+    // never silently dropped.
+    let mut simp_planar_loops = 0usize;
+    let mut simp_nonsimple = 0usize;
+    let mut simp_unmeasurable = 0usize;
+    let mut simp_curved_faces = 0usize;
     // (1) Vertices: 1:1 with the (possibly relocated) mesh.verts.
     let vertices: Vec<BRepVertex> = mesh
         .verts
@@ -1060,6 +1069,9 @@ pub(crate) fn emit_topology(
                 reversed: info.input_reversed
                     ^ (op == BoolOp::Subtract && info.input == InputId::B),
             });
+            // A curved face's loop has no exact 2D projection, so the scan
+            // does not cover it. Counted, not silently skipped.
+            simp_curved_faces += 1;
             continue;
         }
 
@@ -1160,6 +1172,89 @@ pub(crate) fn emit_topology(
                 "s6-planar-positive-count",
                 format_args!("face {face_idx} positive_count={positive_count}"),
             ));
+        }
+
+        // Loop-simplicity census (`YANG_S6_LOOP_SIMPLICITY`, read-only — spec
+        // in `stage5_loop_simplicity`). Deliberately placed BEFORE the
+        // non-planarity gate below: the class it measures is loops that are
+        // perfectly PLANAR and self-intersecting, so gating the scan on any
+        // wall would make it blind to exactly its own subject. It is also the
+        // reason this cannot be a column on an existing probe — every current
+        // Stage-6 check is per-vertex, and simplicity is a property of the
+        // whole cycle.
+        //
+        // Set to any value: report only NON-simple loops. Set to `all`: report
+        // every loop, so a case with zero findings is distinguishable from a
+        // case where emission never ran.
+        if let Ok(mode) = std::env::var("YANG_S6_LOOP_SIMPLICITY") {
+            let report_all = mode == "all";
+            for (ci, cyc) in cycles.iter().enumerate() {
+                let pts: Vec<[f64; 3]> = cyc
+                    .iter()
+                    .map(|&(v, _)| mesh.verts[v as usize].as_array())
+                    .collect();
+                simp_planar_loops += 1;
+                let Some(s) = crate::stage5_loop_simplicity::scan_cycle(&pts, n) else {
+                    simp_unmeasurable += 1;
+                    eprintln!(
+                        "[s6-simplicity] face={face_idx} input={:?} cycle={ci} len={} \
+                         UNMEASURABLE (fewer than 3 points, non-finite coordinate, \
+                         or degenerate normal)",
+                        info.input,
+                        cyc.len(),
+                    );
+                    continue;
+                };
+                if !s.is_simple() {
+                    simp_nonsimple += 1;
+                }
+                if !s.is_simple() || report_all {
+                    // The ratio is the number that made F0067 fatal: a Stage-4
+                    // per-vertex displacement LARGER than the local segment it
+                    // belongs to cannot stay on its own side of the outline.
+                    // `disp` needs the pre-Stage-4 positions, so it is `-`
+                    // unless `YANG_S5_FOLD_PROBE` is also set — the sweep sets
+                    // both.
+                    let disp = S4_PRE_POS.with(|c| {
+                        c.borrow().as_ref().map(|m| {
+                            cyc.iter().fold(0.0f64, |acc, &(v, _)| {
+                                m.get(&v).map_or(acc, |p| {
+                                    let q = mesh.verts[v as usize].as_array();
+                                    acc.max(
+                                        ((q[0] - p[0]).powi(2)
+                                            + (q[1] - p[1]).powi(2)
+                                            + (q[2] - p[2]).powi(2))
+                                        .sqrt(),
+                                    )
+                                })
+                            })
+                        })
+                    });
+                    let (disp_s, ratio_s) = match disp {
+                        Some(dp) if s.min_seg.is_finite() && s.min_seg > 0.0 => {
+                            (format!("{dp:.4e}"), format!("{:.2}", dp / s.min_seg))
+                        }
+                        Some(dp) => (format!("{dp:.4e}"), "-".to_string()),
+                        None => ("-".to_string(), "-".to_string()),
+                    };
+                    eprintln!(
+                        "[s6-simplicity] face={face_idx} input={:?} cycle={ci} \
+                         role={} len={} cross={} touch={} spike={} degen={} \
+                         min_seg={:.4e} max_seg={:.4e} max_s4_disp={disp_s} \
+                         disp_over_min_seg={ratio_s} first_cross={:?}",
+                        info.input,
+                        if ci == outer_idx { "outer" } else { "hole" },
+                        cyc.len(),
+                        s.crossings,
+                        s.touches,
+                        s.spikes,
+                        s.degenerate_segments,
+                        s.min_seg,
+                        s.max_seg,
+                        s.first_crossing,
+                    );
+                }
+            }
         }
 
         // Task #146 (F0064/R0051 off-plane planar-face emission class):
@@ -2009,6 +2104,13 @@ pub(crate) fn emit_topology(
         }
     }
 
+    if std::env::var_os("YANG_S6_LOOP_SIMPLICITY").is_some() {
+        eprintln!(
+            "[s6-simplicity] SUMMARY planar_loops={simp_planar_loops} \
+             nonsimple={simp_nonsimple} unmeasurable={simp_unmeasurable} \
+             curved_faces_not_scanned={simp_curved_faces}"
+        );
+    }
     Ok((vertices, edges, faces, sources, face_attribution))
 }
 

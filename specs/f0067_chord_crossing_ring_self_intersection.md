@@ -114,6 +114,45 @@ straight-run seam reversal. Per the R0038 rule, each case's mechanism must be
 censused on that case. What this section establishes is only that the class is
 worth the structural fix, not that it has one cause.
 
+### 5a. CENSUSED 2026-08-03 — the list above was wrong in three places
+
+The `YANG_S6_LOOP_SIMPLICITY` scan (§7) measured all 312 cases directly. The
+wall-text membership does not survive contact with the measurement:
+
+- **R0028 is NOT a member.** It reports the identical `ring rejected by CDT
+  (degenerate/self-intersecting)` string, yet all 10 of its planar producer
+  loops are simple. The message covers two conditions and R0028 is not on the
+  self-intersecting branch — or the rejected ring is kernel-v2's RE-SAMPLED
+  render ring rather than the Stage-6 emitted loop. **Two ring populations
+  exist; this scan measures only the producer's.**
+- **R0051 and R0100 ARE members**, and neither reports this wall — they fail at
+  `SelfIntersectingBooleanOutput` (face_a 8 / face_b 10, 88 penetrations) and
+  `patch triangulation folded (inverted tri)`. The class is larger than the
+  wall that named it.
+
+Confirmed set (9 of 47): **F0045 F0067 R0004 R0011 R0049 R0051 R0074 R0085
+R0100**. F0045 stays in on its own measurement (`cross=1`) — its §4.5.3
+attribution and this one may both be live.
+
+**The class is defined by a proper CROSSING, not by non-simplicity.**
+`cross > 0` holds for 0 of 261 SUPPORTED_CORRECT, 0 of 3 UNSUPPORTED, 0 of 1
+EXPECTED_ERROR and 9 of 47 ERROR — a perfect split. `touch` / `spike` do not
+split anything: F0055 (SUPPORTED_CORRECT, 33-point loop, `touch=4`) and F0064
+both survive them. The §6 P10 net, if ever built, must therefore gate on
+`cross > 0`; a gate on non-simplicity regresses F0055.
+
+F0067 itself is larger than §1–§4 record: **17 faces / 150 crossings in its
+final op**, with `max_s4_disp / min_seg` up to 5.2e4 — the 5.8× of §4 is the
+mild end of its own distribution. Faces 357 and 359 carry `touch=5 spike=2`
+with ZERO crossings, a pinch/backtrack sub-mechanism the ring-reject probe
+could not separate from a crossing.
+
+**Coverage:** 186,234 planar loops scanned, 0 unmeasurable; **6,870 curved
+faces NOT scanned** (no exact 2D projection — R0044 is 448 curved vs 2 planar,
+i.e. effectively unmeasured by this instrument) and **47 cases where Stage-6
+emission never ran**. Canonical 261C/0W/47E/0T reproduced verbatim with the
+probe ON.
+
 ## 6. What a fix must do (NOT built)
 
 Two candidate directions, both structural, neither a band:
@@ -146,6 +185,21 @@ nothing, so it must not be shipped as a fix.
 
 ## 7. Instruments banked (read-only, env-gated, production byte-identical)
 
+- **`YANG_S6_LOOP_SIMPLICITY`** (2026-08-03, `stage5_loop_simplicity.rs`) — the
+  census instrument for this class. Scans every emitted PLANAR loop for
+  self-contact with EXACT predicates (`dashu` orientation + on-segment over a
+  dominant-axis projection, which copies the surviving f64 coordinates
+  verbatim), reporting four separated columns: `cross` (proper transversal),
+  `touch` (pinch / collinear overlap), `spike` (adjacent-pair backtrack),
+  `degen` (zero-length segment), plus `min_seg` / `max_s4_disp` /
+  `disp_over_min_seg` — the ratio §4 identifies as the fatal quantity. Set to
+  any value to report only non-simple loops; `=all` for every loop, so "no
+  findings" is distinguishable from "emission never ran". Runs BEFORE the
+  non-planarity gate deliberately (this class passes every per-vertex gate),
+  and emits a SUMMARY line counting curved faces it could not scan. Pair with
+  `YANG_S5_FOLD_PROBE=1` for the displacement columns. ~5% overhead; off by
+  default. Sweep via subprocess-per-case `single_case` — the `ASSAY_JOBS`
+  driver nulls child stderr.
 - **`YANG_S6_LOOP_PROV=x,y,z,r`** (new, `stage5_topology.rs`) — dumps every
   emitted face loop passing within `r` of the target, each vertex with its
   Stage-4 provenance (`pre`, `disp`, `inc`, `curve`) via the shared

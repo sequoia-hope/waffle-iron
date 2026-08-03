@@ -3704,6 +3704,53 @@ swapped every consumer to `predicates::indirect`).
     that used to fire first. The band was deliberately NOT tightened
     (it would fork §15's metric and is the tuning the constitution
     forbids).
+  - **LOOP-SIMPLICITY CENSUS 2026-08-03 (`YANG_S6_LOOP_SIMPLICITY`,
+    read-only; `crates/yang-rs/src/stage5_loop_simplicity.rs`) — the
+    planar-and-self-intersecting emitted-loop class MEASURED corpus-wide,
+    and the 922a9892 anchor's inherited 8-case membership CORRECTED in
+    three places.** Every Stage-6 gate is per-VERTEX (`s6-planar-loop-nonplanar`,
+    `s6-planar-degenerate-loop`), but simplicity is a property of the whole
+    CYCLE — so a self-intersecting loop leaves the producer clean and is first
+    refused one crate away by kernel-v2's exact CDT. The scan closes that
+    measurement hole: exact `dashu` orientation + on-segment predicates over a
+    dominant-axis projection (which copies the surviving f64 coordinates
+    verbatim), four separated columns — `cross` (proper transversal), `touch`
+    (pinch / collinear overlap), `spike` (adjacent-pair backtrack), `degen`
+    (zero-length segment). It runs BEFORE the non-planarity gate deliberately:
+    gating it on a wall would blind it to its own subject. ~5% overhead
+    (F0067 62→65s), off by default. Sweep = subprocess-per-case
+    `single_case` ×312 (the `ASSAY_JOBS` driver nulls child stderr).
+    **186,234 planar loops scanned, 0 unmeasurable; 6,870 curved faces NOT
+    scanned (no exact 2D projection) and 47 cases where Stage-6 emission never
+    ran — both reported, never silently dropped.** Results:
+    (1) **THE SCOPING ANSWER — a proper CROSSING separates the corpus
+    perfectly: 0 of 261 SUPPORTED_CORRECT, 0 of 3 UNSUPPORTED, 0 of 1
+    EXPECTED_ERROR, 9 of 47 ERROR.** `touch`/`spike` do NOT: F0055
+    (SUPPORTED_CORRECT, 33-pt loop, `touch=4`) and F0064 both survive
+    non-simplicity. So the actionable predicate is `cross > 0`, not
+    non-simplicity — a STOP on the latter would REGRESS F0055.
+    (2) **R0028 REFUTED.** It reports the IDENTICAL wall text ("ring rejected
+    by CDT (degenerate/self-intersecting)") yet all 10 of its planar producer
+    loops are simple. It shares the WALL, not the DEFECT — either the
+    degenerate branch of a generic message, or kernel-v2's RE-SAMPLED render
+    ring rather than the Stage-6 emitted loop (cf. the FaceId(11)
+    non-self-intersecting→DEGENERATE render ring above). **The wall text was a
+    bad proxy for the class.**
+    (3) **R0051 and R0100 ADDED** — self-crossing producer loops that fail at
+    DIFFERENT walls (`SelfIntersectingBooleanOutput` face_a 8 / face_b 10, 88
+    penetrations; `patch triangulation folded (inverted tri)`). The class is
+    larger than the wall that named it.
+    (4) F0067 confirmed and enlarged: **17 faces / 150 crossings in its final
+    op, not one ring**, with `max_s4_disp/min_seg` up to 5.2e4 (the anchor's
+    5.8× is the mild end); `max_s4_disp=6.0602e-3` reproduces the anchored
+    sagitta to the digit. Its faces 357/359 carry `touch=5 spike=2` with ZERO
+    crossings — a pinch/backtrack sub-mechanism the ring-reject probe could not
+    separate from a crossing.
+    Confirmed members: F0045 F0067 R0004 R0011 R0049 R0051 R0074 R0085 R0100.
+    Canonical **261C/0W/47E/0T reproduced verbatim with the probe ON**. The
+    repair remains §4.5.2 loop-coherent local refinement under epic #169 (carry
+    the neighbours or refuse); a producer-side simplicity STOP stays a P10 net
+    only — now quantified as 9 rewordings and 0 repairs.
   - **MULTI-CLASS cavity arm SPEC WRITTEN 2026-07-30 —
     `specs/m8_stage0_multiclass_cavity_arm.md` (amendment 12).** The R0099
     producing-op probe (1f576621) named the fold gate's structural gap: a
