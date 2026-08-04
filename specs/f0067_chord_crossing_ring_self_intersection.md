@@ -121,10 +121,14 @@ wall-text membership does not survive contact with the measurement:
 
 - **R0028 is NOT a member.** It reports the identical `ring rejected by CDT
   (degenerate/self-intersecting)` string, yet all 10 of its planar producer
-  loops are simple. The message covers two conditions and R0028 is not on the
-  self-intersecting branch — or the rejected ring is kernel-v2's RE-SAMPLED
-  render ring rather than the Stage-6 emitted loop. **Two ring populations
-  exist; this scan measures only the producer's.**
+  loops are simple. **Anchored separately 2026-08-04 —
+  `specs/r0028_developable_ring_cap_overshoot.md`:** its ring comes from the
+  DEVELOPABLE core (an unrolled cylinder lateral), not the planar one, and
+  self-intersects because three real B-Rep boundary vertices sit 3.60e-4
+  BEYOND the face's own cap plane. Stage 4 relocated nothing in that boolean
+  (`n_relocations=0`, both ops), so it is not this mechanism at all. Note both
+  cores funnel through `triangulate_ring`, which is why the wall string cannot
+  separate them.
 - **R0051 and R0100 ARE members**, and neither reports this wall — they fail at
   `SelfIntersectingBooleanOutput` (face_a 8 / face_b 10, 88 penetrations) and
   `patch triangulation folded (inverted tri)`. The class is larger than the
