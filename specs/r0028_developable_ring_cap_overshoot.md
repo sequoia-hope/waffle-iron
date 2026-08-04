@@ -128,23 +128,62 @@ exactly the way `tessellate_developable_patch` already unrolls it, so the same
 exact scan applies to developable faces — the projection is a local isometry
 and a 2D crossing away from the seam IS a 3D crossing on the surface.
 
-## 6. Open — NOT claimed here
+## 6. The class — SWEPT 2026-08-04, and this mechanism is a SINGLETON
 
-Per the R0038 rule, this anchor is R0028's alone.
+Corpus sweep, all 312 cases, `KV2_RING_REJECT_PROBE` then `KV2_RING_PROVENANCE`
+on the hits (the `idx=0` provenance line preceding each reject names the face
+AND its core). The provenance face equals the wall face in all 8 hits, so the
+classification is unambiguous.
 
-- **Is the developable-ring class larger than one case?** 38 of the 47 ERRORs
-  have no self-crossing planar loop; how many fail on a developable ring is
-  UNMEASURED. Answering it needs a corpus sweep with `KV2_RING_REJECT_PROBE` +
-  `KV2_RING_PROVENANCE` (~25 min), classifying each failing face by whether
-  `KV2_PATCH_PROV` fired for it.
-- **Which stage drops the trim** — Stage 2 (curve not cut at the rim), Stage 5
-  (patch segmentation putting rim-crossing vertices in the lateral patch), or
-  the operand's own pre-boolean B-Rep — is not established. Stage 4 is excluded
-  (§4); the rest is open.
+**Exactly 8 cases reject a CDT ring corpus-wide** — precisely the 8 the
+2026-08-02 anchor named. All 8 rings are `TriangulationFailed` and all 8
+SELF-CROSS. None is rejected for degeneracy, and none is simple-but-rejected:
+the "degenerate/" half of the message never fires anywhere in the corpus.
 
-## 7. Recommended, not done
+| producer | cases |
+|---|---|
+| **planar** (`sampled_loop_points`) | F0045, F0067, R0011, R0074, R0085 |
+| **developable** (`tessellate_developable_patch`) | R0004, **R0028**, R0049 |
+
+**Within the developable trio, this spec's mechanism is R0028's alone.** All
+three rings have the expected constant-v rim rows, but measured against their
+own rows (exact f64 values, no rounding):
+
+| case | max vertex overshoot beyond the top rim row | crossings involve a rim-row segment? |
+|---|---|---|
+| R0004 | 3.3307e-16 (ulp noise — zero) | no: seg244 × seg246, both off-row |
+| R0049 | 2.7756e-17 (ulp noise — zero) | no: seg44/45 × seg46/55, all off-row |
+| **R0028** | **3.6038e-04** | **yes: both crossings pair a chain segment against the rim row** |
+
+Twelve orders of magnitude separate R0028 from the other two. R0004 and R0049
+self-cross between side/interior chains, which is a different mechanism and is
+NOT anchored — per the R0038 rule they get their own census, not this one's
+conclusion.
+
+## 7. Consequence for §4.5.2 scoping
+
+R0004 and R0049 ALSO carry self-crossing PLANAR producer loops (`cross=7` and
+`cross=1` in the 2026-08-03 census) — yet their REPORTED wall is a developable
+ring. They hold two defects, and the developable one fires first, so **planar
+loop-coherence alone cannot convert them.** The realistic §4.5.2 candidate set
+is F0067, R0011, R0074, R0085 (+F0045, which `s453_line_run_reversal` already
+attributes elsewhere); R0051 and R0100 have crossing planar loops but fail at
+other walls entirely; R0004/R0049 are blocked behind a developable defect; and
+R0028 was never a member.
+
+## 8. Still open
+
+**Which stage drops the trim** — Stage 2 (curve not cut at the rim), Stage 5
+(patch segmentation putting rim-crossing vertices in the lateral patch), or the
+operand's own pre-boolean B-Rep — is not established. Stage 4 is excluded (§4);
+the rest is open.
+
+## 9. Recommended, not done
 
 `triangulate_ring`'s reason string should name the core and carry the typed
 `CdtError`. Two anchors have now spent effort establishing which producer a
 "ring rejected by CDT" came from, and both times the answer was one env-gated
-probe away from being in the error itself.
+probe away from being in the error itself. The sweep makes the case concrete:
+the message's "degenerate/" half fires on ZERO of the corpus's 8 rejections
+(all are `TriangulationFailed`, all self-crossing), so it is not merely
+imprecise — half of it is dead text that misdirects every reader.

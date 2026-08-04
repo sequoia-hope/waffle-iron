@@ -3747,7 +3747,27 @@ swapped every consumer to `predicates::indirect`).
     crossings — a pinch/backtrack sub-mechanism the ring-reject probe could not
     separate from a crossing.
     Confirmed members: F0045 F0067 R0004 R0011 R0049 R0051 R0074 R0085 R0100.
-    Canonical **261C/0W/47E/0T reproduced verbatim with the probe ON**. The
+    Canonical **261C/0W/47E/0T reproduced verbatim with the probe ON**.
+    **RING-REJECT SWEEP 2026-08-04 (all 312, `KV2_RING_REJECT_PROBE` then
+    `KV2_RING_PROVENANCE` on the hits).** Exactly **8 cases reject a CDT ring
+    and ALL 8 rings SELF-CROSS** (every one `TriangulationFailed`; the wall
+    string's "degenerate/" half fires NOWHERE, and no rejected ring is simple).
+    Producer split — the `idx=0` provenance line preceding each reject names
+    the face and its core, and matches the wall face in all 8: **planar
+    (`sampled_loop_points`) = F0045 F0067 R0011 R0074 R0085; developable
+    (`tessellate_developable_patch`) = R0004 R0028 R0049.** Both cores funnel
+    through `triangulate_ring`, which is why one string covered two producers.
+    R0028 anchored separately —
+    `specs/r0028_developable_ring_cap_overshoot.md`: 3 B-Rep vertices 3.60e-4
+    beyond the face's own cap plane, Stage 4 relocating nothing
+    (`n_relocations=0`), and a SINGLETON even within the developable trio
+    (R0004 3.3e-16 / R0049 2.8e-17 rim overshoot = ulp noise; neither of their
+    crossings touches a rim row). **Scoping consequence: R0004 and R0049 hold
+    BOTH defects** — self-crossing planar loops AND a developable wall that
+    fires first — so planar loop-coherence alone cannot convert them. The
+    realistic §4.5.2 candidate set is **F0067 R0011 R0074 R0085** (+F0045,
+    already attributed to a §4.5.3 seam reversal); R0051/R0100 fail at
+    unrelated walls; R0028 was never a member. The
     repair remains §4.5.2 loop-coherent local refinement under epic #169 (carry
     the neighbours or refuse); a producer-side simplicity STOP stays a P10 net
     only — now quantified as 9 rewordings and 0 repairs.

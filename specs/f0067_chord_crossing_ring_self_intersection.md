@@ -138,6 +138,33 @@ Confirmed set (9 of 47): **F0045 F0067 R0004 R0011 R0049 R0051 R0074 R0085
 R0100**. F0045 stays in on its own measurement (`cross=1`) — its §4.5.3
 attribution and this one may both be live.
 
+### 5b. RING-REJECT SWEEP 2026-08-04 — the producer split, and who can convert
+
+All 312 cases, `KV2_RING_REJECT_PROBE` then `KV2_RING_PROVENANCE` on the hits.
+**Exactly 8 cases reject a CDT ring, and all 8 rings SELF-CROSS** (every one
+`TriangulationFailed`; the message's "degenerate/" half fires nowhere in the
+corpus, and no rejected ring is simple). Producer split by the `idx=0`
+provenance line preceding each reject — the face matches the wall face in all 8:
+
+| producer | cases |
+|---|---|
+| **planar** — this class | F0045, F0067, R0011, R0074, R0085 |
+| **developable** — NOT this class | R0004, R0028, R0049 |
+
+**R0004 and R0049 carry BOTH defects.** They have self-crossing planar producer
+loops (`cross=7`, `cross=1` above) AND their reported wall is a developable
+ring, which fires first. **Planar loop-coherence alone therefore cannot convert
+them** — a prediction to check rather than a surprise to discover later.
+
+Realistic §4.5.2 conversion candidates: **F0067, R0011, R0074, R0085** (plus
+F0045, whose §4.5.3 seam attribution may dominate). R0051/R0100 have crossing
+planar loops but fail at unrelated walls (`SelfIntersectingBooleanOutput`,
+`patch triangulation folded`), so they are separate questions.
+R0028: `specs/r0028_developable_ring_cap_overshoot.md` (its own mechanism, a
+singleton even within the developable trio — R0004 and R0049 show 3.3e-16 /
+2.8e-17 rim overshoot, i.e. zero, and neither of their crossings touches a rim
+row).
+
 **The class is defined by a proper CROSSING, not by non-simplicity.**
 `cross > 0` holds for 0 of 261 SUPPORTED_CORRECT, 0 of 3 UNSUPPORTED, 0 of 1
 EXPECTED_ERROR and 9 of 47 ERROR — a perfect split. `touch` / `spike` do not
