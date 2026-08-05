@@ -69,11 +69,34 @@
 //!
 //! **Consequence: `ratio >= 1` is a NECESSARY but not SUFFICIENT condition.**
 //! The missing half is the fold restriction — local order actually inverting —
-//! which is what made the census's 14/16-vs-56/62 separation meaningful. The
-//! merge arm must consume `minting_risks` INTERSECTED with a fold test, never
-//! `minting_risks` alone: fusing 845 vertices in R0085 would rewrite a mesh
-//! that is mostly fine, which is exactly the "right answer for the wrong
-//! reason" P9 forbids.
+//! which is what made the census's 14/16-vs-56/62 separation meaningful.
+//!
+//! # The fold test closes it (2026-08-05)
+//!
+//! [`classify_folds`] measures each cycle corner's turn angle at pre- AND
+//! post-Stage-4 positions and splits `Minted` (straight before, folded after —
+//! Stage 4 caused it) from `Inherited` (already folded before Stage 4, so a
+//! Stage-2/3 defect the Fig-11 merge would not repair).
+//! [`merge_customers`] is the intersection, and it is what the merge arm
+//! consumes:
+//!
+//! | case  | scored | ratio-only | minted folds | inherited | **customers** |
+//! |-------|-------:|-----------:|-------------:|----------:|--------------:|
+//! | R0074 |    329 |         95 |           38 |    **62** |        **25** |
+//! | F0067 |     76 |         74 |           85 |        16 |        **32** |
+//! | R0011 |     41 |         13 |            9 |         2 |         **4** |
+//! | R0085 |    912 |        845 |          120 |       144 |        **72** |
+//!
+//! R0085's 845 becomes 72 — the over-selection is cut by 92%, leaving a
+//! repair-sized set rather than a mesh-rewrite-sized one.
+//!
+//! **Calibration, with its discrepancy stated.** The 07-29 census recorded
+//! R0074 as 16 minted + 62 inherited. This measures **inherited = 62 exactly**
+//! — strong evidence `classify_folds` is measuring the same quantity — but
+//! **38 minted, not 16**. The extra 22 are NOT explained here: candidates are
+//! the wider cycle set (this walks every patch, the census one region) and the
+//! amendments shipped since 07-29. That gap must be resolved before the merge
+//! arm acts on the set, not after.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -222,6 +245,157 @@ pub fn cycle_adjacency<'a>(
         }
     }
     out
+}
+
+/// Turn-angle threshold, in degrees, above which a cycle corner counts as a
+/// FOLD.
+///
+/// Not a tunable band. It is the classification threshold the 2026-07-29 R0074
+/// census used when it separated 16 MINTED folds (`turn_pre` 0.00° → 179.9x°)
+/// from 62 INHERITED ones (already >120° before Stage 4, perturbed by a median
+/// 1.25°). Changing it would not "recover" a case — it would redefine the
+/// population the census measured, and silently invalidate the comparison this
+/// whole plan rests on.
+pub const FOLD_TURN_DEG: f64 = 120.0;
+
+/// How a cycle corner's turn angle behaved across Stage 4.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FoldClass {
+    /// Turn stayed below [`FOLD_TURN_DEG`]. Not a fold.
+    None,
+    /// Already folded BEFORE Stage 4 — inherited from the Stage-2/3 boundary
+    /// cycle. Stage 4 did not cause it, so the Fig-11 merge is not its repair.
+    Inherited,
+    /// Straight (or merely bent) before Stage 4 and folded after: **Stage 4
+    /// minted this one**. This is the Fig-11 merge's actual customer set.
+    Minted,
+}
+
+/// One cycle corner's turn angle, measured at pre- and post-Stage-4 positions.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FoldTurn {
+    /// The corner vertex.
+    pub vertex: u32,
+    /// Its two cycle neighbours, in walk order.
+    pub prev: u32,
+    /// See [`FoldTurn::prev`].
+    pub next: u32,
+    /// Deviation from straight at PRE positions, degrees. 0 = collinear
+    /// forward, 180 = complete doubling back.
+    pub turn_pre_deg: f64,
+    /// Deviation from straight at POST positions, degrees.
+    pub turn_post_deg: f64,
+    /// The verdict.
+    pub class: FoldClass,
+}
+
+/// Deviation from straight at `b`, walking `a -> b -> c`, in degrees.
+/// `None` when either leg has zero length (the angle is undefined there).
+fn turn_deg(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Option<f64> {
+    let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let v = [c[0] - b[0], c[1] - b[1], c[2] - b[2]];
+    let nu = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt();
+    let nv = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if nu == 0.0 || nv == 0.0 || !nu.is_finite() || !nv.is_finite() {
+        return None;
+    }
+    let dot = (u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) / (nu * nv);
+    Some(dot.clamp(-1.0, 1.0).acos().to_degrees())
+}
+
+/// Classify every cycle corner as [`FoldClass`], comparing the turn angle at
+/// pre- and post-Stage-4 positions.
+///
+/// This is the half of the plan `minting_risks` cannot supply. The ratio says a
+/// displacement was large enough to invert local order; this says local order
+/// ACTUALLY inverted, and — decisively — whether Stage 4 is what inverted it.
+///
+/// ONE cycle structure is walked with TWO position maps. The cycles come from
+/// the post-Stage-4 `compute_phase_a`, so they name current indices; the pre
+/// positions are the same vertices' earlier locations. That is the same
+/// construction the 07-29 census used ("each fold's turn angle at the
+/// pre-Stage-4 positions"), and it is why the pre map must store POSITIONS
+/// rather than displacements.
+///
+/// Corners whose turn is undefined at EITHER time (a zero-length leg) are
+/// omitted entirely — never silently reported as `None`, which would read as
+/// "measured, no fold" when nothing was measured.
+pub fn classify_folds<'a>(
+    cycles: impl IntoIterator<Item = &'a [u32]>,
+    pre: &HashMap<u32, [f64; 3]>,
+    post: &[[f64; 3]],
+) -> Vec<FoldTurn> {
+    let mut out = Vec::new();
+    for cyc in cycles {
+        let n = cyc.len();
+        if n < 3 {
+            continue;
+        }
+        for i in 0..n {
+            let (a, b, c) = (cyc[(i + n - 1) % n], cyc[i], cyc[(i + 1) % n]);
+            if a == b || b == c || a == c {
+                continue;
+            }
+            let (Some(&pa), Some(&pb), Some(&pc)) = (pre.get(&a), pre.get(&b), pre.get(&c)) else {
+                continue;
+            };
+            let (Some(&qa), Some(&qb), Some(&qc)) = (
+                post.get(a as usize),
+                post.get(b as usize),
+                post.get(c as usize),
+            ) else {
+                continue;
+            };
+            let (Some(t0), Some(t1)) = (turn_deg(pa, pb, pc), turn_deg(qa, qb, qc)) else {
+                continue;
+            };
+            let class = if t1 <= FOLD_TURN_DEG {
+                FoldClass::None
+            } else if t0 > FOLD_TURN_DEG {
+                FoldClass::Inherited
+            } else {
+                FoldClass::Minted
+            };
+            out.push(FoldTurn {
+                vertex: b,
+                prev: a,
+                next: c,
+                turn_pre_deg: t0,
+                turn_post_deg: t1,
+                class,
+            });
+        }
+    }
+    out.sort_by(|x, y| {
+        y.turn_post_deg
+            .partial_cmp(&x.turn_post_deg)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(x.vertex.cmp(&y.vertex))
+    });
+    out
+}
+
+/// The Fig-11 merge arm's ACTUAL customer set: vertices that both were moved
+/// beyond their own spacing (`ratio >= 1`) **and** whose cycle corner Stage 4
+/// actually folded ([`FoldClass::Minted`]).
+///
+/// Neither half is sufficient alone. The ratio over-selects — on R0085 it flags
+/// 845 of 912 moved vertices, most of which never folded. The fold class
+/// under-specifies the repair — an inherited fold is a Stage-2/3 defect the
+/// Fig-11 merge would not fix, and a minted fold whose displacement fits inside
+/// its spacing has some other cause. The intersection is what the 07-29 census
+/// actually validated.
+pub fn merge_customers(risks: &[FoldRisk], folds: &[FoldTurn]) -> Vec<FoldRisk> {
+    let minted: BTreeSet<u32> = folds
+        .iter()
+        .filter(|f| f.class == FoldClass::Minted)
+        .map(|f| f.vertex)
+        .collect();
+    risks
+        .iter()
+        .copied()
+        .filter(|r| r.ratio >= 1.0 && minted.contains(&r.vertex))
+        .collect()
 }
 
 /// The subset that CAN mint a fold: `ratio >= 1`, i.e. the vertex is moved
@@ -412,6 +586,142 @@ mod tests {
         assert_eq!(w1.nearest_neighbour, 2);
         assert!(w1.ratio > n1.ratio, "widening must not lower the ratio");
         assert_eq!(minting_risks(&wide).len(), 1);
+    }
+
+    /// The census's own signature: straight before (0.00°), doubled back
+    /// after (179.9x°).
+    #[test]
+    fn straight_before_and_doubled_back_after_is_MINTED() {
+        let cyc: Vec<u32> = vec![0, 1, 2];
+        let pre = m(&[
+            (0, [0.0, 0.0, 0.0]),
+            (1, [1.0, 0.0, 0.0]),
+            (2, [2.0, 0.0, 0.0]),
+        ]);
+        // v1 pulled back past v0's side: the walk 0->1->2 now doubles back.
+        let post = vec![[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [2.0, 0.0, 0.0]];
+        let f = classify_folds([cyc.as_slice()], &pre, &post);
+        let v1 = f.iter().find(|x| x.vertex == 1).unwrap();
+        assert!(v1.turn_pre_deg < 1e-9, "pre must be straight: {v1:?}");
+        assert!(v1.turn_post_deg > 179.0, "{v1:?}");
+        assert_eq!(v1.class, FoldClass::Minted);
+    }
+
+    /// Already folded before Stage 4 and merely perturbed: INHERITED, and the
+    /// Fig-11 merge is not its repair.
+    #[test]
+    fn already_folded_before_stage4_is_INHERITED() {
+        let cyc: Vec<u32> = vec![0, 1, 2];
+        let pre = m(&[
+            (0, [0.0, 0.0, 0.0]),
+            (1, [3.0, 0.0, 0.0]),
+            (2, [2.0, 0.0, 0.0]),
+        ]);
+        let post = vec![[0.0, 0.0, 0.0], [3.01, 0.0, 0.0], [2.0, 0.0, 0.0]];
+        let f = classify_folds([cyc.as_slice()], &pre, &post);
+        let v1 = f.iter().find(|x| x.vertex == 1).unwrap();
+        assert!(v1.turn_pre_deg > FOLD_TURN_DEG);
+        assert_eq!(v1.class, FoldClass::Inherited);
+    }
+
+    #[test]
+    fn a_gentle_corner_is_not_a_fold() {
+        // A regular hexagon: every corner turns 60 deg, well under the
+        // threshold. Deliberately NOT a triangle — see
+        // `short_cycles_turn_sharply_by_construction`.
+        let pts: Vec<[f64; 3]> = (0..6)
+            .map(|k| {
+                let t = std::f64::consts::PI / 3.0 * f64::from(k);
+                [t.cos(), t.sin(), 0.0]
+            })
+            .collect();
+        let cyc: Vec<u32> = (0..6).collect();
+        let pre: HashMap<u32, [f64; 3]> = pts
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| (i as u32, p))
+            .collect();
+        let f = classify_folds([cyc.as_slice()], &pre, &pts);
+        assert_eq!(f.len(), 6);
+        for c in &f {
+            assert_eq!(c.class, FoldClass::None, "{c:?}");
+            assert!((c.turn_post_deg - 60.0).abs() < 1e-9, "{c:?}");
+        }
+    }
+
+    /// A LIMITATION, pinned so it stays visible: the turn at each corner of a
+    /// convex n-gon is 360/n deg, so a TRIANGLE turns exactly
+    /// [`FOLD_TURN_DEG`] at every corner and anything less regular exceeds it.
+    /// The absolute threshold therefore cannot separate "folded" from "small
+    /// cycle" on 3- and 4-vertex loops — of which the corpus has many. Any
+    /// consumer must either exclude short cycles or compare against the
+    /// cycle's own expected turn; `merge_customers` currently does NEITHER, so
+    /// this is an open constraint on wiring the merge arm, not a solved one.
+    #[test]
+    fn short_cycles_turn_sharply_by_construction() {
+        // A perfectly ordinary triangle, unmoved by Stage 4.
+        let pts = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 1.0, 0.0]];
+        let cyc: Vec<u32> = vec![0, 1, 2];
+        let pre: HashMap<u32, [f64; 3]> = pts
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| (i as u32, p))
+            .collect();
+        let f = classify_folds([cyc.as_slice()], &pre, &pts);
+        // Two of its three corners already read as folds, with NOTHING moved.
+        let folded = f.iter().filter(|c| c.class != FoldClass::None).count();
+        assert_eq!(folded, 2, "{f:?}");
+        // They are INHERITED, never MINTED, because pre == post — which is the
+        // property that keeps this from reaching `merge_customers`.
+        assert!(f.iter().all(|c| c.class != FoldClass::Minted), "{f:?}");
+    }
+
+    /// An unmeasurable corner is OMITTED, never reported as `None` — "no fold"
+    /// and "nothing measured" must not look alike.
+    #[test]
+    fn zero_length_leg_is_omitted_not_classified_none() {
+        let cyc: Vec<u32> = vec![0, 1, 2];
+        // v0 and v1 coincide at PRE: the incoming leg has zero length.
+        let pre = m(&[
+            (0, [1.0, 0.0, 0.0]),
+            (1, [1.0, 0.0, 0.0]),
+            (2, [2.0, 0.0, 0.0]),
+        ]);
+        let post = vec![[1.0, 0.0, 0.0], [1.5, 0.0, 0.0], [2.0, 0.0, 0.0]];
+        let f = classify_folds([cyc.as_slice()], &pre, &post);
+        assert!(f.iter().all(|x| x.vertex != 1), "{f:?}");
+    }
+
+    /// The whole point: the merge arm's customer set is the INTERSECTION.
+    #[test]
+    fn merge_customers_is_ratio_AND_minted_fold() {
+        let cyc: Vec<u32> = vec![0, 1, 2];
+        let pre = m(&[
+            (0, [0.0, 0.0, 0.0]),
+            (1, [1.0, 0.0, 0.0]),
+            (2, [2.0, 0.0, 0.0]),
+        ]);
+        let post = vec![[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [2.0, 0.0, 0.0]];
+        let risks = rank_fold_risks(&pre, &post, &cycle_adjacency([cyc.as_slice()], &e(&[])));
+        let folds = classify_folds([cyc.as_slice()], &pre, &post);
+        let cust = merge_customers(&risks, &folds);
+        assert_eq!(cust.len(), 1);
+        assert_eq!(cust[0].vertex, 1);
+
+        // A big ratio with NO fold is excluded — this is the R0085 over-select.
+        let pre2 = m(&[
+            (0, [0.0, 0.0, 0.0]),
+            (1, [1.0, 0.0, 0.0]),
+            (2, [1.001, 0.0, 0.0]),
+        ]);
+        let post2 = vec![[0.0, 0.0, 0.0], [1.0, 0.05, 0.0], [1.001, 0.0, 0.0]];
+        let r2 = rank_fold_risks(&pre2, &post2, &cycle_adjacency([cyc.as_slice()], &e(&[])));
+        let f2 = classify_folds([cyc.as_slice()], &pre2, &post2);
+        assert!(!minting_risks(&r2).is_empty(), "ratio alone selects it");
+        assert!(
+            merge_customers(&r2, &f2).is_empty(),
+            "but it never folded, so it is NOT a merge customer"
+        );
     }
 
     #[test]

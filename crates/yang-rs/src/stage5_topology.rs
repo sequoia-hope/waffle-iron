@@ -619,6 +619,27 @@ pub(crate) fn reconstruct_topology_stage4(
                 };
                 let risks = crate::stage4_fold_risk::rank_fold_risks(pre, &post, &chain);
                 let minting = crate::stage4_fold_risk::minting_risks(&risks);
+                let folds = crate::stage4_fold_risk::classify_folds(
+                    cyc_verts.iter().map(Vec::as_slice),
+                    pre,
+                    &post,
+                );
+                let n_minted = folds
+                    .iter()
+                    .filter(|f| f.class == crate::stage4_fold_risk::FoldClass::Minted)
+                    .count();
+                let n_inherited = folds
+                    .iter()
+                    .filter(|f| f.class == crate::stage4_fold_risk::FoldClass::Inherited)
+                    .count();
+                let customers = crate::stage4_fold_risk::merge_customers(&risks, &folds);
+                eprintln!(
+                    "[s4-fold-risk] FOLDS measured={} minted={n_minted} \
+                     inherited={n_inherited} | MERGE_CUSTOMERS={} \
+                     (= ratio>=1 AND Stage-4-minted fold)",
+                    folds.len(),
+                    customers.len(),
+                );
                 eprintln!(
                     "[s4-fold-risk] SUMMARY scored={} minting={} adj_edges={} \
                      (curve_only={}) n_verts={} (ratio = displacement / \
