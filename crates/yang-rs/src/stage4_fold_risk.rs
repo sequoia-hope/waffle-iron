@@ -156,9 +156,37 @@
 //!   turn test cannot see.
 //!
 //! Neither is subsumed by the other, so [`classify_folds`] is kept unchanged —
-//! its `inherited = 62` remains the tie to the 07-29 census. Which signal (or
-//! which combination) gates the merge arm is the next decision, and it should
-//! be made on these disagreements, not by picking the larger number.
+//! its `inherited = 62` remains the tie to the 07-29 census.
+//!
+//! # GATED TRIAL on F0067 — NEGATIVE RESULT (2026-08-05)
+//!
+//! Gate chosen: [`merge_customers_chord`] (`ratio >= 1` ∩ chord inversion).
+//! `YANG_S4_FIG11_MERGE` applied it to F0067's failing op: **33 customers, 33
+//! merges applied, 0 skipped**. The case did NOT convert — but the wall MOVED:
+//!
+//! ```text
+//! gate OFF: TessellationFailed { face: FaceId(3994), "ring rejected by CDT" }
+//! gate ON : BooleanFailed("yang-rs: reassembled output would be non-2-manifold")
+//! ```
+//!
+//! **The selection is not what failed; the REPAIR PRIMITIVE is.** All 33
+//! customers were applicable and none cascaded, so the plan behaved as
+//! designed. What broke is that this trial fused each pair with
+//! `collapse_vertex`, which only rewrites triangle indices and drops
+//! degenerates. **A bare edge collapse is NOT Yang's Fig-11 merge.** The
+//! paper's merge happens INSIDE the §4.4.1 parametric-domain re-triangulation
+//! (`stage4_update::stage4_mesh_update`): fuse the vertex AND re-triangulate
+//! the affected patch so the result is still a valid triangulation. Collapsing
+//! a real-length edge — these are 3.7e-3-scale, not the sub-resolution edges
+//! `collapse_vertex` exists for — leaves the surrounding fan inconsistent, and
+//! Stage 6's 2-manifold gate says so.
+//!
+//! So the substitution was mine, not the paper's, and the loud STOP caught it
+//! instead of shipping wrong geometry. **Next: route this same plan into
+//! `stage4_mesh_update` rather than `collapse_vertex`** — which is exactly the
+//! built-but-unwired primitive N2-1 landed for this purpose. The arm is kept,
+//! gated off, as the scaffolding for that wiring and as the record of what a
+//! bare collapse does.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -515,6 +543,23 @@ pub fn chord_order_inversions<'a>(
         }
     }
     out
+}
+
+/// The merge arm's gate as chosen 2026-08-05: `ratio >= 1` INTERSECTED with a
+/// [`chord_order_inversions`] certificate.
+///
+/// Chosen over the turn-angle variant ([`merge_customers`]) because it is
+/// threshold-free, it is the certificate the F0067 anchor itself used, and it
+/// excludes the 90–120° `turn_pre` corners that were never the census's
+/// `turn_pre ≈ 0 → 179.9x°` phenomenon. Ordering is inherited from `risks`
+/// (worst ratio first), so the caller applies merges most-severe-first
+/// deterministically.
+pub fn merge_customers_chord(risks: &[FoldRisk], inversions: &BTreeSet<u32>) -> Vec<FoldRisk> {
+    risks
+        .iter()
+        .copied()
+        .filter(|r| r.ratio >= 1.0 && inversions.contains(&r.vertex))
+        .collect()
 }
 
 /// The Fig-11 merge arm's ACTUAL customer set: vertices that both were moved

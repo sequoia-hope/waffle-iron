@@ -592,6 +592,9 @@ pub(crate) fn reconstruct_topology_stage4(
         // arm even fires for F0067 is a measurement, not an assumption, and
         // applying a merge that the plan mis-scopes would fuse a notch corner
         // that is rightly immovable.
+        // Filled by the gated Fig-11 arm below; applied after the probe's
+        // `S4_PRE_POS` borrow is released.
+        let mut fig11_merge_plan: Vec<(u32, u32)> = Vec::new();
         if std::env::var_os("YANG_S4_FOLD_RISK").is_some() {
             let curve_edges: std::collections::BTreeSet<(u32, u32)> =
                 intersection_curves.keys().copied().collect();
@@ -715,6 +718,41 @@ pub(crate) fn reconstruct_topology_stage4(
                     curve_edges.len(),
                     post.len(),
                 );
+                // ---- Fig-11 merge TRIAL (N2-3b step 2), GATED OFF --------
+                // `YANG_S4_FIG11_MERGE` fuses each chosen customer with the
+                // neighbour it overran.
+                //
+                // MEASURED NEGATIVE on F0067 (33/33 applied): the wall moves
+                // from "ring rejected by CDT" to "reassembled output would be
+                // non-2-manifold". **A bare `collapse_vertex` is NOT Yang's
+                // Fig-11 merge** — the paper's merge happens inside the §4.4.1
+                // parametric re-triangulation (`stage4_update`), which rebuilds
+                // the affected patch; collapsing a real-length (3.7e-3) edge
+                // with an index rewrite leaves the surrounding fan
+                // inconsistent. Kept gated OFF as scaffolding for the correct
+                // wiring and as the record of what the shortcut does.
+                //
+                // The RELOCATED vertex survives, never the neighbour: it is
+                // the one carrying Stage 4's exact curve position, so keeping
+                // it preserves the analytic certificate by construction.
+                // (`collapse_vertex` rewrites triangle indices only — it never
+                // touches `mesh.verts` — so the survivor's position is exactly
+                // the relocated one.)
+                //
+                // Applied worst-ratio-first, skipping any vertex already
+                // consumed by an earlier merge, so the result does not depend
+                // on iteration order.
+                let plan = crate::stage4_fold_risk::merge_customers_chord(&risks, &inv);
+                eprintln!(
+                    "[s4-fold-risk] CHORD_CUSTOMERS={} (ratio>=1 AND chord inversion)",
+                    plan.len(),
+                );
+                if std::env::var_os("YANG_S4_FIG11_MERGE").is_some() {
+                    fig11_merge_plan = plan
+                        .iter()
+                        .map(|r| (r.vertex, r.nearest_neighbour))
+                        .collect();
+                }
                 for r in risks.iter().take(12) {
                     eprintln!(
                         "[s4-fold-risk]   v={} ratio={:.4} disp={:.4e} pre_spacing={:.4e} \
@@ -728,6 +766,43 @@ pub(crate) fn reconstruct_topology_stage4(
                     );
                 }
             });
+        }
+
+        // Apply the Fig-11 merges (empty unless `YANG_S4_FIG11_MERGE` is set,
+        // so this is a strict no-op on the production path). Mirrors the
+        // §4.5.3 collapse path above: collapse, compact, recompute Phase A,
+        // re-key the probe maps — a collapse renumbers, and every consumer
+        // downstream reads the recomputed structures.
+        if !fig11_merge_plan.is_empty() {
+            let mut consumed: std::collections::BTreeSet<u32> = Default::default();
+            let mut applied = 0usize;
+            for (keep, drop) in &fig11_merge_plan {
+                // Skip anything an earlier merge already folded away, so the
+                // plan stays order-independent rather than cascading.
+                if consumed.contains(keep) || consumed.contains(drop) || keep == drop {
+                    continue;
+                }
+                collapse_vertex(mesh, &mut attribution.attributions, *drop, *keep);
+                consumed.insert(*drop);
+                applied += 1;
+            }
+            eprintln!(
+                "[s4-fig11] MERGES applied={applied} planned={} skipped={}",
+                fig11_merge_plan.len(),
+                fig11_merge_plan.len() - applied,
+            );
+            let remap = compact_unreferenced_verts(mesh, &mut relocations);
+            let (i3, inc3, cv3) = compute_phase_a(
+                mesh,
+                attribution,
+                a,
+                b,
+                &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+            )?;
+            probe_remap_pre_pos("fig11", remap.as_ref());
+            probe_record_incidence(&inc3, &cv3);
+            infos = i3;
+            intersection_curves = cv3;
         }
     }
 
