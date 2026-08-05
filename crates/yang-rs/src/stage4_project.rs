@@ -278,6 +278,83 @@ pub(crate) fn detect_nonmanifold_seams(
         .collect()
 }
 
+/// Build the parametric [`Patch`](crate::stage4_update::Patch) the mesh-update
+/// driver consumes, from a 3D patch's boundary cycles.
+///
+/// `cycles[0]` is the outer boundary and the rest are holes — the order
+/// [`crate::stage4_correct::PatchInfo`] already stores them in. Each cycle is
+/// mesh-vertex indices; every vertex is projected through `chart`.
+///
+/// Returns the patch **and** the index map `patch vertex -> mesh vertex`, which
+/// the splice needs to write the re-triangulated result back into the 3D mesh.
+/// Without it the `PatchUpdate` is a set of 2D points with no way home.
+///
+/// The outer boundary is normalized to **CCW in the chart frame**, which
+/// `Patch` requires; a cycle whose projection winds CW is reversed (and its
+/// index map with it). Hole cycles are passed through as given — `Patch` states
+/// no winding requirement for them, and imposing one here would be inventing a
+/// contract.
+///
+/// `None` when any cycle is shorter than 3 vertices, when a vertex index is out
+/// of range, or when the outer boundary projects to zero area (a chart
+/// degeneracy, e.g. a cylinder patch collapsed onto its seam) — all cases where
+/// a `Patch` would be malformed rather than merely awkward.
+///
+/// **Seam caveat, inherited from the chart:** a cylinder patch straddling
+/// `θ = ±π` projects to a self-crossing boundary and must be unwrapped by the
+/// caller first. This function does not unwrap, and does not detect it — the
+/// splice loop must, before it trusts the result.
+#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until Phase B's splice loop.
+pub(crate) fn patch_from_cycles(
+    chart: &SurfaceChart,
+    verts: &[Point3],
+    cycles: &[Vec<u32>],
+) -> Option<(crate::stage4_update::Patch, Vec<u32>)> {
+    if cycles.is_empty() || cycles.iter().any(|c| c.len() < 3) {
+        return None;
+    }
+    let mut p2: Vec<Point2> = Vec::new();
+    let mut back: Vec<u32> = Vec::new();
+    let mut loops: Vec<Vec<u32>> = Vec::with_capacity(cycles.len());
+    for cyc in cycles {
+        let mut idx = Vec::with_capacity(cyc.len());
+        for &v in cyc {
+            let w = *verts.get(v as usize)?;
+            idx.push(p2.len() as u32);
+            p2.push(chart.project(w));
+            back.push(v);
+        }
+        loops.push(idx);
+    }
+    // Shoelace on the OUTER loop, in chart coordinates.
+    let outer = &mut loops[0];
+    let area2: f64 = outer
+        .iter()
+        .enumerate()
+        .map(|(i, &a)| {
+            let b = outer[(i + 1) % outer.len()];
+            let (pa, pb) = (p2[a as usize], p2[b as usize]);
+            pa.x() * pb.y() - pb.x() * pa.y()
+        })
+        .sum();
+    if area2 == 0.0 || !area2.is_finite() {
+        return None;
+    }
+    if area2 < 0.0 {
+        outer.reverse();
+    }
+    let mut it = loops.into_iter();
+    let boundary = it.next()?;
+    Some((
+        crate::stage4_update::Patch {
+            verts: p2,
+            boundary,
+            holes: it.collect(),
+        },
+        back,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -518,6 +595,134 @@ mod tests {
                 dist3(wa, world[i]) < 1e-9,
                 "seam pair {i} off the shared curve"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod patch_extraction_tests {
+    use super::*;
+    use cad_primitives::Vector3;
+
+    fn xy_plane() -> SurfaceChart {
+        SurfaceChart::new(Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: 0.0,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn extracts_boundary_and_index_map() {
+        let verts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+        ];
+        let cycles = [vec![0u32, 1, 2, 3]];
+        let (patch, back) = patch_from_cycles(&xy_plane(), &verts, &cycles).unwrap();
+        assert_eq!(patch.boundary.len(), 4);
+        assert!(patch.holes.is_empty());
+        assert_eq!(back, vec![0, 1, 2, 3]);
+        // Every patch vertex lifts back to the mesh vertex it came from.
+        let ch = xy_plane();
+        for (pi, &mv) in back.iter().enumerate() {
+            let round = ch.lift(patch.verts[pi]);
+            let want = verts[mv as usize].as_array();
+            let got = round.as_array();
+            for k in 0..3 {
+                assert!((got[k] - want[k]).abs() < 1e-12, "{got:?} vs {want:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn outer_boundary_is_ccw_normalized() {
+        let verts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+        ];
+        let ccw = patch_from_cycles(&xy_plane(), &verts, &[vec![0u32, 1, 2, 3]]).unwrap();
+        let cw = patch_from_cycles(&xy_plane(), &verts, &[vec![3u32, 2, 1, 0]]).unwrap();
+        let area = |p: &crate::stage4_update::Patch| -> f64 {
+            p.boundary
+                .iter()
+                .enumerate()
+                .map(|(i, &a)| {
+                    let b = p.boundary[(i + 1) % p.boundary.len()];
+                    let (pa, pb) = (p.verts[a as usize], p.verts[b as usize]);
+                    pa.x() * pb.y() - pb.x() * pa.y()
+                })
+                .sum()
+        };
+        assert!(area(&ccw.0) > 0.0, "already CCW must stay CCW");
+        assert!(area(&cw.0) > 0.0, "CW input must be reversed to CCW");
+    }
+
+    #[test]
+    fn holes_are_carried_and_not_rewound() {
+        let verts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(4.0, 0.0, 0.0),
+            Point3::new(4.0, 4.0, 0.0),
+            Point3::new(0.0, 4.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(1.0, 2.0, 0.0),
+            Point3::new(2.0, 2.0, 0.0),
+        ];
+        let cycles = [vec![0u32, 1, 2, 3], vec![4u32, 5, 6]];
+        let (patch, back) = patch_from_cycles(&xy_plane(), &verts, &cycles).unwrap();
+        assert_eq!(patch.holes.len(), 1);
+        assert_eq!(patch.holes[0].len(), 3);
+        assert_eq!(back.len(), 7);
+        // The hole's mesh identities survive the trip.
+        let hole_mesh: Vec<u32> = patch.holes[0].iter().map(|&i| back[i as usize]).collect();
+        assert_eq!(hole_mesh, vec![4, 5, 6]);
+    }
+
+    #[test]
+    fn malformed_inputs_are_rejected_not_patched() {
+        let verts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(2.0, 0.0, 0.0),
+        ];
+        let ch = xy_plane();
+        // Fewer than 3 vertices.
+        assert!(patch_from_cycles(&ch, &verts, &[vec![0u32, 1]]).is_none());
+        // Index out of range.
+        assert!(patch_from_cycles(&ch, &verts, &[vec![0u32, 1, 9]]).is_none());
+        // Zero projected area (collinear boundary) — a malformed Patch, not an
+        // awkward one.
+        assert!(patch_from_cycles(&ch, &verts, &[vec![0u32, 1, 2]]).is_none());
+        // No cycles at all.
+        assert!(patch_from_cycles(&ch, &verts, &[]).is_none());
+    }
+
+    #[test]
+    fn cylinder_chart_round_trips_through_extraction() {
+        let ch = SurfaceChart::new(Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: 2.0,
+        })
+        .unwrap();
+        let ang = [0.2f64, 0.5, 0.9, 1.3];
+        let verts: Vec<Point3> = ang
+            .iter()
+            .enumerate()
+            .map(|(i, &t)| Point3::new(2.0 * t.cos(), 2.0 * t.sin(), i as f64 * 0.25))
+            .collect();
+        let (patch, back) = patch_from_cycles(&ch, &verts, &[vec![0u32, 1, 2, 3]]).unwrap();
+        for (pi, &mv) in back.iter().enumerate() {
+            let got = ch.lift(patch.verts[pi]).as_array();
+            let want = verts[mv as usize].as_array();
+            for k in 0..3 {
+                assert!((got[k] - want[k]).abs() < 1e-9, "{got:?} vs {want:?}");
+            }
         }
     }
 }
