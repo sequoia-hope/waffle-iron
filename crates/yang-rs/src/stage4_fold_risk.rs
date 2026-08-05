@@ -90,13 +90,45 @@
 //! R0085's 845 becomes 72 — the over-selection is cut by 92%, leaving a
 //! repair-sized set rather than a mesh-rewrite-sized one.
 //!
-//! **Calibration, with its discrepancy stated.** The 07-29 census recorded
-//! R0074 as 16 minted + 62 inherited. This measures **inherited = 62 exactly**
-//! — strong evidence `classify_folds` is measuring the same quantity — but
-//! **38 minted, not 16**. The extra 22 are NOT explained here: candidates are
-//! the wider cycle set (this walks every patch, the census one region) and the
-//! amendments shipped since 07-29. That gap must be resolved before the merge
-//! arm acts on the set, not after.
+//! # The 38-vs-16 discrepancy, RESOLVED (2026-08-05)
+//!
+//! The 07-29 census recorded R0074 as 16 minted + 62 inherited; the first
+//! measurement here said 38 minted + 62 inherited. Two distinct causes, found
+//! by dumping each minted corner's `turn_pre`:
+//!
+//! **1. A BUG here — 11 of the 22.** Every high-turn corner was printed TWICE
+//! with `prev`/`next` swapped: a corner on a boundary shared by two patches is
+//! visited once per patch, in opposite winding, and `turn_deg` is invariant
+//! under that reversal. [`classify_folds`] keyed by cycle POSITION and so
+//! reported one geometric corner twice. Now keyed by corner IDENTITY —
+//! `(vertex, {neighbours})` unordered — which takes minted 38 → **27**.
+//! `inherited` stayed 62 (those sit on single-patch cycles) and
+//! `MERGE_CUSTOMERS` stayed 25, because [`merge_customers`] already dedups
+//! through a vertex set. Pinned by
+//! `a_corner_shared_by_two_cycles_is_reported_once`.
+//!
+//! **2. Pipeline drift — the residual 11.** 23 commits have landed in
+//! `stage4_correct.rs` / `stage4_relocate.rs` / `stage0/` since 07-29,
+//! including several that changed minting directly: the §4.4.1 mutual-pair arm
+//! going always-on (84e9759a), amendment-19 (70d9df45, which explicitly took
+//! F0067's Stage-4 crack field from 16 unbalanced edges to 0), the
+//! two-sidedness precondition (d5b41a94), inc-6 (3adece7e), provenance-first
+//! classification (1a9cee36). **The census's 16 measured a pipeline that no
+//! longer exists.** Requiring today's count to reproduce it would be requiring
+//! reproduction of a superseded state.
+//!
+//! What remains meaningful is that `inherited = 62` matches EXACTLY: that
+//! population is inherited from Stage 2/3 and is evidently stable across all
+//! 23 commits, which is precisely the calibration one wants — while the MINTED
+//! count is exactly what those amendments would be expected to move.
+//!
+//! **Open, and flagged rather than patched:** the `turn_pre` buckets are
+//! `<1°: 10`, `1–30°: 12`, `30–90°: 2`, `90–120°: 3`. The census's signature is
+//! `turn_pre ≈ 0 → 179.9x°`. The three corners in the 90–120° bucket (e.g.
+//! 119.4° → 123.5°) are NOT that phenomenon — they were already nearly folded
+//! and Stage 4 nudged them across the line. Whether they belong in the merge
+//! arm's customer set is a real question, but adding a second threshold to
+//! exclude them would be band-tuning; it needs a mechanism, not a cut.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -325,7 +357,13 @@ pub fn classify_folds<'a>(
     pre: &HashMap<u32, [f64; 3]>,
     post: &[[f64; 3]],
 ) -> Vec<FoldTurn> {
-    let mut out = Vec::new();
+    // Keyed by CORNER IDENTITY — `(vertex, {neighbours})` with the neighbour
+    // pair unordered — not by cycle position. A corner on a boundary shared by
+    // two patches is visited once per patch, in OPPOSITE winding, and
+    // `turn_deg` is invariant under that reversal (it compares `b-a` with
+    // `c-b`; swapping negates both). Keying by position would therefore report
+    // one geometric corner twice and inflate every count derived from it.
+    let mut seen: BTreeMap<(u32, u32, u32), FoldTurn> = BTreeMap::new();
     for cyc in cycles {
         let n = cyc.len();
         if n < 3 {
@@ -356,7 +394,7 @@ pub fn classify_folds<'a>(
             } else {
                 FoldClass::Minted
             };
-            out.push(FoldTurn {
+            seen.entry((b, a.min(c), a.max(c))).or_insert(FoldTurn {
                 vertex: b,
                 prev: a,
                 next: c,
@@ -366,6 +404,7 @@ pub fn classify_folds<'a>(
             });
         }
     }
+    let mut out: Vec<FoldTurn> = seen.into_values().collect();
     out.sort_by(|x, y| {
         y.turn_post_deg
             .partial_cmp(&x.turn_post_deg)
@@ -690,6 +729,32 @@ mod tests {
         let post = vec![[1.0, 0.0, 0.0], [1.5, 0.0, 0.0], [2.0, 0.0, 0.0]];
         let f = classify_folds([cyc.as_slice()], &pre, &post);
         assert!(f.iter().all(|x| x.vertex != 1), "{f:?}");
+    }
+
+    /// A corner shared by two patches is walked once per patch, in OPPOSITE
+    /// winding. It is ONE geometric corner and must be reported once.
+    #[test]
+    fn a_corner_shared_by_two_cycles_is_reported_once() {
+        let pre = m(&[
+            (0, [0.0, 0.0, 0.0]),
+            (1, [1.0, 0.0, 0.0]),
+            (2, [2.0, 0.0, 0.0]),
+        ]);
+        let post = vec![[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [2.0, 0.0, 0.0]];
+        let fwd: Vec<u32> = vec![0, 1, 2];
+        let rev: Vec<u32> = vec![2, 1, 0];
+        let one = classify_folds([fwd.as_slice()], &pre, &post);
+        let both = classify_folds([fwd.as_slice(), rev.as_slice()], &pre, &post);
+        assert_eq!(
+            one.len(),
+            both.len(),
+            "the reversed traversal must not double-count: {both:?}"
+        );
+        // And the turn is genuinely invariant under the reversal.
+        let a = one.iter().find(|f| f.vertex == 1).unwrap();
+        let b = both.iter().find(|f| f.vertex == 1).unwrap();
+        assert_eq!(a.turn_pre_deg, b.turn_pre_deg);
+        assert_eq!(a.turn_post_deg, b.turn_post_deg);
     }
 
     /// The whole point: the merge arm's customer set is the INTERSECTION.

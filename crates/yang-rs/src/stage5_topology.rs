@@ -640,6 +640,49 @@ pub(crate) fn reconstruct_topology_stage4(
                     folds.len(),
                     customers.len(),
                 );
+                // The 07-29 census's MINTED signature is `turn_pre 0.00 ->
+                // 179.9x`. Bucketing turn_pre tells a population matching that
+                // signature from one that merely crossed the threshold from an
+                // already-bent corner — the discriminator for the 38-vs-16 gap.
+                let cust: std::collections::BTreeSet<u32> =
+                    customers.iter().map(|r| r.vertex).collect();
+                let mut buckets = [0usize; 4];
+                for f in folds
+                    .iter()
+                    .filter(|f| f.class == crate::stage4_fold_risk::FoldClass::Minted)
+                {
+                    let b = match f.turn_pre_deg {
+                        t if t < 1.0 => 0,
+                        t if t < 30.0 => 1,
+                        t if t < 90.0 => 2,
+                        _ => 3,
+                    };
+                    buckets[b] += 1;
+                }
+                eprintln!(
+                    "[s4-fold-risk] MINTED turn_pre buckets: <1deg={} 1-30={} \
+                     30-90={} 90-120={} (census signature is turn_pre~0)",
+                    buckets[0], buckets[1], buckets[2], buckets[3],
+                );
+                for f in folds
+                    .iter()
+                    .filter(|f| f.class == crate::stage4_fold_risk::FoldClass::Minted)
+                    .take(40)
+                {
+                    eprintln!(
+                        "[s4-fold-risk]   MINTED v={} pre={:.3} post={:.3} prev={} next={}{}",
+                        f.vertex,
+                        f.turn_pre_deg,
+                        f.turn_post_deg,
+                        f.prev,
+                        f.next,
+                        if cust.contains(&f.vertex) {
+                            "  CUSTOMER"
+                        } else {
+                            ""
+                        },
+                    );
+                }
                 eprintln!(
                     "[s4-fold-risk] SUMMARY scored={} minting={} adj_edges={} \
                      (curve_only={}) n_verts={} (ratio = displacement / \
