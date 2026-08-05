@@ -38,10 +38,37 @@
 //! # Scope of this increment
 //!
 //! Pure planner: pre/post positions + chain adjacency in, ranked risk list out.
-//! No mesh mutation, no call site in `stage4_relocate_and_correct` — wiring the
-//! Fig-11 merge arm onto this plan is N2-3b. Landing the decision function
-//! first, unit-tested in isolation, is the same shape N2-1 used for
-//! `stage4_mesh_update`.
+//! No mesh mutation. Wired read-only at the end of Stage 4 behind
+//! `YANG_S4_FOLD_RISK` (N2-3b step 1); applying the Fig-11 merge arm to the
+//! plan is step 2. Landing the decision function first, unit-tested in
+//! isolation, is the same shape N2-1 used for `stage4_mesh_update`.
+//!
+//! # MEASURED 2026-08-05 — the adjacency is not yet the right one
+//!
+//! Wired against `intersection_curves` keys, gate-ON on the four candidates:
+//!
+//! | case  | chain edges | scored | minting | worst ratio |
+//! |-------|------------:|-------:|--------:|------------:|
+//! | F0067 |         738 |     75 |      71 |      2575.6 |
+//! | R0011 |          22 |     20 |      13 |       263.5 |
+//! | R0085 |        1843 |     14 |       2 |         6.1 |
+//! | R0074 |       **0** |      0 |       0 |           — |
+//!
+//! **R0074's failing op has NO intersection curves at all**, so this adjacency
+//! scores nothing there — yet R0074 is the very case whose 16 minted folds the
+//! 2026-07-29 census measured at median 3.85x. The two do not contradict each
+//! other: that census measured turn angles on the **patch BOUNDARY CYCLE**, and
+//! "adjacent chain vertices" meant cycle neighbours, not `intersection_curves`
+//! keys. The 08-03 loop-simplicity census used the same wider neighbourhood
+//! (loop segments).
+//!
+//! So `intersection_curves` adjacency is a STRICT SUBSET of the right one, and
+//! the planner currently under-reports. F0067 also confirms the subset is not
+//! empty where it matters — the worry that its crossing involves only non-curve
+//! profile corners was wrong; it has 71 minting risks on-chain. Widening the
+//! adjacency to the boundary cycle is the next step, and it must land BEFORE
+//! the merge arm: a merge driven by an adjacency that omits a vertex's true
+//! nearest neighbour would fuse the wrong pair.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 

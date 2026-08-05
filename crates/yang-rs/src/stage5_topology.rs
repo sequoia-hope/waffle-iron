@@ -70,6 +70,21 @@ thread_local! {
     > = const { std::cell::RefCell::new(None) };
 }
 
+/// Is the [`S4_PRE_POS`] pre-position oracle wanted this run?
+///
+/// TWO consumers now: the `YANG_S5_FOLD_PROBE` diagnostic columns and the N2-3b
+/// `YANG_S4_FOLD_RISK` planner pass. They must share ONE predicate, because the
+/// map is captured at one site, RE-KEYED at four compaction sites, and read at
+/// several more — enabling the capture without the re-keys would leave the
+/// planner reading indices that name different vertices, which is worse than
+/// having no map at all (every column still populated, just wrong). That is the
+/// `probe_remap_pre_pos` contract; this function is what keeps the two gates
+/// from drifting apart.
+fn s4_pre_pos_enabled() -> bool {
+    std::env::var_os("YANG_S5_FOLD_PROBE").is_some()
+        || std::env::var_os("YANG_S4_FOLD_RISK").is_some()
+}
+
 /// Diagnostic only (`YANG_S5_FOLD_PROBE`): re-key [`S4_PRE_POS`] through a
 /// `compact_unreferenced_verts` remap, dropping vertices that did not survive.
 ///
@@ -79,7 +94,7 @@ thread_local! {
 /// name different vertices in the emitted loops, which is worse than having no
 /// map: every column would still be populated, just wrong.
 fn probe_remap_pre_pos(site: &str, remap: Option<&Vec<Option<u32>>>) {
-    if std::env::var_os("YANG_S5_FOLD_PROBE").is_none() {
+    if !s4_pre_pos_enabled() {
         return;
     }
     let Some(remap) = remap else { return };
@@ -423,7 +438,7 @@ pub(crate) fn reconstruct_topology_stage4(
     }
     // Positional snapshot for the S4_MOVED oracle (env-gated; the clone is not
     // taken on the production path).
-    let s4_probe = std::env::var_os("YANG_S5_FOLD_PROBE").is_some();
+    let s4_probe = s4_pre_pos_enabled();
     let verts_pre: Option<Vec<Point3>> = if s4_probe && has_conic {
         Some(mesh.verts.clone())
     } else {
@@ -553,6 +568,66 @@ pub(crate) fn reconstruct_topology_stage4(
             probe_record_incidence(&inc2, &cv2);
             infos = i2;
             intersection_curves = cv2;
+        }
+
+        // N2-3b step 1 (Yang §4.4.1) — the fold-risk PLAN, reported, not
+        // applied. `YANG_S4_FOLD_RISK` is read-only: it neither mutates the
+        // mesh nor changes control flow, so a gate-ON run is byte-identical to
+        // gate-OFF on every output.
+        //
+        // Placed HERE, after the §4.5.3 collapse and its `compute_phase_a`
+        // recompute, because both inputs must describe the SAME mesh:
+        // `intersection_curves` is the post-recompute `cv2` and `S4_PRE_POS`
+        // has been re-keyed through the compaction. Reading either from before
+        // this point would pair a pre-collapse chain with post-collapse
+        // indices.
+        //
+        // Why report before wiring the Fig-11 merge arm onto this plan: the
+        // criterion was validated on R0074, whose folds lie ON the intersection
+        // chain, so its neighbours are chain vertices. F0067's crossing is
+        // between a relocated curve vertex and the OTHER operand's profile
+        // corners, which are not chain vertices at all — so its neighbourhood
+        // here may be much wider than the loop segment the 08-03 census
+        // measured, and the ratio correspondingly smaller. Whether the merge
+        // arm even fires for F0067 is a measurement, not an assumption, and
+        // applying a merge that the plan mis-scopes would fuse a notch corner
+        // that is rightly immovable.
+        if std::env::var_os("YANG_S4_FOLD_RISK").is_some() {
+            let chain: std::collections::BTreeSet<(u32, u32)> =
+                intersection_curves.keys().copied().collect();
+            let post: Vec<[f64; 3]> = mesh.verts.iter().map(Point3::as_array).collect();
+            S4_PRE_POS.with(|c| {
+                let borrow = c.borrow();
+                let Some(pre) = borrow.as_ref() else {
+                    eprintln!(
+                        "[s4-fold-risk] UNAVAILABLE (no pre-position map — Stage 4 not entered)"
+                    );
+                    return;
+                };
+                let risks = crate::stage4_fold_risk::rank_fold_risks(pre, &post, &chain);
+                let minting = crate::stage4_fold_risk::minting_risks(&risks);
+                eprintln!(
+                    "[s4-fold-risk] SUMMARY scored={} minting={} chain_edges={} \
+                     n_verts={} (ratio = displacement / pre-relocation chain spacing; \
+                     >=1 is the Fig-11 merge class)",
+                    risks.len(),
+                    minting.len(),
+                    chain.len(),
+                    post.len(),
+                );
+                for r in risks.iter().take(12) {
+                    eprintln!(
+                        "[s4-fold-risk]   v={} ratio={:.4} disp={:.4e} pre_spacing={:.4e} \
+                         nbr={}{}",
+                        r.vertex,
+                        r.ratio,
+                        r.displacement,
+                        r.min_pre_spacing,
+                        r.nearest_neighbour,
+                        if r.ratio >= 1.0 { "  MINTING" } else { "" },
+                    );
+                }
+            });
         }
     }
 
