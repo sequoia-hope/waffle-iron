@@ -646,6 +646,27 @@ pub(crate) fn reconstruct_topology_stage4(
                 // already-bent corner — the discriminator for the 38-vs-16 gap.
                 let cust: std::collections::BTreeSet<u32> =
                     customers.iter().map(|r| r.vertex).collect();
+                // Second, THRESHOLD-FREE signal (the F0067 anchor's own
+                // certificate). Reported beside the turn test so their
+                // agreement is a measurement, not an assumption.
+                let inv = crate::stage4_fold_risk::chord_order_inversions(
+                    cyc_verts.iter().map(Vec::as_slice),
+                    pre,
+                    &post,
+                );
+                let minted_set: std::collections::BTreeSet<u32> = folds
+                    .iter()
+                    .filter(|f| f.class == crate::stage4_fold_risk::FoldClass::Minted)
+                    .map(|f| f.vertex)
+                    .collect();
+                eprintln!(
+                    "[s4-fold-risk] CHORD inversions={} | agree_with_minted_turn={} \
+                     turn_only={} chord_only={}",
+                    inv.len(),
+                    inv.intersection(&minted_set).count(),
+                    minted_set.difference(&inv).count(),
+                    inv.difference(&minted_set).count(),
+                );
                 let mut buckets = [0usize; 4];
                 for f in folds
                     .iter()

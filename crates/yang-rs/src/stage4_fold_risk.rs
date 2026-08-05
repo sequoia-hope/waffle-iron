@@ -122,13 +122,43 @@
 //! 23 commits, which is precisely the calibration one wants — while the MINTED
 //! count is exactly what those amendments would be expected to move.
 //!
-//! **Open, and flagged rather than patched:** the `turn_pre` buckets are
-//! `<1°: 10`, `1–30°: 12`, `30–90°: 2`, `90–120°: 3`. The census's signature is
-//! `turn_pre ≈ 0 → 179.9x°`. The three corners in the 90–120° bucket (e.g.
-//! 119.4° → 123.5°) are NOT that phenomenon — they were already nearly folded
-//! and Stage 4 nudged them across the line. Whether they belong in the merge
-//! arm's customer set is a real question, but adding a second threshold to
-//! exclude them would be band-tuning; it needs a mechanism, not a cut.
+//! # The chord test — short-cycle exclusion, without a threshold (2026-08-05)
+//!
+//! [`chord_order_inversions`] is the F0067 anchor's own certificate (its minted
+//! vertex lay on a neighbouring edge's supporting line at **t = −0.606**,
+//! outside that edge). It asks only whether a vertex sat BETWEEN its two
+//! neighbours on the chord before and lies PAST one of them after. No angle, no
+//! constant, and — the point — **no short-cycle degeneracy**: an ordinary
+//! triangle corner projects inside `(0, 1)` exactly as a hexagon corner does,
+//! where the fixed 120° turn threshold flags two of that triangle's three
+//! corners (`short_cycles_turn_sharply_by_construction`).
+//!
+//! Measured against the turn test, post-dedup:
+//!
+//! | case          | minted turn | chord inv | agree | turn only | chord only |
+//! |---------------|------------:|----------:|------:|----------:|-----------:|
+//! | R0074         |          27 |        24 |    23 |     **3** |          1 |
+//! | F0067         |          72 |        75 |    72 |         0 |          3 |
+//! | R0011 op1/op2 |         9/2 |       6/2 |   5/2 |       2/0 |        1/0 |
+//! | R0085 op1/op2 |       80/30 |     78/32 | 73/29 |       1/1 |        5/3 |
+//!
+//! Two independent signals agreeing on the bulk is the calibration; the
+//! disagreements are the information:
+//!
+//! - **`turn only` = the flagged 90–120° bucket.** R0074 has exactly 3 corners
+//!   with `turn_pre` in 90–120° and exactly 3 `turn only` disagreements. Those
+//!   are the "already nearly folded, nudged across the line" corners — not the
+//!   census's `turn_pre ≈ 0 → 179.9x°` phenomenon. **The chord test excludes
+//!   them by construction, which is the mechanism the previous note asked for
+//!   in place of a second threshold.**
+//! - **`chord only`** are vertices that slid PAST a neighbour along a nearly
+//!   straight chain: order inverted, turn angle never large. Genuine folds the
+//!   turn test cannot see.
+//!
+//! Neither is subsumed by the other, so [`classify_folds`] is kept unchanged —
+//! its `inherited = 62` remains the tie to the 07-29 census. Which signal (or
+//! which combination) gates the merge arm is the next decision, and it should
+//! be made on these disagreements, not by picking the larger number.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -411,6 +441,79 @@ pub fn classify_folds<'a>(
             .unwrap_or(std::cmp::Ordering::Equal)
             .then(x.vertex.cmp(&y.vertex))
     });
+    out
+}
+
+/// Where `b` projects onto the line through `a` and `c`, as the parameter `t`
+/// with `a` at 0 and `c` at 1. `None` when `a == c` (no line).
+///
+/// `t` inside `[0, 1]` means `b` sits BETWEEN its two neighbours along the
+/// chord; outside means it has moved PAST one of them — which is what "local
+/// order inverted" means, stated without any angle or threshold.
+fn chord_param(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Option<f64> {
+    let d = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    if len2 == 0.0 || !len2.is_finite() {
+        return None;
+    }
+    let w = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    Some((w[0] * d[0] + w[1] * d[1] + w[2] * d[2]) / len2)
+}
+
+/// Corners whose CHORD ORDER Stage 4 inverted: `b` sat between its neighbours
+/// before and lies past one of them after.
+///
+/// This is the same certificate the F0067 anchor used — the minted vertex lay
+/// on a neighbouring edge's supporting line at **t = −0.606**, outside that
+/// edge, "which IS the doubling-back".
+///
+/// **It needs no threshold and no cycle-length correction**, which is why it
+/// exists alongside [`classify_folds`] rather than being folded into it. The
+/// turn-angle test carries a fixed [`FOLD_TURN_DEG`]; because a convex n-gon
+/// turns 360/n at every corner, that constant equals a TRIANGLE's own per-corner
+/// turn, so on 3- and 4-vertex cycles it cannot separate "folded" from "small
+/// loop" (`short_cycles_turn_sharply_by_construction`). A chord parameter has
+/// no such degeneracy: an ordinary triangle corner projects at `t` inside
+/// `(0, 1)` exactly as a hexagon corner does.
+///
+/// [`classify_folds`] is kept unchanged because its `inherited = 62` on R0074
+/// is the calibration against the 2026-07-29 census; this is a SECOND,
+/// independent signal, not a replacement. Where the two disagree, that
+/// disagreement is a measurement to explain, not a knob to turn.
+pub fn chord_order_inversions<'a>(
+    cycles: impl IntoIterator<Item = &'a [u32]>,
+    pre: &HashMap<u32, [f64; 3]>,
+    post: &[[f64; 3]],
+) -> BTreeSet<u32> {
+    let mut out = BTreeSet::new();
+    for cyc in cycles {
+        let n = cyc.len();
+        if n < 3 {
+            continue;
+        }
+        for i in 0..n {
+            let (a, b, c) = (cyc[(i + n - 1) % n], cyc[i], cyc[(i + 1) % n]);
+            if a == b || b == c || a == c {
+                continue;
+            }
+            let (Some(&pa), Some(&pb), Some(&pc)) = (pre.get(&a), pre.get(&b), pre.get(&c)) else {
+                continue;
+            };
+            let (Some(&qa), Some(&qb), Some(&qc)) = (
+                post.get(a as usize),
+                post.get(b as usize),
+                post.get(c as usize),
+            ) else {
+                continue;
+            };
+            let (Some(t0), Some(t1)) = (chord_param(pa, pb, pc), chord_param(qa, qb, qc)) else {
+                continue;
+            };
+            if (0.0..=1.0).contains(&t0) && !(0.0..=1.0).contains(&t1) {
+                out.insert(b);
+            }
+        }
+    }
     out
 }
 
@@ -755,6 +858,57 @@ mod tests {
         let b = both.iter().find(|f| f.vertex == 1).unwrap();
         assert_eq!(a.turn_pre_deg, b.turn_pre_deg);
         assert_eq!(a.turn_post_deg, b.turn_post_deg);
+    }
+
+    /// The chord test has NO short-cycle degeneracy: an ordinary triangle
+    /// corner is not an inversion, where the 120-degree turn test flags two of
+    /// its three corners.
+    #[test]
+    fn chord_test_is_clean_on_the_triangle_that_defeats_the_turn_test() {
+        let pts = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 1.0, 0.0]];
+        let cyc: Vec<u32> = vec![0, 1, 2];
+        let pre: HashMap<u32, [f64; 3]> = pts
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| (i as u32, p))
+            .collect();
+        // The turn test reads two of three corners as folds on this triangle.
+        let turns = classify_folds([cyc.as_slice()], &pre, &pts);
+        assert_eq!(
+            turns.iter().filter(|c| c.class != FoldClass::None).count(),
+            2
+        );
+        // The chord test reads none — nothing moved, nothing inverted.
+        assert!(chord_order_inversions([cyc.as_slice()], &pre, &pts).is_empty());
+    }
+
+    /// And it DOES catch the F0067 signature: a vertex driven past its
+    /// neighbour lands outside `[0, 1]` on the chord.
+    #[test]
+    fn chord_test_catches_a_vertex_driven_past_its_neighbour() {
+        let cyc: Vec<u32> = vec![0, 1, 2];
+        let pre = m(&[
+            (0, [0.0, 0.0, 0.0]),
+            (1, [1.0, 0.0, 0.0]),
+            (2, [2.0, 0.0, 0.0]),
+        ]);
+        // v1 driven out past v2's far side.
+        let post = vec![[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [2.0, 0.0, 0.0]];
+        let inv = chord_order_inversions([cyc.as_slice()], &pre, &post);
+        assert!(inv.contains(&1), "{inv:?}");
+        // The anchored certificate direction too: past the OTHER neighbour.
+        let post2 = vec![[0.0, 0.0, 0.0], [-1.2, 0.0, 0.0], [2.0, 0.0, 0.0]];
+        assert!(chord_order_inversions([cyc.as_slice()], &pre, &post2).contains(&1));
+    }
+
+    #[test]
+    fn chord_param_is_none_on_a_degenerate_chord() {
+        assert!(chord_param([1.0, 0.0, 0.0], [0.5, 1.0, 0.0], [1.0, 0.0, 0.0]).is_none());
+        let t = chord_param([0.0, 0.0, 0.0], [0.25, 9.0, 0.0], [1.0, 0.0, 0.0]).unwrap();
+        assert!(
+            (t - 0.25).abs() < 1e-15,
+            "projection is along the chord: {t}"
+        );
     }
 
     /// The whole point: the merge arm's customer set is the INTERSECTION.
