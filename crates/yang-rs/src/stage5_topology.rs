@@ -593,8 +593,21 @@ pub(crate) fn reconstruct_topology_stage4(
         // applying a merge that the plan mis-scopes would fuse a notch corner
         // that is rightly immovable.
         if std::env::var_os("YANG_S4_FOLD_RISK").is_some() {
-            let chain: std::collections::BTreeSet<(u32, u32)> =
+            let curve_edges: std::collections::BTreeSet<(u32, u32)> =
                 intersection_curves.keys().copied().collect();
+            // Widened 2026-08-05: the BOUNDARY CYCLE is the structure the
+            // 07-29 census walked; curve keys alone are a strict subset and
+            // scored 0 on R0074. `infos` here is post-recompute (`i2`) when a
+            // §4.5.3 collapse ran, so the cycles name current indices.
+            let cyc_verts: Vec<Vec<u32>> = infos
+                .iter()
+                .flat_map(|i| i.cycles.iter())
+                .map(|c| c.iter().map(|&(v, _)| v).collect())
+                .collect();
+            let chain = crate::stage4_fold_risk::cycle_adjacency(
+                cyc_verts.iter().map(Vec::as_slice),
+                &curve_edges,
+            );
             let post: Vec<[f64; 3]> = mesh.verts.iter().map(Point3::as_array).collect();
             S4_PRE_POS.with(|c| {
                 let borrow = c.borrow();
@@ -607,12 +620,14 @@ pub(crate) fn reconstruct_topology_stage4(
                 let risks = crate::stage4_fold_risk::rank_fold_risks(pre, &post, &chain);
                 let minting = crate::stage4_fold_risk::minting_risks(&risks);
                 eprintln!(
-                    "[s4-fold-risk] SUMMARY scored={} minting={} chain_edges={} \
-                     n_verts={} (ratio = displacement / pre-relocation chain spacing; \
-                     >=1 is the Fig-11 merge class)",
+                    "[s4-fold-risk] SUMMARY scored={} minting={} adj_edges={} \
+                     (curve_only={}) n_verts={} (ratio = displacement / \
+                     pre-relocation BOUNDARY-CYCLE spacing; >=1 is the Fig-11 \
+                     merge class)",
                     risks.len(),
                     minting.len(),
                     chain.len(),
+                    curve_edges.len(),
                     post.len(),
                 );
                 for r in risks.iter().take(12) {

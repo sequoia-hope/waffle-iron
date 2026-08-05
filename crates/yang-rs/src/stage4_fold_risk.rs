@@ -43,32 +43,37 @@
 //! plan is step 2. Landing the decision function first, unit-tested in
 //! isolation, is the same shape N2-1 used for `stage4_mesh_update`.
 //!
-//! # MEASURED 2026-08-05 — the adjacency is not yet the right one
+//! # MEASURED 2026-08-05 — adjacency widened, and the RATIO ALONE OVER-SELECTS
 //!
-//! Wired against `intersection_curves` keys, gate-ON on the four candidates:
+//! Curve-key adjacency scored **0 on R0074**, the very case whose 16 minted
+//! folds the 07-29 census measured: that census walked the patch BOUNDARY
+//! CYCLE, so "adjacent chain vertices" meant cycle neighbours. Widening to
+//! [`cycle_adjacency`] fixes it — but the counts it produces are NOT
+//! comparable to the census's:
 //!
-//! | case  | chain edges | scored | minting | worst ratio |
-//! |-------|------------:|-------:|--------:|------------:|
-//! | F0067 |         738 |     75 |      71 |      2575.6 |
-//! | R0011 |          22 |     20 |      13 |       263.5 |
-//! | R0085 |        1843 |     14 |       2 |         6.1 |
-//! | R0074 |       **0** |      0 |       0 |           — |
+//! | case  | adj edges | (curve only) | scored | minting | % |
+//! |-------|----------:|-------------:|-------:|--------:|--:|
+//! | R0074 |      2116 |        **0** |    329 |      95 | 29% |
+//! | R0011 |      1391 |           39 |    115 |      20 | 17% |
+//! | F0067 |      4858 |          738 |     76 |      74 | 97% |
+//! | R0085 |      7708 |         1843 |    912 |     845 | 93% |
 //!
-//! **R0074's failing op has NO intersection curves at all**, so this adjacency
-//! scores nothing there — yet R0074 is the very case whose 16 minted folds the
-//! 2026-07-29 census measured at median 3.85x. The two do not contradict each
-//! other: that census measured turn angles on the **patch BOUNDARY CYCLE**, and
-//! "adjacent chain vertices" meant cycle neighbours, not `intersection_curves`
-//! keys. The 08-03 loop-simplicity census used the same wider neighbourhood
-//! (loop segments).
+//! R0085 went 2 → 845 and F0067 71 → 74. **The 07-29 census computed this
+//! ratio only over the 78 vertices ALREADY IDENTIFIED AS FOLDS (turn angle
+//! > 120°); this planner computes it over every vertex that MOVED.** Different
+//! denominators, so "845 minting" is not 845 defects — it is 845 vertices whose
+//! displacement exceeds their tightest cycle spacing, most of which never
+//! folded. Widening also makes `min_pre_spacing` a minimum over a much larger
+//! set, so a single sub-resolution near-duplicate neighbour (the pipeline
+//! collapses these later anyway) drives the ratio for everything around it.
 //!
-//! So `intersection_curves` adjacency is a STRICT SUBSET of the right one, and
-//! the planner currently under-reports. F0067 also confirms the subset is not
-//! empty where it matters — the worry that its crossing involves only non-curve
-//! profile corners was wrong; it has 71 minting risks on-chain. Widening the
-//! adjacency to the boundary cycle is the next step, and it must land BEFORE
-//! the merge arm: a merge driven by an adjacency that omits a vertex's true
-//! nearest neighbour would fuse the wrong pair.
+//! **Consequence: `ratio >= 1` is a NECESSARY but not SUFFICIENT condition.**
+//! The missing half is the fold restriction — local order actually inverting —
+//! which is what made the census's 14/16-vs-56/62 separation meaningful. The
+//! merge arm must consume `minting_risks` INTERSECTED with a fold test, never
+//! `minting_risks` alone: fusing 845 vertices in R0085 would rewrite a mesh
+//! that is mostly fine, which is exactly the "right answer for the wrong
+//! reason" P9 forbids.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -176,13 +181,61 @@ pub fn rank_fold_risks(
     out
 }
 
-/// The subset that will mint a fold: `ratio >= 1`, i.e. the vertex is moved
+/// Build the adjacency [`rank_fold_risks`] scores against: every consecutive
+/// pair of each patch BOUNDARY CYCLE, unioned with the analytic curve edges.
+///
+/// The boundary cycle — not the `intersection_curves` key set — is the
+/// structure the 2026-07-29 R0074 fold census actually walked when it measured
+/// turn angles and called their endpoints "adjacent chain vertices", and it is
+/// the same neighbourhood the 2026-08-03 loop-simplicity census used. Scoring
+/// against curve keys alone measured a STRICT SUBSET and reported `scored=0` on
+/// R0074, whose failing op has no intersection curves at all.
+///
+/// The union can only ADD neighbours, and `min_pre_spacing` is a minimum over
+/// them, so widening can only LOWER the spacing and RAISE the ratio — i.e. it
+/// can only reveal fold risk, never hide it. That is the safe direction for a
+/// planner whose output gates a repair: under-reporting leaves a defect
+/// unrepaired, over-reporting is caught by the acceptance check on the repair.
+///
+/// Cycles are CLOSED: the last vertex is adjacent to the first. Pairs are
+/// canonicalized `(min, max)` so the union dedups; `rank_fold_risks` expands
+/// both directions itself, so orientation carries no meaning here.
+pub fn cycle_adjacency<'a>(
+    cycles: impl IntoIterator<Item = &'a [u32]>,
+    curve_edges: &BTreeSet<(u32, u32)>,
+) -> BTreeSet<(u32, u32)> {
+    let mut out: BTreeSet<(u32, u32)> = curve_edges
+        .iter()
+        .filter(|(a, b)| a != b)
+        .map(|&(a, b)| (a.min(b), a.max(b)))
+        .collect();
+    for cyc in cycles {
+        let n = cyc.len();
+        if n < 2 {
+            continue;
+        }
+        for i in 0..n {
+            let (a, b) = (cyc[i], cyc[(i + 1) % n]);
+            if a != b {
+                out.insert((a.min(b), a.max(b)));
+            }
+        }
+    }
+    out
+}
+
+/// The subset that CAN mint a fold: `ratio >= 1`, i.e. the vertex is moved
 /// further than the gap it has to stay inside.
 ///
-/// Exactly the criterion the R0074 census validated (14/16 minted violate it,
-/// 56/62 inherited respect it). `>=` rather than `>`: at ratio exactly 1 the
-/// vertex lands ON its neighbour, which is the Fig-11 `merge` case, not a safe
-/// relocation.
+/// `>=` rather than `>`: at ratio exactly 1 the vertex lands ON its neighbour,
+/// which is the Fig-11 `merge` case, not a safe relocation.
+///
+/// **NECESSARY, NOT SUFFICIENT — do not drive a repair from this alone.** The
+/// 07-29 census's 14/16-vs-56/62 separation was computed over vertices ALREADY
+/// IDENTIFIED AS FOLDS (turn angle > 120°); this function ranges over every
+/// vertex that moved, so on R0085 it selects 845 of 912. A merge applied to
+/// that set would rewrite a mesh that is mostly fine. The caller must intersect
+/// this with a fold test before acting.
 pub fn minting_risks(risks: &[FoldRisk]) -> Vec<FoldRisk> {
     risks.iter().copied().filter(|r| r.ratio >= 1.0).collect()
 }
@@ -315,6 +368,50 @@ mod tests {
         let r = rank_fold_risks(&pre, &post, &e(&[(0, 1)]));
         assert_eq!(r[0].ratio, 1.0);
         assert_eq!(minting_risks(&r).len(), 1);
+    }
+
+    #[test]
+    fn cycle_adjacency_closes_the_loop_and_unions_the_curve_edges() {
+        let cyc: Vec<u32> = vec![0, 1, 2, 3];
+        let got = cycle_adjacency([cyc.as_slice()], &e(&[(7, 9)]));
+        // Consecutive pairs INCLUDING the 3->0 wrap, plus the curve edge.
+        assert_eq!(got, e(&[(0, 1), (1, 2), (2, 3), (0, 3), (7, 9)]), "{got:?}");
+    }
+
+    #[test]
+    fn cycle_adjacency_canonicalizes_and_drops_self_pairs() {
+        let cyc: Vec<u32> = vec![5, 5, 2];
+        // (5,5) is dropped; (5,2)/(2,5) canonicalize to one entry.
+        let got = cycle_adjacency([cyc.as_slice()], &e(&[(2, 5), (4, 4)]));
+        assert_eq!(got, e(&[(2, 5)]), "{got:?}");
+    }
+
+    /// The whole point of widening: a vertex whose only CURVE neighbour is far
+    /// away but whose CYCLE neighbour is close must become scorable, and its
+    /// ratio can only go up.
+    #[test]
+    fn widening_reveals_risk_that_curve_edges_alone_miss() {
+        let pre = m(&[
+            (0, [0.0, 0.0, 0.0]),
+            (1, [1.0, 0.0, 0.0]),
+            (2, [1.001, 0.0, 0.0]),
+        ]);
+        let post = vec![[0.0, 0.0, 0.0], [1.0, 0.05, 0.0], [1.001, 0.0, 0.0]];
+        // Curve edges alone: v1's only neighbour is the distant v0 → ratio 0.05.
+        let narrow = rank_fold_risks(&pre, &post, &e(&[(0, 1)]));
+        let n1 = narrow.iter().find(|r| r.vertex == 1).unwrap();
+        assert!(n1.ratio < 1.0 && minting_risks(&narrow).is_empty());
+        // With the cycle, the tight neighbour v2 appears and it mints.
+        let cyc: Vec<u32> = vec![0, 1, 2];
+        let wide = rank_fold_risks(
+            &pre,
+            &post,
+            &cycle_adjacency([cyc.as_slice()], &e(&[(0, 1)])),
+        );
+        let w1 = wide.iter().find(|r| r.vertex == 1).unwrap();
+        assert_eq!(w1.nearest_neighbour, 2);
+        assert!(w1.ratio > n1.ratio, "widening must not lower the ratio");
+        assert_eq!(minting_risks(&wide).len(), 1);
     }
 
     #[test]
