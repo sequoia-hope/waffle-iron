@@ -1002,7 +1002,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 10: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 10: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(3994), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.",
       "id": "F0067",
       "status": "error"
     },
