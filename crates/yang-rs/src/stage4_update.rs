@@ -313,9 +313,9 @@ pub fn stage4_mesh_update_traced(
 // [`two_sided_conformal_update_lifted`] is the general two-surface form Phase B
 // calls after projecting the 3D intersection curve into each patch's own domain.
 //
-// UNWIRED (like #137 N-137.1 `torus_plane_clip_junction` and #168
-// `replan_degenerate_cylinder_patches`): Phase B wires it into the forward pass
-// behind `YANG_MESHUP_ENABLE`. This increment de-risks it on fixtures.
+// WIRED (2026-08-06, N2-3b step 2): `crate::stage4_splice` calls this driver
+// from the forward pass behind `YANG_MESHUP_ENABLE`, after projecting the ONE
+// shared 3D intersection curve into each patch's own chart.
 // ===========================================================================
 
 /// The result of a two-sided conformal update (Phase A): both operands' patches

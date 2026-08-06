@@ -379,6 +379,49 @@ mesh vertex used by both sides. `apply_splice` performs the write-back, keeping
   decision. **Next: N2-3b step 2** — wire it behind `YANG_MESHUP_ENABLE` as a
   single post-pass in `stage4_relocate_and_correct`, gate-OFF byte-identical.
 
+**Update (2026-08-06b) — the splice loop is WIRED (N2-3b step 2), and the
+selector measures ZERO customers. Re-reading §4.4.1 in full names why.**
+`stage5_topology::run_meshup_splice_passes`, gated `YANG_MESHUP_ENABLE`, at the
+end of Stage 4 (after the §4.5.3 collapse and Fig-11 recomputes, so `infos`,
+`intersection_curves` and `mesh` describe the same mesh). One splice per pass —
+`apply_splice` renumbers triangles, so every other patch's `tri_indices` goes
+stale the moment one lands — then the same compact + `compute_phase_a`
+recompute the collapse path does. `d_eps` = `stage4_chord_band` (the
+primitive's own documented meaning); `merge_tol` = `TAU_MODEL`, declined loudly
+rather than shrunk if the chord band is tighter.
+
+- **Gate-OFF is byte-identical by construction** (the whole block sits inside
+  the env check); yang-rs suite green, and F0067/R0011 produce identical
+  verdict strings gate-ON and gate-OFF.
+- **MEASURED NEGATIVE, all four intended cases.** F0067, R0011, R0074, R0085 all
+  report `no non-manifold seam regions` — the block runs (no `SKIPPED` guard
+  trips) and finds nothing to do. Their wall is `TessellationFailed "ring
+  rejected by CDT"`, a Stage-5/6 face-RING defect, NOT a half-edge imbalance in
+  the Stage-4 mesh. **`detect_nonmanifold_seams`'s own doc claims it is
+  "consumed by the splice loop"; that claim was inherited, not measured, and on
+  this evidence it does not cover this class.**
+- **THE PAPER SENTENCE I HAD NOT READ** (`refs/text/yang2025_hybrid_boolean.txt`
+  :552-570, right column — the §4.4.1 body, which the two-column extraction
+  separates from its own heading at `:605`): *"The intersection curves on the
+  parametric surfaces are mapped to the meshes M_A and M_B … **Then we set
+  r_A = r_B = r**, so that the two polylines in the meshes coincide with the
+  intersection curve on the Bézier surfaces. Next, through CDT we obtain valid
+  discretizations of the trimmed meshes."* The exact analytic curve is the
+  **AUTHORITY** and TRIMS both meshes; flip-freeness is justified *"since the
+  intersection curves are regular"* — by the curve's own monotone sampling.
+- **What that makes wrong in the current splice.** It derives the seam polyline
+  from the MESH's relocated vertex chain (`merge_seam_chains`) and keeps the
+  patch's existing cycles as the CDT boundary. When Stage 4 has moved a vertex
+  past its neighbour (F0067: 3.7e-3 relocation against a 6.4e-4 segment) that
+  chain is ALREADY self-crossing, so re-triangulating from it preserves the
+  crossing. The Fig-11 merge arm cannot rescue it either: it is bounded by
+  `merge_tol`, and a 3.7e-3 overrun is four orders above `TAU_MODEL`.
+- **NEXT INCREMENT, and it is a change of AUTHORITY, not a tolerance:** source
+  the seam polyline from `intersection_curves` (the exact per-edge `Curve` map
+  already in scope at the wiring site), sampled monotonically along the curve,
+  and let it REPLACE the seam portion of each patch's boundary rather than be
+  constrained into it. That is what "we set r_A = r_B = r" prescribes.
+
 **Update (2026-07-15) — R0038 REMOVED from the N2/CDT class; it is near-tangency
 (#137).** The exploratory `replan_degenerate_cylinder_patches`
 (`stage4_correct.rs`, gated `YANG_N2_RECDT_ENABLE`, off in production) targeted

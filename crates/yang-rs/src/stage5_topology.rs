@@ -294,6 +294,191 @@ pub(crate) fn reconstruct_topology(
 /// then runs the SAME Phase-B emission as `reconstruct_topology` (via the shared
 /// [`emit_topology`]). Returns the 4-tuple including the per-output-vertex
 /// `TessellationSource` vector (relocated verts → `BRepEdge { edge, t }`).
+/// N2-3b step 2 (Yang §4.4.1) — drive the splice loop over the mesh's
+/// non-manifold seam regions.
+///
+/// Gated by the CALLER on `YANG_MESHUP_ENABLE`; this function is only reached
+/// when the gate is set, so a gate-OFF run never enters it and is byte-identical.
+///
+/// Each pass detects the seam regions, resolves ONE of them to its patch pair,
+/// re-triangulates both sides against their shared curve
+/// ([`crate::stage4_splice::splice_seam_pair`]), and writes the result back.
+/// One splice per pass, because `apply_splice` renumbers triangles — every
+/// other patch's `tri_indices` goes stale the moment it lands, exactly like the
+/// §4.5.3 collapse path. So each pass ends with the same recompute that path
+/// does: compact, `compute_phase_a`, re-key the probe maps.
+///
+/// Reports every skip with its reason. A region we decline is left EXACTLY as
+/// it was — the loud stop, not a partial repair.
+#[allow(clippy::too_many_arguments)]
+fn run_meshup_splice_passes(
+    mesh: &mut Mesh,
+    attribution: &mut TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+    infos: &mut Vec<crate::stage4_correct::PatchInfo>,
+    intersection_curves: &mut std::collections::BTreeMap<(u32, u32), Curve>,
+    relocations: &mut Vec<(u32, f64)>,
+) -> Result<(), YangError> {
+    use crate::stage4_project::detect_nonmanifold_seams;
+    use crate::stage4_splice::{apply_splice, patches_on_seam, splice_seam_pair, SplicePatch};
+    use crate::stage4_update::MeshUpdateOpts;
+
+    // A pass either applies one splice or stops; the cap is a runaway guard,
+    // not an expected limit (each pass strictly removes one seam region).
+    const MAX_PASSES: usize = 32;
+
+    // `d_eps` is the Stage-1 chord budget — the primitive's own documented
+    // meaning for it, not a number chosen here.
+    let Some(d_eps) = crate::stage4_correct::stage4_chord_band(a, b) else {
+        eprintln!("[s4-meshup] SKIPPED (no Stage-1 chord band for this input pair)");
+        return Ok(());
+    };
+    // `merge_tol` is TAU_MODEL: this codebase's "these are the same point"
+    // scale. It has to be loose enough that a vertex the arrangement MINTED on
+    // the partner's boundary edge is recognized as lying on it (otherwise the
+    // primitive would treat a boundary point as a free interior one), and tight
+    // enough never to fuse distinct features. The primitive additionally
+    // requires it below `d_eps`; if the chord band is tighter than TAU_MODEL we
+    // decline rather than shrink the tolerance to fit.
+    let merge_tol = cad_primitives::TAU_MODEL;
+    if merge_tol >= d_eps {
+        eprintln!(
+            "[s4-meshup] SKIPPED (merge_tol {merge_tol:.3e} >= chord band d_eps {d_eps:.3e})"
+        );
+        return Ok(());
+    }
+    let opts = MeshUpdateOpts { merge_tol, d_eps };
+    // The driver verifies seam conformality in 3D; its contract asks for a tol
+    // no looser than `merge_tol` in world units.
+    let conformal_tol = merge_tol;
+
+    let mut applied_total = 0usize;
+    for pass in 0..MAX_PASSES {
+        // Patches parallel to `infos`: `compute_phase_a` builds `infos` from
+        // exactly these three calls in this order, so index i corresponds.
+        // Verified, not assumed — a length mismatch stops the pass.
+        let adjacency = triangle_adjacency(mesh);
+        let raw = crate::stage4_correct::merge_same_plane_patches(
+            flood_fill_patches(mesh, attribution, &adjacency),
+            &adjacency,
+            a,
+            b,
+        );
+        if raw.len() != infos.len() {
+            eprintln!(
+                "[s4-meshup] STOP pass={pass}: patch/info correspondence broken \
+                 ({} patches vs {} infos)",
+                raw.len(),
+                infos.len(),
+            );
+            break;
+        }
+        let patches: Vec<SplicePatch> = raw
+            .iter()
+            .zip(infos.iter())
+            .map(|(p, i)| SplicePatch {
+                // `PatchInfo` stores directed edge pairs; the `s` of each is
+                // the same ordered vertex chain.
+                cycles: i
+                    .cycles
+                    .iter()
+                    .map(|c| c.iter().map(|&(s, _)| s).collect())
+                    .collect(),
+                tris: p.tri_indices.clone(),
+                surface: i.inherited,
+            })
+            .collect();
+
+        let regions = detect_nonmanifold_seams(&mesh.tris, &|t| {
+            attribution
+                .lookup(t as u32)
+                .map(|x| (x.input == InputId::A, x.face))
+        });
+        if regions.is_empty() {
+            eprintln!(
+                "[s4-meshup] pass={pass}: no non-manifold seam regions remain \
+                 (applied_total={applied_total})"
+            );
+            break;
+        }
+
+        let mut applied_this_pass = false;
+        for (ri, region) in regions.iter().enumerate() {
+            let edges: std::collections::BTreeSet<(u32, u32)> =
+                region.edges.iter().copied().collect();
+            let cand = patches_on_seam(&patches, &edges);
+            if cand.len() != 2 {
+                eprintln!(
+                    "[s4-meshup] pass={pass} region={ri}: SKIP — {} patches carry \
+                     these {} edges (need exactly 2)",
+                    cand.len(),
+                    edges.len(),
+                );
+                continue;
+            }
+            match splice_seam_pair(
+                mesh,
+                &patches[cand[0]],
+                &patches[cand[1]],
+                &edges,
+                opts,
+                conformal_tol,
+            ) {
+                Ok(out) => {
+                    let seam_len = out.seam.len();
+                    let new_v = out.new_verts.len();
+                    match apply_splice(mesh, attribution, &out) {
+                        Ok(()) => {
+                            eprintln!(
+                                "[s4-meshup] pass={pass} region={ri}: APPLIED patches \
+                                 {}+{} seam_len={seam_len} new_verts={new_v}",
+                                cand[0], cand[1],
+                            );
+                            applied_total += 1;
+                            applied_this_pass = true;
+                        }
+                        Err(e) => eprintln!(
+                            "[s4-meshup] pass={pass} region={ri}: WRITE-BACK REFUSED {e:?}"
+                        ),
+                    }
+                    if applied_this_pass {
+                        break;
+                    }
+                }
+                Err(e) => eprintln!(
+                    "[s4-meshup] pass={pass} region={ri}: DECLINED patches {}+{} — {e:?}",
+                    cand[0], cand[1],
+                ),
+            }
+        }
+        if !applied_this_pass {
+            eprintln!(
+                "[s4-meshup] STOP pass={pass}: {} region(s) remain, none spliceable \
+                 (applied_total={applied_total})",
+                regions.len(),
+            );
+            break;
+        }
+
+        // A splice changed the mesh, so every Phase-A structure downstream is
+        // stale. Same recompute the §4.5.3 collapse and Fig-11 merge paths do.
+        let remap = compact_unreferenced_verts(mesh, relocations);
+        let (i2, inc2, cv2) = compute_phase_a(
+            mesh,
+            attribution,
+            a,
+            b,
+            &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+        )?;
+        probe_remap_pre_pos("meshup", remap.as_ref());
+        probe_record_incidence(&inc2, &cv2);
+        *infos = i2;
+        *intersection_curves = cv2;
+    }
+    Ok(())
+}
+
 pub(crate) fn reconstruct_topology_stage4(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
@@ -803,6 +988,33 @@ pub(crate) fn reconstruct_topology_stage4(
             probe_record_incidence(&inc3, &cv3);
             infos = i3;
             intersection_curves = cv3;
+        }
+
+        // N2-3b step 2 (Yang §4.4.1 "Mesh updating") — the SPLICE LOOP, wired.
+        //
+        // Placed here, at the end of Stage 4, for the same reason the fold-risk
+        // planner is: `infos` and `intersection_curves` are the post-§4.5.3,
+        // post-Fig-11 recomputes, so they and `mesh` describe the SAME mesh.
+        //
+        // The whole block is inside the env gate, so a gate-OFF run neither
+        // reads nor writes anything here and is byte-identical by construction
+        // — the same shape as every prior increment in this epic.
+        //
+        // The SELECTOR is `detect_nonmanifold_seams`: the splice repairs a seam
+        // whose two sides subdivide it differently, and an imbalanced directed
+        // edge is exactly that defect's signature. The `stage4_fold_risk` plan
+        // remains the other candidate driver; which one converts cases is a
+        // measurement, not a choice to bake in here.
+        if std::env::var_os("YANG_MESHUP_ENABLE").is_some() {
+            run_meshup_splice_passes(
+                mesh,
+                attribution,
+                a,
+                b,
+                &mut infos,
+                &mut intersection_curves,
+                &mut relocations,
+            )?;
         }
     }
 

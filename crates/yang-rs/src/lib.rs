@@ -140,8 +140,8 @@ mod stage4_boundary_curve;
 pub mod stage4_fold_risk;
 mod stage4_project;
 // #169 Phase B — the splice loop joining the chart / extraction / two-sided
-// driver layers to the forward mesh. UNWIRED (no in-crate caller yet); N2-3b
-// step 2 wires it behind `YANG_MESHUP_ENABLE`.
+// driver layers to the forward mesh. WIRED behind `YANG_MESHUP_ENABLE` from
+// `stage5_topology::run_meshup_splice_passes` (N2-3b step 2, 2026-08-06).
 mod stage4_splice;
 pub mod stage4_update;
 pub use errors::{SsiRefinementError, Stage4InvalidReason, YangError};

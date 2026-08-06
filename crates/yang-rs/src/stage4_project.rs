@@ -19,8 +19,9 @@
 //! frame). Sphere / Cone / Torus return `None` for now, so the Phase-B wiring
 //! simply does not engage those patches and leaves them byte-identical.
 //!
-//! UNWIRED: this is the projection layer Phase B's splice loop consumes; the
-//! loop itself lands in a later increment behind `YANG_MESHUP_ENABLE`.
+//! WIRED (2026-08-06, N2-3b step 2): this is the projection layer
+//! [`crate::stage4_splice`]'s loop consumes, reached from
+//! `reconstruct_topology_stage4` behind `YANG_MESHUP_ENABLE`.
 
 use crate::{normalize3, ortho_basis, Surface};
 use cad_primitives::{Point2, Point3};
@@ -38,7 +39,6 @@ use cad_primitives::{Point2, Point3};
 ///   before CDT (the projected boundary would otherwise self-cross); `lift`
 ///   itself is seam-agnostic.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until Phase B's splice loop.
 pub(crate) enum SurfaceChart {
     Plane {
         origin: [f64; 3],
@@ -54,7 +54,6 @@ pub(crate) enum SurfaceChart {
     },
 }
 
-#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until Phase B's splice loop.
 impl SurfaceChart {
     /// Build a chart for `surface`, or `None` for a surface type Phase B does not
     /// yet re-triangulate (Sphere / Cone / Torus). The caller keeps its existing
@@ -150,7 +149,6 @@ impl SurfaceChart {
     }
 }
 
-#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until Phase B's splice loop.
 fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
@@ -173,7 +171,6 @@ fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
 /// One non-manifold seam region: the patch(es) whose shared boundary carries a
 /// directional half-edge imbalance, and the offending undirected edges.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(not(test), allow(dead_code))] // consumed by the splice loop (later).
 pub(crate) struct SeamRegion {
     /// Distinct triangle-attribution keys `(is_a, face)` incident to the region's
     /// unpaired edges — normally the two adjacent patches whose seam mismatches.
@@ -189,7 +186,6 @@ pub(crate) struct SeamRegion {
 ///
 /// Pure and deterministic (BTree-ordered). A conformal 2-manifold mesh yields an
 /// empty vector — the same condition `check_watertight_2manifold` gates on.
-#[cfg_attr(not(test), allow(dead_code))] // wired as a probe now; splice loop later.
 pub(crate) fn detect_nonmanifold_seams(
     tris: &[[u32; 3]],
     attr_of: &dyn Fn(usize) -> Option<(bool, u32)>,
@@ -304,7 +300,11 @@ pub(crate) fn detect_nonmanifold_seams(
 /// `θ = ±π` projects to a self-crossing boundary and must be unwrapped by the
 /// caller first. This function does not unwrap, and does not detect it — the
 /// splice loop must, before it trusts the result.
-#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until Phase B's splice loop.
+// Superseded in production by `patch_from_cycles_shifted` (the splice loop
+// always has a shift map, empty for planes). Kept as the no-shift form its own
+// tests exercise; `allow(dead_code)` is scoped to this one wrapper so it cannot
+// hide an unreachable arm anywhere else.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn patch_from_cycles(
     chart: &SurfaceChart,
     verts: &[Point3],
@@ -329,7 +329,6 @@ pub(crate) fn patch_from_cycles(
 ///
 /// For a `Plane` chart the shift is meaningless and callers pass an empty map;
 /// `patch_from_cycles` delegates here with one, so its behaviour is unchanged.
-#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until Phase B's splice loop.
 pub(crate) fn patch_from_cycles_shifted(
     chart: &SurfaceChart,
     verts: &[Point3],

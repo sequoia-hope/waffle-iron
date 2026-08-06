@@ -36,12 +36,42 @@
 //! # Scope of this increment
 //!
 //! Pure and deterministic; [`apply_splice`] is the only mutating entry point.
-//! **UNWIRED** — no in-crate caller yet; N2-3b step 2 wires it behind
-//! `YANG_MESHUP_ENABLE`, driven either by [`detect_nonmanifold_seams`] (the
-//! post-hoc failure-region detector) or by the `stage4_fold_risk` plan. The
-//! selector is deliberately NOT baked in here: this module is the mechanism,
-//! and which patch pairs to hand it is a separate, separately-measured
-//! decision.
+//! **WIRED (2026-08-06, N2-3b step 2)** behind `YANG_MESHUP_ENABLE`, from
+//! `stage5_topology::run_meshup_splice_passes` at the end of Stage 4. A
+//! gate-OFF run never enters that block, so it stays byte-identical.
+//!
+//! The SELECTOR is not baked in here: the entry points take the patch pair and
+//! seam edges as arguments. The wiring drives them from
+//! [`crate::stage4_project::detect_nonmanifold_seams`].
+//!
+//! # MEASURED 2026-08-06: that selector has ZERO customers on this class
+//!
+//! Gate-ON on all four intended cases (F0067, R0011, R0074, R0085) reports
+//! `no non-manifold seam regions` at this point in the pipeline — the block
+//! runs, finds nothing, and changes nothing. Their wall is
+//! `TessellationFailed "ring rejected by CDT"`, a Stage-5/6 face-RING defect,
+//! not a half-edge imbalance in the Stage-4 mesh. So the detector's own claim
+//! to be "consumed by the splice loop" is not, on this evidence, a claim about
+//! these cases.
+//!
+//! **And the full §4.4.1 text (`refs/text/yang2025_hybrid_boolean.txt:552-570`,
+//! right column) names what this module still gets wrong.** The paper does not
+//! re-triangulate a patch against its EXISTING seam: *"The intersection curves
+//! on the parametric surfaces are mapped to the meshes … **Then we set
+//! r_A = r_B = r**, so that the two polylines in the meshes coincide with the
+//! intersection curve"* — the exact analytic curve is the AUTHORITY and TRIMS
+//! both meshes, and CDT is applied to that trimmed result. Flip-freeness is
+//! justified by *"the intersection curves are regular"*, i.e. by the curve's
+//! own monotone sampling.
+//!
+//! This module instead derives the seam polyline from the MESH's relocated
+//! vertex chain ([`merge_seam_chains`]) and keeps the patch's existing cycles
+//! as the CDT boundary. When Stage 4 has moved a vertex past its neighbour
+//! (F0067: a 3.7e-3 relocation against a 6.4e-4 segment), that chain is already
+//! self-crossing, and re-triangulating from it preserves the crossing rather
+//! than repairing it. Sourcing the polyline from `intersection_curves` — the
+//! exact per-edge `Curve` map already in scope at the wiring site — is the next
+//! increment, and it is a change of AUTHORITY, not a tolerance.
 //!
 //! # Known limitation, stated loudly rather than papered over
 //!
@@ -73,7 +103,6 @@ const TWO_PI: f64 = std::f64::consts::TAU;
 /// `SideA` / `SideB` split, so a splice failure names the same side the driver
 /// would).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) enum Side {
     A,
     B,
@@ -82,7 +111,6 @@ pub(crate) enum Side {
 /// One side of the splice: a patch of the forward mesh, described by the three
 /// things the update needs and nothing else.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) struct SplicePatch {
     /// Boundary cycles as ordered MESH-vertex chains; `cycles[0]` is the outer
     /// boundary and the rest are holes — the order
@@ -101,7 +129,6 @@ pub(crate) struct SplicePatch {
 /// The splice's result, entirely in MESH index space and ready for
 /// [`apply_splice`]. Nothing here has been written to the mesh yet.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) struct SpliceOutput {
     /// The mesh vertex count the plan was built against. [`apply_splice`]
     /// refuses if the mesh has changed since, because every `new_verts` index
@@ -124,7 +151,6 @@ pub(crate) struct SpliceOutput {
 /// Why a splice failed. Every variant is a P9/P10 LOUD stop: we never emit a
 /// silently non-conformal, silently coarsened, or silently re-oriented patch.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) enum SpliceError {
     /// The patch's surface has no chart yet (Sphere / Cone / Torus). The caller
     /// leaves such a patch untouched, byte-identical.
@@ -196,7 +222,6 @@ pub(crate) enum SpliceError {
 ///
 /// A vertex of seam-degree > 2 means the nominated edges branch; we refuse
 /// rather than pick a branch ([`SpliceError::SeamNotSimple`]).
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn ordered_seam_side(
     cycles: &[Vec<u32>],
     seam_edges: &BTreeSet<(u32, u32)>,
@@ -305,7 +330,6 @@ fn dist3(a: Point3, b: Point3) -> f64 {
 /// curve ([`SpliceError::SeamPointOffReference`]), and one landing on top of an
 /// A vertex is a coincident-vertex defect
 /// ([`SpliceError::SeamPointCoincident`]) — both loud.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn merge_seam_chains(
     verts: &[Point3],
     chain_a: &[u32],
@@ -411,7 +435,6 @@ pub(crate) fn merge_seam_chains(
 /// Hole cycles are placed on the branch whose mean `θ` is nearest the outer
 /// loop's — forced, not chosen: a hole lies inside the outer loop in the chart,
 /// so its `θ` must fall within the outer loop's span.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn unwrap_theta(
     chart: &SurfaceChart,
     verts: &[Point3],
@@ -554,6 +577,34 @@ fn interior_vertices(mesh: &Mesh, tris: &[u32], cycles: &[Vec<u32>]) -> BTreeSet
     out
 }
 
+/// Indices of the patches whose boundary cycles carry at least one of `edges`.
+///
+/// This resolves a detected seam region to the patch PAIR that must be
+/// re-triangulated together. It keys on the region's actual edges rather than
+/// on [`crate::stage4_project::SeamRegion`]'s attribution keys, because an
+/// attribution `(input, face)` can name SEVERAL disconnected patches (one input
+/// face fragmented by the arrangement) — the edges name exactly one pair.
+///
+/// A result other than exactly two patches is the caller's signal to leave the
+/// region alone: one means the seam's partner is not a patch we hold, and more
+/// than two means the region spans a junction rather than a single seam.
+pub(crate) fn patches_on_seam(patches: &[SplicePatch], edges: &BTreeSet<(u32, u32)>) -> Vec<usize> {
+    let mut out = Vec::new();
+    for (i, p) in patches.iter().enumerate() {
+        let hit = p.cycles.iter().any(|cyc| {
+            let n = cyc.len();
+            (0..n).any(|k| {
+                let (u, v) = (cyc[k], cyc[(k + 1) % n]);
+                edges.contains(&if u < v { (u, v) } else { (v, u) })
+            })
+        });
+        if hit {
+            out.push(i);
+        }
+    }
+    out
+}
+
 /// Splice one patch pair across their shared seam: the §4.4.1 mesh update,
 /// applied to the real forward mesh.
 ///
@@ -562,7 +613,6 @@ fn interior_vertices(mesh: &Mesh, tris: &[u32], cycles: &[Vec<u32>]) -> BTreeSet
 ///
 /// Pure: it reads `mesh` and returns a [`SpliceOutput`] in mesh index space.
 /// [`apply_splice`] performs the mutation.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn splice_seam_pair(
     mesh: &Mesh,
     patch_a: &SplicePatch,
@@ -795,7 +845,6 @@ pub(crate) fn splice_seam_pair(
 /// `flood_fill_patches`) depends on. Vertices orphaned by the replacement are
 /// left for the caller's usual `compact_unreferenced_verts` pass, exactly like
 /// the §4.5.3 collapse path.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn apply_splice(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
@@ -1029,6 +1078,31 @@ mod tests {
         ];
         let got = unwrap_theta(&chart, &verts, &[vec![0, 1, 2]], Side::A);
         assert_eq!(got, Err(SpliceError::PatchEncirclesAxis(Side::A)));
+    }
+
+    // ---- Region -> patch pair selection. ---------------------------------
+
+    #[test]
+    fn patches_on_seam_picks_exactly_the_pair_carrying_the_edges() {
+        let (_mesh, _attr, patch_a, patch_b) = mismatched_seam_fixture();
+        // A third patch sharing no seam edge with the region.
+        let far = SplicePatch {
+            cycles: vec![vec![2, 3, 5]],
+            tris: vec![],
+            surface: patch_a.surface,
+        };
+        let patches = vec![patch_a, far, patch_b];
+        assert_eq!(
+            patches_on_seam(&patches, &edges(&[(0, 1), (0, 4), (1, 4)])),
+            vec![0, 2]
+        );
+    }
+
+    #[test]
+    fn patches_on_seam_reports_no_pair_when_only_one_patch_carries_the_seam() {
+        let (_mesh, _attr, patch_a, _patch_b) = mismatched_seam_fixture();
+        // (2,3) is on A's outer boundary only — the caller must leave it alone.
+        assert_eq!(patches_on_seam(&[patch_a], &edges(&[(2, 3)])), vec![0]);
     }
 
     // ---- The C0044-class end-to-end splice. ------------------------------
