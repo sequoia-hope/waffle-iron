@@ -1779,12 +1779,143 @@ pub(crate) fn emit_topology(
                         _ => {}
                     }
                     let moved_s = n_moved.map_or("-".to_string(), |k| k.to_string());
+                    // §4.5.1 step-truncation MEASUREMENT (read-only): for a
+                    // crossing Stage-4 MINTED, how far could each moved vertex
+                    // actually have travelled before its own loop crossed?
+                    //
+                    // Measured for the MAX-DISPLACEMENT moved vertex only,
+                    // against the otherwise PRE-relocation loop. Two reasons,
+                    // both deliberate: it is the same vertex the `max_s4_disp` /
+                    // `disp_over_min_seg` columns already track, so the numbers
+                    // line up; and scanning every moved vertex is O(roots x m^2)
+                    // each, which does not finish on the larger cases.
+                    //
+                    // So this answers "how far could the WORST vertex have gone
+                    // on its own", NOT "what would a joint truncation of all
+                    // moved vertices give". Several vertices moving together is
+                    // a different question, and this does not claim to answer
+                    // it.
+                    let trunc_s = if class_s == "MINTED_BY_S4" {
+                        S4_PRE_POS.with(|c| {
+                            c.borrow().as_ref().map_or("-".to_string(), |m| {
+                                let pre: Vec<[f64; 3]> = cyc
+                                    .iter()
+                                    .map(|&(v, _)| {
+                                        m.get(&v)
+                                            .copied()
+                                            .unwrap_or_else(|| mesh.verts[v as usize].as_array())
+                                    })
+                                    .collect();
+                                // The max-displacement moved vertex.
+                                let mut pick: Option<(f64, usize, [f64; 3])> = None;
+                                for (i, &(v, _)) in cyc.iter().enumerate() {
+                                    let post = mesh.verts[v as usize].as_array();
+                                    let Some(p) = m.get(&v) else { continue };
+                                    if *p == post {
+                                        continue; // did not move
+                                    }
+                                    let d = ((post[0] - p[0]).powi(2)
+                                        + (post[1] - p[1]).powi(2)
+                                        + (post[2] - p[2]).powi(2))
+                                    .sqrt();
+                                    if pick.is_none_or(|(bd, _, _)| d > bd) {
+                                        pick = Some((d, i, post));
+                                    }
+                                }
+                                let Some((_, i, post)) = pick else {
+                                    return "nomoved".to_string();
+                                };
+                                use crate::stage4_truncate::StepTruncation as ST;
+                                // `YANG_S451_ALL_MOVED`: test EVERY moved vertex
+                                // solo, not just the worst one. Answers the
+                                // sharper question — is there ANY single vertex
+                                // whose own step causes the crossing, or is the
+                                // crossing only produced by several moving
+                                // together? O(n_moved) more work, so it is opt-in
+                                // and only affordable on the smaller cases.
+                                // `YANG_S451_JOINT`: scale EVERY moved vertex by
+                                // one common factor t and find the largest
+                                // crossing-free prefix. Answers whether a JOINT
+                                // truncation (rather than §4.5.1's per-point one)
+                                // would make the loop simple, and how much of the
+                                // step survives.
+                                //
+                                // A uniform grid scan, NOT bisection: crossings
+                                // are not known to be monotone in t, so bisection
+                                // could report a safe prefix that is not one. The
+                                // resolution is stated in the output (1/200) —
+                                // this is a measurement, not a shipped repair.
+                                if std::env::var_os("YANG_S451_JOINT").is_some() {
+                                    const STEPS: usize = 200;
+                                    let moved_idx: Vec<(usize, [f64; 3], [f64; 3])> = cyc
+                                        .iter()
+                                        .enumerate()
+                                        .filter_map(|(j, &(v, _))| {
+                                            let q = mesh.verts[v as usize].as_array();
+                                            let pp = *m.get(&v)?;
+                                            (pp != q).then_some((j, pp, q))
+                                        })
+                                        .collect();
+                                    let mut last_ok = 0usize;
+                                    for k in 1..=STEPS {
+                                        let t = k as f64 / STEPS as f64;
+                                        let mut probe = pre.clone();
+                                        for &(j, pp, q) in &moved_idx {
+                                            probe[j] = [
+                                                pp[0] + t * (q[0] - pp[0]),
+                                                pp[1] + t * (q[1] - pp[1]),
+                                                pp[2] + t * (q[2] - pp[2]),
+                                            ];
+                                        }
+                                        match crate::stage5_loop_simplicity::scan_cycle(&probe, n) {
+                                            Some(sc) if sc.crossings == 0 => last_ok = k,
+                                            _ => break,
+                                        }
+                                    }
+                                    return format!(
+                                        "joint{:.3}(1/{STEPS})",
+                                        last_ok as f64 / STEPS as f64
+                                    );
+                                }
+                                if std::env::var_os("YANG_S451_ALL_MOVED").is_some() {
+                                    let mut best: Option<f64> = None;
+                                    let mut n_trunc = 0usize;
+                                    for (j, &(v, _)) in cyc.iter().enumerate() {
+                                        let q = mesh.verts[v as usize].as_array();
+                                        let Some(pp) = m.get(&v) else { continue };
+                                        if *pp == q {
+                                            continue;
+                                        }
+                                        if let ST::Truncate { t } =
+                                            crate::stage4_truncate::max_simple_step(&pre, j, q, n)
+                                        {
+                                            n_trunc += 1;
+                                            best = Some(best.map_or(t, |b: f64| b.min(t)));
+                                        }
+                                    }
+                                    return match best {
+                                        Some(t) => format!("{t:.4}/solo{n_trunc}"),
+                                        None => "ALLSOLOSAFE".to_string(),
+                                    };
+                                }
+                                match crate::stage4_truncate::max_simple_step(&pre, i, post, n) {
+                                    ST::Truncate { t } => format!("{t:.4}"),
+                                    ST::FullStepSafe => "safe".to_string(),
+                                    ST::AlreadyCrossing => "alreadycrossing".to_string(),
+                                    ST::Unmeasurable => "unmeasurable".to_string(),
+                                }
+                            })
+                        })
+                    } else {
+                        "-".to_string()
+                    };
                     eprintln!(
                         "[s6-simplicity] face={face_idx} input={:?} cycle={ci} \
                          role={} len={} cross={} touch={} spike={} degen={} \
                          min_seg={:.4e} max_seg={:.4e} max_s4_disp={disp_s} \
                          disp_over_min_seg={ratio_s} cross_pre={cross_pre_s} \
-                         class={class_s} n_moved={moved_s} first_cross={:?}",
+                         class={class_s} n_moved={moved_s} trunc_t={trunc_s} \
+                         first_cross={:?}",
                         info.input,
                         if ci == outer_idx { "outer" } else { "hole" },
                         cyc.len(),

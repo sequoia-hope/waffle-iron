@@ -528,6 +528,48 @@ non-simple loop `MINTED_BY_S4` vs `INHERITED`, with `n_moved` and the existing
   a mechanism borrowed across triggers and must be scoped by measurement: gate
   it, apply it to the 8, and require the 261 to stay byte-identical.
 
+**Update (2026-08-06e) — the §4.5.1 STEP TRUNCATION is built, and measurement
+scopes it OUT: the crossing is a JOINT effect of several relocations, not one
+overshooting point.** `crates/yang-rs/src/stage4_truncate.rs::max_simple_step`
+answers, exactly, how far a loop vertex can travel along its relocation step
+before its own loop crosses. Candidate steps are found EXACTLY — with the vertex
+travelling affinely, every orientation determinant of a segment pair is affine in
+`t`, so each pair contributes ≤3 exact rational roots and no transition can be
+missed — and the intervals between them are classified by `scan_cycle`, the same
+exact classifier the census uses, through a now-shared `projection_axes` so the
+two cannot drift onto different planes. 7 unit tests.
+
+- **The predicate is CROSSINGS, not simplicity, and landing ON the boundary is
+  the point.** At the truncation the loop generally TOUCHES — which is precisely
+  what §4.5.1 asks for ("the point moves to p ON the boundary curve C_b"), with
+  the touch then resolved by solving `q1`/`q2`. A truncation stopping strictly
+  short of contact would be a band. The first version of this module used
+  `is_simple()` and its own test caught the error.
+- **MEASURED — the paper's per-point truncation does NOT explain this class.**
+  With every moved vertex tested SOLO against the otherwise-pre loop
+  (`YANG_S451_ALL_MOVED`), **14 of 15** minted crossing loops across F0045,
+  R0004, R0011, R0049, R0100 are **ALLSOLOSAFE**: no single vertex's own step
+  causes the crossing. Only one loop has a single-vertex culprit. §4.5.1
+  truncates ONE point's step; here the defect is collective.
+- **JOINT truncation works, but at a price that likely just moves the wall.**
+  Scaling every moved vertex by one common factor (`YANG_S451_JOINT`, uniform
+  1/200 grid — not bisection, since crossings are not known to be monotone in
+  `t`) yields a positive crossing-free `t` for all 23 measured loops, but the
+  distribution is punishing: 0.995 down to **0.025**, with 7 of 23 at ≤0.075.
+  A joint truncation at 0.075 undoes ~92% of the relocation, leaving the
+  vertices near their Stage-0 CHORD positions — i.e. it would trade a CDT
+  crossing for exactly the `d_eps` / VertexOffSurface error Stage 4 exists to
+  remove. That is a defect swap, not a repair (P9/P10).
+- **⇒ Truncation is not the repair for this class either.** The relocation
+  targets are individually correct (each vertex converges onto the exact curve)
+  yet collectively inconsistent with the loop's shape. That points at the
+  SAMPLING of the curve rather than at clamping steps — but that is an
+  inference, not a measurement, and the next increment should test it before
+  anything is built on it.
+- **NOT measured:** F0067, R0074 and R0085 are too slow for the solo sweep
+  (O(roots x m^2) per moved vertex); the joint sweep covers R0074 but not F0067
+  or R0085. The 14/15 claim is bounded to the five cases named above.
+
 **Update (2026-07-15) — R0038 REMOVED from the N2/CDT class; it is near-tangency
 (#137).** The exploratory `replan_degenerate_cylinder_patches`
 (`stage4_correct.rs`, gated `YANG_N2_RECDT_ENABLE`, off in production) targeted

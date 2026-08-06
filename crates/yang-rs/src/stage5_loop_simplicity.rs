@@ -153,14 +153,18 @@ fn adjacent_spike(a: &ExactPoint2, b: &ExactPoint2, c: &ExactPoint2, d: &ExactPo
 /// Returns `None` when the loop cannot be scanned at all: fewer than 3 points,
 /// a non-finite coordinate, or a degenerate (zero / non-finite) normal. `None`
 /// is "not measured", NEVER "simple" — the caller must report it as such.
-pub(crate) fn scan_cycle(pts: &[[f64; 3]], normal: [f64; 3]) -> Option<LoopSimplicity> {
-    let m = pts.len();
-    if m < 3 {
-        return None;
-    }
-    // Drop the dominant-axis coordinate: the projection is injective on any
-    // plane whose normal has that axis as its largest component, and it copies
-    // the two surviving f64 coordinates verbatim — an exact operation.
+/// The two surviving coordinate axes when the plane's dominant-normal axis is
+/// dropped.
+///
+/// The projection is injective on any plane whose normal has that axis as its
+/// largest component, and it copies the two surviving f64 coordinates verbatim
+/// — an exact operation, which is what lets everything downstream run on exact
+/// rationals.
+///
+/// Shared so [`scan_cycle`] and [`crate::stage4_truncate`] cannot drift onto
+/// different projections: the truncation searches for the exact step at which
+/// this scan's verdict flips, so the two MUST agree on the plane they read.
+pub(crate) fn projection_axes(normal: [f64; 3]) -> Option<(usize, usize)> {
     let mut drop_axis = 0usize;
     for i in 1..3 {
         if normal[i].abs() > normal[drop_axis].abs() {
@@ -170,11 +174,19 @@ pub(crate) fn scan_cycle(pts: &[[f64; 3]], normal: [f64; 3]) -> Option<LoopSimpl
     if !normal[drop_axis].is_finite() || normal[drop_axis] == 0.0 {
         return None;
     }
-    let (ax, ay) = match drop_axis {
+    Some(match drop_axis {
         0 => (1, 2),
         1 => (2, 0),
         _ => (0, 1),
-    };
+    })
+}
+
+pub(crate) fn scan_cycle(pts: &[[f64; 3]], normal: [f64; 3]) -> Option<LoopSimplicity> {
+    let m = pts.len();
+    if m < 3 {
+        return None;
+    }
+    let (ax, ay) = projection_axes(normal)?;
     let mut p2: Vec<ExactPoint2> = Vec::with_capacity(m);
     for p in pts {
         p2.push(ExactPoint2 {
