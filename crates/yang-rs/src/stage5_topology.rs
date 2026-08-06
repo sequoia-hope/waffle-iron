@@ -1372,6 +1372,11 @@ pub(crate) fn emit_topology(
     let mut simp_nonsimple = 0usize;
     let mut simp_unmeasurable = 0usize;
     let mut simp_curved_faces = 0usize;
+    // 2026-08-06 census: of the non-simple loops, how many had Stage 4 CREATE
+    // the crossing vs inherit it. Only the minted ones are evidence for a
+    // relocation-side repair.
+    let mut simp_cross_minted = 0usize;
+    let mut simp_cross_inherited = 0usize;
     // (1) Vertices: 1:1 with the (possibly relocated) mesh.verts.
     let vertices: Vec<BRepVertex> = mesh
         .verts
@@ -1719,11 +1724,67 @@ pub(crate) fn emit_topology(
                         Some(dp) => (format!("{dp:.4e}"), "-".to_string()),
                         None => ("-".to_string(), "-".to_string()),
                     };
+                    // 2026-08-06 census: re-scan THIS SAME cycle at the
+                    // PRE-Stage-4 positions. `cross` alone cannot say whether
+                    // Stage 4 created the crossing or merely inherited one from
+                    // Stage 0/2/3 — and that is the whole question, because only
+                    // a MINTED crossing is evidence for a relocation-side
+                    // repair. Same minted-vs-inherited discipline the fold work
+                    // used; vertices absent from the map did not move, so their
+                    // current position IS their pre position.
+                    //
+                    // Uses the POST normal deliberately: `scan_cycle` is
+                    // projection-axis invariant (its own test pins that), so the
+                    // axis only has to be non-degenerate, and reusing one axis
+                    // keeps the two scans comparable.
+                    let pre_scan = S4_PRE_POS.with(|c| {
+                        c.borrow().as_ref().and_then(|m| {
+                            let pre: Vec<[f64; 3]> = cyc
+                                .iter()
+                                .map(|&(v, _)| {
+                                    m.get(&v)
+                                        .copied()
+                                        .unwrap_or_else(|| mesh.verts[v as usize].as_array())
+                                })
+                                .collect();
+                            crate::stage5_loop_simplicity::scan_cycle(&pre, n)
+                        })
+                    });
+                    let n_moved = S4_PRE_POS.with(|c| {
+                        c.borrow().as_ref().map(|m| {
+                            cyc.iter()
+                                .filter(|&&(v, _)| {
+                                    m.get(&v)
+                                        .is_some_and(|p| *p != mesh.verts[v as usize].as_array())
+                                })
+                                .count()
+                        })
+                    });
+                    let (cross_pre_s, class_s) = match &pre_scan {
+                        Some(ps) => (
+                            format!("{}", ps.crossings),
+                            if s.crossings > 0 && ps.crossings == 0 {
+                                "MINTED_BY_S4"
+                            } else if s.crossings > 0 {
+                                "INHERITED"
+                            } else {
+                                "simple"
+                            },
+                        ),
+                        None => ("-".to_string(), "-"),
+                    };
+                    match class_s {
+                        "MINTED_BY_S4" => simp_cross_minted += 1,
+                        "INHERITED" => simp_cross_inherited += 1,
+                        _ => {}
+                    }
+                    let moved_s = n_moved.map_or("-".to_string(), |k| k.to_string());
                     eprintln!(
                         "[s6-simplicity] face={face_idx} input={:?} cycle={ci} \
                          role={} len={} cross={} touch={} spike={} degen={} \
                          min_seg={:.4e} max_seg={:.4e} max_s4_disp={disp_s} \
-                         disp_over_min_seg={ratio_s} first_cross={:?}",
+                         disp_over_min_seg={ratio_s} cross_pre={cross_pre_s} \
+                         class={class_s} n_moved={moved_s} first_cross={:?}",
                         info.input,
                         if ci == outer_idx { "outer" } else { "hole" },
                         cyc.len(),
@@ -2590,7 +2651,11 @@ pub(crate) fn emit_topology(
         eprintln!(
             "[s6-simplicity] SUMMARY planar_loops={simp_planar_loops} \
              nonsimple={simp_nonsimple} unmeasurable={simp_unmeasurable} \
-             curved_faces_not_scanned={simp_curved_faces}"
+             curved_faces_not_scanned={simp_curved_faces} \
+             cross_minted_by_s4={simp_cross_minted} \
+             cross_inherited={simp_cross_inherited} \
+             (minted+inherited < nonsimple means the pre-position map was \
+             unavailable for the rest — set YANG_S5_FOLD_PROBE)"
         );
     }
     Ok((vertices, edges, faces, sources, face_attribution))

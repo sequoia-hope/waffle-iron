@@ -481,6 +481,53 @@ parameter's own branch cut.
   whose two sides disagree, proven end to end on the C0044 fixture. It is simply
   not what these four cases need.
 
+**Update (2026-08-06d) — THE CENSUS. Every self-crossing loop in the corpus is
+MINTED by Stage 4; `cross_inherited = 0` everywhere. The repair belongs on the
+RELOCATION side, and the §4.4.1 mesh update is confirmed to be the wrong place.**
+`YANG_S6_LOOP_SIMPLICITY` now re-scans each loop at the PRE-Stage-4 positions
+(`S4_PRE_POS`, so it needs `YANG_S5_FOLD_PROBE` too) and classifies each
+non-simple loop `MINTED_BY_S4` vs `INHERITED`, with `n_moved` and the existing
+`disp_over_min_seg`. Full 312-case sweep (`single_case` per case — the
+`ASSAY_JOBS` driver nulls child stderr):
+
+| signal | ERROR | SUPPORTED_CORRECT |
+|---|---:|---:|
+| `nonsimple > 0` (incl. touch/spike) | 8 / 47 | **1** / 261 (F0055) |
+| **`cross_minted_by_s4 > 0`** | **8 / 47** | **0 / 261** |
+| `cross_inherited > 0` | **0** | **0** |
+
+- **`cross_minted_by_s4` splits the corpus PERFECTLY**, and strictly better than
+  raw non-simplicity: F0055 is the one SUPPORTED_CORRECT non-simple loop and it
+  is TOUCH-only (`cross=0`), exactly as the 08-03 census recorded. Two
+  independent framings agree, and the disagreement (F0055) is explained rather
+  than waved off.
+- **The 8:** F0045, F0067, R0004, R0011, R0049, R0074, R0085, R0100.
+- **`cross_inherited = 0` across all 312 cases** is the decisive column. Not one
+  self-crossing loop predates Stage 4. **⇒ there is nothing for a §4.4.1
+  mesh-update to repair here** — it re-triangulates a defect that Stage 4 has
+  already created, which is precisely why both gated trials (08-05
+  `collapse_vertex`, 08-06 splice) moved zero cases.
+- **Mechanism, quantified:** across 133 minted loop-instances,
+  `disp_over_min_seg >= 1` in **131 (98.5%)**, and `>= 20x` in 87. The
+  relocation displacement exceeds the local segment it belongs to, so the vertex
+  cannot stay on its own side of the outline. The single exception is R0100
+  face=4 at **0.77x** — a minted crossing whose displacement is BELOW the min
+  segment, so ratio-over-1 is very nearly sufficient but not strictly necessary;
+  that one loop needs its own look before any gate keys on the ratio.
+- **`n_moved` is NOT 1 in general** (1..83 across the 8; F0067 alone spans 1..7).
+  An earlier read of "one moved vertex per crossing loop" came from the tail of
+  one case's output and does not survive the full sweep — the crossing is not
+  always a single overshooting vertex.
+- **8 vs the 9 recorded on 08-03:** not investigated. Per the 38-vs-16 lesson, a
+  historical count measured on a pipeline ~40 commits ago is not a reproduction
+  target; the meaningful invariant here is `inherited = 0`, which is structural.
+- **NEXT: §4.5.1's step truncation, on the relocation side.** "Truncate the step
+  so that the point moves to p on the boundary curve C_b … then solve the
+  intersection points q1 and q2 on C_b" is the paper mechanism matching this
+  census. Its stated trigger (non-convergence) still does not fire here, so it is
+  a mechanism borrowed across triggers and must be scoped by measurement: gate
+  it, apply it to the 8, and require the 261 to stay byte-identical.
+
 **Update (2026-07-15) — R0038 REMOVED from the N2/CDT class; it is near-tangency
 (#137).** The exploratory `replan_degenerate_cylinder_patches`
 (`stage4_correct.rs`, gated `YANG_N2_RECDT_ENABLE`, off in production) targeted
