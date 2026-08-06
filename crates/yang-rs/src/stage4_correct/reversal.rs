@@ -354,7 +354,13 @@ pub(crate) fn conics_equal_up_to_normal_sign(a: &Curve, b: &Curve) -> bool {
 /// (`project_onto_circle` / `ellipse_param` — the same parameterization
 /// Stage-4 relocation and `is_reversed` use). `None` for non-conic payloads
 /// or a degenerate projection (branch 11 — cannot diagnose).
-fn conic_param(curve: &Curve, pt: Point3) -> Option<f64> {
+///
+/// Also the curve-AUTHORITY key for the §4.4.1 splice
+/// ([`crate::stage4_splice::order_along_curve`]): §4.5.3's "points progressing
+/// along the intersection curve in sequence" and §4.4.1's "no flipping
+/// triangles since the intersection curves are regular" are the same
+/// monotonicity, read through this parameter.
+pub(crate) fn conic_param(curve: &Curve, pt: Point3) -> Option<f64> {
     match curve {
         Curve::Circle {
             center,

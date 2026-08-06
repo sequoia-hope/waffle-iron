@@ -417,22 +417,42 @@ fn run_meshup_splice_passes(
                 );
                 continue;
             }
+            // §4.4.1's AUTHORITY: the seam's own exact analytic curve. All of
+            // the seam's edges that carry one must agree on it — a region whose
+            // edges name two different curves is not one seam, so we hand the
+            // splice `None` and it keeps the mesh order.
+            let mut curves = edges.iter().filter_map(|e| intersection_curves.get(e));
+            let first = curves.next().copied();
+            let seam_curve = match first {
+                Some(c) if curves.all(|o| *o == c) => Some(c),
+                Some(_) => {
+                    eprintln!(
+                        "[s4-meshup] pass={pass} region={ri}: seam edges name >1 curve \
+                         — no curve authority, keeping mesh order"
+                    );
+                    None
+                }
+                None => None,
+            };
             match splice_seam_pair(
                 mesh,
                 &patches[cand[0]],
                 &patches[cand[1]],
                 &edges,
+                seam_curve.as_ref(),
                 opts,
                 conformal_tol,
             ) {
                 Ok(out) => {
                     let seam_len = out.seam.len();
                     let new_v = out.new_verts.len();
+                    let reordered = out.seam_reordered;
                     match apply_splice(mesh, attribution, &out) {
                         Ok(()) => {
                             eprintln!(
                                 "[s4-meshup] pass={pass} region={ri}: APPLIED patches \
-                                 {}+{} seam_len={seam_len} new_verts={new_v}",
+                                 {}+{} seam_len={seam_len} new_verts={new_v} \
+                                 curve_reordered_seam={reordered}",
                                 cand[0], cand[1],
                             );
                             applied_total += 1;

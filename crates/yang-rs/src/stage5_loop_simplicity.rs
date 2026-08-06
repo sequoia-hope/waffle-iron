@@ -28,7 +28,10 @@
 //! it is a measurement, and the anchor is explicit that a producer-side
 //! loop-simplicity STOP would reword ~8 ERRORs and repair nothing (a P10 net
 //! only — see `feedback_stop_band_tuning_build_mesh_updating`). The repair is
-//! Yang §4.5.2 loop-coherent local refinement under epic #169; this scan exists
+//! Yang **§4.4.1 mesh updating** under epic #169 — NOT §4.5.2, whose trigger is
+//! optimization NON-convergence, while these relocations converge exactly
+//! (corrected 2026-08-04; the §4.5.2 label had propagated unchecked through an
+//! anchor memo, a spec and a roadmap entry). This scan exists
 //! to scope it, by answering the two questions the anchor left open: which of
 //! the tail ERRORs actually share the mechanism, and — the decisive column —
 //! whether any SUPPORTED_CORRECT case emits a self-intersecting loop that

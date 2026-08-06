@@ -422,6 +422,65 @@ rather than shrunk if the chord band is tighter.
   and let it REPLACE the seam portion of each patch's boundary rather than be
   constrained into it. That is what "we set r_A = r_B = r" prescribes.
 
+**Update (2026-08-06c) — the CURVE-AUTHORITY fix is built; it is correct, and it
+still does not reach the four cases. The crossing is not an ordering inversion.**
+`stage4_splice::order_along_curve` + `reorder_cycles_to_curve` implement §4.4.1's
+"we set r_A = r_B = r": where the seam's exact curve is a closed-form conic, ITS
+parameter order governs the seam and both patches' boundary cycles adopt it,
+rather than the mesh chain's adjacency (which is the PRE-Stage-4 chord polygon's
+order). Reuses `stage4_correct::conic_param` — the same parameter §4.5.3 already
+reads "points progressing along the intersection curve in sequence" through, so
+there is only ONE notion of "along the curve" in the crate. An open seam's
+endpoints are junctions shared with other patches, so a reorder that would move
+one is a loud `SeamEndpointsReordered`. 10 unit tests, including the F0067 shape
+(mesh chain 0°→60°→30°→90° repaired to 0°→30°→60°→90°) and an arc across the
+parameter's own branch cut.
+
+- **Still zero conversions, and the reason is now TWO-layered.**
+  1. *Measured:* the `detect_nonmanifold_seams` selector reports no regions on
+     F0067/R0011/R0074/R0085, so the curve authority is never reached at all.
+  2. *Not repairable by reordering even if it were reached:* the
+     `YANG_S6_LOOP_SIMPLICITY` scan on F0067 shows crossings at loop-index pairs
+     **5–7 apart** ((24,31), (42,49), (26,33), …) — a vertex crossing a DISTANT
+     part of the outline, not an inversion between seam neighbours. And
+     `stage5_loop_simplicity`'s own anchor says why: the relocated vertices' loop
+     neighbours are *"the other operand's own profile corners, not relocation
+     candidates"*, which do not lie on the intersection curve at all. Ordering by
+     curve parameter can only fix inversions AMONG vertices on that curve.
+- **The MECHANISM F0067 needs is §4.5.1's step truncation — but its TRIGGER does
+  not fire, and that gap must be named rather than glossed.** §4.5.1 "Optimize
+  across boundaries" (`:672`) describes exactly F0067's failure: *"Instead of
+  taking a full step length that takes the point to a position p1 outside the
+  surface S2 where the point is initially located, we truncate the step so that
+  the point moves to p on the boundary curve C_b between S2 and the neighboring
+  surface S1 … After obtaining the correct position of p, we first solve the
+  intersection points q1 and q2 on C_b."* A point clamped to its own patch's
+  boundary curve instead of overshooting past it is precisely what stops a
+  relocated vertex leaving its side of the outline.
+  **However**, §4.5.1's stated trigger is an *erroneous region* — points that
+  "cannot converge to a distance of 0 within their domains", bounded by two
+  converged points v0/v1. F0067's relocations CONVERGE exactly (the 08-04
+  finding that retired the §4.5.2 label). So this is a mechanism borrowed
+  ACROSS triggers, not a section this case falls under. Recording it as
+  "F0067 is §4.5.1" would repeat the §4.5.2 error precisely — conflating a
+  mechanism with the condition the paper invokes it under.
+- **Two sections now describe machinery this class needs while neither's trigger
+  claims it.** That pattern itself is the finding: the paper has no stated
+  handler for "relocation converges, and the converged position is outside the
+  patch the vertex belongs to". Either the d_ε constraint is meant to preclude
+  it (§4.4.1: "the d_ε constraints cannot be guaranteed either. Therefore … we
+  trim and update the meshes"), or it is a genuine gap in the paper for our
+  Stage-0-minted chord-vertex inputs.
+- **NEXT, and it is a MEASUREMENT, not a build:** census how many Stage-4
+  relocations land outside their own patch's boundary loop — the population a
+  §4.5.1-style truncation would clamp — and check it against the loop-simplicity
+  `cross>0` set (9/47 ERROR, 0/261 CORRECT). If those two populations coincide,
+  the mechanism is identified by agreement of two independent signals, which is
+  this campaign's own standard of evidence. Read-only probe first.
+- **The §4.4.1 machinery is not wasted**: it is the correct repair for a seam
+  whose two sides disagree, proven end to end on the C0044 fixture. It is simply
+  not what these four cases need.
+
 **Update (2026-07-15) — R0038 REMOVED from the N2/CDT class; it is near-tangency
 (#137).** The exploratory `replan_degenerate_cylinder_patches`
 (`stage4_correct.rs`, gated `YANG_N2_RECDT_ENABLE`, off in production) targeted

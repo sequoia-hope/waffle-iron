@@ -92,7 +92,7 @@ use crate::stage4_project::{patch_from_cycles_shifted, SurfaceChart};
 use crate::stage4_update::{
     two_sided_conformal_update_lifted, MeshUpdateOpts, Polyline, TwoSidedError,
 };
-use crate::Surface;
+use crate::{Curve, Surface};
 use cad_primitives::{Point2, Point3};
 use cherchi_rs::Mesh;
 use std::collections::{BTreeMap, BTreeSet};
@@ -146,6 +146,11 @@ pub(crate) struct SpliceOutput {
     /// point, referenced by BOTH sides — the identity that makes the
     /// reassembled mesh 2-manifold.
     pub seam: Vec<u32>,
+    /// The curve authority actually CHANGED the seam order — the mesh's chain
+    /// disagreed with the exact curve, i.e. Stage 4 had moved a vertex past its
+    /// neighbour. This is the measurement that says whether §4.4.1's
+    /// "r_A = r_B = r" did any work on this seam.
+    pub seam_reordered: bool,
 }
 
 /// Why a splice failed. Every variant is a P9/P10 LOUD stop: we never emit a
@@ -170,6 +175,13 @@ pub(crate) enum SpliceError {
     SeamNotSimple(Side),
     /// One side's seam closes into a loop and the other's does not.
     SeamTopologyMismatch,
+    /// The seam's exact curve is not a closed-form conic, so it carries no
+    /// parameter to order by. The caller keeps the mesh's chain order.
+    SeamCurveNotConic,
+    /// Ordering along the curve would move an ENDPOINT of an open seam. Those
+    /// are junctions shared with other patches; re-rooting the seam here would
+    /// silently corrupt them.
+    SeamEndpointsReordered { was: [u32; 2], now: [u32; 2] },
     /// A seam vertex contributed by one side lies farther than `d_eps` from the
     /// other side's seam polyline, so the two are not the same curve.
     SeamPointOffReference { vertex: u32, dist: f64 },
@@ -417,6 +429,155 @@ pub(crate) fn merge_seam_chains(
 }
 
 // ---------------------------------------------------------------------------
+// Step 2b — THE CURVE AUTHORITY (Yang §4.4.1, "we set r_A = r_B = r").
+// ---------------------------------------------------------------------------
+
+/// Order `chain`'s vertices along the EXACT intersection curve, by curve
+/// parameter.
+///
+/// This is §4.4.1's authority rule. The paper does not re-triangulate a patch
+/// against whatever seam the mesh currently holds: *"The intersection curves on
+/// the parametric surfaces are mapped to the meshes … **Then we set
+/// r_A = r_B = r**, so that the two polylines in the meshes coincide with the
+/// intersection curve"*, and flip-freeness follows *"since the intersection
+/// curves are regular"* — from the CURVE's monotone sampling, not from anything
+/// the mesh does.
+///
+/// It matters because the mesh's chain adjacency is inherited from the
+/// PRE-Stage-4 chord polygon. Relocation then moves each vertex onto the exact
+/// curve independently, and a vertex whose displacement exceeds its neighbour
+/// spacing lands PAST that neighbour (F0067: 3.7e-3 against a 6.4e-4 segment).
+/// The chain is then self-crossing, and no re-triangulation *from* that chain
+/// can repair it — the crossing is in the boundary being triangulated. Sorting
+/// by curve parameter restores the order the curve itself defines.
+///
+/// The same monotonicity §4.5.3 already reads through
+/// [`crate::stage4_correct::conic_param`], which is why this reuses it rather
+/// than inventing a second notion of "along the curve".
+///
+/// Closed-form conics only (`Circle` / `Ellipse`); anything else yields
+/// [`SpliceError::SeamCurveNotConic`] and the caller keeps the mesh order.
+/// For an OPEN seam the points lie on one arc, so the single largest circular
+/// gap in the parameters is the arc's complement — cutting there linearizes the
+/// order without needing a branch convention.
+pub(crate) fn order_along_curve(
+    curve: &Curve,
+    verts: &[Point3],
+    chain: &[u32],
+    closed: bool,
+) -> Result<Vec<u32>, SpliceError> {
+    let mut keyed: Vec<(f64, u32)> = Vec::with_capacity(chain.len());
+    for &v in chain {
+        let t = crate::stage4_correct::conic_param(curve, verts[v as usize])
+            .ok_or(SpliceError::SeamCurveNotConic)?;
+        if !t.is_finite() {
+            return Err(SpliceError::SeamCurveNotConic);
+        }
+        keyed.push((t, v));
+    }
+    // Ascending parameter; the index tie-break keeps exact ties deterministic.
+    keyed.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("finite").then(a.1.cmp(&b.1)));
+
+    let n = keyed.len();
+    if closed {
+        // Rotation is geometrically irrelevant for a closed loop; start at the
+        // lowest vertex index so the result is deterministic.
+        let k = (0..n).min_by_key(|&i| keyed[i].1).expect("non-empty");
+        keyed.rotate_left(k);
+    } else {
+        // Cut at the largest circular gap — the complement of the arc.
+        let mut best = (f64::NEG_INFINITY, 0usize);
+        for i in 0..n {
+            let gap = if i + 1 == n {
+                keyed[0].0 + TWO_PI - keyed[n - 1].0
+            } else {
+                keyed[i + 1].0 - keyed[i].0
+            };
+            if gap > best.0 {
+                best = (gap, (i + 1) % n);
+            }
+        }
+        keyed.rotate_left(best.1);
+    }
+    let out: Vec<u32> = keyed.into_iter().map(|(_, v)| v).collect();
+
+    // An open seam's endpoints are junctions shared with OTHER patches. The
+    // interior may reorder freely; the endpoints may not, or the reorder would
+    // silently re-root a seam those patches also carry.
+    if !closed {
+        let mut was = [chain[0], chain[chain.len() - 1]];
+        let mut now = [out[0], out[out.len() - 1]];
+        was.sort_unstable();
+        now.sort_unstable();
+        if was != now {
+            return Err(SpliceError::SeamEndpointsReordered { was, now });
+        }
+    }
+    Ok(out)
+}
+
+/// Rewrite each cycle that carries the whole seam so its seam run appears in
+/// `ordered` order, leaving every other cycle untouched.
+///
+/// The seam occupies a contiguous run of the cycle (it is a run of consecutive
+/// boundary edges), so this overwrites that span in place. The span's leading
+/// vertex picks the direction, which keeps the cycle's own traversal sense; for
+/// a cycle that IS the seam, winding is re-normalized downstream by
+/// `patch_from_cycles_shifted`'s shoelace and the final triangle orientation is
+/// fixed by measurement, so no direction choice is needed here.
+fn reorder_cycles_to_curve(
+    cycles: &[Vec<u32>],
+    ordered: &[u32],
+    side: Side,
+) -> Result<Vec<Vec<u32>>, SpliceError> {
+    let set: BTreeSet<u32> = ordered.iter().copied().collect();
+    let mut out = Vec::with_capacity(cycles.len());
+    for cyc in cycles {
+        // Only the cycle carrying the WHOLE seam is rewritten. A cycle sharing
+        // just a junction endpoint passes through untouched.
+        if !ordered.iter().all(|v| cyc.contains(v)) {
+            out.push(cyc.clone());
+            continue;
+        }
+        let n = cyc.len();
+        let in_set: Vec<bool> = cyc.iter().map(|v| set.contains(v)).collect();
+        let count = in_set.iter().filter(|b| **b).count();
+        if count != ordered.len() {
+            return Err(SpliceError::SeamNotSimple(side));
+        }
+        if count == n {
+            out.push(ordered.to_vec());
+            continue;
+        }
+        let start = (0..n)
+            .find(|&i| in_set[i] && !in_set[(i + n - 1) % n])
+            .ok_or(SpliceError::SeamNotSimple(side))?;
+        // The run must be contiguous, or it is not one seam.
+        if (0..count).any(|k| !in_set[(start + k) % n]) {
+            return Err(SpliceError::SeamNotSimple(side));
+        }
+        let first = cyc[start];
+        let seq: Vec<u32> = if ordered[0] == first {
+            ordered.to_vec()
+        } else if *ordered.last().expect("non-empty") == first {
+            ordered.iter().rev().copied().collect()
+        } else {
+            let mut was = [first, cyc[(start + count - 1) % n]];
+            let mut now = [ordered[0], *ordered.last().expect("non-empty")];
+            was.sort_unstable();
+            now.sort_unstable();
+            return Err(SpliceError::SeamEndpointsReordered { was, now });
+        };
+        let mut cy = cyc.clone();
+        for (k, &v) in seq.iter().enumerate() {
+            cy[(start + k) % n] = v;
+        }
+        out.push(cy);
+    }
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
 // Step 3 — cylinder θ = ±π seam unwrapping (this loop's declared job).
 // ---------------------------------------------------------------------------
 
@@ -618,6 +779,7 @@ pub(crate) fn splice_seam_pair(
     patch_a: &SplicePatch,
     patch_b: &SplicePatch,
     seam_edges: &BTreeSet<(u32, u32)>,
+    seam_curve: Option<&Curve>,
     opts: MeshUpdateOpts,
     conformal_tol: f64,
 ) -> Result<SpliceOutput, SpliceError> {
@@ -654,7 +816,7 @@ pub(crate) fn splice_seam_pair(
     // ---- Steps 1-2: the ONE shared seam curve. --------------------------
     let (chain_a, closed_a) = ordered_seam_side(&patch_a.cycles, seam_edges, Side::A)?;
     let (chain_b, closed_b) = ordered_seam_side(&patch_b.cycles, seam_edges, Side::B)?;
-    let (shared, closed) = merge_seam_chains(
+    let (mesh_order, closed) = merge_seam_chains(
         &mesh.verts,
         &chain_a,
         closed_a,
@@ -663,16 +825,41 @@ pub(crate) fn splice_seam_pair(
         opts.d_eps,
     )?;
 
+    // ---- Step 2b: THE CURVE AUTHORITY (§4.4.1 "we set r_A = r_B = r"). --
+    // The mesh chain above is the pre-Stage-4 chord polygon's order. Where the
+    // exact curve is a closed-form conic, ITS parameter order governs, and both
+    // patches' boundaries adopt it — otherwise a vertex relocation that
+    // overshot its neighbour leaves a self-crossing seam that re-triangulating
+    // FROM that seam cannot repair.
+    let (shared, cycles_a, cycles_b, seam_reordered) =
+        match seam_curve.map(|c| order_along_curve(c, &mesh.verts, &mesh_order, closed)) {
+            Some(Ok(ordered)) => {
+                let reordered = ordered != mesh_order;
+                let ca = reorder_cycles_to_curve(&patch_a.cycles, &ordered, Side::A)?;
+                let cb = reorder_cycles_to_curve(&patch_b.cycles, &ordered, Side::B)?;
+                (ordered, ca, cb, reordered)
+            }
+            // No curve, or one with no closed-form parameter: keep the mesh order.
+            // A `SeamEndpointsReordered` is a genuine stop and propagates.
+            Some(Err(SpliceError::SeamCurveNotConic)) | None => (
+                mesh_order,
+                patch_a.cycles.clone(),
+                patch_b.cycles.clone(),
+                false,
+            ),
+            Some(Err(e)) => return Err(e),
+        };
+
     // ---- Step 3: θ branches, patch cycles first then the seam. ----------
-    let mut shift_a = unwrap_theta(&chart_a, &mesh.verts, &patch_a.cycles, Side::A)?;
-    let mut shift_b = unwrap_theta(&chart_b, &mesh.verts, &patch_b.cycles, Side::B)?;
+    let mut shift_a = unwrap_theta(&chart_a, &mesh.verts, &cycles_a, Side::A)?;
+    let mut shift_b = unwrap_theta(&chart_b, &mesh.verts, &cycles_b, Side::B)?;
     extend_shift_along_chain(&chart_a, &mesh.verts, &shared, &mut shift_a, Side::A)?;
     extend_shift_along_chain(&chart_b, &mesh.verts, &shared, &mut shift_b, Side::B)?;
 
     // ---- Step 4: parametric patches + the shared curve in both charts. --
-    let (p2a, back_a) = patch_from_cycles_shifted(&chart_a, &mesh.verts, &patch_a.cycles, &shift_a)
+    let (p2a, back_a) = patch_from_cycles_shifted(&chart_a, &mesh.verts, &cycles_a, &shift_a)
         .ok_or(SpliceError::MalformedPatch(Side::A))?;
-    let (p2b, back_b) = patch_from_cycles_shifted(&chart_b, &mesh.verts, &patch_b.cycles, &shift_b)
+    let (p2b, back_b) = patch_from_cycles_shifted(&chart_b, &mesh.verts, &cycles_b, &shift_b)
         .ok_or(SpliceError::MalformedPatch(Side::B))?;
 
     let project_chain = |chart: &SurfaceChart, shift: &BTreeMap<u32, f64>| -> Polyline {
@@ -833,6 +1020,7 @@ pub(crate) fn splice_seam_pair(
         old_tris_a: patch_a.tris.clone(),
         old_tris_b: patch_b.tris.clone(),
         seam: seam_mesh,
+        seam_reordered,
     })
 }
 
@@ -1204,7 +1392,7 @@ mod tests {
         let (mut mesh, mut attribution, patch_a, patch_b) = mismatched_seam_fixture();
         let seam = edges(&[(0, 1), (0, 4), (1, 4)]);
 
-        let out = splice_seam_pair(&mesh, &patch_a, &patch_b, &seam, opts(), 1e-9)
+        let out = splice_seam_pair(&mesh, &patch_a, &patch_b, &seam, None, opts(), 1e-9)
             .expect("the splice must succeed on the fixture it exists for");
 
         // The shared curve carries A's midpoint, and every seam point resolved
@@ -1257,7 +1445,7 @@ mod tests {
             &|v| mesh.verts[v as usize],
         );
 
-        let out = splice_seam_pair(&mesh, &patch_a, &patch_b, &seam, opts(), 1e-9).unwrap();
+        let out = splice_seam_pair(&mesh, &patch_a, &patch_b, &seam, None, opts(), 1e-9).unwrap();
         let pos = |v: u32| -> Point3 {
             if v < out.base_vert {
                 mesh.verts[v as usize]
@@ -1293,7 +1481,7 @@ mod tests {
     fn apply_splice_refuses_a_plan_built_against_a_different_mesh() {
         let (mut mesh, mut attribution, patch_a, patch_b) = mismatched_seam_fixture();
         let seam = edges(&[(0, 1), (0, 4), (1, 4)]);
-        let out = splice_seam_pair(&mesh, &patch_a, &patch_b, &seam, opts(), 1e-9).unwrap();
+        let out = splice_seam_pair(&mesh, &patch_a, &patch_b, &seam, None, opts(), 1e-9).unwrap();
         mesh.verts.push(Point3::new(9.0, 9.0, 9.0)); // someone else moved first
         let got = apply_splice(&mut mesh, &mut attribution, &out);
         assert!(matches!(got, Err(SpliceError::StalePlan { .. })));
@@ -1311,6 +1499,7 @@ mod tests {
             &patch_a,
             &patch_b,
             &edges(&[(0, 1), (0, 4), (1, 4)]),
+            None,
             opts(),
             1e-9,
         );
@@ -1334,6 +1523,7 @@ mod tests {
             &patch_a,
             &patch_b,
             &edges(&[(0, 1), (0, 4), (1, 4)]),
+            None,
             opts(),
             1e-9,
         );
@@ -1341,5 +1531,139 @@ mod tests {
             got,
             Err(SpliceError::CurvedPatchInteriorVertices { side: Side::A, .. })
         ));
+    }
+}
+
+#[cfg(test)]
+mod curve_authority_tests {
+    use super::*;
+    use crate::Vector3;
+
+    fn unit_circle() -> Curve {
+        Curve::Circle {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        }
+    }
+
+    /// Points on the unit circle at the given degrees, in index order.
+    fn ring(degs: &[f64]) -> Vec<Point3> {
+        degs.iter()
+            .map(|d| {
+                let r = d.to_radians();
+                Point3::new(r.cos(), r.sin(), 0.0)
+            })
+            .collect()
+    }
+
+    /// THE F0067 SHAPE. The mesh chain visits 0deg, 60deg, 30deg, 90deg — v1 and
+    /// v2 out of order, which is what a relocation overshooting its neighbour
+    /// leaves behind. That chain is self-crossing; the curve's parameter order
+    /// is not.
+    #[test]
+    fn order_along_curve_repairs_a_chain_whose_vertex_overshot_its_neighbour() {
+        let verts = ring(&[0.0, 30.0, 60.0, 90.0]);
+        let mesh_order = vec![0u32, 2, 1, 3];
+        let got = order_along_curve(&unit_circle(), &verts, &mesh_order, false).unwrap();
+        assert_eq!(got, vec![0, 1, 2, 3], "the curve's parameter order governs");
+        assert_ne!(
+            got, mesh_order,
+            "and it genuinely differs from the mesh order"
+        );
+    }
+
+    #[test]
+    fn order_along_curve_leaves_an_already_monotone_chain_alone() {
+        let verts = ring(&[0.0, 30.0, 60.0, 90.0]);
+        let chain = vec![0u32, 1, 2, 3];
+        let got = order_along_curve(&unit_circle(), &verts, &chain, false).unwrap();
+        assert_eq!(got, chain);
+    }
+
+    /// An open arc that straddles the parameter's own branch cut must still
+    /// linearize correctly — the largest circular gap is the arc's complement.
+    #[test]
+    fn order_along_curve_linearizes_an_arc_across_the_branch_cut() {
+        // 150, 170, -170 (=190), -150 (=210): a 60deg arc across theta = +-pi.
+        let verts = ring(&[150.0, 170.0, 190.0, 210.0]);
+        let got = order_along_curve(&unit_circle(), &verts, &[0, 1, 2, 3], false).unwrap();
+        // Either direction is a valid linearization; what matters is that the
+        // arc is contiguous, i.e. the cut did NOT land inside it.
+        assert!(
+            got == vec![0, 1, 2, 3] || got == vec![3, 2, 1, 0],
+            "arc must stay contiguous across the cut, got {got:?}"
+        );
+    }
+
+    /// Endpoints of an open seam are junctions shared with OTHER patches.
+    /// Reordering may rearrange the interior but must never re-root the seam.
+    #[test]
+    fn order_along_curve_refuses_to_move_an_open_seams_endpoint() {
+        let verts = ring(&[0.0, 30.0, 60.0]);
+        // Chain endpoints are v1 (30deg) and v2 (60deg), but by parameter the
+        // extremes are v0 and v2 — so ordering would re-root the seam.
+        let got = order_along_curve(&unit_circle(), &verts, &[1, 0, 2], false);
+        assert!(
+            matches!(got, Err(SpliceError::SeamEndpointsReordered { .. })),
+            "expected an endpoint stop, got {got:?}"
+        );
+    }
+
+    #[test]
+    fn order_along_curve_declines_a_curve_with_no_closed_form_parameter() {
+        let verts = ring(&[0.0, 30.0, 60.0]);
+        let got = order_along_curve(&Curve::LineSegment, &verts, &[0, 1, 2], false);
+        assert_eq!(got, Err(SpliceError::SeamCurveNotConic));
+    }
+
+    // ---- Rewriting the patch boundary to match. --------------------------
+
+    #[test]
+    fn reorder_cycles_rewrites_only_the_seam_span_and_keeps_the_rest() {
+        // Cycle: seam run [0,2,1,3] then two non-seam vertices.
+        let cycles = vec![vec![0u32, 2, 1, 3, 7, 8]];
+        let got = reorder_cycles_to_curve(&cycles, &[0, 1, 2, 3], Side::A).unwrap();
+        assert_eq!(got, vec![vec![0, 1, 2, 3, 7, 8]]);
+    }
+
+    #[test]
+    fn reorder_cycles_flips_the_run_to_match_the_cycles_own_direction() {
+        // The cycle traverses the seam from 3 to 0, so the curve order is
+        // applied reversed — the cycle's traversal sense is preserved.
+        let cycles = vec![vec![3u32, 1, 2, 0, 7, 8]];
+        let got = reorder_cycles_to_curve(&cycles, &[0, 1, 2, 3], Side::A).unwrap();
+        assert_eq!(got, vec![vec![3, 2, 1, 0, 7, 8]]);
+    }
+
+    #[test]
+    fn reorder_cycles_leaves_a_cycle_that_does_not_carry_the_whole_seam() {
+        // A hole sharing only a junction endpoint passes through untouched.
+        let cycles = vec![vec![0u32, 2, 1, 3, 7, 8], vec![0, 20, 21]];
+        let got = reorder_cycles_to_curve(&cycles, &[0, 1, 2, 3], Side::A).unwrap();
+        assert_eq!(got[1], vec![0, 20, 21]);
+    }
+
+    #[test]
+    fn reorder_cycles_refuses_a_non_contiguous_seam_run() {
+        // TWO gaps, so the run is split however you rotate it — not one seam.
+        // (One gap is NOT enough: `[0,1,7,2,3]` has its seam vertices
+        // contiguous *cyclically* as 2,3,0,1, which is a legitimate run.)
+        let cycles = vec![vec![0u32, 1, 7, 2, 3, 8]];
+        let got = reorder_cycles_to_curve(&cycles, &[0, 1, 2, 3], Side::A);
+        assert_eq!(got, Err(SpliceError::SeamNotSimple(Side::A)));
+    }
+
+    #[test]
+    fn reorder_cycles_accepts_a_run_that_wraps_the_cycle_start() {
+        // Seam occupies positions 4,5,0,1 — one run, contiguous across the
+        // wrap, with the two non-seam vertices adjacent at 2,3.
+        let cycles = vec![vec![2u32, 3, 7, 9, 0, 1]];
+        let got = reorder_cycles_to_curve(&cycles, &[0, 1, 2, 3], Side::A).unwrap();
+        assert_eq!(got, vec![vec![2, 3, 7, 9, 0, 1]], "already in curve order");
+        // And a scrambled wrap-run is repaired in place.
+        let scrambled = vec![vec![3u32, 2, 7, 9, 0, 1]];
+        let fixed = reorder_cycles_to_curve(&scrambled, &[0, 1, 2, 3], Side::A).unwrap();
+        assert_eq!(fixed, vec![vec![2, 3, 7, 9, 0, 1]]);
     }
 }
