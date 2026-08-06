@@ -338,6 +338,47 @@ vector, and each fold's turn angle at the **pre-Stage-4** positions. Results:
   their minting and displacement are UNMEASURED. Composing the
   `compact_unreferenced_verts` remap into `S4_MOVED` is the enabling increment.
 
+**Update (2026-08-06) — the SPLICE LOOP is built; the §4.4.1 layer stack is now
+complete end-to-end, still unwired.** `crates/yang-rs/src/stage4_splice.rs`
+joins the three banked layers (`SurfaceChart` → `patch_from_cycles` → the
+two-sided conformal driver) to the forward mesh. It orders each side's seam
+vertices into a chain, merges the two chains into ONE shared curve carrying
+every vertex either side contributes, unwraps the cylinder `θ = ±π` seam
+(declared this loop's job by both lower layers), runs the driver, and maps the
+result back into MESH index space so each shared-curve point becomes **one**
+mesh vertex used by both sides. `apply_splice` performs the write-back, keeping
+`TriangleAttributionMap` in lockstep with `mesh.tris`.
+
+- **The shared-vertex identity in step 5 is the correction to the 2026-08-05
+  negative result.** That trial substituted a bare `collapse_vertex`, which
+  rewrites triangle indices without rebuilding the patch, so the surrounding fan
+  was left inconsistent and Stage 6's 2-manifold gate fired. Here the patch is
+  genuinely re-triangulated in the parametric domain, per Fig-11, whose merge
+  happens INSIDE that re-triangulation (`:555`, caption a–c).
+- **The C0044-class repair is demonstrated end-to-end** (`stage4_splice.rs`
+  tests): two planar patches whose shared edge is subdivided on one side only
+  start with three imbalanced directed edges; after the splice the whole-edge is
+  gone and both halves pair anti-parallel. The coarse side reaches the extra
+  vertex through the Fig-11(a) boundary-edge SPLIT arm — the paper's own
+  mechanism, not a special case.
+- **Orientation is decided by MEASUREMENT, not by a basis convention:** a
+  chart's in-plane basis has arbitrary handedness relative to the surface
+  normal, so each side's replacement triangles are compared against the original
+  patch's area vector and flipped only if they oppose it.
+- **Stated limitation rather than a silent one:** `patch_from_cycles` projects
+  BOUNDARY cycles only, so a spliced patch is re-triangulated from its boundary
+  plus the curve. For a planar patch the dropped interior vertices are
+  geometrically redundant; for a CURVED patch they carry chord fidelity, so the
+  splice refuses with `CurvedPatchInteriorVertices` instead of coarsening the
+  surface. Carrying them through needs them threaded into the primitive's
+  `interior` list and interacts with the N2-2 `d(T)` recompute the paper asks
+  for in the same paragraph — a later increment, not a band.
+- **The selector is deliberately NOT baked in.** This module is the mechanism;
+  which patch pairs to hand it (`detect_nonmanifold_seams` post-hoc, or the
+  `stage4_fold_risk` plan pre-emptively) stays a separate, separately-measured
+  decision. **Next: N2-3b step 2** — wire it behind `YANG_MESHUP_ENABLE` as a
+  single post-pass in `stage4_relocate_and_correct`, gate-OFF byte-identical.
+
 **Update (2026-07-15) — R0038 REMOVED from the N2/CDT class; it is near-tangency
 (#137).** The exploratory `replan_degenerate_cylinder_patches`
 (`stage4_correct.rs`, gated `YANG_N2_RECDT_ENABLE`, off in production) targeted

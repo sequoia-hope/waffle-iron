@@ -139,6 +139,10 @@ mod stage4_boundary_curve;
 // would also hide a genuinely unreachable arm once it IS wired.
 pub mod stage4_fold_risk;
 mod stage4_project;
+// #169 Phase B — the splice loop joining the chart / extraction / two-sided
+// driver layers to the forward mesh. UNWIRED (no in-crate caller yet); N2-3b
+// step 2 wires it behind `YANG_MESHUP_ENABLE`.
+mod stage4_splice;
 pub mod stage4_update;
 pub use errors::{SsiRefinementError, Stage4InvalidReason, YangError};
 pub(crate) use geom::{

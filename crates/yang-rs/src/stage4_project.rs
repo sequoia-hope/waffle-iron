@@ -310,6 +310,32 @@ pub(crate) fn patch_from_cycles(
     verts: &[Point3],
     cycles: &[Vec<u32>],
 ) -> Option<(crate::stage4_update::Patch, Vec<u32>)> {
+    patch_from_cycles_shifted(chart, verts, cycles, &std::collections::BTreeMap::new())
+}
+
+/// As [`patch_from_cycles`], but adds `theta_shift[v]` to the FIRST parametric
+/// coordinate of mesh vertex `v` before any winding or area decision.
+///
+/// This is the hook the splice loop's cylinder seam unwrapping needs. A patch
+/// straddling `θ = ±π` projects to a self-crossing boundary, so its shoelace
+/// area is meaningless — the branch choice has to be applied *before* the CCW
+/// normalization below, not patched onto the result afterwards.
+///
+/// Every shift MUST be a multiple of `2π`, which makes the transformation a
+/// **no-op in world space**: [`SurfaceChart::lift`] is `2π`-periodic in `θ`, so
+/// a shifted patch lifts back to exactly the same 3D points. The caller
+/// ([`crate::stage4_splice::unwrap_theta`]) is what guarantees that; this
+/// function does not re-check it.
+///
+/// For a `Plane` chart the shift is meaningless and callers pass an empty map;
+/// `patch_from_cycles` delegates here with one, so its behaviour is unchanged.
+#[cfg_attr(not(test), allow(dead_code))] // UNWIRED until Phase B's splice loop.
+pub(crate) fn patch_from_cycles_shifted(
+    chart: &SurfaceChart,
+    verts: &[Point3],
+    cycles: &[Vec<u32>],
+    theta_shift: &std::collections::BTreeMap<u32, f64>,
+) -> Option<(crate::stage4_update::Patch, Vec<u32>)> {
     if cycles.is_empty() || cycles.iter().any(|c| c.len() < 3) {
         return None;
     }
@@ -320,8 +346,10 @@ pub(crate) fn patch_from_cycles(
         let mut idx = Vec::with_capacity(cyc.len());
         for &v in cyc {
             let w = *verts.get(v as usize)?;
+            let uv = chart.project(w);
+            let shift = theta_shift.get(&v).copied().unwrap_or(0.0);
             idx.push(p2.len() as u32);
-            p2.push(chart.project(w));
+            p2.push(Point2::new(uv.x() + shift, uv.y()));
             back.push(v);
         }
         loops.push(idx);
