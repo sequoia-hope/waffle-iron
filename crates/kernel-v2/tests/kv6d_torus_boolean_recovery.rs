@@ -197,18 +197,19 @@ fn assert_band_on_surface(mesh: &RenderMesh, what: &str) {
     assert!(band > 0, "{what}: no on-tube torus vertices");
 }
 
-/// Enclosed volume of a yang Stage-1 mesh (divergence theorem).
-fn yang_mesh_volume(m: &yang_rs::Mesh) -> f64 {
-    let mut s = 0.0;
-    for t in &m.tris {
-        let a = m.verts[t[0] as usize].as_array();
-        let b = m.verts[t[1] as usize].as_array();
-        let c = m.verts[t[2] as usize].as_array();
-        s += a[0] * (b[1] * c[2] - b[2] * c[1])
-            + a[1] * (b[2] * c[0] - b[0] * c[2])
-            + a[2] * (b[0] * c[1] - b[1] * c[0]);
-    }
-    (s / 6.0).abs()
+/// ANALYTIC volume of the `partial_torus_brep` fixture (Pappus: a 90° bend of
+/// the R=3, r=1 tube is a quarter of the full torus, 2π²Rr²/4).
+///
+/// The volume-conservation bounds below compare against the OUTPUT's render
+/// volume. Since the 2026-08-08 chord-band fix, boolean-output patches render
+/// at the structured band, so an operand measured from the coarser yang
+/// Stage-1 mesh UNDER-states A by that mesh's inscribed-chord loss and the
+/// bound fails spuriously (subtract vol 14.654 "exceeding" a Stage-1-measured
+/// A of 13.947). The true volumes are exact for these fixtures, and an
+/// inscribed render can never exceed them — the honest bound basis.
+fn partial_torus_volume() -> f64 {
+    use std::f64::consts::PI;
+    0.25 * 2.0 * PI * PI * 3.0 * 1.0 * 1.0
 }
 
 /// Enclosed volume of a kernel-v2 render mesh.
@@ -334,7 +335,7 @@ fn box_intersect_torus_reconstructs_and_tessellates() {
     // A box over the outer tube near θ=45°: the kept torus patch is a bounded
     // (u,v) disk (no meridian wrap).
     let b = box_brep([2.4, 2.4, -0.6], [1.0, 1.0, 1.2]);
-    let (va, vb) = (yang_mesh_volume(a.as_mesh()), yang_mesh_volume(b.as_mesh()));
+    let (va, vb) = (partial_torus_volume(), 1.0 * 1.0 * 1.2);
 
     let out = yang_rs::boolean(&a, &b, BoolOp::Intersect, &backend)
         .unwrap_or_else(|e| panic!("torus ∩ box (yang): {e:?}"));
@@ -407,8 +408,8 @@ fn contained_box_torus_band_renders_full_volume() {
     };
     let a = partial_torus_brep();
     let b = box_brep([1.95, 1.95, -0.3], [0.45, 0.45, 0.6]); // inside the tube
-    let va = yang_mesh_volume(a.as_mesh());
-    let vb = yang_mesh_volume(b.as_mesh());
+    let va = partial_torus_volume();
+    let vb = 0.45 * 0.45 * 0.6;
     let out = yang_rs::boolean(&a, &b, BoolOp::Subtract, &backend).expect("torus − contained box");
     let mut arena = BrepArena::new();
     let solid = from_yang_brep(&mut arena, &out).expect("reconstruct");

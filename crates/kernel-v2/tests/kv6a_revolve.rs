@@ -1657,6 +1657,9 @@ fn r0027_scale_torus_revolve_validates_at_evaluation_floor() {
 /// above the evaluation floor, three below the tube radius) at the SAME
 /// coordinate scale still rejects loudly — the floor admits only what f64
 /// arithmetic cannot distinguish from exact, never a real defect.
+///
+/// Gated like the check it pins (see `unit_scale_torus_band_still_governs`).
+#[cfg(any(debug_assertions, feature = "strict-validation"))]
 #[test]
 fn r0027_scale_genuinely_off_vertex_still_rejects() {
     let mut arena = BrepArena::new();
@@ -1692,6 +1695,13 @@ fn r0027_scale_genuinely_off_vertex_still_rejects() {
 /// (~1.8e-15) sits far below the canonical band, so the band still governs
 /// — a vertex 3e-12 off a unit-scale torus rejects exactly as before the
 /// floor landed.
+///
+/// Gated like the check it pins (`validate.rs`: the strict on-surface band is
+/// compiled under `debug_assertions` OR `strict-validation`) — in a bare
+/// `--release` build the band does not exist and this test cannot pass
+/// (latent since the check was feature-gated; surfaced 2026-08-08 by the
+/// first bare-release run of this suite).
+#[cfg(any(debug_assertions, feature = "strict-validation"))]
 #[test]
 fn unit_scale_torus_band_still_governs() {
     let profile = Profile::circle(

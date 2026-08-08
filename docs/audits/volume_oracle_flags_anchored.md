@@ -215,14 +215,42 @@ tolerance-insensitive.** The oracle flags honestly — its band assumes
 common-mode chord error and the output side breaks that by 8×; the app
 displays and every mesh-based oracle measures exactly these meshes.
 
-**Fix (next increment, recorded not built):** make the patch CDT deliver the
-SAME canonical sagitta band as the structured path — bound/split edges to the
-chord criterion (ℓ²/(8r) ≤ rel·r per surface principal radius), not area
-alone. Acceptance: R0057/R0059 composition → agree; corpus → 259C/0W/49E/0T;
-`volume_trajectory`/`deficit_map` convergence probes show the output sag at
-band. (Honoring the trait tolerance parameter is a separate, deliberate
-design question — crate hard rule 5 wants deterministic density — the
-invariant to restore first is "same surface ⇒ same band on every path".)
+**Fix (LANDED 2026-08-08, same day): deterministic interior grid seeding at
+the structured tessellator's own spacing.** Spade offers no edge-length
+refinement bound, so the bound is built by construction:
+`cherchi_rs::cdt_polygon_with_holes_refined_seeded` inserts interior points
+at absolute multiples of a caller-supplied spacing (phase-aligned with the
+structured rings), inside the outer loop, outside holes, ≥ ½-cell clear of
+every constraint (no constraint splits, no boundary slivers); the area
+refinement stays as backstop. The yang-rs torus site passes
+`[s, s·major/(major+minor)]` — the EXACT θ-step rule of the structured path
+(`surfaces/torus.rs`: minor chord `s` at the worst radius); the sphere site
+passes `[s, s]` (equator-scaled chart is conservative at latitude). The
+developable (cylinder/cone) engine already had a per-edge width bound
+(`w_facet` pass-4) and needed nothing.
+
+Measured: R0057 output 794 → 4554 tris (matching the structured 4966),
+deficit 3.62e3 → 3.60e2 (rel 1.27e-3, inside the oracle band); torus-patch
+max edge sag 8× → **1.39× band** (pinned at 2.0× by
+`torus_patch_edges_meet_chord_band`). Seeding contract unit-tested in
+cherchi-rs (grid insertion, hole/clearance exclusion, determinism,
+degenerate-spacing fallback). A first spacing derivation from the relative
+band (`s·major/minor`) was corrected same-session to the structured path's
+worst-radius rule — the invariant is "same spacing as structured", not
+"re-derive the band".
+
+**Full-corpus acceptance MET: 259C / 0W / 49E / 0T** — the delta vs the
+custody baseline is exactly R0057 and R0059 → SUPPORTED_CORRECT; nothing
+else moved, zero timeouts. All five original oracle flags are now resolved:
+one custody fix (R0030 → CORRECT), two honest capability STOPs
+(R0090/R0040 → ERROR), two chord-band fixes (R0057/R0059 → CORRECT). The
+0-WRONG claim is enforced by the in-line composition oracle for every
+multi-op all-boss case. Blast radius: the fast tier surfaced one legitimate
+test repair (`kv6d` operand volumes moved from the coarse Stage-1-mesh
+instrument to analytic Pappus/box values — cross-density bounds fail
+spuriously once outputs render at band) and two latent bare-`--release`
+test-gating mismatches (`kv6a` strict-band pins now carry the same
+`cfg(debug_assertions | strict-validation)` as the check they pin).
 
 ## What this changes
 

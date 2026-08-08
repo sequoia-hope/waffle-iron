@@ -204,11 +204,7 @@ pub(crate) struct IncidenceDiff {
     /// Sampled separately because a two-way divergence names a different
     /// mechanism than a one-way one, and the 2026-08-08 C0043 smoke test
     /// landed here rather than in `unsupported_samples`.
-    pub(crate) disjoint_samples: Vec<(
-        EdgeKey,
-        Vec<TriangleAttribution>,
-        Vec<TriangleAttribution>,
-    )>,
+    pub(crate) disjoint_samples: Vec<(EdgeKey, Vec<TriangleAttribution>, Vec<TriangleAttribution>)>,
     /// Divergent edges on an IMPURE (merged) patch's cycle — by design.
     pub(crate) divergent_merge_explained: usize,
     /// **The load-bearing number.** Divergent edges NOT explained by patch
@@ -252,9 +248,9 @@ pub(crate) fn patch_is_impure(
     attribution: &TriangleAttributionMap,
     patch_attr: TriangleAttribution,
 ) -> bool {
-    tri_indices.iter().any(|&t| {
-        (t as usize) < attribution.len() && attribution.lookup(t) != Some(patch_attr)
-    })
+    tri_indices
+        .iter()
+        .any(|&t| (t as usize) < attribution.len() && attribution.lookup(t) != Some(patch_attr))
 }
 
 /// Diff the two views. Read-only; changes nothing.
@@ -348,10 +344,7 @@ mod tests {
     #[test]
     fn provenance_incidence_collects_both_sides_of_a_shared_edge() {
         let mesh = two_tri_mesh();
-        let a = map(vec![
-            Some(attr(InputId::A, 0)),
-            Some(attr(InputId::A, 1)),
-        ]);
+        let a = map(vec![Some(attr(InputId::A, 0)), Some(attr(InputId::A, 1))]);
         let inc = provenance_edge_incidence(&mesh, &a);
         // The shared edge (1,2) sees BOTH faces.
         assert_eq!(
@@ -457,10 +450,7 @@ mod tests {
         let mesh = two_tri_mesh();
         // Each triangle is its own patch (distinct attributions), so each
         // patch's cycle carries exactly its own face.
-        let a = map(vec![
-            Some(attr(InputId::A, 0)),
-            Some(attr(InputId::A, 1)),
-        ]);
+        let a = map(vec![Some(attr(InputId::A, 0)), Some(attr(InputId::A, 1))]);
         let prov = provenance_edge_incidence(&mesh, &a);
         let c0: Vec<Vec<(u32, u32)>> = vec![vec![(0, 1), (1, 2), (2, 0)]];
         let c1: Vec<Vec<(u32, u32)>> = vec![vec![(1, 3), (3, 2), (2, 1)]];

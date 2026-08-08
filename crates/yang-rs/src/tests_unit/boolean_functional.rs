@@ -2989,3 +2989,76 @@ pub(crate) fn rim_override_accepts_chord_point_rejects_off_rim() {
         "a point outside the rim circle must be rejected"
     );
 }
+
+/// Chord-band regression for the boolean-output torus patch (2026-08-08
+/// deficit-class fix, `docs/audits/volume_oracle_flags_anchored.md`): the
+/// UV-CDT patch path must carry the STRUCTURED tessellator's sagitta band —
+/// the pre-fix area-only refinement measured ~8× over it (the R0057/R0059
+/// silent volume deficits). Quarter-tube patch on an R0057-scaled torus;
+/// every emitted edge midpoint's distance to the surface is the sag.
+#[test]
+fn torus_patch_edges_meet_chord_band() {
+    use std::f64::consts::PI;
+    let (major, minor) = (52.0_f64, 34.0_f64);
+    let n_seg = 71u32;
+    let s = 2.0 * PI * minor / f64::from(n_seg); // minor-chord budget
+    let center = Point3::new(0.0, 0.0, 0.0);
+    let axis = Vector3::new(0.0, 0.0, 1.0);
+    // u = meridian angle (minor circle), v = longitude about the axis.
+    let on = |u: f64, v: f64| {
+        let rad = major + minor * u.cos();
+        Point3::new(rad * v.cos(), rad * v.sin(), minor * u.sin())
+    };
+    // Boundary rectangle u∈[0, π/2], v∈[0, 1.0 rad], sampled at the band's
+    // own edge budgets (the production callers sample at chord density).
+    let (u1, v1) = (PI / 2.0, 1.0_f64);
+    let du = s / minor; // Δu per sample
+    let dv = s / (major + minor); // Δv per sample (worst-radius chord)
+    let (nu, nv) = ((u1 / du).ceil() as usize, (v1 / dv).ceil() as usize);
+    let mut boundary: Vec<Point3> = Vec::new();
+    for i in 0..nu {
+        boundary.push(on(u1 * i as f64 / nu as f64, 0.0));
+    }
+    for j in 0..nv {
+        boundary.push(on(u1, v1 * j as f64 / nv as f64));
+    }
+    for i in 0..nu {
+        boundary.push(on(u1 * (nu - i) as f64 / nu as f64, v1));
+    }
+    for j in 0..nv {
+        boundary.push(on(0.0, v1 * (nv - j) as f64 / nv as f64));
+    }
+    let (verts, tris) =
+        crate::tessellate_torus_patch(center, axis, major, minor, &boundary, &[], s * s)
+            .expect("torus patch tessellation");
+    // Sag of an edge midpoint: distance to the torus surface.
+    let sag_of = |p: Point3| -> f64 {
+        let rho = (p.x() * p.x() + p.y() * p.y()).sqrt();
+        (((rho - major).powi(2) + p.z() * p.z()).sqrt() - minor).abs()
+    };
+    let mut max_sag: f64 = 0.0;
+    for t in &tris {
+        for e in 0..3 {
+            let a = verts[t[e] as usize];
+            let b = verts[t[(e + 1) % 3] as usize];
+            let m = Point3::new(
+                (a.x() + b.x()) / 2.0,
+                (a.y() + b.y()) / 2.0,
+                (a.z() + b.z()) / 2.0,
+            );
+            max_sag = max_sag.max(sag_of(m));
+        }
+    }
+    // Canonical minor-chord sagitta at n_seg=71.
+    let band = minor * (1.0 - (PI / f64::from(n_seg)).cos());
+    // Measured 2026-08-08 post-fix: max = 1.39×band (interior ≈ 1×; the
+    // boundary strip's ½-cell clearance allows a little over). Pre-fix: ~8×.
+    assert!(
+        max_sag <= 2.0 * band,
+        "torus patch edge sag {max_sag:.4} exceeds 2× the canonical band {band:.4}"
+    );
+    eprintln!(
+        "torus_patch chord band: max_sag={max_sag:.4} band={band:.4} ratio={:.2}",
+        max_sag / band
+    );
+}

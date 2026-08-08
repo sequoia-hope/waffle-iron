@@ -682,6 +682,42 @@ pub fn cdt_polygon_with_holes_refined(
     holes: &[Vec<u32>],
     max_area: f64,
 ) -> Result<(Vec<CadPoint2>, Vec<[u32; 3]>), CdtError> {
+    cdt_refined_impl(verts, outer, holes, max_area, None)
+}
+
+/// [`cdt_polygon_with_holes_refined`] plus DETERMINISTIC interior grid
+/// seeding at `seed_spacing = [hx, hy]` (the chord-band fix, 2026-08-08 —
+/// `docs/audits/volume_oracle_flags_anchored.md` §deficit-class).
+///
+/// An AREA budget alone does not bound EDGE length: area-only Steiner
+/// refinement leaves large/skinny interior triangles whose chords sag ~8×
+/// the canonical render band (measured on the R0057/R0059 boolean-output
+/// torus patches). Seeding the interior with a grid at the caller's
+/// band-matched spacing bounds interior edge lengths by construction — the
+/// same spacing, and therefore the same sagitta band, as the structured
+/// tessellator's rings. Grid lines sit at absolute multiples of the spacing
+/// (phase-aligned with the structured rings, which sample at fixed angular
+/// steps from the parameterization origin); points within `min(hx, hy)/2`
+/// of a constraint segment are skipped so no constraint is split and the
+/// boundary strip stays sliver-free. A pure function of
+/// `(verts, loops, spacing)` — no adaptivity.
+pub fn cdt_polygon_with_holes_refined_seeded(
+    verts: &[CadPoint2],
+    outer: &[u32],
+    holes: &[Vec<u32>],
+    max_area: f64,
+    seed_spacing: [f64; 2],
+) -> Result<(Vec<CadPoint2>, Vec<[u32; 3]>), CdtError> {
+    cdt_refined_impl(verts, outer, holes, max_area, Some(seed_spacing))
+}
+
+fn cdt_refined_impl(
+    verts: &[CadPoint2],
+    outer: &[u32],
+    holes: &[Vec<u32>],
+    max_area: f64,
+    seed_spacing: Option<[f64; 2]>,
+) -> Result<(Vec<CadPoint2>, Vec<[u32; 3]>), CdtError> {
     // ---- 1-3. Same constrained-CDT setup as `cdt_polygon_with_holes`. ----
     let n_verts = verts.len();
     let in_range = |idx: u32| (idx as usize) < n_verts;
@@ -746,6 +782,70 @@ pub fn cdt_polygon_with_holes_refined(
     for hole in holes {
         if hole.len() >= 2 {
             add_loop(&mut cdt, &handle_of, hole)?;
+        }
+    }
+
+    // ---- 3b. Deterministic interior grid seeding (chord-band fix). -------
+    // See `cdt_polygon_with_holes_refined_seeded`: interior points at absolute
+    // multiples of the spacing, inside the outer loop, outside every hole,
+    // and at least `min(hx, hy)/2` clear of every constraint segment (so no
+    // constraint is split and the boundary strip stays sliver-free).
+    if let Some([hx, hy]) = seed_spacing {
+        if hx.is_finite() && hx > 0.0 && hy.is_finite() && hy > 0.0 {
+            let loop_pts = |idx: &[u32]| -> Vec<CadPoint2> {
+                idx.iter().map(|&i| verts[i as usize]).collect()
+            };
+            let outer_pts = loop_pts(outer);
+            let hole_pts: Vec<Vec<CadPoint2>> = holes.iter().map(|h| loop_pts(h)).collect();
+            let mut segments: Vec<(CadPoint2, CadPoint2)> = Vec::new();
+            for l in std::iter::once(&outer_pts).chain(hole_pts.iter()) {
+                let m = l.len();
+                for i in 0..m {
+                    segments.push((l[i], l[(i + 1) % m]));
+                }
+            }
+            let dist2_seg = |p: CadPoint2, (a, b): &(CadPoint2, CadPoint2)| -> f64 {
+                let (ax, ay) = (a.x(), a.y());
+                let (dx, dy) = (b.x() - ax, b.y() - ay);
+                let len2 = dx * dx + dy * dy;
+                let t = if len2 > 0.0 {
+                    (((p.x() - ax) * dx + (p.y() - ay) * dy) / len2).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                let (qx, qy) = (ax + t * dx, ay + t * dy);
+                (p.x() - qx) * (p.x() - qx) + (p.y() - qy) * (p.y() - qy)
+            };
+            let clear2 = {
+                let c = 0.5 * hx.min(hy);
+                c * c
+            };
+            let (mut lo, mut hi) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+            for p in &outer_pts {
+                lo[0] = lo[0].min(p.x());
+                lo[1] = lo[1].min(p.y());
+                hi[0] = hi[0].max(p.x());
+                hi[1] = hi[1].max(p.y());
+            }
+            let (ix0, ix1) = ((lo[0] / hx).ceil() as i64, (hi[0] / hx).floor() as i64);
+            let (iy0, iy1) = ((lo[1] / hy).ceil() as i64, (hi[1] / hy).floor() as i64);
+            for iy in iy0..=iy1 {
+                for ix in ix0..=ix1 {
+                    let p = CadPoint2::new(ix as f64 * hx, iy as f64 * hy);
+                    if !point_in_polygon(p, &outer_pts) {
+                        continue;
+                    }
+                    if hole_pts.iter().any(|h| point_in_polygon(p, h)) {
+                        continue;
+                    }
+                    if segments.iter().any(|s| dist2_seg(p, s) < clear2) {
+                        continue;
+                    }
+                    // Exact duplicates return the existing handle; a NaN-free
+                    // grid point cannot otherwise fail.
+                    let _ = cdt.insert(SpadePoint2::new(p.x(), p.y()));
+                }
+            }
         }
     }
 
@@ -1254,6 +1354,124 @@ fn centroid_in_polygon_rational(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- seeded refined CDT (chord-band fix, 2026-08-08) -----------------
+
+    /// A finely-sampled square boundary (production contract: callers sample
+    /// loops at chord density). Points every 1.0 along the perimeter.
+    fn sampled_square(side: f64, step: f64) -> (Vec<CadPoint2>, Vec<u32>) {
+        let n = (side / step).round() as i64;
+        let mut pts = Vec::new();
+        for i in 0..n {
+            pts.push(CadPoint2::new(i as f64 * step, 0.0));
+        }
+        for i in 0..n {
+            pts.push(CadPoint2::new(side, i as f64 * step));
+        }
+        for i in 0..n {
+            pts.push(CadPoint2::new(side - i as f64 * step, side));
+        }
+        for i in 0..n {
+            pts.push(CadPoint2::new(0.0, side - i as f64 * step));
+        }
+        let idx = (0..pts.len() as u32).collect();
+        (pts, idx)
+    }
+
+    fn max_edge_len(vs: &[CadPoint2], tris: &[[u32; 3]]) -> f64 {
+        let mut m: f64 = 0.0;
+        for t in tris {
+            for e in 0..3 {
+                let a = vs[t[e] as usize];
+                let b = vs[t[(e + 1) % 3] as usize];
+                m = m.max(((a.x() - b.x()).powi(2) + (a.y() - b.y()).powi(2)).sqrt());
+            }
+        }
+        m
+    }
+
+    #[test]
+    fn seeded_cdt_inserts_band_grid_and_bounds_edges() {
+        let (verts, outer) = sampled_square(10.0, 1.0);
+        // Infinite area budget ⇒ the spade area refinement is OFF: every
+        // interior vertex comes from the seeding alone.
+        let (vs, tris) =
+            cdt_polygon_with_holes_refined_seeded(&verts, &outer, &[], f64::INFINITY, [1.0, 1.0])
+                .expect("seeded CDT");
+        // Interior grid: integer points 1..=9 × 1..=9 (boundary-line points are
+        // within the ½-cell clearance of a constraint and are skipped).
+        assert_eq!(vs.len(), verts.len() + 81, "9×9 interior grid seeded");
+        // Every edge (constraints included — the boundary is sampled at the
+        // same step) is bounded by the cell diagonal.
+        let max_e = max_edge_len(&vs, &tris);
+        assert!(
+            max_e <= 2.0_f64.sqrt() + 1e-9,
+            "edge length must be bounded by the seed-cell diagonal, got {max_e}"
+        );
+    }
+
+    #[test]
+    fn seeded_cdt_respects_holes_and_clearance() {
+        let (mut verts, outer) = sampled_square(10.0, 1.0);
+        // Hole square [4,6]², sampled at the same step, wound opposite.
+        let hole_pts = [
+            (4.0, 4.0),
+            (4.0, 5.0),
+            (4.0, 6.0),
+            (5.0, 6.0),
+            (6.0, 6.0),
+            (6.0, 5.0),
+            (6.0, 4.0),
+            (5.0, 4.0),
+        ];
+        let hole_base = verts.len() as u32;
+        verts.extend(hole_pts.iter().map(|&(x, y)| CadPoint2::new(x, y)));
+        let hole: Vec<u32> = (0..hole_pts.len() as u32).map(|i| hole_base + i).collect();
+        let (vs, tris) = cdt_polygon_with_holes_refined_seeded(
+            &verts,
+            &outer,
+            std::slice::from_ref(&hole),
+            f64::INFINITY,
+            [1.0, 1.0],
+        )
+        .expect("seeded CDT with hole");
+        // 81 grid candidates minus the 3×3 block covered by the hole and its
+        // clearance band (integer points with 4 ≤ x,y ≤ 6).
+        assert_eq!(vs.len(), verts.len() + 81 - 9, "hole block excluded");
+        // No emitted triangle centroid inside the hole.
+        for t in &tris {
+            let (a, b, c) = (vs[t[0] as usize], vs[t[1] as usize], vs[t[2] as usize]);
+            let cx = (a.x() + b.x() + c.x()) / 3.0;
+            let cy = (a.y() + b.y() + c.y()) / 3.0;
+            assert!(
+                !(cx > 4.0 && cx < 6.0 && cy > 4.0 && cy < 6.0),
+                "triangle centroid ({cx},{cy}) inside the hole"
+            );
+        }
+    }
+
+    #[test]
+    fn seeded_cdt_is_deterministic() {
+        let (verts, outer) = sampled_square(10.0, 1.0);
+        let a = cdt_polygon_with_holes_refined_seeded(&verts, &outer, &[], 2.0, [1.0, 1.0])
+            .expect("run 1");
+        let b = cdt_polygon_with_holes_refined_seeded(&verts, &outer, &[], 2.0, [1.0, 1.0])
+            .expect("run 2");
+        assert_eq!(a.1, b.1, "triangles identical across runs");
+        assert_eq!(a.0.len(), b.0.len());
+        for (p, q) in a.0.iter().zip(b.0.iter()) {
+            assert_eq!((p.x(), p.y()), (q.x(), q.y()));
+        }
+    }
+
+    #[test]
+    fn seeded_cdt_degenerate_spacing_equals_unseeded() {
+        let (verts, outer) = sampled_square(10.0, 1.0);
+        let seeded = cdt_polygon_with_holes_refined_seeded(&verts, &outer, &[], 5.0, [0.0, 1.0])
+            .expect("degenerate spacing");
+        let plain = cdt_polygon_with_holes_refined(&verts, &outer, &[], 5.0).expect("unseeded");
+        assert_eq!(seeded.1, plain.1, "zero spacing must behave as unseeded");
+    }
 
     #[test]
     fn point_in_polygon_unit_square() {

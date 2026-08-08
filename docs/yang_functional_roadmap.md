@@ -64,16 +64,20 @@ name, never measured).
    enter the fold; regression `disjoint_merge_custody.rs`). Outcome: R0030 →
    CORRECT; R0090/R0040 → honest ERRORs (their now-attempted unions STOP at
    the CDT ring-reject / non-convex CDT walls). **Baseline: 257C/2W/49E/0T.**
-2. **Revolve-union deficit class — ANCHORED (same day): patch-tessellation
-   chord loss, NOT a set error.** The outputs are analytic B-Reps (face
-   census); the ~1 % is a uniform inscribed skin over the curved faces:
-   boolean-output patches tessellate via the UV-CDT path whose AREA budget
-   does not bound edge length, delivering sag ≈ 8× the crate's own canonical
-   band (`RENDER_CHORD_TOLERANCE_REL`); the adapter also ignores its
-   tolerance param (planar-era comment). Next increment: make the patch path
-   meet the same band (edge-length/chord criterion in the patch CDT).
-   Acceptance: R0057/R0059 composition agree ⇒ **259C/0W/49E/0T**. Full
-   anchor: `docs/audits/volume_oracle_flags_anchored.md` §deficit-class.
+2. **Revolve-union deficit class — ANCHORED and FIXED (same day): 259C/0W/49E/0T.**
+   The ~1 % losses were patch-tessellation chord error, not set errors
+   (analytic B-Reps confirmed by face census). Fix: deterministic interior
+   grid seeding in the UV-CDT (`cherchi_rs::cdt_polygon_with_holes_refined_seeded`)
+   at the STRUCTURED tessellator's own spacing (torus: minor chord at the
+   worst radius, `[s, s·major/(major+minor)]`; sphere: `[s, s]`), since an
+   area budget cannot bound edge length and spade has no edge-length
+   refinement. Measured: patch sag 8× → 1.39× band (pinned 2.0×,
+   `torus_patch_edges_meet_chord_band`); R0057/R0059 → SUPPORTED_CORRECT;
+   corpus delta exactly those two. The developable (cylinder/cone) engine
+   already carried a per-edge width bound and needed nothing. Remaining
+   recorded design question: the adapter still ignores its tolerance param
+   (fixed canonical band by design — crate hard rule 5).
+   Full anchor: `docs/audits/volume_oracle_flags_anchored.md` §deficit-class.
 3. **§4.4.1-as-written epic** — `specs/yang_441_trim_cdt_construction.md`:
    replace relocate-in-place with the paper's curve-authoritative trim + CDT
    (the ~27-case ERROR family; closes N2's core).

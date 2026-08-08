@@ -1,8 +1,8 @@
 {
   "errored": 49,
-  "failed": 2,
+  "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 257,
+  "passed": 259,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -168,7 +168,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(32), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 64 is invalid: OffCurveBeyondChordBand\"). Body created as standalone.",
       "id": "R0028",
       "status": "error"
     },
@@ -306,7 +306,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): bc380f5a-df85-4599-9edd-f37bc9a64c68: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: SelfIntersectingBooleanOutput { face_a: FaceId(8), face_b: FaceId(10), penetrations: 88 }",
+      "detail": "1 engine error(s): bc380f5a-df85-4599-9edd-f37bc9a64c68: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: SelfIntersectingBooleanOutput { face_a: FaceId(8), face_b: FaceId(10), penetrations: 116 }",
       "id": "R0051",
       "status": "error"
     },
@@ -341,10 +341,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "volume_composition: output differs from the union of the operations' isolated solids (rel=1.280e-2 > band=2.532e-3)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0057",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -353,10 +353,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "volume_composition: output differs from the union of the operations' isolated solids (rel=1.015e-2 > band=1.162e-3)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0059",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

@@ -912,9 +912,24 @@ pub fn tessellate_torus_patch(
         _ => return None,
     };
 
-    let (ref_verts, tris) =
-        cherchi_rs::cdt_polygon_with_holes_refined(&verts2d, &outer, &hole_idx, max_3d_area)
-            .ok()?;
+    // Chord-band seeding (2026-08-08, `docs/audits/volume_oracle_flags_anchored.md`
+    // §deficit-class): the AREA budget alone leaves interior chords sagging ~8×
+    // the render band. Interior grid at the STRUCTURED tessellator's own
+    // spacing (kernel-v2 `surfaces/torus.rs`: θ steps keep the minor chord
+    // `s = √max_area` at the worst radius, `per = (2π/n)·minor/(major+minor)`),
+    // so the patch path carries the same 3D chord — and therefore the same
+    // sagitta band — as the structured rings: `su` is exact meridian arc
+    // (budget s); `sv = v·major`, so the θ-step budget is
+    // `Δsv = per·major = s·major/(major+minor)`.
+    let s = max_3d_area.sqrt();
+    let (ref_verts, tris) = cherchi_rs::cdt_polygon_with_holes_refined_seeded(
+        &verts2d,
+        &outer,
+        &hole_idx,
+        max_3d_area,
+        [s, s * (major / (major + minor))],
+    )
+    .ok()?;
 
     // Map back: boundary verts → EXACT input 3D; refined Steiner verts (appended
     // after) → `face_eval`. A band's duplicated seam vertices carry the same 3D
@@ -1224,9 +1239,19 @@ pub fn tessellate_sphere_patch(
         _ => return None, // |wu| ≥ 2: multi-wrap — out of scope
     };
 
-    let (ref_verts, tris) =
-        cherchi_rs::cdt_polygon_with_holes_refined(&verts2d, &outer, &hole_idx, max_3d_area)
-            .ok()?;
+    // Chord-band seeding (see the torus site): sphere scaling is
+    // `su = u·r, sv = v·r` — `sv` is exact meridian arc; `su` is arc at the
+    // EQUATOR, an over-estimate at latitude (true arc = Δsu·cos v), so the
+    // isotropic budget s = √max_area is conservative in both directions.
+    let s = max_3d_area.sqrt();
+    let (ref_verts, tris) = cherchi_rs::cdt_polygon_with_holes_refined_seeded(
+        &verts2d,
+        &outer,
+        &hole_idx,
+        max_3d_area,
+        [s, s],
+    )
+    .ok()?;
 
     // Map back: ring/hole verts → EXACT input 3D (seam copies and pole
     // corners repeat one bit-identical Point3); Steiner verts → `eval`.
