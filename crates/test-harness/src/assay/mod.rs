@@ -27,3 +27,5 @@ pub mod runner;
 pub mod scoring;
 pub mod strategies;
 pub mod strategies_v2;
+/// Independent geometric oracle (spec `specs/assay_independent_volume_oracle.md`).
+pub mod volume_oracle;
