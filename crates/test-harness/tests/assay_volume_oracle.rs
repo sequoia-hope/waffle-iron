@@ -105,6 +105,22 @@ fn isolate_operation(waffle: &serde_json::Value, k: usize) -> Option<String> {
         return None;
     }
     let sketch_id = params.get("sketch_id")?.as_str()?;
+    // A sketch whose plane anchors to a previous FEATURE's face cannot be
+    // isolated: in a one-op document that face does not exist, so the operand
+    // would land somewhere else and the discrepancy would be the oracle's.
+    //
+    // MEASURED 2026-08-08: this never fires on today's corpus — all 1101
+    // sketches are `(kind: Face, anchor: Datum)`, i.e. every plane resolves
+    // against a DATUM, which exists independently of any feature. The guard is
+    // here so the oracle stays correct if the corpus ever grows a
+    // feature-anchored sketch, not because one exists.
+    //
+    // It also corrects an earlier caveat of mine: I read "op meta lacks
+    // `plane_origin`" as evidence of face-anchoring and wrongly flagged
+    // R0057/R0059's isolation as unverified. The two are unrelated.
+    if !sketch_is_datum_anchored(feats, sketch_id) {
+        return None;
+    }
     let sketch = feats.iter().find(|f| {
         f.get("operation")
             .and_then(|o| o.get("sketch"))
@@ -130,6 +146,17 @@ fn isolate_operation(waffle: &serde_json::Value, k: usize) -> Option<String> {
         .as_array_mut()?;
     *list = vec![sketch, op.clone()];
     serde_json::to_string(&doc).ok()
+}
+
+/// Does this sketch's plane resolve against a DATUM (context-free, so the
+/// sketch can be isolated) rather than a previous feature's face?
+fn sketch_is_datum_anchored(feats: &[serde_json::Value], sketch_id: &str) -> bool {
+    feats
+        .iter()
+        .filter_map(|f| f.get("operation")?.get("sketch"))
+        .find(|s| s.get("id").and_then(serde_json::Value::as_str) == Some(sketch_id))
+        .and_then(|s| s.get("plane")?.get("anchor")?.get("type")?.as_str())
+        .is_some_and(|t| t == "Datum")
 }
 
 /// The `sketch_id` each operation is driven by, in op order.
