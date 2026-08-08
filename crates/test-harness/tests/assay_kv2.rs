@@ -421,10 +421,21 @@ fn replay_case(case: &DiscoveredCase) -> CaseOutcome {
             ));
         }
     } else if meta.operations.len() > 1 {
-        let solid_count = builder.distinct_solid_count();
+        // Count LIVE bodies, not registry entries: R0090/R0030 (2026-08-08)
+        // hold TWO live bodies while `distinct_solid_count()` reports one —
+        // the auto-union bookkeeping records a merge the geometry never got,
+        // and the registry count masked exactly the silent-wrong class the
+        // independent volume oracle flagged (base body discarded by a union).
+        let registry_count = builder.distinct_solid_count();
+        let live_count = builder
+            .tessellate_live_with_tol(tess_tol)
+            .map(|m| m.len())
+            .unwrap_or(registry_count);
+        let solid_count = registry_count.max(live_count);
         if solid_count > 1 {
             failures.push(format!(
-                "merge incomplete: {} operations produced {} separate solids",
+                "merge incomplete: {} operations produced {} separate solids \
+                 (registry {registry_count}, live {live_count})",
                 meta.operations.len(),
                 solid_count
             ));

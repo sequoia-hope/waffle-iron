@@ -1,14 +1,14 @@
 {
   "errored": 47,
-  "failed": 0,
+  "failed": 29,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 261,
+  "passed": 232,
   "results": [
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0001",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -35,10 +35,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 3 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0006",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -59,10 +59,10 @@
       "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0010",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "ERROR",
@@ -179,10 +179,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 3 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0030",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -311,10 +311,10 @@
       "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0052",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "ERROR",
@@ -329,10 +329,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 3 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0055",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -365,16 +365,16 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 3 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0061",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0062",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -395,10 +395,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 3 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0066",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -407,16 +407,16 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0068",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0069",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "ERROR",
@@ -437,10 +437,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0073",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "ERROR",
@@ -455,10 +455,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 3 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0076",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "ERROR",
@@ -467,10 +467,10 @@
       "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0078",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -491,16 +491,16 @@
       "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0082",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0083",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -527,10 +527,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 3 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0088",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -539,10 +539,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 3 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0090",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -581,10 +581,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "R0097",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -665,34 +665,34 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "F0011",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "F0012",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "F0013",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "F0014",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "F0015",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1415,10 +1415,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "C0042",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "ERROR",
@@ -1469,10 +1469,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "C0051",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1493,10 +1493,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "C0055",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "ERROR",
@@ -1505,10 +1505,10 @@
       "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "C0057",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "ERROR",
@@ -1823,10 +1823,10 @@
       "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "SUPPORTED_WRONG",
+      "detail": "merge incomplete: 2 operations produced 2 separate solids (registry 1, live 2)",
       "id": "C0110",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "ERROR",

@@ -25,6 +25,42 @@ deviations** (`docs/yang_deviations.md`) — and per the project's standing rule
 ("Paper-Spec Compliance is MANDATORY; deviations are errors"), closing those, not
 chasing a score, is the work.
 
+### 0.-1 ADDENDUM 2026-08-08 — the 5 oracle flags are ALL kernel silent-wrongs; priority reordered
+
+The independent volume oracle's five set-level flags were anchored
+(`docs/audits/volume_oracle_flags_anchored.md`) and **every one is a kernel
+defect**: R0090 (−58%) and R0030 (−30%) lose the TARGET BODY at a `merge:true`
+union (output = tool alone; stacked EndCapPositive towers — the M8
+coplanar-contact family, silently wrong where F0064/F0072 STOP loudly);
+R0040/R0057/R0059 (−2.8/−1.3/−1.0%) lose material at REVOLVE-union steps
+(operands certified by divergence×winding×Pappus; deficits tessellation-
+invariant). Three masks let them grade CORRECT: the categorized runner never
+checks meta `volume_monotonicity`; `properties_v2` downgrades I9–I12 failures
+to advisory passes; `distinct_solid_count()` trusts the registry, which
+records a merge the geometry never got (2 live bodies, count=1). The
+merge-incomplete check now uses `max(registry, live)` (shipped this session)
+— and the full-corpus rerun unmasked **29** such cases, not 2: the honest
+baseline is now **232C / 29W / 47E / 0T** (audit doc has the case list).
+27 of the 29 are the SILENTLY-UNFUSED sub-class (volumes conserved, bodies
+never merged); R0090/R0030 are the base-drop sub-class (material lost). The
+3 revolve-deficit wrongs still grade CORRECT — only the oracle sees them.
+
+**Priority order (P10: confirmed silent-wrongs outrank loud ERRORs):**
+1. **Base-drop class** (R0090/R0030): anchor the mechanism — feature-engine
+   auto-union bookkeeping (consumed-features vs live bodies) × the boolean's
+   tool-only return on coplanar-contact towers — then fix. Top kernel item.
+2. **Revolve-union deficit class** (R0040/R0057/R0059): anchor where the
+   ~1–3% material goes (wrong face survival at curved union seams).
+3. **§4.4.1-as-written epic** — `specs/yang_441_trim_cdt_construction.md`:
+   replace relocate-in-place with the paper's curve-authoritative trim + CDT
+   (the ~27-case ERROR family; closes N2's core).
+4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
+   construction lands.
+5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
+   promote the oracle into the categorized assay for all-boss cases so the
+   deficit class cannot re-hide. Mask retirements (meta monotonicity into the
+   categorized runner; the advisory downgrade) each need a census first.
+
 ### 0.0 Compliance endgame — PLAN OF RECORD (committed 2026-07-16)
 
 **Thesis:** the kernel is Yang-compliant in architecture (all six stages exist;

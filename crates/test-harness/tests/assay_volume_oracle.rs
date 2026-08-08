@@ -172,7 +172,12 @@ fn sketch_ids(waffle: &serde_json::Value) -> Option<Vec<String>> {
     Some(
         feats
             .iter()
-            .filter_map(|f| f.get("operation")?.get("params")?.get("sketch_id")?.as_str())
+            .filter_map(|f| {
+                f.get("operation")?
+                    .get("params")?
+                    .get("sketch_id")?
+                    .as_str()
+            })
             .map(str::to_string)
             .collect(),
     )
@@ -234,9 +239,15 @@ fn output_scan(waffle: &serde_json::Value, tol: f64) -> Option<SolidScan> {
 #[derive(Debug)]
 enum Verdict {
     /// Discrepancy within the oracle's own measured error.
-    Agree { rel: f64, band: f64 },
+    Agree {
+        rel: f64,
+        band: f64,
+    },
     /// Exceeds it — a candidate silent-wrong.
-    Flag { rel: f64, band: f64 },
+    Flag {
+        rel: f64,
+        band: f64,
+    },
     NotCovered(&'static str),
 }
 
@@ -277,6 +288,19 @@ fn evaluate(id: &str, grid: usize) -> Verdict {
 
     let denom = expected.volume.abs().max(actual.volume.abs()).max(1e-300);
     let rel = (expected.volume - actual.volume).abs() / denom;
+    if std::env::var_os("ORACLE_DEBUG").is_some() {
+        for (k, s) in scans.iter().enumerate() {
+            let v = scan_volume(s, grid);
+            eprintln!(
+                "[oracle] {id} operand {k}: vol={:.6e} resid={:.2e}",
+                v.volume, v.residual
+            );
+        }
+        eprintln!(
+            "[oracle] {id} composed={:.6e} (resid {:.2e})  output={:.6e} (resid {:.2e})",
+            expected.volume, expected.residual, actual.volume, actual.residual
+        );
+    }
     // The band is MEASURED, never chosen: both sides' own grid residuals,
     // relative, plus a small floor for f32 render-vertex quantisation.
     let band = ((expected.residual + actual.residual) / denom) * 4.0 + 1e-5;
@@ -315,7 +339,10 @@ fn calibration_against_exact_box_csg() {
             Verdict::NotCovered(why) => println!("{id}: NOT-COVERED ({why})"),
         }
     }
-    println!("calibration: {covered}/14 covered, {} flagged", failures.len());
+    println!(
+        "calibration: {covered}/14 covered, {} flagged",
+        failures.len()
+    );
     assert!(
         failures.is_empty(),
         "the ORACLE is wrong on its calibration set — no sweep verdict is \
