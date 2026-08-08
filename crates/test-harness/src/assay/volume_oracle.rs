@@ -68,6 +68,13 @@ pub struct SolidScan {
 }
 
 impl SolidScan {
+    /// Triangle count of the scanned mesh (diagnostics: a body whose geometry
+    /// is frozen at some pipeline resolution keeps its count under a finer
+    /// tessellation request; an analytic body's count grows).
+    pub fn tri_count(&self) -> usize {
+        self.tris.len()
+    }
+
     /// Build from a render mesh. Vertices are `f32` in `RenderMesh`; that costs
     /// ~1e-7 relative, seven orders below the set-level errors this oracle
     /// exists to find (§ "Method" scope note).

@@ -72,8 +72,10 @@ disjoint/graze union path collapsing a 2-shell result to one shell.
 Every deficit enters at a REVOLVE union step (R0040 op2, R0057 op1, R0059
 op1). Operand solids certified by both integrators (+ Pappus where the profile
 is a centered circle); the exact per-column union of those operands exceeds
-the kernel's merged output. Wrong-face-survival scale material loss at curved
-union seams. All three flags are invariant to 100× finer oracle tessellation
+the kernel's merged output. *(Initial reading "wrong face survival at curved
+union seams" was REFINED by the spatial anchor below: the set/B-Rep is right;
+the loss is patch-tessellation chord error.)* All three flags are invariant
+to 100× finer oracle tessellation
 (measured 2026-08-08), ruling out chord error.
 
 ## The three masks that let these grade SUPPORTED_CORRECT
@@ -169,6 +171,58 @@ custody-explained, nothing else moved): **257C / 2W / 49E / 0T**.
 The base-drop cases were TWO stacked defects each: the custody deletion
 (fixed) hid a genuine boolean incapability underneath (now a loud STOP in the
 familiar ERROR families). The old world silently swallowed both layers.
+
+## The deficit-class anchor (2026-08-08, follow-up session): NOT a set error — patch-tessellation chord loss
+
+Spatial deficit map (`examples/deficit_map.rs`: per-prefix localization +
+per-column missing/extra intervals with operand ownership + convergence probe
++ logical-face census) on the two remaining SUPPORTED_WRONGs:
+
+**R0057** (rect prism + 67° circle revolve, near-disjoint pair — sum ≈
+composed): the entire 3.64e3 loss is a ≤1-unit-deep SKIN over the torus
+wedge's WHOLE lateral surface, uniform across its full angular span
+(depth-inside-surface histogram: 95 % < 0.5, none > 1.5; φ uniform 0–67°);
+gross extra ≈ 0 (pure inscribed loss, nothing displaced). **R0059**: same
+signature; missing owned by the torus wedge AND the circle prism's cylinder
+lateral — the curved faces.
+
+**Convergence probe: the output mesh is FROZEN** — 794 tris (R0057) / 2605
+(R0059) invariant under a 100× tessellation-tolerance sweep; the isolated
+operands are also frozen but ~6× denser (4966 / 8090). **Face census: the
+outputs are analytic B-Reps** (8 / 13 logical faces; the torus lateral is ONE
+face) — mesh-facet emission and wrong-face-survival are REFUTED.
+
+Code anchor, three layers:
+
+1. `kernel_v2::adapter::tessellate` **ignores its tolerance parameter**
+   (`_tolerance: f64, // planar tessellation is exact; tolerance is moot` —
+   a planar-era comment whose premise died when curved geometry landed).
+2. Render density is the fixed canonical band `RENDER_CHORD_TOLERANCE_REL =
+   1e-3` RELATIVE sagitta (`tessellate/mod.rs:151`, N=71 per full circle).
+   The structured full-surface path DELIVERS it: isolated wedge measured sag
+   ≈ 0.04 ≈ 1e-3·r ✓ (its 3.4e2 Pappus gap is exactly this).
+3. **Boolean-output curved faces go through the UV-CDT PATCH path**
+   (`tessellate_torus_patch` etc.), whose refinement is a triangle-AREA
+   budget (`max_area = seg²`, seg = meridian spacing) — but an area bound
+   does not bound EDGE LENGTH, so large/skinny triangles pass with sag far
+   above the band: measured output sag ≈ 0.29 ≈ **8× the canonical band**.
+   Volumes measured off these meshes lose the 1.0–1.3 % the oracle flags.
+
+**Verdict revision for the class: the solids are (plausibly) correct; the
+defect is that the patch tessellation path does not meet the crate's own
+documented chord band, and the whole tessellation layer is
+tolerance-insensitive.** The oracle flags honestly — its band assumes
+common-mode chord error and the output side breaks that by 8×; the app
+displays and every mesh-based oracle measures exactly these meshes.
+
+**Fix (next increment, recorded not built):** make the patch CDT deliver the
+SAME canonical sagitta band as the structured path — bound/split edges to the
+chord criterion (ℓ²/(8r) ≤ rel·r per surface principal radius), not area
+alone. Acceptance: R0057/R0059 composition → agree; corpus → 259C/0W/49E/0T;
+`volume_trajectory`/`deficit_map` convergence probes show the output sag at
+band. (Honoring the trait tolerance parameter is a separate, deliberate
+design question — crate hard rule 5 wants deterministic density — the
+invariant to restore first is "same surface ⇒ same band on every path".)
 
 ## What this changes
 

@@ -143,7 +143,7 @@ pub fn sketch_ids(waffle: &serde_json::Value) -> Option<Vec<String>> {
 }
 
 /// Build one operand solid and scan it.
-fn operand_scan(waffle: &serde_json::Value, k: usize, tol: f64) -> Option<SolidScan> {
+pub fn operand_scan(waffle: &serde_json::Value, k: usize, tol: f64) -> Option<SolidScan> {
     let json = isolate_operation(waffle, k)?;
     let mut b = ModelBuilder::kernel_v2();
     if b.load(&json).is_err() || !b.engine_errors().is_empty() {
@@ -158,7 +158,7 @@ fn operand_scan(waffle: &serde_json::Value, k: usize, tol: f64) -> Option<SolidS
 /// ALL live bodies, concatenated into one soup — not `tessellate_last`: a
 /// model can legitimately end with several bodies (disjoint-boss lumps), and
 /// the composed operand set is the union of all of them.
-fn output_scan(waffle: &serde_json::Value, tol: f64) -> Option<SolidScan> {
+pub fn output_scan(waffle: &serde_json::Value, tol: f64) -> Option<SolidScan> {
     let json = serde_json::to_string(waffle).ok()?;
     let mut b = ModelBuilder::kernel_v2();
     b.load(&json).ok()?;

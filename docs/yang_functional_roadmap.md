@@ -64,9 +64,16 @@ name, never measured).
    enter the fold; regression `disjoint_merge_custody.rs`). Outcome: R0030 →
    CORRECT; R0090/R0040 → honest ERRORs (their now-attempted unions STOP at
    the CDT ring-reject / non-convex CDT walls). **Baseline: 257C/2W/49E/0T.**
-2. **Revolve-union deficit class** (now R0057/R0059; R0040 resolved into a
-   loud ERROR by the custody fix): anchor where the ~1% material goes (wrong
-   face survival at curved union seams). The two remaining SUPPORTED_WRONGs.
+2. **Revolve-union deficit class — ANCHORED (same day): patch-tessellation
+   chord loss, NOT a set error.** The outputs are analytic B-Reps (face
+   census); the ~1 % is a uniform inscribed skin over the curved faces:
+   boolean-output patches tessellate via the UV-CDT path whose AREA budget
+   does not bound edge length, delivering sag ≈ 8× the crate's own canonical
+   band (`RENDER_CHORD_TOLERANCE_REL`); the adapter also ignores its
+   tolerance param (planar-era comment). Next increment: make the patch path
+   meet the same band (edge-length/chord criterion in the patch CDT).
+   Acceptance: R0057/R0059 composition agree ⇒ **259C/0W/49E/0T**. Full
+   anchor: `docs/audits/volume_oracle_flags_anchored.md` §deficit-class.
 3. **§4.4.1-as-written epic** — `specs/yang_441_trim_cdt_construction.md`:
    replace relocate-in-place with the paper's curve-authoritative trim + CDT
    (the ~27-case ERROR family; closes N2's core).
