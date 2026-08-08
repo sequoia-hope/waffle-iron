@@ -213,9 +213,117 @@ Of 7b, **8 reduce to 3 root causes** (A: §4.2.3 provenance ×3, B: exact→f64
 emission ×2, C: our own upstream mints / chaining ×3) and one (N32) is a
 representation the paper does not have.
 
+---
+
+# CORRECTION 2026-08-08 (same day) — ROOT A IS CLOSED, AND THIS DOCUMENT OVERSTATED IT
+
+Root A above claimed §4.2.3 was unimplemented and that three stacked heuristics
+therefore decide face attribution. **Investigation and measurement retire all
+three.** The claim was assembled from the ledger entries' own framing; it did not
+survive checking the code and running the corpus.
+
+### N12 and N43 do not run in production
+
+Deviation **N4 is RESOLVED**: §4.2.3 triangle→face provenance (cherchi `source`
+→ Stage-1 `tri_face`) is the *sole* production path. Both N12 and N43 live in the
+**geometric fallback**, reached only on `ProvMiss::NoLineage`.
+
+That path is **structurally unreachable** for real inputs, not merely
+measured-empty once: `to_yang_brep` builds through `yang_rs::BRep::new` →
+`from_topology_and_tess`, which **populates `tri_face`**. So a chained boolean
+operand — the case the ledger names as the fallback's customer — is
+lineage-CARRYING. `NoLineage` remains only for `BRep::from_mesh` and for
+arrangements with empty `source` (the dev-only C++ sidecar oracle and in-crate
+mock fixtures).
+
+### The incidence map is already provenance-equivalent
+
+The one genuine candidate residual was that `compute_phase_a` derives an
+intersection edge's surfaces from **patch-cycle membership**, where §4.2.3 says
+to query the triangles incident to the point. New read-only module
+`crates/yang-rs/src/stage4_incidence.rs` (`YANG_S423_INCIDENCE`, 10 tests)
+computes both views and diffs them on face **identity**.
+
+Full corpus, 280/312 cases reaching Stage 4, 1810 `compute_phase_a` invocations,
+**2 589 874 boundary edges**:
+
+| bucket | count |
+|---|---:|
+| `agree` | 2 546 094 (98.3 %) |
+| **`cycle_unsupported`** | **0** |
+| `disjointish` | 43 214 |
+| `merge_explained` | **43 214 — identical** |
+| `prov_richer` (all 566 "unexplained") | 566 |
+| `missing_in_prov` | 0 |
+
+`cycle_unsupported` is exactly the mis-attribution N10 posits — the cycle view
+naming a face that no incident triangle carries — and it is **zero on every case
+and every edge**. Every two-way divergence is the PR-YR27 same-plane merge doing
+its job by design. The 566 residual are provenance being *richer*, and they do
+not split the corpus (2 SUPPORTED_CORRECT carry them, 36 ERROR do not).
+
+### N10's gate is already subordinated to provenance, and finishing the "iff" is contra-indicated
+
+The §4.2.3 **edge** half shipped 2026-07-30
+(`specs/yang_s3_intersection_edge_provenance.md` inc-1/inc-2, always-on, +2
+CORRECT). At `stage3_ssi.rs:697`, `overridden = prov_enabled && prov ==
+Some(true) && !(s_on && e_on)` — a producer-confirmed edge **overrides** the
+geometric gate. Provenance already outranks geometry.
+
+Only the **refutation** direction is unimplemented: `prov == Some(false)` appears
+in production nowhere (line 767 is a diagnostic branch), so an edge the producer
+never minted, whose endpoints happen to sit within `tol` of both attributed
+surfaces, is still admitted geometrically. That is the literal residual of the
+spec's stated "iff".
+
+**Measured (`YANG_S3_PROVENANCE_PROBE`, full corpus): 30 163 such edges on 81
+cases.**
+
+| surface pair | edges | reading |
+|---|---:|---|
+| Plane × Plane | 26 641 (**88.3 %**) | the §4.5.5 overlay route — legitimately curve-bearing with no tri×tri constraint. Refusing these would break coplanar booleans |
+| Cylinder × Plane | 2 100 | the only refutable population |
+| Plane × Torus | 1 422 | ditto |
+
+The curved (refutable) subset appears on **29 cases — 20 SUPPORTED_CORRECT and 9
+ERROR**. It does not split the corpus, and all 9 ERROR cases already have other
+confirmed vehicles (C0044 M8-coplanar; F0082/R0016 #146 junction; R0015/R0026
+torus containment; R0038 tangency; R0053 near-coincident incidence;
+R0085/F0085 junction).
+
+**⇒ Enforcing the "iff" would touch 20 currently-passing cases to pursue 9
+failures whose causes are already named elsewhere. That is a change we cannot
+explain the benefit of, against a real regression risk — P9/P10 says don't make
+it.** The 2026-07-30 increment's decision to implement only the confirmation
+half was correct, and is now measured rather than assumed.
+
+### Revised bucket 7b
+
+| root cause | entries | status |
+|---|---|---|
+| ~~A — §4.2.3 provenance unimplemented~~ | ~~N10, N12, N43~~ | **CLOSED.** N12/N43 unreachable in production; N10 already provenance-first; the incidence map is provenance-equivalent; the "iff" residual is contra-indicated |
+| B — exact → f64 emission rounding | N26, N27 | open |
+| C — cleanup of our own upstream mints / chaining | N22, N40, N41 | open |
+| (unclassified) | N32 | representation the paper lacks |
+
+**Bucket 7b is 6 answer-affecting inventions in 2 root causes, not 9 in 3.**
+N12 and N43 should be re-stated in the ledger as lineage-less-contract-only (the
+same disposition N4's resolution already gives the geometric path), and **N10's
+"durable target" line — "consume true mesh-level two-surface provenance from the
+producer" — is DONE**, with the unimplemented remainder measured and declined.
+
+**Method note, and the reason this correction exists:** the original triage read
+all 45 entries in full but reasoned about Root A from *the entries' own
+descriptions of themselves*. Three of them describe a gap that the code had
+already closed. Reading a ledger carefully is not the same as reading the code,
+and neither is a measurement.
+
+---
+
 ## Recommendations
 
-1. **Root A is the single highest-value compliance target in the ledger.** One
+1. ~~**Root A is the single highest-value compliance target in the ledger.**~~
+   **RETRACTED — see the correction above; Root A is closed.** Original text: One
    unimplemented paper mechanism (§4.2.3 barycentric implicit provenance) is
    generating three stacked heuristics that decide face attribution — and face
    attribution decides which faces survive a boolean, i.e. exactly the class the
