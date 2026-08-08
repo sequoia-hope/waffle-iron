@@ -1,8 +1,8 @@
 {
-  "errored": 47,
-  "failed": 5,
+  "errored": 49,
+  "failed": 2,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 256,
+  "passed": 257,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -179,10 +179,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "volume_composition: output differs from the union of the operations' isolated solids (rel=3.002e-1 > band=4.637e-3)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0030",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -239,10 +239,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "volume_composition: output differs from the union of the operations' isolated solids (rel=2.844e-2 > band=2.485e-3)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 5: holed lateral CDT failed: CDT backend failed to triangulate\"). Body created as standalone.",
       "id": "R0040",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -539,10 +539,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "volume_composition: output differs from the union of the operations' isolated solids (rel=5.837e-1 > band=7.889e-4)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(319), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.",
       "id": "R0090",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",

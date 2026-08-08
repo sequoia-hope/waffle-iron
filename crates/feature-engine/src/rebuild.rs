@@ -1082,11 +1082,22 @@ pub(crate) fn find_consumed_feature_ids(
 /// Find the most recent solid handle from features built before the given feature.
 ///
 /// Walks backwards through the feature tree to find the latest OpResult with a Main output.
-fn find_most_recent_solid(
+/// All live solid outputs (`Main` + `Body{..}`) of the most recent
+/// solid-bearing feature before `current_feature`, each paired with that
+/// feature's id.
+///
+/// CUSTODY INVARIANT (2026-08-08, the R0090/R0030 base-drop anchor —
+/// `docs/audits/volume_oracle_flags_anchored.md`): a boolean may mark a target
+/// feature consumed ONLY if it takes custody of ALL that feature's live
+/// bodies — merging what its tool touches and re-emitting the rest as its own
+/// leftover `Body{index}` outputs. The previous Main-only collection paired
+/// with whole-feature consumption silently DELETED a leftover body (R0090's
+/// 1.74e8 base) without any boolean ever touching it.
+fn find_most_recent_solid_outputs(
     current_feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
-) -> Option<waffle_types::kernel::KernelSolidHandle> {
+) -> Vec<(Uuid, waffle_types::kernel::KernelSolidHandle)> {
     let active = tree.active_features();
     // Walk backwards through features BEFORE the current one
     let current_idx = active
@@ -1105,17 +1116,36 @@ fn find_most_recent_solid(
             continue;
         }
         if let Some(result) = feature_results.get(&feature.id) {
-            for (key, body_output) in &result.outputs {
-                if *key == OutputKey::Main {
-                    return Some(body_output.handle.clone());
-                }
+            let outs: Vec<(Uuid, waffle_types::kernel::KernelSolidHandle)> = result
+                .outputs
+                .iter()
+                .filter(|(key, _)| matches!(key, OutputKey::Main | OutputKey::Body { .. }))
+                .map(|(_, body_output)| (feature.id, body_output.handle.clone()))
+                .collect();
+            if !outs.is_empty() {
+                return outs;
             }
         }
     }
-    None
+    Vec::new()
 }
 
-/// Find the most recent feature with a Main solid output (for consumption tracking).
+/// The most recent solid's handle alone — extent probes (`resolve_depth`
+/// ThroughAll) that want one representative body, not combine custody.
+fn find_most_recent_solid(
+    current_feature: &Feature,
+    feature_results: &HashMap<Uuid, OpResult>,
+    tree: &FeatureTree,
+) -> Option<waffle_types::kernel::KernelSolidHandle> {
+    find_most_recent_solid_outputs(current_feature, feature_results, tree)
+        .into_iter()
+        .next()
+        .map(|(_, handle)| handle)
+}
+
+/// Find the most recent feature with a live solid output (for consumption
+/// tracking). The predicate must match `find_most_recent_solid_outputs` —
+/// consumption and custody walk to the SAME feature.
 fn find_most_recent_consumed(
     feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
@@ -1140,7 +1170,7 @@ fn find_most_recent_consumed(
             if result
                 .outputs
                 .iter()
-                .any(|(key, _)| *key == OutputKey::Main)
+                .any(|(key, _)| matches!(key, OutputKey::Main | OutputKey::Body { .. }))
             {
                 return vec![f.id];
             }
@@ -1619,8 +1649,11 @@ fn body_face_shares_sketch(
 /// `(feature_id, solid handle)` to boolean against. See
 /// `specs/optional_booleans_multibody_extrude.md` §4.2/§4.3.
 ///
-/// - `MostRecentLegacy` → the single most-recent solid (0 or 1), preserving the
-///   legacy auto-boolean behavior byte-for-byte.
+/// - `MostRecentLegacy` → ALL live bodies of the most recent solid-bearing
+///   feature (2026-08-08 custody invariant; byte-identical to the historic
+///   single-handle behavior whenever that feature carries one body, which the
+///   old behavior silently required — a multi-body feature lost its leftover
+///   bodies to whole-feature consumption, the R0090/R0030 base-drop).
 /// - `Explicit(list)` → each listed body, resolved via `find_solid_handle`.
 ///   A target that fails to resolve (deleted / suppressed / rolled-back body)
 ///   is handled per its `GeomRef::policy` (spec §9): `Strict` ⇒ a loud
@@ -1641,18 +1674,17 @@ fn resolve_combine_targets(
                 .to_string(),
         }),
         TargetStrategy::MostRecentLegacy => {
-            match find_most_recent_solid(feature, feature_results, tree) {
-                Some(handle) => {
-                    // Pair the handle with its feature id for consumption. The
-                    // most-recent-solid and most-recent-consumed walks are the
-                    // same order, so the first consumed id is this handle's owner.
-                    let fid = find_most_recent_consumed(feature, feature_results, tree)
-                        .into_iter()
-                        .next();
-                    Ok(fid.map(|id| vec![(id, handle)]).unwrap_or_default())
-                }
-                None => Ok(Vec::new()),
-            }
+            // ALL live bodies of the most recent solid-bearing feature — the
+            // custody invariant (see `find_most_recent_solid_outputs`): the
+            // fold merges what the tool touches and re-emits the rest as
+            // leftovers, so consuming the whole feature is sound. Byte-
+            // identical to the old single-handle behavior for every
+            // single-body feature.
+            Ok(find_most_recent_solid_outputs(
+                feature,
+                feature_results,
+                tree,
+            ))
         }
         TargetStrategy::Explicit(list) => {
             let mut out = Vec::with_capacity(list.len());

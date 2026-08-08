@@ -55,13 +55,18 @@ angles, no coplanar contact — an inference from the `EndCapPositive` selector
 name, never measured).
 
 **Priority order (P10: confirmed silent-wrongs outrank loud ERRORs):**
-1. **Base-drop class** (R0090/R0030): anchor the mechanism — the kernel union
-   of a (near-)disjoint/grazing pair returns ONE lump equal to the tool where
-   two lumps (`split_solid_into_bodies`) are required, and the engine's Add
-   fold trusts the single-lump shape and consumes the base. Next measurement:
-   direct kernel boolean on the two operand solids. Top kernel item.
-2. **Revolve-union deficit class** (R0040/R0057/R0059): anchor where the
-   ~1–3% material goes (wrong face survival at curved union seams).
+1. **Base-drop class — FIXED same day (custody invariant).** The WAFFLE_BOOL_PROBE
+   sequence exonerated the kernel (every union returned correct 2-output
+   splits); the defect was feature-engine's `MostRecentLegacy` collecting only
+   a feature's MAIN output while consumption hid the WHOLE feature — a
+   `Body{index}` leftover was deleted by bookkeeping. Fix:
+   `find_most_recent_solid_outputs` (all live bodies of the target feature
+   enter the fold; regression `disjoint_merge_custody.rs`). Outcome: R0030 →
+   CORRECT; R0090/R0040 → honest ERRORs (their now-attempted unions STOP at
+   the CDT ring-reject / non-convex CDT walls). **Baseline: 257C/2W/49E/0T.**
+2. **Revolve-union deficit class** (now R0057/R0059; R0040 resolved into a
+   loud ERROR by the custody fix): anchor where the ~1% material goes (wrong
+   face survival at curved union seams). The two remaining SUPPORTED_WRONGs.
 3. **§4.4.1-as-written epic** — `specs/yang_441_trim_cdt_construction.md`:
    replace relocate-in-place with the paper's curve-authoritative trim + CDT
    (the ~27-case ERROR family; closes N2's core).

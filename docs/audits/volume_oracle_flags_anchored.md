@@ -136,6 +136,40 @@ to one shell, which the engine then trusts, consuming the base feature.
 **Next measurement:** call the kernel boolean directly on the two operand
 solids and inspect the output lump count and volumes.
 
+## The custody fix (landed 2026-08-08, same session)
+
+`feature-engine/src/rebuild.rs`: `MostRecentLegacy` now resolves to **all live
+solid outputs** of the most recent solid-bearing feature
+(`find_most_recent_solid_outputs`), so whole-feature consumption only ever
+hides bodies the fold took custody of (merged, or re-emitted as the consumer's
+own `Body{index}` leftovers). Byte-identical whenever the target feature
+carries one body — the only case the old single-handle behavior handled
+correctly. The consumption walk's predicate is aligned (`Main | Body`), and
+`resolve_depth`'s ThroughAll probe keeps its single-representative semantics.
+Regression suite: `test-harness/tests/disjoint_merge_custody.rs` (3-op
+conservation, 2-op invariance, touch-one-keep-other).
+
+Full-corpus outcome (fast tier green first; census delta = 3, ALL
+custody-explained, nothing else moved): **257C / 2W / 49E / 0T**.
+
+- **R0030 → SUPPORTED_CORRECT.** Custody alone repairs it; composition agrees
+  (rel 4.5e-5).
+- **R0090 → ERROR (loud).** With custody fixed, the fold genuinely attempts
+  `union(base, tool)` on what is in fact a ~0.2 %-overlap GRAZING pair — and
+  that union STOPs at `ring rejected by CDT (degenerate/self-intersecting)`,
+  joining the existing cdt-ring-rejected family (the §4.4.1-as-written
+  epic's target class, `specs/yang_441_trim_cdt_construction.md`).
+- **R0040 → ERROR (loud).** Same shape: its revolve-union deficit was also
+  custody-entangled; the now-attempted union STOPs at `holed lateral CDT
+  failed: CDT backend failed to triangulate` (the non-convex CDT wall).
+- **R0057 / R0059 stay SUPPORTED_WRONG** — the two remaining true silent
+  deficits (single-body chains; composition flags them at rel 1.3e-2 /
+  1.0e-2). They are the deficit-class investigation's remaining anchors.
+
+The base-drop cases were TWO stacked defects each: the custody deletion
+(fixed) hid a genuine boolean incapability underneath (now a loud STOP in the
+familiar ERROR families). The old world silently swallowed both layers.
+
 ## What this changes
 
 - The **0-WRONG headline was an artifact of oracle coverage**, exactly as the
