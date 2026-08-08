@@ -7,10 +7,11 @@
 //! SUM over the chain; the trajectory says at which op it enters, in the
 //! kernel's own context (no operand isolation involved).
 //!
-//! Volume-monotonicity violations matter here because the categorized assay
-//! DOWNGRADES them to advisory passes (`assay/properties_v2.rs` I9–I12), so a
-//! union step that loses material is invisible in the SUPPORTED_CORRECT
-//! verdict.
+//! Volume-monotonicity violations matter here because the categorized runner
+//! never checks the meta's `volume_monotonicity` oracle (and the v2 property
+//! pipeline downgrades I9–I12 failures to advisory passes), so a union step
+//! that loses material was invisible in the SUPPORTED_CORRECT verdict until
+//! the in-line composition check (`assay/volume_oracle_doc.rs`) landed.
 //!
 //! ```text
 //! cargo run -p test-harness --release --example volume_trajectory -- R0090
@@ -32,18 +33,28 @@ fn assay_dir() -> PathBuf {
 }
 
 fn main() {
+    // Arg is a corpus CASE_ID, or a path to any `.waffle` (minimal-repro
+    // documents); path mode reads the scale from `TRAJ_SCALE` (default 1.0).
     let id = std::env::args()
         .nth(1)
-        .expect("usage: volume_trajectory <CASE_ID>");
-    let waffle: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(assay_dir().join(format!("{id}.waffle"))).expect("read .waffle"),
-    )
-    .expect("parse .waffle");
-    let meta: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(assay_dir().join(format!("{id}.meta.json"))).expect("read meta"),
-    )
-    .expect("parse meta");
-    let scale = meta["scale"].as_f64().expect("scale");
+        .expect("usage: volume_trajectory <CASE_ID | path/to.waffle>");
+    let (waffle_text, scale) = if id.ends_with(".waffle") {
+        let scale = std::env::var("TRAJ_SCALE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1.0);
+        (fs::read_to_string(&id).expect("read .waffle path"), scale)
+    } else {
+        let meta: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(assay_dir().join(format!("{id}.meta.json"))).expect("read meta"),
+        )
+        .expect("parse meta");
+        (
+            fs::read_to_string(assay_dir().join(format!("{id}.waffle"))).expect("read .waffle"),
+            meta["scale"].as_f64().expect("scale"),
+        )
+    };
+    let waffle: serde_json::Value = serde_json::from_str(&waffle_text).expect("parse .waffle");
     // Same tolerance family as the volume oracle: far finer than render tol.
     let tol = (scale * 1e-4).clamp(1e-15, 1e-3);
 

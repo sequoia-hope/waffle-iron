@@ -1,20 +1,13 @@
-//! Increment 1 of `specs/assay_independent_volume_oracle.md` — the engine plus
-//! its calibration.
+//! Increment 1 of `specs/assay_independent_volume_oracle.md` — calibration and
+//! the corpus-wide sweep of the independent volume oracle.
 //!
-//! The oracle rebuilds each operation's solid **in isolation** from the case's
-//! own `.waffle` (its verbatim solved sketch, never a profile re-derived from
-//! `profile_size`), composes them set-theoretically, and compares the result to
-//! what the kernel's boolean produced. The boolean is under test; the primitive
-//! constructors are not.
+//! The engine lives in the lib (`test_harness::assay::volume_oracle_doc`) so
+//! the categorized assay runner applies the SAME composition check in-line
+//! (2026-08-08: volume composition, not body count, is the discriminator for
+//! multi-body outputs — see `docs/audits/volume_oracle_flags_anchored.md`).
 //!
-//! **Scope of this increment: all-BOSS cases only** (123 of the 261
-//! SUPPORTED_CORRECT, of which 90 are F/R — precisely the population that
-//! carries no absolute geometric oracle today). A `cut` operation is NOT
-//! re-authored: `feature-engine`'s `rebuild.rs` picks a cut's sweep direction
-//! from *the accumulated target body's* position and extends it by `cut_eps`,
-//! so an independently reconstructed cut tool would risk a FALSE WRONG — the
-//! one failure mode this oracle must never have. Cut cases are reported
-//! NOT-COVERED, never silently passed (spec §5).
+//! Scope: all-BOSS cases only; cut cases are reported NOT-COVERED, never
+//! silently passed (spec §5).
 //!
 //! Run the sweep:
 //! ```text
@@ -26,289 +19,36 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use test_harness::assay::volume_oracle::{composed_volume, scan_volume, SolidScan};
-use test_harness::workflow::ModelBuilder;
+use test_harness::assay::volume_oracle_doc::{evaluate_composition, CompositionVerdict};
 
 const CORPUS: &str = "../../app/tests/cases/assay";
-
-/// The oracle's own tessellation tolerance — far finer than the corpus render
-/// tolerance (`clamp(scale·0.01, 1e-9, 0.1)`), which admits ~1 % chord error on
-/// curved profiles and would swamp the comparison.
-fn oracle_tol(scale: f64) -> f64 {
-    let k: f64 = std::env::var("ORACLE_TOL_SCALE")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(1.0);
-    (scale * 1e-4 * k).clamp(1e-15, 1e-3)
-}
 
 fn corpus_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(CORPUS)
 }
 
-/// One operation of a case, as read from its meta.
-struct OpMeta {
-    is_cut: bool,
-}
-
-fn read_case(id: &str) -> Option<(serde_json::Value, serde_json::Value, Vec<OpMeta>, f64)> {
+/// Read a case: (waffle document, per-op is_cut flags, scale).
+fn read_case(id: &str) -> Option<(serde_json::Value, Vec<bool>, f64)> {
     let d = corpus_dir();
     let waffle: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(d.join(format!("{id}.waffle"))).ok()?).ok()?;
     let meta: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(d.join(format!("{id}.meta.json"))).ok()?).ok()?;
-    let ops = meta
+    let cuts = meta
         .get("operations")?
         .as_array()?
         .iter()
-        .map(|o| OpMeta {
-            is_cut: o.get("is_cut").and_then(serde_json::Value::as_bool) == Some(true),
-        })
+        .map(|o| o.get("is_cut").and_then(serde_json::Value::as_bool) == Some(true))
         .collect();
     let scale = meta.get("scale").and_then(serde_json::Value::as_f64)?;
-    Some((waffle.clone(), meta, ops, scale))
+    Some((waffle, cuts, scale))
 }
 
-/// Build a single-feature document: operation `k` plus **only** the sketch it
-/// references, taken verbatim from the case's own `.waffle`.
-///
-/// Returns `None` when the op is a cut (see the module note) or the document
-/// shape is not the one the corpus emits.
-fn isolate_operation(waffle: &serde_json::Value, k: usize) -> Option<String> {
-    let feats = waffle
-        .get("tabs")?
-        .as_array()?
-        .first()?
-        .get("kind")?
-        .get("features")?
-        .get("features")?
-        .as_array()?;
-
-    // Ops in feature order (everything that is not a Sketch).
-    let op_positions: Vec<usize> = feats
-        .iter()
-        .enumerate()
-        .filter(|(_, f)| f.get("operation").and_then(|o| o.get("type")) != Some(&"Sketch".into()))
-        .map(|(i, _)| i)
-        .collect();
-    let pos = *op_positions.get(k)?;
-    let op = &feats[pos];
-    let params = op.get("operation")?.get("params")?;
-    if params.get("cut").and_then(serde_json::Value::as_bool) == Some(true) {
-        return None; // not re-authored — see the module note
-    }
-    // `merge: false` is a NewBody op: the ops do NOT compose into one solid, so
-    // "union of the operands" is the wrong expectation. Measured 2026-08-08:
-    // C0082/C0083 ("combine modes: NewBody") flagged at rel 0.46/0.54 purely
-    // because of this — a FALSE WRONG, caught before it was believed.
-    if params.get("merge").and_then(serde_json::Value::as_bool) == Some(false) {
-        return None;
-    }
-    let sketch_id = params.get("sketch_id")?.as_str()?;
-    // A sketch whose plane anchors to a previous FEATURE's face cannot be
-    // isolated: in a one-op document that face does not exist, so the operand
-    // would land somewhere else and the discrepancy would be the oracle's.
-    //
-    // MEASURED 2026-08-08: this never fires on today's corpus — all 1101
-    // sketches are `(kind: Face, anchor: Datum)`, i.e. every plane resolves
-    // against a DATUM, which exists independently of any feature. The guard is
-    // here so the oracle stays correct if the corpus ever grows a
-    // feature-anchored sketch, not because one exists.
-    //
-    // It also corrects an earlier caveat of mine: I read "op meta lacks
-    // `plane_origin`" as evidence of face-anchoring and wrongly flagged
-    // R0057/R0059's isolation as unverified. The two are unrelated.
-    if !sketch_is_datum_anchored(feats, sketch_id) {
-        return None;
-    }
-    let sketch = feats.iter().find(|f| {
-        f.get("operation")
-            .and_then(|o| o.get("sketch"))
-            .and_then(|s| s.get("id"))
-            .and_then(serde_json::Value::as_str)
-            == Some(sketch_id)
-    })?;
-
-    let mut doc = waffle.clone();
-    // The sketch is taken VERBATIM — including its `plane` record. Every corpus
-    // sketch also carries explicit `plane_origin` / `plane_normal`, which is
-    // what the rebuild uses for the sweep frame; rewriting the `plane`
-    // selector to an invented "World" variant is what made every operand fail
-    // to load on the first attempt (2026-08-08).
-    let sketch = sketch.clone();
-    let list = doc
-        .get_mut("tabs")?
-        .as_array_mut()?
-        .first_mut()?
-        .get_mut("kind")?
-        .get_mut("features")?
-        .get_mut("features")?
-        .as_array_mut()?;
-    *list = vec![sketch, op.clone()];
-    serde_json::to_string(&doc).ok()
-}
-
-/// Does this sketch's plane resolve against a DATUM (context-free, so the
-/// sketch can be isolated) rather than a previous feature's face?
-fn sketch_is_datum_anchored(feats: &[serde_json::Value], sketch_id: &str) -> bool {
-    feats
-        .iter()
-        .filter_map(|f| f.get("operation")?.get("sketch"))
-        .find(|s| s.get("id").and_then(serde_json::Value::as_str) == Some(sketch_id))
-        .and_then(|s| s.get("plane")?.get("anchor")?.get("type")?.as_str())
-        .is_some_and(|t| t == "Datum")
-}
-
-/// The `sketch_id` each operation is driven by, in op order.
-fn sketch_ids(waffle: &serde_json::Value) -> Option<Vec<String>> {
-    let feats = waffle
-        .get("tabs")?
-        .as_array()?
-        .first()?
-        .get("kind")?
-        .get("features")?
-        .get("features")?
-        .as_array()?;
-    Some(
-        feats
-            .iter()
-            .filter_map(|f| {
-                f.get("operation")?
-                    .get("params")?
-                    .get("sketch_id")?
-                    .as_str()
-            })
-            .map(str::to_string)
-            .collect(),
-    )
-}
-
-/// Build one operand solid and scan it.
-fn operand_scan(waffle: &serde_json::Value, k: usize, tol: f64) -> Option<SolidScan> {
-    let json = isolate_operation(waffle, k)?;
-    let mut b = ModelBuilder::kernel_v2();
-    if let Err(e) = b.load(&json) {
-        if std::env::var_os("ORACLE_DEBUG").is_some() {
-            eprintln!("[oracle] op {k}: load failed: {e}");
-        }
-        return None;
-    }
-    if !b.engine_errors().is_empty() {
-        if std::env::var_os("ORACLE_DEBUG").is_some() {
-            eprintln!("[oracle] op {k}: engine errors: {:?}", b.engine_errors());
-        }
-        return None;
-    }
-    let mesh = match b.tessellate_last_with_tol(tol) {
-        Ok(m) => m,
-        Err(e) => {
-            if std::env::var_os("ORACLE_DEBUG").is_some() {
-                eprintln!("[oracle] op {k}: tessellate failed: {e}");
-            }
-            return None;
-        }
+fn evaluate(id: &str, grid: usize) -> CompositionVerdict {
+    let Some((waffle, cuts, scale)) = read_case(id) else {
+        return CompositionVerdict::NotCovered("unreadable case");
     };
-    SolidScan::from_render_mesh(&mesh)
-}
-
-/// The kernel's own boolean output, scanned through the SAME code path.
-///
-/// ALL live bodies, concatenated into one soup — not `tessellate_last`. A model
-/// can legitimately end with several bodies, and the composed operand set is
-/// the union of all of them; taking only the last would understate the output
-/// and manufacture a discrepancy. (The winding sweep resolves a multi-shell
-/// soup correctly — see `disjoint_shells_along_z_give_two_intervals`.)
-fn output_scan(waffle: &serde_json::Value, tol: f64) -> Option<SolidScan> {
-    let json = serde_json::to_string(waffle).ok()?;
-    let mut b = ModelBuilder::kernel_v2();
-    b.load(&json).ok()?;
-    if !b.engine_errors().is_empty() {
-        return None;
-    }
-    let meshes = b.tessellate_live_with_tol(tol).ok()?;
-    let mut all = meshes.first()?.clone();
-    for m in meshes.iter().skip(1) {
-        let base = (all.vertices.len() / 3) as u32;
-        all.vertices.extend_from_slice(&m.vertices);
-        all.indices.extend(m.indices.iter().map(|i| i + base));
-    }
-    SolidScan::from_render_mesh(&all)
-}
-
-/// Verdict for one case.
-#[derive(Debug)]
-enum Verdict {
-    /// Discrepancy within the oracle's own measured error.
-    Agree {
-        rel: f64,
-        band: f64,
-    },
-    /// Exceeds it — a candidate silent-wrong.
-    Flag {
-        rel: f64,
-        band: f64,
-    },
-    NotCovered(&'static str),
-}
-
-fn evaluate(id: &str, grid: usize) -> Verdict {
-    let Some((waffle, _meta, ops, scale)) = read_case(id) else {
-        return Verdict::NotCovered("unreadable case");
-    };
-    if ops.iter().any(|o| o.is_cut) {
-        return Verdict::NotCovered("has a cut op (tool not re-authored)");
-    }
-    // Two ops driven by ONE sketch is the holed-profile class (C0094: "one
-    // sketch, two extrudes") — profile 0 is the outer boundary and profile 1
-    // the hole, so the result is not the union of two independently built
-    // solids. Measured 2026-08-08: this flagged at rel 0.42 as a FALSE WRONG.
-    if let Some(ids) = sketch_ids(&waffle) {
-        let mut sorted = ids.clone();
-        sorted.sort();
-        sorted.dedup();
-        if sorted.len() != ids.len() {
-            return Verdict::NotCovered("ops share a sketch (holed profile)");
-        }
-    }
-    let tol = oracle_tol(scale);
-    let mut scans = Vec::new();
-    for k in 0..ops.len() {
-        match operand_scan(&waffle, k, tol) {
-            Some(s) => scans.push(s),
-            None => return Verdict::NotCovered("operand build failed"),
-        }
-    }
-    let Some(out) = output_scan(&waffle, tol) else {
-        return Verdict::NotCovered("output build failed");
-    };
-    let refs: Vec<&SolidScan> = scans.iter().collect();
-    let cuts = vec![false; refs.len()];
-    let expected = composed_volume(&refs, &cuts, grid);
-    let actual = scan_volume(&out, grid);
-
-    let denom = expected.volume.abs().max(actual.volume.abs()).max(1e-300);
-    let rel = (expected.volume - actual.volume).abs() / denom;
-    if std::env::var_os("ORACLE_DEBUG").is_some() {
-        for (k, s) in scans.iter().enumerate() {
-            let v = scan_volume(s, grid);
-            eprintln!(
-                "[oracle] {id} operand {k}: vol={:.6e} resid={:.2e}",
-                v.volume, v.residual
-            );
-        }
-        eprintln!(
-            "[oracle] {id} composed={:.6e} (resid {:.2e})  output={:.6e} (resid {:.2e})",
-            expected.volume, expected.residual, actual.volume, actual.residual
-        );
-    }
-    // The band is MEASURED, never chosen: both sides' own grid residuals,
-    // relative, plus a small floor for f32 render-vertex quantisation.
-    let band = ((expected.residual + actual.residual) / denom) * 4.0 + 1e-5;
-    if rel <= band {
-        Verdict::Agree { rel, band }
-    } else {
-        Verdict::Flag { rel, band }
-    }
+    evaluate_composition(id, &waffle, &cuts, scale, grid)
 }
 
 /// CALIBRATION (spec §3.4). The 14 all-axis-aligned-rectangle F cases have an
@@ -328,15 +68,15 @@ fn calibration_against_exact_box_csg() {
     let mut covered = 0;
     for id in CASES {
         match evaluate(id, 96) {
-            Verdict::Agree { rel, band } => {
+            CompositionVerdict::Agree { rel, band } => {
                 covered += 1;
                 println!("{id}: AGREE rel={rel:.3e} band={band:.3e}");
             }
-            Verdict::Flag { rel, band } => {
+            CompositionVerdict::Flag { rel, band } => {
                 covered += 1;
                 failures.push(format!("{id}: rel={rel:.3e} > band={band:.3e}"));
             }
-            Verdict::NotCovered(why) => println!("{id}: NOT-COVERED ({why})"),
+            CompositionVerdict::NotCovered(why) => println!("{id}: NOT-COVERED ({why})"),
         }
     }
     println!(
@@ -353,7 +93,8 @@ fn calibration_against_exact_box_csg() {
 }
 
 /// INCREMENT 2 — sweep every all-boss SUPPORTED_CORRECT case and report the
-/// discrepancy distribution. Read-only: the assay's own verdicts do not change.
+/// discrepancy distribution. Read-only: the assay's own verdicts do not change
+/// here (the categorized runner applies the same check itself).
 #[test]
 #[ignore = "full sweep; run with --ignored --nocapture"]
 fn sweep_all_boss_correct_cases() {
@@ -376,7 +117,7 @@ fn sweep_all_boss_correct_cases() {
 
     let (mut agree, mut flagged, mut skipped) = (0usize, Vec::new(), 0usize);
     for (id, cat) in &status {
-        if cat != "SUPPORTED_CORRECT" {
+        if cat != "SUPPORTED_CORRECT" && cat != "SUPPORTED_WRONG" {
             continue;
         }
         if let Some(want) = &only {
@@ -385,15 +126,15 @@ fn sweep_all_boss_correct_cases() {
             }
         }
         match evaluate(id, grid) {
-            Verdict::Agree { rel, band } => {
+            CompositionVerdict::Agree { rel, band } => {
                 agree += 1;
                 println!("{id}: AGREE rel={rel:.3e} band={band:.3e}");
             }
-            Verdict::Flag { rel, band } => {
+            CompositionVerdict::Flag { rel, band } => {
                 println!("{id}: **FLAG** rel={rel:.3e} band={band:.3e}");
                 flagged.push(format!("{id} (rel={rel:.3e}, band={band:.3e})"));
             }
-            Verdict::NotCovered(why) => {
+            CompositionVerdict::NotCovered(why) => {
                 skipped += 1;
                 println!("{id}: not-covered ({why})");
             }

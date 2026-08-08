@@ -83,6 +83,16 @@ pub fn execute_boolean(
         Err(e) => return Err(e.into()),
     };
 
+    // Dev probe (2026-08-08 base-drop anchor): one line per boolean call so a
+    // fold's call sequence is observable — which call collapsed two lumps
+    // into one is exactly the question the R0090/R0030 class hinges on.
+    if std::env::var_os("WAFFLE_BOOL_PROBE").is_some() {
+        eprintln!(
+            "[bool-probe] {kind:?} a={body_a:?} b={body_b:?} -> {} output handle(s): {handles:?}",
+            handles.len()
+        );
+    }
+
     // Build outputs: first handle is Main, rest are Body { index }
     let mut outputs = Vec::with_capacity(handles.len());
     let mut all_after_faces = Vec::new();

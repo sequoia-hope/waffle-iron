@@ -60,6 +60,7 @@ use std::time::Duration;
 
 use test_harness::assay::gen::AssayMeta;
 use test_harness::assay::randomized_runner::{discover_cases, DiscoveredCase};
+use test_harness::assay::volume_oracle_doc;
 use test_harness::helpers::mesh_bounding_box;
 use test_harness::oracle;
 use test_harness::ModelBuilder;
@@ -421,24 +422,31 @@ fn replay_case(case: &DiscoveredCase) -> CaseOutcome {
             ));
         }
     } else if meta.operations.len() > 1 {
-        // Count LIVE bodies, not registry entries: R0090/R0030 (2026-08-08)
-        // hold TWO live bodies while `distinct_solid_count()` reports one —
-        // the auto-union bookkeeping records a merge the geometry never got,
-        // and the registry count masked exactly the silent-wrong class the
-        // independent volume oracle flagged (base body discarded by a union).
-        let registry_count = builder.distinct_solid_count();
-        let live_count = builder
-            .tessellate_live_with_tol(tess_tol)
-            .map(|m| m.len())
-            .unwrap_or(registry_count);
-        let solid_count = registry_count.max(live_count);
-        if solid_count > 1 {
-            failures.push(format!(
-                "merge incomplete: {} operations produced {} separate solids \
-                 (registry {registry_count}, live {live_count})",
-                meta.operations.len(),
-                solid_count
-            ));
+        // Volume composition (the independent oracle, in-line): the output
+        // must equal the SET UNION of the operations' isolated solids. This
+        // REPLACES the body-count "merge incomplete" check (2026-08-08): a
+        // free-space disjoint boss is a generator-sanctioned case shape
+        // (`assay/gen.rs` repairs only NO-OP shapes — swallowed boss,
+        // free-space cut), and the engine's two-body disjoint-merge output is
+        // spec'd behavior (`disjoint_merge_bodies.rs`, the F0015-class fix) —
+        // so body count cannot distinguish that legitimate shape from a union
+        // that LOST material (R0090/R0030 base-drop) or kept an unfused
+        // overlap. Volume composition distinguishes all three, and also
+        // catches the single-body deficit class (R0040/R0057/R0059) no count
+        // could see. Cut chains are NOT-COVERED (a cut tool is not
+        // re-authorable in isolation) — a recorded gap, never a silent pass.
+        if let Ok(doc) = serde_json::from_str::<serde_json::Value>(&waffle_json) {
+            let cuts: Vec<bool> = meta.operations.iter().map(|o| o.is_cut).collect();
+            match volume_oracle_doc::evaluate_composition(&case.id, &doc, &cuts, meta.scale, 64) {
+                volume_oracle_doc::CompositionVerdict::Flag { rel, band } => {
+                    failures.push(format!(
+                        "volume_composition: output differs from the union of the \
+                         operations' isolated solids (rel={rel:.3e} > band={band:.3e})"
+                    ));
+                }
+                volume_oracle_doc::CompositionVerdict::Agree { .. }
+                | volume_oracle_doc::CompositionVerdict::NotCovered(_) => {}
+            }
         }
     }
 

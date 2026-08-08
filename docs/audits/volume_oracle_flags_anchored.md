@@ -54,11 +54,18 @@ Final output = op1 ∪ op2 exactly (1.23752e8 vs 1.23747e8 measured).
 Same signature at scale 1.78e-4: base 3.667e-13 discarded at op2's union;
 output = op1 ∪ op2 (8.5481e-13 vs 8.5488e-13).
 
-Shared shape of both cases: three stacked towers (every sketch plane is an
-`EndCapPositive` datum — face-on-face COPLANAR contact), op1's tool became a
-standalone live body despite `merge:true`, and op2's union then discarded the
-base. The composition is the M8 coplanar-contact class — the same family
-F0064/F0072 STOP loudly on, here returning tool-only SILENTLY.
+**RETRACTED SAME DAY — the "stacked coplanar towers" reading was an
+unmeasured inference from the `EndCapPositive` selector NAME.** Measuring the
+stored planes (`plane_origin`/`plane_normal` of every sketch): the prisms are
+at ARBITRARY mutual angles (n·n = 0.15–0.68) with origins hundreds of units
+off each other's planes — no coplanar contact anywhere in R0090/R0030 (or
+R0001/F0011). The M8-family framing is dead. What both base-drop cases DO
+share, measured: the operands are (near-)disjoint (composed union ≈ sum of
+operand volumes to ~2e-4), op1's tool legitimately became a standalone body,
+and op2's union then returned ONE output equal to the tool — where a disjoint
+pair must return TWO lumps (the spec'd `split_solid_into_bodies` path,
+`disjoint_merge_bodies.rs`). The sharpened mechanism suspect: the
+disjoint/graze union path collapsing a 2-shell result to one shell.
 
 ### R0040 / R0057 / R0059 — KERNEL WRONG, deficit class (−2.8% / −1.3% / −1.0%)
 
@@ -79,76 +86,71 @@ union seams. All three flags are invariant to 100× finer oracle tessellation
    advisory PASSES** (`assay/properties_v2.rs:261-274`, "known-class issues
    that shouldn't block the test suite") — a P9/P10 violation in the harness
    itself: it is a standing decision to accommodate wrong boolean volume.
-3. **`distinct_solid_count()` reports the REGISTRY's body count, not the live
-   geometry's.** R0090/R0030 hold 2 live bodies from op1 onward while the
-   registry says 1 — the auto-union bookkeeping records a merge the geometry
-   never got, so the "merge incomplete" check is blind exactly when the merge
-   machinery is the thing that failed. **Fixed 2026-08-08** (this session):
-   the check now takes `max(registry, live)` and reports both.
+3. **The "merge incomplete" check asked a body question with a FEATURE
+   counter.** `distinct_solid_count()` counts solid-bearing features (its
+   limitation is documented in `combine_add_disjoint_targets.rs`: it cannot
+   see a feature's `Body{index}` leftover outputs), so a union that discarded
+   its target while a leftover body stayed live read as "one solid".
 
-Mask 3's registry/live disagreement is not just a mask — it is a defect
-signature of its own (the engine believes a merge happened; the geometry
-disagrees) and is likely one anchor of the base-drop mechanism.
+## The 29-case flip, and the SAME-DAY correction of my first fix
 
-### Mask-3 code anchor + base-drop mechanism hypothesis (read-only recon)
+My first fix took `max(registry, live)` body count in the merge-incomplete
+check. The full-corpus rerun flipped **29** cases CORRECT→WRONG — and
+follow-up measurement showed the check itself was wrong for 27 of them:
 
-`feature-engine/src/rebuild.rs` CombineMode::Add (≈:1236-1345): the fold reads
-the kernel union's output count as a disjointness proof — `1 output ⇒ merged
+- **The generator never promises connectivity.** `assay/gen.rs:760-782`
+  repairs only NO-OP shapes (a swallowed boss, a free-space CUT); a
+  **free-space BOSS is a sanctioned case shape** — it adds a disjoint lump
+  and satisfies the meta's `volume_monotonicity: increase`.
+- **The engine's two-body disjoint-merge output is spec'd, tested behavior**
+  (`disjoint_merge_bodies.rs` — the "F0015-class bug" fix; F0015 was one of
+  the 29). `merge:true` into a disjoint body legitimately yields two bodies.
+- **The planes are at arbitrary angles** (measured: n·n = 0.15–0.68, origins
+  far off each other's planes) — the "stacked coplanar towers" reading of the
+  flip set was an unmeasured inference from the `EndCapPositive` selector
+  name, and is retracted.
+- The oracle's own sweep already certified the all-boss members of the flip
+  set volumetrically (agree ⇒ composed union ≈ output): their operands are
+  (near-)disjoint, so two bodies is the CORRECT geometry.
+
+**The corrected check (shipped): volume composition, not body count.** The
+categorized runner now runs the independent oracle in-line for every multi-op
+case (`assay/volume_oracle_doc.rs`, extracted from the sweep test): the
+output must equal the set union of the operations' isolated solids. This
+distinguishes all three shapes body count conflated — legitimate disjoint
+lumps (agree), material loss (R0090/R0030 base-drop), unfused overlap — and
+also catches the single-body deficit class (R0040/R0057/R0059) no count could
+see. Cut chains are NOT-COVERED (a cut tool is not re-authorable in
+isolation) — a recorded coverage gap, never a silent pass.
+
+## Base-drop mechanism (sharpened, one measurement short)
+
+`feature-engine/src/rebuild.rs` CombineMode::Add (≈:1236-1345) reads the
+kernel union's output count as a disjointness proof — `1 output ⇒ merged
 (target lump CONSUMED, replaced by the result)`, `>1 ⇒ disjoint (keep the
-original lump as a leftover)`. Leftovers are emitted under `Body{index}`
-output keys; `workflow.rs distinct_solid_count()` counts only features with an
-`OutputKey::Main` output — so leftover standalone bodies are INVISIBLE to the
-registry count while fully live for tessellation. That is mask 3, confirmed in
-code.
-
-The base-drop then needs exactly one kernel-side wrong answer: at op2,
-`boolean_union(base_tower, stacked_tool)` returning a SINGLE output that is
-the TOOL ALONE. The engine trusts the single-lump shape, consumes the base
-feature, and its geometry is gone — while op1's gear survives as a
-`Body{index}` leftover. This reproduces every measured number (live=2,
-registry=1, output = op1 ∪ op2). **One measurement short of confirmed:** call
-the kernel boolean directly on the two operand solids and inspect the output
-lump — the first task of the mechanism session.
-
-## The full-corpus measurement: 29 cases unmask, not 2
-
-Re-running the categorized assay with the live-body merge check (347s,
-2026-08-08): **232C / 29W / 47E / 0T** (was 261C/0W/47E/0T). All 29 new
-SUPPORTED_WRONGs are multi-op cases holding ≥2 live bodies behind a registry
-count of 1 — `merge incomplete: N operations produced 2 separate solids
-(registry 1, live 2)`:
-
-> C0042 C0051 C0055 C0057 C0110 · F0011 F0012 F0013 F0014 F0015 · R0001 R0006
-> R0010 R0030 R0052 R0055 R0061 R0062 R0066 R0068 R0069 R0073 R0076 R0078
-> R0082 R0083 R0088 R0090 R0097
-
-Two sub-classes, split by volume conservation:
-
-- **base-drop** (R0090, R0030 — anchored above): the union returned the tool
-  alone; target material LOST.
-- **silently-unfused** (spot-checked R0001, F0011): both bodies live with
-  volumes conserved — the `merge:true` union quietly never happened; the
-  registry recorded a merge anyway. A union of solids sharing a 2D contact
-  face is ONE solid; not fusing is wrong (or a loud coplanar STOP, as
-  F0064/F0072 correctly do).
-
-The 3 deficit-class wrongs (R0040/R0057/R0059) still grade CORRECT — only the
-independent oracle sees them — so the honest count of known-wrong passing
-cases is 232C **minus 3 known-wrong** pending the oracle's integration into
-the assay.
+original lump as a leftover under a Body{index} output)`. R0090/R0030's
+operands are (near-)disjoint, so the CORRECT kernel answer at op2 is TWO
+lumps (`split_solid_into_bodies`); the measured output is ONE lump equal to
+the tool. Suspect: the disjoint/graze union path collapsing a 2-shell result
+to one shell, which the engine then trusts, consuming the base feature.
+**Next measurement:** call the kernel boolean directly on the two operand
+solids and inspect the output lump count and volumes.
 
 ## What this changes
 
 - The **0-WRONG headline was an artifact of oracle coverage**, exactly as the
   2026-08-06 review feared: the first absolute geometric oracle over the F/R
-  passing population found 5 wrongs in its first sweep (of 121 covered), and
-  the harness fix those 5 motivated unmasked 24 more.
+  passing population found 5 wrongs in its first sweep (of 121 covered) — and
+  all 5 are now LOUD in the canonical assay via the in-line composition
+  check. Honest baseline: **256C / 5W / 47E / 0T** (5W = R0090 R0030 R0040
+  R0057 R0059).
 - **Priority inversion:** confirmed silent-wrongs outrank loud ERRORs (P10).
-  The base-drop class (R0090/R0030) is now the top kernel item, ahead of the
+  The base-drop class (R0090/R0030) is the top kernel item, ahead of the
   ERROR-tail epic; the revolve-deficit class follows it.
-- The masks get their own increments (monotonicity into the categorized
-  runner; advisory downgrade retired after a census; registry/live
-  disagreement anchored in feature-engine).
+- Remaining mask retirements as separate increments: meta
+  `volume_monotonicity` in the categorized runner (mask 1), the properties_v2
+  advisory downgrade (mask 2, fuzz path), and composition coverage for cut
+  chains (oracle increment 3).
 
 Next steps and ordering: `docs/yang_functional_roadmap.md` §0 (2026-08-08
 addendum) and `specs/yang_441_trim_cdt_construction.md`.

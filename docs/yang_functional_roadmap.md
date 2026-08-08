@@ -30,25 +30,36 @@ chasing a score, is the work.
 The independent volume oracle's five set-level flags were anchored
 (`docs/audits/volume_oracle_flags_anchored.md`) and **every one is a kernel
 defect**: R0090 (−58%) and R0030 (−30%) lose the TARGET BODY at a `merge:true`
-union (output = tool alone; stacked EndCapPositive towers — the M8
-coplanar-contact family, silently wrong where F0064/F0072 STOP loudly);
-R0040/R0057/R0059 (−2.8/−1.3/−1.0%) lose material at REVOLVE-union steps
-(operands certified by divergence×winding×Pappus; deficits tessellation-
-invariant). Three masks let them grade CORRECT: the categorized runner never
-checks meta `volume_monotonicity`; `properties_v2` downgrades I9–I12 failures
-to advisory passes; `distinct_solid_count()` trusts the registry, which
-records a merge the geometry never got (2 live bodies, count=1). The
-merge-incomplete check now uses `max(registry, live)` (shipped this session)
-— and the full-corpus rerun unmasked **29** such cases, not 2: the honest
-baseline is now **232C / 29W / 47E / 0T** (audit doc has the case list).
-27 of the 29 are the SILENTLY-UNFUSED sub-class (volumes conserved, bodies
-never merged); R0090/R0030 are the base-drop sub-class (material lost). The
-3 revolve-deficit wrongs still grade CORRECT — only the oracle sees them.
+union with a (near-)disjoint tool — the correct answer is two lumps
+(`split_solid_into_bodies`), the measured output is ONE lump equal to the
+tool; R0040/R0057/R0059 (−2.8/−1.3/−1.0%) lose material at REVOLVE-union
+steps (operands certified by divergence×winding×Pappus; deficits
+tessellation-invariant). Masks that let them grade CORRECT: the categorized
+runner never checks meta `volume_monotonicity`; `properties_v2` downgrades
+I9–I12 failures to advisory passes; the merge-incomplete check asked a body
+question with a documented FEATURE counter (`distinct_solid_count` cannot see
+`Body{index}` leftovers).
+
+**The corrected check is volume COMPOSITION, not body count** (an interim
+live-body-count fix flipped 29 cases and was itself corrected same-day: a
+free-space disjoint boss is a generator-sanctioned shape — `assay/gen.rs`
+repairs only no-op shapes — and two-body disjoint merges are spec'd
+`disjoint_merge_bodies.rs` behavior, so 27 of the 29 were the check's false
+positives, certified volumetrically by the oracle's own agree verdicts). The
+categorized runner now runs the oracle in-line for every multi-op case
+(`assay/volume_oracle_doc.rs`): output ≟ union of the ops' isolated solids.
+**Honest baseline: 256C / 5W / 47E / 0T** — the 5W are exactly the five
+anchored kernel wrongs, now loud. Also retracted: the "stacked coplanar
+towers / M8-family" reading of these cases (measured: arbitrary plane
+angles, no coplanar contact — an inference from the `EndCapPositive` selector
+name, never measured).
 
 **Priority order (P10: confirmed silent-wrongs outrank loud ERRORs):**
-1. **Base-drop class** (R0090/R0030): anchor the mechanism — feature-engine
-   auto-union bookkeeping (consumed-features vs live bodies) × the boolean's
-   tool-only return on coplanar-contact towers — then fix. Top kernel item.
+1. **Base-drop class** (R0090/R0030): anchor the mechanism — the kernel union
+   of a (near-)disjoint/grazing pair returns ONE lump equal to the tool where
+   two lumps (`split_solid_into_bodies`) are required, and the engine's Add
+   fold trusts the single-lump shape and consumes the base. Next measurement:
+   direct kernel boolean on the two operand solids. Top kernel item.
 2. **Revolve-union deficit class** (R0040/R0057/R0059): anchor where the
    ~1–3% material goes (wrong face survival at curved union seams).
 3. **§4.4.1-as-written epic** — `specs/yang_441_trim_cdt_construction.md`:
