@@ -106,6 +106,10 @@ mod stage1_tessellate;
 mod stage3_ssi;
 pub(crate) use stage3_ssi::*;
 mod stage4_correct;
+
+/// Yang §4.2.3 provenance-derived surface incidence (read-only measurement of
+/// the deviation-N10 residual; see the module docs).
+mod stage4_incidence;
 // #188 inc-0: read-only YANG_S5_OSCULATION_PROBE (spec
 // `specs/yang_188_f0082_j3_envelope_selection.md` §5). Probe-only module;
 // nothing exported.

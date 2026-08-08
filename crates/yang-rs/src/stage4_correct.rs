@@ -148,6 +148,60 @@ pub(crate) fn compute_phase_a(
             }
         }
     }
+    // §4.2.3 incidence probe (`YANG_S423_INCIDENCE`, READ-ONLY). Diff the
+    // cycle-derived incidence built just above against the paper's own route —
+    // "querying the triangles that intersect at that point", i.e. the
+    // per-triangle provenance map N4 established. Nothing here feeds Stage 3/4;
+    // gate-OFF is byte-identical by construction. See `stage4_incidence`.
+    if std::env::var_os("YANG_S423_INCIDENCE").is_some() {
+        let prov = crate::stage4_incidence::provenance_edge_incidence(mesh, attribution);
+        let cyc = crate::stage4_incidence::cycle_edge_incidence(
+            infos
+                .iter()
+                .map(|i| (i.input, i.face_idx as u32, i.cycles.as_slice())),
+        );
+        // Edges on an IMPURE (merged) patch's cycle: divergence there is
+        // PR-YR27's merge doing its job, not a provenance disagreement.
+        let mut explained: std::collections::BTreeSet<(u32, u32)> =
+            std::collections::BTreeSet::new();
+        let mut n_impure = 0usize;
+        for (patch, info) in patches.iter().zip(infos.iter()) {
+            if crate::stage4_incidence::patch_is_impure(
+                &patch.tri_indices,
+                attribution,
+                patch.attribution,
+            ) {
+                n_impure += 1;
+                for cycle in &info.cycles {
+                    for &(s, e) in cycle {
+                        explained.insert(if s < e { (s, e) } else { (e, s) });
+                    }
+                }
+            }
+        }
+        let d = crate::stage4_incidence::diff_incidence(&cyc, &prov, &explained);
+        eprintln!(
+            "[s423-incidence] boundary_edges={} agree={} prov_richer={} \
+             cycle_unsupported={} disjointish={} missing_in_prov={} \
+             patches={} impure_patches={} merge_explained={} UNEXPLAINED={}",
+            d.boundary_edges,
+            d.agree,
+            d.prov_richer,
+            d.cycle_unsupported,
+            d.disjointish,
+            d.missing_in_prov,
+            infos.len(),
+            n_impure,
+            d.divergent_merge_explained,
+            d.divergent_unexplained,
+        );
+        for (k, v, conly, ponly) in &d.unexplained_samples {
+            eprintln!(
+                "[s423-incidence]   UNEXPLAINED edge {k:?} {v:?} cycle-only {conly:?} prov-only {ponly:?}"
+            );
+        }
+    }
+
     let curves = build_intersection_curves(&incidence, mesh, a, b, edge_provenance)?;
     Ok((infos, incidence, curves))
 }
