@@ -10,8 +10,9 @@
 # Dep upgrades are deliberate `cargo update -p …` commits gated by the full
 # test pyramid, like any other change.
 
-# Claude Code session state
-.claude/
+# Claude Code session state (but track the shared project settings)
+.claude/*
+!.claude/settings.json
 
 # Docker
 .env
