@@ -291,13 +291,31 @@ below — most of the R-series is curved, so the epic's reach depends on it.
      unification degrades the batch (32 applied / 11 declined vs
      baseline 39/9), so the merge stays sub-gated
      (`YANG_441_CORNER_MERGE`); the main gate remains the I1b+I1f
-     baseline (39/9, honest ring-reject ERROR). **Inc-3 (next): replace
-     the substitution with the watertight fan-healing collapse
-     (`collapse_vertex`, the P3b trim's machinery) so a corner cluster
-     unifies across shared triangles — or route the accepted pairs
-     through the existing moved×minted weld layer.** Expected reach
-     once the cluster unifies: TF-8 and the femto pair (near-coincident
-     corner authorities at 4.44e-16).
+     baseline (39/9, honest ring-reject ERROR). **Inc-3 (same day, LANDED sub-gated; measured NEGATIVE — pairwise
+     welding under-identifies the cluster).** The merge moved out of
+     the batch into a weld PRE-PHASE per pass: validated pairs collapse
+     via the watertight `collapse_vertex` (degenerate triangles
+     dropped, membrane cancellation), then Phase A recomputes and the
+     pass restarts. Measured on F0067: 5 pairs weld cleanly (zero
+     ambiguity, 6 degenerate tris healed — e.g. v1935→v2943 and
+     v1938→v2985 at the exact 1.344e-3 gap) — but the TF-8 patches
+     still decline IDENTICALLY (the welded pairs were OTHER junction
+     copies at the cluster, not the wall junctions — the wall q's were
+     the split-edge ENDPOINTS in those hits, not the q's), the batch
+     stays degraded (32/11 vs 39/9), and the verdict WORSENS to a
+     Stage-6 non-2-manifold: at a quadruple-point corner the "corner"
+     is a CLUSTER of ≥3 members (per-seam junction copies + outline
+     corners), and welding some pairs leaves a half-identified pinch.
+     **Inc-4 (next): CLUSTER-WIDE unification — collect the corner's
+     full membership (all junction endpoints and containment-hit
+     endpoints within the mutual band-neighborhood at a corner) and
+     weld ALL into ONE survivor (the exact junction), with a loud
+     refusal if the cluster's members disagree beyond the band.
+     Attribution question to settle first: whether the non-2-manifold
+     was minted by welds on the PREVIOUSLY-CLEAN early booleans (the
+     weld fires there too) — bisect with the apply-caps before
+     building inc-4.** Merge remains sub-gated; the main gate is the
+     I1b+I1f baseline.
 
      (Superseded analysis, kept for the record:)
      The classification-time probe (`[i1d-classify]`, pre-relocation

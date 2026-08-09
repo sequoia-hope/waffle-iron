@@ -696,6 +696,146 @@ fn run_construct_passes(
             });
         }
 
+        // ---- I1g inc-3 (sub-gated `YANG_441_CORNER_MERGE`): Fig-11(a)–(c)
+        // corner unification as a WELD pre-phase. The inc-2 containment
+        // selector (validated exact on F0067: every hit at the 1.344e-3
+        // corner gap, zero ambiguity) finds (p → q) pairs — q a collapsed
+        // seam's junction lying ON a curve-classified boundary edge whose
+        // near endpoint p is within the chord band — and the watertight
+        // fan-healing `collapse_vertex` unifies them (degenerate triangles
+        // dropped, membrane cancellation — the shared-triangle clusters the
+        // inc-2 substitution had to refuse). Then Phase A recomputes and the
+        // pass restarts on the unified mesh; the batch never sees a split
+        // corner.
+        if std::env::var_os("YANG_441_CORNER_MERGE").is_some() {
+            if let Some(band) = crate::stage4_correct::stage4_chord_band(a, b) {
+                let chain_verts: BTreeSet<u32> = eligible
+                    .iter()
+                    .flat_map(|e| e.chain.iter().copied())
+                    .collect();
+                let pos = |i: u32| -> [f64; 3] {
+                    let w = mesh.verts[i as usize];
+                    [w.x(), w.y(), w.z()]
+                };
+                let seg_perp = |q: u32, s: u32, t: u32| -> Option<(f64, f64)> {
+                    let (a, b, x) = (pos(s), pos(t), pos(q));
+                    let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                    let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                    if len2 == 0.0 || !len2.is_finite() {
+                        return None;
+                    }
+                    let r = [x[0] - a[0], x[1] - a[1], x[2] - a[2]];
+                    let tau = (r[0] * d[0] + r[1] * d[1] + r[2] * d[2]) / len2;
+                    let perp = [r[0] - tau * d[0], r[1] - tau * d[1], r[2] - tau * d[2]];
+                    Some((
+                        tau,
+                        (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt(),
+                    ))
+                };
+                let dist = |x: u32, y: u32| -> f64 {
+                    let (a, b) = (pos(x), pos(y));
+                    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+                };
+                // p -> (q, dist); a p claimed for two DIFFERENT q's is
+                // ambiguous and skipped loudly.
+                let mut pairs: std::collections::BTreeMap<u32, (u32, f64)> =
+                    std::collections::BTreeMap::new();
+                let mut ambiguous: BTreeSet<u32> = BTreeSet::new();
+                for e in &eligible {
+                    let seam_edges: BTreeSet<(u32, u32)> = e
+                        .chain
+                        .windows(2)
+                        .map(|w| (w[0].min(w[1]), w[0].max(w[1])))
+                        .collect();
+                    for q in [e.chain[0], *e.chain.last().expect("chain len >= 3")] {
+                        for pat in patches.iter() {
+                            for cyc in &pat.cycles {
+                                let n = cyc.len();
+                                for i in 0..n {
+                                    let (s, t) = (cyc[i], cyc[(i + 1) % n]);
+                                    let key = (s.min(t), s.max(t));
+                                    if s == q
+                                        || t == q
+                                        || seam_edges.contains(&key)
+                                        || intersection_curves.get(&key).is_none()
+                                    {
+                                        continue;
+                                    }
+                                    let Some((tau, perp)) = seg_perp(q, s, t) else {
+                                        continue;
+                                    };
+                                    if !(0.0..=1.0).contains(&tau) || perp > band {
+                                        continue;
+                                    }
+                                    let p = if tau < 0.5 { s } else { t };
+                                    if p == q || chain_verts.contains(&p) {
+                                        continue;
+                                    }
+                                    let d = dist(p, q);
+                                    if d > band {
+                                        continue; // the paper's split arm — censused in inc-2
+                                    }
+                                    match pairs.get(&p) {
+                                        Some(&(q0, _)) if q0 != q => {
+                                            ambiguous.insert(p);
+                                        }
+                                        Some(_) => {}
+                                        None => {
+                                            pairs.insert(p, (q, d));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                for p in &ambiguous {
+                    eprintln!(
+                        "[s4-construct] pass={pass}: CORNER-WELD AMBIGUOUS v{p} claimed by \
+                         two junctions; skipped"
+                    );
+                    pairs.remove(p);
+                }
+                if !pairs.is_empty() {
+                    let mut dropped_tris = 0usize;
+                    for (&p, &(q, d)) in &pairs {
+                        eprintln!(
+                            "[s4-construct] pass={pass}: CORNER-WELD v{p} -> v{q} \
+                             dist={d:.3e} (band {band:.3e})"
+                        );
+                        dropped_tris += crate::stage4_correct::collapse_vertex(
+                            mesh,
+                            &mut attribution.attributions,
+                            p,
+                            q,
+                        );
+                    }
+                    eprintln!(
+                        "[s4-construct] pass={pass}: CORNER-WELD applied {} pair(s), \
+                         {dropped_tris} degenerate tri(s) dropped; recomputing",
+                        pairs.len()
+                    );
+                    let remap = compact_unreferenced_verts(mesh, relocations);
+                    let (i2, inc2, cv2) = compute_phase_a(
+                        mesh,
+                        attribution,
+                        a,
+                        b,
+                        &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+                    )?;
+                    probe_remap_pre_pos("construct", remap.as_ref());
+                    probe_record_incidence(&inc2, &cv2);
+                    *infos = i2;
+                    *intersection_curves = cv2;
+                    continue; // next pass sees the unified corners
+                }
+            } else {
+                eprintln!(
+                    "[s4-construct] pass={pass}: CORNER-WELD SKIPPED (no Stage-1 chord band)"
+                );
+            }
+        }
+
         // ---- Batch assembly: every removal is loud and re-assembles. --------
         // Bounded: each iteration either breaks with a batch or removes at
         // least one seam from `active`.
@@ -742,197 +882,11 @@ fn run_construct_passes(
                     }
                 }
             }
-            // I1g — Fig-11(a)–(c) CORNER IDENTIFICATION at collapsed-seam
-            // junctions: the exact junction q and the chord-anchored Stage-1
-            // corner p are two authorities' versions of ONE B-Rep corner
-            // (F0067: q at r=0.2088 on the rim circle vs p at r=0.20751 on
-            // the cap's chord, 1.34e-3 apart — the cap owner's sagitta). The
-            // paper merges p into q ("If an endpoint p of the split edge is
-            // too close to q, we merge p with q", Fig-11(b)→(c)). Selection
-            // is DERIVED, not tuned: p must be a TOPOLOGICAL CORNER (≥3
-            // holder patches — the I1f holder census separates corners from
-            // discretization vertices) within the Stage-1 chord band of q,
-            // not on the seam's own chain. The merge is a shared-INDEX
-            // substitution: batched cycles rewrite p→q here; surviving
-            // non-batch triangles (e.g. the curved cap, out of the planar
-            // rebuild's scope) are re-pointed at write-back.
-            // Sub-gated (`YANG_441_CORNER_MERGE`): increment 1 measured
-            // OVER-FIRING on F0067 (652 merges with the global band; 208
-            // with the local split-edge-length band + shared-triangle
-            // guard; expected ≈16) and degraded the batch (34 applied /
-            // 14 declined vs 39/9 without the merge). The missing
-            // predicate is Fig-11(a)'s SPLIT-EDGE CONTAINMENT: q must lie
-            // ON a boundary edge adjacent to p (within the edge owner's
-            // band), not merely near p. Until that lands, the merge stays
-            // off the main gate.
-            let mut subs: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
-            if std::env::var_os("YANG_441_CORNER_MERGE").is_none() {
-                // inert — see the sub-gate note above
-            } else if let Some(band) = crate::stage4_correct::stage4_chord_band(a, b) {
-                let chain_verts: BTreeSet<u32> = active
-                    .iter()
-                    .flat_map(|&ei| eligible[ei].chain.iter().copied())
-                    .collect();
-                let holder_count = |v: u32| -> usize {
-                    patches
-                        .iter()
-                        .enumerate()
-                        .filter(|&(pj, p)| {
-                            let cycles = mod_cycles.get(&pj).unwrap_or(&p.cycles);
-                            cycles.iter().any(|c| c.contains(&v))
-                        })
-                        .count()
-                };
-                let dist = |x: u32, y: u32| -> f64 {
-                    let (a, b) = (mesh.verts[x as usize], mesh.verts[y as usize]);
-                    ((a.x() - b.x()).powi(2) + (a.y() - b.y()).powi(2) + (a.z() - b.z()).powi(2))
-                        .sqrt()
-                };
-                let batch_tris: BTreeSet<u32> = chains_of
-                    .keys()
-                    .flat_map(|&pi| patches[pi].tris.iter().copied())
-                    .collect();
-                // Increment 2 — Fig-11(a)'s SPLIT-EDGE CONTAINMENT anchor:
-                // q must lie ON a boundary edge (s,t) of the batched owners'
-                // cycles — a CURVE-classified edge of a partner chain, not
-                // one of this seam's own edges — with strict interior
-                // parameter and perpendicular within the chord band. p is
-                // that edge's NEAR endpoint, merged only when "too close"
-                // (within the same band). Mid-edge containments with both
-                // endpoints far are the paper's SPLIT arm — censused, not
-                // yet implemented.
-                let seg_perp = |q: u32, s: u32, t: u32| -> Option<(f64, f64)> {
-                    let p = |i: u32| -> [f64; 3] {
-                        let w = mesh.verts[i as usize];
-                        [w.x(), w.y(), w.z()]
-                    };
-                    let (a, b, x) = (p(s), p(t), p(q));
-                    let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-                    let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
-                    if len2 == 0.0 || !len2.is_finite() {
-                        return None;
-                    }
-                    let r = [x[0] - a[0], x[1] - a[1], x[2] - a[2]];
-                    let tau = (r[0] * d[0] + r[1] * d[1] + r[2] * d[2]) / len2;
-                    let perp = [r[0] - tau * d[0], r[1] - tau * d[1], r[2] - tau * d[2]];
-                    Some((
-                        tau,
-                        (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt(),
-                    ))
-                };
-                for &ei in &active {
-                    let e = &eligible[ei];
-                    let seam_edges: BTreeSet<(u32, u32)> = e
-                        .chain
-                        .windows(2)
-                        .map(|w| (w[0].min(w[1]), w[0].max(w[1])))
-                        .collect();
-                    for q in [e.chain[0], *e.chain.last().expect("chain len >= 3")] {
-                        if subs.contains_key(&q) {
-                            continue;
-                        }
-                        // Containing edges: distinct (p, split-edge) hits.
-                        // The containing chain (e.g. the rim-circle chords)
-                        // usually belongs to OTHER patches than the seam's
-                        // two owners — scan every patch's cycles (batched
-                        // state where available; the substitution re-points
-                        // non-batch triangles at write-back, and Phase A
-                        // re-derives non-batch cycles from them).
-                        let mut hits: Vec<(u32, u32, u32, f64)> = Vec::new();
-                        let mut split_arm = 0usize;
-                        for (pj, pat) in patches.iter().enumerate() {
-                            let cycles = mod_cycles.get(&pj).unwrap_or(&pat.cycles);
-                            for cyc in cycles {
-                                let n = cyc.len();
-                                for i in 0..n {
-                                    let (s, t) = (cyc[i], cyc[(i + 1) % n]);
-                                    let key = (s.min(t), s.max(t));
-                                    if s == q
-                                        || t == q
-                                        || seam_edges.contains(&key)
-                                        || intersection_curves.get(&key).is_none()
-                                    {
-                                        continue;
-                                    }
-                                    let Some((tau, perp)) = seg_perp(q, s, t) else {
-                                        continue;
-                                    };
-                                    if !(0.0..=1.0).contains(&tau) || perp > band {
-                                        continue;
-                                    }
-                                    let p = if tau < 0.5 { s } else { t };
-                                    if chain_verts.contains(&p) || subs.contains_key(&p) {
-                                        continue;
-                                    }
-                                    let d = dist(p, q);
-                                    if d > band {
-                                        split_arm += 1; // paper's split case
-                                        continue;
-                                    }
-                                    if !hits.iter().any(|&(hp, _, _, _)| hp == p) {
-                                        hits.push((p, s, t, d));
-                                    }
-                                }
-                            }
-                        }
-                        if split_arm > 0 {
-                            eprintln!(
-                                "[s4-construct] pass={pass}: SPLIT-ARM NEEDED at q=v{q} — \
-                                 {split_arm} containing edge(s) with no near endpoint"
-                            );
-                        }
-                        match hits.as_slice() {
-                            [] => {}
-                            [(p, s, t, d), rest @ ..] => {
-                                if let Some((p2, _, _, d2)) = rest.first() {
-                                    eprintln!(
-                                        "[s4-construct] pass={pass}: CORNER-MERGE AMBIGUOUS \
-                                         at q=v{q} — v{p}@{d:.3e} vs v{p2}@{d2:.3e}; no merge"
-                                    );
-                                    continue;
-                                }
-                                // A surviving (non-batch) triangle containing
-                                // BOTH p and q would degenerate to (q,q,x)
-                                // under the substitution — a non-manifold
-                                // mint, refuse loudly.
-                                let shared_tri = mesh.tris.iter().enumerate().any(|(ti, tri)| {
-                                    !batch_tris.contains(&(ti as u32))
-                                        && tri.contains(p)
-                                        && tri.contains(&q)
-                                });
-                                if shared_tri {
-                                    eprintln!(
-                                        "[s4-construct] pass={pass}: CORNER-MERGE REFUSED \
-                                         v{p} -> v{q} — a surviving triangle holds both"
-                                    );
-                                    continue;
-                                }
-                                eprintln!(
-                                    "[s4-construct] pass={pass}: CORNER-MERGE v{p} -> v{q} \
-                                     dist={d:.3e} split-edge=({s},{t}) holders={}",
-                                    holder_count(*p)
-                                );
-                                subs.insert(*p, q);
-                            }
-                        }
-                    }
-                }
-                if !subs.is_empty() {
-                    for cycles in mod_cycles.values_mut() {
-                        for cyc in cycles.iter_mut() {
-                            for v in cyc.iter_mut() {
-                                if let Some(&q) = subs.get(v) {
-                                    *v = q;
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                eprintln!(
-                    "[s4-construct] pass={pass}: CORNER-MERGE SKIPPED (no Stage-1 chord band)"
-                );
-            }
+            // I1g inc-3 moved the corner merge OUT of the batch into the
+            // weld pre-phase above (collapse_vertex-based). The subs map
+            // remains as the write-back re-pointing mechanism for any
+            // future in-batch identification; empty today.
+            let subs: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
             // I1f — §4.4.1 NEAR-CURVE VERTEX REMOVAL (spec §3 step 2): drop
             // boundary vertices lying EXACTLY on a collapsed seam's segment
             // strictly between its junction endpoints (the F0067 walk-back
