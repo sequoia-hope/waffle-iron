@@ -427,6 +427,27 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    + femto pair, blocked on the fuller I2 story). Remaining I2 tail:
    Sphere/Cone/Torus charts, curved-SEAM (conic) collapse (I2b), d(T)
    recompute wiring when a consumer for persisted d(T) appears.
+
+   **I1g in-batch merge RETRIED post-I2a (2026-08-09, sub-gated):
+   mechanically SOUND — and the blocker moved upstream to I2b.** The
+   substitution-inside-rebuild merge with holder closure (every holder
+   patch of a merged corner joins the batch as a merge-only rebuild
+   participant; unchartable holders refuse loudly; a declining holder
+   blocks its pairs, not any seam) replaces the negative inc-3 weld. On
+   F0067: 68 merges fire (the wall-corner family at the exact 1.344e-3
+   gap included), the batch stays HEALTHY (39 applied / 9 declined —
+   the inc-1/inc-3 degradation is gone), zero non-manifold mints. The
+   10 blocked pairs all block the same way: the MERGE-ONLY HOLDER's
+   rebuild declines `TriangulationFailed` — those holders' cycles carry
+   their own CURVED-seam chains (rim-circle chord vertices relocated
+   onto the circle with scrambled parameter order) that self-cross
+   until resampled along the conic. The corner family is therefore
+   gated on **I2b: conic-seam resampling — the curved analogue of the
+   line collapse (`replace_seam_run` generalized: replace the run with
+   the curve's parameter-ordered resample; `order_along_curve` is
+   already shipped for exactly this ordering)** — which is also the
+   nonline=21 worklist and the R0011/R0004/R0049 family. One gate, all
+   remaining F0067 walls.
 3. **I3 — flip per wall class** (cdt-ring-rejected → relocation-region →
    reassembly-non-2-manifold), full assay after each; any conversion or new
    wall is censused before the next flip.

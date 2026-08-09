@@ -699,145 +699,10 @@ fn run_construct_passes(
             });
         }
 
-        // ---- I1g inc-3 (sub-gated `YANG_441_CORNER_MERGE`): Fig-11(a)–(c)
-        // corner unification as a WELD pre-phase. The inc-2 containment
-        // selector (validated exact on F0067: every hit at the 1.344e-3
-        // corner gap, zero ambiguity) finds (p → q) pairs — q a collapsed
-        // seam's junction lying ON a curve-classified boundary edge whose
-        // near endpoint p is within the chord band — and the watertight
-        // fan-healing `collapse_vertex` unifies them (degenerate triangles
-        // dropped, membrane cancellation — the shared-triangle clusters the
-        // inc-2 substitution had to refuse). Then Phase A recomputes and the
-        // pass restarts on the unified mesh; the batch never sees a split
-        // corner.
-        if std::env::var_os("YANG_441_CORNER_MERGE").is_some() && apply_enabled {
-            if let Some(band) = crate::stage4_correct::stage4_chord_band(a, b) {
-                let chain_verts: BTreeSet<u32> = eligible
-                    .iter()
-                    .flat_map(|e| e.chain.iter().copied())
-                    .collect();
-                let pos = |i: u32| -> [f64; 3] {
-                    let w = mesh.verts[i as usize];
-                    [w.x(), w.y(), w.z()]
-                };
-                let seg_perp = |q: u32, s: u32, t: u32| -> Option<(f64, f64)> {
-                    let (a, b, x) = (pos(s), pos(t), pos(q));
-                    let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-                    let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
-                    if len2 == 0.0 || !len2.is_finite() {
-                        return None;
-                    }
-                    let r = [x[0] - a[0], x[1] - a[1], x[2] - a[2]];
-                    let tau = (r[0] * d[0] + r[1] * d[1] + r[2] * d[2]) / len2;
-                    let perp = [r[0] - tau * d[0], r[1] - tau * d[1], r[2] - tau * d[2]];
-                    Some((
-                        tau,
-                        (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt(),
-                    ))
-                };
-                let dist = |x: u32, y: u32| -> f64 {
-                    let (a, b) = (pos(x), pos(y));
-                    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
-                };
-                // p -> (q, dist); a p claimed for two DIFFERENT q's is
-                // ambiguous and skipped loudly.
-                let mut pairs: std::collections::BTreeMap<u32, (u32, f64)> =
-                    std::collections::BTreeMap::new();
-                let mut ambiguous: BTreeSet<u32> = BTreeSet::new();
-                for e in &eligible {
-                    let seam_edges: BTreeSet<(u32, u32)> = e
-                        .chain
-                        .windows(2)
-                        .map(|w| (w[0].min(w[1]), w[0].max(w[1])))
-                        .collect();
-                    for q in [e.chain[0], *e.chain.last().expect("chain len >= 3")] {
-                        for pat in patches.iter() {
-                            for cyc in &pat.cycles {
-                                let n = cyc.len();
-                                for i in 0..n {
-                                    let (s, t) = (cyc[i], cyc[(i + 1) % n]);
-                                    let key = (s.min(t), s.max(t));
-                                    if s == q
-                                        || t == q
-                                        || seam_edges.contains(&key)
-                                        || intersection_curves.get(&key).is_none()
-                                    {
-                                        continue;
-                                    }
-                                    let Some((tau, perp)) = seg_perp(q, s, t) else {
-                                        continue;
-                                    };
-                                    if !(0.0..=1.0).contains(&tau) || perp > band {
-                                        continue;
-                                    }
-                                    let p = if tau < 0.5 { s } else { t };
-                                    if p == q || chain_verts.contains(&p) {
-                                        continue;
-                                    }
-                                    let d = dist(p, q);
-                                    if d > band {
-                                        continue; // the paper's split arm — censused in inc-2
-                                    }
-                                    match pairs.get(&p) {
-                                        Some(&(q0, _)) if q0 != q => {
-                                            ambiguous.insert(p);
-                                        }
-                                        Some(_) => {}
-                                        None => {
-                                            pairs.insert(p, (q, d));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                for p in &ambiguous {
-                    eprintln!(
-                        "[s4-construct] pass={pass}: CORNER-WELD AMBIGUOUS v{p} claimed by \
-                         two junctions; skipped"
-                    );
-                    pairs.remove(p);
-                }
-                if !pairs.is_empty() {
-                    let mut dropped_tris = 0usize;
-                    for (&p, &(q, d)) in &pairs {
-                        eprintln!(
-                            "[s4-construct] pass={pass}: CORNER-WELD v{p} -> v{q} \
-                             dist={d:.3e} (band {band:.3e})"
-                        );
-                        dropped_tris += crate::stage4_correct::collapse_vertex(
-                            mesh,
-                            &mut attribution.attributions,
-                            p,
-                            q,
-                        );
-                    }
-                    eprintln!(
-                        "[s4-construct] pass={pass}: CORNER-WELD applied {} pair(s), \
-                         {dropped_tris} degenerate tri(s) dropped; recomputing",
-                        pairs.len()
-                    );
-                    let remap = compact_unreferenced_verts(mesh, relocations);
-                    let (i2, inc2, cv2) = compute_phase_a(
-                        mesh,
-                        attribution,
-                        a,
-                        b,
-                        &crate::stage3_ssi::NO_EDGE_PROVENANCE,
-                    )?;
-                    probe_remap_pre_pos("construct", remap.as_ref());
-                    probe_record_incidence(&inc2, &cv2);
-                    *infos = i2;
-                    *intersection_curves = cv2;
-                    continue; // next pass sees the unified corners
-                }
-            } else {
-                eprintln!(
-                    "[s4-construct] pass={pass}: CORNER-WELD SKIPPED (no Stage-1 chord band)"
-                );
-            }
-        }
+        // I1g corner unification now lives INSIDE the batch (substitution
+        // + holder rebuild) — see the merge phase in the assembly loop.
+        // The inc-3 mesh-space weld was measured negative (bare collapse
+        // pinches; the 2026-08-05 pattern) and removed.
 
         // ---- Batch assembly: every removal is loud and re-assembles. --------
         // Bounded: each iteration either breaks with a batch or removes at
@@ -852,6 +717,10 @@ fn run_construct_passes(
         }
         let chain_interior_holds =
             |e: &EligibleSeam, v: u32| -> bool { e.chain[1..e.chain.len() - 1].contains(&v) };
+        // Corner-merge pairs refused during assembly (unchartable holder, a
+        // holder's rebuild declined, …) — persists across restarts so the
+        // assembly converges.
+        let mut merge_blocked: BTreeSet<u32> = BTreeSet::new();
         let (rebuilds, subs) = 'assemble: loop {
             if active.is_empty() {
                 break (Vec::new(), std::collections::BTreeMap::new());
@@ -885,11 +754,159 @@ fn run_construct_passes(
                     }
                 }
             }
-            // I1g inc-3 moved the corner merge OUT of the batch into the
-            // weld pre-phase above (collapse_vertex-based). The subs map
-            // remains as the write-back re-pointing mechanism for any
-            // future in-batch identification; empty today.
-            let subs: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
+            // I1g (sub-gated `YANG_441_CORNER_MERGE`) — Fig-11(a)–(c) corner
+            // identification INSIDE the batch, unblocked by I2a: the merge is
+            // a shared-INDEX substitution (p → q) in the batched cycles, and
+            // every HOLDER patch of p joins the batch as a rebuild
+            // participant (cylinder caps included — merge-only holders carry
+            // no seams, they just re-CDT against the substituted cycles). A
+            // holder that is unchartable, or whose rebuild later declines,
+            // refuses the merge loudly (merge_blocked persists across
+            // restarts). Selector: the inc-2 validated split-edge containment
+            // (every hit at the exact corner gap; zero over-fire).
+            let mut subs: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
+            let mut merge_only: BTreeSet<usize> = BTreeSet::new();
+            if std::env::var_os("YANG_441_CORNER_MERGE").is_some() {
+                if let Some(band) = crate::stage4_correct::stage4_chord_band(a, b) {
+                    let chain_verts: BTreeSet<u32> = active
+                        .iter()
+                        .flat_map(|&ei| eligible[ei].chain.iter().copied())
+                        .collect();
+                    let pos = |i: u32| -> [f64; 3] {
+                        let w = mesh.verts[i as usize];
+                        [w.x(), w.y(), w.z()]
+                    };
+                    let seg_perp = |q: u32, s: u32, t: u32| -> Option<(f64, f64)> {
+                        let (a, b, x) = (pos(s), pos(t), pos(q));
+                        let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                        let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                        if len2 == 0.0 || !len2.is_finite() {
+                            return None;
+                        }
+                        let r = [x[0] - a[0], x[1] - a[1], x[2] - a[2]];
+                        let tau = (r[0] * d[0] + r[1] * d[1] + r[2] * d[2]) / len2;
+                        let perp = [r[0] - tau * d[0], r[1] - tau * d[1], r[2] - tau * d[2]];
+                        Some((
+                            tau,
+                            (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt(),
+                        ))
+                    };
+                    let dist3 = |x: u32, y: u32| -> f64 {
+                        let (a, b) = (pos(x), pos(y));
+                        ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2))
+                            .sqrt()
+                    };
+                    // p -> (q, dist); a p claimed for two different q's is
+                    // ambiguous — skipped loudly.
+                    let mut pairs: BTreeMap<u32, (u32, f64)> = BTreeMap::new();
+                    let mut ambiguous: BTreeSet<u32> = BTreeSet::new();
+                    for &ei in &active {
+                        let e = &eligible[ei];
+                        let seam_edges: BTreeSet<(u32, u32)> = e
+                            .chain
+                            .windows(2)
+                            .map(|w| (w[0].min(w[1]), w[0].max(w[1])))
+                            .collect();
+                        for q in [e.chain[0], *e.chain.last().expect("chain len >= 3")] {
+                            for (pj, pat) in patches.iter().enumerate() {
+                                let cycles = mod_cycles.get(&pj).unwrap_or(&pat.cycles);
+                                for cyc in cycles {
+                                    let n = cyc.len();
+                                    for i in 0..n {
+                                        let (s, t) = (cyc[i], cyc[(i + 1) % n]);
+                                        let key = (s.min(t), s.max(t));
+                                        if s == q
+                                            || t == q
+                                            || seam_edges.contains(&key)
+                                            || intersection_curves.get(&key).is_none()
+                                        {
+                                            continue;
+                                        }
+                                        let Some((tau, perp)) = seg_perp(q, s, t) else {
+                                            continue;
+                                        };
+                                        if !(0.0..=1.0).contains(&tau) || perp > band {
+                                            continue;
+                                        }
+                                        let p = if tau < 0.5 { s } else { t };
+                                        if p == q
+                                            || chain_verts.contains(&p)
+                                            || merge_blocked.contains(&p)
+                                        {
+                                            continue;
+                                        }
+                                        let d = dist3(p, q);
+                                        if d > band {
+                                            continue; // the paper's split arm
+                                        }
+                                        match pairs.get(&p) {
+                                            Some(&(q0, _)) if q0 != q => {
+                                                ambiguous.insert(p);
+                                            }
+                                            Some(_) => {}
+                                            None => {
+                                                pairs.insert(p, (q, d));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for p in &ambiguous {
+                        eprintln!(
+                            "[s4-construct] pass={pass}: CORNER-MERGE AMBIGUOUS v{p}; skipped"
+                        );
+                        pairs.remove(p);
+                    }
+                    // Holder closure: every patch whose cycles hold p must be
+                    // chartable and joins the batch.
+                    for (&p, &(q, d)) in &pairs {
+                        let holders: Vec<usize> = patches
+                            .iter()
+                            .enumerate()
+                            .filter(|&(pj, pat)| {
+                                let cycles = mod_cycles.get(&pj).unwrap_or(&pat.cycles);
+                                cycles.iter().any(|c| c.contains(&p))
+                            })
+                            .map(|(pj, _)| pj)
+                            .collect();
+                        let chartable = |s: &Surface| {
+                            matches!(s, Surface::Plane { .. } | Surface::Cylinder { .. })
+                        };
+                        if holders.iter().any(|&h| !chartable(&patches[h].surface)) {
+                            eprintln!(
+                                "[s4-construct] pass={pass}: CORNER-MERGE REFUSED v{p} -> \
+                                 v{q} — an unchartable holder; blocked"
+                            );
+                            merge_blocked.insert(p);
+                            continue 'assemble;
+                        }
+                        eprintln!(
+                            "[s4-construct] pass={pass}: CORNER-MERGE v{p} -> v{q} \
+                             dist={d:.3e} holders={holders:?}"
+                        );
+                        for &h in &holders {
+                            if !mod_cycles.contains_key(&h) {
+                                mod_cycles.insert(h, patches[h].cycles.clone());
+                                merge_only.insert(h);
+                            }
+                        }
+                        subs.insert(p, q);
+                    }
+                    if !subs.is_empty() {
+                        for cycles in mod_cycles.values_mut() {
+                            for cyc in cycles.iter_mut() {
+                                for v in cyc.iter_mut() {
+                                    if let Some(&q) = subs.get(v) {
+                                        *v = q;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             // I1f — §4.4.1 NEAR-CURVE VERTEX REMOVAL (spec §3 step 2): drop
             // boundary vertices lying EXACTLY on a collapsed seam's segment
             // strictly between its junction endpoints (the F0067 walk-back
@@ -1011,7 +1028,7 @@ fn run_construct_passes(
             // Dropped vertices: chain interiors + planar flood interiors.
             // A merged corner (subs key) is NOT dropped — the write-back
             // re-points every surviving reference at its q.
-            let batch_own: BTreeSet<u32> = chains_of
+            let batch_own: BTreeSet<u32> = mod_cycles
                 .keys()
                 .flat_map(|&pi| patches[pi].tris.iter().copied())
                 .collect();
@@ -1202,13 +1219,34 @@ fn run_construct_passes(
                                 relocations,
                             );
                         }
-                        let drop: Vec<usize> = active
-                            .iter()
-                            .copied()
-                            .filter(|&ei| eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi)
-                            .collect();
-                        for ei in drop {
-                            active.remove(&ei);
+                        if merge_only.contains(&pi) {
+                            // A merge-only holder declining refuses the MERGE
+                            // pairs that pulled it in, not any seam.
+                            let blocked: Vec<u32> = subs
+                                .iter()
+                                .filter(|&(&p, _)| {
+                                    patches[pi].cycles.iter().any(|c| c.contains(&p))
+                                })
+                                .map(|(&p, _)| p)
+                                .collect();
+                            for p in blocked {
+                                eprintln!(
+                                    "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED v{p} — \
+                                     merge-only holder {pi} declined"
+                                );
+                                merge_blocked.insert(p);
+                            }
+                        } else {
+                            let drop: Vec<usize> = active
+                                .iter()
+                                .copied()
+                                .filter(|&ei| {
+                                    eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi
+                                })
+                                .collect();
+                            for ei in drop {
+                                active.remove(&ei);
+                            }
                         }
                         continue 'assemble;
                     }
