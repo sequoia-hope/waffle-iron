@@ -624,11 +624,14 @@ fn run_construct_passes(
                 );
                 continue;
             }
-            let planar = |s: &Surface| matches!(s, Surface::Plane { .. });
-            if !planar(&patches[pi].surface) || !planar(&patches[qi].surface) {
+            // I2a: Plane AND Cylinder owners rebuild single-sided (interior
+            // carry + θ-unwrap); Sphere/Cone/Torus stay a loud skip.
+            let chartable =
+                |s: &Surface| matches!(s, Surface::Plane { .. } | Surface::Cylinder { .. });
+            if !chartable(&patches[pi].surface) || !chartable(&patches[qi].surface) {
                 skip[1] += 1;
                 eprintln!(
-                    "[s4-construct] pass={pass} seam={gi}: SKIP curved patch \
+                    "[s4-construct] pass={pass} seam={gi}: SKIP unchartable patch \
                      (patches {pi}+{qi}) — I2 scope"
                 );
                 continue;

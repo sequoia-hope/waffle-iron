@@ -404,6 +404,29 @@ below — most of the R-series is curved, so the epic's reach depends on it.
 2. **I2 — curved patches**: interior-vertex carry into `interior` + d(T)
    recompute; retire `CurvedPatchInteriorVertices` by capability, not by
    band. Measure: R-series members of the family.
+
+   **I2a (2026-08-09, LANDED on the main gate): CYLINDER-owner
+   single-sided rebuild — and the epic's FIRST corpus conversion.**
+   `rebuild_patch_planar` generalizes to Plane|Cylinder: θ-unwrap via
+   `unwrap_theta` (encircling patches refuse loud), interior vertices
+   CARRIED into the CDT keep-list after branch assignment (each interior
+   vertex has exactly one branch inside the unwrapped boundary span —
+   containment check, no tolerance), orientation matched as before;
+   Sphere/Cone/Torus remain a loud skip. One measured correction en
+   route: interior candidates lying ON a boundary edge are the DROPPED
+   seam-chain vertices (collinear ruling verts) — carrying them makes
+   spade split the boundary constraint one-sidedly (F0059's minted
+   edge-use imbalance, `InvalidBooleanOutput`); §4.4.1's near-curve
+   removal applies to cylinder patches too, so they are filtered by the
+   same `on_segment_interior` identity predicate. Gate-ON full assay:
+   **259C/0W/49E — the baseline count with ONE REAL CONVERSION (F0085
+   ERROR→CORRECT, the `NonPlanarFace(37928)` case, fixed by
+   cylinder-owner line-seam collapses; composition oracle green)**
+   offset by the known R0095 woven-boundary latent; F0059 verified
+   clean post-filter; F0067 unchanged (its walls are the corner cluster
+   + femto pair, blocked on the fuller I2 story). Remaining I2 tail:
+   Sphere/Cone/Torus charts, curved-SEAM (conic) collapse (I2b), d(T)
+   recompute wiring when a consumer for persisted d(T) appears.
 3. **I3 — flip per wall class** (cdt-ring-rejected → relocation-region →
    reassembly-non-2-manifold), full assay after each; any conversion or new
    wall is censused before the next flip.

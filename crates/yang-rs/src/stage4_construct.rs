@@ -252,6 +252,10 @@ pub(crate) enum ConstructError {
     /// `patch_from_cycles_shifted` rejected the modified cycles (short cycle,
     /// bad index, zero-area outer boundary).
     MalformedPatch { patch: usize },
+    /// A cylinder patch's θ-branches could not be resolved: the boundary
+    /// encircles the axis, a vertex is reached on two branches, or an
+    /// interior vertex has no branch inside the unwrapped boundary span.
+    ThetaUnwrap { patch: usize },
     /// The plain CDT of the modified cycle polygon refused. The two live
     /// classes: `TriangulationFailed` — the modified boundary still
     /// self-crosses (a residual crossing NOT minted by a seam chain) — and
@@ -322,48 +326,111 @@ pub(crate) fn collapse_patch_runs(
     Ok(cur)
 }
 
-/// Re-triangulate one PLANAR patch single-sided against its modified cycles.
+/// Re-triangulate one patch single-sided against its modified cycles —
+/// Plane and Cylinder charts (I2a; Sphere/Cone/Torus stay a loud refusal).
 ///
 /// `patch.cycles` are the post-[`collapse_patch_runs`] cycles; `patch.tris`
 /// the ORIGINAL triangle set being replaced. The collapsed seams are ordinary
 /// boundary edges here — the CDT reproduces every boundary edge exactly, so
 /// each collapsed seam's `(e0, e1)` pair and every untouched neighbour chain
-/// come out shared-by-index. Interior vertices (chain interiors and flood
-/// interiors) simply do not appear in the CDT input: for a planar patch they
-/// are geometrically redundant — the paper's collinear "remove a mesh vertex"
-/// quality step. The caller's foreign-reference scan is what makes dropping
-/// them safe.
+/// come out shared-by-index.
+///
+/// Interior vertices: for a PLANAR patch they are geometrically redundant and
+/// are dropped (the paper's collinear "remove a mesh vertex" quality step; the
+/// caller's foreign-reference scan makes that safe). For a CYLINDER patch they
+/// carry chord fidelity, so they are CARRIED into the CDT (`interior` keep
+/// list) after θ-branch assignment: a cylinder patch never encircles the axis
+/// (`unwrap_theta` refuses), so its unwrapped boundary spans < 2π and each
+/// interior vertex has exactly one branch landing inside that span — no
+/// tolerance, a branch containment check that fails loud.
 pub(crate) fn rebuild_patch_planar(
     mesh: &Mesh,
     patch_index: usize,
     patch: &SplicePatch,
 ) -> Result<PatchRebuild, ConstructError> {
-    if !matches!(patch.surface, Surface::Plane { .. }) {
+    if !matches!(
+        patch.surface,
+        Surface::Plane { .. } | Surface::Cylinder { .. }
+    ) {
         return Err(ConstructError::NonPlanarPatch { patch: patch_index });
     }
     let chart = SurfaceChart::new(patch.surface)
         .ok_or(ConstructError::NonPlanarPatch { patch: patch_index })?;
-    let (p2, back) =
-        patch_from_cycles_shifted(&chart, &mesh.verts, &patch.cycles, &BTreeMap::new())
-            .ok_or(ConstructError::MalformedPatch { patch: patch_index })?;
+    let shift = crate::stage4_splice::unwrap_theta(
+        &chart,
+        &mesh.verts,
+        &patch.cycles,
+        crate::stage4_splice::Side::A,
+    )
+    .map_err(|_| ConstructError::ThetaUnwrap { patch: patch_index })?;
+    let (p2, back) = patch_from_cycles_shifted(&chart, &mesh.verts, &patch.cycles, &shift)
+        .ok_or(ConstructError::MalformedPatch { patch: patch_index })?;
 
-    let tris2 = cdt_with_interior_constraints(&p2.verts, &p2.boundary, &p2.holes, &[], &[])
+    // Interior carry (cylinder only): every old-triangle vertex not on the
+    // cycles, branch-assigned into the unwrapped boundary span.
+    let cycle_verts: BTreeSet<u32> = patch.cycles.iter().flatten().copied().collect();
+    let mut interior_back: Vec<u32> = Vec::new();
+    let mut pool = p2.verts.clone();
+    let mut interior_idx: Vec<u32> = Vec::new();
+    if matches!(patch.surface, Surface::Cylinder { .. }) {
+        let (theta_min, theta_max) = pool
+            .iter()
+            .take(back.len())
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+                (lo.min(p.x()), hi.max(p.x()))
+            });
+        let interiors: BTreeSet<u32> = patch
+            .tris
+            .iter()
+            .flat_map(|&t| mesh.tris[t as usize])
+            .filter(|v| !cycle_verts.contains(v))
+            .collect();
+        // §4.4.1 near-curve removal applies to cylinder patches too: a
+        // candidate lying ON a boundary edge (a dropped seam-chain interior —
+        // collinear ruling vertices) is a REMOVED vertex, not a fidelity
+        // point. Carrying it would make spade split the boundary constraint
+        // one-sidedly — the F0059 edge-use imbalance.
+        let on_boundary_edge = |v: u32| -> bool {
+            patch.cycles.iter().any(|cyc| {
+                let n = cyc.len();
+                (0..n).any(|i| on_segment_interior(&mesh.verts, cyc[i], cyc[(i + 1) % n], v))
+            })
+        };
+        for &v in &interiors {
+            if on_boundary_edge(v) {
+                continue;
+            }
+            let uv = chart.project(mesh.verts[v as usize]);
+            let mid = 0.5 * (theta_min + theta_max);
+            let k = ((mid - uv.x()) / std::f64::consts::TAU).round();
+            let theta = uv.x() + k * std::f64::consts::TAU;
+            if theta < theta_min || theta > theta_max {
+                return Err(ConstructError::ThetaUnwrap { patch: patch_index });
+            }
+            interior_idx.push(pool.len() as u32);
+            pool.push(cad_primitives::Point2::new(theta, uv.y()));
+            interior_back.push(v);
+        }
+    }
+
+    let tris2 = cdt_with_interior_constraints(&pool, &p2.boundary, &p2.holes, &interior_idx, &[])
         .map_err(|error| ConstructError::Cdt {
-            patch: patch_index,
-            error,
-        })?;
+        patch: patch_index,
+        error,
+    })?;
 
     // Back into mesh index space. The CDT adds no Steiner points, so every
     // index is inside the input pool; a miss is a broken invariant, not input.
+    let at = |i: u32| -> u32 {
+        if (i as usize) < back.len() {
+            back[i as usize]
+        } else {
+            interior_back[i as usize - back.len()]
+        }
+    };
     let mut new_tris: Vec<[u32; 3]> = tris2
         .iter()
-        .map(|t| {
-            [
-                back[t[0] as usize],
-                back[t[1] as usize],
-                back[t[2] as usize],
-            ]
-        })
+        .map(|t| [at(t[0]), at(t[1]), at(t[2])])
         .collect();
 
     // Match the ORIGINAL patch's outward sense by measurement — the chart
@@ -655,8 +722,39 @@ mod tests {
     }
 
     #[test]
-    fn rebuild_patch_planar_refuses_a_curved_patch() {
+    fn rebuild_patch_planar_refuses_an_unchartable_patch() {
         let mesh = square_fan_mesh();
+        let patch = SplicePatch {
+            cycles: vec![vec![0, 1, 2, 3]],
+            tris: vec![0, 1, 2, 3],
+            surface: Surface::Sphere {
+                center: Point3::new(0.0, 0.0, 0.0),
+                radius: 1.0,
+            },
+        };
+        assert_eq!(
+            rebuild_patch_planar(&mesh, 3, &patch),
+            Err(ConstructError::NonPlanarPatch { patch: 3 })
+        );
+    }
+
+    fn cylinder_patch_mesh(theta0: f64) -> (Mesh, SplicePatch) {
+        // Unit cylinder about z; patch spans θ ∈ [theta0, theta0+0.8],
+        // z ∈ [0, 1], with one INTERIOR vertex mid-patch fanned by the
+        // triangulation. I2a must carry that vertex through the rebuild.
+        let cyl = |theta: f64, z: f64| Point3::new(theta.cos(), theta.sin(), z);
+        let (t0, t1) = (theta0, theta0 + 0.8);
+        let tm = theta0 + 0.4;
+        let mesh = Mesh {
+            verts: vec![
+                cyl(t0, 0.0), // 0
+                cyl(t1, 0.0), // 1
+                cyl(t1, 1.0), // 2
+                cyl(t0, 1.0), // 3
+                cyl(tm, 0.5), // 4 interior
+            ],
+            tris: vec![[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]],
+        };
         let patch = SplicePatch {
             cycles: vec![vec![0, 1, 2, 3]],
             tris: vec![0, 1, 2, 3],
@@ -666,10 +764,40 @@ mod tests {
                 radius: 1.0,
             },
         };
-        assert_eq!(
-            rebuild_patch_planar(&mesh, 3, &patch),
-            Err(ConstructError::NonPlanarPatch { patch: 3 })
+        (mesh, patch)
+    }
+
+    #[test]
+    fn rebuild_cylinder_patch_carries_interior_vertices() {
+        let (mesh, patch) = cylinder_patch_mesh(0.2);
+        let r = rebuild_patch_planar(&mesh, 5, &patch).expect("cylinder rebuild");
+        assert!(r.dropped.is_empty(), "interior vertex must be CARRIED");
+        assert!(
+            r.new_tris.iter().flatten().any(|&v| v == 4),
+            "interior vertex 4 appears in the rebuilt triangulation"
         );
+        // Orientation matches the original outward sense.
+        let pos = |v: u32| mesh.verts[v as usize];
+        let want = area_vector(
+            &patch
+                .tris
+                .iter()
+                .map(|&t| mesh.tris[t as usize])
+                .collect::<Vec<_>>(),
+            &pos,
+        );
+        let got = area_vector(&r.new_tris, &pos);
+        assert!(dot3(want, got) > 0.0, "outward sense preserved");
+    }
+
+    #[test]
+    fn rebuild_cylinder_patch_unwraps_the_theta_seam() {
+        // Patch straddling θ = ±π: the unwrap must place all vertices on one
+        // branch and the rebuild must succeed with the interior carried.
+        let (mesh, patch) = cylinder_patch_mesh(std::f64::consts::PI - 0.4);
+        let r = rebuild_patch_planar(&mesh, 6, &patch).expect("straddling rebuild");
+        assert!(r.dropped.is_empty());
+        assert!(r.new_tris.iter().flatten().any(|&v| v == 4));
     }
 
     #[test]
