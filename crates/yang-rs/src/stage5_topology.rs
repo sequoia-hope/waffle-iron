@@ -792,61 +792,99 @@ fn run_construct_passes(
                     .keys()
                     .flat_map(|&pi| patches[pi].tris.iter().copied())
                     .collect();
+                // Increment 2 — Fig-11(a)'s SPLIT-EDGE CONTAINMENT anchor:
+                // q must lie ON a boundary edge (s,t) of the batched owners'
+                // cycles — a CURVE-classified edge of a partner chain, not
+                // one of this seam's own edges — with strict interior
+                // parameter and perpendicular within the chord band. p is
+                // that edge's NEAR endpoint, merged only when "too close"
+                // (within the same band). Mid-edge containments with both
+                // endpoints far are the paper's SPLIT arm — censused, not
+                // yet implemented.
+                let seg_perp = |q: u32, s: u32, t: u32| -> Option<(f64, f64)> {
+                    let p = |i: u32| -> [f64; 3] {
+                        let w = mesh.verts[i as usize];
+                        [w.x(), w.y(), w.z()]
+                    };
+                    let (a, b, x) = (p(s), p(t), p(q));
+                    let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                    let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                    if len2 == 0.0 || !len2.is_finite() {
+                        return None;
+                    }
+                    let r = [x[0] - a[0], x[1] - a[1], x[2] - a[2]];
+                    let tau = (r[0] * d[0] + r[1] * d[1] + r[2] * d[2]) / len2;
+                    let perp = [r[0] - tau * d[0], r[1] - tau * d[1], r[2] - tau * d[2]];
+                    Some((
+                        tau,
+                        (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt(),
+                    ))
+                };
                 for &ei in &active {
                     let e = &eligible[ei];
+                    let seam_edges: BTreeSet<(u32, u32)> = e
+                        .chain
+                        .windows(2)
+                        .map(|w| (w[0].min(w[1]), w[0].max(w[1])))
+                        .collect();
                     for q in [e.chain[0], *e.chain.last().expect("chain len >= 3")] {
-                        // Fig-11(b)'s "too close" is relative to the SPLIT
-                        // EDGE at q, not the global chord band: the local
-                        // band is the shortest boundary edge incident to q
-                        // on the seam owners' cycles, capped by d_eps.
-                        let mut band_local = band;
-                        for pi in [e.pair.0, e.pair.1] {
-                            let Some(cycles) = mod_cycles.get(&pi) else {
-                                continue;
-                            };
+                        if subs.contains_key(&q) {
+                            continue;
+                        }
+                        // Containing edges: distinct (p, split-edge) hits.
+                        // The containing chain (e.g. the rim-circle chords)
+                        // usually belongs to OTHER patches than the seam's
+                        // two owners — scan every patch's cycles (batched
+                        // state where available; the substitution re-points
+                        // non-batch triangles at write-back, and Phase A
+                        // re-derives non-batch cycles from them).
+                        let mut hits: Vec<(u32, u32, u32, f64)> = Vec::new();
+                        let mut split_arm = 0usize;
+                        for pj in 0..patches.len() {
+                            let cycles = mod_cycles.get(&pj).unwrap_or(&patches[pj].cycles);
                             for cyc in cycles {
                                 let n = cyc.len();
                                 for i in 0..n {
                                     let (s, t) = (cyc[i], cyc[(i + 1) % n]);
-                                    if s == q || t == q {
-                                        band_local = band_local.min(dist(s, t));
-                                    }
-                                }
-                            }
-                        }
-                        // Candidates: cycle vertices of the seam's own two
-                        // owner patches, off the seam chain, within the
-                        // LOCAL band.
-                        let mut cands: Vec<(u32, f64)> = Vec::new();
-                        for pi in [e.pair.0, e.pair.1] {
-                            let Some(cycles) = mod_cycles.get(&pi) else {
-                                continue;
-                            };
-                            for cyc in cycles {
-                                for &v in cyc {
-                                    if v == q
-                                        || chain_verts.contains(&v)
-                                        || subs.contains_key(&v)
-                                        || subs.contains_key(&q)
+                                    let key = (s.min(t), s.max(t));
+                                    if s == q
+                                        || t == q
+                                        || seam_edges.contains(&key)
+                                        || intersection_curves.get(&key).is_none()
                                     {
                                         continue;
                                     }
-                                    let d = dist(v, q);
-                                    if d <= band_local && !cands.iter().any(|&(c, _)| c == v) {
-                                        cands.push((v, d));
+                                    let Some((tau, perp)) = seg_perp(q, s, t) else {
+                                        continue;
+                                    };
+                                    if !(0.0..=1.0).contains(&tau) || perp > band {
+                                        continue;
+                                    }
+                                    let p = if tau < 0.5 { s } else { t };
+                                    if chain_verts.contains(&p) || subs.contains_key(&p) {
+                                        continue;
+                                    }
+                                    let d = dist(p, q);
+                                    if d > band {
+                                        split_arm += 1; // paper's split case
+                                        continue;
+                                    }
+                                    if !hits.iter().any(|&(hp, _, _, _)| hp == p) {
+                                        hits.push((p, s, t, d));
                                     }
                                 }
                             }
                         }
-                        let mut corners: Vec<(u32, f64)> = cands
-                            .into_iter()
-                            .filter(|&(v, _)| holder_count(v) >= 3)
-                            .collect();
-                        corners.sort_by(|x, y| x.1.total_cmp(&y.1).then(x.0.cmp(&y.0)));
-                        match corners.as_slice() {
+                        if split_arm > 0 {
+                            eprintln!(
+                                "[s4-construct] pass={pass}: SPLIT-ARM NEEDED at q=v{q} — \
+                                 {split_arm} containing edge(s) with no near endpoint"
+                            );
+                        }
+                        match hits.as_slice() {
                             [] => {}
-                            [(p, d), rest @ ..] => {
-                                if let Some((p2, d2)) = rest.first() {
+                            [(p, s, t, d), rest @ ..] => {
+                                if let Some((p2, _, _, d2)) = rest.first() {
                                     eprintln!(
                                         "[s4-construct] pass={pass}: CORNER-MERGE AMBIGUOUS \
                                          at q=v{q} — v{p}@{d:.3e} vs v{p2}@{d2:.3e}; no merge"
@@ -857,8 +895,8 @@ fn run_construct_passes(
                                 // BOTH p and q would degenerate to (q,q,x)
                                 // under the substitution — a non-manifold
                                 // mint, refuse loudly.
-                                let shared_tri = mesh.tris.iter().enumerate().any(|(t, tri)| {
-                                    !batch_tris.contains(&(t as u32))
+                                let shared_tri = mesh.tris.iter().enumerate().any(|(ti, tri)| {
+                                    !batch_tris.contains(&(ti as u32))
                                         && tri.contains(p)
                                         && tri.contains(&q)
                                 });
@@ -871,7 +909,8 @@ fn run_construct_passes(
                                 }
                                 eprintln!(
                                     "[s4-construct] pass={pass}: CORNER-MERGE v{p} -> v{q} \
-                                     dist={d:.3e} (band {band_local:.3e})"
+                                     dist={d:.3e} split-edge=({s},{t}) holders={}",
+                                    holder_count(*p)
                                 );
                                 subs.insert(*p, q);
                             }

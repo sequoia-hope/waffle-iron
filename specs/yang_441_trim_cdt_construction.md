@@ -272,10 +272,32 @@ below — most of the R-series is curved, so the epic's reach depends on it.
      adjacent to p (within that edge's owner band — for a rim chord,
      the cap owner's chord tolerance), not merely near p.** Proximity +
      corner-ness over-select in a wheel full of legitimate nearby
-     corners. Until the containment predicate lands, the merge phase is
-     inert on the main gate (gate-ON = I1b+I1f baseline: 39/9, honest
-     ring-reject ERROR). Expected reach once landed: TF-8 and the femto
-     pair (two near-coincident corner authorities at 4.44e-16).
+     corners.
+
+     **Increment 2 (same day): the containment predicate LANDED and
+     VALIDATED — and it exposes the mechanism's limit.** The scan
+     anchors on a curve-classified boundary edge containing q (strict
+     interior τ, perpendicular ≤ band, the seam's own edges excluded),
+     over ALL patches' cycles — the containing chain (the rim chords)
+     belongs to patches outside the seam's owner pair; p = the near
+     endpoint, merged only when within the band. Measured on F0067:
+     every accepted merge sits at the EXACT corner gap (dist = 1.344e-3
+     uniformly, holders = 4, ZERO ambiguity, zero far-field over-fire —
+     the predicate finds precisely the corner family). But 72 of 156
+     candidate merges are REFUSED by the shared-triangle guard: at
+     these quadruple-point corner clusters, members sharing a surviving
+     triangle is the NORM, and index substitution cannot collapse
+     across one (it would mint a degenerate (q,q,x)). Partial
+     unification degrades the batch (32 applied / 11 declined vs
+     baseline 39/9), so the merge stays sub-gated
+     (`YANG_441_CORNER_MERGE`); the main gate remains the I1b+I1f
+     baseline (39/9, honest ring-reject ERROR). **Inc-3 (next): replace
+     the substitution with the watertight fan-healing collapse
+     (`collapse_vertex`, the P3b trim's machinery) so a corner cluster
+     unifies across shared triangles — or route the accepted pairs
+     through the existing moved×minted weld layer.** Expected reach
+     once the cluster unifies: TF-8 and the femto pair (near-coincident
+     corner authorities at 4.44e-16).
 
      (Superseded analysis, kept for the record:)
      The classification-time probe (`[i1d-classify]`, pre-relocation
