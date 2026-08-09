@@ -252,19 +252,30 @@ below — most of the R-series is curved, so the epic's reach depends on it.
      containing it, and the too-close endpoint p (the chord-anchored
      corner, 1.34e-3 ≈ mesh scale) MERGES into q.
 
-     **I1g (next): Fig-11(a)–(c) corner identification at collapsed-seam
-     junctions.** For each junction endpoint q of a collapsed seam:
-     locate the non-seam boundary chain containing q (the partner
-     curve's chain — q lies on it exactly: line∩circle ⇒ on the circle
-     chain), split topologically at q if q is not already a chain
-     vertex, and MERGE the chord-anchored corner p into q when |p−q| is
-     within the local Stage-1 chord scale — a DERIVED merge band (the
-     cap owner's chord tolerance), Fig-11(b)'s own criterion — applied
-     as a shared-INDEX identification across ALL holder patches (the
-     batch extends with removal-only planar holders as needed). This is
-     the corner-identity boundary-condition layer §2 always named;
-     expected reach: TF-8 and the femto pair (two near-coincident
-     corner authorities at 4.44e-16).
+     **I1g: Fig-11(a)–(c) corner identification at collapsed-seam
+     junctions — increment 1 LANDED SUB-GATED (`YANG_441_CORNER_MERGE`),
+     measured OVER-FIRING; the missing predicate is named.** The
+     machinery: candidate p = a ≥3-holder vertex (the I1f holder census's
+     corner discriminator) near q; merge = shared-INDEX substitution
+     (batched cycles rewritten; surviving non-batch triangles re-pointed
+     in `apply_rebuild_batch` via a `subs` map — a curved neighbour
+     adopts the merge without a re-CDT); consecutive-duplicate cycle
+     cleanup + degeneration guards; a merge is refused if any surviving
+     triangle holds both p and q (that substitution would mint a
+     degenerate (q,q,x) — measured as a Stage-6 non-2-manifold before
+     the guard). Measured on F0067: with the global d_eps band 652
+     merges (geometry mangled, non-2-manifold); with the LOCAL band
+     (min boundary-edge length at q, d_eps-capped) + the guard, still
+     208 merges vs ≈16 expected, batch degraded to 34 applied /
+     14 declined (vs 39/9 without). **The missing predicate is
+     Fig-11(a)'s SPLIT-EDGE CONTAINMENT: q must lie ON a boundary edge
+     adjacent to p (within that edge's owner band — for a rim chord,
+     the cap owner's chord tolerance), not merely near p.** Proximity +
+     corner-ness over-select in a wheel full of legitimate nearby
+     corners. Until the containment predicate lands, the merge phase is
+     inert on the main gate (gate-ON = I1b+I1f baseline: 39/9, honest
+     ring-reject ERROR). Expected reach once landed: TF-8 and the femto
+     pair (two near-coincident corner authorities at 4.44e-16).
 
      (Superseded analysis, kept for the record:)
      The classification-time probe (`[i1d-classify]`, pre-relocation

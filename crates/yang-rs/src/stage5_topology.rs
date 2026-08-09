@@ -709,9 +709,9 @@ fn run_construct_passes(
         }
         let chain_interior_holds =
             |e: &EligibleSeam, v: u32| -> bool { e.chain[1..e.chain.len() - 1].contains(&v) };
-        let rebuilds = 'assemble: loop {
+        let (rebuilds, subs) = 'assemble: loop {
             if active.is_empty() {
-                break Vec::new();
+                break (Vec::new(), std::collections::BTreeMap::new());
             }
             // Group each patch's eligible chains (both owners of every seam).
             let mut chains_of: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
@@ -741,6 +741,158 @@ fn run_construct_passes(
                         continue 'assemble;
                     }
                 }
+            }
+            // I1g — Fig-11(a)–(c) CORNER IDENTIFICATION at collapsed-seam
+            // junctions: the exact junction q and the chord-anchored Stage-1
+            // corner p are two authorities' versions of ONE B-Rep corner
+            // (F0067: q at r=0.2088 on the rim circle vs p at r=0.20751 on
+            // the cap's chord, 1.34e-3 apart — the cap owner's sagitta). The
+            // paper merges p into q ("If an endpoint p of the split edge is
+            // too close to q, we merge p with q", Fig-11(b)→(c)). Selection
+            // is DERIVED, not tuned: p must be a TOPOLOGICAL CORNER (≥3
+            // holder patches — the I1f holder census separates corners from
+            // discretization vertices) within the Stage-1 chord band of q,
+            // not on the seam's own chain. The merge is a shared-INDEX
+            // substitution: batched cycles rewrite p→q here; surviving
+            // non-batch triangles (e.g. the curved cap, out of the planar
+            // rebuild's scope) are re-pointed at write-back.
+            // Sub-gated (`YANG_441_CORNER_MERGE`): increment 1 measured
+            // OVER-FIRING on F0067 (652 merges with the global band; 208
+            // with the local split-edge-length band + shared-triangle
+            // guard; expected ≈16) and degraded the batch (34 applied /
+            // 14 declined vs 39/9 without the merge). The missing
+            // predicate is Fig-11(a)'s SPLIT-EDGE CONTAINMENT: q must lie
+            // ON a boundary edge adjacent to p (within the edge owner's
+            // band), not merely near p. Until that lands, the merge stays
+            // off the main gate.
+            let mut subs: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
+            if std::env::var_os("YANG_441_CORNER_MERGE").is_none() {
+                // inert — see the sub-gate note above
+            } else if let Some(band) = crate::stage4_correct::stage4_chord_band(a, b) {
+                let chain_verts: BTreeSet<u32> = active
+                    .iter()
+                    .flat_map(|&ei| eligible[ei].chain.iter().copied())
+                    .collect();
+                let holder_count = |v: u32| -> usize {
+                    patches
+                        .iter()
+                        .enumerate()
+                        .filter(|&(pj, p)| {
+                            let cycles = mod_cycles.get(&pj).unwrap_or(&p.cycles);
+                            cycles.iter().any(|c| c.contains(&v))
+                        })
+                        .count()
+                };
+                let dist = |x: u32, y: u32| -> f64 {
+                    let (a, b) = (mesh.verts[x as usize], mesh.verts[y as usize]);
+                    ((a.x() - b.x()).powi(2) + (a.y() - b.y()).powi(2) + (a.z() - b.z()).powi(2))
+                        .sqrt()
+                };
+                let batch_tris: BTreeSet<u32> = chains_of
+                    .keys()
+                    .flat_map(|&pi| patches[pi].tris.iter().copied())
+                    .collect();
+                for &ei in &active {
+                    let e = &eligible[ei];
+                    for q in [e.chain[0], *e.chain.last().expect("chain len >= 3")] {
+                        // Fig-11(b)'s "too close" is relative to the SPLIT
+                        // EDGE at q, not the global chord band: the local
+                        // band is the shortest boundary edge incident to q
+                        // on the seam owners' cycles, capped by d_eps.
+                        let mut band_local = band;
+                        for pi in [e.pair.0, e.pair.1] {
+                            let Some(cycles) = mod_cycles.get(&pi) else {
+                                continue;
+                            };
+                            for cyc in cycles {
+                                let n = cyc.len();
+                                for i in 0..n {
+                                    let (s, t) = (cyc[i], cyc[(i + 1) % n]);
+                                    if s == q || t == q {
+                                        band_local = band_local.min(dist(s, t));
+                                    }
+                                }
+                            }
+                        }
+                        // Candidates: cycle vertices of the seam's own two
+                        // owner patches, off the seam chain, within the
+                        // LOCAL band.
+                        let mut cands: Vec<(u32, f64)> = Vec::new();
+                        for pi in [e.pair.0, e.pair.1] {
+                            let Some(cycles) = mod_cycles.get(&pi) else {
+                                continue;
+                            };
+                            for cyc in cycles {
+                                for &v in cyc {
+                                    if v == q
+                                        || chain_verts.contains(&v)
+                                        || subs.contains_key(&v)
+                                        || subs.contains_key(&q)
+                                    {
+                                        continue;
+                                    }
+                                    let d = dist(v, q);
+                                    if d <= band_local && !cands.iter().any(|&(c, _)| c == v) {
+                                        cands.push((v, d));
+                                    }
+                                }
+                            }
+                        }
+                        let mut corners: Vec<(u32, f64)> = cands
+                            .into_iter()
+                            .filter(|&(v, _)| holder_count(v) >= 3)
+                            .collect();
+                        corners.sort_by(|x, y| x.1.total_cmp(&y.1).then(x.0.cmp(&y.0)));
+                        match corners.as_slice() {
+                            [] => {}
+                            [(p, d), rest @ ..] => {
+                                if let Some((p2, d2)) = rest.first() {
+                                    eprintln!(
+                                        "[s4-construct] pass={pass}: CORNER-MERGE AMBIGUOUS \
+                                         at q=v{q} — v{p}@{d:.3e} vs v{p2}@{d2:.3e}; no merge"
+                                    );
+                                    continue;
+                                }
+                                // A surviving (non-batch) triangle containing
+                                // BOTH p and q would degenerate to (q,q,x)
+                                // under the substitution — a non-manifold
+                                // mint, refuse loudly.
+                                let shared_tri = mesh.tris.iter().enumerate().any(|(t, tri)| {
+                                    !batch_tris.contains(&(t as u32))
+                                        && tri.contains(p)
+                                        && tri.contains(&q)
+                                });
+                                if shared_tri {
+                                    eprintln!(
+                                        "[s4-construct] pass={pass}: CORNER-MERGE REFUSED \
+                                         v{p} -> v{q} — a surviving triangle holds both"
+                                    );
+                                    continue;
+                                }
+                                eprintln!(
+                                    "[s4-construct] pass={pass}: CORNER-MERGE v{p} -> v{q} \
+                                     dist={d:.3e} (band {band_local:.3e})"
+                                );
+                                subs.insert(*p, q);
+                            }
+                        }
+                    }
+                }
+                if !subs.is_empty() {
+                    for cycles in mod_cycles.values_mut() {
+                        for cyc in cycles.iter_mut() {
+                            for v in cyc.iter_mut() {
+                                if let Some(&q) = subs.get(v) {
+                                    *v = q;
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                eprintln!(
+                    "[s4-construct] pass={pass}: CORNER-MERGE SKIPPED (no Stage-1 chord band)"
+                );
             }
             // I1f — §4.4.1 NEAR-CURVE VERTEX REMOVAL (spec §3 step 2): drop
             // boundary vertices lying EXACTLY on a collapsed seam's segment
@@ -820,7 +972,49 @@ fn run_construct_passes(
                     );
                 }
             }
+            // Consecutive-duplicate cleanup after merge + removal (a merged
+            // corner adjacent to a removed spur leaves q twice in a row;
+            // wraparound included). A cycle degenerating below 3 vertices
+            // declines that patch's seams, loudly.
+            {
+                let mut degenerate: Vec<usize> = Vec::new();
+                for (&pi, cycles) in mod_cycles.iter_mut() {
+                    for cyc in cycles.iter_mut() {
+                        let mut out: Vec<u32> = Vec::with_capacity(cyc.len());
+                        for &v in cyc.iter() {
+                            if out.last() != Some(&v) {
+                                out.push(v);
+                            }
+                        }
+                        while out.len() >= 2 && out.first() == out.last() {
+                            out.pop();
+                        }
+                        *cyc = out;
+                        if cyc.len() < 3 {
+                            degenerate.push(pi);
+                        }
+                    }
+                }
+                if let Some(&pi) = degenerate.first() {
+                    skip[6] += 1;
+                    eprintln!(
+                        "[s4-construct] pass={pass}: DECLINED patch {pi} — cycle degenerated \
+                         below 3 vertices after corner merge/removal; dropping its seams"
+                    );
+                    let drop: Vec<usize> = active
+                        .iter()
+                        .copied()
+                        .filter(|&ei| eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi)
+                        .collect();
+                    for ei in drop {
+                        active.remove(&ei);
+                    }
+                    continue 'assemble;
+                }
+            }
             // Dropped vertices: chain interiors + planar flood interiors.
+            // A merged corner (subs key) is NOT dropped — the write-back
+            // re-points every surviving reference at its q.
             let batch_own: BTreeSet<u32> = chains_of
                 .keys()
                 .flat_map(|&pi| patches[pi].tris.iter().copied())
@@ -831,7 +1025,7 @@ fn run_construct_passes(
                 let mut dr = BTreeSet::new();
                 for &t in &patches[pi].tris {
                     for &v in &mesh.tris[t as usize] {
-                        if !kept.contains(&v) {
+                        if !kept.contains(&v) && !subs.contains_key(&v) {
                             dr.insert(v);
                         }
                     }
@@ -1024,7 +1218,7 @@ fn run_construct_passes(
                     }
                 }
             }
-            break out;
+            break (out, subs);
         };
 
         if rebuilds.is_empty() {
@@ -1054,7 +1248,7 @@ fn run_construct_passes(
             );
             break;
         }
-        match apply_rebuild_batch(mesh, attribution, &rebuilds) {
+        match apply_rebuild_batch(mesh, attribution, &rebuilds, &subs) {
             Ok(()) => {
                 for &ei in &active {
                     let e = &eligible[ei];

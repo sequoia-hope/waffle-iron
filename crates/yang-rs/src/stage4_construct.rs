@@ -406,10 +406,17 @@ pub(crate) fn rebuild_patch_planar(
 /// lockstep with `mesh.tris` — the invariant every downstream consumer
 /// depends on. No vertices are added; orphaned ones are left for the caller's
 /// usual `compact_unreferenced_verts` pass.
+///
+/// `subs` is the I1g Fig-11(b) corner-merge map (`p -> q`): every SURVIVING
+/// (non-rebuilt) triangle that references a merged corner `p` is re-pointed
+/// at `q` — the shared-index identification that lets a curved neighbour
+/// (out of the planar rebuild's scope) adopt the merge without a re-CDT.
+/// Rebuilt triangles already reference `q` via the substituted cycles.
 pub(crate) fn apply_rebuild_batch(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
     rebuilds: &[PatchRebuild],
+    subs: &BTreeMap<u32, u32>,
 ) -> Result<(), ConstructError> {
     let (n_verts, n_tris) = (mesh.verts.len() as u32, mesh.tris.len() as u32);
     let mut removed: BTreeSet<u32> = BTreeSet::new();
@@ -444,7 +451,15 @@ pub(crate) fn apply_rebuild_batch(
         if removed.contains(&(t as u32)) {
             continue;
         }
-        tris.push(*tri);
+        let mut out = *tri;
+        if !subs.is_empty() {
+            for v in &mut out {
+                if let Some(&q) = subs.get(v) {
+                    *v = q;
+                }
+            }
+        }
+        tris.push(out);
         attrs.push(attribution.attributions[t]);
     }
     for (r, attr) in rebuilds.iter().zip(attrs_of) {
@@ -709,7 +724,8 @@ mod tests {
 
         let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1, 2, 3]);
         let r = rebuild_patch_planar(&mesh, 0, &patch).expect("planar rebuild");
-        apply_rebuild_batch(&mut mesh, &mut attribution, &[r]).expect("write-back");
+        apply_rebuild_batch(&mut mesh, &mut attribution, &[r], &BTreeMap::new())
+            .expect("write-back");
 
         assert_eq!(mesh.tris.len(), 4, "2 foreign survivors + 2 replacements");
         assert_eq!(attribution.attributions.len(), 4, "lockstep");
@@ -738,13 +754,18 @@ mod tests {
         let mut grown_attr = TriangleAttributionMap::empty();
         grown_attr.attributions = vec![None; 5];
         assert!(matches!(
-            apply_rebuild_batch(&mut grown, &mut grown_attr, &[r.clone()]),
+            apply_rebuild_batch(&mut grown, &mut grown_attr, &[r.clone()], &BTreeMap::new()),
             Err(ConstructError::StalePlan { .. })
         ));
 
         // Overlap: the same patch twice in one batch.
         assert!(matches!(
-            apply_rebuild_batch(&mut mesh, &mut attribution, &[r.clone(), r]),
+            apply_rebuild_batch(
+                &mut mesh,
+                &mut attribution,
+                &[r.clone(), r],
+                &BTreeMap::new()
+            ),
             Err(ConstructError::OverlappingBatch { .. })
         ));
     }
