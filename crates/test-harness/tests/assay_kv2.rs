@@ -1246,12 +1246,14 @@ fn smoke_corpus_boundary_categories() {
         // until 2026-07-11.
         ("F0075", Category::SupportedCorrect),
         // R0008 marched past the partial-cone revolve wall (KV6c increment 5,
-        // spec kv6c_partial_revolve_cone_patch.md) to its next honest
-        // boundary: an auto-union whose Stage-3 SSI refinement stops loud at
-        // AmbiguousCurve { candidates: 2, matched: 2 } (a cone-pair curve
-        // matching ambiguity — M5-family). ERROR is the typed downstream
-        // state, not a regression; re-pin when the SSI class lands.
-        ("R0008", Category::Error),
+        // spec kv6c_partial_revolve_cone_patch.md), then past its Stage-3
+        // `AmbiguousCurve { candidates: 2, matched: 2 }` cone-pair boundary
+        // at the chord-band grid seeding (b1f8caa9, 2026-08-08 — the run that
+        // set the 259C canonical): CORRECT in that committed baseline. This
+        // pin sat stale-ERROR behind the red CI/fail-fast tiers until
+        // 2026-08-09; re-verified CORRECT under the pinned dashu-ratio 0.4.4
+        // lock the same day.
+        ("R0008", Category::SupportedCorrect),
         // ── C-series complexity corpus (2026-07-05 baseline) ─────────────
         // Representative pins per family; see specs/assay_complexity_corpus.md.
         // Group 1/3 (in-boundary bug hunters) — green, with two NAMED
@@ -1295,11 +1297,13 @@ fn smoke_corpus_boundary_categories() {
         // Still-walled trackers (flip these when the milestone lands):
         // C0048 PIN MOVED (2026-07-17, task #176 session): the M8 campaign
         // (#142/#143) had already lifted the UNSUPPORTED(coplanar) wall —
-        // the case now progresses to the deeper typed azimuth-merge ERROR
-        // ("rims have mismatched / too-few samples", the committed baseline's
-        // verdict at 6d6141ef too). The stale pin sat unseen behind the debug
-        // tier's fail-fast, exactly like C0065's and C0071's below.
-        ("C0048", Category::Error), // [M8] chained swiss-cheese plates → azimuth-merge ERROR
+        // the case then progressed to the typed azimuth-merge ERROR. PIN
+        // MOVED AGAIN (2026-08-09): CORRECT in the 2026-08-08 canonical
+        // committed baseline (b1f8caa9, the chord-band run that set 259C)
+        // and re-verified under the pinned dashu-ratio 0.4.4 lock. Both
+        // stale stretches had the same cause — red CI + fail-fast tiers
+        // hiding the smoke gate; the environment pin ends that class.
+        ("C0048", Category::SupportedCorrect), // [M8] chained swiss-cheese plates, converted
         // M5 LANDED (specs/m5_surface_pair_curve.md): the general
         // unequal-radius perpendicular cyl×cyl intersection is now carried by
         // the procedural surface-pair curve — union then cut passes the

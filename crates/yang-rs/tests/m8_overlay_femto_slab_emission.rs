@@ -496,9 +496,16 @@ fn synthetic_femto_slab_fuses() {
 /// the legacy path (spec §3 step 2: no sliver ⇒ byte-identical) — the fusion
 /// record stays empty and every byte of the output is unchanged.
 ///
-/// The golden below was captured from the pre-repair code (HEAD). 23 distinct
+/// The golden below was captured from the pre-repair code (HEAD). 21 distinct
 /// exact verts round onto shared f64 points here, i.e. the needle-drop path
 /// is genuinely exercised — this is a needle fixture, not a trivial one.
+///
+/// Re-captured 2026-08-09 under dashu-ratio 0.4.4, whose `RBig::to_f64` fix
+/// (correct rounding, no double-round) shifts two 1–2-ULP-split vert pairs
+/// onto DISTINCT f64 points: 23→21 coincident pairs, two needles kept instead
+/// of dropped, +4 BOnly triangles (109→113). The pre-0.4.4 capture (109 tris,
+/// FNV 0x4219f62a20bdfbfe) encoded the library's double-rounding bug; the
+/// Cargo.lock pin makes this capture reproducible everywhere.
 #[test]
 fn needle_only_overlay_byte_identical_legacy() {
     let (a, b) = c0048_pair();
@@ -509,7 +516,7 @@ fn needle_only_overlay_byte_identical_legacy() {
     // Golden (pre-repair capture): structural counts + FNV-1a of the whole
     // result. Any drift means the legacy needle-weld path changed.
     assert_eq!(ov.verts.len(), 110, "golden: vertex count");
-    assert_eq!(ov.tris.len(), 109, "golden: triangle count");
+    assert_eq!(ov.tris.len(), 113, "golden: triangle count");
     assert_eq!(
         ov.class
             .iter()
@@ -531,17 +538,17 @@ fn needle_only_overlay_byte_identical_legacy() {
             .iter()
             .filter(|c| **c == RegionClass::BOnly)
             .count(),
-        22,
+        26,
         "golden: BOnly triangle count"
     );
     assert_eq!(
         overlay_fnv(&ov),
-        0x4219f62a20bdfbfe,
+        0xf7642480300ae850,
         "golden: overlay FNV-1a drifted (legacy path is no longer byte-identical)"
     );
     assert_eq!(
         coincident_f64_pairs(&ov),
-        23,
+        21,
         "golden: needle-drop footprint (coincident f64 vert pairs)"
     );
     assert!(

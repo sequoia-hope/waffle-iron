@@ -1,2 +1,10 @@
 [toolchain]
-channel = "stable"
+# Exact-version pin (not a channel): fmt/clippy/std behavior must be identical
+# between CI and dev machines, or the lint gate and the byte-identical golden
+# pins drift red on runner-image updates alone — both CI workflows were red
+# 2026-06-11 → 2026-08-09 from exactly that (moving rustfmt rules + moving
+# deps; see the Cargo.lock commit). Bump deliberately, running the full test
+# pyramid + fmt/clippy in the same commit.
+channel = "1.97.1"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]

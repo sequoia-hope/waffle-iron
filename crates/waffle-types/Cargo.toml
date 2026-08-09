@@ -14,6 +14,12 @@ thiserror = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 i_overlay = { version = "4.4", default-features = false }
 
+# uuid's `v4` needs a randomness source; on wasm32 that must be chosen
+# explicitly (uuid ≥1.20 makes the omission a compile error). `js` routes
+# getrandom through crypto.getRandomValues in the browser.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+uuid = { version = "1", features = ["js"] }
+
 [features]
 # MockKernel test double — keep out of production/WASM builds.
 mock-kernel = []
