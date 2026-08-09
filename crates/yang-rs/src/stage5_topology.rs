@@ -887,8 +887,10 @@ fn run_construct_passes(
                              dist={d:.3e} holders={holders:?}"
                         );
                         for &h in &holders {
-                            if !mod_cycles.contains_key(&h) {
-                                mod_cycles.insert(h, patches[h].cycles.clone());
+                            if let std::collections::btree_map::Entry::Vacant(slot) =
+                                mod_cycles.entry(h)
+                            {
+                                slot.insert(patches[h].cycles.clone());
                                 merge_only.insert(h);
                             }
                         }
