@@ -110,10 +110,16 @@ name, never measured).
    junction OUTSIDE the wall's kept footprint and relocates q (the
    face-boundary exit) onto it; the corridor gate sees magnitude, not
    kept content. The femto pair is almost certainly the same mint
-   (adjacent spokes → same circle, near-identical angles). I1e next: a
-   kept-content (mesh-footprint containment) gate on exact-junction
-   relocation.** Curved seams are I2. Spec §4-I1 has the full
-   measurement.
+   (adjacent spokes → same circle, near-identical angles). I1e RE-SCOPED
+   by the pre-position census: the endpoints sit 3.9e-3 off the circle
+   PRE-relocation (mis-attributed circle incidence) and the chain was
+   MONOTONE before the junction relocation leapt one vertex over three
+   neighbours and the corner — a junction-arm gate alone cannot fix it
+   (plain-circle fallback projects onto the same false circle; the
+   no-skip audit couples bookkeeping to EDGE classes). The fix is
+   upstream in curve-EDGE classification; next census: which edge is
+   Circle-classified at these vertices and which layer chained it.**
+   Curved seams are I2. Spec §4-I1 has the full measurement.
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
