@@ -109,17 +109,21 @@ name, never measured).
    curves, so the classifier computes the exact UNBOUNDED line∩circle
    junction OUTSIDE the wall's kept footprint and relocates q (the
    face-boundary exit) onto it; the corridor gate sees magnitude, not
-   kept content. The femto pair is almost certainly the same mint
-   (adjacent spokes → same circle, near-identical angles). I1e RE-SCOPED
-   by the pre-position census: the endpoints sit 3.9e-3 off the circle
-   PRE-relocation (mis-attributed circle incidence) and the chain was
-   MONOTONE before the junction relocation leapt one vertex over three
-   neighbours and the corner — a junction-arm gate alone cannot fix it
-   (plain-circle fallback projects onto the same false circle; the
-   no-skip audit couples bookkeeping to EDGE classes). The fix is
-   upstream in curve-EDGE classification; next census: which edge is
-   Circle-classified at these vertices and which layer chained it.**
-   Curved seams are I2. Spec §4-I1 has the full measurement.
+   kept content. I1e incidence census SELF-RETRACTED the "mis-attribution"
+   read: every chained edge is [A:Plane, B:Cyl] — the RIB's outer end is
+   CYLINDRICAL at the rim radius; the chord-chain and junction
+   relocations are the paper's own resample. What breaks is the CORNER:
+   the exact junction (r=0.2088) and the chord-anchored Stage-1 wall∩cap
+   corner (r=0.20751) are two authorities' versions of ONE B-Rep corner,
+   and the boundary folds between them. I1f (near-curve removal, landed
+   gated) measured an honest NO-OP — its holder census separates
+   discretization verts (2 holders) from topological corners (3).
+   **I1g next: Fig-11(a)–(c) corner identification — split the partner
+   chain at q, MERGE the chord-anchored p into q under the cap owner's
+   derived chord band, as a shared-INDEX op across all holder patches
+   (batch extends with removal-only planar holders). Expected reach:
+   TF-8 + the femto pair.** Curved seams are I2. Spec §4-I1 has the
+   full measurement.
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
