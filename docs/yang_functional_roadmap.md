@@ -98,11 +98,15 @@ name, never measured).
    `YANG_441_APPLY_BOOL_CAP`/`_SEAM_CAP`/`_VERBOSE`). Straightness identity
    gate `chain_straightness` landed (1e-9, loud skip; measured
    nonstraight=0). **TF-8 ANCHORED: the seam junction OVERSHOOTS the face
-   corner by a uniform 1.339e-3 on every rib (minted past where the
-   intersection line exits the face; the fold-back chain is the walk back).
-   Beyond-corner-phantom family; `trim_beyond_corner_phantoms` does not
-   fire on these junctions — censusing its firing conditions on this family
-   is I1c.** Curved seams are I2. Spec §4-I1 has the full measurement.
+   corner by a uniform 1.339e-3 on every rib. I1c census DONE: the
+   beyond-corner trim never runs (block gated on minted junction keys;
+   this boolean mints none — reach gap by call-site, not predicate), and
+   the overshot endpoint is the UNIQUE relocated vertex in each declined
+   cycle — a Stage-4 SEAM-ENDPOINT AUTHORITY defect (the 2026-08-01
+   two-authorities anchor, localized to endpoints). I1d next: does the
+   Stage-3 exact curve end at the corner (clamp endpoint relocation to the
+   curve's boundary exit) or beyond (Stage-3 trim mint)?** Curved seams
+   are I2. Spec §4-I1 has the full measurement.
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

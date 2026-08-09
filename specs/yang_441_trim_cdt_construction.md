@@ -167,10 +167,30 @@ below — most of the R-series is curved, so the epic's reach depends on it.
      the F0082 minted-corner / beyond-corner-phantom family
      (`trim_beyond_corner_phantoms`, stage4_correct.rs — "the curve stops
      being an output boundary at the corner"); that machinery does NOT
-     fire on these junctions, and censusing its firing conditions on this
-     family is the named follow-up increment. The paper's own answer is
-     Fig-11(a): the boundary intersection q is computed ON the boundary
-     curve; a sample beyond the face has zero kept content.
+     fire on these junctions. The paper's own answer is Fig-11(a): the
+     boundary intersection q is computed ON the boundary curve; a sample
+     beyond the face has zero kept content.
+
+     **I1c census (2026-08-09, DONE): why the trim never fires, and the
+     overshoot's identity.** (1) The entire moved×minted weld + trim block
+     in `stage4_relocate_and_correct` is gated on
+     `!minted_junction_keys.is_empty()`, and F0067's failing boolean mints
+     ZERO junction keys — the beyond-corner machinery only reaches the
+     curved-pierce mint family (F0082); the TF-8 plane×plane family is out
+     of its reach by CALL-SITE GATE, not by predicate. (2) The relocation
+     census (decline census now prints per-vertex relocation identity):
+     the overshot seam endpoint is the UNIQUE relocated vertex in each
+     declined cycle — projected onto the exact curve (recorded curve
+     parameter; `relocations` stores `(v, t)`), landing past the face
+     corner, while the true-corner column and the walk-back vertices are
+     all UNMOVED. The I1b collapse keeps junction endpoints BY DESIGN, so
+     this is a Stage-4 SEAM-ENDPOINT AUTHORITY defect — the 2026-08-01
+     "TWO relocation authorities" anchor, now localized to endpoints.
+     **I1d (next): the endpoint-authority discriminator** — does the
+     Stage-3 exact curve itself end at the corner (endpoint relocation
+     must CLAMP to the curve's own boundary exit) or beyond it (the
+     Stage-3 curve trim minted the overshoot)? Compare the exact curve's
+     endpoint against the relocated endpoint on the TF-8 seams.
    - `DuplicateVertex` ×1 — the femto pair is ANCHORED: mesh verts
      1049+1050, 3D distance 4.441e-16, bit-identical chart projections.
      Upstream double-mint of one junction (the `SeamPointCoincident`

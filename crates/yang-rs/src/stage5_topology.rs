@@ -931,6 +931,7 @@ fn run_construct_passes(
                                 intersection_curves,
                                 &collapsed,
                                 pi,
+                                relocations,
                             );
                         }
                         let drop: Vec<usize> = active
@@ -1023,6 +1024,7 @@ fn run_construct_passes(
 /// UV segment test — declined cycles are small), and the coincident chart
 /// pair for `DuplicateVertex`. Read-only; f64 signs are diagnostic labels,
 /// not gates.
+#[allow(clippy::too_many_arguments)]
 fn census_construct_decline(
     mesh: &Mesh,
     surface: Surface,
@@ -1031,8 +1033,15 @@ fn census_construct_decline(
     intersection_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
     collapsed: &std::collections::BTreeSet<(u32, u32)>,
     pi: usize,
+    relocations: &[(u32, f64)],
 ) {
     use std::collections::BTreeMap;
+    let reloc_of = |v: u32| -> Option<f64> {
+        relocations
+            .iter()
+            .find(|&&(rv, _)| rv == v)
+            .map(|&(_, d)| d)
+    };
 
     let edge_tag = |s: u32, t: u32| -> &'static str {
         let key = (s.min(t), s.max(t));
@@ -1062,8 +1071,12 @@ fn census_construct_decline(
         if n <= 24 {
             for (i, &v) in cyc.iter().enumerate() {
                 let p = mesh.verts[v as usize];
+                let moved = match reloc_of(v) {
+                    Some(d) => format!("relocated d={d:.3e}"),
+                    None => "unmoved".to_string(),
+                };
                 eprintln!(
-                    "[s4-construct]     cyc[{i}] v{v} ({:.12}, {:.12}, {:.12}) --[{}]--",
+                    "[s4-construct]     cyc[{i}] v{v} ({:.12}, {:.12}, {:.12}) [{moved}] --[{}]--",
                     p.x(),
                     p.y(),
                     p.z(),

@@ -6450,6 +6450,32 @@ pub(crate) fn stage4_relocate_and_correct(
                     .map(|prov| (v as u32, *prov))
             })
             .collect();
+        // I1c census (probe-only): the TF-8 anchor needs the IDENTITY of the
+        // overshot seam junctions at trim time — minted? moved? neither? —
+        // matched offline by position (ids differ across passes; mint
+        // coordinates never mutate).
+        if std::env::var_os("YANG_P3B_TRIM_PROBE").is_some() {
+            for (&v, prov) in &minted_prov {
+                let p = mesh.verts[v as usize];
+                eprintln!(
+                    "[p3b-minted] v{v} ({:.12}, {:.12}, {:.12}) planes trim_beyond=[{},{}]",
+                    p.x(),
+                    p.y(),
+                    p.z(),
+                    prov.owner_planes[0].trim_beyond,
+                    prov.owner_planes[1].trim_beyond,
+                );
+            }
+            for &v in &moved {
+                let p = mesh.verts[v as usize];
+                eprintln!(
+                    "[p3b-moved] v{v} ({:.12}, {:.12}, {:.12})",
+                    p.x(),
+                    p.y(),
+                    p.z()
+                );
+            }
+        }
         if !minted_prov.is_empty()
             && trim_beyond_corner_phantoms(mesh, &mut attr_vec, &moved, &minted_prov, d_eps)
         {
