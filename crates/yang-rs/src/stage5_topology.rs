@@ -1059,6 +1059,18 @@ fn census_construct_decline(
             "[s4-construct]   patch {pi} cycle {k}: {n} edges — {}",
             fmt.join(" ")
         );
+        if n <= 24 {
+            for (i, &v) in cyc.iter().enumerate() {
+                let p = mesh.verts[v as usize];
+                eprintln!(
+                    "[s4-construct]     cyc[{i}] v{v} ({:.12}, {:.12}, {:.12}) --[{}]--",
+                    p.x(),
+                    p.y(),
+                    p.z(),
+                    edge_tag(v, cyc[(i + 1) % n])
+                );
+            }
+        }
     }
 
     let Some(chart) = crate::stage4_project::SurfaceChart::new(surface) else {
@@ -1102,6 +1114,15 @@ fn census_construct_decline(
                                 edge_tag(a0, a1),
                                 edge_tag(b0, b1)
                             );
+                            for v in [a0, a1, b0, b1] {
+                                let p = mesh.verts[v as usize];
+                                eprintln!(
+                                    "[s4-construct]     x-vert v{v} = ({:.12}, {:.12}, {:.12})",
+                                    p.x(),
+                                    p.y(),
+                                    p.z()
+                                );
+                            }
                         }
                     }
                 }

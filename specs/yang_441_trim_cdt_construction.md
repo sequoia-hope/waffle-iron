@@ -150,17 +150,27 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    ONE pass-0 batch over 59 patches** (I1 needed 39 passes and left 11
    mutually blocked with ×500 decline events); fixpoint census is now **9
    stable declines with exact signatures**:
-   - `TriangulationFailed` ×8 — every one the SAME geometry: the collapsed
-     straight seam `(minted-junction, outline-junction)` properly crosses
-     one of the patch's own PLAIN outline edges whose near endpoint is
-     numerically adjacent to the seam's outline junction (1090↔1096,
-     1523↔1524, 1616↔1617, 1720↔1721 …) and whose far endpoint is a minted
-     vertex in a regular per-rib series (2574, 2546, 2518 … step ≈28).
-     This is the Fig-11(a) boundary-junction configuration (intersection
-     point q ON the boundary curve): the outline chain near the junction
-     disagrees with the exact seam — an upstream junction/outline placement
-     defect, NOT a collapse defect. Anchoring which mint (relocated outline
-     vertex vs missing/misplaced boundary split) is the next probe.
+   - `TriangulationFailed` ×8 — every one the SAME geometry, ANCHORED to
+     the vertex (2026-08-09, follow-up session with full-cycle + position
+     census): each declined patch is a rib SIDE WALL whose top boundary
+     runs the collapsed seam from s=0 to s=1 along the top line, then
+     walks BACKWARD along that same line (the fold-back chain, e.g. 991 →
+     983 → 975 at s = 0.776, 0.795, 0.906) to the wall's TRUE corner at
+     s≈0.906, where the vertical edge drops. **The seam's junction
+     endpoint OVERSHOOTS the face corner by a uniform 1.339e-3 on every
+     rib** (999 vs corner 975; 1934 vs 1971; …): the junction is minted
+     PAST the point where the intersection line exits the bounded face,
+     and the fold-back chain exists to walk back from the overshot
+     junction. The collapse correctly keeps junction endpoints, so the
+     overshoot survives and the direct seam edge crosses the corner's
+     vertical edge — the CDT decline is naming the UPSTREAM mint. This is
+     the F0082 minted-corner / beyond-corner-phantom family
+     (`trim_beyond_corner_phantoms`, stage4_correct.rs — "the curve stops
+     being an output boundary at the corner"); that machinery does NOT
+     fire on these junctions, and censusing its firing conditions on this
+     family is the named follow-up increment. The paper's own answer is
+     Fig-11(a): the boundary intersection q is computed ON the boundary
+     curve; a sample beyond the face has zero kept content.
    - `DuplicateVertex` ×1 — the femto pair is ANCHORED: mesh verts
      1049+1050, 3D distance 4.441e-16, bit-identical chart projections.
      Upstream double-mint of one junction (the `SeamPointCoincident`

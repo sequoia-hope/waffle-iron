@@ -97,8 +97,12 @@ name, never measured).
    gate-OFF — spec §4-I1b has the full anchor + the new bisect probes
    `YANG_441_APPLY_BOOL_CAP`/`_SEAM_CAP`/`_VERBOSE`). Straightness identity
    gate `chain_straightness` landed (1e-9, loud skip; measured
-   nonstraight=0). Curved seams are I2. Spec §4-I1 has the full
-   measurement.
+   nonstraight=0). **TF-8 ANCHORED: the seam junction OVERSHOOTS the face
+   corner by a uniform 1.339e-3 on every rib (minted past where the
+   intersection line exits the face; the fold-back chain is the walk back).
+   Beyond-corner-phantom family; `trim_beyond_corner_phantoms` does not
+   fire on these junctions — censusing its firing conditions on this family
+   is I1c.** Curved seams are I2. Spec §4-I1 has the full measurement.
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
