@@ -82,11 +82,23 @@ name, never measured).
    replace relocate-in-place with the paper's curve-authoritative trim + CDT
    (the ~27-case ERROR family; closes N2's core). **I1 LANDED 2026-08-09**
    (gated `YANG_441_CONSTRUCT`, byte-identical off): unconditional line-seam
-   collapse over planar pairs — mechanism sound (39 applications on F0067's
-   failing boolean), 0 conversions, and the decline census measured the I1b
-   design: the §4.4.1 unit is the PATCH with ALL its curves (mutually-blocked
-   seams cannot collapse pairwise); curved seams are I2. Spec §4-I1 has the
-   full measurement.
+   collapse over planar pairs — mechanism sound, 0 conversions, and the
+   decline census measured the I1b design. **I1b LANDED same day** (same
+   gate): per-patch simultaneous collapse + single-sided tolerance-free
+   re-CDT + batch write-back — on F0067 all 39 eligible seams collapse in
+   ONE pass (I1: 39 passes, 11 blocked, ×500 declines); fixpoint is 9
+   declines with exact signatures (×8 collapsed-seam×own-outline crossings
+   at boundary junctions — an upstream junction/outline placement defect,
+   the Fig-11(a) configuration; ×1 femto pair ANCHORED verts 1049+1050 at
+   4.4e-16 — Root-C upstream double-mint). Gate-ON full assay
+   258C/0W/49E/1T vs 259C/0W/49E/0T: zero WRONGs, zero conversions;
+   F0085 = budget clip; R0095 = UNMASKED LATENT (minimal repro ONE clean
+   collapse; the disturbed face's woven double-chain boundary pre-exists
+   gate-OFF — spec §4-I1b has the full anchor + the new bisect probes
+   `YANG_441_APPLY_BOOL_CAP`/`_SEAM_CAP`/`_VERBOSE`). Straightness identity
+   gate `chain_straightness` landed (1e-9, loud skip; measured
+   nonstraight=0). Curved seams are I2. Spec §4-I1 has the full
+   measurement.
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

@@ -707,7 +707,7 @@ fn extend_shift_along_chain(
 // ---------------------------------------------------------------------------
 
 /// Area vector (twice the signed area, summed) of a triangle list.
-fn area_vector(tris: &[[u32; 3]], pos: &dyn Fn(u32) -> Point3) -> [f64; 3] {
+pub(crate) fn area_vector(tris: &[[u32; 3]], pos: &dyn Fn(u32) -> Point3) -> [f64; 3] {
     let mut acc = [0.0f64; 3];
     for t in tris {
         let (p0, p1, p2) = (pos(t[0]), pos(t[1]), pos(t[2]));
@@ -720,7 +720,7 @@ fn area_vector(tris: &[[u32; 3]], pos: &dyn Fn(u32) -> Point3) -> [f64; 3] {
     acc
 }
 
-fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+pub(crate) fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 

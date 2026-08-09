@@ -499,23 +499,38 @@ fn run_meshup_splice_passes(
     Ok(())
 }
 
-/// §4.4.1 AS WRITTEN, increment I1 (spec `specs/yang_441_trim_cdt_construction.md`
-/// §4): the UNCONDITIONAL curve-seam construction for planar patch pairs on
-/// `Curve::LineSegment` seams.
+/// §4.4.1 AS WRITTEN, increment I1b (spec `specs/yang_441_trim_cdt_construction.md`
+/// §4): the UNCONDITIONAL curve-seam construction, per PATCH with ALL its
+/// curves.
 ///
 /// Gated by the CALLER on `YANG_441_CONSTRUCT`; gate-OFF runs never enter and
-/// are byte-identical. Each pass enumerates every intersection-curve seam
-/// (`stage4_construct::seam_groups` — no defect detector; the paper applies
-/// §4.4.1 to every intersected patch), collapses ONE seam's relocated
-/// fold-back chain to its junction endpoints
-/// (`stage4_construct::replace_seam_run`), re-triangulates the pair against
-/// the clean seam (`splice_seam_pair` — dropped chain vertices become planar
-/// interior vertices and are discarded, the paper's collinear "remove a mesh
-/// vertex" case), and writes back. One application per pass (`apply_splice`
-/// renumbers triangles), then the same Phase-A recompute the other passes do.
+/// are byte-identical. I1's one-seam-per-pass slice measured sound with ZERO
+/// conversions: mutually-blocked seams (a collapsed seam still crosses the
+/// other not-yet-collapsed relocated chains of the same cycle) can never
+/// collapse pairwise — the fixpoint decline census
+/// (`SelfIntersectingPolyline` ×500 on F0067) named the paper's own plural,
+/// "we trim and update the meshes using the intersection curveS".
 ///
-/// Out-of-scope seams (curved patch, non-line curve, closed run) are LOUD
-/// skips — increment I2's worklist, never a silent partial repair.
+/// Each pass now: enumerates every seam (`stage4_construct::seam_groups` —
+/// no defect detector), collects the ELIGIBLE ones (LineSegment curve, both
+/// owner patches planar, open orderable chain, contiguous in both owners'
+/// cycles), collapses ALL of each patch's eligible runs simultaneously
+/// (`collapse_patch_runs`), re-triangulates each modified patch SINGLE-SIDED
+/// (`rebuild_patch_planar` — after collapse the seams are ordinary boundary
+/// edges; a plain tolerance-free CDT of the cycle polygon, dropped chain
+/// vertices become planar interior and are discarded, the paper's collinear
+/// "remove a mesh vertex" case), and writes the whole batch back in one pass
+/// (`apply_rebuild_batch`). Conformality is by construction: a collapsed
+/// seam is the SAME `(e0, e1)` vertex pair on both owner patches, and every
+/// untouched boundary chain is reproduced edge-for-edge by the CDT.
+///
+/// A seam collapses only if BOTH owners rebuild in the same batch — any
+/// refusal (mid-batch non-contiguity, degenerate cycle, a dropped vertex
+/// still referenced outside the batch or kept by another batched patch, CDT
+/// decline) removes the responsible seam (or the whole patch's seams) from
+/// the batch and re-assembles, loudly. Out-of-scope seams (curved patch,
+/// non-line curve, closed run) are LOUD skips — increment I2's worklist,
+/// never a silent partial repair.
 #[allow(clippy::too_many_arguments)]
 fn run_construct_passes(
     mesh: &mut Mesh,
@@ -526,30 +541,32 @@ fn run_construct_passes(
     intersection_curves: &mut std::collections::BTreeMap<(u32, u32), Curve>,
     relocations: &mut Vec<(u32, f64)>,
 ) -> Result<(), YangError> {
-    use crate::stage4_construct::{replace_seam_run, seam_groups};
-    use crate::stage4_splice::{
-        apply_splice, ordered_seam_side, splice_seam_pair, Side, SplicePatch,
+    use crate::stage4_construct::{
+        apply_rebuild_batch, collapse_patch_runs, rebuild_patch_planar, replace_seam_run,
+        seam_groups,
     };
-    use crate::stage4_update::MeshUpdateOpts;
+    use crate::stage4_splice::{ordered_seam_side, Side, SplicePatch};
+    use std::collections::{BTreeMap, BTreeSet};
 
     // Every seam collapses at most once (its chain drops below 3 vertices),
     // so the pass count is bounded by the seam count; the cap is a runaway
-    // guard, not an expected limit.
+    // guard, not an expected limit. The batch path consumes NO tolerance:
+    // collapse is pure index rewriting and the rebuild is a plain CDT.
     const MAX_PASSES: usize = 64;
 
-    let Some(d_eps) = crate::stage4_correct::stage4_chord_band(a, b) else {
-        eprintln!("[s4-construct] SKIPPED (no Stage-1 chord band for this input pair)");
-        return Ok(());
-    };
-    let merge_tol = cad_primitives::TAU_MODEL;
-    if merge_tol >= d_eps {
-        eprintln!(
-            "[s4-construct] SKIPPED (merge_tol {merge_tol:.3e} >= chord band d_eps {d_eps:.3e})"
-        );
-        return Ok(());
+    // Bisection probes (env-gated, deterministic): cap which BOOLEANS may
+    // apply (process-order index) and the TOTAL applied-seam budget. For
+    // localizing a gate-ON regression to one boolean / one seam prefix;
+    // census still runs in full either way.
+    static BOOL_INDEX: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let bool_idx = BOOL_INDEX.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let env_cap =
+        |name: &str| -> Option<usize> { std::env::var(name).ok().and_then(|v| v.parse().ok()) };
+    let apply_enabled = env_cap("YANG_441_APPLY_BOOL_CAP").is_none_or(|c| bool_idx < c);
+    let seam_budget = env_cap("YANG_441_APPLY_SEAM_CAP");
+    if !apply_enabled {
+        eprintln!("[s4-construct] CENSUS-ONLY (boolean index {bool_idx} at/above bool cap)");
     }
-    let opts = MeshUpdateOpts { merge_tol, d_eps };
-    let conformal_tol = merge_tol;
 
     let mut applied_total = 0usize;
     for pass in 0..MAX_PASSES {
@@ -584,14 +601,20 @@ fn run_construct_passes(
             .collect();
 
         let groups = seam_groups(&patches, intersection_curves);
-        let mut applied_this_pass = false;
         // Skip census: (non-line, curved-patch, closed, minimal, unorderable,
-        // run-not-contiguous, declined/refused). The I2 worklist is measured,
-        // not inferred.
-        let mut skip = [0usize; 7];
+        // run-not-contiguous, declined/refused, non-straight). The I2
+        // worklist is measured, not inferred.
+        let mut skip = [0usize; 8];
+
+        // ---- Eligibility: per seam, each filter loud. -----------------------
+        struct EligibleSeam {
+            gi: usize,
+            pair: (usize, usize),
+            chain: Vec<u32>,
+        }
+        let mut eligible: Vec<EligibleSeam> = Vec::new();
         for (gi, g) in groups.iter().enumerate() {
             let (pi, qi) = g.pair;
-            // ---- I1 scope filters, each loud. ---------------------------
             if !matches!(g.curve, Curve::LineSegment) {
                 skip[0] += 1;
                 eprintln!(
@@ -633,75 +656,304 @@ fn run_construct_passes(
                 skip[3] += 1;
                 continue; // already minimal — the construction's fixed point
             }
-            let Some(cyc_a) = replace_seam_run(&patches[pi].cycles, &chain) else {
+            // Straightness identity: `Curve::LineSegment` is a unit variant,
+            // so one group can hold TWO different lines meeting at a real
+            // corner (R0095's coplanar-contact regression) — collapsing that
+            // chain would CUT THE CORNER. On-line-but-scrambled chains (the
+            // F0067 mint, ~1e-15 relative off-line) pass; a corner is
+            // macroscopic. Band per P10: silent-wrong → loud skip.
+            match crate::stage4_construct::chain_straightness(&mesh.verts, &chain) {
+                Some(s) if s <= 1e-9 => {}
+                s => {
+                    skip[7] += 1;
+                    eprintln!(
+                        "[s4-construct] pass={pass} seam={gi}: SKIP non-straight chain \
+                         (patches {pi}+{qi}, off-line {s:?}) — not one line's seam",
+                    );
+                    continue;
+                }
+            }
+            if replace_seam_run(&patches[pi].cycles, &chain).is_none() {
                 skip[5] += 1;
                 eprintln!(
                     "[s4-construct] pass={pass} seam={gi}: SKIP — run not contiguous \
                      in patch {pi}'s cycles"
                 );
                 continue;
-            };
-            let Some(cyc_b) = replace_seam_run(&patches[qi].cycles, &chain) else {
+            }
+            if replace_seam_run(&patches[qi].cycles, &chain).is_none() {
                 skip[5] += 1;
                 eprintln!(
                     "[s4-construct] pass={pass} seam={gi}: SKIP — run not contiguous \
                      in patch {qi}'s cycles"
                 );
                 continue;
-            };
-            let mod_a = SplicePatch {
-                cycles: cyc_a,
-                tris: patches[pi].tris.clone(),
-                surface: patches[pi].surface,
-            };
-            let mod_b = SplicePatch {
-                cycles: cyc_b,
-                tris: patches[qi].tris.clone(),
-                surface: patches[qi].surface,
-            };
-            let (e0, e1) = (chain[0], *chain.last().expect("chain len >= 3"));
-            let seam_edges: std::collections::BTreeSet<(u32, u32)> =
-                [(e0.min(e1), e0.max(e1))].into();
-            match splice_seam_pair(
-                mesh,
-                &mod_a,
-                &mod_b,
-                &seam_edges,
-                Some(&g.curve),
-                opts,
-                conformal_tol,
-            ) {
-                Ok(out) => match apply_splice(mesh, attribution, &out) {
-                    Ok(()) => {
-                        eprintln!(
-                            "[s4-construct] pass={pass} seam={gi}: APPLIED patches \
-                             {pi}+{qi} — chain {} -> 2 verts",
-                            chain.len()
-                        );
-                        applied_total += 1;
-                        applied_this_pass = true;
-                    }
-                    Err(e) => {
-                        skip[6] += 1;
-                        eprintln!("[s4-construct] pass={pass} seam={gi}: WRITE-BACK REFUSED {e:?}")
-                    }
-                },
-                Err(e) => {
-                    skip[6] += 1;
-                    eprintln!(
-                        "[s4-construct] pass={pass} seam={gi}: DECLINED patches {pi}+{qi} — {e:?}"
-                    )
-                }
             }
-            if applied_this_pass {
-                break;
+            eligible.push(EligibleSeam {
+                gi,
+                pair: (pi, qi),
+                chain,
+            });
+        }
+
+        // ---- Batch assembly: every removal is loud and re-assembles. --------
+        // Bounded: each iteration either breaks with a batch or removes at
+        // least one seam from `active`.
+        let mut active: BTreeSet<usize> = (0..eligible.len()).collect();
+        if let Some(budget) = seam_budget {
+            let allowed = budget.saturating_sub(applied_total);
+            while active.len() > allowed {
+                let last = *active.last().expect("non-empty when over budget");
+                active.remove(&last);
             }
         }
-        if !applied_this_pass {
+        let chain_interior_holds =
+            |e: &EligibleSeam, v: u32| -> bool { e.chain[1..e.chain.len() - 1].contains(&v) };
+        let rebuilds = 'assemble: loop {
+            if active.is_empty() {
+                break Vec::new();
+            }
+            // Group each patch's eligible chains (both owners of every seam).
+            let mut chains_of: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+            for &ei in &active {
+                let e = &eligible[ei];
+                chains_of.entry(e.pair.0).or_default().push(ei);
+                chains_of.entry(e.pair.1).or_default().push(ei);
+            }
+            // Collapse ALL of each patch's runs simultaneously.
+            let mut mod_cycles: BTreeMap<usize, Vec<Vec<u32>>> = BTreeMap::new();
+            for (&pi, eis) in &chains_of {
+                let chains: Vec<Vec<u32>> =
+                    eis.iter().map(|&ei| eligible[ei].chain.clone()).collect();
+                match collapse_patch_runs(&patches[pi].cycles, &chains) {
+                    Ok(c) => {
+                        mod_cycles.insert(pi, c);
+                    }
+                    Err(i) => {
+                        let ei = eis[i];
+                        skip[6] += 1;
+                        eprintln!(
+                            "[s4-construct] pass={pass} seam={}: DECLINED batch collapse \
+                             in patch {pi} (mid-batch non-contiguity or degenerate cycle)",
+                            eligible[ei].gi
+                        );
+                        active.remove(&ei);
+                        continue 'assemble;
+                    }
+                }
+            }
+            // Dropped vertices: chain interiors + planar flood interiors.
+            let batch_own: BTreeSet<u32> = chains_of
+                .keys()
+                .flat_map(|&pi| patches[pi].tris.iter().copied())
+                .collect();
+            let mut dropped_of: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
+            for (&pi, cycles) in &mod_cycles {
+                let kept: BTreeSet<u32> = cycles.iter().flatten().copied().collect();
+                let mut dr = BTreeSet::new();
+                for &t in &patches[pi].tris {
+                    for &v in &mesh.tris[t as usize] {
+                        if !kept.contains(&v) {
+                            dr.insert(v);
+                        }
+                    }
+                }
+                dropped_of.insert(pi, dr);
+            }
+            // A vertex one batched patch drops but another batched patch KEEPS
+            // on its modified cycles would be a T-junction between them.
+            for (&pi, dr) in &dropped_of {
+                for (&qi, cycles) in &mod_cycles {
+                    if qi == pi {
+                        continue;
+                    }
+                    if let Some(&v) = cycles.iter().flatten().find(|v| dr.contains(v)) {
+                        if let Some(ei) = active
+                            .iter()
+                            .copied()
+                            .find(|&ei| chain_interior_holds(&eligible[ei], v))
+                        {
+                            skip[6] += 1;
+                            eprintln!(
+                                "[s4-construct] pass={pass} seam={}: DECLINED — dropped \
+                                 vertex {v} (patch {pi}) kept by batched patch {qi}",
+                                eligible[ei].gi
+                            );
+                            active.remove(&ei);
+                        } else {
+                            skip[6] += 1;
+                            eprintln!(
+                                "[s4-construct] pass={pass}: DECLINED patch {pi} — interior \
+                                 vertex {v} kept by batched patch {qi}; dropping its seams"
+                            );
+                            let drop: Vec<usize> = active
+                                .iter()
+                                .copied()
+                                .filter(|&ei| {
+                                    eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi
+                                })
+                                .collect();
+                            for ei in drop {
+                                active.remove(&ei);
+                            }
+                        }
+                        continue 'assemble;
+                    }
+                }
+            }
+            // A dropped vertex referenced by a triangle OUTSIDE the batch
+            // would be orphaned into a T-junction.
+            let mut owner_of_dropped: BTreeMap<u32, usize> = BTreeMap::new();
+            for (&pi, dr) in &dropped_of {
+                for &v in dr {
+                    owner_of_dropped.entry(v).or_insert(pi);
+                }
+            }
+            for (t, tri) in mesh.tris.iter().enumerate() {
+                if batch_own.contains(&(t as u32)) {
+                    continue;
+                }
+                if let Some((&v, &pi)) = tri.iter().find_map(|v| owner_of_dropped.get_key_value(v))
+                {
+                    if let Some(ei) = active
+                        .iter()
+                        .copied()
+                        .find(|&ei| chain_interior_holds(&eligible[ei], v))
+                    {
+                        skip[6] += 1;
+                        eprintln!(
+                            "[s4-construct] pass={pass} seam={}: DECLINED — dropped vertex \
+                             {v} referenced outside the batch (tri {t})",
+                            eligible[ei].gi
+                        );
+                        active.remove(&ei);
+                    } else {
+                        skip[6] += 1;
+                        eprintln!(
+                            "[s4-construct] pass={pass}: DECLINED patch {pi} — interior \
+                             vertex {v} referenced outside the batch (tri {t}); dropping \
+                             its seams"
+                        );
+                        let drop: Vec<usize> = active
+                            .iter()
+                            .copied()
+                            .filter(|&ei| eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi)
+                            .collect();
+                        for ei in drop {
+                            active.remove(&ei);
+                        }
+                    }
+                    continue 'assemble;
+                }
+            }
+            // Anchoring dump (env-gated, read-only): per active seam the chain
+            // geometry and whether the direct edge pre-exists; per patch the
+            // pre/post cycles. For localizing a gate-ON regression.
+            if std::env::var_os("YANG_441_VERBOSE").is_some() {
+                for &ei in &active {
+                    let e = &eligible[ei];
+                    let (e0, e1) = (e.chain[0], *e.chain.last().expect("chain len >= 3"));
+                    let pre = mesh
+                        .tris
+                        .iter()
+                        .filter(|t| {
+                            (0..3).any(|k| {
+                                let (a, b) = (t[k], t[(k + 1) % 3]);
+                                (a == e0 && b == e1) || (a == e1 && b == e0)
+                            })
+                        })
+                        .count();
+                    eprintln!(
+                        "[s4-verbose] seam={} pair={:?} chain={:?} direct-edge-pre-tris={pre}",
+                        e.gi, e.pair, e.chain
+                    );
+                    for &v in &e.chain {
+                        let p = mesh.verts[v as usize];
+                        eprintln!(
+                            "[s4-verbose]   v{v} = ({:.9}, {:.9}, {:.9})",
+                            p.x(),
+                            p.y(),
+                            p.z()
+                        );
+                    }
+                }
+                for (&pi, cycles) in &mod_cycles {
+                    let pre: Vec<usize> = patches[pi].cycles.iter().map(Vec::len).collect();
+                    let post: Vec<usize> = cycles.iter().map(Vec::len).collect();
+                    eprintln!(
+                        "[s4-verbose] patch {pi}: cycles pre={pre:?} post={post:?} tris={}",
+                        patches[pi].tris.len()
+                    );
+                    for (k, cyc) in patches[pi].cycles.iter().enumerate() {
+                        eprintln!("[s4-verbose]   patch {pi} pre-cycle {k}: {cyc:?}");
+                    }
+                    for (k, cyc) in cycles.iter().enumerate() {
+                        eprintln!("[s4-verbose]   patch {pi} post-cycle {k}: {cyc:?}");
+                    }
+                }
+            }
+            // Single-sided rebuilds. A patch that declines takes all its seams
+            // out of the batch (its partners must not collapse one-sidedly).
+            let mut out = Vec::with_capacity(mod_cycles.len());
+            for (&pi, cycles) in &mod_cycles {
+                let modp = SplicePatch {
+                    cycles: cycles.clone(),
+                    tris: patches[pi].tris.clone(),
+                    surface: patches[pi].surface,
+                };
+                match rebuild_patch_planar(mesh, pi, &modp) {
+                    Ok(r) => out.push(r),
+                    Err(e) => {
+                        skip[6] += 1;
+                        eprintln!("[s4-construct] pass={pass}: DECLINED patch {pi} — {e:?}");
+                        // Decline census: name what the declined boundary is
+                        // MADE OF and WHICH edges cross — the I2 worklist and
+                        // the femto-pair anchor are measured here, not
+                        // inferred later.
+                        if let crate::stage4_construct::ConstructError::Cdt { ref error, .. } = e {
+                            let collapsed: BTreeSet<(u32, u32)> = active
+                                .iter()
+                                .copied()
+                                .filter(|&ei| {
+                                    eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi
+                                })
+                                .map(|ei| {
+                                    let ch = &eligible[ei].chain;
+                                    let (a, b) = (ch[0], *ch.last().expect("chain len >= 3"));
+                                    (a.min(b), a.max(b))
+                                })
+                                .collect();
+                            census_construct_decline(
+                                mesh,
+                                patches[pi].surface,
+                                cycles,
+                                error,
+                                intersection_curves,
+                                &collapsed,
+                                pi,
+                            );
+                        }
+                        let drop: Vec<usize> = active
+                            .iter()
+                            .copied()
+                            .filter(|&ei| eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi)
+                            .collect();
+                        for ei in drop {
+                            active.remove(&ei);
+                        }
+                        continue 'assemble;
+                    }
+                }
+            }
+            break out;
+        };
+
+        if rebuilds.is_empty() {
             eprintln!(
                 "[s4-construct] STOP pass={pass}: no collapsible seam remains \
                  (applied_total={applied_total}; seams={} skips: nonline={} curved={} \
-                 closed={} minimal={} unorderable={} noncontig={} declined={})",
+                 closed={} minimal={} unorderable={} noncontig={} declined={} \
+                 nonstraight={})",
                 groups.len(),
                 skip[0],
                 skip[1],
@@ -710,8 +962,43 @@ fn run_construct_passes(
                 skip[4],
                 skip[5],
                 skip[6],
+                skip[7],
             );
             break;
+        }
+        if !apply_enabled {
+            eprintln!(
+                "[s4-construct] pass={pass}: APPLY SKIPPED (census-only) — {} seams over \
+                 {} patches",
+                active.len(),
+                rebuilds.len()
+            );
+            break;
+        }
+        match apply_rebuild_batch(mesh, attribution, &rebuilds) {
+            Ok(()) => {
+                for &ei in &active {
+                    let e = &eligible[ei];
+                    eprintln!(
+                        "[s4-construct] pass={pass} seam={}: APPLIED patches {}+{} — \
+                         chain {} -> 2 verts",
+                        e.gi,
+                        e.pair.0,
+                        e.pair.1,
+                        e.chain.len()
+                    );
+                }
+                eprintln!(
+                    "[s4-construct] pass={pass}: BATCH APPLIED — {} seams over {} patches",
+                    active.len(),
+                    rebuilds.len()
+                );
+                applied_total += active.len();
+            }
+            Err(e) => {
+                eprintln!("[s4-construct] STOP pass={pass}: WRITE-BACK REFUSED {e:?}");
+                break;
+            }
         }
 
         let remap = compact_unreferenced_verts(mesh, relocations);
@@ -728,6 +1015,131 @@ fn run_construct_passes(
         *intersection_curves = cv2;
     }
     Ok(())
+}
+
+/// Diagnostic census for a patch the I1b construct pass DECLINED at CDT:
+/// per-cycle edge composition (collapsed-seam / line-seam / curved-seam /
+/// plain), the crossing edge pairs for `TriangulationFailed` (brute-force
+/// UV segment test — declined cycles are small), and the coincident chart
+/// pair for `DuplicateVertex`. Read-only; f64 signs are diagnostic labels,
+/// not gates.
+fn census_construct_decline(
+    mesh: &Mesh,
+    surface: Surface,
+    cycles: &[Vec<u32>],
+    error: &cherchi_rs::CdtError,
+    intersection_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    collapsed: &std::collections::BTreeSet<(u32, u32)>,
+    pi: usize,
+) {
+    use std::collections::BTreeMap;
+
+    let edge_tag = |s: u32, t: u32| -> &'static str {
+        let key = (s.min(t), s.max(t));
+        if collapsed.contains(&key) {
+            "collapsed-seam"
+        } else {
+            match intersection_curves.get(&key) {
+                Some(Curve::LineSegment) => "line-seam",
+                Some(_) => "curved-seam",
+                None => "plain",
+            }
+        }
+    };
+    for (k, cyc) in cycles.iter().enumerate() {
+        let n = cyc.len();
+        let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
+        for i in 0..n {
+            *counts
+                .entry(edge_tag(cyc[i], cyc[(i + 1) % n]))
+                .or_default() += 1;
+        }
+        let fmt: Vec<String> = counts.iter().map(|(t, c)| format!("{t}={c}")).collect();
+        eprintln!(
+            "[s4-construct]   patch {pi} cycle {k}: {n} edges — {}",
+            fmt.join(" ")
+        );
+    }
+
+    let Some(chart) = crate::stage4_project::SurfaceChart::new(surface) else {
+        return;
+    };
+    match error {
+        cherchi_rs::CdtError::TriangulationFailed => {
+            // Proper-crossing scan between non-adjacent boundary edges.
+            let cross = |p: cad_primitives::Point2,
+                         q: cad_primitives::Point2,
+                         r: cad_primitives::Point2,
+                         s: cad_primitives::Point2|
+             -> bool {
+                let orient = |a: cad_primitives::Point2,
+                              b: cad_primitives::Point2,
+                              c: cad_primitives::Point2|
+                 -> f64 {
+                    (b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x())
+                };
+                let (o1, o2) = (orient(p, q, r), orient(p, q, s));
+                let (o3, o4) = (orient(r, s, p), orient(r, s, q));
+                o1 * o2 < 0.0 && o3 * o4 < 0.0
+            };
+            for cyc in cycles {
+                let n = cyc.len();
+                let uv: Vec<cad_primitives::Point2> = cyc
+                    .iter()
+                    .map(|&v| chart.project(mesh.verts[v as usize]))
+                    .collect();
+                for i in 0..n {
+                    for j in (i + 1)..n {
+                        let (a0, a1) = (cyc[i], cyc[(i + 1) % n]);
+                        let (b0, b1) = (cyc[j], cyc[(j + 1) % n]);
+                        if a0 == b0 || a0 == b1 || a1 == b0 || a1 == b1 {
+                            continue; // shared endpoint — not a proper crossing
+                        }
+                        if cross(uv[i], uv[(i + 1) % n], uv[j], uv[(j + 1) % n]) {
+                            eprintln!(
+                                "[s4-construct]   patch {pi} CROSSING ({a0},{a1})[{}] x \
+                                 ({b0},{b1})[{}]",
+                                edge_tag(a0, a1),
+                                edge_tag(b0, b1)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        cherchi_rs::CdtError::DuplicateVertex => {
+            let mut seen: BTreeMap<[u64; 2], u32> = BTreeMap::new();
+            let mut found = 0usize;
+            for &v in cycles.iter().flatten() {
+                let uv = chart.project(mesh.verts[v as usize]);
+                let key = [uv.x().to_bits(), uv.y().to_bits()];
+                match seen.get(&key) {
+                    Some(&w) if w != v => {
+                        found += 1;
+                        let (pw, pv) = (mesh.verts[w as usize], mesh.verts[v as usize]);
+                        let d = ((pw.x() - pv.x()).powi(2)
+                            + (pw.y() - pv.y()).powi(2)
+                            + (pw.z() - pv.z()).powi(2))
+                        .sqrt();
+                        eprintln!(
+                            "[s4-construct]   patch {pi} FEMTO-PAIR verts {w}+{v} — \
+                             3D dist {d:.3e}"
+                        );
+                    }
+                    _ => {
+                        seen.insert(key, v);
+                    }
+                }
+            }
+            if found == 0 {
+                eprintln!(
+                    "[s4-construct]   patch {pi}: no bit-identical chart pair \
+                     (spade-level merge)"
+                );
+            }
+        }
+        _ => {}
+    }
 }
 
 pub(crate) fn reconstruct_topology_stage4(
@@ -1267,9 +1679,10 @@ pub(crate) fn reconstruct_topology_stage4(
                 &mut relocations,
             )?;
         }
-        // §4.4.1 AS WRITTEN, increment I1 (spec
+        // §4.4.1 AS WRITTEN, increment I1b (spec
         // `specs/yang_441_trim_cdt_construction.md`): the unconditional
-        // curve-seam construction. Gate-OFF is byte-identical.
+        // curve-seam construction, per PATCH with ALL its curves. Gate-OFF
+        // is byte-identical.
         if std::env::var_os("YANG_441_CONSTRUCT").is_some() {
             run_construct_passes(
                 mesh,

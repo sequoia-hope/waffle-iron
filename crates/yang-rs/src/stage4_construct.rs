@@ -29,11 +29,37 @@
 //! `stage5_topology::run_construct_passes`, gated on `YANG_441_CONSTRUCT`
 //! (gate-OFF byte-identical). Curved patches and non-line curves are LOUD
 //! skips — increment I2's scope, never a silent partial repair.
+//!
+//! # I1b — the PATCH with ALL its curves (2026-08-09)
+//!
+//! I1's one-seam-per-pass application measured SOUND, ZERO CONVERSIONS on
+//! F0067: 39 seams collapsed, and the fixpoint decline census
+//! (`SelfIntersectingPolyline` ×500) named the reason — a collapsed straight
+//! seam still crosses the OTHER not-yet-collapsed relocated chains of the
+//! same cycle, so mutually-blocked seams can never collapse pairwise. The
+//! paper's own unit of work is plural ("we trim and update the meshes using
+//! the intersection curveS"): the PATCH with all its curves.
+//!
+//! The I1b mechanism ([`collapse_patch_runs`] + [`rebuild_patch_planar`] +
+//! [`apply_rebuild_batch`]) therefore collapses ALL of a patch's eligible
+//! seam runs simultaneously and re-triangulates the patch SINGLE-SIDED: after
+//! collapse each seam is an ordinary boundary edge of the modified cycles, so
+//! a plain CDT of the cycle polygon suffices — no two-sided driver, no
+//! constraint insertion, no tolerance. Conformality is by construction:
+//! a collapsed seam is the SAME `(e0, e1)` mesh-vertex pair on both owner
+//! patches (both rebuilt in the same batch), and every untouched boundary
+//! chain is reproduced edge-for-edge by the CDT, so interfaces to
+//! non-rebuilt neighbours are byte-identical.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::geom::Curve;
-use crate::stage4_splice::SplicePatch;
+use cad_primitives::Point3;
+use cherchi_rs::{cdt_with_interior_constraints, CdtError, Mesh};
+
+use crate::brep::{TriangleAttribution, TriangleAttributionMap};
+use crate::geom::{Curve, Surface};
+use crate::stage4_project::{patch_from_cycles_shifted, SurfaceChart};
+use crate::stage4_splice::{area_vector, dot3, SplicePatch};
 
 /// One seam: the intersection-curve edges shared by exactly one patch pair,
 /// all naming the same exact curve.
@@ -139,6 +165,266 @@ pub(crate) fn replace_seam_run(cycles: &[Vec<u32>], chain: &[u32]) -> Option<Vec
     None
 }
 
+/// Worst RELATIVE perpendicular offset of the chain's interior vertices from
+/// the line through its endpoints (relative to the chain's own extent), or
+/// `None` for a degenerate chord (coincident endpoints).
+///
+/// This is the STRAIGHTNESS IDENTITY the collapse requires and
+/// `Curve::LineSegment`'s unit-variant equality fails to encode:
+/// `seam_groups` merges ALL straight seams of one patch pair into one group,
+/// so a chain `e0–x–e1` can be TWO different lines meeting at a real corner
+/// `x` (coplanar-contact region boundaries — the R0095 regression), and
+/// collapsing it to the chord `(e0,e1)` would CUT THE CORNER. A genuine
+/// §4.4.1 seam's interior vertices were relocated ONTO the one exact line
+/// (off-line by f64 rounding only, ~1e-15 relative, even when their PARAMETER
+/// order is scrambled — the F0067 fold-backs), while a real corner is off by
+/// a macroscopic fraction. The caller's band (1e-9 relative) sits six orders
+/// from both; outside it the seam is LOUDLY skipped, never collapsed — the
+/// P10-sanctioned use of a band: turning a silent wrong into a loud stop.
+pub(crate) fn chain_straightness(verts: &[cad_primitives::Point3], chain: &[u32]) -> Option<f64> {
+    let p = |v: u32| -> [f64; 3] {
+        let w = verts[v as usize];
+        [w.x(), w.y(), w.z()]
+    };
+    let (p0, p1) = (p(chain[0]), p(*chain.last().expect("chain non-empty")));
+    let d = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    if len2 == 0.0 || !len2.is_finite() {
+        return None;
+    }
+    let mut extent2 = len2;
+    let mut worst2 = 0.0f64;
+    for &v in &chain[1..chain.len() - 1] {
+        let x = p(v);
+        let r = [x[0] - p0[0], x[1] - p0[1], x[2] - p0[2]];
+        let r2 = r[0] * r[0] + r[1] * r[1] + r[2] * r[2];
+        extent2 = extent2.max(r2);
+        let t = (r[0] * d[0] + r[1] * d[1] + r[2] * d[2]) / len2;
+        let perp = [r[0] - t * d[0], r[1] - t * d[1], r[2] - t * d[2]];
+        worst2 = worst2.max(perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]);
+    }
+    if extent2 == 0.0 || !worst2.is_finite() {
+        return None;
+    }
+    Some((worst2 / extent2).sqrt())
+}
+
+/// Why an I1b patch rebuild or batch write-back was refused. Every variant is
+/// a P9/P10 LOUD stop, censused by the driver — never a silent partial repair.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ConstructError {
+    /// The patch is not planar. Single-sided rebuild of a curved patch would
+    /// drop its interior chord-fidelity vertices — increment I2's scope.
+    NonPlanarPatch { patch: usize },
+    /// `patch_from_cycles_shifted` rejected the modified cycles (short cycle,
+    /// bad index, zero-area outer boundary).
+    MalformedPatch { patch: usize },
+    /// The plain CDT of the modified cycle polygon refused. The two live
+    /// classes: `TriangulationFailed` — the modified boundary still
+    /// self-crosses (a residual crossing NOT minted by a seam chain) — and
+    /// `DuplicateVertex` — two kept boundary vertices coincide in the chart
+    /// (the femto-pair junction family).
+    Cdt { patch: usize, error: CdtError },
+    /// The rebuilt patch has no well-defined orientation to match against the
+    /// original (degenerate area vector).
+    DegenerateOrientation { patch: usize },
+    /// The patch's old triangles do not all share one attribution, so the
+    /// replacement triangles have no unambiguous attribution to inherit.
+    MixedAttribution { patch: usize },
+    /// [`apply_rebuild_batch`] was handed a plan built against a different
+    /// mesh.
+    StalePlan {
+        expected_tris: u32,
+        actual_tris: u32,
+    },
+    /// Two rebuilds in one batch claim the same old triangle — a driver bug,
+    /// not input (flood-fill patches are disjoint).
+    OverlappingBatch { tri: u32 },
+}
+
+/// One patch's single-sided rebuild, entirely in MESH index space and ready
+/// for [`apply_rebuild_batch`]. Zero new vertices by construction: a plain
+/// CDT of the boundary polygon adds no Steiner points, so every triangle
+/// references existing mesh vertices.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PatchRebuild {
+    /// Index of the patch in the pass's patch list (diagnostic only).
+    pub patch: usize,
+    /// The old triangles this rebuild replaces (indices into `mesh.tris`).
+    pub old_tris: Vec<u32>,
+    /// Replacement triangles in mesh vertex indices, orientation matched to
+    /// the old patch's outward sense.
+    pub new_tris: Vec<[u32; 3]>,
+    /// Mesh vertices the old triangles referenced that the rebuild does not:
+    /// collapsed seam-chain interiors plus planar flood interiors. The driver
+    /// scans these for foreign references before committing the batch.
+    pub dropped: BTreeSet<u32>,
+    /// Mesh extents the plan was built against; the write-back refuses a
+    /// changed mesh.
+    pub plan_verts: u32,
+    pub plan_tris: u32,
+}
+
+/// Collapse ALL of `chains` in `cycles` — the I1b per-patch simultaneous
+/// collapse. Chains of distinct seams are disjoint runs sharing at most
+/// junction ENDPOINTS (which every collapse keeps), so sequential application
+/// is order-independent; each chain must still spell a contiguous run when
+/// its turn comes.
+///
+/// `Err(i)` names the chain that failed — either its run was not contiguous
+/// in the (progressively modified) cycles, or collapsing it would leave a
+/// cycle with fewer than 3 vertices (the whole cycle was the open chain).
+/// The caller drops that SEAM from the batch (both owners) and retries.
+pub(crate) fn collapse_patch_runs(
+    cycles: &[Vec<u32>],
+    chains: &[Vec<u32>],
+) -> Result<Vec<Vec<u32>>, usize> {
+    let mut cur: Vec<Vec<u32>> = cycles.to_vec();
+    for (i, chain) in chains.iter().enumerate() {
+        cur = replace_seam_run(&cur, chain).ok_or(i)?;
+        if cur.iter().any(|c| c.len() < 3) {
+            return Err(i);
+        }
+    }
+    Ok(cur)
+}
+
+/// Re-triangulate one PLANAR patch single-sided against its modified cycles.
+///
+/// `patch.cycles` are the post-[`collapse_patch_runs`] cycles; `patch.tris`
+/// the ORIGINAL triangle set being replaced. The collapsed seams are ordinary
+/// boundary edges here — the CDT reproduces every boundary edge exactly, so
+/// each collapsed seam's `(e0, e1)` pair and every untouched neighbour chain
+/// come out shared-by-index. Interior vertices (chain interiors and flood
+/// interiors) simply do not appear in the CDT input: for a planar patch they
+/// are geometrically redundant — the paper's collinear "remove a mesh vertex"
+/// quality step. The caller's foreign-reference scan is what makes dropping
+/// them safe.
+pub(crate) fn rebuild_patch_planar(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+) -> Result<PatchRebuild, ConstructError> {
+    if !matches!(patch.surface, Surface::Plane { .. }) {
+        return Err(ConstructError::NonPlanarPatch { patch: patch_index });
+    }
+    let chart = SurfaceChart::new(patch.surface)
+        .ok_or(ConstructError::NonPlanarPatch { patch: patch_index })?;
+    let (p2, back) =
+        patch_from_cycles_shifted(&chart, &mesh.verts, &patch.cycles, &BTreeMap::new())
+            .ok_or(ConstructError::MalformedPatch { patch: patch_index })?;
+
+    let tris2 = cdt_with_interior_constraints(&p2.verts, &p2.boundary, &p2.holes, &[], &[])
+        .map_err(|error| ConstructError::Cdt {
+            patch: patch_index,
+            error,
+        })?;
+
+    // Back into mesh index space. The CDT adds no Steiner points, so every
+    // index is inside the input pool; a miss is a broken invariant, not input.
+    let mut new_tris: Vec<[u32; 3]> = tris2
+        .iter()
+        .map(|t| {
+            [
+                back[t[0] as usize],
+                back[t[1] as usize],
+                back[t[2] as usize],
+            ]
+        })
+        .collect();
+
+    // Match the ORIGINAL patch's outward sense by measurement — the chart
+    // basis has arbitrary handedness relative to the surface normal.
+    let old: Vec<[u32; 3]> = patch.tris.iter().map(|&t| mesh.tris[t as usize]).collect();
+    let pos = |v: u32| -> Point3 { mesh.verts[v as usize] };
+    let want = area_vector(&old, &pos);
+    let got = area_vector(&new_tris, &pos);
+    let d = dot3(want, got);
+    if d == 0.0 || !d.is_finite() {
+        return Err(ConstructError::DegenerateOrientation { patch: patch_index });
+    }
+    if d < 0.0 {
+        for t in &mut new_tris {
+            t.swap(1, 2);
+        }
+    }
+
+    let kept: BTreeSet<u32> = new_tris.iter().flatten().copied().collect();
+    let dropped: BTreeSet<u32> = old
+        .iter()
+        .flatten()
+        .copied()
+        .filter(|v| !kept.contains(v))
+        .collect();
+
+    Ok(PatchRebuild {
+        patch: patch_index,
+        old_tris: patch.tris.clone(),
+        new_tris,
+        dropped,
+        plan_verts: mesh.verts.len() as u32,
+        plan_tris: mesh.tris.len() as u32,
+    })
+}
+
+/// Write a batch of [`PatchRebuild`]s into the mesh in ONE pass: drop every
+/// rebuilt patch's old triangles, append each patch's replacements carrying
+/// that patch's (uniform) attribution. `attribution.attributions` stays in
+/// lockstep with `mesh.tris` — the invariant every downstream consumer
+/// depends on. No vertices are added; orphaned ones are left for the caller's
+/// usual `compact_unreferenced_verts` pass.
+pub(crate) fn apply_rebuild_batch(
+    mesh: &mut Mesh,
+    attribution: &mut TriangleAttributionMap,
+    rebuilds: &[PatchRebuild],
+) -> Result<(), ConstructError> {
+    let (n_verts, n_tris) = (mesh.verts.len() as u32, mesh.tris.len() as u32);
+    let mut removed: BTreeSet<u32> = BTreeSet::new();
+    let mut attrs_of: Vec<Option<TriangleAttribution>> = Vec::with_capacity(rebuilds.len());
+    for r in rebuilds {
+        if r.plan_verts != n_verts || r.plan_tris != n_tris {
+            return Err(ConstructError::StalePlan {
+                expected_tris: r.plan_tris,
+                actual_tris: n_tris,
+            });
+        }
+        let mut it = r
+            .old_tris
+            .iter()
+            .map(|&t| attribution.attributions[t as usize]);
+        let first = it.next().flatten();
+        if it.any(|a| a != first) {
+            return Err(ConstructError::MixedAttribution { patch: r.patch });
+        }
+        attrs_of.push(first);
+        for &t in &r.old_tris {
+            if !removed.insert(t) {
+                return Err(ConstructError::OverlappingBatch { tri: t });
+            }
+        }
+    }
+
+    let added: usize = rebuilds.iter().map(|r| r.new_tris.len()).sum();
+    let mut tris = Vec::with_capacity(mesh.tris.len() - removed.len() + added);
+    let mut attrs = Vec::with_capacity(tris.capacity());
+    for (t, tri) in mesh.tris.iter().enumerate() {
+        if removed.contains(&(t as u32)) {
+            continue;
+        }
+        tris.push(*tri);
+        attrs.push(attribution.attributions[t]);
+    }
+    for (r, attr) in rebuilds.iter().zip(attrs_of) {
+        for tri in &r.new_tris {
+            tris.push(*tri);
+            attrs.push(attr);
+        }
+    }
+    mesh.tris = tris;
+    attribution.attributions = attrs;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,6 +479,217 @@ mod tests {
         let gs = seam_groups(&[a, b], &curves);
         assert_eq!(gs.len(), 2, "two curves ⇒ two seams for the same pair");
         assert!(gs.iter().all(|g| g.pair == (0, 1)));
+    }
+
+    #[test]
+    fn chain_straightness_separates_online_scramble_from_a_real_corner() {
+        // An on-line chain with a SCRAMBLED parameter order (the F0067
+        // fold-back mint): interior at x=2.0 lies beyond the chord but ON the
+        // line — straightness ~0, collapse stays allowed.
+        let verts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(2.0, 1e-16, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+        ];
+        let s = chain_straightness(&verts, &[0, 1, 2]).expect("non-degenerate");
+        assert!(s < 1e-9, "on-line overshoot must pass, got {s:.3e}");
+        // A REAL corner (two different lines meeting at x): macroscopic.
+        let verts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(2.0, 0.0, 0.0),
+        ];
+        let s = chain_straightness(&verts, &[0, 1, 2]).expect("non-degenerate");
+        assert!(
+            s > 1e-3,
+            "a corner must be loudly non-straight, got {s:.3e}"
+        );
+        // Coincident endpoints: degenerate, refused.
+        let verts = vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)];
+        assert_eq!(chain_straightness(&verts, &[0, 1, 0]), None);
+    }
+
+    #[test]
+    fn collapse_patch_runs_collapses_all_runs_of_one_cycle() {
+        // Two disjoint seam runs on one cycle: 0-7-8-1 and 2-9-3. Collapsing
+        // BOTH is exactly the I1b move I1 could not make one-at-a-time.
+        let cycles = vec![vec![0, 7, 8, 1, 5, 2, 9, 3]];
+        let out = collapse_patch_runs(&cycles, &[vec![0, 7, 8, 1], vec![2, 9, 3]])
+            .expect("both runs collapse");
+        assert_eq!(out[0], vec![2, 3, 0, 1, 5]);
+    }
+
+    #[test]
+    fn collapse_patch_runs_keeps_shared_junction_endpoints() {
+        // Adjacent seams share junction vertex 1; both collapses keep it.
+        let cycles = vec![vec![0, 7, 1, 8, 2, 5]];
+        let out = collapse_patch_runs(&cycles, &[vec![0, 7, 1], vec![1, 8, 2]])
+            .expect("adjacent runs collapse");
+        assert_eq!(out[0], vec![1, 2, 5, 0]);
+    }
+
+    #[test]
+    fn collapse_patch_runs_names_the_degenerating_chain() {
+        // Collapsing the second chain would leave a 2-gon: Err names it.
+        let cycles = vec![vec![0, 7, 8, 1, 9]];
+        assert_eq!(
+            collapse_patch_runs(&cycles, &[vec![0, 7, 8, 1], vec![1, 9, 0]]),
+            Err(1)
+        );
+        // A chain absent from the cycles is named too.
+        assert_eq!(collapse_patch_runs(&cycles, &[vec![2, 3, 4]]), Err(0));
+    }
+
+    fn square_fan_mesh() -> Mesh {
+        // Unit square in z=0, CCW from +z, with a kept-out-of-boundary center
+        // vertex 4 fanned by four triangles.
+        Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(0.5, 0.5, 0.0),
+            ],
+            tris: vec![[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]],
+        }
+    }
+
+    #[test]
+    fn rebuild_patch_planar_keeps_boundary_edges_and_drops_interiors() {
+        let mesh = square_fan_mesh();
+        let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1, 2, 3]);
+        let r = rebuild_patch_planar(&mesh, 7, &patch).expect("planar rebuild");
+        assert_eq!(r.patch, 7);
+        assert_eq!(r.dropped, [4u32].into());
+        assert_eq!(r.new_tris.len(), 2, "square CDT is two triangles");
+        // Every boundary edge of the cycle survives edge-for-edge.
+        let mut edges: BTreeSet<(u32, u32)> = BTreeSet::new();
+        for t in &r.new_tris {
+            for k in 0..3 {
+                let (s, e) = (t[k], t[(k + 1) % 3]);
+                edges.insert((s.min(e), s.max(e)));
+            }
+        }
+        for e in [(0u32, 1u32), (1, 2), (2, 3), (0, 3)] {
+            assert!(edges.contains(&e), "boundary edge {e:?} must survive");
+        }
+        // Orientation matches the original fan's outward (+z) sense.
+        let pos = |v: u32| mesh.verts[v as usize];
+        let got = area_vector(&r.new_tris, &pos);
+        assert!(got[2] > 0.0, "rebuilt patch keeps the +z outward sense");
+        assert_eq!(r.plan_verts, 5);
+        assert_eq!(r.plan_tris, 4);
+    }
+
+    #[test]
+    fn rebuild_patch_planar_refuses_a_curved_patch() {
+        let mesh = square_fan_mesh();
+        let patch = SplicePatch {
+            cycles: vec![vec![0, 1, 2, 3]],
+            tris: vec![0, 1, 2, 3],
+            surface: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: 1.0,
+            },
+        };
+        assert_eq!(
+            rebuild_patch_planar(&mesh, 3, &patch),
+            Err(ConstructError::NonPlanarPatch { patch: 3 })
+        );
+    }
+
+    #[test]
+    fn rebuild_patch_planar_reports_a_femto_pair_as_duplicate_vertex() {
+        // Two distinct boundary vertices whose chart projections coincide:
+        // the CDT sees one point twice — the femto-pair junction family stays
+        // a LOUD decline, not a weld.
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(0.5, 1.0, 0.0),
+            ],
+            tris: vec![[0, 1, 2], [0, 2, 3]],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1]);
+        assert_eq!(
+            rebuild_patch_planar(&mesh, 0, &patch),
+            Err(ConstructError::Cdt {
+                patch: 0,
+                error: CdtError::DuplicateVertex
+            })
+        );
+    }
+
+    #[test]
+    fn apply_rebuild_batch_swaps_tris_and_keeps_attribution_lockstep() {
+        use crate::brep::InputId;
+        let mut mesh = square_fan_mesh();
+        // Two foreign triangles after the fan, with a different attribution.
+        mesh.verts.push(Point3::new(2.0, 0.0, 0.0));
+        mesh.tris.push([1, 5, 2]);
+        mesh.tris.push([2, 5, 3]);
+        let fan_attr = Some(TriangleAttribution {
+            input: InputId::A,
+            face: 0,
+        });
+        let foreign_attr = Some(TriangleAttribution {
+            input: InputId::B,
+            face: 9,
+        });
+        let mut attribution = TriangleAttributionMap::empty();
+        attribution.attributions = vec![
+            fan_attr,
+            fan_attr,
+            fan_attr,
+            fan_attr,
+            foreign_attr,
+            foreign_attr,
+        ];
+
+        let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1, 2, 3]);
+        let r = rebuild_patch_planar(&mesh, 0, &patch).expect("planar rebuild");
+        apply_rebuild_batch(&mut mesh, &mut attribution, &[r]).expect("write-back");
+
+        assert_eq!(mesh.tris.len(), 4, "2 foreign survivors + 2 replacements");
+        assert_eq!(attribution.attributions.len(), 4, "lockstep");
+        assert_eq!(
+            &attribution.attributions[..2],
+            &[foreign_attr, foreign_attr]
+        );
+        assert_eq!(&attribution.attributions[2..], &[fan_attr, fan_attr]);
+        assert!(
+            !mesh.tris.iter().flatten().any(|&v| v == 4),
+            "interior dropped"
+        );
+    }
+
+    #[test]
+    fn apply_rebuild_batch_refuses_stale_and_overlapping_plans() {
+        let mut mesh = square_fan_mesh();
+        let mut attribution = TriangleAttributionMap::empty();
+        attribution.attributions = vec![None; 4];
+        let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1, 2, 3]);
+        let r = rebuild_patch_planar(&mesh, 0, &patch).expect("planar rebuild");
+
+        // Stale: the mesh grew after the plan was built.
+        let mut grown = mesh.clone();
+        grown.tris.push([0, 1, 2]);
+        let mut grown_attr = TriangleAttributionMap::empty();
+        grown_attr.attributions = vec![None; 5];
+        assert!(matches!(
+            apply_rebuild_batch(&mut grown, &mut grown_attr, &[r.clone()]),
+            Err(ConstructError::StalePlan { .. })
+        ));
+
+        // Overlap: the same patch twice in one batch.
+        assert!(matches!(
+            apply_rebuild_batch(&mut mesh, &mut attribution, &[r.clone(), r]),
+            Err(ConstructError::OverlappingBatch { .. })
+        ));
     }
 
     #[test]

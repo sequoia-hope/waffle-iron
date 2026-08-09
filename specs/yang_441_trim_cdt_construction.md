@@ -131,6 +131,79 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    driver needed once polyline points are existing shared vertices). The
    `DuplicateVertex` ×76 class is the known femto-pair junction family and
    needs the shipped junction identities applied to the modified cycles.
+
+   **STATUS (2026-08-09, same day): I1b LANDED.** `collapse_patch_runs`
+   (simultaneous per-patch collapse, degenerate-cycle guard) +
+   `rebuild_patch_planar` (single-sided TOLERANCE-FREE plain CDT of the
+   modified cycle polygon — after collapse the seams are ordinary boundary
+   edges; no two-sided driver, no d_eps/merge_tol plumbing) +
+   `apply_rebuild_batch` (one write-back for the whole batch). The driver's
+   batch assembly removes a seam (or a whole patch's seams) on any refusal
+   — mid-batch non-contiguity, degenerate cycle, cross-batch dropped-vertex
+   conflict, foreign reference to a dropped vertex, CDT decline — and
+   re-assembles, loudly; a seam collapses only if BOTH owners rebuild in
+   the same batch. Decline census built in: per-cycle edge composition
+   (collapsed-seam/line-seam/curved-seam/plain), CROSSING edge pairs on
+   `TriangulationFailed`, coincident-pair identity on `DuplicateVertex`.
+
+   Measured on F0067's failing boolean: **all 39 eligible seams collapse in
+   ONE pass-0 batch over 59 patches** (I1 needed 39 passes and left 11
+   mutually blocked with ×500 decline events); fixpoint census is now **9
+   stable declines with exact signatures**:
+   - `TriangulationFailed` ×8 — every one the SAME geometry: the collapsed
+     straight seam `(minted-junction, outline-junction)` properly crosses
+     one of the patch's own PLAIN outline edges whose near endpoint is
+     numerically adjacent to the seam's outline junction (1090↔1096,
+     1523↔1524, 1616↔1617, 1720↔1721 …) and whose far endpoint is a minted
+     vertex in a regular per-rib series (2574, 2546, 2518 … step ≈28).
+     This is the Fig-11(a) boundary-junction configuration (intersection
+     point q ON the boundary curve): the outline chain near the junction
+     disagrees with the exact seam — an upstream junction/outline placement
+     defect, NOT a collapse defect. Anchoring which mint (relocated outline
+     vertex vs missing/misplaced boundary split) is the next probe.
+   - `DuplicateVertex` ×1 — the femto pair is ANCHORED: mesh verts
+     1049+1050, 3D distance 4.441e-16, bit-identical chart projections.
+     Upstream double-mint of one junction (the `SeamPointCoincident`
+     posture: the pair is the defect; a downstream weld would be a band).
+     Stays a loud decline; the fix is the recorded Root-C upstream-mint
+     item.
+   F0067 itself remains an honest ERROR at the downstream ring-reject — the
+   9 declined patches carry their crossings into Stage 5/6. Zero write-back
+   refusals; gate-OFF byte-identical by construction (all changes inside the
+   gated driver + pure helpers).
+
+   **Full-corpus gate-ON assay (2026-08-09): 258C/0W/49E/1T** vs the
+   gate-OFF baseline 259C/0W/49E/0T. Zero WRONGs, zero conversions, two
+   named deltas:
+   - **F0085 ERROR→TIMEOUT** — a budget clip (construct-pass CPU pushed an
+     already-ERROR case past 240s), the recorded budget-artifact class.
+   - **R0095 CORRECT→ERROR — an UNMASKED LATENT, fully anchored.** Bisected
+     with the new deterministic probes (`YANG_441_APPLY_BOOL_CAP`,
+     `YANG_441_APPLY_SEAM_CAP`, `YANG_441_VERBOSE`, plus kernel-v2's
+     `KV2_RING_REJECT_PROBE`) to a MINIMAL repro: ONE collapse (seam 0,
+     patches 1+3, chain [21,23,79,83]) in the case's first boolean. That
+     chain is CLEAN — collinear AND monotone (t = 0, 0.371, 0.595, 1);
+     `direct-edge-pre-tris=0`; both rebuilds' CDTs succeed. The subtract
+     then rejects an input face ring (99 verts) whose crossings sit at ring
+     positions 62–74 — 25 positions from the seam (v83 at pos 93) — where
+     the ring ZIPPERS two near-coincident chains (~1e-5 apart; interleaved
+     monotone t-sequences). Patch 1's PRE-collapse cycle already weaves
+     between the same two vertex families (`…78–58 | 25,24 | 57–54 | 27,26
+     | 31 | 53–50…`), and that pass-0 state is identical gate-OFF (all
+     prior passes run in both gates) — the woven double-chain PRE-EXISTS;
+     the collapse of one clean seam merely perturbs how the downstream
+     subtract processes that face. The latent's own root (the woven
+     base-face boundary — coplanar-contact / M8-residue fingerprint) is a
+     separate defect with its own worklist entry; per
+     `feedback_regressions_can_be_unmasked_latents` it does NOT indict the
+     construction.
+   - Also landed with the campaign: the CHAIN-STRAIGHTNESS identity gate
+     (`chain_straightness`, band 1e-9 relative, P10-sanctioned loud-skip):
+     `Curve::LineSegment` is a unit variant, so one seam group can hold TWO
+     different lines meeting at a real corner — collapsing that chain would
+     cut the corner. Measured `nonstraight=0` corpus-wide on the cases run
+     (every collapsed chain genuinely collinear), so it is a guard, not the
+     R0095 fix (that hypothesis was tested and refuted same-day).
 2. **I2 — curved patches**: interior-vertex carry into `interior` + d(T)
    recompute; retire `CurvedPatchInteriorVertices` by capability, not by
    band. Measure: R-series members of the family.
