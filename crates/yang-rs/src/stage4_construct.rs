@@ -312,6 +312,10 @@ pub(crate) struct PatchRebuild {
 /// in the (progressively modified) cycles, or collapsing it would leave a
 /// cycle with fewer than 3 vertices (the whole cycle was the open chain).
 /// The caller drops that SEAM from the batch (both owners) and retries.
+// Superseded in the driver by the mixed-action loop (I2b adds conic
+// reorders), which applies the same sequential semantics inline. Kept as the
+// pure line-only form its own tests exercise.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn collapse_patch_runs(
     cycles: &[Vec<u32>],
     chains: &[Vec<u32>],

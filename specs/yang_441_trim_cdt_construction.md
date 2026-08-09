@@ -448,6 +448,29 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    already shipped for exactly this ordering)** — which is also the
    nonline=21 worklist and the R0011/R0004/R0049 family. One gate, all
    remaining F0067 walls.
+
+   **I2b (2026-08-09, LANDED on the main gate and CORPUS-VERIFIED).**
+   Eligibility becomes action-typed: a LINE seam COLLAPSES to its
+   junction endpoints; a CONIC seam REORDERS its run to the curve's
+   parameter order (`order_along_curve` + `reorder_cycles_to_curve`,
+   both shipped; carrier pre-check added — the reorder primitive
+   silently no-ops when no cycle carries the whole seam). Guards:
+   straightness and near-curve removal are LINE-only (a conic's chord
+   is not its curve); the corner-merge's seam-edge exclusion covers
+   both the mesh order and the reordered chain. Measured: **F0059 runs
+   764 conic reorders and stays SUPPORTED_CORRECT** (the machinery at
+   scale, composition oracle green); the full gate-ON assay shows ONLY
+   the two known deltas (F0085 conversion + R0095 latent) — zero new
+   walls corpus-wide. On F0067 the reorders have no surviving
+   customers yet: its orderable conic runs are 11 already-in-order +
+   10 riding on the declining wall patches, and merge-only holders
+   join the batch with their cycles VERBATIM, so their own conic
+   chains never reorder — the CDT declines persist. **The named next
+   increment is the PATCH-CLOSURE driver (§3 step 5 as written): the
+   batch unit becomes the intersected PATCH with ALL its curves,
+   closed transitively (a joining patch brings its seams; those seams'
+   partners join too), which subsumes the merge-holder closure and
+   gives every holder's conic chain its reorder.**
 3. **I3 — flip per wall class** (cdt-ring-rejected → relocation-region →
    reassembly-non-2-manifold), full assay after each; any conversion or new
    wall is censused before the next flip.

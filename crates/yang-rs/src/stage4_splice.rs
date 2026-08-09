@@ -525,7 +525,7 @@ pub(crate) fn order_along_curve(
 /// a cycle that IS the seam, winding is re-normalized downstream by
 /// `patch_from_cycles_shifted`'s shoelace and the final triangle orientation is
 /// fixed by measurement, so no direction choice is needed here.
-fn reorder_cycles_to_curve(
+pub(crate) fn reorder_cycles_to_curve(
     cycles: &[Vec<u32>],
     ordered: &[u32],
     side: Side,

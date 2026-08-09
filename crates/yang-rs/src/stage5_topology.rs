@@ -542,8 +542,7 @@ fn run_construct_passes(
     relocations: &mut Vec<(u32, f64)>,
 ) -> Result<(), YangError> {
     use crate::stage4_construct::{
-        apply_rebuild_batch, collapse_patch_runs, rebuild_patch_planar, replace_seam_run,
-        seam_groups,
+        apply_rebuild_batch, rebuild_patch_planar, replace_seam_run, seam_groups,
     };
     use crate::stage4_splice::{ordered_seam_side, Side, SplicePatch};
     use std::collections::{BTreeMap, BTreeSet};
@@ -607,23 +606,24 @@ fn run_construct_passes(
         let mut skip = [0usize; 8];
 
         // ---- Eligibility: per seam, each filter loud. -----------------------
+        // Two actions (I2b): a LINE seam COLLAPSES to its junction endpoints
+        // (the resample of a straight curve IS the two endpoints); a CONIC
+        // seam REORDERS its run to the curve's parameter order (the on-curve
+        // vertex set is the §4.3.4 sample chain — dropping it would coarsen
+        // the curve; the defect is only the scrambled ORDER).
+        enum SeamAction {
+            CollapseLine,
+            ReorderConic { ordered: Vec<u32> },
+        }
         struct EligibleSeam {
             gi: usize,
             pair: (usize, usize),
             chain: Vec<u32>,
+            action: SeamAction,
         }
         let mut eligible: Vec<EligibleSeam> = Vec::new();
         for (gi, g) in groups.iter().enumerate() {
             let (pi, qi) = g.pair;
-            if !matches!(g.curve, Curve::LineSegment) {
-                skip[0] += 1;
-                eprintln!(
-                    "[s4-construct] pass={pass} seam={gi}: SKIP non-line curve \
-                     (patches {pi}+{qi}, {} edges) — I2 scope",
-                    g.edges.len()
-                );
-                continue;
-            }
             // I2a: Plane AND Cylinder owners rebuild single-sided (interior
             // carry + θ-unwrap); Sphere/Cone/Torus stay a loud skip.
             let chartable =
@@ -651,7 +651,7 @@ fn run_construct_passes(
                 skip[2] += 1;
                 eprintln!(
                     "[s4-construct] pass={pass} seam={gi}: SKIP closed seam \
-                     (patches {pi}+{qi}) — I2 scope"
+                     (patches {pi}+{qi}) — I2b tail",
                 );
                 continue;
             }
@@ -659,43 +659,85 @@ fn run_construct_passes(
                 skip[3] += 1;
                 continue; // already minimal — the construction's fixed point
             }
-            // Straightness identity: `Curve::LineSegment` is a unit variant,
-            // so one group can hold TWO different lines meeting at a real
-            // corner (R0095's coplanar-contact regression) — collapsing that
-            // chain would CUT THE CORNER. On-line-but-scrambled chains (the
-            // F0067 mint, ~1e-15 relative off-line) pass; a corner is
-            // macroscopic. Band per P10: silent-wrong → loud skip.
-            match crate::stage4_construct::chain_straightness(&mesh.verts, &chain) {
-                Some(s) if s <= 1e-9 => {}
-                s => {
-                    skip[7] += 1;
+            let action = if matches!(g.curve, Curve::LineSegment) {
+                // Straightness identity: `Curve::LineSegment` is a unit
+                // variant, so one group can hold TWO different lines meeting
+                // at a real corner (R0095's coplanar-contact class) —
+                // collapsing that chain would CUT THE CORNER. On-line
+                // scrambled chains pass; a corner is macroscopic.
+                match crate::stage4_construct::chain_straightness(&mesh.verts, &chain) {
+                    Some(s) if s <= 1e-9 => {}
+                    s => {
+                        skip[7] += 1;
+                        eprintln!(
+                            "[s4-construct] pass={pass} seam={gi}: SKIP non-straight chain \
+                             (patches {pi}+{qi}, off-line {s:?}) — not one line's seam",
+                        );
+                        continue;
+                    }
+                }
+                if replace_seam_run(&patches[pi].cycles, &chain).is_none()
+                    || replace_seam_run(&patches[qi].cycles, &chain).is_none()
+                {
+                    skip[5] += 1;
                     eprintln!(
-                        "[s4-construct] pass={pass} seam={gi}: SKIP non-straight chain \
-                         (patches {pi}+{qi}, off-line {s:?}) — not one line's seam",
+                        "[s4-construct] pass={pass} seam={gi}: SKIP — run not contiguous \
+                         (patches {pi}+{qi})"
                     );
                     continue;
                 }
-            }
-            if replace_seam_run(&patches[pi].cycles, &chain).is_none() {
-                skip[5] += 1;
-                eprintln!(
-                    "[s4-construct] pass={pass} seam={gi}: SKIP — run not contiguous \
-                     in patch {pi}'s cycles"
-                );
-                continue;
-            }
-            if replace_seam_run(&patches[qi].cycles, &chain).is_none() {
-                skip[5] += 1;
-                eprintln!(
-                    "[s4-construct] pass={pass} seam={gi}: SKIP — run not contiguous \
-                     in patch {qi}'s cycles"
-                );
-                continue;
-            }
+                SeamAction::CollapseLine
+            } else {
+                // I2b: the conic's parameter-ordered resample.
+                let ordered = match crate::stage4_splice::order_along_curve(
+                    &g.curve,
+                    &mesh.verts,
+                    &chain,
+                    false,
+                ) {
+                    Ok(o) => o,
+                    Err(crate::stage4_splice::SpliceError::SeamCurveNotConic) => {
+                        skip[0] += 1;
+                        eprintln!(
+                            "[s4-construct] pass={pass} seam={gi}: SKIP non-conic curve \
+                             (patches {pi}+{qi}, {} edges) — no closed-form parameter",
+                            g.edges.len()
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        skip[6] += 1;
+                        eprintln!(
+                            "[s4-construct] pass={pass} seam={gi}: DECLINED conic order \
+                             (patches {pi}+{qi}) — {e:?}"
+                        );
+                        continue;
+                    }
+                };
+                if ordered == chain {
+                    skip[3] += 1; // already in curve order — the fixed point
+                    continue;
+                }
+                // Carrier pre-check: `reorder_cycles_to_curve` silently
+                // no-ops when no cycle carries the whole seam.
+                let carries = |cycles: &[Vec<u32>]| {
+                    cycles.iter().any(|c| ordered.iter().all(|v| c.contains(v)))
+                };
+                if !carries(&patches[pi].cycles) || !carries(&patches[qi].cycles) {
+                    skip[5] += 1;
+                    eprintln!(
+                        "[s4-construct] pass={pass} seam={gi}: SKIP — conic run not \
+                         carried whole (patches {pi}+{qi})"
+                    );
+                    continue;
+                }
+                SeamAction::ReorderConic { ordered }
+            };
             eligible.push(EligibleSeam {
                 gi,
                 pair: (pi, qi),
                 chain,
+                action,
             });
         }
 
@@ -732,27 +774,52 @@ fn run_construct_passes(
                 chains_of.entry(e.pair.0).or_default().push(ei);
                 chains_of.entry(e.pair.1).or_default().push(ei);
             }
-            // Collapse ALL of each patch's runs simultaneously.
+            // Apply ALL of each patch's seam actions simultaneously: line
+            // runs COLLAPSE to their endpoints; conic runs REORDER to curve
+            // parameter (I2b). Actions on distinct seams touch disjoint runs
+            // (shared junction endpoints at most), so sequential application
+            // is order-independent.
             let mut mod_cycles: BTreeMap<usize, Vec<Vec<u32>>> = BTreeMap::new();
             for (&pi, eis) in &chains_of {
-                let chains: Vec<Vec<u32>> =
-                    eis.iter().map(|&ei| eligible[ei].chain.clone()).collect();
-                match collapse_patch_runs(&patches[pi].cycles, &chains) {
-                    Ok(c) => {
-                        mod_cycles.insert(pi, c);
-                    }
-                    Err(i) => {
-                        let ei = eis[i];
-                        skip[6] += 1;
-                        eprintln!(
-                            "[s4-construct] pass={pass} seam={}: DECLINED batch collapse \
-                             in patch {pi} (mid-batch non-contiguity or degenerate cycle)",
-                            eligible[ei].gi
-                        );
-                        active.remove(&ei);
-                        continue 'assemble;
+                let mut cur = patches[pi].cycles.clone();
+                let mut failed: Option<usize> = None;
+                for &ei in eis {
+                    let e = &eligible[ei];
+                    match &e.action {
+                        SeamAction::CollapseLine => match replace_seam_run(&cur, &e.chain) {
+                            Some(next) if next.iter().all(|c| c.len() >= 3) => cur = next,
+                            _ => {
+                                failed = Some(ei);
+                                break;
+                            }
+                        },
+                        SeamAction::ReorderConic { ordered } => {
+                            match crate::stage4_splice::reorder_cycles_to_curve(
+                                &cur,
+                                ordered,
+                                Side::A,
+                            ) {
+                                Ok(next) => cur = next,
+                                Err(_) => {
+                                    failed = Some(ei);
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
+                if let Some(ei) = failed {
+                    skip[6] += 1;
+                    eprintln!(
+                        "[s4-construct] pass={pass} seam={}: DECLINED batch action \
+                         in patch {pi} (mid-batch non-contiguity, degenerate cycle, \
+                         or conic reorder refusal)",
+                        eligible[ei].gi
+                    );
+                    active.remove(&ei);
+                    continue 'assemble;
+                }
+                mod_cycles.insert(pi, cur);
             }
             // I1g (sub-gated `YANG_441_CORNER_MERGE`) — Fig-11(a)–(c) corner
             // identification INSIDE the batch, unblocked by I2a: the merge is
@@ -802,11 +869,16 @@ fn run_construct_passes(
                     let mut ambiguous: BTreeSet<u32> = BTreeSet::new();
                     for &ei in &active {
                         let e = &eligible[ei];
-                        let seam_edges: BTreeSet<(u32, u32)> = e
+                        let mut seam_edges: BTreeSet<(u32, u32)> = e
                             .chain
                             .windows(2)
                             .map(|w| (w[0].min(w[1]), w[0].max(w[1])))
                             .collect();
+                        if let SeamAction::ReorderConic { ordered } = &e.action {
+                            seam_edges.extend(
+                                ordered.windows(2).map(|w| (w[0].min(w[1]), w[0].max(w[1]))),
+                            );
+                        }
                         for q in [e.chain[0], *e.chain.last().expect("chain len >= 3")] {
                             for (pj, pat) in patches.iter().enumerate() {
                                 let cycles = mod_cycles.get(&pj).unwrap_or(&pat.cycles);
@@ -923,6 +995,12 @@ fn run_construct_passes(
                 let mut candidates: BTreeSet<u32> = BTreeSet::new();
                 for &ei in &active {
                     let e = &eligible[ei];
+                    // Line seams only: a conic seam's chord is NOT its curve —
+                    // on-chord vertices of a circle run are legitimate
+                    // geometry, never removal candidates.
+                    if !matches!(e.action, SeamAction::CollapseLine) {
+                        continue;
+                    }
                     let (e0, e1) = (e.chain[0], *e.chain.last().expect("chain len >= 3"));
                     for (&pi, cycles) in &mod_cycles {
                         if e.pair.0 != pi && e.pair.1 != pi {
@@ -1288,14 +1366,24 @@ fn run_construct_passes(
             Ok(()) => {
                 for &ei in &active {
                     let e = &eligible[ei];
-                    eprintln!(
-                        "[s4-construct] pass={pass} seam={}: APPLIED patches {}+{} — \
-                         chain {} -> 2 verts",
-                        e.gi,
-                        e.pair.0,
-                        e.pair.1,
-                        e.chain.len()
-                    );
+                    match &e.action {
+                        SeamAction::CollapseLine => eprintln!(
+                            "[s4-construct] pass={pass} seam={}: APPLIED patches {}+{} — \
+                             chain {} -> 2 verts",
+                            e.gi,
+                            e.pair.0,
+                            e.pair.1,
+                            e.chain.len()
+                        ),
+                        SeamAction::ReorderConic { ordered } => eprintln!(
+                            "[s4-construct] pass={pass} seam={}: REORDERED patches {}+{} — \
+                             {} verts to curve order",
+                            e.gi,
+                            e.pair.0,
+                            e.pair.1,
+                            ordered.len()
+                        ),
+                    }
                 }
                 eprintln!(
                     "[s4-construct] pass={pass}: BATCH APPLIED — {} seams over {} patches",
