@@ -118,12 +118,19 @@ name, never measured).
    and the boundary folds between them. I1f (near-curve removal, landed
    gated) measured an honest NO-OP — its holder census separates
    discretization verts (2 holders) from topological corners (3).
-   **I1g next: Fig-11(a)–(c) corner identification — split the partner
-   chain at q, MERGE the chord-anchored p into q under the cap owner's
-   derived chord band, as a shared-INDEX op across all holder patches
-   (batch extends with removal-only planar holders). Expected reach:
-   TF-8 + the femto pair.** Curved seams are I2. Spec §4-I1 has the
-   full measurement.
+   **I1g (three increments, all sub-gated `YANG_441_CORNER_MERGE`):
+   selector VALIDATED (Fig-11(a) split-edge containment — every hit at
+   the exact 1.344e-3 corner gap, zero over-fire), both mechanisms
+   MEASURED OUT (substitution: refused on shared-triangle clusters;
+   bare `collapse_vertex` weld: pinches ALONE — the 2026-08-05
+   recorded-negative pattern; Fig-11's merge lives INSIDE the re-CDT).
+   STATUS: BLOCKED ON I2 — the corner cluster's holders include the
+   CURVED cap patch, unbuildable in planar scope; after I2, the
+   cluster unifies via substitution-inside-rebuild with the batch
+   extended to curved holders. So the epic's NEXT increment is I2
+   (curved-patch single-sided rebuild: interior-vertex carry + d(T)
+   recompute) — which also fronts the R-series reach.** Spec §4-I1 has
+   the full measurement.
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

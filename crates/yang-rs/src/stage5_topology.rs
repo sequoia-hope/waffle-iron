@@ -707,7 +707,7 @@ fn run_construct_passes(
         // inc-2 substitution had to refuse). Then Phase A recomputes and the
         // pass restarts on the unified mesh; the batch never sees a split
         // corner.
-        if std::env::var_os("YANG_441_CORNER_MERGE").is_some() {
+        if std::env::var_os("YANG_441_CORNER_MERGE").is_some() && apply_enabled {
             if let Some(band) = crate::stage4_correct::stage4_chord_band(a, b) {
                 let chain_verts: BTreeSet<u32> = eligible
                     .iter()

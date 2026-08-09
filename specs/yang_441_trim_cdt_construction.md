@@ -306,16 +306,36 @@ below — most of the R-series is curved, so the epic's reach depends on it.
      Stage-6 non-2-manifold: at a quadruple-point corner the "corner"
      is a CLUSTER of ≥3 members (per-seam junction copies + outline
      corners), and welding some pairs leaves a half-identified pinch.
-     **Inc-4 (next): CLUSTER-WIDE unification — collect the corner's
-     full membership (all junction endpoints and containment-hit
-     endpoints within the mutual band-neighborhood at a corner) and
-     weld ALL into ONE survivor (the exact junction), with a loud
-     refusal if the cluster's members disagree beyond the band.
-     Attribution question to settle first: whether the non-2-manifold
-     was minted by welds on the PREVIOUSLY-CLEAN early booleans (the
-     weld fires there too) — bisect with the apply-caps before
-     building inc-4.** Merge remains sub-gated; the main gate is the
-     I1b+I1f baseline.
+     **Inc-4 pre-step (same day, DONE — and it CLOSES I1g's planar arc):
+     the welds ALONE mint the non-2-manifold.** Attribution from the
+     logs: no welds fire on the early booleans (their blocks are
+     clean); all 5 fire on the failing boolean. Bisect with
+     `YANG_441_APPLY_SEAM_CAP=0` (welds fire, batch applies nothing):
+     the non-2-manifold appears with ZERO batch applications — the
+     bare `collapse_vertex` pinches the mesh by itself. This is the
+     2026-08-05 measured-negative pattern verbatim (the splice module
+     docs: "a bare collapse_vertex rewrote triangle indices without
+     rebuilding the patch") — the paper's Fig-11 merge happens INSIDE
+     the re-CDT, never as a mesh-space vertex collapse. (The weld
+     phase now also respects `apply_enabled` — census-only booleans
+     must not mutate.)
+
+     **I1g STATUS: BLOCKED ON I2 for the wheel-corner family, with the
+     selector VALIDATED and both mechanisms measured.** Synthesis of
+     the three increments: inc-2's substitution-inside-rebuild is the
+     correct SHAPE (the merge must be part of re-triangulation), but a
+     corner cluster's holder set includes the CURVED cap patch, which
+     cannot be rebuilt in I1's planar scope — substitution without
+     rebuild on the cap is exactly the bare-collapse hazard localized
+     to one patch, and refusing it (inc-2's guard) leaves the cluster
+     half-identified. Inc-3's mesh-space weld handles shared triangles
+     but pinches (measured alone). The dependency is real capability,
+     not mechanism choice: **I2 — curved-patch single-sided rebuild
+     (interior-vertex carry + d(T) recompute) — is the prerequisite**,
+     after which the corner cluster unifies by rebuilding ALL holder
+     patches against cycles where the cluster is one vertex (inc-2's
+     substitution, batch extended to curved holders). Merge remains
+     sub-gated; the main gate is the I1b+I1f baseline.
 
      (Superseded analysis, kept for the record:)
      The classification-time probe (`[i1d-classify]`, pre-relocation
