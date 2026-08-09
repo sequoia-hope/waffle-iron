@@ -840,8 +840,8 @@ fn run_construct_passes(
                         // re-derives non-batch cycles from them).
                         let mut hits: Vec<(u32, u32, u32, f64)> = Vec::new();
                         let mut split_arm = 0usize;
-                        for pj in 0..patches.len() {
-                            let cycles = mod_cycles.get(&pj).unwrap_or(&patches[pj].cycles);
+                        for (pj, pat) in patches.iter().enumerate() {
+                            let cycles = mod_cycles.get(&pj).unwrap_or(&pat.cycles);
                             for cyc in cycles {
                                 let n = cyc.len();
                                 for i in 0..n {
