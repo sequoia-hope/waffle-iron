@@ -186,11 +186,39 @@ below — most of the R-series is curved, so the epic's reach depends on it.
      all UNMOVED. The I1b collapse keeps junction endpoints BY DESIGN, so
      this is a Stage-4 SEAM-ENDPOINT AUTHORITY defect — the 2026-08-01
      "TWO relocation authorities" anchor, now localized to endpoints.
-     **I1d (next): the endpoint-authority discriminator** — does the
-     Stage-3 exact curve itself end at the corner (endpoint relocation
-     must CLAMP to the curve's own boundary exit) or beyond it (the
-     Stage-3 curve trim minted the overshoot)? Compare the exact curve's
-     endpoint against the relocated endpoint on the TF-8 seams.
+     **I1d (2026-08-09, DONE): the endpoint authority is IDENTIFIED — and
+     it is neither hypothesis.** The site-tagged relocation probe
+     (`YANG_I1D_RELOC_PROBE`: every `relocations.push` self-tagged with
+     `line!()`; junction sites also dump rho/sinθ/gate + curve params)
+     puts every overshot endpoint at ONE site: the
+     `vert_pp_circle_junction` relocation (task #146 branch 4 — exact
+     pp-line∩circle). F0067 is a WHEEL: the seam lines are RADIAL spokes
+     through the rim circle's center (sinθ = 1.0 exactly — no tangency);
+     the rib end faces sit at r = 0.20751 and the rim circle at
+     r = 0.208846, a 1.34e-3 design gap the bounded seams never cross.
+     The 8 endpoints land at EXACTLY the circle radius (r matches to
+     1e-9): each was classified as a pp-line×circle junction because its
+     edge incidence carries both curves, and the EXACT unbounded-pair
+     junction was computed 1.4e-4–5.96e-3 away (corridor gate 1.74e-2
+     passes everything) — OUTSIDE the wall face's kept footprint (no wall
+     triangles beyond r = 0.20751). The vertex was never a sample of that
+     junction; it is q, the seam's face-boundary exit (Fig-11(a)). The
+     corridor gate reasons only about displacement magnitude and cannot
+     see kept content. The femto pair (`DuplicateVertex`, 1049+1050 @
+     4.44e-16) is almost certainly the SAME mint — two adjacent spokes'
+     endpoints relocated onto the same rim circle at near-identical
+     angles (the 2026-08-01 quadruple-point region).
+
+     **I1e (next, the fix): kept-content gate on exact-junction
+     relocation.** A curve×curve junction relocation is justified only if
+     the exact junction lies within the vertex's faces' kept footprint
+     (a mesh-derived containment test — e.g. within the vertex's incident
+     triangle neighborhood — not a new tolerance). Outside it, the vertex
+     is the curve's face-boundary exit and its authority is the curve it
+     terminates (the pp-line), not the foreign curve. Expected reach:
+     both the TF-8 class and the femto-pair class on F0067; must not
+     disturb legitimate junctions (their exact points lie inside kept
+     content by definition).
    - `DuplicateVertex` ×1 — the femto pair is ANCHORED: mesh verts
      1049+1050, 3D distance 4.441e-16, bit-identical chart projections.
      Upstream double-mint of one junction (the `SeamPointCoincident`

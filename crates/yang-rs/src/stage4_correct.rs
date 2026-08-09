@@ -3629,6 +3629,21 @@ pub(crate) fn stage4_relocate_and_correct(
     // use these).
     let (brep_a, brep_b) = (a, b);
 
+    // I1d probe (read-only): tag every `relocations.push` with its SOURCE LINE
+    // so a relocated vertex's AUTHORITY (circle projection, line foot,
+    // junction closed-form, …) is attributable offline by position match.
+    let i1d_probe = std::env::var_os("YANG_I1D_RELOC_PROBE").is_some();
+    let probe_push = |site: u32, v: u32, t: f64, p: Point3| {
+        if i1d_probe {
+            eprintln!(
+                "[i1d-reloc] site=L{site} v{v} t={t:.6} pos=({:.12}, {:.12}, {:.12})",
+                p.x(),
+                p.y(),
+                p.z()
+            );
+        }
+    };
+
     balance_census(mesh, "s4-entry");
 
     // d_ε relocation budget (a conic edge implies a curved input ⇒ Some).
@@ -5083,6 +5098,7 @@ pub(crate) fn stage4_relocate_and_correct(
             mesh.verts[v as usize] = proj;
             moved.insert(v);
         }
+        probe_push(line!(), v, t, mesh.verts[v as usize]);
         relocations.push((v, t));
         processed.insert(v);
     }
@@ -5137,6 +5153,7 @@ pub(crate) fn stage4_relocate_and_correct(
             mesh.verts[v as usize] = proj;
             moved.insert(v);
         }
+        probe_push(line!(), v, t, mesh.verts[v as usize]);
         relocations.push((v, t));
         processed.insert(v);
     }
@@ -5179,6 +5196,7 @@ pub(crate) fn stage4_relocate_and_correct(
                 }
                 mesh.verts[v as usize] = proj;
                 moved.insert(v);
+                probe_push(line!(), v, t, mesh.verts[v as usize]);
                 relocations.push((v, t));
                 processed.insert(v);
                 continue;
@@ -5263,6 +5281,7 @@ pub(crate) fn stage4_relocate_and_correct(
             mesh.verts[v as usize] = proj;
             moved.insert(v);
         }
+        probe_push(line!(), v, t, mesh.verts[v as usize]);
         relocations.push((v, t));
         processed.insert(v);
     }
@@ -5443,6 +5462,7 @@ pub(crate) fn stage4_relocate_and_correct(
             mesh.verts[v as usize] = proj;
             moved.insert(v);
         }
+        probe_push(line!(), v, t, mesh.verts[v as usize]);
         relocations.push((v, t));
         processed.insert(v);
     }
@@ -5611,6 +5631,7 @@ pub(crate) fn stage4_relocate_and_correct(
             mesh.verts[v as usize] = proj;
             moved.insert(v);
         }
+        probe_push(line!(), v, t, mesh.verts[v as usize]);
         relocations.push((v, t));
         processed.insert(v);
     }
@@ -5664,6 +5685,7 @@ pub(crate) fn stage4_relocate_and_correct(
             mesh.verts[v as usize] = proj;
             moved.insert(v);
         }
+        probe_push(line!(), v, t, mesh.verts[v as usize]);
         relocations.push((v, t));
         processed.insert(v);
     }
@@ -5721,6 +5743,7 @@ pub(crate) fn stage4_relocate_and_correct(
             mesh.verts[v as usize] = proj;
             moved.insert(v);
         }
+        probe_push(line!(), v, t, mesh.verts[v as usize]);
         relocations.push((v, t));
         processed.insert(v);
     }
@@ -5761,6 +5784,7 @@ pub(crate) fn stage4_relocate_and_correct(
             mesh.verts[v as usize] = proj;
             moved.insert(v);
         }
+        probe_push(line!(), v, along, mesh.verts[v as usize]);
         relocations.push((v, along));
         processed.insert(v);
     }
@@ -5815,6 +5839,7 @@ pub(crate) fn stage4_relocate_and_correct(
             mesh.verts[v as usize] = proj;
             moved.insert(v);
         }
+        probe_push(line!(), v, t, mesh.verts[v as usize]);
         relocations.push((v, t));
         processed.insert(v);
     }
@@ -5869,10 +5894,22 @@ pub(crate) fn stage4_relocate_and_correct(
         // (positionally a no-op up to f64 — `j` is on the circle).
         let (proj, t) = project_onto_circle(j, center, normal, radius)
             .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+        if i1d_probe {
+            let ca = center.as_array();
+            let lpa = lp.as_array();
+            let lda = ld.as_array();
+            eprintln!(
+                "[i1d-junction] v{v} rho={rho:.6e} sin_theta={sin_theta:.6e} gate={gate:.6e} \
+                 circle c=({:.9},{:.9},{:.9}) r={radius:.9} line p=({:.9},{:.9},{:.9}) \
+                 d=({:.6},{:.6},{:.6})",
+                ca[0], ca[1], ca[2], lpa[0], lpa[1], lpa[2], lda[0], lda[1], lda[2],
+            );
+        }
         if rho > cad_primitives::TAU_WORK {
             mesh.verts[v as usize] = proj;
             moved.insert(v);
         }
+        probe_push(line!(), v, t, mesh.verts[v as usize]);
         relocations.push((v, t));
         processed.insert(v);
     }

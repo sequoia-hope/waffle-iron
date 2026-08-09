@@ -102,11 +102,18 @@ name, never measured).
    beyond-corner trim never runs (block gated on minted junction keys;
    this boolean mints none — reach gap by call-site, not predicate), and
    the overshot endpoint is the UNIQUE relocated vertex in each declined
-   cycle — a Stage-4 SEAM-ENDPOINT AUTHORITY defect (the 2026-08-01
-   two-authorities anchor, localized to endpoints). I1d next: does the
-   Stage-3 exact curve end at the corner (clamp endpoint relocation to the
-   curve's boundary exit) or beyond (Stage-3 trim mint)?** Curved seams
-   are I2. Spec §4-I1 has the full measurement.
+   cycle — a Stage-4 SEAM-ENDPOINT AUTHORITY defect. I1d DONE: the
+   authority is the `vert_pp_circle_junction` relocation (task #146) —
+   F0067 is a wheel; radial spoke seams end 1.34e-3 short of the rim
+   circle (design gap), but edge incidence at the spoke end carries both
+   curves, so the classifier computes the exact UNBOUNDED line∩circle
+   junction OUTSIDE the wall's kept footprint and relocates q (the
+   face-boundary exit) onto it; the corridor gate sees magnitude, not
+   kept content. The femto pair is almost certainly the same mint
+   (adjacent spokes → same circle, near-identical angles). I1e next: a
+   kept-content (mesh-footprint containment) gate on exact-junction
+   relocation.** Curved seams are I2. Spec §4-I1 has the full
+   measurement.
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
