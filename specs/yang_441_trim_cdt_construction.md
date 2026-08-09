@@ -209,8 +209,64 @@ below — most of the R-series is curved, so the epic's reach depends on it.
      endpoints relocated onto the same rim circle at near-identical
      angles (the 2026-08-01 quadruple-point region).
 
-     **I1e (2026-08-09, RE-SCOPED by the pre-position census): the fix is
-     UPSTREAM in curve-edge classification, not at the junction gate.**
+     **I1e incidence census (2026-08-09, SELF-RETRACTION recorded): the
+     "mis-attribution" verdict below is WRONG — the circle incidence is
+     LEGITIMATE.** Every chained edge carries `[A:Plane, B:Cyl]`, and B
+     is the RIB: the rib's outer end is CYLINDRICAL with the same radius
+     as the wheel rim (r = 0.208846). The chain vertices at
+     r = 0.2029–0.2051 are the cap-facet CHORD crossings (sagitta-deep
+     inside the circle, exactly as a coarse chord slab puts them); their
+     outward relocation onto the exact circle is the paper's own
+     resample, and v999's junction relocation onto line∩circle is the
+     CORRECT r_A = r_B = r for a real wall-line × rim-circle junction.
+     What breaks is downstream of a correct relocation: the walk-back
+     vertices (991/983/975 — EXACTLY on the seam line at s = 0.776–0.906,
+     unmoved because plane×plane geometry is exact) lie parametrically
+     BETWEEN the seam's junction endpoints, but their edges are plain
+     B-mesh boundary edges (not classified curve edges), so the I1b
+     collapse's seam run ends at 999 and never swallows them — the
+     boundary walks out to the junction and BACK over them: the
+     fold-back. **The gap is §4.4.1's NEAR-CURVE VERTEX REMOVAL — §3
+     step 2 of this spec, the one piece of the paper's construction I1b
+     did not implement** ("we remove a mesh vertex if it is too close to
+     the intersection curve"). **I1f (LANDED same day; measured an honest
+     NO-OP on F0067 — and the block census names I1g).**
+     `on_segment_interior` (1e-9 identity band, strict t∈(0,1)) + a
+     conformal removal phase in the batch driver: a vertex is removed
+     only if EVERY patch holding it on a cycle is rebuilt in this batch
+     and holders ≤ 2 — all-holders-or-none (a one-sided removal would BE
+     a T-junction). On F0067 every removal is BLOCKED, loudly: the
+     walk-back vertices' second holder (the disc top patch) owns no
+     eligible seam so it is not in the batch, and the corner vertex
+     (975 class) has THREE holders — a topological corner, not a
+     discretization vertex. The analysis goes further: even unblocked
+     removal cannot convert, because the residual boundary
+     `… 999 → 975 …` is a collinear fold between the EXACT junction
+     (r = 0.2088) and the chord-anchored Stage-1 corner (r = 0.20751) —
+     **975 and 999 are two authorities' versions of ONE B-Rep corner**
+     (Stage-1 anchored the rib's wall∩cap edge on the cap's CHORD; the
+     junction relocation placed the exact triple point). Removal is the
+     wrong operation for a corner; the paper's own operation is
+     Fig-11(a)–(c) SPLIT + MERGE: q (the junction — ON the cap patch's
+     rim-circle chain by construction) splits the boundary chain
+     containing it, and the too-close endpoint p (the chord-anchored
+     corner, 1.34e-3 ≈ mesh scale) MERGES into q.
+
+     **I1g (next): Fig-11(a)–(c) corner identification at collapsed-seam
+     junctions.** For each junction endpoint q of a collapsed seam:
+     locate the non-seam boundary chain containing q (the partner
+     curve's chain — q lies on it exactly: line∩circle ⇒ on the circle
+     chain), split topologically at q if q is not already a chain
+     vertex, and MERGE the chord-anchored corner p into q when |p−q| is
+     within the local Stage-1 chord scale — a DERIVED merge band (the
+     cap owner's chord tolerance), Fig-11(b)'s own criterion — applied
+     as a shared-INDEX identification across ALL holder patches (the
+     batch extends with removal-only planar holders as needed). This is
+     the corner-identity boundary-condition layer §2 always named;
+     expected reach: TF-8 and the femto pair (two near-coincident
+     corner authorities at 4.44e-16).
+
+     (Superseded analysis, kept for the record:)
      The classification-time probe (`[i1d-classify]`, pre-relocation
      positions) measured: the junction-classified endpoints sit at
      r = 0.2029–0.2051 PRE-relocation — 3.9e-3 inside the rim circle,

@@ -742,6 +742,84 @@ fn run_construct_passes(
                     }
                 }
             }
+            // I1f — §4.4.1 NEAR-CURVE VERTEX REMOVAL (spec §3 step 2): drop
+            // boundary vertices lying EXACTLY on a collapsed seam's segment
+            // strictly between its junction endpoints (the F0067 walk-back
+            // class: exact pp vertices inside the run whose edges are plain
+            // mesh boundary, so the run collapse never swallows them and the
+            // boundary folds back over them). Conformal by the same
+            // both-owner rule as the collapse: a vertex is removed only if
+            // EVERY patch holding it on a cycle is rebuilt in this batch
+            // (and at most two hold it); otherwise it stays, loudly.
+            {
+                use crate::stage4_construct::on_segment_interior;
+                let mut candidates: BTreeSet<u32> = BTreeSet::new();
+                for &ei in &active {
+                    let e = &eligible[ei];
+                    let (e0, e1) = (e.chain[0], *e.chain.last().expect("chain len >= 3"));
+                    for (&pi, cycles) in &mod_cycles {
+                        if e.pair.0 != pi && e.pair.1 != pi {
+                            continue;
+                        }
+                        for cyc in cycles {
+                            for &v in cyc {
+                                if v != e0 && v != e1 && on_segment_interior(&mesh.verts, e0, e1, v)
+                                {
+                                    candidates.insert(v);
+                                }
+                            }
+                        }
+                    }
+                }
+                let mut removed_total = 0usize;
+                for &v in &candidates {
+                    // Every holder patch must be in the batch (≤2 holders),
+                    // and no holder's cycle may degenerate below 3 vertices —
+                    // the removal is all-holders-or-none (a one-sided removal
+                    // would BE a T-junction).
+                    let holders: Vec<usize> = patches
+                        .iter()
+                        .enumerate()
+                        .filter(|&(pj, p)| {
+                            let cycles = mod_cycles.get(&pj).unwrap_or(&p.cycles);
+                            cycles.iter().any(|c| c.contains(&v))
+                        })
+                        .map(|(pj, _)| pj)
+                        .collect();
+                    if holders.len() > 2 || !holders.iter().all(|h| mod_cycles.contains_key(h)) {
+                        eprintln!(
+                            "[s4-construct] pass={pass}: NEAR-CURVE REMOVAL BLOCKED v{v} — \
+                             holders {holders:?} not all rebuilt (or >2); vertex stays"
+                        );
+                        continue;
+                    }
+                    let degenerates = holders.iter().any(|h| {
+                        mod_cycles[h].iter().any(|c| {
+                            let occ = c.iter().filter(|&&x| x == v).count();
+                            occ > 0 && c.len() - occ < 3
+                        })
+                    });
+                    if degenerates {
+                        eprintln!(
+                            "[s4-construct] pass={pass}: NEAR-CURVE REMOVAL BLOCKED v{v} — \
+                             a holder cycle would degenerate below 3 vertices"
+                        );
+                        continue;
+                    }
+                    for h in &holders {
+                        for cyc in mod_cycles.get_mut(h).expect("holder is batched") {
+                            cyc.retain(|&x| x != v);
+                        }
+                    }
+                    removed_total += 1;
+                }
+                if removed_total > 0 {
+                    eprintln!(
+                        "[s4-construct] pass={pass}: NEAR-CURVE REMOVED {removed_total} \
+                         on-seam vertices across the batch"
+                    );
+                }
+            }
             // Dropped vertices: chain interiors + planar flood interiors.
             let batch_own: BTreeSet<u32> = chains_of
                 .keys()

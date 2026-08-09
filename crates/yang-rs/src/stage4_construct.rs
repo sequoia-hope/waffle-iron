@@ -209,6 +209,39 @@ pub(crate) fn chain_straightness(verts: &[cad_primitives::Point3], chain: &[u32]
     Some((worst2 / extent2).sqrt())
 }
 
+/// §4.4.1's NEAR-CURVE VERTEX REMOVAL predicate (spec §3 step 2, the I1f
+/// increment): is `v` a boundary vertex lying ON the collapsed seam's
+/// segment `e0→e1`, STRICTLY between the junction endpoints?
+///
+/// These are the F0067 walk-back vertices: exact plane×plane geometry puts
+/// them EXACTLY on the seam line (perp ~1e-16 relative), parametrically
+/// inside the run, but their edges are plain mesh boundary edges — so the
+/// run collapse never swallows them and the boundary walks out to the
+/// junction and back over them. The paper removes them ("we remove a mesh
+/// vertex if it is too close to the intersection curve") and re-CDTs. The
+/// band is the same 1e-9 relative measure as [`chain_straightness`] — an
+/// identity test, six orders from both f64 noise and real geometry.
+pub(crate) fn on_segment_interior(verts: &[Point3], e0: u32, e1: u32, v: u32) -> bool {
+    let p = |i: u32| -> [f64; 3] {
+        let w = verts[i as usize];
+        [w.x(), w.y(), w.z()]
+    };
+    let (a, b, x) = (p(e0), p(e1), p(v));
+    let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    if len2 == 0.0 || !len2.is_finite() {
+        return false;
+    }
+    let r = [x[0] - a[0], x[1] - a[1], x[2] - a[2]];
+    let t = (r[0] * d[0] + r[1] * d[1] + r[2] * d[2]) / len2;
+    if t <= 0.0 || t >= 1.0 {
+        return false; // beyond a junction — not this seam's interior
+    }
+    let perp = [r[0] - t * d[0], r[1] - t * d[1], r[2] - t * d[2]];
+    let perp2 = perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2];
+    perp2 <= 1e-18 * len2
+}
+
 /// Why an I1b patch rebuild or batch write-back was refused. Every variant is
 /// a P9/P10 LOUD stop, censused by the driver — never a silent partial repair.
 #[derive(Debug, Clone, PartialEq)]
@@ -507,6 +540,30 @@ mod tests {
         // Coincident endpoints: degenerate, refused.
         let verts = vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)];
         assert_eq!(chain_straightness(&verts, &[0, 1, 0]), None);
+    }
+
+    #[test]
+    fn on_segment_interior_takes_inside_and_refuses_beyond_and_off() {
+        let verts = vec![
+            Point3::new(0.0, 0.0, 0.0),   // e0
+            Point3::new(1.0, 0.0, 0.0),   // e1
+            Point3::new(0.4, 0.0, 0.0),   // inside, exact
+            Point3::new(1.2, 0.0, 0.0),   // beyond e1 — a different feature's vertex
+            Point3::new(0.4, 1e-8, 0.0),  // off the line just above the band
+            Point3::new(0.4, 1e-12, 0.0), // exactness-scale noise — inside
+        ];
+        assert!(on_segment_interior(&verts, 0, 1, 2), "exact interior");
+        assert!(!on_segment_interior(&verts, 0, 1, 3), "beyond junction");
+        assert!(
+            !on_segment_interior(&verts, 0, 1, 4),
+            "1e-8 relative is above the 1e-9 identity band"
+        );
+        assert!(
+            on_segment_interior(&verts, 0, 1, 5),
+            "1e-12 relative is exactness noise — inside the band"
+        );
+        // Degenerate chord refuses.
+        assert!(!on_segment_interior(&verts, 0, 0, 2));
     }
 
     #[test]

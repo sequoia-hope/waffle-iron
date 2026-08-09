@@ -4139,6 +4139,48 @@ pub(crate) fn stage4_relocate_and_correct(
                     if exact_junctions.contains(&v) {
                         continue;
                     }
+                    if i1d_probe {
+                        // I1e census: which edge chained this vertex onto the
+                        // circle, and how far off the exact circle it sits.
+                        let p = mesh.verts[v as usize];
+                        let pa = p.as_array();
+                        let ca = center.as_array();
+                        let na = normalize3(normal.as_array());
+                        let w = [pa[0] - ca[0], pa[1] - ca[1], pa[2] - ca[2]];
+                        let h = w[0] * na[0] + w[1] * na[1] + w[2] * na[2];
+                        let inplane = [w[0] - h * na[0], w[1] - h * na[1], w[2] - h * na[2]];
+                        let rad = (inplane[0] * inplane[0]
+                            + inplane[1] * inplane[1]
+                            + inplane[2] * inplane[2])
+                            .sqrt();
+                        let resid = (h * h + (rad - radius) * (rad - radius)).sqrt();
+                        let inc: Vec<String> = inc0
+                            .get(&key)
+                            .map(|entries| {
+                                entries
+                                    .iter()
+                                    .map(|&(input, surf)| {
+                                        let tag = match surf {
+                                            Surface::Plane { .. } => "Plane",
+                                            Surface::Cylinder { .. } => "Cyl",
+                                            Surface::Sphere { .. } => "Sph",
+                                            Surface::Cone { .. } => "Cone",
+                                            Surface::Torus { .. } => "Torus",
+                                        };
+                                        format!("{input:?}:{tag}")
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        eprintln!(
+                            "[i1e-circle-edge] edge=({s},{e}) v{v} resid={resid:.6e} \
+                             pos=({:.12}, {:.12}, {:.12}) r={radius:.9} inc=[{}]",
+                            pa[0],
+                            pa[1],
+                            pa[2],
+                            inc.join(","),
+                        );
+                    }
                     insert_circle_or_junction(
                         v,
                         (center, normal, radius, source_radius),
