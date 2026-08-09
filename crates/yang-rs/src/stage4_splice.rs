@@ -790,6 +790,18 @@ pub(crate) fn splice_seam_pair(
         SurfaceChart::new(patch_b.surface).ok_or(SpliceError::UnsupportedSurface(Side::B))?;
 
     // ---- Interior-vertex guards (module docs). --------------------------
+    // The foreign scan excludes the PAIR's triangles, not just one side's: a
+    // seam vertex the §4.4.1 construction drops from both boundaries
+    // (`stage4_construct::replace_seam_run`) is interior to A while still
+    // referenced by B's OLD triangles — but both sides are re-triangulated in
+    // this same call, so pair-internal references cannot orphan a T-junction.
+    // Only a reference from a THIRD patch is foreign.
+    let pair_own: BTreeSet<u32> = patch_a
+        .tris
+        .iter()
+        .chain(patch_b.tris.iter())
+        .copied()
+        .collect();
     for (side, patch) in [(Side::A, patch_a), (Side::B, patch_b)] {
         let interior = interior_vertices(mesh, &patch.tris, &patch.cycles);
         if !interior.is_empty() && !matches!(patch.surface, Surface::Plane { .. }) {
@@ -798,12 +810,11 @@ pub(crate) fn splice_seam_pair(
                 count: interior.len(),
             });
         }
-        // An interior vertex referenced from OUTSIDE the patch would be
+        // An interior vertex referenced from OUTSIDE the pair would be
         // orphaned into a T-junction by re-triangulating without it.
         if !interior.is_empty() {
-            let own: BTreeSet<u32> = patch.tris.iter().copied().collect();
             for (t, tri) in mesh.tris.iter().enumerate() {
-                if own.contains(&(t as u32)) {
+                if pair_own.contains(&(t as u32)) {
                     continue;
                 }
                 if let Some(&v) = tri.iter().find(|v| interior.contains(v)) {

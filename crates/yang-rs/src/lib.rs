@@ -146,6 +146,7 @@ mod stage4_project;
 // #169 Phase B — the splice loop joining the chart / extraction / two-sided
 // driver layers to the forward mesh. WIRED behind `YANG_MESHUP_ENABLE` from
 // `stage5_topology::run_meshup_splice_passes` (N2-3b step 2, 2026-08-06).
+mod stage4_construct;
 mod stage4_splice;
 // #169 / N2 — Yang §4.5.1 step truncation. UNWIRED: the primitive + its
 // measurement; landing on the analytic boundary curve and splitting the

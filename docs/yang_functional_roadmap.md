@@ -80,7 +80,13 @@ name, never measured).
    Full anchor: `docs/audits/volume_oracle_flags_anchored.md` §deficit-class.
 3. **§4.4.1-as-written epic** — `specs/yang_441_trim_cdt_construction.md`:
    replace relocate-in-place with the paper's curve-authoritative trim + CDT
-   (the ~27-case ERROR family; closes N2's core).
+   (the ~27-case ERROR family; closes N2's core). **I1 LANDED 2026-08-09**
+   (gated `YANG_441_CONSTRUCT`, byte-identical off): unconditional line-seam
+   collapse over planar pairs — mechanism sound (39 applications on F0067's
+   failing boolean), 0 conversions, and the decline census measured the I1b
+   design: the §4.4.1 unit is the PATCH with ALL its curves (mutually-blocked
+   seams cannot collapse pairwise); curved seams are I2. Spec §4-I1 has the
+   full measurement.
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

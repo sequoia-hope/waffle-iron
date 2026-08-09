@@ -499,6 +499,237 @@ fn run_meshup_splice_passes(
     Ok(())
 }
 
+/// §4.4.1 AS WRITTEN, increment I1 (spec `specs/yang_441_trim_cdt_construction.md`
+/// §4): the UNCONDITIONAL curve-seam construction for planar patch pairs on
+/// `Curve::LineSegment` seams.
+///
+/// Gated by the CALLER on `YANG_441_CONSTRUCT`; gate-OFF runs never enter and
+/// are byte-identical. Each pass enumerates every intersection-curve seam
+/// (`stage4_construct::seam_groups` — no defect detector; the paper applies
+/// §4.4.1 to every intersected patch), collapses ONE seam's relocated
+/// fold-back chain to its junction endpoints
+/// (`stage4_construct::replace_seam_run`), re-triangulates the pair against
+/// the clean seam (`splice_seam_pair` — dropped chain vertices become planar
+/// interior vertices and are discarded, the paper's collinear "remove a mesh
+/// vertex" case), and writes back. One application per pass (`apply_splice`
+/// renumbers triangles), then the same Phase-A recompute the other passes do.
+///
+/// Out-of-scope seams (curved patch, non-line curve, closed run) are LOUD
+/// skips — increment I2's worklist, never a silent partial repair.
+#[allow(clippy::too_many_arguments)]
+fn run_construct_passes(
+    mesh: &mut Mesh,
+    attribution: &mut TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+    infos: &mut Vec<crate::stage4_correct::PatchInfo>,
+    intersection_curves: &mut std::collections::BTreeMap<(u32, u32), Curve>,
+    relocations: &mut Vec<(u32, f64)>,
+) -> Result<(), YangError> {
+    use crate::stage4_construct::{replace_seam_run, seam_groups};
+    use crate::stage4_splice::{
+        apply_splice, ordered_seam_side, splice_seam_pair, Side, SplicePatch,
+    };
+    use crate::stage4_update::MeshUpdateOpts;
+
+    // Every seam collapses at most once (its chain drops below 3 vertices),
+    // so the pass count is bounded by the seam count; the cap is a runaway
+    // guard, not an expected limit.
+    const MAX_PASSES: usize = 64;
+
+    let Some(d_eps) = crate::stage4_correct::stage4_chord_band(a, b) else {
+        eprintln!("[s4-construct] SKIPPED (no Stage-1 chord band for this input pair)");
+        return Ok(());
+    };
+    let merge_tol = cad_primitives::TAU_MODEL;
+    if merge_tol >= d_eps {
+        eprintln!(
+            "[s4-construct] SKIPPED (merge_tol {merge_tol:.3e} >= chord band d_eps {d_eps:.3e})"
+        );
+        return Ok(());
+    }
+    let opts = MeshUpdateOpts { merge_tol, d_eps };
+    let conformal_tol = merge_tol;
+
+    let mut applied_total = 0usize;
+    for pass in 0..MAX_PASSES {
+        let adjacency = triangle_adjacency(mesh);
+        let raw = crate::stage4_correct::merge_same_plane_patches(
+            flood_fill_patches(mesh, attribution, &adjacency),
+            &adjacency,
+            a,
+            b,
+        );
+        if raw.len() != infos.len() {
+            eprintln!(
+                "[s4-construct] STOP pass={pass}: patch/info correspondence broken \
+                 ({} patches vs {} infos)",
+                raw.len(),
+                infos.len(),
+            );
+            break;
+        }
+        let patches: Vec<SplicePatch> = raw
+            .iter()
+            .zip(infos.iter())
+            .map(|(p, i)| SplicePatch {
+                cycles: i
+                    .cycles
+                    .iter()
+                    .map(|c| c.iter().map(|&(s, _)| s).collect())
+                    .collect(),
+                tris: p.tri_indices.clone(),
+                surface: i.inherited,
+            })
+            .collect();
+
+        let groups = seam_groups(&patches, intersection_curves);
+        let mut applied_this_pass = false;
+        // Skip census: (non-line, curved-patch, closed, minimal, unorderable,
+        // run-not-contiguous, declined/refused). The I2 worklist is measured,
+        // not inferred.
+        let mut skip = [0usize; 7];
+        for (gi, g) in groups.iter().enumerate() {
+            let (pi, qi) = g.pair;
+            // ---- I1 scope filters, each loud. ---------------------------
+            if !matches!(g.curve, Curve::LineSegment) {
+                skip[0] += 1;
+                eprintln!(
+                    "[s4-construct] pass={pass} seam={gi}: SKIP non-line curve \
+                     (patches {pi}+{qi}, {} edges) — I2 scope",
+                    g.edges.len()
+                );
+                continue;
+            }
+            let planar = |s: &Surface| matches!(s, Surface::Plane { .. });
+            if !planar(&patches[pi].surface) || !planar(&patches[qi].surface) {
+                skip[1] += 1;
+                eprintln!(
+                    "[s4-construct] pass={pass} seam={gi}: SKIP curved patch \
+                     (patches {pi}+{qi}) — I2 scope"
+                );
+                continue;
+            }
+            let (chain, closed) = match ordered_seam_side(&patches[pi].cycles, &g.edges, Side::A) {
+                Ok(x) => x,
+                Err(e) => {
+                    skip[4] += 1;
+                    eprintln!(
+                        "[s4-construct] pass={pass} seam={gi}: SKIP unorderable chain \
+                         (patches {pi}+{qi}) — {e:?}"
+                    );
+                    continue;
+                }
+            };
+            if closed {
+                skip[2] += 1;
+                eprintln!(
+                    "[s4-construct] pass={pass} seam={gi}: SKIP closed seam \
+                     (patches {pi}+{qi}) — I2 scope"
+                );
+                continue;
+            }
+            if chain.len() < 3 {
+                skip[3] += 1;
+                continue; // already minimal — the construction's fixed point
+            }
+            let Some(cyc_a) = replace_seam_run(&patches[pi].cycles, &chain) else {
+                skip[5] += 1;
+                eprintln!(
+                    "[s4-construct] pass={pass} seam={gi}: SKIP — run not contiguous \
+                     in patch {pi}'s cycles"
+                );
+                continue;
+            };
+            let Some(cyc_b) = replace_seam_run(&patches[qi].cycles, &chain) else {
+                skip[5] += 1;
+                eprintln!(
+                    "[s4-construct] pass={pass} seam={gi}: SKIP — run not contiguous \
+                     in patch {qi}'s cycles"
+                );
+                continue;
+            };
+            let mod_a = SplicePatch {
+                cycles: cyc_a,
+                tris: patches[pi].tris.clone(),
+                surface: patches[pi].surface,
+            };
+            let mod_b = SplicePatch {
+                cycles: cyc_b,
+                tris: patches[qi].tris.clone(),
+                surface: patches[qi].surface,
+            };
+            let (e0, e1) = (chain[0], *chain.last().expect("chain len >= 3"));
+            let seam_edges: std::collections::BTreeSet<(u32, u32)> =
+                [(e0.min(e1), e0.max(e1))].into();
+            match splice_seam_pair(
+                mesh,
+                &mod_a,
+                &mod_b,
+                &seam_edges,
+                Some(&g.curve),
+                opts,
+                conformal_tol,
+            ) {
+                Ok(out) => match apply_splice(mesh, attribution, &out) {
+                    Ok(()) => {
+                        eprintln!(
+                            "[s4-construct] pass={pass} seam={gi}: APPLIED patches \
+                             {pi}+{qi} — chain {} -> 2 verts",
+                            chain.len()
+                        );
+                        applied_total += 1;
+                        applied_this_pass = true;
+                    }
+                    Err(e) => {
+                        skip[6] += 1;
+                        eprintln!("[s4-construct] pass={pass} seam={gi}: WRITE-BACK REFUSED {e:?}")
+                    }
+                },
+                Err(e) => {
+                    skip[6] += 1;
+                    eprintln!(
+                        "[s4-construct] pass={pass} seam={gi}: DECLINED patches {pi}+{qi} — {e:?}"
+                    )
+                }
+            }
+            if applied_this_pass {
+                break;
+            }
+        }
+        if !applied_this_pass {
+            eprintln!(
+                "[s4-construct] STOP pass={pass}: no collapsible seam remains \
+                 (applied_total={applied_total}; seams={} skips: nonline={} curved={} \
+                 closed={} minimal={} unorderable={} noncontig={} declined={})",
+                groups.len(),
+                skip[0],
+                skip[1],
+                skip[2],
+                skip[3],
+                skip[4],
+                skip[5],
+                skip[6],
+            );
+            break;
+        }
+
+        let remap = compact_unreferenced_verts(mesh, relocations);
+        let (i2, inc2, cv2) = compute_phase_a(
+            mesh,
+            attribution,
+            a,
+            b,
+            &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+        )?;
+        probe_remap_pre_pos("construct", remap.as_ref());
+        probe_record_incidence(&inc2, &cv2);
+        *infos = i2;
+        *intersection_curves = cv2;
+    }
+    Ok(())
+}
+
 pub(crate) fn reconstruct_topology_stage4(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
@@ -1027,6 +1258,20 @@ pub(crate) fn reconstruct_topology_stage4(
         // measurement, not a choice to bake in here.
         if std::env::var_os("YANG_MESHUP_ENABLE").is_some() {
             run_meshup_splice_passes(
+                mesh,
+                attribution,
+                a,
+                b,
+                &mut infos,
+                &mut intersection_curves,
+                &mut relocations,
+            )?;
+        }
+        // §4.4.1 AS WRITTEN, increment I1 (spec
+        // `specs/yang_441_trim_cdt_construction.md`): the unconditional
+        // curve-seam construction. Gate-OFF is byte-identical.
+        if std::env::var_os("YANG_441_CONSTRUCT").is_some() {
+            run_construct_passes(
                 mesh,
                 attribution,
                 a,

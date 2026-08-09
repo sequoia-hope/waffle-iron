@@ -98,6 +98,39 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    curve-sampled constraint chain + removal + CDT + shared seam identity,
    planar patches only. Measure: the 8 census cases + the relocation-region-
    invalid subclass on planar seams; full assay gate-ON vs gate-OFF.
+
+   **STATUS (2026-08-09): LANDED as the per-seam slice; mechanism sound, 0
+   conversions, and the measurement names the I1b design.**
+   `stage4_construct.rs` (seam enumeration `seam_groups` — unconditional, no
+   defect detector — plus cycle-run collapse `replace_seam_run`) + the pass
+   driver `stage5_topology::run_construct_passes` + a pair-own generalization
+   of `splice_seam_pair`'s foreign-interior scan (vertices dropped by BOTH
+   sides of the pair are the pair's own business). For a `LineSegment` seam
+   the curve resample IS the two junction endpoints, so the relocated
+   fold-back chain (collinear, order-scrambled — the census's crossing mint)
+   leaves the boundary entirely and the pair re-triangulates around the
+   clean seam.
+
+   Measured on F0067's failing boolean (skip census built into the pass):
+   101 seams → **39 APPLIED** (write-backs accepted, chains up to 16→2),
+   69 already-minimal, 21 non-line (I2), **11 declined at the fixpoint —
+   decline census: `SelfIntersectingPolyline` ×500 events,
+   `CdtFailed(DuplicateVertex)` ×76**. The wall persists (same
+   ring-rejected class). F0045: its 3 seams are plane×curved — entirely I2.
+   Gate-OFF byte-identical (zero construct lines; yang-rs suite green).
+
+   **I1b (the measured design correction): the §4.4.1 unit of work is the
+   PATCH with ALL its curves, not the seam pair.** A collapsed straight seam
+   still crosses the OTHER not-yet-collapsed relocated chains of the same
+   cycle — mutually-blocked seams can never collapse one-at-a-time, which is
+   exactly the paper's own text ("we trim and update the meshes using the
+   intersection curveS"): rebuild each patch's cycles with ALL seam runs
+   collapsed simultaneously, single-sided per patch, conformality from the
+   shared curve-chain vertex identities (each collapsed run is the same
+   vertex pair on both adjacent patches by construction — no two-sided
+   driver needed once polyline points are existing shared vertices). The
+   `DuplicateVertex` ×76 class is the known femto-pair junction family and
+   needs the shipped junction identities applied to the modified cycles.
 2. **I2 — curved patches**: interior-vertex carry into `interior` + d(T)
    recompute; retire `CurvedPatchInteriorVertices` by capability, not by
    band. Measure: R-series members of the family.
