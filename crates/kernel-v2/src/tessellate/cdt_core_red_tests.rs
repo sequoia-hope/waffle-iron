@@ -116,8 +116,8 @@ fn max_edge_incidence(mesh: &RenderMesh) -> usize {
     counts.values().copied().max().unwrap_or(0)
 }
 
-/// Banked F0047 FaceId(17): the 27-half-edge cylinder-patch ring (EllipseArc
-    /// + LineSegment curves, oblique axis) that mints 64 sliver twins under the
+/// Banked F0047 FaceId(17): the 27-half-edge cylinder-patch ring (EllipseArc +
+    /// LineSegment curves, oblique axis) that mints 64 sliver twins under the
     /// ear-clip today. Verbatim measured fixture (§6b, 2026-07-02).
     #[rustfmt::skip]
     fn build_f0047_patch() -> (BrepArena, FaceId) {
@@ -306,7 +306,7 @@ fn max_edge_incidence(mesh: &RenderMesh) -> usize {
                 prev: HalfEdgeId(((i + n - 1) % n) as u32),
                 origin: VertexId(i as u32),
                 loop_id: lid,
-                curve: curve.clone(),
+                curve: *curve,
             }));
         }
         arena.loops.push(Some(Loop { face: fid, boundary: LoopBoundary::Edges(HalfEdgeId(0)), kind: LoopKind::Outer }));

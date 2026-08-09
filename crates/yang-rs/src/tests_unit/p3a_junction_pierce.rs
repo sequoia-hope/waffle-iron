@@ -42,7 +42,8 @@ fn transversal_pierce_mints_and_fans_out_to_all_copies() {
     }
     // Fan-out: group by geometric edge (endpoint pair) — every copy of one
     // geometric edge carries the IDENTICAL pierce list.
-    let mut by_geom: std::collections::BTreeMap<([u64; 3], [u64; 3]), Vec<&Vec<PiercePoint>>> =
+    type GeomKey = [u64; 3];
+    let mut by_geom: std::collections::BTreeMap<(GeomKey, GeomKey), Vec<&Vec<PiercePoint>>> =
         std::collections::BTreeMap::new();
     let kb = |p: Point3| [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
     for ((_, ei), pierces) in &b_side {

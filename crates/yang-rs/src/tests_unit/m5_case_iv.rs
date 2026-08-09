@@ -242,7 +242,7 @@ pub(crate) fn m5_cone_pair_relocation_onto_both() {
 pub(crate) fn pair_newton_converges_at_large_coordinate_magnitude() {
     let torus = Surface::Torus {
         center: Point3::new(
-            -1168.034_411_526_669_1,
+            -1168.0344115266691,
             -337.362_669_297_692_83,
             -504.810_811_776_372,
         ),
@@ -259,7 +259,7 @@ pub(crate) fn pair_newton_converges_at_large_coordinate_magnitude() {
         d: -463.872_489_046_618_45,
     };
     let seed = Point3::new(
-        -1339.501_095_147_644_7,
+        -1339.5010951476447,
         -357.541_286_003_184_7,
         -436.161_969_211_728_3,
     );

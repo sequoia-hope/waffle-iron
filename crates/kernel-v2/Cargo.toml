@@ -7,6 +7,15 @@ description = "Clean-sheet CAD kernel. Half-edge B-Rep with enforced face.normal
 
 # kernel-v2 sits at the top of the new tier. Implements the public Kernel
 # trait used by wasm-bridge, feature-engine, etc.
+
+# Test fixtures here are VERBATIM full-precision probe/golden dumps (17-sig-digit
+# f64 round-trips, pasted from runner output for eyeball-diffability against the
+# next capture). clippy's excessive_precision would shorten ~1235 such literals —
+# value-preserving but breaking the paste-recapture workflow — so it is allowed
+# crate-wide. Every other clippy lint still gates at -D warnings in CI.
+[lints.clippy]
+excessive_precision = "allow"
+
 [features]
 # Compile the debug-tier GEOMETRIC tripwires (loop vertices on their face's
 # analytic surface, at the scale-relative `import_band`) into an OPTIMIZED

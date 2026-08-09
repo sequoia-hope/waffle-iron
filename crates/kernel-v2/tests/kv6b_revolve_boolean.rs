@@ -22,7 +22,7 @@ use std::f64::consts::PI;
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use kernel_v2::{
     boolean_op, extrude, geom, revolve, tessellate, to_yang_brep, validate_solid, BrepArena,
-    KernelV2Error, Profile, RenderMesh, RevolveResult, Surface,
+    Profile, RenderMesh, RevolveResult, Surface,
 };
 
 const R1: f64 = 1.0;

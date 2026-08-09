@@ -127,8 +127,8 @@ fn s4bc_iii_cross_curve_junction_vertex_is_never_moved() {
     mesh.verts.push(chord_point(0.0, SPAN_DEG, 0.25));
 
     let mut rim: std::collections::BTreeMap<(u32, u32), Curve> = Default::default();
-    rim.insert((0, 2), curve.clone());
-    rim.insert((2, 1), curve.clone());
+    rim.insert((0, 2), curve);
+    rim.insert((2, 1), curve);
     rim.insert((0, 3), curve);
 
     let mut excluded: std::collections::BTreeSet<u32> = Default::default();
@@ -289,9 +289,8 @@ fn s4bc_census_tessellation_source_of_off_curve_rim_vertices() {
     // in both gate states (the fixture is clean with the #195 arm off). What it
     // pins is that the lookup is total — every cylinder-loop vertex has a
     // source — so inc-2 can branch on it.
-    assert_eq!(
+    assert!(
         census.values().sum::<usize>() > 0,
-        true,
         "the union must retain at least one cylinder face to census"
     );
 }
@@ -314,7 +313,7 @@ fn s4bc_vi_edge_with_an_out_of_band_endpoint_is_abandoned_whole() {
     mesh.verts.push(on_circle(SPAN_DEG)); // v3: exactly on
 
     let mut rim: std::collections::BTreeMap<(u32, u32), Curve> = Default::default();
-    rim.insert((0, 1), curve.clone()); // rejected edge
+    rim.insert((0, 1), curve); // rejected edge
     rim.insert((2, 3), curve); // accepted edge
 
     let moves = plan_boundary_relocations(

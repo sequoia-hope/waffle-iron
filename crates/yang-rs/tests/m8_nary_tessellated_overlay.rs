@@ -303,6 +303,7 @@ fn run(a: &BRep, b: &BRep, op: BoolOp, what: &str) -> BRep {
 /// output's planar/cylindrical faces are tessellated with chord sag, so the
 /// mesh volume approaches `vol` only in the chord count — assert within
 /// `rel` instead of exactly.
+#[allow(dead_code)] // retained oracle: n-ary closed-solid cases will want it
 fn assert_closed(out: &BRep, vol: f64, rel: f64, what: &str) {
     let mesh = out.as_mesh();
     assert_watertight(mesh, what);

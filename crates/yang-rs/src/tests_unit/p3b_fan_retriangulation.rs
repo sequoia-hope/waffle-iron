@@ -72,7 +72,11 @@ fn z_plane() -> Surface {
 struct Ids {
     s0: u32,
     pp: u32,
+    // The victim ids are collapsed away mid-test; kept so the struct mirrors
+    // the full seam polyline s0—P—V1—V2—G—s3 the fixture doc describes.
+    #[allow(dead_code)]
     v1: u32,
+    #[allow(dead_code)]
     v2: u32,
     gg: u32,
     s3: u32,

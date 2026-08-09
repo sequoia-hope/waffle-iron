@@ -3125,9 +3125,8 @@ pub(crate) fn tessellate_band_azimuth_merge(
 mod surface_face_tessellators;
 pub(crate) use surface_face_tessellators::*;
 
-mod patch_tessellators;
+pub(crate) mod patch_tessellators;
 pub(crate) use patch_tessellators::*;
-pub use patch_tessellators::{tessellate_sphere_patch, tessellate_torus_patch};
 
 #[cfg(test)]
 mod torus_patch_tests;

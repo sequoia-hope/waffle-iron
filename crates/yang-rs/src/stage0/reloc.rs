@@ -1235,8 +1235,8 @@ pub(crate) fn fig11_backtrack_pair(
         let qq = frame.project(coords[q as usize]);
         let (dx, dy) = (eb.0 - ea.0, eb.1 - ea.1);
         let len = (dx * dx + dy * dy).sqrt();
-        if !(len > 0.0) {
-            continue;
+        if len.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+            continue; // zero-length AND NaN edges both land here
         }
         let overshoot = ((qq.0 - ea.0) * dy - (qq.1 - ea.1) * dx).abs() / len;
         return Some((p, q, overshoot, len));
@@ -1774,6 +1774,7 @@ pub(crate) fn fig11_split_cavity(
 ///   conserved EXACTLY (rational equality — the folded cover's signed sum
 ///   already equals the clean cover's, so any mis-fan breaks it); count =
 ///   cavity + |tail|.
+///
 /// The §10d settle predicate applied PREVENTIVELY at a commit site
 /// (amendment 15 inc-1.5 slide / inc-3 closed-link split): with the
 /// CURRENT resolved coords, would the crossing set of ONE rim sub-chord
@@ -1834,7 +1835,7 @@ pub(crate) fn chord_crossing_order_inverted(
         if w[0].1 != focus as usize && w[1].1 != focus as usize {
             continue;
         }
-        let mut proj = |vi: usize| -> Option<(RBig, RBig)> {
+        let proj = |vi: usize| -> Option<(RBig, RBig)> {
             let (u, v) = frame.project(coords[vi]);
             Some((
                 crate::coplanar_overlay::rat(u).ok()?,
@@ -2509,7 +2510,7 @@ mod reloc_tests {
             let (p0, p1, p2) = (q(t[0]), q(t[1]), q(t[2]));
             ((p1.0 - p0.0) * (p2.1 - p0.1) - (p1.1 - p0.1) * (p2.0 - p0.0)) / 2.0
         };
-        let total: f64 = tris.iter().map(|t| area(t)).sum();
+        let total: f64 = tris.iter().map(area).sum();
         // Rect 8.0 plus the dip of the boundary V at v below y=0:
         // triangle (w0, v, w3) area = 0.5·base(4)·depth(0.3) = 0.6.
         assert!((total - 8.6).abs() < 1e-12, "cover area {total} != 8.6");
@@ -2586,7 +2587,7 @@ mod reloc_tests {
             let (p0, p1, p2) = (q(t[0]), q(t[1]), q(t[2]));
             ((p1.0 - p0.0) * (p2.1 - p0.1) - (p1.1 - p0.1) * (p2.0 - p0.0)) / 2.0
         };
-        let total: f64 = tris.iter().map(|t| area(t)).sum();
+        let total: f64 = tris.iter().map(area).sum();
         assert!((total - 8.6).abs() < 1e-12, "cover area {total} != 8.6");
     }
 
@@ -2637,7 +2638,7 @@ mod reloc_tests {
             let (p0, p1, p2) = (q(t[0]), q(t[1]), q(t[2]));
             ((p1.0 - p0.0) * (p2.1 - p0.1) - (p1.1 - p0.1) * (p2.0 - p0.0)) / 2.0
         };
-        let total: f64 = tris.iter().map(|t| area(t)).sum();
+        let total: f64 = tris.iter().map(area).sum();
         assert!((total - 3.2).abs() < 1e-12, "cover area {total} != 3.2");
     }
 
@@ -2812,7 +2813,7 @@ mod reloc_tests {
             let (p0, p1, p2) = (q(t[0]), q(t[1]), q(t[2]));
             ((p1.0 - p0.0) * (p2.1 - p0.1) - (p1.1 - p0.1) * (p2.0 - p0.0)) / 2.0
         };
-        let total: f64 = tris.iter().map(|t| area(t)).sum();
+        let total: f64 = tris.iter().map(area).sum();
         assert!((total - 8.6).abs() < 1e-12, "cover area {total} != 8.6");
     }
 
@@ -3017,7 +3018,7 @@ mod reloc_tests {
             let (q0, q1, q2) = (q(t[0]), q(t[1]), q(t[2]));
             ((q1.0 - q0.0) * (q2.1 - q0.1) - (q1.1 - q0.1) * (q2.0 - q0.0)) / 2.0
         };
-        let total: f64 = tris.iter().map(|t| area(t)).sum();
+        let total: f64 = tris.iter().map(area).sum();
         assert!((total - 6.4).abs() < 1e-12, "cover area {total} != 6.4");
     }
 

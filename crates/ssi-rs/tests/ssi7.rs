@@ -509,10 +509,7 @@ fn nc_non_coaxial_yields_surface_pair() {
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         half_angle: alpha,
     };
-    let expected = Ok(vec![SsiCurve::SurfacePair {
-        a: cone,
-        b: sphere,
-    }]);
+    let expected = Ok(vec![SsiCurve::SurfacePair { a: cone, b: sphere }]);
     assert_eq!(intersect(&sphere, &cone), expected);
     // Symmetric order: same canonical pair (I4).
     assert_eq!(intersect(&cone, &sphere), expected);

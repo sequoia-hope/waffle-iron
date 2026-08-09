@@ -558,6 +558,7 @@ pub(crate) fn collect_rim_crossings(
 /// probe reports skips, distinguishing a pairwise collapse (two cap
 /// samples → one image, the C0048/F0067 count-deficit mechanism) from a
 /// dedup against a pre-existing entry.
+#[allow(clippy::too_many_arguments)]
 fn push_opp(
     opp_entry: &mut Vec<Point3>,
     opp_pt: Point3,

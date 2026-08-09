@@ -61,11 +61,11 @@
 //! R0085 went 2 → 845 and F0067 71 → 74. **The 07-29 census computed this
 //! ratio only over the 78 vertices ALREADY IDENTIFIED AS FOLDS (turn angle
 //! > 120°); this planner computes it over every vertex that MOVED.** Different
-//! denominators, so "845 minting" is not 845 defects — it is 845 vertices whose
-//! displacement exceeds their tightest cycle spacing, most of which never
-//! folded. Widening also makes `min_pre_spacing` a minimum over a much larger
-//! set, so a single sub-resolution near-duplicate neighbour (the pipeline
-//! collapses these later anyway) drives the ratio for everything around it.
+//! > denominators, so "845 minting" is not 845 defects — it is 845 vertices whose
+//! > displacement exceeds their tightest cycle spacing, most of which never
+//! > folded. Widening also makes `min_pre_spacing` a minimum over a much larger
+//! > set, so a single sub-resolution near-duplicate neighbour (the pipeline
+//! > collapses these later anyway) drives the ratio for everything around it.
 //!
 //! **Consequence: `ratio >= 1` is a NECESSARY but not SUFFICIENT condition.**
 //! The missing half is the fold restriction — local order actually inverting —
@@ -778,6 +778,7 @@ mod tests {
     /// The census's own signature: straight before (0.00°), doubled back
     /// after (179.9x°).
     #[test]
+    #[allow(non_snake_case)] // the CAPS verdict is the test's claim
     fn straight_before_and_doubled_back_after_is_MINTED() {
         let cyc: Vec<u32> = vec![0, 1, 2];
         let pre = m(&[
@@ -797,6 +798,7 @@ mod tests {
     /// Already folded before Stage 4 and merely perturbed: INHERITED, and the
     /// Fig-11 merge is not its repair.
     #[test]
+    #[allow(non_snake_case)] // the CAPS verdict is the test's claim
     fn already_folded_before_stage4_is_INHERITED() {
         let cyc: Vec<u32> = vec![0, 1, 2];
         let pre = m(&[
@@ -958,6 +960,7 @@ mod tests {
 
     /// The whole point: the merge arm's customer set is the INTERSECTION.
     #[test]
+    #[allow(non_snake_case)] // the CAPS verdict is the test's claim
     fn merge_customers_is_ratio_AND_minted_fold() {
         let cyc: Vec<u32> = vec![0, 1, 2];
         let pre = m(&[

@@ -886,7 +886,12 @@ mod tests {
         let mut grown_attr = TriangleAttributionMap::empty();
         grown_attr.attributions = vec![None; 5];
         assert!(matches!(
-            apply_rebuild_batch(&mut grown, &mut grown_attr, &[r.clone()], &BTreeMap::new()),
+            apply_rebuild_batch(
+                &mut grown,
+                &mut grown_attr,
+                std::slice::from_ref(&r),
+                &BTreeMap::new()
+            ),
             Err(ConstructError::StalePlan { .. })
         ));
 

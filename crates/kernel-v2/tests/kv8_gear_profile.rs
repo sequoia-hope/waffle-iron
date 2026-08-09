@@ -498,7 +498,7 @@ fn arc_segment_profile_extrudes_to_cylinder_walled_prism() {
     let mut k = KernelV2Adapter::new();
     let faces = k
         .make_faces_from_profiles(
-            &[profile.clone()],
+            std::slice::from_ref(&profile),
             [0.0, 0.0, 0.0],
             [0.0, 0.0, 1.0],
             [1.0, 0.0, 0.0],

@@ -1168,7 +1168,7 @@ mod rim_table_fusion_tests {
             Some(&Point3::new(1.0, 2.0, 0.5)),
             "losing table re-keyed to the elected (uv, point)"
         );
-        assert!(rim_b.get(&ep(ulp_up(1.0), 2.0)).is_none());
+        assert!(!rim_b.contains_key(&ep(ulp_up(1.0), 2.0)));
         assert_eq!(
             (poly_b.outer[1].x(), poly_b.outer[1].y()),
             (1.0, 2.0),

@@ -38,7 +38,7 @@ fn micro_scale_sub_feature_edge_is_refused() {
     // …and its smallest non-ε merge: len 3.5e-8 at scale 4.6e-4 — still ≫ band.
     assert!(!is_relocation_coincidence(3.5e-8, 4.6e-4));
     // The old absolute floor would have merged all of these (< MIN_FEATURE_SIZE).
-    assert!(9.1e-7 < MIN_FEATURE_SIZE && 3.5e-8 < MIN_FEATURE_SIZE);
+    const _: () = assert!(9.1e-7 < MIN_FEATURE_SIZE && 3.5e-8 < MIN_FEATURE_SIZE);
 }
 
 /// The band is exactly `TAU_WORK·(1+scale)` — strictly below merges, at/above

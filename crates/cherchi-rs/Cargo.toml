@@ -22,6 +22,14 @@ description = "Pure-Rust port of Cherchi 2020 + 2022 (mesh arrangements + intera
 # build never pulls it: `cargo check --target wasm32-unknown-unknown` (no
 # features) stays thread-free. Native consumers (test-harness / assay / any
 # native embedding) opt in via `--features cherchi-rs/parallel`.
+# Test fixtures here are VERBATIM full-precision probe/golden dumps (17-sig-digit
+# f64 round-trips, pasted from runner output for eyeball-diffability against the
+# next capture). clippy's excessive_precision would shorten ~112 such literals —
+# value-preserving but breaking the paste-recapture workflow — so it is allowed
+# crate-wide. Every other clippy lint still gates at -D warnings in CI.
+[lints.clippy]
+excessive_precision = "allow"
+
 [features]
 parallel = ["dep:rayon"]
 

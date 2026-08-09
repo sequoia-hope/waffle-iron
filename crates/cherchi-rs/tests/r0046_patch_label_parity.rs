@@ -1,6 +1,6 @@
 //! I1 reference-parity oracle for the patch-label tolerance cycle
-//! (spec `specs/cherchi_patch_label_tolerance.md` §5). Dev-only, `#[ignore]`d
-//! + sidecar-required per the established parity convention
+//! (spec `specs/cherchi_patch_label_tolerance.md` §5). Dev-only, `#[ignore]`d and
+//! sidecar-required per the established parity convention
 //! (`parity_native_vs_sidecar.rs`); run with:
 //!
 //! ```text

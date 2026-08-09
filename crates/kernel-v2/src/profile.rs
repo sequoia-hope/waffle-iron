@@ -837,10 +837,10 @@ fn point_in_arc_region(w: Point2, loop_edges: &[ProfileEdge]) -> Option<bool> {
                 center,
                 radius,
                 ..
-            } => match exact::arc_segment_interior_crossings(a, b, center, radius, w, far) {
-                Some(c) => count += c,
-                None => return None,
-            },
+            } => {
+                let c = exact::arc_segment_interior_crossings(a, b, center, radius, w, far)?;
+                count += c
+            }
         }
     }
     Some(count % 2 == 1)
