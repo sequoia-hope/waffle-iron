@@ -209,16 +209,28 @@ below — most of the R-series is curved, so the epic's reach depends on it.
      endpoints relocated onto the same rim circle at near-identical
      angles (the 2026-08-01 quadruple-point region).
 
-     **I1e (next, the fix): kept-content gate on exact-junction
-     relocation.** A curve×curve junction relocation is justified only if
-     the exact junction lies within the vertex's faces' kept footprint
-     (a mesh-derived containment test — e.g. within the vertex's incident
-     triangle neighborhood — not a new tolerance). Outside it, the vertex
-     is the curve's face-boundary exit and its authority is the curve it
-     terminates (the pp-line), not the foreign curve. Expected reach:
-     both the TF-8 class and the femto-pair class on F0067; must not
-     disturb legitimate junctions (their exact points lie inside kept
-     content by definition).
+     **I1e (2026-08-09, RE-SCOPED by the pre-position census): the fix is
+     UPSTREAM in curve-edge classification, not at the junction gate.**
+     The classification-time probe (`[i1d-classify]`, pre-relocation
+     positions) measured: the junction-classified endpoints sit at
+     r = 0.2029–0.2051 PRE-relocation — 3.9e-3 inside the rim circle,
+     far beyond any chord's sagitta reach (chords live at r ≥ 0.2071) —
+     so their circle incidence is a MIS-ATTRIBUTION; and the top-edge
+     chain was PERFECTLY MONOTONE pre-relocation (999 at s = 0.732
+     between its neighbours; 991/983/975 at 0.776/0.795/0.906): the
+     junction relocation moved 999 from s = 0.732 to s = 1.0, leaping
+     over three unmoved outline vertices AND the face corner in one move
+     — the 2026-08-06 crossing mint, caught in the act. A
+     kept-content gate at the junction arm alone CANNOT fix it: refusing
+     classification reroutes the vertex to the plain circle loop, whose
+     radial band (1.74e-2) also passes 3.85e-3 and projects onto the
+     same false circle radially (same damage, different door), and the
+     no-skip audit couples endpoint bookkeeping to EDGE classes. The
+     deviation is the bug: some incident edge at these vertices is
+     classified as a rim-circle edge despite its endpoint being
+     millimetres off the circle. Next census: WHICH edge, its other
+     endpoint, and which layer (Stage-3 `build_intersection_curves` /
+     Phase-A curve classification) put it on the circle chain.
    - `DuplicateVertex` ×1 — the femto pair is ANCHORED: mesh verts
      1049+1050, 3D distance 4.441e-16, bit-identical chart projections.
      Upstream double-mint of one junction (the `SeamPointCoincident`

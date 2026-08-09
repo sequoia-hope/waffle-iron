@@ -4762,6 +4762,15 @@ pub(crate) fn stage4_relocate_and_correct(
                 });
             };
             let circ = vert_circle.remove(&v).expect("checked contains_key");
+            if i1d_probe {
+                let p = mesh.verts[v as usize];
+                eprintln!(
+                    "[i1d-classify] v{v} pre=({:.12}, {:.12}, {:.12})",
+                    p.x(),
+                    p.y(),
+                    p.z()
+                );
+            }
             vert_pp_circle_junction.insert(v, ((lp, ld), circ));
         }
     }
