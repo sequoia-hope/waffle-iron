@@ -471,6 +471,32 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    closed transitively (a joining patch brings its seams; those seams'
    partners join too), which subsumes the merge-holder closure and
    gives every holder's conic chain its reorder.**
+
+   **Full-stack diagnosis on F0067 (2026-08-09, measurement-only
+   round): the wheel-corner residue needs a NEW capability — I2c,
+   input-edge chain refinement — not a composition tweak.** With
+   construct + merge + reorder all on: 176 merges and heavy near-curve
+   removals fire, yet the TF-8 walls decline with their cycles
+   UNCHANGED at the corner. Three interlocking measured facts: (1) the
+   wall-corner merge (chord-anchored 975-class → junction 999-class)
+   never fires because q is ALREADY a vertex of the partner circle
+   chain — no edge CONTAINS q, and the containment selector has no arm
+   for the q-already-split case (Fig-11(a) is topologically done
+   there); (2) the ≤2-holder removal rule blocks the corner columns —
+   CORRECTLY, since they are topological corners, and removal is the
+   wrong operation for them; (3) the corner columns (975/2574-class)
+   are the CHORD-ANCHORED Stage-1 input-edge chain of the rib's
+   wall∩cap edge, sitting 1.34e-3 inside the exact ruling — their
+   resolution is REFINEMENT of B's own input-edge chain onto the exact
+   geometry at seam-adjacent corners (the §4.3.4 sampling discipline
+   applied to input edges, which nothing in the tree builds yet).
+   I2c's shape: for a batched patch whose boundary contains an
+   input-edge chain adjacent to a seam junction, refine that chain's
+   vertices onto the exact input edge (wall∩cap = a ruling of the cap
+   cylinder in the wall plane), which lands the corner column at the
+   junction radius and lets the existing merge/removal machinery
+   close the corner. Until then the F0067 walls remain honest ERRORs;
+   the corpus holds 259C/0W with the F0085 conversion.
 3. **I3 — flip per wall class** (cdt-ring-rejected → relocation-region →
    reassembly-non-2-manifold), full assay after each; any conversion or new
    wall is censused before the next flip.
