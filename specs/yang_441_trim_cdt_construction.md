@@ -497,6 +497,85 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    junction radius and lets the existing merge/removal machinery
    close the corner. Until then the F0067 walls remain honest ERRORs;
    the corpus holds 259C/0W with the F0085 conversion.
+
+   **I2c-1 (2026-08-10, LANDED sub-gated `YANG_441_INPUT_REFINE` — and
+   its measurement REFUTES the wheel-corner reach hypothesis; the corner
+   re-anchors to the JUNCTION layer.)** The machinery, all measured
+   working: `input_edge_chains` (plain-run identification over scoped
+   patches — same-input different-attribution neighbours, seam/curve
+   edges excluded, maximal same-neighbour runs, seam-adjacency
+   qualification within the derived chord band, canonical dedup, and a
+   `RunSkip` coverage ledger printed under `YANG_441_VERBOSE`);
+   `refine_chain_to_ruling` (exact plane∩cylinder ruling, parallel-axis
+   identity at 1e-9, two-candidate selection with per-vertex ambiguity
+   refusal, band-guarded displacement, idempotent); the Fig-13 authority
+   partition (junction/relocated vertices at run ENDPOINTS are PINNED —
+   the q-already-a-vertex case — one INSIDE the run refuses loud); and
+   the driver phase feeding refined corner endpoints to the Fig-11(b)
+   merge as refine-anchored pairs (the arm the containment selector
+   cannot see).
+
+   **Measured on F0067 (all gates): 0 chains refine.** 91 chains refuse
+   `NonParallelAxis` (dot ±1.0 — the plane⊥axis plane-cap CIRCLE class,
+   the real I2c tail), and 832 chains — including EVERY TF-8 wall's runs
+   — land in the plane×plane-EXACT no-op arm. The wall corner columns
+   (1523/2433-class) sit at r = 0.207507 exactly, wall AND column vertex
+   alike, with the end-cap neighbour measured PLANE: they are the
+   DESIGNED rib-end radius, exact same-solid input edges — nothing is
+   chord-anchored there. The kept junction (1524-class) sits at
+   r = 0.208846 (the rim-circle radius), 1.339e-3 BEYOND the wall's
+   kept footprint. **The I1e "legitimate incidence" retraction is itself
+   RETRACTED**: the `[A:Plane, B:Cyl]` incidence belongs to the
+   rim-circle seam of the top-plane × drum-lateral pair (the 328-class
+   top patches carry those curved-seam chains at the same z), not to a
+   cylindrical rib end; the rib end is a PLANE and the 1.34e-3 gap is
+   DESIGN — the original I1d reading. The wheel-corner defect is
+   therefore the ORIGINAL I1d verdict, now measured from a second
+   independent direction: the `vert_pp_circle_junction` relocation keeps
+   the seam endpoint at the exact UNBOUNDED junction, outside the wall's
+   kept footprint; the seam's true exit is the wall's own corner —
+   Fig-11(a), q ON the boundary. **Named next increment: J1 —
+   boundary-exit junction authority** (kept-content discipline at the
+   junction/classification layer), carrying the I1e-rescope reroute
+   hazard (refusing one arm reroutes the vertex to the plain circle
+   loop; endpoint bookkeeping is coupled to edge classes) as a standing
+   design constraint.
+
+   Two shared-path fixes landed with the increment (live whenever the
+   construct pass runs, sub-gates off included):
+   - **Assembly-loop livelock fix**: the degenerate-cycle decline
+     "dropped the patch's seams" — but a merge/removal HOLDER owns no
+     seams, so the restart repeated the identical state forever
+     (measured: 18,322 restarts to a CPU-budget TIMEOUT; reachable on
+     main whenever `YANG_441_CORNER_MERGE` applies and a merge-only
+     holder's cycle degenerates — every earlier applied-merge state
+     escaped it only because the diagnosis rounds were census-only).
+     The decline now lands on the merge pairs that pulled the holder in
+     (`merge_blocked`), with a loud whole-batch refusal if neither a
+     seam nor a merge is attributable.
+   - **Attribution-hole loudness**: a scoped patch with mixed/absent
+     attribution now prints its invisibility instead of silently
+     skipping its runs.
+
+   With the livelock fixed, the CORNER_MERGE-applied path on F0067 runs
+   to a verdict instead of spinning: Extrude 10 fails as a Stage-6
+   non-2-manifold (37/21 batch) — the applied-merge degradation family.
+   The merge sub-gate stays OFF; no corpus configuration is affected.
+
+   **Full-corpus gate-ON assay (2026-08-10, main gate only):
+   258C/0W/50E/0T with the ERROR set BYTE-IDENTICAL to the canonical
+   gate-OFF baseline — zero deltas attributable to this increment.**
+   The comparison also surfaced a pre-existing loss: **the F0085
+   conversion (I2a's first-and-only corpus conversion) did NOT survive
+   the dashu-ratio 0.4.4 / lockfile pin** — single-case bisect: the
+   identical `NonPlanarFace` ERROR at Extrude 20 (face id drift
+   37928→37935) on committed MAIN with the working diff stashed, so it
+   is not this increment's mint. The 2026-08-09j pin session
+   re-baselined gate-OFF only; today's is the first post-pin gate-ON
+   assay. Gate-ON and gate-OFF now measure IDENTICAL scores: the
+   construct pass currently converts nothing corpus-wide under the
+   pinned environment (a worklist fact, not a regression — the honest
+   ERRORs are unchanged).
 3. **I3 — flip per wall class** (cdt-ring-rejected → relocation-region →
    reassembly-non-2-manifold), full assay after each; any conversion or new
    wall is censused before the next flip.

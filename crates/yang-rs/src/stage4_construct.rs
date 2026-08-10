@@ -242,6 +242,340 @@ pub(crate) fn on_segment_interior(verts: &[Point3], e0: u32, e1: u32, v: u32) ->
     perp2 <= 1e-18 * len2
 }
 
+// =========================================================================
+// I2c — input-edge chain refinement at seam-adjacent corners (spec §4-I2c)
+// =========================================================================
+
+/// One plain (input-edge) boundary run of a seam-owning patch, shared with
+/// exactly one same-input neighbour patch and adjacent to an eligible seam
+/// junction.
+///
+/// This is the I2c object (spec `yang_441_trim_cdt_construction.md` §4-I2c):
+/// the Stage-1 discretization of a B-Rep edge of ONE input solid (the F0067
+/// rib's wall∩cap edge), chord-anchored by tessellation and therefore off
+/// the exact surface∩surface curve by up to the curved owner's sagitta.
+/// Where such a chain meets an intersection-seam junction, two authorities
+/// disagree by the chord gap — the chain's corner endpoint (975-class) vs
+/// the exact junction (999-class) — and the boundary folds back between
+/// them. Refining the chain onto the exact input edge (Fig-13's "boundary
+/// points glide along boundary curves" discipline) lands the corner at the
+/// junction, and the existing Fig-11(b) merge + near-curve removal close
+/// the corner.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct InputEdgeChain {
+    /// The seam-owning patch whose cycle carries the run.
+    pub patch: usize,
+    /// The single other owner of every run edge (same input, different face).
+    pub neighbor: usize,
+    /// Run vertices in cycle order (open, `len() >= 2`).
+    pub verts: Vec<u32>,
+    /// `(p, q)` corner adjacencies that scoped this run: chain endpoint `p`
+    /// within `band` of eligible-seam junction `q` (`p != q`, nearest `q`,
+    /// deterministic tie-break). After refinement `p` lies on the exact
+    /// input edge and the driver feeds `p -> q` to the Fig-11(b) merge.
+    pub corner_pairs: Vec<(u32, u32)>,
+}
+
+/// Why a qualified plain run was not returned as an [`InputEdgeChain`] —
+/// the identification's own coverage ledger, printed by the driver under
+/// `YANG_441_VERBOSE`.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RunSkip {
+    pub patch: usize,
+    pub neighbor: usize,
+    pub verts: Vec<u32>,
+    pub reason: RunSkipReason,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum RunSkipReason {
+    /// No endpoint pairs with (or is) a junction — outside I2c's scope.
+    NotSeamAdjacent,
+    /// The neighbour's copy of a run another scoped patch already returned.
+    Deduped,
+}
+
+/// Enumerate every seam-adjacent input-edge chain over the scoped patches.
+///
+/// A cycle edge belongs to a run iff it is PLAIN (not an intersection-curve
+/// edge, not one of the batch's seam-chain or collapsed-direct edges), is
+/// owned by exactly two patches `{patch, neighbor}`, and both owners carry
+/// the SAME `InputId` with DIFFERENT attributions — the discretization of a
+/// B-Rep edge of one input solid. Maximal same-neighbour runs are returned
+/// when at least one endpoint lies within `band` of a junction vertex; a
+/// cycle fully shared with one neighbour (a closed ring, no corner) is
+/// skipped. Runs shared by two scoped patches are returned once (canonical
+/// orientation). Deterministic: `BTreeMap`/`BTreeSet` iteration only.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn input_edge_chains(
+    patches: &[SplicePatch],
+    patch_attr: &[Option<TriangleAttribution>],
+    verts: &[Point3],
+    curves: &BTreeMap<(u32, u32), Curve>,
+    seam_edges: &BTreeSet<(u32, u32)>,
+    junctions: &BTreeSet<u32>,
+    scope: &BTreeSet<usize>,
+    band: f64,
+) -> (Vec<InputEdgeChain>, Vec<RunSkip>) {
+    let mut owners: BTreeMap<(u32, u32), Vec<usize>> = BTreeMap::new();
+    for (pi, p) in patches.iter().enumerate() {
+        for cyc in &p.cycles {
+            let n = cyc.len();
+            for i in 0..n {
+                let (s, e) = (cyc[i], cyc[(i + 1) % n]);
+                let key = (s.min(e), s.max(e));
+                let v = owners.entry(key).or_default();
+                if v.last() != Some(&pi) {
+                    v.push(pi);
+                }
+            }
+        }
+    }
+    let dist = |x: u32, y: u32| -> f64 {
+        let (a, b) = (verts[x as usize], verts[y as usize]);
+        ((a.x() - b.x()).powi(2) + (a.y() - b.y()).powi(2) + (a.z() - b.z()).powi(2)).sqrt()
+    };
+    // Nearest junction within `band` of `p` (excluding `p` itself); ties
+    // break to the lower vertex index. Near-coincident junction copies (the
+    // femto family) are equally valid merge targets — the pair itself stays
+    // a separately-recorded defect. An endpoint that IS a junction never
+    // pairs (it is already under junction authority — the caller PINS it);
+    // it still qualifies the run as seam-adjacent.
+    let corner_of = |p: u32| -> Option<(u32, u32)> {
+        if junctions.contains(&p) {
+            return None;
+        }
+        junctions
+            .iter()
+            .filter(|&&q| q != p)
+            .map(|&q| (q, dist(p, q)))
+            .filter(|&(_, d)| d <= band)
+            .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)))
+            .map(|(q, _)| (p, q))
+    };
+
+    let mut seen: BTreeSet<Vec<u32>> = BTreeSet::new();
+    let mut skips: Vec<RunSkip> = Vec::new();
+    let mut out: Vec<InputEdgeChain> = Vec::new();
+    for &pi in scope {
+        let Some(my) = patch_attr[pi] else {
+            continue; // mixed/absent attribution — not attributable to a face
+        };
+        for cyc in &patches[pi].cycles {
+            let n = cyc.len();
+            if n < 2 {
+                continue;
+            }
+            // Per-edge qualified neighbour.
+            let label: Vec<Option<usize>> = (0..n)
+                .map(|i| {
+                    let (s, e) = (cyc[i], cyc[(i + 1) % n]);
+                    let key = (s.min(e), s.max(e));
+                    if curves.contains_key(&key) || seam_edges.contains(&key) {
+                        return None;
+                    }
+                    let own = owners.get(&key)?;
+                    if own.len() != 2 {
+                        return None;
+                    }
+                    let qi = match (own[0] == pi, own[1] == pi) {
+                        (true, false) => own[1],
+                        (false, true) => own[0],
+                        _ => return None,
+                    };
+                    let qa = patch_attr[qi]?;
+                    (qa.input == my.input && qa != my).then_some(qi)
+                })
+                .collect();
+            // A start index at a label boundary; none ⇒ uniform labels —
+            // either nothing qualifies or a closed one-neighbour ring (no
+            // corner endpoint either way).
+            let Some(start) = (0..n).find(|&i| label[i] != label[(i + n - 1) % n]) else {
+                continue;
+            };
+            let mut i = 0;
+            while i < n {
+                let at = (start + i) % n;
+                let Some(qi) = label[at] else {
+                    i += 1;
+                    continue;
+                };
+                let mut len = 1;
+                while i + len < n && label[(start + i + len) % n] == Some(qi) {
+                    len += 1;
+                }
+                let run: Vec<u32> = (0..=len).map(|k| cyc[(start + i + k) % n]).collect();
+                i += len;
+                let ends = [run[0], *run.last().expect("run non-empty")];
+                let corner_pairs: Vec<(u32, u32)> =
+                    ends.iter().filter_map(|&p| corner_of(p)).collect();
+                if corner_pairs.is_empty() && !ends.iter().any(|e| junctions.contains(e)) {
+                    skips.push(RunSkip {
+                        patch: pi,
+                        neighbor: qi,
+                        verts: run,
+                        reason: RunSkipReason::NotSeamAdjacent,
+                    });
+                    continue;
+                }
+                let canonical = if run.first() <= run.last() {
+                    run.clone()
+                } else {
+                    run.iter().rev().copied().collect()
+                };
+                if !seen.insert(canonical) {
+                    // The neighbour's copy of an already-found run.
+                    skips.push(RunSkip {
+                        patch: pi,
+                        neighbor: qi,
+                        verts: run,
+                        reason: RunSkipReason::Deduped,
+                    });
+                    continue;
+                }
+                out.push(InputEdgeChain {
+                    patch: pi,
+                    neighbor: qi,
+                    verts: run,
+                    corner_pairs,
+                });
+            }
+        }
+    }
+    (out, skips)
+}
+
+/// Why an input-edge chain refinement was refused — every variant a LOUD,
+/// censused stop (P9/P10), never a silent partial move.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum RulingError {
+    /// The plane's normal is not perpendicular to the cylinder axis: the
+    /// exact intersection is a conic, not a ruling — the I2c tail.
+    NonParallelAxis { dot: f64 },
+    /// The plane misses the cylinder entirely (`|h| > R`): the claimed
+    /// adjacency has no exact edge — an upstream defect, refuse loud.
+    NoRuling { excess: f64 },
+    /// A chain vertex sits closer to the OTHER of the two candidate rulings
+    /// than to the chosen one — the chain straddles the plane's two rulings.
+    AmbiguousRuling { vert: u32 },
+    /// A vertex's projection displacement exceeds the derived chord band —
+    /// this chain is not a chord-anchored discretization of the claimed
+    /// edge (moving it would be a repair, not a refinement).
+    Displacement { vert: u32, dist: f64 },
+    /// Zero-length normal or axis.
+    Degenerate,
+}
+
+/// Project a chain of mesh vertices onto the exact plane∩cylinder RULING —
+/// the I2c refinement for the `Plane × Cylinder` input-edge class.
+///
+/// The two input faces meet along a ruling only when the plane is parallel
+/// to the axis (`n̂·d̂ = 0`, an identity of the input B-Rep, checked at the
+/// same 1e-9 identity scale as the module's other predicates). The ruling
+/// candidates are the 0/1/2 lines `x = c + h·n̂ ± γ·(d̂×n̂) + t·d̂` with
+/// `h` the axis→plane signed distance and `γ = √(R²−h²)`; the chain picks
+/// the candidate EVERY vertex is nearest (else [`RulingError::AmbiguousRuling`]).
+/// Each vertex projects axially onto the chosen line; a displacement above
+/// `band` refuses the whole chain. Idempotent: a second application moves
+/// nothing.
+pub(crate) fn refine_chain_to_ruling(
+    verts: &[Point3],
+    chain: &[u32],
+    plane: &Surface,
+    cyl: &Surface,
+    band: f64,
+) -> Result<Vec<(u32, Point3)>, RulingError> {
+    let (
+        Surface::Plane { normal, d },
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        },
+    ) = (plane, cyl)
+    else {
+        return Err(RulingError::Degenerate); // caller matches the pair
+    };
+    let arr3 = |p: &Point3| [p.x(), p.y(), p.z()];
+    let n = [normal.x(), normal.y(), normal.z()];
+    let nn = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    let a = [axis_dir.x(), axis_dir.y(), axis_dir.z()];
+    let an = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+    if nn == 0.0 || an == 0.0 || !nn.is_finite() || !an.is_finite() {
+        return Err(RulingError::Degenerate);
+    }
+    let nh = [n[0] / nn, n[1] / nn, n[2] / nn];
+    let ah = [a[0] / an, a[1] / an, a[2] / an];
+    let dot = nh[0] * ah[0] + nh[1] * ah[1] + nh[2] * ah[2];
+    if dot.abs() > 1e-9 {
+        return Err(RulingError::NonParallelAxis { dot });
+    }
+    // Plane `n·x + d = 0` ⇒ n̂·x = −d/‖n‖. With n̂ ⊥ d̂ the radial offset of
+    // the plane from the axis along n̂ is h; the in-plane radial direction is
+    // e2 = d̂ × n̂ (unit, since n̂ ⊥ d̂).
+    let p0 = -d / nn;
+    let c = arr3(axis_point);
+    let h = p0 - (nh[0] * c[0] + nh[1] * c[1] + nh[2] * c[2]);
+    let r = *radius;
+    if h.abs() > r {
+        return Err(RulingError::NoRuling {
+            excess: h.abs() - r,
+        });
+    }
+    let gamma = (r * r - h * h).max(0.0).sqrt();
+    let e2 = [
+        ah[1] * nh[2] - ah[2] * nh[1],
+        ah[2] * nh[0] - ah[0] * nh[2],
+        ah[0] * nh[1] - ah[1] * nh[0],
+    ];
+    let q0 = |sign: f64| -> [f64; 3] {
+        [
+            c[0] + h * nh[0] + sign * gamma * e2[0],
+            c[1] + h * nh[1] + sign * gamma * e2[1],
+            c[2] + h * nh[2] + sign * gamma * e2[2],
+        ]
+    };
+    let line_dist = |q: [f64; 3], x: [f64; 3]| -> f64 {
+        let rel = [x[0] - q[0], x[1] - q[1], x[2] - q[2]];
+        let t = rel[0] * ah[0] + rel[1] * ah[1] + rel[2] * ah[2];
+        let perp = [rel[0] - t * ah[0], rel[1] - t * ah[1], rel[2] - t * ah[2]];
+        (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt()
+    };
+    let (qp, qm) = (q0(1.0), q0(-1.0));
+    let (mut sum_p, mut sum_m) = (0.0f64, 0.0f64);
+    for &v in chain {
+        let x = arr3(&verts[v as usize]);
+        sum_p += line_dist(qp, x);
+        sum_m += line_dist(qm, x);
+    }
+    let chosen = if sum_p <= sum_m { qp } else { qm };
+    let other = if sum_p <= sum_m { qm } else { qp };
+    let mut moves: Vec<(u32, Point3)> = Vec::with_capacity(chain.len());
+    for &v in chain {
+        let x = arr3(&verts[v as usize]);
+        if gamma > 0.0 && line_dist(other, x) < line_dist(chosen, x) {
+            return Err(RulingError::AmbiguousRuling { vert: v });
+        }
+        let rel = [x[0] - chosen[0], x[1] - chosen[1], x[2] - chosen[2]];
+        let t = rel[0] * ah[0] + rel[1] * ah[1] + rel[2] * ah[2];
+        let proj = [
+            chosen[0] + t * ah[0],
+            chosen[1] + t * ah[1],
+            chosen[2] + t * ah[2],
+        ];
+        let disp =
+            ((proj[0] - x[0]).powi(2) + (proj[1] - x[1]).powi(2) + (proj[2] - x[2]).powi(2)).sqrt();
+        if disp > band {
+            return Err(RulingError::Displacement {
+                vert: v,
+                dist: disp,
+            });
+        }
+        moves.push((v, Point3::new(proj[0], proj[1], proj[2])));
+    }
+    Ok(moves)
+}
+
 /// Why an I1b patch rebuild or batch write-back was refused. Every variant is
 /// a P9/P10 LOUD stop, censused by the driver — never a silent partial repair.
 #[derive(Debug, Clone, PartialEq)]
@@ -905,6 +1239,252 @@ mod tests {
             ),
             Err(ConstructError::OverlappingBatch { .. })
         ));
+    }
+
+    #[test]
+    fn refine_chain_to_ruling_projects_a_chord_anchored_chain() {
+        // The wheel-corner fixture: unit cylinder about z, radial plane x=0
+        // (through the axis, h=0) — rulings at (0, ±1, z). A chord-anchored
+        // chain at y ≈ 0.99866 (the F0067 1.34e-3 gap) projects onto the
+        // exact ruling with z preserved.
+        let plane = Surface::Plane {
+            normal: Vector3::new(1.0, 0.0, 0.0),
+            d: 0.0,
+        };
+        let cyl = Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        };
+        let verts = vec![
+            Point3::new(0.0, 0.99866, 0.3),
+            Point3::new(0.0, 0.99866, 0.7),
+        ];
+        let moves =
+            refine_chain_to_ruling(&verts, &[0, 1], &plane, &cyl, 2e-3).expect("chain refines");
+        assert_eq!(moves.len(), 2);
+        for (i, (v, p)) in moves.iter().enumerate() {
+            assert_eq!(*v, i as u32);
+            assert!((p.x()).abs() < 1e-15, "stays in the plane");
+            assert!((p.y() - 1.0).abs() < 1e-12, "lands at the exact radius");
+            assert!(
+                (p.z() - verts[i].z()).abs() < 1e-15,
+                "axial coordinate preserved"
+            );
+        }
+        // A tighter band refuses the whole chain loudly.
+        assert!(matches!(
+            refine_chain_to_ruling(&verts, &[0, 1], &plane, &cyl, 1e-3),
+            Err(RulingError::Displacement { vert: 0, .. })
+        ));
+        // Idempotent: re-refining the refined chain moves nothing.
+        let refined: Vec<Point3> = moves.iter().map(|&(_, p)| p).collect();
+        let again =
+            refine_chain_to_ruling(&refined, &[0, 1], &plane, &cyl, 2e-3).expect("still refines");
+        for (i, (_, p)) in again.iter().enumerate() {
+            let q = refined[i];
+            let d = ((p.x() - q.x()).powi(2) + (p.y() - q.y()).powi(2) + (p.z() - q.z()).powi(2))
+                .sqrt();
+            assert!(d < 1e-15, "second application is a no-op, moved {d:.3e}");
+        }
+    }
+
+    #[test]
+    fn refine_chain_to_ruling_offset_plane_and_refusals() {
+        let cyl = Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        };
+        // Offset parallel plane x = 0.5 (n·x + d = 0 with d = −0.5):
+        // rulings at (0.5, ±√0.75, z).
+        let plane = Surface::Plane {
+            normal: Vector3::new(1.0, 0.0, 0.0),
+            d: -0.5,
+        };
+        let g = 0.75f64.sqrt();
+        let verts = vec![Point3::new(0.5, g - 8e-4, 0.2)];
+        let moves =
+            refine_chain_to_ruling(&verts, &[0], &plane, &cyl, 2e-3).expect("offset refines");
+        assert!((moves[0].1.y() - g).abs() < 1e-12);
+        // A chain straddling the two rulings is ambiguous, named by vertex
+        // (v1 sits exactly ON the −ruling, so that side is chosen and v0 is
+        // the straddler).
+        let straddle = vec![Point3::new(0.5, g - 1e-4, 0.0), Point3::new(0.5, -g, 0.5)];
+        assert!(matches!(
+            refine_chain_to_ruling(&straddle, &[0, 1], &plane, &cyl, 2e-3),
+            Err(RulingError::AmbiguousRuling { vert: 0 })
+        ));
+        // Non-parallel plane: the exact edge is a conic — I2c tail.
+        let tilted = Surface::Plane {
+            normal: Vector3::new(
+                0.0,
+                std::f64::consts::FRAC_1_SQRT_2,
+                std::f64::consts::FRAC_1_SQRT_2,
+            ),
+            d: 0.0,
+        };
+        assert!(matches!(
+            refine_chain_to_ruling(&verts, &[0], &tilted, &cyl, 2e-3),
+            Err(RulingError::NonParallelAxis { .. })
+        ));
+        // Plane missing the cylinder: no exact edge exists.
+        let missing = Surface::Plane {
+            normal: Vector3::new(1.0, 0.0, 0.0),
+            d: -2.0,
+        };
+        assert!(matches!(
+            refine_chain_to_ruling(&verts, &[0], &missing, &cyl, 2e-3),
+            Err(RulingError::NoRuling { .. })
+        ));
+    }
+
+    fn attr(input: crate::brep::InputId, face: u32) -> Option<TriangleAttribution> {
+        Some(TriangleAttribution { input, face })
+    }
+
+    fn corner_fixture() -> (Vec<SplicePatch>, Vec<Point3>) {
+        // Wall cycle [0,1,2,3,4]: (0,1) is the seam; (1,2) shared with `top`
+        // (patch 1); (2,3),(3,4) shared with `cap` (patch 2); (4,0) shared
+        // with `base` (patch 3). Junction 1 sits 5e-3 from corner endpoint 2.
+        let wall = plane_patch(vec![vec![0, 1, 2, 3, 4]], vec![0]);
+        let top = plane_patch(vec![vec![2, 1, 8, 9]], vec![1]);
+        let cap = SplicePatch {
+            cycles: vec![vec![4, 3, 2, 10]],
+            tris: vec![2],
+            surface: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: 1.0,
+            },
+        };
+        let base = plane_patch(vec![vec![0, 4, 6, 7]], vec![3]);
+        let far = |k: usize| Point3::new(10.0 + k as f64, 0.0, 0.0);
+        let verts = vec![
+            Point3::new(-1.0, 0.0, 0.0),  // 0 — other junction
+            Point3::new(1.0, 0.0, 0.0),   // 1 — junction q
+            Point3::new(0.995, 0.0, 0.0), // 2 — corner endpoint p (5e-3 gap)
+            Point3::new(0.9, 0.0, -1.0),  // 3
+            Point3::new(0.5, 0.0, -1.0),  // 4
+            far(5),
+            far(6),
+            far(7),
+            far(8),
+            far(9),
+            far(10),
+        ];
+        (vec![wall, top, cap, base], verts)
+    }
+
+    #[test]
+    fn input_edge_chains_finds_seam_adjacent_runs_only() {
+        use crate::brep::InputId;
+        let (patches, verts) = corner_fixture();
+        let patch_attr = vec![
+            attr(InputId::B, 1),
+            attr(InputId::B, 4),
+            attr(InputId::B, 2),
+            attr(InputId::B, 3),
+        ];
+        let mut curves = BTreeMap::new();
+        curves.insert((0u32, 1u32), Curve::LineSegment);
+        let seam_edges: BTreeSet<(u32, u32)> = [(0u32, 1u32)].into();
+        let junctions: BTreeSet<u32> = [0u32, 1].into();
+        let scope: BTreeSet<usize> = [0usize].into();
+        let (chains, _) = input_edge_chains(
+            &patches,
+            &patch_attr,
+            &verts,
+            &curves,
+            &seam_edges,
+            &junctions,
+            &scope,
+            0.01,
+        );
+        assert_eq!(chains.len(), 3, "top, cap, and base runs: {chains:?}");
+        let top_run = chains.iter().find(|c| c.neighbor == 1).expect("top run");
+        assert_eq!(top_run.verts, vec![1, 2]);
+        assert_eq!(
+            top_run.corner_pairs,
+            vec![(2, 1)],
+            "endpoint 1 IS a junction — pinned, never a pair's p"
+        );
+        let cap_run = chains.iter().find(|c| c.neighbor == 2).expect("cap run");
+        assert_eq!(cap_run.verts, vec![2, 3, 4]);
+        assert_eq!(cap_run.corner_pairs, vec![(2, 1)]);
+        // The base run [4,0] ends AT junction 0: seam-adjacent via the
+        // pinned endpoint, but it pairs nothing.
+        let base_run = chains.iter().find(|c| c.neighbor == 3).expect("base run");
+        assert!(base_run.corner_pairs.is_empty());
+    }
+
+    #[test]
+    fn input_edge_chains_dedups_shared_runs_and_excludes_cross_input() {
+        use crate::brep::InputId;
+        let (patches, verts) = corner_fixture();
+        // `top` belongs to the OTHER input: its run is not an input edge.
+        let patch_attr = vec![
+            attr(InputId::B, 1),
+            attr(InputId::A, 4),
+            attr(InputId::B, 2),
+            attr(InputId::B, 3),
+        ];
+        let mut curves = BTreeMap::new();
+        curves.insert((0u32, 1u32), Curve::LineSegment);
+        let seam_edges: BTreeSet<(u32, u32)> = [(0u32, 1u32)].into();
+        let junctions: BTreeSet<u32> = [0u32, 1].into();
+        // BOTH owners scoped: the wall/cap run must come back ONCE.
+        let scope: BTreeSet<usize> = [0usize, 2].into();
+        let (chains, _) = input_edge_chains(
+            &patches,
+            &patch_attr,
+            &verts,
+            &curves,
+            &seam_edges,
+            &junctions,
+            &scope,
+            0.01,
+        );
+        // The cap run comes back ONCE (deduped); the cross-input top run is
+        // excluded; the junction-ended base run rides along.
+        let cap_runs: Vec<_> = chains.iter().filter(|c| c.verts.contains(&3)).collect();
+        assert_eq!(cap_runs.len(), 1, "one deduped cap run: {chains:?}");
+        assert_eq!(cap_runs[0].verts, vec![2, 3, 4]);
+        assert!(!chains
+            .iter()
+            .any(|c| c.verts == vec![1, 2] || c.verts == vec![2, 1]));
+    }
+
+    #[test]
+    fn input_edge_chains_skips_a_closed_one_neighbour_ring() {
+        use crate::brep::InputId;
+        // A square fully shared with ONE neighbour — no run boundary, no
+        // corner endpoint, skipped even with a junction-adjacent vertex.
+        let a = plane_patch(vec![vec![0, 1, 2, 3]], vec![0]);
+        let b = plane_patch(vec![vec![3, 2, 1, 0]], vec![1]);
+        let verts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(1.0005, 0.0, 0.0), // junction near vertex 1
+        ];
+        let patch_attr = vec![attr(InputId::B, 1), attr(InputId::B, 2)];
+        let curves = BTreeMap::new();
+        let seam_edges = BTreeSet::new();
+        let junctions: BTreeSet<u32> = [4u32].into();
+        let scope: BTreeSet<usize> = [0usize].into();
+        let (chains, _) = input_edge_chains(
+            &[a, b],
+            &patch_attr,
+            &verts,
+            &curves,
+            &seam_edges,
+            &junctions,
+            &scope,
+            0.01,
+        );
+        assert!(chains.is_empty(), "closed ring has no corner: {chains:?}");
     }
 
     #[test]

@@ -130,7 +130,23 @@ name, never measured).
    extended to curved holders. So the epic's NEXT increment is I2
    (curved-patch single-sided rebuild: interior-vertex carry + d(T)
    recompute) — which also fronts the R-series reach.** Spec §4-I1 has
-   the full measurement.
+   the full measurement. **I2a/I2b LANDED 2026-08-09 (main gate,
+   corpus-verified; F0085 ERROR→CORRECT is the epic's first
+   conversion). I2c-1 LANDED sub-gated (`YANG_441_INPUT_REFINE`)
+   2026-08-10 — and its measurement REFUTES the I1e reading recorded
+   above: the rib end cap is a PLANE (every TF-8 wall run is
+   plane×plane-EXACT at the designed r = 0.207507; nothing is
+   chord-anchored at the corner; the 91 NonParallelAxis refusals name
+   the plane-cap CIRCLE class as I2c's real tail), so the wheel corner
+   is the ORIGINAL I1d verdict after all — the junction relocation
+   keeps an exact UNBOUNDED junction 1.339e-3 outside the wall's kept
+   footprint. NEXT increment: J1 — boundary-exit junction authority
+   (Fig-11(a): q ON the kept boundary) at the junction/classification
+   layer, honoring the I1e-rescope reroute hazard. Also landed: the
+   assembly-loop LIVELOCK fix (a degenerating merge-only holder now
+   blocks its merge pairs instead of restarting the identical batch
+   forever — 18,322 measured spins on main with the merge sub-gate
+   applied). Spec §4-I2c has the full measurement.**
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
