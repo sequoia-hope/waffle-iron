@@ -1593,8 +1593,7 @@ fn run_construct_passes(
                     if let Some(band) = crate::stage4_correct::stage4_chord_band(a, b) {
                         let relocated: BTreeSet<u32> =
                             relocations.iter().map(|&(v, _)| v).collect();
-                        let exit_corners: BTreeSet<u32> =
-                            exit_fixes.iter().map(|f| f.c).collect();
+                        let exit_corners: BTreeSet<u32> = exit_fixes.iter().map(|f| f.c).collect();
                         let mut curve_touched: BTreeSet<u32> = BTreeSet::new();
                         for &(s, t) in intersection_curves.keys() {
                             curve_touched.insert(s);
@@ -1622,8 +1621,7 @@ fn run_construct_passes(
                                         let ci = circles
                                             .iter()
                                             .position(|&(c, _, r)| {
-                                                c.as_array() == center.as_array()
-                                                    && r == *radius
+                                                c.as_array() == center.as_array() && r == *radius
                                             })
                                             .unwrap_or_else(|| {
                                                 circles.push((*center, *normal, *radius));
@@ -1637,11 +1635,8 @@ fn run_construct_passes(
                                 let dr = |v: u32| -> f64 {
                                     let p = mesh.verts[v as usize];
                                     let d = [p.x() - c.x(), p.y() - c.y(), p.z() - c.z()];
-                                    let along =
-                                        d[0] * nrm.x() + d[1] * nrm.y() + d[2] * nrm.z();
-                                    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
-                                        - along * along)
-                                        .sqrt()
+                                    let along = d[0] * nrm.x() + d[1] * nrm.y() + d[2] * nrm.z();
+                                    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2] - along * along).sqrt()
                                         - r
                                 };
                                 // Kept side: the sign of dr at the third
@@ -1662,8 +1657,7 @@ fn run_construct_passes(
                                         let (a3, b3) = (tri[k], tri[(k + 1) % 3]);
                                         if chain_edges.iter().any(|&(s, e, cj)| {
                                             cj == ci
-                                                && ((s == a3 && e == b3)
-                                                    || (s == b3 && e == a3))
+                                                && ((s == a3 && e == b3) || (s == b3 && e == a3))
                                         }) {
                                             let w = dr(tri[(k + 2) % 3]);
                                             if w > band {
@@ -2080,8 +2074,7 @@ fn run_construct_passes(
                             // A merge-only holder: land the refusal on its
                             // merge pairs, then its trim vertices (the
                             // livelock shape otherwise).
-                            let trimmed: Vec<u32> =
-                                trim_pull.get(&pi).cloned().unwrap_or_default();
+                            let trimmed: Vec<u32> = trim_pull.get(&pi).cloned().unwrap_or_default();
                             let blocked: Vec<u32> =
                                 required_by.get(&pi).cloned().unwrap_or_else(|| {
                                     subs.iter()
@@ -2222,8 +2215,7 @@ fn run_construct_passes(
                         // merely sit on its rim blocked all 28). Pairs whose
                         // p is incidentally on the cycles are last resort;
                         // with nothing attributable, refuse the whole batch.
-                        let required: Vec<u32> =
-                            required_by.get(&pi).cloned().unwrap_or_default();
+                        let required: Vec<u32> = required_by.get(&pi).cloned().unwrap_or_default();
                         let trimmed: Vec<u32> = trim_pull.get(&pi).cloned().unwrap_or_default();
                         if !required.is_empty() {
                             for p in required {
@@ -2263,7 +2255,10 @@ fn run_construct_passes(
                                          with no attributable seam or merge — refusing the \
                                          whole batch"
                                     );
-                                    break 'assemble (Vec::new(), std::collections::BTreeMap::new());
+                                    break 'assemble (
+                                        Vec::new(),
+                                        std::collections::BTreeMap::new(),
+                                    );
                                 }
                                 for p in incidental {
                                     eprintln!(
@@ -2643,9 +2638,10 @@ fn census_construct_decline(
                     radius,
                 }) = intersection_curves.get(&key)
                 {
-                    if !circles.iter().any(|&(c, _, r)| {
-                        c.as_array() == center.as_array() && r == *radius
-                    }) {
+                    if !circles
+                        .iter()
+                        .any(|&(c, _, r)| c.as_array() == center.as_array() && r == *radius)
+                    {
                         circles.push((*center, *normal, *radius));
                     }
                 }
@@ -2681,8 +2677,7 @@ fn census_construct_decline(
                 let p = mesh.verts[v as usize];
                 let d = [p.x() - c.x(), p.y() - c.y(), p.z() - c.z()];
                 let along = d[0] * nrm.x() + d[1] * nrm.y() + d[2] * nrm.z();
-                let radial =
-                    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2] - along * along).sqrt();
+                let radial = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2] - along * along).sqrt();
                 let dr = radial - r;
                 let moved = match reloc_of(v) {
                     Some(t) => format!("reloc t={t:.4}"),
