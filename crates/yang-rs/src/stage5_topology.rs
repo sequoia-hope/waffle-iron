@@ -741,6 +741,166 @@ fn run_construct_passes(
             });
         }
 
+        // ---- J1-0 (read-only, env-gated `YANG_441_J1_CENSUS`): the
+        // boundary-exit junction census (spec §4-J1). A seam terminal that
+        // overshoots the kept boundary leaves the true corner as a FOLD
+        // vertex exactly on the junction segment — measure the corner's
+        // local picture (holders, pinch multiplicity, incident curve
+        // chains, surfaces) before any authority change is coded. Pass 0
+        // only: the pre-apply state is the authoritative one, and later
+        // passes would reprint the same declined seams. Covers ALL open
+        // line-curve groups (already-minimal seams included), not just the
+        // eligible set.
+        if pass == 0 && std::env::var_os("YANG_441_J1_CENSUS").is_some() {
+            for (gi, g) in groups.iter().enumerate() {
+                if !matches!(g.curve, Curve::LineSegment) {
+                    continue;
+                }
+                if let Ok((chain, false)) =
+                    ordered_seam_side(&patches[g.pair.0].cycles, &g.edges, Side::A)
+                {
+                    if chain.len() >= 2 {
+                        census_j1_boundary_exit(
+                            mesh,
+                            &patches,
+                            attribution,
+                            intersection_curves,
+                            gi,
+                            g.pair,
+                            &chain,
+                        );
+                    }
+                }
+            }
+        }
+
+        // ---- J1-1 (sub-gated `YANG_441_BOUNDARY_EXIT`, spec §4-J1):
+        // boundary-exit junction authority. Fig-11(a) computes q ON the kept
+        // boundary — but the junction relocation keeps a line-seam terminal
+        // J at the exact UNBOUNDED curve×curve junction, which can land
+        // BEYOND the point where the seam exits the kept face (F0067: the
+        // rim junction at r = 0.208846 vs the wall's designed corner at
+        // r = 0.207507 — a 1.34e-3 DESIGN gap with zero kept content). The
+        // signature is exact: an UNRELOCATED input-outline corner C
+        // (≥3 holders) lying on the seam carrier strictly between J and the
+        // seam's first sample. The authority change is the shared-index
+        // substitution J -> C through the SAME holder closure as the corner
+        // merge (every fused patch of J rebuilds; the circle chain sheds
+        // its terminal chord and passes the corner cleanly — the exact
+        // topology has the two curves DISJOINT). Selector guards, all loud:
+        // straightness identity (one line only — the R0095 corner-cutting
+        // hazard), exactly ONE corner candidate in the overshoot span, no
+        // relocated vertex in the span (mixed authority).
+        struct ExitFix {
+            j: u32,
+            c: u32,
+            other: u32,
+            pair: (usize, usize),
+        }
+        let mut exit_fixes: Vec<ExitFix> = Vec::new();
+        if std::env::var_os("YANG_441_BOUNDARY_EXIT").is_some() {
+            use crate::stage4_construct::{chain_straightness, on_segment_interior};
+            let relocated: BTreeSet<u32> = relocations.iter().map(|&(v, _)| v).collect();
+            let conic_end: BTreeSet<u32> = intersection_curves
+                .iter()
+                .filter(|(_, c)| !matches!(c, Curve::LineSegment))
+                .flat_map(|(&(a, b), _)| [a, b])
+                .collect();
+            let holders_of = |v: u32| -> usize {
+                patches
+                    .iter()
+                    .filter(|p| p.cycles.iter().any(|c| c.contains(&v)))
+                    .count()
+            };
+            for (gi, g) in groups.iter().enumerate() {
+                if !matches!(g.curve, Curve::LineSegment) {
+                    continue;
+                }
+                let Ok((chain, false)) =
+                    ordered_seam_side(&patches[g.pair.0].cycles, &g.edges, Side::A)
+                else {
+                    continue;
+                };
+                if chain.len() < 2 {
+                    continue;
+                }
+                if chain.len() >= 3
+                    && !matches!(chain_straightness(&mesh.verts, &chain), Some(s) if s <= 1e-9)
+                {
+                    continue; // two lines meeting at a real corner — not one seam
+                }
+                let chain_set: BTreeSet<u32> = chain.iter().copied().collect();
+                let last = *chain.last().expect("chain len >= 2");
+                for (j, inner, other) in [
+                    (chain[0], chain[1], last),
+                    (last, chain[chain.len() - 2], chain[0]),
+                ] {
+                    // Only a relocated conic-chain terminal can be an
+                    // overshot junction; anything else is not this family.
+                    if !relocated.contains(&j) || !conic_end.contains(&j) {
+                        continue;
+                    }
+                    // The overshoot span is strictly between J and the
+                    // seam's FIRST sample — kept content there is zero.
+                    let mut corners: Vec<u32> = Vec::new();
+                    let mut walkers = 0usize;
+                    let mut mixed: Option<u32> = None;
+                    for &pi in &[g.pair.0, g.pair.1] {
+                        for cyc in &patches[pi].cycles {
+                            for &v in cyc {
+                                if chain_set.contains(&v)
+                                    || corners.contains(&v)
+                                    || !on_segment_interior(&mesh.verts, j, inner, v)
+                                {
+                                    continue;
+                                }
+                                if relocated.contains(&v) {
+                                    mixed = Some(v);
+                                } else if holders_of(v) >= 3 {
+                                    corners.push(v);
+                                } else {
+                                    walkers += 1;
+                                }
+                            }
+                        }
+                    }
+                    if corners.is_empty() && mixed.is_none() {
+                        continue; // healthy terminal (walk-backs alone are I1f's)
+                    }
+                    if let Some(v) = mixed {
+                        eprintln!(
+                            "[j1-exit] pass={pass} seam={gi}: REFUSED terminal v{j} — \
+                             relocated vertex v{v} inside the overshoot span (mixed \
+                             authority)"
+                        );
+                        continue;
+                    }
+                    if corners.len() > 1 {
+                        eprintln!(
+                            "[j1-exit] pass={pass} seam={gi}: REFUSED terminal v{j} — \
+                             {} corner candidates in one overshoot span ({:?})",
+                            corners.len(),
+                            corners
+                        );
+                        continue;
+                    }
+                    let c = corners[0];
+                    eprintln!(
+                        "[j1-exit] pass={pass} seam={gi}: EXIT v{j} -> corner v{c} \
+                         (holders={}, walk-backs-in-span={walkers}, chain len {})",
+                        holders_of(c),
+                        chain.len()
+                    );
+                    exit_fixes.push(ExitFix {
+                        j,
+                        c,
+                        other,
+                        pair: g.pair,
+                    });
+                }
+            }
+        }
+
         // ---- I2c (sub-gated `YANG_441_INPUT_REFINE`): input-edge chain
         // refinement at seam-adjacent corners (spec §4-I2c). The Stage-1
         // discretization of a same-solid B-Rep edge is chord-anchored by the
@@ -994,7 +1154,11 @@ fn run_construct_passes(
         // assembly converges.
         let mut merge_blocked: BTreeSet<u32> = BTreeSet::new();
         let (rebuilds, subs) = 'assemble: loop {
-            if active.is_empty() {
+            // J1 exit fixes keep the batch alive even with no collapsible
+            // seam — a minimal (2-vertex) seam's owners join through the
+            // holder closure alone.
+            let live_exit = exit_fixes.iter().any(|f| !merge_blocked.contains(&f.j));
+            if active.is_empty() && !live_exit {
                 break (Vec::new(), std::collections::BTreeMap::new());
             }
             // Group each patch's eligible chains (both owners of every seam).
@@ -1063,6 +1227,13 @@ fn run_construct_passes(
             // (every hit at the exact corner gap; zero over-fire).
             let mut subs: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
             let mut merge_only: BTreeSet<usize> = BTreeSet::new();
+            // Pull attribution: holder -> the pairs whose substitution
+            // REQUIRED its rebuild. A declining holder blames exactly these
+            // — blaming every pair whose p merely sits on its cycles blocks
+            // the whole rim when the encircling lateral declines (measured
+            // 2026-08-11: one corner pulled it, all 28 pairs blocked).
+            let mut required_by: std::collections::BTreeMap<usize, Vec<u32>> =
+                std::collections::BTreeMap::new();
             {
                 let pos = |i: u32| -> [f64; 3] {
                     let w = mesh.verts[i as usize];
@@ -1191,12 +1362,66 @@ fn run_construct_passes(
                         }
                     }
                 }
+                // J1 boundary-exit arm: the junction terminal J substitutes
+                // INTO the kept-boundary corner C — the REVERSE direction of
+                // the containment merge, because here the junction is the
+                // vertex with zero kept content. The boundary-exit predicate
+                // is exact (on-carrier identity), so it wins a direction
+                // conflict with the band-based containment selector.
+                for f in &exit_fixes {
+                    if merge_blocked.contains(&f.j) {
+                        continue;
+                    }
+                    if let Some(&(q0, _)) = pairs.get(&f.c) {
+                        if q0 == f.j {
+                            eprintln!(
+                                "[j1-exit] pass={pass}: dropping containment pair \
+                                 v{} -> v{} — reversed by the boundary-exit fix",
+                                f.c, f.j
+                            );
+                            pairs.remove(&f.c);
+                        }
+                    }
+                    if pairs.contains_key(&f.c) {
+                        eprintln!(
+                            "[j1-exit] pass={pass}: REFUSED v{} -> v{} — corner v{} is \
+                             itself substituted this batch (chained substitution)",
+                            f.j, f.c, f.c
+                        );
+                        continue;
+                    }
+                    let d = dist3(f.j, f.c);
+                    match pairs.get(&f.j) {
+                        Some(&(c0, _)) if c0 != f.c => {
+                            ambiguous.insert(f.j);
+                        }
+                        Some(_) => {}
+                        None => {
+                            eprintln!(
+                                "[j1-exit] pass={pass}: BOUNDARY-EXIT MERGE v{} -> v{} \
+                                 dist={d:.3e}",
+                                f.j, f.c
+                            );
+                            pairs.insert(f.j, (f.c, d));
+                        }
+                    }
+                }
                 for p in &ambiguous {
                     eprintln!("[s4-construct] pass={pass}: CORNER-MERGE AMBIGUOUS v{p}; skipped");
                     pairs.remove(p);
                 }
-                // Holder closure: every patch whose cycles hold p must be
-                // chartable and joins the batch.
+                // Holder closure: every patch whose cycles hold p and whose
+                // rebuild the substitution REQUIRES must be chartable and
+                // joins the batch. For a J1 boundary-exit pair, a holder
+                // whose cycles keep p AWAY from q (no consecutive duplicate
+                // after substitution) and which holds no triangle with both
+                // p and q adopts the substitution by pure index re-point in
+                // the write-back — it does not re-CDT. The encircling
+                // drum-lateral holder (ThetaUnwrap-refused; measured
+                // 2026-08-11 blocking EVERY exit fix when pulled in)
+                // requires this path. I1g/I2c pairs keep the full closure —
+                // their measured behavior is not this increment's to change.
+                let exit_ps: BTreeSet<u32> = exit_fixes.iter().map(|f| f.j).collect();
                 for (&p, &(q, d)) in &pairs {
                     let holders: Vec<usize> = patches
                         .iter()
@@ -1207,9 +1432,33 @@ fn run_construct_passes(
                         })
                         .map(|(pj, _)| pj)
                         .collect();
+                    // A holder is re-point-safe ONLY when q appears nowhere
+                    // in its cycles or triangles — the substitution is then a
+                    // pure relabel of p's slot. Mere non-adjacency is NOT
+                    // enough: a wall whose boundary walks J .. walk-backs .. C
+                    // re-pointed without a rebuild pinches at C (the inc-3
+                    // bare-collapse shape, re-measured 2026-08-11 as
+                    // rebuilt=[] on every walk-back corner).
+                    let needs_rebuild = |pj: usize| -> bool {
+                        let cycles = mod_cycles.get(&pj).unwrap_or(&patches[pj].cycles);
+                        cycles.iter().any(|c| c.contains(&q))
+                            || patches[pj]
+                                .tris
+                                .iter()
+                                .any(|&t| mesh.tris[t as usize].contains(&q))
+                    };
+                    let pulled: Vec<usize> = if exit_ps.contains(&p) {
+                        holders
+                            .iter()
+                            .copied()
+                            .filter(|&h| needs_rebuild(h))
+                            .collect()
+                    } else {
+                        holders.clone()
+                    };
                     let chartable =
                         |s: &Surface| matches!(s, Surface::Plane { .. } | Surface::Cylinder { .. });
-                    if holders.iter().any(|&h| !chartable(&patches[h].surface)) {
+                    if pulled.iter().any(|&h| !chartable(&patches[h].surface)) {
                         eprintln!(
                             "[s4-construct] pass={pass}: CORNER-MERGE REFUSED v{p} -> \
                                  v{q} — an unchartable holder; blocked"
@@ -1217,11 +1466,20 @@ fn run_construct_passes(
                         merge_blocked.insert(p);
                         continue 'assemble;
                     }
+                    let why: Vec<String> = pulled
+                        .iter()
+                        .map(|&h| {
+                            let cycles = mod_cycles.get(&h).unwrap_or(&patches[h].cycles);
+                            let in_cyc = cycles.iter().any(|c| c.contains(&q));
+                            format!("{h}:{}", if in_cyc { "cyc" } else { "tri" })
+                        })
+                        .collect();
                     eprintln!(
                         "[s4-construct] pass={pass}: CORNER-MERGE v{p} -> v{q} \
-                             dist={d:.3e} holders={holders:?}"
+                             dist={d:.3e} holders={holders:?} rebuilt={why:?}"
                     );
-                    for &h in &holders {
+                    for &h in &pulled {
+                        required_by.entry(h).or_default().push(p);
                         if let std::collections::btree_map::Entry::Vacant(slot) =
                             mod_cycles.entry(h)
                         {
@@ -1271,6 +1529,32 @@ fn run_construct_passes(
                         for cyc in cycles {
                             for &v in cyc {
                                 if v != e0 && v != e1 && on_segment_interior(&mesh.verts, e0, e1, v)
+                                {
+                                    candidates.insert(v);
+                                }
+                            }
+                        }
+                    }
+                }
+                // J1: an exit-fixed seam's remaining span (corner -> other
+                // end) gets the same treatment — a minimal seam's owners are
+                // in the batch as merge-only holders, and its walk-back
+                // vertices weave the boundary exactly like a collapsed
+                // seam's. (For an actively collapsed seam this adds a subset
+                // of the segment above; `candidates` is a set.)
+                for f in &exit_fixes {
+                    if !subs.contains_key(&f.j) {
+                        continue;
+                    }
+                    for &pi in &[f.pair.0, f.pair.1] {
+                        let Some(cycles) = mod_cycles.get(&pi) else {
+                            continue;
+                        };
+                        for cyc in cycles {
+                            for &v in cyc {
+                                if v != f.c
+                                    && v != f.other
+                                    && on_segment_interior(&mesh.verts, f.c, f.other, v)
                                 {
                                     candidates.insert(v);
                                 }
@@ -1352,6 +1636,24 @@ fn run_construct_passes(
                 }
                 if let Some(&pi) = degenerate.first() {
                     skip[6] += 1;
+                    // Attribution order (measured 2026-08-11): a patch that
+                    // degenerates while carrying a substitution cannot name
+                    // the failure cleanly — block the MERGE pairs first so a
+                    // seam the baseline applies is never sacrificed for a
+                    // merge's sin; only a merge-free patch drops its seams.
+                    // A holder with neither attributable (the 2026-08-10
+                    // 18k-restart livelock shape) refuses the whole batch.
+                    let required: Vec<u32> = required_by.get(&pi).cloned().unwrap_or_default();
+                    if !required.is_empty() {
+                        for p in required {
+                            eprintln!(
+                                "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED v{p} — \
+                                 holder {pi} cycle degenerated after merge/removal"
+                            );
+                            merge_blocked.insert(p);
+                        }
+                        continue 'assemble;
+                    }
                     let drop: Vec<usize> = active
                         .iter()
                         .copied()
@@ -1368,27 +1670,23 @@ fn run_construct_passes(
                         }
                         continue 'assemble;
                     }
-                    // A merge/removal holder with no seams of its own in the
-                    // batch: the refusal must land on the MERGE pairs that
-                    // pulled it in — dropping "its seams" removes nothing and
-                    // the restart repeats the identical state forever (the
-                    // 2026-08-10 18k-restart livelock).
-                    let blocked: Vec<u32> = subs
+                    // Last resort: pairs whose p merely sits on the cycles.
+                    let incidental: Vec<u32> = subs
                         .iter()
                         .filter(|&(&p, _)| patches[pi].cycles.iter().any(|c| c.contains(&p)))
                         .map(|(&p, _)| p)
                         .collect();
-                    if blocked.is_empty() {
+                    if incidental.is_empty() {
                         eprintln!(
                             "[s4-construct] STOP pass={pass}: patch {pi} degenerated with \
                              no attributable seam or merge — refusing the whole batch"
                         );
                         break 'assemble (Vec::new(), std::collections::BTreeMap::new());
                     }
-                    for p in blocked {
+                    for p in incidental {
                         eprintln!(
                             "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED v{p} — \
-                             holder {pi} cycle degenerated after merge/removal"
+                             incidental to degenerated holder {pi}"
                         );
                         merge_blocked.insert(p);
                     }
@@ -1448,6 +1746,37 @@ fn run_construct_passes(
                                     eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi
                                 })
                                 .collect();
+                            if drop.is_empty() {
+                                // A merge-only holder: land the refusal on its
+                                // merge pairs (the livelock shape otherwise).
+                                let blocked: Vec<u32> =
+                                    required_by.get(&pi).cloned().unwrap_or_else(|| {
+                                        subs.iter()
+                                            .filter(|&(&p, _)| {
+                                                patches[pi].cycles.iter().any(|c| c.contains(&p))
+                                            })
+                                            .map(|(&p, _)| p)
+                                            .collect()
+                                    });
+                                if blocked.is_empty() {
+                                    eprintln!(
+                                        "[s4-construct] STOP pass={pass}: patch {pi} conflict \
+                                         with no attributable seam or merge — refusing the \
+                                         whole batch"
+                                    );
+                                    break 'assemble (
+                                        Vec::new(),
+                                        std::collections::BTreeMap::new(),
+                                    );
+                                }
+                                for p in blocked {
+                                    eprintln!(
+                                        "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED \
+                                         v{p} — holder {pi} dropped-vertex conflict"
+                                    );
+                                    merge_blocked.insert(p);
+                                }
+                            }
                             for ei in drop {
                                 active.remove(&ei);
                             }
@@ -1494,6 +1823,34 @@ fn run_construct_passes(
                             .copied()
                             .filter(|&ei| eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi)
                             .collect();
+                        if drop.is_empty() {
+                            // A merge-only holder: land the refusal on its
+                            // merge pairs (the livelock shape otherwise).
+                            let blocked: Vec<u32> =
+                                required_by.get(&pi).cloned().unwrap_or_else(|| {
+                                    subs.iter()
+                                        .filter(|&(&p, _)| {
+                                            patches[pi].cycles.iter().any(|c| c.contains(&p))
+                                        })
+                                        .map(|(&p, _)| p)
+                                        .collect()
+                                });
+                            if blocked.is_empty() {
+                                eprintln!(
+                                    "[s4-construct] STOP pass={pass}: patch {pi} orphan \
+                                     conflict with no attributable seam or merge — refusing \
+                                     the whole batch"
+                                );
+                                break 'assemble (Vec::new(), std::collections::BTreeMap::new());
+                            }
+                            for p in blocked {
+                                eprintln!(
+                                    "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED v{p} — \
+                                     holder {pi} orphaned-vertex conflict"
+                                );
+                                merge_blocked.insert(p);
+                            }
+                        }
                         for ei in drop {
                             active.remove(&ei);
                         }
@@ -1589,20 +1946,23 @@ fn run_construct_passes(
                                 relocations,
                             );
                         }
-                        if merge_only.contains(&pi) {
-                            // A merge-only holder declining refuses the MERGE
-                            // pairs that pulled it in, not any seam.
-                            let blocked: Vec<u32> = subs
-                                .iter()
-                                .filter(|&(&p, _)| {
-                                    patches[pi].cycles.iter().any(|c| c.contains(&p))
-                                })
-                                .map(|(&p, _)| p)
-                                .collect();
-                            for p in blocked {
+                        // Attribution order (measured 2026-08-11, twice): a
+                        // declining patch blames the pairs that REQUIRED its
+                        // rebuild first — a seam the baseline applies is
+                        // never sacrificed for a merge's sin. A merge-free
+                        // patch drops its own seams (the baseline path: the
+                        // conic-reorder owner 1251 declines ThetaUnwrap at
+                        // baseline too — blaming exit pairs whose junctions
+                        // merely sit on its rim blocked all 28). Pairs whose
+                        // p is incidentally on the cycles are last resort;
+                        // with nothing attributable, refuse the whole batch.
+                        let required: Vec<u32> =
+                            required_by.get(&pi).cloned().unwrap_or_default();
+                        if !required.is_empty() {
+                            for p in required {
                                 eprintln!(
                                     "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED v{p} — \
-                                     merge-only holder {pi} declined"
+                                     holder {pi} declined"
                                 );
                                 merge_blocked.insert(p);
                             }
@@ -1614,6 +1974,30 @@ fn run_construct_passes(
                                     eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi
                                 })
                                 .collect();
+                            if drop.is_empty() {
+                                let incidental: Vec<u32> = subs
+                                    .iter()
+                                    .filter(|&(&p, _)| {
+                                        patches[pi].cycles.iter().any(|c| c.contains(&p))
+                                    })
+                                    .map(|(&p, _)| p)
+                                    .collect();
+                                if incidental.is_empty() {
+                                    eprintln!(
+                                        "[s4-construct] STOP pass={pass}: patch {pi} declined \
+                                         with no attributable seam or merge — refusing the \
+                                         whole batch"
+                                    );
+                                    break 'assemble (Vec::new(), std::collections::BTreeMap::new());
+                                }
+                                for p in incidental {
+                                    eprintln!(
+                                        "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED \
+                                         v{p} — incidental to declined holder {pi}"
+                                    );
+                                    merge_blocked.insert(p);
+                                }
+                            }
                             for ei in drop {
                                 active.remove(&ei);
                             }
@@ -1702,6 +2086,195 @@ fn run_construct_passes(
         *intersection_curves = cv2;
     }
     Ok(())
+}
+
+/// J1-0 (spec §4-J1): read-only boundary-exit junction census for ONE open
+/// line seam, env-gated by the caller on `YANG_441_J1_CENSUS`.
+///
+/// A seam terminal that OVERSHOOTS the kept boundary leaves the true corner
+/// as a FOLD vertex lying exactly on the open segment between the seam's
+/// junction endpoints (the F0067 TF-8 signature; Fig-11(a) computes q ON
+/// the kept boundary instead). Before any authority change is coded, this
+/// measures the corner's full local picture per seam:
+/// - each fold vertex: segment parameter, position, holder patches
+///   (surface + attribution) with per-holder cycle occurrence counts;
+/// - each junction endpoint: holders, occurrence multiplicity (a boundary
+///   PINCH appears twice in one cycle), and cycle windows with edge
+///   classes (curve type / plain);
+/// - every intersection-curve edge incident to the junction and fold
+///   vertices (rim-chain identity, cap-seam fragment existence).
+fn census_j1_boundary_exit(
+    mesh: &Mesh,
+    patches: &[crate::stage4_splice::SplicePatch],
+    attribution: &TriangleAttributionMap,
+    intersection_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    gi: usize,
+    pair: (usize, usize),
+    chain: &[u32],
+) {
+    use crate::stage4_construct::on_segment_interior;
+    use std::collections::BTreeSet;
+
+    let (e0, e1) = (chain[0], *chain.last().expect("chain is non-empty"));
+    let chain_set: BTreeSet<u32> = chain.iter().copied().collect();
+    let mut cands: Vec<u32> = Vec::new();
+    for &pi in &[pair.0, pair.1] {
+        for cyc in &patches[pi].cycles {
+            for &v in cyc {
+                if !chain_set.contains(&v)
+                    && !cands.contains(&v)
+                    && on_segment_interior(&mesh.verts, e0, e1, v)
+                {
+                    cands.push(v);
+                }
+            }
+        }
+    }
+    if cands.is_empty() {
+        return;
+    }
+
+    let pos = |v: u32| mesh.verts[v as usize];
+    let pstr = |v: u32| {
+        let p = pos(v);
+        format!("({:.9}, {:.9}, {:.9})", p.x(), p.y(), p.z())
+    };
+    let seg_t = |v: u32| -> f64 {
+        let (a, b, x) = (pos(e0), pos(e1), pos(v));
+        let d = [b.x() - a.x(), b.y() - a.y(), b.z() - a.z()];
+        let r = [x.x() - a.x(), x.y() - a.y(), x.z() - a.z()];
+        let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+        if len2 == 0.0 {
+            f64::NAN
+        } else {
+            (r[0] * d[0] + r[1] * d[1] + r[2] * d[2]) / len2
+        }
+    };
+    let surf = |s: &Surface| -> String {
+        match *s {
+            Surface::Plane { normal, d } => format!(
+                "Plane n=({:.6},{:.6},{:.6}) d={d:.9}",
+                normal.x(),
+                normal.y(),
+                normal.z()
+            ),
+            Surface::Cylinder {
+                axis_point,
+                axis_dir,
+                radius,
+            } => format!(
+                "Cyl r={radius:.9} p=({:.6},{:.6},{:.6}) d=({:.6},{:.6},{:.6})",
+                axis_point.x(),
+                axis_point.y(),
+                axis_point.z(),
+                axis_dir.x(),
+                axis_dir.y(),
+                axis_dir.z()
+            ),
+            ref other => format!("{other:?}"),
+        }
+    };
+    let desc = |pj: usize| -> String {
+        let p = &patches[pj];
+        let mut it = p.tris.iter().map(|&t| attribution.attributions[t as usize]);
+        let attr = match it.next().flatten() {
+            Some(f)
+                if p.tris
+                    .iter()
+                    .all(|&t| attribution.attributions[t as usize] == Some(f)) =>
+            {
+                format!("{:?}f{}", f.input, f.face)
+            }
+            _ => "mixed".into(),
+        };
+        format!("p{pj}<{attr} {}>", surf(&p.surface))
+    };
+    let holders = |v: u32| -> Vec<(usize, usize)> {
+        patches
+            .iter()
+            .enumerate()
+            .filter_map(|(pj, p)| {
+                let occ: usize = p
+                    .cycles
+                    .iter()
+                    .map(|c| c.iter().filter(|&&x| x == v).count())
+                    .sum();
+                (occ > 0).then_some((pj, occ))
+            })
+            .collect()
+    };
+    let eclass = |a: u32, b: u32| -> String {
+        match intersection_curves.get(&(a.min(b), a.max(b))) {
+            None => "plain".into(),
+            Some(Curve::LineSegment) => "line".into(),
+            Some(Curve::Circle { radius, .. }) => format!("circle(r={radius:.9})"),
+            Some(Curve::Ellipse { .. }) => "ellipse".into(),
+            Some(Curve::Parabola { .. }) => "parabola".into(),
+            Some(Curve::Hyperbola { .. }) => "hyperbola".into(),
+            Some(Curve::SurfacePair { .. }) => "surface-pair".into(),
+        }
+    };
+
+    eprintln!("[j1-census] seam={gi} pair={pair:?} chain={chain:?}");
+    eprintln!("[j1-census]   owner {}", desc(pair.0));
+    eprintln!("[j1-census]   owner {}", desc(pair.1));
+    eprintln!(
+        "[j1-census]   e0 v{e0} {}   e1 v{e1} {}",
+        pstr(e0),
+        pstr(e1)
+    );
+    for &c in &cands {
+        let hs: Vec<String> = holders(c)
+            .iter()
+            .map(|&(pj, occ)| format!("{}x{occ}", desc(pj)))
+            .collect();
+        eprintln!(
+            "[j1-census]   FOLD v{c} t={:.6} {} holders: {}",
+            seg_t(c),
+            pstr(c),
+            hs.join(" | ")
+        );
+    }
+    for &j in &[e0, e1] {
+        for (pj, occ) in holders(j) {
+            eprintln!("[j1-census]   END v{j} in {} occ={occ}", desc(pj));
+            for cyc in &patches[pj].cycles {
+                let n = cyc.len();
+                for i in 0..n {
+                    if cyc[i] != j {
+                        continue;
+                    }
+                    let mut s = String::new();
+                    for k in 0..5usize {
+                        let vi = cyc[(i + 2 * n + k - 2) % n];
+                        if k > 0 {
+                            let prev = cyc[(i + 2 * n + k - 3) % n];
+                            s.push_str(&format!(" -{}- ", eclass(prev, vi)));
+                        }
+                        s.push_str(&format!("v{vi}"));
+                    }
+                    eprintln!("[j1-census]     cycle-window {s}");
+                }
+            }
+        }
+    }
+    for &v in [e0, e1].iter().chain(cands.iter()) {
+        for &(a, b) in intersection_curves.keys() {
+            if a != v && b != v {
+                continue;
+            }
+            let o = if a == v { b } else { a };
+            let (p1, p2) = (pos(v), pos(o));
+            let d =
+                ((p1.x() - p2.x()).powi(2) + (p1.y() - p2.y()).powi(2) + (p1.z() - p2.z()).powi(2))
+                    .sqrt();
+            eprintln!(
+                "[j1-census]   CURVE-EDGE v{v} -{}- v{o} len={d:.3e} other={}",
+                eclass(a, b),
+                pstr(o)
+            );
+        }
+    }
 }
 
 /// Diagnostic census for a patch the I1b construct pass DECLINED at CDT:

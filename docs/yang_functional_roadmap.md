@@ -140,13 +140,20 @@ name, never measured).
    the plane-cap CIRCLE class as I2c's real tail), so the wheel corner
    is the ORIGINAL I1d verdict after all — the junction relocation
    keeps an exact UNBOUNDED junction 1.339e-3 outside the wall's kept
-   footprint. NEXT increment: J1 — boundary-exit junction authority
-   (Fig-11(a): q ON the kept boundary) at the junction/classification
-   layer, honoring the I1e-rescope reroute hazard. Also landed: the
-   assembly-loop LIVELOCK fix (a degenerating merge-only holder now
-   blocks its merge pairs instead of restarting the identical batch
-   forever — 18,322 measured spins on main with the merge sub-gate
-   applied). Spec §4-I2c has the full measurement.**
+   footprint. Also landed: the assembly-loop LIVELOCK fix (a
+   degenerating merge-only holder now blocks its merge pairs instead of
+   restarting the identical batch forever — 18,322 measured spins on
+   main with the merge sub-gate applied). Spec §4-I2c has the full
+   measurement. J1 — boundary-exit junction authority (Fig-11(a): q ON
+   the kept boundary) — LANDED sub-gated `YANG_441_BOUNDARY_EXIT`
+   2026-08-11 and VALIDATED on F0067: the junction terminal merges INTO
+   the exact designed corner through the batch (22 of 28 corners close;
+   42 seams / 84 patches apply pass-0; re-point-safe holders exempt the
+   encircling lateral; pull-scoped blame). The corner family's residual
+   blocker is the A-TOP RIM-WEAVE (relocated rim-circle chain woven
+   against plain chord edges at r≈0.2085–0.2098, pre-existing, also the
+   canonical non-2-manifold family) — that is the NEXT increment. Spec
+   §4-J1 has the full measurement.**
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

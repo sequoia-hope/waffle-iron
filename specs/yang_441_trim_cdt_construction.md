@@ -576,6 +576,69 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    construct pass currently converts nothing corpus-wide under the
    pinned environment (a worklist fact, not a regression — the honest
    ERRORs are unchanged).
+
+   **J1-0 + J1-1 (2026-08-11, LANDED sub-gated `YANG_441_BOUNDARY_EXIT`;
+   the mechanism is VALIDATED on F0067 — 22 of 28 corners close in one
+   pass-0 batch — and the residual blocker is NAMED: the A-top rim-weave
+   CDT family.)** The J1-0 census (`YANG_441_J1_CENSUS`, read-only,
+   pass-0, all open line-curve groups incl. minimal) measured the corner
+   typology on F0067's failing boolean: ~24 seams carry EXACTLY ONE
+   unrelocated ≥3-holder fold corner at the uniform t=0.0936 on the
+   junction segment (the 1.339e-3 design gap; seam 17's local gap is
+   3.098e-4), plus 2-holder walk-back folds (the I1f class); off-pattern
+   members (two-corner span seam 29; junction-less fragmented line groups
+   56/59/79/81) refuse loudly. Flush-coplanar structure confirmed: A-top
+   `Af328` z=1.751898 ≡ B-bottom `Bf0` (opposite outward normals); the
+   junction vertex is held by exactly four patches (A-top, A-wall,
+   B-bottom, B-lateral-cylinder), occ=1 each — fused, no pinch.
+
+   J1-1 = the Fig-11(b) merge with the BOUNDARY-EXIT DIRECTION: the
+   relocated junction terminal J substitutes INTO the kept-boundary
+   corner C (the reverse of the containment merge — here the JUNCTION is
+   the vertex with zero kept content), through the same holder closure /
+   `subs` machinery, with the collapse, near-curve removal (extended to
+   exit-fixed minimal seams), and re-CDT in one batch. Selector guards,
+   all loud: relocated+conic-terminal J only; straightness identity;
+   exactly ONE unrelocated ≥3-holder corner strictly inside the
+   (J, first-sample) span; no relocated vertex in span; direction- and
+   chained-substitution conflicts with other merge arms.
+
+   Three measured corrections en route (each its own F0067 run):
+   - **Re-point-safe holders**: pulling every holder blocked ALL pairs —
+     the encircling drum-lateral declines `ThetaUnwrap`. A holder is
+     exempted from the re-CDT batch iff q appears NOWHERE in its cycles
+     or triangles (pure relabel of p's slot); mere non-adjacency is NOT
+     enough — rebuilt=[] on walk-back corners re-minted the inc-3
+     bare-collapse pinch shape. With the contains-q rule the lateral
+     re-points and the wall/A-top/owners rebuild.
+   - **Pull attribution (`required_by`)**: blaming a declined holder's
+     failure on every pair whose p sits on its cycles blocks the whole
+     rim through the lateral (it holds EVERY junction). A declining
+     holder blames exactly the pairs that REQUIRED its rebuild.
+   - **Blame priority** at every decline/degenerate/audit site:
+     required-pairs → own seams → incidental pairs → whole-batch refusal
+     (the livelock-fix generalized; a baseline seam is never sacrificed
+     for a merge's sin — the 39→37 seam loss of the first wiring).
+
+   Measured end state (F0067, construct+boundary-exit): **42 seams over
+   84 patches apply in pass 0** (baseline 37/57); walk-back removals fire
+   (18–25/batch, previously all blocked); 22 corners close with junction
+   vertices merged into their exact designed corners and rim chains shed
+   their terminal chords. The 8 blocked pairs are all scoped to A-top
+   patches (328/330/331/332/333/337/344) whose re-CDT declines on the
+   PRE-EXISTING rim-weave: curved-seam × plain crossings at r≈0.2085–
+   0.2098 (e.g. patch 332: (1029,1047)plain × (1050,1035)curved-seam) —
+   the top patch's relocated rim-circle chain woven against its plain
+   chord edges, present at baseline and independent of the corner family.
+   The case verdict is UNCHANGED (the canonical Stage-6 non-2-manifold;
+   note the pinned-environment canonical for F0067 is non-2-manifold, not
+   the pre-pin ring-reject). **Named next wall: the A-top rim-weave —
+   the relocated circle chain vs plain chord boundary on the top patches
+   (owner of the remaining 6 corner blocks, and in the canonical failure
+   family). Also surfaced loudly: `MalformedPatch` on the fragmented-
+   line-seam owners (697/732), and the femto `DuplicateVertex` pair
+   (1227/1162-class) now blocks two corners directly.**
+
 3. **I3 — flip per wall class** (cdt-ring-rejected → relocation-region →
    reassembly-non-2-manifold), full assay after each; any conversion or new
    wall is censused before the next flip.
