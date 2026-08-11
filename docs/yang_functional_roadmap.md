@@ -152,8 +152,14 @@ name, never measured).
    encircling lateral; pull-scoped blame). The corner family's residual
    blocker is the A-TOP RIM-WEAVE (relocated rim-circle chain woven
    against plain chord edges at r≈0.2085–0.2098, pre-existing, also the
-   canonical non-2-manifold family) — that is the NEXT increment. Spec
-   §4-J1 has the full measurement.**
+   canonical non-2-manifold family). RIM-TRIM landed same day sub-gated
+   `YANG_441_RIM_TRIM` (side-aware circle near-curve removal with its
+   own holder closure + blame arm): the 2-holder chord-sliver debris
+   removes cleanly and two tops convert; the RESIDUAL is the
+   triangle-scale FLUSH-INTERFACE SLIVER FRAGMENTS whose deletion needs
+   Stage-0 overlap knowledge — i.e. the rim-weave's remainder is
+   ATTRIBUTED TO THE M8 COPLANAR RESIDUE (item 5 below), not to this
+   epic's construction machinery. Spec §4-J1 has both measurements.**
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

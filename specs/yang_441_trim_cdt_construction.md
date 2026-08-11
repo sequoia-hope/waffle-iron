@@ -639,6 +639,53 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    line-seam owners (697/732), and the femto `DuplicateVertex` pair
    (1227/1162-class) now blocks two corners directly.**
 
+   **RIM-TRIM (2026-08-11, same day, LANDED sub-gated
+   `YANG_441_RIM_TRIM`; the mechanism converts the 2-holder debris and
+   the residual is scoped to the FLUSH-INTERFACE SLIVER FRAGMENTS — the
+   M8-residue boundary.)** The rim census (`YANG_441_RIM_CENSUS`,
+   annotated per-vertex dump in the decline path: signed radial delta to
+   the cycle's trim circle, chain membership, relocation identity)
+   measured the A-top decline family exactly: the circle chain is IN
+   parameter order (not an I2b defect); the weave is plain unmoved
+   boundary vertices dipping INSIDE the circle (dr −3.1e-4…−1.3e-3, the
+   chord-sliver ramps, symmetric on both flanks of each gap) poking
+   through the chain's shallow chords — the 2026-08-02 CDT-ring anchor's
+   "visits both sides of its own trim circle", re-measured post-J1.
+
+   The increment: §4.4.1's near-curve removal generalized to CIRCLE
+   chains, side-aware — a candidate is plain (no incident curve edge
+   anywhere), unmoved, not part of any substitution, not a J1 exit
+   corner, and strictly on the NON-KEPT side of the patch's circle
+   within the derived band. Kept side is witnessed by chain-edge
+   triangles' third vertices BEYOND the band (a within-band witness is
+   potentially the sliver itself — measured: 1–4 inside witnesses on
+   every declining top, all within band), with a boundary-majority
+   fallback when the near-rim mesh is denser than the band; ambiguous ⇒
+   loud skip (the encircling lateral lands here correctly). Candidates
+   get their own holder closure (flush-interface debris is legitimately
+   3–5-holder; chartable holders join the batch as trim participants;
+   the ≤2-holder cap is exempted for trim candidates — design corners
+   are excluded structurally, not by count), `trim_pull` attribution,
+   and a `trim_blocked` arm in the blame chain at all four decline
+   sites (required pairs → trim vertices → seams → incidental → STOP).
+
+   Measured on F0067 (construct + boundary-exit + rim-trim): batch
+   scales to 42 seams over 138 patches, removals to 68/batch; the
+   2-holder ramp debris removes cleanly (e.g. patch 332's cycle 85→83,
+   its crossing shifting to the surviving vertex) and TWO tops (340,
+   346) convert outright. The rest of the A-top family still declines:
+   the surviving ramp vertices (1048/1091-class) are held by
+   TRIANGLE-SCALE SLIVER FRAGMENT patches whose cycles would degenerate
+   below 3 vertices — the removal blocks correctly (deleting the
+   fragment is the right exact-geometry outcome, but the sliver area is
+   interface-INTERIOR at the flush plane and shell closure after
+   deletion needs the Stage-0 overlap knowledge). **The rim-weave's
+   residual is therefore attributed to the M8 flush-overlap residue
+   (roadmap item), not to this epic's construction machinery.** F0067's
+   verdict is unchanged (canonical non-2-manifold); the femto
+   `DuplicateVertex` owners and the fragment wall carry the remaining
+   corner blocks.
+
 3. **I3 — flip per wall class** (cdt-ring-rejected → relocation-region →
    reassembly-non-2-manifold), full assay after each; any conversion or new
    wall is censused before the next flip.

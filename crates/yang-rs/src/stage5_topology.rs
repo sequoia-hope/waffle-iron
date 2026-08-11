@@ -1153,6 +1153,10 @@ fn run_construct_passes(
         // holder's rebuild declined, …) — persists across restarts so the
         // assembly converges.
         let mut merge_blocked: BTreeSet<u32> = BTreeSet::new();
+        // Rim-trim refusals (vertex-keyed, persists across restarts like
+        // merge_blocked): a trim-pulled holder that declines blocks the trim
+        // vertices that pulled it, and the assembly converges.
+        let mut trim_blocked: BTreeSet<u32> = BTreeSet::new();
         let (rebuilds, subs) = 'assemble: loop {
             // J1 exit fixes keep the batch alive even with no collapsible
             // seam — a minimal (2-vertex) seam's owners join through the
@@ -1233,6 +1237,10 @@ fn run_construct_passes(
             // the whole rim when the encircling lateral declines (measured
             // 2026-08-11: one corner pulled it, all 28 pairs blocked).
             let mut required_by: std::collections::BTreeMap<usize, Vec<u32>> =
+                std::collections::BTreeMap::new();
+            // Trim pull attribution: holder -> the rim-trim vertices whose
+            // removal REQUIRED its rebuild (the removal's all-holders rule).
+            let mut trim_pull: std::collections::BTreeMap<usize, Vec<u32>> =
                 std::collections::BTreeMap::new();
             {
                 let pos = |i: u32| -> [f64; 3] {
@@ -1562,6 +1570,220 @@ fn run_construct_passes(
                         }
                     }
                 }
+                // RIM TRIM (sub-gated `YANG_441_RIM_TRIM`, spec §4 next
+                // increment): §4.4.1's near-curve removal for CIRCLE chains,
+                // side-aware. The rim-weave census (2026-08-11) measured the
+                // A-top decline family: plain unmoved boundary vertices
+                // dipping INSIDE the trim circle (chord-sliver ramps at
+                // |dr| = 3e-4..1.3e-3) poke through the parameter-ordered
+                // chain's shallow chords — content the exact trim removes.
+                // A candidate must be: on a batched patch whose cycles carry
+                // a circle chain; strictly on the NON-KEPT side of that
+                // circle (kept side witnessed by the chain edges' own
+                // triangles; both-sides/ambiguous => loud skip); within the
+                // derived chord band but beyond the identity band; PLAIN
+                // (no incident intersection-curve edge anywhere), unmoved,
+                // and not part of any substitution. The I1f holder
+                // discipline below (<=2 holders, all batched, no
+                // degeneration) applies unchanged. I1f's conic guard — "a
+                // conic's chord is not its curve" — is untouched: chain
+                // members are curve-incident and never candidates here.
+                let mut trim_cands: BTreeSet<u32> = BTreeSet::new();
+                if std::env::var_os("YANG_441_RIM_TRIM").is_some() {
+                    if let Some(band) = crate::stage4_correct::stage4_chord_band(a, b) {
+                        let relocated: BTreeSet<u32> =
+                            relocations.iter().map(|&(v, _)| v).collect();
+                        let exit_corners: BTreeSet<u32> =
+                            exit_fixes.iter().map(|f| f.c).collect();
+                        let mut curve_touched: BTreeSet<u32> = BTreeSet::new();
+                        for &(s, t) in intersection_curves.keys() {
+                            curve_touched.insert(s);
+                            curve_touched.insert(t);
+                        }
+                        for (&pi, cycles) in &mod_cycles {
+                            // Distinct circles among this patch's cycle edges.
+                            let mut circles: Vec<(
+                                cad_primitives::Point3,
+                                cad_primitives::Vector3,
+                                f64,
+                            )> = Vec::new();
+                            let mut chain_edges: Vec<(u32, u32, usize)> = Vec::new();
+                            for cyc in cycles {
+                                let n = cyc.len();
+                                for i in 0..n {
+                                    let (s, t) = (cyc[i], cyc[(i + 1) % n]);
+                                    let key = (s.min(t), s.max(t));
+                                    if let Some(Curve::Circle {
+                                        center,
+                                        normal,
+                                        radius,
+                                    }) = intersection_curves.get(&key)
+                                    {
+                                        let ci = circles
+                                            .iter()
+                                            .position(|&(c, _, r)| {
+                                                c.as_array() == center.as_array()
+                                                    && r == *radius
+                                            })
+                                            .unwrap_or_else(|| {
+                                                circles.push((*center, *normal, *radius));
+                                                circles.len() - 1
+                                            });
+                                        chain_edges.push((s, t, ci));
+                                    }
+                                }
+                            }
+                            for (ci, &(c, nrm, r)) in circles.iter().enumerate() {
+                                let dr = |v: u32| -> f64 {
+                                    let p = mesh.verts[v as usize];
+                                    let d = [p.x() - c.x(), p.y() - c.y(), p.z() - c.z()];
+                                    let along =
+                                        d[0] * nrm.x() + d[1] * nrm.y() + d[2] * nrm.z();
+                                    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
+                                        - along * along)
+                                        .sqrt()
+                                        - r
+                                };
+                                // Kept side: the sign of dr at the third
+                                // vertex of each triangle owning a chain
+                                // edge — counting ONLY witnesses beyond the
+                                // band. A within-band third vertex is
+                                // near-curve content (potentially the very
+                                // sliver the trim removes — measured: the
+                                // declining tops carried 1-4 sliver
+                                // witnesses inside, all within band) and is
+                                // no evidence of kept side. Witnesses beyond
+                                // the band on BOTH sides => the circle is
+                                // not a one-sided trim boundary — loud skip.
+                                let (mut pos_w, mut neg_w) = (0usize, 0usize);
+                                for &t in &patches[pi].tris {
+                                    let tri = mesh.tris[t as usize];
+                                    for k in 0..3 {
+                                        let (a3, b3) = (tri[k], tri[(k + 1) % 3]);
+                                        if chain_edges.iter().any(|&(s, e, cj)| {
+                                            cj == ci
+                                                && ((s == a3 && e == b3)
+                                                    || (s == b3 && e == a3))
+                                        }) {
+                                            let w = dr(tri[(k + 2) % 3]);
+                                            if w > band {
+                                                pos_w += 1;
+                                            } else if w < -band {
+                                                neg_w += 1;
+                                            }
+                                        }
+                                    }
+                                }
+                                let kept_positive = match (pos_w > 0, neg_w > 0) {
+                                    (true, false) => Some(true),
+                                    (false, true) => Some(false),
+                                    (true, true) => None,
+                                    (false, false) => {
+                                        // Dense near-rim mesh: every chain
+                                        // triangle's third vertex is within
+                                        // band (measured on the 328-class
+                                        // tops). Fall back to the BOUNDARY
+                                        // majority beyond the band — the
+                                        // outline is far outside; a
+                                        // genuinely two-sided patch has
+                                        // beyond-band boundary both sides.
+                                        let (mut bp, mut bn) = (0usize, 0usize);
+                                        for cyc in cycles {
+                                            for &bv in cyc {
+                                                let d = dr(bv);
+                                                if d > band {
+                                                    bp += 1;
+                                                } else if d < -band {
+                                                    bn += 1;
+                                                }
+                                            }
+                                        }
+                                        match (bp > 0, bn > 0) {
+                                            (true, false) => Some(true),
+                                            (false, true) => Some(false),
+                                            _ => None,
+                                        }
+                                    }
+                                };
+                                let Some(kept_positive) = kept_positive else {
+                                    eprintln!(
+                                        "[s4-construct] pass={pass}: RIM-TRIM SKIP \
+                                         patch {pi} circle[{ci}] — kept side \
+                                         ambiguous (pos={pos_w} neg={neg_w})"
+                                    );
+                                    continue;
+                                };
+                                for cyc in cycles {
+                                    for &v in cyc {
+                                        if curve_touched.contains(&v)
+                                            || relocated.contains(&v)
+                                            || subs.contains_key(&v)
+                                            || subs.values().any(|&q| q == v)
+                                            || exit_corners.contains(&v)
+                                            || trim_blocked.contains(&v)
+                                        {
+                                            continue;
+                                        }
+                                        let d = dr(v);
+                                        let covered = if kept_positive { -d } else { d };
+                                        if covered > 1e-9 && covered <= band {
+                                            eprintln!(
+                                                "[s4-construct] pass={pass}: RIM-TRIM \
+                                                 candidate v{v} patch {pi} \
+                                                 dr={d:+.3e} (covered side)"
+                                            );
+                                            trim_cands.insert(v);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // Holder closure for trim candidates: the removal's
+                        // all-holders rule needs every holder in the batch.
+                        // At the flush interface the ramp debris is shared
+                        // with B-side fragment patches (measured holders up
+                        // to 4-5, not batched) — pull chartable holders in
+                        // as trim participants; an unchartable holder
+                        // refuses the candidate loudly and persistently.
+                        let mut refused: Vec<u32> = Vec::new();
+                        for &v in &trim_cands {
+                            let holders: Vec<usize> = patches
+                                .iter()
+                                .enumerate()
+                                .filter(|&(pj, p)| {
+                                    let cycles = mod_cycles.get(&pj).unwrap_or(&p.cycles);
+                                    cycles.iter().any(|c| c.contains(&v))
+                                })
+                                .map(|(pj, _)| pj)
+                                .collect();
+                            let chartable = |s: &Surface| {
+                                matches!(s, Surface::Plane { .. } | Surface::Cylinder { .. })
+                            };
+                            if holders.iter().any(|&h| !chartable(&patches[h].surface)) {
+                                eprintln!(
+                                    "[s4-construct] pass={pass}: RIM-TRIM REFUSED v{v} — \
+                                     an unchartable holder; blocked"
+                                );
+                                trim_blocked.insert(v);
+                                refused.push(v);
+                                continue;
+                            }
+                            for &h in &holders {
+                                trim_pull.entry(h).or_default().push(v);
+                                if let std::collections::btree_map::Entry::Vacant(slot) =
+                                    mod_cycles.entry(h)
+                                {
+                                    slot.insert(patches[h].cycles.clone());
+                                    merge_only.insert(h);
+                                }
+                            }
+                            candidates.insert(v);
+                        }
+                        for v in refused {
+                            trim_cands.remove(&v);
+                        }
+                    }
+                }
                 let mut removed_total = 0usize;
                 for &v in &candidates {
                     // Every holder patch must be in the batch (≤2 holders),
@@ -1577,7 +1799,14 @@ fn run_construct_passes(
                         })
                         .map(|(pj, _)| pj)
                         .collect();
-                    if holders.len() > 2 || !holders.iter().all(|h| mod_cycles.contains_key(h)) {
+                    // Rim-trim candidates are exempt from the ≤2-holder cap:
+                    // flush-interface debris is legitimately high-degree
+                    // (its holders were pulled into the batch by the trim
+                    // closure), and design corners are excluded upstream
+                    // (exit-corner set, curve incidence, substitutions).
+                    if (holders.len() > 2 && !trim_cands.contains(&v))
+                        || !holders.iter().all(|h| mod_cycles.contains_key(h))
+                    {
                         eprintln!(
                             "[s4-construct] pass={pass}: NEAR-CURVE REMOVAL BLOCKED v{v} — \
                              holders {holders:?} not all rebuilt (or >2); vertex stays"
@@ -1651,6 +1880,17 @@ fn run_construct_passes(
                                  holder {pi} cycle degenerated after merge/removal"
                             );
                             merge_blocked.insert(p);
+                        }
+                        continue 'assemble;
+                    }
+                    let trimmed: Vec<u32> = trim_pull.get(&pi).cloned().unwrap_or_default();
+                    if !trimmed.is_empty() {
+                        for v in trimmed {
+                            eprintln!(
+                                "[s4-construct] pass={pass}: RIM-TRIM BLOCKED v{v} — \
+                                 holder {pi} cycle degenerated after merge/removal"
+                            );
+                            trim_blocked.insert(v);
                         }
                         continue 'assemble;
                     }
@@ -1747,8 +1987,11 @@ fn run_construct_passes(
                                 })
                                 .collect();
                             if drop.is_empty() {
-                                // A merge-only holder: land the refusal on its
-                                // merge pairs (the livelock shape otherwise).
+                                // A merge-only holder: land the refusal on
+                                // its merge pairs, then its trim vertices
+                                // (the livelock shape otherwise).
+                                let trimmed: Vec<u32> =
+                                    trim_pull.get(&pi).cloned().unwrap_or_default();
                                 let blocked: Vec<u32> =
                                     required_by.get(&pi).cloned().unwrap_or_else(|| {
                                         subs.iter()
@@ -1758,23 +2001,33 @@ fn run_construct_passes(
                                             .map(|(&p, _)| p)
                                             .collect()
                                     });
-                                if blocked.is_empty() {
+                                if blocked.is_empty() && trimmed.is_empty() {
                                     eprintln!(
                                         "[s4-construct] STOP pass={pass}: patch {pi} conflict \
-                                         with no attributable seam or merge — refusing the \
-                                         whole batch"
+                                         with no attributable seam, merge, or trim — refusing \
+                                         the whole batch"
                                     );
                                     break 'assemble (
                                         Vec::new(),
                                         std::collections::BTreeMap::new(),
                                     );
                                 }
-                                for p in blocked {
-                                    eprintln!(
-                                        "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED \
-                                         v{p} — holder {pi} dropped-vertex conflict"
-                                    );
-                                    merge_blocked.insert(p);
+                                if !trimmed.is_empty() {
+                                    for v in trimmed {
+                                        eprintln!(
+                                            "[s4-construct] pass={pass}: RIM-TRIM BLOCKED \
+                                             v{v} — holder {pi} dropped-vertex conflict"
+                                        );
+                                        trim_blocked.insert(v);
+                                    }
+                                } else {
+                                    for p in blocked {
+                                        eprintln!(
+                                            "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED \
+                                             v{p} — holder {pi} dropped-vertex conflict"
+                                        );
+                                        merge_blocked.insert(p);
+                                    }
                                 }
                             }
                             for ei in drop {
@@ -1825,7 +2078,10 @@ fn run_construct_passes(
                             .collect();
                         if drop.is_empty() {
                             // A merge-only holder: land the refusal on its
-                            // merge pairs (the livelock shape otherwise).
+                            // merge pairs, then its trim vertices (the
+                            // livelock shape otherwise).
+                            let trimmed: Vec<u32> =
+                                trim_pull.get(&pi).cloned().unwrap_or_default();
                             let blocked: Vec<u32> =
                                 required_by.get(&pi).cloned().unwrap_or_else(|| {
                                     subs.iter()
@@ -1835,20 +2091,30 @@ fn run_construct_passes(
                                         .map(|(&p, _)| p)
                                         .collect()
                                 });
-                            if blocked.is_empty() {
+                            if blocked.is_empty() && trimmed.is_empty() {
                                 eprintln!(
                                     "[s4-construct] STOP pass={pass}: patch {pi} orphan \
-                                     conflict with no attributable seam or merge — refusing \
-                                     the whole batch"
+                                     conflict with no attributable seam, merge, or trim — \
+                                     refusing the whole batch"
                                 );
                                 break 'assemble (Vec::new(), std::collections::BTreeMap::new());
                             }
-                            for p in blocked {
-                                eprintln!(
-                                    "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED v{p} — \
-                                     holder {pi} orphaned-vertex conflict"
-                                );
-                                merge_blocked.insert(p);
+                            if !trimmed.is_empty() {
+                                for v in trimmed {
+                                    eprintln!(
+                                        "[s4-construct] pass={pass}: RIM-TRIM BLOCKED v{v} — \
+                                         holder {pi} orphaned-vertex conflict"
+                                    );
+                                    trim_blocked.insert(v);
+                                }
+                            } else {
+                                for p in blocked {
+                                    eprintln!(
+                                        "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED v{p} — \
+                                         holder {pi} orphaned-vertex conflict"
+                                    );
+                                    merge_blocked.insert(p);
+                                }
                             }
                         }
                         for ei in drop {
@@ -1958,6 +2224,7 @@ fn run_construct_passes(
                         // with nothing attributable, refuse the whole batch.
                         let required: Vec<u32> =
                             required_by.get(&pi).cloned().unwrap_or_default();
+                        let trimmed: Vec<u32> = trim_pull.get(&pi).cloned().unwrap_or_default();
                         if !required.is_empty() {
                             for p in required {
                                 eprintln!(
@@ -1965,6 +2232,14 @@ fn run_construct_passes(
                                      holder {pi} declined"
                                 );
                                 merge_blocked.insert(p);
+                            }
+                        } else if !trimmed.is_empty() {
+                            for v in trimmed {
+                                eprintln!(
+                                    "[s4-construct] pass={pass}: RIM-TRIM BLOCKED v{v} — \
+                                     holder {pi} declined"
+                                );
+                                trim_blocked.insert(v);
                             }
                         } else {
                             let drop: Vec<usize> = active
@@ -2339,6 +2614,84 @@ fn census_construct_decline(
                     p.x(),
                     p.y(),
                     p.z(),
+                    edge_tag(v, cyc[(i + 1) % n])
+                );
+            }
+        }
+    }
+
+    // Rim-weave census (spec §4 next increment; env-gated
+    // `YANG_441_RIM_CENSUS`): for a declining cycle that carries circle
+    // curve edges, print every vertex with its SIGNED radial delta to the
+    // cycle's trim circle (+ outside, − inside), chain membership, and
+    // relocation identity. The 2026-08-02 CDT-ring anchor says the cycle
+    // visits both sides of its own trim circle (chord-sliver content the
+    // exact trim removes); this measures the sliver runs the trim must
+    // drop and the junctions it must keep, per cycle, in the current
+    // (post-J1) state.
+    if std::env::var_os("YANG_441_RIM_CENSUS").is_some() {
+        for (k, cyc) in cycles.iter().enumerate() {
+            let n = cyc.len();
+            let mut circles: Vec<(cad_primitives::Point3, cad_primitives::Vector3, f64)> =
+                Vec::new();
+            for i in 0..n {
+                let (s, t) = (cyc[i], cyc[(i + 1) % n]);
+                let key = (s.min(t), s.max(t));
+                if let Some(Curve::Circle {
+                    center,
+                    normal,
+                    radius,
+                }) = intersection_curves.get(&key)
+                {
+                    if !circles.iter().any(|&(c, _, r)| {
+                        c.as_array() == center.as_array() && r == *radius
+                    }) {
+                        circles.push((*center, *normal, *radius));
+                    }
+                }
+            }
+            if circles.is_empty() {
+                continue;
+            }
+            for (ci, &(c, nrm, r)) in circles.iter().enumerate() {
+                eprintln!(
+                    "[rim-census] patch {pi} cycle {k} circle[{ci}] \
+                     c=({:.9},{:.9},{:.9}) n=({:.3},{:.3},{:.3}) r={r:.9}",
+                    c.x(),
+                    c.y(),
+                    c.z(),
+                    nrm.x(),
+                    nrm.y(),
+                    nrm.z()
+                );
+            }
+            let (c, nrm, r) = circles[0];
+            let on_chain = |i: usize| -> bool {
+                let prev = cyc[(i + n - 1) % n];
+                let (v, next) = (cyc[i], cyc[(i + 1) % n]);
+                let is_circ = |a: u32, b: u32| {
+                    matches!(
+                        intersection_curves.get(&(a.min(b), a.max(b))),
+                        Some(Curve::Circle { .. })
+                    )
+                };
+                is_circ(prev, v) || is_circ(v, next)
+            };
+            for (i, &v) in cyc.iter().enumerate() {
+                let p = mesh.verts[v as usize];
+                let d = [p.x() - c.x(), p.y() - c.y(), p.z() - c.z()];
+                let along = d[0] * nrm.x() + d[1] * nrm.y() + d[2] * nrm.z();
+                let radial =
+                    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2] - along * along).sqrt();
+                let dr = radial - r;
+                let moved = match reloc_of(v) {
+                    Some(t) => format!("reloc t={t:.4}"),
+                    None => "unmoved".to_string(),
+                };
+                eprintln!(
+                    "[rim-census]   [{i}] v{v} dr={dr:+.3e} h={along:+.3e} \
+                     {} [{moved}] --[{}]--",
+                    if on_chain(i) { "CHAIN" } else { "plain" },
                     edge_tag(v, cyc[(i + 1) % n])
                 );
             }
