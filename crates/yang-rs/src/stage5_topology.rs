@@ -1818,6 +1818,126 @@ fn run_construct_passes(
                             "[s4-construct] pass={pass}: NEAR-CURVE REMOVAL BLOCKED v{v} — \
                              a holder cycle would degenerate below 3 vertices"
                         );
+                        // Fragment census (env-gated): the 2026-08-11 rim-trim
+                        // measurement attributed this block to triangle-scale
+                        // flush-interface sliver fragments — dump each
+                        // holder's identity (side, face, surface, size) so
+                        // the fragment family is measured, not inferred.
+                        if std::env::var_os("YANG_441_RIM_CENSUS").is_some()
+                            && trim_cands.contains(&v)
+                        {
+                            for &h in &holders {
+                                let info = &infos[h];
+                                let tris = &patches[h].tris;
+                                let mut area = 0.0f64;
+                                let mut max_edge = 0.0f64;
+                                for &t in tris {
+                                    let tri = mesh.tris[t as usize];
+                                    let p0 = mesh.verts[tri[0] as usize];
+                                    let p1 = mesh.verts[tri[1] as usize];
+                                    let p2 = mesh.verts[tri[2] as usize];
+                                    let e01 = [p1.x() - p0.x(), p1.y() - p0.y(), p1.z() - p0.z()];
+                                    let e02 = [p2.x() - p0.x(), p2.y() - p0.y(), p2.z() - p0.z()];
+                                    let cx = e01[1] * e02[2] - e01[2] * e02[1];
+                                    let cy = e01[2] * e02[0] - e01[0] * e02[2];
+                                    let cz = e01[0] * e02[1] - e01[1] * e02[0];
+                                    area += 0.5 * (cx * cx + cy * cy + cz * cz).sqrt();
+                                    for (u, w) in [(p0, p1), (p1, p2), (p2, p0)] {
+                                        let l = ((w.x() - u.x()).powi(2)
+                                            + (w.y() - u.y()).powi(2)
+                                            + (w.z() - u.z()).powi(2))
+                                        .sqrt();
+                                        max_edge = max_edge.max(l);
+                                    }
+                                }
+                                let surf = match &patches[h].surface {
+                                    Surface::Plane { normal, d } => format!(
+                                        "Plane(n=({:+.3},{:+.3},{:+.3}) d={d:+.9})",
+                                        normal.x(),
+                                        normal.y(),
+                                        normal.z()
+                                    ),
+                                    Surface::Cylinder { radius, .. } => {
+                                        format!("Cyl(r={radius:.6})")
+                                    }
+                                    s => format!("{s:?}"),
+                                };
+                                let cyc_shape: Vec<(usize, usize)> = mod_cycles[&h]
+                                    .iter()
+                                    .map(|c| (c.len(), c.iter().filter(|&&x| x == v).count()))
+                                    .collect();
+                                let small_cycles: Vec<&Vec<u32>> =
+                                    mod_cycles[&h].iter().filter(|c| c.len() <= 8).collect();
+                                eprintln!(
+                                    "[rim-frag] v{v} holder {h}: input={:?} face={} {surf} \
+                                     tris={} area={area:.3e} max_edge={max_edge:.3e} \
+                                     cycles(len,occ)={cyc_shape:?} small={small_cycles:?}",
+                                    info.input,
+                                    info.face_idx,
+                                    tris.len(),
+                                );
+                                for cyc in mod_cycles[&h].iter().filter(|c| c.len() <= 8) {
+                                    for &cv in cyc {
+                                        let p = mesh.verts[cv as usize];
+                                        let rad = (p.x() * p.x() + p.y() * p.y()).sqrt();
+                                        eprintln!(
+                                            "[rim-frag]     v{cv} r={rad:.9} z={:.9} \
+                                             xyz=({:.6},{:.6},{:.6})",
+                                            p.z(),
+                                            p.x(),
+                                            p.y(),
+                                            p.z()
+                                        );
+                                    }
+                                }
+                                // Sibling patches on the SAME input face: is the
+                                // face genuinely fragmented, and does a mesh
+                                // edge connect the fragment to a sibling?
+                                if tris.len() <= 8 {
+                                    let frag_edges: BTreeSet<(u32, u32)> = tris
+                                        .iter()
+                                        .flat_map(|&t| {
+                                            let tri = mesh.tris[t as usize];
+                                            (0..3).map(move |k| {
+                                                let (x, y) = (tri[k], tri[(k + 1) % 3]);
+                                                (x.min(y), x.max(y))
+                                            })
+                                        })
+                                        .collect();
+                                    for (pj, pinfo) in infos.iter().enumerate() {
+                                        if pj == h
+                                            || pinfo.input != info.input
+                                            || pinfo.face_idx != info.face_idx
+                                        {
+                                            continue;
+                                        }
+                                        let shared: Vec<(u32, u32)> = patches[pj]
+                                            .tris
+                                            .iter()
+                                            .flat_map(|&t| {
+                                                let tri = mesh.tris[t as usize];
+                                                (0..3).map(move |k| {
+                                                    let (x, y) = (tri[k], tri[(k + 1) % 3]);
+                                                    (x.min(y), x.max(y))
+                                                })
+                                            })
+                                            .filter(|e| frag_edges.contains(e))
+                                            .collect();
+                                        eprintln!(
+                                            "[rim-frag]     sibling {pj}: tris={} \
+                                             shared_edges={shared:?}",
+                                            patches[pj].tris.len(),
+                                        );
+                                    }
+                                    for &t in tris {
+                                        eprintln!(
+                                            "[rim-frag]     tri {t}: {:?}",
+                                            mesh.tris[t as usize]
+                                        );
+                                    }
+                                }
+                            }
+                        }
                         continue;
                     }
                     for h in &holders {

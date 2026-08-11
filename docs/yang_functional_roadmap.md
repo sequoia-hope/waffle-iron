@@ -159,7 +159,24 @@ name, never measured).
    triangle-scale FLUSH-INTERFACE SLIVER FRAGMENTS whose deletion needs
    Stage-0 overlap knowledge — i.e. the rim-weave's remainder is
    ATTRIBUTED TO THE M8 COPLANAR RESIDUE (item 5 below), not to this
-   epic's construction machinery. Spec §4-J1 has both measurements.**
+   epic's construction machinery. Spec §4-J1 has both measurements.
+   The attributed residue is now ANCHORED AND IN WORK (2026-08-11, spec
+   `m8_stage0_rim_membership_refine.md`): Stage-0's §4.5.5 2D Boolean
+   classifies membership against the disc's CHORD polygon, so partner
+   features in sag crescents misclassify AOnly (F0067: 126 gear
+   root-region profile corners at dr −3.1e-4..−1.34e-3 inside the exact
+   circle — the rim-trim "sliver fragments" are DESIGN wall strips,
+   correctly un-removable; the removal framing is dead). Increment 1
+   LANDED gated `YANG_STAGE0_RIM_REFINE` (pre-overlay rim membership
+   refinement + 2D-femto shared-mint grouping): gate-OFF full assay
+   byte-identical to canonical 258C/0W/50E/0T (committed results.json
+   unchanged); gate-ON 258C/0W/50E/0T with ZERO category deltas and ONE
+   within-ERROR drift (R0050 LabelMismatch → Stage-4 LRR, one stage
+   deeper); overlay membership measured FIXED (all 168 in-circle
+   corners → Overlap/BOnly; the flank junctions mint) and F0067's
+   gate-ON wall advances from `s6-planar-loop-nonplanar` to the NAMED
+   M-B trio-wedge emission-identification residual (spec §3b) — the
+   next increment.**
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

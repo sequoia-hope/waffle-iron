@@ -14,6 +14,7 @@ mod construction_stage1;
 mod m4_substitute;
 mod m5_case_iii;
 mod m5_case_iv;
+mod m8_rim_refine;
 mod matching;
 mod membrane;
 mod n137_torus_plane_corner;

@@ -770,65 +770,12 @@ pub(crate) fn collect_ring_crossings(
     let opp_preexisting = opp_entry.len();
     let rim_probe = std::env::var_os("YANG_SPLIT_PROBE").is_some();
     let mut pushed_srcs: Vec<Point3> = Vec::new();
+    let _ = (axis_point, axis_dir); // axis now read inside `opposite_rim_image`
     for &pt in &cap_pts {
-        let p = pt.as_array();
-        let w = [
-            p[0] - axis_point[0],
-            p[1] - axis_point[1],
-            p[2] - axis_point[2],
-        ];
-        let axial = w[0] * axis_dir[0] + w[1] * axis_dir[1] + w[2] * axis_dir[2];
-        let radial = [
-            w[0] - axial * axis_dir[0],
-            w[1] - axial * axis_dir[1],
-            w[2] - axial * axis_dir[2],
-        ];
-        let rlen = (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
-        if rlen < cad_primitives::TAU_WORK {
-            // A rim point should never sit on the axis; if it does the geometry
-            // is degenerate — skip rather than mint a NaN (P9: no silent bad pt).
+        let Some(opp_pt) = opposite_rim_image(&lateral, oc, opp_radius, pt)? else {
+            // On-axis rim point: degenerate geometry — skip rather than mint
+            // a NaN (P9: no silent bad point).
             continue;
-        }
-        let opp_pt = match &lateral {
-            CapLateral::Cylinder(_) => {
-                let scale = opp_radius / rlen;
-                Point3::new(
-                    oc[0] + radial[0] * scale,
-                    oc[1] + radial[1] * scale,
-                    oc[2] + radial[2] * scale,
-                )
-            }
-            CapLateral::Torus { center, major, .. } => {
-                // φ from the crossing point (axis frame at the torus center).
-                let wc = [p[0] - center[0], p[1] - center[1], p[2] - center[2]];
-                let tau = wc[0] * axis_dir[0] + wc[1] * axis_dir[1] + wc[2] * axis_dir[2];
-                let rad = [
-                    wc[0] - tau * axis_dir[0],
-                    wc[1] - tau * axis_dir[1],
-                    wc[2] - tau * axis_dir[2],
-                ];
-                let rho = (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
-                let phi = tau.atan2(rho - major);
-                // Outward radial unit at the OPPOSITE meridian.
-                let co = [oc[0] - center[0], oc[1] - center[1], oc[2] - center[2]];
-                let co_ax = co[0] * axis_dir[0] + co[1] * axis_dir[1] + co[2] * axis_dir[2];
-                let u = [
-                    co[0] - co_ax * axis_dir[0],
-                    co[1] - co_ax * axis_dir[1],
-                    co[2] - co_ax * axis_dir[2],
-                ];
-                let ulen = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt();
-                if ulen < cad_primitives::TAU_WORK {
-                    return Err("rim-lateral-torus-degenerate-meridian");
-                }
-                let (sp, cp) = phi.sin_cos();
-                let s = opp_radius * cp / ulen;
-                Point3::new(
-                    oc[0] + u[0] * s + opp_radius * sp * axis_dir[0],
-                    oc[1] + u[1] * s + opp_radius * sp * axis_dir[1],
-                    oc[2] + u[2] * s + opp_radius * sp * axis_dir[2],
-                )
-            }
         };
         push_opp(
             opp_entry,
@@ -850,6 +797,328 @@ pub(crate) fn collect_ring_crossings(
         );
     }
     Ok(consumed)
+}
+
+/// Exact 1:1 opposite-rim image of one cap-rim point — cylinder AXIAL /
+/// torus POLOIDAL projection (the #143 count-preserving map used by
+/// [`collect_ring_crossings`], factored so rim membership refinement mints
+/// matched samples on both rims). `Ok(None)` = degenerate on-axis point
+/// (P9: the caller skips, never mints a NaN).
+pub(crate) fn opposite_rim_image(
+    lateral: &CapLateral,
+    oc: [f64; 3],
+    opp_radius: f64,
+    pt: Point3,
+) -> Result<Option<Point3>, &'static str> {
+    let (axis_point, axis_dir) = match lateral {
+        CapLateral::Cylinder((_, _, ap, ad, _)) => (*ap, *ad),
+        CapLateral::Torus {
+            center, axis_dir, ..
+        } => (*center, *axis_dir),
+    };
+    let p = pt.as_array();
+    let w = [
+        p[0] - axis_point[0],
+        p[1] - axis_point[1],
+        p[2] - axis_point[2],
+    ];
+    let axial = w[0] * axis_dir[0] + w[1] * axis_dir[1] + w[2] * axis_dir[2];
+    let radial = [
+        w[0] - axial * axis_dir[0],
+        w[1] - axial * axis_dir[1],
+        w[2] - axial * axis_dir[2],
+    ];
+    let rlen = (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+    if rlen < cad_primitives::TAU_WORK {
+        return Ok(None);
+    }
+    Ok(Some(match lateral {
+        CapLateral::Cylinder(_) => {
+            let scale = opp_radius / rlen;
+            Point3::new(
+                oc[0] + radial[0] * scale,
+                oc[1] + radial[1] * scale,
+                oc[2] + radial[2] * scale,
+            )
+        }
+        CapLateral::Torus { center, major, .. } => {
+            // φ from the crossing point (axis frame at the torus center).
+            let wc = [p[0] - center[0], p[1] - center[1], p[2] - center[2]];
+            let tau = wc[0] * axis_dir[0] + wc[1] * axis_dir[1] + wc[2] * axis_dir[2];
+            let rad = [
+                wc[0] - tau * axis_dir[0],
+                wc[1] - tau * axis_dir[1],
+                wc[2] - tau * axis_dir[2],
+            ];
+            let rho = (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
+            let phi = tau.atan2(rho - major);
+            // Outward radial unit at the OPPOSITE meridian.
+            let co = [oc[0] - center[0], oc[1] - center[1], oc[2] - center[2]];
+            let co_ax = co[0] * axis_dir[0] + co[1] * axis_dir[1] + co[2] * axis_dir[2];
+            let u = [
+                co[0] - co_ax * axis_dir[0],
+                co[1] - co_ax * axis_dir[1],
+                co[2] - co_ax * axis_dir[2],
+            ];
+            let ulen = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt();
+            if ulen < cad_primitives::TAU_WORK {
+                return Err("rim-lateral-torus-degenerate-meridian");
+            }
+            let (sp, cp) = phi.sin_cos();
+            let s = opp_radius * cp / ulen;
+            Point3::new(
+                oc[0] + u[0] * s + opp_radius * sp * axis_dir[0],
+                oc[1] + u[1] * s + opp_radius * sp * axis_dir[1],
+                oc[2] + u[2] * s + opp_radius * sp * axis_dir[2],
+            )
+        }
+    }))
+}
+
+/// M8 rim membership refinement (spec `m8_stage0_rim_membership_refine`,
+/// gated `YANG_STAGE0_RIM_REFINE`): subdivide this face's rim rings with
+/// exact on-circle samples until NO partner chain vertex strictly inside
+/// the exact rim circle lies strictly outside the chord polygon (in a sag
+/// crescent). The §4.5.5 2D Boolean classifies membership against the
+/// chord polygon; a partner feature in a crescent is misclassified
+/// (measured F0067: 126 gear root-region corners `AOnly` at dr −3.1e-4..
+/// −1.34e-3 inside the exact circle → the A-top rim-weave → Stage-6
+/// non-2-manifold). Refinement makes polygonal membership agree with the
+/// exact 2D Boolean for every partner feature — Yang §4.2.1's
+/// conservative-discretization principle applied to the §4.5.5 shared
+/// plane.
+///
+/// `partner_chain` = the partner polygon's chain coordinates with its own
+/// rim-sample coordinates EXCLUDED (the §2c chain/rim domain split).
+/// Inserted samples propagate to all four consumers bit-shared: the `poly`
+/// ring (overlay region boundary), the `rim` resolution map, and the
+/// cap + opposite rim overrides (via [`opposite_rim_image`], keeping the
+/// azimuth-merge sample counts matched — the C0048 #143/#144 lesson).
+/// Every guard is LOUD (`Err` → the caller's pair_err residue).
+pub(crate) fn refine_rim_membership(
+    brep: &BRep,
+    fi: usize,
+    poly: &mut PolygonWithHoles,
+    rim: &mut BTreeMap<ExactPoint2, Point3>,
+    partner_chain: &[Point2],
+    frame: &Frame,
+    rim_overrides: &mut RimSplitMap,
+) -> Result<usize, &'static str> {
+    // Rim rings of this face, in loop order (outer first, then holes). A
+    // hole ring has the IDENTICAL predicate: a partner vertex inside the
+    // hole circle but outside its inscribed chord polygon is exactly the
+    // misclassified-crescent case.
+    #[derive(Clone, Copy)]
+    enum RingRef {
+        Outer,
+        Hole(usize),
+    }
+    let mut rims: Vec<(RingRef, u32)> = Vec::new();
+    if let Some(e) = disc_circle_edge(brep, fi) {
+        rims.push((RingRef::Outer, e));
+    } else if let Some((outer_e, hole_es)) = annular_disc_face(brep, fi) {
+        rims.push((RingRef::Outer, outer_e));
+        for (k, &he) in hole_es.iter().enumerate() {
+            if poly.holes.get(k).is_none() {
+                return Err("rim-refine-hole-count");
+            }
+            rims.push((RingRef::Hole(k), he));
+        }
+    } else {
+        return Ok(0);
+    }
+
+    let split_probe = std::env::var_os("YANG_SPLIT_PROBE").is_some();
+    let mut inserted_total = 0usize;
+    for (ring_ref, cap_edge) in rims {
+        let Curve::Circle { center, radius, .. } = brep.edges()[cap_edge as usize].curve else {
+            return Err("rim-refine-not-circle");
+        };
+        let (cu, cv) = frame.project(center);
+        let (Some(cc), Ok(rr)) = (ExactPoint2::from_f64(cu, cv), rat(radius)) else {
+            return Err("rim-refine-center");
+        };
+        let rr2 = &rr * &rr;
+        // Band floor: a partner vertex within the Stage-1 rim band of the
+        // circle is on-circle content (junction/tangency machinery owns
+        // it); the floor also bounds the refinement depth.
+        let band = 1e-9 * (1.0 + radius);
+        let mut feats: Vec<ExactPoint2> = Vec::new();
+        for q in partner_chain {
+            let d = ((q.x() - cu).powi(2) + (q.y() - cv).powi(2)).sqrt();
+            if d < radius - band {
+                let Some(eq) = ExactPoint2::from_f64(q.x(), q.y()) else {
+                    return Err("rim-refine-partner-coord");
+                };
+                feats.push(eq);
+            }
+        }
+        if feats.is_empty() {
+            continue;
+        }
+        let ring: &mut Vec<Point2> = match ring_ref {
+            RingRef::Outer => &mut poly.outer,
+            RingRef::Hole(k) => &mut poly.holes[k],
+        };
+        let mut new_pts: Vec<Point3> = Vec::new();
+        let mut rounds = 0usize;
+        // Ring orientation in-frame (shoelace): the azimuth-midpoint walk
+        // below needs the ring's angular direction; a CW-in-frame ring
+        // (an opposite-normal cap) traverses decreasing azimuth.
+        let ccw = {
+            let mut area2 = 0.0f64;
+            let n = ring.len();
+            for i in 0..n {
+                let s = ring[i];
+                let e = ring[(i + 1) % n];
+                area2 += s.x() * e.y() - e.x() * s.y();
+            }
+            if area2 == 0.0 {
+                return Err("rim-refine-zero-area-ring");
+            }
+            area2 > 0.0
+        };
+        loop {
+            let n = ring.len();
+            if n < 3 {
+                return Err("rim-refine-degenerate-ring");
+            }
+            let mut split_spans: Vec<usize> = Vec::new();
+            for i in 0..n {
+                let s = ring[i];
+                let e = ring[(i + 1) % n];
+                let (Some(s2), Some(e2)) = (
+                    ExactPoint2::from_f64(s.x(), s.y()),
+                    ExactPoint2::from_f64(e.x(), e.y()),
+                ) else {
+                    return Err("rim-refine-ring-coord");
+                };
+                let dx = &e2.x - &s2.x;
+                let dy = &e2.y - &s2.y;
+                let cxs = &dx * (&cc.y - &s2.y) - &dy * (&cc.x - &s2.x);
+                if cxs == RBig::ZERO {
+                    // A diameter chord (center exactly on the chord line)
+                    // has no well-defined crescent side — loud residue.
+                    return Err("rim-refine-chord-through-center");
+                }
+                let center_pos = cxs > RBig::ZERO;
+                for q in &feats {
+                    let cq = &dx * (&q.y - &s2.y) - &dy * (&q.x - &s2.x);
+                    if cq == RBig::ZERO {
+                        // Exactly on the chord line: an overlay on-chord
+                        // vertex — the existing mint machinery owns it.
+                        continue;
+                    }
+                    if (cq > RBig::ZERO) != center_pos {
+                        let du = &q.x - &cc.x;
+                        let dv = &q.y - &cc.y;
+                        if &du * &du + &dv * &dv < rr2 {
+                            split_spans.push(i);
+                            break;
+                        }
+                    }
+                }
+            }
+            if split_spans.is_empty() {
+                break;
+            }
+            rounds += 1;
+            if rounds > 32 {
+                // P10: never silently accept a residual crescent feature.
+                return Err("rim-refine-depth");
+            }
+            // Insert back-to-front so earlier span indices stay valid; the
+            // wrap span (i = n−1) appends at the ring end (boundary order).
+            for &i in split_spans.iter().rev() {
+                let (s, e) = if ccw {
+                    (ring[i], ring[(i + 1) % ring.len()])
+                } else {
+                    (ring[(i + 1) % ring.len()], ring[i])
+                };
+                let ts = (s.y() - cv).atan2(s.x() - cu);
+                let te = (e.y() - cv).atan2(e.x() - cu);
+                let mut dt = te - ts;
+                while dt <= 0.0 {
+                    dt += std::f64::consts::TAU;
+                }
+                if dt >= std::f64::consts::PI {
+                    return Err("rim-refine-span-ge-pi");
+                }
+                let tm = ts + dt / 2.0;
+                let (u, v) = (cu + radius * tm.cos(), cv + radius * tm.sin());
+                if !u.is_finite() || !v.is_finite() {
+                    return Err("rim-refine-nonfinite");
+                }
+                // 3D: the x-event mint convention — radial projection onto
+                // the exact circle in the cap plane through the 3D center.
+                let c3 = center.as_array();
+                let l3 = frame.lift(u, v).as_array();
+                let w = [l3[0] - c3[0], l3[1] - c3[1], l3[2] - c3[2]];
+                let nl = (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt();
+                if nl == 0.0 {
+                    return Err("rim-refine-degenerate-lift");
+                }
+                let sc = radius / nl;
+                let p3 = Point3::new(c3[0] + w[0] * sc, c3[1] + w[1] * sc, c3[2] + w[2] * sc);
+                ring.insert(i + 1, Point2::new(u, v));
+                let Some(key) = ExactPoint2::from_f64(u, v) else {
+                    return Err("rim-refine-key");
+                };
+                rim.insert(key, p3);
+                new_pts.push(p3);
+                inserted_total += 1;
+            }
+        }
+        if new_pts.is_empty() {
+            continue;
+        }
+        // Overrides: cap ring + the exact 1:1 opposite image (matched
+        // counts for the shared lateral's azimuth merge).
+        let lateral = lateral_for_cap(brep, cap_edge)?;
+        let opp_edge = match &lateral {
+            CapLateral::Cylinder((_, e, _, _, _)) => *e,
+            CapLateral::Torus { opp_edge, .. } => *opp_edge,
+        };
+        let Curve::Circle {
+            center: opp_center,
+            radius: opp_radius,
+            ..
+        } = brep.edges()[opp_edge as usize].curve
+        else {
+            return Err("rim-refine-opp-not-circle");
+        };
+        let oc = opp_center.as_array();
+        {
+            let cap_entry = rim_overrides.entry(cap_edge).or_default();
+            for &pt in &new_pts {
+                if !cap_entry.contains(&pt) {
+                    cap_entry.push(pt);
+                }
+            }
+        }
+        let opp_entry = rim_overrides.entry(opp_edge).or_default();
+        for &pt in &new_pts {
+            let Some(opp_pt) = opposite_rim_image(&lateral, oc, opp_radius, pt)? else {
+                continue;
+            };
+            if !opp_entry.contains(&opp_pt) {
+                opp_entry.push(opp_pt);
+            }
+        }
+        if split_probe {
+            eprintln!(
+                "[rim-refine] face={fi} edge={cap_edge} inserted={} rounds={rounds} \
+                 feats_inside={} ring_len={}",
+                new_pts.len(),
+                feats.len(),
+                match ring_ref {
+                    RingRef::Outer => poly.outer.len(),
+                    RingRef::Hole(k) => poly.holes[k].len(),
+                }
+            );
+        }
+    }
+    Ok(inserted_total)
 }
 
 /// M8-mixed (spec `m8_mixed_loop_coplanar_overlay` amendment 1): propagate

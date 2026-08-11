@@ -803,6 +803,73 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             }
         }
 
+        // M8 rim membership refinement (spec `m8_stage0_rim_membership_refine`,
+        // env-gated `YANG_STAGE0_RIM_REFINE`, default OFF — byte-identical
+        // off): the §4.5.5 2D Boolean below
+        // classifies region membership against the CHORD polygon, so a
+        // partner chain vertex strictly inside the exact rim circle but in
+        // a sag crescent is misclassified (F0067: 126 gear root corners
+        // `AOnly` at dr −3.1e-4..−1.34e-3 inside the circle → no junction
+        // minted on the entering flank edges → the A-top rim-weave →
+        // Stage-6 non-2-manifold). Subdivide rim spans with exact on-circle
+        // samples until polygonal membership agrees with the exact Boolean
+        // for every partner feature; new samples propagate bit-shared into
+        // the poly ring, the rim resolution map, and the cap + opposite rim
+        // overrides (matched counts for the shared lateral).
+        if std::env::var_os("YANG_STAGE0_RIM_REFINE").is_some() {
+            let chain_pts =
+                |poly: &PolygonWithHoles, rim: &BTreeMap<ExactPoint2, Point3>| -> Vec<Point2> {
+                    let rimset: std::collections::BTreeSet<(u64, u64)> = rim
+                        .keys()
+                        .map(|k| {
+                            (
+                                k.x.to_f64().value().to_bits(),
+                                k.y.to_f64().value().to_bits(),
+                            )
+                        })
+                        .collect();
+                    std::iter::once(&poly.outer)
+                        .chain(poly.holes.iter())
+                        .flatten()
+                        .filter(|q| !rimset.contains(&(q.x().to_bits(), q.y().to_bits())))
+                        .copied()
+                        .collect()
+                };
+            let refine_side = |tag: &str, e: &'static str| {
+                probe(
+                    "rim-refine",
+                    &format!("pair=({},{}) side={tag} err={e}", p.face_a, p.face_b),
+                );
+                pair_err(p.face_a, p.face_b)
+            };
+            if curved_masks_a.is_empty() && !rim_a.is_empty() {
+                let pts = chain_pts(&poly_b, &rim_b);
+                refine_rim_membership(
+                    a,
+                    p.face_a,
+                    &mut poly_a,
+                    &mut rim_a,
+                    &pts,
+                    frame,
+                    &mut rim_overrides_a,
+                )
+                .map_err(|e| refine_side("A", e))?;
+            }
+            if curved_masks_b.is_empty() && !rim_b.is_empty() {
+                let pts = chain_pts(&poly_a, &rim_a);
+                refine_rim_membership(
+                    b,
+                    p.face_b,
+                    &mut poly_b,
+                    &mut rim_b,
+                    &pts,
+                    frame,
+                    &mut rim_overrides_b,
+                )
+                .map_err(|e| refine_side("B", e))?;
+            }
+        }
+
         let mut overlay = coplanar_overlay(&poly_a, &poly_b).map_err(|e| {
             probe(
                 "overlay-failed",
@@ -1166,6 +1233,17 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // is NOT qualified: per-member semantics, byte-identical,
         // census-probed. ALWAYS-ON since the inc-2 corpus flip.
         let mut collapse_groups = CollapseGroups::default();
+        // Rim-refine extension (spec `m8_stage0_rim_membership_refine` §3,
+        // same gate): ALSO group mints whose overlay 2D PRE-IMAGES are
+        // femto-close (TAU_WORK·(1+scale)). The refined ring makes the
+        // sweep mint ULP-twin columns at each new partner-edge junction
+        // (measured F0067: trio within 4e-15 in 2D), and the crossing vs
+        // radial-projection branches then diverge by O(sag·tan(tilt)) —
+        // 3.3e-5, ABOVE the sub-floor 3D key — shipping two 3D points for
+        // one semantic arrangement vertex. 2D-femto-identical mints are ONE
+        // vertex; grouping them lets the crossing member's junction win
+        // (the existing election below).
+        let rim_refine_2d_group = std::env::var_os("YANG_STAGE0_RIM_REFINE").is_some();
         for slot in 0..n_mint_slots {
             let members: Vec<(usize, bool)> = minted_info
                 .iter()
@@ -1178,8 +1256,20 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 let group = groups.iter_mut().find(|g| {
                     let q = coords[g[0].0].as_array();
                     let d = [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
-                    d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
+                    if d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
                         < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE
+                    {
+                        return true;
+                    }
+                    if rim_refine_2d_group {
+                        let a2 = overlay.verts[vi];
+                        let b2 = overlay.verts[g[0].0];
+                        let scale = a2.x().abs().max(a2.y().abs());
+                        let band = cad_primitives::TAU_WORK * (1.0 + scale);
+                        let (du, dv) = (a2.x() - b2.x(), a2.y() - b2.y());
+                        return du * du + dv * dv < band * band;
+                    }
+                    false
                 });
                 match group {
                     Some(g) => g.push((vi, crossing)),
