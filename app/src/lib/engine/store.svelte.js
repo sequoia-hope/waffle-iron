@@ -2149,6 +2149,22 @@ function mapConstraintForBridge(c) {
 		}
 		return { type: 'Pinned', point: c.point, x: c.x, y: c.y };
 	}
+	// `EqualRadius` and `LengthRatio` are UI-side names with no matching
+	// waffle-types variant — the Rust enum spells them `Equal` and `Ratio`.
+	// Sent unmapped, serde rejects the whole message ("unknown variant
+	// `EqualRadius`"), and because SolveSketch resends the FULL constraint
+	// list every subsequent solve in the sketch fails to parse too — one
+	// Equal-Radius click silently kills constraint solving for the rest of
+	// the session. `Equal` dispatches on entity kind (circle/circle,
+	// arc/arc, circle/arc), which covers every selection that produces
+	// these. Emitted by the toolbar's Eq button, the right-click menu's
+	// Equal Radius / Length Ratio items, and the sketch fillet tool.
+	if (c.type === 'EqualRadius') {
+		return { type: 'Equal', entity_a: c.entity_a, entity_b: c.entity_b };
+	}
+	if (c.type === 'LengthRatio') {
+		return { type: 'Ratio', entity_a: c.entity_a, entity_b: c.entity_b, value: c.value };
+	}
 	return c;
 }
 

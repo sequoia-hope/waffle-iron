@@ -268,6 +268,33 @@ chords; its offset kept a radius at only one corner.
   ±0.5 mm shifts all radii).
 - TRAP for fixture authors: Arc entities are CCW start→end — swapped
   endpoints author the 270° complement lobe.
+- [x] **EqualRadius/LengthRatio never reached the solver** (2026-08-12):
+      `constraintLogic.js` emits the UI-side names `EqualRadius` and
+      `LengthRatio`, which have no `waffle-types` variant (Rust spells them
+      `Equal` and `Ratio`), and `mapConstraintForBridge` translated only
+      `WhereDragged`. serde rejected the message ("unknown variant
+      `EqualRadius`") — and because `triggerSolve` resends the FULL
+      constraint list, EVERY subsequent solve in that sketch failed to parse
+      too: one Equal-Radius click silently killed constraint solving for the
+      rest of the session. Three user paths reached it (toolbar Eq on two
+      circles/arcs, right-click Equal Radius, right-click Length Ratio) plus
+      the sketch fillet tool. Fixed by mapping both in
+      `mapConstraintForBridge` (applied at all four send sites); Rust `Equal`
+      already dispatches circle/circle, arc/arc and circle/arc.
+- [x] **Constraint GUI coverage sweep** (2026-08-12): only 3 of 15 constraint
+      toolbar buttons were ever CLICKED by a test (horizontal, parallel,
+      angle) — the rest were applied via `__waffle.addSketchConstraint`,
+      which bypasses `getApplicableConstraints()` → `applyConstraint()`.
+      Worse, tests asserted the constraint OBJECT was recorded, never that
+      geometry moved, which is what hid the bug above. New
+      `sketch-constraint-effects.spec.js` (14 tests) applies 10 previously
+      unclicked buttons through the real toolbar and asserts the solved
+      GEOMETRY satisfies each constraint, over both click-click and
+      click-drag drawing. Mutation-verified (perpendicular→Parallel in the
+      selection map fails 3 tests; reverting the bridge fix fails the
+      equal-circles test).
+- TRAP: sketch units are METRES (~0.005 for a 100 px line). Absolute
+  tolerances like `1e-3` are ~20% at that scale — assert relative.
 
 ## Implementation Summary
 
