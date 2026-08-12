@@ -128,6 +128,23 @@ Follow-ups (discovered, not blocking):
       out-of-range index) + GUI sketch-overconstraint-badges.spec.js
       (reference dim + Midpoint + contradictory distances → failed = exactly
       the two Distances); both layers mutation-verified.
+- [x] **Constraint/solver test-coverage sweep** (2026-08-12): 58 new Rust
+      tests closing five measured gaps. (1) 9 of 33 `CompiledConstraint`
+      variants had NO analytic-vs-numeric Jacobian check — the whole
+      arc-radius family (RadiusArc/DiameterArc/EqualArcCircle/EqualArcArc/
+      OnEntityArc), HDistance/VDistance, Pinned, SameOrientation; a wrong
+      derivative is invisible to solve-level tests because LM's damping
+      converges through it anyway. (2) Polymorphic dispatch arms were
+      unreachable: Equal's arc arms, Distance's (Line,Point) ordering, the
+      arc arms of Radius/Diameter/OnEntity/Tangent, and EVERY `Err(...)`
+      arm. (3) `SolvedSketch.radii` was asserted nowhere — deleting the
+      profile-radius override in solver.rs left all 148 pre-existing tests
+      GREEN. (4) No end-to-end determinism/fixpoint/constraint-order test
+      despite the module's "no HashMap iteration" claim. (5) Degenerate
+      geometry reached only the Distance/EqualLines guards. New files:
+      `tests/constraint_dispatch_tests.rs` (22), `tests/solver_contract_tests.rs`
+      (17), +19 in-src. Mutation-verified with 7 mutations, each caught by
+      its intended test and reverted.
 - [ ] **Hard pin elimination**: remove pinned coords from the parameter
       vector for exactly-zero sag during drags (soft weight-1.0 pin sags
       (w_drag/w_pin)²·offset ≈ 0.25% of drag offset — invisible, deferred).
@@ -135,6 +152,11 @@ Follow-ups (discovered, not blocking):
       dimension-tool.spec.js:241 (mm vs m, known) and
       snap-preview-candidates.spec.js:143 (active-snap filter; fails with
       pre-cycle JS too — snap path is pure JS, no WASM involvement).
+      Add: sketch-constraint-operations.spec.js:72 "apply distance
+      constraint via dimension tool" (dimension-popup wait times out;
+      confirmed 2026-08-12 to fail identically with the tree stashed, so it
+      is not from the coverage sweep — likely the same mm-vs-m root as
+      dimension-tool.spec.js:241).
 
 ## Blockers
 

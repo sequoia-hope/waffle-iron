@@ -2249,4 +2249,426 @@ mod tests {
         };
         check_jacobian(cc, vec![3.0, 7.0, 8.0, 2.0, 1.0, 1.0, 9.0, 4.0]);
     }
+
+    // ── Group 2b: variants previously without residual/Jacobian coverage ────
+    //
+    // Group 2 above covers 24 of the 33 `CompiledConstraint` variants. The nine
+    // below had NO analytic-vs-numeric Jacobian check: the whole arc-radius
+    // family (RadiusArc / DiameterArc / EqualArcCircle / EqualArcArc /
+    // OnEntityArc), the axis-aligned dimensions (HDistance / VDistance), Pinned,
+    // and the zero-row SameOrientation noop.
+    //
+    // A wrong analytic Jacobian is invisible to the solve-level tests: LM's
+    // damping still drags a sketch to a satisfying configuration through a
+    // mis-signed derivative, just more slowly, so `FullyConstrained` still comes
+    // back green. Only differentiating against `differentiate_numerically`
+    // pins the derivative itself.
+
+    #[test]
+    fn h_distance_residual_zero_and_jacobian() {
+        // Points at x=2 and x=9 — |Δx| = 7.
+        let cc = CompiledConstraint::HDistance {
+            ax: 0,
+            bx: 2,
+            value: 7.0,
+        };
+        let p = vec![2.0, 1.0, 9.0, 4.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-12, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn h_distance_jacobian_negative_delta_flips_sign() {
+        // r = |x_b - x_a| - v is non-smooth at Δx = 0; the analytic Jacobian
+        // carries sign(Δx). With b LEFT of a (Δx = -7) the signs must invert
+        // relative to the positive-delta case, otherwise LM walks the point the
+        // wrong way and the dimension converges to the mirrored solution.
+        let cc = CompiledConstraint::HDistance {
+            ax: 0,
+            bx: 2,
+            value: 7.0,
+        };
+        let p = vec![9.0, 1.0, 2.0, 4.0];
+        let r = cc.residuals(&p);
+        assert!(
+            r[0].abs() < 1e-12,
+            "residual not zero for negative delta: {r}"
+        );
+
+        let j = cc.jacobian(&p, 4);
+        assert!(
+            j[(0, 2)] < 0.0 && j[(0, 0)] > 0.0,
+            "negative Δx must invert the Jacobian signs, got ∂/∂bx={}, ∂/∂ax={}",
+            j[(0, 2)],
+            j[(0, 0)]
+        );
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn v_distance_residual_zero_and_jacobian() {
+        // Points at y=1 and y=6 — |Δy| = 5.
+        let cc = CompiledConstraint::VDistance {
+            ay: 1,
+            by: 3,
+            value: 5.0,
+        };
+        let p = vec![2.0, 1.0, 9.0, 6.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-12, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn v_distance_jacobian_negative_delta_flips_sign() {
+        let cc = CompiledConstraint::VDistance {
+            ay: 1,
+            by: 3,
+            value: 5.0,
+        };
+        let p = vec![2.0, 6.0, 9.0, 1.0];
+        let r = cc.residuals(&p);
+        assert!(
+            r[0].abs() < 1e-12,
+            "residual not zero for negative delta: {r}"
+        );
+
+        let j = cc.jacobian(&p, 4);
+        assert!(
+            j[(0, 3)] < 0.0 && j[(0, 1)] > 0.0,
+            "negative Δy must invert the Jacobian signs, got ∂/∂by={}, ∂/∂ay={}",
+            j[(0, 3)],
+            j[(0, 1)]
+        );
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn radius_arc_residual_zero_and_jacobian() {
+        // Arc center (1,2), start (4,6) — ‖C-S‖ = 5.
+        let cc = CompiledConstraint::RadiusArc {
+            cx: 0,
+            cy: 1,
+            sx: 2,
+            sy: 3,
+            value: 5.0,
+        };
+        let p = vec![1.0, 2.0, 4.0, 6.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-12, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn radius_arc_jacobian_general_position() {
+        // Off-solution: ‖C-S‖ ≈ 7.28 against a value of 5.
+        let cc = CompiledConstraint::RadiusArc {
+            cx: 0,
+            cy: 1,
+            sx: 2,
+            sy: 3,
+            value: 5.0,
+        };
+        check_jacobian(cc, vec![-3.0, 2.0, 3.0, -2.0]);
+    }
+
+    #[test]
+    fn diameter_arc_residual_zero_and_jacobian() {
+        // Arc center (1,2), start (4,6) — ‖C-S‖ = 5, diameter 10.
+        let cc = CompiledConstraint::DiameterArc {
+            cx: 0,
+            cy: 1,
+            sx: 2,
+            sy: 3,
+            value: 10.0,
+        };
+        let p = vec![1.0, 2.0, 4.0, 6.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-12, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn diameter_arc_jacobian_general_position() {
+        let cc = CompiledConstraint::DiameterArc {
+            cx: 0,
+            cy: 1,
+            sx: 2,
+            sy: 3,
+            value: 10.0,
+        };
+        check_jacobian(cc, vec![2.0, -1.0, -4.0, 5.0]);
+    }
+
+    #[test]
+    fn equal_arc_circle_residual_zero_and_jacobian() {
+        // Arc center (0,0), start (3,4) → radius 5. Circle radius param = 5.
+        let cc = CompiledConstraint::EqualArcCircle {
+            acx: 0,
+            acy: 1,
+            asx: 2,
+            asy: 3,
+            r: 4,
+        };
+        let p = vec![0.0, 0.0, 3.0, 4.0, 5.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-12, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn equal_arc_circle_jacobian_general_position() {
+        // Arc radius ≈ 7.07 vs circle radius 2 — far off-solution, and the
+        // radius column (∂r/∂r_circle = -1) must survive.
+        let cc = CompiledConstraint::EqualArcCircle {
+            acx: 0,
+            acy: 1,
+            asx: 2,
+            asy: 3,
+            r: 4,
+        };
+        check_jacobian(cc, vec![1.0, 1.0, 6.0, 6.0, 2.0]);
+    }
+
+    #[test]
+    fn equal_arc_arc_residual_zero_and_jacobian() {
+        // Arc A: center (0,0) start (3,4) → r=5.
+        // Arc B: center (10,10) start (10,15) → r=5.
+        let cc = CompiledConstraint::EqualArcArc {
+            acx: 0,
+            acy: 1,
+            asx: 2,
+            asy: 3,
+            bcx: 4,
+            bcy: 5,
+            bsx: 6,
+            bsy: 7,
+        };
+        let p = vec![0.0, 0.0, 3.0, 4.0, 10.0, 10.0, 10.0, 15.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-12, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn equal_arc_arc_jacobian_general_position() {
+        // Both radii differ and neither is axis-aligned, so a swapped
+        // arc-A/arc-B sign block shows up as a mismatch.
+        let cc = CompiledConstraint::EqualArcArc {
+            acx: 0,
+            acy: 1,
+            asx: 2,
+            asy: 3,
+            bcx: 4,
+            bcy: 5,
+            bsx: 6,
+            bsy: 7,
+        };
+        check_jacobian(cc, vec![1.0, 2.0, 5.0, 7.0, -3.0, 4.0, 2.0, -1.0]);
+    }
+
+    #[test]
+    fn on_entity_arc_residual_zero_and_jacobian() {
+        // Arc center (0,0), start (5,0) → radius 5. Point (3,4) is on it.
+        let cc = CompiledConstraint::OnEntityArc {
+            px: 0,
+            py: 1,
+            cx: 2,
+            cy: 3,
+            sx: 4,
+            sy: 5,
+        };
+        let p = vec![3.0, 4.0, 0.0, 0.0, 5.0, 0.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-12, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn on_entity_arc_jacobian_general_position() {
+        // The center column accumulates from BOTH terms of r = ‖P-C‖ - ‖C-S‖
+        // (`j[(0, cx)] -= usx` after the point term). A general position where
+        // the two contributions do not cancel is what pins that accumulation.
+        let cc = CompiledConstraint::OnEntityArc {
+            px: 0,
+            py: 1,
+            cx: 2,
+            cy: 3,
+            sx: 4,
+            sy: 5,
+        };
+        check_jacobian(cc, vec![7.0, 3.0, 1.0, 2.0, -2.0, 6.0]);
+    }
+
+    #[test]
+    fn pinned_residual_zero_and_jacobian() {
+        // Pinned is Dragged's residual form with an explicit target and full
+        // weight; its identity Jacobian is asserted here in its own right.
+        let cc = CompiledConstraint::Pinned {
+            px: 0,
+            py: 1,
+            tx: 3.0,
+            ty: -4.0,
+        };
+        let p = vec![3.0, -4.0];
+        let r = cc.residuals(&p);
+        assert!(
+            r[0].abs() < 1e-12 && r[1].abs() < 1e-12,
+            "residual not zero: {r}"
+        );
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn pinned_jacobian_off_target() {
+        let cc = CompiledConstraint::Pinned {
+            px: 0,
+            py: 1,
+            tx: 3.0,
+            ty: -4.0,
+        };
+        let p = vec![10.0, 10.0];
+        let r = cc.residuals(&p);
+        assert!(
+            (r[0] - 7.0).abs() < 1e-12 && (r[1] - 14.0).abs() < 1e-12,
+            "off-target residual must be (p - target), got {r}"
+        );
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn pinned_weight_is_full_unlike_dragged() {
+        // The whole point of Pinned vs Dragged (specs/pinned_constraint.md): a
+        // pin is a real lock at weight 1.0, a drag is a 1/20 interaction hint.
+        let pinned = CompiledConstraint::Pinned {
+            px: 0,
+            py: 1,
+            tx: 0.0,
+            ty: 0.0,
+        };
+        let dragged = CompiledConstraint::Dragged {
+            px: 0,
+            py: 1,
+            fixed_x: 0.0,
+            fixed_y: 0.0,
+        };
+        assert_eq!(weight(&pinned), 1.0, "Pinned must carry full weight");
+        assert!(
+            weight(&dragged) < weight(&pinned),
+            "Dragged must be weaker than Pinned: {} vs {}",
+            weight(&dragged),
+            weight(&pinned)
+        );
+        assert_eq!(residual_count(&pinned), 2);
+        assert_eq!(residual_count(&dragged), 2);
+    }
+
+    #[test]
+    fn same_orientation_is_a_zero_row_noop() {
+        // 2D noop: it must contribute NO residual rows and NO Jacobian rows, so
+        // that it can never influence rank (and therefore never fabricate a
+        // degree of freedom or a conflict).
+        let cc = CompiledConstraint::SameOrientation;
+        assert_eq!(residual_count(&cc), 0, "SameOrientation must own zero rows");
+
+        let p = vec![1.0, 2.0, 3.0, 4.0];
+        let r = cc.residuals(&p);
+        assert_eq!(
+            r.nrows(),
+            0,
+            "SameOrientation residual vector must be empty"
+        );
+
+        let j = cc.jacobian(&p, 4);
+        assert_eq!(j.nrows(), 0, "SameOrientation Jacobian must have zero rows");
+        assert_eq!(j.ncols(), 4, "Jacobian must still be n_params wide");
+    }
+
+    // Kept compact: this is a one-line-per-variant census table, and the
+    // enum it mirrors is itself `#[rustfmt::skip]` for the same reason.
+    #[rustfmt::skip]
+    #[test]
+    fn residual_count_matches_actual_residual_rows_for_every_variant() {
+        // `residual_count` is the row-accounting authority: `solve_sketch`
+        // builds its row→constraint map from it and slices the proximal rows
+        // off the tail using the same sum. If it disagrees with what
+        // `residuals()` actually returns for any variant, conflict reporting
+        // indexes the wrong constraint and the classifier reads the wrong rows.
+        let p: Vec<f64> = (0..16).map(|i| 1.0 + i as f64 * 0.7).collect();
+        let n = p.len();
+
+        // One instance of every variant, indices kept distinct and in range.
+        let all = vec![
+            CompiledConstraint::Coincident { ax: 0, ay: 1, bx: 2, by: 3 },
+            CompiledConstraint::Horizontal { ay: 1, by: 3 },
+            CompiledConstraint::Vertical { ax: 0, bx: 2 },
+            CompiledConstraint::Parallel { ax: 0, ay: 1, bx: 2, by: 3, cx: 4, cy: 5, dx: 6, dy: 7 },
+            CompiledConstraint::Perpendicular { ax: 0, ay: 1, bx: 2, by: 3, cx: 4, cy: 5, dx: 6, dy: 7 },
+            CompiledConstraint::EqualLines { ax: 0, ay: 1, bx: 2, by: 3, cx: 4, cy: 5, dx: 6, dy: 7 },
+            CompiledConstraint::EqualCircles { ra: 0, rb: 1 },
+            CompiledConstraint::DistancePP { ax: 0, ay: 1, bx: 2, by: 3, value: 4.0 },
+            CompiledConstraint::DistancePL { px: 0, py: 1, ax: 2, ay: 3, bx: 4, by: 5, value: 2.0 },
+            CompiledConstraint::HDistance { ax: 0, bx: 2, value: 3.0 },
+            CompiledConstraint::VDistance { ay: 1, by: 3, value: 3.0 },
+            CompiledConstraint::Angle { ax: 0, ay: 1, bx: 2, by: 3, cx: 4, cy: 5, dx: 6, dy: 7, value_radians: 0.5 },
+            CompiledConstraint::Radius { r: 0, value: 2.0 },
+            CompiledConstraint::Diameter { r: 0, value: 4.0 },
+            CompiledConstraint::OnEntityLine { px: 0, py: 1, ax: 2, ay: 3, bx: 4, by: 5 },
+            CompiledConstraint::OnEntityCircle { px: 0, py: 1, cx: 2, cy: 3, r: 4 },
+            CompiledConstraint::RadiusArc { cx: 0, cy: 1, sx: 2, sy: 3, value: 2.0 },
+            CompiledConstraint::DiameterArc { cx: 0, cy: 1, sx: 2, sy: 3, value: 4.0 },
+            CompiledConstraint::EqualArcCircle { acx: 0, acy: 1, asx: 2, asy: 3, r: 4 },
+            CompiledConstraint::EqualArcArc { acx: 0, acy: 1, asx: 2, asy: 3, bcx: 4, bcy: 5, bsx: 6, bsy: 7 },
+            CompiledConstraint::OnEntityArc { px: 0, py: 1, cx: 2, cy: 3, sx: 4, sy: 5 },
+            CompiledConstraint::Midpoint { px: 0, py: 1, ax: 2, ay: 3, bx: 4, by: 5 },
+            CompiledConstraint::Dragged { px: 0, py: 1, fixed_x: 1.0, fixed_y: 2.0 },
+            CompiledConstraint::Pinned { px: 0, py: 1, tx: 1.0, ty: 2.0 },
+            CompiledConstraint::Symmetric { ax: 0, ay: 1, bx: 2, by: 3, cx: 4, cy: 5, dx: 6, dy: 7 },
+            CompiledConstraint::SymmetricH { ax: 0, ay: 1, bx: 2, by: 3 },
+            CompiledConstraint::SymmetricV { ax: 0, ay: 1, bx: 2, by: 3 },
+            CompiledConstraint::TangentLineCircle { cx: 0, cy: 1, r: 2, ax: 3, ay: 4, bx: 5, by: 6 },
+            CompiledConstraint::TangentLineArc { cx: 0, cy: 1, sx: 2, sy: 3, ax: 4, ay: 5, bx: 6, by: 7 },
+            CompiledConstraint::EqualAngle {
+                ax: 0, ay: 1, bx: 2, by: 3, cx: 4, cy: 5, dx: 6, dy: 7,
+                ex: 8, ey: 9, fx: 10, fy: 11, gx: 12, gy: 13, hx: 14, hy: 15,
+            },
+            CompiledConstraint::Ratio { ax: 0, ay: 1, bx: 2, by: 3, cx: 4, cy: 5, dx: 6, dy: 7, value: 2.0 },
+            CompiledConstraint::EqualPointToLine { ax: 0, ay: 1, bx: 2, by: 3, lx0: 4, ly0: 5, lx1: 6, ly1: 7 },
+            CompiledConstraint::SameOrientation,
+        ];
+
+        // Names parallel to `all`, so a failure identifies the variant.
+        let names = [
+            "Coincident", "Horizontal", "Vertical", "Parallel", "Perpendicular",
+            "EqualLines", "EqualCircles", "DistancePP", "DistancePL", "HDistance",
+            "VDistance", "Angle", "Radius", "Diameter", "OnEntityLine",
+            "OnEntityCircle", "RadiusArc", "DiameterArc", "EqualArcCircle",
+            "EqualArcArc", "OnEntityArc", "Midpoint", "Dragged", "Pinned",
+            "Symmetric", "SymmetricH", "SymmetricV", "TangentLineCircle",
+            "TangentLineArc", "EqualAngle", "Ratio", "EqualPointToLine",
+            "SameOrientation",
+        ];
+        assert_eq!(
+            all.len(),
+            names.len(),
+            "every listed variant needs a parallel name"
+        );
+
+        for (cc, name) in all.iter().zip(names.iter()) {
+            let declared = residual_count(cc);
+            let actual = cc.residuals(&p).nrows();
+            assert_eq!(
+                declared, actual,
+                "residual_count disagrees with residuals() for {name}"
+            );
+            let j = cc.jacobian(&p, n);
+            assert_eq!(
+                j.nrows(),
+                declared,
+                "jacobian row count disagrees with residual_count for {name}"
+            );
+            assert_eq!(j.ncols(), n, "jacobian must be n_params wide for {name}");
+        }
+    }
 }
