@@ -14,16 +14,31 @@ use uuid::Uuid;
 fn dummy_geom_ref() -> GeomRef {
     GeomRef {
         kind: TopoKind::Face,
-        anchor: Anchor::Datum { datum_id: Uuid::nil() },
-        selector: Selector::Role { role: Role::ProfileFace, index: 0 },
+        anchor: Anchor::Datum {
+            datum_id: Uuid::nil(),
+        },
+        selector: Selector::Role {
+            role: Role::ProfileFace,
+            index: 0,
+        },
         policy: ResolvePolicy::Strict,
     }
 }
 fn pt(id: u32, x: f64, y: f64, c: bool) -> SketchEntity {
-    SketchEntity::Point { id, x, y, construction: c }
+    SketchEntity::Point {
+        id,
+        x,
+        y,
+        construction: c,
+    }
 }
 fn line(id: u32, s: u32, e: u32) -> SketchEntity {
-    SketchEntity::Line { id, start_id: s, end_id: e, construction: false }
+    SketchEntity::Line {
+        id,
+        start_id: s,
+        end_id: e,
+        construction: false,
+    }
 }
 
 fn fixture() -> (Vec<SketchEntity>, Vec<SketchConstraint>) {
@@ -57,24 +72,47 @@ fn fixture() -> (Vec<SketchEntity>, Vec<SketchConstraint>) {
         SketchConstraint::Vertical { entity: 9 },
         SketchConstraint::Midpoint { point: 10, line: 8 },
         SketchConstraint::Midpoint { point: 11, line: 9 },
-        SketchConstraint::VerticalPoints { point_a: 1, point_b: 10 },
-        SketchConstraint::HorizontalPoints { point_a: 1, point_b: 11 },
+        SketchConstraint::VerticalPoints {
+            point_a: 1,
+            point_b: 10,
+        },
+        SketchConstraint::HorizontalPoints {
+            point_a: 1,
+            point_b: 11,
+        },
         SketchConstraint::Horizontal { entity: 16 },
         SketchConstraint::Horizontal { entity: 18 },
         SketchConstraint::Vertical { entity: 17 },
         SketchConstraint::Vertical { entity: 19 },
-        SketchConstraint::Midpoint { point: 20, line: 18 },
-        SketchConstraint::Midpoint { point: 21, line: 19 },
-        SketchConstraint::VerticalPoints { point_a: 1, point_b: 20 },
-        SketchConstraint::HorizontalPoints { point_a: 1, point_b: 21 },
-        SketchConstraint::Equal { entity_a: 18, entity_b: 19 },
+        SketchConstraint::Midpoint {
+            point: 20,
+            line: 18,
+        },
+        SketchConstraint::Midpoint {
+            point: 21,
+            line: 19,
+        },
+        SketchConstraint::VerticalPoints {
+            point_a: 1,
+            point_b: 20,
+        },
+        SketchConstraint::HorizontalPoints {
+            point_a: 1,
+            point_b: 21,
+        },
+        SketchConstraint::Equal {
+            entity_a: 18,
+            entity_b: 19,
+        },
     ];
     (entities, constraints)
 }
 
 fn lcg(state: &mut u64) -> f64 {
     // deterministic pseudo-random in [0,1)
-    *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    *state = state
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     ((*state >> 11) as f64) / ((1u64 << 53) as f64)
 }
 
@@ -113,7 +151,9 @@ fn hunt_explosion_waffle_fixture() {
             let entities: Vec<SketchEntity> = base_entities
                 .iter()
                 .map(|e| match e {
-                    SketchEntity::Point { id, construction, .. } => {
+                    SketchEntity::Point {
+                        id, construction, ..
+                    } => {
                         let (x, y) = positions[id];
                         pt(*id, x, y, *construction)
                     }
@@ -163,7 +203,10 @@ fn hunt_explosion_waffle_fixture() {
         "\n{}/40 seeds exploded (>0.5 m). worst overall = {worst_overall:.3} m (sketch is 0.026 m wide)",
         exploded_seeds.len()
     );
-    println!("exploded seeds: {:?}", &exploded_seeds[..exploded_seeds.len().min(20)]);
+    println!(
+        "exploded seeds: {:?}",
+        &exploded_seeds[..exploded_seeds.len().min(20)]
+    );
     assert!(exploded_seeds.is_empty(), "explosion reproduced");
 }
 
@@ -179,10 +222,10 @@ fn hunt_explosion_with_accidental_pin() {
 
     // pin p15 where a drag might have released it (a few plausible spots)
     let pin_spots = [
-        (-0.0132331, 0.0127945),   // outer corner p5 (Coincident-ish)
-        (0.0, 0.0127945),          // outer top midpoint p10
-        (0.0, 0.0),                // origin
-        (-0.02, 0.02),             // free space release
+        (-0.0132331, 0.0127945), // outer corner p5 (Coincident-ish)
+        (0.0, 0.0127945),        // outer top midpoint p10
+        (0.0, 0.0),              // origin
+        (-0.02, 0.02),           // free space release
     ];
     // then drag various points afterwards
     let drag_targets = [15u32, 14, 12, 4, 5];
@@ -216,7 +259,9 @@ fn hunt_explosion_with_accidental_pin() {
                 let entities: Vec<SketchEntity> = base_entities
                     .iter()
                     .map(|e| match e {
-                        SketchEntity::Point { id, construction, .. } => {
+                        SketchEntity::Point {
+                            id, construction, ..
+                        } => {
                             let (x, y) = positions[id];
                             pt(*id, x, y, *construction)
                         }
@@ -224,7 +269,11 @@ fn hunt_explosion_with_accidental_pin() {
                     })
                     .collect();
                 let mut cons = constraints_base.clone();
-                cons.push(SketchConstraint::Pinned { point: 15, x: px, y: py });
+                cons.push(SketchConstraint::Pinned {
+                    point: 15,
+                    x: px,
+                    y: py,
+                });
                 cons.push(SketchConstraint::Dragged { point: drag_pt });
                 let sketch = Sketch {
                     id: Uuid::nil(),
@@ -265,7 +314,10 @@ fn hunt_explosion_with_accidental_pin() {
         }
     }
     println!("\nworst = {worst:.3e} m; exploded combos: {exploded:?}");
-    assert!(exploded.is_empty(), "explosion reproduced with accidental pin");
+    assert!(
+        exploded.is_empty(),
+        "explosion reproduced with accidental pin"
+    );
 }
 
 /// Zoomed-out fast drags: per-frame mouse deltas of 0.05–2.0 m (what a 100px
@@ -298,7 +350,9 @@ fn hunt_explosion_large_mouse_deltas() {
                 let entities: Vec<SketchEntity> = base_entities
                     .iter()
                     .map(|e| match e {
-                        SketchEntity::Point { id, construction, .. } => {
+                        SketchEntity::Point {
+                            id, construction, ..
+                        } => {
                             let (x, y) = positions[id];
                             pt(*id, x, y, *construction)
                         }

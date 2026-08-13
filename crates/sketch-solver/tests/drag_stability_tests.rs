@@ -105,8 +105,14 @@ fn two_center_rects(s: f64) -> Fixture {
         let (mt, ml) = (alloc(), alloc());
         entities.push(pt(mt, 0.0, hy, true));
         entities.push(pt(ml, -hx, 0.0, true));
-        constraints.push(SketchConstraint::Midpoint { point: mt, line: l3 });
-        constraints.push(SketchConstraint::Midpoint { point: ml, line: l4 });
+        constraints.push(SketchConstraint::Midpoint {
+            point: mt,
+            line: l3,
+        });
+        constraints.push(SketchConstraint::Midpoint {
+            point: ml,
+            line: l4,
+        });
         constraints.push(SketchConstraint::VerticalPoints {
             point_a: 1,
             point_b: mt,
@@ -137,10 +143,7 @@ fn two_center_rects(s: f64) -> Fixture {
 /// One UI-loop drag step: write `mouse` into the dragged point's entity
 /// coords, append Dragged pins (drag point + legacy origin pin on the shared
 /// center, as mapConstraintForBridge produces today), solve, return positions.
-fn ui_solve_step(
-    fixture: &Fixture,
-    positions: &HashMap<u32, (f64, f64)>,
-) -> SolvedSketch {
+fn ui_solve_step(fixture: &Fixture, positions: &HashMap<u32, (f64, f64)>) -> SolvedSketch {
     let entities: Vec<SketchEntity> = fixture
         .entities
         .iter()
@@ -155,7 +158,9 @@ fn ui_solve_step(
         })
         .collect();
     let mut constraints = fixture.constraints.clone();
-    constraints.push(SketchConstraint::Dragged { point: fixture.center });
+    constraints.push(SketchConstraint::Dragged {
+        point: fixture.center,
+    });
     constraints.push(SketchConstraint::Dragged {
         point: fixture.drag_pt,
     });
@@ -182,10 +187,7 @@ fn run_drag_loop(s: f64) -> (f64, f64) {
     for step in 0..120usize {
         let t = step as f64;
         // ~0.4mm/frame pull along +x with ±1mm vertical wiggle, like a human drag
-        let mouse = (
-            start.0 + 0.4 * s * t,
-            start.1 + 1.0 * s * (t * 0.7).sin(),
-        );
+        let mouse = (start.0 + 0.4 * s * t, start.1 + 1.0 * s * (t * 0.7).sin());
         positions.insert(fixture.drag_pt, mouse);
         let solved = ui_solve_step(&fixture, &positions);
         for (id, p) in &solved.positions {
@@ -421,7 +423,10 @@ fn conflicts_are_constraint_indices_not_row_indices() {
     let SolveStatus::OverConstrained { conflicts } = &solved.status else {
         panic!("expected OverConstrained, got {:?}", solved.status);
     };
-    assert!(!conflicts.is_empty(), "conflicting distances must be reported");
+    assert!(
+        !conflicts.is_empty(),
+        "conflicting distances must be reported"
+    );
     for &idx in conflicts {
         assert!(
             idx < n_constraints,

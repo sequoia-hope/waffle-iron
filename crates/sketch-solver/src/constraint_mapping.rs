@@ -1353,10 +1353,10 @@ impl CompiledConstraint {
                     // ∂cross/∂cx = -ldy + (mid_y - cy), same as DistancePL with pmay
                     let pmay = mid_y - p[*cy];
                     let pmax = mid_x - p[*cx];
-                    j[(0, *cx)] = ((pmay - ldy) * inv_l + cross * ldx * inv_l2 * inv_l);
-                    j[(0, *cy)] = ((ldx - pmax) * inv_l + cross * ldy * inv_l2 * inv_l);
-                    j[(0, *dx)] = (-pmay * inv_l - cross * ldx * inv_l2 * inv_l);
-                    j[(0, *dy)] = (pmax * inv_l - cross * ldy * inv_l2 * inv_l);
+                    j[(0, *cx)] = (pmay - ldy) * inv_l + cross * ldx * inv_l2 * inv_l;
+                    j[(0, *cy)] = (ldx - pmax) * inv_l + cross * ldy * inv_l2 * inv_l;
+                    j[(0, *dx)] = -pmay * inv_l - cross * ldx * inv_l2 * inv_l;
+                    j[(0, *dy)] = pmax * inv_l - cross * ldy * inv_l2 * inv_l;
 
                     // r1 = (AB · L) / len — AB perpendicular to L
                     // ∂r1/∂param = (∂dot/∂param * len - dot * ∂len/∂param) / len²
@@ -1599,7 +1599,6 @@ mod tests {
         cc: CompiledConstraint,
         params: DVector<f64>,
         n_params: usize,
-        n_residuals: usize,
     }
 
     impl LeastSquaresProblem<f64, nalgebra::Dyn, nalgebra::Dyn> for SingleConstraintProblem {
@@ -1630,19 +1629,16 @@ mod tests {
     /// randomly-ish-but-deterministic test point. Tolerance 1e-9 per spec.
     fn check_jacobian(cc: CompiledConstraint, p: Vec<f64>) {
         let n_params = p.len();
-        let n_residuals = residual_count(&cc);
         let problem = SingleConstraintProblem {
             cc: cc.clone(),
             params: DVector::from_vec(p.clone()),
             n_params,
-            n_residuals,
         };
 
         let mut prob_for_num = SingleConstraintProblem {
             cc,
             params: DVector::from_vec(p),
             n_params,
-            n_residuals,
         };
         let numeric_j =
             differentiate_numerically(&mut prob_for_num).expect("numerical differentiation failed");

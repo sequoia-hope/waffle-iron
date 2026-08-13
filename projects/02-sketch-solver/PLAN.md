@@ -145,6 +145,22 @@ Follow-ups (discovered, not blocking):
       `tests/constraint_dispatch_tests.rs` (22), `tests/solver_contract_tests.rs`
       (17), +19 in-src. Mutation-verified with 7 mutations, each caught by
       its intended test and reverted.
+- [x] **sketch-solver brought under CI** (2026-08-13): the crate was in NO CI
+      job — `rust-lint.yml` and `rust-test.yml` are both scoped to the new
+      kernel crates, and sketch-solver is not one, so nothing had ever run
+      `fmt --check`, `clippy -D warnings` or `cargo test` on it in CI. It had
+      accumulated 19 rustfmt diffs (drag_stability_tests, pinned_constraint_tests,
+      waffle_repro) and 7 clippy warnings (4 unnecessary-parens in the Symmetric
+      Jacobian, 1 dead `n_residuals` field in the check_jacobian harness, 2
+      redundant closures in solver.rs). All cleared — the parens/closure edits
+      are semantics-preserving and the Symmetric Jacobian tests still pass.
+      Added `-p sketch-solver` to both jobs (env renamed NEW_CRATES →
+      LINT_CRATES; workflow `name:` left alone for required-check stability),
+      and to the wasm clock-call guard's grep list — sketch-solver ships in the
+      WASM bundle (it is in wasm-fingerprint.sh's PATHS) but was missing from
+      that guard, so an `Instant::now()` there would have reached wasm and
+      panicked at runtime exactly as #173 did. All three gates mutation-verified
+      to FAIL on an injected fmt violation, clippy warning, and failing test.
 - [ ] **Hard pin elimination**: remove pinned coords from the parameter
       vector for exactly-zero sag during drags (soft weight-1.0 pin sags
       (w_drag/w_pin)²·offset ≈ 0.25% of drag offset — invisible, deferred).

@@ -90,7 +90,11 @@ fn pinned_point_solves_to_explicit_target() {
 fn pinned_dof_accounting() {
     // Two free points + line: 4 dof. Pin one point: 2 dof left.
     let sketch = make_sketch(
-        vec![pt(1, 0.0, 0.0, false), pt(2, 4.0, 0.0, false), line(10, 1, 2)],
+        vec![
+            pt(1, 0.0, 0.0, false),
+            pt(2, 4.0, 0.0, false),
+            line(10, 1, 2),
+        ],
         vec![SketchConstraint::Pinned {
             point: 1,
             x: 0.0,
@@ -204,8 +208,14 @@ fn origin_pinned_square() -> Fixture {
     let (mt, ml) = (alloc(), alloc());
     entities.push(pt(mt, 0.0, hy, true));
     entities.push(pt(ml, -hx, 0.0, true));
-    constraints.push(SketchConstraint::Midpoint { point: mt, line: l3 });
-    constraints.push(SketchConstraint::Midpoint { point: ml, line: l4 });
+    constraints.push(SketchConstraint::Midpoint {
+        point: mt,
+        line: l3,
+    });
+    constraints.push(SketchConstraint::Midpoint {
+        point: ml,
+        line: l4,
+    });
     constraints.push(SketchConstraint::VerticalPoints {
         point_a: 1,
         point_b: mt,

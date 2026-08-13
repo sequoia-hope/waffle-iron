@@ -84,8 +84,8 @@ struct SketchProblem {
 impl SketchProblem {
     fn new(layout: &ParamLayout, compiled: Vec<CompiledConstraint>) -> Self {
         let n_params = layout.n_params();
-        let weights: Vec<f64> = compiled.iter().map(|c| weight(c)).collect();
-        let n_constraint_rows: usize = compiled.iter().map(|c| residual_count(c)).sum();
+        let weights: Vec<f64> = compiled.iter().map(weight).collect();
+        let n_constraint_rows: usize = compiled.iter().map(residual_count).sum();
 
         let mut problem = SketchProblem {
             params: DVector::from_vec(layout.params.clone()),

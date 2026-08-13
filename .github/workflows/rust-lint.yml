@@ -1,9 +1,13 @@
 name: Rust lint (new kernel crates)
 
-# Gates fmt + clippy on the clean-sheet kernel-rewrite crates so the hygiene
-# debt cleared in PRs leading up to M2 can't silently creep back. Scoped to the
-# new crates ONLY — the legacy `crates/kernel/` (being replaced) is intentionally
-# excluded; it carries pre-existing drift that is out of scope for this gate.
+# Gates fmt + clippy on the clean-sheet kernel-rewrite crates, plus
+# sketch-solver, so the hygiene debt cleared in PRs leading up to M2 can't
+# silently creep back. The legacy `crates/kernel/` (being replaced) is
+# intentionally excluded; it carries pre-existing drift that is out of scope.
+#
+# The job NAME still says "new kernel crates" for check-name stability (renaming
+# it would break any required-status-check config referring to it); the actual
+# scope is env.LINT_CRATES below.
 #
 # Lint only (fmt --check + clippy -D warnings). Tests are not run here: the
 # sidecar crates' integration tests need the external C++ binaries, which aren't
@@ -23,7 +27,13 @@ env:
   # shells out at test-runtime). indirect-predicates-sidecar-rs builds a C++ stub
   # via cc+bindgen when the upstream source is absent (the CI case), so it needs
   # a C toolchain + libclang — installed below.
-  NEW_CRATES: >-
+  #
+  # sketch-solver is not a kernel crate, but it is clean-sheet code on the same
+  # hygiene footing and it ships in the WASM bundle, so it is gated here too.
+  # It went ungated long enough to accumulate 19 rustfmt diffs and 7 clippy
+  # warnings that nothing surfaced (cleared 2026-08-13, the commit that added
+  # it). Pure Rust — nalgebra + levenberg-marquardt, no C toolchain needed.
+  LINT_CRATES: >-
     -p cad-primitives
     -p cherchi-rs
     -p ssi-rs
@@ -31,6 +41,7 @@ env:
     -p kernel-v2
     -p cherchi-sidecar-rs
     -p indirect-predicates-sidecar-rs
+    -p sketch-solver
 
 jobs:
   lint:
@@ -45,10 +56,10 @@ jobs:
           sudo apt-get install -y libclang-dev
 
       - name: rustfmt --check
-        run: cargo fmt --check ${{ env.NEW_CRATES }}
+        run: cargo fmt --check ${{ env.LINT_CRATES }}
 
       - name: clippy -D warnings
-        run: cargo clippy --all-targets ${{ env.NEW_CRATES }} -- -D warnings
+        run: cargo clippy --all-targets ${{ env.LINT_CRATES }} -- -D warnings
 
       # `Instant::now`/`SystemTime::now` compile fine for wasm32 but PANIC at
       # runtime ("time not implemented") — an unconditional call in the #173
@@ -62,7 +73,8 @@ jobs:
             crates/cad-primitives/src crates/cherchi-rs/src crates/ssi-rs/src \
             crates/yang-rs/src crates/kernel-v2/src crates/wasm-bridge/src \
             crates/waffle-types/src crates/feature-engine/src \
-            crates/modeling-ops/src crates/file-format/src 2>/dev/null \
+            crates/modeling-ops/src crates/file-format/src \
+            crates/sketch-solver/src 2>/dev/null \
             | grep -v "wasm-ok:" || true)
           if [ -n "$hits" ]; then
             echo "Unmarked clock calls in wasm-reachable crates (panics at runtime in wasm):"

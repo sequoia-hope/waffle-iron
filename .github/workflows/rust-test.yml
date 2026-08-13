@@ -15,6 +15,10 @@ name: Rust tests (new kernel crates)
 #     the inputcheck Stage-1 oracles (sidecar binaries)
 #   - kernel-v2                                    — Phase 4a driver
 #   - cherchi-sidecar-rs, indirect-predicates-sidecar-rs (dev oracles)
+#   - sketch-solver                                — the 2D constraint solver
+#     (LM + analytic Jacobians). Not a kernel crate, but clean-sheet, pure Rust
+#     (no sidecars, ~7s) and it ships in the WASM bundle, so it is gated here
+#     rather than left to the local test tiers where it went unrun in CI.
 #   - test-harness --test assay_kv2                — the categorized-assay
 #     smoke gate (the always-on subset; the 190-case run stays manual)
 #   - wasm32 `cargo check` for cherchi-rs / yang-rs / kernel-v2 (the M7
@@ -82,6 +86,7 @@ jobs:
           -p cherchi-sidecar-rs
           -p indirect-predicates-sidecar-rs
           -p predicate-gen
+          -p sketch-solver
 
       - name: Categorized-assay smoke gate
         run: cargo test -p test-harness --test assay_kv2
