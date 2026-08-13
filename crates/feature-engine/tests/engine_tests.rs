@@ -3014,14 +3014,26 @@ fn resolve_with_fallback_best_effort_no_kind_match() {
         policy: ResolvePolicy::BestEffort,
     };
 
-    let result = resolve_with_fallback(&geom_ref, &engine.feature_results);
-    // Exercises the kind filtering in the fallback path
-    if result.is_err() {
-        // No Vertex entities, BestEffort fallback has nothing to match
-        assert!(true);
-    } else {
-        assert!(!result.unwrap().warnings.is_empty());
-    }
+    // BestEffort must not fail here: the role lookup misses, so it falls back
+    // to kind-matching and reports that it did. The outcome is deterministic —
+    // this previously branched on `is_err()` with `assert!(true)` in one arm,
+    // so it passed whichever way the resolver behaved and asserted nothing.
+    let resolved = resolve_with_fallback(&geom_ref, &engine.feature_results)
+        .expect("BestEffort must fall back rather than fail when the role misses");
+
+    assert!(
+        !resolved.warnings.is_empty(),
+        "a fallback must be reported to the caller, not applied silently"
+    );
+    let joined = resolved.warnings.join(" | ");
+    assert!(
+        joined.contains("BestEffort"),
+        "the warning must name the policy that permitted the fallback, got: {joined}"
+    );
+    assert!(
+        joined.contains("RevStartFace"),
+        "the warning must name the role that failed to resolve, got: {joined}"
+    );
 }
 
 // ══════════════════════════════════════════════════════════════════════════

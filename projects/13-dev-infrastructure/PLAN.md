@@ -172,3 +172,61 @@ local frame algorithm than the kernel's `tangent_x_from_normal()`.
 - `crates/test-harness/tests/assay_randomized.rs`
 - `crates/kernel/src/tessellation/mod.rs` (clippy type alias)
 - `specs/euler_target_oracle_fix.md`
+
+---
+
+## CI scope: every shipping crate is now gated (2026-08-13)
+
+**Problem**: `rust-lint.yml` and `rust-test.yml` were scoped to the "new kernel
+crates" only. Seven crates that ship in the deployed WASM bundle — sketch-solver,
+waffle-types, wasm-bridge, feature-engine, modeling-ops, file-format,
+step-import — had NEVER had `fmt --check`, `clippy -D warnings` or `cargo test`
+run on them by CI. The workflow names said "(new kernel crates)", which made the
+gap read as a deliberate policy exclusion rather than an oversight.
+
+**Debt found while ungated** (all cleared; the gate cannot be added while a
+crate fails it):
+
+- sketch-solver: 19 rustfmt diffs, 7 clippy warnings
+- feature-engine: 10 — incl. `assert!(true)` in a test whose other branch made
+  it pass either way, and `resolve_feature_refs` stranded after the test module
+- wasm-bridge: 4 — incl. `dispatch_solve_sketch_checks_all_4_corners` gated on
+  `#[cfg(feature = "native-solver")]`, a feature **no crate in the workspace
+  defines**. That test had never compiled, let alone run. Un-gated (the solver
+  became pure Rust at the Phase 6 migration); it passes.
+- file-format: 2 — an orphaned `export_step` import and the unused
+  `make_rebuild_compatible_tree` fixture, residue of a removed "M4: STEP Export
+  Tests" section. Recovered as a test pinning the documented NotSupported
+  boundary rather than deleted.
+- waffle-types: 3, invisible to a per-crate check (see trap below)
+
+**TRAP — feature unification hides lint debt.** `cargo clippy -p waffle-types`
+reported ZERO warnings; the same crate inside the combined 14-package invocation
+failed with 3 errors. Its `mock-kernel` module is dark unless something in the
+package set enables it (file-format's dev-dependency does). **Measure lint debt
+with the same package set CI uses**, never crate-by-crate — the per-crate number
+is a floor, not the total.
+
+**Judgment calls** (suppressed with a stated reason rather than refactored):
+`clippy::large_enum_variant` on `Operation`/`DepthMode`/`SecondDirection` —
+boxing the fat variant would touch 86 sites across 21 files in 4 crates and the
+serialized .waffle format, to shrink a type that exists once per feature.
+`clippy::too_many_arguments` on `resolve_depth` and `finish_sketch` (8/7) —
+both mirror a message payload; bundling would rename the list, not shorten it.
+
+**Also**: `timeout-minutes` 45 → 60 (the parity suites alone run ~37 min, leaving
+too little headroom), step-import added to the wasm clock-call guard, and both
+workflows renamed to plain "Rust lint"/"Rust tests" — deliberately generic, after
+two renames chasing the scope in one day.
+
+**Verified**: each CI step reproduced locally against the full 14-package set
+(fmt, clippy -D warnings, the clock guard verbatim, `cargo test` → 3306 passed /
+0 failed). Gates mutation-verified to bite on a NEWLY added crate: an injected
+clippy warning in step-import fails the lint step, an injected failing test in
+modeling-ops fails the test step. WASM rebuilt (the feature-engine
+`or_else`→`or(then_some)` and `map_or`→`is_none_or` rewrites move codegen by 45
+bytes); extrude GUI specs re-run green, incl. `cut + flipped + Symmetric`, which
+covers the `effective_second` path.
+
+**Still ungated**: test-harness beyond the assay smoke gate (its full suite is
+the ~27 min manual tier) and predicate-gen's generator runs.

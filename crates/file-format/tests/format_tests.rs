@@ -3,6 +3,7 @@ use feature_engine::types::{
     BooleanOp, BooleanParams, ChamferParams, ExtrudeParams, Feature, FeatureTree, FilletParams,
     Operation, RevolveParams, ShellParams,
 };
+use file_format::errors::ExportError;
 use file_format::{
     export_step, load_document, load_project, save_document, save_project, DocumentMetadata,
     LoadError, PreviewMesh, ProjectMetadata, Tab, TabKind, FORMAT_VERSION,
@@ -1391,4 +1392,47 @@ fn point_pair_hv_constraints_roundtrip() {
         "VerticalPoints should roundtrip, got {:?}",
         loaded[2]
     );
+}
+
+// ── M4: STEP export — the NotSupported boundary ────────────────────────
+//
+// `make_rebuild_compatible_tree` and the `export_step` import above were left
+// orphaned when this section's tests were removed: the fixture built a tree
+// nothing exported, and clippy flagged both as dead. Rather than delete the
+// residue, this pins the contract the module documents — kernel-v2 has no STEP
+// export, so the trait default returns NotSupported and `export_step` surfaces
+// it as `StepExportFailed` (root CLAUDE.md lists STEP export as a capability
+// boundary, not a bug).
+//
+// When STEP export lands, this test FAILS — which is the point. Replace it with
+// a real round-trip assertion at that time; do not relax it.
+
+#[test]
+fn step_export_reports_the_kernel_capability_gap_loudly() {
+    use waffle_types::kernel::MockKernel;
+
+    let tree = make_rebuild_compatible_tree();
+    let mut kernel = MockKernel::new();
+
+    let result = export_step(&tree, &mut kernel);
+
+    match result {
+        Err(ExportError::StepExportFailed(msg)) => {
+            assert!(
+                msg.contains("not supported"),
+                "the failure must name the missing capability, got: {msg}"
+            );
+        }
+        // NoSolid would mean the rebuild never produced a body — the export
+        // would then be failing for an unrelated reason and this test would be
+        // passing by accident. Discriminating the two is the whole point.
+        Err(ExportError::NoSolid) => {
+            panic!("rebuild produced no solid; the fixture no longer reaches the export path")
+        }
+        Err(other) => panic!("unexpected export error: {other:?}"),
+        Ok(_) => panic!(
+            "STEP export unexpectedly SUCCEEDED — if the kernel gained STEP support, \
+             replace this test with a real round-trip assertion"
+        ),
+    }
 }

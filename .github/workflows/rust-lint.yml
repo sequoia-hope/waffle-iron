@@ -1,14 +1,13 @@
-name: Rust lint (kernel stack + sketch-solver)
+name: Rust lint
 
-# Gates fmt + clippy on the clean-sheet kernel-rewrite crates, plus
-# sketch-solver, so the hygiene debt cleared in PRs leading up to M2 can't
+# Gates fmt + clippy so the hygiene debt cleared in PRs leading up to M2 can't
 # silently creep back.
 #
-# This is a SUBSET of the workspace, not all of it: waffle-types, wasm-bridge,
-# feature-engine, modeling-ops, file-format, step-import and test-harness are
-# NOT gated here. Keep the name in step with env.LINT_CRATES — the name drifting
-# out of date with the scope is what let sketch-solver look covered when it was
-# not (2026-08-13).
+# Scope: every crate that ships in the deployed WASM bundle, plus the two dev
+# sidecar oracles. The only workspace crates NOT gated are test-harness and
+# predicate-gen — dev tooling that ships nothing. The job name is deliberately
+# generic so it survives the list growing: it was twice renamed to track scope
+# (2026-08-13) before landing here. Add new crates to env.LINT_CRATES.
 #
 # Lint only (fmt --check + clippy -D warnings). Tests are not run here: the
 # sidecar crates' integration tests need the external C++ binaries, which aren't
@@ -29,11 +28,17 @@ env:
   # via cc+bindgen when the upstream source is absent (the CI case), so it needs
   # a C toolchain + libclang — installed below.
   #
-  # sketch-solver is not a kernel crate, but it is clean-sheet code on the same
-  # hygiene footing and it ships in the WASM bundle, so it is gated here too.
-  # It went ungated long enough to accumulate 19 rustfmt diffs and 7 clippy
-  # warnings that nothing surfaced (cleared 2026-08-13, the commit that added
-  # it). Pure Rust — nalgebra + levenberg-marquardt, no C toolchain needed.
+  # Beyond the kernel crates this now covers every remaining crate that ships in
+  # the deployed WASM bundle (see scripts/wasm-fingerprint.sh). Each was ungated
+  # long enough to drift — sketch-solver had 19 rustfmt diffs and 7 clippy
+  # warnings, and the six added on 2026-08-13 carried 16 more between them,
+  # including a test gated on a `native-solver` feature that no crate defines
+  # (so it had never once compiled). Cleared in the commits that added them.
+  #
+  # NOTE: clippy/fmt see a package's code only under the features enabled for
+  # THIS invocation. waffle-types' `mock-kernel` module is dark unless something
+  # in the list turns it on (file-format's dev-dependency does) — measuring a
+  # crate alone can therefore understate its debt, as it did here.
   LINT_CRATES: >-
     -p cad-primitives
     -p cherchi-rs
@@ -43,6 +48,12 @@ env:
     -p cherchi-sidecar-rs
     -p indirect-predicates-sidecar-rs
     -p sketch-solver
+    -p waffle-types
+    -p wasm-bridge
+    -p feature-engine
+    -p modeling-ops
+    -p file-format
+    -p step-import
 
 jobs:
   lint:
@@ -75,7 +86,7 @@ jobs:
             crates/yang-rs/src crates/kernel-v2/src crates/wasm-bridge/src \
             crates/waffle-types/src crates/feature-engine/src \
             crates/modeling-ops/src crates/file-format/src \
-            crates/sketch-solver/src 2>/dev/null \
+            crates/sketch-solver/src crates/step-import/src 2>/dev/null \
             | grep -v "wasm-ok:" || true)
           if [ -n "$hits" ]; then
             echo "Unmarked clock calls in wasm-reachable crates (panics at runtime in wasm):"

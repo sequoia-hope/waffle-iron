@@ -128,7 +128,7 @@ pub fn resolve_by_position(
         if let Some(c) = sig.centroid {
             let d = ((c[0] - pos[0]).powi(2) + (c[1] - pos[1]).powi(2) + (c[2] - pos[2]).powi(2))
                 .sqrt();
-            if best.map_or(true, |(_, bd)| d < bd) {
+            if best.is_none_or(|(_, bd)| d < bd) {
                 best = Some((id, d));
             }
         }

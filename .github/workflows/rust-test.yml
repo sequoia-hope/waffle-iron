@@ -1,4 +1,4 @@
-name: Rust tests (kernel stack + sketch-solver)
+name: Rust tests
 
 # Runs the FULL new-kernel test pyramid in CI — including the reference-parity
 # oracles, which are the project's load-bearing correctness gate (roadmap §6,
@@ -16,21 +16,21 @@ name: Rust tests (kernel stack + sketch-solver)
 #   - kernel-v2                                    — Phase 4a driver
 #   - cherchi-sidecar-rs, indirect-predicates-sidecar-rs (dev oracles)
 #   - sketch-solver                                — the 2D constraint solver
-#     (LM + analytic Jacobians). Not a kernel crate, but clean-sheet, pure Rust
-#     (no sidecars, ~7s) and it ships in the WASM bundle, so it is gated here
-#     rather than left to the local test tiers where it went unrun in CI.
+#     (LM + analytic Jacobians), pure Rust, ~7s
+#   - waffle-types, wasm-bridge, feature-engine, modeling-ops, file-format,
+#     step-import                                  — the rest of the crates that
+#     ship in the deployed WASM bundle (578 tests, ~5s). test-harness already
+#     pulled five of them into this job's compile graph, so the added cost is
+#     test-binary build plus a few seconds of runtime.
 #   - test-harness --test assay_kv2                — the categorized-assay
 #     smoke gate (the always-on subset; the 190-case run stays manual)
 #   - wasm32 `cargo check` for cherchi-rs / yang-rs / kernel-v2 (the M7
 #     standing invariant)
 #
-# NOT gated here: waffle-types, wasm-bridge, feature-engine, modeling-ops,
-# file-format, step-import, and test-harness beyond the assay smoke gate. That
-# is a real coverage gap, not a policy exclusion — all six of those crates ship
-# in the deployed WASM bundle (see scripts/wasm-fingerprint.sh). The original
-# rationale here named `crates/kernel` as "being deleted"; it WAS deleted at the
-# Phase 6 migration (2026-06-11), so that exclusion no longer describes
-# anything. sketch-solver was pulled in on 2026-08-13; the rest remain open.
+# NOT gated here: test-harness beyond the assay smoke gate (its full suite is
+# the ~27min manual tier) and predicate-gen's generator runs. Every crate that
+# ships in the WASM bundle now runs its suite here — the six that did not were
+# added 2026-08-13 alongside sketch-solver.
 
 on:
   push:
@@ -51,7 +51,10 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # The parity suites alone run ~37 min, which left only 8 min of headroom
+    # under the previous 45. Raising it rather than letting the added crates
+    # turn a slow run into a spurious timeout — still a real runaway bound.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -80,7 +83,7 @@ jobs:
           key: cargo-test-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-test-${{ runner.os }}-
 
-      - name: Test kernel stack + sketch-solver (full suites incl. parity oracles)
+      - name: Test all shipping crates (full suites incl. parity oracles)
         run: >-
           cargo test
           -p cad-primitives
@@ -92,6 +95,12 @@ jobs:
           -p indirect-predicates-sidecar-rs
           -p predicate-gen
           -p sketch-solver
+          -p waffle-types
+          -p wasm-bridge
+          -p feature-engine
+          -p modeling-ops
+          -p file-format
+          -p step-import
 
       - name: Categorized-assay smoke gate
         run: cargo test -p test-harness --test assay_kv2

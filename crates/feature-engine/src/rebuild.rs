@@ -394,13 +394,10 @@ fn execute_feature(
 
             // Determine second direction: explicit field takes precedence,
             // then backward-compat symmetric flag
-            let effective_second = params.second_direction.clone().or_else(|| {
-                if params.symmetric {
-                    Some(SecondDirection::Symmetric)
-                } else {
-                    None
-                }
-            });
+            let effective_second = params
+                .second_direction
+                .clone()
+                .or(params.symmetric.then_some(SecondDirection::Symmetric));
 
             // Resolve second depth if bidirectional
             let second_depth = match &effective_second {
@@ -783,6 +780,10 @@ fn execute_feature(
 /// - `Blind`: returns `blind_depth` directly
 /// - `ThroughAll`: projects target body vertices onto direction, returns max extent + margin
 /// - `UpTo`: resolves reference position and computes distance along direction
+// Eight inputs, one past clippy's default threshold. They are the independent
+// axes of a depth resolution (mode, magnitude, sketch frame, target geometry);
+// bundling them into a struct would only move the argument list, not shorten it.
+#[allow(clippy::too_many_arguments)]
 fn resolve_depth(
     mode: &DepthMode,
     blind_depth: f64,
@@ -1889,6 +1890,30 @@ fn tangent_x_from_normal(n: [f64; 3]) -> [f64; 3] {
         return [1.0, 0.0, 0.0];
     }
     [cx[0] / len, cx[1] / len, cx[2] / len]
+}
+
+/// Resolve all GeomRef references for a feature, collecting warnings.
+///
+/// Currently `feature.references` is always empty, so this is
+/// forward-compatible plumbing for when features carry explicit refs.
+fn resolve_feature_refs(
+    feature: &Feature,
+    feature_results: &HashMap<Uuid, OpResult>,
+    warnings: &mut Vec<String>,
+) {
+    for geom_ref in &feature.references {
+        match resolve_with_fallback(geom_ref, feature_results) {
+            Ok(resolved) => {
+                warnings.extend(resolved.warnings);
+            }
+            Err(e) => {
+                warnings.push(format!(
+                    "Feature '{}': reference resolution warning: {}",
+                    feature.name, e
+                ));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -3156,30 +3181,6 @@ mod tests {
                 assert!((*x - 7.0).abs() < 1e-12 && (*y + 4.0).abs() < 1e-12);
             }
             _ => panic!("expected point"),
-        }
-    }
-}
-
-/// Resolve all GeomRef references for a feature, collecting warnings.
-///
-/// Currently `feature.references` is always empty, so this is
-/// forward-compatible plumbing for when features carry explicit refs.
-fn resolve_feature_refs(
-    feature: &Feature,
-    feature_results: &HashMap<Uuid, OpResult>,
-    warnings: &mut Vec<String>,
-) {
-    for geom_ref in &feature.references {
-        match resolve_with_fallback(geom_ref, feature_results) {
-            Ok(resolved) => {
-                warnings.extend(resolved.warnings);
-            }
-            Err(e) => {
-                warnings.push(format!(
-                    "Feature '{}': reference resolution warning: {}",
-                    feature.name, e
-                ));
-            }
         }
     }
 }

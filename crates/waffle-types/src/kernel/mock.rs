@@ -2188,7 +2188,10 @@ mod tests {
                 (mesh.vertices[base + 2] as f64 * inv_grid).round() as i64,
             )
         };
-        let mut edge_count: Map<((i64, i64, i64), (i64, i64, i64)), u32> = Map::new();
+        // Quantised vertex position, and an undirected edge between two of them.
+        type GridKey = (i64, i64, i64);
+        type EdgeKey = (GridKey, GridKey);
+        let mut edge_count: Map<EdgeKey, u32> = Map::new();
         let n_tris = mesh.indices.len() / 3;
         for i in 0..n_tris {
             let tri = [

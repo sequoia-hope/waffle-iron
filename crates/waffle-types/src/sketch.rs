@@ -664,7 +664,7 @@ mod tests {
     fn sketch_entity_point_serde() {
         let e = SketchEntity::Point {
             id: 1,
-            x: 3.14,
+            x: 3.5,
             y: -2.7,
             construction: true,
         };
@@ -946,7 +946,7 @@ mod tests {
     fn u32_key_map_roundtrip() {
         let mut positions = HashMap::new();
         positions.insert(1, (0.0, 0.0));
-        positions.insert(2, (3.14, -2.7));
+        positions.insert(2, (3.5, -2.7));
         positions.insert(100, (999.0, 0.5));
 
         let sketch = Sketch {

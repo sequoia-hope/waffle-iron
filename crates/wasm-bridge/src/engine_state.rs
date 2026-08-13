@@ -137,6 +137,10 @@ impl EngineState {
     /// When `entities`/`constraints` are non-empty, they override the stale copies
     /// accumulated via AddSketchEntity/AddConstraint (the JS solver may have updated
     /// properties like circle radius that the Rust side never received).
+    // Eight inputs, one past clippy's default. This mirrors the FinishSketch
+    // message's payload one-for-one; grouping them into a struct would just
+    // rename the message type, and the signature is the bridge contract.
+    #[allow(clippy::too_many_arguments)]
     pub fn finish_sketch(
         &mut self,
         solved_positions: HashMap<u32, (f64, f64)>,

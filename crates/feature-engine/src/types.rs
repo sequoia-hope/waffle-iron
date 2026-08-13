@@ -111,6 +111,14 @@ pub struct Feature {
 }
 
 /// A parametric modeling operation with its parameters.
+// clippy::large_enum_variant is a memory-layout lint, not a correctness one, and
+// the fix (boxing the fat variant) is not proportionate here: `Operation` is the
+// feature tree's core type, matched or constructed at 86 sites across 21 files in
+// four crates, and it is serialized into the .waffle file format. Every one of
+// those sites would change to buy a smaller discriminant on a type that lives one
+// per feature, not one per vertex. Revisit if a feature tree ever gets large
+// enough for the enum's size to show up in a profile.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Operation {
@@ -154,6 +162,10 @@ fn default_scale() -> f64 {
 }
 
 /// Depth mode for extrude operations.
+// Same call as `Operation` above: a GeomRef-carrying variant alongside unit
+// variants. Boxing would ripple through the extrude parameter plumbing and the
+// serialized format for no measurable gain.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum DepthMode {
@@ -166,6 +178,10 @@ pub enum DepthMode {
 }
 
 /// Second direction for bidirectional extrude.
+// Same call as `Operation` above: a GeomRef-carrying variant alongside unit
+// variants. Boxing would ripple through the extrude parameter plumbing and the
+// serialized format for no measurable gain.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SecondDirection {
@@ -493,6 +509,7 @@ mod combine_normalization_tests {
     //!   - `pub(crate) fn normalize_extrude_combine(&ExtrudeParams) -> EffectiveCombine`
     //!   - `pub(crate) enum TargetStrategy { ShareAFace, MostRecentLegacy, Explicit(Vec<GeomRef>) }`
     //!   - `pub(crate) struct EffectiveCombine { pub mode: CombineMode, pub targets: TargetStrategy }`
+    //!
     //! Until then this module is the expected RED state.
     use super::*;
     use waffle_types::{Anchor, OutputKey, ResolvePolicy, Selector, TopoKind};

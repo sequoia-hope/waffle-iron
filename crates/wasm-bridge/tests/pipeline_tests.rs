@@ -1404,21 +1404,21 @@ fn bbox_extents_match_sketch_and_depth() {
         );
     }
     // Min should be near origin
-    for axis in 0..3 {
+    for (axis, &min) in bb_min.iter().enumerate() {
         assert!(
-            bb_min[axis].abs() < 0.1,
+            min.abs() < 0.1,
             "Axis {} min should be ~0.0, got {}",
             axis,
-            bb_min[axis]
+            min
         );
     }
     // Max should be near 10
-    for axis in 0..3 {
+    for (axis, &max) in bb_max.iter().enumerate() {
         assert!(
-            (bb_max[axis] - 10.0).abs() < 0.1,
+            (max - 10.0).abs() < 0.1,
             "Axis {} max should be ~10.0, got {}",
             axis,
-            bb_max[axis]
+            max
         );
     }
 }
