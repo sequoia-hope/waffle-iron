@@ -1,4 +1,4 @@
-name: Rust tests (new kernel crates)
+name: Rust tests (kernel stack + sketch-solver)
 
 # Runs the FULL new-kernel test pyramid in CI — including the reference-parity
 # oracles, which are the project's load-bearing correctness gate (roadmap §6,
@@ -24,8 +24,13 @@ name: Rust tests (new kernel crates)
 #   - wasm32 `cargo check` for cherchi-rs / yang-rs / kernel-v2 (the M7
 #     standing invariant)
 #
-# The legacy crates (kernel, modeling-ops, …) are intentionally excluded —
-# policy-quarantined, unmaintained, being deleted (root CLAUDE.md).
+# NOT gated here: waffle-types, wasm-bridge, feature-engine, modeling-ops,
+# file-format, step-import, and test-harness beyond the assay smoke gate. That
+# is a real coverage gap, not a policy exclusion — all six of those crates ship
+# in the deployed WASM bundle (see scripts/wasm-fingerprint.sh). The original
+# rationale here named `crates/kernel` as "being deleted"; it WAS deleted at the
+# Phase 6 migration (2026-06-11), so that exclusion no longer describes
+# anything. sketch-solver was pulled in on 2026-08-13; the rest remain open.
 
 on:
   push:
@@ -75,7 +80,7 @@ jobs:
           key: cargo-test-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-test-${{ runner.os }}-
 
-      - name: Test new kernel crates (full suites incl. parity oracles)
+      - name: Test kernel stack + sketch-solver (full suites incl. parity oracles)
         run: >-
           cargo test
           -p cad-primitives

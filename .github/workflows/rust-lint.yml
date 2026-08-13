@@ -1,13 +1,14 @@
-name: Rust lint (new kernel crates)
+name: Rust lint (kernel stack + sketch-solver)
 
 # Gates fmt + clippy on the clean-sheet kernel-rewrite crates, plus
 # sketch-solver, so the hygiene debt cleared in PRs leading up to M2 can't
-# silently creep back. The legacy `crates/kernel/` (being replaced) is
-# intentionally excluded; it carries pre-existing drift that is out of scope.
+# silently creep back.
 #
-# The job NAME still says "new kernel crates" for check-name stability (renaming
-# it would break any required-status-check config referring to it); the actual
-# scope is env.LINT_CRATES below.
+# This is a SUBSET of the workspace, not all of it: waffle-types, wasm-bridge,
+# feature-engine, modeling-ops, file-format, step-import and test-harness are
+# NOT gated here. Keep the name in step with env.LINT_CRATES — the name drifting
+# out of date with the scope is what let sketch-solver look covered when it was
+# not (2026-08-13).
 #
 # Lint only (fmt --check + clippy -D warnings). Tests are not run here: the
 # sidecar crates' integration tests need the external C++ binaries, which aren't

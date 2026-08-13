@@ -155,8 +155,10 @@ Follow-ups (discovered, not blocking):
       redundant closures in solver.rs). All cleared — the parens/closure edits
       are semantics-preserving and the Symmetric Jacobian tests still pass.
       Added `-p sketch-solver` to both jobs (env renamed NEW_CRATES →
-      LINT_CRATES; workflow `name:` left alone for required-check stability),
-      and to the wasm clock-call guard's grep list — sketch-solver ships in the
+      LINT_CRATES; workflows renamed "(new kernel crates)" → "(kernel stack +
+      sketch-solver)" after confirming main has no branch protection and no
+      rulesets, so no required-status-check referenced the old names), and to
+      the wasm clock-call guard's grep list — sketch-solver ships in the
       WASM bundle (it is in wasm-fingerprint.sh's PATHS) but was missing from
       that guard, so an `Instant::now()` there would have reached wasm and
       panicked at runtime exactly as #173 did. All three gates mutation-verified
