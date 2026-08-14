@@ -188,10 +188,20 @@ name, never measured).
    byte-identical 258C/0W/50E/0T; gate-ON 258C/0W/50E/0T ZERO category
    deltas (drifts: F0067 advances Stage-6 non-2-manifold → render CDT
    ring rejection; R0050 one stage deeper; R0015 vertex renumber). The
-   NAMED next wall (spec §3c): F0067's §4.5.3-class straight-run
-   reversal — output tooth ring doubles back 3.6e-5 at a Stage-0 flank
-   lift (byte-identical pre/post at that tooth → unmasked latent of the
-   tracked R0072/F0045 s453 class).**
+   NAMED next wall — FULLY ANCHORED 2026-08-14 (spec §3d; the initial
+   §4.5.3-class adjudication is RETRACTED — v22 is the EXACT
+   flank×circle junction and the seam loop is monotone): the FaceId-4005
+   ring tack is the **fold-revert ↔ Stage-4 junction-election
+   inconsistency** at boundary-exit corners — the N2-3a fold gate
+   reverts the flank-crossing junction trio to chord (A's outline chain
+   cuts at chord level, keeping a crescent lift past the junction) while
+   Stage-4 still elects the neighboring on-circle mint onto the exact
+   junction (the seam ends at J) → a 3.6e-5 backward tack →
+   self-intersecting ring. Consistent states are all-chord (ships and
+   passes at the y≈−0.034 tooth) or all-junction (= the §4.4.1
+   mesh-updating epic #169, the structural fix). Census-loop refinement
+   is P10-DISPROVEN (spec §3d: +2 features/round self-regeneration —
+   density is not membership).**
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

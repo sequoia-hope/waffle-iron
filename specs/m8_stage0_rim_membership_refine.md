@@ -218,10 +218,65 @@ vertex.
   backward along the incoming flank segment (collinear to 1e-21), and
   (v22,v23) properly crosses (v20,v21). v21 is a Stage-0 flank lift
   BYTE-IDENTICAL pre/post at that tooth; v22 is minted downstream
-  (absent from every Stage-0 overlay dump). Shape and seam type match
-  the tracked §4.5.3 straight-run reversal class
-  (`s453_line_run_reversal.rs`, R0072/F0045): an UNMASKED LATENT of a
-  known class, not a mint of this increment.
+  (absent from every Stage-0 overlay dump).
+  ~~Shape and seam type match the tracked §4.5.3 straight-run reversal
+  class~~ — RETRACTED 2026-08-14 (same day, §3d): that adjudication
+  rested on an arithmetic slip (v22's radius mis-evaluated as 3e-5
+  inside the circle; it is EXACTLY R). §3d has the true anchor.
+
+## 3d. FaceId-4005 ring anchor (2026-08-14): fold-revert ↔ Stage-4 junction
+## election inconsistency — NOT a §4.5.3 reversal
+
+Full-stack measurement of the increment-2 named residual (probes:
+`YANG_T145_SWEEP_PROBE`, `YANG_V_PROBE`, overlay dump re-census at the
+failing tooth, azimuth ≈ 17.9°):
+
+- **v22 IS the exact flank×circle junction** (r = R to the last bit; on
+  the flank line to 1e-21). It is arrangement vertex 1482 — Stage-4's
+  junction authority relocated overlay chord mint v1553 (on-circle,
+  1.2e-5 azimuthally away) onto the exact junction. The intersection
+  loop through it (1482 → 1478 → 1474, all ON-circle) is MONOTONE in
+  circle parameter — the §4.5.3 sweep tests these sites (t145-arm
+  probe: `reversed=false`) and is CORRECT to leave them. The s453
+  straight-run trackers (R0072/F0045) are a different mechanism; no
+  sweep extension is warranted here (branch-5 coincident-pair
+  undiagnosability is not even reached).
+- **A's flank-edge split chain has NO junction vertex.** The flank×chord
+  crossing trio at this tooth ({1538, 1539, 1545}) minted the junction —
+  then the N2-3a fold gate REVERTED it to chord level (`mint(rev)`,
+  r = 0.2087873; the splits on edge (809,810) carry the reverted
+  position TWICE at t ≈ 0.80488). The outline chain therefore cuts at
+  chord level.
+- **v21 (= overlay v1552) is a crescent lift**: a design-corner event
+  column (corner_a 803, u = 0.0644166473027744) crosses the flank at
+  r = 0.2088105 — strictly inside the exact circle, strictly outside
+  the chord polygon (local chord 0.2087873) — so it classifies `AOnly`
+  and the surviving A-top patch keeps flank content PAST the junction.
+- **The defect**: two mechanisms disagree about the tooth's corner
+  state. The Stage-0 fold-revert puts A's outline world at the CHORD
+  (consistent locally — the y ≈ −0.034 tooth ships this state and
+  passes); Stage-4's junction election still installs the EXACT
+  junction on the seam (v1553 → J). The output ring then stitches
+  outline-at-chord (through v1552) to seam-at-junction: a 3.6e-5
+  backward tack → self-intersecting ring → the render CDT correctly
+  refuses. The consistent states are (a) everything local at chord, or
+  (b) everything at circle+junction — (b) is the §4.4.1 mesh-updating
+  epic (#169, `specs/yang_n2_stage4_cdt_mesh_updating.md`); the
+  RESIDUAL here is that the fold-revert does not extend to (or inform)
+  the neighboring span mints and the Stage-4 junction election.
+
+**P10 record — census-loop refinement DISPROVEN (do not retry):** a
+post-overlay census loop (feed every overlay exact vertex to
+`refine_rim_membership`, rebuild the overlay, iterate) DIVERGES
+structurally: every inserted on-circle sample spawns a new event column
+whose partner-edge crossing lands in the residual (quartered) crescent —
+measured on F0067 Extrude-5's pair as +2 features per round, ring
+15→18→20→22→24→26→28→30→32 with no fixpoint above the band floor
+(≈12+ rounds away). This is the recorded lesson *density is not
+membership* playing out mechanically: crescent content is
+self-regenerating under subdivision, because a partner edge crossing the
+circle ALWAYS traverses some residual crescent. Reverted same-day,
+never landed.
 
 ## 4. Verification plan
 
@@ -255,3 +310,11 @@ vertex.
   R0072-corrected) + 5 unit tests. F0067 gate-ON retires the Stage-6
   non-2-manifold wall; the named residual is the §4.5.3 straight-run
   reversal (CDT ring rejection, FaceId 4005).
+- 2026-08-14 (second session): the FaceId-4005 residual FULLY ANCHORED
+  (§3d) — the s453 adjudication RETRACTED (v22 is the exact junction;
+  the seam loop is monotone and the sweep is correct); the true defect
+  is the fold-revert ↔ Stage-4 junction-election inconsistency at
+  boundary-exit corners, which belongs to the §4.4.1 mesh-updating
+  epic (#169). Census-loop refinement attempted, measured DIVERGENT
+  (+2 features/round self-regeneration), reverted same-day — P10
+  record in §3d.
