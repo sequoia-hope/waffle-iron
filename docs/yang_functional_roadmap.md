@@ -175,8 +175,23 @@ name, never measured).
    deeper); overlay membership measured FIXED (all 168 in-circle
    corners → Overlap/BOnly; the flank junctions mint) and F0067's
    gate-ON wall advances from `s6-planar-loop-nonplanar` to the NAMED
-   M-B trio-wedge emission-identification residual (spec §3b) — the
-   next increment.**
+   M-B trio-wedge emission-identification residual (spec §3b).
+   Increment 2 LANDED (2026-08-14, same gate): the trio-wedge root
+   cause was one layer upstream — the shared-mint grouping's 3D
+   sub-floor band enrolled a DISTINCT neighboring-column mint whose
+   radial image lands 8.5e-7 from the junction (2D pre-image 8.9e-6
+   away), re-writing chain topology (`i6-edge-overuse`). Fix:
+   `mint_group_admits` — gate-ON identity reads the 2D pre-image at
+   feature-floor width (R0072's micro twins at ~1e-7 MUST identify;
+   F0067's corner-column mint at 8.9e-6 must NOT — no 3D band holds
+   both) plus a rounding-noise 3D tier for coincident images. Gate-OFF
+   byte-identical 258C/0W/50E/0T; gate-ON 258C/0W/50E/0T ZERO category
+   deltas (drifts: F0067 advances Stage-6 non-2-manifold → render CDT
+   ring rejection; R0050 one stage deeper; R0015 vertex renumber). The
+   NAMED next wall (spec §3c): F0067's §4.5.3-class straight-run
+   reversal — output tooth ring doubles back 3.6e-5 at a Stage-0 flank
+   lift (byte-identical pre/post at that tooth → unmasked latent of the
+   tracked R0072/F0045 s453 class).**
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

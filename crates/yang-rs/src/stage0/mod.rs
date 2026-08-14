@@ -1233,16 +1233,18 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // is NOT qualified: per-member semantics, byte-identical,
         // census-probed. ALWAYS-ON since the inc-2 corpus flip.
         let mut collapse_groups = CollapseGroups::default();
-        // Rim-refine extension (spec `m8_stage0_rim_membership_refine` §3,
-        // same gate): ALSO group mints whose overlay 2D PRE-IMAGES are
-        // femto-close (TAU_WORK·(1+scale)). The refined ring makes the
-        // sweep mint ULP-twin columns at each new partner-edge junction
-        // (measured F0067: trio within 4e-15 in 2D), and the crossing vs
-        // radial-projection branches then diverge by O(sag·tan(tilt)) —
-        // 3.3e-5, ABOVE the sub-floor 3D key — shipping two 3D points for
-        // one semantic arrangement vertex. 2D-femto-identical mints are ONE
-        // vertex; grouping them lets the crossing member's junction win
-        // (the existing election below).
+        // Rim-refine extension (spec `m8_stage0_rim_membership_refine`
+        // §3/§3c, same gate): gate-ON, identity moves to the 2D
+        // PRE-IMAGE — mints whose pre-images are closer than the feature
+        // floor are ONE arrangement vertex (this covers the femto column
+        // twins whose crossing-vs-radial branches diverge 3.3e-5 in 3D
+        // AND the R0072 micro twins at ~1e-7), while the 3D tier tightens
+        // to rounding noise (coincident junction images only) — a
+        // neighboring column's mint whose radial image lands sub-floor
+        // close to a junction is a DISTINCT above-floor arrangement
+        // vertex, and enrolling it re-writes chain topology (the §3b
+        // trio-wedge `i6-edge-overuse` residual). Predicate + measured
+        // class census: `mint_group_admits`.
         let rim_refine_2d_group = std::env::var_os("YANG_STAGE0_RIM_REFINE").is_some();
         for slot in 0..n_mint_slots {
             let members: Vec<(usize, bool)> = minted_info
@@ -1252,24 +1254,14 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 .collect();
             let mut groups: Vec<Vec<(usize, bool)>> = Vec::new();
             for &(vi, crossing) in &members {
-                let p = coords[vi].as_array();
                 let group = groups.iter_mut().find(|g| {
-                    let q = coords[g[0].0].as_array();
-                    let d = [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
-                    if d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
-                        < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE
-                    {
-                        return true;
-                    }
-                    if rim_refine_2d_group {
-                        let a2 = overlay.verts[vi];
-                        let b2 = overlay.verts[g[0].0];
-                        let scale = a2.x().abs().max(a2.y().abs());
-                        let band = cad_primitives::TAU_WORK * (1.0 + scale);
-                        let (du, dv) = (a2.x() - b2.x(), a2.y() - b2.y());
-                        return du * du + dv * dv < band * band;
-                    }
-                    false
+                    mint_group_admits(
+                        rim_refine_2d_group,
+                        coords[vi],
+                        coords[g[0].0],
+                        overlay.verts[vi],
+                        overlay.verts[g[0].0],
+                    )
                 });
                 match group {
                     Some(g) => g.push((vi, crossing)),

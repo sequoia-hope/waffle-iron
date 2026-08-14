@@ -196,3 +196,112 @@ fn multiple_features_multiple_spans_converge() {
     .expect("refine fixpoint");
     assert_eq!(n2, 0);
 }
+
+// ====================================================================
+// Shared-mint grouping admission (spec §3b/§3c trio-wedge follow-on):
+// `mint_group_admits` — gate-ON identity is read in the 2D pre-image
+// (feature floor) plus a rounding-noise 3D tier for coincident images.
+// Scales below are the measured F0067 corner_a-761 cluster (junction at
+// |p|≈0.21) and the measured R0072 micro twins (model scale ~2e-4).
+// ====================================================================
+
+use crate::stage0::mint_group_admits;
+
+/// A rounding-noise 3D duplicate (sub-TAU_WORK) admits under BOTH gate
+/// states — the (222,286) coincident-junction-image class.
+#[test]
+fn rounding_noise_3d_duplicate_admits_both_gates() {
+    let head = Point3::new(
+        0.20604444553563836,
+        -0.03409486165544518,
+        1.7518978673859238,
+    );
+    let cand = Point3::new(0.2060444455356385, -0.03409486165544518, 1.7518978673859238);
+    // 2D pre-images far apart: the 3D tier alone must carry this class.
+    let h2 = Point2::new(-0.034091879652, -0.205966234698);
+    let c2 = Point2::new(-0.034083, -0.205967);
+    assert!(mint_group_admits(false, cand, head, c2, h2));
+    assert!(mint_group_admits(true, cand, head, c2, h2));
+}
+
+/// The crossing-vs-radial divergence class (§3b first follow-on): ONE
+/// arrangement vertex whose two resolution branches diverge ~9.7e-6 in
+/// 3D but whose 2D pre-images are femto-identical (5e-17). Only the
+/// gate-ON 2D tier admits it — gate-OFF stays byte-identical (reject).
+#[test]
+fn femto_2d_twin_with_divergent_3d_admits_gate_on_only() {
+    let head = Point3::new(
+        0.20604444553563836,
+        -0.03409486165544518,
+        1.7518978673859238,
+    );
+    let cand = Point3::new(0.20604295817, -0.03410458, 1.7518978673859238);
+    let h2 = Point2::new(-0.0340918796521234, -0.2059662346983959);
+    let c2 = Point2::new(-0.03409187965212335, -0.2059662346983959);
+    assert!(!mint_group_admits(false, cand, head, c2, h2));
+    assert!(mint_group_admits(true, cand, head, c2, h2));
+}
+
+/// THE §3b trio-wedge fix: a NEIGHBORING column's mint whose radial
+/// image lands sub-floor-close to the junction (8.5e-7 < 1e-6) while
+/// its 2D pre-image sits 8.9e-6 away is a DISTINCT arrangement vertex.
+/// Gate-ON must NOT enroll it (enrolling re-writes chain topology —
+/// the measured `i6-edge-overuse` on the junction↔corner edge);
+/// gate-OFF keeps the historical sub-floor admission byte-identical.
+#[test]
+fn neighboring_column_subfloor_3d_is_distinct_gate_on() {
+    let head = Point3::new(
+        0.20604444553563836,
+        -0.03409486165544518,
+        1.7518978673859238,
+    );
+    // radial image of the corner-column mint: 8.5e-7 from the junction.
+    let cand = Point3::new(0.20604431, -0.03409570, 1.7518978673859238);
+    let h2 = Point2::new(-0.0340918796521234, -0.2059662346983959);
+    let c2 = Point2::new(-0.03408299973002703, -0.205967586197726);
+    assert!(mint_group_admits(false, cand, head, c2, h2));
+    assert!(!mint_group_admits(true, cand, head, c2, h2));
+}
+
+/// Genuinely distinct mints (≥ MIN_FEATURE_SIZE in 3D, far in 2D)
+/// reject under both gate states.
+#[test]
+fn distinct_mints_reject_both_gates() {
+    let head = Point3::new(
+        0.20604444553563836,
+        -0.03409486165544518,
+        1.7518978673859238,
+    );
+    let cand = Point3::new(0.20704444, -0.03409486, 1.7518978673859238);
+    let h2 = Point2::new(-0.0340918796521234, -0.2059662346983959);
+    let c2 = Point2::new(-0.03309, -0.2069);
+    assert!(!mint_group_admits(false, cand, head, c2, h2));
+    assert!(!mint_group_admits(true, cand, head, c2, h2));
+}
+
+/// The R0072 micro class (§3c): at model scale ~2e-4 the twin mints sit
+/// ~1e-7 apart in BOTH spaces — below the feature floor, so they are ONE
+/// vertex and must identify under both gate states (left distinct their
+/// wedge folds, the fold gate reverts the mints to chords, and Stage-4
+/// relocation dead-ends `LocalRefinementRequired`). Gate-ON admits via
+/// the 2D floor tier; gate-OFF via the historical 3D sub-floor band.
+#[test]
+fn micro_scale_subfloor_twins_admit_both_gates() {
+    let head = Point3::new(
+        -0.00014992384272204286,
+        0.0001701826711505114,
+        0.00019316035340641977,
+    );
+    // ~8.7e-7 away in 3D (the measured R0072 twin-scan pairs run
+    // 1.1e-7..9.5e-7), ~7.1e-7 in 2D — sub-floor in both spaces at
+    // micro scale.
+    let cand = Point3::new(
+        -0.00014942384272204286,
+        0.0001706826711505114,
+        0.00019366035340641977,
+    );
+    let h2 = Point2::new(0.0001701826711505114, 0.00014992384272204286);
+    let c2 = Point2::new(0.0001706826711505114, 0.00014942384272204286);
+    assert!(mint_group_admits(false, cand, head, c2, h2));
+    assert!(mint_group_admits(true, cand, head, c2, h2));
+}

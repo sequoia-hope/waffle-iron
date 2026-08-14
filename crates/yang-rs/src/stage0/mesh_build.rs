@@ -25,6 +25,67 @@ pub(crate) type SplitMap = BTreeMap<(u32, u32), Vec<(RBig, Point3)>>;
 pub(crate) type RimSplitMap = BTreeMap<u32, Vec<Point3>>;
 
 // ════════════════════════════════════════════════════════════════════════
+// Sub-floor shared-mint grouping: admission predicate (spec
+// `m8_stage0_rim_membership_refine` §3b trio-wedge follow-on)
+// ════════════════════════════════════════════════════════════════════════
+
+/// Should a minted overlay vertex join the shared-mint collapse group whose
+/// head is (`head_3d`, `head_2d`)? Gate-OFF: the historical resolved-3D
+/// sub-floor band (`MIN_FEATURE_SIZE`, always-on since the inc-2 corpus
+/// flip) — byte-identical. Gate-ON, identity is read where it lives:
+///
+/// - **2D tier: pre-images closer than the feature floor
+///   (`MIN_FEATURE_SIZE`) are ONE arrangement vertex.** The floor applies
+///   to the PRE-images because resolution both diverges and converges
+///   distances: the crossing-vs-radial branches of one femto-identical
+///   column pair diverge O(sag·tan(tilt)) in 3D (F0067: 3.3e-5, spec §3b
+///   first follow-on), while two genuinely distinct neighboring-column
+///   mints can land sub-floor-close after radial projection (F0067
+///   corner_a 761: the corner-column mint's radial image is 8.5e-7 from
+///   the flank junction while its 2D pre-image is 8.9e-6 away — a REAL
+///   above-floor vertex; enrolling it re-writes chain topology, the
+///   V-notch Overlap triangles fold onto the boundary ribbon, and the
+///   junction↔corner edge ships FOUR incident triangles,
+///   `i6-edge-overuse`). The micro classes need the full floor width, not
+///   a femto band: R0072's twins sit ~1e-7 apart in BOTH spaces (model
+///   scale 2e-4) and MUST identify (left distinct their wedge folds, the
+///   fold gate reverts the mints to chords, and Stage-4 relocation
+///   dead-ends: `LocalRefinementRequired`, the R0072 micro class). No
+///   3D band can hold both cases (9.5e-7-must-collapse vs
+///   8.5e-7-must-not); the 2D pre-image separates them exactly.
+/// - **3D tier: resolved images within rounding noise
+///   (`TAU_WORK·(1+scale)`)** — the (222,286) wide-anchored class:
+///   coincident junction images from far anchors are one point even
+///   though their pre-images are far apart.
+pub(crate) fn mint_group_admits(
+    rim_refine_gate: bool,
+    cand_3d: Point3,
+    head_3d: Point3,
+    cand_2d: Point2,
+    head_2d: Point2,
+) -> bool {
+    let p = cand_3d.as_array();
+    let q = head_3d.as_array();
+    let d = [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+    let d2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    let band3 = if rim_refine_gate {
+        let scale = p[0].abs().max(p[1].abs()).max(p[2].abs());
+        cad_primitives::TAU_WORK * (1.0 + scale)
+    } else {
+        cad_primitives::MIN_FEATURE_SIZE
+    };
+    if d2 < band3 * band3 {
+        return true;
+    }
+    if rim_refine_gate {
+        let (du, dv) = (cand_2d.x() - head_2d.x(), cand_2d.y() - head_2d.y());
+        let floor = cad_primitives::MIN_FEATURE_SIZE;
+        return du * du + dv * dv < floor * floor;
+    }
+    false
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // Amendment 18 (spec `m8_stage0_multiclass_cavity_arm` §16b): congruent-rim
 // cross-solid table ELECTION. On stacked congruent caps the two solids' rims
 // are the SAME geometric circle in different frames; a shared junction

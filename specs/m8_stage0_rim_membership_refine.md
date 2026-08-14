@@ -159,6 +159,70 @@ junction machinery).
   wall, with the defect now scoped to the emission-identification
   logic, not to classification.
 
+## 3c. Increment-2 (2026-08-14): trio-wedge root cause = grouping, not emission
+
+The §3b "M-B emission-identification" attribution was one layer short
+(again): the emission contract was fine — the defect was the shared-mint
+grouping's 3D admission tier ENROLLING a semantically distinct arrangement
+vertex.
+
+- **Measured (F0067 corner_a 761, `YANG_SPLIT_PROBE`):** the trio =
+  {1204 crossing, 1211 ULP-twin column mate, 1218}. 1204/1211 are one
+  arrangement vertex (2D-femto, 5e-17) — grouping them is the designed
+  §3b fix. 1218 is the CORNER-COLUMN chord mint — 2D pre-image 8.9e-6
+  away (its own column) whose RADIAL image happens to land 8.5e-7 from
+  the junction: inside the `MIN_FEATURE_SIZE` (1e-6) 3D band, so the 3D
+  tier enrolled it. Collapsing it onto J re-writes chain topology: the
+  cap's 2D-interior edge (1218→1219) resolves onto the boundary segment
+  (J→corner), which the wall face also uses as an earcut diagonal of its
+  near-collinear top-chain ribbon — FOUR incident triangles on one edge
+  (`i6-edge-overuse` (1298,2905), measured). A hand pairing-census with
+  1218 left distinct pairs EVERY edge (t1691/t1692 stop being
+  bit-degenerate and become the real flank↔arc slivers).
+- **Fix (same gate):** `mint_group_admits` (stage0/mesh_build.rs) —
+  gate-ON identity is read where it lives: **2D pre-images closer than
+  the feature floor (`MIN_FEATURE_SIZE`) are ONE arrangement vertex**
+  (subsumes the §3b femto tier), plus a rounding-noise 3D tier
+  (`TAU_WORK·(1+scale)`) for the (222,286) coincident-image class.
+  Gate-OFF byte-identical (historical 3D sub-floor band, no 2D tier).
+  The 2D pre-image is the identity key; 3D proximity beyond rounding
+  noise measures DIVERGENCE.
+- **Why the 2D tier is floor-width, not femto (measured on R0072):** a
+  first cut tightened the gate-ON 3D tier to rounding noise with only
+  the femto 2D tier — full gate-ON corpus flagged ONE category delta:
+  R0072 SUPPORTED_CORRECT → ERROR (`Stage-4 LocalRefinementRequired`,
+  the R0072 micro class re-minted). R0072's model is micro-scale
+  (~2e-4 m): its twin mints sit 1.1e-7..9.5e-7 apart in BOTH spaces
+  (`YANG_STAGE0_TWIN_SCAN`) and MUST identify — nearly the same
+  absolute 3D distance as F0067's 8.5e-7 must-NOT-identify pair, so no
+  3D band separates the two cases. The 2D pre-image distance does,
+  exactly: R0072 twins ~1e-7 < floor; F0067's corner-column mint
+  8.9e-6 > floor. With the floor-width 2D tier both verdicts hold
+  (R0072 CORRECT, F0067 advanced).
+- **Fold-gate interaction (measured, overlay re-dump):** with 1218
+  distinct, the on-circle configuration folds an incident sliver, and
+  the N2-3a fold-validity gate reverts the corner's mints to chord lifts
+  (`mint(rev)` 4→6) — its designed role: record the demand for §4.4.1
+  mesh updating instead of shipping a fold. The emission is CONSISTENT
+  (Stage-6 assembles 2-manifold; `NONMANIFOLD_SITE_PROBE` silent). A
+  second corner un-groups too (v463/v470, a 2.5e-7 pair): its wedges
+  survive as real kept triangles (e8drop 209→207, kept_a/b +1 each).
+  Post-change `YANG_SPLIT_PROBE`: every group is a {column-twin,
+  crossing} PAIR electing the crossing member; no ≥3 clusters remain.
+- **Named residual (next increment):** F0067 gate-ON advances one stage
+  deeper — Stage-6 assembles; the RENDER tessellation rejects a gear-top
+  tooth ring at a DIFFERENT azimuth (`TessellationFailed FaceId(4005)`,
+  "ring rejected by CDT"). Measured (`KV2_RING_REJECT_PROBE` + exact
+  census): the 25-vertex ring doubles back 3.6e-5 at
+  v21=(0.19862607144761782, 0.06441664730277269) — v21→v22 is exactly
+  backward along the incoming flank segment (collinear to 1e-21), and
+  (v22,v23) properly crosses (v20,v21). v21 is a Stage-0 flank lift
+  BYTE-IDENTICAL pre/post at that tooth; v22 is minted downstream
+  (absent from every Stage-0 overlay dump). Shape and seam type match
+  the tracked §4.5.3 straight-run reversal class
+  (`s453_line_run_reversal.rs`, R0072/F0045): an UNMASKED LATENT of a
+  known class, not a mint of this increment.
+
 ## 4. Verification plan
 
 - Unit: refinement function on a synthetic ring+partner (corner in a
@@ -185,3 +249,9 @@ junction machinery).
   shared-mint grouping extension (same gate). Unit tests
   `tests_unit/m8_rim_refine.rs` (4). Measurements in §3b; the M-B
   trio-wedge residual is the NAMED next increment.
+- 2026-08-14: increment 2 LANDED (same gate) — the trio-wedge root
+  cause re-anchored one layer upstream to the grouping admission (§3c);
+  `mint_group_admits` factored (2D floor tier + 3D rounding-noise tier,
+  R0072-corrected) + 5 unit tests. F0067 gate-ON retires the Stage-6
+  non-2-manifold wall; the named residual is the §4.5.3 straight-run
+  reversal (CDT ring rejection, FaceId 4005).
