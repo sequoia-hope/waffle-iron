@@ -217,7 +217,17 @@ name, never measured).
    slivers at the mirrored tooth, the unmasked twin of the retired
    loud reject, caught by the in-line composition oracle and closed
    same-session (spec §3e P10 record; `ASSAY_DEGEN_PROBE` added to
-   the harness oracle for locating degenerate render triangles).**
+   the harness oracle for locating degenerate render triangles).
+   GATE FLIPPED to always-on same session (spec §3f census): corpus
+   259C/0W/49E/0T becomes the NEW CANONICAL BASELINE (the F0067
+   conversion is the only category delta vs 258C); five stale
+   pre-refinement adversary pins re-anchored (`n2_rim_mint_adversary`
+   — one had pinned the §4-I1d phantom unbounded junction as ground
+   truth; refinement re-anchors ring samples pair-dependently);
+   capability ledger: exact plane-through-sample coincidence now
+   dead-ends loud LRR (recorded wall, pinned), the 1-ULP-inside class
+   now builds valid (gain). The flip also enables the machinery in the
+   WASM app for the first time (env vars read `None` on wasm32).**
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

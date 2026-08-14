@@ -358,6 +358,62 @@ the y ≈ ±0.034 Overlap-class corners refuse on the unchanged guards
 (mergeable=false / gap > disp / overshoot > sagitta) and revert as
 before — that family's all-chord state ships exactly as it did.
 
+## 3f. Gate flip (2026-08-14, third session): `YANG_STAGE0_RIM_REFINE`
+## ALWAYS-ON — census record
+
+The gate is flipped to always-on at its four production read sites (the
+pair-path refinement call, the `mint_group_admits` 2D-floor tier, the
+twin-mid backtrack walk, the sagitta representative fallback); the
+historical gate-OFF branches survive as unit-tested parameters where
+they carried tests (`mint_group_admits`, `fig11_backtrack_pair`).
+
+**Census findings:**
+
+1. **Corpus** (the primary evidence, measured pre-flip gate-ON and
+   re-measured post-flip): 259C/0W/49E/0T; the only category delta vs
+   the 258C canonical is F0067 ERROR → SUPPORTED_CORRECT; within-ERROR
+   drifts only the anchored pair (R0015 vertex renumber, R0050 one
+   stage deeper). The committed results.json advances to the new
+   canonical.
+2. **The N2-3a adversary suite surfaced five stale pre-refinement pins**
+   (`n2_rim_mint_adversary.rs` — a gate-OFF-only suite, never run
+   gate-ON; all five failures reproduce at the PRE-twin-mid commit
+   gate-ON, so they are increment-1/2 behaviors, not the merge's):
+   - *Ring samples are re-anchored, pair-dependently* — refinement does
+     not merely add samples: the R0072-class calibration sample moved
+     az 34.62° → 31.62° and the old uniform sample is gone. Calibration
+     re-pinned.
+   - *corner-in-band*: the old pin `corner_in_band_reverts_keep_true_
+     junction` DEMANDED the phantom — a vertex at the circle∩line root
+     of the box side plane's UNBOUNDED line, outside the box edge's own
+     segment (exactly the F0067 wheel-corner defect class, spec
+     `yang_441_trim_cdt_construction` §4-I1d/J1). Post-flip the corners
+     classify Overlap (no crescent), no mints fire, and no phantom
+     exists; the REAL in-segment junctions (y = ±0.3 edges × circle)
+     are present, the box corner survives verbatim, volume 30.508
+     (refined cap; pre-flip 29.833). Re-pinned as
+     `corner_in_band_refines_membership_no_phantom_junction` — the old
+     pin encoded the defect; its failure was the cure.
+   - *fold-gate fixture*: the R0013 coarse-chord fold mechanism NO
+     LONGER ARISES (refined sub-chord sagitta too small; zero gate
+     events, measured) — the gate + ladder remain corpus-exercised
+     (F0067's flush pairs). Re-pinned: valid output, prism design
+     corner bit-verbatim, bitwise determinism.
+3. **Capability ledger** (both pinned in the suite):
+   - LOST (loud): exact plane-through-ring-sample coincidence now
+     dead-ends `Stage4RegionInvalid`/`LocalRefinementRequired`
+     (pre-flip Ok). Recorded wall — the Ok arm's full oracle is kept in
+     the pin so a future capability gain flips it loudly.
+   - GAINED: the 1-ULP-inside-sample variant now builds VALID
+     (pre-flip: loud `NonManifoldOutput`).
+
+**Flip verification:** yang-rs full suite (75 targets incl. the
+re-pinned adversary suite) green; fmt/clippy clean; full corpus
+post-flip re-run (canonical results.json updated); rewrite tier;
+WASM bundle rebuilt (NOTE: `env::var_os` is always `None` on
+wasm32-unknown-unknown, so the flip enables the machinery in the APP
+for the first time); GUI smoke tier.
+
 ## 4. Verification plan
 
 - Unit: refinement function on a synthetic ring+partner (corner in a
@@ -398,6 +454,13 @@ before — that family's all-chord state ships exactly as it did.
   epic (#169). Census-loop refinement attempted, measured DIVERGENT
   (+2 features/round self-regeneration), reverted same-day — P10
   record in §3d.
+- 2026-08-14 (third session, second increment): GATE FLIPPED to
+  always-on (§3f) — corpus census clean (259C/0W/49E/0T, the F0067
+  conversion is the only category delta); five stale pre-refinement
+  adversary pins re-anchored (one had pinned the phantom-junction
+  defect as ground truth); capability ledger: coincidence class now
+  loud-LRR (recorded wall), 1-ULP class now valid (gain). The canonical
+  corpus baseline advances 258C/0W/50E/0T → 259C/0W/49E/0T.
 - 2026-08-14 (third session): increment 3 LANDED (same gate, §3e) —
   the §3d inconsistency fixed in the all-junction direction by
   extending the fold gate's own Fig-11(b→c) merge recognition

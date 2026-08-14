@@ -37,25 +37,24 @@
 //!    χ = 4, on-band.
 //! 3. **Crossing through an existing rim sample**
 //!    (`crossing_through_existing_rim_sample`): self-calibrated — a first
-//!    union locates a REAL Stage-1 rim-ring vertex (az ≈ 34.62°), then the
-//!    box side plane is rebuilt bit-exactly through its x coordinate so the
-//!    circle∩line crossing collides with the exact-key rim branch. Measured:
-//!    single body, no duplicate/near-duplicate vertices (min pairwise mesh
-//!    vertex distance 1.099e-6), on-band. The 1-ULP-inside variant (crossing
-//!    within ULPs of the sample, exercising the ULP-snap branch) is a loud
-//!    typed error today (`NonManifoldOutput`) — pinned as valid-or-loud,
-//!    never silent.
-//! 4. **Fold-gate exercise** (`fold_gate_revert_is_contained_and_deterministic`):
-//!    coarse rim (r = 1, h = 10 → Stage-1 picks N = 7, sagitta
-//!    1−cos(π/7) ≈ 9.7e-2) with a prism edge lying INSIDE the chord↔arc band
-//!    and B-material between chord and edge — the measured R0013 folding
-//!    mechanism. Instrumented ground truth (dev-only print, reverted): the
-//!    gate fires 3 reverts here; one reverted chord vertex survives to the
-//!    output mesh at its chord position (x = 0.82 event on the
-//!    az 38.57°→−12.86° chord, r ≈ 0.9385) — the positive revert detector.
-//!    Output stays watertight, χ = 2, fully on-band (the reverts are
-//!    contained: no off-band vertex reaches a boundary loop), bitwise
-//!    deterministic.
+//!    union locates a REAL Stage-1 rim-ring vertex (az ≈ 31.62° under the
+//!    always-on rim refinement, 2026-08-14 flip census; ring samples are
+//!    pair-dependent since the flip), then the box side plane is rebuilt
+//!    bit-exactly through its x coordinate. Measured at the flip census:
+//!    the coincidence class dead-ends in a LOUD typed
+//!    `Stage4RegionInvalid`/`LocalRefinementRequired` (pre-flip: Ok with
+//!    the sample surviving) — pinned as valid-or-loud with the Ok arm's
+//!    full oracle retained so a capability gain flips the pin loudly. The
+//!    1-ULP-inside variant now builds VALID (pre-flip it was a loud
+//!    `NonManifoldOutput`) — a flip capability gain.
+//! 4. **Fold-gate fixture** (`fold_gate_revert_is_contained_and_deterministic`):
+//!    coarse rim (r = 1, h = 10 → Stage-1 picks N = 7) with a prism edge
+//!    inside the pre-flip chord↔arc band — the measured R0013 folding
+//!    mechanism. Since the 2026-08-14 flip the refined ring removes the
+//!    coarse sagitta and ZERO fold-gate events fire here (the gate + repair
+//!    ladder remain corpus-exercised, e.g. F0067's flush pairs); the pins
+//!    that survive the mechanism's retirement: fully-valid output, the
+//!    prism design corner bit-verbatim, bitwise determinism.
 //! 5. **Extreme magnitudes** (`extreme_magnitudes_valid_or_loud`): the
 //!    acceptance fixture ×1e6 (valid: χ = 2, worst residual 2.8e-14 ≪ band
 //!    2.1e-7) and ×1e-2 (LOUD today: `NonManifoldOutput` — a scale-dependent
@@ -540,11 +539,11 @@ fn band_edge_prism() -> BRep {
 }
 
 /// Corner-in-band fixture: box corners (0.94, ±0.3) sit inside the rim
-/// circle but OUTSIDE the N=7 rim polygon (in the chord↔arc band); the −x
-/// edge's circle∩line roots (0.94, ±0.3412) lie OUTSIDE the box's own edge
-/// segment. Measured: both branch mints fire and are gate-reverted; the
-/// output ring still carries the TRUE plane×rim junction (0.94, −0.3412)
-/// (Stage-4 line relocation), watertight, χ = 2, on-band.
+/// circle but OUTSIDE the pre-flip N=7 rim polygon (in the chord↔arc
+/// band); the −x edge's circle∩line roots (0.94, ±0.3412) lie OUTSIDE the
+/// box's own edge segment. Since the 2026-08-14 flip, membership
+/// refinement classifies the corners INSIDE (Overlap) — no crescent, no
+/// mints, no phantom junction (see the probe's doc for the census).
 fn corner_in_band_box() -> BRep {
     box_brep([0.94, -0.3, 0.0], [3.0, 0.3, 0.4])
 }
@@ -655,10 +654,14 @@ fn signature(r: &Result<BRep, YangError>) -> String {
 
 /// Self-calibration for probe 3: locate a REAL bottom-rim ring sample of the
 /// R0072-class cylinder from a baseline union output (z = 0, +y side,
-/// x > 0, on the rim circle within the import band; the max-x such vertex is
-/// the az ≈ 34.62° uniform sample — measured
-/// (1.7561704341307908e-4, 1.2121969266043437e-4, 0)). Deterministic: the
-/// ring sampling depends only on A's own rim circles.
+/// x > 0, on the rim circle within the import band; the max-x such vertex).
+/// Under the always-on M8 rim membership refinement (2026-08-14 corpus
+/// flip) the ring carries exact on-circle refinement samples in addition to
+/// the N = 13 uniform ones; the max-x +y sample is now the az ≈ 31.62°
+/// refinement sample — measured
+/// (1.8170833687781708e-4, 1.1188226014404256e-4, 0). Deterministic: the
+/// ring sampling depends only on A's own rim circles and the pair's
+/// refinement demands.
 fn calibrated_rim_sample() -> [f64; 3] {
     let out = try_union(cyl_a(1.0), box_b_coplanar(1.0, DELTA))
         .expect("baseline acceptance-class union must build (acceptance suite is green)");
@@ -673,11 +676,13 @@ fn calibrated_rim_sample() -> [f64; 3] {
         }
     }
     let s = sample.expect("baseline output must contain a +y bottom-rim ring sample");
-    // Sanity: the calibrated sample is the az ≈ 34.62° vertex (N = 13 ring).
+    // Sanity: the calibrated sample is the az ≈ 31.62° refinement vertex
+    // (measured at the 2026-08-14 flip census; the pre-flip N = 13 uniform
+    // sample was az ≈ 34.62°).
     let az = s[1].atan2(s[0]).to_degrees();
     assert!(
-        (az - 34.62).abs() < 0.1,
-        "calibration drifted: expected the az≈34.62° ring sample, got az={az:.2}° at {s:?}"
+        (az - 31.62).abs() < 0.1,
+        "calibration drifted: expected the az≈31.62° ring sample, got az={az:.2}° at {s:?}"
     );
     s
 }
@@ -749,28 +754,51 @@ fn exact_tangency_and_just_past() {
 fn crossing_through_existing_rim_sample() {
     let s = calibrated_rim_sample();
     let bx = box_brep([s[0], -BOX_HALF_Y, 0.0], [s[0] + BOX_W, BOX_HALF_Y, H_B]);
-    let out = assert_valid_or_loud(
+    // 2026-08-14 flip census (always-on rim refinement): ring samples are
+    // now PAIR-DEPENDENT (refinement re-anchors the ring per pair — the
+    // pre-flip N = 13 uniform az 34.62° sample no longer exists), so this
+    // probe's plane passes bit-exactly through the CALIBRATION pair's
+    // sample position — a near-coincidence adversary for THIS pair. The
+    // measured outcome is the loud typed Stage-4 dead-end below (pre-flip:
+    // Ok with the sample surviving). Valid-or-loud holds either way; an
+    // Ok return must pass the full oracle + the original crack checks so
+    // a future capability gain flips this pin loudly.
+    match assert_valid_or_loud(
         try_union(cyl_a(1.0), bx),
         &[2],
         "crossing through rim sample (exact)",
-    )
-    .expect("exact-coincidence union built Ok at HEAD (measured)");
-    // The sample itself must survive as a vertex (it IS the junction).
-    assert_vertex_at(&out, s, R, "crossing through rim sample (exact)");
-    // No cracks from a near-duplicate mint: min pairwise distance stays
-    // macroscopic (measured 1.099e-6; a double-mint would be < 1e-12).
-    let vs: Vec<[f64; 3]> = out.as_mesh().verts.iter().map(|v| v.as_array()).collect();
-    let mut dmin = f64::INFINITY;
-    for i in 0..vs.len() {
-        for j in (i + 1)..vs.len() {
-            dmin = dmin.min(norm(sub3(vs[i], vs[j])));
+    ) {
+        Err(YangError::Stage4RegionInvalid { reason, .. }) => {
+            assert_eq!(
+                format!("{reason:?}"),
+                "LocalRefinementRequired",
+                "crossing through rim sample: the pinned loud wall class changed"
+            );
+        }
+        Err(e) => panic!(
+            "crossing through rim sample: loud wall drifted to a different \
+             typed error class: {e:?} (pinned: Stage4RegionInvalid/\
+             LocalRefinementRequired at the 2026-08-14 flip census)"
+        ),
+        Ok(out) => {
+            // The sample itself must survive as a vertex (it IS the junction).
+            assert_vertex_at(&out, s, R, "crossing through rim sample (exact)");
+            // No cracks from a near-duplicate mint: min pairwise distance
+            // stays macroscopic (a double-mint would be < 1e-12).
+            let vs: Vec<[f64; 3]> = out.as_mesh().verts.iter().map(|v| v.as_array()).collect();
+            let mut dmin = f64::INFINITY;
+            for i in 0..vs.len() {
+                for j in (i + 1)..vs.len() {
+                    dmin = dmin.min(norm(sub3(vs[i], vs[j])));
+                }
+            }
+            assert!(
+                dmin > 1e-12,
+                "crossing through rim sample: near-duplicate vertices (dmin = {dmin:.3e}) — \
+                 the exact-key and crossing branches minted the same point twice"
+            );
         }
     }
-    assert!(
-        dmin > 1e-12,
-        "crossing through rim sample: near-duplicate vertices (dmin = {dmin:.3e}) — \
-         the exact-key and crossing branches minted the same point twice"
-    );
 }
 
 /// The same plane 1 ULP inside the sample: the crossing points land within
@@ -814,56 +842,41 @@ fn crossing_one_ulp_inside_rim_sample() {
 /// 1e-9 absolute at unit scale ≫ ULP yet ≪ the 6e-2 mint displacement.
 #[test]
 fn fold_gate_revert_is_contained_and_deterministic() {
+    // 2026-08-14 flip census (always-on rim refinement): the coarse-chord
+    // fold mechanism this fixture was built to trigger NO LONGER ARISES —
+    // the refined ring's sub-chord sagitta is too small to invert anything,
+    // and zero fold-gate events fire (measured with YANG_SPLIT_PROBE; the
+    // pre-flip run reverted 3 mints here). The prism corner (0.82, 0.52),
+    // rad ≈ 0.971 inside the exact circle, now classifies Overlap (interior
+    // content) instead of landing outside the coarse polygon in a sag
+    // crescent. The gate + repair ladder remain corpus-exercised (F0067's
+    // flush pairs). Pins that survive the mechanism's retirement: the
+    // output is fully valid, the prism's design corner is IMMOVABLE
+    // (survives verbatim — never welded, merged, or relocated), and the
+    // result is bitwise deterministic.
     let r1 = try_union(tall_cyl(), band_edge_prism());
     let out = assert_valid_or_loud(r1, &[2], "fold-gate band-edge prism")
         .expect("fold-gate fixture built Ok at HEAD (measured)");
 
-    // Locate the two N=7 ring samples bounding the exercised chord.
-    let mesh = out.as_mesh();
-    let find_ring = |az_lo: f64, az_hi: f64| -> [f64; 3] {
-        mesh.verts
-            .iter()
-            .map(|v| v.as_array())
-            .find(|a| {
-                a[2] == 0.0 && {
-                    let rad = (a[0] * a[0] + a[1] * a[1]).sqrt();
-                    let az = a[1].atan2(a[0]).to_degrees();
-                    (rad - 1.0).abs() < 1e-9 && az > az_lo && az < az_hi
-                }
-            })
-            .unwrap_or_else(|| panic!("N=7 ring sample in az ({az_lo}, {az_hi}) missing"))
-    };
-    let s_hi = find_ring(38.0, 39.0); // az 38.57°
-    let s_lo = find_ring(-13.5, -12.5); // az −12.86°
-
-    // Revert detector: a z=0 mesh vertex at the x=0.82 event, strictly
-    // inside the circle, collinear with the chord s_lo→s_hi.
-    let (dx, dy) = (s_hi[0] - s_lo[0], s_hi[1] - s_lo[1]);
-    let clen = (dx * dx + dy * dy).sqrt();
-    let reverted = mesh.verts.iter().map(|v| v.as_array()).any(|a| {
-        if a[2] != 0.0 || (a[0] - 0.82).abs() > 1e-9 {
-            return false;
-        }
-        let rad = (a[0] * a[0] + a[1] * a[1]).sqrt();
-        if !(0.90..0.995).contains(&rad) {
-            return false;
-        }
-        // distance from the chord line
-        ((a[0] - s_lo[0]) * dy - (a[1] - s_lo[1]) * dx).abs() / clen < 1e-9
-    });
+    let corner_exact = out
+        .as_mesh()
+        .verts
+        .iter()
+        .map(|v| v.as_array())
+        .any(|a| a == [0.82, 0.52, 0.0]);
     assert!(
-        reverted,
-        "fold-gate: expected the x=0.82 chord-event vertex to survive AT ITS \
-         CHORD POSITION (gate revert); it is absent or was minted onto the \
-         circle — the fold-validity gate did not fire on the R0013 mechanism"
+        corner_exact,
+        "fold-gate fixture: the prism design corner (0.82, 0.52, 0) must \
+         survive bit-verbatim (design vertices are immovable)"
     );
 
-    // Determinism of the gated result (A4.2 / spec I6): bitwise identical.
+    // Determinism of the result (A4.2 / spec I6): bitwise identical.
     let r2 = try_union(tall_cyl(), band_edge_prism());
     assert_eq!(
         signature(&Ok(out)),
         signature(&r2),
-        "fold-gate: repeat run differs — gate reverts are not deterministic"
+        "fold-gate fixture: repeat run differs — Stage-0 resolution is not \
+         deterministic"
     );
 }
 
@@ -871,28 +884,39 @@ fn fold_gate_revert_is_contained_and_deterministic() {
 // Probe 4b — corner-in-band: circle∩line roots outside the B edge segment.
 // =========================================================================
 
-/// Box corners (0.94, ±0.3) inside the circle but outside the rim polygon:
-/// both crossing-branch mints target roots OUTSIDE the B edge's own segment
-/// and are gate-reverted (instrumented ground truth), yet the TRUE
-/// plane×cylinder junction (0.94, −√(1−0.94²), 0) must still be an output
-/// vertex (Stage-4 line relocation) and the output fully valid. Measured:
-/// χ = 2, on-band, volume 2.9833e1 (bottom cap rounded by the x-event mints
-/// toward the true circle: (π + 7/2·sin(2π/7))/2·10 + box − overlap).
+/// Box corners (0.94, ±0.3) inside the circle but outside the rim polygon
+/// (the chord↔arc sag-crescent class). 2026-08-14 flip census (always-on
+/// rim refinement): membership refinement subdivides the ring until the
+/// polygon agrees with the exact circle, so the corners classify INSIDE
+/// (Overlap) and the pre-flip behavior — crossing-branch mints at the
+/// circle∩line roots OUTSIDE the B edge's own segment, gate-reverted, with
+/// Stage-4's line relocation installing the UNBOUNDED junction
+/// (0.94, −√(1−0.94²), 0) as an output vertex — no longer occurs. That
+/// extrapolated junction was the F0067 wheel-corner defect class (spec
+/// `yang_441_trim_cdt_construction` §4-I1d/J1: a junction outside the kept
+/// footprint); its absence is the cure, not a loss. The REAL in-segment
+/// junctions — the y = ±0.3 edge lines crossing the circle at
+/// x = √(1−0.09) — must be output vertices, the box corner survives
+/// verbatim (design vertices are immovable), and the output is fully
+/// valid. Measured: χ = 2, on-band, volume 3.0508e1 (the refined cap
+/// rounds closer to the true circle than the pre-flip 2.9833e1).
 #[test]
-fn corner_in_band_reverts_keep_true_junction() {
+fn corner_in_band_refines_membership_no_phantom_junction() {
     let out = assert_valid_or_loud(
         try_union(tall_cyl(), corner_in_band_box()),
         &[2],
         "corner-in-band",
     )
     .expect("corner-in-band fixture built Ok at HEAD (measured)");
-    let y_j = -(1.0_f64 - 0.94 * 0.94).sqrt();
-    assert_vertex_at(&out, [0.94, y_j, 0.0], 1.0, "corner-in-band");
+    let x_j = (1.0_f64 - 0.3 * 0.3).sqrt();
+    assert_vertex_at(&out, [x_j, -0.3, 0.0], 1.0, "corner-in-band -y junction");
+    assert_vertex_at(&out, [x_j, 0.3, 0.0], 1.0, "corner-in-band +y junction");
+    assert_vertex_at(&out, [0.94, -0.3, 0.0], 1.0, "corner-in-band box corner");
     let vol = signed_volume(out.as_mesh());
     assert!(
-        (29.0..30.5).contains(&vol),
+        (30.0..31.0).contains(&vol),
         "corner-in-band: volume {vol:.4} outside the measured plausibility band \
-         (29.0..30.5; the bottom-cap x-event mints round the cap toward π·r²)"
+         (30.0..31.0; the refined bottom cap rounds toward π·r²·h + the box tail)"
     );
 }
 

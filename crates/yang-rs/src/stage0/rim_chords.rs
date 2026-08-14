@@ -876,7 +876,8 @@ pub(crate) fn opposite_rim_image(
 }
 
 /// M8 rim membership refinement (spec `m8_stage0_rim_membership_refine`,
-/// gated `YANG_STAGE0_RIM_REFINE`): subdivide this face's rim rings with
+/// ALWAYS-ON since the 2026-08-14 corpus flip): subdivide this face's rim
+/// rings with
 /// exact on-circle samples until NO partner chain vertex strictly inside
 /// the exact rim circle lies strictly outside the chord polygon (in a sag
 /// crescent). The §4.5.5 2D Boolean classifies membership against the

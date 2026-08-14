@@ -804,8 +804,10 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         }
 
         // M8 rim membership refinement (spec `m8_stage0_rim_membership_refine`,
-        // env-gated `YANG_STAGE0_RIM_REFINE`, default OFF — byte-identical
-        // off): the §4.5.5 2D Boolean below
+        // ALWAYS-ON since the 2026-08-14 corpus flip — census: gate-ON
+        // 259C/0W/49E/0T, the only category delta F0067 ERROR →
+        // SUPPORTED_CORRECT, drifts only the anchored R0015/R0050 pair):
+        // the §4.5.5 2D Boolean below
         // classifies region membership against the CHORD polygon, so a
         // partner chain vertex strictly inside the exact rim circle but in
         // a sag crescent is misclassified (F0067: 126 gear root corners
@@ -816,7 +818,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // for every partner feature; new samples propagate bit-shared into
         // the poly ring, the rim resolution map, and the cap + opposite rim
         // overrides (matched counts for the shared lateral).
-        if std::env::var_os("YANG_STAGE0_RIM_REFINE").is_some() {
+        {
             let chain_pts =
                 |poly: &PolygonWithHoles, rim: &BTreeMap<ExactPoint2, Point3>| -> Vec<Point2> {
                     let rimset: std::collections::BTreeSet<(u64, u64)> = rim
@@ -1245,7 +1247,10 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // vertex, and enrolling it re-writes chain topology (the §3b
         // trio-wedge `i6-edge-overuse` residual). Predicate + measured
         // class census: `mint_group_admits`.
-        let rim_refine_2d_group = std::env::var_os("YANG_STAGE0_RIM_REFINE").is_some();
+        // ALWAYS-ON since the 2026-08-14 corpus flip; the historical 3D
+        // sub-floor band stays in `mint_group_admits`' false branch,
+        // unit-tested, for the record.
+        let rim_refine_2d_group = true;
         for slot in 0..n_mint_slots {
             let members: Vec<(usize, bool)> = minted_info
                 .iter()
@@ -1741,21 +1746,16 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                             .iter()
                             .find(|&&(vi, _, _)| vi == mq as usize)
                             .or_else(|| {
-                                // §3e (gated with the twin-mid walk): a
-                                // lift-absorbed collapse-group member has no
-                                // minted_info entry of its own — its rim
-                                // slot lives on the group representative at
-                                // the same resolved position (bit-equal by
-                                // the §15 absorb). Env-gated so the
-                                // historical gate-OFF reject (sagitta=None →
-                                // containment fails) stays byte-identical.
-                                if std::env::var_os("YANG_STAGE0_RIM_REFINE").is_some() {
-                                    minted_info
-                                        .iter()
-                                        .find(|&&(vi, _, _)| coords[vi] == coords[mq as usize])
-                                } else {
-                                    None
-                                }
+                                // §3e (ALWAYS-ON since the 2026-08-14
+                                // corpus flip): a lift-absorbed
+                                // collapse-group member has no minted_info
+                                // entry of its own — its rim slot lives on
+                                // the group representative at the same
+                                // resolved position (bit-equal by the §15
+                                // absorb).
+                                minted_info
+                                    .iter()
+                                    .find(|&&(vi, _, _)| coords[vi] == coords[mq as usize])
                             })
                             .and_then(|&(_, slot, _)| {
                                 rim_ctxs_a.iter().chain(rim_ctxs_b.iter()).nth(slot)

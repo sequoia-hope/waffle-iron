@@ -1079,15 +1079,14 @@ pub(crate) fn relocate_region_single_class(
         if !grew {
             // Amendment 13: an ungrowable crossing in the Fig-11 BACKTRACK
             // configuration is a merge candidate — report it to the caller
-            // (first one wins; no mutation here). Under the rim-refine gate
-            // the sandwich walk additionally skips bit-twin (zero-length)
-            // mid edges left by a collapsed shared-mint group — the F0067
-            // boundary-exit corner class (spec
-            // `m8_stage0_rim_membership_refine` §3e); gate-OFF the walk is
-            // byte-identical to the 4-gon form.
-            let twin_mids = std::env::var_os("YANG_STAGE0_RIM_REFINE").is_some();
+            // (first one wins; no mutation here). The twin-mid walk
+            // (ALWAYS-ON since the 2026-08-14 corpus flip) additionally
+            // skips bit-twin (zero-length) mid edges left by a collapsed
+            // shared-mint group — the F0067 boundary-exit corner class
+            // (spec `m8_stage0_rim_membership_refine` §3e). Wedge call
+            // sites keep the plain 4-gon walk (no measured customer).
             if let Some((pp, qq, ov, cl)) =
-                fig11_backtrack_pair(&poly, ei, ej, minted_mark, coords, frame, twin_mids)
+                fig11_backtrack_pair(&poly, ei, ej, minted_mark, coords, frame, true)
             {
                 if probe {
                     eprintln!(
