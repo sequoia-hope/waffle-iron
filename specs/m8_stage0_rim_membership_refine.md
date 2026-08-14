@@ -278,6 +278,86 @@ self-regenerating under subdivision, because a partner edge crossing the
 circle ALWAYS traverses some residual crescent. Reverted same-day,
 never landed.
 
+## 3e. Increment 3 (2026-08-14, third session): the fold gate's Fig-11(b→c)
+## merge arm could not SEE the boundary-exit corner — twin-mid backtrack walk
+
+The §3d inconsistency is resolved at its root, in the all-junction
+direction (#169's target state), by extending the EXISTING Fig-11(b→c)
+merge arm's candidate recognition — no new mechanism, the paper's own
+operation ("if an endpoint p of the split edge is too close to q, we
+merge p with q", Fig. 11(b→c)).
+
+Measured ladder at the failing tooth (YANG_SPLIT_PROBE, pair (328,0),
+azimuth ≈ 17.9°): the crossing trio groups to ONE on-circle junction
+mint 1545 = J (§3c grouping; 1538 bit-twin, 1539 lift-absorbed); tri
+2234 (1551, 1552, 1545) folds (area −1.3e-7); the flip arm rejects
+(edge (1552,1545) domain-boundary, the others' replacements invalid);
+the singleton cavity is non-simple; the region grow's final 9-ring has
+crossing pair e5 = (1560→1552) — the FLANK, domain boundary,
+ungrowable — × e8 = (1538→1530), intersection-curve edge, ungrowable
+⇒ reject ⇒ amendment-2 revert (the §3d `mint(rev)`). But the ring
+BETWEEN the crossing edges reads e6 = (1552→1545) — p = 1552 the
+crescent lift, unminted + mergeable, 3.6e-5 from q = 1545 — then e7 =
+(1545→1538), a ZERO-LENGTH bit-twin edge from the §15 collapse. That
+is the canonical Fig-11(b) backtrack sandwich, invisible to
+`fig11_backtrack_pair`'s 4-gon walk only because the degenerate twin
+edge spreads the crossing edges 3 apart.
+
+**Change 1 — twin-mid sandwich walk** (`stage0/reloc.rs`,
+`fig11_backtrack_pair`, new `twin_mids: bool` param): under the gate,
+an inter-crossing span qualifies iff it contains EXACTLY ONE
+non-degenerate edge; bit-identical-endpoint edges are skipped. The mid
+edge's single-mint requirement, the split-edge line, and the overshoot
+computation are unchanged (skipped twins are bit-equal to p's flanking
+crossing edge's endpoint). Wedge call sites pass `false` (unchanged);
+the region-ungrowable site reads the gate. Gate-OFF the walk is the
+verbatim 4-gon form. Unit tests ×4 (4-gon flag-agreement, twin-mid
+recognized only under the flag, two-live-mids refusal, mirrored
+orientation).
+
+**Change 2 — sagitta lookup through the collapse representative**
+(`stage0/mod.rs` merge arm): the mirrored tooth's q = 1549 is a §15
+LIFT-ABSORBED group member — `minted_info` has no entry for it, so the
+containment guard read `sagitta=None` and refused the merge. Under the
+gate the lookup falls back to any `minted_info` entry at bit-equal
+resolved coords (the group representative 1542 carries the slot).
+Env-gated: the historical gate-OFF reject stays byte-identical.
+
+**P10 record — the one-sided intermediate state was SUPPORTED_WRONG,
+and the in-line composition oracle caught it.** With change 1 alone,
+the +x tooth's merge fired (ring reject GONE) while the mirrored
+tooth's merge still refused on `sagitta=None` and reverted — the −x
+tooth's §3d inconsistency, no longer masked by the +x tooth's loud
+CDT rejection, shipped as 2 zero-area collinear slivers along the
+flank line through J' (measured with the new `ASSAY_DEGEN_PROBE`
+harness probe: tris (2648,2649,2650) and (5250,5251,5255), heights
+1.4–1.8e-9). Verdict F0067 SUPPORTED_WRONG (2 of 4492 degenerate) —
+never committed; change 2 closes it. LESSON: a mirrored-pair defect
+fixed on one side converts the other side's loud STOP into silent
+degeneracy — run the composition oracle before trusting any
+single-site advance.
+
+**Verification (full corpus, canonical binary, pinned environment):**
+gate-OFF 258C/0W/50E/0T with the committed results.json BYTE-IDENTICAL
+(git-clean after the run); gate-ON 259C/0W/49E/0T — the category
+delta is exactly ONE (F0067 ERROR → SUPPORTED_CORRECT) and the only
+detail drifts are the previously-anchored gate-ON pair (R0015 vertex
+84→82 renumber on the same OffCurveBeyondChordBand wall; R0050
+LabelMismatch → Stage-4 LRR one stage deeper). yang-rs suite green;
+fmt/clippy clean.
+
+**Measured end state (both changes): F0067 gate-ON =
+SUPPORTED_CORRECT (95.7s), all oracle checks pass.** Both
+boundary-exit merges fire ([fold-merge] p=1552→q=1545 and
+p=1557→q=1549; gap 3.61e-5 ≤ disp 5.94e-5; overshoot ≈ 3e-18 ≤
+sagitta 6.18e-7); the trios KEEP the exact junction (no revert at
+either tooth); outline and seam agree on all-junction — the §3d
+consistent state (b). Additional harvested merges: pairs (272,0) ×2
+and (293,1) ×2 accept region-derived candidates with overshoot = 0;
+the y ≈ ±0.034 Overlap-class corners refuse on the unchanged guards
+(mergeable=false / gap > disp / overshoot > sagitta) and revert as
+before — that family's all-chord state ships exactly as it did.
+
 ## 4. Verification plan
 
 - Unit: refinement function on a synthetic ring+partner (corner in a
@@ -318,3 +398,11 @@ never landed.
   epic (#169). Census-loop refinement attempted, measured DIVERGENT
   (+2 features/round self-regeneration), reverted same-day — P10
   record in §3d.
+- 2026-08-14 (third session): increment 3 LANDED (same gate, §3e) —
+  the §3d inconsistency fixed in the all-junction direction by
+  extending the fold gate's own Fig-11(b→c) merge recognition
+  (twin-mid backtrack walk + sagitta lookup through the collapse
+  representative). F0067 gate-ON: ERROR → SUPPORTED_CORRECT (the
+  epic's first gate-ON corpus conversion of this case). One-sided
+  intermediate measured SUPPORTED_WRONG and closed same-session (§3e
+  P10 record). `ASSAY_DEGEN_PROBE` added to the harness oracle.

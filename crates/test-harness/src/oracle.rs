@@ -848,6 +848,24 @@ pub fn check_no_degenerate_triangles(mesh: &RenderMesh) -> OracleVerdict {
         };
 
         if (area as f64) < 1e-12 && (height as f64) < height_floor {
+            if std::env::var_os("ASSAY_DEGEN_PROBE").is_some() {
+                eprintln!(
+                    "[degen-probe] tri ({},{},{}) v0=({},{},{}) v1=({},{},{}) v2=({},{},{}) \
+                     area={area:e} height={height:e}",
+                    tri[0],
+                    tri[1],
+                    tri[2],
+                    verts[i0],
+                    verts[i0 + 1],
+                    verts[i0 + 2],
+                    verts[i1],
+                    verts[i1 + 1],
+                    verts[i1 + 2],
+                    verts[i2],
+                    verts[i2 + 1],
+                    verts[i2 + 2],
+                );
+            }
             degenerate += 1;
         }
     }

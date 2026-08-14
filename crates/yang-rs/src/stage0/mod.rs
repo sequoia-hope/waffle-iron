@@ -1740,6 +1740,23 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                         let sagitta = minted_info
                             .iter()
                             .find(|&&(vi, _, _)| vi == mq as usize)
+                            .or_else(|| {
+                                // §3e (gated with the twin-mid walk): a
+                                // lift-absorbed collapse-group member has no
+                                // minted_info entry of its own — its rim
+                                // slot lives on the group representative at
+                                // the same resolved position (bit-equal by
+                                // the §15 absorb). Env-gated so the
+                                // historical gate-OFF reject (sagitta=None →
+                                // containment fails) stays byte-identical.
+                                if std::env::var_os("YANG_STAGE0_RIM_REFINE").is_some() {
+                                    minted_info
+                                        .iter()
+                                        .find(|&&(vi, _, _)| coords[vi] == coords[mq as usize])
+                                } else {
+                                    None
+                                }
+                            })
                             .and_then(|&(_, slot, _)| {
                                 rim_ctxs_a.iter().chain(rim_ctxs_b.iter()).nth(slot)
                             })

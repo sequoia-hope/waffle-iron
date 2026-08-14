@@ -572,7 +572,7 @@ pub(crate) fn relocate_minted_vertex(
                         })
                         .collect(),
                     merge_candidate: cross_idx.and_then(|(ci, cj)| {
-                        fig11_backtrack_pair(&poly, ci, cj, minted_mark, coords, frame)
+                        fig11_backtrack_pair(&poly, ci, cj, minted_mark, coords, frame, false)
                     }),
                     split_chord: cross_idx.and_then(|(ci, cj)| fig11_split_chord(&poly, ci, cj)),
                 };
@@ -693,7 +693,7 @@ pub(crate) fn relocate_minted_vertex(
                             })
                             .collect(),
                         merge_candidate: cross_idx.and_then(|(ci, cj)| {
-                            fig11_backtrack_pair(&poly, ci, cj, minted_mark, coords, frame)
+                            fig11_backtrack_pair(&poly, ci, cj, minted_mark, coords, frame, false)
                         }),
                         split_chord: cross_idx
                             .and_then(|(ci, cj)| fig11_split_chord(&poly, ci, cj)),
@@ -1079,9 +1079,15 @@ pub(crate) fn relocate_region_single_class(
         if !grew {
             // Amendment 13: an ungrowable crossing in the Fig-11 BACKTRACK
             // configuration is a merge candidate — report it to the caller
-            // (first one wins; no mutation here).
+            // (first one wins; no mutation here). Under the rim-refine gate
+            // the sandwich walk additionally skips bit-twin (zero-length)
+            // mid edges left by a collapsed shared-mint group — the F0067
+            // boundary-exit corner class (spec
+            // `m8_stage0_rim_membership_refine` §3e); gate-OFF the walk is
+            // byte-identical to the 4-gon form.
+            let twin_mids = std::env::var_os("YANG_STAGE0_RIM_REFINE").is_some();
             if let Some((pp, qq, ov, cl)) =
-                fig11_backtrack_pair(&poly, ei, ej, minted_mark, coords, frame)
+                fig11_backtrack_pair(&poly, ei, ej, minted_mark, coords, frame, twin_mids)
             {
                 if probe {
                     eprintln!(
@@ -1203,19 +1209,53 @@ pub(crate) fn fig11_backtrack_pair(
     minted_mark: &[bool],
     coords: &[Point3],
     frame: &Frame,
+    twin_mids: bool,
 ) -> Option<(u32, u32, f64, f64)> {
     let n = poly.len();
     // On a 4-gon the two crossing edges sandwich BOTH remaining edges —
     // try each sandwiched mid (deterministic order) and take the first
-    // that carries exactly one mint.
+    // that carries exactly one mint. `twin_mids` (spec
+    // `m8_stage0_rim_membership_refine` §3e, gated by the caller):
+    // a collapsed shared-mint group contributes ZERO-LENGTH ring edges
+    // (bit-twin members), spreading the same sandwich across more
+    // positions — the F0067 boundary-exit tooth ring runs
+    // [.., flank→p, p→q, q→twin(q), curve →..] with the crossing edges 3
+    // apart. A span qualifies iff it contains EXACTLY ONE non-degenerate
+    // edge; bit-identical-endpoint edges are skipped. The mid edge's
+    // single-mint requirement and the split-edge line are unchanged (the
+    // flanking crossing edge still ends at p's position — the skipped
+    // twins are bit-equal to it).
     let mut mids = [None, None];
-    if (ei + 2) % n == ej {
-        mids[0] = Some((ei + 1) % n);
+    if twin_mids {
+        let degenerate = |e: usize| coords[poly[e] as usize] == coords[poly[(e + 1) % n] as usize];
+        let span_mid = |from: usize, to: usize| -> Option<usize> {
+            let mut mid: Option<usize> = None;
+            let mut e = (from + 1) % n;
+            while e != to {
+                if !degenerate(e) {
+                    if mid.is_some() {
+                        return None;
+                    }
+                    mid = Some(e);
+                }
+                e = (e + 1) % n;
+            }
+            mid
+        };
+        mids[0] = span_mid(ei, ej);
+        mids[1] = span_mid(ej, ei);
+    } else {
+        if (ei + 2) % n == ej {
+            mids[0] = Some((ei + 1) % n);
+        }
+        if (ej + 2) % n == ei {
+            mids[1] = Some((ej + 1) % n);
+        }
     }
-    if (ej + 2) % n == ei {
-        mids[1] = Some((ej + 1) % n);
-    }
-    for mid in mids.into_iter().flatten() {
+    for (mid, p_from, p_to) in [(mids[0], ei, ej), (mids[1], ej, ei)] {
+        let Some(mid) = mid else {
+            continue;
+        };
         let (a, b) = (poly[mid], poly[(mid + 1) % n]);
         let (p, q) = match (minted_mark[a as usize], minted_mark[b as usize]) {
             (false, true) => (a, b),
@@ -1224,12 +1264,10 @@ pub(crate) fn fig11_backtrack_pair(
         };
         // The split edge = the crossing edge whose endpoint is p: the mid
         // edge runs positions mid → mid+1; p's flanking crossing edge is
-        // the ring edge on p's side of the sandwich.
-        let p_edge = if poly[mid] == p {
-            (mid + n - 1) % n
-        } else {
-            (mid + 1) % n
-        };
+        // the crossing edge on p's side of the sandwich (any skipped twin
+        // edges between are zero-length, so that edge ends at p's
+        // position).
+        let p_edge = if poly[mid] == p { p_from } else { p_to };
         let ea = frame.project(coords[poly[p_edge] as usize]);
         let eb = frame.project(coords[poly[(p_edge + 1) % n] as usize]);
         let qq = frame.project(coords[q as usize]);
@@ -4251,5 +4289,117 @@ mod slide_tests {
         for t in &overlay.tris {
             assert!(super::gate_tri_valid(t, &coords, &frame));
         }
+    }
+
+    // ── fig11_backtrack_pair twin-mid sandwich (spec
+    // `m8_stage0_rim_membership_refine` §3e) ─────────────────────────────
+    // The F0067 boundary-exit tooth shape: ring [W, P, J, J', D] where
+    // the flank crossing edge (W→P) runs along y=0, the collapsed
+    // shared-mint junction J=(0.1,0) sits ON that line strictly interior
+    // to the segment, J' is J's bit-twin (zero-length ring edge), and
+    // the curve edge (J'→D) exits sideways. Crossing pair (e0, e3) is 3
+    // apart — invisible to the 4-gon walk, recognized when `twin_mids`
+    // skips the degenerate edge.
+
+    #[test]
+    fn backtrack_pair_4gon_identical_under_both_flags() {
+        let frame = frame_z0();
+        // [W, P, Q, D]: mid edge (P→Q) with q minted; crossing (e0, e2).
+        let coords = vec![p(0.5, 0.0), p(0.0, 0.0), p(0.1, 0.0), p(0.09, -0.05)];
+        let poly = [0u32, 1, 2, 3];
+        let minted = vec![false, false, true, false];
+        let off = super::fig11_backtrack_pair(&poly, 0, 2, &minted, &coords, &frame, false);
+        let on = super::fig11_backtrack_pair(&poly, 0, 2, &minted, &coords, &frame, true);
+        assert_eq!(off, on, "no degenerate mids: the flags must agree");
+        let (pp, qq, ov, cl) = off.expect("the 4-gon sandwich is the recognized form");
+        assert_eq!((pp, qq), (1, 2));
+        assert!(
+            ov.abs() < 1e-15,
+            "q is on the split-edge line, overshoot {ov}"
+        );
+        assert!((cl - 0.5).abs() < 1e-15, "split chord is |W-P|, got {cl}");
+    }
+
+    #[test]
+    fn backtrack_pair_twin_mid_recognized_only_under_flag() {
+        let frame = frame_z0();
+        // [W, P, J, J', D]: e1=(P→J) is the too-close pair, e2=(J→J')
+        // bit-degenerate, crossing pair (e0, e3).
+        let coords = vec![
+            p(0.5, 0.0),
+            p(0.0, 0.0),
+            p(0.1, 0.0),
+            p(0.1, 0.0),
+            p(0.09, -0.05),
+        ];
+        let poly = [0u32, 1, 2, 3, 4];
+        let minted = vec![false, false, true, true, false];
+        assert_eq!(
+            super::fig11_backtrack_pair(&poly, 0, 3, &minted, &coords, &frame, false),
+            None,
+            "the 4-gon walk cannot see a 3-apart sandwich"
+        );
+        let (pp, qq, ov, cl) =
+            super::fig11_backtrack_pair(&poly, 0, 3, &minted, &coords, &frame, true)
+                .expect("the twin-mid walk recognizes the spread sandwich");
+        assert_eq!(
+            (pp, qq),
+            (1, 2),
+            "p is the crescent lift, q the junction mint"
+        );
+        assert!(ov.abs() < 1e-15, "q on the flank line, overshoot {ov}");
+        assert!(
+            (cl - 0.5).abs() < 1e-15,
+            "split chord is the flank edge, got {cl}"
+        );
+    }
+
+    #[test]
+    fn backtrack_pair_two_live_mids_refused() {
+        let frame = frame_z0();
+        // Same ring but J' moved off J: two non-degenerate mid edges in
+        // the span — not a sandwich, no candidate under either flag.
+        let coords = vec![
+            p(0.5, 0.0),
+            p(0.0, 0.0),
+            p(0.1, 0.0),
+            p(0.1, -0.001),
+            p(0.09, -0.05),
+        ];
+        let poly = [0u32, 1, 2, 3, 4];
+        let minted = vec![false, false, true, true, false];
+        for flag in [false, true] {
+            assert_eq!(
+                super::fig11_backtrack_pair(&poly, 0, 3, &minted, &coords, &frame, flag),
+                None,
+                "two live mid edges must refuse (flag {flag})"
+            );
+        }
+    }
+
+    #[test]
+    fn backtrack_pair_twin_mid_mirrored_orientation() {
+        let frame = frame_z0();
+        // The mirrored tooth: ring [D, J', J, P, W] — the mid edge runs
+        // q→p, the degenerate edge PRECEDES the mid in the span, and the
+        // split edge is the crossing edge AFTER p (e3).
+        let coords = vec![
+            p(0.09, -0.05),
+            p(0.1, 0.0),
+            p(0.1, 0.0),
+            p(0.0, 0.0),
+            p(0.5, 0.0),
+        ];
+        let poly = [0u32, 1, 2, 3, 4];
+        let minted = vec![false, true, true, false, false];
+        let (pp, qq, ov, cl) =
+            super::fig11_backtrack_pair(&poly, 0, 3, &minted, &coords, &frame, true)
+                .expect("the mirrored sandwich is recognized");
+        assert_eq!((pp, qq), (3, 2), "p at the mid edge's end, q at its start");
+        assert!(ov.abs() < 1e-15, "q on the flank line, overshoot {ov}");
+        assert!(
+            (cl - 0.5).abs() < 1e-15,
+            "split chord is the flank edge, got {cl}"
+        );
     }
 }

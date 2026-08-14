@@ -201,7 +201,23 @@ name, never measured).
    passes at the y≈−0.034 tooth) or all-junction (= the §4.4.1
    mesh-updating epic #169, the structural fix). Census-loop refinement
    is P10-DISPROVEN (spec §3d: +2 features/round self-regeneration —
-   density is not membership).**
+   density is not membership). RESOLVED 2026-08-14 (third session,
+   spec §3e, same gate): the fold gate's own Fig-11(b→c) merge arm
+   could not SEE the boundary-exit corner — the §15 collapse group's
+   zero-length bit-twin ring edge spread the backtrack sandwich 3
+   apart, invisible to the 4-gon walk, so the ladder fell through to
+   the revert. Fix = twin-mid sandwich walk in `fig11_backtrack_pair`
+   (gated param; wedge sites unchanged) + sagitta containment lookup
+   through the bit-equal collapse representative for lift-absorbed
+   merge targets (the mirrored tooth's `sagitta=None` refusal). Both
+   boundary-exit merges fire; the trios keep the exact junction;
+   outline and seam agree on all-junction. **F0067 gate-ON: ERROR →
+   SUPPORTED_CORRECT.** The one-sided intermediate (walk without the
+   sagitta fallback) measured SUPPORTED_WRONG — 2 collinear zero-area
+   slivers at the mirrored tooth, the unmasked twin of the retired
+   loud reject, caught by the in-line composition oracle and closed
+   same-session (spec §3e P10 record; `ASSAY_DEGEN_PROBE` added to
+   the harness oracle for locating degenerate render triangles).**
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
