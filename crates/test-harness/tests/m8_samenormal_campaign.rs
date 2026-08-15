@@ -353,22 +353,26 @@ fn red_f0061_residual_pair() {
 #[test]
 fn wall_is_lifted_for_same_normal() {
     // Repointed R0072 → R0063 (2026-07-12, task #145): R0072 now completes
-    // CORRECT; R0063 is the campaign's remaining RED (kernel-v2
+    // CORRECT; R0063 was then the campaign's remaining RED (kernel-v2
     // InvalidBooleanOutput Newell-normal disagreement — the task-#146 class,
-    // downstream of Stage 0). The old Mode-5 "hangs cherchi" note is stale:
-    // R0063 completes with a typed error in the current assay.
+    // downstream of Stage 0).
+    //
+    // RED-EXPECTATION RETIRED (2026-08-15): R0063 under the lifted wall now
+    // completes ORACLE-CORRECT — its Newell-normal mode was fixed somewhere
+    // in the rim-refine/construct-pass era (measured red through at least
+    // 2026-07-12, green by the 2026-08-14 rim-refine flip; the construct
+    // pass declines loudly with `MixedAttribution { patch: 3 }` and the
+    // pipeline completes on the relocation-era mesh, which is that STOP's
+    // designed non-fatal behavior). The LOAD-BEARING half of this canary is
+    // the wall check below: whether R0063 is red or green, it must never be
+    // red ON THE STAGE-0 COPLANAR WALL this campaign exists to keep lifted.
     let failures = replay_failures("R0063");
-    assert!(
-        !failures.is_empty(),
-        "expected R0063 to still be RED (Newell-normal disagreement, task #146); \
-         if it now passes, repoint this check to another still-RED same-normal case"
-    );
     assert!(
         !failures
             .iter()
             .any(|f| f.contains("coplanar input face pair")),
         "the same-normal Stage-0 wall has re-appeared — R0063 hit the Stage-0 \
-         coplanar wall instead of its downstream mode:\n  {}",
+         coplanar wall instead of completing (or failing downstream):\n  {}",
         failures.join("\n  ")
     );
 }
