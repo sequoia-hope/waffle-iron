@@ -1589,7 +1589,7 @@ mod tests {
         ]
         .concat();
         let hole = vec![4u32, 5, 6, 7];
-        let seeded = i2e_seed_grid(&pool_h, &outer, &[hole.clone()], 2.0, 0.5);
+        let seeded = i2e_seed_grid(&pool_h, &outer, std::slice::from_ref(&hole), 2.0, 0.5);
         for s in &seeded {
             let in_hole = s.x() > 0.2 && s.x() < 0.8 && s.y() > 0.4 && s.y() < 1.6;
             assert!(!in_hole, "seed {s:?} landed inside the hole");
@@ -1625,8 +1625,13 @@ mod tests {
         let mut attribution = TriangleAttributionMap {
             attributions: vec![attr(crate::brep::InputId::A, 7); mesh.tris.len()],
         };
-        apply_rebuild_batch(&mut mesh, &mut attribution, &[r.clone()], &BTreeMap::new())
-            .expect("write-back");
+        apply_rebuild_batch(
+            &mut mesh,
+            &mut attribution,
+            std::slice::from_ref(&r),
+            &BTreeMap::new(),
+        )
+        .expect("write-back");
         assert_eq!(mesh.verts.len(), n_verts_before + n_seeds);
         assert_eq!(mesh.tris.len(), attribution.attributions.len());
         for (k, p) in r.new_verts.iter().enumerate() {
