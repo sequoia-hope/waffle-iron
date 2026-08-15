@@ -180,7 +180,10 @@ Do NOT skip to lower-priority items because they are easier.
 ## Before Committing
 
 1. Run `cargo test -p <your-crate>` — all tests pass.
-2. Run `cargo clippy -p <your-crate>` — no warnings.
+2. Run `cargo clippy --all-targets -p <your-crate> -- -D warnings` — no
+   warnings. (`--all-targets` is REQUIRED: the CI lint job lints test code
+   too; a plain `cargo clippy` misses test-only lints and goes red in CI —
+   measured 2026-08-15.)
 3. Run `cargo fmt --check -p <your-crate>` — properly formatted.
 4. Update PLAN.md — mark completed tasks, add discovered tasks. (For the new
    kernel crates, update milestones/notes in `docs/yang_functional_roadmap.md`
