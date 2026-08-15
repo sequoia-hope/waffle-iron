@@ -578,6 +578,18 @@ fn run_construct_passes(
     // guard, not an expected limit. The batch path consumes NO tolerance:
     // collapse is pure index rewriting and the rebuild is a plain CDT.
     const MAX_PASSES: usize = 64;
+    // I5-1 (spec §4-I5): per-seam §4.3.4 insert budget — the I2e-precedent
+    // runaway backstop (a seam pricing above it declines to reorder-only,
+    // censused; the shipped coarse chain is the pre-I5 status quo).
+    const I5_INSERT_CAP: u64 = 4096;
+    let insert_enabled = std::env::var_os("YANG_434_INSERT").is_some();
+    // I5-1 orphan floor: appended on-curve vertices below this index are
+    // referenced by applied rebuilds (or predate the pass); anything above
+    // it at an exit path was appended for a seam whose batch never applied
+    // and is truncated (appends are always a contiguous unreferenced tail
+    // until a batch applies; the floor is re-snapshotted after each applied
+    // batch's compact). Inert when the insert gate is off.
+    let mut verts_floor = mesh.verts.len();
 
     // Bisection probes (env-gated, deterministic): cap which BOOLEANS may
     // apply (process-order index) and the TOTAL applied-seam budget. For
@@ -639,7 +651,16 @@ fn run_construct_passes(
         // the curve; the defect is only the scrambled ORDER).
         enum SeamAction {
             CollapseLine,
-            ReorderConic { ordered: Vec<u32> },
+            ReorderConic {
+                ordered: Vec<u32>,
+            },
+            // I5-1 (gated `YANG_434_INSERT`): the §4.3.4-refined chain —
+            // `ordered` with the paper's midpoint samples interleaved as
+            // freshly appended on-curve vertices, shared by both owners.
+            RefineConic {
+                ordered: Vec<u32>,
+                refined: Vec<u32>,
+            },
         }
         struct EligibleSeam {
             gi: usize,
@@ -740,24 +761,72 @@ fn run_construct_passes(
                         continue;
                     }
                 };
-                if ordered == chain {
-                    skip[3] += 1; // already in curve order — the fixed point
-                    continue;
-                }
-                // Carrier pre-check: `reorder_cycles_to_curve` silently
-                // no-ops when no cycle carries the whole seam.
+                // Carrier pre-check: `reorder_cycles_to_curve` and the I5-1
+                // splice silently no-op when no cycle carries the whole seam.
                 let carries = |cycles: &[Vec<u32>]| {
                     cycles.iter().any(|c| ordered.iter().all(|v| c.contains(v)))
                 };
-                if !carries(&patches[pi].cycles) || !carries(&patches[qi].cycles) {
-                    skip[5] += 1;
+                // I5-1 (gated): attempt the §4.3.4 density refinement BEFORE
+                // the fixed-point skip — an already-ordered chain may still
+                // need densification. A decline (no closed-form param, or
+                // pricing above the insert cap) falls back to the shipped
+                // reorder-only behavior, logged.
+                let refinement = if insert_enabled {
+                    match crate::stage4_construct::refine_conic_chain(
+                        &mesh.verts,
+                        &ordered,
+                        &g.curve,
+                        u32::try_from(mesh.verts.len()).expect("mesh vertex count fits u32"),
+                        I5_INSERT_CAP,
+                    ) {
+                        Some((pts, refined)) if !pts.is_empty() => Some((pts, refined)),
+                        Some(_) => None, // already paper-dense — plain I2b
+                        None => {
+                            c441_log!(
+                                "[s4-construct] pass={pass} seam={gi}: REFINE DECLINED \
+                                 (patches {pi}+{qi}, {} verts — no param or over the \
+                                 {I5_INSERT_CAP} insert cap) — reorder only",
+                                ordered.len()
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+                if let Some((pts, refined)) = refinement {
+                    if !carries(&patches[pi].cycles) || !carries(&patches[qi].cycles) {
+                        skip[5] += 1;
+                        c441_log!(
+                            "[s4-construct] pass={pass} seam={gi}: SKIP — conic run not \
+                             carried whole (patches {pi}+{qi})"
+                        );
+                        continue;
+                    }
                     c441_log!(
-                        "[s4-construct] pass={pass} seam={gi}: SKIP — conic run not \
-                         carried whole (patches {pi}+{qi})"
+                        "[s4-construct] pass={pass} seam={gi}: REFINE patches {pi}+{qi} — \
+                         chain {} -> {} (+{} on-curve inserts, §4.3.4)",
+                        ordered.len(),
+                        refined.len(),
+                        pts.len()
                     );
-                    continue;
+                    mesh.verts.extend_from_slice(&pts);
+                    SeamAction::RefineConic { ordered, refined }
+                } else {
+                    if ordered == chain {
+                        skip[3] += 1; // already in curve order — the fixed point
+                        continue;
+                    }
+                    if !carries(&patches[pi].cycles) || !carries(&patches[qi].cycles) {
+                        skip[5] += 1;
+                        c441_log!(
+                            "[s4-construct] pass={pass} seam={gi}: SKIP — conic run not \
+                             carried whole (patches {pi}+{qi})"
+                        );
+                        continue;
+                    }
+                    SeamAction::ReorderConic { ordered }
                 }
-                SeamAction::ReorderConic { ordered }
             };
             eligible.push(EligibleSeam {
                 gi,
@@ -1048,10 +1117,14 @@ fn run_construct_passes(
                         seam_edges.insert((e0.min(e1), e0.max(e1)));
                         seam_edges
                             .extend(e.chain.windows(2).map(|w| (w[0].min(w[1]), w[0].max(w[1]))));
-                        if let SeamAction::ReorderConic { ordered } = &e.action {
-                            seam_edges.extend(
+                        match &e.action {
+                            SeamAction::ReorderConic { ordered } => seam_edges.extend(
                                 ordered.windows(2).map(|w| (w[0].min(w[1]), w[0].max(w[1]))),
-                            );
+                            ),
+                            SeamAction::RefineConic { refined, .. } => seam_edges.extend(
+                                refined.windows(2).map(|w| (w[0].min(w[1]), w[0].max(w[1]))),
+                            ),
+                            SeamAction::CollapseLine => {}
                         }
                     }
                     let relocated: BTreeSet<u32> = relocations.iter().map(|&(v, _)| v).collect();
@@ -1315,6 +1388,20 @@ fn run_construct_passes(
                                 }
                             }
                         }
+                        SeamAction::RefineConic { ordered, refined } => {
+                            match crate::stage4_splice::splice_refined_run_into_cycles(
+                                &cur,
+                                ordered,
+                                refined,
+                                Side::A,
+                            ) {
+                                Ok(next) => cur = next,
+                                Err(_) => {
+                                    failed = Some(ei);
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
                 if let Some(ei) = failed {
@@ -1428,10 +1515,14 @@ fn run_construct_passes(
                                 .windows(2)
                                 .map(|w| (w[0].min(w[1]), w[0].max(w[1])))
                                 .collect();
-                            if let SeamAction::ReorderConic { ordered } = &e.action {
-                                seam_edges.extend(
+                            match &e.action {
+                                SeamAction::ReorderConic { ordered } => seam_edges.extend(
                                     ordered.windows(2).map(|w| (w[0].min(w[1]), w[0].max(w[1]))),
-                                );
+                                ),
+                                SeamAction::RefineConic { refined, .. } => seam_edges.extend(
+                                    refined.windows(2).map(|w| (w[0].min(w[1]), w[0].max(w[1]))),
+                                ),
+                                SeamAction::CollapseLine => {}
                             }
                             for q in [e.chain[0], *e.chain.last().expect("chain len >= 3")] {
                                 for (pj, pat) in patches.iter().enumerate() {
@@ -2562,6 +2653,15 @@ fn run_construct_passes(
                             e.pair.1,
                             ordered.len()
                         ),
+                        SeamAction::RefineConic { ordered, refined } => c441_log!(
+                            "[s4-construct] pass={pass} seam={}: REFINED patches {}+{} — \
+                             chain {} -> {} (§4.3.4 density)",
+                            e.gi,
+                            e.pair.0,
+                            e.pair.1,
+                            ordered.len(),
+                            refined.len()
+                        ),
                     }
                 }
                 c441_log!(
@@ -2589,6 +2689,24 @@ fn run_construct_passes(
         probe_record_incidence(&inc2, &cv2);
         *infos = i2;
         *intersection_curves = cv2;
+        // I5-1: everything at or below this index is now either referenced
+        // by an applied rebuild or compacted away; re-snapshot the orphan
+        // floor for the next pass.
+        verts_floor = mesh.verts.len();
+    }
+    // I5-1: a refined seam whose batch never applied (declined mid-assembly,
+    // census-only, write-back refusal, or the no-collapsible STOP) leaves
+    // its appended on-curve vertices as a contiguous unreferenced tail
+    // above the floor — drop them so no orphan vertex outlives the pass.
+    // A truncation, not a compact: indices at or below the floor are
+    // untouched, so `infos`/`intersection_curves` stay valid. Inert when
+    // the insert gate is off (nothing is ever appended).
+    if insert_enabled && mesh.verts.len() > verts_floor {
+        c441_log!(
+            "[s4-construct] I5 cleanup: dropping {} unapplied on-curve inserts",
+            mesh.verts.len() - verts_floor
+        );
+        mesh.verts.truncate(verts_floor);
     }
     Ok(())
 }

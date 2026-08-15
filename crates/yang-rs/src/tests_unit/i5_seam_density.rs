@@ -185,3 +185,98 @@ fn census_takes_the_short_arc_across_the_branch_cut() {
     );
     assert!(!census.capped);
 }
+
+// ---- I5-1: the refine + splice primitives -------------------------------
+
+use crate::stage4_construct::refine_conic_chain;
+use crate::stage4_splice::{splice_refined_run_into_cycles, Side};
+
+#[test]
+fn refine_densifies_a_short_arc_to_the_paper_criterion() {
+    // One 0.1-rad pair on the unit circle: sparse today, refinable well
+    // under the 4096 cap.
+    let c = unit_circle();
+    let ts = [0.0, 0.1];
+    let verts: Vec<Point3> = ts
+        .iter()
+        .map(|&t| conic_eval(&c, t).expect("on-circle"))
+        .collect();
+    let chain: Vec<u32> = vec![0, 1];
+    let (pts, refined) =
+        refine_conic_chain(&verts, &chain, &c, 2, 4096).expect("short arc refines");
+    assert!(!pts.is_empty(), "0.1 rad must demand inserts");
+    assert_eq!(refined[0], 0);
+    assert_eq!(*refined.last().unwrap(), 1);
+    assert_eq!(refined.len(), 2 + pts.len());
+    // Every insert lies exactly on the circle and the refined chain is
+    // parameter-monotone.
+    let mut pool = verts.clone();
+    pool.extend_from_slice(&pts);
+    for p in &pts {
+        let r = (p.x() * p.x() + p.y() * p.y()).sqrt();
+        assert!(
+            (r - 1.0).abs() < 1e-12 && p.z().abs() < 1e-12,
+            "off-circle insert {p:?}"
+        );
+    }
+    let params: Vec<f64> = refined
+        .iter()
+        .map(|&v| conic_param(&c, pool[v as usize]).expect("on-curve"))
+        .collect();
+    assert!(
+        params.windows(2).all(|w| w[1] > w[0]),
+        "refined chain not parameter-monotone: {params:?}"
+    );
+    // The refined chain passes the paper's own acceptance.
+    let census =
+        census_conic_seam_density(&pool, &refined, &c, false).expect("refined chain censuses");
+    assert_eq!(census.fail_any, 0, "refined chain still fails: {census:?}");
+    assert_eq!(census.implied_inserts, 0);
+}
+
+#[test]
+fn refine_declines_over_budget_and_skips_a_dense_chain() {
+    let c = unit_circle();
+    // Quarter arc: needs ~3k inserts — a budget of 10 must decline.
+    let sparse: Vec<Point3> = [0.0, std::f64::consts::FRAC_PI_2]
+        .iter()
+        .map(|&t| conic_eval(&c, t).expect("on-circle"))
+        .collect();
+    assert!(refine_conic_chain(&sparse, &[0, 1], &c, 2, 10).is_none());
+    // Paper-dense chain: refines to ZERO inserts, chain unchanged.
+    let dense: Vec<Point3> = (0..3)
+        .map(|k| conic_eval(&c, 1e-4 * f64::from(k)).expect("on-circle"))
+        .collect();
+    let (pts, refined) = refine_conic_chain(&dense, &[0, 1, 2], &c, 3, 4096).expect("dense ok");
+    assert!(pts.is_empty());
+    assert_eq!(refined, vec![0, 1, 2]);
+}
+
+#[test]
+fn splice_replaces_the_run_forward_and_reversed() {
+    // Forward: cycle traverses the run as [1,2,3].
+    let cycles = vec![vec![0, 1, 2, 3, 4, 5]];
+    let ordered = vec![1, 2, 3];
+    let refined = vec![1, 10, 2, 11, 3];
+    let out = splice_refined_run_into_cycles(&cycles, &ordered, &refined, Side::A)
+        .expect("forward splice");
+    assert_eq!(out, vec![vec![1, 10, 2, 11, 3, 4, 5, 0]]);
+    // Reversed: cycle traverses the run as [3,2,1] — the splice must insert
+    // the refined chain in the cycle's own direction.
+    let cycles_r = vec![vec![0, 3, 2, 1, 5]];
+    let out_r = splice_refined_run_into_cycles(&cycles_r, &ordered, &refined, Side::A)
+        .expect("reversed splice");
+    assert_eq!(out_r, vec![vec![3, 11, 2, 10, 1, 5, 0]]);
+}
+
+#[test]
+fn splice_leaves_non_carriers_and_refuses_scattered_runs() {
+    // Non-carrier cycle (shares one junction vertex only) passes through.
+    let cycles = vec![vec![0, 1, 2, 3, 4, 5], vec![1, 8, 9]];
+    let out = splice_refined_run_into_cycles(&cycles, &[1, 2, 3], &[1, 10, 3], Side::A)
+        .expect("splice with bystander");
+    assert_eq!(out[1], vec![1, 8, 9]);
+    // Scattered membership (run not contiguous in the cycle) refuses.
+    let scattered = vec![vec![1, 8, 2, 9, 3]];
+    assert!(splice_refined_run_into_cycles(&scattered, &[1, 2, 3], &[1, 10, 3], Side::A).is_err());
+}

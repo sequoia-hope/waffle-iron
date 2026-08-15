@@ -994,6 +994,49 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    prohibitive at gate-ON, bring the numbers to a deviations-ledger
    decision — never silently weaken the bound.
 
+   **FINDING (2026-08-15, surfaced by the I5-1 probe; PRE-EXISTING): the
+   construct pass-loop LIVELOCKS on parameter-descending conic chains.**
+   Gate-off F0059 burns all 64 `MAX_PASSES` re-applying the same six
+   6–7-vert reorders (64 "BATCH APPLIED" lines in every canonical run
+   today). Mechanism, by code inspection: `order_along_curve` returns the
+   ASCENDING chain; a cycle that traverses its seam run parameter-
+   DESCENDING gets `reorder_cycles_to_curve`'s reversed splice — a NO-OP —
+   but the driver's fixed-point test is `ordered == chain`, which a
+   descending chain never satisfies, so the action re-fires every pass.
+   Correctness-neutral (each extra pass rebuilds the same patches to the
+   same state; the 64-cap bounds it) but wasteful — and 4× worse under
+   I5-1 where the rebuilt cycles carry ~2k verts (F0059 gate-ON 42.8s).
+   FIX (own increment, NOT conflated into I5-1): accept reversed equality
+   as the fixed point (`ordered == chain || ordered == rev(chain)`).
+   This changes tri ORDER on affected cases (the no-op rewrites still
+   moved patch triangles to the tail), so it needs its own corpus
+   detail-drift census per the amendment-17 flip precedent.
+
+   **I5-1 probe results (2026-08-15, in-process gate-ON):**
+   - **F0059**: 8 seams REFINE (chains 6–7 → 1697–2305 verts, all under
+     the 4096 cap), batches APPLY, case completes with no engine errors;
+     42.8s wall (~4× gate-off, the pre-existing livelock included).
+   - **R0021**: both rim seams REFINE (22 → 569/537) but the batch
+     DECLINES on the pre-existing `ThetaUnwrap { patch: 10 }` wall — the
+     encircling cylinder lateral has no single θ branch (the recorded I2a
+     tail; gate-off declines identically). The I5 orphan cleanup drops
+     the 1062 unapplied inserts; R0021's §4.3.4 density is gated on the
+     encircling-patch rebuild capability, not on I5 machinery.
+
+   **I5-1 full-corpus gate-ON sweep (2026-08-15, 300s budget): SAFE but
+   COST-BLOCKED by the livelock.** 256C/**0W**/49E/**3T** — zero ERROR
+   deltas, ZERO detail drifts on every completing case (the insert never
+   silently changes an outcome), but THREE CORRECT curved cases (F0047,
+   F0048, F0059 — exactly the cases whose refines apply) exceed the 300s
+   CPU budget: the pre-existing 64-pass livelock re-runs the dense
+   (~2k-vert) patch CDTs 64×. Gate-off same day: BYTE-IDENTICAL to
+   canonical. Disposition: **stays gated pending the livelock fix** — the
+   cost is the livelock's, not the density's (single-case in-process
+   F0059 completes in 42.8s), so the unblocking increment is the
+   fixed-point fix above, then a gate-ON re-measure. Only if cost remains
+   prohibitive after convergence does the deviations-ledger decision on
+   the bound arise.
+
    **I5-2 — flip census** per the I3/14c discipline: gate-ON pin suites +
    full corpus, category-identical precondition, then always-on.
 

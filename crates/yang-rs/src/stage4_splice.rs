@@ -577,6 +577,63 @@ pub(crate) fn reorder_cycles_to_curve(
     Ok(out)
 }
 
+/// I5-1 (§4.3.4 density refinement, spec `yang_441` §4-I5): rewrite each
+/// cycle that carries the whole seam so its seam run is replaced by the
+/// LONGER `refined` sequence (the parameter-ordered chain with the paper's
+/// midpoint samples interleaved), leaving every other cycle untouched.
+///
+/// The seam run is located exactly as [`reorder_cycles_to_curve`] locates it
+/// (membership set of `ordered`, contiguity required); the direction is
+/// picked by matching the run's leading vertex against `refined`'s
+/// endpoints, which `refine` preserves (`refined[0] == ordered[0]` and
+/// `refined.last() == ordered.last()`). A cycle that IS the whole seam is
+/// refused (`SeamNotSimple`) — closed seams are skipped upstream.
+pub(crate) fn splice_refined_run_into_cycles(
+    cycles: &[Vec<u32>],
+    ordered: &[u32],
+    refined: &[u32],
+    side: Side,
+) -> Result<Vec<Vec<u32>>, SpliceError> {
+    let set: BTreeSet<u32> = ordered.iter().copied().collect();
+    let mut out = Vec::with_capacity(cycles.len());
+    for cyc in cycles {
+        if !ordered.iter().all(|v| cyc.contains(v)) {
+            out.push(cyc.clone());
+            continue;
+        }
+        let n = cyc.len();
+        let in_set: Vec<bool> = cyc.iter().map(|v| set.contains(v)).collect();
+        let count = in_set.iter().filter(|b| **b).count();
+        if count != ordered.len() || count == n {
+            return Err(SpliceError::SeamNotSimple(side));
+        }
+        let start = (0..n)
+            .find(|&i| in_set[i] && !in_set[(i + n - 1) % n])
+            .ok_or(SpliceError::SeamNotSimple(side))?;
+        if (0..count).any(|k| !in_set[(start + k) % n]) {
+            return Err(SpliceError::SeamNotSimple(side));
+        }
+        let first = cyc[start];
+        let seq: Vec<u32> = if refined[0] == first {
+            refined.to_vec()
+        } else if *refined.last().expect("non-empty") == first {
+            refined.iter().rev().copied().collect()
+        } else {
+            let mut was = [first, cyc[(start + count - 1) % n]];
+            let mut now = [refined[0], *refined.last().expect("non-empty")];
+            was.sort_unstable();
+            now.sort_unstable();
+            return Err(SpliceError::SeamEndpointsReordered { was, now });
+        };
+        let rot: Vec<u32> = (0..n).map(|k| cyc[(start + k) % n]).collect();
+        let mut cy = Vec::with_capacity(n - count + seq.len());
+        cy.extend_from_slice(&seq);
+        cy.extend_from_slice(&rot[count..]);
+        out.push(cy);
+    }
+    Ok(out)
+}
+
 // ---------------------------------------------------------------------------
 // Step 3 — cylinder θ = ±π seam unwrapping (this loop's declared job).
 // ---------------------------------------------------------------------------

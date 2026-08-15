@@ -1299,6 +1299,113 @@ pub(crate) fn census_conic_seam_density(
     Some(out)
 }
 
+/// I5-1 — the §4.3.4 refinement itself (spec §4-I5; gated by the caller on
+/// `YANG_434_INSERT`): run the paper's midpoint recursion over an ordered
+/// open conic chain, producing the on-curve points to insert and the
+/// refined chain.
+///
+/// Returns `(new_points, refined)` where `refined` interleaves the existing
+/// chain indices with `base + k` references into `new_points` (parameter
+/// order; endpoints preserved — junctions are never inserted past).
+/// `new_points` may be empty (the chain already meets the paper's
+/// acceptance — the caller keeps its shipped behavior). `None` declines
+/// LOUDLY-at-the-caller: a missing conic parameter, or the recursion
+/// exceeding `budget` inserts (the I2e-precedent runaway backstop) or the
+/// depth guard — the caller falls back to the reorder-only action and logs;
+/// the shipped coarse chain is the pre-I5 status quo, not a silent wrong.
+pub(crate) fn refine_conic_chain(
+    verts: &[Point3],
+    chain: &[u32],
+    curve: &Curve,
+    base: u32,
+    budget: u64,
+) -> Option<(Vec<Point3>, Vec<u32>)> {
+    use crate::stage4_correct::conic_param;
+    let pi = std::f64::consts::PI;
+    if chain.len() < 2 {
+        return None;
+    }
+    let mut new_points: Vec<Point3> = Vec::new();
+    let mut refined: Vec<u32> = Vec::with_capacity(chain.len());
+    for i in 0..chain.len() - 1 {
+        let (va, vb) = (chain[i], chain[i + 1]);
+        let (pa, pb) = (verts[va as usize], verts[vb as usize]);
+        let ta = conic_param(curve, pa)?;
+        let tb = conic_param(curve, pb)?;
+        if !ta.is_finite() || !tb.is_finite() {
+            return None;
+        }
+        let mut d = tb - ta;
+        while d > pi {
+            d -= 2.0 * pi;
+        }
+        while d <= -pi {
+            d += 2.0 * pi;
+        }
+        refined.push(va);
+        let before = new_points.len() as u64;
+        let mut remaining = budget.saturating_sub(before);
+        let mut capped = false;
+        // In-order traversal: left half, midpoint, right half — so the
+        // points land in `new_points` already in parameter order and the
+        // chain slice for this pair is a contiguous run of ordinals.
+        collect_inserts_rec(
+            curve,
+            ta,
+            pa,
+            ta + d,
+            pb,
+            I5_SIM_DEPTH_MAX,
+            &mut remaining,
+            &mut capped,
+            &mut new_points,
+        )?;
+        if capped {
+            return None;
+        }
+        for k in before..new_points.len() as u64 {
+            refined.push(base + u32::try_from(k).ok()?);
+        }
+    }
+    refined.push(*chain.last().expect("chain len >= 2"));
+    Some((new_points, refined))
+}
+
+/// In-order §4.3.4 recursion collecting the inserted points (the executable
+/// twin of [`implied_inserts_rec`] — same acceptance, same guards). `None`
+/// only on a failed curve evaluation.
+#[allow(clippy::too_many_arguments)]
+fn collect_inserts_rec(
+    curve: &Curve,
+    ta: f64,
+    pa: Point3,
+    tb: f64,
+    pb: Point3,
+    depth: u32,
+    budget: &mut u64,
+    capped: &mut bool,
+    out: &mut Vec<Point3>,
+) -> Option<()> {
+    let tm = 0.5 * (ta + tb);
+    let m = crate::geom::conic_eval(curve, tm)?;
+    if crate::stage4_correct::paper_chain_sample_redundant(
+        pa.as_array(),
+        m.as_array(),
+        pb.as_array(),
+    ) {
+        return Some(());
+    }
+    if depth == 0 || *budget == 0 {
+        *capped = true;
+        return Some(());
+    }
+    *budget -= 1;
+    collect_inserts_rec(curve, ta, pa, tm, m, depth - 1, budget, capped, out)?;
+    out.push(m);
+    collect_inserts_rec(curve, tm, m, tb, pb, depth - 1, budget, capped, out)?;
+    Some(())
+}
+
 /// The paper's §4.3.4 recursion, simulated on the exact curve: test the
 /// parameter-midpoint sample; if the pair fails h/l/α, count the insert and
 /// recurse on both halves. Returns the insert count for this interval;
