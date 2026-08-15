@@ -542,7 +542,7 @@ fn run_meshup_splice_passes(
 /// default (no env — including every wasm32 run, where `var_os` is always
 /// `None`) is quiet. Genuine anomaly signals — the whole-batch-refusal /
 /// correspondence / write-back STOPs — stay unconditional `eprintln!`s.
-fn c441_verbose() -> bool {
+pub(crate) fn c441_verbose() -> bool {
     std::env::var_os("YANG_441_CONSTRUCT").is_some()
         || std::env::var_os("YANG_441_VERBOSE").is_some()
 }

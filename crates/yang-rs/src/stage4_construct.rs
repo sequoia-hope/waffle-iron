@@ -53,7 +53,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use cad_primitives::Point3;
+use cad_primitives::{Point2, Point3};
 use cherchi_rs::{cdt_with_interior_constraints, CdtError, Mesh};
 
 use crate::brep::{TriangleAttribution, TriangleAttributionMap};
@@ -634,9 +634,11 @@ pub(crate) enum ConstructError {
 }
 
 /// One patch's single-sided rebuild, entirely in MESH index space and ready
-/// for [`apply_rebuild_batch`]. Zero new vertices by construction: a plain
-/// CDT of the boundary polygon adds no Steiner points, so every triangle
-/// references existing mesh vertices.
+/// for [`apply_rebuild_batch`]. The CDT adds no Steiner points of its own; a
+/// seedless rebuild references only existing mesh vertices. An I2e-seeded
+/// curved rebuild additionally carries `new_verts` — chart-lifted interior
+/// seed positions, referenced by `new_tris` as `plan_verts + k` and remapped
+/// onto the appended block by the write-back.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PatchRebuild {
     /// Index of the patch in the pass's patch list (diagnostic only).
@@ -646,6 +648,10 @@ pub(crate) struct PatchRebuild {
     /// Replacement triangles in mesh vertex indices, orientation matched to
     /// the old patch's outward sense.
     pub new_tris: Vec<[u32; 3]>,
+    /// I2e interior seed vertices (chart-lifted, exactly on-surface) to
+    /// append to the mesh; `new_tris` references the k-th one as
+    /// `plan_verts + k`. Empty for every seedless rebuild.
+    pub new_verts: Vec<Point3>,
     /// Mesh vertices the old triangles referenced that the rebuild does not:
     /// collapsed seam-chain interiors plus planar flood interiors. The driver
     /// scans these for foreign references before committing the batch.
@@ -776,58 +782,21 @@ pub(crate) fn rebuild_patch_planar(
         }
     }
 
-    let tris2 = cdt_with_interior_constraints(&pool, &p2.boundary, &p2.holes, &interior_idx, &[])
-        .map_err(|error| ConstructError::Cdt {
-        patch: patch_index,
-        error,
-    })?;
-
-    // Back into mesh index space. The CDT adds no Steiner points, so every
-    // index is inside the input pool; a miss is a broken invariant, not input.
-    let at = |i: u32| -> u32 {
-        if (i as usize) < back.len() {
-            back[i as usize]
-        } else {
-            interior_back[i as usize - back.len()]
-        }
-    };
-    let mut new_tris: Vec<[u32; 3]> = tris2
-        .iter()
-        .map(|t| [at(t[0]), at(t[1]), at(t[2])])
-        .collect();
-
-    // Match the ORIGINAL patch's outward sense by measurement — the chart
-    // basis has arbitrary handedness relative to the surface normal.
     let old: Vec<[u32; 3]> = patch.tris.iter().map(|&t| mesh.tris[t as usize]).collect();
-    let pos = |v: u32| -> Point3 { mesh.verts[v as usize] };
-    let want = area_vector(&old, &pos);
-    let got = area_vector(&new_tris, &pos);
-    let d = dot3(want, got);
-    if d == 0.0 || !d.is_finite() {
-        return Err(ConstructError::DegenerateOrientation { patch: patch_index });
-    }
-    if d < 0.0 {
-        for t in &mut new_tris {
-            t.swap(1, 2);
-        }
-    }
 
-    // I2d — Yang §4.4.1's closing sentence: "For the newly generated
-    // boundary triangles around the intersection curve, we recalculate
-    // d(T) to maintain controllable error"
-    // (refs/text/yang2025_hybrid_boolean.txt:568-571). The chart CDT keeps
-    // only CYCLE constraints; the replaced triangulation's interior-edge
-    // structure (rim-to-rim banding) is discarded, and chart-metric
-    // Delaunay with the θ-radians × world-units aspect distortion prefers
-    // wide-θ triangles wherever mid-span vertices are sparse — secants in
-    // 3D (the kv6b revolve∪box wall: every vertex exactly on the cylinder,
-    // watertight, −10 % volume). The rebuild is accepted only if its
-    // certified max d(T) does not exceed the certified max of the
-    // triangles it replaces — the patch's own pre-rebuild bound as the
-    // budget, no external constant. Planar patches are exempt by identity
-    // (d(T) ≡ 0 for any triangulation of a plane polygon).
+    // I2d budget — certify the OLD triangles once (cylinder only): the max
+    // certified d(T) over the triangles this rebuild replaces, plus the
+    // patch's own θ-arc sampling scale (the I2e seed-spacing basis).
+    // Projection-based uv with span containment — old-triangle vertices
+    // include the boundary-edge-filtered ones that are not in `pool`.
+    let mut old_max: Option<f64> = None;
+    let mut old_arc_span = 0.0f64;
+    let radius = match chart {
+        SurfaceChart::Cylinder { radius, .. } => radius,
+        SurfaceChart::Plane { .. } => 0.0,
+    };
     if let Some((theta_min, theta_max)) = theta_span {
-        let uv_of = |v: u32| -> Result<cad_primitives::Point2, ConstructError> {
+        let uv_of = |v: u32| -> Result<Point2, ConstructError> {
             let uv = chart.project(mesh.verts[v as usize]);
             let mid = 0.5 * (theta_min + theta_max);
             let k = ((mid - uv.x()) / std::f64::consts::TAU).round();
@@ -835,28 +804,180 @@ pub(crate) fn rebuild_patch_planar(
             if theta < theta_min || theta > theta_max {
                 return Err(ConstructError::ChordCertify { patch: patch_index });
             }
-            Ok(cad_primitives::Point2::new(theta, uv.y()))
+            Ok(Point2::new(theta, uv.y()))
         };
-        let max_dt = |tris: &[[u32; 3]]| -> Result<f64, ConstructError> {
-            let mut m = 0.0f64;
-            for t in tris {
-                let uv = [uv_of(t[0])?, uv_of(t[1])?, uv_of(t[2])?];
+        let mut m = 0.0f64;
+        for t in &old {
+            let uv = [uv_of(t[0])?, uv_of(t[1])?, uv_of(t[2])?];
+            let dt = crate::stage4_dt::d_of_t(&patch.surface, uv)
+                .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?;
+            m = m.max(dt);
+            let (lo, hi) = uv
+                .iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+                    (lo.min(p.x()), hi.max(p.x()))
+                });
+            old_arc_span = old_arc_span.max((hi - lo) * radius);
+        }
+        old_max = Some(m);
+    }
+
+    // One CDT attempt over `pool` extended with `seeds` (chart points, I2e).
+    // Attempt 0 runs seedless — the pre-I2e path, byte-identical when it
+    // passes the gate.
+    let n_pool = pool.len();
+    let run_attempt = |seeds: &[Point2]| -> Result<(Vec<[u32; 3]>, Vec<Point3>), ConstructError> {
+        let mut pool_ext = pool.clone();
+        let mut interior_ext = interior_idx.clone();
+        for s in seeds {
+            interior_ext.push(pool_ext.len() as u32);
+            pool_ext.push(*s);
+        }
+        let tris2 =
+            cdt_with_interior_constraints(&pool_ext, &p2.boundary, &p2.holes, &interior_ext, &[])
+                .map_err(|error| ConstructError::Cdt {
+                patch: patch_index,
+                error,
+            })?;
+
+        // 3D positions for pool indices: boundary and carried interiors are
+        // existing mesh vertices; seeds lift through the chart — exactly
+        // on-surface, and `lift` is 2π-periodic so the unwrap shift is a
+        // world-space no-op.
+        let pos3 = |i: u32| -> Point3 {
+            let iu = i as usize;
+            if iu < back.len() {
+                mesh.verts[back[iu] as usize]
+            } else if iu < n_pool {
+                mesh.verts[interior_back[iu - back.len()] as usize]
+            } else {
+                chart.lift(pool_ext[iu])
+            }
+        };
+        // Match the ORIGINAL patch's outward sense by measurement — the
+        // chart basis has arbitrary handedness relative to the surface
+        // normal.
+        let mesh_pos = |v: u32| -> Point3 { mesh.verts[v as usize] };
+        let want = area_vector(&old, &mesh_pos);
+        let got = area_vector(&tris2, &pos3);
+        let d = dot3(want, got);
+        if d == 0.0 || !d.is_finite() {
+            return Err(ConstructError::DegenerateOrientation { patch: patch_index });
+        }
+        let mut tris2 = tris2;
+        if d < 0.0 {
+            for t in &mut tris2 {
+                t.swap(1, 2);
+            }
+        }
+
+        // I2d gate — Yang §4.4.1's closing sentence ("we recalculate d(T)
+        // to maintain controllable error",
+        // refs/text/yang2025_hybrid_boolean.txt:568-571). Certified like for
+        // like, in the CDT's own frame: the pool coordinates ARE the
+        // unwrapped parametrization the new triangles were built in. The
+        // rebuild is accepted only if its certified max d(T) does not
+        // exceed the certified max of the triangles it replaces — the
+        // patch's own pre-rebuild bound as the budget, no external
+        // constant. Planar patches are exempt by identity (d(T) ≡ 0 for
+        // any triangulation of a plane polygon).
+        if let Some(budget) = old_max {
+            let mut new_max = 0.0f64;
+            for t in &tris2 {
+                let uv = [
+                    pool_ext[t[0] as usize],
+                    pool_ext[t[1] as usize],
+                    pool_ext[t[2] as usize],
+                ];
                 let dt = crate::stage4_dt::d_of_t(&patch.surface, uv)
                     .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?;
-                m = m.max(dt);
+                new_max = new_max.max(dt);
             }
-            Ok(m)
-        };
-        let old_max = max_dt(&old)?;
-        let new_max = max_dt(&new_tris)?;
-        if new_max > old_max {
-            return Err(ConstructError::ChordDegradation {
-                patch: patch_index,
-                old_max,
-                new_max,
-            });
+            if new_max > budget {
+                return Err(ConstructError::ChordDegradation {
+                    patch: patch_index,
+                    old_max: budget,
+                    new_max,
+                });
+            }
         }
-    }
+
+        // Back into mesh index space; a seed index lands at plan_verts + k
+        // and `apply_rebuild_batch` remaps it onto the appended block.
+        let plan_verts = mesh.verts.len() as u32;
+        let at = |i: u32| -> u32 {
+            let iu = i as usize;
+            if iu < back.len() {
+                back[iu]
+            } else if iu < n_pool {
+                interior_back[iu - back.len()]
+            } else {
+                plan_verts + (i - n_pool as u32)
+            }
+        };
+        let new_tris: Vec<[u32; 3]> = tris2
+            .iter()
+            .map(|t| [at(t[0]), at(t[1]), at(t[2])])
+            .collect();
+        let new_verts: Vec<Point3> = seeds.iter().map(|&s| chart.lift(s)).collect();
+        Ok((new_tris, new_verts))
+    };
+
+    let (new_tris, new_verts) = match run_attempt(&[]) {
+        Ok(out) => out,
+        // I2e — a seedless curved rebuild that certifies coarser than what
+        // it replaces is retried with a deterministic interior seed grid at
+        // the patch's own pre-rebuild θ-arc sampling scale (halved once on
+        // a second failure). The banding a chart CDT cannot reproduce from
+        // cycle constraints alone is re-established as interior sampling —
+        // the §4.1.2/§4.3.4 tessellation discipline — and the I2d gate
+        // re-verifies every attempt; a rescue is never taken on faith.
+        Err(ConstructError::ChordDegradation {
+            patch: ep,
+            old_max: eo,
+            new_max: en,
+        }) if old_arc_span > 0.0 => {
+            let mut rescued = None;
+            let mut spacing = old_arc_span;
+            for _ in 0..2 {
+                let seeds = i2e_seed_grid(&pool, &p2.boundary, &p2.holes, radius, spacing);
+                if !seeds.is_empty() {
+                    match run_attempt(&seeds) {
+                        Ok(out) => {
+                            if crate::stage5_topology::c441_verbose() {
+                                eprintln!(
+                                    "[s4-construct] I2E SEEDED patch {patch_index}: {} seeds \
+                                     at arc spacing {spacing:.3e}",
+                                    out.1.len()
+                                );
+                            }
+                            rescued = Some(out);
+                            break;
+                        }
+                        Err(ConstructError::ChordDegradation { .. }) => {}
+                        Err(e) => return Err(e),
+                    }
+                } else if crate::stage5_topology::c441_verbose() {
+                    eprintln!(
+                        "[s4-construct] I2E patch {patch_index}: empty seed grid at arc \
+                         spacing {spacing:.3e} (degenerate span or seed cap)"
+                    );
+                }
+                spacing *= 0.5;
+            }
+            match rescued {
+                Some(out) => out,
+                None => {
+                    return Err(ConstructError::ChordDegradation {
+                        patch: ep,
+                        old_max: eo,
+                        new_max: en,
+                    })
+                }
+            }
+        }
+        Err(e) => return Err(e),
+    };
 
     let kept: BTreeSet<u32> = new_tris.iter().flatten().copied().collect();
     let dropped: BTreeSet<u32> = old
@@ -870,18 +991,123 @@ pub(crate) fn rebuild_patch_planar(
         patch: patch_index,
         old_tris: patch.tris.clone(),
         new_tris,
+        new_verts,
         dropped,
         plan_verts: mesh.verts.len() as u32,
         plan_tris: mesh.tris.len() as u32,
     })
 }
 
+/// I2e seed grid: deterministic interior points at `spacing` (arc-length
+/// units) over the unwrapped chart polygon — strictly inside the outer
+/// boundary, outside every hole, and at least `0.25·spacing` (arc metric)
+/// clear of every boundary edge. A seed ON a constraint would make spade
+/// split it one-sidedly (the F0059 hazard); the clearance choice is
+/// quality-only — it decides which OPTIONAL seeds to insert and cannot make
+/// an accepted rebuild wrong, because the d(T) gate re-verifies every
+/// attempt. Returns empty (→ the caller keeps the loud decline) for
+/// degenerate spans or when the grid would exceed the runaway backstop.
+fn i2e_seed_grid(
+    pool: &[Point2],
+    outer: &[u32],
+    holes: &[Vec<u32>],
+    radius: f64,
+    spacing: f64,
+) -> Vec<Point2> {
+    const MAX_SEEDS: usize = 4096;
+    if !spacing.is_finite() || spacing <= 0.0 || !radius.is_finite() || radius <= 0.0 {
+        return Vec::new();
+    }
+    let pt = |i: u32| pool[i as usize];
+    let (mut tlo, mut thi, mut zlo, mut zhi) = (
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for &i in outer {
+        let p = pt(i);
+        tlo = tlo.min(p.x());
+        thi = thi.max(p.x());
+        zlo = zlo.min(p.y());
+        zhi = zhi.max(p.y());
+    }
+    let s_theta = spacing / radius;
+    let nt = ((thi - tlo) / s_theta).floor();
+    let nz = ((zhi - zlo) / spacing).floor();
+    if !nt.is_finite() || !nz.is_finite() || nt * nz > 4.0 * MAX_SEEDS as f64 {
+        return Vec::new();
+    }
+    let inside = |p: Point2, ring: &[u32]| -> bool {
+        let n = ring.len();
+        let mut inside = false;
+        for i in 0..n {
+            let a = pt(ring[i]);
+            let b = pt(ring[(i + 1) % n]);
+            if (a.y() > p.y()) != (b.y() > p.y()) {
+                let x = a.x() + (p.y() - a.y()) / (b.y() - a.y()) * (b.x() - a.x());
+                if p.x() < x {
+                    inside = !inside;
+                }
+            }
+        }
+        inside
+    };
+    let clear_of = |p: Point2, ring: &[u32]| -> bool {
+        let n = ring.len();
+        let (px, py) = (p.x() * radius, p.y());
+        let min_d2 = (0.25 * spacing) * (0.25 * spacing);
+        for i in 0..n {
+            let a = pt(ring[i]);
+            let b = pt(ring[(i + 1) % n]);
+            let (ax, ay) = (a.x() * radius, a.y());
+            let (bx, by) = (b.x() * radius, b.y());
+            let (dx, dy) = (bx - ax, by - ay);
+            let l2 = dx * dx + dy * dy;
+            let t = if l2 > 0.0 {
+                (((px - ax) * dx + (py - ay) * dy) / l2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let (qx, qy) = (ax + t * dx, ay + t * dy);
+            let d2 = (px - qx) * (px - qx) + (py - qy) * (py - qy);
+            if d2 < min_d2 {
+                return false;
+            }
+        }
+        true
+    };
+    let mut seeds = Vec::new();
+    let mut theta = tlo + s_theta;
+    while theta < thi {
+        let mut z = zlo + spacing;
+        while z < zhi {
+            let p = Point2::new(theta, z);
+            if inside(p, outer)
+                && holes.iter().all(|h| !inside(p, h))
+                && clear_of(p, outer)
+                && holes.iter().all(|h| clear_of(p, h))
+            {
+                if seeds.len() >= MAX_SEEDS {
+                    return Vec::new();
+                }
+                seeds.push(p);
+            }
+            z += spacing;
+        }
+        theta += s_theta;
+    }
+    seeds
+}
+
 /// Write a batch of [`PatchRebuild`]s into the mesh in ONE pass: drop every
 /// rebuilt patch's old triangles, append each patch's replacements carrying
 /// that patch's (uniform) attribution. `attribution.attributions` stays in
 /// lockstep with `mesh.tris` — the invariant every downstream consumer
-/// depends on. No vertices are added; orphaned ones are left for the caller's
-/// usual `compact_unreferenced_verts` pass.
+/// depends on. I2e seed vertices (`new_verts`) are appended per rebuild and
+/// that rebuild's `plan_verts + k` triangle indices are remapped onto the
+/// appended block; orphaned old vertices are left for the caller's usual
+/// `compact_unreferenced_verts` pass.
 ///
 /// `subs` is the I1g Fig-11(b) corner-merge map (`p -> q`): every SURVIVING
 /// (non-rebuilt) triangle that references a merged corner `p` is re-pointed
@@ -939,8 +1165,23 @@ pub(crate) fn apply_rebuild_batch(
         attrs.push(attribution.attributions[t]);
     }
     for (r, attr) in rebuilds.iter().zip(attrs_of) {
+        // I2e: append this rebuild's seed vertices and point its
+        // `plan_verts + k` indices at the appended block. Every rebuild in
+        // the batch was planned against the same pre-batch mesh (the
+        // StalePlan check above), so `v >= r.plan_verts` identifies exactly
+        // the seed references.
+        let seed_base = mesh.verts.len() as u32;
+        mesh.verts.extend_from_slice(&r.new_verts);
         for tri in &r.new_tris {
-            tris.push(*tri);
+            let mut out = *tri;
+            if !r.new_verts.is_empty() {
+                for v in &mut out {
+                    if *v >= r.plan_verts {
+                        *v = seed_base + (*v - r.plan_verts);
+                    }
+                }
+            }
+            tris.push(out);
             attrs.push(attr);
         }
     }
@@ -1199,38 +1440,36 @@ mod tests {
         assert!(dot3(want, got) > 0.0, "outward sense preserved");
     }
 
-    #[test]
-    fn rebuild_cylinder_chord_gate_declines_secant_coarsening() {
-        // I2d (Yang §4.4.1 closing sentence) — the kv6b revolve∪box wall in
-        // miniature: cylinder r=2 about z, wall θ ∈ [0, π/2] × z ∈ [0, 3]
-        // with a notch [0, π/16] × [1, 2] cut into the θ=0 edge (the box
-        // bite). Both rims are densely sampled (π/8 columns) but the notch
-        // verts are the ONLY mid-height vertices, and there are NO interior
-        // vertices: the old banding's fidelity lives purely in
-        // rim-to-rim CONNECTIVITY, which the chart CDT discards. Chart
-        // Delaunay (θ-radians × world-units, aspect-distorted) fans the
-        // mid-height notch verts across wide θ — 3D secants that shave the
-        // cylindrical bulge. The d(T) gate must refuse: the rebuild
-        // certifies coarser than the triangles it replaces.
+    /// The kv6b revolve∪box wall in miniature: cylinder r=2 about z, wall
+    /// θ ∈ [0, π/2] × z ∈ [0, height] with a notch [0, π/16] cut into the
+    /// θ=0 edge across the middle third of the height (the box bite). Both
+    /// rims are densely sampled (π/8 columns) but the notch verts are the
+    /// ONLY mid-height vertices, and there are NO interior vertices: the
+    /// old banding's fidelity lives purely in rim-to-rim CONNECTIVITY,
+    /// which a chart CDT discards — chart Delaunay (θ-radians ×
+    /// world-units, aspect-distorted) fans the mid-height notch verts
+    /// across wide θ, minting 3D secants that shave the cylindrical bulge.
+    fn notched_drum(height: f64) -> (Mesh, SplicePatch) {
         let cyl = |theta: f64, z: f64| Point3::new(2.0 * theta.cos(), 2.0 * theta.sin(), z);
         let s = std::f64::consts::PI / 8.0;
         let n = std::f64::consts::PI / 16.0;
+        let (z1, z2) = (height / 3.0, 2.0 * height / 3.0);
         let mesh = Mesh {
             verts: vec![
-                cyl(0.0, 0.0),     // 0  rim z=0
-                cyl(s, 0.0),       // 1
-                cyl(2.0 * s, 0.0), // 2
-                cyl(3.0 * s, 0.0), // 3
-                cyl(4.0 * s, 0.0), // 4  far ruling bottom
-                cyl(4.0 * s, 3.0), // 5  far ruling top
-                cyl(3.0 * s, 3.0), // 6  rim z=3
-                cyl(2.0 * s, 3.0), // 7
-                cyl(s, 3.0),       // 8
-                cyl(0.0, 3.0),     // 9  near ruling top
-                cyl(0.0, 2.0),     // 10 notch NW
-                cyl(n, 2.0),       // 11 notch NE
-                cyl(n, 1.0),       // 12 notch SE
-                cyl(0.0, 1.0),     // 13 notch SW
+                cyl(0.0, 0.0),        // 0  rim z=0
+                cyl(s, 0.0),          // 1
+                cyl(2.0 * s, 0.0),    // 2
+                cyl(3.0 * s, 0.0),    // 3
+                cyl(4.0 * s, 0.0),    // 4  far ruling bottom
+                cyl(4.0 * s, height), // 5  far ruling top
+                cyl(3.0 * s, height), // 6  rim z=height
+                cyl(2.0 * s, height), // 7
+                cyl(s, height),       // 8
+                cyl(0.0, height),     // 9  near ruling top
+                cyl(0.0, z2),         // 10 notch NW
+                cyl(n, z2),           // 11 notch NE
+                cyl(n, z1),           // 12 notch SE
+                cyl(0.0, z1),         // 13 notch SW
             ],
             tris: vec![
                 // band θ ∈ [0, π/8] around the notch
@@ -1258,18 +1497,152 @@ mod tests {
                 radius: 2.0,
             },
         };
-        match rebuild_patch_planar(&mesh, 4, &patch) {
-            Err(ConstructError::ChordDegradation {
-                patch: 4,
-                old_max,
-                new_max,
-            }) => {
+        (mesh, patch)
+    }
+
+    #[test]
+    fn rebuild_cylinder_chord_gate_seeds_wide_theta_rebuild() {
+        // I2d + I2e: the seedless rebuild of the notched drum certifies
+        // coarser than the banding it replaces (the kv6b secant class), so
+        // the escalation retries with an interior seed grid at the patch's
+        // own θ-arc sampling scale — and the seeded rebuild must PASS the
+        // d(T) gate, carrying chart-lifted (exactly on-surface) new
+        // vertices referenced as plan_verts + k.
+        let (mesh, patch) = notched_drum(3.0);
+        let r = rebuild_patch_planar(&mesh, 4, &patch).expect("seeded rebuild passes the gate");
+        assert!(
+            !r.new_verts.is_empty(),
+            "the wide-θ rebuild is only certifiable WITH seeds"
+        );
+        for (k, p) in r.new_verts.iter().enumerate() {
+            let rad = (p.x() * p.x() + p.y() * p.y()).sqrt();
+            assert!(
+                (rad - 2.0).abs() <= 1e-12,
+                "seed {k} off the cylinder: r = {rad}"
+            );
+        }
+        let plan_verts = mesh.verts.len() as u32;
+        let seeds_referenced: BTreeSet<u32> = r
+            .new_tris
+            .iter()
+            .flatten()
+            .copied()
+            .filter(|&v| v >= plan_verts)
+            .collect();
+        assert_eq!(
+            seeds_referenced.len(),
+            r.new_verts.len(),
+            "every appended seed vertex is used by the new triangulation"
+        );
+        assert!(
+            seeds_referenced
+                .iter()
+                .all(|&v| ((v - plan_verts) as usize) < r.new_verts.len()),
+            "seed references stay inside the appended block"
+        );
+        assert!(r.dropped.is_empty(), "no boundary vertex may be lost");
+    }
+
+    #[test]
+    fn rebuild_cylinder_squashed_drum_passes_seedless() {
+        // The drum squashed to z ∈ [0, 0.01]: the chart aspect inverts —
+        // θ columns are now FAT relative to the height, so chart Delaunay
+        // ladders them naturally and the seedless rebuild certifies within
+        // the old budget. Attempt 0 must pass WITHOUT seeds (the pre-I2e
+        // path is byte-identical wherever it already passes the gate).
+        let (mesh, patch) = notched_drum(0.01);
+        let r = rebuild_patch_planar(&mesh, 4, &patch).expect("squashed drum passes");
+        assert!(
+            r.new_verts.is_empty(),
+            "no seeds when the gate passes seedless"
+        );
+    }
+
+    #[test]
+    fn i2e_seed_grid_populates_interior_with_clearance() {
+        // Chart rectangle θ ∈ [0, 1] × z ∈ [0, 2] on a radius-2 cylinder
+        // (arc width 2.0), spacing 0.5: seeds must be strictly interior
+        // with ≥ 0.125 arc-metric clearance from every edge.
+        let pool = vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(1.0, 0.0),
+            Point2::new(1.0, 2.0),
+            Point2::new(0.0, 2.0),
+        ];
+        let outer = vec![0u32, 1, 2, 3];
+        let seeds = i2e_seed_grid(&pool, &outer, &[], 2.0, 0.5);
+        assert!(!seeds.is_empty(), "an open rectangle must seed");
+        for s in &seeds {
+            let arc = s.x() * 2.0;
+            assert!(arc >= 0.125 - 1e-12 && 2.0 - arc >= 0.125 - 1e-12);
+            assert!(s.y() >= 0.125 - 1e-12 && 2.0 - s.y() >= 0.125 - 1e-12);
+        }
+        // A hole swallowing the middle excludes its seeds.
+        let pool_h = [
+            pool.clone(),
+            vec![
+                Point2::new(0.2, 0.4),
+                Point2::new(0.8, 0.4),
+                Point2::new(0.8, 1.6),
+                Point2::new(0.2, 1.6),
+            ],
+        ]
+        .concat();
+        let hole = vec![4u32, 5, 6, 7];
+        let seeded = i2e_seed_grid(&pool_h, &outer, &[hole.clone()], 2.0, 0.5);
+        for s in &seeded {
+            let in_hole = s.x() > 0.2 && s.x() < 0.8 && s.y() > 0.4 && s.y() < 1.6;
+            assert!(!in_hole, "seed {s:?} landed inside the hole");
+        }
+    }
+
+    #[test]
+    fn i2e_seed_grid_returns_empty_on_degenerate_input() {
+        let pool = vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(1.0, 0.0),
+            Point2::new(1.0, 2.0),
+            Point2::new(0.0, 2.0),
+        ];
+        let outer = vec![0u32, 1, 2, 3];
+        assert!(i2e_seed_grid(&pool, &outer, &[], 2.0, 0.0).is_empty());
+        assert!(i2e_seed_grid(&pool, &outer, &[], 2.0, f64::NAN).is_empty());
+        assert!(i2e_seed_grid(&pool, &outer, &[], 0.0, 0.5).is_empty());
+        // A spacing far below the runaway backstop's grid bound refuses
+        // loudly-by-decline instead of exploding.
+        assert!(i2e_seed_grid(&pool, &outer, &[], 2.0, 1e-6).is_empty());
+    }
+
+    #[test]
+    fn apply_rebuild_batch_appends_seed_vertices_and_remaps() {
+        // The write-back appends new_verts and points plan_verts + k at the
+        // appended block; attribution stays in lockstep with mesh.tris.
+        let (mut mesh, patch) = notched_drum(3.0);
+        let r = rebuild_patch_planar(&mesh, 4, &patch).expect("seeded rebuild");
+        let n_verts_before = mesh.verts.len();
+        let n_seeds = r.new_verts.len();
+        assert!(n_seeds > 0);
+        let mut attribution = TriangleAttributionMap {
+            attributions: vec![attr(crate::brep::InputId::A, 7); mesh.tris.len()],
+        };
+        apply_rebuild_batch(&mut mesh, &mut attribution, &[r.clone()], &BTreeMap::new())
+            .expect("write-back");
+        assert_eq!(mesh.verts.len(), n_verts_before + n_seeds);
+        assert_eq!(mesh.tris.len(), attribution.attributions.len());
+        for (k, p) in r.new_verts.iter().enumerate() {
+            assert_eq!(
+                mesh.verts[n_verts_before + k],
+                *p,
+                "seed {k} appended in order"
+            );
+        }
+        for tri in &mesh.tris {
+            for &v in tri {
                 assert!(
-                    new_max > old_max,
-                    "degradation must be real: old {old_max:.3e} new {new_max:.3e}"
+                    (v as usize) < mesh.verts.len(),
+                    "no dangling vertex reference after remap"
                 );
             }
-            other => panic!("expected ChordDegradation, got {other:?}"),
         }
     }
 

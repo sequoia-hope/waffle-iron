@@ -245,13 +245,23 @@ name, never measured).
    curved patch; a rebuild that certifies coarser than what it
    replaces declines `ChordDegradation` loudly (budget = the patch's
    own pre-rebuild certified max — like for like, tolerance-free;
-   planar patches exempt by identity). Named next increment **I2e**:
-   seed the curved rebuild's CDT interior at the surface's own chord
-   spacing (`cdt_polygon_with_holes_refined_seeded`) so wide-θ curved
-   rebuilds pass the gate instead of declining — also the recorded
-   path to shrinking the construct fixpoint's decline-retry CPU tail
-   (the assay budget guidance moved 240 → 300s: F0065 ≈ 241s honest
-   CORRECT, F0085 ≈ 242s honest ERROR are the new heaviest cases).
+   planar patches exempt by identity). The assay budget guidance moved
+   240 → 300s under the construct fixpoint's added CPU (F0065 ≈ 241s
+   honest CORRECT, F0085 ≈ 242s honest ERROR were the new heaviest
+   cases). **I2e LANDED same day** (spec §4-I2e): a
+   `ChordDegradation`-declined curved rebuild retries with a
+   deterministic interior seed grid at the patch's OWN pre-rebuild
+   θ-arc sampling scale (halved once on a second failure; the I2d gate
+   re-verifies every attempt — a rescue is never taken on faith;
+   attempt-0 stays seedless and byte-identical wherever it already
+   passes). Seeds are chart-lifted exactly-on-surface vertices,
+   appended by the batch write-back (`PatchRebuild::new_verts`,
+   `plan_verts + k` remap). Measured: kv6b's wall seeds 9 points at
+   exactly the original 22.5° banding scale, seam 5 applies, the union
+   sandwich holds; the squashed-drum twin passes seedless (attempt-0
+   byte-stability pinned). After I2e the epic's next rung is **I4 —
+   retire relocate-in-place** (I3 holds parity with 0W: precondition
+   MET).
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

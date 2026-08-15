@@ -744,6 +744,41 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    decline loudly and ship their prior state — capability withheld,
    never silent coarsening.
 
+   **I2e (2026-08-15, same session, LANDED on the main path): seeded
+   curved rebuilds.** A seedless curved rebuild that declines
+   `ChordDegradation` is retried with a deterministic interior seed grid
+   (`i2e_seed_grid`) at the patch's own pre-rebuild θ-arc sampling scale
+   — `old_arc_span` = max old-triangle θ-span × radius, measured in the
+   same certification sweep that prices the budget — halved once on a
+   second failure; the I2d gate re-verifies every attempt, so a rescue
+   is never taken on faith. Attempt 0 stays seedless and byte-identical
+   wherever it already passes (the planar family and column-local
+   cylinder rebuilds are untouched). Seeds are chart points strictly
+   inside the polygon (even-odd test), outside every hole, with
+   0.25·spacing arc-metric clearance from all constraint edges (a seed
+   ON a constraint would make spade split it — the F0059 hazard;
+   clearance is quality-only, it selects OPTIONAL seeds and cannot make
+   an accepted rebuild wrong), capped by a 4096-seed runaway backstop
+   (empty grid → the loud decline survives). `PatchRebuild` carries
+   `new_verts` (chart-lifted, exactly on-surface — `lift` is
+   2π-periodic so the unwrap shift is a world-space no-op), referenced
+   as `plan_verts + k` and remapped onto the appended block by
+   `apply_rebuild_batch`. The new-triangle certification moved into the
+   CDT's own frame (pool coordinates — the very parametrization the
+   triangles were built in), which also retires the mid-rounding
+   re-projection's spurious `ChordCertify` on wide unwrapped spans; the
+   OLD-triangle budget keeps the projection+containment path (filtered
+   boundary-edge vertices are not in the pool). Measured: the kv6b wall
+   seeds 9 points at arc spacing 7.854e-1 — exactly the original 22.5°
+   banding scale — seam 5 APPLIES, the union volume holds the sandwich;
+   the squashed-drum twin passes SEEDLESS (chart aspect inverted —
+   column-local Delaunay, no degradation, no seeds: attempt-0
+   byte-stability pinned). Unit pins:
+   `rebuild_cylinder_chord_gate_seeds_wide_theta_rebuild`,
+   `rebuild_cylinder_squashed_drum_passes_seedless`,
+   `apply_rebuild_batch_appends_seed_vertices_and_remaps`,
+   `i2e_seed_grid_*` (clearance/holes/degenerate-input arms).
+
 3. **I3 — flip per wall class** (cdt-ring-rejected → relocation-region →
    reassembly-non-2-manifold), full assay after each; any conversion or new
    wall is censused before the next flip.
