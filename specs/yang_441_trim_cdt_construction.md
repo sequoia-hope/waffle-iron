@@ -822,6 +822,68 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    ≥ parity with zero new WRONGs; the §4.5.3 reversal sweep stays (it acts on
    the curve polyline, which the paper orders the same way).
 
+   **I4-0 CENSUS (2026-08-15, precondition met by I3): "the
+   relocate-in-place path" no longer exists as a retireable THING — the
+   naked substitutes were retired incrementally along the way, and every
+   live Stage-4 pass implements quoted paper text or is a P10 gate.**
+   Full inventory of `stage4_relocate_and_correct` by phase:
+   - *Phases (1)/(2)/(2t)* — per-vertex exact-target assignment (conic /
+     junction / M5-Newton closed forms, no-skip audits) + relocation:
+     the paper's own "set r_A = r_B = r". KEEP.
+   - *Phase (3)* — §4.5.3 reversal sweep: STAYS by this spec's own I4
+     line. Its pre-steps: the P3b minted-junction welds and
+     `retriangulate_collapsed_fan_regions` (inc-4c, the §4.4.1
+     triangulation-update half of those welds, fail-closed) — paper
+     roles, KEEP. `trim_beyond_corner_phantoms` — a LOCAL Fig-11(a)
+     implementation for the curved-pierce minted-corner family (zero
+     kept content past the boundary exit IS the paper's q-on-boundary);
+     retirement condition = the J1 boundary-exit authority
+     (`YANG_441_BOUNDARY_EXIT`) flipping always-on, which generalizes
+     it. KEEP until then.
+   - *Phases (3c)/(3d)* — §4.4.1(b) sub-feature merge (N55, TAU_WORK
+     scale-relative) and §4.4.1(a) edge-split at q. Quoted paper text.
+     KEEP.
+   - *Phases (4)/(4a1)/(4a2)/(4b)* — relocated-triangle validation,
+     doubled-membrane removal, tangency pinch split, the §4.4.3
+     watertightness gate. P10 gates / topology sanitation with own
+     specs. KEEP.
+   - *Boundary-curve relocation* (rim snap, always-on since its inc-5)
+     — Fig-11 "map boundary curves to boundary curves" for same-input
+     rims. KEEP.
+   - *N55/N56 merges, #194 sub-TAU_WORK collapse* — compliant
+     always-on. KEEP.
+   - *Gated-off banked development paths (NOT drivers — §3 item 5's
+     "retire them as drivers" is the de-facto state)*:
+     `detect_nonmanifold_seams` lives only behind `YANG_MESHUP_REGION`
+     (probe) / `YANG_MESHUP_ENABLE` (the banked splice, measured
+     necessary-not-sufficient for its bucket); `stage4_fold_risk`'s
+     only consumer is the `YANG_S4_FOLD_RISK` experimental merge-plan
+     arm (diagnostic, per §3 item 5); `YANG_N2_RECDT_ENABLE` (the #168
+     replan) stays banked on its recorded §5c.6 generator-seam
+     conformality wall. All keep their recorded re-entry conditions.
+     **Named follow-up: re-measure the replan gate post-I2e — the
+     construct pass's seeded keep-boundary re-CDT may have dissolved
+     the §5c.6 wall's premise.**
+
+   **I4-1 (2026-08-15, LANDED): the last relocate-era hack arm DELETED.**
+   `weld_enabled("f32")` — the N50 f32 render-twin weld, the weld
+   audit's sole confirmed hack (non-geometric f32-render-precision
+   identity, nowhere in the paper, regresses C0036, redundant since the
+   N56 §4.3 dedup recovers its cases) — was callable behind
+   `YANG_WELD_ENABLE` as a historical A/B artifact. The arm and the
+   `weld_enabled` gate are removed; `weld_f32_render_twins` survives as
+   a unit-tested banked primitive (`tests_unit/n50_f32_render_twin.rs`,
+   4 oracles green). Production byte-identical BY CONSTRUCTION (the env
+   was unset in every production and CI path); corpus re-verified.
+   Ledger updated (§N50 + the weld-audit table).
+
+   **I4 VERDICT: RESOLVED BY CENSUS + I4-1.** The epic's remaining tail
+   is CAPABILITY, not retirement: §4.3.4 h/l/α density refinement of
+   the seam polyline (conic chains are mesh-inherited density), the
+   §4.5.2 local-refinement loop (§5 below), and the sub-gated
+   increments' own flip conditions (J1 / CORNER_MERGE / INPUT_REFINE /
+   RIM_TRIM, each with recorded blockers).
+
 ## 5. After this epic (recorded, not started)
 
 - **§4.5.4 removal half / §4.5.2 guard shell** (roadmap item 3d/4): route the

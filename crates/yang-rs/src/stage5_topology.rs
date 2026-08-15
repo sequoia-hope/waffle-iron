@@ -3644,35 +3644,14 @@ pub(crate) fn reconstruct_topology_stage4(
         }
     }
 
-    // N50 (spec `yang_n50_f32_render_twin_weld`, deviation N50): weld two
-    // distinct output vertices that are bitwise-identical after rounding to f32 —
-    // the kernel-v2 G1 render-collapse criterion at the OUTPUT (world) magnitude.
-    // The R0012/R0098 render-collapse twins are NON-relocated arrangement
-    // vertices minted by near-coincident Stage-0 overlay sweep-event columns
-    // (N48/N49); after the final Stage-4 relocation above they converge to within
-    // f32 render precision and survive every earlier (model-band) merge. This
-    // runs LAST, on the final mesh whose verts are 1:1 with the emitted output
-    // vertices, so it measures the same magnitude G1 does. Byte-identical no-op
-    // when no two live verts share an f32 render cell (the fast path).
-    if weld_enabled("f32") {
-        let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        let f32_welded = weld_f32_render_twins(mesh, &mut attr_vec);
-        attribution.attributions = attr_vec;
-        if f32_welded {
-            let remap = compact_unreferenced_verts(mesh, &mut relocations);
-            let (i5, inc5, cv5) = compute_phase_a(
-                mesh,
-                attribution,
-                a,
-                b,
-                &crate::stage3_ssi::NO_EDGE_PROVENANCE,
-            )?;
-            probe_remap_pre_pos("f32weld", remap.as_ref());
-            probe_record_incidence(&inc5, &cv5);
-            infos = i5;
-            intersection_curves = cv5;
-        }
-    }
+    // N50's f32 render-twin weld arm stood here until the §4.4.1 epic's I4-1
+    // (2026-08-15) REMOVED it from the production path entirely: the sole
+    // confirmed hack of the retired weld family (a non-geometric f32-render-
+    // precision identity, nowhere in the paper, regresses C0036), redundant
+    // since the N56 §4.3 dedup recovers its cases, and default-off since the
+    // N55/N56 audit. `weld_f32_render_twins` survives as a unit-tested banked
+    // primitive (`tests_unit/n50_f32_render_twin.rs`); history:
+    // `docs/yang_deviations.md` §N50.
 
     // (#173 / N6) §4.5.4 illegal-self-intersection PROBE on the FINAL mesh
     // (verts 1:1 with the emitted output vertices). Gated on

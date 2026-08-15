@@ -1570,54 +1570,48 @@ pub(crate) fn collapse_vertex(
     dropped
 }
 
-/// N47 (spec `yang_n47_coincident_moved_weld`): weld coincident RELOCATED
-/// vertices before topology emission.
-///
-/// Two vertices this pipeline pushed onto an analytic curve (`moved`) can
-/// Newton-converge to within the MODEL coincidence tolerance
-/// `TAU_MODEL·(1+scale)` — they are the SAME geometric point emitted twice (a
-/// near-tangent seam crossing whose two arrangement vertices both project onto
-/// one intersection point). Emitted distinct, they become a sub-render-precision
-/// output edge that trips kernel-v2's G1 render-collapse gate far downstream.
-///
-/// The four non-compliant vertex welds are RETIRED (#169 weld-retirement track,
-/// audit 2026-07-16): they are OFF in production. Each was a tolerance hack
-/// (violating the Cherchi B6 "never a tolerance weld" invariant) that masked
-/// upstream near-coincident minting; a case that only stayed CORRECT via such a
-/// weld was a false green by project intent (Yang-paper compliance is the north
-/// star), and retiring it can only expose a loud STOP, never a silent-wrong. The
-/// measured cost of turning all four off was 13 cases (241C → 228C, 0 WRONG).
-///
-/// **Update (N55/N56): the audit was wrong for THREE of the four.** The correct
-/// test is "is it a Yang paper operation?", not "does it use a tolerance." The
-/// paper prescribes tolerance-gated merges, and those are desired:
-/// - `subfeature` = Yang §4.4.1(b) (Fig-11(b) "merge p with q if too close"),
-///   retightened to `TAU_WORK·(1+scale)` (`is_relocation_coincidence`) →
-///   compliant always-on merge (N55). Recovers R0055/F0056/F0057/F0059.
-/// - `coincident` = Yang §4.3 ("remove a point too close to another on the same
-///   loop"; both verts relocated onto the curve) → reinstated always-on (N56).
-///   0-conversion (near-tangency infra for #137) but genuine paper machinery.
-/// - `subres` = Yang §4.3 (sub-resolution intersection-curve segment collapse),
-///   retightened from the absolute floor to `TAU_MODEL·(1+scale)` → reinstated
-///   always-on (N56). Recovers R0076/R0088/F0078/F0079/F0084 — and, combined
-///   with `coincident`, the render twins R0012/R0098/F0090.
-///
-/// Net: 12 of the 13 retired cases recover COMPLIANTLY (228C → 240C, 0 WRONG);
-/// only R0072 stays a loud STOP (a real ~1e-7 micro-scale collapse → curved
-/// re-CDT). `weld_enabled` now gates ONLY **`f32`** — the sole confirmed hack
-/// (it keys on f32 RENDER precision, not geometry; it is nowhere in the paper,
-/// it REGRESSES C0036, and it is now redundant since the §4.3 dedup recovers
-/// its cases). It remains callable behind `YANG_WELD_ENABLE=f32|all` purely as a
-/// historical A/B artifact; unset (the production default) ⇒ off.
-pub(crate) fn weld_enabled(tag: &str) -> bool {
-    match std::env::var("YANG_WELD_ENABLE") {
-        Ok(list) => list.split(',').any(|t| {
-            let t = t.trim();
-            t == "all" || t == tag
-        }),
-        Err(_) => false,
-    }
-}
+// N47 (spec `yang_n47_coincident_moved_weld`): weld coincident RELOCATED
+// vertices before topology emission.
+//
+// Two vertices this pipeline pushed onto an analytic curve (`moved`) can
+// Newton-converge to within the MODEL coincidence tolerance
+// `TAU_MODEL·(1+scale)` — they are the SAME geometric point emitted twice (a
+// near-tangent seam crossing whose two arrangement vertices both project onto
+// one intersection point). Emitted distinct, they become a sub-render-precision
+// output edge that trips kernel-v2's G1 render-collapse gate far downstream.
+//
+// The four non-compliant vertex welds are RETIRED (#169 weld-retirement track,
+// audit 2026-07-16): they are OFF in production. Each was a tolerance hack
+// (violating the Cherchi B6 "never a tolerance weld" invariant) that masked
+// upstream near-coincident minting; a case that only stayed CORRECT via such a
+// weld was a false green by project intent (Yang-paper compliance is the north
+// star), and retiring it can only expose a loud STOP, never a silent-wrong. The
+// measured cost of turning all four off was 13 cases (241C → 228C, 0 WRONG).
+//
+// **Update (N55/N56): the audit was wrong for THREE of the four.** The correct
+// test is "is it a Yang paper operation?", not "does it use a tolerance." The
+// paper prescribes tolerance-gated merges, and those are desired:
+// - `subfeature` = Yang §4.4.1(b) (Fig-11(b) "merge p with q if too close"),
+//   retightened to `TAU_WORK·(1+scale)` (`is_relocation_coincidence`) →
+//   compliant always-on merge (N55). Recovers R0055/F0056/F0057/F0059.
+// - `coincident` = Yang §4.3 ("remove a point too close to another on the same
+//   loop"; both verts relocated onto the curve) → reinstated always-on (N56).
+//   0-conversion (near-tangency infra for #137) but genuine paper machinery.
+// - `subres` = Yang §4.3 (sub-resolution intersection-curve segment collapse),
+//   retightened from the absolute floor to `TAU_MODEL·(1+scale)` → reinstated
+//   always-on (N56). Recovers R0076/R0088/F0078/F0079/F0084 — and, combined
+//   with `coincident`, the render twins R0012/R0098/F0090.
+//
+// Net: 12 of the 13 retired cases recover COMPLIANTLY (228C → 240C, 0 WRONG);
+// only R0072 stays a loud STOP (a real ~1e-7 micro-scale collapse → curved
+// re-CDT). The last gated arm — `f32`, the sole confirmed hack (it keyed on
+// f32 RENDER precision, not geometry; it is nowhere in the paper; it
+// REGRESSES C0036; it was redundant since the §4.3 dedup recovers its
+// cases) — was kept callable behind `YANG_WELD_ENABLE` as a historical A/B
+// artifact until the §4.4.1 epic's **I4-1 (2026-08-15) removed the arm and
+// the `weld_enabled` gate entirely** (production had it off by default
+// since the audit, so the removal is byte-identical by construction).
+// `weld_f32_render_twins` survives below as a unit-tested banked primitive.
 
 /// Yang §4.4.1(b) same-point test (deviation N55): two relocated endpoints
 /// `len` apart at local magnitude `scale` (= max |coord| of the pair) are the
@@ -3264,6 +3258,12 @@ fn repair_fan_cluster(
 /// edge-collapse; iterate to a fixed point (one pair per BTreeMap-ordered sweep,
 /// min-index survivor). Byte-identical no-op when no two live verts share an f32
 /// cell (the overwhelming-majority fast path). Returns whether any pair welded.
+///
+/// RETIRED from the production path (§4.4.1 epic I4-1, 2026-08-15) — the sole
+/// confirmed hack of the weld family; see the retirement history at
+/// `weld_enabled`'s former site and `docs/yang_deviations.md` §N50. Banked as
+/// a unit-tested primitive (`tests_unit/n50_f32_render_twin.rs`).
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn weld_f32_render_twins(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,

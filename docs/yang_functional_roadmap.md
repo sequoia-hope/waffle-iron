@@ -259,9 +259,22 @@ name, never measured).
    `plan_verts + k` remap). Measured: kv6b's wall seeds 9 points at
    exactly the original 22.5° banding scale, seam 5 applies, the union
    sandwich holds; the squashed-drum twin passes seedless (attempt-0
-   byte-stability pinned). After I2e the epic's next rung is **I4 —
-   retire relocate-in-place** (I3 holds parity with 0W: precondition
-   MET).
+   byte-stability pinned). **I4 RESOLVED BY CENSUS + I4-1 same day**
+   (spec §4-I4): the census found no retireable relocate-in-place path
+   remaining — every live Stage-4 pass implements quoted paper text or
+   is a P10 gate; the two named selector-drivers (`stage4_fold_risk`,
+   `detect_nonmanifold_seams`) are already diagnostics/banked with
+   recorded re-entry conditions; `trim_beyond_corner_phantoms` is a
+   local Fig-11(a) implementation whose retirement condition is the J1
+   flip. I4-1 DELETED the last relocate-era hack arm — the N50
+   `weld_enabled("f32")` render-twin weld (the weld audit's sole
+   confirmed hack; ledger updated; the primitive survives unit-tested
+   banked). Corpus byte-identical. The epic's remaining tail is
+   CAPABILITY: §4.3.4 h/l/α seam-polyline density refinement, the
+   §4.5.2 local-refinement loop (spec §5), the sub-gated increments'
+   flip conditions, and the named follow-up "re-measure the #168
+   replan gate post-I2e" (the seeded keep-boundary re-CDT may have
+   dissolved the §5c.6 generator-seam wall's premise).
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

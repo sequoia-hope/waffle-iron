@@ -2971,7 +2971,7 @@ audit had mis-bucketed it; N55 corrects that with the criterion the paper implie
 
 **The big correction.** Of the 13 cases N53 retired as "false greens via non-compliant welds," **12 recover compliantly** — 4 via §4.4.1(b) (N55) and 8 via §4.3 (N56) — all genuine Yang paper operations. Only **R0072** stays a loud STOP (a real ~1e-7 micro-scale collapse → curved re-CDT, child spec §5c). So the corpus returns to **240C** (vs the pre-retirement 241C; the 1-case gap is R0072, correctly not force-merged). The N53 premise — "these 13 are tolerance hacks masking upstream defects" — was largely wrong: they were paper operations (§4.4.1(b) merge, §4.3 curve-point dedup) applied with occasionally-imperfect criteria. The compliance ratchet still holds — nothing silently wrong, `f32` (the one real hack) stays out — but the lesson is that **"uses a tolerance" ≠ "is a hack"; the paper prescribes tolerance-gated merges, and those are desired.**
 
-**Effect on N54/#170.** The render-collapse cases R0012/R0098/F0090 that #170's Stage-0 event-column canonicalization was chasing are now recovered by §4.3 dedup at Stage 4/5 — the paper's own mechanism for near-coincident mesh-boolean output. The Stage-0 minting is expected geometry (N48 sidecar-certified the C++ reference mints the same near-coincident points), and §4.3 dedup — not an upstream Stage-0 change — is the paper-faithful response. #170's overlay-canonicalization approach is therefore **moot for these cases**. `f32` remains gated behind `YANG_WELD_ENABLE` purely as a historical A/B artifact; it is redundant and harmful and could be deleted.
+**Effect on N54/#170.** The render-collapse cases R0012/R0098/F0090 that #170's Stage-0 event-column canonicalization was chasing are now recovered by §4.3 dedup at Stage 4/5 — the paper's own mechanism for near-coincident mesh-boolean output. The Stage-0 minting is expected geometry (N48 sidecar-certified the C++ reference mints the same near-coincident points), and §4.3 dedup — not an upstream Stage-0 change — is the paper-faithful response. #170's overlay-canonicalization approach is therefore **moot for these cases**. `f32` remained gated behind `YANG_WELD_ENABLE` as a historical A/B artifact until the §4.4.1 epic's I4-1 (2026-08-15) deleted the arm and the `weld_enabled` gate entirely (it was redundant and harmful); `weld_f32_render_twins` survives as a unit-tested banked primitive.
 
 ### N57 — #178 sub-resolution coplanar-gap STOP: two DISTINCT parallel cross planes inside the detection band reject loudly (C0111/C0113 silent dissolve → typed ERROR; corpus 0 WRONG)
 
@@ -3765,7 +3765,7 @@ F0063/F0090/R0014/R0088 −4), 0 SUPPORTED_WRONG.
 
 ### N50 — f32-render-twin weld before topology emission (Stage 5/6; the shipped fix for R0012/R0098, task #166)
 
-**State:** HISTORICAL — SUPERSEDED — the shipped f32-render-twin weld was retired from production by N53 and confirmed as the sole real hack by N56 (its cases recover via §4.3 dedup; it regresses C0036). Mechanism remains dev-gated behind `YANG_WELD_ENABLE=f32`.
+**State:** HISTORICAL — SUPERSEDED — the shipped f32-render-twin weld was retired from production by N53 and confirmed as the sole real hack by N56 (its cases recover via §4.3 dedup; it regresses C0036). The dev-gated arm (`YANG_WELD_ENABLE=f32`) and the `weld_enabled` gate were DELETED by the §4.4.1 epic's I4-1 (2026-08-15); `weld_f32_render_twins` survives as a unit-tested banked primitive.
 
 **Status:** SHIPPED. Implements the "corrected scope" N49 arrived at, in the
 layer N49 prescribed (3D, output magnitude, f32-render floor, non-chaining).
@@ -4047,9 +4047,10 @@ premise (Cherchi B6, "never a tolerance weld") and masks an upstream
 near-coincident-minting defect rather than fixing it. Per the project north star —
 build the kernel on the Yang 2025 paper — a case that stays `SUPPORTED_CORRECT`
 only because of a tolerance weld is a **false green** (P9 "right answer for the
-wrong reason"), not a real capability. They are retired (off in production; the
-functions remain callable ONLY behind `YANG_WELD_ENABLE=<tags>|all` for the A/B
-compliance ledger).
+wrong reason"), not a real capability. They are retired (off in production; three of the four were later reinstated
+COMPLIANTLY by N55/N56 with retightened criteria, and the last gated arm —
+`f32` — plus the `weld_enabled` gate itself were DELETED by the §4.4.1 epic's
+I4-1, 2026-08-15).
 
 The four (audit 2026-07-16):
 
