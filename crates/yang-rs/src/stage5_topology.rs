@@ -503,8 +503,10 @@ fn run_meshup_splice_passes(
 /// §4): the UNCONDITIONAL curve-seam construction, per PATCH with ALL its
 /// curves.
 ///
-/// Gated by the CALLER on `YANG_441_CONSTRUCT`; gate-OFF runs never enter and
-/// are byte-identical. I1's one-seam-per-pass slice measured sound with ZERO
+/// ALWAYS-ON since the I3 flip (2026-08-15) — the caller invokes this
+/// unconditionally; the historical `YANG_441_CONSTRUCT` env gate now only
+/// re-enables the diagnostic chatter (see [`c441_verbose`]). I1's
+/// one-seam-per-pass slice measured sound with ZERO
 /// conversions: mutually-blocked seams (a collapsed seam still crosses the
 /// other not-yet-collapsed relocated chains of the same cycle) can never
 /// collapse pairwise — the fixpoint decline census
@@ -531,6 +533,30 @@ fn run_meshup_splice_passes(
 /// the batch and re-assembles, loudly. Out-of-scope seams (curved patch,
 /// non-line curve, closed run) are LOUD skips — increment I2's worklist,
 /// never a silent partial repair.
+/// Diagnostic verbosity for the §4.4.1 construct pass (I3 flip, 2026-08-15).
+///
+/// The pass itself is ALWAYS-ON; only its per-seam/per-pass diagnostic
+/// chatter is gated here. Setting the HISTORICAL main gate
+/// `YANG_441_CONSTRUCT` (every recorded spec workflow does) or
+/// `YANG_441_VERBOSE` reproduces the pre-flip output byte-for-byte; the
+/// default (no env — including every wasm32 run, where `var_os` is always
+/// `None`) is quiet. Genuine anomaly signals — the whole-batch-refusal /
+/// correspondence / write-back STOPs — stay unconditional `eprintln!`s.
+fn c441_verbose() -> bool {
+    std::env::var_os("YANG_441_CONSTRUCT").is_some()
+        || std::env::var_os("YANG_441_VERBOSE").is_some()
+}
+
+/// `eprintln!` gated on [`c441_verbose`] — the construct pass's diagnostic
+/// chatter (SKIP/DECLINED/APPLIED/REORDERED/census lines).
+macro_rules! c441_log {
+    ($($arg:tt)*) => {
+        if c441_verbose() {
+            eprintln!($($arg)*);
+        }
+    };
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_construct_passes(
     mesh: &mut Mesh,
@@ -564,7 +590,7 @@ fn run_construct_passes(
     let apply_enabled = env_cap("YANG_441_APPLY_BOOL_CAP").is_none_or(|c| bool_idx < c);
     let seam_budget = env_cap("YANG_441_APPLY_SEAM_CAP");
     if !apply_enabled {
-        eprintln!("[s4-construct] CENSUS-ONLY (boolean index {bool_idx} at/above bool cap)");
+        c441_log!("[s4-construct] CENSUS-ONLY (boolean index {bool_idx} at/above bool cap)");
     }
 
     let mut applied_total = 0usize;
@@ -630,7 +656,7 @@ fn run_construct_passes(
                 |s: &Surface| matches!(s, Surface::Plane { .. } | Surface::Cylinder { .. });
             if !chartable(&patches[pi].surface) || !chartable(&patches[qi].surface) {
                 skip[1] += 1;
-                eprintln!(
+                c441_log!(
                     "[s4-construct] pass={pass} seam={gi}: SKIP unchartable patch \
                      (patches {pi}+{qi}) — I2 scope"
                 );
@@ -640,7 +666,7 @@ fn run_construct_passes(
                 Ok(x) => x,
                 Err(e) => {
                     skip[4] += 1;
-                    eprintln!(
+                    c441_log!(
                         "[s4-construct] pass={pass} seam={gi}: SKIP unorderable chain \
                          (patches {pi}+{qi}) — {e:?}"
                     );
@@ -649,7 +675,7 @@ fn run_construct_passes(
             };
             if closed {
                 skip[2] += 1;
-                eprintln!(
+                c441_log!(
                     "[s4-construct] pass={pass} seam={gi}: SKIP closed seam \
                      (patches {pi}+{qi}) — I2b tail",
                 );
@@ -669,7 +695,7 @@ fn run_construct_passes(
                     Some(s) if s <= 1e-9 => {}
                     s => {
                         skip[7] += 1;
-                        eprintln!(
+                        c441_log!(
                             "[s4-construct] pass={pass} seam={gi}: SKIP non-straight chain \
                              (patches {pi}+{qi}, off-line {s:?}) — not one line's seam",
                         );
@@ -680,7 +706,7 @@ fn run_construct_passes(
                     || replace_seam_run(&patches[qi].cycles, &chain).is_none()
                 {
                     skip[5] += 1;
-                    eprintln!(
+                    c441_log!(
                         "[s4-construct] pass={pass} seam={gi}: SKIP — run not contiguous \
                          (patches {pi}+{qi})"
                     );
@@ -698,7 +724,7 @@ fn run_construct_passes(
                     Ok(o) => o,
                     Err(crate::stage4_splice::SpliceError::SeamCurveNotConic) => {
                         skip[0] += 1;
-                        eprintln!(
+                        c441_log!(
                             "[s4-construct] pass={pass} seam={gi}: SKIP non-conic curve \
                              (patches {pi}+{qi}, {} edges) — no closed-form parameter",
                             g.edges.len()
@@ -707,7 +733,7 @@ fn run_construct_passes(
                     }
                     Err(e) => {
                         skip[6] += 1;
-                        eprintln!(
+                        c441_log!(
                             "[s4-construct] pass={pass} seam={gi}: DECLINED conic order \
                              (patches {pi}+{qi}) — {e:?}"
                         );
@@ -725,7 +751,7 @@ fn run_construct_passes(
                 };
                 if !carries(&patches[pi].cycles) || !carries(&patches[qi].cycles) {
                     skip[5] += 1;
-                    eprintln!(
+                    c441_log!(
                         "[s4-construct] pass={pass} seam={gi}: SKIP — conic run not \
                          carried whole (patches {pi}+{qi})"
                     );
@@ -868,7 +894,7 @@ fn run_construct_passes(
                         continue; // healthy terminal (walk-backs alone are I1f's)
                     }
                     if let Some(v) = mixed {
-                        eprintln!(
+                        c441_log!(
                             "[j1-exit] pass={pass} seam={gi}: REFUSED terminal v{j} — \
                              relocated vertex v{v} inside the overshoot span (mixed \
                              authority)"
@@ -876,7 +902,7 @@ fn run_construct_passes(
                         continue;
                     }
                     if corners.len() > 1 {
-                        eprintln!(
+                        c441_log!(
                             "[j1-exit] pass={pass} seam={gi}: REFUSED terminal v{j} — \
                              {} corner candidates in one overshoot span ({:?})",
                             corners.len(),
@@ -885,7 +911,7 @@ fn run_construct_passes(
                         continue;
                     }
                     let c = corners[0];
-                    eprintln!(
+                    c441_log!(
                         "[j1-exit] pass={pass} seam={gi}: EXIT v{j} -> corner v{c} \
                          (holders={}, walk-backs-in-span={walkers}, chain len {})",
                         holders_of(c),
@@ -915,7 +941,7 @@ fn run_construct_passes(
         let mut refine_pairs: Vec<(u32, u32)> = Vec::new();
         if std::env::var_os("YANG_441_INPUT_REFINE").is_some() && !eligible.is_empty() {
             match crate::stage4_correct::stage4_chord_band(a, b) {
-                None => eprintln!("[s4-refine] pass={pass}: SKIP — no derivable chord band"),
+                None => c441_log!("[s4-refine] pass={pass}: SKIP — no derivable chord band"),
                 Some(band) => {
                     let patch_attr: Vec<Option<crate::brep::TriangleAttribution>> = patches
                         .iter()
@@ -954,7 +980,7 @@ fn run_construct_passes(
                     // of different faces).
                     for &pi in &scope {
                         if patch_attr[pi].is_none() {
-                            eprintln!(
+                            c441_log!(
                                 "[s4-refine] pass={pass}: SKIP scoped patch {pi} — mixed or \
                                  absent attribution ({} tris); its input-edge runs are \
                                  invisible",
@@ -1043,11 +1069,13 @@ fn run_construct_passes(
                         if let Some(&v) =
                             ch.verts[1..ch.verts.len() - 1].iter().find(|&&v| pinned(v))
                         {
-                            eprintln!(
+                            c441_log!(
                                 "[s4-refine] pass={pass}: REFUSED chain patches {}+{} — \
                                  v{v} is a junction/relocated vertex INSIDE the run \
                                  (mixed authority) — verts {:?}",
-                                ch.patch, ch.neighbor, ch.verts
+                                ch.patch,
+                                ch.neighbor,
+                                ch.verts
                             );
                             continue;
                         }
@@ -1068,10 +1096,11 @@ fn run_construct_passes(
                                 continue;
                             }
                             _ => {
-                                eprintln!(
+                                c441_log!(
                                     "[s4-refine] pass={pass}: SKIP chain patches {}+{} — \
                                      unsupported surface pair (I2c tail)",
-                                    ch.patch, ch.neighbor
+                                    ch.patch,
+                                    ch.neighbor
                                 );
                                 continue;
                             }
@@ -1083,7 +1112,7 @@ fn run_construct_passes(
                             &cyl,
                             band,
                         ) {
-                            Err(e) => eprintln!(
+                            Err(e) => c441_log!(
                                 "[s4-refine] pass={pass}: REFUSED chain patches {}+{} \
                                  ({} verts) — {e:?}",
                                 ch.patch,
@@ -1101,7 +1130,7 @@ fn run_construct_passes(
                                         .sqrt()
                                     })
                                     .fold(0.0f64, f64::max);
-                                eprintln!(
+                                c441_log!(
                                     "[s4-refine] pass={pass}: CHAIN patches {}+{} verts={} \
                                      corners={:?} max_disp={max_disp:.3e} band={band:.3e}{}",
                                     ch.patch,
@@ -1208,7 +1237,7 @@ fn run_construct_passes(
                 }
                 if let Some(ei) = failed {
                     skip[6] += 1;
-                    eprintln!(
+                    c441_log!(
                         "[s4-construct] pass={pass} seam={}: DECLINED batch action \
                          in patch {pi} (mid-batch non-contiguity, degenerate cycle, \
                          or conic reorder refusal)",
@@ -1271,7 +1300,7 @@ fn run_construct_passes(
                             }
                             let d = dist3(p, q);
                             if d > band {
-                                eprintln!(
+                                c441_log!(
                                     "[s4-refine] pass={pass}: REFINE-MERGE SKIPPED v{p} -> \
                                      v{q} — dist {d:.3e} above band after refinement"
                                 );
@@ -1382,19 +1411,22 @@ fn run_construct_passes(
                     }
                     if let Some(&(q0, _)) = pairs.get(&f.c) {
                         if q0 == f.j {
-                            eprintln!(
+                            c441_log!(
                                 "[j1-exit] pass={pass}: dropping containment pair \
                                  v{} -> v{} — reversed by the boundary-exit fix",
-                                f.c, f.j
+                                f.c,
+                                f.j
                             );
                             pairs.remove(&f.c);
                         }
                     }
                     if pairs.contains_key(&f.c) {
-                        eprintln!(
+                        c441_log!(
                             "[j1-exit] pass={pass}: REFUSED v{} -> v{} — corner v{} is \
                              itself substituted this batch (chained substitution)",
-                            f.j, f.c, f.c
+                            f.j,
+                            f.c,
+                            f.c
                         );
                         continue;
                     }
@@ -1405,17 +1437,18 @@ fn run_construct_passes(
                         }
                         Some(_) => {}
                         None => {
-                            eprintln!(
+                            c441_log!(
                                 "[j1-exit] pass={pass}: BOUNDARY-EXIT MERGE v{} -> v{} \
                                  dist={d:.3e}",
-                                f.j, f.c
+                                f.j,
+                                f.c
                             );
                             pairs.insert(f.j, (f.c, d));
                         }
                     }
                 }
                 for p in &ambiguous {
-                    eprintln!("[s4-construct] pass={pass}: CORNER-MERGE AMBIGUOUS v{p}; skipped");
+                    c441_log!("[s4-construct] pass={pass}: CORNER-MERGE AMBIGUOUS v{p}; skipped");
                     pairs.remove(p);
                 }
                 // Holder closure: every patch whose cycles hold p and whose
@@ -1467,7 +1500,7 @@ fn run_construct_passes(
                     let chartable =
                         |s: &Surface| matches!(s, Surface::Plane { .. } | Surface::Cylinder { .. });
                     if pulled.iter().any(|&h| !chartable(&patches[h].surface)) {
-                        eprintln!(
+                        c441_log!(
                             "[s4-construct] pass={pass}: CORNER-MERGE REFUSED v{p} -> \
                                  v{q} — an unchartable holder; blocked"
                         );
@@ -1482,7 +1515,7 @@ fn run_construct_passes(
                             format!("{h}:{}", if in_cyc { "cyc" } else { "tri" })
                         })
                         .collect();
-                    eprintln!(
+                    c441_log!(
                         "[s4-construct] pass={pass}: CORNER-MERGE v{p} -> v{q} \
                              dist={d:.3e} holders={holders:?} rebuilt={why:?}"
                     );
@@ -1700,7 +1733,7 @@ fn run_construct_passes(
                                     }
                                 };
                                 let Some(kept_positive) = kept_positive else {
-                                    eprintln!(
+                                    c441_log!(
                                         "[s4-construct] pass={pass}: RIM-TRIM SKIP \
                                          patch {pi} circle[{ci}] — kept side \
                                          ambiguous (pos={pos_w} neg={neg_w})"
@@ -1721,7 +1754,7 @@ fn run_construct_passes(
                                         let d = dr(v);
                                         let covered = if kept_positive { -d } else { d };
                                         if covered > 1e-9 && covered <= band {
-                                            eprintln!(
+                                            c441_log!(
                                                 "[s4-construct] pass={pass}: RIM-TRIM \
                                                  candidate v{v} patch {pi} \
                                                  dr={d:+.3e} (covered side)"
@@ -1754,7 +1787,7 @@ fn run_construct_passes(
                                 matches!(s, Surface::Plane { .. } | Surface::Cylinder { .. })
                             };
                             if holders.iter().any(|&h| !chartable(&patches[h].surface)) {
-                                eprintln!(
+                                c441_log!(
                                     "[s4-construct] pass={pass}: RIM-TRIM REFUSED v{v} — \
                                      an unchartable holder; blocked"
                                 );
@@ -1801,7 +1834,7 @@ fn run_construct_passes(
                     if (holders.len() > 2 && !trim_cands.contains(&v))
                         || !holders.iter().all(|h| mod_cycles.contains_key(h))
                     {
-                        eprintln!(
+                        c441_log!(
                             "[s4-construct] pass={pass}: NEAR-CURVE REMOVAL BLOCKED v{v} — \
                              holders {holders:?} not all rebuilt (or >2); vertex stays"
                         );
@@ -1814,7 +1847,7 @@ fn run_construct_passes(
                         })
                     });
                     if degenerates {
-                        eprintln!(
+                        c441_log!(
                             "[s4-construct] pass={pass}: NEAR-CURVE REMOVAL BLOCKED v{v} — \
                              a holder cycle would degenerate below 3 vertices"
                         );
@@ -1868,7 +1901,7 @@ fn run_construct_passes(
                                     .collect();
                                 let small_cycles: Vec<&Vec<u32>> =
                                     mod_cycles[&h].iter().filter(|c| c.len() <= 8).collect();
-                                eprintln!(
+                                c441_log!(
                                     "[rim-frag] v{v} holder {h}: input={:?} face={} {surf} \
                                      tris={} area={area:.3e} max_edge={max_edge:.3e} \
                                      cycles(len,occ)={cyc_shape:?} small={small_cycles:?}",
@@ -1880,7 +1913,7 @@ fn run_construct_passes(
                                     for &cv in cyc {
                                         let p = mesh.verts[cv as usize];
                                         let rad = (p.x() * p.x() + p.y() * p.y()).sqrt();
-                                        eprintln!(
+                                        c441_log!(
                                             "[rim-frag]     v{cv} r={rad:.9} z={:.9} \
                                              xyz=({:.6},{:.6},{:.6})",
                                             p.z(),
@@ -1923,14 +1956,14 @@ fn run_construct_passes(
                                             })
                                             .filter(|e| frag_edges.contains(e))
                                             .collect();
-                                        eprintln!(
+                                        c441_log!(
                                             "[rim-frag]     sibling {pj}: tris={} \
                                              shared_edges={shared:?}",
                                             patches[pj].tris.len(),
                                         );
                                     }
                                     for &t in tris {
-                                        eprintln!(
+                                        c441_log!(
                                             "[rim-frag]     tri {t}: {:?}",
                                             mesh.tris[t as usize]
                                         );
@@ -1948,7 +1981,7 @@ fn run_construct_passes(
                     removed_total += 1;
                 }
                 if removed_total > 0 {
-                    eprintln!(
+                    c441_log!(
                         "[s4-construct] pass={pass}: NEAR-CURVE REMOVED {removed_total} \
                          on-seam vertices across the batch"
                     );
@@ -1989,7 +2022,7 @@ fn run_construct_passes(
                     let required: Vec<u32> = required_by.get(&pi).cloned().unwrap_or_default();
                     if !required.is_empty() {
                         for p in required {
-                            eprintln!(
+                            c441_log!(
                                 "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED v{p} — \
                                  holder {pi} cycle degenerated after merge/removal"
                             );
@@ -2000,7 +2033,7 @@ fn run_construct_passes(
                     let trimmed: Vec<u32> = trim_pull.get(&pi).cloned().unwrap_or_default();
                     if !trimmed.is_empty() {
                         for v in trimmed {
-                            eprintln!(
+                            c441_log!(
                                 "[s4-construct] pass={pass}: RIM-TRIM BLOCKED v{v} — \
                                  holder {pi} cycle degenerated after merge/removal"
                             );
@@ -2014,7 +2047,7 @@ fn run_construct_passes(
                         .filter(|&ei| eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi)
                         .collect();
                     if !drop.is_empty() {
-                        eprintln!(
+                        c441_log!(
                             "[s4-construct] pass={pass}: DECLINED patch {pi} — cycle \
                              degenerated below 3 vertices after corner merge/removal; \
                              dropping its seams"
@@ -2038,7 +2071,7 @@ fn run_construct_passes(
                         break 'assemble (Vec::new(), std::collections::BTreeMap::new());
                     }
                     for p in incidental {
-                        eprintln!(
+                        c441_log!(
                             "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED v{p} — \
                              incidental to degenerated holder {pi}"
                         );
@@ -2081,7 +2114,7 @@ fn run_construct_passes(
                             .find(|&ei| chain_interior_holds(&eligible[ei], v))
                         {
                             skip[6] += 1;
-                            eprintln!(
+                            c441_log!(
                                 "[s4-construct] pass={pass} seam={}: DECLINED — dropped \
                                  vertex {v} (patch {pi}) kept by batched patch {qi}",
                                 eligible[ei].gi
@@ -2089,7 +2122,7 @@ fn run_construct_passes(
                             active.remove(&ei);
                         } else {
                             skip[6] += 1;
-                            eprintln!(
+                            c441_log!(
                                 "[s4-construct] pass={pass}: DECLINED patch {pi} — interior \
                                  vertex {v} kept by batched patch {qi}; dropping its seams"
                             );
@@ -2128,7 +2161,7 @@ fn run_construct_passes(
                                 }
                                 if !trimmed.is_empty() {
                                     for v in trimmed {
-                                        eprintln!(
+                                        c441_log!(
                                             "[s4-construct] pass={pass}: RIM-TRIM BLOCKED \
                                              v{v} — holder {pi} dropped-vertex conflict"
                                         );
@@ -2136,7 +2169,7 @@ fn run_construct_passes(
                                     }
                                 } else {
                                     for p in blocked {
-                                        eprintln!(
+                                        c441_log!(
                                             "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED \
                                              v{p} — holder {pi} dropped-vertex conflict"
                                         );
@@ -2172,7 +2205,7 @@ fn run_construct_passes(
                         .find(|&ei| chain_interior_holds(&eligible[ei], v))
                     {
                         skip[6] += 1;
-                        eprintln!(
+                        c441_log!(
                             "[s4-construct] pass={pass} seam={}: DECLINED — dropped vertex \
                              {v} referenced outside the batch (tri {t})",
                             eligible[ei].gi
@@ -2180,7 +2213,7 @@ fn run_construct_passes(
                         active.remove(&ei);
                     } else {
                         skip[6] += 1;
-                        eprintln!(
+                        c441_log!(
                             "[s4-construct] pass={pass}: DECLINED patch {pi} — interior \
                              vertex {v} referenced outside the batch (tri {t}); dropping \
                              its seams"
@@ -2214,7 +2247,7 @@ fn run_construct_passes(
                             }
                             if !trimmed.is_empty() {
                                 for v in trimmed {
-                                    eprintln!(
+                                    c441_log!(
                                         "[s4-construct] pass={pass}: RIM-TRIM BLOCKED v{v} — \
                                          holder {pi} orphaned-vertex conflict"
                                     );
@@ -2222,7 +2255,7 @@ fn run_construct_passes(
                                 }
                             } else {
                                 for p in blocked {
-                                    eprintln!(
+                                    c441_log!(
                                         "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED v{p} — \
                                          holder {pi} orphaned-vertex conflict"
                                     );
@@ -2296,7 +2329,7 @@ fn run_construct_passes(
                     Ok(r) => out.push(r),
                     Err(e) => {
                         skip[6] += 1;
-                        eprintln!("[s4-construct] pass={pass}: DECLINED patch {pi} — {e:?}");
+                        c441_log!("[s4-construct] pass={pass}: DECLINED patch {pi} — {e:?}");
                         // Decline census: name what the declined boundary is
                         // MADE OF and WHICH edges cross — the I2 worklist and
                         // the femto-pair anchor are measured here, not
@@ -2339,7 +2372,7 @@ fn run_construct_passes(
                         let trimmed: Vec<u32> = trim_pull.get(&pi).cloned().unwrap_or_default();
                         if !required.is_empty() {
                             for p in required {
-                                eprintln!(
+                                c441_log!(
                                     "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED v{p} — \
                                      holder {pi} declined"
                                 );
@@ -2347,7 +2380,7 @@ fn run_construct_passes(
                             }
                         } else if !trimmed.is_empty() {
                             for v in trimmed {
-                                eprintln!(
+                                c441_log!(
                                     "[s4-construct] pass={pass}: RIM-TRIM BLOCKED v{v} — \
                                      holder {pi} declined"
                                 );
@@ -2381,7 +2414,7 @@ fn run_construct_passes(
                                     );
                                 }
                                 for p in incidental {
-                                    eprintln!(
+                                    c441_log!(
                                         "[s4-construct] pass={pass}: CORNER-MERGE BLOCKED \
                                          v{p} — incidental to declined holder {pi}"
                                     );
@@ -2400,7 +2433,7 @@ fn run_construct_passes(
         };
 
         if rebuilds.is_empty() {
-            eprintln!(
+            c441_log!(
                 "[s4-construct] STOP pass={pass}: no collapsible seam remains \
                  (applied_total={applied_total}; seams={} skips: nonline={} curved={} \
                  closed={} minimal={} unorderable={} noncontig={} declined={} \
@@ -2418,7 +2451,7 @@ fn run_construct_passes(
             break;
         }
         if !apply_enabled {
-            eprintln!(
+            c441_log!(
                 "[s4-construct] pass={pass}: APPLY SKIPPED (census-only) — {} seams over \
                  {} patches",
                 active.len(),
@@ -2431,7 +2464,7 @@ fn run_construct_passes(
                 for &ei in &active {
                     let e = &eligible[ei];
                     match &e.action {
-                        SeamAction::CollapseLine => eprintln!(
+                        SeamAction::CollapseLine => c441_log!(
                             "[s4-construct] pass={pass} seam={}: APPLIED patches {}+{} — \
                              chain {} -> 2 verts",
                             e.gi,
@@ -2439,7 +2472,7 @@ fn run_construct_passes(
                             e.pair.1,
                             e.chain.len()
                         ),
-                        SeamAction::ReorderConic { ordered } => eprintln!(
+                        SeamAction::ReorderConic { ordered } => c441_log!(
                             "[s4-construct] pass={pass} seam={}: REORDERED patches {}+{} — \
                              {} verts to curve order",
                             e.gi,
@@ -2449,7 +2482,7 @@ fn run_construct_passes(
                         ),
                     }
                 }
-                eprintln!(
+                c441_log!(
                     "[s4-construct] pass={pass}: BATCH APPLIED — {} seams over {} patches",
                     active.len(),
                     rebuilds.len()
@@ -2605,10 +2638,10 @@ fn census_j1_boundary_exit(
         }
     };
 
-    eprintln!("[j1-census] seam={gi} pair={pair:?} chain={chain:?}");
-    eprintln!("[j1-census]   owner {}", desc(pair.0));
-    eprintln!("[j1-census]   owner {}", desc(pair.1));
-    eprintln!(
+    c441_log!("[j1-census] seam={gi} pair={pair:?} chain={chain:?}");
+    c441_log!("[j1-census]   owner {}", desc(pair.0));
+    c441_log!("[j1-census]   owner {}", desc(pair.1));
+    c441_log!(
         "[j1-census]   e0 v{e0} {}   e1 v{e1} {}",
         pstr(e0),
         pstr(e1)
@@ -2618,7 +2651,7 @@ fn census_j1_boundary_exit(
             .iter()
             .map(|&(pj, occ)| format!("{}x{occ}", desc(pj)))
             .collect();
-        eprintln!(
+        c441_log!(
             "[j1-census]   FOLD v{c} t={:.6} {} holders: {}",
             seg_t(c),
             pstr(c),
@@ -2627,7 +2660,7 @@ fn census_j1_boundary_exit(
     }
     for &j in &[e0, e1] {
         for (pj, occ) in holders(j) {
-            eprintln!("[j1-census]   END v{j} in {} occ={occ}", desc(pj));
+            c441_log!("[j1-census]   END v{j} in {} occ={occ}", desc(pj));
             for cyc in &patches[pj].cycles {
                 let n = cyc.len();
                 for i in 0..n {
@@ -2643,7 +2676,7 @@ fn census_j1_boundary_exit(
                         }
                         s.push_str(&format!("v{vi}"));
                     }
-                    eprintln!("[j1-census]     cycle-window {s}");
+                    c441_log!("[j1-census]     cycle-window {s}");
                 }
             }
         }
@@ -2658,7 +2691,7 @@ fn census_j1_boundary_exit(
             let d =
                 ((p1.x() - p2.x()).powi(2) + (p1.y() - p2.y()).powi(2) + (p1.z() - p2.z()).powi(2))
                     .sqrt();
-            eprintln!(
+            c441_log!(
                 "[j1-census]   CURVE-EDGE v{v} -{}- v{o} len={d:.3e} other={}",
                 eclass(a, b),
                 pstr(o)
@@ -2713,7 +2746,7 @@ fn census_construct_decline(
                 .or_default() += 1;
         }
         let fmt: Vec<String> = counts.iter().map(|(t, c)| format!("{t}={c}")).collect();
-        eprintln!(
+        c441_log!(
             "[s4-construct]   patch {pi} cycle {k}: {n} edges — {}",
             fmt.join(" ")
         );
@@ -2724,7 +2757,7 @@ fn census_construct_decline(
                     Some(d) => format!("relocated d={d:.3e}"),
                     None => "unmoved".to_string(),
                 };
-                eprintln!(
+                c441_log!(
                     "[s4-construct]     cyc[{i}] v{v} ({:.12}, {:.12}, {:.12}) [{moved}] --[{}]--",
                     p.x(),
                     p.y(),
@@ -2770,7 +2803,7 @@ fn census_construct_decline(
                 continue;
             }
             for (ci, &(c, nrm, r)) in circles.iter().enumerate() {
-                eprintln!(
+                c441_log!(
                     "[rim-census] patch {pi} cycle {k} circle[{ci}] \
                      c=({:.9},{:.9},{:.9}) n=({:.3},{:.3},{:.3}) r={r:.9}",
                     c.x(),
@@ -2803,7 +2836,7 @@ fn census_construct_decline(
                     Some(t) => format!("reloc t={t:.4}"),
                     None => "unmoved".to_string(),
                 };
-                eprintln!(
+                c441_log!(
                     "[rim-census]   [{i}] v{v} dr={dr:+.3e} h={along:+.3e} \
                      {} [{moved}] --[{}]--",
                     if on_chain(i) { "CHAIN" } else { "plain" },
@@ -2848,7 +2881,7 @@ fn census_construct_decline(
                             continue; // shared endpoint — not a proper crossing
                         }
                         if cross(uv[i], uv[(i + 1) % n], uv[j], uv[(j + 1) % n]) {
-                            eprintln!(
+                            c441_log!(
                                 "[s4-construct]   patch {pi} CROSSING ({a0},{a1})[{}] x \
                                  ({b0},{b1})[{}]",
                                 edge_tag(a0, a1),
@@ -2856,7 +2889,7 @@ fn census_construct_decline(
                             );
                             for v in [a0, a1, b0, b1] {
                                 let p = mesh.verts[v as usize];
-                                eprintln!(
+                                c441_log!(
                                     "[s4-construct]     x-vert v{v} = ({:.12}, {:.12}, {:.12})",
                                     p.x(),
                                     p.y(),
@@ -2882,7 +2915,7 @@ fn census_construct_decline(
                             + (pw.y() - pv.y()).powi(2)
                             + (pw.z() - pv.z()).powi(2))
                         .sqrt();
-                        eprintln!(
+                        c441_log!(
                             "[s4-construct]   patch {pi} FEMTO-PAIR verts {w}+{v} — \
                              3D dist {d:.3e}"
                         );
@@ -2893,7 +2926,7 @@ fn census_construct_decline(
                 }
             }
             if found == 0 {
-                eprintln!(
+                c441_log!(
                     "[s4-construct]   patch {pi}: no bit-identical chart pair \
                      (spade-level merge)"
                 );
@@ -3440,21 +3473,26 @@ pub(crate) fn reconstruct_topology_stage4(
                 &mut relocations,
             )?;
         }
-        // §4.4.1 AS WRITTEN, increment I1b (spec
-        // `specs/yang_441_trim_cdt_construction.md`): the unconditional
-        // curve-seam construction, per PATCH with ALL its curves. Gate-OFF
-        // is byte-identical.
-        if std::env::var_os("YANG_441_CONSTRUCT").is_some() {
-            run_construct_passes(
-                mesh,
-                attribution,
-                a,
-                b,
-                &mut infos,
-                &mut intersection_curves,
-                &mut relocations,
-            )?;
-        }
+        // §4.4.1 AS WRITTEN (spec `specs/yang_441_trim_cdt_construction.md`):
+        // the unconditional curve-seam construction, per PATCH with ALL its
+        // curves. ALWAYS-ON since the I3 flip (2026-08-15): the gate-ON
+        // corpus measured category-identical to gate-OFF (259C/0W/49E/0T,
+        // same 49-case ERROR set) under the always-on rim refinement, so the
+        // per-wall-class flip census is satisfied for every class at once.
+        // The historical `YANG_441_CONSTRUCT` env var now only re-enables
+        // the pass's diagnostic chatter (`c441_verbose`); sub-gates
+        // (`YANG_441_CORNER_MERGE`, `YANG_441_INPUT_REFINE`,
+        // `YANG_441_BOUNDARY_EXIT`, `YANG_441_RIM_TRIM`) keep their own
+        // opt-in reads.
+        run_construct_passes(
+            mesh,
+            attribution,
+            a,
+            b,
+            &mut infos,
+            &mut intersection_curves,
+            &mut relocations,
+        )?;
     }
 
     // EXPERIMENTAL probe (task #121 increment 1, read-only, env-gated):

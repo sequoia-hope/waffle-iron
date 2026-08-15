@@ -686,9 +686,103 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    `DuplicateVertex` owners and the fragment wall carry the remaining
    corner blocks.
 
+   **I2d (2026-08-15, LANDED with the I3 flip): the d(T) recompute gate —
+   Yang §4.4.1's closing sentence wired** ("For the newly generated
+   boundary triangles around the intersection curve, we recalculate d(T)
+   to maintain controllable error",
+   `refs/text/yang2025_hybrid_boolean.txt:568-571`) — and the FIRST
+   production consumer of the N2-2 `stage4_dt::d_of_t` primitive.
+   Surfaced by the first gate-ON run of the yang-rs pin suites (the
+   2026-08-14c stale-pin lesson paying its bill):
+   `kv6b_revolve_ingest::partial_revolve_union_and_subtract_box` measured
+   the 90° partial-revolve ∪ box union at volume 6.199 against operand
+   volume 6.888 — **union monotonicity broken by −10 % on a watertight,
+   topology-clean output**. Pre-flip gate-ON reproduces identically, so
+   it is a LATENT of the landed I2a machinery; the corpus never saw it
+   because the composition oracle measures the render tessellation
+   re-derived from the output B-Rep — yang's pipeline witness mesh has
+   no corpus oracle; the unit sandwich is the only instrument at that
+   layer. Anchored with the shipped bisect probes
+   (`YANG_441_APPLY_SEAM_CAP` 0/1/2): seam 2 (planar pair) is clean;
+   **seam 5 — the box-top × outer-cylinder ruling — is the whole loss.**
+   Mesh diff (14 banded tris replaced by 10): the wall's 22.5°-column
+   banding becomes fans from the two seam terminals spanning up to ~75°
+   of θ — every vertex EXACTLY on the cylinder (r = 2.0 to the last
+   digit), watertight, and the secant triangles shave the cylindrical
+   bulge: 1.490 exactly. The mechanism is METRIC, not a backend bug: the
+   chart CDT keeps only CYCLE constraints, the replaced banding's
+   fidelity lives purely in rim-to-rim CONNECTIVITY (the wall has zero
+   interior vertices, so I2a's carry has nothing to carry), and chart
+   Delaunay under the θ-radians × world-units aspect distortion PREFERS
+   wide-θ triangles wherever mid-span vertices are sparse — the notch
+   vertices invade the tall band quads' circumcircles, so the fans ARE
+   the Delaunay optimum in the chart.
+
+   The gate: `rebuild_patch_planar` certifies max d(T) over the OLD and
+   the NEW triangle sets (chart-frame uv is valid input for the
+   certified bound — d(T) is invariant under the cylinder's isometries,
+   and both frames are ortho_basis azimuth-radians × world-units axial)
+   and refuses `ChordDegradation { old_max, new_max }` when the rebuild
+   certifies COARSER than the triangles it replaces. **The budget is the
+   patch's own pre-rebuild certified max — like for like, tolerance-free,
+   no external constant.** (An absolute Stage-1 `d_ε` budget was
+   considered and REJECTED: the certified control-net bound over-reports
+   true sag ~2×, so a `d_ε` gate would refuse Stage-1's own banding.)
+   `ChordCertify` refuses loudly when a triangle cannot be certified
+   (θ-branch outside the unwrapped span / `DtError`). Planar patches are
+   exempt by identity (d(T) ≡ 0 for any triangulation of a plane
+   polygon — the planar family stays byte-stable). Measured: kv6b
+   declines exactly the wall rebuild (certified 0.755 → 1.549) while the
+   planar seam-2 collapse still applies; the union volume is restored;
+   unit pin `rebuild_cylinder_chord_gate_declines_secant_coarsening`
+   (the wall in miniature: notched θ∈[0,π/2] drum, dense rims, no
+   interiors). **Named follow-on I2e (capability): seed the curved
+   rebuild's CDT interior at the surface's own chord spacing** (the
+   shipped `cdt_polygon_with_holes_refined_seeded`, Stage-1's own `d_ε`
+   formula; the batch write-back learns appended vertices) so wide-θ
+   curved rebuilds pass the gate instead of declining. Until I2e, they
+   decline loudly and ship their prior state — capability withheld,
+   never silent coarsening.
+
 3. **I3 — flip per wall class** (cdt-ring-rejected → relocation-region →
    reassembly-non-2-manifold), full assay after each; any conversion or new
    wall is censused before the next flip.
+
+   **STATUS (2026-08-15): FLIPPED ALWAYS-ON — one step, all wall classes
+   at once, because the flip census measured ZERO category deltas in
+   every class.** Precondition (same morning, first gate-ON corpus after
+   the rim-refine flip): `YANG_441_CONSTRUCT=1` full corpus
+   **259C/0W/49E/0T with the ERROR set case-identical to canonical** —
+   the per-wall-class ordering existed to bound conversion risk, and
+   with zero deltas everywhere one measurement satisfies every per-class
+   census (spec principle over literal). Mechanics:
+   `run_construct_passes` is invoked unconditionally; the historical
+   `YANG_441_CONSTRUCT` env var now only re-enables the pass's
+   diagnostic chatter (`c441_verbose()` = CONSTRUCT ∨ VERBOSE — every
+   recorded diagnostic workflow sets the main gate, so their output is
+   byte-identical), the six anomaly STOPs (three whole-batch refusals,
+   the patch/info correspondence break, degenerate-with-no-blame, the
+   write-back refusal) stay unconditional `eprintln!`s, and the four
+   sub-gates are untouched. The flip enables the §4.4.1 construction in
+   the WASM app for the first time (`env::var_os` is always `None` on
+   wasm32; kernel-v2's `from_yang` consumes only the output B-Rep, so
+   the witness-mesh layer had never been app-visible either way).
+
+   **The flip census paid the 2026-08-14c stale-pin bill on schedule:**
+   the first-ever always-on run of the yang-rs pin suites caught the
+   I2a latent (I2d above — the kv6b union-monotonicity silent-wrong at
+   the witness-mesh layer), fixed in the same increment by the d(T)
+   gate. Census results, all with I2d in: yang-rs 75 test targets green
+   always-on; full corpus 259C/0W/49E/0T at the NEW ≥300s budget — the
+   two 20-op stacks crossed the old 240s budget HONESTLY under the
+   construct fixpoint's added CPU (F0065 ≈ 241s CORRECT, F0085 ≈ 242s
+   ERROR at Extrude 20, both single-case adjudicated;
+   `docs/TESTING.md` + root `CLAUDE.md` budget guidance raised
+   240 → 300). Remaining per-case drifts vs the pre-flip canonical: the
+   8 recorded within-ERROR face-id/vertex renumbers (R0020 R0025 R0053
+   R0070 R0082 R0085 R0095 R0100) plus F0085's Extrude 19 → 20 advance
+   (its planar collapses still apply; its cylinder-owner rebuilds now
+   run under the d(T) gate).
 4. **I4 — retire the relocate-in-place path** once I3 holds the score at
    ≥ parity with zero new WRONGs; the §4.5.3 reversal sweep stays (it acts on
    the curve polyline, which the paper orders the same way).

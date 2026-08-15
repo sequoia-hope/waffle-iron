@@ -120,7 +120,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(21), reason: \"surface-pair refinement needs a positive finite chord tolerance\" }",
+      "detail": "1 engine error(s): 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(20), reason: \"surface-pair refinement needs a positive finite chord tolerance\" }",
       "id": "R0020",
       "status": "error"
     },
@@ -150,7 +150,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(588), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "detail": "1 engine error(s): aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(584), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
       "id": "R0025",
       "status": "error"
     },
@@ -318,7 +318,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 108 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 0 is invalid: LocalRefinementRequired\"). Body created as standalone.",
       "id": "R0053",
       "status": "error"
     },
@@ -420,7 +420,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 67cb1e5c-5d7d-43e6-ab14-f986cb5715e2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 2: holed lateral CDT failed: degenerate CDT input (too few / collinear / zero-area loop)\")",
+      "detail": "1 engine error(s): 67cb1e5c-5d7d-43e6-ab14-f986cb5715e2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 202: holed lateral CDT failed: degenerate CDT input (too few / collinear / zero-area loop)\")",
       "id": "R0070",
       "status": "error"
     },
@@ -510,7 +510,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "2 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(566), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.; Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"). Body created as standalone.",
+      "detail": "2 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(565), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.; Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"). Body created as standalone.",
       "id": "R0085",
       "status": "error"
     },
@@ -570,7 +570,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): ac392209-5719-4ea0-9e48-3d2680bc2542: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(713), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "detail": "1 engine error(s): ac392209-5719-4ea0-9e48-3d2680bc2542: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(712), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
       "id": "R0095",
       "status": "error"
     },
@@ -600,7 +600,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 35e46b10-8cdb-4b75-9d20-ea5fa0fc337c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(15), reason: \"patch triangulation folded (inverted triangle) — KV9-F2: the                          unrolled ear-clip/refinement produced inward-facing geometry;                          loud instead of silently-wrong render output\" }",
+      "detail": "1 engine error(s): 35e46b10-8cdb-4b75-9d20-ea5fa0fc337c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(14), reason: \"patch triangulation folded (inverted triangle) — KV9-F2: the                          unrolled ear-clip/refinement produced inward-facing geometry;                          loud instead of silently-wrong render output\" }",
       "id": "R0100",
       "status": "error"
     },
@@ -1092,7 +1092,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 14: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 370: CDT triangulation failed: CDT backend failed to triangulate\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 14: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 372: CDT triangulation failed: CDT backend failed to triangulate\"). Body created as standalone.",
       "id": "F0082",
       "status": "error"
     },
@@ -1110,7 +1110,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 19: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: NonPlanarFace { face: FaceId(35090) }. Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 20: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: NonPlanarFace { face: FaceId(37935) }. Body created as standalone.",
       "id": "F0085",
       "status": "error"
     },

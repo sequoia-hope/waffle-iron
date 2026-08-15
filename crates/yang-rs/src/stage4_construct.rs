@@ -602,6 +602,26 @@ pub(crate) enum ConstructError {
     /// The patch's old triangles do not all share one attribution, so the
     /// replacement triangles have no unambiguous attribution to inherit.
     MixedAttribution { patch: usize },
+    /// I2d (Yang §4.4.1's closing sentence, "we recalculate d(T) to
+    /// maintain controllable error"): the rebuilt CURVED patch certifies a
+    /// LARGER discretization error than the triangles it replaces. A chart
+    /// CDT is geometry-blind — on a curved patch, chart-valid
+    /// triangulations are NOT geometry-equivalent, and a boundary whose
+    /// θ-sampling is sparse away from the rims forces secant triangles
+    /// that shave the cylindrical bulge (the kv6b revolve∪box measurement:
+    /// watertight, topology-clean, −10 % pipeline-mesh volume). The budget
+    /// is the patch's own PRE-rebuild certified max `d(T)` — like for like
+    /// (certified bound vs certified bound), tolerance-free.
+    ChordDegradation {
+        patch: usize,
+        old_max: f64,
+        new_max: f64,
+    },
+    /// I2d: a pre- or post-rebuild triangle could not be `d(T)`-certified
+    /// (a θ-branch lands outside the patch's unwrapped span, or
+    /// [`crate::stage4_dt::d_of_t`] refused). Without a certified budget
+    /// the curved rebuild refuses — loud, never a silent acceptance.
+    ChordCertify { patch: usize },
     /// [`apply_rebuild_batch`] was handed a plan built against a different
     /// mesh.
     StalePlan {
@@ -710,13 +730,18 @@ pub(crate) fn rebuild_patch_planar(
     let mut interior_back: Vec<u32> = Vec::new();
     let mut pool = p2.verts.clone();
     let mut interior_idx: Vec<u32> = Vec::new();
-    if matches!(patch.surface, Surface::Cylinder { .. }) {
-        let (theta_min, theta_max) = pool
-            .iter()
-            .take(back.len())
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
-                (lo.min(p.x()), hi.max(p.x()))
-            });
+    let theta_span: Option<(f64, f64)> = if matches!(patch.surface, Surface::Cylinder { .. }) {
+        Some(
+            pool.iter()
+                .take(back.len())
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+                    (lo.min(p.x()), hi.max(p.x()))
+                }),
+        )
+    } else {
+        None
+    };
+    if let Some((theta_min, theta_max)) = theta_span {
         let interiors: BTreeSet<u32> = patch
             .tris
             .iter()
@@ -784,6 +809,52 @@ pub(crate) fn rebuild_patch_planar(
     if d < 0.0 {
         for t in &mut new_tris {
             t.swap(1, 2);
+        }
+    }
+
+    // I2d — Yang §4.4.1's closing sentence: "For the newly generated
+    // boundary triangles around the intersection curve, we recalculate
+    // d(T) to maintain controllable error"
+    // (refs/text/yang2025_hybrid_boolean.txt:568-571). The chart CDT keeps
+    // only CYCLE constraints; the replaced triangulation's interior-edge
+    // structure (rim-to-rim banding) is discarded, and chart-metric
+    // Delaunay with the θ-radians × world-units aspect distortion prefers
+    // wide-θ triangles wherever mid-span vertices are sparse — secants in
+    // 3D (the kv6b revolve∪box wall: every vertex exactly on the cylinder,
+    // watertight, −10 % volume). The rebuild is accepted only if its
+    // certified max d(T) does not exceed the certified max of the
+    // triangles it replaces — the patch's own pre-rebuild bound as the
+    // budget, no external constant. Planar patches are exempt by identity
+    // (d(T) ≡ 0 for any triangulation of a plane polygon).
+    if let Some((theta_min, theta_max)) = theta_span {
+        let uv_of = |v: u32| -> Result<cad_primitives::Point2, ConstructError> {
+            let uv = chart.project(mesh.verts[v as usize]);
+            let mid = 0.5 * (theta_min + theta_max);
+            let k = ((mid - uv.x()) / std::f64::consts::TAU).round();
+            let theta = uv.x() + k * std::f64::consts::TAU;
+            if theta < theta_min || theta > theta_max {
+                return Err(ConstructError::ChordCertify { patch: patch_index });
+            }
+            Ok(cad_primitives::Point2::new(theta, uv.y()))
+        };
+        let max_dt = |tris: &[[u32; 3]]| -> Result<f64, ConstructError> {
+            let mut m = 0.0f64;
+            for t in tris {
+                let uv = [uv_of(t[0])?, uv_of(t[1])?, uv_of(t[2])?];
+                let dt = crate::stage4_dt::d_of_t(&patch.surface, uv)
+                    .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?;
+                m = m.max(dt);
+            }
+            Ok(m)
+        };
+        let old_max = max_dt(&old)?;
+        let new_max = max_dt(&new_tris)?;
+        if new_max > old_max {
+            return Err(ConstructError::ChordDegradation {
+                patch: patch_index,
+                old_max,
+                new_max,
+            });
         }
     }
 
@@ -1126,6 +1197,80 @@ mod tests {
         );
         let got = area_vector(&r.new_tris, &pos);
         assert!(dot3(want, got) > 0.0, "outward sense preserved");
+    }
+
+    #[test]
+    fn rebuild_cylinder_chord_gate_declines_secant_coarsening() {
+        // I2d (Yang §4.4.1 closing sentence) — the kv6b revolve∪box wall in
+        // miniature: cylinder r=2 about z, wall θ ∈ [0, π/2] × z ∈ [0, 3]
+        // with a notch [0, π/16] × [1, 2] cut into the θ=0 edge (the box
+        // bite). Both rims are densely sampled (π/8 columns) but the notch
+        // verts are the ONLY mid-height vertices, and there are NO interior
+        // vertices: the old banding's fidelity lives purely in
+        // rim-to-rim CONNECTIVITY, which the chart CDT discards. Chart
+        // Delaunay (θ-radians × world-units, aspect-distorted) fans the
+        // mid-height notch verts across wide θ — 3D secants that shave the
+        // cylindrical bulge. The d(T) gate must refuse: the rebuild
+        // certifies coarser than the triangles it replaces.
+        let cyl = |theta: f64, z: f64| Point3::new(2.0 * theta.cos(), 2.0 * theta.sin(), z);
+        let s = std::f64::consts::PI / 8.0;
+        let n = std::f64::consts::PI / 16.0;
+        let mesh = Mesh {
+            verts: vec![
+                cyl(0.0, 0.0),     // 0  rim z=0
+                cyl(s, 0.0),       // 1
+                cyl(2.0 * s, 0.0), // 2
+                cyl(3.0 * s, 0.0), // 3
+                cyl(4.0 * s, 0.0), // 4  far ruling bottom
+                cyl(4.0 * s, 3.0), // 5  far ruling top
+                cyl(3.0 * s, 3.0), // 6  rim z=3
+                cyl(2.0 * s, 3.0), // 7
+                cyl(s, 3.0),       // 8
+                cyl(0.0, 3.0),     // 9  near ruling top
+                cyl(0.0, 2.0),     // 10 notch NW
+                cyl(n, 2.0),       // 11 notch NE
+                cyl(n, 1.0),       // 12 notch SE
+                cyl(0.0, 1.0),     // 13 notch SW
+            ],
+            tris: vec![
+                // band θ ∈ [0, π/8] around the notch
+                [0, 1, 13],
+                [13, 1, 12],
+                [12, 1, 11],
+                [11, 1, 8],
+                [11, 8, 10],
+                [10, 8, 9],
+                // full-height bands, θ-span π/8 each
+                [1, 2, 8],
+                [2, 7, 8],
+                [2, 3, 7],
+                [3, 6, 7],
+                [3, 4, 6],
+                [4, 5, 6],
+            ],
+        };
+        let patch = SplicePatch {
+            cycles: vec![vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]],
+            tris: (0..12).collect(),
+            surface: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: 2.0,
+            },
+        };
+        match rebuild_patch_planar(&mesh, 4, &patch) {
+            Err(ConstructError::ChordDegradation {
+                patch: 4,
+                old_max,
+                new_max,
+            }) => {
+                assert!(
+                    new_max > old_max,
+                    "degradation must be real: old {old_max:.3e} new {new_max:.3e}"
+                );
+            }
+            other => panic!("expected ChordDegradation, got {other:?}"),
+        }
     }
 
     #[test]

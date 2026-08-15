@@ -292,7 +292,12 @@ faithful Fig-11 primitives built under N2-1/N2-2 —
 `stage4_update::stage4_mesh_update` (`stage4_update.rs:89`) and
 `stage4_dt::{eval_uv (:69), d_of_t (:101)}` — have NO production call sites at
 HEAD; every caller is a `#[test]` (`stage4_update.rs` tests L469+, `stage4_dt.rs`
-tests L649+, `tests/n2_dt_adversary.rs`). Stage-4 remains relocation-only: when
+tests L649+, `tests/n2_dt_adversary.rs`). *(Update 2026-08-15: `d_of_t` gained
+its FIRST production consumer — the §4.4.1-epic I2d chord-degradation gate in
+`stage4_construct::rebuild_patch_planar`, which certifies pre- vs post-rebuild
+max d(T) on curved-patch re-CDTs and refuses coarsening rebuilds loudly; spec
+`yang_441_trim_cdt_construction.md` §4-I2d. `stage4_mesh_update` itself remains
+test-only.)* Stage-4 remains relocation-only: when
 relocation + §4.5.3 correction cannot converge, the pipeline loudly STOPs with
 `YangError::Stage4RegionInvalid { reason: LocalRefinementRequired }`
 (`errors.rs:69`/`:123`) rather than doing the local CDT the paper prescribes —

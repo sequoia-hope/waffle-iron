@@ -228,6 +228,30 @@ name, never measured).
    dead-ends loud LRR (recorded wall, pinned), the 1-ULP-inside class
    now builds valid (gain). The flip also enables the machinery in the
    WASM app for the first time (env vars read `None` on wasm32).**
+   **I3 FLIPPED 2026-08-15 — the §4.4.1 construct pass
+   (`YANG_441_CONSTRUCT`, increments I1–I2c) is ALWAYS-ON** (spec
+   §4-I3): the post-rim-refine gate-ON corpus measured 259C/0W/49E/0T
+   with a case-identical ERROR set, satisfying every per-wall-class
+   flip census in one measurement. The flip surfaced and closed the
+   **I2d latent** (spec §4-I2d): the first-ever always-on run of the
+   yang-rs pin suites caught the curved-patch rebuild silently
+   coarsening a cylinder wall into secant fans (kv6b revolve∪box:
+   watertight, on-surface vertices, −10 % witness-mesh volume — union
+   monotonicity broken; invisible to the corpus because the
+   composition oracle measures the render tessellation re-derived from
+   the output B-Rep, never yang's pipeline mesh). Fix = the paper's
+   own §4.4.1 closing sentence wired: `stage4_dt::d_of_t` (N2-2, first
+   production consumer) certifies pre- vs post-rebuild max d(T) per
+   curved patch; a rebuild that certifies coarser than what it
+   replaces declines `ChordDegradation` loudly (budget = the patch's
+   own pre-rebuild certified max — like for like, tolerance-free;
+   planar patches exempt by identity). Named next increment **I2e**:
+   seed the curved rebuild's CDT interior at the surface's own chord
+   spacing (`cdt_polygon_with_holes_refined_seeded`) so wide-θ curved
+   rebuilds pass the gate instead of declining — also the recorded
+   path to shrinking the construct fixpoint's decline-retry CPU tail
+   (the assay budget guidance moved 240 → 300s: F0065 ≈ 241s honest
+   CORRECT, F0085 ≈ 242s honest ERROR are the new heaviest cases).
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
