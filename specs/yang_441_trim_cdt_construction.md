@@ -1012,6 +1012,20 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    moved patch triangles to the tail), so it needs its own corpus
    detail-drift census per the amendment-17 flip precedent.
 
+   **LIVELOCK FIX LANDED (2026-08-15, same day, always-on).** The
+   reversed-equality fixed point converges F0059's construct loop 64 → 1
+   pass (gate-off probe). Pin suites: all 75 yang-rs test binaries green.
+   Full gate-off corpus census: **259C/0W/49E/0T, zero category deltas,
+   exactly ONE justified detail drift** — R0070 (ERROR both ways, chained
+   case) cites `face 156` instead of `face 202` on the IDENTICAL
+   `holed lateral CDT failed: degenerate CDT input` wall: the previous
+   no-op rewrites moved patch triangles to the tail of the intermediate
+   body's mesh, so retiring them renumbers the faces of the converted
+   B-Rep the later boolean rejects. The drifted results.json is the new
+   canonical (amendment-17 precedent: zero category drift, renumber-only
+   detail drift on an ERROR case). Gate-ON (insert) F0059 single-case:
+   42.8s → 7.6s.
+
    **I5-1 probe results (2026-08-15, in-process gate-ON):**
    - **F0059**: 8 seams REFINE (chains 6–7 → 1697–2305 verts, all under
      the 4096 cap), batches APPLY, case completes with no engine errors;
@@ -1036,6 +1050,24 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    fixed-point fix above, then a gate-ON re-measure. Only if cost remains
    prohibitive after convergence does the deviations-ledger decision on
    the bound arise.
+
+   **Gate-ON RE-MEASURE post-livelock-fix (2026-08-15): the cost moved
+   DOWNSTREAM; still 256C/0W/49E/3T (same trio F0047/F0048/F0059).** The
+   construct pass itself now converges (F0059 in-process 42.8s → 7.6s),
+   yet the assay cases still exceed 300s CPU. The residual cost is the
+   ~300×-denser seam's LIFECYCLE, not its construction: the refined
+   chains survive into the output B-Rep, and the F-series cases CHAIN
+   booleans — each subsequent op re-tessellates and re-arranges the
+   densified input, compounding per op (the paper's context is a single
+   boolean; a chained CAD kernel pays the density repeatedly). NEXT
+   ANCHOR (before any bound decision): LOCALIZE where the density cost
+   lands — (a) Stage-6 emitting one B-Rep edge per mesh seam segment
+   (~2k collinear-on-curve edges per seam?) vs (b) chained Stage-1/2 on
+   the densified input vs (c) oracle-side cost. If (a), the fix is
+   Stage-6 chain-merging into single analytic edges (density stays in
+   the MESH, where §4.4.1 wants it; the B-Rep edge is the exact curve) —
+   likely also what the paper intends. Only after that localization does
+   the deviations-ledger question on the l-floor arise. I5-1 STAYS GATED.
 
    **I5-2 — flip census** per the I3/14c discipline: gate-ON pin suites +
    full corpus, category-identical precondition, then always-on.

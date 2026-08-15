@@ -420,7 +420,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 67cb1e5c-5d7d-43e6-ab14-f986cb5715e2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 202: holed lateral CDT failed: degenerate CDT input (too few / collinear / zero-area loop)\")",
+      "detail": "1 engine error(s): 67cb1e5c-5d7d-43e6-ab14-f986cb5715e2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 156: holed lateral CDT failed: degenerate CDT input (too few / collinear / zero-area loop)\")",
       "id": "R0070",
       "status": "error"
     },

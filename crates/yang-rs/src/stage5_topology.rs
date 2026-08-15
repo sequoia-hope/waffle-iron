@@ -813,7 +813,17 @@ fn run_construct_passes(
                     mesh.verts.extend_from_slice(&pts);
                     SeamAction::RefineConic { ordered, refined }
                 } else {
-                    if ordered == chain {
+                    // The construction's fixed point is a chain that is
+                    // parameter-monotone in EITHER direction:
+                    // `order_along_curve` returns the ASCENDING chain, and
+                    // `reorder_cycles_to_curve` splices it REVERSED into a
+                    // descending-traversal cycle — a NO-OP rewrite. Testing
+                    // ascending equality only re-fired that no-op every
+                    // pass until MAX_PASSES (the F0059 64/64 livelock,
+                    // spec §4-I5 FINDING; each no-op still re-CDT'd the
+                    // patch pair and re-derived Phase A).
+                    let descending = ordered.iter().rev().eq(chain.iter());
+                    if ordered == chain || descending {
                         skip[3] += 1; // already in curve order — the fixed point
                         continue;
                     }
