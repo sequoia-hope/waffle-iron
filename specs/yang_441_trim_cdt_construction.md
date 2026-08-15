@@ -861,9 +861,11 @@ below — most of the R-series is curved, so the epic's reach depends on it.
      arm (diagnostic, per §3 item 5); `YANG_N2_RECDT_ENABLE` (the #168
      replan) stays banked on its recorded §5c.6 generator-seam
      conformality wall. All keep their recorded re-entry conditions.
-     **Named follow-up: re-measure the replan gate post-I2e — the
-     construct pass's seeded keep-boundary re-CDT may have dissolved
-     the §5c.6 wall's premise.**
+     The named follow-up (re-measure the replan gate post-I2e) was
+     RESOLVED 2026-08-15: full gate-ON corpus BYTE-IDENTICAL — premise
+     not dissolved (the Stage-4 STOP is upstream of the Stage-5
+     construct pass); `specs/yang_n2_stage4_cdt_mesh_updating.md`
+     §5c.12.
 
    **I4-1 (2026-08-15, LANDED): the last relocate-era hack arm DELETED.**
    `weld_enabled("f32")` — the N50 f32 render-twin weld, the weld
@@ -883,6 +885,117 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    §4.5.2 local-refinement loop (§5 below), and the sub-gated
    increments' own flip conditions (J1 / CORNER_MERGE / INPUT_REFINE /
    RIM_TRIM, each with recorded blockers).
+
+5. **I5 — §4.3.4 seam-polyline density refinement** (DESIGN 2026-08-15;
+   census-first).
+
+   **Paper requirement** (`refs/text/yang2025_hybrid_boolean.txt:575-593`):
+   the optimized intersection polyline "may be uneven and sparse"; between
+   consecutive points p, q insert an (optimized) midpoint m and terminate
+   ONLY when ALL of
+
+       h < d_p·10²,   l < d_p·10³,   α < π/18
+
+   hold (h = arc height of m over chord pq in 3D, l = max(|pm|,|mq|),
+   α = turning angle p→m→q); else recurse on p–m and m–q. d_p = 1e-7
+   (`:744-745`) = this port's TAU_MODEL, scale-relative per the shipped N58
+   convention (`paper_chain_sample_redundant`, stage4_correct.rs — the SAME
+   predicate, used today only in the REMOVE direction). For closed-form
+   conics the paper's "midpoint optimization" is exact evaluation at the
+   wrapped parameter midpoint (spec-principle-over-literal: their numeric
+   optimizer exists because their surfaces are general; our conic sections
+   have closed forms — the same substitution Stage-3 already makes).
+
+   **The gap**: I2b's conic action is REORDER-only — the seam chain keeps
+   the relocated mesh crossing vertices as its sample set, so seam density
+   is inherited from the Stage-1/2 tessellation. Note the scale mismatch
+   this leaves: the paper's seam sagitta bound (h < ~1e-5·scale) is ~100×
+   TIGHTER than the d_ε surface-mesh bound — §4.3.4 makes the seam
+   polyline the highest-fidelity element in the pipeline, deliberately
+   (it becomes the trim boundary both patches share). A mesh-inherited
+   chain is at d_ε sagitta, two orders coarser than the paper's floor.
+   Corollary: the l-term alone (chord < ~1e-4·scale) implies seam chains
+   MUCH denser than Stage-1 chords (a r=0.05 rim circle → ~1.6k samples vs
+   Stage-1's ~32–64) — whether §4.3.4-as-written is affordable, and where
+   its density actually bites, is a MEASUREMENT, not an assumption. Hence:
+
+   **I5-0 — the census (read-only, this increment).**
+   `paper_chain_metrics(p, m, q)` factored out of
+   `paper_chain_sample_redundant` (predicate byte-identical); a
+   `conic_eval(curve, t)` primitive (Circle/Ellipse closed-form eval,
+   unit-pinned round-trip against `conic_param` — this is also the future
+   insert primitive); an env-gated probe (`YANG_434_CENSUS`) in the
+   construct-pass eligibility loop that, for every ordered conic seam
+   chain, reports per seam: pair count, per-criterion failure counts
+   (h / l / α / any), and the implied §4.3.4 insertion count (bounded
+   recursive simulation, loud cap). Runner: in-process campaign
+   `s434_density_census.rs` (test-harness, `#[ignore]`, sets the env and
+   replays corpus cases — the assay nulls child stderr, recorded trap).
+   Targets: F0059 (764 conic reorders, CORRECT — the at-scale picture),
+   curved CORRECT representatives, and whichever ERROR-family cases reach
+   the construct pass. Byte-identical off AND on (read-only probe).
+
+   **I5-0 MEASURED (2026-08-15, 9-case sweep via `s434_density_census`).**
+   Per case (seams / pairs / fail-any% / implied inserts = ×density):
+
+   | case | verdict | seams | pairs | fail% | implied | ×dens | worst h, l, α |
+   |---|---|---|---|---|---|---|---|
+   | F0059 | CORRECT | 8 | 44 | 100% | 16724 | 381× | 5.8e-3, 8.0e-2, 8.5° |
+   | F0045 | ERROR (CDT) | 2 | 40 | 100% | 9177 | 230× | 5.2e-3, 5.5e-2, 11.2° |
+   | R0011 | ERROR (CDT) | 25 | 38 | 100% | 6016 | 159× | 1.5e0, 2.5e2, 1.2° |
+   | R0021 | CORRECT | 3 | 112 | 97.3% | 2233 | 21× | 6.0e-4, 6.9e-3, 9.9° |
+   | R0072 | CORRECT | 4 | 32 | **0%** | 0 | 1× | 2.0e-6, 2.9e-5, 7.8° |
+   | C0053 | CORRECT | 0 | — | — | — | — | SurfacePair (M5) unorderable |
+   | C0067/R0028/R0085 | ERROR | 0 | — | — | — | — | wall upstream of the pass |
+
+   Verdict, in decreasing force:
+
+   1. **The gap is universal at ordinary model scale and 2–3 orders deep.**
+      Every censused conic seam on models at scale ≳0.1 fails the paper's
+      acceptance on ~every pair (97–100%); h and l are exceeded ~20–400×
+      (R0011's large-scale model: 1000×). The α turning-angle term passes
+      almost everywhere (worst 11.2° vs the 10° bound) — the chains are
+      angularly adequate but chordally coarse. So §4.3.4-as-written here
+      ≈ uniform arc-length resampling at the d_p·10³ chord floor, and the
+      insertion count has a closed form ≈ arc_len/(d_p·10³) — the I5-1
+      gate can PRICE a seam before inserting and decline loudly.
+   2. **Implied densification is 21×–381×, bounded.** No case capped the
+      simulation; worst measured total 16.7k inserts (F0059). Affordable
+      in vertex count; the CDT/rebuild cost is the open question I5-1
+      measures behind its gate.
+   3. **Scale-dependence measured**: the scale-relative d_p floor makes
+      sub-unit models trivially compliant — R0072 (model ~5e-4) passes
+      every pair TODAY. Demand concentrates on ordinary-scale models.
+   4. **Fidelity implication**: worst h ≈ 5.8e-3 on a CORRECT case means
+      today's seam polylines deviate from the exact curve at ~d_ε scale —
+      invisible to the corpus composition oracle (the I2e LAYER GAP) but
+      inherited by every witness-mesh consumer. §4.3.4 is the paper's
+      mechanism for making the seam ~100× tighter than the surface mesh.
+   5. **Coverage boundaries for I5-1** (all must stay loud declines):
+      procedural `SurfacePair` curves have no closed-form param/eval (the
+      cyl×cyl M5 track — C0053); `SeamNotSimple` unorderable chains
+      (C0053, R0021 ×1, R0011 ×2); cases walled upstream of Stage 5 are
+      out of blast radius until their own walls retire.
+
+   **I5-1 — the insert (gated `YANG_434_INSERT`; scope set by I5-0).** For
+   a conic seam failing the criterion: insert `conic_eval` midpoint samples
+   (wrap-aware parameter midpoints, recursion per the paper, priced up
+   front by the closed-form estimate from I5-0 verdict 1; deterministic
+   depth cap → loud decline on exhaustion) as NEW mesh vertices appended
+   to the pool; both owner cycles receive the SAME vertex indices (seam
+   identity by construction — the I1b batch rebuild already re-CDTs both
+   sides against the modified cycles); the I2d d(T) gate certifies every
+   rebuilt patch; I2e seeding rescues interior density where the denser
+   rim demands it. Junction endpoints are never inserted past (the
+   endpoints stay fixed, as in `order_along_curve`). First targets: F0059
+   and R0021 (CORRECT today — regression canaries; proof gates = d(T),
+   the composition oracle, corpus 0W). I5-0 measured the implied density
+   affordable in vertex count (≤17k/case); if the CDT/rebuild COST proves
+   prohibitive at gate-ON, bring the numbers to a deviations-ledger
+   decision — never silently weaken the bound.
+
+   **I5-2 — flip census** per the I3/14c discipline: gate-ON pin suites +
+   full corpus, category-identical precondition, then always-on.
 
 ## 5. After this epic (recorded, not started)
 

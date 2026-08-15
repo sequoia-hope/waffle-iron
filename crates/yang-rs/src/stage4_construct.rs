@@ -1190,6 +1190,153 @@ pub(crate) fn apply_rebuild_batch(
     Ok(())
 }
 
+/// I5-0 — the §4.3.4 seam-density census of one ordered conic seam chain
+/// (spec `yang_441_trim_cdt_construction.md` §4-I5; read-only). Measures how
+/// far the mesh-inherited chain is from the paper's h/l/α acceptance
+/// (`refs/text/yang2025_hybrid_boolean.txt:575-593`), and how many samples
+/// the paper's own subdivision loop would insert to reach it.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct ChainDensityCensus {
+    /// Consecutive sample pairs measured (n−1 open, n closed).
+    pub pairs: usize,
+    /// Pairs failing each criterion individually (h ≥ d_p·10², l ≥ d_p·10³,
+    /// α ≥ π/18) and the paper's conjunction (`fail_any` = the pairs §4.3.4
+    /// would subdivide).
+    pub fail_h: usize,
+    pub fail_l: usize,
+    pub fail_alpha: usize,
+    pub fail_any: usize,
+    /// Worst measurements over the chain (radians for `max_alpha`).
+    pub max_h: f64,
+    pub max_l: f64,
+    pub max_alpha: f64,
+    /// Largest scale-relative d_p seen (context for the maxima).
+    pub dp_max: f64,
+    /// Samples the paper's recursion would insert over the whole chain,
+    /// simulated on the exact curve; `capped` when the simulation hit its
+    /// depth or budget guard (the count is then a lower bound).
+    pub implied_inserts: u64,
+    pub capped: bool,
+}
+
+/// Budget/depth guards for the [`census_conic_seam_density`] subdivision
+/// simulation — bounds work on pathological chains; `capped` reports a hit.
+const I5_SIM_DEPTH_MAX: u32 = 32;
+const I5_SIM_INSERT_BUDGET: u64 = 1_000_000;
+
+/// See [`ChainDensityCensus`]. `None` when any chain vertex has no conic
+/// parameter or the curve has no closed form — the caller reports the skip
+/// loudly; a partial census would misreport the seam as sparse-but-healthy.
+pub(crate) fn census_conic_seam_density(
+    verts: &[Point3],
+    chain: &[u32],
+    curve: &Curve,
+    closed: bool,
+) -> Option<ChainDensityCensus> {
+    use crate::stage4_correct::{conic_param, paper_chain_metrics, paper_chain_sample_redundant};
+    let pi = std::f64::consts::PI;
+    let n = chain.len();
+    if n < 2 {
+        return None;
+    }
+    let mut out = ChainDensityCensus::default();
+    let pair_count = if closed { n } else { n - 1 };
+    for i in 0..pair_count {
+        let (va, vb) = (chain[i], chain[(i + 1) % n]);
+        let (pa, pb) = (verts[va as usize], verts[vb as usize]);
+        let ta = conic_param(curve, pa)?;
+        let tb = conic_param(curve, pb)?;
+        if !ta.is_finite() || !tb.is_finite() {
+            return None;
+        }
+        // Wrap the delta to (−π, π] — a seam chord subtends less than a half
+        // turn (the port's standing convention, cf. `conic_param_deltas`).
+        // The unwrapped interval [ta, ta+d] then contains every midpoint, so
+        // the recursion below needs no further wrapping.
+        let mut d = tb - ta;
+        while d > pi {
+            d -= 2.0 * pi;
+        }
+        while d <= -pi {
+            d += 2.0 * pi;
+        }
+        let tb_unwrapped = ta + d;
+        let tm = 0.5 * (ta + tb_unwrapped);
+        let m = crate::geom::conic_eval(curve, tm)?;
+        let mt = paper_chain_metrics(pa.as_array(), m.as_array(), pb.as_array());
+        out.pairs += 1;
+        if mt.h >= mt.dp * 1e2 {
+            out.fail_h += 1;
+        }
+        if mt.l >= mt.dp * 1e3 {
+            out.fail_l += 1;
+        }
+        if !mt.degenerate && mt.alpha >= pi / 18.0 {
+            out.fail_alpha += 1;
+        }
+        if !paper_chain_sample_redundant(pa.as_array(), m.as_array(), pb.as_array()) {
+            out.fail_any += 1;
+        }
+        out.max_h = out.max_h.max(mt.h);
+        out.max_l = out.max_l.max(mt.l);
+        out.max_alpha = out.max_alpha.max(mt.alpha);
+        out.dp_max = out.dp_max.max(mt.dp);
+        let mut budget = I5_SIM_INSERT_BUDGET.saturating_sub(out.implied_inserts);
+        let mut capped = false;
+        let ins = implied_inserts_rec(
+            curve,
+            ta,
+            pa,
+            tb_unwrapped,
+            pb,
+            I5_SIM_DEPTH_MAX,
+            &mut budget,
+            &mut capped,
+        );
+        out.implied_inserts = out.implied_inserts.saturating_add(ins);
+        out.capped |= capped;
+    }
+    Some(out)
+}
+
+/// The paper's §4.3.4 recursion, simulated on the exact curve: test the
+/// parameter-midpoint sample; if the pair fails h/l/α, count the insert and
+/// recurse on both halves. Returns the insert count for this interval;
+/// `budget`/`depth` exhaustion sets `capped` and under-counts (a lower
+/// bound, reported as such).
+#[allow(clippy::too_many_arguments)]
+fn implied_inserts_rec(
+    curve: &Curve,
+    ta: f64,
+    pa: Point3,
+    tb: f64,
+    pb: Point3,
+    depth: u32,
+    budget: &mut u64,
+    capped: &mut bool,
+) -> u64 {
+    let tm = 0.5 * (ta + tb);
+    let Some(m) = crate::geom::conic_eval(curve, tm) else {
+        *capped = true;
+        return 0;
+    };
+    if crate::stage4_correct::paper_chain_sample_redundant(
+        pa.as_array(),
+        m.as_array(),
+        pb.as_array(),
+    ) {
+        return 0;
+    }
+    if depth == 0 || *budget == 0 {
+        *capped = true;
+        return 0;
+    }
+    *budget -= 1;
+    let left = implied_inserts_rec(curve, ta, pa, tm, m, depth - 1, budget, capped);
+    let right = implied_inserts_rec(curve, tm, m, tb, pb, depth - 1, budget, capped);
+    1 + left + right
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -800,6 +800,88 @@ fn run_construct_passes(
             }
         }
 
+        // ---- I5-0 (read-only, env-gated `YANG_434_CENSUS`): §4.3.4
+        // seam-polyline density census (spec §4-I5). The conic seam chains
+        // are mesh-inherited density (I2b reorders, never inserts); measure
+        // per seam how far the chain is from the paper's h/l/α acceptance
+        // and what insertion count §4.3.4-as-written implies, BEFORE any
+        // insert machinery is coded. Pass 0 only (the pre-apply state is
+        // authoritative); covers ALL conic-curve groups — already-ordered,
+        // minimal, and skipped seams included, not just the eligible set.
+        if pass == 0 && std::env::var_os("YANG_434_CENSUS").is_some() {
+            use crate::stage4_construct::census_conic_seam_density;
+            for (gi, g) in groups.iter().enumerate() {
+                if matches!(g.curve, Curve::LineSegment) {
+                    continue;
+                }
+                let curve_desc = match &g.curve {
+                    Curve::Circle { radius, .. } => format!("Circle(r={radius:.5})"),
+                    Curve::Ellipse {
+                        major_radius,
+                        minor_radius,
+                        ..
+                    } => format!("Ellipse(a={major_radius:.5},b={minor_radius:.5})"),
+                    c => format!("{c:?}"),
+                };
+                let (chain, closed) =
+                    match ordered_seam_side(&patches[g.pair.0].cycles, &g.edges, Side::A) {
+                        Ok(x) => x,
+                        Err(e) => {
+                            eprintln!(
+                                "[s434-census] seam={gi} pair={:?} {curve_desc}: \
+                                 UNORDERABLE ({e:?})",
+                                g.pair
+                            );
+                            continue;
+                        }
+                    };
+                let ordered = match crate::stage4_splice::order_along_curve(
+                    &g.curve,
+                    &mesh.verts,
+                    &chain,
+                    closed,
+                ) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        eprintln!(
+                            "[s434-census] seam={gi} pair={:?} {curve_desc}: \
+                             NO-CURVE-ORDER ({e:?}) n={}",
+                            g.pair,
+                            chain.len()
+                        );
+                        continue;
+                    }
+                };
+                match census_conic_seam_density(&mesh.verts, &ordered, &g.curve, closed) {
+                    Some(c) => eprintln!(
+                        "[s434-census] seam={gi} pair={:?} {curve_desc} closed={closed} \
+                         n={} pairs={} fail_h={} fail_l={} fail_alpha={} fail_any={} \
+                         max_h={:.3e} max_l={:.3e} max_alpha_deg={:.2} dp={:.3e} \
+                         implied_inserts={}{}",
+                        g.pair,
+                        ordered.len(),
+                        c.pairs,
+                        c.fail_h,
+                        c.fail_l,
+                        c.fail_alpha,
+                        c.fail_any,
+                        c.max_h,
+                        c.max_l,
+                        c.max_alpha.to_degrees(),
+                        c.dp_max,
+                        c.implied_inserts,
+                        if c.capped { " CAPPED" } else { "" },
+                    ),
+                    None => eprintln!(
+                        "[s434-census] seam={gi} pair={:?} {curve_desc}: \
+                         NO-PARAM (degenerate projection or n<2, n={})",
+                        g.pair,
+                        ordered.len()
+                    ),
+                }
+            }
+        }
+
         // ---- J1-1 (sub-gated `YANG_441_BOUNDARY_EXIT`, spec §4-J1):
         // boundary-exit junction authority. Fig-11(a) computes q ON the kept
         // boundary — but the junction relocation keeps a line-seam terminal

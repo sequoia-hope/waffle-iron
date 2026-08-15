@@ -2013,8 +2013,42 @@ pub(crate) fn retriangulate_collapsed_fan_regions(
 /// `TAU_MODEL`; scale-relative as everywhere else: d_p = TAU_MODEL·(1+scale).
 /// Used by the inc-4c-2 chain decimation: a sample the paper's own
 /// refinement loop would never have inserted may be removed (deviation N58,
-/// paper-criterion form).
+/// paper-criterion form). The measurements themselves are factored into
+/// [`paper_chain_metrics`], shared with the I5-0 seam-density census
+/// (spec `yang_441_trim_cdt_construction.md` §4-I5).
 pub(crate) fn paper_chain_sample_redundant(a: [f64; 3], m: [f64; 3], b: [f64; 3]) -> bool {
+    let mt = paper_chain_metrics(a, m, b);
+    if mt.l >= mt.dp * 1e3 {
+        return false;
+    }
+    if mt.h >= mt.dp * 1e2 {
+        return false;
+    }
+    if mt.degenerate {
+        return true; // coincident with a neighbour: trivially redundant
+    }
+    mt.alpha < std::f64::consts::PI / 18.0
+}
+
+/// I5-0: the §4.3.4 measurements of one (a, m, b) sample triple — h (arc
+/// height of m over chord ab), l = max(|am|, |mb|), α (turning angle a→m→b,
+/// 0 when a leg is degenerate), and the triple's own scale-relative
+/// d_p = TAU_MODEL·(1+scale). Pure measurement; the acceptance thresholds
+/// (h < d_p·10², l < d_p·10³, α < π/18) live in the consumers so the
+/// predicate stays byte-identical to its pre-factoring form.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ChainSampleMetrics {
+    pub h: f64,
+    pub l: f64,
+    pub alpha: f64,
+    pub degenerate: bool,
+    pub dp: f64,
+}
+
+/// See [`ChainSampleMetrics`]. Extracted verbatim from
+/// [`paper_chain_sample_redundant`]; same float operations on the same
+/// inputs, so the predicate's decisions are unchanged.
+pub(crate) fn paper_chain_metrics(a: [f64; 3], m: [f64; 3], b: [f64; 3]) -> ChainSampleMetrics {
     let scale = a
         .iter()
         .chain(m.iter())
@@ -2029,9 +2063,6 @@ pub(crate) fn paper_chain_sample_redundant(a: [f64; 3], m: [f64; 3], b: [f64; 3]
     // l = max(|pm|, |mq|).
     let (lam, lmb) = (n2(am).sqrt(), n2(mb).sqrt());
     let l = lam.max(lmb);
-    if l >= dp * 1e3 {
-        return false;
-    }
     // h = distance from m to segment ab.
     let lab2 = n2(ab);
     let h = if lab2 > 0.0 {
@@ -2040,15 +2071,21 @@ pub(crate) fn paper_chain_sample_redundant(a: [f64; 3], m: [f64; 3], b: [f64; 3]
     } else {
         lam
     };
-    if h >= dp * 1e2 {
-        return false;
-    }
     // α = turning angle between a→m and m→b.
-    if lam <= 0.0 || lmb <= 0.0 {
-        return true; // coincident with a neighbour: trivially redundant
+    let degenerate = lam <= 0.0 || lmb <= 0.0;
+    let alpha = if degenerate {
+        0.0
+    } else {
+        let cos_a = (dot(am, mb) / (lam * lmb)).clamp(-1.0, 1.0);
+        cos_a.acos()
+    };
+    ChainSampleMetrics {
+        h,
+        l,
+        alpha,
+        degenerate,
+        dp,
     }
-    let cos_a = (dot(am, mb) / (lam * lmb)).clamp(-1.0, 1.0);
-    cos_a.acos() < std::f64::consts::PI / 18.0
 }
 
 /// inc-4c-2: analytic curve parameter for a seam run between the two faces'

@@ -278,7 +278,12 @@ name, never measured).
    the premise did NOT dissolve (the Stage-4 STOP is upstream of the
    Stage-5 construct pass, and the sole firing case R0038 self-rejects
    at the degree-2 gate). The replan stays banked; re-entry conditions
-   in `specs/yang_n2_stage4_cdt_mesh_updating.md` §5c.12.
+   in `specs/yang_n2_stage4_cdt_mesh_updating.md` §5c.12. **I5-0 (the
+   §4.3.4 seam-density census) MEASURED same day** (spec §4-I5): every
+   conic seam at ordinary model scale fails the paper's h/l acceptance
+   on ~every pair, 2–3 orders deep, α nearly always passing — implied
+   densification 21×–381×, bounded; sub-unit models already compliant.
+   Next: I5-1, the gated `conic_eval`-midpoint insert.
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

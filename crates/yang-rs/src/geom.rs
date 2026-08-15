@@ -295,6 +295,52 @@ pub(crate) fn ellipse_param(
     (v / minor_radius).atan2(u / major_radius)
 }
 
+/// I5-0 (§4.3.4 seam-density census; the future I5-1 insert primitive):
+/// closed-form evaluation of a conic at parameter `t`, frame-consistent with
+/// [`crate::stage4_correct::conic_param`] — `conic_eval(c, conic_param(c, x))`
+/// reproduces an on-curve `x` to evaluation precision, and
+/// `conic_param(c, conic_eval(c, t))` returns `t` (wrapped to atan2's branch).
+/// Circle: the `ortho_basis(normal)` frame `project_onto_circle` uses;
+/// Ellipse: the normalized-major / [`ellipse_frame`] frame [`ellipse_param`]
+/// uses. `None` for non-conic payloads — the caller keeps its loud skip.
+pub(crate) fn conic_eval(curve: &Curve, t: f64) -> Option<Point3> {
+    match curve {
+        Curve::Circle {
+            center,
+            normal,
+            radius,
+        } => {
+            let (e1, e2) = crate::ortho_basis(*normal);
+            let (e1a, e2a) = (e1.as_array(), e2.as_array());
+            let c = center.as_array();
+            let (ct, st) = (t.cos(), t.sin());
+            Some(Point3::new(
+                c[0] + radius * (ct * e1a[0] + st * e2a[0]),
+                c[1] + radius * (ct * e1a[1] + st * e2a[1]),
+                c[2] + radius * (ct * e1a[2] + st * e2a[2]),
+            ))
+        }
+        Curve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } => {
+            let maj = normalize3(major_axis.as_array());
+            let mindir = ellipse_frame(*normal, *major_axis);
+            let c = center.as_array();
+            let (ct, st) = (t.cos(), t.sin());
+            Some(Point3::new(
+                c[0] + major_radius * ct * maj[0] + minor_radius * st * mindir[0],
+                c[1] + major_radius * ct * maj[1] + minor_radius * st * mindir[1],
+                c[2] + major_radius * ct * maj[2] + minor_radius * st * mindir[2],
+            ))
+        }
+        _ => None,
+    }
+}
+
 /// PR-YR11 (spec §3): the (unnormalized) ellipse tangent at parameter `t`:
 /// `−major_radius·sin t·major + minor_radius·cos t·minor_dir`. Used by
 /// `is_reversed` for the exact ellipse tangent at a relocated point.
