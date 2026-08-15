@@ -7262,13 +7262,17 @@ pub(crate) fn stage4_relocate_and_correct(
                         // geometry moves). If it re-meshed, re-scan the loop; the
                         // `max_passes` guard bounds any pathological repeat.
                         //
-                        // WIP (task #168): gated OFF by default — the re-CDT fires
-                        // and resolves the degenerate cluster, but the seam with the
-                        // neighbour patch across the generator is not yet exactly
-                        // conformal (R0038 reaches a single unpaired generator edge,
-                        // spec §5c.6). Byte-identical to baseline when the env is
-                        // unset (production keeps the loud STOP). Enable with
-                        // `YANG_N2_RECDT_ENABLE` for development.
+                        // BANKED (task #168): gated OFF by default — proven safe
+                        // (gate-ON corpus twice measured 0-WRONG and per-case
+                        // identical: 2026-07-01 at 295 cases, 2026-08-15 post-I2e
+                        // at 312 cases BYTE-IDENTICAL) but 0 conversions: the sole
+                        // firing case (R0038) is a plane-tangent-cylinder whose
+                        // degenerate caps are load-bearing conformal seam triangles,
+                        // so the re-CDT self-rejects at the degree-2 boundary gate
+                        // (spec yang_n2_stage4_cdt_mesh_updating.md §5c.10, §5c.12).
+                        // Re-entry: a genuine simple degenerate-cylinder strip case,
+                        // or the two-sided junction-aware machinery (epic #169 C/D).
+                        // Enable with `YANG_N2_RECDT_ENABLE` for development.
                         if std::env::var_os("YANG_N2_RECDT_ENABLE").is_some() {
                             match replan_degenerate_cylinder_patches(
                                 mesh,

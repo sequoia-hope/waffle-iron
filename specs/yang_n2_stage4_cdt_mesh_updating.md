@@ -794,6 +794,37 @@ prove the DEFECT was. Only a checkpoint census of the defect's own quantity —
 here, off-plane attributed triangles — distinguishes the two, and it must be run
 per case, not inferred from a sibling.
 
+### 5c.12 Post-I2e re-measure (2026-08-15): gate-ON corpus BYTE-IDENTICAL — premise NOT dissolved; stays banked
+
+The §4.4.1 I3/I2d/I2e session (spec `yang_441_trim_cdt_construction.md`) named
+this follow-up: the always-on construct pass now has d(T)-gated, seeded curved
+rebuilds (I2e), which "may have dissolved the §5c.6 generator-seam wall's
+premise". **Measured: it has not.** Full 312-case gate-ON assay
+(`YANG_N2_RECDT_ENABLE=1`, 8 jobs, 300s budget, 381s wall):
+**259C/0W/49E/0T, results.json BYTE-IDENTICAL to canonical** — zero category
+deltas, zero detail drifts (R0038's LRR detail included).
+
+Why the I2e capability cannot reach this wall: the replan gate sits at the
+**Stage-4** `degenerate_no_longedge` give-up, and the construct pass runs from
+**Stage 5** (`stage5_topology.rs`) — a case that STOPs at the Stage-4 site
+never reaches the I2e machinery. Stage 5's new capability could only matter to
+a case whose replan *succeeds* and advances past Stage 4, and no corpus case
+has one: the sole firing case (R0038, tangency, §5c.10) self-rejects at the
+degree-2 boundary gate back to the same LRR STOP. (Instrument limit: the assay
+nulls child stderr, so "fired-and-self-rejected" vs "did not fire" is not
+distinguishable from this run alone; §5c.10's instrumented finding stands as
+the mechanism. The corpus-level fact is: no observable change.)
+
+This also RE-confirms the §5c.6 safety property on the grown corpus (312 cases
+vs 295 at the 2026-07-01 measurement): gate-ON produced 0 SUPPORTED_WRONG —
+the keep-interior re-CDT's only outcomes remain a valid re-mesh or a caught
+error. **Disposition: stays banked gated-OFF** (demand-driven; a 0-conversion
+path shipped enabled would be speculative infra). Re-entry conditions
+unchanged: (a) a genuine simple degenerate-cylinder strip case (non-tangency,
+non-junction) appears in the corpus, or (b) the two-sided / junction-aware
+follow-up (epic #169 Phase C/D) supplies the conformal-seam machinery this
+one-sided re-CDT lacks.
+
 - **Conformality** (§3.3): the dominant risk; mitigated by fixed-boundary + the
   watertight re-gate after every patch. Any breach → loud STOP, never shipped.
 - **No tolerance widening / no hack-to-green** (P9/P10): the only "merge" allowed

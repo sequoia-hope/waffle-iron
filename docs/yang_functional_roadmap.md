@@ -271,10 +271,14 @@ name, never measured).
    confirmed hack; ledger updated; the primitive survives unit-tested
    banked). Corpus byte-identical. The epic's remaining tail is
    CAPABILITY: §4.3.4 h/l/α seam-polyline density refinement, the
-   §4.5.2 local-refinement loop (spec §5), the sub-gated increments'
-   flip conditions, and the named follow-up "re-measure the #168
-   replan gate post-I2e" (the seeded keep-boundary re-CDT may have
-   dissolved the §5c.6 generator-seam wall's premise).
+   §4.5.2 local-refinement loop (spec §5), and the sub-gated
+   increments' flip conditions. The named follow-up "re-measure the
+   #168 replan gate post-I2e" was RESOLVED 2026-08-15: full gate-ON
+   corpus BYTE-IDENTICAL to canonical (259C/0W/49E/0T, zero deltas) —
+   the premise did NOT dissolve (the Stage-4 STOP is upstream of the
+   Stage-5 construct pass, and the sole firing case R0038 self-rejects
+   at the degree-2 gate). The replan stays banked; re-entry conditions
+   in `specs/yang_n2_stage4_cdt_mesh_updating.md` §5c.12.
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
