@@ -111,7 +111,7 @@ impl SolidScan {
             }
         }
         // Bin count ~ sqrt(T), so a column touches O(sqrt(T)) triangles.
-        let side = (tris.len() as f64).sqrt().ceil().max(1.0).min(256.0) as usize;
+        let side = (tris.len() as f64).sqrt().ceil().clamp(1.0, 256.0) as usize;
         let (nx, ny) = (side, side);
         let cell = [
             ((max[0] - min[0]) / nx as f64).max(f64::MIN_POSITIVE),
@@ -355,8 +355,8 @@ mod tests {
         for f in faces {
             let base = (vertices.len() / 3) as u32;
             for &vi in &f {
-                for a in 0..3 {
-                    vertices.push(c[vi][a] as f32);
+                for &coord in &c[vi] {
+                    vertices.push(coord as f32);
                 }
             }
             indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);

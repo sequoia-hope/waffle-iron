@@ -210,14 +210,18 @@ fn mesh_grid_size(mesh: &RenderMesh) -> f64 {
     (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN)
 }
 
+/// One vertex's exact f32 bit pattern (x, y, z), the collision-free key of
+/// the PR-KV8c exact pairing path.
+type ExactVertexBits = (u32, u32, u32);
+
 /// EXACT (f32-bitwise) edge multiset of the triangle mesh. When every key
 /// appears exactly twice, the mesh is PROVABLY closed — no quantization
 /// reasoning involved. Used as the primary watertight/χ path (PR-KV8c):
 /// the grid weld exists to absorb cross-face trig-rounding seams, but at
 /// high vertex density (gear meshes) it can ALIAS distinct exact edges
 /// into one key, mis-reporting a perfectly-paired mesh as non-manifold.
-fn exact_edge_counts(mesh: &RenderMesh) -> HashMap<((u32, u32, u32), (u32, u32, u32)), usize> {
-    let key = |idx: u32| -> (u32, u32, u32) {
+fn exact_edge_counts(mesh: &RenderMesh) -> HashMap<(ExactVertexBits, ExactVertexBits), usize> {
+    let key = |idx: u32| -> ExactVertexBits {
         let i = idx as usize * 3;
         (
             mesh.vertices[i].to_bits(),
@@ -225,7 +229,7 @@ fn exact_edge_counts(mesh: &RenderMesh) -> HashMap<((u32, u32, u32), (u32, u32, 
             mesh.vertices[i + 2].to_bits(),
         )
     };
-    let mut counts: HashMap<((u32, u32, u32), (u32, u32, u32)), usize> = HashMap::new();
+    let mut counts: HashMap<(ExactVertexBits, ExactVertexBits), usize> = HashMap::new();
     for tri in mesh.indices.chunks_exact(3) {
         for (a, b) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
             let (ka, kb) = (key(a), key(b));

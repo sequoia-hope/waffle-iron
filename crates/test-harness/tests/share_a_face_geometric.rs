@@ -10,7 +10,8 @@
 //!   2. Second sketch on a DATUM at z=2 (NOT anchored to A), square (0.5,0.5)-
 //!      (1.5,1.5) overlapping A's top.
 //!   3. Extrude with combine=Some(Add), targets=None (Auto).
-//!   ⇒ A must be geometrically auto-merged (consumed) into ONE body.
+//!      ⇒ A must be geometrically auto-merged (consumed) into ONE body.
+//!
 //! Control: datum at z=100 (not coincident) ⇒ A NOT consumed, TWO bodies.
 //!
 //! Driven with raw `wasm_bridge::dispatch` on a shared `EngineState` + one
@@ -52,6 +53,7 @@ fn last_feature_id(state: &EngineState) -> Uuid {
 /// footprint `(x,y)-(x+w,y+h)`. Returns the sketch feature id. The datum anchor
 /// means there is NO `Anchor::FeatureOutput` lineage — the 3a anchor path cannot
 /// see any body through it.
+#[allow(clippy::too_many_arguments)]
 fn datum_rect_sketch(
     state: &mut EngineState,
     kernel: &mut dyn KernelBundle,

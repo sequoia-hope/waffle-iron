@@ -25,6 +25,7 @@
 //!   - "an undirected output edge is not used by exactly two directed edges"
 //!     (spec §3: the failure-moved signature — the fix must not merely
 //!     relocate the wall into kernel-v2's edge-pairing check),
+//!
 //! AND that tessellation of the result succeeds. RED today (the first
 //! signature fires); GREEN when the Stage-6 sliver design lands.
 //! `#[ignore]`d so plain `cargo test` stays green. Run with:

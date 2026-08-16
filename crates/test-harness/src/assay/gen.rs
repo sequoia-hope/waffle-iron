@@ -4420,7 +4420,7 @@ mod tests {
         let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::seed_from_u64(123);
         for _ in 0..100 {
             let s = random_scale(&mut rng);
-            assert!(s >= 1e-4 && s <= 1e4, "scale {} out of range", s);
+            assert!((1e-4..=1e4).contains(&s), "scale {} out of range", s);
         }
     }
 
@@ -4481,7 +4481,7 @@ mod tests {
             let case = generate_case(42, i);
             let op_count = case.meta.operations.len();
             assert!(
-                op_count >= 2 && op_count <= 3,
+                (2..=3).contains(&op_count),
                 "case {} has {} ops, expected 2-3",
                 i,
                 op_count
@@ -4528,7 +4528,7 @@ mod tests {
         }
         // Expect roughly 50% ± margin. With 100 samples, 30-70 is very safe.
         assert!(
-            multi_count >= 25 && multi_count <= 75,
+            (25..=75).contains(&multi_count),
             "multi-plane count {} out of expected range [25, 75]",
             multi_count
         );

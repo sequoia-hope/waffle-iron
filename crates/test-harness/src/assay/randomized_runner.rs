@@ -638,29 +638,25 @@ fn check_volume_monotonicity(
         // A boss that decreases volume or a cut that increases volume is a real bug.
         let rel_tol = 1e-6;
         match direction.as_str() {
-            "increase" => {
-                // Boss/union: volume must not DECREASE (but can stay same)
-                if vol < prev_vol * (1.0 - rel_tol) {
-                    violations.push(format!(
-                        "step {}: expected non-decrease, vol {:.6e} < prev {:.6e}",
-                        i + 1,
-                        vol,
-                        prev_vol
-                    ));
-                }
+            // Boss/union: volume must not DECREASE (but can stay same)
+            "increase" if vol < prev_vol * (1.0 - rel_tol) => {
+                violations.push(format!(
+                    "step {}: expected non-decrease, vol {:.6e} < prev {:.6e}",
+                    i + 1,
+                    vol,
+                    prev_vol
+                ));
             }
-            "decrease" => {
-                // Cut/subtract: volume must not INCREASE (but can stay same)
-                if vol > prev_vol * (1.0 + rel_tol) {
-                    violations.push(format!(
-                        "step {}: expected non-increase, vol {:.6e} > prev {:.6e}",
-                        i + 1,
-                        vol,
-                        prev_vol
-                    ));
-                }
+            // Cut/subtract: volume must not INCREASE (but can stay same)
+            "decrease" if vol > prev_vol * (1.0 + rel_tol) => {
+                violations.push(format!(
+                    "step {}: expected non-increase, vol {:.6e} > prev {:.6e}",
+                    i + 1,
+                    vol,
+                    prev_vol
+                ));
             }
-            _ => {} // unknown direction, skip
+            _ => {} // within tolerance, or unknown direction — skip
         }
     }
 
@@ -983,7 +979,7 @@ pub fn catalog_summary(report: &AssayReport, catalog: &[CatalogEntry]) -> String
         .filter(|(_, (_, status))| *status != "passed")
         .map(|(cat, (count, _))| ((*cat).clone(), *count))
         .collect();
-    fixes.sort_by(|a, b| b.1.cmp(&a.1));
+    fixes.sort_by_key(|x| std::cmp::Reverse(x.1));
     for (i, (cat, count)) in fixes.iter().enumerate() {
         writeln!(
             out,
@@ -1032,7 +1028,7 @@ pub fn generate_catalog_markdown(report: &AssayReport, catalog: &[CatalogEntry])
         counter.0 += 1;
     }
     let mut cats: Vec<_> = category_counts.iter().collect();
-    cats.sort_by(|a, b| b.1 .0.cmp(&a.1 .0));
+    cats.sort_by_key(|x| std::cmp::Reverse(x.1 .0));
     for (cat, (count, status)) in &cats {
         writeln!(out, "| {} | {} | {} |", cat, count, status).unwrap();
     }
@@ -1046,7 +1042,7 @@ pub fn generate_catalog_markdown(report: &AssayReport, catalog: &[CatalogEntry])
         .filter(|(_, (_, status))| status != "passed")
         .map(|(cat, (count, _))| ((*cat).clone(), *count))
         .collect();
-    fixes.sort_by(|a, b| b.1.cmp(&a.1));
+    fixes.sort_by_key(|x| std::cmp::Reverse(x.1));
     for (i, (cat, count)) in fixes.iter().enumerate() {
         writeln!(
             out,

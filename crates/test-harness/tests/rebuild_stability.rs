@@ -311,7 +311,7 @@ fn rs6_undo_restores_feature_state() {
     m.assert_has_solid("box").unwrap();
 
     let features_after_box = m.feature_count();
-    let bodies_after_box = count_visible_bodies(&m);
+    let _bodies_after_box = count_visible_bodies(&m);
 
     // Add another feature
     m.rect_sketch("sk2", [0., 0., 10.], [0., 0., 1.], 2., 2., 6., 6.)
