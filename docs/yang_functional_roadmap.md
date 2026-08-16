@@ -283,7 +283,20 @@ name, never measured).
    conic seam at ordinary model scale fails the paper's h/l acceptance
    on ~every pair, 2–3 orders deep, α nearly always passing — implied
    densification 21×–381×, bounded; sub-unit models already compliant.
-   Next: I5-1, the gated `conic_eval`-midpoint insert.
+   **I5-1 (the gated `conic_eval`-midpoint insert) LANDED 2026-08-15**
+   (`YANG_434_INSERT`; gate-off byte-identical; gate-ON safe —
+   256C/0W/49E/3T, zero drift on completing cases — but the trio
+   F0047/F0048/F0059 blew the 300s budget). **Cost LOCALIZED 2026-08-16
+   (task #88, spec §4-I5 table)**: Stage 6 emits one B-Rep edge per
+   mesh seam segment (F0059 E: 124 → 16 848, faces unchanged), the
+   render mesh inflates 44–110×, and 98% of the timed-out case is the
+   assay's `no_self_intersection` oracle (1227s vs a 300s budget; every
+   other phase totals 27–36s). The "chained booleans compound the
+   density" attribution is retracted — the trio are 2-op single-boolean
+   cases. Next: **I5-1b, Stage-6 conic seam chain-merge** (one analytic
+   arc edge per seam run between junctions; density stays in the
+   witness mesh; design walls in spec §4-I5), then the I5-2 flip
+   census. I5-1 STAYS GATED until then.
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

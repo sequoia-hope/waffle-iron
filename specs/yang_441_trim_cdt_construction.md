@@ -1069,6 +1069,78 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    likely also what the paper intends. Only after that localization does
    the deviations-ledger question on the l-floor arise. I5-1 STAYS GATED.
 
+   **COST LOCALIZED (2026-08-16, task #88; runner
+   `s434_cost_localize.rs` — in-process, assay-phase-for-phase, per-phase
+   timings + per-feature B-Rep topology counts; `S434_COST_SKIP_SI=1`
+   skips the one dominant oracle once measured).** Measured, gate-off →
+   gate-ON:
+
+   | case | final-body V/E (F const) | render tris | boolean (load) | SI oracle | leg minus SI |
+   |---|---|---|---|---|---|
+   | F0059 | 98/124 → 16 822/**16 848** (F=28) | 7.4k → 322k (44×) | 0.09 → 7.97s | 1.00 → **1227.13s** | ~27s |
+   | F0047 | 71/79 → 14 956/**14 964** (F=10) | 3.5k → 386k (110×) | 0.07 → 8.17s | ~extrap ≥1200s | 27.2s |
+   | F0048 | 82/90 → 7 409/**7 417** (F=10) | 4.7k → 258k (55×) | 0.07 → 10.78s | ~extrap ≥600s | 36.4s |
+
+   Verdict, in decreasing force:
+
+   1. **(a) CONFIRMED — Stage 6 emits one B-Rep edge per mesh seam
+      segment.** F0059 ΔE ≈ ΔV ≈ 16 724 = exactly the I5-0 census's
+      implied insert count; face count UNCHANGED. Emission point:
+      `stage5_topology.rs` `push_loop` (and the `env_extra_faces` push
+      site) pushes one `BRepEdge` per cycle segment `(s,e)`, each
+      individually curve-tagged from `intersection_curves` — so the
+      refined chain survives verbatim as ~2k conic micro-arc edges per
+      seam, and this is the shipped architecture even gate-off (the 6–7
+      mesh-vertex chains are per-segment B-Rep edges today; the insert
+      multiplies it ~300×). The render tessellator must honor every
+      B-Rep boundary vertex → the 44–110× mesh inflation at the SAME
+      render tolerance.
+   2. **The assay-budget killer is (c) driven by (a): the
+      `no_self_intersection` oracle** — all-pairs Möller between
+      AABB-overlapping face ranges with NO per-triangle broad phase
+      (`oracle.rs check_no_self_intersection`), ~quadratic in the mesh
+      inflation: 1.00s → 1227s on F0059 = 98% of the 1254.6s leg; the
+      300s budget clips ~24% into it. Every OTHER phase combined —
+      boolean ~8–11s, tessellation ~0.9s, composition oracle 17.4s
+      (incl. its second full model build, 8.75s) — totals 27–36s,
+      comfortably under budget, with composition verdicts Agree on both
+      legs (the insert is volumetrically clean).
+   3. **(b) chained Stage-1/2 REFUTED for the trio**: F0047/F0048/F0059
+      are all 2-op single-boolean cases — there is no chained
+      re-tessellation in them — and the 20-op chained stacks (F0065)
+      completed gate-ON in the 08-15 sweep (their box seams don't
+      refine). Density-through-chains remains a real concern for a
+      future always-on world but is NOT what the timeouts measure.
+   4. **The 08-15 "compounds through chained booleans" attribution is
+      RETRACTED** — it was inference from case family names, not
+      measurement (the trio was never per-phase-instrumented until now).
+
+   **The named fix is the spec's own (a) branch — I5-1b, Stage-6 conic
+   seam chain-merge**: coalesce maximal runs of consecutive loop edges
+   sharing the same undirected conic curve into ONE analytic arc edge
+   between junctions; interior chain vertices stay witness-mesh-only
+   (the `TessellationSource::BRepEdge { edge, t }` mapping retags them
+   onto the merged edge). Design walls recorded for the increment: the
+   from_yang `near-half-ellipse arc` minor-side ambiguity means runs
+   subtending ≳π must split at an interior chain vertex; closed seams
+   (no junction) need ≥3 splits (closed-ellipse edges have no assembler
+   vocabulary, by design); merging claims the chain lies ON the named
+   conic, which the I5-1 refined chains satisfy by construction
+   (`conic_eval`-exact) but today's gate-off relocated chains do NOT
+   (~d_ε sagitta) — so the merge lands coupled to the insert gate (or
+   with an explicit on-curve certification band). Payoff: E returns to
+   O(seams), the render mesh returns to render-tolerance density for
+   ALL consumers (SI oracle, viewport, file format, chained ops — a
+   subsequent boolean re-tessellates an analytic arc at its own chord
+   tolerance, retiring the chain-compounding concern structurally).
+   Separately noted, NOT the unblock: the SI oracle's missing
+   per-triangle broad phase is a harness-scalability wall of its own
+   (1s/case gate-off makes it the priciest mesh oracle corpus-wide) —
+   worth a grid/BVH pass on its own merits, but a fast oracle would
+   still leave a 16.8k-edge output B-Rep in the app; the structural fix
+   is the merge. Only if merged-edge density still breaks the budget
+   does the l-floor deviations-ledger question arise.
+
    **I5-2 — flip census** per the I3/14c discipline: gate-ON pin suites +
    full corpus, category-identical precondition, then always-on.
 
