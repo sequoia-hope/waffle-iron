@@ -1141,6 +1141,144 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    is the merge. Only if merged-edge density still breaks the budget
    does the l-floor deviations-ledger question arise.
 
+   **I5-1b — Stage-6 conic seam chain-merge (gated `YANG_434_MERGE`;
+   DESIGN 2026-08-16, task #89).** Paper basis (§4.4.2,
+   `refs/text/yang2025_hybrid_boolean.txt:581-605`): the B-Rep Boolean
+   output is "restored as a collection of parameter surfaces and their
+   boundary curves" — the boundary curves are "collected and mapped back
+   … by fitting the curve in the parametric domain". The paper's B-Rep
+   edge is the CURVE; the dense polyline belongs to the mesh. Our port's
+   curves are already known analytically (the seam edges carry their
+   exact conic in `intersection_curves`), so "fitting" is restoring the
+   known curve.
+
+   **Mechanism** (post-pass at the tail of `emit_topology`, one copy for
+   both reconstruct paths, strictly inside the gate — gate-off touches
+   zero code): walk every emitted loop and coalesce maximal runs of
+   consecutive edges carrying the SAME undirected conic
+   (`conics_equal_up_to_normal_sign`) into single analytic arc edges.
+
+   - **Elidable interior vertex** (the recover.rs Steiner/T rule, made
+     global): across the whole output, the vertex has exactly 4
+     loop-edge uses on exactly 2 faces, all 4 edges on the same
+     undirected conic. Junction vertices (≥3 faces), curve changes,
+     §4B T-subdivision vertices, and loop pinches all fail the count
+     and stay — run boundaries by construction.
+   - **Certification, not trust** (P10): a run merges ONLY if (i) every
+     interior vertex lies ON the canonical conic within the classify
+     band (`TAU_EVAL·(1+scale)` — the same band from_yang applies to
+     endpoints), and (ii) the chain's `conic_param` sequence is
+     strictly monotone (wrap-aware, consistent sign). I5-1 refined
+     chains satisfy both by construction (`conic_eval`-exact,
+     construct-pass ordered); anything else declines loudly
+     (per-segment status quo, censused). This certifies the merge
+     geometrically instead of coupling it to the insert gate's env var.
+   - **Minor-side splitting**: pieces are capped at 2.0 rad sweep
+     (comfortably under π − `ARC_MINOR_AMBIGUITY_BAND`), split at
+     existing chain vertices nearest equal sweep fractions; closed
+     runs (whole-loop circles/ellipses) split into 4 arcs (satisfies
+     the ≥3-edge loop floor; avoids `Full` vocabulary in seam context
+     and closed-ellipse edges, which the assembler rejects by design).
+     Corollary: two merged arcs on the same curve can never share both
+     endpoints (each < π ⇒ sum < 2π ⇒ not complementary), so the
+     same-curve-bigon reject is unreachable.
+   - **Twin conformance by construction**: candidacy (global counts),
+     the canonical undirected curve (normal sign fixed
+     lexicographically), params, and split selection all derive from
+     undirected data, so both owners produce identical piece
+     boundaries; each side orients its copy per traversal via
+     `orient_directed_curve` (sweeps < π, the minor-side regime it
+     assumes).
+   - **Sources stay valid**: elided vertices retag to
+     `BRepEdge { edge: <piece>, t: conic_param }` against the emitted
+     piece (first-copy convention); surviving `BRepEdge` sources are
+     index-remapped; `mesh`/`as_mesh` are untouched (density stays in
+     the witness layer, where §4.4.1 wants it).
+   - **Scope**: `Circle`/`Ellipse` runs only (the I5-1 insert's own
+     scope — `conic_eval` closed forms). `Parabola`/`Hyperbola`/
+     `SurfacePair`/`LineSegment` runs stay per-segment (recorded
+     boundary; straight-run fusion is a separate concern).
+
+   **Payoff**: output E returns to O(seams) regardless of witness
+   density; kernel-v2's render tessellation samples analytic arcs at
+   render tolerance (the 44–110× mesh inflation and the 1227s SI-oracle
+   cost collapse); a CHAINED boolean re-tessellates the arc at its own
+   chord tolerance, retiring the chain-compounding concern
+   structurally. Proof gates: yang-rs pin suites, kernel-v2 suites,
+   gate-off byte-identity (by construction: the pass is a single gated
+   call), gate-ON trio re-measure via `s434_cost_localize`, full
+   gate-ON corpus (with `YANG_434_INSERT` also on) expecting the 08-15
+   category baseline restored (259C/0W/49E/0T) with the trio back
+   under budget.
+
+   **I5-1b LANDED GATED (2026-08-16, task #89).**
+   `stage5_seam_merge.rs`: global elidability census → per-canonical-
+   chain cached decisions (on-curve certification at the classify band,
+   wrap-aware strict monotonicity, sweep-capped splits with a π-guard
+   re-verify) → loop/edge rebuild with sources remap. 7 module unit
+   tests (closed-ring 4-arc merge + twin conformance, junction split,
+   off-curve decline, non-monotone decline, sweep-cap split at exactly
+   π, segment loops untouched, sources retag round-trip); all 75
+   yang-rs and 37 kernel-v2 test binaries green; rewrite tier green.
+
+   **Trio measured (s434_cost_localize, insert+merge vs insert-only vs
+   gate-off):**
+
+   | case | insert-only | insert+merge | gate-off | E off→merged |
+   |---|---|---|---|---|
+   | F0059 | 1254.6s (SI 1227s) | **3.39s** (SI 0.79s) | 1.17s | 124 → **88** |
+   | F0047 | ≳1200s est | **2.39s** | 0.39s | 79 → **43** |
+   | F0048 | ≳650s est | **1.03s** | 0.55s | 90 → **46** |
+
+   Merged bodies are SMALLER than gate-off (refined chains coalesce to
+   junction-to-junction arcs with zero interior B-Rep vertices); render
+   meshes return to render-tolerance density; composition verdicts
+   Agree with near-identical bands on every leg. The insert-only 7.97s
+   "load" is also explained: mostly engine-side tessellation of the
+   16.8k-edge body (0.86s merged).
+
+   **Full corpus, both gates ON (2026-08-16): 258C/0W/48E+1EE/0T —
+   the TIMEOUTs are gone but the census is NOT category-clean.** Vs
+   the insert-only baseline (which was delta-free apart from the trio),
+   the merge moves five categories and drifts several chained ERROR
+   details — ALL in CHAINED cases, where the merged output feeds the
+   next boolean through to_yang re-tessellation and its
+   sample-position-sensitive walls fire differently:
+
+   - **C0105, R0028 ERROR → CORRECT** (chains that previously died on
+     dense/degenerate per-segment intermediates now complete).
+   - **C0117 CORRECT → ERROR**: the next subtract's to_yang Stage-1
+     tessellation of merged kernel FaceId(6) hits "ring rejected by
+     CDT (degenerate/self-intersecting)" — the arc-ring SAMPLING wall,
+     not merge output validity (from_yang accepted the body).
+   - **F0067, R0099 CORRECT → UNSUPPORTED(coplanar)**: the re-sampled
+     merged intermediate now trips Stage-0's coplanar coincidence
+     detection — the honest M8 wall, reached because facet coincidence
+     is sampling-dependent.
+   - **F0085** fails at Extrude 19 instead of 20 (`NonPlanarFace`),
+     **R0015** Stage-4 `OffCurveBeyondChordBand`, **R0070** holed-
+     lateral CDT wording — same class: chained re-entry perturbs
+     sample-sensitive bands.
+
+   **Merge-only discriminator**: C0117 fails IDENTICALLY with
+   `YANG_434_MERGE` alone (insert off) — the gate-off relocated chains
+   DO certify on-curve at the classify band and merge. Two
+   consequences: (1) the merge is its OWN behavior change, not an
+   insert rider — the certification-not-env-coupling design decision
+   is validated but means the gate must stay OFF until adjudicated;
+   (2) the C0117-class walls are downstream arc-ring sampling, present
+   for coarse merged arcs too.
+
+   **Disposition: LANDED GATED, gate stays OFF** (I5-1 precedent —
+   the recorded deltas are the flip's work list, not a reason to hold
+   the primitive out of tree). Adjudication list for I5-2, in order:
+   (a) anchor C0117's to_yang arc-ring CDT rejection (the only
+   CORRECT→ERROR); (b) F0085 `NonPlanarFace` at the merged
+   intermediate; (c) R0015 chord-band sensitivity; (d) decide whether
+   F0067/R0099's honest M8 boundary is acceptable capability loss at
+   flip time or gated per-case; (e) re-run the merge-only corpus to
+   census the coarse-chain merge on its own.
+
    **I5-2 — flip census** per the I3/14c discipline: gate-ON pin suites +
    full corpus, category-identical precondition, then always-on.
 

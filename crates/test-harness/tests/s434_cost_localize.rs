@@ -28,6 +28,10 @@
 //! 1227s gate-ON on F0059 (98% of the leg) vs 1.00s gate-off — once that
 //! number is on record, the skip lets the OTHER phases of further cases be
 //! measured in seconds instead of ~20min each.
+//!
+//! `S434_COST_MERGE=1` additionally sets `YANG_434_MERGE` on the gate-ON
+//! leg (I5-1b, spec §4-I5-1b): the ON leg then measures insert+merge
+//! together — the configuration the I5 flip decision needs.
 
 use std::fs;
 use std::path::PathBuf;
@@ -61,11 +65,24 @@ fn timed<T>(case: &str, tag: &str, label: &str, f: impl FnOnce() -> T) -> T {
 /// `assay_kv2::replay_case` phase-for-phase (same tolerances, same oracle
 /// set, same composition call) so the timings attribute the assay's budget.
 fn run_leg(case_id: &str, gate_on: bool) {
-    let tag = if gate_on { "ON" } else { "off" };
+    let with_merge = std::env::var_os("S434_COST_MERGE").is_some();
+    let tag = if gate_on {
+        if with_merge {
+            "ON+merge"
+        } else {
+            "ON"
+        }
+    } else {
+        "off"
+    };
     if gate_on {
         std::env::set_var("YANG_434_INSERT", "1");
+        if with_merge {
+            std::env::set_var("YANG_434_MERGE", "1");
+        }
     } else {
         std::env::remove_var("YANG_434_INSERT");
+        std::env::remove_var("YANG_434_MERGE");
     }
     eprintln!("[s434-cost] ---- {case_id} gate {tag} ----");
     let leg_start = Instant::now();
@@ -285,6 +302,7 @@ fn localize_with_timeout(case_id: &str, timeout: Duration) {
         run_leg(&worker, false);
         run_leg(&worker, true);
         std::env::remove_var("YANG_434_INSERT");
+        std::env::remove_var("YANG_434_MERGE");
         let _ = tx.send(());
     });
     match rx.recv_timeout(timeout) {

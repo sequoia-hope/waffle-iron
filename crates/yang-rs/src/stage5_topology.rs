@@ -3934,7 +3934,7 @@ pub(crate) fn reconstruct_topology_stage4(
 /// twin convention: same point set, opposite traversal). A sweep within
 /// 1e-6 of π is left unchanged (the kernel-v2 `ARC_MINOR_AMBIGUITY_BAND`
 /// posture; mesh chords are orders of magnitude below π).
-fn orient_directed_curve(curve: Curve, s: u32, e: u32, verts: &[Point3]) -> Curve {
+pub(crate) fn orient_directed_curve(curve: Curve, s: u32, e: u32, verts: &[Point3]) -> Curve {
     let sweep_ccw = |center: Point3, normal: Vector3| -> Option<f64> {
         let (e1, e2) = ortho_basis(normal);
         let (e1, e2, c) = (e1.as_array(), e2.as_array(), center.as_array());
@@ -5433,6 +5433,33 @@ pub(crate) fn emit_topology(
              cross_inherited={simp_cross_inherited} \
              (minted+inherited < nonsimple means the pre-position map was \
              unavailable for the rest — set YANG_S5_FOLD_PROBE)"
+        );
+    }
+
+    // I5-1b (gated `YANG_434_MERGE`, spec §4-I5-1b): coalesce per-segment
+    // conic seam runs into single analytic arc edges — the paper's §4.4.2
+    // B-Rep output shape ("surfaces and their boundary curves"). Certifying
+    // and self-declining; gate-off touches nothing.
+    if crate::stage5_seam_merge::merge_gate_enabled() {
+        let st = crate::stage5_seam_merge::merge_conic_seam_runs(
+            &mesh.verts,
+            &mut edges,
+            &mut faces,
+            &mut sources,
+        );
+        c441_log!(
+            "[s6-merge] runs={} elided={} edges {}->{} declines: offcurve={} \
+             nonmono={} short={} param={} sweep={} disc_loops={}",
+            st.runs_merged,
+            st.verts_elided,
+            st.edges_before,
+            st.edges_after,
+            st.declined_offcurve,
+            st.declined_nonmonotone,
+            st.declined_short,
+            st.declined_param,
+            st.declined_sweep,
+            st.skipped_discontinuous_loops
         );
     }
     Ok((vertices, edges, faces, sources, face_attribution))

@@ -293,10 +293,19 @@ name, never measured).
    assay's `no_self_intersection` oracle (1227s vs a 300s budget; every
    other phase totals 27–36s). The "chained booleans compound the
    density" attribution is retracted — the trio are 2-op single-boolean
-   cases. Next: **I5-1b, Stage-6 conic seam chain-merge** (one analytic
-   arc edge per seam run between junctions; density stays in the
-   witness mesh; design walls in spec §4-I5), then the I5-2 flip
-   census. I5-1 STAYS GATED until then.
+   cases. **I5-1b (Stage-6 conic seam chain-merge, `YANG_434_MERGE`)
+   LANDED GATED same day** (task #89, spec §4-I5-1b):
+   `stage5_seam_merge.rs` coalesces certified same-conic seam runs
+   into analytic arc edges — trio 1254.6s → **3.39s** (F0059; SI
+   oracle 1227s → 0.79s), merged bodies SMALLER than gate-off (F0059
+   E 124→88). Both-gates corpus: 258C/0W/48E+1EE/**0T** — TIMEOUTs
+   gone, but five category deltas + chained detail drifts, ALL in the
+   chained-reentry class (to_yang re-tessellation of merged
+   intermediates perturbs sample-sensitive walls: C0117 CORRECT→ERROR
+   arc-ring CDT, F0067/R0099 → honest M8 coplanar boundary, C0105/
+   R0028 ERROR→CORRECT). Merge-only fires too (coarse relocated
+   chains certify). BOTH gates stay OFF; the I5-2 flip is blocked on
+   the adjudication list in spec §4-I5-1b (C0117 anchor first).
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

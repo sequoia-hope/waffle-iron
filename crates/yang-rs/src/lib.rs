@@ -123,6 +123,7 @@ mod stage5_loop_simplicity;
 // F0082 pinned fixture (`tests_unit/s188_envelope.rs`); inc-2 wires them
 // into `emit_topology` behind `YANG_S5_ENVELOPE_ENABLE`.
 pub mod stage5_envelope;
+mod stage5_seam_merge;
 mod stage5_topology;
 pub(crate) use stage5_topology::*;
 mod stage4_relocate;
