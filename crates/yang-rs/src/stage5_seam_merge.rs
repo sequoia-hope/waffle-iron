@@ -533,8 +533,17 @@ pub(crate) fn merge_conic_seam_runs(
     let mut vert_to_piece: BTreeMap<u32, u32> = BTreeMap::new();
 
     // ── Rebuild ──────────────────────────────────────────────────────────
-    let mut new_edges: Vec<BRepEdge> = Vec::with_capacity(edges.len());
-    let mut old2new: Vec<Option<u32>> = vec![None; edges.len()];
+    // IDENTITY DISCIPLINE (I5-2 census finding, 2026-08-19): a pass that
+    // merges NOTHING must leave edges, edge indices and loop rotations
+    // byte-identical — kernel-v2's patch tessellation is loop-rotation
+    // sensitive (KV7-F1), so a zero-merge reorder flipped a render-gate
+    // verdict on the unequal cyl×cyl union. Hence: verbatim edges keep
+    // their ORIGINAL indices (the vector starts as a clone; merged pieces
+    // are appended; a final order-preserving compaction drops only the
+    // edges no loop references any more), and every rebuilt loop is
+    // rotated back so it starts at the entry covering ORIGINAL position 0.
+    let n_orig = edges.len();
+    let mut new_edges: Vec<BRepEdge> = edges.clone();
     let mut elided_this_pass: BTreeSet<u32> = BTreeSet::new();
 
     // Per (face, loop-slot) rebuilt loops; applied after the borrow ends.
@@ -545,26 +554,18 @@ pub(crate) fn merge_conic_seam_runs(
         for lp in std::iter::once(&f.outer_loop).chain(f.inner_loops.iter()) {
             let Some(cycle) = loop_cycle(edges, lp) else {
                 stats.skipped_discontinuous_loops += 1;
-                // Keep the loop verbatim (copy its edges unmerged).
-                let mut kept = Vec::with_capacity(lp.len());
-                for &ei in lp {
-                    let ni = match old2new[ei as usize] {
-                        Some(n) => n,
-                        None => {
-                            let n = new_edges.len() as u32;
-                            new_edges.push(edges[ei as usize].clone());
-                            old2new[ei as usize] = Some(n);
-                            n
-                        }
-                    };
-                    kept.push(ni);
-                }
-                face_loops.push(kept);
+                // Keep the loop verbatim (same edges, same indices).
+                face_loops.push(lp.clone());
                 continue;
             };
             let part = partition_loop(edges, lp, &cycle, &elidable);
             let m = lp.len();
             let mut new_lp: Vec<u32> = Vec::with_capacity(lp.len());
+            // Original loop positions covered by each `new_lp` entry (a
+            // verbatim edge covers its own position; a merged piece covers
+            // the positions of every edge it replaces) — used to rotate the
+            // rebuilt loop back to the original start.
+            let mut covers: Vec<Vec<usize>> = Vec::with_capacity(lp.len());
 
             // Emit one stretch: either verbatim copies or a decided merge.
             let mut emit_stretch = |start_r: usize,
@@ -572,28 +573,21 @@ pub(crate) fn merge_conic_seam_runs(
                                     key: &Option<Vec<u64>>,
                                     closed_whole: bool,
                                     new_lp: &mut Vec<u32>,
+                                    covers: &mut Vec<Vec<usize>>,
                                     new_edges: &mut Vec<BRepEdge>,
                                     stats: &mut MergeStats| {
                 let orig_pos = |r: usize| (part.offset + r) % m;
-                let mut verbatim = |new_lp: &mut Vec<u32>, new_edges: &mut Vec<BRepEdge>| {
+                let verbatim = |new_lp: &mut Vec<u32>, covers: &mut Vec<Vec<usize>>| {
                     for r in start_r..start_r + len {
-                        let ei = lp[orig_pos(r)] as usize;
-                        let ni = match old2new[ei] {
-                            Some(n) => n,
-                            None => {
-                                let n = new_edges.len() as u32;
-                                new_edges.push(edges[ei].clone());
-                                old2new[ei] = Some(n);
-                                n
-                            }
-                        };
-                        new_lp.push(ni);
+                        let op = orig_pos(r);
+                        new_lp.push(lp[op]);
+                        covers.push(vec![op]);
                     }
                 };
                 // Non-conic stretch, or too short to merge anything.
                 let mergeable = key.is_some() && (closed_whole || len >= 2);
                 if !mergeable {
-                    verbatim(new_lp, new_edges);
+                    verbatim(new_lp, covers);
                     return;
                 }
                 // The traversal chain of this stretch: vertices
@@ -614,14 +608,14 @@ pub(crate) fn merge_conic_seam_runs(
                 // Canonical curve from the first edge of the stretch.
                 let canon_curve = canonical_conic(&edges[lp[orig_pos(start_r)] as usize].curve);
                 let Some(canon_curve) = canon_curve else {
-                    verbatim(new_lp, new_edges);
+                    verbatim(new_lp, covers);
                     return;
                 };
                 let decision = decisions.entry(canon_chain.clone()).or_insert_with(|| {
                     decide_run(&canon_chain, closed_whole, &canon_curve, verts, stats)
                 });
                 let RunDecision::Merge { boundaries, canon } = decision else {
-                    verbatim(new_lp, new_edges);
+                    verbatim(new_lp, covers);
                     return;
                 };
                 // Piece boundary vertex ids in canonical order.
@@ -649,10 +643,17 @@ pub(crate) fn merge_conic_seam_runs(
                 };
                 let first_copy = !vert_to_piece.contains_key(&canon_chain[0])
                     || !elided_this_pass.contains(&canon_chain[0]);
-                // Track stats once per canonical chain (first copy only).
+                // Track stats once per canonical chain (first copy only) —
+                // scanning the APPENDED pieces only (originals keep their
+                // slots in `new_edges` and must not shadow a piece).
                 let count_stats = piece_pairs
                     .iter()
-                    .all(|&(s, e)| !merged_edge_exists(new_edges, s, e, canon));
+                    .all(|&(s, e)| !merged_edge_exists(&new_edges[n_orig..], s, e, canon));
+                // Traversal-chain index of every chain vertex (chains have
+                // distinct vertices: elidable verts have exactly 2 loop
+                // uses per face).
+                let chain_idx = |v: u32| chain.iter().position(|&c| c == v);
+                let k_chain = chain.len();
                 for &(s, e) in &piece_pairs {
                     let ni = new_edges.len() as u32;
                     new_edges.push(BRepEdge {
@@ -661,6 +662,21 @@ pub(crate) fn merge_conic_seam_runs(
                         curve: crate::stage5_topology::orient_directed_curve(*canon, s, e, verts),
                     });
                     new_lp.push(ni);
+                    // Original positions this piece replaces: traversal
+                    // edges from idx(s) up to idx(e) (cyclic for a closed
+                    // whole-loop run).
+                    let mut cov: Vec<usize> = Vec::new();
+                    if let (Some(a), Some(b)) = (chain_idx(s), chain_idx(e)) {
+                        let mut i = a;
+                        loop {
+                            cov.push(orig_pos(start_r + i));
+                            i = (i + 1) % k_chain;
+                            if i == b || (!closed_whole && i == 0) {
+                                break;
+                            }
+                        }
+                    }
+                    covers.push(cov);
                     // First-copy piece assignment for every chain vertex the
                     // piece covers (interior + boundaries).
                     if count_stats {
@@ -699,7 +715,16 @@ pub(crate) fn merge_conic_seam_runs(
 
             if part.whole_closed {
                 let key = part.stretches[0].2.clone();
-                emit_stretch(0, m, &key, true, &mut new_lp, &mut new_edges, &mut stats);
+                emit_stretch(
+                    0,
+                    m,
+                    &key,
+                    true,
+                    &mut new_lp,
+                    &mut covers,
+                    &mut new_edges,
+                    &mut stats,
+                );
                 // A declined whole-closed run emits verbatim; a merged one
                 // emits its pieces. Either way the loop is complete.
             } else {
@@ -710,10 +735,16 @@ pub(crate) fn merge_conic_seam_runs(
                         &key,
                         false,
                         &mut new_lp,
+                        &mut covers,
                         &mut new_edges,
                         &mut stats,
                     );
                 }
+            }
+            // Rotate back to the original start: the entry covering original
+            // position 0 leads. An untouched loop comes back EXACTLY as `lp`.
+            if let Some(k) = covers.iter().position(|c| c.contains(&0)) {
+                new_lp.rotate_left(k);
             }
             face_loops.push(new_lp);
         }
@@ -726,10 +757,41 @@ pub(crate) fn merge_conic_seam_runs(
         f.inner_loops = loops;
     }
 
+    // ── Compaction: drop edges no loop references (the replaced run
+    // edges), preserving the relative order of everything else. With zero
+    // merges every edge is still referenced and the map is the identity.
+    let mut used = vec![false; new_edges.len()];
+    for f in faces.iter() {
+        for lp in std::iter::once(&f.outer_loop).chain(f.inner_loops.iter()) {
+            for &ei in lp {
+                if let Some(u) = used.get_mut(ei as usize) {
+                    *u = true;
+                }
+            }
+        }
+    }
+    let mut compact: Vec<Option<u32>> = vec![None; new_edges.len()];
+    let mut compacted: Vec<BRepEdge> = Vec::with_capacity(new_edges.len());
+    for (i, e) in new_edges.iter().enumerate() {
+        if used[i] {
+            compact[i] = Some(compacted.len() as u32);
+            compacted.push(e.clone());
+        }
+    }
+    for f in faces.iter_mut() {
+        for lp in std::iter::once(&mut f.outer_loop).chain(f.inner_loops.iter_mut()) {
+            for ei in lp.iter_mut() {
+                if let Some(Some(n)) = compact.get(*ei as usize) {
+                    *ei = *n;
+                }
+            }
+        }
+    }
+
     // ── Sources: remap surviving indices; retag deleted run edges ────────
     for (v, src) in sources.iter_mut().enumerate() {
         if let TessellationSource::BRepEdge { edge, t } = *src {
-            match old2new.get(edge as usize).copied().flatten() {
+            match compact.get(edge as usize).copied().flatten() {
                 Some(n) => {
                     *src = TessellationSource::BRepEdge { edge: n, t };
                 }
@@ -737,17 +799,20 @@ pub(crate) fn merge_conic_seam_runs(
                     // The source edge was replaced by a merged piece. Retag
                     // to the covering piece with the parameter recomputed in
                     // the EMITTED curve's frame (eval_source round-trip).
-                    let retag = vert_to_piece.get(&(v as u32)).and_then(|&piece| {
-                        conic_param(&new_edges[piece as usize].curve, verts[v])
-                            .map(|t2| TessellationSource::BRepEdge { edge: piece, t: t2 })
-                    });
+                    let retag = vert_to_piece
+                        .get(&(v as u32))
+                        .and_then(|&piece| compact.get(piece as usize).copied().flatten())
+                        .and_then(|piece| {
+                            conic_param(&compacted[piece as usize].curve, verts[v])
+                                .map(|t2| TessellationSource::BRepEdge { edge: piece, t: t2 })
+                        });
                     *src = retag.unwrap_or(TessellationSource::BRepVertex(v as u32));
                 }
             }
         }
     }
 
-    *edges = new_edges;
+    *edges = compacted;
     stats.edges_after = edges.len();
     stats
 }
@@ -980,6 +1045,39 @@ mod tests {
         assert_eq!(stats.declined_offcurve, 1, "{stats:?}");
         assert_eq!(edges.len(), before);
         assert_eq!(faces[0].outer_loop.len(), 16);
+    }
+
+    /// I5-2 census finding (2026-08-19): a pass that merges NOTHING must be
+    /// the IDENTITY on edges (values AND indices), loop rotations and
+    /// sources — the former rebuild re-ordered edges in traversal order and
+    /// re-rotated every loop to the partition offset, which flipped a
+    /// kernel-v2 render-gate verdict (loop-rotation-sensitive patch
+    /// tessellation, KV7-F1) on the unequal cyl×cyl union with zero merges.
+    /// Exercised on a DECLINED run (off-curve vertex) whose loops start
+    /// mid-run, i.e. exactly where the old rebuild rotated.
+    #[test]
+    fn zero_merge_pass_is_identity() {
+        let (mut verts, mut edges, mut faces) = ring_fixture(16);
+        verts[3] = Point3::new(verts[3].as_array()[0] + 1e-3, verts[3].as_array()[1], 0.0);
+        // Rotate both loops so the (declined) run wraps the vector end.
+        faces[0].outer_loop.rotate_left(5);
+        faces[1].outer_loop.rotate_left(9);
+        let mut sources: Vec<TessellationSource> = (0..verts.len() as u32)
+            .map(|v| TessellationSource::BRepEdge {
+                edge: v % edges.len() as u32,
+                t: 0.25,
+            })
+            .collect();
+        let edges0 = edges.clone();
+        let loops0: Vec<Vec<u32>> = faces.iter().map(|f| f.outer_loop.clone()).collect();
+        let sources0 = sources.clone();
+        let stats = merge_conic_seam_runs(&verts, &mut edges, &mut faces, &mut sources);
+        assert_eq!(stats.runs_merged, 0, "{stats:?}");
+        assert_eq!(edges, edges0, "edges (values and indices) unchanged");
+        for (f, l0) in faces.iter().zip(&loops0) {
+            assert_eq!(&f.outer_loop, l0, "loop order and rotation unchanged");
+        }
+        assert_eq!(sources, sources0, "sources unchanged");
     }
 
     #[test]
