@@ -343,6 +343,34 @@ vector, and each fold's turn angle at the **pre-Stage-4** positions. Results:
   their minting and displacement are UNMEASURED. Composing the
   `compact_unreferenced_verts` remap into `S4_MOVED` is the enabling increment.
 
+**Update (2026-08-19d) — the ring-fold class is CLOSED for its Fig-11 half, and
+the 2026-07-29 F0045 reading above is RETRACTED.** That note called F0045 "not
+this class" on the strength of its fold apexes' incidence (`A:Cylinder+A:Plane+
+B:Cylinder`), while recording in the same breath that F0045's minting and
+displacement were UNMEASURED (the §4.5.3 collapse renumbering was the blocking
+gap, since closed by `probe_remap_pre_pos`). Measured now, F0045 IS this class,
+and is its cleanest witness: its fold apex is a PLAIN rim grid vertex that never
+moved, and the relocated junction beside it stepped 2.382e-2 across a 1.283e-2
+spacing — straight over it. Turn at the apex 27.69° (exactly the rim's own
+360/13 grid step) → 167.34°, apex residual 0 on both its surfaces.
+
+The family census (`YANG_S6_LOOP_SIMPLICITY` over all nine `ring rejected by CDT`
+cases) reports `cross_inherited = 0`: every measurable non-simple output loop is
+`class=MINTED_BY_S4`. The Fig-11(b)→(c) merge landed gated
+(`YANG_441_FOLD_MERGE`, spec `yang_441_trim_cdt_construction.md` §4-I6) with a
+threshold-free selector (`stage4_fold_risk::fold_merge_sites`) and a LOCAL fan
+re-triangulation (`stage4_construct::rebuild_merge_fan`) — **not** the whole-patch
+`rebuild_patch_planar`, which declines every merge in this family on
+`ThetaUnwrap` (encircling laterals) or `TriangulationFailed` (patches still
+carrying other folds). F0045 and R0090 convert; corpus 263C → **265C/0W/43E/1EE/0T**
+with zero other deltas.
+
+N2 stays OPEN: the census also separates a SECOND, larger class this increment
+deliberately does not touch — `apex_moved`, where two ON-CURVE vertices crossed
+each other (R0044 188/214 inversions, R0053 83/83, R0095 20/20, R0025 4/4). That
+is §4.3.4 chain ORDER (the `ReorderConic` action), not Fig-11; merging there
+would discard an analytic certificate.
+
 **Update (2026-08-06) — the SPLICE LOOP is built; the §4.4.1 layer stack is now
 complete end-to-end, still unwired.** `crates/yang-rs/src/stage4_splice.rs`
 joins the three banked layers (`SurfaceChart` → `patch_from_cycles` → the

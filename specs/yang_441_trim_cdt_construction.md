@@ -1433,6 +1433,121 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    pass-2 canonicalization is geometry-intrinsic, so this is a shape
    choice, not a contract).
 
+### I6 — Fig-11(b)→(c) fold merge: the boundary vertex the relocation OVERRAN
+
+**Status: LANDED gated (`YANG_441_FOLD_MERGE`), 2026-08-19d.**
+
+**Anchor (census first).** `YANG_S6_LOOP_SIMPLICITY` + `YANG_S5_FOLD_PROBE` over
+the nine `ring rejected by CDT` cases (F0045, R0011, R0025, R0044, R0053, R0074,
+R0085, R0090, R0095): **every** non-simple output loop the scan can measure is
+`class=MINTED_BY_S4` with `cross_pre=0`, and `cross_inherited=0` across the whole
+family (per-case minted counts 1/6/3/6/–/2/40/1/5; R0053 and R0044's third op
+fail on CURVED patches the planar scan does not cover). The family's loops were
+simple before Stage 4 and are not after it.
+
+**Mechanism, per vertex (F0045 = the clean witness).** F0045 is two parallel
+cylinder bosses. On the bottom cap of cylinder B (z = 0.198702) the kept face is
+`disk_B − disk_A`, bounded by an arc of circle A (the exact plane∩cylinder SSI,
+emitted analytically) and a run of circle B's own rim (emitted as mesh chords).
+The rim's Stage-1 grid is 360/13 = 27.69° and the exact junction falls at
+−9.30°, between grid vertices −6.92° and −34.62°. Because the MESH of cylinder A
+is an inscribed polygon, it is *smaller* than the true circle, so the arrangement
+put the mesh crossing at ≈ −4.24° and the rim vertex at −6.92° classified OUT of
+A — correctly, for the meshes. Stage 4 then relocated the junction onto the exact
+−9.30°, a 2.382e-2 move across a 1.283e-2 spacing: it stepped **past** its own
+rim neighbour. Turn at that neighbour: `27.69° → 167.34°` (`YANG_S5_FOLD` k=6,
+`moved=(MOVED(2.382e-2),still,still)`, apex residual 0 on both its surfaces).
+The loop folds; Stage 6 emits it; the render CDT rejects it.
+
+**This is Fig 11 verbatim** (`refs/text/yang2025_hybrid_boolean.txt:558-563`):
+q is "an intersection point on the boundary curve"; the paper locates the
+constrained edge containing q, splits it, and — (b)→(c) — **merges the
+too-close split endpoint p into q**. Our pipeline arrives at the same
+configuration from the other side (the vertex exists first and is then moved),
+so the operation to apply is the same one.
+
+**Selector — `stage4_fold_risk::fold_merge_sites`, threshold-free.** A boundary
+corner `(a, b, c)` is a site iff (1) `b` did not move across Stage 4, (2) `b`
+sat inside `chord(a, c)` before and lies outside it after — `chord_order_
+inversions`' certificate, i.e. exactly the `MINTED_BY_S4` verdict — and (3) the
+END it overran (`a` if `t < 0`, else `c`) DID move. The sign of `t` PICKS the
+survivor, so there is no distance tie-break; a victim two survivors claim is
+dropped as ambiguous. Victims and survivors are disjoint by (1)∧(3), so a batch
+can never chain substitutions.
+
+The oracle for "moved" is `S4_PRE_POS`, not `relocations` — measured 2026-08-19:
+on R0074/R0085/R0095/R0025 the `relocations` vector is EMPTY while 59–83 vertices
+per loop moved (it carries conic `(v, t)` retags only; the implicit-pair and
+junction arms do not push to it). Keying condition 3 on it rejected every
+inversion in the family. `s4_pre_pos_enabled()` therefore gains a third, and
+first non-diagnostic, consumer.
+
+**Repair — `stage4_construct::rebuild_merge_fan`, a LOCAL re-triangulation.**
+Not `collapse_vertex`: the 2026-08-05 trial measured that negative and named why
+(a bare index rewrite of a real-length edge leaves the surrounding fan
+inconsistent; F0067's wall merely moved to a non-2-manifold STOP). Not
+`rebuild_patch_planar` either — measured 2026-08-19, whole-patch rebuild imposes
+two requirements this merge cannot meet:
+
+| holder | decline | why |
+|---|---|---|
+| F0045 patch 5, R0090 patch 5 | `ThetaUnwrap` | the merge is on the rim of a lateral that ENCIRCLES the axis, which `unwrap_theta` refuses by contract |
+| R0074 patch 0, R0085 patches 0/264 | `Cdt TriangulationFailed` | the patch carries SEVERAL folds, so its full cycle still self-crosses; no single merge can make it simple |
+
+The fan has neither problem. `rebuild_merge_fan` discards exactly the triangles
+incident to the victim, chains their opposite directed edges into the victim's
+link `l_0 … l_k`, and re-triangulates that polygon (closed by `l_k → l_0`, the
+new boundary edge the merge creates) in the patch's chart, θ-unwrapped against
+the victim's OWN branch — local, so no global span exists to fall outside of.
+Orientation is matched by measurement against the fan it replaces, as the
+whole-patch rebuild does. Every patch holding the victim in a TRIANGLE rebuilds
+its fan (all-holders-or-none), so nothing is ever re-pointed without being
+re-triangulated. One site per pass: two fans can share a triangle, and
+`apply_rebuild_batch` refuses an overlapping batch.
+
+Loud refusals, all persistent (a blocked victim is never re-proposed):
+`FanNotSimple` (pinched vertex — the link chains into more than one run),
+`FanSurvivorNotAdjacent`, `Cdt` (the fan polygon itself self-crosses), an
+unchartable holder (cone/torus — the I2a scope), and the write-back's own
+`StalePlan`/`OverlappingBatch`.
+
+**Measured, gate ON, over the family:**
+
+| case | sites | outcome |
+|---|---|---|
+| **F0045** | 1 (`v71→v68`, `chord_t = −0.0920`) | **ERROR → SUPPORTED_CORRECT** |
+| **R0090** | 1 (`v41→v28`, `chord_t = +1.0289`) | **ERROR → SUPPORTED_CORRECT** |
+| R0011 / R0074 / R0085 | 1 each | `FanNotSimple` (R0085 op2 `Cdt`) — pinched-vertex fans |
+| R0044 | 13 | unchartable (cone/torus) holders |
+| R0025 / R0053 / R0095 | 0 | every inversion is `apex_moved` |
+
+Both `chord_t` values were derived independently by hand from the rejected
+render ring before the selector existed, and match.
+
+**Gate-ON full corpus (360s budget): 265C / 0W / 43E / 1EE / 0T — exactly the
+two conversions, ZERO other category deltas and ZERO detail deltas** against the
+263C canonical. No WRONG, no TIMEOUT, no regression.
+
+**Recorded scope notes (measured, not open):**
+* The pre-position snapshot is taken only when Stage 4 has a conic
+  (`s4_probe && has_conic`, `stage5_topology.rs`), so a boolean with no analytic
+  curve at all has no map and the pass is inert there by construction.
+* One merge per pass: two fans can share a triangle and `apply_rebuild_batch`
+  refuses an overlapping batch, so sites are sequenced rather than batched. Each
+  applied pass re-runs `compute_phase_a`; `MAX_PASSES` is 32 as a runaway guard.
+* The plan is applied with an EMPTY substitution map, after verifying no triangle
+  outside the rebuilt fans still holds the victim. A merge is therefore carried
+  entirely by re-triangulated fans — never by an index relabel, which is exactly
+  what made the 2026-08-05 trial unsound.
+
+**The residue is a DIFFERENT defect, and the census names it.** Across the
+family the dominant rejection is `apex_moved` (R0044 188/214, R0053 83/83,
+R0095 20/20, R0025 4/4): the fold apex is ITSELF a relocated vertex, so two
+on-curve vertices crossed each other along the chain. That is chain ORDER, which
+is the §4.3.4 `ReorderConic` action's business (I2b), not Fig-11's — a merge
+there would discard an analytic certificate. It is recorded as the next
+increment, not folded into this one.
+
 ## 5. After this epic (recorded, not started)
 
 - **§4.5.4 removal half / §4.5.2 guard shell** (roadmap item 3d/4): route the

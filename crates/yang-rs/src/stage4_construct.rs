@@ -631,6 +631,15 @@ pub(crate) enum ConstructError {
     /// Two rebuilds in one batch claim the same old triangle — a driver bug,
     /// not input (flood-fill patches are disjoint).
     OverlappingBatch { tri: u32 },
+    /// [`rebuild_merge_fan`]: the triangles incident to the victim do not form
+    /// ONE simple fan — their opposite edges chain into more than one run, or a
+    /// vertex is reached twice. A pinched / non-manifold vertex; re-triangulating
+    /// it locally would guess which sheet the merge belongs to.
+    FanNotSimple { patch: usize, victim: u32 },
+    /// [`rebuild_merge_fan`]: the survivor is not on the victim's link, so the
+    /// two are not joined by a triangle edge and the merge is not the local
+    /// Fig-11 operation.
+    FanSurvivorNotAdjacent { patch: usize, victim: u32 },
 }
 
 /// One patch's single-sided rebuild, entirely in MESH index space and ready
@@ -1098,6 +1107,190 @@ fn i2e_seed_grid(
         theta += s_theta;
     }
     seeds
+}
+
+/// Yang §4.4.1 **Fig-11(b)→(c)**, LOCALLY: merge `victim` into `survivor` by
+/// re-triangulating exactly the triangles of `patch` incident to `victim`.
+///
+/// # Why local rather than whole-patch
+///
+/// [`rebuild_patch_planar`] re-CDTs a patch's ENTIRE boundary, which imposes two
+/// requirements the merge does not need and often cannot meet (measured
+/// 2026-08-19 over the ring-reject family):
+/// * the patch must not encircle the cylinder axis (`unwrap_theta` refuses) —
+///   F0045 and R0090 both merge on the rim of a lateral that wraps all the way
+///   around, so the whole-patch rebuild declines `ThetaUnwrap`;
+/// * the patch's whole boundary must already be simple — but a patch generally
+///   carries SEVERAL folds, so the CDT of the full cycle refuses
+///   (`TriangulationFailed`) until every one of them is repaired, which no
+///   single merge can achieve (R0074, R0085).
+///
+/// The fan has neither problem: it spans a small θ window (unwrapped against the
+/// victim's own branch, so no global span exists to fall outside of) and its
+/// polygon is local, so one fold's repair never waits on another's.
+///
+/// It is emphatically NOT the bare `collapse_vertex` the 2026-08-05 trial
+/// measured negative: the triangles around the victim are DISCARDED and rebuilt
+/// by CDT, so no fan is left inconsistent by an index rewrite.
+///
+/// # Construction
+///
+/// The fan triangles are `victim → l_i → l_{i+1}`, so their opposite directed
+/// edges chain into the victim's LINK. Removing the victim leaves exactly the
+/// link polygon `l_0 … l_k` — closed by `l_k → l_0` when the victim is on the
+/// patch boundary (the new boundary edge the merge creates), or already closed
+/// when the victim is interior. The survivor must be a link vertex; the merge is
+/// then precisely "the boundary now runs to the survivor instead of the victim".
+/// The polygon is triangulated in the patch's chart and orientation-matched to
+/// the triangles it replaces, exactly as the whole-patch rebuild does.
+pub(crate) fn rebuild_merge_fan(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    victim: u32,
+    survivor: u32,
+) -> Result<PatchRebuild, ConstructError> {
+    let chart = SurfaceChart::new(patch.surface)
+        .ok_or(ConstructError::NonPlanarPatch { patch: patch_index })?;
+
+    // Fan triangles, and each one's opposite directed edge (the link edge).
+    let mut old_tris: Vec<u32> = Vec::new();
+    let mut link_edges: Vec<(u32, u32)> = Vec::new();
+    for &t in &patch.tris {
+        let tri = mesh.tris[t as usize];
+        let Some(k) = tri.iter().position(|&v| v == victim) else {
+            continue;
+        };
+        old_tris.push(t);
+        let (x, y) = (tri[(k + 1) % 3], tri[(k + 2) % 3]);
+        if x == victim || y == victim || x == y {
+            return Err(ConstructError::FanNotSimple {
+                patch: patch_index,
+                victim,
+            });
+        }
+        link_edges.push((x, y));
+    }
+    if old_tris.is_empty() {
+        return Err(ConstructError::MalformedPatch { patch: patch_index });
+    }
+
+    // Chain the directed link edges into ONE run. A vertex appearing as the
+    // source (or target) of two edges is a pinch — loud, never guessed.
+    let mut next: BTreeMap<u32, u32> = BTreeMap::new();
+    let mut indeg: BTreeMap<u32, usize> = BTreeMap::new();
+    for &(x, y) in &link_edges {
+        if next.insert(x, y).is_some() {
+            return Err(ConstructError::FanNotSimple {
+                patch: patch_index,
+                victim,
+            });
+        }
+        *indeg.entry(y).or_default() += 1;
+        indeg.entry(x).or_default();
+    }
+    if indeg.values().any(|&d| d > 1) {
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim,
+        });
+    }
+    // Start at the run's source (boundary victim) or anywhere (interior victim,
+    // where the link is a closed cycle).
+    let start = indeg
+        .iter()
+        .find(|&(_, &d)| d == 0)
+        .map(|(&v, _)| v)
+        .unwrap_or_else(|| link_edges[0].0);
+    let mut link: Vec<u32> = vec![start];
+    let mut cur = start;
+    while let Some(&nx) = next.get(&cur) {
+        if nx == start {
+            break; // closed link (interior victim)
+        }
+        if link.len() > link_edges.len() {
+            return Err(ConstructError::FanNotSimple {
+                patch: patch_index,
+                victim,
+            });
+        }
+        link.push(nx);
+        cur = nx;
+    }
+    if link.len() != indeg.len() || link.len() < 3 {
+        // Not every link vertex was reached: the fan is split into several runs.
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim,
+        });
+    }
+    if !link.contains(&survivor) {
+        return Err(ConstructError::FanSurvivorNotAdjacent {
+            patch: patch_index,
+            victim,
+        });
+    }
+
+    // Chart coordinates, θ-unwrapped against the VICTIM's own branch: the fan is
+    // local, so every link vertex is within π of it and the branch is unique.
+    let base = chart.project(mesh.verts[victim as usize]);
+    let periodic = matches!(patch.surface, Surface::Cylinder { .. });
+    let uv_of = |v: u32| -> Point2 {
+        let uv = chart.project(mesh.verts[v as usize]);
+        if periodic {
+            let k = ((base.x() - uv.x()) / std::f64::consts::TAU).round();
+            Point2::new(uv.x() + k * std::f64::consts::TAU, uv.y())
+        } else {
+            uv
+        }
+    };
+    let pool: Vec<Point2> = link.iter().map(|&v| uv_of(v)).collect();
+    let boundary: Vec<u32> = (0..link.len() as u32).collect();
+    let tris2 =
+        cdt_with_interior_constraints(&pool, &boundary, &[], &[], &[]).map_err(|error| {
+            ConstructError::Cdt {
+                patch: patch_index,
+                error,
+            }
+        })?;
+
+    // Orientation: match the fan this replaces, measured (the chart basis has
+    // arbitrary handedness relative to the surface normal).
+    let old: Vec<[u32; 3]> = old_tris.iter().map(|&t| mesh.tris[t as usize]).collect();
+    let mesh_pos = |v: u32| -> Point3 { mesh.verts[v as usize] };
+    let pos3 = |i: u32| -> Point3 { mesh.verts[link[i as usize] as usize] };
+    let want = crate::stage4_splice::area_vector(&old, &mesh_pos);
+    let got = crate::stage4_splice::area_vector(&tris2, &pos3);
+    let d = crate::stage4_splice::dot3(want, got);
+    if d == 0.0 || !d.is_finite() {
+        return Err(ConstructError::DegenerateOrientation { patch: patch_index });
+    }
+    let mut tris2 = tris2;
+    if d < 0.0 {
+        for t in &mut tris2 {
+            t.swap(1, 2);
+        }
+    }
+    let new_tris: Vec<[u32; 3]> = tris2
+        .iter()
+        .map(|t| {
+            [
+                link[t[0] as usize],
+                link[t[1] as usize],
+                link[t[2] as usize],
+            ]
+        })
+        .collect();
+
+    Ok(PatchRebuild {
+        patch: patch_index,
+        old_tris,
+        new_tris,
+        new_verts: Vec::new(),
+        dropped: [victim].into_iter().collect(),
+        plan_verts: mesh.verts.len() as u32,
+        plan_tris: mesh.tris.len() as u32,
+    })
 }
 
 /// Write a batch of [`PatchRebuild`]s into the mesh in ONE pass: drop every
@@ -1596,6 +1789,151 @@ mod tests {
             ],
             tris: vec![[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]],
         }
+    }
+
+    // ---- I6: Fig-11(b)->(c) local fan merge ----------------------------
+
+    /// A boundary victim: the fan around vertex 4 on a half-square, merged into
+    /// its boundary neighbour. The rebuild must replace exactly the fan, drop
+    /// the victim, and keep the same outward sense.
+    #[test]
+    fn rebuild_merge_fan_replaces_only_the_victim_fan() {
+        // Pentagon 0,1,2,3 with a boundary vertex 4 between 0 and 1, fanned to
+        // an interior vertex 5.
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(0.5, 0.0, 0.0),
+                Point3::new(0.5, 0.5, 0.0),
+            ],
+            tris: vec![[0, 4, 5], [4, 1, 5], [1, 2, 5], [2, 3, 5], [3, 0, 5]],
+        };
+        let patch = plane_patch(vec![vec![0, 4, 1, 2, 3]], vec![0, 1, 2, 3, 4]);
+        let r = rebuild_merge_fan(&mesh, 9, &patch, 4, 0).expect("fan rebuild");
+        assert_eq!(r.patch, 9);
+        assert_eq!(r.old_tris, vec![0, 1], "exactly the two triangles at v4");
+        assert_eq!(r.dropped, [4u32].into());
+        assert!(
+            r.new_tris.iter().flatten().all(|&v| v != 4),
+            "the victim is gone: {:?}",
+            r.new_tris
+        );
+        // Link 0 -> 5 -> 1 closed by 1 -> 0: one triangle.
+        assert_eq!(r.new_tris.len(), 1);
+        let t = r.new_tris[0];
+        assert_eq!(
+            t.iter().copied().collect::<BTreeSet<u32>>(),
+            [0u32, 1, 5].into()
+        );
+        // Orientation matches the fan it replaces (both +z here).
+        let pos = |v: u32| -> Point3 { mesh.verts[v as usize] };
+        let want = crate::stage4_splice::area_vector(&[[0, 4, 5], [4, 1, 5]], &pos);
+        let got = crate::stage4_splice::area_vector(&r.new_tris, &pos);
+        assert!(crate::stage4_splice::dot3(want, got) > 0.0);
+    }
+
+    /// An INTERIOR victim: the link is a closed cycle, and the hole it leaves
+    /// is re-triangulated whole.
+    #[test]
+    fn rebuild_merge_fan_handles_an_interior_victim() {
+        let mesh = square_fan_mesh();
+        let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1, 2, 3]);
+        let r = rebuild_merge_fan(&mesh, 0, &patch, 4, 0).expect("interior fan rebuild");
+        assert_eq!(r.old_tris, vec![0, 1, 2, 3], "the whole fan");
+        assert_eq!(r.dropped, [4u32].into());
+        assert_eq!(r.new_tris.len(), 2, "the square link is two triangles");
+        assert!(r.new_tris.iter().flatten().all(|&v| v != 4));
+    }
+
+    /// The survivor must be joined to the victim by a triangle edge — otherwise
+    /// this is not the local Fig-11 operation and the pass refuses it loudly.
+    #[test]
+    fn rebuild_merge_fan_refuses_a_survivor_off_the_link() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(0.5, 0.5, 0.0),
+                Point3::new(9.0, 9.0, 0.0), // not on any fan triangle
+            ],
+            tris: vec![[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1, 2, 3]);
+        assert_eq!(
+            rebuild_merge_fan(&mesh, 2, &patch, 4, 5),
+            Err(ConstructError::FanSurvivorNotAdjacent {
+                patch: 2,
+                victim: 4
+            })
+        );
+    }
+
+    /// A PINCHED victim — two triangle fans meeting only at the vertex — chains
+    /// into two link runs. Re-triangulating it locally would have to guess which
+    /// sheet the merge belongs to, so it is a loud refusal (this is the measured
+    /// R0011 / R0074 / R0085 decline).
+    #[test]
+    fn rebuild_merge_fan_refuses_a_pinched_vertex() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+                Point3::new(-1.0, 0.0, 0.0),
+                Point3::new(-1.0, -1.0, 0.0),
+                Point3::new(0.5, 0.5, 0.0),
+            ],
+            // Two disjoint fans around vertex 0.
+            tris: vec![[0, 1, 2], [0, 3, 4]],
+        };
+        let patch = plane_patch(vec![vec![1, 2, 0, 3, 4]], vec![0, 1]);
+        assert_eq!(
+            rebuild_merge_fan(&mesh, 4, &patch, 0, 1),
+            Err(ConstructError::FanNotSimple {
+                patch: 4,
+                victim: 0
+            })
+        );
+    }
+
+    /// A cylinder fan straddling the θ = ±π branch cut: the unwrap is against
+    /// the VICTIM's own branch, so the fan is contiguous and the rebuild
+    /// succeeds — this is why the merge does not need `unwrap_theta`'s
+    /// non-encircling precondition.
+    #[test]
+    fn rebuild_merge_fan_unwraps_across_the_branch_cut() {
+        // Unit cylinder about +z. Victim at theta = pi (the cut), neighbours
+        // just either side of it.
+        let at = |th: f64, z: f64| Point3::new(th.cos(), th.sin(), z);
+        use std::f64::consts::PI;
+        let mesh = Mesh {
+            verts: vec![
+                at(PI, 0.0),         // 0 — victim, exactly on the cut
+                at(PI - 0.3, 0.0),   // 1
+                at(PI - 0.15, 0.6),  // 2
+                at(-PI + 0.15, 0.6), // 3  (== PI + 0.15, other branch)
+                at(-PI + 0.3, 0.0),  // 4
+            ],
+            tris: vec![[0, 1, 2], [0, 2, 3], [0, 3, 4]],
+        };
+        let patch = SplicePatch {
+            cycles: vec![vec![1, 0, 4, 3, 2]],
+            tris: vec![0, 1, 2],
+            surface: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: 1.0,
+            },
+        };
+        let r = rebuild_merge_fan(&mesh, 1, &patch, 0, 1).expect("branch-cut fan rebuild");
+        assert_eq!(r.dropped, [0u32].into());
+        assert!(r.new_tris.iter().flatten().all(|&v| v != 0));
+        assert_eq!(r.new_tris.len(), 2, "link 1,2,3,4 is two triangles");
     }
 
     #[test]

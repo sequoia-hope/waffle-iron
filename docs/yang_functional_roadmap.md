@@ -400,6 +400,41 @@ name, never measured).
    independently derived by grid flood-fill); meta corrected + pinned in
    `historical_authoring_fixes_pinned`. C0075 ERROR → SUPPORTED_CORRECT.
    Corpus 263C/0W/45E/1EE/0T — NEW CANONICAL.**
+   **§4.4.1 I6 — Fig-11(b)→(c) FOLD MERGE, landed gated
+   (`YANG_441_FOLD_MERGE`) 2026-08-19d.** Census over the nine `ring
+   rejected by CDT` cases (`YANG_S6_LOOP_SIMPLICITY` + `YANG_S5_FOLD_PROBE`;
+   ledger "CDT ring-reject fold census"): **every measurable non-simple
+   output loop is `class=MINTED_BY_S4`, `cross_inherited=0` family-wide.**
+   Mechanism, per vertex: the arrangement crosses two INSCRIBED meshes, so
+   the exact analytic junction lies on the FAR side of the neighbouring rim
+   grid vertex, and Stage 4's relocation steps OVER its own neighbour (F0045:
+   2.382e-2 move across a 1.283e-2 spacing; the neighbour's turn goes 27.69°
+   — exactly the rim's 360/13 grid step — to 167.34°, with zero residual on
+   both its surfaces). That is Yang Fig-11 verbatim, reached from the other
+   side, and the paper's remedy is (b)→(c): merge the overrun vertex into the
+   relocated one. Selector `stage4_fold_risk::fold_merge_sites` is
+   threshold-free (apex still ∧ chord order inverted across Stage 4 ∧ the
+   overrun END moved; the sign of the chord parameter picks the survivor, so
+   there is no distance tie-break). Its moved-oracle is `S4_PRE_POS`, NOT
+   `relocations` — measured: that vector is EMPTY on R0074/R0085/R0095/R0025
+   while 59–83 vertices per loop moved, so a `relocations`-keyed condition
+   rejects the whole family. Repair `stage4_construct::rebuild_merge_fan` is a
+   LOCAL re-triangulation of the victim's fan, not `collapse_vertex` (measured
+   negative 2026-08-05) and not `rebuild_patch_planar` (measured 2026-08-19:
+   `ThetaUnwrap` on the encircling laterals F0045/R0090 merge on, and
+   `TriangulationFailed` where the patch still carries other folds). The fan
+   is θ-unwrapped against the VICTIM's own branch, so no global span exists to
+   fall outside of; every holder rebuilds (all-holders-or-none) and the batch
+   applies with an EMPTY substitution map after verifying no triangle outside
+   the fans still holds the victim — so no index is ever relabelled without
+   being re-triangulated. **Gate-ON corpus: 265C/0W/43E/1EE/0T — F0045 and
+   R0090 ERROR→SUPPORTED_CORRECT, ZERO other category or detail deltas.**
+   The residue is a DIFFERENT defect the census names: the dominant rejection
+   is `apex_moved` (R0044 188/214, R0053 83/83, R0095 20/20, R0025 4/4) — two
+   ON-CURVE vertices crossed each other, which is §4.3.4 chain ORDER
+   (`ReorderConic`, I2b), not Fig-11. Remaining loud refusals: `FanNotSimple`
+   (pinched victim — R0011/R0074/R0085) and unchartable cone/torus holders
+   (R0044). Spec §4-I6.
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

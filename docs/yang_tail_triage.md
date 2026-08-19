@@ -959,6 +959,47 @@ Also measured (spec §5c.13): the 12 micro-scale CORRECT cases (scale
 old floor (silent edge flips inside CORRECT verdicts; gone post-fix, all
 remain CORRECT); R0016 (5e-2 gear) ERROR→CORRECT.
 
+## CDT ring-reject fold census (2026-08-19d) — every fold is MINTED_BY_S4
+
+`YANG_S6_LOOP_SIMPLICITY` + `YANG_S5_FOLD_PROBE` over the nine `ring rejected by
+CDT` cases, then the §4.4.1 Fig-11 merge selector
+(`stage4_fold_risk::fold_merge_sites`) over the same set. Spec:
+`specs/yang_441_trim_cdt_construction.md` §4-I6.
+
+**Family-level result: `cross_inherited = 0`.** Every non-simple output loop the
+planar scan can measure is `class=MINTED_BY_S4` with `cross_pre=0` — the loops
+were simple before Stage 4 and are not after it. (R0053 and R0044's third op
+fail on CURVED patches the planar scan does not cover, and are counted as
+unmeasured, not as absent.)
+
+| Case | minted loops | Fig-11 sites | outcome (gate ON) |
+|---|---|---|---|
+| **F0045** | 1 | 1 — `v71→v68`, `chord_t = −0.0920` | **ERROR → SUPPORTED_CORRECT** |
+| **R0090** | 1 | 1 — `v41→v28`, `chord_t = +1.0289` | **ERROR → SUPPORTED_CORRECT** |
+| R0011 | 6 | 1 | `FanNotSimple` on holder 186 — pinched victim |
+| R0074 | 2 | 1 | `FanNotSimple` on holder 163 |
+| R0085 | 40 | 1 per op | `FanNotSimple` (op1), fan-polygon `Cdt` (op2) |
+| R0044 | 6 | 13 | every holder set includes a cone/torus patch (I2a scope) |
+| R0025 | 3 | 0 | all 4 inversions are `apex_moved` |
+| R0095 | 5 | 0 | all 20 inversions are `apex_moved` |
+| R0053 | — (curved) | 0 | all 83 inversions are `apex_moved` |
+
+**The mechanism, stated once (F0045 is the clean witness).** The arrangement puts
+a crossing vertex where the two INSCRIBED meshes cross; Stage 4 relocates it onto
+the exact analytic junction, which — because an inscribed polygon is smaller than
+its circle — generally lies on the FAR side of the neighbouring rim grid vertex.
+The relocation steps over its own neighbour, and the kept patch's boundary walks
+out and back over it. F0045: junction moves 2.382e-2 across a 1.283e-2 spacing;
+the neighbour's turn goes 27.69° (exactly the rim's 360/13 grid step) → 167.34°.
+This is Yang Fig-11 verbatim, reached from the other side, and its remedy is
+Fig-11(b)→(c): merge the overrun vertex into the relocated one.
+
+**The residue is a different defect.** The dominant selector rejection across the
+family is `apex_moved` — the fold apex is ITSELF relocated, i.e. two ON-CURVE
+vertices crossed each other along the chain. That is chain ORDER (the §4.3.4
+`ReorderConic` action, I2b), not Fig-11: merging there would discard an analytic
+certificate. Recorded as the next increment.
+
 ## Stage-6 non-2-manifold site census (2026-08-19, post-5c.13) — the second absolute-floor anchor
 
 `NONMANIFOLD_SITE_PROBE` over the nine `reassembled output would be

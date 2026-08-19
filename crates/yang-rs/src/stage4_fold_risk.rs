@@ -182,11 +182,31 @@
 //! Stage 6's 2-manifold gate says so.
 //!
 //! So the substitution was mine, not the paper's, and the loud STOP caught it
-//! instead of shipping wrong geometry. **Next: route this same plan into
-//! `stage4_mesh_update` rather than `collapse_vertex`** — which is exactly the
-//! built-but-unwired primitive N2-1 landed for this purpose. The arm is kept,
-//! gated off, as the scaffolding for that wiring and as the record of what a
-//! bare collapse does.
+//! instead of shipping wrong geometry. The arm is kept, gated off, as the record
+//! of what a bare collapse does.
+//!
+//! # RESOLVED 2026-08-19d — [`fold_merge_sites`] + `rebuild_merge_fan` (§4-I6)
+//!
+//! Two things had to change, and the 08-05 note named only one of them.
+//!
+//! **The repair primitive** is now a LOCAL re-triangulation
+//! (`stage4_construct::rebuild_merge_fan`): the triangles at the victim are
+//! DISCARDED and its link polygon re-CDT'd in the patch chart. Not
+//! `collapse_vertex` (this note's finding), and not the whole-patch
+//! `rebuild_patch_planar` either — measured 2026-08-19, that declines every
+//! merge in the ring-reject family, on `ThetaUnwrap` where the merge is on the
+//! rim of an ENCIRCLING lateral and on `TriangulationFailed` where the patch
+//! still carries other folds. A fan spans a small θ window and one local
+//! polygon, so it has neither precondition.
+//!
+//! **The selector** also had to change, and that is the part this note did not
+//! anticipate. [`merge_customers_chord`] ranges over MOVED vertices, but in the
+//! dominant class the fold apex is the vertex that did NOT move — it is the
+//! plain rim vertex a relocation stepped OVER. Measured on F0045:
+//! `CHORD_CUSTOMERS=0` while the loop is `class=MINTED_BY_S4`. [`fold_merge_sites`]
+//! ranges over apexes instead and picks the survivor by the SIGN of the chord
+//! parameter. F0045 and R0090 convert; the corpus moves 263C → 265C with no
+//! other delta.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -601,6 +621,162 @@ pub fn minting_risks(risks: &[FoldRisk]) -> Vec<FoldRisk> {
     risks.iter().copied().filter(|r| r.ratio >= 1.0).collect()
 }
 
+/// One Yang §4.4.1 **Fig-11(b)→(c)** merge site on a patch boundary cycle: a
+/// plain mesh vertex the Stage-4 relocation OVERRAN.
+///
+/// Fig 11's `q` is "an intersection point on the boundary curve" and `p` is the
+/// endpoint of the constrained edge containing it; when `p` is too close, "we
+/// merge `p` with `q`". This is that configuration reached from the other
+/// direction: Stage 4 relocates `q` onto its exact analytic position and the
+/// displacement carries it PAST `p` along the same input-edge chain, so the
+/// kept patch's boundary walks out to `q` and back over `p`.
+///
+/// Measured signature (2026-08-19 ring-reject census, F0045 face 0): the turn
+/// at `p` goes `27.69° → 167.34°` when its neighbour moves `2.382e-2` across a
+/// `1.283e-2` pre-spacing, and `p`'s own residual on both its surfaces is
+/// exactly 0 — a healthy discretization vertex on the wrong side of a refined
+/// curve.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FoldMergeSite {
+    /// Fig-11's `p`: the overrun mesh vertex. Merged away — it carries no
+    /// analytic certificate (it was never relocated).
+    pub victim: u32,
+    /// Fig-11's `q`: the relocated neighbour that overran it. SURVIVES, because
+    /// it is the one holding Stage 4's exact curve position.
+    pub survivor: u32,
+    /// `chord_param(prev, victim, next)` at the POST positions. `< 0` ⇒ the
+    /// victim lies past `prev`; `> 1` ⇒ past `next`. The survivor is whichever
+    /// end was overrun, so the sign PICKS it — no distance tie-break.
+    pub chord_t: f64,
+}
+
+/// Select every [`FoldMergeSite`] over a patch-cycle set — the threshold-free
+/// selector for the §4.4.1 Fig-11 merge.
+///
+/// A corner `(a, b, c)` qualifies iff ALL of:
+/// 1. `b` did NOT move across Stage 4 (`post == pre`) — a relocated vertex sits
+///    on an exact analytic curve and is never merged away (that would discard
+///    the certificate), and a Stage-4-MINTED vertex (no `pre` entry) has no
+///    "was it overrun" question to ask;
+/// 2. `b` sat INSIDE the chord of its own neighbours before and lies OUTSIDE it
+///    after — [`chord_order_inversions`]' certificate, which is exactly the
+///    `class=MINTED_BY_S4` verdict the loop-simplicity census reports. A
+///    sign/interval test on a ratio: no band, no angle, scale-free;
+/// 3. the END it overran (`a` when `t < 0`, `c` when `t > 1`) DID move — that
+///    relocation is what carried the boundary across `b`. An inversion between
+///    two unmoved vertices is inherited geometry and is left alone.
+///
+/// `pre` is the `S4_PRE_POS` map. It — not the `relocations` vector — is the
+/// correct "was it relocated?" oracle: `relocations` carries conic `(vertex, t)`
+/// retags only, so the implicit-pair and junction arms move vertices without
+/// appearing in it. Measured 2026-08-19: on R0074/R0085/R0095/R0025 the vector
+/// is EMPTY while 59–83 vertices per loop moved, so a `relocations`-keyed
+/// condition 3 rejects every inversion in the family.
+///
+/// Ambiguity is dropped, never guessed: a victim claimed by two different
+/// survivors is excluded. Deterministic — `BTreeMap` iteration only.
+pub fn fold_merge_sites<'a>(
+    cycles: impl IntoIterator<Item = &'a [u32]>,
+    pre: &HashMap<u32, [f64; 3]>,
+    post: &[[f64; 3]],
+) -> Vec<FoldMergeSite> {
+    fold_merge_sites_censused(cycles, pre, post).0
+}
+
+/// Per-condition rejection counts for [`fold_merge_sites`] — the selector's own
+/// coverage ledger, so "found nothing" is always attributable to a CONDITION
+/// rather than inferred. Reported by the driver under `YANG_441_VERBOSE`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FoldMergeCensus {
+    /// Corners examined (degenerate ones, and ones with no pre position for all
+    /// three vertices, excluded).
+    pub corners: usize,
+    /// Corners whose chord order Stage 4 inverted (condition 2).
+    pub inversions: usize,
+    /// Inversions rejected because the apex itself moved (condition 1).
+    pub apex_moved: usize,
+    /// Inversions rejected because the overrun end never moved (condition 3).
+    pub survivor_still: usize,
+    /// Victims dropped as ambiguous (two survivors claim them).
+    pub ambiguous: usize,
+}
+
+/// As [`fold_merge_sites`], with the per-condition rejection census.
+pub fn fold_merge_sites_censused<'a>(
+    cycles: impl IntoIterator<Item = &'a [u32]>,
+    pre: &HashMap<u32, [f64; 3]>,
+    post: &[[f64; 3]],
+) -> (Vec<FoldMergeSite>, FoldMergeCensus) {
+    let mut claimed: BTreeMap<u32, (u32, f64)> = BTreeMap::new();
+    let mut ambiguous: BTreeSet<u32> = BTreeSet::new();
+    let mut census = FoldMergeCensus::default();
+    let moved = |v: u32| -> Option<bool> { Some(*pre.get(&v)? != *post.get(v as usize)?) };
+    for cyc in cycles {
+        let n = cyc.len();
+        if n < 3 {
+            continue;
+        }
+        for i in 0..n {
+            let (a, b, c) = (cyc[(i + n - 1) % n], cyc[i], cyc[(i + 1) % n]);
+            if a == b || b == c || a == c {
+                continue;
+            }
+            let (Some(&pa), Some(&pb), Some(&pc)) = (pre.get(&a), pre.get(&b), pre.get(&c)) else {
+                continue;
+            };
+            let (Some(&qa), Some(&qb), Some(&qc)) = (
+                post.get(a as usize),
+                post.get(b as usize),
+                post.get(c as usize),
+            ) else {
+                continue;
+            };
+            census.corners += 1;
+            let (Some(t_pre), Some(t)) = (chord_param(pa, pb, pc), chord_param(qa, qb, qc)) else {
+                continue;
+            };
+            if !(0.0..=1.0).contains(&t_pre) || (0.0..=1.0).contains(&t) {
+                continue;
+            }
+            census.inversions += 1;
+            if moved(b) != Some(false) {
+                census.apex_moved += 1;
+                continue;
+            }
+            let survivor = if t < 0.0 { a } else { c };
+            if moved(survivor) != Some(true) {
+                census.survivor_still += 1;
+                continue;
+            }
+            match claimed.get(&b) {
+                Some(&(s0, _)) if s0 != survivor => {
+                    ambiguous.insert(b);
+                }
+                Some(_) => {}
+                None => {
+                    claimed.insert(b, (survivor, t));
+                }
+            }
+        }
+    }
+    for b in &ambiguous {
+        claimed.remove(b);
+    }
+    census.ambiguous = ambiguous.len();
+    // No chained-substitution filter is needed: survivors moved and victims did
+    // not, so the two sets are DISJOINT by conditions 1 and 3 — a victim can
+    // never also be some other site's survivor.
+    let sites = claimed
+        .into_iter()
+        .map(|(victim, (survivor, chord_t))| FoldMergeSite {
+            victim,
+            survivor,
+            chord_t,
+        })
+        .collect();
+    (sites, census)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -989,6 +1165,210 @@ mod tests {
             merge_customers(&r2, &f2).is_empty(),
             "but it never folded, so it is NOT a merge customer"
         );
+    }
+
+    // ---- Fig-11 merge-site selector (§4.4.1) ---------------------------
+
+    /// The F0045 witness in miniature: a rim chain `q, p, r` whose junction `q`
+    /// was relocated PAST `p`. `p` is still, so `merge_customers_chord` (which
+    /// ranges over MOVED vertices) cannot see it; this selector must.
+    #[test]
+    fn fold_merge_site_picks_the_overrun_still_vertex() {
+        // Cycle: 0 (relocated junction), 1 (still rim vertex), 2, 3.
+        let cyc = vec![0u32, 1, 2, 3];
+        let pre = m(&[
+            (0, [1.4, 0.0, 0.0]), // 0 sat BEYOND 1 — chain order 0,1,2
+            (1, [1.2, 0.0, 0.0]),
+            (2, [0.0, 0.0, 0.0]),
+            (3, [0.5, -1.0, 0.0]),
+        ]);
+        let post = vec![
+            [1.0, 0.0, 0.0], // 0 — relocated, landed on the FAR side of 1
+            [1.2, 0.0, 0.0], // 1 — the overrun still vertex
+            [0.0, 0.0, 0.0],
+            [0.5, -1.0, 0.0],
+        ];
+        let sites = fold_merge_sites([cyc.as_slice()], &pre, &post);
+        assert_eq!(sites.len(), 1, "exactly the overrun vertex: {sites:?}");
+        assert_eq!(sites[0].victim, 1);
+        assert_eq!(sites[0].survivor, 0, "the RELOCATED end survives");
+        assert!(sites[0].chord_t < 0.0, "victim lies past `prev`");
+    }
+
+    /// The same overshoot from the other side: the relocated vertex is the NEXT
+    /// neighbour, so the sign flips and it is still the survivor.
+    #[test]
+    fn fold_merge_site_picks_the_relocated_next_neighbour() {
+        let cyc = vec![0u32, 1, 2, 3];
+        let pre = m(&[
+            (0, [0.0, 0.0, 0.0]),
+            (1, [1.2, 0.0, 0.0]),
+            (2, [1.4, 0.0, 0.0]), // 2 sat beyond 1
+            (3, [0.5, -1.0, 0.0]),
+        ]);
+        let post = vec![
+            [0.0, 0.0, 0.0],
+            [1.2, 0.0, 0.0], // 1 — overrun
+            [1.0, 0.0, 0.0], // 2 — relocated, landed BEFORE 1
+            [0.5, -1.0, 0.0],
+        ];
+        let sites = fold_merge_sites([cyc.as_slice()], &pre, &post);
+        assert_eq!(sites.len(), 1, "{sites:?}");
+        assert_eq!((sites[0].victim, sites[0].survivor), (1, 2));
+        assert!(sites[0].chord_t > 1.0, "victim lies past `next`");
+    }
+
+    /// A healthy convex cycle has every corner inside its own chord — the
+    /// selector must not touch a patch that is fine (P10: never rewrite a valid
+    /// boundary).
+    #[test]
+    fn fold_merge_site_leaves_a_healthy_cycle_alone() {
+        let cyc = vec![0u32, 1, 2, 3];
+        let pre = m(&[
+            (0, [0.0, 0.0, 0.0]),
+            (1, [1.0, 0.0, 0.0]),
+            (2, [1.0, 1.0, 0.0]),
+            (3, [0.0, 1.0, 0.0]),
+        ]);
+        let post = vec![
+            [0.0, 0.0, 0.0],
+            [1.1, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ];
+        assert!(fold_merge_sites([cyc.as_slice()], &pre, &post).is_empty());
+    }
+
+    /// An inversion that ALREADY existed before Stage 4 is inherited geometry,
+    /// not a mint — excluded (the repair must not claim it).
+    #[test]
+    fn fold_merge_site_refuses_an_inherited_inversion() {
+        let cyc = vec![0u32, 1, 2, 3];
+        // 1 lies past 0 both BEFORE and after; only 0's z nudges.
+        let pre = m(&[
+            (0, [1.0, 0.0, 0.0]),
+            (1, [1.2, 0.0, 0.0]),
+            (2, [0.0, 0.0, 0.0]),
+            (3, [0.5, -1.0, 0.0]),
+        ]);
+        let post = vec![
+            [1.0, 0.0, 0.001],
+            [1.2, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.5, -1.0, 0.0],
+        ];
+        assert!(fold_merge_sites([cyc.as_slice()], &pre, &post).is_empty());
+    }
+
+    /// An inversion whose overrun end never MOVED is not this defect — the
+    /// apex must have been overrun BY a relocation.
+    #[test]
+    fn fold_merge_site_refuses_an_inversion_with_no_moved_end() {
+        let cyc = vec![0u32, 1, 2, 3];
+        let pre = m(&[
+            (0, [1.4, 0.0, 0.0]),
+            (1, [1.2, 0.0, 0.0]),
+            (2, [0.0, 0.0, 0.0]),
+            (3, [0.5, -1.0, 0.0]),
+        ]);
+        // Nobody moved: the inversion cannot have been minted here, so the
+        // pre-order test already excludes it. Move only a far-away vertex.
+        let post = vec![
+            [1.4, 0.0, 0.0],
+            [1.2, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.5, -1.1, 0.0],
+        ];
+        assert!(fold_merge_sites([cyc.as_slice()], &pre, &post).is_empty());
+    }
+
+    /// A MOVED apex is never merged away: it is the one carrying Stage 4's
+    /// exact analytic position.
+    #[test]
+    fn fold_merge_site_never_merges_a_moved_vertex() {
+        let cyc = vec![0u32, 1, 2, 3];
+        let pre = m(&[
+            (0, [1.4, 0.0, 0.0]),
+            (1, [1.2, 0.0, 0.0]),
+            (2, [0.0, 0.0, 0.0]),
+            (3, [0.5, -1.0, 0.0]),
+        ]);
+        // BOTH ends of the inversion moved — the apex is no longer a plain
+        // discretization vertex, so the site is refused.
+        let post = vec![
+            [1.0, 0.0, 0.0],
+            [1.25, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.5, -1.0, 0.0],
+        ];
+        let sites = fold_merge_sites([cyc.as_slice()], &pre, &post);
+        assert!(sites.iter().all(|s| s.victim != 1), "{sites:?}");
+    }
+
+    /// Two different survivors claiming one victim is AMBIGUOUS — dropped,
+    /// never resolved by a distance guess.
+    #[test]
+    fn fold_merge_site_drops_an_ambiguous_victim() {
+        let a = vec![0u32, 1, 2, 3];
+        let b = vec![4u32, 1, 5, 6];
+        let pre = m(&[
+            (0, [1.4, 0.0, 0.0]),
+            (1, [1.2, 0.0, 0.0]),
+            (2, [0.0, 0.0, 0.0]),
+            (3, [0.5, -1.0, 0.0]),
+            (4, [1.4, 0.1, 0.0]),
+            (5, [0.0, 0.1, 0.0]),
+            (6, [0.5, -1.0, 0.1]),
+        ]);
+        let post = vec![
+            [1.0, 0.0, 0.0],
+            [1.2, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.5, -1.0, 0.0],
+            [1.1, 0.1, 0.0],
+            [0.0, 0.1, 0.0],
+            [0.5, -1.0, 0.1],
+        ];
+        let sites = fold_merge_sites([a.as_slice(), b.as_slice()], &pre, &post);
+        assert!(
+            sites.iter().all(|s| s.victim != 1),
+            "two survivors claim v1, so it is dropped: {sites:?}"
+        );
+    }
+
+    /// Victims and survivors are disjoint by construction (a survivor moved, a
+    /// victim did not), so no batch can ever chain two substitutions. Pinned so
+    /// a later relaxation of either condition confronts chaining explicitly.
+    #[test]
+    fn fold_merge_victims_and_survivors_are_disjoint() {
+        let a = vec![0u32, 1, 2, 3];
+        let b = vec![7u32, 0, 8, 9];
+        let pre = m(&[
+            (0, [1.4, 0.0, 0.0]),
+            (1, [1.2, 0.0, 0.0]),
+            (2, [0.0, 0.0, 0.0]),
+            (3, [0.5, -1.0, 0.0]),
+            (7, [1.1, 0.0, 0.0]),
+            (8, [0.2, 0.0, 0.0]),
+            (9, [0.7, -1.0, 0.0]),
+        ]);
+        let post = vec![
+            [1.0, 0.0, 0.0],
+            [1.2, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.5, -1.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.9, 0.0, 0.0],
+            [0.2, 0.0, 0.0],
+            [0.7, -1.0, 0.0],
+        ];
+        let sites = fold_merge_sites([a.as_slice(), b.as_slice()], &pre, &post);
+        let victims: BTreeSet<u32> = sites.iter().map(|s| s.victim).collect();
+        let survivors: BTreeSet<u32> = sites.iter().map(|s| s.survivor).collect();
+        assert!(victims.is_disjoint(&survivors), "{sites:?}");
+        assert!(!victims.contains(&0), "a moved vertex is never a victim");
     }
 
     #[test]

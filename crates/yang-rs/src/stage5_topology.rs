@@ -83,6 +83,26 @@ thread_local! {
 fn s4_pre_pos_enabled() -> bool {
     std::env::var_os("YANG_S5_FOLD_PROBE").is_some()
         || std::env::var_os("YANG_S4_FOLD_RISK").is_some()
+        || fold_merge_enabled()
+}
+
+/// Is the §4.4.1 Fig-11 merge pass ([`run_fold_merge_passes`]) on?
+///
+/// Its selector reads [`S4_PRE_POS`], so this is a THIRD consumer of
+/// [`s4_pre_pos_enabled`] — and the first non-diagnostic one. The map is
+/// production input to a repair here, not a probe column, which is why the
+/// capture and all four re-keys must follow the same predicate.
+fn fold_merge_enabled() -> bool {
+    std::env::var_os("YANG_441_FOLD_MERGE").is_some()
+}
+
+/// Is the pre-position map wanted for REPORTING (as opposed to being wanted at
+/// all)? The map's `YANG_S5_MOVED_SET` / `YANG_S5_REMAP` lines are probe output;
+/// the Fig-11 merge needs the map itself but not the chatter, so it must not
+/// turn a repair pass into a per-boolean stderr writer.
+fn s4_pre_pos_diagnostic() -> bool {
+    std::env::var_os("YANG_S5_FOLD_PROBE").is_some()
+        || std::env::var_os("YANG_S4_FOLD_RISK").is_some()
 }
 
 /// Diagnostic only (`YANG_S5_FOLD_PROBE`): re-key [`S4_PRE_POS`] through a
@@ -111,11 +131,13 @@ fn probe_remap_pre_pos(site: &str, remap: Option<&Vec<Option<u32>>>) {
             }
             // Report every re-key: which site fired is exactly what decides
             // whether a previous run's columns were index-aligned.
-            eprintln!(
-                "YANG_S5_REMAP site={site} kept={} dropped={} (pre-position map re-keyed)",
-                new.len(),
-                before - new.len(),
-            );
+            if s4_pre_pos_diagnostic() {
+                eprintln!(
+                    "YANG_S5_REMAP site={site} kept={} dropped={} (pre-position map re-keyed)",
+                    new.len(),
+                    before - new.len(),
+                );
+            }
             *slot = Some(new);
         }
     });
@@ -558,6 +580,281 @@ macro_rules! c441_log {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Yang §4.4.1 **Fig-11(b)→(c)** — merge each boundary vertex the Stage-4
+/// relocation OVERRAN into the relocated vertex that overran it, and
+/// re-triangulate every holder patch.
+///
+/// # The defect this closes
+///
+/// Fig 11's `q` is "an intersection point on the boundary curve"; the paper
+/// splits the constrained edge containing `q` and merges the too-close split
+/// endpoint `p` into it. Our pipeline reaches that configuration from the other
+/// side: the arrangement already put a vertex where the two MESHES cross, and
+/// Stage 4 relocates it onto the exact analytic junction. Because the meshes are
+/// inscribed approximations, the exact junction generally sits on the far side
+/// of the neighbouring rim GRID vertex, so the relocation carries `q` PAST `p`.
+/// `p` is then interior to the other solid, and the kept patch's boundary walks
+/// out to `q` and back over it — a folded loop that Stage 6 emits and the render
+/// CDT rejects (`ring rejected by CDT`).
+///
+/// Anchor (2026-08-19 census over the nine ring-reject cases): EVERY non-simple
+/// output loop the `YANG_S6_LOOP_SIMPLICITY` scan can measure is
+/// `class=MINTED_BY_S4` with `cross_pre=0` — `cross_inherited` is 0 across the
+/// whole family. On F0045 the apex's turn goes `27.69° → 167.34°` (27.69° is
+/// exactly the rim's own 360/13 grid step) when its junction neighbour moves
+/// `2.382e-2` across a `1.283e-2` pre-spacing.
+///
+/// # Why this repair primitive
+///
+/// The 2026-08-05 trial (`YANG_S4_FIG11_MERGE`, kept gated off in
+/// [`crate::stage4_fold_risk`]) applied the same idea with `collapse_vertex` and
+/// measured NEGATIVE: a bare index rewrite of a real-length edge leaves the
+/// surrounding fan inconsistent, and F0067's wall merely moved from the ring
+/// reject to a non-2-manifold STOP. **The paper's merge happens inside the
+/// §4.4.1 parametric re-triangulation.** So this pass merges by SUBSTITUTION IN
+/// THE CYCLES and then re-CDTs every holder patch through the same
+/// [`rebuild_patch_planar`] / [`apply_rebuild_batch`] machinery the always-on
+/// construct pass uses — no vertex is ever re-pointed without its patch being
+/// rebuilt.
+///
+/// # Discipline
+///
+/// - **All-holders-or-none.** Every patch holding the victim on a cycle OR in a
+///   triangle joins the batch. A one-sided merge would be a T-junction, and a
+///   surviving un-rebuilt triangle would be the 08-05 bare collapse.
+/// - **Unchartable holder ⇒ loud refusal**, persistent for that victim.
+/// - **Degeneration ⇒ loud refusal**: a holder cycle dropping below 3 vertices,
+///   or a patch declining its rebuild, blocks the victims that pulled it in and
+///   the pass retries without them.
+/// - Gate `YANG_441_FOLD_MERGE`. Gate-off does not read or write anything.
+fn run_fold_merge_passes(
+    mesh: &mut Mesh,
+    attribution: &mut TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+    infos: &mut Vec<crate::stage4_correct::PatchInfo>,
+    intersection_curves: &mut std::collections::BTreeMap<(u32, u32), Curve>,
+    relocations: &mut Vec<(u32, f64)>,
+) -> Result<(), YangError> {
+    use crate::stage4_construct::{apply_rebuild_batch, rebuild_merge_fan};
+    use crate::stage4_fold_risk::fold_merge_sites_censused;
+    use crate::stage4_splice::SplicePatch;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    // Each applied pass strictly removes at least one boundary vertex, so the
+    // cap is a runaway guard, not an expected limit.
+    const MAX_PASSES: usize = 32;
+
+    // Victims refused by a holder — persistent across passes so a refusal can
+    // never livelock into re-proposing the same merge.
+    let mut blocked: BTreeSet<u32> = BTreeSet::new();
+    let mut applied_total = 0usize;
+
+    for pass in 0..MAX_PASSES {
+        let adjacency = triangle_adjacency(mesh);
+        let raw = crate::stage4_correct::merge_same_plane_patches(
+            flood_fill_patches(mesh, attribution, &adjacency),
+            &adjacency,
+            a,
+            b,
+        );
+        if raw.len() != infos.len() {
+            eprintln!(
+                "[s4-fold-merge] STOP pass={pass}: patch/info correspondence broken \
+                 ({} patches vs {} infos)",
+                raw.len(),
+                infos.len(),
+            );
+            break;
+        }
+        let patches: Vec<SplicePatch> = raw
+            .iter()
+            .zip(infos.iter())
+            .map(|(p, i)| SplicePatch {
+                cycles: i
+                    .cycles
+                    .iter()
+                    .map(|c| c.iter().map(|&(s, _)| s).collect())
+                    .collect(),
+                tris: p.tri_indices.clone(),
+                surface: i.inherited,
+            })
+            .collect();
+
+        let cyc_refs: Vec<Vec<u32>> = patches.iter().flat_map(|p| p.cycles.clone()).collect();
+        let post = mesh_positions(mesh);
+        let (all_sites, census) = S4_PRE_POS.with(|c| {
+            let borrow = c.borrow();
+            match borrow.as_ref() {
+                Some(pre) => {
+                    fold_merge_sites_censused(cyc_refs.iter().map(Vec::as_slice), pre, &post)
+                }
+                None => (Vec::new(), Default::default()),
+            }
+        });
+        let sites: Vec<crate::stage4_fold_risk::FoldMergeSite> = all_sites
+            .into_iter()
+            .filter(|s| !blocked.contains(&s.victim))
+            .collect();
+        c441_log!(
+            "[s4-fold-merge] pass={pass}: SELECT corners={} inversions={} \
+             apex_moved={} survivor_still={} ambiguous={} -> sites={}",
+            census.corners,
+            census.inversions,
+            census.apex_moved,
+            census.survivor_still,
+            census.ambiguous,
+            sites.len(),
+        );
+        if sites.is_empty() {
+            break;
+        }
+
+        // Holder closure. Every patch holding the victim in a TRIANGLE rebuilds
+        // its fan — all-holders-or-none, so no triangle is ever re-pointed
+        // without being re-triangulated (that is the 2026-08-05 bare-collapse
+        // trap). A patch carrying the victim only on a cycle, with no triangle,
+        // would be malformed input; it is refused loudly by the fan builder.
+        //
+        // Only ONE site is applied per pass. The fans of two sites can share a
+        // triangle, and `apply_rebuild_batch` refuses an overlapping batch
+        // outright; sequencing them one per pass keeps every repair a plain,
+        // separately-attributable rebuild rather than a merged plan.
+        let mut rebuilds: Vec<crate::stage4_construct::PatchRebuild> = Vec::new();
+        let mut merged: Option<(u32, u32)> = None;
+        let chartable = |s: &Surface| matches!(s, Surface::Plane { .. } | Surface::Cylinder { .. });
+        let mut progressed = false;
+        for site in &sites {
+            let holders: Vec<usize> = patches
+                .iter()
+                .enumerate()
+                .filter(|&(_pj, pat)| {
+                    pat.tris
+                        .iter()
+                        .any(|&t| mesh.tris[t as usize].contains(&site.victim))
+                })
+                .map(|(pj, _)| pj)
+                .collect();
+            if holders.is_empty() || holders.iter().any(|&h| !chartable(&patches[h].surface)) {
+                c441_log!(
+                    "[s4-fold-merge] pass={pass}: REFUSED v{} -> v{} — unchartable (or no) \
+                     holder in {holders:?}; blocked",
+                    site.victim,
+                    site.survivor
+                );
+                blocked.insert(site.victim);
+                continue;
+            }
+            let mut plan = Vec::with_capacity(holders.len());
+            let mut declined = None;
+            for &h in &holders {
+                match rebuild_merge_fan(mesh, h, &patches[h], site.victim, site.survivor) {
+                    Ok(r) => plan.push(r),
+                    Err(e) => {
+                        c441_log!(
+                            "[s4-fold-merge] pass={pass}: DECLINED patch {h} for v{} — {e:?}",
+                            site.victim
+                        );
+                        declined = Some(h);
+                        break;
+                    }
+                }
+            }
+            if let Some(h) = declined {
+                c441_log!(
+                    "[s4-fold-merge] pass={pass}: BLOCKED v{} -> v{} — holder {h} declined \
+                     its fan rebuild",
+                    site.victim,
+                    site.survivor
+                );
+                blocked.insert(site.victim);
+                continue;
+            }
+            // The victim must not survive anywhere outside the rebuilt fans.
+            // If it did, `apply_rebuild_batch`'s `subs` would re-point that
+            // triangle WITHOUT re-triangulating it — the 2026-08-05 bare
+            // collapse. So the plan is verified to cover every occurrence and
+            // then applied with an EMPTY substitution map: the merge is carried
+            // entirely by the re-triangulated fans, never by a relabel.
+            let planned: BTreeSet<u32> = plan
+                .iter()
+                .flat_map(|r| r.old_tris.iter().copied())
+                .collect();
+            if let Some(t) = (0..mesh.tris.len() as u32)
+                .find(|t| !planned.contains(t) && mesh.tris[*t as usize].contains(&site.victim))
+            {
+                c441_log!(
+                    "[s4-fold-merge] pass={pass}: BLOCKED v{} -> v{} — triangle {t} holds it \
+                     outside every holder fan (would be re-pointed, not rebuilt)",
+                    site.victim,
+                    site.survivor
+                );
+                blocked.insert(site.victim);
+                continue;
+            }
+            c441_log!(
+                "[s4-fold-merge] pass={pass}: MERGE v{} -> v{} chord_t={:.4} holders={holders:?}",
+                site.victim,
+                site.survivor,
+                site.chord_t
+            );
+            rebuilds = plan;
+            merged = Some((site.victim, site.survivor));
+            progressed = true;
+            break;
+        }
+        if !progressed {
+            // Every site this pass was refused; the refusals are persistent, so
+            // another pass would re-derive exactly the same set.
+            break;
+        }
+        match apply_rebuild_batch(mesh, attribution, &rebuilds, &BTreeMap::new()) {
+            Ok(()) => {
+                let (victim, survivor) = merged.expect("progressed implies a merge");
+                c441_log!(
+                    "[s4-fold-merge] pass={pass}: APPLIED v{victim} -> v{survivor} over {} fans",
+                    rebuilds.len()
+                );
+                applied_total += 1;
+            }
+            Err(e) => {
+                eprintln!("[s4-fold-merge] STOP pass={pass}: WRITE-BACK REFUSED {e:?}");
+                break;
+            }
+        }
+        let remap = compact_unreferenced_verts(mesh, relocations);
+        let (i2, inc2, cv2) = compute_phase_a(
+            mesh,
+            attribution,
+            a,
+            b,
+            &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+        )?;
+        probe_remap_pre_pos("fold-merge", remap.as_ref());
+        probe_record_incidence(&inc2, &cv2);
+        *infos = i2;
+        *intersection_curves = cv2;
+        // Vertex indices moved: a blocked victim's identity is stale, and the
+        // next pass re-derives its site from the compacted mesh anyway.
+        if let Some(map) = remap.as_ref() {
+            blocked = blocked
+                .iter()
+                .filter_map(|&v| map.get(v as usize).copied().flatten())
+                .collect();
+        }
+    }
+    if applied_total > 0 {
+        c441_log!("[s4-fold-merge] TOTAL {applied_total} Fig-11 merges applied");
+    }
+    Ok(())
+}
+
+/// Every mesh vertex as a bare `[f64; 3]` — the position view the
+/// `stage4_fold_risk` selectors index by vertex id.
+fn mesh_positions(mesh: &Mesh) -> Vec<[f64; 3]> {
+    mesh.verts.iter().map(Point3::as_array).collect()
+}
+
 fn run_construct_passes(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
@@ -3394,13 +3691,15 @@ pub(crate) fn reconstruct_topology_stage4(
                     .zip(mesh.verts.iter())
                     .filter(|(p, q)| p.as_array() != q.as_array())
                     .count();
-                eprintln!(
-                    "YANG_S5_MOVED_SET n_moved={n_moved} n_verts={} collapsed={collapsed} \
-                     (pre-Stage-4 positions, re-keyed through every compaction)",
-                    pre.len(),
-                );
+                if s4_pre_pos_diagnostic() {
+                    eprintln!(
+                        "YANG_S5_MOVED_SET n_moved={n_moved} n_verts={} collapsed={collapsed} \
+                         (pre-Stage-4 positions, re-keyed through every compaction)",
+                        pre.len(),
+                    );
+                }
                 S4_PRE_POS.with(|c| *c.borrow_mut() = Some(map));
-            } else {
+            } else if s4_pre_pos_diagnostic() {
                 eprintln!("YANG_S5_MOVED_SET UNAVAILABLE (Stage 4 not entered)");
             }
         }
@@ -3707,6 +4006,21 @@ pub(crate) fn reconstruct_topology_stage4(
             &mut intersection_curves,
             &mut relocations,
         )?;
+        // §4.4.1 Fig-11(b)→(c) — merge the boundary vertices the relocation
+        // overran. Placed AFTER the construct pass so it sees the final
+        // cycles (a collapsed/refined seam changes which vertices are on a
+        // boundary at all), and so a gate-off run is byte-identical.
+        if fold_merge_enabled() {
+            run_fold_merge_passes(
+                mesh,
+                attribution,
+                a,
+                b,
+                &mut infos,
+                &mut intersection_curves,
+                &mut relocations,
+            )?;
+        }
     }
 
     // EXPERIMENTAL probe (task #121 increment 1, read-only, env-gated):
