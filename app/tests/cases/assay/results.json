@@ -1,5 +1,5 @@
 {
-  "errored": 47,
+  "errored": 46,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
   "passed": 261,
@@ -281,10 +281,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 34f17562-4f26-450c-bb46-fd2e004b22a7: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\")",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 991afa5f-e723-4294-b1dc-aa0f0edaf7a3: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(499) [curved lateral non-{canonical,partial,torus} edge pattern] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0047",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "SUPPORTED_CORRECT",

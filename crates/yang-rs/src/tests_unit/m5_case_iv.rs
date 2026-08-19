@@ -2222,3 +2222,181 @@ pub(crate) fn n3_degenerate_tangent_is_reversal() {
              detected as a reversal, not treated as healthy"
     );
 }
+
+/// Spec `kv15b_mint_site_subresolution_collapse` I1b, generalized to ALL
+/// surfaces (2026-08-19, R0047 anchor): when a sub-resolution intersection
+/// pair joins a certified plane∩cone∩cone crease junction J (3 carried
+/// surfaces) with its cone∩plane interior neighbour S (2 surfaces), the
+/// min-index survivor S keeps its INDEX but adopts J's COORDINATES — so the
+/// merged vertex stays on BOTH cones' section ellipses. Under the planar-only
+/// count (1 plane each → tie) the survivor kept its own position and the
+/// emitted vertex sat 1.4e-9 off cone-2's ellipse (kernel-v2 "output
+/// ellipse-arc endpoint does not lie on its ellipse"). RED under the
+/// planar-only rule, GREEN under the surface-incidence rule.
+#[test]
+pub(crate) fn kv15b_i1b_adopts_surface_incidence_richer_junction_coordinates() {
+    // A: a planar z=0 face (triangle loop).
+    let a = {
+        let verts = vec![
+            BRepVertex {
+                point: p(-2.0, -2.0, 0.0),
+            },
+            BRepVertex {
+                point: p(2.0, -2.0, 0.0),
+            },
+            BRepVertex {
+                point: p(0.0, 2.0, 0.0),
+            },
+        ];
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 1,
+                end: 2,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 2,
+                end: 0,
+                curve: Curve::LineSegment,
+            },
+        ];
+        let faces = vec![BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: 0.0,
+            },
+            outer_loop: vec![0, 1, 2],
+            inner_loops: Vec::new(),
+            reversed: false,
+        }];
+        BRep::new(verts, edges, faces).expect("planar A")
+    };
+    // B: two NON-coaxial cone faces (each a frustum lateral with its own
+    // rim circles), both passing through J = (0.5, 0, 0) at z = 0.
+    //   cone-1: apex (0,0,-1), +z, tan α1 = 0.5
+    //   cone-2: apex (0.3,0.1,-2), +z, tan α2 = √0.05 / 2
+    let j = p(0.5, 0.0, 0.0);
+    let cone1 = Surface::Cone {
+        apex: p(0.0, 0.0, -1.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        half_angle: 0.5f64.atan(),
+    };
+    let cone2 = Surface::Cone {
+        apex: p(0.3, 0.1, -2.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        half_angle: (0.05f64.sqrt() / 2.0).atan(),
+    };
+    let b = {
+        let z = Vector3::new(0.0, 0.0, 1.0);
+        let nz = Vector3::new(0.0, 0.0, -1.0);
+        let r1 = |h: f64| h * 0.5; // cone-1 radius at height h above its apex
+        let r2 = |h: f64| h * (0.05f64.sqrt() / 2.0);
+        let verts = vec![
+            BRepVertex {
+                point: p(r1(0.5), 0.0, -0.5),
+            },
+            BRepVertex {
+                point: p(r1(1.5), 0.0, 0.5),
+            },
+            BRepVertex {
+                point: p(0.3 + r2(1.5), 0.1, -0.5),
+            },
+            BRepVertex {
+                point: p(0.3 + r2(2.5), 0.1, 0.5),
+            },
+        ];
+        let circ = |c: Point3, n: Vector3, r: f64| Curve::Circle {
+            center: c,
+            normal: n,
+            radius: r,
+        };
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 0,
+                curve: circ(p(0.0, 0.0, -0.5), z, r1(0.5)),
+            },
+            BRepEdge {
+                start: 1,
+                end: 1,
+                curve: circ(p(0.0, 0.0, 0.5), nz, r1(1.5)),
+            },
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 2,
+                end: 2,
+                curve: circ(p(0.3, 0.1, -0.5), z, r2(1.5)),
+            },
+            BRepEdge {
+                start: 3,
+                end: 3,
+                curve: circ(p(0.3, 0.1, 0.5), nz, r2(2.5)),
+            },
+            BRepEdge {
+                start: 2,
+                end: 3,
+                curve: Curve::LineSegment,
+            },
+        ];
+        let faces = vec![
+            BRepFace {
+                surface: cone1,
+                outer_loop: vec![0, 2, 1, 2],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: cone2,
+                outer_loop: vec![3, 5, 4, 5],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ];
+        BRep::new(verts, edges, faces).expect("two-cone B")
+    };
+    // Certify the fixture: J is on the plane and on BOTH cones; S (J rotated
+    // 1e-7 rad about cone-1's axis) is on the plane and cone-1 only, 5e-8
+    // from J — a sub-resolution intersection pair.
+    let theta = 1e-7f64;
+    let s = p(0.5 * theta.cos(), 0.5 * theta.sin(), 0.0);
+    let on = |surf: Surface, q: Point3| {
+        surface_distance_and_normal(surf, q.as_array())
+            .is_some_and(|(f, _)| f.abs() <= junction_certificate_band(q.as_array(), surf))
+    };
+    assert!(on(cone1, j) && on(cone2, j) && on(cone1, s) && !on(cone2, s));
+    let dist = {
+        let (x, y) = (s.as_array(), j.as_array());
+        ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2)).sqrt()
+    };
+    assert!(
+        dist > 1e-9 && dist < cad_primitives::TAU_MODEL,
+        "dist {dist:e}"
+    );
+
+    // Mesh: 0 = S (min index ⇒ topological survivor), 1 = J.
+    let mut mesh = Mesh::new(
+        vec![s, j, p(1.0, 0.0, 0.0), p(0.5, 0.0, -1.0), p(0.5, 0.2, -1.0)],
+        vec![[0, 1, 2], [1, 0, 3], [1, 2, 4]],
+    );
+    let att = |input: InputId, face: u32| Some(TriangleAttribution { input, face });
+    let mut attr = vec![att(InputId::A, 0), att(InputId::B, 0), att(InputId::B, 1)];
+    let map = kv15b_map(&[(0, 1)]);
+    assert!(collapse_subresolution_intersection_segments(
+        &mut mesh, &mut attr, &map, &a, &b
+    ));
+    assert_eq!(
+        mesh.verts[0], j,
+        "the survivor must ADOPT the surface-incidence-richer junction's coordinates \
+         (3 surfaces vs 2), not keep its own (planar-only count was a 1–1 tie)"
+    );
+    assert!(on(cone1, mesh.verts[0]) && on(cone2, mesh.verts[0]));
+}

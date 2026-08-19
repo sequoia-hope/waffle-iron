@@ -109,6 +109,27 @@ tolerance is introduced).
   until 2026-07-11 (and, via fail-fast, hid three suites' stale pins).
   Ties (equal counts) keep the survivor's own coordinates —
   byte-identical to the shipped behavior.
+  **I1b-curved (2026-08-19, R0047 anchor):** the richness measure counts
+  EVERY distinct analytic surface the endpoint lies on — planes AND
+  curved surfaces, incidence via triangle attribution, "on" = within the
+  same `junction_certificate_band` that certifies Stage-4 exact
+  junctions (`surface_distance_and_normal`, cone rescaled) — not planes
+  alone. Anchor: R0047 (gear revolve cut at 2.09e-4 scale) pairs a
+  CERTIFIED plane∩cone-1∩cone-2 crease junction J (3 surfaces) with its
+  cone-1∩plane interior neighbour S (2 surfaces) at 5.3e-8 (<
+  `TAU_MODEL·(1+scale)`); the planar-only count read 1–1 (tie), S kept its
+  own coordinates, and the merged vertex was emitted ON cone-1's ellipse
+  but 1.4e-9 OFF cone-2's — kernel-v2's `InvalidBooleanOutput("output
+  ellipse-arc endpoint does not lie on its ellipse")`. With the surface
+  count (2 vs 3) S adopts J. Chord-level (un-relocated) curved samples
+  are not on their surface at certificate precision, so they contribute
+  nothing — the count is strictly richer only for positions Stage 4
+  actually placed on the surface; all-planar pairs are byte-identical to
+  I1b. Pin: `kv15b_i1b_adopts_surface_incidence_richer_junction_coordinates`
+  (red under planar-only). Measured on R0047: 3 pairs 2-vs-3 (adopt), 35
+  pairs 2–2 (tie, unchanged); op 2 now emits every conic endpoint on its
+  curve (`YANG_OUT_INCIDENCE_PROBE` zero hits) and the case advances to
+  op 3's to_yang re-entry wall (`UNSUPPORTED(curved-profile)`).
 - I2: no vertex pair whose resolved distance is ≥ TAU_MODEL is ever
   collapsed by this pass.
 - I3: only vertex pairs that appear (after resolution) as CONSECUTIVE

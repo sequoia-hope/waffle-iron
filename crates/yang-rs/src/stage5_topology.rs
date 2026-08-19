@@ -5482,6 +5482,79 @@ pub(crate) fn emit_topology(
             st.skipped_discontinuous_loops
         );
     }
+    // Read-only output-incidence probe (env `YANG_OUT_INCIDENCE_PROBE`,
+    // 2026-08-19 R0047 anchor): for every conic output edge, the endpoint
+    // residual against the STORED curve (what kernel-v2's import gate
+    // measures), whether the endpoint carries a Stage-4 relocation record,
+    // and whether the record still reproduces the position (`conic_eval` at
+    // the recorded `t` vs the vertex) — a mismatch means the vertex was
+    // moved AFTER its relocation onto this curve; a missing record means it
+    // was never relocated onto it. Prints only endpoints beyond
+    // `TAU_EVAL·(1+extent)`.
+    if std::env::var_os("YANG_OUT_INCIDENCE_PROBE").is_some() {
+        let reloc_of = |v: u32| {
+            relocations
+                .iter()
+                .find(|&&(rv, _)| rv == v)
+                .map(|&(_, t)| t)
+        };
+        for (ei, e) in edges.iter().enumerate() {
+            let is_conic = matches!(e.curve, Curve::Circle { .. } | Curve::Ellipse { .. });
+            if !is_conic {
+                continue;
+            }
+            for v in [e.start, e.end] {
+                let p = mesh.verts[v as usize];
+                let Some(t) = crate::conic_param(&e.curve, p) else {
+                    continue;
+                };
+                let Some(q) = crate::geom::conic_eval(&e.curve, t) else {
+                    continue;
+                };
+                let (pa, qa) = (p.as_array(), q.as_array());
+                let resid =
+                    ((pa[0] - qa[0]).powi(2) + (pa[1] - qa[1]).powi(2) + (pa[2] - qa[2]).powi(2))
+                        .sqrt();
+                let extent = pa.iter().fold(0.0f64, |m, c| m.max(c.abs()));
+                if resid <= cad_primitives::TAU_EVAL * (1.0 + extent) {
+                    continue;
+                }
+                let rec = reloc_of(v);
+                let rec_resid = rec
+                    .and_then(|t| crate::geom::conic_eval(&e.curve, t))
+                    .map(|r| {
+                        let ra = r.as_array();
+                        ((pa[0] - ra[0]).powi(2)
+                            + (pa[1] - ra[1]).powi(2)
+                            + (pa[2] - ra[2]).powi(2))
+                        .sqrt()
+                    });
+                let incident: Vec<String> = edges
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, o)| o.start == v || o.end == v)
+                    .map(|(oi, o)| {
+                        let n = match o.curve {
+                            Curve::LineSegment => "Line",
+                            Curve::Circle { .. } => "Circle",
+                            Curve::Ellipse { .. } => "Ellipse",
+                            Curve::Parabola { .. } => "Parabola",
+                            Curve::Hyperbola { .. } => "Hyperbola",
+                            Curve::SurfacePair { .. } => "SurfacePair",
+                        };
+                        format!("e{oi}:{n}")
+                    })
+                    .collect();
+                eprintln!(
+                    "YANG_OUT_INCIDENCE_PROBE edge {ei} v={v} p={pa:?} resid={resid:.3e} rel={:.3e} \
+                     reloc_record={rec:?} record_vs_pos={rec_resid:?} incident=[{}] curve={:?}",
+                    resid / (1.0 + extent),
+                    incident.join(","),
+                    e.curve
+                );
+            }
+        }
+    }
     Ok((vertices, edges, faces, sources, face_attribution))
 }
 

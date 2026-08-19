@@ -3391,25 +3391,36 @@ pub(crate) fn collapse_subresolution_intersection_segments(
         v
     }
     // C0036 amendment (spec `kv15b_mint_site_subresolution_collapse` I1b):
-    // the surviving POSITION is the pair's plane-incidence-richer endpoint.
-    // A sub-floor pair often joins the TRUE junction of k carried planes
+    // the surviving POSITION is the pair's SURFACE-incidence-richer endpoint.
+    // A sub-floor pair often joins the TRUE junction of k carried surfaces
     // with a near-degenerate crossing OFF one of them by the sub-floor gap
     // (the C0036 near-coplanar seam corner: the exact 3-plane corner vs a
     // crossing 1.75e-8 off the tilted wall). Keeping the min-index position
-    // blindly evicts a face-loop vertex off its carried analytic plane,
+    // blindly evicts a face-loop vertex off its carried analytic surface,
     // twisting the loop (the fitted Newell then misses the exact input
     // corners — the debug-tier NonPlanarFace red). The topological survivor
     // stays min-index (I1 determinism); only its COORDINATES may adopt the
     // strictly richer endpoint. Ties keep the survivor's own coordinates
     // (byte-identical to the shipped behavior).
+    //
+    // 2026-08-19 (R0047 anchor, spec §I1b-curved): the measure counts EVERY
+    // distinct analytic surface the endpoint lies on (within the same
+    // `junction_certificate_band` that certifies Stage-4 exact junctions),
+    // not planes alone. The planar-only count read a certified
+    // plane∩cone∩cone crease junction (3 surfaces) and its cone∩plane
+    // interior neighbour (2 surfaces) as a 1–1 TIE, kept the neighbour's
+    // coordinates, and emitted the merged vertex ON cone-1's ellipse but
+    // 1.4e-9 OFF cone-2's — kernel-v2's "output ellipse-arc endpoint does
+    // not lie on its ellipse". Chord-level (un-relocated) curved samples are
+    // NOT on their surface at certificate precision, so they contribute
+    // nothing — the count is strictly richer only for positions Stage 4
+    // actually placed on the surface.
     let plane_count = |mesh: &Mesh,
                        attribution: &[Option<TriangleAttribution>],
                        vi: u32,
                        pos: [f64; 3]|
      -> usize {
-        let mut seen: Vec<[u64; 4]> = Vec::new();
-        let band =
-            cad_primitives::TAU_WORK * (1.0 + pos[0].abs().max(pos[1].abs()).max(pos[2].abs()));
+        let mut seen: Vec<Surface> = Vec::new();
         for (t, tri) in mesh.tris.iter().enumerate() {
             if !tri.contains(&vi) {
                 continue;
@@ -3424,16 +3435,14 @@ pub(crate) fn collapse_subresolution_intersection_segments(
             let Some(face) = faces.get(att.face as usize) else {
                 continue;
             };
-            let Surface::Plane { normal, d } = face.surface else {
-                continue;
-            };
-            let n = normal.as_array();
-            if (n[0] * pos[0] + n[1] * pos[1] + n[2] * pos[2] + d).abs() > band {
+            let surf = face.surface;
+            let on = surface_distance_and_normal(surf, pos)
+                .is_some_and(|(f, _)| f.abs() <= junction_certificate_band(pos, surf));
+            if !on {
                 continue;
             }
-            let key = [n[0].to_bits(), n[1].to_bits(), n[2].to_bits(), d.to_bits()];
-            if !seen.contains(&key) {
-                seen.push(key);
+            if !seen.contains(&surf) {
+                seen.push(surf);
             }
         }
         seen.len()
@@ -3474,6 +3483,9 @@ pub(crate) fn collapse_subresolution_intersection_segments(
             let cv = plane_count(mesh, attribution, victim, vp);
             if cv > cs {
                 mesh.verts[survivor as usize] = mesh.verts[victim as usize];
+            }
+            if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
+                eprintln!("[collapse-site] kv15b plane_count survivor={survivor} cs={cs} victim={victim} cv={cv}");
             }
         }
         if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
@@ -5111,11 +5123,59 @@ pub(crate) fn stage4_relocate_and_correct(
     // triangles touching THOSE verts are the ones Stage-4 validation gates
     // (spec §4.5 step 4: validate per RELOCATED triangle, not pre-existing
     // arrangement slivers that `boolean()` legitimately kept for watertightness).
-    if let Ok(list) = std::env::var("YANG_V_PROBE") {
-        for tok in list.split(',') {
-            let Ok(v) = tok.trim().parse::<u32>() else {
-                continue;
-            };
+    // `YANG_V_PROBE=<ids>` selects by Stage-4 vertex id;
+    // `YANG_V_PROBE_NEAR=x,y,z,r` additionally selects every vertex within
+    // `r` of a position (Stage-4 ids are renumbered by the later
+    // compactions, so a probe driven from an OUTPUT-side report — e.g.
+    // kernel-v2's `KV_ELLIPSE_PROBE` — has only the position to go on).
+    let mut v_probe_ids: Vec<u32> = std::env::var("YANG_V_PROBE")
+        .ok()
+        .map(|list| {
+            list.split(',')
+                .filter_map(|t| t.trim().parse::<u32>().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Ok(spec) = std::env::var("YANG_V_PROBE_NEAR") {
+        let nums: Vec<f64> = spec
+            .split(',')
+            .filter_map(|t| t.trim().parse::<f64>().ok())
+            .collect();
+        if nums.len() == 4 {
+            for (vi, q) in mesh.verts.iter().enumerate() {
+                let qa = q.as_array();
+                let d2 = (qa[0] - nums[0]).powi(2)
+                    + (qa[1] - nums[1]).powi(2)
+                    + (qa[2] - nums[2]).powi(2);
+                if d2 <= nums[3] * nums[3] {
+                    v_probe_ids.push(vi as u32);
+                }
+            }
+        }
+    }
+    if !v_probe_ids.is_empty() {
+        for v in v_probe_ids {
+            let inc_curves: Vec<String> = curves0
+                .iter()
+                .filter(|(&(s, e), _)| s == v || e == v)
+                .map(|(&(s, e), c)| {
+                    let n = match c {
+                        Curve::LineSegment => "Line",
+                        Curve::Circle { .. } => "Circle",
+                        Curve::Ellipse { .. } => "Ellipse",
+                        Curve::Parabola { .. } => "Parabola",
+                        Curve::Hyperbola { .. } => "Hyperbola",
+                        Curve::SurfacePair { .. } => "SurfacePair",
+                    };
+                    format!("({s},{e}):{n}")
+                })
+                .collect();
+            eprintln!(
+                "YANG_V_PROBE v={v} same_type_junction={} exact_junction={} incident_curves=[{}]",
+                same_type_junction.contains(&v),
+                exact_junctions.contains(&v),
+                inc_curves.join(",")
+            );
             if let Some(er) = vert_ellipse.get(&v) {
                 eprintln!(
                     "YANG_V_PROBE v={v} er plane_n={:?} plane_d={:.17e} center={:?} \
