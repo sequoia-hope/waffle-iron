@@ -481,7 +481,66 @@ pub fn to_yang_brep_indexed(
                     // its isometric development (slant ℓ = |v|/cosα, flattened
                     // angle ψ = θ·sinα), the same unroll+CDT path as the cylinder.
                     let outer_hes = arena.loop_half_edges(face.outer_loop)?;
-                    if !face.inner_loops.is_empty() || outer_hes.len() != 4 {
+                    // 2026-08-19 (R0047 op-3 anchor): a FOUR-edge outer loop
+                    // is structured only when its curve pattern is one of the
+                    // analytic rim/strip vocabularies below (canonical tube,
+                    // partial revolve wall, partial torus, closed torus). A
+                    // 4-edge loop with any OTHER pattern — e.g. the cone patch
+                    // `[HyperbolaArc, Line, EllipseArc, Line]` left by a prior
+                    // boolean's two box planes — is a bounded partial patch
+                    // bitten by a prior boolean and belongs to the Slice-D/E
+                    // CDT re-entry exactly like its 5-edge siblings; the edge
+                    // COUNT was never the criterion, the pattern is. Routed
+                    // here so the structured path below only ever sees a
+                    // structured loop (byte-identical for every structured
+                    // loop: the same pattern test, evaluated earlier).
+                    let four_edge_structured = outer_hes.len() == 4 && {
+                        let mut hes = outer_hes.clone();
+                        if matches!(arena.half_edge(hes[0])?.curve, Curve::LineSegment) {
+                            hes.rotate_left(1);
+                        }
+                        if matches!(face.surface, Some(Surface::Torus { .. }))
+                            && matches!(arena.half_edge(hes[0])?.curve, Curve::Arc { .. })
+                        {
+                            hes.rotate_left(1);
+                        }
+                        let pattern = (
+                            arena.half_edge(hes[0])?.curve,
+                            arena.half_edge(hes[1])?.curve,
+                            arena.half_edge(hes[2])?.curve,
+                            arena.half_edge(hes[3])?.curve,
+                        );
+                        matches!(
+                            pattern,
+                            (
+                                Curve::Circle { .. },
+                                Curve::LineSegment,
+                                Curve::Circle { .. },
+                                Curve::LineSegment
+                            ) | (
+                                Curve::Arc { .. },
+                                Curve::LineSegment,
+                                Curve::Arc { .. },
+                                Curve::LineSegment
+                            ) | (
+                                Curve::Circle { .. },
+                                Curve::Arc { .. },
+                                Curve::Circle { .. },
+                                Curve::Arc { .. }
+                            )
+                        ) || (matches!(face.surface, Some(Surface::Torus { .. }))
+                            && matches!(
+                                pattern,
+                                (
+                                    Curve::Circle { .. },
+                                    Curve::Circle { .. },
+                                    Curve::Circle { .. },
+                                    Curve::Circle { .. }
+                                )
+                            ))
+                    };
+                    if !face.inner_loops.is_empty() || outer_hes.len() != 4 || !four_edge_structured
+                    {
                         // A CONE re-enters via the CDT path only when its
                         // boundary is Line/Arc-only (a bounded partial patch or a
                         // holed partial patch — the 0-encircling Slice-E cases).
@@ -555,9 +614,18 @@ pub fn to_yang_brep_indexed(
                                 let reason = if matches!(face.surface, Some(Surface::Cone { .. })) {
                                     "curved lateral is an apex/frustum cone (full-circle rim; \
                                      no CDT re-entry)"
-                                } else if matches!(face.surface, Some(Surface::Torus { .. })) {
+                                } else if matches!(face.surface, Some(Surface::Torus { .. }))
+                                    && curved_full_rim
+                                {
                                     "curved lateral is a canonical full-rim torus (full-circle \
                                      rim; no CDT re-entry)"
+                                } else if matches!(face.surface, Some(Surface::Torus { .. })) {
+                                    "curved lateral is a torus with a non-structured outer loop \
+                                     and no inner loop (Slice-F CDT re-entry needs a wrapping \
+                                     inner profile)"
+                                } else if face.inner_loops.is_empty() && outer_hes.len() == 4 {
+                                    "curved lateral 4-edge non-structured outer loop (no CDT \
+                                     re-entry for this surface)"
                                 } else if face.inner_loops.is_empty() {
                                     "curved lateral outer loop not 4 edges"
                                 } else {
@@ -676,6 +744,24 @@ pub fn to_yang_brep_indexed(
                             )
                         );
                     if !(canonical || partial || torus || closed_torus) {
+                        if std::env::var_os("KV14_SLICED_PROBE").is_some() {
+                            let kind = |c: Curve| match c {
+                                Curve::LineSegment => "Line",
+                                Curve::Arc { .. } => "Arc",
+                                Curve::Circle { .. } => "Circle",
+                                Curve::EllipseArc { .. } => "EllipseArc",
+                                Curve::HyperbolaArc { .. } => "HyperbolaArc",
+                                Curve::SurfacePair { .. } => "SurfacePair",
+                            };
+                            eprintln!(
+                                "[kv14-sliced-probe] face {f:?} surface {:?} 4-edge NON-structured pattern [{}, {}, {}, {}]",
+                                face.surface,
+                                kind(pattern.0),
+                                kind(pattern.1),
+                                kind(pattern.2),
+                                kind(pattern.3)
+                            );
+                        }
                         return Err(KernelV2Error::UnsupportedCurvedBoolean {
                             face: f,
                             reason: "curved lateral non-{canonical,partial,torus} edge pattern",

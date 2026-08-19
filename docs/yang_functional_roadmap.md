@@ -368,8 +368,34 @@ name, never measured).
    (`loop_is_degenerate` = Newell/extent², spec §5c.14); the Stage-1
    INPUT-face `DegenerateFace` stays the A14.2 feature-floor contract
    (`m1_adversarial` pin). Corpus 261C/0W/47E/1EE/0T category-identical;
-   R0047 advances to kernel-v2's ellipse-endpoint incidence gate (4.8e-6
-   relative residual — a genuine cone-ellipse endpoint defect, next anchor).**
+   R0047 advanced to kernel-v2's ellipse-endpoint incidence gate (4.8e-6
+   relative residual) — ANCHORED the same session (`YANG_OUT_INCIDENCE_
+   PROBE` + `YANG_V_PROBE_NEAR=x,y,z,r`, two new permanent probes): the
+   Stage-6 KV15b sub-resolution collapse merged a CERTIFIED plane∩cone₁∩
+   cone₂ crease junction into its cone₁∩plane neighbour and the I1b "adopt
+   the richer endpoint's coordinates" rule counted PLANES only (1–1 tie) →
+   generalized to surface incidence within `junction_certificate_band`
+   (spec `kv15b_mint_site_subresolution_collapse.md` I1b-curved; pin
+   red-verified); R0047 op 2 then emitted every conic endpoint on-curve and
+   the case advanced to op 3's kernel-v2 `to_yang` wall: a 4-edge CONE
+   lateral `[HyperbolaArc, Line, EllipseArc, Line]` (a partial-revolve
+   flank clipped by two box planes) fell to the typed "non-{canonical,
+   partial,torus} edge pattern" wall because the KV14 Slice-D/E CDT
+   re-entry routed only NON-4-edge or holed laterals — the edge COUNT was
+   a proxy for the pattern. Routed by PATTERN (`four_edge_structured`;
+   pin `four_edge_non_structured_cone_lateral_reenters`, a tilted slab
+   minus a 60° frustum wedge, red-verified). **R0047 ERROR → SUPPORTED_
+   CORRECT. Corpus 262C/0W/46E/1EE/0T — NEW CANONICAL (the only delta).**
+   Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
+   perpendicular cyl CUT whose A-seam passes through the exact tangency
+   point — the kept upper/lower sheets both fan onto the lower seam
+   segment (pinch-vertex construction defect, `s6-wedge-walk-not-outgoing`
+   precedes); F0060 = cylinder tangent to both caps along a line (line-
+   pinch solid, not 2-manifold-representable); R0032 torus × two-cone
+   junction double cover; C0058 tangency-neck figure-eight (§4.3.3
+   tangent-point insertion milestone); C0107/C0108 designed 0D tangency;
+   C0044 M8 flush stack; R0053 chained INPUT not watertight
+   (`i6-input-overuse`).**
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

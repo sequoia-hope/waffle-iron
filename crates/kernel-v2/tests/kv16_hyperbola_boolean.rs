@@ -186,3 +186,131 @@ fn hyperbola_bounded_reentry_chain() {
         v1 - v2
     );
 }
+
+/// 2026-08-19 (R0047 op-3 anchor): a FOUR-edge cone lateral whose pattern is
+/// NOT one of the structured rim/strip vocabularies must re-enter through the
+/// KV14 Slice-E unroll+CDT path like its 5-edge siblings — the router keyed on
+/// edge COUNT (`outer_hes.len() != 4`), so a 4-edge `[EllipseArc, Line,
+/// EllipseArc, Line]` patch fell to the typed wall
+/// `UnsupportedCurvedBoolean("curved lateral non-{canonical,partial,torus}
+/// edge pattern")` (R0047 op 3: `[HyperbolaArc, Line, EllipseArc, Line]`).
+/// Fixture: a 15°-tilted slab minus a 60° frustum wedge whose two end rulings
+/// cross the slab — the slab's two oblique faces section every generator in
+/// ellipses, so the conical notch wall is exactly [ellipse, ruling, ellipse,
+/// ruling]. RED before the pattern-keyed routing, GREEN after: the second
+/// boolean (a planar pocket disjoint from the notch) succeeds with an exact
+/// decrement.
+#[test]
+fn four_edge_non_structured_cone_lateral_reenters() {
+    let mut a = BrepArena::new();
+    // Tilted slab: plane normal n = (sin15°, 0, cos15°), thickness 0.8 between
+    // n·x = 0.6 and n·x = 1.4, ±3 in both in-plane directions.
+    let phi = 15.0_f64.to_radians();
+    let (sp, cp) = (phi.sin(), phi.cos());
+    let n = Vector3::new(sp, 0.0, cp);
+    let slab_prof = Profile::new(
+        Point3::new(0.6 * sp, 0.0, 0.6 * cp),
+        Vector3::new(cp, 0.0, -sp),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(-3.0, -3.0),
+            Point2::new(3.0, -3.0),
+            Point2::new(3.0, 3.0),
+            Point2::new(-3.0, 3.0),
+        ],
+        vec![],
+    )
+    .unwrap();
+    let slab = extrude(&mut a, &slab_prof, n, 0.8).unwrap().solid;
+    // 60° frustum wedge about +z (r 2 → 1 over z ∈ [0, 2], apex-including),
+    // swept from +x toward +y. Every generator crosses BOTH slab faces
+    // (n·x along a generator spans ⊇ [0.26, 2.06] ⊃ [0.6, 1.4]); the caps
+    // (z=0: n·x ≤ 0.52; z=2: n·x ≥ 1.93) stay clear of the slab.
+    let prof = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(0.0, 2.0),
+            Point2::new(2.0, 1.0),
+            Point2::new(2.0, 0.0),
+        ],
+        vec![],
+    )
+    .unwrap();
+    let wedge = revolve(
+        &mut a,
+        &prof,
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        std::f64::consts::PI / 3.0,
+    )
+    .expect("60° frustum wedge")
+    .solid;
+    let cut = boolean_op(&mut a, slab, wedge, BoolOp::Subtract).expect("slab − wedge");
+    validate_solid(&a, cut).expect("notched slab validates");
+    let v1 = volume_of(&a, cut);
+
+    // Certify the fixture presents the class: a CONE lateral whose outer loop
+    // has exactly FOUR edges, two conic arcs + two rulings.
+    let mut cone_loops: Vec<Vec<&'static str>> = Vec::new();
+    for &sh in &a.solid(cut).expect("solid").shells {
+        for &f in &a.shell(sh).expect("shell").faces {
+            let face = a.face(f).expect("face");
+            if !matches!(face.surface, Some(kernel_v2::Surface::Cone { .. })) {
+                continue;
+            }
+            let kinds: Vec<&'static str> = a
+                .loop_half_edges(face.outer_loop)
+                .expect("loop")
+                .iter()
+                .map(|&h| match a.half_edge(h).expect("he").curve {
+                    kernel_v2::Curve::LineSegment => "Line",
+                    kernel_v2::Curve::Arc { .. } => "Arc",
+                    kernel_v2::Curve::Circle { .. } => "Circle",
+                    kernel_v2::Curve::EllipseArc { .. } => "EllipseArc",
+                    kernel_v2::Curve::HyperbolaArc { .. } => "HyperbolaArc",
+                    kernel_v2::Curve::SurfacePair { .. } => "SurfacePair",
+                    _ => "Other",
+                })
+                .collect();
+            cone_loops.push(kinds);
+        }
+    }
+    assert!(
+        cone_loops.iter().any(|k| k.len() == 4
+            && k.iter().filter(|&&x| x == "EllipseArc").count() == 2
+            && k.iter().filter(|&&x| x == "Line").count() == 2),
+        "fixture must present a 4-edge [EllipseArc, Line, EllipseArc, Line] cone lateral, \
+         got {cone_loops:?}"
+    );
+
+    // RE-ENTRY: a planar pocket through the slab far from the notch (the
+    // wedge spans x ≤ 2, y ∈ [0, 1.8]; the pocket sits at x ≈ −2, y ≈ −2),
+    // removing exactly its prism volume 0.4·0.4·0.8 = 0.128 (its walls are
+    // ∥ n; it punches through both slab faces).
+    let pocket_prof = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(cp, 0.0, -sp),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(-2.4, -2.4),
+            Point2::new(-2.0, -2.4),
+            Point2::new(-2.0, -2.0),
+            Point2::new(-2.4, -2.0),
+        ],
+        vec![],
+    )
+    .unwrap();
+    let pocket = extrude(&mut a, &pocket_prof, n, 3.0).unwrap().solid;
+    let out = boolean_op(&mut a, cut, pocket, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("re-enter the 4-edge non-structured cone lateral: {e:?}"));
+    validate_solid(&a, out).expect("re-entered result validates");
+    let v2 = volume_of(&a, out);
+    assert!(
+        (v1 - v2 - 0.128).abs() < 0.005,
+        "pocket decrement {} must be ≈0.128 (planar + chord drift): v1={v1} v2={v2}",
+        v1 - v2
+    );
+}
