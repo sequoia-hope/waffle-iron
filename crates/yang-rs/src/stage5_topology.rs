@@ -582,7 +582,11 @@ fn run_construct_passes(
     // runaway backstop (a seam pricing above it declines to reorder-only,
     // censused; the shipped coarse chain is the pre-I5 status quo).
     const I5_INSERT_CAP: u64 = 4096;
-    let insert_enabled = std::env::var_os("YANG_434_INSERT").is_some();
+    // ALWAYS-ON since the I5-2 flip (2026-08-19, spec §4-I5-2);
+    // `YANG_434_INSERT=0|off` is the dev A/B off-knob (the s434
+    // instruments' gate-off legs).
+    let insert_enabled =
+        !matches!(std::env::var("YANG_434_INSERT"), Ok(v) if v == "0" || v == "off");
     // I5-1 orphan floor: appended on-curve vertices below this index are
     // referenced by applied rebuilds (or predate the pass); anything above
     // it at an exit path was appended for a seam whose batch never applied
@@ -5436,7 +5440,8 @@ pub(crate) fn emit_topology(
         );
     }
 
-    // I5-1b (gated `YANG_434_MERGE`, spec §4-I5-1b): coalesce per-segment
+    // I5-1b (ALWAYS-ON since the I5-2 flip; `YANG_434_MERGE=0|off` is the
+    // dev off-knob; spec §4-I5-1b/§4-I5-2): coalesce per-segment
     // conic seam runs into single analytic arc edges — the paper's §4.4.2
     // B-Rep output shape ("surfaces and their boundary curves"). Certifying
     // and self-declining; gate-off touches nothing.

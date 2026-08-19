@@ -1332,7 +1332,9 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    seam-foot canonicalization is kernel-v2 vocabulary, not chord repair
    — it STAYS when the re-fuse half shrinks to an assertion.
 
-   **I5-2 census after the fix (2026-08-19), full corpus, 300s budget:**
+   **I5-2 census after the recover.rs fix (2026-08-19), full corpus,
+   300s budget — SUPERSEDED the same day by the identity-fix census
+   below (these deltas were the zero-merge reorder artifact):**
 
    | config | score | category deltas vs canonical 259C/0W/49E/0T |
    |---|---|---|
@@ -1346,7 +1348,11 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    19 vs 20 `NonPlanarFace`), and R0070 (both-gates only, holed-lateral
    CDT wording) — chained sample-sensitive walls, no category effect.
 
-   **(d) F0067 ANCHORED**: every one of its 10 stacked unions is an M8
+   **(d) F0067 ANCHORED (mechanism right, source SUPERSEDED — see the
+   identity-fix census below: F0067 does not move once the zero-merge
+   reorder is gone; the ~1e-16 perturbation was loop ROTATION, i.e.
+   `d` derived from each face's first loop vertex, not the merges)**:
+   every one of its 10 stacked unions is an M8
    Stage-0 cross-pair handled by the overlay; at Extrude 10 the overlay
    of A's face 328 (the gear boss's UNTOUCHED top cap) with B's bottom
    cap fails `RoundingCollapse { tri: [218, 227, 219] }` under the merge
@@ -1361,8 +1367,71 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    (`RoundingCollapse` robustness), decision at flip time per (d).
    (b)/(c) are the same class one layer down (ERROR→ERROR).
 
-   **I5-2 — flip census** per the I3/14c discipline: gate-ON pin suites +
-   full corpus, category-identical precondition, then always-on.
+   **I5-2 gate-ON pin-suite census (2026-08-19, both gates ON):**
+   kernel-v2 38/38 binaries and yang-rs 74/75 green; the two findings:
+   - **LATENT FOUND + FIXED — the merge pass was not the identity on a
+     zero-merge output.** `kv9_cyl_cyl_special::unequal_perpendicular_
+     walls_on_selfx_gate` (the pinned N6 STOP on the degree-4 unequal
+     cyl×cyl union) flipped to a completion with `[s6-merge] runs=0
+     elided=0`: the rebuild re-indexed every edge in loop-traversal order
+     and re-rotated every loop to the partition offset, and kernel-v2's
+     loop-rotation-sensitive patch tessellation (KV7-F1) moved the
+     render-resolution self-intersection verdict — a sampling artifact,
+     not a fix. Now verbatim edges keep their original indices (clone +
+     appended pieces + order-preserving compaction) and rebuilt loops
+     rotate back to the entry covering original position 0; pin
+     `zero_merge_pass_is_identity`. Corollary for the render gate: that
+     M5 fixture's 79 penetrations are themselves rotation-sensitive at
+     render resolution — the N6 verdict on degree-4 patches measures the
+     patch tessellation as much as the B-Rep (recorded, not acted on).
+   - **yr9 `t1_cap_rings_carry_exact_ssi_circles` §7.3** asserts each
+     conic edge's chord midpoint lies within d_ε of the curve — the
+     per-segment shape by construction; a merged ~1.8-rad arc's chord
+     midpoint legitimately sits 0.073 away. Flip-time restatement: the
+     midpoint bound is the arc sagitta `r(1−cos(sweep/2))` + d_ε, or
+     verify the retagged `sources` against the curve. Not a defect.
+
+   **I5-2 census AFTER the identity fix (2026-08-19), full corpus, 300s
+   budget:**
+
+   | config | score | deltas vs canonical 259C/0W/49E/0T |
+   |---|---|---|
+   | `YANG_434_MERGE` only | 259C/0W/48E/1EE/**1T** | F0085 ERROR→TIMEOUT only; ZERO other category or detail deltas |
+   | INSERT + MERGE | 259C/0W/48E/1EE/**1T** | same + R0070 holed-lateral CDT wording (the recorded I5-1 renumber drift) |
+
+   **F0085 is a GENUINE CONVERSION**: single-case merge-only at a 1500s
+   budget → SUPPORTED_CORRECT in 296s (the honest `NonPlanarFace` STOP at
+   Extrude 20 no longer fires; all 20 unions complete and the mesh +
+   composition oracles pass) — it merely straddles the 300s CPU budget
+   (gate-off it STOPPED at 149s, before the oracle phases). Every
+   "chained re-entry" delta of the earlier censuses (C0105/R0028 gains,
+   F0067 loss, R0015/R0016/R0026/R0081/F0085 drifts) was the zero-merge
+   edge-reorder / loop-rotation artifact, not the merges. Adjudication
+   list: (a) fixed, (b) F0085 = conversion, (c)/(d) dissolved, (e) done.
+   The flip precondition (category-identical) is met with margin: one
+   honest conversion, zero losses, zero drifts. **Budget note for the
+   flip: F0085 CORRECT ≈ 296s CPU ⇒ the assay budget floor moves to
+   ≥360s (docs/TESTING.md, CLAUDE.md quick form).**
+
+   **I5-2 FLIPPED 2026-08-19 — BOTH gates ALWAYS-ON** (`YANG_434_INSERT` /
+   `YANG_434_MERGE` = `0|off` remain as dev A/B knobs; the s434
+   instruments' off legs drive them). Flip bar: gate-off byte-identical
+   (recover.rs typed-rim canonicalization), gate-ON pin suites green
+   (kernel-v2 38/38, yang-rs 75/75 with the yr9 §7.3 restatement,
+   test-harness 59/59), gate-ON corpus category-identical except one
+   honest conversion. **NEW CANONICAL (default gates, 360s budget):
+   260C/0W/48E/1EE/0T (+2 UNSUPPORTED coplanar, +1 curved-profile) —
+   F0085 ERROR→CORRECT (301.8s), R0070 face-index renumber only
+   (156→134), the trio at 0.9/1.8/2.8s.** Assay budget floor moves to
+   ≥360s (F0085 CORRECT ≈ 302s; F0065 ≈ 164s).
+
+   The remaining density/shape tail after this flip is recorded, not
+   open: `Parabola`/`Hyperbola`/`SurfacePair`/`LineSegment` runs stay
+   per-segment (I5-1b scope); the render gate on degree-4 patches is
+   loop-rotation-sensitive (KV7-F1, measured on the M5 fixture); and the
+   yang closed-run split points are sweep-fraction vertices (kernel-v2's
+   pass-2 canonicalization is geometry-intrinsic, so this is a shape
+   choice, not a contract).
 
 ## 5. After this epic (recorded, not started)
 

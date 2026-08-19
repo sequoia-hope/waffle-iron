@@ -260,7 +260,7 @@ prints the category table (CORRECT / WRONG / ERROR / UNSUPPORTED / …) and writ
 ```
 # Compile once (~9s incremental), then run the full corpus:
 cargo test -p test-harness --test assay_kv2 --release --no-run
-ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=300 \
+ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=360 \
   cargo test -p test-harness --test assay_kv2 --release full_corpus_categorized \
   -- --ignored --nocapture
 ```
@@ -317,15 +317,18 @@ becomes the effective limit.
   budgeting keeps verdicts stable; higher just risks a few borderline-slow cases
   needing a bigger budget.
 - `ASSAY_CASE_TIMEOUT_SECS` — per-case **CPU**-time budget (default 30).
-  **Use ≥300** for a clean full run — a too-tight budget flips genuinely-heavy
+  **Use ≥360** for a clean full run — a too-tight budget flips genuinely-heavy
   cases to a spurious `TIMEOUT`. The heaviest true-completing corpus cases are
   the 20-op chained-boolean stacks: as the kernel improves and more of their
   ops succeed, they legitimately grind through more exact-boolean work before
   their (deeper) failure — measured 2026-07-23 at F0072 ≈ 132s (ERROR) and
   R0081 ≈ 142s gate-ON (ERROR); re-measured 2026-08-15 after the §4.4.1
   construct pass + I2d d(T) gate went always-on at F0065 ≈ 241s (CORRECT)
-  and F0085 ≈ 242s (ERROR) — a 240s budget clips both to spurious
-  `TIMEOUT`s; 300s gives ~25% headroom over the current slowest. Their cost
+  and F0085 ≈ 242s (ERROR); re-measured 2026-08-19 after the I5-2 flip
+  (§4.3.4 seam insert + §4.4.2 seam chain-merge always-on): **F0085 now
+  COMPLETES — SUPPORTED_CORRECT ≈ 302s** (all 20 unions + the composition
+  oracle's second full build) and F0065 ≈ 164s — a 300s budget clips F0085
+  to a spurious `TIMEOUT`; 360s gives ~20% headroom over the slowest. Their cost
   is the exact boolean core (Cherchi arrangement + Stage-1/4) plus the
   construct fixpoint's per-pass rebuild retries — the I2e interior seeding
   is the recorded path to shrinking the retry tail (declined curved

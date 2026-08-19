@@ -821,34 +821,35 @@ fn t1_cap_rings_carry_exact_ssi_circles() {
         );
     }
 
-    // §7.3 Consistency: the exact curve stays within d_ε of the straight P2c
-    // polyline chord (the segment between the edge's two mesh vertices) it
-    // replaces — i.e. the selected conic hugs the mesh edge, not a far circle.
-    // We sample the chord's mid-arc on the exact curve and confirm both
-    // endpoints are on the curve AND the chord midpoint is within d_ε of the
-    // curve (so the conic is the RIGHT one near this edge).
-    for e in &conics {
-        let Some(ssi) = curve_to_ssi(&e.curve) else {
-            continue;
-        };
-        let (s, t) = edge_endpoints(&r, e);
-        let chord_mid = scale(add(s, t), 0.5);
-        // The chord midpoint of a small arc is just inside the circle; its
-        // distance to the curve is bounded by the chord's sagitta ≤ d_ε for
-        // the canonical N=8 facet ring. Check via the implicit on-curve metric
-        // against a slightly relaxed in-plane test: the midpoint must be within
-        // d_ε of SOME point on the curve. Sample densely and take the min.
-        let mut best = f64::INFINITY;
-        for i in 0..256 {
-            let th = 2.0 * std::f64::consts::PI * (i as f64) / 256.0;
-            let x = ssi.eval(th).as_array();
-            best = best.min(norm(sub(x, chord_mid)));
+    // §7.3 Consistency: the selected conic hugs the MESH RING it replaces,
+    // not a far circle — every ring vertex of the arrangement (both caps)
+    // lies within d_ε of some emitted conic edge's exact curve. Stated on
+    // the ring VERTICES rather than per-edge chord midpoints so it is
+    // independent of edge granularity: the I5-1b Stage-6 seam chain-merge
+    // (spec `yang_441_trim_cdt_construction.md` §4-I5-1b) legitimately
+    // emits one arc per run of mesh chords, whose chord midpoint sits a
+    // full arc-sagitta off the curve (the former per-chord bound assumed
+    // one edge per mesh chord — a shape, not a correctness property).
+    let ring_curves: Vec<ssi_rs::SsiCurve> = conics
+        .iter()
+        .filter_map(|e| curve_to_ssi(&e.curve))
+        .collect();
+    for cap_z in [0.0f64, 1.0] {
+        for k in 0..N_FACETS {
+            let th = 2.0 * std::f64::consts::PI * (k as f64) / (N_FACETS as f64);
+            let v = [
+                CYL_AXIS_POINT[0] + CYL_RADIUS * th.cos(),
+                CYL_AXIS_POINT[1] + CYL_RADIUS * th.sin(),
+                cap_z,
+            ];
+            assert!(
+                ring_curves
+                    .iter()
+                    .any(|c| ssi_curve_contains_point(c, v, de)),
+                "yr9 §7.3: mesh ring vertex {v:?} (cap z={cap_z}) is not within d_ε {de} \
+                 of any emitted conic edge's exact curve (wrong conic selected?)"
+            );
         }
-        assert!(
-            best <= de,
-            "yr9 §7.3: exact curve strays {best} > d_ε {de} from the mesh chord midpoint \
-             {chord_mid:?} (wrong conic selected?)"
-        );
     }
 
     // §7.5 determinism: identical inputs → identical output edge curves.

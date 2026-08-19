@@ -320,8 +320,17 @@ name, never measured).
    CORRECT→UNSUPPORTED (ANCHORED: M8 overlay `RoundingCollapse`
    knife-edge at Extrude 10, flipped by a 1e-15 re-fitted plane tilt —
    masked gate-off, not minted); R0099/C0117 no longer move; six
-   ERROR→ERROR detail drifts. BOTH gates stay OFF pending the (d)
-   decision on F0067 (spec §4-I5-1b).
+   ERROR→ERROR detail drifts. **Then the I5-1b pass was found NOT to be
+   the identity on a zero-merge output** (edge re-indexing + loop
+   re-rotation flipped kernel-v2's rotation-sensitive patch tessellation,
+   KV7-F1, on the M5 cyl×cyl pin) — FIXED (`zero_merge_pass_is_identity`);
+   with that, EVERY earlier "chained re-entry" delta vanished: merge-only
+   and both-gates corpora are category- and detail-identical to canonical
+   except **F0085 ERROR→CORRECT (a genuine conversion, 296–302s)** and the
+   R0070 renumber. **I5-2 FLIPPED SAME DAY — both gates ALWAYS-ON
+   (`=0|off` dev knobs); NEW CANONICAL 260C/0W/48E/1EE/0T at a ≥360s
+   budget.** yr9 `t1` §7.3 restated on ring vertices (granularity-
+   agnostic). Spec §4-I5-2 has the full record.
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

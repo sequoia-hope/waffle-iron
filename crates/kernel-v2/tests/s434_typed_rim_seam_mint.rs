@@ -39,7 +39,8 @@ fn merge_on() -> MutexGuard<'static, ()> {
 
 fn merge_off() -> MutexGuard<'static, ()> {
     let g = GATE.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("YANG_434_MERGE");
+    // The merge is ALWAYS-ON since the I5-2 flip; "0" is the dev off-knob.
+    std::env::set_var("YANG_434_MERGE", "0");
     g
 }
 

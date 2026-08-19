@@ -81,8 +81,10 @@ fn run_leg(case_id: &str, gate_on: bool) {
             std::env::set_var("YANG_434_MERGE", "1");
         }
     } else {
-        std::env::remove_var("YANG_434_INSERT");
-        std::env::remove_var("YANG_434_MERGE");
+        // Both gates are ALWAYS-ON since the I5-2 flip (2026-08-19); the
+        // off leg drives the dev A/B knobs explicitly.
+        std::env::set_var("YANG_434_INSERT", "0");
+        std::env::set_var("YANG_434_MERGE", "0");
     }
     eprintln!("[s434-cost] ---- {case_id} gate {tag} ----");
     let leg_start = Instant::now();
@@ -301,8 +303,10 @@ fn localize_with_timeout(case_id: &str, timeout: Duration) {
     let handle = std::thread::spawn(move || {
         run_leg(&worker, false);
         run_leg(&worker, true);
-        std::env::remove_var("YANG_434_INSERT");
-        std::env::remove_var("YANG_434_MERGE");
+        // Both gates are ALWAYS-ON since the I5-2 flip (2026-08-19); the
+        // off leg drives the dev A/B knobs explicitly.
+        std::env::set_var("YANG_434_INSERT", "0");
+        std::env::set_var("YANG_434_MERGE", "0");
         let _ = tx.send(());
     });
     match rx.recv_timeout(timeout) {
