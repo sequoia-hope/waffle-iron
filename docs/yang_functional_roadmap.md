@@ -304,8 +304,24 @@ name, never measured).
    intermediates perturbs sample-sensitive walls: C0117 CORRECT→ERROR
    arc-ring CDT, F0067/R0099 → honest M8 coplanar boundary, C0105/
    R0028 ERROR→CORRECT). Merge-only fires too (coarse relocated
-   chains certify). BOTH gates stay OFF; the I5-2 flip is blocked on
-   the adjudication list in spec §4-I5-1b (C0117 anchor first).
+   chains certify). **I5-2 (a) C0117 ANCHORED + FIXED 2026-08-19** —
+   NOT a to_yang re-entry: the failing call was kernel-v2's own render
+   gate on the OUTPUT annular cap; the merged 4-arc rims (split verts
+   chosen per rim) defeated `recover.rs`'s canonical-lateral pairing
+   (which needed an existing azimuth-aligned vertex pair — an implicit
+   shared-lattice contract), the caps fell to the general planar path,
+   and the hole ring sampled 0.86° out of phase crossed the outer at a
+   1e-4 wall (sagitta 4.8e-4). Fix: recover.rs two-pass pairing — pass 2
+   MINTS the exact seam foot, phase-locked to an already-anchored
+   coaxial lateral (the constructor's holed-profile convention); pins in
+   `kernel-v2/tests/s434_typed_rim_seam_mint.rs`. Census: gate-off
+   BYTE-IDENTICAL (zero deltas); merge-only and both-gates
+   **260C/0W/47E/1EE/0T, 0T** — C0105/R0028 ERROR→CORRECT, F0067
+   CORRECT→UNSUPPORTED (ANCHORED: M8 overlay `RoundingCollapse`
+   knife-edge at Extrude 10, flipped by a 1e-15 re-fitted plane tilt —
+   masked gate-off, not minted); R0099/C0117 no longer move; six
+   ERROR→ERROR detail drifts. BOTH gates stay OFF pending the (d)
+   decision on F0067 (spec §4-I5-1b).
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

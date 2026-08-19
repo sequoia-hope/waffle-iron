@@ -1279,6 +1279,88 @@ below — most of the R-series is curved, so the epic's reach depends on it.
    flip time or gated per-case; (e) re-run the merge-only corpus to
    census the coarse-chain merge on its own.
 
+   **I5-2 (a) — C0117 ANCHORED and FIXED (2026-08-19).** The recorded
+   attribution ("the next subtract's to_yang re-tessellation of merged
+   FaceId(6)") was WRONG: C0117 has ONE boolean, and the failing call is
+   kernel-v2's own post-assembly render gate
+   (`validate_boolean_output_self_intersection` → `tessellate`) on the
+   OUTPUT solid's z=0 annular cap. Mechanism, measured with
+   `KV2_RING_REJECT_PROBE` + `KV2_RECOVER_PROBE`:
+   - Gate-off, the bore rims reach `recover.rs` as 630 arc pieces (315
+     lattice + 315 diagonal-crossing verts) that RETAIN the Stage-1
+     lattice, so its canonical-lateral pairing finds an azimuth-aligned
+     vertex pair → canonical `[rim, seam, rim, seam]` bore lateral +
+     canonical annular caps, and every ring is sampled at N=72 from a
+     seam at azimuth 0 — in phase with the boss.
+   - Gate-ON, each rim is 4 merged arcs whose split verts are chosen
+     PER RIM (z=0: −0.857°/89.14°/179.43°/−90.29°; z=2 the mirror set) —
+     no aligned pair → `closed_fallback_pieces` (the recorded arc
+     "re-entry wall") → the caps take the general planar path, which
+     samples each arc from its own start; the hole ring runs 0.86° out
+     of phase with the outer circle and, at a 1e-4 wall vs a 4.8e-4
+     sagitta, the two 72-gons cross → "ring rejected by CDT". Threshold
+     measured: the same geometry passes at ≥5e-4 gap and fails at 1e-4.
+   - Gate-off's phase agreement is NOT design: with the tool sketch
+     frame rotated 2.5°/30° the bore rims STILL align at 0° because the
+     arrangement seeds the boss-lattice azimuths onto the bore rings
+     (cap-triangulation edge crossings). Coincidence-by-arrangement, and
+     exactly what the I5-1b elision removes.
+   - A canonical bore lateral with an ARBITRARY seam azimuth is not
+     enough either: the two coaxial laterals' fixed-N render rows then
+     interpenetrate (`SelfIntersectingBooleanOutput`, 426 pairs) — a
+     sub-sagitta wall renders self-consistently ONLY in phase.
+
+   **Fix — kernel-v2 `recover.rs` typed-rim canonicalization (two-pass
+   pairing).** Pass 1 = the former rule (existing aligned pair;
+   deterministic; untouched ⇒ gate-off byte-identical). Pass 2, for a
+   two-closed-rim cylinder/cone lateral with no aligned pair: the seam
+   foot azimuth is kernel-v2's OWN representational choice, so choose it
+   as `construct::extrude` does for a holed profile — COHERENT with an
+   already-anchored coaxial lateral of the same output (else the face's
+   own deterministic rim-a vertex) — and MINT the exact on-circle foot on
+   any rim lacking a vertex there (same geometry, one representational
+   vertex; never moves a vertex; a preset anchor from a shared chain is
+   respected, two conflicting presets decline to the arc fallback).
+   Corollary: the F0086-class "closed rims without a canonical pairing"
+   fallback now fires only for non-circle rims or ≠2-rim faces.
+   Pins: `kernel-v2/tests/s434_typed_rim_seam_mint.rs` (merged 1e-4
+   tube canonical + in phase + 568-tri render identical to gate-off;
+   gap sweep 1e-3…1e-5; 30°-rotated tool locks to the boss azimuth;
+   minted foot on-circle at ε; gate-off control). C0117 gate-ON →
+   SUPPORTED_CORRECT (assay single_case). Note for the F6 typing
+   migration (`specs/yang_output_curve_typing_migration.md` I2): the
+   seam-foot canonicalization is kernel-v2 vocabulary, not chord repair
+   — it STAYS when the re-fuse half shrinks to an assertion.
+
+   **I5-2 census after the fix (2026-08-19), full corpus, 300s budget:**
+
+   | config | score | category deltas vs canonical 259C/0W/49E/0T |
+   |---|---|---|
+   | gate-off (fix only) | 259C/0W/49E/1EE/0T | NONE — zero category, zero detail deltas |
+   | `YANG_434_MERGE` only | 260C/0W/47E/1EE/0T (+3 UNSUPPORTED) | C0105, R0028 ERROR→CORRECT; F0067 CORRECT→UNSUPPORTED(M8) |
+   | INSERT + MERGE | 260C/0W/47E/1EE/0T (+3 UNSUPPORTED) | same three |
+
+   C0117 and R0099 no longer move; ERROR→ERROR detail drifts remain on
+   R0015 (vertex 82→84), R0016, R0026, R0081 (a different Stage-3/4/
+   backend wall fires first in the same chained op), F0085 (Extrude
+   19 vs 20 `NonPlanarFace`), and R0070 (both-gates only, holed-lateral
+   CDT wording) — chained sample-sensitive walls, no category effect.
+
+   **(d) F0067 ANCHORED**: every one of its 10 stacked unions is an M8
+   Stage-0 cross-pair handled by the overlay; at Extrude 10 the overlay
+   of A's face 328 (the gear boss's UNTOUCHED top cap) with B's bottom
+   cap fails `RoundingCollapse { tri: [218, 227, 219] }` under the merge
+   and succeeds gate-off, and the only visible input difference is that
+   cap's re-fitted plane normal (gate-off `(-1.67e-15, -9.7e-16, 1)` vs
+   merge `(-2.23e-15, -2.3e-16, 1)` — kernel-v2 Newell + plane/vertex
+   canonicalization propagate the merged intermediate's ~1e-16 vertex
+   differences). A 1e-15 plane tilt flipping the overlay's f64
+   re-tessellation is an M8 knife-edge (the r=0.2088 circle's chord
+   vertices graze the r≈0.22 gear edges): the wall is MASKED gate-off by
+   rounding luck, not minted by the merge. Recorded as M8 residue
+   (`RoundingCollapse` robustness), decision at flip time per (d).
+   (b)/(c) are the same class one layer down (ERROR→ERROR).
+
    **I5-2 — flip census** per the I3/14c discipline: gate-ON pin suites +
    full corpus, category-identical precondition, then always-on.
 

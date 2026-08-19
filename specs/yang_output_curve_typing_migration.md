@@ -68,6 +68,11 @@ already depends on ssi-rs). After migration:
 - **I2 (recover.rs is a no-op):** after migration, `try_recover` returns the
   originals unchanged for every corpus case (its recovery branch never fires) —
   a regression test that its output equals its input pins the assertion role.
+  Scope note (2026-08-19, I5-2 (a)): I2 covers the chord RE-FUSE half only.
+  The canonical-lateral pairing (`[rim, seam, rim, seam]` seam-foot choice,
+  incl. the pass-2 coaxial phase-locked mint for typed rims) is kernel-v2
+  VOCABULARY, not chord repair — it stays after migration, since yang's
+  output faces are full laterals between closed rims with no seam.
 - **I3 (curve vocabulary parity):** the disjoint-union passthrough
   (`boolean.rs:1771`, already preserves rims bit-for-bit) and the normal
   boolean path produce the SAME curve types for the same surviving rim.

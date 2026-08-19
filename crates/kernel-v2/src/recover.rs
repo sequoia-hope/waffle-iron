@@ -20,13 +20,21 @@
 //!    collapse to single segments, minor arcs (split ≤ ~2.6 rad so the
 //!    downstream minor-arc classification never sees the π ambiguity), or
 //!    closed rims.
-//! 3. **Canonicalize**: a cylinder face whose two loops are both closed
-//!    rims with an azimuth-aligned vertex pair becomes the canonical
-//!    4-edge `[rim, seam, rim, seam]` lateral — the SAME vocabulary
+//! 3. **Canonicalize**: a cylinder/cone face whose two loops are both
+//!    closed circle rims becomes the canonical 4-edge
+//!    `[rim, seam, rim, seam]` lateral — the SAME vocabulary
 //!    `construct::extrude` produces, so the assembled solid round-trips
-//!    through `to_yang_brep` with no further changes. Closed rims without
-//!    a canonical pairing fall back to 3 sub-π arcs (assemblable, but the
-//!    face stays a re-entry wall).
+//!    through `to_yang_brep` with no further changes. Pass 1 pairs an
+//!    existing azimuth-aligned vertex pair (the mesh-granular case);
+//!    pass 2 (I5-2 (a), typed rims from the yang seam chain-merge whose
+//!    split vertices share no azimuth) chooses the seam foot COHERENTLY
+//!    with an already-anchored coaxial lateral of the same output and
+//!    MINTS the exact on-circle foot where a rim has no vertex there —
+//!    the constructor's holed-profile convention, load-bearing because the
+//!    fixed-N render rows of two coaxial laterals thinner than the sagitta
+//!    are self-consistent only in phase. Closed rims that still cannot pair
+//!    (non-circle, ≠2-rim faces, conflicting preset anchors) fall back to
+//!    sub-π arcs (assemblable, but the face stays a re-entry wall).
 //!
 //! Recovery is a pure rewrite (yang output lists → yang output lists). It
 //! is CONSERVATIVE: any structural anomaly bails out with the original
@@ -615,6 +623,9 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
     // face -> (outer chain ids per loop) for cylinder faces whose every loop
     // is exactly one closed circle chain.
     let mut lateral_pairs: BTreeMap<usize, ((usize, u32), (usize, u32))> = BTreeMap::new();
+    // Seam-foot vertices MINTED by pass 2 below (appended after the original
+    // vertex list; index = yverts.len() + position).
+    let mut minted: Vec<BRepVertex> = Vec::new();
     {
         // Group this face's loops by chain.
         let mut face_loop_chains: BTreeMap<usize, Vec<Option<usize>>> = BTreeMap::new();
@@ -639,6 +650,20 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
             };
             entry.push(single);
         }
+        // Lateral candidates in face order: (face, chain a, chain b, unit
+        // axis, band radius, center a, center b, radius a, radius b).
+        struct LateralCand {
+            fi: usize,
+            ca: usize,
+            cb: usize,
+            axis: [f64; 3],
+            radius: f64,
+            cca: Point3,
+            ccb: Point3,
+            ra: f64,
+            rb: f64,
+        }
+        let mut cands: Vec<LateralCand> = Vec::new();
         for (&fi, loop_chains) in &face_loop_chains {
             // Diagnostic probe (env-gated): per-face loop→chain resolution, so
             // a canonicalization miss self-localizes (which loop failed to be
@@ -677,36 +702,80 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
                 continue;
             };
             let (ca, cb) = (*ca, *cb);
-            if !matches!(chains[ca].curve, EffCurve::Circle { .. })
-                || !matches!(chains[cb].curve, EffCurve::Circle { .. })
-            {
+            let (
+                EffCurve::Circle {
+                    center: cca,
+                    radius: ra,
+                    ..
+                },
+                EffCurve::Circle {
+                    center: ccb,
+                    radius: rb,
+                    ..
+                },
+            ) = (chains[ca].curve, chains[cb].curve)
+            else {
                 continue;
+            };
+            let Some(axis) = normalize3(axis_dir.as_array()) else {
+                continue;
+            };
+            cands.push(LateralCand {
+                fi,
+                ca,
+                cb,
+                axis,
+                radius,
+                cca,
+                ccb,
+                ra,
+                rb,
+            });
+        }
+
+        let tau = 2.0 * std::f64::consts::PI;
+        let daz_of = |ta: f64, tb: f64| -> f64 {
+            let mut daz = (ta - tb).abs();
+            if daz > std::f64::consts::PI {
+                daz = tau - daz;
             }
-            let Some(a) = normalize3(axis_dir.as_array()) else {
-                continue;
+            daz
+        };
+        // Position of a vertex that may be an original OR a minted one.
+        let point_any = |v: u32, minted: &[BRepVertex]| -> Point3 {
+            if (v as usize) < yverts.len() {
+                yverts[v as usize].point
+            } else {
+                minted[v as usize - yverts.len()].point
+            }
+        };
+        let az_in = |p: Point3, c: Point3, e1: [f64; 3], e2: [f64; 3]| -> f64 {
+            let w = sub(p, c);
+            dot3(w, e2).atan2(dot3(w, e1))
+        };
+
+        // PASS 1 — rims that already share an azimuth-aligned vertex pair
+        // (the mesh-granular case: both rims retain the Stage-1 lattice).
+        // Deterministic: smallest |Δaz|, ties by (va, vb) index order. A rim
+        // whose anchor was fixed by an earlier face keeps it (a chain shared
+        // by two laterals must emit ONE closed edge).
+        let mut unpaired: Vec<usize> = Vec::new();
+        for (ci, cand) in cands.iter().enumerate() {
+            let (e1, e2) = ortho_basis(cand.axis);
+            let cand_a: Vec<u32> = match chains[cand.ca].anchor {
+                Some(a0) => vec![a0],
+                None => chains[cand.ca].verts.clone(),
             };
-            let (e1, e2) = ortho_basis(a);
-            let EffCurve::Circle { center: cca, .. } = chains[ca].curve else {
-                continue;
+            let cand_b: Vec<u32> = match chains[cand.cb].anchor {
+                Some(b0) => vec![b0],
+                None => chains[cand.cb].verts.clone(),
             };
-            let EffCurve::Circle { center: ccb, .. } = chains[cb].curve else {
-                continue;
-            };
-            let az = |v: u32, c: Point3| -> f64 {
-                let w = sub(yverts[v as usize].point, c);
-                dot3(w, e2).atan2(dot3(w, e1))
-            };
-            // Find the azimuth-aligned vertex pair (deterministic: smallest
-            // |Δaz|, ties by (va, vb) index order).
             let mut best: Option<(f64, u32, u32)> = None;
-            for &va in &chains[ca].verts {
-                let ta = az(va, cca);
-                for &vb in &chains[cb].verts {
-                    let tb = az(vb, ccb);
-                    let mut daz = (ta - tb).abs();
-                    if daz > std::f64::consts::PI {
-                        daz = 2.0 * std::f64::consts::PI - daz;
-                    }
+            for &va in &cand_a {
+                let ta = az_in(point_any(va, &minted), cand.cca, e1, e2);
+                for &vb in &cand_b {
+                    let tb = az_in(point_any(vb, &minted), cand.ccb, e1, e2);
+                    let daz = daz_of(ta, tb);
                     let better = match best {
                         None => true,
                         Some((d, pa, pb)) => daz < d || (daz == d && (va, vb) < (pa, pb)),
@@ -719,12 +788,171 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
             // The aligned pair's chord must be a true ruling: azimuth-equal
             // within the angular band (length-scaled by radius).
             let Some((daz, va, vb)) = best else { continue };
-            if daz * radius > band {
+            if daz * cand.radius > band {
+                unpaired.push(ci);
                 continue;
             }
-            chains[ca].anchor = Some(va);
-            chains[cb].anchor = Some(vb);
-            lateral_pairs.insert(fi, ((ca, va), (cb, vb)));
+            chains[cand.ca].anchor = Some(va);
+            chains[cand.cb].anchor = Some(vb);
+            lateral_pairs.insert(cand.fi, ((cand.ca, va), (cand.cb, vb)));
+        }
+
+        // PASS 2 — TYPED RIMS (I5-1b adjudication, spec §4-I5-1b (a)): a
+        // yang rim emitted as analytic arcs keeps only its arc SPLIT
+        // vertices, chosen per rim, so the two rims of one lateral generally
+        // share no azimuth and pass 1 finds nothing. The seam ruling of the
+        // canonical `[rim, seam, rim, seam]` form is kernel-v2's OWN
+        // representational choice (the yang face is a full lateral between
+        // two closed rims); its foot azimuth is free. Choose it as
+        // `construct::extrude` does for a holed profile — COHERENT across
+        // coaxial laterals of the output (a boss and its bore share the
+        // profile-frame seam): the reference is an already-anchored coaxial
+        // lateral's seam direction (pass 1 or an earlier pass-2 face), else
+        // this face's own smallest-|Δaz| rim-a vertex. Each rim then takes an
+        // existing vertex within the band of that azimuth, or MINTS the
+        // EXACT on-circle point there (same geometry, one representational
+        // vertex). Never moves a vertex; never touches pass-1 rims.
+        //
+        // Why coherence is load-bearing, not cosmetic: the render tessellator
+        // samples every canonical rim at the fixed `N` from its seam vertex,
+        // so two coaxial laterals closer than the sagitta (C0117: 1e-4 wall
+        // at r = 0.5, sagitta 4.8e-4) render self-consistently ONLY in phase.
+        // Gate-off got that phase from the arrangement by coincidence (cap
+        // triangulation edges seed the boss lattice onto the bore rims); this
+        // makes it a property of the canonical form.
+        //
+        // Coaxial references: (unit axis, a point on it, seam foot direction ⊥ axis).
+        let mut axis_refs: Vec<([f64; 3], [f64; 3], [f64; 3])> = Vec::new();
+        for (fi, &((_ca, va), _)) in &lateral_pairs {
+            let Some(cand) = cands.iter().find(|c| c.fi == *fi) else {
+                continue;
+            };
+            let p = point_any(va, &minted);
+            let w = sub(p, cand.cca);
+            let along = dot3(w, cand.axis);
+            let radial = [
+                w[0] - along * cand.axis[0],
+                w[1] - along * cand.axis[1],
+                w[2] - along * cand.axis[2],
+            ];
+            if let Some(dir) = normalize3(radial) {
+                axis_refs.push((cand.axis, cand.cca.as_array(), dir));
+            }
+        }
+        let coaxial = |axis: [f64; 3], pt: [f64; 3], r: &([f64; 3], [f64; 3], [f64; 3])| -> bool {
+            let (ra, rp, _) = r;
+            if norm3(cross3(axis, *ra)) > BAND {
+                return false;
+            }
+            let w = [pt[0] - rp[0], pt[1] - rp[1], pt[2] - rp[2]];
+            norm3(cross3(w, *ra)) <= band
+        };
+        for &ci in &unpaired {
+            let cand = &cands[ci];
+            let (e1, e2) = ortho_basis(cand.axis);
+            let pre_a = chains[cand.ca].anchor;
+            let pre_b = chains[cand.cb].anchor;
+            // Reference azimuth (in this face's frame).
+            let theta_ref = match (pre_a, pre_b) {
+                (Some(a0), Some(b0)) => {
+                    let ta = az_in(point_any(a0, &minted), cand.cca, e1, e2);
+                    let tb = az_in(point_any(b0, &minted), cand.ccb, e1, e2);
+                    if daz_of(ta, tb) * cand.radius > band {
+                        // Both anchors fixed elsewhere and not a ruling: this
+                        // face cannot take the canonical form — arc fallback
+                        // (conservative; never move an anchor).
+                        continue;
+                    }
+                    ta
+                }
+                (Some(a0), None) => az_in(point_any(a0, &minted), cand.cca, e1, e2),
+                (None, Some(b0)) => az_in(point_any(b0, &minted), cand.ccb, e1, e2),
+                (None, None) => {
+                    match axis_refs
+                        .iter()
+                        .find(|r| coaxial(cand.axis, cand.cca.as_array(), r))
+                    {
+                        Some((_, _, dir)) => dot3(*dir, e2).atan2(dot3(*dir, e1)),
+                        None => {
+                            // This face's own deterministic choice: the rim-a
+                            // vertex of the smallest-|Δaz| pair (ties by index).
+                            let mut best: Option<(f64, u32)> = None;
+                            for &va in &chains[cand.ca].verts {
+                                let ta = az_in(point_any(va, &minted), cand.cca, e1, e2);
+                                for &vb in &chains[cand.cb].verts {
+                                    let tb = az_in(point_any(vb, &minted), cand.ccb, e1, e2);
+                                    let daz = daz_of(ta, tb);
+                                    let better = match best {
+                                        None => true,
+                                        Some((d, pa)) => daz < d || (daz == d && va < pa),
+                                    };
+                                    if better {
+                                        best = Some((daz, va));
+                                    }
+                                }
+                            }
+                            let Some((_, va)) = best else { continue };
+                            az_in(point_any(va, &minted), cand.cca, e1, e2)
+                        }
+                    }
+                }
+            };
+            // Per rim: preset anchor, else an existing vertex within the
+            // band of theta_ref (nearest, ties by index), else mint.
+            let foot = |chain_id: usize,
+                        center: Point3,
+                        r_rim: f64,
+                        preset: Option<u32>,
+                        minted: &mut Vec<BRepVertex>|
+             -> u32 {
+                if let Some(v) = preset {
+                    return v;
+                }
+                let mut best: Option<(f64, u32)> = None;
+                for &v in &chains[chain_id].verts {
+                    let t = az_in(point_any(v, minted), center, e1, e2);
+                    let d = daz_of(t, theta_ref);
+                    let better = match best {
+                        None => true,
+                        Some((bd, bv)) => d < bd || (d == bd && v < bv),
+                    };
+                    if better {
+                        best = Some((d, v));
+                    }
+                }
+                if let Some((d, v)) = best {
+                    if d * r_rim <= band {
+                        return v;
+                    }
+                }
+                let (st, ct) = theta_ref.sin_cos();
+                let c = center.as_array();
+                let p = Point3::new(
+                    c[0] + r_rim * (ct * e1[0] + st * e2[0]),
+                    c[1] + r_rim * (ct * e1[1] + st * e2[1]),
+                    c[2] + r_rim * (ct * e1[2] + st * e2[2]),
+                );
+                let new_v = (yverts.len() + minted.len()) as u32;
+                minted.push(BRepVertex { point: p });
+                new_v
+            };
+            let va = foot(cand.ca, cand.cca, cand.ra, pre_a, &mut minted);
+            let vb = foot(cand.cb, cand.ccb, cand.rb, pre_b, &mut minted);
+            chains[cand.ca].anchor = Some(va);
+            chains[cand.cb].anchor = Some(vb);
+            lateral_pairs.insert(cand.fi, ((cand.ca, va), (cand.cb, vb)));
+            if !axis_refs
+                .iter()
+                .any(|r| coaxial(cand.axis, cand.cca.as_array(), r))
+            {
+                let (st, ct) = theta_ref.sin_cos();
+                let dir = [
+                    ct * e1[0] + st * e2[0],
+                    ct * e1[1] + st * e2[1],
+                    ct * e1[2] + st * e2[2],
+                ];
+                axis_refs.push((cand.axis, cand.cca.as_array(), dir));
+            }
         }
     }
 
@@ -1122,5 +1350,7 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
         });
     }
 
-    Some((yverts.to_vec(), new_edges, new_faces))
+    let mut out_verts = yverts.to_vec();
+    out_verts.extend(minted);
+    Some((out_verts, new_edges, new_faces))
 }
