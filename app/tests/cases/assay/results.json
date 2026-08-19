@@ -120,7 +120,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(20), reason: \"surface-pair refinement needs a positive finite chord tolerance\" }",
+      "detail": "1 engine error(s): 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(21), reason: \"patch triangulation folded (inverted triangle) — KV9-F2: the                          unrolled ear-clip/refinement produced inward-facing geometry;                          loud instead of silently-wrong render output\" }",
       "id": "R0020",
       "status": "error"
     },
@@ -192,7 +192,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 089554e1-2746-405d-9c0d-70e00e9097a2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 32 is invalid: LocalRefinementRequired\")",
+      "detail": "1 engine error(s): 089554e1-2746-405d-9c0d-70e00e9097a2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
       "id": "R0032",
       "status": "error"
     },
@@ -264,7 +264,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 22 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(460), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.",
       "id": "R0044",
       "status": "error"
     },
@@ -318,7 +318,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 0 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
       "id": "R0053",
       "status": "error"
     },

@@ -481,6 +481,45 @@ fn surface_pair_sampler_cone_cylinder() {
     }
 }
 
+/// K9 at LARGE coordinate magnitude (2026-08-19, R0044 anchor): the same
+/// cone∩cylinder arc translated to |x| ≈ 6e3. Every pair residual is a
+/// LENGTH, so at that magnitude nothing evaluates below ~8·ε·L ≈ 1e-11; the
+/// projector's bare 1e-13 acceptance (mirroring yang-rs's PRE-2026-07-28
+/// contract) could never be met and a fully converged root reported
+/// "did not converge". The floor is now `max(1e-13, 8·ε·L)` (yang-rs's
+/// amended contract); meters-scale behavior is unchanged.
+#[test]
+fn surface_pair_sampler_cone_cylinder_at_large_magnitude() {
+    let o = [6000.0, -6000.0, 6000.0];
+    let cone = PairSurface::Cone {
+        apex: Point3::new(o[0], o[1], o[2]),
+        axis_dir: up(),
+        half_angle: PI / 4.0,
+    };
+    let cyl = PairSurface::Cylinder {
+        axis_point: Point3::new(o[0] + 2.0, o[1], o[2]),
+        axis_dir: up(),
+        radius: 1.0,
+    };
+    let start = Point3::new(o[0] + 1.0, o[1], o[2] + 1.0);
+    let end = Point3::new(o[0] + 2.0, o[1] + 1.0, o[2] + 5.0_f64.sqrt());
+    let tol = 1e-4;
+    let samples = surface_pair_interior_samples(&cone, &cyl, start, end, tol)
+        .expect("a converged root at |x| ~ 6e3 must be ACCEPTED — 1e-13 is below one ULP there");
+    assert!(!samples.is_empty());
+    let band = 8.0 * f64::EPSILON * 6000.0 * 4.0;
+    for s in &samples {
+        let radial = ((s.x() - o[0]).powi(2) + (s.y() - o[1]).powi(2)).sqrt();
+        let cone_res = (radial - (s.z() - o[2]).abs()).abs();
+        let cyl_res = (((s.x() - o[0] - 2.0).powi(2) + (s.y() - o[1]).powi(2)).sqrt() - 1.0).abs();
+        assert!(
+            cone_res < band && cyl_res < band,
+            "sample {s:?} on both surfaces within the evaluation floor \
+             (cone_res={cone_res:e}, cyl_res={cyl_res:e}, band={band:e})"
+        );
+    }
+}
+
 /// K9 failure mode: a tangent pair (parallel normals along the contact
 /// line) cannot be Newton-refined — typed, loud, no chord fallback.
 #[test]

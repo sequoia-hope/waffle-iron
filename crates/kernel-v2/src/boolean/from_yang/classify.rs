@@ -276,6 +276,13 @@ pub(crate) fn classify_edge(
                     let band = cad_primitives::TAU_EVAL
                         * (1.0 + crate::geom::pair_surface_scale(s).max(mag));
                     if residual.abs() > band {
+                        if std::env::var_os("KV_PAIR_ENDPOINT_PROBE").is_some() {
+                            eprintln!(
+                                "KV_PAIR_ENDPOINT_PROBE reject: from={from} to={to} p={xa:?} \
+                                 surface={s:?} residual={residual:.3e} band={band:.3e} \
+                                 pair=({pa:?}, {pb:?})"
+                            );
+                        }
                         return Err(KernelV2Error::InvalidBooleanOutput(
                             "output surface-pair endpoint does not lie on both surfaces",
                         ));

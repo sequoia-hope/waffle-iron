@@ -345,7 +345,20 @@ name, never measured).
    min-height/max-edge ≤ 1e-9 — the `chain_straightness` band) + a
    ping-pong certificate STOP. **Corpus 261C/0W/47E/1EE/0T — R0016
    ERROR→CORRECT (a genuine conversion), R0009/R0047 advance to deeper
-   pre-existing walls, zero other deltas. NEW CANONICAL.**
+   pre-existing walls, zero other deltas. NEW CANONICAL.** Same day, the
+   census's other shared site — `relocate_onto_implicit_pair` → `None` on
+   R0032/R0044/R0053 — was traced (`YANG_PAIR_NEWTON_TRACE`) to the CONE
+   step overshoot (raw radial residual × unit normal = sec α too long;
+   ratio exactly 1 − sec α; the KV16 fix the TRIPLE solver already had),
+   then R0044 peeled the same-type SurfacePair junction (one-slot map →
+   `same_type_junction`), kernel-v2's K9 cone sag radius (`pair_surface_
+   scale(Cone)=0` → `pair_surface_local_scale`) and the projector's bare
+   1e-13 tau (→ 8·ε·L) — four prose-shared-rule failures, all closed (M5
+   spec §"2026-08-19"). Corpus category-identical (261C/0W/47E/1EE/0T);
+   R0020/R0032/R0044/R0053 advance to Stage-6 non-2-manifold / render
+   ring-reject / KV9-F2 walls. The Stage-4 LRR tail is now R0038
+   (tangency), R0050 (near-coincident revolve incidence), C0067 (circle×
+   circle junction) + the OffCurve five.
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

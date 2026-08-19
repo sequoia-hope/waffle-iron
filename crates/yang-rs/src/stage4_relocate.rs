@@ -215,6 +215,33 @@ pub(crate) fn surface_value_and_normal(s: Surface, x: [f64; 3]) -> Option<(f64, 
     }
 }
 
+/// TRUE signed distance along the unit normal, for the Newton solvers below.
+/// The Newton systems pair each residual with the UNIT surface normal, so
+/// every residual must be the true signed distance along it.
+/// `surface_value_and_normal`'s cone arm returns the radial-deviation form
+/// `l − |h|·tanα` = distance × sec α — fine for its band-audit consumers
+/// (conservative) but an OVERSHOOTING Newton step (secα× too long): the
+/// error multiplies by `(1 − secα)` per step, so at half-angle 60° (sec α =
+/// 2) the iteration bounces without converging and above 60° it DIVERGES
+/// geometrically. Rescale the cone residual to the true distance
+/// `l·cosα − |h|·sinα` (the kernel-v2 `pair_surface_residual_gradient`
+/// convention); plane/sphere/cylinder/torus residuals are already true
+/// distances along their unit gradients.
+///
+/// History: KV16 fixed this in `relocate_onto_implicit_triple` (the R0017
+/// v47 60°-band pierce) but the PAIR solver kept the raw residual for
+/// another five weeks; 2026-08-19 the `YANG_PAIR_NEWTON_TRACE` probe showed
+/// R0032 (torus×cone α=1.19 rad, ratio −1.7 = 1−secα), R0044 (cyl×cone,
+/// ratio −7.5) and R0053 (cyl×cone, ratio −2.6) all diverging with EXACTLY
+/// the predicted geometric factor. One helper now serves both solvers.
+pub(crate) fn surface_distance_and_normal(s: Surface, x: [f64; 3]) -> Option<(f64, [f64; 3])> {
+    let (f, n) = surface_value_and_normal(s, x)?;
+    match s {
+        Surface::Cone { half_angle, .. } => Some((f * half_angle.cos(), n)),
+        _ => Some((f, n)),
+    }
+}
+
 /// KV6d Tier B: relocate `p` onto the exact intersection curve of two surfaces
 /// by Gauss–Newton on the implicit system `{F0(x)=0, F1(x)=0}` — the degree-4
 /// analog of the closed-form conic projectors, used when a torus is one of the
@@ -258,15 +285,24 @@ pub(crate) fn relocate_onto_implicit_pair(p: Point3, s0: Surface, s1: Surface) -
     let tau = TORUS_RELOC_WORK_FLOOR.max(8.0 * f64::EPSILON * mag3(p.as_array()));
     let rank_eps = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
     let mut x = p.as_array();
-    for _ in 0..=MAX_ITERS {
-        let (f0, n0) = surface_value_and_normal(s0, x)?;
-        let (f1, n1) = surface_value_and_normal(s1, x)?;
+    let trace = std::env::var_os("YANG_PAIR_NEWTON_TRACE").is_some();
+    for it in 0..=MAX_ITERS {
+        // TRUE distances along the unit normals (cone rescaled) — see
+        // `surface_distance_and_normal`; a raw cone residual overshoots.
+        let (f0, n0) = surface_distance_and_normal(s0, x)?;
+        let (f1, n1) = surface_distance_and_normal(s1, x)?;
         let b = n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2];
         let det = 1.0 - b * b; // sin²θ between the two unit normals
-                               // Tangential / parallel normals → no transversal 1D intersection curve
-                               // to relocate onto (the contact is a point or a higher-order tangency).
-                               // STOP whether or not the residual is already small — a tangent point IS
-                               // on both surfaces but is not a curve a mesh edge can lie along.
+        if trace {
+            eprintln!(
+                "YANG_PAIR_NEWTON it={it} f0={f0:.3e} f1={f1:.3e} det={det:.3e} tau={tau:.3e} \
+                 x={x:?} s0={s0:?} s1={s1:?}"
+            );
+        }
+        // Tangential / parallel normals → no transversal 1D intersection curve
+        // to relocate onto (the contact is a point or a higher-order tangency).
+        // STOP whether or not the residual is already small — a tangent point IS
+        // on both surfaces but is not a curve a mesh edge can lie along.
         if det <= rank_eps {
             return None;
         }
@@ -321,27 +357,14 @@ pub(crate) fn relocate_onto_implicit_triple(
         ]
     };
     // KV16: the Newton system pairs each residual with the UNIT surface
-    // normal, so every residual must be the TRUE signed distance along it.
-    // `surface_value_and_normal`'s cone arm returns the radial-deviation
-    // form `l − |h|·tanα` = distance × sec α — fine for its band-audit
-    // consumers (conservative) but an overshooting Newton step here: at
-    // half-angle 60° (sec α ≈ 2) the iteration bounces without converging
-    // (the R0017 v47 prism-edge × 60°-band pierce). Rescale the cone
-    // residual to the true distance `l·cosα − |h|·sinα` (the kernel-v2
-    // `pair_surface_residual_gradient` convention; plane/sphere/cylinder
-    // residuals are already true distances along their unit gradients).
-    let dist_and_normal = |s: Surface, x: [f64; 3]| -> Option<(f64, [f64; 3])> {
-        let (f, n) = surface_value_and_normal(s, x)?;
-        match s {
-            Surface::Cone { half_angle, .. } => Some((f * half_angle.cos(), n)),
-            _ => Some((f, n)),
-        }
-    };
+    // normal, so every residual must be the TRUE signed distance along it
+    // (the R0017 v47 prism-edge × 60°-band pierce bounced on the raw cone
+    // residual). Shared with the pair solver: `surface_distance_and_normal`.
     let mut x = p.as_array();
     for _ in 0..=MAX_ITERS {
-        let (f0, n0) = dist_and_normal(s0, x)?;
-        let (f1, n1) = dist_and_normal(s1, x)?;
-        let (f2, n2) = dist_and_normal(s2, x)?;
+        let (f0, n0) = surface_distance_and_normal(s0, x)?;
+        let (f1, n1) = surface_distance_and_normal(s1, x)?;
+        let (f2, n2) = surface_distance_and_normal(s2, x)?;
         let c12 = cross(n1, n2);
         let det = n0[0] * c12[0] + n0[1] * c12[1] + n0[2] * c12[2];
         if det.abs() <= rank_eps {

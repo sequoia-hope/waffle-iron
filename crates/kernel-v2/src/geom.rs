@@ -643,6 +643,32 @@ pub(crate) fn pair_surface_scale(s: &crate::arena::PairSurface) -> f64 {
     }
 }
 
+/// The LOCAL characteristic radius of a [`PairSurface`] at point `p` — the
+/// radius that sets a chord-sag density contract AT `p`. Cylinder/sphere: the
+/// constant radius. Cone: the local radius `|h|·tanα` at `p`'s axial height
+/// (a cone has no constant radius, so [`pair_surface_scale`]'s 0 is right for
+/// residual BANDS but is NOT a usable sag radius: `surface_pair_edge_samples`
+/// took `min(scale_a, scale_b)` = 0 for every cone pair, so the M5 K9 sampler
+/// was unreachable for cyl×cone / cone×cone output edges — the R0020/R0044
+/// "surface-pair refinement needs a positive finite chord tolerance" wall,
+/// 2026-08-19).
+pub(crate) fn pair_surface_local_scale(s: &crate::arena::PairSurface, p: Point3) -> f64 {
+    match *s {
+        crate::arena::PairSurface::Cylinder { radius, .. }
+        | crate::arena::PairSurface::Sphere { radius, .. } => radius,
+        crate::arena::PairSurface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => {
+            let a = [axis_dir.x, axis_dir.y, axis_dir.z];
+            let d = [p.x() - apex.x(), p.y() - apex.y(), p.z() - apex.z()];
+            let h = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+            h.abs() * half_angle.tan()
+        }
+    }
+}
+
 /// `Σᵢ det[r, pᵢ, pᵢ₊₁]` (cyclic) — six times the signed volume contribution
 /// of the triangle fan from `r` over one loop.
 fn loop_fan_determinants(r: Point3, pts: &[Point3]) -> f64 {
@@ -859,5 +885,61 @@ mod tests {
         assert!(pair_surface_residual_gradient(&s, [1.0, -2.0, 0.5]).is_none());
         // Scale is the radius.
         assert_eq!(pair_surface_scale(&s), 3.0);
+    }
+
+    /// The LOCAL pair-surface radius (2026-08-19, R0020/R0044): a cone's is
+    /// `|h|·tanα` at the point — positive off the apex, so a cyl×cone edge's
+    /// sag tolerance (the min local radius over both surfaces at both
+    /// endpoints) is positive; the constant `pair_surface_scale` (0 for a
+    /// cone) made every cone pair edge dead-end on a zero chord tolerance.
+    #[test]
+    fn pair_surface_local_scale_cone_is_local_radius() {
+        let cone = crate::arena::PairSurface::Cone {
+            apex: Point3::new(1.0, 2.0, 3.0),
+            axis_dir: UnitVector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+            half_angle: std::f64::consts::FRAC_PI_4,
+        };
+        // h = 2 above the apex → local radius 2·tan(π/4) = 2 (both nappes).
+        assert!((pair_surface_local_scale(&cone, Point3::new(9.0, 9.0, 5.0)) - 2.0).abs() < 1e-12);
+        assert!((pair_surface_local_scale(&cone, Point3::new(9.0, 9.0, 1.0)) - 2.0).abs() < 1e-12);
+        // At the apex height the local radius is 0 (an apex-crossing edge
+        // keeps the loud zero-tolerance STOP).
+        assert_eq!(
+            pair_surface_local_scale(&cone, Point3::new(0.0, 0.0, 3.0)),
+            0.0
+        );
+        assert_eq!(pair_surface_scale(&cone), 0.0);
+        let cyl = crate::arena::PairSurface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: UnitVector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+            radius: 3.0,
+        };
+        assert_eq!(
+            pair_surface_local_scale(&cyl, Point3::new(9.0, 9.0, 9.0)),
+            3.0
+        );
+        // The edge-sampling contract: min over both surfaces at both endpoints.
+        let (start, end) = (Point3::new(9.0, 9.0, 5.0), Point3::new(9.0, 9.0, 4.0));
+        let r_scale = [start, end]
+            .into_iter()
+            .flat_map(|p| {
+                [
+                    pair_surface_local_scale(&cyl, p),
+                    pair_surface_local_scale(&cone, p),
+                ]
+            })
+            .fold(f64::INFINITY, f64::min);
+        assert!(
+            (r_scale - 1.0).abs() < 1e-12,
+            "min local radius = cone at h=1: {r_scale}"
+        );
     }
 }

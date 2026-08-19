@@ -4468,6 +4468,29 @@ pub(crate) fn stage4_relocate_and_correct(
                     if exact_junctions.contains(&v) {
                         continue;
                     }
+                    // KV16 precedent for the PROCEDURAL map (2026-08-19,
+                    // R0044 anchor): a SECOND, DIFFERENT surface pair at the
+                    // same vertex is a same-type surface-pair junction — e.g.
+                    // cyl_A × cone_B1 meeting cyl_A × cone_B2 on the gear's
+                    // tooth-flank crease circle: THREE surfaces. The one-slot
+                    // map kept the LAST pair, the triple block's `n_maps < 2`
+                    // skipped the vertex, the pair loop relocated it onto
+                    // (cyl, cone_B2) alone, and the OTHER edge's endpoint was
+                    // 0.35 off cone_B1 (kernel-v2's surface-pair endpoint
+                    // check caught it loudly). Route to the triple pass.
+                    if let Some(&(pa, pb)) = vert_surface_pair.get(&v) {
+                        let same = (pa == a && pb == b) || (pa == b && pb == a);
+                        if !same {
+                            same_type_junction.insert(v);
+                            if std::env::var_os("YANG_SAMETYPE_PROBE").is_some() {
+                                eprintln!(
+                                    "[sametype-probe] v={v} p={:?} surface-pair junction: \
+                                     prev=({pa:?}, {pb:?}) -> new=({a:?}, {b:?})",
+                                    mesh.verts.get(v as usize)
+                                );
+                            }
+                        }
+                    }
                     vert_surface_pair.insert(v, (a, b));
                 }
             }

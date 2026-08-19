@@ -177,3 +177,66 @@ simply never matches it (no intersection mesh edges exist for that pair).
      a corpus case that exercises it end-to-end is not yet identified.
 
 *Created: 2026-07-08*
+
+## 2026-08-19 — the cone-pair walls were three PROSE-SHARED-RULE failures (R0032/R0044/R0053 + R0020)
+
+The post-I5-2 Stage-4 STOP census (`yang_n2_stage4_cdt_mesh_updating.md`
+§5c.13's `YANG_LRR_SITE` instrument) put R0032, R0044 and R0053 on ONE site:
+`relocate_onto_implicit_pair` returning `None`. The new `YANG_PAIR_NEWTON_TRACE`
+probe (per-iteration `f0 f1 det x` with the two surfaces) showed all three
+DIVERGING on a **cone** partner with a geometric ratio that is exactly
+`1 − sec α`: R0032 torus × cone α = 1.19 rad → −1.7; R0044 cyl × cone → −7.5;
+R0053 cyl × cone → −2.6. Mechanism: the pair solver paired
+`surface_value_and_normal`'s cone residual (the RADIAL form `l − |h|·tanα` =
+distance × sec α) with the UNIT cone normal, so every Newton step was sec α
+too long — convergent only below 60° (the existing 45° pin
+`m5_cone_pair_relocation_onto_both` passed; the corpus cones are 61°–83°).
+**KV16 had fixed exactly this in `relocate_onto_implicit_triple`** (R0017
+v47, "at half-angle 60° the iteration bounces") and the pair sibling kept the
+raw residual for five weeks — the same failure shape as the `8·ε·L` floor
+(one rule stated in prose across two solvers). Fix: one shared helper
+`surface_distance_and_normal` (cone `f·cosα`) drives BOTH solvers; pin
+`m5_steep_cone_pair_relocation_converges` (α = 1.19/1.31/1.45 rad, both
+argument orders; red-verified against the raw step).
+
+Peeling R0044 then exposed two more, one per layer, each recorded here
+because each is a rule this spec states in prose:
+
+1. **Same-type SurfacePair junction (yang, KV16 precedent).** With the pair
+   Newton converging, kernel-v2's K3 endpoint check rejected an output
+   surface-pair edge whose endpoint sat 0.35 off its cone — because the
+   vertex is the meeting point of cyl_A × cone_B1 and cyl_A × cone_B2 (the
+   gear's tooth-flank crease circle: THREE surfaces), `vert_surface_pair`
+   is a one-slot map (last pair wins), the triple block's `n_maps < 2`
+   never saw it, and the pair loop relocated it onto (cyl, cone_B2) alone.
+   Fix: detect a second DIFFERENT pair at insert time and route the vertex
+   through `same_type_junction` to the triple pass (the KV16/KV16b
+   pattern; 177 such junctions on R0044). Endpoint check now passes.
+2. **kernel-v2 K9 sampler for cone pairs (two rules).** (a)
+   `surface_pair_edge_samples` took its sag radius as
+   `min(pair_surface_scale(a), pair_surface_scale(b))`, and
+   `pair_surface_scale(Cone) = 0` (right for residual BANDS, spec §5) — so
+   EVERY cyl×cone / cone×cone output edge dead-ended on "surface-pair
+   refinement needs a positive finite chord tolerance" (R0020's recorded
+   fatal wall, now R0044's too): the cone-pair producer that "ships as
+   capability closure" was unreachable at render. Fix:
+   `geom::pair_surface_local_scale` (cone: local radius `|h|·tanα`) and the
+   sag radius = the smallest local radius over both surfaces at both
+   endpoints (an apex-crossing edge still yields 0 and STOPs loudly). (b)
+   `SURFACE_PAIR_PROJECT_TAU = 1e-13` "mirrors yang-rs's tested
+   `relocate_onto_implicit_pair` contract" — the PRE-2026-07-28 contract;
+   yang's is `max(1e-13, 8·ε·L)` since the R0025 anchor. At R0044's
+   |x| ≈ 6e3 the projector could never converge. Fix: the same seed-scaled
+   floor (`surface_pair_project_tau`); pin
+   `surface_pair_sampler_cone_cylinder_at_large_magnitude` (red-verified).
+
+Where the cases stand after the three: R0032 → Stage-6 reassembly
+non-2-manifold; R0053 → Stage-6 reassembly non-2-manifold; R0044 → kernel-v2
+render `ring rejected by CDT` on face 460 (MEASURED: a 184-node curved-patch
+ring with a REVERSAL at idx 176→177→178 in the unrolled frame — vertex 177
+~3.8 units behind 176 along the chain at scale 3e3, three distinct neighbour
+edges — a §4.5.3 reversed intersection on a PROCEDURAL chain, which the
+conic-loop `sweep_reversed_intersections` does not cover; the next
+increment for this case, not a K9 sampling defect); R0020 → KV9-F2 `patch
+triangulation folded` (the unrolled patch CDT). None is a §4.5.2 demand.
+Corpus census: see the roadmap §0 record for this date.

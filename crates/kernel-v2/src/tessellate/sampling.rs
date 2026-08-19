@@ -233,10 +233,23 @@ pub(crate) fn hyperbola_interior_samples(
     Ok(samples)
 }
 
-/// Convergence tolerance of the surface-pair Newton projection — mirrors
-/// yang-rs's tested `relocate_onto_implicit_pair` contract (both residuals
-/// ≤ 1e-13; meters-scale models).
+/// Convergence FLOOR of the surface-pair Newton projection — mirrors
+/// yang-rs's tested `relocate_onto_implicit_pair` contract: both residuals
+/// ≤ `max(1e-13, 8·ε·L)`, `L` the SEED's coordinate magnitude. Every pair
+/// residual is a LENGTH, so at coordinate magnitude `L` no residual can be
+/// evaluated below ~`8·ε·L`; the bare 1e-13 (the pre-2026-07-28 yang
+/// contract this constant mirrored) is ~100× below one ULP at the R0044
+/// scale (L ≈ 6.2e3) and a fully converged root ran out of iterations
+/// ("did not converge", 2026-08-19). At unit scale 8·ε·L ≈ 2e-15 < 1e-13,
+/// so meters-scale behavior is unchanged. `L` is the seed's, never the
+/// iterate's, so a diverging iterate cannot inflate its own acceptance.
 const SURFACE_PAIR_PROJECT_TAU: f64 = 1e-13;
+
+/// See [`SURFACE_PAIR_PROJECT_TAU`].
+fn surface_pair_project_tau(seed: [f64; 3]) -> f64 {
+    let l = seed[0].abs().max(seed[1].abs()).max(seed[2].abs());
+    SURFACE_PAIR_PROJECT_TAU.max(8.0 * f64::EPSILON * l)
+}
 
 /// Depth cap of the recursive chord refinement (2¹² sub-chords per edge —
 /// producer edges are sub-facet sized; hand-built edges spanning a large
@@ -255,6 +268,7 @@ fn project_onto_surface_pair(
     p: Point3,
 ) -> Result<Point3, &'static str> {
     let mut x = [p.x(), p.y(), p.z()];
+    let tau = surface_pair_project_tau(x);
     for _ in 0..32 {
         let Some((f1, g1)) = crate::geom::pair_surface_residual_gradient(a, x) else {
             return Err("surface-pair projection hit a defining surface's axis");
@@ -262,7 +276,7 @@ fn project_onto_surface_pair(
         let Some((f2, g2)) = crate::geom::pair_surface_residual_gradient(b, x) else {
             return Err("surface-pair projection hit a defining surface's axis");
         };
-        if f1.abs() <= SURFACE_PAIR_PROJECT_TAU && f2.abs() <= SURFACE_PAIR_PROJECT_TAU {
+        if f1.abs() <= tau && f2.abs() <= tau {
             return Ok(Point3::new(x[0], x[1], x[2]));
         }
         let c = g1[0] * g2[0] + g1[1] * g2[1] + g1[2] * g2[2];
@@ -352,8 +366,14 @@ pub fn surface_pair_interior_samples(
 /// Twin-canonical exactly like [`arc_interior_samples`] (computed on the
 /// lower-id half-edge, reversed for the other side). The absolute sag
 /// tolerance is the chord sag of the `2π/n_seg` circle step on the pair's
-/// SMALLER radius — the same density contract the circle sampling uses, so
-/// no new tolerance is introduced.
+/// SMALLEST LOCAL radius along the edge (`pair_surface_local_scale` at both
+/// endpoints of both surfaces — a cone's local radius `|h|·tanα`, a
+/// cylinder's constant radius) — the same density contract the circle
+/// sampling uses, so no new tolerance is introduced. (Until 2026-08-19 this
+/// used the constant `pair_surface_scale`, which is 0 for a cone, so every
+/// cyl×cone / cone×cone pair edge dead-ended on "needs a positive finite
+/// chord tolerance" — R0020/R0044. An edge through the apex still yields 0
+/// and STOPs loudly there: a pair curve through the apex is degenerate.)
 pub(crate) fn surface_pair_edge_samples(
     arena: &BrepArena,
     h: crate::arena::HalfEdgeId,
@@ -371,7 +391,15 @@ pub(crate) fn surface_pair_edge_samples(
     let fid = arena.loop_(che.loop_id)?.face;
     let start = arena.vertex(che.origin)?.point;
     let end = arena.vertex(arena.half_edge(che.next)?.origin)?.point;
-    let r_scale = crate::geom::pair_surface_scale(&a).min(crate::geom::pair_surface_scale(&b));
+    let r_scale = [start, end]
+        .into_iter()
+        .flat_map(|p| {
+            [
+                crate::geom::pair_surface_local_scale(&a, p),
+                crate::geom::pair_surface_local_scale(&b, p),
+            ]
+        })
+        .fold(f64::INFINITY, f64::min);
     let step = std::f64::consts::PI / f64::from(n_seg);
     let tol = r_scale * (1.0 - step.cos());
     let mut samples = surface_pair_interior_samples(&a, &b, start, end, tol)

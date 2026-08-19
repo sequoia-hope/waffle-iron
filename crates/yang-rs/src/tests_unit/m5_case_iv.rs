@@ -204,6 +204,47 @@ pub(crate) fn m5_cone_pair_relocation_onto_both() {
     assert!(signed_distance_to_surface(cyl, p).unwrap().abs() < 1e-9);
 }
 
+/// The pair Newton must CONVERGE on a STEEP cone (half-angle > 60°).
+///
+/// `relocate_onto_implicit_pair` paired `surface_value_and_normal`'s cone
+/// residual — the radial form `l − |h|·tanα` = distance × sec α — with the
+/// UNIT cone normal, so each Newton step was sec α times too long: the
+/// error multiplies by `(1 − sec α)` per step, which is < 1 in magnitude
+/// only below 60°. `m5_cone_pair_relocation_onto_both` (45°, sec α = 1.41)
+/// converged; the corpus cones did not: R0032 (torus × cone α = 1.19 rad,
+/// measured ratio −1.7 = 1 − sec 68°), R0044 (cyl × cone, −7.5) and R0053
+/// (cyl × cone, −2.6) all diverged geometrically to the `MAX_ITERS` STOP
+/// (`YANG_PAIR_NEWTON_TRACE`, 2026-08-19). The triple solver had carried the
+/// `cos α` rescale since KV16; the pair sibling had not — the SAME
+/// prose-shared-rule failure as the `8·ε·L` floor below. Both solvers now
+/// go through `surface_distance_and_normal`.
+#[test]
+pub(crate) fn m5_steep_cone_pair_relocation_converges() {
+    for half_angle in [1.19_f64, 1.31, 1.45] {
+        // Cylinder r=1 about z; cone about z from the origin. True curve:
+        // the circle r=1 at height h = 1/tanα.
+        let cone = Surface::Cone {
+            apex: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            half_angle,
+        };
+        let cyl = Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        };
+        let h = 1.0 / half_angle.tan();
+        for (s0, s1) in [(cone, cyl), (cyl, cone)] {
+            let p = relocate_onto_implicit_pair(Point3::new(1.02, 0.03, h - 0.02), s0, s1)
+                .unwrap_or_else(|| {
+                    panic!("steep cone α={half_angle}: near-curve point must relocate")
+                });
+            assert!(signed_distance_to_surface(cone, p).unwrap().abs() < 1e-9);
+            assert!(signed_distance_to_surface(cyl, p).unwrap().abs() < 1e-9);
+        }
+    }
+}
+
 /// The pair Newton's convergence floor must be REACHABLE at the coordinate
 /// magnitude it is asked to work at.
 ///
