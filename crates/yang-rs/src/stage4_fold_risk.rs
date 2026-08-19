@@ -766,8 +766,33 @@ pub fn fold_merge_sites_censused<'a>(
                 Some(true) => {
                     census.apex_moved += 1;
                     let on_curve = |x: u32, y: u32| curve_edges.contains(&(x.min(y), x.max(y)));
-                    if on_curve(a, b) && on_curve(b, c) {
+                    let oc = on_curve(a, b) && on_curve(b, c);
+                    if oc {
                         census.apex_moved_on_curve += 1;
+                    }
+                    // Per-corner detail for the OFF-CURVE arm (the class with no
+                    // owner as of 2026-08-19d). What decides its treatment is
+                    // how far the apex ended up from the neighbour it overran,
+                    // measured against the corner's own edge lengths — a
+                    // near-duplicate pair is a Fig-11 merge with a
+                    // richer-certificate survivor; a far one is not.
+                    if !oc && std::env::var_os("YANG_441_FOLD_CENSUS").is_some() {
+                        let over = if t < 0.0 { a } else { c };
+                        let d = |x: [f64; 3], y: [f64; 3]| {
+                            ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2))
+                                .sqrt()
+                        };
+                        let qo = if t < 0.0 { qa } else { qc };
+                        let disp_b = d(pb, qb);
+                        let disp_o = d(if t < 0.0 { pa } else { pc }, qo);
+                        eprintln!(
+                            "YANG_441_FOLD_OFFCURVE apex={b} over={over} t={t:.4}                              gap={:.4e} seg_ab={:.4e} seg_bc={:.4e} disp_apex={disp_b:.4e}                              disp_over={disp_o:.4e} edge_ab_curve={} edge_bc_curve={}",
+                            d(qb, qo),
+                            d(qa, qb),
+                            d(qb, qc),
+                            on_curve(a, b),
+                            on_curve(b, c),
+                        );
                     }
                     continue;
                 }

@@ -376,8 +376,16 @@ BOTH the apex's incident cycle edges are intersection-curve edges):
   records as staying per-segment. Merging there would discard an analytic
   certificate.
 * **OFF-CURVE** (R0011, R0025, R0074, R0085 — 100 % of their inversions) — a
-  RELOCATED vertex crossed a neighbour on a PLAIN boundary. Neither Fig-11 nor
-  `ReorderConic` owns it; this is the class with no owner yet.
+  RELOCATED vertex crossed a neighbour on a PLAIN boundary. **Anchored
+  2026-08-19e (spec §4-I7): the relocation is CORRECT** — the torus arm's
+  `tangent_plane_corridor(d_eps, sinθ)` gate is satisfied with room to spare —
+  but `d_eps` is 27–1000× the local segment, so a move well inside the
+  off-curve budget spans many local edges. It splits by displacement over the
+  corner's own shorter edge into **LOCAL** (R0011 median 1.48×, most of R0074;
+  the converted F0045 sits at 1.86×) — absorbable by the I6 merge once it has a
+  both-moved survivor rule (surface-incidence richness, KV15b I1b) — and
+  **GROSS** (R0085 median 6.07×, 42 % beyond 10×) which is §4.5.2 local
+  refinement's trigger. N2 carries both halves.
 
 **Update (2026-08-06) — the SPLICE LOOP is built; the §4.4.1 layer stack is now
 complete end-to-end, still unwired.** `crates/yang-rs/src/stage4_splice.rs`

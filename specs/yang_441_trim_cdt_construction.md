@@ -1574,6 +1574,77 @@ incident cycle edges are intersection-curve edges:
 
 Recorded, not folded into this increment.
 
+### I7 — the OFF-CURVE class: anchored, split, and assigned (2026-08-19e)
+
+**Status: MEASURED, not built.** I6 left "a relocated vertex crossed a neighbour
+on a PLAIN boundary" as the class with no owner. It is now anchored, and it is
+not one class.
+
+**First, two false starts, both retracted by measurement** (recorded so neither
+is re-derived):
+
+1. *"The surface-pair arm is missing the displacement gate its siblings have."*
+   The `(2s)` `relocate_onto_implicit_pair` call site indeed accepts Newton's
+   result ungated — but a probe there fires **0 times** on all four cases. The
+   arm that actually moves these vertices is the `(2t)` KV6d Tier-B torus block,
+   and it *does* gate: `rho > tangent_plane_corridor(d_eps, sinθ)` → STOP.
+2. *"Then the gate is ballooning at near-tangency."* Measured
+   (`YANG_TORUS_PROBE`): sinθ is 0.90–1.00 (transversal) and every accepted move
+   is well inside its gate — worst ratios **0.69 / 0.32 / 0.23** on
+   R0074 / R0085 / R0025. The gate is doing its job.
+
+**The real anchor.** The corridor bounds OFF-CURVE error against the global
+Stage-1 chord budget `d_eps`; it says nothing about LOCAL order. At these
+vertices `d_eps` is 27–1000× the local segment length, so a move that is a small
+fraction of the off-curve budget is still many local edges long. The relocation
+is CORRECT — it lands on the exact curve, within budget — and the mesh around it
+is simply not updated to accommodate it. Same root as I6; different local
+configuration.
+
+**New instrument.** `[s6-simplicity]` now reports the crossing's own VERTICES,
+each tagged with its Stage-4 status (`at=seg23:v673(still)->v675(still) X
+seg27:v34(2.455e2)->v36(2.101e2)`). `first_cross=(i, j)` named where a loop
+crosses but not what is at the crossing, and every repair acts on vertices.
+`YANG_441_FOLD_CENSUS` adds one line per off-curve corner (gap, both adjacent
+edge lengths, both displacements, per-edge curve incidence).
+
+**The split — displacement measured against the corner's OWN shorter edge:**
+
+| case | corners | median disp/local-edge | max | >2× | >10× |
+|---|---|---|---|---|---|
+| R0011 | 6 | **1.48** | 3.01 | 2 | 0 |
+| R0025 | 8 | **3.13** | 8.73 | 4 | 0 |
+| R0074 | 36 | **2.26** | 101.43 | 19 | 5 |
+| R0085 | 174 | **6.07** | 1737.00 | 144 | 74 |
+
+F0045 — the I6 witness that CONVERTED — sits at **1.86**: it stepped over exactly
+one neighbour, which is what a local merge can absorb. So:
+
+* **LOCAL (R0011 at 1.48 median, most of R0074):** the apex overran one or two
+  neighbours. A merge can absorb this; the only thing I6 lacks is a survivor rule
+  for the case where BOTH vertices moved.
+* **GROSS (R0085 at 6.07 median, 42 % beyond 10×; R0074's tail):** the vertex
+  travels tens to thousands of local edges. No mesh update absorbs that — the
+  discretization was never fine enough for the optimization to be a local
+  correction, which is **§4.5.2 local refinement**'s own trigger (roadmap item 4,
+  `refs/text/yang2025_hybrid_boolean.txt:659+`). This half is NOT unowned; it
+  belongs to an already-planned milestone.
+
+**The next increment, precisely.** Extend the Fig-11 merge to a BOTH-MOVED
+corner, choosing the survivor by **surface-incidence richness** — the KV15b I1b
+rule already generalized on 2026-08-19c. The rule also supplies its own negative
+case, tolerance-free:
+
+* different richness ⇒ two authorities for ONE corner ⇒ merge into the richer
+  (R0011's crossing witness: `v34` carries `{A:Cylinder, B:Plane, B:Plane}` and
+  `v36` carries `{A:Cylinder, B:Plane}` — a junction and a curve point);
+* equal richness ⇒ two distinct samples of ONE curve ⇒ merging would coarsen the
+  curve; the defect is their ORDER, which is `ReorderConic`'s.
+
+No displacement band is needed: the fan rebuild already refuses loudly
+(`FanNotSimple`, `Cdt`) wherever the configuration is not locally repairable, so
+the GROSS half declines itself rather than being excluded by a threshold.
+
 ## 5. After this epic (recorded, not started)
 
 - **§4.5.4 removal half / §4.5.2 guard shell** (roadmap item 3d/4): route the

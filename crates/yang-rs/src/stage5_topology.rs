@@ -4902,13 +4902,59 @@ pub(crate) fn emit_topology(
                     } else {
                         "-".to_string()
                     };
+                    // The crossing's OWN vertices, with each one's Stage-4
+                    // status. `first_cross=(i, j)` is a pair of segment
+                    // indices, which names WHERE the loop crosses but not WHAT
+                    // is at the crossing — and every repair has to act on the
+                    // vertices, not the indices. Reported as
+                    // `seg_i: v(status) -> v(status) x seg_j: ...`, where the
+                    // status is the displacement, `still`, or `new` for a
+                    // vertex Stage 4 minted (no pre position).
+                    let cross_verts = s
+                        .first_crossing
+                        .map(|(i, j)| {
+                            let at = |k: usize| -> u32 { cyc[k % cyc.len()].0 };
+                            let tag = |v: u32| -> String {
+                                S4_PRE_POS
+                                    .with(|c| {
+                                        c.borrow().as_ref().map(|m| match m.get(&v) {
+                                            None => "new".to_string(),
+                                            Some(&q) => {
+                                                let w = mesh.verts[v as usize].as_array();
+                                                let d = ((w[0] - q[0]).powi(2)
+                                                    + (w[1] - q[1]).powi(2)
+                                                    + (w[2] - q[2]).powi(2))
+                                                .sqrt();
+                                                if d == 0.0 {
+                                                    "still".to_string()
+                                                } else {
+                                                    format!("{d:.3e}")
+                                                }
+                                            }
+                                        })
+                                    })
+                                    .unwrap_or_else(|| "?".to_string())
+                            };
+                            format!(
+                                "seg{i}:v{}({})->v{}({}) X seg{j}:v{}({})->v{}({})",
+                                at(i),
+                                tag(at(i)),
+                                at(i + 1),
+                                tag(at(i + 1)),
+                                at(j),
+                                tag(at(j)),
+                                at(j + 1),
+                                tag(at(j + 1)),
+                            )
+                        })
+                        .unwrap_or_else(|| "-".to_string());
                     eprintln!(
                         "[s6-simplicity] face={face_idx} input={:?} cycle={ci} \
                          role={} len={} cross={} touch={} spike={} degen={} \
                          min_seg={:.4e} max_seg={:.4e} max_s4_disp={disp_s} \
                          disp_over_min_seg={ratio_s} cross_pre={cross_pre_s} \
                          class={class_s} n_moved={moved_s} trunc_t={trunc_s} \
-                         first_cross={:?}",
+                         first_cross={:?} at={cross_verts}",
                         info.input,
                         if ci == outer_idx { "outer" } else { "hole" },
                         cyc.len(),

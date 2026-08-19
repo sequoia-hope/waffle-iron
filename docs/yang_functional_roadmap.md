@@ -438,8 +438,17 @@ name, never measured).
    chain ORDER (`ReorderConic`, I2b), on `Hyperbola`/`SurfacePair` curves that
    I5-1b already records as per-segment; and **OFF-CURVE** — R0011, R0025,
    R0074, R0085, 100 % of their inversions — a RELOCATED vertex crossed a
-   neighbour on a PLAIN boundary, which is neither Fig-11 (the apex holds the
-   certificate) nor `ReorderConic` (no chain), and **has no owner yet**.
+   neighbour on a PLAIN boundary. **ANCHORED 2026-08-19e (spec §4-I7): the
+   relocation is correct** (the torus arm's `tangent_plane_corridor` gate is
+   satisfied with room to spare — worst ratios 0.69/0.32/0.23 at sinθ
+   0.90–1.00) **but `d_eps` is 27–1000× the local segment**, so a move well
+   inside the off-curve budget is still many local edges long. Split by
+   displacement over the corner's own shorter edge, it is TWO classes with
+   different owners: **LOCAL** (R0011 median 1.48×, most of R0074 — F0045, which
+   converted, sits at 1.86×) needs only the both-moved survivor rule
+   (surface-incidence richness, KV15b I1b) added to the I6 merge; **GROSS**
+   (R0085 median 6.07×, 42 % beyond 10×, max 1737×) is **§4.5.2 local
+   refinement**'s own trigger — item 4 below, not an unowned class.
    Remaining loud refusals on the sites that ARE Fig-11's: `FanNotSimple`
    (pinched victim — R0011/R0074/R0085) and unchartable cone/torus holders
    (R0044). Spec §4-I6.

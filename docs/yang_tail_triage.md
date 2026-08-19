@@ -1003,10 +1003,31 @@ the apex's incident cycle edges are intersection-curve edges:
   §4.3.4's `ReorderConic` (I2b). Their curves are `Hyperbola`/`SurfacePair`,
   which I5-1b already records as staying per-segment.
 * **OFF-CURVE — R0011, R0025, R0074, R0085 (100 % of their inversions):** a
-  RELOCATED vertex crossed a neighbour on a PLAIN boundary. Neither Fig-11 (the
-  apex carries the analytic certificate and must not be merged away) nor
-  `ReorderConic` (no chain to reorder). **No owner yet** — the honest next
-  question.
+  RELOCATED vertex crossed a neighbour on a PLAIN boundary. **Anchored
+  2026-08-19e (spec §4-I7) and it is TWO classes, both now owned.** The
+  relocation itself is correct — the torus arm's gate
+  (`tangent_plane_corridor(d_eps, sinθ)`) is satisfied with room to spare
+  (worst ratios 0.69/0.32/0.23, sinθ 0.90–1.00) — but `d_eps` is 27–1000× the
+  local segment there, so a move well inside the OFF-CURVE budget is still many
+  local edges long. Splitting by displacement over the corner's own shorter
+  edge:
+
+  | case | corners | median | max | >2× | >10× |
+  |---|---|---|---|---|---|
+  | R0011 | 6 | 1.48 | 3.01 | 2 | 0 |
+  | R0025 | 8 | 3.13 | 8.73 | 4 | 0 |
+  | R0074 | 36 | 2.26 | 101.43 | 19 | 5 |
+  | R0085 | 174 | 6.07 | 1737.00 | 144 | 74 |
+
+  F0045 (the I6 case that CONVERTED) sits at 1.86. So **LOCAL** (R0011, most of
+  R0074) is absorbable by a merge and needs only a survivor rule for the
+  both-moved case (surface-incidence richness, the KV15b I1b rule); **GROSS**
+  (R0085 median 6.07, 42 % beyond 10×) is §4.5.2 local refinement's own trigger
+  — roadmap item 4, not an unowned class.
+
+  Two hypotheses were retracted by measurement en route: the `(2s)` surface-pair
+  arm's missing gate (probe fires 0 times — wrong arm) and a ballooning
+  near-tangency corridor (sinθ is 0.90–1.00).
 
 ## Stage-6 non-2-manifold site census (2026-08-19, post-5c.13) — the second absolute-floor anchor
 
