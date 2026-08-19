@@ -1544,13 +1544,35 @@ two conversions, ZERO other category deltas and ZERO detail deltas** against the
   entirely by re-triangulated fans — never by an index relabel, which is exactly
   what made the 2026-08-05 trial unsound.
 
-**The residue is a DIFFERENT defect, and the census names it.** Across the
-family the dominant rejection is `apex_moved` (R0044 188/214, R0053 83/83,
-R0095 20/20, R0025 4/4): the fold apex is ITSELF a relocated vertex, so two
-on-curve vertices crossed each other along the chain. That is chain ORDER, which
-is the §4.3.4 `ReorderConic` action's business (I2b), not Fig-11's — a merge
-there would discard an analytic certificate. It is recorded as the next
-increment, not folded into this one.
+**The residue is not one defect but TWO, and the census separates them.** Every
+rejected inversion has an apex that genuinely MOVED (`apex_minted = 0` in every
+case — a Stage-4-MINTED apex, e.g. an appended §4.3.4 sample, is a different
+population and there are none). Splitting those by whether BOTH of the apex's
+incident cycle edges are intersection-curve edges:
+
+| case (per op) | inversions | apex_moved | of which ON-CURVE | Fig-11 sites |
+|---|---|---|---|---|
+| R0044 | 214 / 115 | 188 / 109 | **163 / 96** | 13 / 3 |
+| R0053 | 83 / 12 | 83 / 12 | **62 / 12** | 0 / 0 |
+| R0095 | 20 | 20 | **13** | 0 |
+| R0011 | 7 / 3 | 4 / 2 | **0 / 0** | 0 / 1 |
+| R0025 | 4 / 4 | 4 / 4 | **0 / 0** | 0 / 0 |
+| R0074 | 37 | 36 | **0** | 1 |
+| R0085 | 127 / 50 | 125 / 49 | **0 / 0** | 1 / 1 |
+
+* **ON-CURVE (R0044, R0053, R0095):** two vertices of the SAME intersection
+  chain crossed each other. That is chain ORDER, owned by §4.3.4's
+  `ReorderConic` action (I2b) — a merge would discard an analytic certificate.
+  Worth asking why the existing reorder does not already straighten them; the
+  curves here are `Hyperbola`/`SurfacePair`, which the I5-1b record already
+  lists as staying per-segment.
+* **OFF-CURVE (R0011, R0025, R0074, R0085 — 100 % of their inversions):** a
+  RELOCATED vertex crossed a neighbour on a PLAIN boundary. It is not Fig-11
+  (the apex holds the analytic certificate, so it must not be merged away) and
+  not `ReorderConic` (there is no chain to reorder). **This class has no owner
+  yet** and is the honest next question.
+
+Recorded, not folded into this increment.
 
 ## 5. After this epic (recorded, not started)
 

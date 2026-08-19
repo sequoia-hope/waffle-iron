@@ -365,11 +365,19 @@ re-triangulation (`stage4_construct::rebuild_merge_fan`) — **not** the whole-p
 carrying other folds). F0045 and R0090 convert; corpus 263C → **265C/0W/43E/1EE/0T**
 with zero other deltas.
 
-N2 stays OPEN: the census also separates a SECOND, larger class this increment
-deliberately does not touch — `apex_moved`, where two ON-CURVE vertices crossed
-each other (R0044 188/214 inversions, R0053 83/83, R0095 20/20, R0025 4/4). That
-is §4.3.4 chain ORDER (the `ReorderConic` action), not Fig-11; merging there
-would discard an analytic certificate.
+N2 stays OPEN, and the census separates the remainder into TWO classes this
+increment deliberately does not touch (`apex_minted = 0` family-wide, so every
+rejected inversion has an apex that genuinely moved; the split is on whether
+BOTH the apex's incident cycle edges are intersection-curve edges):
+
+* **ON-CURVE** (R0044 163/188 + 96/109, R0053 62/83 + 12/12, R0095 13/20) —
+  two vertices of the SAME chain crossed each other = §4.3.4 chain ORDER (the
+  `ReorderConic` action), on `Hyperbola`/`SurfacePair` curves I5-1b already
+  records as staying per-segment. Merging there would discard an analytic
+  certificate.
+* **OFF-CURVE** (R0011, R0025, R0074, R0085 — 100 % of their inversions) — a
+  RELOCATED vertex crossed a neighbour on a PLAIN boundary. Neither Fig-11 nor
+  `ReorderConic` owns it; this is the class with no owner yet.
 
 **Update (2026-08-06) — the SPLICE LOOP is built; the §4.4.1 layer stack is now
 complete end-to-end, still unwired.** `crates/yang-rs/src/stage4_splice.rs`

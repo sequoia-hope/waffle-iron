@@ -430,10 +430,17 @@ name, never measured).
    being re-triangulated. **NEW CANONICAL: 265C/0W/43E/1EE/0T — F0045 and
    R0090 ERROR→SUPPORTED_CORRECT, ZERO other category or detail deltas;
    rewrite tier green with the pass on.**
-   The residue is a DIFFERENT defect the census names: the dominant rejection
-   is `apex_moved` (R0044 188/214, R0053 83/83, R0095 20/20, R0025 4/4) — two
-   ON-CURVE vertices crossed each other, which is §4.3.4 chain ORDER
-   (`ReorderConic`, I2b), not Fig-11. Remaining loud refusals: `FanNotSimple`
+   The residue is TWO defects the census separates (`apex_minted = 0`
+   family-wide, so every rejected inversion has an apex that genuinely moved;
+   the split is on whether BOTH the apex's incident cycle edges are
+   intersection-curve edges): **ON-CURVE** — R0044 163/188 + 96/109, R0053
+   62/83 + 12/12, R0095 13/20 — two vertices of one chain crossed, i.e. §4.3.4
+   chain ORDER (`ReorderConic`, I2b), on `Hyperbola`/`SurfacePair` curves that
+   I5-1b already records as per-segment; and **OFF-CURVE** — R0011, R0025,
+   R0074, R0085, 100 % of their inversions — a RELOCATED vertex crossed a
+   neighbour on a PLAIN boundary, which is neither Fig-11 (the apex holds the
+   certificate) nor `ReorderConic` (no chain), and **has no owner yet**.
+   Remaining loud refusals on the sites that ARE Fig-11's: `FanNotSimple`
    (pinched victim — R0011/R0074/R0085) and unchartable cone/torus holders
    (R0044). Spec §4-I6.
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R

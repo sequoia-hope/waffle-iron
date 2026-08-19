@@ -994,11 +994,19 @@ the neighbour's turn goes 27.69° (exactly the rim's 360/13 grid step) → 167.3
 This is Yang Fig-11 verbatim, reached from the other side, and its remedy is
 Fig-11(b)→(c): merge the overrun vertex into the relocated one.
 
-**The residue is a different defect.** The dominant selector rejection across the
-family is `apex_moved` — the fold apex is ITSELF relocated, i.e. two ON-CURVE
-vertices crossed each other along the chain. That is chain ORDER (the §4.3.4
-`ReorderConic` action, I2b), not Fig-11: merging there would discard an analytic
-certificate. Recorded as the next increment.
+**The residue is TWO defects, not one.** Every rejected inversion has an apex
+that genuinely moved (`apex_minted = 0` family-wide). Split by whether BOTH of
+the apex's incident cycle edges are intersection-curve edges:
+
+* **ON-CURVE — R0044 (163/188, 96/109), R0053 (62/83, 12/12), R0095 (13/20):**
+  two vertices of the SAME chain crossed each other = chain ORDER, owned by
+  §4.3.4's `ReorderConic` (I2b). Their curves are `Hyperbola`/`SurfacePair`,
+  which I5-1b already records as staying per-segment.
+* **OFF-CURVE — R0011, R0025, R0074, R0085 (100 % of their inversions):** a
+  RELOCATED vertex crossed a neighbour on a PLAIN boundary. Neither Fig-11 (the
+  apex carries the analytic certificate and must not be merged away) nor
+  `ReorderConic` (no chain to reorder). **No owner yet** — the honest next
+  question.
 
 ## Stage-6 non-2-manifold site census (2026-08-19, post-5c.13) — the second absolute-floor anchor
 

@@ -680,7 +680,7 @@ pub fn fold_merge_sites<'a>(
     pre: &HashMap<u32, [f64; 3]>,
     post: &[[f64; 3]],
 ) -> Vec<FoldMergeSite> {
-    fold_merge_sites_censused(cycles, pre, post).0
+    fold_merge_sites_censused(cycles, pre, post, &BTreeSet::new()).0
 }
 
 /// Per-condition rejection counts for [`fold_merge_sites`] — the selector's own
@@ -693,19 +693,41 @@ pub struct FoldMergeCensus {
     pub corners: usize,
     /// Corners whose chord order Stage 4 inverted (condition 2).
     pub inversions: usize,
-    /// Inversions rejected because the apex itself moved (condition 1).
+    /// Inversions rejected because the apex itself MOVED (condition 1) — two
+    /// on-curve vertices crossed each other, which is chain ORDER (§4.3.4
+    /// `ReorderConic`), not Fig-11.
     pub apex_moved: usize,
-    /// Inversions rejected because the overrun end never moved (condition 3).
+    /// Inversions rejected because the apex was MINTED during Stage 4 (no `pre`
+    /// entry at all — e.g. an appended §4.3.4 on-curve sample). Counted apart
+    /// from [`Self::apex_moved`] because the two are different populations with
+    /// different owners, and collapsing them into one counter would attribute
+    /// the residue to chain order without having measured it. **Measured
+    /// 2026-08-19d over the ring-reject family: 0 in every case** — every
+    /// rejected inversion has an apex that genuinely moved.
+    pub apex_minted: usize,
+    /// Of [`Self::apex_moved`], how many sit on an INTERSECTION-CURVE chain
+    /// (both incident cycle edges are curve edges). Those are two on-curve
+    /// vertices that crossed each other — chain ORDER, owned by §4.3.4's
+    /// `ReorderConic`. The remainder are relocated vertices that crossed a
+    /// neighbour on a PLAIN boundary, which is neither that nor Fig-11, and is
+    /// the class with no owner yet.
+    pub apex_moved_on_curve: usize,
+    /// Inversions rejected because the overrun end never moved (condition 3) —
+    /// including the case where NOTHING at the corner moved, i.e. the crossing
+    /// was minted by a relocation elsewhere on the loop.
     pub survivor_still: usize,
     /// Victims dropped as ambiguous (two survivors claim them).
     pub ambiguous: usize,
 }
 
 /// As [`fold_merge_sites`], with the per-condition rejection census.
+/// `curve_edges` are the `intersection_curves` keys, canonicalized `(min, max)`.
+/// They affect the CENSUS only — never selection — and may be empty.
 pub fn fold_merge_sites_censused<'a>(
     cycles: impl IntoIterator<Item = &'a [u32]>,
     pre: &HashMap<u32, [f64; 3]>,
     post: &[[f64; 3]],
+    curve_edges: &BTreeSet<(u32, u32)>,
 ) -> (Vec<FoldMergeSite>, FoldMergeCensus) {
     let mut claimed: BTreeMap<u32, (u32, f64)> = BTreeMap::new();
     let mut ambiguous: BTreeSet<u32> = BTreeSet::new();
@@ -739,9 +761,20 @@ pub fn fold_merge_sites_censused<'a>(
                 continue;
             }
             census.inversions += 1;
-            if moved(b) != Some(false) {
-                census.apex_moved += 1;
-                continue;
+            match moved(b) {
+                Some(false) => {}
+                Some(true) => {
+                    census.apex_moved += 1;
+                    let on_curve = |x: u32, y: u32| curve_edges.contains(&(x.min(y), x.max(y)));
+                    if on_curve(a, b) && on_curve(b, c) {
+                        census.apex_moved_on_curve += 1;
+                    }
+                    continue;
+                }
+                None => {
+                    census.apex_minted += 1;
+                    continue;
+                }
             }
             let survivor = if t < 0.0 { a } else { c };
             if moved(survivor) != Some(true) {

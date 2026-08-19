@@ -690,12 +690,16 @@ fn run_fold_merge_passes(
 
         let cyc_refs: Vec<Vec<u32>> = patches.iter().flat_map(|p| p.cycles.clone()).collect();
         let post = mesh_positions(mesh);
+        let curve_edges: BTreeSet<(u32, u32)> = intersection_curves.keys().copied().collect();
         let (all_sites, census) = S4_PRE_POS.with(|c| {
             let borrow = c.borrow();
             match borrow.as_ref() {
-                Some(pre) => {
-                    fold_merge_sites_censused(cyc_refs.iter().map(Vec::as_slice), pre, &post)
-                }
+                Some(pre) => fold_merge_sites_censused(
+                    cyc_refs.iter().map(Vec::as_slice),
+                    pre,
+                    &post,
+                    &curve_edges,
+                ),
                 None => (Vec::new(), Default::default()),
             }
         });
@@ -705,10 +709,13 @@ fn run_fold_merge_passes(
             .collect();
         c441_log!(
             "[s4-fold-merge] pass={pass}: SELECT corners={} inversions={} \
-             apex_moved={} survivor_still={} ambiguous={} -> sites={}",
+             apex_moved={} (on_curve={}) apex_minted={} survivor_still={} ambiguous={} \
+             -> sites={}",
             census.corners,
             census.inversions,
             census.apex_moved,
+            census.apex_moved_on_curve,
+            census.apex_minted,
             census.survivor_still,
             census.ambiguous,
             sites.len(),
