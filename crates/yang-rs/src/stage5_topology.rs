@@ -88,12 +88,19 @@ fn s4_pre_pos_enabled() -> bool {
 
 /// Is the §4.4.1 Fig-11 merge pass ([`run_fold_merge_passes`]) on?
 ///
+/// **ALWAYS-ON since the I6 flip (2026-08-19d, spec §4-I6);
+/// `YANG_441_FOLD_MERGE=0|off` is the dev A/B off-knob.** Flip bar: gate-off
+/// byte-identical by construction (every line of the pass is inside this
+/// predicate), the rewrite tier green with the pass on, and a gate-ON corpus of
+/// 265C/0W/43E/1EE/0T — two honest conversions (F0045, R0090) and zero other
+/// category or detail deltas.
+///
 /// Its selector reads [`S4_PRE_POS`], so this is a THIRD consumer of
 /// [`s4_pre_pos_enabled`] — and the first non-diagnostic one. The map is
 /// production input to a repair here, not a probe column, which is why the
 /// capture and all four re-keys must follow the same predicate.
 fn fold_merge_enabled() -> bool {
-    std::env::var_os("YANG_441_FOLD_MERGE").is_some()
+    !matches!(std::env::var("YANG_441_FOLD_MERGE"), Ok(v) if v == "0" || v == "off")
 }
 
 /// Is the pre-position map wanted for REPORTING (as opposed to being wanted at

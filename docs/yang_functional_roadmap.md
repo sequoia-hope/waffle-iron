@@ -427,8 +427,9 @@ name, never measured).
    fall outside of; every holder rebuilds (all-holders-or-none) and the batch
    applies with an EMPTY substitution map after verifying no triangle outside
    the fans still holds the victim — so no index is ever relabelled without
-   being re-triangulated. **Gate-ON corpus: 265C/0W/43E/1EE/0T — F0045 and
-   R0090 ERROR→SUPPORTED_CORRECT, ZERO other category or detail deltas.**
+   being re-triangulated. **NEW CANONICAL: 265C/0W/43E/1EE/0T — F0045 and
+   R0090 ERROR→SUPPORTED_CORRECT, ZERO other category or detail deltas;
+   rewrite tier green with the pass on.**
    The residue is a DIFFERENT defect the census names: the dominant rejection
    is `apex_moved` (R0044 188/214, R0053 83/83, R0095 20/20, R0025 4/4) — two
    ON-CURVE vertices crossed each other, which is §4.3.4 chain ORDER

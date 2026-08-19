@@ -1435,7 +1435,11 @@ below — most of the R-series is curved, so the epic's reach depends on it.
 
 ### I6 — Fig-11(b)→(c) fold merge: the boundary vertex the relocation OVERRAN
 
-**Status: LANDED gated (`YANG_441_FOLD_MERGE`), 2026-08-19d.**
+**Status: LANDED and FLIPPED ALWAYS-ON, 2026-08-19d**
+(`YANG_441_FOLD_MERGE=0|off` is the dev A/B off-knob). Flip bar: gate-off
+byte-identical by construction (every line of the pass is inside the predicate),
+the rewrite tier green with the pass on (1173s), and a gate-ON corpus of
+265C/0W/43E/1EE/0T — two honest conversions and zero other deltas.
 
 **Anchor (census first).** `YANG_S6_LOOP_SIMPLICITY` + `YANG_S5_FOLD_PROBE` over
 the nine `ring rejected by CDT` cases (F0045, R0011, R0025, R0044, R0053, R0074,
