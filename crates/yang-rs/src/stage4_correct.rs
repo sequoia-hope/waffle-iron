@@ -509,17 +509,15 @@ pub(crate) fn replan_degenerate_cylinder_patches(
 ) -> Result<bool, YangError> {
     use std::collections::BTreeSet;
     let pi = std::f64::consts::PI;
-    let degen_area = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
     let is_degen = |t: [u32; 3], mesh: &Mesh| -> bool {
         if !t.iter().any(|v| moved.contains(v)) {
             return false;
         }
-        let av = tri_area_vector(
+        tri_is_degenerate(
             mesh.verts[t[0] as usize].as_array(),
             mesh.verts[t[1] as usize].as_array(),
             mesh.verts[t[2] as usize].as_array(),
-        );
-        0.5 * (av[0] * av[0] + av[1] * av[1] + av[2] * av[2]).sqrt() < degen_area
+        )
     };
     let attr_of =
         |ti: usize| -> Option<TriangleAttribution> { attr_vec.get(ti).copied().flatten() };
@@ -771,10 +769,10 @@ pub(crate) fn replan_degenerate_cylinder_patches(
             }
         }
         if bnd_adj.is_empty() || bnd_adj.values().any(|n| n.len() != 2) {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: u32::MAX,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                u32::MAX,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         }
         // Walk the boundary edges into closed loops.
         let mut loops_local: Vec<Vec<u32>> = Vec::new();
@@ -790,10 +788,10 @@ pub(crate) fn replan_degenerate_cylinder_patches(
             while cur != start {
                 if !seen.insert(cur) {
                     // revisited a non-start vertex → tangled boundary, bail.
-                    return Err(YangError::Stage4RegionInvalid {
-                        vertex: u32::MAX,
-                        reason: Stage4InvalidReason::LocalRefinementRequired,
-                    });
+                    return Err(YangError::stage4_region_invalid(
+                        u32::MAX,
+                        Stage4InvalidReason::LocalRefinementRequired,
+                    ));
                 }
                 lp.push(cur);
                 let nb = &bnd_adj[&cur];
@@ -887,9 +885,11 @@ pub(crate) fn replan_degenerate_cylinder_patches(
 
         let tris_local =
             cherchi_rs::cdt_polygon_with_holes_keep_interior(&verts2d, &outer, &holes, &interior)
-                .map_err(|_| YangError::Stage4RegionInvalid {
-                vertex: u32::MAX,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
+                .map_err(|_| {
+                YangError::stage4_region_invalid(
+                    u32::MAX,
+                    Stage4InvalidReason::LocalRefinementRequired,
+                )
             })?;
 
         // Reference winding sign: align to the patch's existing non-degenerate
@@ -1323,10 +1323,10 @@ pub(crate) fn remesh_nonmanifold_patches(
             );
         }
         if bnd_adj.is_empty() || bnd_adj.values().any(|n| n.len() != 2) {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: u32::MAX,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                u32::MAX,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         }
 
         // Walk the boundary edges into closed loops.
@@ -1342,10 +1342,10 @@ pub(crate) fn remesh_nonmanifold_patches(
             let mut cur = bnd_adj[&start][0];
             while cur != start {
                 if !seen.insert(cur) {
-                    return Err(YangError::Stage4RegionInvalid {
-                        vertex: u32::MAX,
-                        reason: Stage4InvalidReason::LocalRefinementRequired,
-                    });
+                    return Err(YangError::stage4_region_invalid(
+                        u32::MAX,
+                        Stage4InvalidReason::LocalRefinementRequired,
+                    ));
                 }
                 lp.push(cur);
                 let nb = &bnd_adj[&cur];
@@ -1421,9 +1421,11 @@ pub(crate) fn remesh_nonmanifold_patches(
 
         let tris_local =
             cherchi_rs::cdt_polygon_with_holes_keep_interior(&verts2d, &outer, &holes, &interior)
-                .map_err(|_| YangError::Stage4RegionInvalid {
-                vertex: u32::MAX,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
+                .map_err(|_| {
+                YangError::stage4_region_invalid(
+                    u32::MAX,
+                    Stage4InvalidReason::LocalRefinementRequired,
+                )
             })?;
 
         // Winding: align new triangles to the patch's existing net normal, so the
@@ -3692,10 +3694,10 @@ pub(crate) fn stage4_relocate_and_correct(
             if std::env::var_os("YANG_LRR_PROBE").is_some() {
                 eprintln!("YANG_LRR_STOP site=chord_band_none");
             }
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: u32::MAX,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                u32::MAX,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         }
     };
 
@@ -3991,10 +3993,10 @@ pub(crate) fn stage4_relocate_and_correct(
                             mesh.verts.get(s as usize)
                         );
                     }
-                    return Err(YangError::Stage4RegionInvalid {
-                        vertex: s,
-                        reason: Stage4InvalidReason::LocalRefinementRequired,
-                    });
+                    return Err(YangError::stage4_region_invalid(
+                        s,
+                        Stage4InvalidReason::LocalRefinementRequired,
+                    ));
                 };
                 let owner = match cone_input {
                     InputId::A => a,
@@ -4010,10 +4012,10 @@ pub(crate) fn stage4_relocate_and_correct(
                             mesh.verts.get(s as usize)
                         );
                     }
-                    return Err(YangError::Stage4RegionInvalid {
-                        vertex: s,
-                        reason: Stage4InvalidReason::LocalRefinementRequired,
-                    });
+                    return Err(YangError::stage4_region_invalid(
+                        s,
+                        Stage4InvalidReason::LocalRefinementRequired,
+                    ));
                 };
                 let cpr = ConeParabolaReloc {
                     apex,
@@ -4076,10 +4078,10 @@ pub(crate) fn stage4_relocate_and_correct(
                             mesh.verts.get(s as usize)
                         );
                     }
-                    return Err(YangError::Stage4RegionInvalid {
-                        vertex: s,
-                        reason: Stage4InvalidReason::LocalRefinementRequired,
-                    });
+                    return Err(YangError::stage4_region_invalid(
+                        s,
+                        Stage4InvalidReason::LocalRefinementRequired,
+                    ));
                 };
                 let owner = match cone_input {
                     InputId::A => a,
@@ -4095,10 +4097,10 @@ pub(crate) fn stage4_relocate_and_correct(
                             mesh.verts.get(s as usize)
                         );
                     }
-                    return Err(YangError::Stage4RegionInvalid {
-                        vertex: s,
-                        reason: Stage4InvalidReason::LocalRefinementRequired,
-                    });
+                    return Err(YangError::stage4_region_invalid(
+                        s,
+                        Stage4InvalidReason::LocalRefinementRequired,
+                    ));
                 };
                 let chr = ConeHyperbolaReloc {
                     apex,
@@ -4324,10 +4326,10 @@ pub(crate) fn stage4_relocate_and_correct(
                                     mesh.verts.get(s as usize)
                                 );
                             }
-                            return Err(YangError::Stage4RegionInvalid {
-                                vertex: s,
-                                reason: Stage4InvalidReason::LocalRefinementRequired,
-                            });
+                            return Err(YangError::stage4_region_invalid(
+                                s,
+                                Stage4InvalidReason::LocalRefinementRequired,
+                            ));
                         };
                         let cer = ConeEllipseReloc {
                             apex,
@@ -4447,10 +4449,10 @@ pub(crate) fn stage4_relocate_and_correct(
                                 cyls.len()
                             );
                         }
-                        return Err(YangError::Stage4RegionInvalid {
-                            vertex: s,
-                            reason: Stage4InvalidReason::LocalRefinementRequired,
-                        });
+                        return Err(YangError::stage4_region_invalid(
+                            s,
+                            Stage4InvalidReason::LocalRefinementRequired,
+                        ));
                     }
                 }
             }
@@ -4573,10 +4575,10 @@ pub(crate) fn stage4_relocate_and_correct(
                                 pp.len()
                             );
                         }
-                        return Err(YangError::Stage4RegionInvalid {
-                            vertex: s,
-                            reason: Stage4InvalidReason::LocalRefinementRequired,
-                        });
+                        return Err(YangError::stage4_region_invalid(
+                            s,
+                            Stage4InvalidReason::LocalRefinementRequired,
+                        ));
                     }
                 };
                 let to_ssi_err = |reason| YangError::SsiRefinementFailed {
@@ -4709,10 +4711,10 @@ pub(crate) fn stage4_relocate_and_correct(
                                     mesh.verts.get(v as usize)
                                 );
                             }
-                            return Err(YangError::Stage4RegionInvalid {
-                                vertex: v,
-                                reason: Stage4InvalidReason::LocalRefinementRequired,
-                            });
+                            return Err(YangError::stage4_region_invalid(
+                                v,
+                                Stage4InvalidReason::LocalRefinementRequired,
+                            ));
                         }
                     }
                     vert_line.insert(v, lr);
@@ -4764,10 +4766,10 @@ pub(crate) fn stage4_relocate_and_correct(
                 // vertex off the others — loud STOP, never a silent pick
                 // (P9/P10).
                 0 | 2.. => {
-                    return Err(YangError::Stage4RegionInvalid {
-                        vertex: v,
-                        reason: Stage4InvalidReason::LocalRefinementRequired,
-                    });
+                    return Err(YangError::stage4_region_invalid(
+                        v,
+                        Stage4InvalidReason::LocalRefinementRequired,
+                    ));
                 }
                 1 => {
                     let (on, od) = others[0];
@@ -4823,22 +4825,22 @@ pub(crate) fn stage4_relocate_and_correct(
             .collect();
         for v in shared {
             if vert_ell_junction.contains_key(&v) {
-                return Err(YangError::Stage4RegionInvalid {
-                    vertex: v,
-                    reason: Stage4InvalidReason::LocalRefinementRequired,
-                });
+                return Err(YangError::stage4_region_invalid(
+                    v,
+                    Stage4InvalidReason::LocalRefinementRequired,
+                ));
             }
             let Some((n1, d1, n2, d2)) = dedup_single_pp_line(&vert_pp_planes[&v]) else {
-                return Err(YangError::Stage4RegionInvalid {
-                    vertex: v,
-                    reason: Stage4InvalidReason::LocalRefinementRequired,
-                });
+                return Err(YangError::stage4_region_invalid(
+                    v,
+                    Stage4InvalidReason::LocalRefinementRequired,
+                ));
             };
             let Some((lp, ld)) = pp_line(n1, d1, n2, d2) else {
-                return Err(YangError::Stage4RegionInvalid {
-                    vertex: v,
-                    reason: Stage4InvalidReason::LocalRefinementRequired,
-                });
+                return Err(YangError::stage4_region_invalid(
+                    v,
+                    Stage4InvalidReason::LocalRefinementRequired,
+                ));
             };
             let circ = vert_circle.remove(&v).expect("checked contains_key");
             if i1d_probe {
@@ -4952,10 +4954,10 @@ pub(crate) fn stage4_relocate_and_correct(
             let sin_theta = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
             let gate = tangent_plane_corridor(d_eps, sin_theta);
             if rho > gate {
-                return Err(YangError::Stage4RegionInvalid {
-                    vertex: v,
-                    reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-                });
+                return Err(YangError::stage4_region_invalid(
+                    v,
+                    Stage4InvalidReason::OffCurveBeyondChordBand,
+                ));
             }
             if std::env::var_os("YANG_RIM_JUNCTION_PROBE").is_some() {
                 eprintln!(
@@ -5002,10 +5004,10 @@ pub(crate) fn stage4_relocate_and_correct(
             || vert_junction.contains_key(v)
             || vert_pp_circle_junction.contains_key(v)
         {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: *v,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                *v,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         }
     }
 
@@ -5021,10 +5023,10 @@ pub(crate) fn stage4_relocate_and_correct(
             || vert_junction.contains_key(v)
             || vert_pp_circle_junction.contains_key(v)
         {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: *v,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                *v,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         }
     }
     // PR-YR21: a vertex shared by a cone-ellipse edge AND any other conic edge
@@ -5037,10 +5039,10 @@ pub(crate) fn stage4_relocate_and_correct(
             || vert_junction.contains_key(v)
             || vert_pp_circle_junction.contains_key(v)
         {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: *v,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                *v,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         }
     }
     // PR-YR22: a vertex shared by a cone-parabola edge AND any other conic edge
@@ -5055,10 +5057,10 @@ pub(crate) fn stage4_relocate_and_correct(
             || vert_junction.contains_key(v)
             || vert_pp_circle_junction.contains_key(v)
         {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: *v,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                *v,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         }
     }
     // PR-YR23: a vertex shared by a cone-hyperbola edge AND any other conic edge
@@ -5074,10 +5076,10 @@ pub(crate) fn stage4_relocate_and_correct(
             || vert_junction.contains_key(v)
             || vert_pp_circle_junction.contains_key(v)
         {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: *v,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                *v,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         }
     }
 
@@ -5168,10 +5170,10 @@ pub(crate) fn stage4_relocate_and_correct(
             // assignment is producer-confirmed, and `project_onto_circle`
             // below is already the distance-minimizing projection onto the
             // exact curve, a certificate the band cannot strengthen.)
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::OffCurveBeyondChordBand,
+            ));
         }
         // Preserve the original combined-max `rho` for the `> TAU_WORK`
         // move-gate so its semantics are unchanged.
@@ -5181,7 +5183,7 @@ pub(crate) fn stage4_relocate_and_correct(
         // but still yields the retag `t`; for the relocate band it moves the
         // vertex onto the curve.
         let (proj, t) = project_onto_circle(p, center, normal, radius)
-            .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+            .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
         if rho > cad_primitives::TAU_WORK {
             mesh.verts[v as usize] = proj;
             moved.insert(v);
@@ -5204,10 +5206,10 @@ pub(crate) fn stage4_relocate_and_correct(
         let (c_a, n_a, r_a, _) = ca;
         let (c_b, n_b, r_b, _) = cb;
         let Some(j) = coplanar_circle_circle_intersection(c_a, n_a, r_a, c_b, n_b, r_b, p) else {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         };
         let pa = p.as_array();
         let ja = j.as_array();
@@ -5228,15 +5230,15 @@ pub(crate) fn stage4_relocate_and_correct(
         if rho > gate && !prov_verts.contains(&v) {
             // (Provenance-vouched exemption — spec inc-2 §3c; `j` is the
             // exact circle∩circle corner on both curves by construction.)
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::OffCurveBeyondChordBand,
+            ));
         }
         // `j` is on circle_a by construction; project to get its frame angle `t`
         // for the source retag (positionally exact on both circles either way).
         let (proj, t) = project_onto_circle(j, c_a, n_a, r_a)
-            .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+            .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
         if rho > cad_primitives::TAU_WORK {
             mesh.verts[v as usize] = proj;
             moved.insert(v);
@@ -5275,7 +5277,7 @@ pub(crate) fn stage4_relocate_and_correct(
                 // — a certificate, not a band), bypassing the azimuth path
                 // whose tangential amplification is meaningless this far off.
                 let (proj, t) = project_onto_ellipse_nearest(p, er)
-                    .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+                    .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
                 if std::env::var("KV11_PROBE").is_ok() {
                     eprintln!(
                         "KV11_PROBE ellipse provenance reloc: v={v} rho={rho:.3e} \
@@ -5294,13 +5296,13 @@ pub(crate) fn stage4_relocate_and_correct(
                     "KV11_PROBE ellipse band reject: v={v} rho={rho:.3e} gate={gate:.3e} p={p:?}"
                 );
             }
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::OffCurveBeyondChordBand,
+            ));
         }
         let (proj, t) = project_onto_ellipse_via_cylinder(p, er)
-            .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+            .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
         // Task #145 mechanism 2 (spec `yang_453_mixed_cycle_conic_backtrack`
         // §3b, I6): the azimuth projection amplifies by 1/(n·â) ALONG a
         // near-tangent section — a §4.4.1 relocation is bounded by the same
@@ -5319,7 +5321,7 @@ pub(crate) fn stage4_relocate_and_correct(
             (proj, t)
         } else {
             let (near_proj, near_t) = project_onto_ellipse_nearest(p, er)
-                .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+                .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
             // R2/R3 budget: the vertex's surface residuals are ≤ `gate` each,
             // and distance-to-curve amplifies by 1/sin θ (θ = angle between
             // the two surface normals AT the relocated point) — the same
@@ -5358,10 +5360,10 @@ pub(crate) fn stage4_relocate_and_correct(
                 );
             }
             if move_len(near_proj) > budget {
-                return Err(YangError::Stage4RegionInvalid {
-                    vertex: v,
-                    reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-                });
+                return Err(YangError::stage4_region_invalid(
+                    v,
+                    Stage4InvalidReason::OffCurveBeyondChordBand,
+                ));
             }
             (near_proj, near_t)
         };
@@ -5395,10 +5397,10 @@ pub(crate) fn stage4_relocate_and_correct(
         ];
         let dl = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
         if dl < cad_primitives::MIN_FEATURE_SIZE {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         }
         let d = [dir[0] / dl, dir[1] / dl, dir[2] / dl];
         // A point on both planes: solve n1·x = −d1, n2·x = −d2 in the span
@@ -5406,10 +5408,10 @@ pub(crate) fn stage4_relocate_and_correct(
         let g = n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2];
         let det = 1.0 - g * g;
         if det.abs() < cad_primitives::MIN_FEATURE_SIZE {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         }
         let (r1, r2) = (-e_a.plane_d, -e_b.plane_d);
         let alpha = (r1 - g * r2) / det;
@@ -5434,10 +5436,10 @@ pub(crate) fn stage4_relocate_and_correct(
         let cc = rp[0] * rp[0] + rp[1] * rp[1] + rp[2] * rp[2] - e_a.radius * e_a.radius;
         let disc = bb * bb - 4.0 * aa * cc;
         if !(aa > cad_primitives::MIN_FEATURE_SIZE && disc >= 0.0) {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         }
         let sq = disc.sqrt();
         let pa = p.as_array();
@@ -5529,10 +5531,10 @@ pub(crate) fn stage4_relocate_and_correct(
                     "KV11_PROBE junction band reject: v={v} rho={rho:.3e} gate={gate:.3e} p={p:?} j={j:?}"
                 );
             }
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::OffCurveBeyondChordBand,
+            ));
         }
         let proj = Point3::new(j[0], j[1], j[2]);
         // Param on e_a's ellipse for the source retag (output edges of BOTH
@@ -5691,10 +5693,10 @@ pub(crate) fn stage4_relocate_and_correct(
         let p = mesh.verts[v as usize];
         let rho = cone_ellipse_residual(p, cer);
         if rho > cer.cone_d_eps {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::OffCurveBeyondChordBand,
+            ));
         }
         let proj = project_onto_cone_section(
             p,
@@ -5704,7 +5706,7 @@ pub(crate) fn stage4_relocate_and_correct(
             cer.plane_n,
             cer.plane_d,
         )
-        .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+        .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
         // Round-trip param `t` in the stored ellipse frame so the unchanged
         // `eval_source` Ellipse arm reproduces the relocated position.
         let t = ellipse_param(
@@ -5741,10 +5743,10 @@ pub(crate) fn stage4_relocate_and_correct(
             cpr.plane_d,
         );
         if rho > cpr.cone_d_eps {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::OffCurveBeyondChordBand,
+            ));
         }
         let proj = project_onto_cone_section(
             p,
@@ -5754,7 +5756,7 @@ pub(crate) fn stage4_relocate_and_correct(
             cpr.plane_n,
             cpr.plane_d,
         )
-        .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+        .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
         // Round-trip param `t` = the conjugate-axis coordinate of the parabola
         // parameterization `(proj − vertex)·(normal × axis_dir)`, so the unchanged
         // `eval_source` Parabola arm reproduces the relocated position (oracle3).
@@ -5794,10 +5796,10 @@ pub(crate) fn stage4_relocate_and_correct(
             chr.plane_d,
         );
         if rho > chr.cone_d_eps {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::OffCurveBeyondChordBand,
+            ));
         }
         let proj = project_onto_cone_section(
             p,
@@ -5807,7 +5809,7 @@ pub(crate) fn stage4_relocate_and_correct(
             chr.plane_n,
             chr.plane_d,
         )
-        .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+        .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
         // Round-trip param `t = asinh(v_coord / b)` where `v_coord` is the
         // conjugate-axis coordinate `(proj − center)·(normal × major_axis)` and
         // `b = semi_conjugate`. The eval is
@@ -5853,10 +5855,10 @@ pub(crate) fn stage4_relocate_and_correct(
         // radial band, and not the global d_ε (whose owner mix is wrong for
         // cylinder×cylinder lines).
         if rho > lr.band_budget {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::OffCurveBeyondChordBand,
+            ));
         }
         let d = normalize3(lr.dir.as_array());
         let pt = lr.point.as_array();
@@ -5894,10 +5896,10 @@ pub(crate) fn stage4_relocate_and_correct(
         let denom = n[0] * d[0] + n[1] * d[1] + n[2] * d[2];
         if denom.abs() < cad_primitives::TAU_MODEL {
             // Line parallel to the circle plane: no transversal junction.
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         }
         let pt = lr.point.as_array();
         let c = center.as_array();
@@ -5916,13 +5918,13 @@ pub(crate) fn stage4_relocate_and_correct(
         // PR-F3b: line-band component carries the propagated budget; the
         // along-line crossing component stays at the raw d_ε.
         if rho > lr.band_budget + d_eps {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::OffCurveBeyondChordBand,
+            ));
         }
         let (proj, t) = project_onto_circle(j, center, normal, radius)
-            .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+            .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
         if rho > cad_primitives::TAU_WORK {
             mesh.verts[v as usize] = proj;
             moved.insert(v);
@@ -5941,10 +5943,10 @@ pub(crate) fn stage4_relocate_and_correct(
         let Some(j) = pp_line_circle_junction(lp, ld, center, normal, radius, p, d_eps) else {
             // Branch 5: the line misses the circle (or no root is on the
             // circle's plane) — not a resolvable junction here.
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         };
         let pa = p.as_array();
         let ja = j.as_array();
@@ -5972,16 +5974,16 @@ pub(crate) fn stage4_relocate_and_correct(
         let sin_theta = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
         let gate = tangent_plane_corridor(d_eps, sin_theta);
         if rho > gate {
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::OffCurveBeyondChordBand,
+            ));
         }
         // Branch 4: `j` is exactly on the line and on the circle's sphere;
         // the circle projection yields the frame angle `t` for the retag
         // (positionally a no-op up to f64 — `j` is on the circle).
         let (proj, t) = project_onto_circle(j, center, normal, radius)
-            .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+            .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
         if i1d_probe {
             let ca = center.as_array();
             let lpa = lp.as_array();
@@ -6030,10 +6032,10 @@ pub(crate) fn stage4_relocate_and_correct(
                 processed != relocation_keys
             );
         }
-        return Err(YangError::Stage4RegionInvalid {
-            vertex: u32::MAX,
-            reason: Stage4InvalidReason::LocalRefinementRequired,
-        });
+        return Err(YangError::stage4_region_invalid(
+            u32::MAX,
+            Stage4InvalidReason::LocalRefinementRequired,
+        ));
     }
 
     // M5 (Y4): degree-4 surface-pair relocation via Newton on the two defining
@@ -6083,17 +6085,15 @@ pub(crate) fn stage4_relocate_and_correct(
                     vert_junction.contains_key(&v),
                 );
             }
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                v,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         }
         let p = mesh.verts[v as usize];
-        let proj =
-            relocate_onto_implicit_pair(p, sa, sb).ok_or(YangError::Stage4RegionInvalid {
-                vertex: v,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            })?;
+        let proj = relocate_onto_implicit_pair(p, sa, sb).ok_or_else(|| {
+            YangError::stage4_region_invalid(v, Stage4InvalidReason::LocalRefinementRequired)
+        })?;
         mesh.verts[v as usize] = proj;
         moved.insert(v);
     }
@@ -6137,10 +6137,10 @@ pub(crate) fn stage4_relocate_and_correct(
             }
             if tori.len() > 2 {
                 // ≥3 distinct tori at one edge — out of scope. Loud STOP.
-                return Err(YangError::Stage4RegionInvalid {
-                    vertex: s,
-                    reason: Stage4InvalidReason::LocalRefinementRequired,
-                });
+                return Err(YangError::stage4_region_invalid(
+                    s,
+                    Stage4InvalidReason::LocalRefinementRequired,
+                ));
             }
             // M5 #172: a torus∩torus lateral edge (two incident tori) joins
             // the SAME implicit-pair relocation as torus∩other — Newton on
@@ -6167,10 +6167,10 @@ pub(crate) fn stage4_relocate_and_correct(
             // A torus-edge endpoint that is also a CONIC endpoint mixes the
             // implicit-pair and closed-form relocations — out of v1 scope, STOP.
             if endpoint_set.contains(&v) {
-                return Err(YangError::Stage4RegionInvalid {
-                    vertex: v,
-                    reason: Stage4InvalidReason::LocalRefinementRequired,
-                });
+                return Err(YangError::stage4_region_invalid(
+                    v,
+                    Stage4InvalidReason::LocalRefinementRequired,
+                ));
             }
             let partners = &vert_partners[&v];
             let p = mesh.verts[v as usize];
@@ -6184,25 +6184,25 @@ pub(crate) fn stage4_relocate_and_correct(
                              t_surf={t_surf:?} partner={s1:?}"
                         );
                     }
-                    let proj = relocate_onto_implicit_pair(p, t_surf, *s1).ok_or(
-                        YangError::Stage4RegionInvalid {
-                            vertex: v,
-                            reason: Stage4InvalidReason::LocalRefinementRequired,
-                        },
-                    )?;
+                    let proj = relocate_onto_implicit_pair(p, t_surf, *s1).ok_or_else(|| {
+                        YangError::stage4_region_invalid(
+                            v,
+                            Stage4InvalidReason::LocalRefinementRequired,
+                        )
+                    })?;
                     let qa = proj.as_array();
-                    let (_, n0) = surface_value_and_normal(t_surf, qa).ok_or(
-                        YangError::Stage4RegionInvalid {
-                            vertex: v,
-                            reason: Stage4InvalidReason::LocalRefinementRequired,
-                        },
-                    )?;
-                    let (_, n1) = surface_value_and_normal(*s1, qa).ok_or(
-                        YangError::Stage4RegionInvalid {
-                            vertex: v,
-                            reason: Stage4InvalidReason::LocalRefinementRequired,
-                        },
-                    )?;
+                    let (_, n0) = surface_value_and_normal(t_surf, qa).ok_or_else(|| {
+                        YangError::stage4_region_invalid(
+                            v,
+                            Stage4InvalidReason::LocalRefinementRequired,
+                        )
+                    })?;
+                    let (_, n1) = surface_value_and_normal(*s1, qa).ok_or_else(|| {
+                        YangError::stage4_region_invalid(
+                            v,
+                            Stage4InvalidReason::LocalRefinementRequired,
+                        )
+                    })?;
                     (proj, n0, n1)
                 }
                 [s1, s2] => {
@@ -6217,25 +6217,26 @@ pub(crate) fn stage4_relocate_and_correct(
                              t_surf={t_surf:?} s1={s1:?} s2={s2:?}"
                         );
                     }
-                    let proj = relocate_onto_implicit_triple(p, t_surf, *s1, *s2).ok_or(
-                        YangError::Stage4RegionInvalid {
-                            vertex: v,
-                            reason: Stage4InvalidReason::LocalRefinementRequired,
-                        },
-                    )?;
+                    let proj =
+                        relocate_onto_implicit_triple(p, t_surf, *s1, *s2).ok_or_else(|| {
+                            YangError::stage4_region_invalid(
+                                v,
+                                Stage4InvalidReason::LocalRefinementRequired,
+                            )
+                        })?;
                     let qa = proj.as_array();
-                    let (_, n0) = surface_value_and_normal(t_surf, qa).ok_or(
-                        YangError::Stage4RegionInvalid {
-                            vertex: v,
-                            reason: Stage4InvalidReason::LocalRefinementRequired,
-                        },
-                    )?;
-                    let (_, n1) = surface_value_and_normal(*s1, qa).ok_or(
-                        YangError::Stage4RegionInvalid {
-                            vertex: v,
-                            reason: Stage4InvalidReason::LocalRefinementRequired,
-                        },
-                    )?;
+                    let (_, n0) = surface_value_and_normal(t_surf, qa).ok_or_else(|| {
+                        YangError::stage4_region_invalid(
+                            v,
+                            Stage4InvalidReason::LocalRefinementRequired,
+                        )
+                    })?;
+                    let (_, n1) = surface_value_and_normal(*s1, qa).ok_or_else(|| {
+                        YangError::stage4_region_invalid(
+                            v,
+                            Stage4InvalidReason::LocalRefinementRequired,
+                        )
+                    })?;
                     (proj, n0, n1)
                 }
                 _ => {
@@ -6245,10 +6246,10 @@ pub(crate) fn stage4_relocate_and_correct(
                              t_surf={t_surf:?} partners={partners:?}"
                         );
                     }
-                    return Err(YangError::Stage4RegionInvalid {
-                        vertex: v,
-                        reason: Stage4InvalidReason::LocalRefinementRequired,
-                    });
+                    return Err(YangError::stage4_region_invalid(
+                        v,
+                        Stage4InvalidReason::LocalRefinementRequired,
+                    ));
                 }
             };
             // Derived displacement gate: a chord point moves to the exact curve
@@ -6278,10 +6279,10 @@ pub(crate) fn stage4_relocate_and_correct(
                 );
             }
             if rho > gate {
-                return Err(YangError::Stage4RegionInvalid {
-                    vertex: v,
-                    reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-                });
+                return Err(YangError::stage4_region_invalid(
+                    v,
+                    Stage4InvalidReason::OffCurveBeyondChordBand,
+                ));
             }
             // Bounded-face containment (KV6d closed torus, spec
             // `kv6d_closed_torus_revolve.md` failure modes): the wedge gate
@@ -6387,10 +6388,10 @@ pub(crate) fn stage4_relocate_and_correct(
                     proj.as_array()[k] >= h[k] - d_eps && proj.as_array()[k] <= h[3 + k] + d_eps
                 });
                 if !inside {
-                    return Err(YangError::Stage4RegionInvalid {
-                        vertex: v,
-                        reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-                    });
+                    return Err(YangError::stage4_region_invalid(
+                        v,
+                        Stage4InvalidReason::OffCurveBeyondChordBand,
+                    ));
                 }
             }
             if rho > cad_primitives::TAU_WORK {
@@ -6716,10 +6717,10 @@ pub(crate) fn stage4_relocate_and_correct(
                     eprintln!("YANG_LRR_STOP site=merge_budget");
                 }
                 attribution.attributions = attr_vec;
-                return Err(YangError::Stage4RegionInvalid {
-                    vertex: u32::MAX,
-                    reason: Stage4InvalidReason::LocalRefinementRequired,
-                });
+                return Err(YangError::stage4_region_invalid(
+                    u32::MAX,
+                    Stage4InvalidReason::LocalRefinementRequired,
+                ));
             }
             let mut to_merge: Option<(u32, u32)> = None;
             for tri in &mesh.tris {
@@ -6950,20 +6951,26 @@ pub(crate) fn stage4_relocate_and_correct(
     // strip unzips from its non-degenerate margin inward); a remaining degenerate
     // triangle with no non-degenerate neighbour is a genuine §4.5.2 STOP. Spec
     // `specs/yang_n2_stage4_cdt_mesh_updating.md`.
+    //
+    // DEGENERACY IS THE SCALE-FREE COLLINEARITY IDENTITY (`tri_is_degenerate`,
+    // 2026-08-19): the former absolute `MIN_FEATURE_SIZE²` area floor flagged
+    // HEALTHY micro-scale triangles (R0009/R0047 at 1e-4 m: h/l 0.007–0.4),
+    // so this arm flipped real triangles (silent geometry change on R0091/
+    // R0072/R0063) and ping-ponged to the pass cap on R0009. The unzip's own
+    // precondition — dropping D preserves geometry — holds ONLY when D is
+    // numerically zero-area relative to its extent; that is the test now.
     {
         balance_census(mesh, "pre-degen-loop");
-        let degen_area = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
         let is_degen = |ti: usize, mesh: &Mesh| -> bool {
             let t = mesh.tris[ti];
             if !t.iter().any(|v| moved.contains(v)) {
                 return false;
             }
-            let av = tri_area_vector(
+            tri_is_degenerate(
                 mesh.verts[t[0] as usize].as_array(),
                 mesh.verts[t[1] as usize].as_array(),
                 mesh.verts[t[2] as usize].as_array(),
-            );
-            (av[0] * av[0] + av[1] * av[1] + av[2] * av[2]).sqrt() * 0.5 < degen_area
+            )
         };
         // The off-longest-edge vertex `b` (the collinear middle) + extremes a,c.
         let long_edge_off = |t: &[u32; 3], mesh: &Mesh| -> (u32, u32, u32) {
@@ -6985,6 +6992,14 @@ pub(crate) fn stage4_relocate_and_correct(
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
         let max_passes = mesh.tris.len() + 1;
         let mut passes = 0usize;
+        // Progress certificate (findings Q3's per-pass monitor, applied here):
+        // the loop is deterministic in the mesh state, so a simple action
+        // re-firing on the SAME (D, N, a, c, b) tuple means an earlier action
+        // was undone — a ping-pong that would spin to the pass cap (R0009:
+        // a 4-action cycle; R0047: 5168 actions / 62 s under the old floor).
+        // STOP on the first repeat instead of burning O(T) passes × O(T).
+        let mut seen_actions: std::collections::HashSet<(usize, usize, u32, u32, u32)> =
+            std::collections::HashSet::new();
         loop {
             passes += 1;
             if passes > max_passes {
@@ -6992,10 +7007,10 @@ pub(crate) fn stage4_relocate_and_correct(
                     eprintln!("YANG_LRR_STOP site=split_max_passes");
                 }
                 attribution.attributions = attr_vec;
-                return Err(YangError::Stage4RegionInvalid {
-                    vertex: u32::MAX,
-                    reason: Stage4InvalidReason::LocalRefinementRequired,
-                });
+                return Err(YangError::stage4_region_invalid(
+                    u32::MAX,
+                    Stage4InvalidReason::LocalRefinementRequired,
+                ));
             }
             // Edge → incident triangle indices (for the across-edge neighbour).
             let mut edge_tris: std::collections::HashMap<(u32, u32), Vec<u32>> =
@@ -7327,17 +7342,62 @@ pub(crate) fn stage4_relocate_and_correct(
                             }
                         }
                         attribution.attributions = attr_vec;
-                        return Err(YangError::Stage4RegionInvalid {
-                            vertex: u32::MAX,
-                            reason: Stage4InvalidReason::LocalRefinementRequired,
-                        });
+                        return Err(YangError::stage4_region_invalid(
+                            u32::MAX,
+                            Stage4InvalidReason::LocalRefinementRequired,
+                        ));
                     }
                     break; // no degenerate relocated triangles remain
                 }
             };
             // Split N=[a,c,d] at b → [a,b,d] + [b,c,d], wound like N; drop D.
+            if !seen_actions.insert((d_idx, n_idx, a, c, b)) {
+                if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                    eprintln!(
+                        "YANG_LRR_STOP site=split_cycle d={d_idx} n={n_idx} a={a} c={c} b={b} \
+                         pass={passes}"
+                    );
+                }
+                attribution.attributions = attr_vec;
+                return Err(YangError::stage4_region_invalid(
+                    u32::MAX,
+                    Stage4InvalidReason::LocalRefinementRequired,
+                ));
+            }
             if std::env::var_os("YANG_LRR_PROBE").is_some() {
-                eprintln!("YANG_LRR_ACTION simple d={d_idx} n={n_idx} a={a} c={c} b={b}");
+                // Shape census of the acted-on pair: D's absolute area, the
+                // off-vertex height over the long edge, the long edge length,
+                // and N's area — separates "collinear" (height ≪ edge) from
+                // "merely small at model scale" (height ~ edge, area < floor).
+                let pa = mesh.verts[a as usize].as_array();
+                let pc = mesh.verts[c as usize].as_array();
+                let pb = mesh.verts[b as usize].as_array();
+                let ac = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
+                let l_ac = (ac[0] * ac[0] + ac[1] * ac[1] + ac[2] * ac[2]).sqrt();
+                let av = tri_area_vector(pa, pc, pb);
+                let area_d = (av[0] * av[0] + av[1] * av[1] + av[2] * av[2]).sqrt() * 0.5;
+                let height_b = if l_ac > 0.0 {
+                    2.0 * area_d / l_ac
+                } else {
+                    f64::NAN
+                };
+                let nt = mesh.tris[n_idx];
+                let avn = tri_area_vector(
+                    mesh.verts[nt[0] as usize].as_array(),
+                    mesh.verts[nt[1] as usize].as_array(),
+                    mesh.verts[nt[2] as usize].as_array(),
+                );
+                let area_n = (avn[0] * avn[0] + avn[1] * avn[1] + avn[2] * avn[2]).sqrt() * 0.5;
+                eprintln!(
+                    "YANG_LRR_ACTION simple d={d_idx} n={n_idx} a={a} c={c} b={b} \
+                     area_d={area_d:.3e} l_ac={l_ac:.3e} height_b={height_b:.3e} \
+                     h_over_l={:.3e} area_n={area_n:.3e} band={DEGENERACY_IDENTITY_REL:.1e}",
+                    if l_ac > 0.0 {
+                        height_b / l_ac
+                    } else {
+                        f64::NAN
+                    }
+                );
             }
             let nt = mesh.tris[n_idx];
             let dd = nt
@@ -7928,13 +7988,12 @@ mod mutual_pair_tests {
         }
     }
 
-    fn area(mesh: &Mesh, t: [u32; 3]) -> f64 {
-        let av = tri_area_vector(
+    fn is_degen(mesh: &Mesh, t: [u32; 3]) -> bool {
+        tri_is_degenerate(
             mesh.verts[t[0] as usize].as_array(),
             mesh.verts[t[1] as usize].as_array(),
             mesh.verts[t[2] as usize].as_array(),
-        );
-        0.5 * (av[0] * av[0] + av[1] * av[1] + av[2] * av[2]).sqrt()
+        )
     }
 
     fn edge_incidence(tris: &[[u32; 3]]) -> std::collections::HashMap<(u32, u32), Vec<u32>> {
@@ -7954,9 +8013,8 @@ mod mutual_pair_tests {
     fn pillow_fixture_is_closed_and_carries_the_pair() {
         let (mesh, _, m) = pillow();
         assert_closed_coherent(&mesh.tris);
-        let thr = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
-        assert!(area(&mesh, mesh.tris[m.t1]) < thr);
-        assert!(area(&mesh, mesh.tris[m.t2]) < thr);
+        assert!(is_degen(&mesh, mesh.tris[m.t1]));
+        assert!(is_degen(&mesh, mesh.tris[m.t2]));
     }
 
     #[test]
@@ -7966,9 +8024,8 @@ mod mutual_pair_tests {
         assert_eq!(mesh.tris.len(), 8);
         assert_eq!(attrs.len(), 8);
         assert_closed_coherent(&mesh.tris);
-        let thr = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
         for &t in &mesh.tris {
-            assert!(area(&mesh, t) >= thr, "degenerate tri {t:?} survived");
+            assert!(!is_degen(&mesh, t), "degenerate tri {t:?} survived");
         }
         // The long edge is gone; both sides carry the fine chain a–bl–bh–c.
         let und = edge_incidence(&mesh.tris);
@@ -7998,8 +8055,7 @@ mod mutual_pair_tests {
     fn candidate_accepts_the_pair_and_rejects_equal_parameters() {
         let (mesh, _, want) = pillow();
         let edge_tris = edge_incidence(&mesh.tris);
-        let thr = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
-        let is_degen = |ti: usize, mesh: &Mesh| area(mesh, mesh.tris[ti]) < thr;
+        let is_degen = |ti: usize, mesh: &Mesh| is_degen(mesh, mesh.tris[ti]);
         let long_edge_off = |t: &[u32; 3], mesh: &Mesh| -> (u32, u32, u32) {
             let d = |i: usize, j: usize| {
                 let p = mesh.verts[t[i] as usize].as_array();
@@ -8049,8 +8105,7 @@ mod mutual_pair_tests {
     /// configuration is accepted.
     #[test]
     fn candidate_rejects_the_same_apex_fan() {
-        let thr = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
-        let is_degen = |ti: usize, mesh: &Mesh| area(mesh, mesh.tris[ti]) < thr;
+        let is_degen = |ti: usize, mesh: &Mesh| is_degen(mesh, mesh.tris[ti]);
         let long_edge_off = |t: &[u32; 3], mesh: &Mesh| -> (u32, u32, u32) {
             let d = |i: usize, j: usize| {
                 let p = mesh.verts[t[i] as usize].as_array();

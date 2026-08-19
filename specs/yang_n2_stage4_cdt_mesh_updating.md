@@ -835,6 +835,85 @@ one-sided re-CDT lacks.
 - **Scope creep:** each increment is independently committable and assay-gated;
   if N2-cdt-2 cannot make R0021 green cleanly, STOP and report (do not improvise).
 
+### 5c.13 The §4.4.1(a) degeneracy test was an ABSOLUTE area floor — scale-dependent; replaced by the collinearity IDENTITY (2026-08-19, R0009/R0047 anchor)
+
+**Anchor.** The post-I5-2 Stage-4 STOP census (new permanent instrument: every
+`Stage4RegionInvalid` is built through the `#[track_caller]` constructor
+`YangError::stage4_region_invalid`, which prints `YANG_LRR_SITE loc=<file>:<line>`
+under `YANG_LRR_PROBE` — the 2026-07-28 shim rebuilt so the tail census never
+has to be re-derived; eager `.ok_or(...)` constructions were converted to
+`.ok_or_else` so a site line means the STOP actually fired) attributed
+R0009 and R0047 to the (3d) unzip loop's `split_max_passes` cap. The
+per-action shape census (`YANG_LRR_ACTION simple … area_d l_ac height_b
+h_over_l`) then showed the loop was acting on HEALTHY triangles:
+
+| case (scale) | actions | h/l of acted-on D | area_d | verdict |
+|---|---|---|---|---|
+| R0009 (1.05e-4) | 260 (4-action ping-pong ×36) | 0.007–0.40 | 1.6e-15..8e-13 | STOP `split_max_passes` |
+| R0047 (2.09e-4) | 5168 (62 s) | healthy | < 1e-12 | STOP `split_max_passes` |
+| R0091 (1.59e-4) | 1 | 0.059 | 7.1e-13 | CORRECT (silent flip) |
+| R0072 (5.55e-4) | 52, of which 6 healthy | 3e-5..6e-3 | ≤ 6.8e-13 | CORRECT (silent flips) |
+| R0063 (1.74e-3) | 317, of which 68 healthy | 0.02–0.047 | < 1e-12 | CORRECT (silent flips) |
+
+`is_degen` was `area < MIN_FEATURE_SIZE²` (1e-12 m², absolute). A triangle
+with h/l = 0.4 is nearly equilateral; at 1e-4 model scale its area is 2e-13.
+Feature size is a property of the MODEL; a mesh triangle is not a feature.
+The unzip's precondition — "dropping D preserves geometry" — holds only when
+D is numerically zero-area relative to its own extent. On a healthy D the
+action is an edge flip on a curved surface (a silent geometry change: R0091
+×1, R0072 ×6, R0063 ×68 on CORRECT verdicts — under the oracles' resolution,
+but P10-class), and on R0009 the flip's products were re-flagged and flipped
+back: a 4-action cycle to the pass cap. The mechanism is the 2026-07-06 M8
+scope note's finding ("at micro model scale the ABSOLUTE floor collapses
+legitimately-distinct arrangement geometry") in its unzip guise.
+
+**Fix (all gates sharing the metric moved together):**
+`stage4_correct/validate.rs::{DEGENERACY_IDENTITY_REL = 1e-9,
+tri_degeneracy_ratio, tri_is_degenerate}` — a relocated triangle is
+degenerate iff `min_height / max_edge ≤ 1e-9` (or all points coincide): the
+SAME scale-free identity band as `chain_straightness` /
+`on_segment_interior` (six orders from f64 relocation noise ~1e-15 relative,
+six from real geometry). Consumers: `validate_relocated_triangles`
+(`DegenerateTriangle` STOP), the (3d) unzip `is_degen`, the mutual-pair arm
+(closure-shared), the gated `replan_degenerate_cylinder_patches`. Pins:
+`degeneracy_identity_tests` (healthy micro triangle passes the gate — red
+under the floor; collinear 1000 m triangle with area 5e-5 STOPs — missed by
+the floor; noise 1e-15 vs geometry 1e-8; needle/coincident) and the pillow
+`mutual_pair_tests` re-expressed on the predicate. Post-fix census: the
+surviving unzip actions on R0072 (38) and R0063 (6) are ALL at h/l
+1e-17..4e-15 — true relocation-noise collinearity — and every healthy flip
+is gone; the twelve micro-scale CORRECT cases stay CORRECT.
+
+**Progress certificate (findings Q3's per-pass monitor, applied to this
+loop):** a simple action re-firing on the same `(D, N, a, c, b)` tuple is a
+ping-pong certificate (the loop is deterministic in the mesh state) → STOP
+`split_cycle` on the first repeat instead of spinning O(T) passes × O(T)
+edge-map rebuilds to the cap. The cap stays as the terminal guard.
+
+**Effect on the two anchor cases:** both advance PAST Stage 4 to
+pre-existing walls — R0009 → kernel-v2 `CurvedGeometryMismatch` on op 2 +
+the Stage-4 shell gate's `s4-shell-euler double-cover edge (32,33)
+fwd=2 rev=2` (A cyl-2 ×2 + B plane-1/plane-5 ×2 — a 4-incident intersection
+edge, the #146 double-cover family) on op 3; R0047 → `reassembled output
+would be non-2-manifold` (Stage 6). Neither is minted by this change (the
+loop performs ZERO actions on both post-fix; connectivity at Stage-4 entry is
+untouched). Ledger rows updated in `docs/yang_tail_triage.md`.
+
+**Corpus census (12 jobs, 400 s budget, 478 s wall):** **261C/0W/47E/1EE/0T**
+vs canonical 260C/0W/48E/1EE/0T — exactly THREE deltas: **R0016 ERROR →
+SUPPORTED_CORRECT** (gear boss + gear cut at 5e-2 scale; its Stage-6
+"reassembled output would be non-2-manifold" was the unzip flipping healthy
+sub-1e-12-area gear-tooth slivers — post-fix the loop performs ZERO actions on
+it and every oracle incl. the in-line composition oracle passes), R0009 and
+R0047 detail drifts to the deeper walls above. Zero CORRECT→anything, zero
+WRONG. **NEW CANONICAL 261C/0W/47E/1EE/0T.** The Stage-4 tail after this
+change: LRR ×6 (R0032 torus×cone pair-Newton `:6190`; R0038 tangency
+`:7333`; R0044/R0053 pure surface-pair Newton `:6097`; R0050 near-coincident
+revolve incidence `:6172`; C0067 circle×circle junction `:5211`) and
+OffCurve ×5 (R0003 `:5801`, R0015/C0065 `:6393` containment, R0028/R0077
+`:6284` torus corridor) — every one attributed to a named site by the new
+instrument.
+
 ## 7. Open questions for the reviewer
 
 1. OK to add the new cherchi-rs CDT entry point (interior constraints + Steiner)

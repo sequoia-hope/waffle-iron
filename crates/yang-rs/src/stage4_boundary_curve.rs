@@ -109,10 +109,10 @@ pub(crate) fn boundary_relocation_for_vertex(
         return Ok(None);
     }
     if d > bound {
-        return Err(YangError::Stage4RegionInvalid {
+        return Err(YangError::stage4_region_invalid(
             vertex,
-            reason: Stage4InvalidReason::LocalRefinementRequired,
-        });
+            Stage4InvalidReason::LocalRefinementRequired,
+        ));
     }
     Ok(Some(q))
 }

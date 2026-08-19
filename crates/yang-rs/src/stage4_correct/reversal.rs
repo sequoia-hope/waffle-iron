@@ -31,10 +31,10 @@ pub(crate) fn sweep_reversed_intersections(
         passes += 1;
         if passes > max_passes {
             // Could not reach a fixed point — genuine §4.5.2 territory.
-            return Err(YangError::Stage4RegionInvalid {
-                vertex: u32::MAX,
-                reason: Stage4InvalidReason::LocalRefinementRequired,
-            });
+            return Err(YangError::stage4_region_invalid(
+                u32::MAX,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
         }
 
         // Recompute Phase A so the loops reflect any prior collapse (spec §4.5.3
@@ -105,10 +105,10 @@ pub(crate) fn sweep_reversed_intersections(
         'outer: for (cycle, all_conic) in &loops {
             let m = cycle.len();
             if m < 3 {
-                return Err(YangError::Stage4RegionInvalid {
-                    vertex: cycle.first().map(|&(s, _)| s).unwrap_or(u32::MAX),
-                    reason: Stage4InvalidReason::LoopTooSmall,
-                });
+                return Err(YangError::stage4_region_invalid(
+                    cycle.first().map(|&(s, _)| s).unwrap_or(u32::MAX),
+                    Stage4InvalidReason::LoopTooSmall,
+                ));
             }
             // Ordered vertex sequence of the loop (start vertices).
             let verts: Vec<u32> = cycle.iter().map(|&(s, _)| s).collect();

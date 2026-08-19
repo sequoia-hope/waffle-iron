@@ -181,6 +181,29 @@ pub enum SsiRefinementError {
     UnsupportedSurfaceForSsi,
 }
 
+impl YangError {
+    /// Construct a [`YangError::Stage4RegionInvalid`] STOP. Every Stage-4
+    /// region-invalid return site goes through this constructor so the failing
+    /// SITE is attributable without guessing: with `YANG_LRR_PROBE` set it
+    /// prints `YANG_LRR_SITE loc=<file>:<line> reason=<reason> v=<vertex>`
+    /// (the `#[track_caller]` location is the return site, not this function).
+    /// This is the permanent form of the temporary `#[track_caller]` shim used
+    /// for the 2026-07-28 triage — rebuilt so the tail census never has to be
+    /// re-derived by hand.
+    #[track_caller]
+    pub fn stage4_region_invalid(vertex: u32, reason: Stage4InvalidReason) -> Self {
+        if std::env::var_os("YANG_LRR_PROBE").is_some() {
+            let loc = std::panic::Location::caller();
+            eprintln!(
+                "YANG_LRR_SITE loc={}:{} reason={reason:?} v={vertex}",
+                loc.file(),
+                loc.line()
+            );
+        }
+        Self::Stage4RegionInvalid { vertex, reason }
+    }
+}
+
 impl fmt::Display for YangError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

@@ -758,31 +758,40 @@ fn crossing_through_existing_rim_sample() {
     // now PAIR-DEPENDENT (refinement re-anchors the ring per pair — the
     // pre-flip N = 13 uniform az 34.62° sample no longer exists), so this
     // probe's plane passes bit-exactly through the CALIBRATION pair's
-    // sample position — a near-coincidence adversary for THIS pair. The
-    // measured outcome is the loud typed Stage-4 dead-end below (pre-flip:
-    // Ok with the sample surviving). Valid-or-loud holds either way; an
-    // Ok return must pass the full oracle + the original crack checks so
-    // a future capability gain flips this pin loudly.
+    // sample position — a near-coincidence adversary for THIS pair. At the
+    // 08-14 census the outcome was a loud Stage-4 `LocalRefinementRequired`
+    // dead-end; 2026-08-19 (spec `yang_n2_stage4_cdt_mesh_updating.md`
+    // §5c.13) anchored that STOP as the §4.4.1(a) unzip loop's ABSOLUTE
+    // `MIN_FEATURE_SIZE²` degeneracy floor mis-firing at this fixture's
+    // 2e-4 scale, and the scale-free identity fix flipped the pin to Ok —
+    // which is the contract's other leg: fully oracle-valid, no cracks,
+    // and the DESIGN junctions present. Note the geometry: at x = s[0]
+    // the circle's |y| = 1.119e-4 EXCEEDS the box's half-width 1e-4, so
+    // the side plane never meets the rim inside the box; the design
+    // junctions are the box's y = ±BOX_HALF_Y faces × the rim circle at
+    // x_j = sqrt(R² − BOX_HALF_Y²) (the sample itself was only ever a
+    // pre-refinement RING vertex on the retained arc, not a junction).
     match assert_valid_or_loud(
         try_union(cyl_a(1.0), bx),
         &[2],
         "crossing through rim sample (exact)",
     ) {
-        Err(YangError::Stage4RegionInvalid { reason, .. }) => {
-            assert_eq!(
-                format!("{reason:?}"),
-                "LocalRefinementRequired",
-                "crossing through rim sample: the pinned loud wall class changed"
-            );
-        }
         Err(e) => panic!(
-            "crossing through rim sample: loud wall drifted to a different \
-             typed error class: {e:?} (pinned: Stage4RegionInvalid/\
-             LocalRefinementRequired at the 2026-08-14 flip census)"
+            "crossing through rim sample: built Ok since 2026-08-19 (§5c.13 \
+             degeneracy identity); a loud error here is a regression: {e:?}"
         ),
         Ok(out) => {
-            // The sample itself must survive as a vertex (it IS the junction).
-            assert_vertex_at(&out, s, R, "crossing through rim sample (exact)");
+            // The design junctions (box y-faces × rim circle) must exist as
+            // vertices (the i2 pattern: exact junctions survive).
+            let x_j = (R * R - BOX_HALF_Y * BOX_HALF_Y).sqrt();
+            for y in [BOX_HALF_Y, -BOX_HALF_Y] {
+                assert_vertex_at(
+                    &out,
+                    [x_j, y, 0.0],
+                    R,
+                    "crossing through rim sample (exact): box y-face × rim junction",
+                );
+            }
             // No cracks from a near-duplicate mint: min pairwise distance
             // stays macroscopic (a double-mint would be < 1e-12).
             let vs: Vec<[f64; 3]> = out.as_mesh().verts.iter().map(|v| v.as_array()).collect();

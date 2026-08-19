@@ -1,8 +1,8 @@
 {
-  "errored": 48,
+  "errored": 47,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 260,
+  "passed": 261,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -54,7 +54,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "2 engine error(s): 7360827f-2c9f-41d7-891d-cd81b80a2f82: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 4294967295 is invalid: LocalRefinementRequired\"); c9dae053-dcad-4af4-a79d-7c7fdf03a94b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 4294967295 is invalid: LocalRefinementRequired\")",
+      "detail": "2 engine error(s): 7360827f-2c9f-41d7-891d-cd81b80a2f82: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: CurvedGeometryMismatch { face: FaceId(10), reason: \"bounded cylinder patch must have exactly one material-CCW loop\" }; c9dae053-dcad-4af4-a79d-7c7fdf03a94b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
       "id": "R0009",
       "status": "error"
     },
@@ -95,10 +95,10 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0016",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -282,7 +282,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 34f17562-4f26-450c-bb46-fd2e004b22a7: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 4294967295 is invalid: LocalRefinementRequired\")",
+      "detail": "1 engine error(s): 34f17562-4f26-450c-bb46-fd2e004b22a7: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
       "id": "R0047",
       "status": "error"
     },

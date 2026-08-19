@@ -330,7 +330,22 @@ name, never measured).
    R0070 renumber. **I5-2 FLIPPED SAME DAY — both gates ALWAYS-ON
    (`=0|off` dev knobs); NEW CANONICAL 260C/0W/48E/1EE/0T at a ≥360s
    budget.** yr9 `t1` §7.3 restated on ring vertices (granularity-
-   agnostic). Spec §4-I5-2 has the full record.
+   agnostic). Spec §4-I5-2 has the full record. **Post-epic Stage-4 STOP
+   census 2026-08-19 (spec `yang_n2_stage4_cdt_mesh_updating.md` §5c.13):**
+   every `Stage4RegionInvalid` now goes through the `#[track_caller]`
+   constructor `YangError::stage4_region_invalid` (permanent site
+   attribution under `YANG_LRR_PROBE`); the census attributed
+   R0009/R0047 to the §4.4.1(a) unzip loop's pass cap and the per-action
+   shape probe showed the loop acting on HEALTHY triangles (h/l 0.007–0.4)
+   because its degeneracy test was the ABSOLUTE `MIN_FEATURE_SIZE²` area
+   floor — scale-dependent, mis-firing at 1e-4 model scale (R0009 4-action
+   ping-pong; R0047 5168 actions/62 s; silent edge flips on CORRECT
+   R0091/R0072/R0063). Replaced, across every gate sharing the metric, by
+   the scale-free collinearity IDENTITY (`tri_is_degenerate`,
+   min-height/max-edge ≤ 1e-9 — the `chain_straightness` band) + a
+   ping-pong certificate STOP. **Corpus 261C/0W/47E/1EE/0T — R0016
+   ERROR→CORRECT (a genuine conversion), R0009/R0047 advance to deeper
+   pre-existing walls, zero other deltas. NEW CANONICAL.**
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
