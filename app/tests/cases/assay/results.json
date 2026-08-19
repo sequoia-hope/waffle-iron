@@ -282,7 +282,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 34f17562-4f26-450c-bb46-fd2e004b22a7: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "detail": "1 engine error(s): 34f17562-4f26-450c-bb46-fd2e004b22a7: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\")",
       "id": "R0047",
       "status": "error"
     },

@@ -958,3 +958,20 @@ Also measured (spec §5c.13): the 12 micro-scale CORRECT cases (scale
 < 2e-3) — R0091 ×1, R0072 ×6, R0063 ×68 healthy-triangle unzips under the
 old floor (silent edge flips inside CORRECT verdicts; gone post-fix, all
 remain CORRECT); R0016 (5e-2 gear) ERROR→CORRECT.
+
+## Stage-6 non-2-manifold site census (2026-08-19, post-5c.13) — the second absolute-floor anchor
+
+`NONMANIFOLD_SITE_PROBE` over the nine `reassembled output would be
+non-2-manifold` cases (the largest remaining ERROR family):
+
+| Case | site | mechanism |
+|---|---|---|
+| F0058 | `s4-shell-euler` double-cover χ=3, edge (1,30) on A cyl-2, four tris (two per x-side, apexes z=±0.0285) — preceded by `s6-wedge-walk-not-outgoing` at v30 | equal-R perpendicular cyl−cyl CUT: v30 = (0,−0.2,0) is the exact tangency point where A's seam passes; the kept upper/lower sheets both fan onto the LOWER seam segment (1,30) — the vertex-pinch construction defect (`yang_tangency_pinch_split.md` sibling class) |
+| F0060 | `s4-shell-euler` double-cover χ=3 on both cap planes (z=±0.3) along the line x=0 | B (r=0.3, axis y through the origin) is TANGENT to both caps of A along a line — a line-pinch solid (two half-wedges per cap touching along the tangent line); not 2-manifold-representable |
+| R0032 | `s4-shell-euler` double-cover χ=3, edges (450,452)/(450,717) torus A ×2 + cones B191/B192 | torus × two-cone junction double cover (#146 family) |
+| C0107 / C0108 | `s6-curved-empty-cycles: face 0` | designed 0D point-tangency (7b); loud reject IS the designed green |
+| C0058 | `s6-curved-degenerate-loop` face 2 cycle len 64, ratio 5.9e-16 | the tangency-neck figure-eight (unchanged; §4.3.3 tangent-point insertion milestone) |
+| **R0047** | `s6-curved-degenerate-loop` face 367 cycle len 4, `\|N\|=4.9e-13` | **ABSOLUTE `MIN_FEATURE_SIZE²` Newell floor at 2.09e-4 scale on a HEALTHY 2.3e-6 × 1.2e-7 quad (ratio 8.6e-2) → FIXED (spec §5c.14, four gates moved to the identity); advances to kernel-v2 `output ellipse-arc endpoint does not lie on its ellipse` (residual 1.109e-9 vs 1e-9 band = 4.8e-6 RELATIVE off — a genuine cone-ellipse endpoint incidence residual, next anchor)** |
+| C0044 | `i6-edge-overuse` (14,15) fwd=1 rev=0 → `s4-halfedge-pairing` | M8 flush annular stack (Stage-0 coplanar family, unchanged) |
+| R0053 | `i6-input-overuse`: input B edge (180,181) fwd=0 rev=1 — the CHAINED INPUT is not watertight | to_yang re-tessellation of the op-2 output B-Rep emits an unpaired edge (chained-input casualty; attribute to the producing op) |
+

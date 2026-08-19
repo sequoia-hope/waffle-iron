@@ -52,6 +52,65 @@ pub(crate) fn tri_is_degenerate(p0: [f64; 3], p1: [f64; 3], p2: [f64; 3]) -> boo
     tri_degeneracy_ratio(p0, p1, p2) <= DEGENERACY_IDENTITY_REL
 }
 
+/// Scale-free LOOP degeneracy ratio — the polygon analog of
+/// [`tri_degeneracy_ratio`]: the Newell area-vector magnitude `|N|` (= 2 ×
+/// the loop's projected area) divided by the square of the loop's own
+/// extent (its AABB diagonal). A long sliver loop of width `w` and length
+/// `L` measures `≈ 2w/L`; a healthy square measures `1.0`; a collinear or
+/// figure-eight (Newell-cancelling) loop measures `≈ 0`. Returns `0.0` for
+/// a loop with no extent at all. Normalizing by the loop's OWN extent (not
+/// by its longest edge — a finely sampled sliver has short edges) keeps the
+/// measure a shape identity: the same loop at any model scale reads the
+/// same ratio.
+pub(crate) fn loop_degeneracy_ratio<I>(pts: I) -> f64
+where
+    I: IntoIterator<Item = [f64; 3]>,
+{
+    let pts: Vec<[f64; 3]> = pts.into_iter().collect();
+    let m = pts.len();
+    if m < 3 {
+        return 0.0;
+    }
+    let mut n = [0.0f64; 3];
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    for i in 0..m {
+        let a = pts[i];
+        let b = pts[(i + 1) % m];
+        n[0] += a[1] * b[2] - a[2] * b[1];
+        n[1] += a[2] * b[0] - a[0] * b[2];
+        n[2] += a[0] * b[1] - a[1] * b[0];
+        for k in 0..3 {
+            lo[k] = lo[k].min(a[k]);
+            hi[k] = hi[k].max(a[k]);
+        }
+    }
+    let diag2 = (0..3).map(|k| (hi[k] - lo[k]).powi(2)).sum::<f64>();
+    if diag2 == 0.0 || !diag2.is_finite() {
+        return 0.0;
+    }
+    let mag = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    mag / diag2
+}
+
+/// Loop analog of [`tri_is_degenerate`]: is the loop numerically zero-area
+/// RELATIVE TO ITS OWN EXTENT ([`loop_degeneracy_ratio`] ≤
+/// [`DEGENERACY_IDENTITY_REL`])? Shared by every gate that asks "can this
+/// boundary loop define an orientation" — the Stage-6 E2 degenerate-loop
+/// guards (curved + planar). (The Stage-1 INPUT-face `DegenerateFace` check
+/// is deliberately NOT on this identity: it is the A14.2 feature-floor
+/// contract on an input MODEL face, pinned by `tests/m1_adversarial.rs`.)
+/// History (2026-08-19, R0047 anchor): those gates were the ABSOLUTE
+/// `MIN_FEATURE_SIZE²` Newell floor, which at 2e-4 model scale rejected a
+/// healthy 2.3e-6 × 1.2e-7 kept quad (ratio 0.086) as "degenerate" while a
+/// genuine figure-eight (C0058, ratio 6e-16) is what the gate exists for.
+pub(crate) fn loop_is_degenerate<I>(pts: I) -> bool
+where
+    I: IntoIterator<Item = [f64; 3]>,
+{
+    loop_degeneracy_ratio(pts) <= DEGENERACY_IDENTITY_REL
+}
+
 /// Unnormalized triangle area-vector `(p1−p0) × (p2−p0)` (= 2·area·n̂).
 pub(crate) fn tri_area_vector(p0: [f64; 3], p1: [f64; 3], p2: [f64; 3]) -> [f64; 3] {
     let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
@@ -170,6 +229,89 @@ mod degeneracy_identity_tests {
         let attribution = TriangleAttributionMap::empty();
         validate_relocated_triangles(&mesh, &attribution, &moved_first(&mesh))
             .expect("a healthy micro-scale relocated triangle is valid");
+    }
+
+    /// The R0047 anchor loop (2026-08-19, `s6-curved-degenerate-loop` face
+    /// 367 at 2.09e-4 model scale): a HEALTHY 2.3e-6 × 1.2e-7 kept quad
+    /// whose Newell magnitude 4.9e-13 sat under the old absolute
+    /// `MIN_FEATURE_SIZE²` floor. Ratio measured 8.6e-2 — not degenerate.
+    #[test]
+    fn healthy_micro_scale_loop_is_not_degenerate() {
+        let quad = [
+            [
+                4.936787592310777e-5,
+                -0.00014011030542042326,
+                0.00015644834793067906,
+            ],
+            [
+                4.851118772682679e-5,
+                -0.00014220840962138667,
+                0.0001568325592623085,
+            ],
+            [
+                4.8495661349126846e-5,
+                -0.00014218815014173549,
+                0.0001569481686909321,
+            ],
+            [
+                4.938522997950848e-5,
+                -0.0001400242647336123,
+                0.00015652392308658595,
+            ],
+        ];
+        let ratio = loop_degeneracy_ratio(quad);
+        assert!((0.05..0.2).contains(&ratio), "ratio {ratio:e}");
+        assert!(!loop_is_degenerate(quad));
+        // The retired floor rejected exactly this loop:
+        let mut n = [0.0f64; 3];
+        for i in 0..4 {
+            let (a, b) = (quad[i], quad[(i + 1) % 4]);
+            n[0] += a[1] * b[2] - a[2] * b[1];
+            n[1] += a[2] * b[0] - a[0] * b[2];
+            n[2] += a[0] * b[1] - a[1] * b[0];
+        }
+        let mag = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        assert!(mag < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE);
+    }
+
+    /// A Newell-cancelling FIGURE-EIGHT (the C0058 tangency-neck class: two
+    /// equal lobes traversed with opposite winding) and a macro-scale
+    /// collinear sliver loop (1000 m long, 1e-7 wide: |N| = 1e-4 ≫ the old
+    /// floor) are BOTH degenerate under the identity — the shape reads the
+    /// same at every scale, and the sliver is the case the absolute floor
+    /// missed.
+    #[test]
+    fn figure_eight_and_macro_sliver_loops_are_degenerate() {
+        // Bow-tie: lobe 1 CCW, lobe 2 CW (crossing at the origin).
+        let bowtie = [
+            [0.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [1.0, -1.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [-1.0, 1.0, 0.0],
+            [-1.0, -1.0, 0.0],
+        ];
+        assert!(loop_degeneracy_ratio(bowtie) < 1e-15);
+        assert!(loop_is_degenerate(bowtie));
+        let sliver = [
+            [0.0, 0.0, 0.0],
+            [500.0, 0.0, 0.0],
+            [1000.0, 0.0, 0.0],
+            [1000.0, 1e-7, 0.0],
+            [500.0, 1e-7, 0.0],
+            [0.0, 1e-7, 0.0],
+        ];
+        let ratio = loop_degeneracy_ratio(sliver);
+        assert!(ratio < DEGENERACY_IDENTITY_REL, "ratio {ratio:e}");
+        assert!(loop_is_degenerate(sliver));
+        // Healthy unit square: |N| = 2·area = 2, diag² = 2 → ratio 1.0.
+        let sq = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ];
+        assert!((loop_degeneracy_ratio(sq) - 1.0).abs() < 1e-12);
     }
 
     /// A COLLINEAR triangle at macro scale (long edge 1000 m, off-vertex

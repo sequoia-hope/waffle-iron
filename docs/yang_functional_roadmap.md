@@ -358,7 +358,18 @@ name, never measured).
    R0020/R0032/R0044/R0053 advance to Stage-6 non-2-manifold / render
    ring-reject / KV9-F2 walls. The Stage-4 LRR tail is now R0038
    (tangency), R0050 (near-coincident revolve incidence), C0067 (circle×
-   circle junction) + the OffCurve five.
+   circle junction) + the OffCurve five. **Same day, the Stage-6
+   non-2-manifold census (`NONMANIFOLD_SITE_PROBE`, ledger table) found the
+   SAME absolute `MIN_FEATURE_SIZE²` floor alive in four more gates (Stage-6
+   E2 curved/planar loop guards, the §4A fold-sliver `triangle_is_degenerate`,
+   the attribution's kept-triangle degenerate branch) — R0047's fatal loop
+   was a healthy 2.3e-6 × 1.2e-7 quad (ratio 8.6e-2; C0058's genuine
+   figure-eight reads 5.9e-16). All four moved onto the shared identity
+   (`loop_is_degenerate` = Newell/extent², spec §5c.14); the Stage-1
+   INPUT-face `DegenerateFace` stays the A14.2 feature-floor contract
+   (`m1_adversarial` pin). Corpus 261C/0W/47E/1EE/0T category-identical;
+   R0047 advances to kernel-v2's ellipse-endpoint incidence gate (4.8e-6
+   relative residual — a genuine cone-ellipse endpoint defect, next anchor).**
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
    construction lands.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then

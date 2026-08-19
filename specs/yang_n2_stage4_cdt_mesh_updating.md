@@ -914,6 +914,48 @@ OffCurve ×5 (R0003 `:5801`, R0015/C0065 `:6393` containment, R0028/R0077
 `:6284` torus corridor) — every one attributed to a named site by the new
 instrument.
 
+### 5c.14 The same absolute floor lived on in FOUR Stage-6/attribution gates — moved onto the identity (2026-08-19, R0047 second anchor)
+
+**Anchor.** The post-5c.13 non-2-manifold census (`NONMANIFOLD_SITE_PROBE`
+over the nine "reassembled output would be non-2-manifold" cases) put R0047
+at the Stage-6 E2 curved degenerate-loop guard: `face 367 cycle len 4
+|N|=4.887e-13` — the guard was `|N| < MIN_FEATURE_SIZE²` (1e-12, absolute).
+The loop's geometry (new probe print under `NONMANIFOLD_SITE_PROBE`): a
+2.3e-6 × 1.2e-7 kept quad on the gear-cut face at 2.09e-4 model scale, i.e.
+a HEALTHY thin face — `|N| / extent² = 8.6e-2`. Its sibling C0058 (the
+tangency-neck figure-eight the guard exists for) measures 5.9e-16 — the
+shape identity separates the two cleanly where the absolute floor could not.
+The 5c.13 sweep had missed four gates sharing the SAME metric:
+`stage5_topology.rs` E2 curved + planar loop guards, `stage5_topology.rs::
+triangle_is_degenerate` (the §4A fold-sliver exclusion of the boundary walk),
+and `boolean.rs`'s kept-triangle degenerate branch of face attribution
+(healthy micro triangles were routed to the lowest-face-within-tolerance
+sliver rule instead of the unique-face rule).
+
+**Fix.** `validate.rs::{loop_degeneracy_ratio, loop_is_degenerate}` — the
+polygon analog of `tri_degeneracy_ratio`: Newell magnitude / (AABB
+diagonal)² (a square reads 1.0, a sliver `≈ 2w/L`, a Newell-cancelling
+figure-eight ≈ 0), thresholded at the shared `DEGENERACY_IDENTITY_REL`. All
+four gates now read the identity; the two E2 messages report the ratio.
+Pins: `healthy_micro_scale_loop_is_not_degenerate` (R0047's measured quad —
+red under the floor) and `figure_eight_and_macro_sliver_loops_are_degenerate`
+(bow-tie ≈ 0; 1000 m × 1e-7 sliver with |N| = 1e-4 ≫ the old floor STOPs —
+missed by the floor). The Stage-1 INPUT-face `DegenerateFace` check is
+deliberately LEFT on the absolute floor: it is the A14.2 feature-floor
+contract on an input MODEL face (a 1e-7 input square must be rejected),
+pinned by `tests/m1_adversarial.rs` — a model face is a feature, a mesh loop
+is not.
+
+**Corpus census (12 jobs, 400 s):** **261C/0W/47E/1EE/0T — category-
+identical to canonical, exactly ONE detail drift**: R0047 advances past
+Stage 6 to kernel-v2's output gate `InvalidBooleanOutput("output ellipse-arc
+endpoint does not lie on its ellipse")` — `KV_ELLIPSE_PROBE`: in-plane
+residual 1.109e-9 vs band 1.000e-9 (`TAU_EVAL·(1+…)`), i.e. a cone-ellipse
+endpoint 4.8e-6 RELATIVE off its stored ellipse (u=0.8615, v=0.5077) — a
+genuine yang-side incidence residual, not a scale artifact of the check
+(at scale 1 the same relative residual would fail by three orders). Next
+wall, its own anchor. C0058 stays loud (ratio 5.9e-16, unchanged wall).
+
 ## 7. Open questions for the reviewer
 
 1. OK to add the new cherchi-rs CDT entry point (interior constraints + Steiner)

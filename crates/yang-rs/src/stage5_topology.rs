@@ -4131,26 +4131,34 @@ pub(crate) fn emit_topology(
                     (start_idx..edges.len() as u32).collect()
                 };
 
-            // E2 degenerate-loop guard: each cycle's Newell area-vector
-            // magnitude must exceed MIN_FEATURE_SIZE² (A14.3 shared constant).
+            // E2 degenerate-loop guard: each cycle must be able to define an
+            // orientation — its Newell area vector must not vanish RELATIVE
+            // TO THE LOOP'S OWN EXTENT (`loop_is_degenerate`, the scale-free
+            // `DEGENERACY_IDENTITY_REL` identity shared with the Stage-4
+            // triangle gates). Formerly the ABSOLUTE `MIN_FEATURE_SIZE²`
+            // Newell floor, which at micro model scale rejected healthy kept
+            // faces (R0047 face 367: a 2.3e-6 × 1.2e-7 quad, ratio 0.086) —
+            // a mesh loop is not a model feature. The genuine failure this
+            // gate exists for — a Newell-cancelling figure-eight (C0058's
+            // tangency neck, ratio 6e-16) — stays loud at every scale.
             for cycle in cycles {
-                let mut nx = 0.0f64;
-                let mut ny = 0.0f64;
-                let mut nz = 0.0f64;
-                let m = cycle.len();
-                for i in 0..m {
-                    let a_pt = mesh.verts[cycle[i].0 as usize].as_array();
-                    let b_pt = mesh.verts[cycle[(i + 1) % m].0 as usize].as_array();
-                    nx += a_pt[1] * b_pt[2] - a_pt[2] * b_pt[1];
-                    ny += a_pt[2] * b_pt[0] - a_pt[0] * b_pt[2];
-                    nz += a_pt[0] * b_pt[1] - a_pt[1] * b_pt[0];
-                }
-                let nrm_mag = (nx * nx + ny * ny + nz * nz).sqrt();
-                if nrm_mag < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE {
+                let cycle_pts = || {
+                    cycle
+                        .iter()
+                        .map(|&(s, _)| mesh.verts[s as usize].as_array())
+                };
+                if crate::loop_is_degenerate(cycle_pts()) {
+                    let ratio = crate::loop_degeneracy_ratio(cycle_pts());
+                    if std::env::var_os("NONMANIFOLD_SITE_PROBE").is_some() {
+                        eprintln!(
+                            "NONMANIFOLD_SITE_PROBE s6-curved-degenerate-loop geometry: face {face_idx} verts {:?}",
+                            cycle.iter().map(|&(s, _)| (s, mesh.verts[s as usize])).collect::<Vec<_>>()
+                        );
+                    }
                     return Err(non_manifold_at(
                         "s6-curved-degenerate-loop",
                         format_args!(
-                            "face {face_idx} cycle len {} |N|={nrm_mag:.3e}",
+                            "face {face_idx} cycle len {} |N|/extent²={ratio:.3e}",
                             cycle.len()
                         ),
                     ));
@@ -4251,14 +4259,21 @@ pub(crate) fn emit_topology(
                 ny += a_pt[2] * b_pt[0] - a_pt[0] * b_pt[2];
                 nz += a_pt[0] * b_pt[1] - a_pt[1] * b_pt[0];
             }
-            // E2: degenerate loop — Newell area-vector magnitude below the
-            // minimum feature area (MIN_FEATURE_SIZE²; A14.3 shared constant).
-            let nrm_mag = (nx * nx + ny * ny + nz * nz).sqrt();
-            if nrm_mag < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE {
+            // E2: degenerate loop — the Newell area vector vanishes RELATIVE
+            // TO THE LOOP'S OWN EXTENT (`loop_degeneracy_ratio`, the shared
+            // scale-free `DEGENERACY_IDENTITY_REL` identity; formerly the
+            // absolute `MIN_FEATURE_SIZE²` floor — see the curved branch).
+            let cycle_pts = || {
+                cycle
+                    .iter()
+                    .map(|&(s, _)| mesh.verts[s as usize].as_array())
+            };
+            if crate::loop_is_degenerate(cycle_pts()) {
+                let ratio = crate::loop_degeneracy_ratio(cycle_pts());
                 return Err(non_manifold_at(
                     "s6-planar-degenerate-loop",
                     format_args!(
-                        "face {face_idx} cycle len {} |N|={nrm_mag:.3e}",
+                        "face {face_idx} cycle len {} |N|/extent²={ratio:.3e}",
                         cycle.len()
                     ),
                 ));
@@ -5917,26 +5932,22 @@ pub(crate) fn patch_boundary_cycle(
     Ok(cycles)
 }
 
-/// A mesh triangle is a degenerate (zero-area) sliver when twice its area
-/// `‖(p1−p0)×(p2−p0)‖` falls below `MIN_FEATURE_SIZE²` — the SAME shared
-/// threshold the Stage-6 attribution degenerate branch uses (governance A14.3,
-/// no ad-hoc epsilon). The exact arrangement keeps such slivers along shared
-/// collinear solid edges for watertightness; spec `yang_stage6_sliver_topology`
-/// §4A excludes them from boundary derivation.
+/// A mesh triangle is a degenerate (zero-area) sliver when it is numerically
+/// collinear RELATIVE TO ITS OWN EXTENT — `tri_is_degenerate`, the scale-free
+/// `DEGENERACY_IDENTITY_REL` identity shared with the Stage-4 degeneracy
+/// gates and the attribution's degenerate branch (one metric, one
+/// definition). Formerly the absolute `MIN_FEATURE_SIZE²` twice-area floor,
+/// which at micro model scale classified healthy small triangles as slivers.
+/// The exact arrangement keeps genuine slivers along shared collinear solid
+/// edges for watertightness; spec `yang_stage6_sliver_topology` §4A excludes
+/// them from boundary derivation.
 pub(crate) fn triangle_is_degenerate(mesh: &Mesh, t: u32) -> bool {
     let tri = &mesh.tris[t as usize];
-    let p0 = mesh.verts[tri[0] as usize].as_array();
-    let p1 = mesh.verts[tri[1] as usize].as_array();
-    let p2 = mesh.verts[tri[2] as usize].as_array();
-    let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
-    let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
-    let cross = [
-        e1[1] * e2[2] - e1[2] * e2[1],
-        e1[2] * e2[0] - e1[0] * e2[2],
-        e1[0] * e2[1] - e1[1] * e2[0],
-    ];
-    let twice_area = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
-    twice_area < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE
+    crate::tri_is_degenerate(
+        mesh.verts[tri[0] as usize].as_array(),
+        mesh.verts[tri[1] as usize].as_array(),
+        mesh.verts[tri[2] as usize].as_array(),
+    )
 }
 
 /// The patch's FOLD slivers — the degenerate zero-area triangles that spec

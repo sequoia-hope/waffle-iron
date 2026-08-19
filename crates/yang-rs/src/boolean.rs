@@ -1813,19 +1813,14 @@ fn boolean_once(
         // volume but pair their edges into the watertight result, so they are
         // kept (not dropped — dropping breaks edge-pairing). Their centroid
         // lands on a solid edge, equidistant from the two adjacent face planes,
-        // so the unique-face rule would (wrongly) F3-tie them. Threshold is the
-        // M1 area threshold (2·area = ‖cross(e1,e2)‖; compare to MIN_FEATURE_SIZE²;
-        // governance A14.3 — shared constant, no ad-hoc epsilon).
-        let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
-        let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
-        let cross = [
-            e1[1] * e2[2] - e1[2] * e2[1],
-            e1[2] * e2[0] - e1[0] * e2[2],
-            e1[0] * e2[1] - e1[1] * e2[0],
-        ];
-        let twice_area = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
-        let degenerate =
-            twice_area < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
+        // so the unique-face rule would (wrongly) F3-tie them. The test is the
+        // scale-free `tri_is_degenerate` identity (min-height/max-edge ≤
+        // `DEGENERACY_IDENTITY_REL`) shared with every Stage-4/Stage-6
+        // degeneracy gate — formerly the absolute `MIN_FEATURE_SIZE²` twice-
+        // area floor, which at micro model scale routed HEALTHY small kept
+        // triangles through this sliver branch (lowest-face-within-tolerance
+        // instead of the unique-face rule).
+        let degenerate = crate::tri_is_degenerate(p0, p1, p2);
 
         // Distance of the centroid to each labeled-solid face plane. Curved
         // faces are already rejected at `BRep::new`, so this is defensive — but

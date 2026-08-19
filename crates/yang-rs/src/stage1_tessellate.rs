@@ -1503,6 +1503,15 @@ pub(crate) fn stage1_tessellate_inner_overrides(
                         let mag =
                             (newell[0] * newell[0] + newell[1] * newell[1] + newell[2] * newell[2])
                                 .sqrt();
+                        // INPUT feature-floor contract (A14.2; pinned by
+                        // `tests/m1_adversarial.rs` t1): an input face whose
+                        // area falls below `MIN_FEATURE_SIZE²` is a
+                        // sub-feature-floor MODEL feature and is rejected
+                        // loudly. This is deliberately an ABSOLUTE floor on
+                        // an INPUT B-Rep face (a model feature), unlike the
+                        // scale-free `tri_is_degenerate`/`loop_is_degenerate`
+                        // identities that govern MESH elements downstream
+                        // (Stage-4 gates, Stage-6 E2 loop guards).
                         if mag < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE
                         {
                             return Err(YangError::DegenerateFace { face: f_idx });
