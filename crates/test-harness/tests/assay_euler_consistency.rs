@@ -236,7 +236,24 @@ fn historical_authoring_fixes_pinned() {
         "compute_euler_target(R0063) changed; revisit the frozen-corpus soundness note"
     );
 
-    eprintln!("historical_authoring_fixes_pinned: R0099, R0006, R0091 & R0063 targets held");
+    // C0075 was hand-corrected 2026-08-19: the gen_complexity `tracker(2, …)`
+    // default was refuted by an independent 2D derivation — two identical
+    // 12-tooth gears (pitch r 0.48, tip 0.56, root 0.38) at centre distance
+    // 0.6 interleave so the union of the involute profiles encloses exactly
+    // two pockets (grid flood-fill over the preview polyline: 2 bounded
+    // complement components, ≈0.0098 area each, mirror-symmetric), each a
+    // through-hole of the equal-height extrusion ⇒ genus 2, χ=−2. The
+    // kernel's first completed C0075 result (after the Stage-0 split-
+    // collector identity fix) measured exactly χ=−2 with the in-line
+    // composition oracle agreeing on volume, which is what exposed the
+    // authoring default.
+    let c0075 = load_meta("C0075");
+    assert_eq!(
+        c0075.oracles.euler_target, -2,
+        "C0075 corrected target regressed (must stay genus-2 χ=−2)"
+    );
+
+    eprintln!("historical_authoring_fixes_pinned: R0099, R0006, R0091, R0063 & C0075 targets held");
 }
 
 /// Check 4 — the randomized generator must only ever emit even targets.

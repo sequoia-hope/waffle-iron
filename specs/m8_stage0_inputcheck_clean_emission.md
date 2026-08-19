@@ -272,3 +272,42 @@ M-A domain mismatch and either fix under E7 or record why exempt.)
 Not applicable — no SSI, no surface approximation. The fix is exact/
 combinatorial emission hygiene; all geometry stays on the existing exact
 overlay + exact rim-mint machinery.
+
+## Addendum 2026-08-19 — the split collector's exact-collinearity test dropped a boundary subdivision at a rounding-scale miss (R0053 anchor)
+
+**Anchor.** R0053 (revolve(rect) ∪ extrude(rect) ∪ revolve(gear), scale
+1.49e2) walled at the Stage-4 half-edge pairing gate with the NEW
+enriched `NONMANIFOLD_SITE_PROBE i6-input-overuse` naming the OWNING
+input faces (per-triangle lineage from the Stage-0 `tri_face` map — the
+probe had read `as_mesh()`'s map against the Stage-0 mesh's triangle
+order): B (the fresh gear revolve) edge (180,181) — a LineSegment shared
+by the planar end cap f0 (448-gon) and the cone flank f270 — appeared in
+f0's overlay triangulation subdivided at overlay vertex 1469 (t = 0.587)
+while f270's base triangle still spanned the whole edge: a T-junction on
+the Stage-0 mesh, i.e. the §4.5.5 shared-boundary propagation never saw
+the split. `YANG_SPLIT_PROBE`: `f=0 edge (180,181) vert 1469 NEAR-MISS
+dist=8.4e-16` — the collector's EXACT 2D collinearity test (`cross != 0
+→ skip`) rejected the vertex, and the overlay dump (`splits_b: 223`,
+edge (180,181) absent; vertex 1469 tagged `lift`) confirmed the split was
+never recorded for B while A's edge (19,20) got it at t=0.9594. Measured
+near-miss population on this case (the M-C probe): **522 misses at
+1e-16..1e-13 absolute on ~1.5 m edges, 216 at 1e-4..1e-1, nothing in
+between** — the rounding-perturbed crossings and the genuinely-off
+vertices are separated by more than four orders on each side.
+
+**Fix (`collect_edge_splits`).** A `used` overlay vertex registers as a
+split of a face edge when it is EXACTLY collinear (unchanged) **or** when
+it is a BOUNDARY vertex of the side's own region (it carries a directed
+side-class edge whose reverse is not a side-class edge — topological) and
+is collinear to the scale-free identity (`miss ≤ DEGENERACY_IDENTITY_REL
+· edge length`, the shared `chain_straightness`/`tri_is_degenerate`
+band). Interior side vertices never qualify, so a vertex merely NEAR an
+edge cannot be mistaken for a subdivision of it; the strictly-interior
+chord-parameter, endpoint-identity-ceiling and merged-dup rules are
+untouched. The probe line now prints `boundary=… identity_on=…`. Pin:
+`edge_split_identity_tests::boundary_vertex_at_rounding_miss_splits_edge_interior_vertex_does_not`
+(unit square face; a boundary vertex 1e-15 off edge (0,1) at t=0.6
+registers; an interior vertex 1e-12 inside at t=0.3 does not;
+red-verified against the exact-only rule). R0053's Stage-0 mesh is
+conformal again (zero `i6-input-overuse`), the boolean completes, and the
+case advances to kernel-v2's render-CDT ring-reject wall (FaceId 474).

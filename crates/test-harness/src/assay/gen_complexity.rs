@@ -2363,7 +2363,17 @@ fn family_gear_cdt(dir: &Path) -> Vec<ManifestEntry> {
             "gear/CDT tail",
             "two 12-tooth gears overlapping, union at scale 1 [CDT gear×gear]",
         );
-        e.push(write_c_case(dir, c, d, Knobs::tracker(2, 4.0)));
+        // χ = −2 (2026-08-19 correction): two identical 12-tooth gears (pitch
+        // r 0.48, tip 0.56, root 0.38) at centre distance 0.6 interleave so
+        // that the 2D union of the profiles encloses exactly TWO pockets
+        // (independent grid flood-fill over the involute preview polyline:
+        // 2 bounded complement components, ≈0.0098 area each, mirror-
+        // symmetric about y=0) — each pocket is a through-hole of the
+        // equal-height extrusion ⇒ genus 2, one shell, χ = 2 − 2·2 = −2.
+        // The former `tracker(2, …)` was an unverified authoring default;
+        // the kernel's first completed result (after the Stage-0 split-
+        // collector identity fix) measured χ=−2 and exposed it.
+        e.push(write_c_case(dir, c, d, Knobs::tracker(-2, 4.0)));
     }
     // C0076: ring gear — gear boss minus smaller coaxial gear cut.
     {

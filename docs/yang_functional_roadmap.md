@@ -386,6 +386,20 @@ name, never measured).
    pin `four_edge_non_structured_cone_lateral_reenters`, a tilted slab
    minus a 60° frustum wedge, red-verified). **R0047 ERROR → SUPPORTED_
    CORRECT. Corpus 262C/0W/46E/1EE/0T — NEW CANONICAL (the only delta).**
+   **Then R0053 (same census, `i6-input-overuse`) ANCHORED: the Stage-0
+   mesh of the FRESH gear revolve was non-conformal — `collect_edge_
+   splits`' EXACT 2D collinearity test dropped the boundary subdivision of
+   B's planar end-cap edge (180,181) at an 8.4e-16 rounding miss (census:
+   522 misses ≤1e-13 vs 216 ≥1e-4, nothing between), so the adjacent cone
+   flank never received the split (T-junction). FIXED: a side-region
+   BOUNDARY vertex collinear to the scale-free identity registers (spec
+   `m8_stage0_inputcheck_clean_emission.md` addendum; pin red-verified).
+   R0053 → render ring-reject; and **C0075 completed for the first time
+   and exposed its authored `euler_target: 2` as WRONG — the two
+   interleaved 12-tooth gears enclose two through-pockets (genus 2, χ=−2,
+   independently derived by grid flood-fill); meta corrected + pinned in
+   `historical_authoring_fixes_pinned`. C0075 ERROR → SUPPORTED_CORRECT.
+   Corpus 263C/0W/45E/1EE/0T — NEW CANONICAL.**
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

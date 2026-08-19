@@ -923,13 +923,88 @@ fn boolean_once(
                     );
                     // Amendment-13 inc-3.2 enrichment: name the incident
                     // triangles so the unpaired side self-localizes.
+                    let brep_of = if tag == "A" { a } else { b };
+                    // The tri→face lineage of the mesh actually scanned:
+                    // Stage-0's rebuilt mesh carries its own map (its
+                    // triangle order differs from `as_mesh()`).
+                    let tri_face_of: &[u32] = match (&stage0, tag) {
+                        (Some(s0), "A") => &s0.tri_face_a,
+                        (Some(s0), _) => &s0.tri_face_b,
+                        (None, _) => brep_of.tri_face(),
+                    };
                     for (ti, t) in m.tris.iter().enumerate() {
                         if t.contains(&s) && t.contains(&e) {
                             let third = t.iter().copied().find(|&x| x != s && x != e);
+                            // 2026-08-19: name the OWNING input face (Stage-1
+                            // `tri_face` lineage) so a non-conformal seam
+                            // between two faces' tessellations self-localizes.
+                            let owner = tri_face_of.get(ti).map(|&f| {
+                                (
+                                    f,
+                                    brep_of.faces().get(f as usize).map(|face| {
+                                        crate::stage4_correct::surface_kind_name(face.surface)
+                                    }),
+                                )
+                            });
                             eprintln!(
                                 "NONMANIFOLD_SITE_PROBE i6-input-overuse:   tri {ti} {t:?} \
-                                 third {:?}",
+                                 third {:?} owner_face {owner:?}",
                                 third.map(|x| m.verts[x as usize])
+                            );
+                        }
+                    }
+                    // The B-Rep edges joining the two endpoints (mesh ids of
+                    // seeded B-Rep vertices ARE their B-Rep ids) and the
+                    // faces whose loops carry each: a shared edge whose two
+                    // sides disagree on CURVE or sampling self-localizes.
+                    for (ei, be) in brep_of.edges().iter().enumerate() {
+                        let joins =
+                            (be.start == s && be.end == e) || (be.start == e && be.end == s);
+                        if !joins {
+                            continue;
+                        }
+                        let owners: Vec<String> = brep_of
+                            .faces()
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, face)| {
+                                face.outer_loop
+                                    .iter()
+                                    .chain(face.inner_loops.iter().flatten())
+                                    .any(|&x| x as usize == ei)
+                            })
+                            .map(|(fi, face)| {
+                                format!(
+                                    "f{fi}:{}(loop {} edges)",
+                                    crate::stage4_correct::surface_kind_name(face.surface),
+                                    face.outer_loop.len()
+                                )
+                            })
+                            .collect();
+                        eprintln!(
+                            "NONMANIFOLD_SITE_PROBE i6-input-overuse:   brep edge {ei} v{}→v{} {:?} owners [{}]",
+                            be.start,
+                            be.end,
+                            be.curve,
+                            owners.join(", ")
+                        );
+                    }
+                    // Any OTHER triangle touching a vertex of the edge that
+                    // is not an endpoint of it: a T-junction witness (a
+                    // sample inserted on this edge by one face only).
+                    for (ti, t) in m.tris.iter().enumerate() {
+                        if (t.contains(&s) || t.contains(&e)) && !(t.contains(&s) && t.contains(&e))
+                        {
+                            let owner = tri_face_of.get(ti).map(|&f| {
+                                (
+                                    f,
+                                    brep_of.faces().get(f as usize).map(|face| {
+                                        crate::stage4_correct::surface_kind_name(face.surface)
+                                    }),
+                                )
+                            });
+                            eprintln!(
+                                "NONMANIFOLD_SITE_PROBE i6-input-overuse:   near-tri {ti} {t:?} owner_face {owner:?}"
                             );
                         }
                     }

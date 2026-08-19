@@ -374,11 +374,25 @@ pub(crate) fn collect_edge_splits(
     // triangulation guarantees any vertex on the face boundary that the
     // side's triangulation needs is used by a side triangle).
     let mut used = vec![false; overlay.verts.len()];
+    // Directed edges of THIS side's triangulation, for the boundary test
+    // below: a side vertex is a BOUNDARY vertex of the side's region iff it
+    // carries a directed side edge whose reverse is not a side edge.
+    let mut side_dir: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
     for (t, c) in overlay.tris.iter().zip(&overlay.class) {
         if side_classes.contains(c) {
             for &v in t {
                 used[v as usize] = true;
             }
+            for k in 0..3 {
+                side_dir.insert((t[k], t[(k + 1) % 3]));
+            }
+        }
+    }
+    let mut on_boundary = vec![false; overlay.verts.len()];
+    for &(u, v) in &side_dir {
+        if !side_dir.contains(&(v, u)) {
+            on_boundary[u as usize] = true;
+            on_boundary[v as usize] = true;
         }
     }
 
@@ -438,22 +452,43 @@ pub(crate) fn collect_edge_splits(
             // Exact collinearity + strictly-interior parameter.
             let cross = &dx * &wy - &dy * &wx;
             if cross != RBig::ZERO {
+                // 2026-08-19 (R0053 anchor): an overlay vertex that the side's
+                // triangulation uses ON ITS REGION BOUNDARY and that is
+                // collinear with the edge to the scale-free collinearity
+                // IDENTITY (miss ≤ DEGENERACY_IDENTITY_REL · edge length —
+                // the `chain_straightness` / `tri_is_degenerate` band) IS a
+                // subdivision of this edge: the overlay's own boundary chain
+                // passes through it between the edge's corners. The exact
+                // test alone dropped such vertices when an identification
+                // step had perturbed a minted crossing by f64 rounding
+                // (R0053: B face 0 edge (180,181), vertex 1469 at 8.4e-16 —
+                // the overlay triangulated f0's boundary THROUGH it while the
+                // propagation to the adjacent cone lateral never saw it →
+                // a T-junction on the Stage-0 mesh → `i6-input-overuse`).
+                // Measured population on R0053: 522 rounding-scale misses
+                // (1e-16..1e-13 absolute on ~1.5 m edges) vs 216 genuine
+                // misses at 1e-4..1e-1, nothing between — the identity
+                // separates them by four orders on each side. Interior
+                // (non-boundary) side vertices never qualify, so a vertex
+                // merely NEAR the edge cannot be mistaken for a split.
+                let len = len2.to_f64().value().sqrt();
+                let miss = (cross.to_f64().value() / len).abs();
+                let identity_on =
+                    on_boundary[i] && miss <= crate::stage4_correct::DEGENERACY_IDENTITY_REL * len;
                 // M-C diagnosis probe (read-only, env-gated): report exact
                 // NON-collinear vertices whose perpendicular miss distance is
-                // tiny — the band-scale near-miss population the split
-                // collector silently skips.
-                if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
-                    let len = len2.to_f64().value().sqrt();
-                    let miss = (cross.to_f64().value() / len).abs();
-                    if miss < 1.0e-3 * len {
-                        let t = ((&dx * &wx + &dy * &wy) / &len2).to_f64().value();
-                        eprintln!(
-                            "[split-probe] f={fi} edge ({lo},{hi}) vert {i} NEAR-MISS \
-                             dist={miss:e} t={t}"
-                        );
-                    }
+                // tiny — the band-scale near-miss population.
+                if std::env::var_os("YANG_SPLIT_PROBE").is_some() && miss < 1.0e-3 * len {
+                    let t = ((&dx * &wx + &dy * &wy) / &len2).to_f64().value();
+                    eprintln!(
+                        "[split-probe] f={fi} edge ({lo},{hi}) vert {i} NEAR-MISS \
+                         dist={miss:e} t={t} boundary={} identity_on={identity_on}",
+                        on_boundary[i]
+                    );
                 }
-                continue;
+                if !identity_on {
+                    continue;
+                }
             }
             let t = (&dx * &wx + &dy * &wy) / &len2;
             if t <= RBig::ZERO || t >= RBig::ONE {
@@ -2186,5 +2221,116 @@ mod edge_split_merge_dedup_tests {
         let entry2 = splits2.get(&(0, 1)).expect("edge (0,1) split");
         assert_eq!(entry2.len(), 1, "merged twin collapses to one entry");
         assert_eq!(entry2[0].1, junction);
+    }
+}
+
+#[cfg(test)]
+mod edge_split_identity_tests {
+    //! 2026-08-19 (R0053 anchor): the split collector honors a side-region
+    //! BOUNDARY vertex that is collinear with the face edge to the scale-free
+    //! identity but not bit-exactly (a rounding-perturbed minted crossing),
+    //! and still ignores an INTERIOR vertex merely near the edge. RED under
+    //! the exact-only test (the boundary split was dropped → T-junction),
+    //! GREEN under the boundary + identity rule.
+    use super::*;
+    use crate::coplanar_overlay::{ClassifiedOverlay, ExactPoint2, RegionClass};
+    use crate::stage0::frame::canonical_frame;
+    use crate::{BRep, BRepEdge, BRepFace, BRepVertex, Curve, Surface, Vector3};
+    use cad_primitives::{Point2, Point3};
+
+    fn unit_square_face() -> BRep {
+        let p = |x: f64, y: f64| BRepVertex {
+            point: Point3::new(x, y, 0.0),
+        };
+        let verts = vec![p(0.0, 0.0), p(1.0, 0.0), p(1.0, 1.0), p(0.0, 1.0)];
+        let e = |s: u32, t: u32| BRepEdge {
+            start: s,
+            end: t,
+            curve: Curve::LineSegment,
+        };
+        let edges = vec![e(0, 1), e(1, 2), e(2, 3), e(3, 0)];
+        let faces = vec![BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: 0.0,
+            },
+            outer_loop: vec![0, 1, 2, 3],
+            inner_loops: Vec::new(),
+            reversed: false,
+        }];
+        BRep::new(verts, edges, faces).expect("unit square face")
+    }
+
+    #[test]
+    fn boundary_vertex_at_rounding_miss_splits_edge_interior_vertex_does_not() {
+        let brep = unit_square_face();
+        let frame = canonical_frame(&brep, 0).expect("frame");
+        let coords: Vec<Point3> = brep.vertices().iter().map(|v| v.point).collect();
+        // Overlay over the square: the four corners (0..3), a BOUNDARY vertex 4
+        // on edge (0,1) at t=0.6 perturbed 1e-15 off the line (the rounding-
+        // scale identification residue), and an INTERIOR vertex 5 at the same
+        // u but 1e-12 inside the region (near the edge, NOT on the boundary).
+        let pts2 = [
+            frame.project(coords[0]),
+            frame.project(coords[1]),
+            frame.project(coords[2]),
+            frame.project(coords[3]),
+        ];
+        let along = |t: f64| {
+            (
+                pts2[0].0 + t * (pts2[1].0 - pts2[0].0),
+                pts2[0].1 + t * (pts2[1].1 - pts2[0].1),
+            )
+        };
+        let (bu, bv) = along(0.6);
+        // Perpendicular-ish nudge: add 1e-15 to both coordinates (off the
+        // exact line in the generic frame).
+        let boundary_pt = (bu + 1.0e-15, bv + 1.0e-15);
+        let (iu, iv) = along(0.3);
+        // Inward normal of edge (0,1) in the frame: toward corner 3.
+        let (nu, nv) = (pts2[3].0 - pts2[0].0, pts2[3].1 - pts2[0].1);
+        let interior_pt = (iu + 1.0e-12 * nu, iv + 1.0e-12 * nv);
+        let all = [pts2[0], pts2[1], pts2[2], pts2[3], boundary_pt, interior_pt];
+        let verts: Vec<Point2> = all.iter().map(|&(x, y)| Point2::new(x, y)).collect();
+        let exact_verts: Vec<ExactPoint2> = all
+            .iter()
+            .map(|&(x, y)| ExactPoint2::from_f64(x, y).expect("finite"))
+            .collect();
+        // Side triangulation using 4 ON the boundary chain 0→4→1 and 5 as an
+        // interior vertex: [0,4,5], [4,1,5], [1,2,5], [2,3,5], [3,0,5].
+        let tris = vec![[0, 4, 5], [4, 1, 5], [1, 2, 5], [2, 3, 5], [3, 0, 5]];
+        let class = vec![RegionClass::AOnly; tris.len()];
+        let overlay = ClassifiedOverlay {
+            verts,
+            exact_verts,
+            tris,
+            class,
+            poly_a: vec![0; 5],
+            poly_b: vec![u32::MAX; 5],
+            fused: BTreeMap::new(),
+        };
+        let resolved: Vec<Point3> = all.iter().map(|&(u, v)| frame.lift(u, v)).collect();
+        let mut splits: SplitMap = BTreeMap::new();
+        collect_edge_splits(
+            &brep,
+            0,
+            &coords,
+            &frame,
+            &BTreeMap::new(),
+            &overlay,
+            [RegionClass::AOnly, RegionClass::Overlap],
+            &resolved,
+            &std::collections::BTreeSet::new(),
+            &mut splits,
+        );
+        let on_01 = splits.get(&(0, 1)).cloned().unwrap_or_default();
+        assert_eq!(
+            on_01.len(),
+            1,
+            "the boundary vertex at a rounding-scale miss must register as ONE split of edge (0,1); got {on_01:?}"
+        );
+        let t = on_01[0].0.to_f64().value();
+        assert!((t - 0.6).abs() < 1e-9, "split parameter {t} must be the boundary vertex's t≈0.6 (not the interior vertex at 0.3)");
+        assert_eq!(splits.len(), 1, "no other edge gains a split: {splits:?}");
     }
 }
