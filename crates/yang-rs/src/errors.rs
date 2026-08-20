@@ -157,6 +157,16 @@ pub enum Stage4InvalidReason {
     /// local refinement (re-invoking the Stage-2 backend on a refined sub-mesh)
     /// is required and is out of scope for this PR (loud STOP).
     LocalRefinementRequired,
+    /// §4-I9: the relocation slid PAST a still neighbour lying exactly on its
+    /// own travel segment — so the vertex left the DOMAIN of the carrier it was
+    /// travelling along (that neighbour is the carrier's endpoint, e.g. the
+    /// model corner where a third face joins). The exact solution the arm
+    /// converged to is off the bounded face; no mesh update can absorb it,
+    /// because the arrangement's local topology disagrees with the exact
+    /// geometry. This is §4.5.2 local refinement's own trigger, named at the
+    /// stage where it happens rather than surfacing three stages later as a
+    /// folded output loop.
+    RelocationCrossedCarrierVertex,
 }
 
 /// PR-YR9 (P3): why Stage-3 SSI refinement of an intersection edge failed.

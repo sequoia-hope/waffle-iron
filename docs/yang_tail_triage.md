@@ -1071,6 +1071,41 @@ over 7.37 of travel). **The relocated position is outside its carrier's domain**
 so the mesh arrangement's local topology disagrees with the exact geometry —
 §4.5.2 local refinement's trigger, not a merge and not `ReorderConic`.
 
+## Relocation-domain census (2026-08-20) — §4-I9, armed
+
+`YANG_S4_CARRIER_DOMAIN=census` over all 312 cases, run case-by-case (the corpus
+runner nulls child stderr). Spec `specs/yang_441_trim_cdt_construction.md` §4-I9.
+
+The certificate has two legs: (1) a still neighbour lies ON the traveller's
+`pre → post` segment, strictly inside, at the shared 1e-9 relative collinearity
+identity; (2) that neighbour carries a surface the relocated position is OFF, so
+it is a domain ENDPOINT (a third face joins) rather than a plain sample of the
+traveller's own carrier.
+
+| case | verdict | leg-1 fires | leg-2 STOPs | armed detail |
+|---|---|---|---|---|
+| R0085 | ERROR | 11 | **11** | ring-reject → `RelocationCrossedCarrierVertex` |
+| R0044 | ERROR | 7 | **7** | ring-reject → `RelocationCrossedCarrierVertex` |
+| R0011 | ERROR | 4 | **4** | ring-reject → `RelocationCrossedCarrierVertex` |
+| R0074 | ERROR | 1 | **1** | ring-reject → `RelocationCrossedCarrierVertex` |
+| R0004 | ERROR | 1 | **1** | unchanged (fires in a non-reported invocation) |
+| R0051 | ERROR | 1 | 0 | leg 2 exempts it — a SAMPLE, so its self-intersection has another cause |
+| F0064 | UNSUPPORTED(coplanar) | 2 | 0 | leg 2 exempts it — SAMPLEs; without leg 2 this case would have been pushed to ERROR |
+| all others | — | 0 | 0 | — |
+
+**Leg 2 is load-bearing, not decoration**: leg 1 alone would have claimed R0051's
+self-intersection and demoted F0064 from a known capability gap to a failure.
+
+Armed corpus: **265C/0W/43E/1EE/0T unchanged, four detail deltas, zero category
+deltas** — no SUPPORTED_CORRECT case fires at all.
+
+**The repair already exists for the minted half.** `trim_beyond_corner_phantoms`
+(P3b inc-4b) collapses a relocated phantom into the corner it overran when that
+corner is a Stage-1 MINT, guarded by a patch-subset test that is the face-level
+sibling of §4-I8's surface-level containment. The I9 sites differ only in that
+their corner is an INHERITED input model corner. Extending that trim to inherited
+corners is the next increment, and it is a REPAIR.
+
 ## Stage-6 non-2-manifold site census (2026-08-19, post-5c.13) — the second absolute-floor anchor
 
 `NONMANIFOLD_SITE_PROBE` over the nine `reassembled output would be

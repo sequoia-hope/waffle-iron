@@ -3706,6 +3706,173 @@ pub(crate) fn compact_unreferenced_verts(
 /// No-skip audit (anti-disproven-attempt): a `processed` set tracks EVERY conic
 /// edge endpoint; it must equal the relocation-key set at the end. The function
 /// NEVER `continue`s past a `Circle` edge endpoint.
+/// §4-I9 — the RELOCATION-DOMAIN postcondition (spec
+/// `yang_441_trim_cdt_construction.md` §4-I9).
+///
+/// A Stage-4 relocation slides a vertex onto the exact analytic solution its arm
+/// converged to. That solution is computed against SURFACES, which are
+/// unbounded; the vertex lives on a bounded FACE. When the exact solution lies
+/// beyond the face, the arm still converges — and the vertex slides straight
+/// past the carrier's own endpoint, the model corner where a third face joins.
+/// The mesh is then folded: the boundary walks out to the relocated vertex and
+/// back over the corner, which Stage 6 emits and the render CDT rejects three
+/// stages later with a message about a ring, naming neither the stage nor the
+/// defect.
+///
+/// The certificate has TWO legs, and needs both. (1) The crossed neighbour lies
+/// ON the travel segment, strictly inside it, at the project's shared 1e-9
+/// relative collinearity identity
+/// ([`crate::stage4_construct::point_on_segment_interior`]) — measured
+/// 2026-08-20 at 6.4e-13 / 1.4e-17 / 0.0 / 6.2e-17 on the four ring-reject
+/// sites, against 5.0 %–6.6 % of travel for the two Fig-11 merges that are
+/// LEGITIMATE (F0045, R0090). Seven orders separate the populations, so this
+/// does not preempt the §4-I6 merge. (2) That neighbour is a domain ENDPOINT,
+/// not a sample: it carries a surface the relocated position is OFF, so a third
+/// face joins there and the carrier STOPS. Without leg (2) the check would also
+/// fire on a plain sample of the traveller's own carrier, which Yang's near-curve
+/// vertex removal legitimately owns — measured 2026-08-20: leg (2) is what keeps
+/// F0064's coplanar-boundary case out of the fire list.
+///
+/// This is a POSTCONDITION over the whole stage rather than a check at each
+/// arm: relocation happens at more than a dozen sites here plus
+/// `apply_boundary_relocations`, and every repair that might dissolve the
+/// configuration (the P3b beyond-corner trim, the collapsed-fan
+/// re-triangulation, the reversal sweep, the sub-feature merge) runs before the
+/// end. Only what SURVIVES all of them is a genuine domain violation.
+///
+/// Gate `YANG_S4_CARRIER_DOMAIN`: unset = **ON** (STOP on the first violation,
+/// in deterministic vertex order); `0`/`off` = the dev A/B off-knob; `census` =
+/// report every violation and return Ok, a measurement mode with no behaviour
+/// change. Full-corpus census 2026-08-20: fires on R0004/R0011/R0044/R0074/R0085
+/// only — every one already an ERROR, so arming cannot cost a correct case, and
+/// no category moves.
+fn relocation_domain_postcondition(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+    entry: &[[f64; 3]],
+) -> Result<(), YangError> {
+    let mode = std::env::var("YANG_S4_CARRIER_DOMAIN").unwrap_or_default();
+    if mode == "0" || mode == "off" {
+        return Ok(());
+    }
+    let census = mode == "census";
+
+    // Still-ness is judged against the ENTRY snapshot. Vertices are only
+    // appended during Stage 4, so an index below the snapshot's length names the
+    // same vertex throughout; appended vertices have no pre position and cannot
+    // have travelled.
+    let n = entry.len().min(mesh.verts.len());
+    let moved_at = |v: u32| -> Option<([f64; 3], [f64; 3])> {
+        let i = v as usize;
+        if i >= n {
+            return None;
+        }
+        let post = mesh.verts[i].as_array();
+        (entry[i] != post).then_some((entry[i], post))
+    };
+
+    // Adjacency over LIVE triangles only: a vertex the collapses orphaned is no
+    // longer anyone's neighbour and cannot fold anything.
+    let mut adj: std::collections::BTreeMap<u32, std::collections::BTreeSet<u32>> =
+        std::collections::BTreeMap::new();
+    for tri in &mesh.tris {
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (u, w) = (tri[i], tri[j]);
+            if u == w {
+                continue;
+            }
+            adj.entry(u).or_default().insert(w);
+            adj.entry(w).or_default().insert(u);
+        }
+    }
+
+    let mut first: Option<u32> = None;
+    let mut fires = 0usize;
+    for (&v, neighbours) in &adj {
+        let Some((pre, post)) = moved_at(v) else {
+            continue;
+        };
+        for &q in neighbours {
+            if moved_at(q).is_some() {
+                continue; // both travelled — not a crossing of a STILL carrier vertex
+            }
+            let (qi, qpos) = (q as usize, mesh.verts[q as usize].as_array());
+            if qi >= n {
+                continue; // minted during Stage 4; it bounds no pre-existing carrier
+            }
+            if !crate::stage4_construct::point_on_segment_interior(pre, post, qpos) {
+                continue;
+            }
+            // SECOND LEG — is `q` a DOMAIN ENDPOINT, or just a sample?
+            //
+            // Crossing a still collinear neighbour is not by itself a domain
+            // violation. If `q` lies only on surfaces the traveller also lies
+            // on, it is a plain sample of the SAME carrier, and Yang's own
+            // remedy applies ("we remove a mesh vertex if it is too close to
+            // the intersection curve", §4.4.1) — the Fig-11 merge and the
+            // near-curve removal own that, and a STOP here would preempt them.
+            //
+            // A domain ENDPOINT is different: it carries a surface the
+            // traveller is OFF, i.e. a third face joins there and the carrier
+            // STOPS. This is §4-I8's containment rule read in the other
+            // direction, and it is what makes the relocated position
+            // unreachable by any mesh update.
+            let lost: Vec<Surface> =
+                carried_surfaces(mesh, &attribution.attributions, a, b, q, qpos)
+                    .into_iter()
+                    .filter(|&surf| {
+                        !surface_distance_and_normal(surf, post)
+                            .is_some_and(|(f, _)| f.abs() <= junction_certificate_band(post, surf))
+                    })
+                    .collect();
+            let travel = ((post[0] - pre[0]).powi(2)
+                + (post[1] - pre[1]).powi(2)
+                + (post[2] - pre[2]).powi(2))
+            .sqrt();
+            if lost.is_empty() {
+                if census {
+                    eprintln!(
+                        "YANG_S4_CARRIER_DOMAIN-SAMPLE v{v} crossed still v{q} \
+                         travel={travel:.4e} — q is on the traveller's own carrier \
+                         (§4.4.1 near-curve removal owns it, no STOP)"
+                    );
+                }
+                continue;
+            }
+            fires += 1;
+            first.get_or_insert(v);
+            if census {
+                eprintln!(
+                    "YANG_S4_CARRIER_DOMAIN v{v} crossed still v{q} travel={travel:.4e} \
+                     lost={} pre=({:.9},{:.9},{:.9}) post=({:.9},{:.9},{:.9}) first_lost={:?}",
+                    lost.len(),
+                    pre[0],
+                    pre[1],
+                    pre[2],
+                    post[0],
+                    post[1],
+                    post[2],
+                    lost[0],
+                );
+            } else {
+                return Err(YangError::stage4_region_invalid(
+                    v,
+                    Stage4InvalidReason::RelocationCrossedCarrierVertex,
+                ));
+            }
+        }
+    }
+    if census && fires > 0 {
+        eprintln!(
+            "YANG_S4_CARRIER_DOMAIN TOTAL fires={fires} first=v{:?}",
+            first
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn stage4_relocate_and_correct(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
@@ -3737,6 +3904,12 @@ pub(crate) fn stage4_relocate_and_correct(
     };
 
     balance_census(mesh, "s4-entry");
+
+    // §4-I9: positions as Stage 4 found them, for the relocation-domain
+    // postcondition at the end. Taken before ANY arm runs, so every relocation
+    // path — including `apply_boundary_relocations` far below — is covered by
+    // one check rather than a dozen.
+    let s4_entry_pos: Vec<[f64; 3]> = mesh.verts.iter().map(Point3::as_array).collect();
 
     // d_ε relocation budget (a conic edge implies a curved input ⇒ Some).
     let d_eps = match stage4_chord_band(a, b) {
@@ -8014,6 +8187,8 @@ pub(crate) fn stage4_relocate_and_correct(
     // only relocations whose vertex still carries a conic output edge. The
     // caller resolves the output-edge index; relocations referencing a
     // now-absent vertex are simply not emitted (the caller guards the index).
+    relocation_domain_postcondition(mesh, attribution, brep_a, brep_b, &s4_entry_pos)?;
+
     Ok((relocations, collapsed_any))
 }
 

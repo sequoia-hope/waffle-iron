@@ -1178,6 +1178,9 @@ fn err_variant_name(e: &YangError) -> &'static str {
             yang_rs::Stage4InvalidReason::LocalRefinementRequired => {
                 "Stage4RegionInvalid::LocalRefinementRequired"
             }
+            yang_rs::Stage4InvalidReason::RelocationCrossedCarrierVertex => {
+                "Stage4RegionInvalid::RelocationCrossedCarrierVertex"
+            }
         },
     }
 }

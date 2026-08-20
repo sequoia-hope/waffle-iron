@@ -1752,6 +1752,91 @@ honest intermediate step, not yet built, is a relocation-domain STOP at the
 its own carrier has left the domain, and should refuse there rather than be
 discovered three stages later as a folded loop.
 
+### I9 — the RELOCATION-DOMAIN postcondition (2026-08-20)
+
+**Status: LANDED, ARMED** (`YANG_S4_CARRIER_DOMAIN`: unset = on, `0|off` = the
+dev knob, `census` = report-only). I8 named this class but let it surface three
+stages downstream; I9 names it where it happens.
+
+**The defect.** A Stage-4 relocation slides a vertex onto the exact analytic
+solution its arm converged to. That solution is computed against SURFACES, which
+are unbounded; the vertex lives on a bounded FACE. When the exact solution lies
+beyond the face, the arm still converges — and the vertex slides straight past
+the carrier's own endpoint, the model corner where a third face joins. Stage 6
+then emits a folded loop and the render CDT rejects it with a message about a
+ring, naming neither the stage nor the defect.
+
+**The certificate, two legs — and it needs both.**
+
+1. *Crossed.* The still neighbour `q` lies ON the traveller's `pre → post`
+   segment, strictly inside it, at the project's shared 1e-9 relative
+   collinearity identity. `on_segment_interior` already had exactly this test
+   for vertex triples; it now delegates to a position-based
+   `point_on_segment_interior` so the two gates share one metric instead of a
+   second collinearity band drifting away from the first. Measured separation:
+   6.4e-13 → 0.0 on the four ring-reject sites, against 5.0 %–6.6 % of travel
+   for the two Fig-11 merges that are LEGITIMATE — seven orders, so I9 does not
+   preempt I6.
+2. *A domain ENDPOINT, not a sample.* `q` carries a surface the relocated
+   position is OFF (§4-I8's containment rule read in the other direction), so a
+   third face joins at `q` and the carrier STOPS there. **Leg 1 alone
+   over-fires**: a `q` lying only on surfaces the traveller also lies on is a
+   plain sample of the SAME carrier, which Yang's own remedy owns ("we remove a
+   mesh vertex if it is too close to the intersection curve", §4.4.1) — a STOP
+   there would preempt the near-curve removal. Measured: leg 2 is what exempts
+   F0064 (2 samples, an UNSUPPORTED coplanar case that would otherwise have been
+   pushed to ERROR) and R0051 (1 sample; its `SelfIntersectingBooleanOutput` has
+   a different cause, which leg 1 alone would have wrongly claimed).
+
+**A POSTCONDITION, not a per-arm check.** Relocation happens at thirteen
+`mesh.verts[v] = proj` sites in `stage4_relocate_and_correct` plus
+`apply_boundary_relocations` further down, and every repair that might dissolve
+the configuration (the P3b beyond-corner trim, the collapsed-fan
+re-triangulation, the reversal sweep, the §4.4.1(b) sub-feature merge) runs
+before the stage ends. One snapshot at entry and one check at the end covers
+every arm — present and future — and fires only on what SURVIVES all the
+repairs.
+
+**Full-corpus census before arming** (`YANG_S4_CARRIER_DOMAIN=census`, all 312
+cases; the corpus runner nulls child stderr, so this was run case-by-case):
+
+| case | verdict today | leg-1 fires | leg-2 STOPs |
+|---|---|---|---|
+| R0011 | ERROR | 4 | **4** |
+| R0085 | ERROR | 11 | **11** |
+| R0044 | ERROR | 7 | **7** |
+| R0074 | ERROR | 1 | **1** |
+| R0004 | ERROR | 1 | **1** |
+| R0051 | ERROR | 1 | 0 — sample |
+| F0064 | UNSUPPORTED(coplanar) | 2 | 0 — sample |
+| every other case | — | 0 | 0 |
+
+**Not one firing case is SUPPORTED_CORRECT**, so arming cannot cost a correct
+case. Armed full corpus: **265C/0W/43E/1EE/0T, unchanged**, with exactly FOUR
+detail deltas — R0011, R0044, R0074, R0085 — each ERROR→ERROR, trading a
+downstream `TessellationFailed { ring rejected by CDT }` for
+`Stage-4 relocation region around vertex N is invalid:
+RelocationCrossedCarrierVertex` at the stage that caused it.
+
+R0004 is the fifth firing case and its detail did NOT change: `YANG_LRR_PROBE`
+confirms the STOP fires there (once, v427), but its two reported engine errors
+are byte-identical armed and unarmed, so the firing invocation is not the one the
+case reports (a case's boolean runs more than once — the composition oracle
+re-runs each op in isolation). No op flipped from success to failure, which is
+the safety-relevant fact; which invocation swallows it is not yet pinned down and
+is recorded as an open question rather than asserted.
+
+**Related machinery, and why this is not it.** `trim_beyond_corner_phantoms`
+(P3b inc-4b) already REPAIRS this class — "a Stage-4 relocation can land a
+section-curve sample OUTSIDE the bounded owner face, past a Stage-1 minted
+corner junction on the same curve" — by collapsing phantom→mint. Its
+eligibility requires the corner to be a Stage-1 MINT, and (independently
+derived) a patch-subset guard that is the face-level sibling of §4-I8's
+surface-level containment. The I9 sites differ in exactly one respect: their
+corner is an INHERITED input model corner, not a mint. Extending inc-4b's trim
+to inherited corners is the natural next increment and is a REPAIR, not a STOP —
+recorded here, not built.
+
 ## 5. After this epic (recorded, not started)
 
 - **§4.5.4 removal half / §4.5.2 guard shell** (roadmap item 3d/4): route the

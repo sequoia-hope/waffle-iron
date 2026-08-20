@@ -475,8 +475,32 @@ name, never measured).
    outside its carrier's domain** — §4.5.2 local refinement's trigger (item 4),
    not a merge and not `ReorderConic`. The honest intermediate step, not built:
    a relocation-domain STOP at the `(2s)`/`(2t)` arms.
+   **§4.4.1 I9 — the RELOCATION-DOMAIN postcondition, ARMED 2026-08-20**
+   (`YANG_S4_CARRIER_DOMAIN`, on by default; `0|off` dev knob, `census` =
+   report-only). I8 named the class; I9 names it where it HAPPENS instead of
+   three stages downstream. Two legs, both required: (1) a still neighbour lies
+   ON the traveller's `pre → post` segment, strictly inside, at the shared 1e-9
+   relative collinearity identity (`point_on_segment_interior`, now shared with
+   `on_segment_interior` so the two gates cannot drift apart); (2) that
+   neighbour carries a surface the relocated position is OFF — a domain
+   ENDPOINT, not a plain sample of the traveller's own carrier, which Yang's
+   near-curve vertex removal legitimately owns. It is a POSTCONDITION over the
+   whole stage (one entry snapshot, one check at the end) because relocation
+   happens at 13 sites plus `apply_boundary_relocations`, and every repair that
+   might dissolve the configuration runs before the stage ends. Full-corpus
+   census before arming: fires on R0004/R0011/R0044/R0074/R0085 only — **not one
+   SUPPORTED_CORRECT case** — while leg 2 exempts R0051 (a sample; its
+   self-intersection has another cause) and F0064 (samples; leg 1 alone would
+   have demoted a known coplanar capability gap to a failure). Armed corpus:
+   **265C/0W/43E/1EE/0T unchanged, four detail deltas, zero category deltas.**
+   The REPAIR for this class already exists for the minted half —
+   `trim_beyond_corner_phantoms` (P3b inc-4b) collapses the overrun phantom into
+   a Stage-1 MINTED corner, under a patch-subset guard that is the face-level
+   sibling of I8's surface-level containment. The I9 sites differ only in that
+   their corner is INHERITED. Extending that trim to inherited corners is the
+   next increment and is a repair, not a STOP.
    Remaining loud refusals: unchartable cone/torus holders (R0044, 13 sites).
-   Spec §4-I6, §4-I8.
+   Spec §4-I6, §4-I8, §4-I9.
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

@@ -226,7 +226,18 @@ pub(crate) fn on_segment_interior(verts: &[Point3], e0: u32, e1: u32, v: u32) ->
         let w = verts[i as usize];
         [w.x(), w.y(), w.z()]
     };
-    let (a, b, x) = (p(e0), p(e1), p(v));
+    point_on_segment_interior(p(e0), p(e1), p(v))
+}
+
+/// [`on_segment_interior`] on bare POSITIONS — the same identity, for callers
+/// whose segment endpoints are not two mesh vertices.
+///
+/// The §4-I9 relocation-domain postcondition needs exactly this: its segment is
+/// ONE vertex's travel, `pre → post`, and the question is whether a still
+/// neighbour lies on it. Sharing the predicate keeps the two gates on one
+/// metric (the 1e-9 relative identity, i.e. `perp² ≤ 1e-18·len²`) rather than
+/// letting a second collinearity band drift away from this one.
+pub(crate) fn point_on_segment_interior(a: [f64; 3], b: [f64; 3], x: [f64; 3]) -> bool {
     let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
     let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
     if len2 == 0.0 || !len2.is_finite() {
@@ -235,7 +246,7 @@ pub(crate) fn on_segment_interior(verts: &[Point3], e0: u32, e1: u32, v: u32) ->
     let r = [x[0] - a[0], x[1] - a[1], x[2] - a[2]];
     let t = (r[0] * d[0] + r[1] * d[1] + r[2] * d[2]) / len2;
     if t <= 0.0 || t >= 1.0 {
-        return false; // beyond a junction — not this seam's interior
+        return false; // beyond an endpoint — not this segment's interior
     }
     let perp = [r[0] - t * d[0], r[1] - t * d[1], r[2] - t * d[2]];
     let perp2 = perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2];
@@ -2043,6 +2054,27 @@ mod tests {
                 }
             })
         );
+    }
+
+    /// The §4-I9 certificate separates the two measured populations by seven
+    /// orders: a crossed carrier vertex sits ON the travel segment (measured
+    /// 6.4e-13 down to exactly 0 relative), a legitimate Fig-11 victim sits
+    /// 5–6.6 % of travel OFF it.
+    #[test]
+    fn point_on_segment_interior_separates_a_crossing_from_a_fig11_victim() {
+        let pre = [0.0, 0.0, 0.0];
+        let post = [22.213, 0.0, 0.0];
+        // R0011's shape: the corner at t = 0.668, on the line to 6.4e-13.
+        let crossed = [0.668 * 22.213, 6.4e-13, 0.0];
+        assert!(point_on_segment_interior(pre, post, crossed));
+        // F0045/R0090's shape: the victim is 5–6.6 % of travel off the line.
+        let off = [0.535 * 22.213, 0.066 * 22.213, 0.0];
+        assert!(!point_on_segment_interior(pre, post, off));
+        // Beyond either endpoint is not a crossing.
+        assert!(!point_on_segment_interior(pre, post, [-1.0, 0.0, 0.0]));
+        assert!(!point_on_segment_interior(pre, post, [23.0, 0.0, 0.0]));
+        // A zero-length travel has no interior.
+        assert!(!point_on_segment_interior(pre, pre, pre));
     }
 
     /// A FAN OF ONE — the victim is a corner of exactly one triangle in this
