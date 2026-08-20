@@ -976,9 +976,9 @@ unmeasured, not as absent.)
 |---|---|---|---|
 | **F0045** | 1 | 1 — `v71→v68`, `chord_t = −0.0920` | **ERROR → SUPPORTED_CORRECT** |
 | **R0090** | 1 | 1 — `v41→v28`, `chord_t = +1.0289` | **ERROR → SUPPORTED_CORRECT** |
-| R0011 | 6 | 1 | `FanNotSimple` on holder 186 — pinched victim |
-| R0074 | 2 | 1 | `FanNotSimple` on holder 163 |
-| R0085 | 40 | 1 per op | `FanNotSimple` (op1), fan-polygon `Cdt` (op2) |
+| R0011 | 6 | 1 | `FanNotSimple` on holder 186 — **not a pinch: see I8** |
+| R0074 | 2 | 1 | `FanNotSimple` on holder 163 — **see I8** |
+| R0085 | 40 | 1 per op | `FanNotSimple` (op1), fan-polygon `Cdt` (op2) — **see I8** |
 | R0044 | 6 | 13 | every holder set includes a cone/torus patch (I2a scope) |
 | R0025 | 3 | 0 | all 4 inversions are `apex_moved` |
 | R0095 | 5 | 0 | all 20 inversions are `apex_moved` |
@@ -1028,6 +1028,48 @@ the apex's incident cycle edges are intersection-curve edges:
   Two hypotheses were retracted by measurement en route: the `(2s)` surface-pair
   arm's missing gate (probe fires 0 times — wrong arm) and a ballooning
   near-tangency corridor (sinθ is 0.90–1.00).
+
+## Fig-11 merge preconditions (2026-08-20) — the fan of one, and carrier containment
+
+Spec: `specs/yang_441_trim_cdt_construction.md` §4-I8. Instruments added:
+`ConstructError::FanNotSimple { reason }` (`Degenerate` / `Pinch` /
+`Split { runs, with_survivor }` / `Short { fan, link }`) and
+`YANG_441_MERGE_SITE_PROBE` (per-holder attribution, fan, endpoint-to-holder
+surface distance; plus the survivor's travel segment and each endpoint's
+carried-surface set).
+
+**The `FanNotSimple` declines were NOT pinches.** All three measure
+`Short { fan: 1, link: 2 }` — the victim has a SINGLE triangle in the declining
+patch, so the merge degenerates it and the correct rebuild is the EMPTY one
+(`YANG_441_FAN_OF_ONE`). The 2026-08-19d "pinched victim" reading was an
+inference from the variant's name.
+
+**A merge may only IDENTIFY two positions when `carried(victim) ⊆
+carried(survivor)`** (`YANG_441_MERGE_CARRIER`). Measured:
+
+| case | victim carries | survivor carries | verdict |
+|---|---|---|---|
+| F0045 | `{B:0, B:2}` | `{A:2, B:0, B:2}` | ⊆ — merge APPLIES (still CORRECT) |
+| R0090 | 2 surfaces | 3 surfaces | ⊆ — merge APPLIES (still CORRECT) |
+| R0011 | `{B:1, B:180, B:181}` | `{A:2, B:1, B:181}` | differ — 3.43 off `A:2` / 0.42 off `B:180` |
+| R0074 | `{A:0, A:162, A:163}` | `{A:0, A:162, B:2}` | differ — 1.98e-4 / 2.59e-5 |
+| R0044 | cone carrier | (off that cone) | differ — 3 sites |
+| R0085 | plane carrier | (off that plane) | differ — 2 sites |
+
+Equal-size sets that DIFFER are a model CORNER and a curve∩edge junction, 5–7
+local units apart — two distinct model points. A count-only richness test calls
+them a tie.
+
+**Residue reassigned.** The four blocked sites share one certificate: the victim
+lies EXACTLY on the survivor's travel segment (off-travel 6.4e-13 / 1.4e-17 /
+0.0 / 6.2e-17, at t = 0.67 / 0.30 / 0.38 / 0.04) versus 5.0 %–6.6 % of travel for
+the two that converted. The relocation slid along a straight carrier — the model
+edge shared by the two surfaces it stayed exactly on — and overshot that
+carrier's own ENDPOINT. R0011: started 14.85 inside the edge, travelled 22.21,
+ended 7.37 beyond the corner and 0.424 off the third face (the walls' own 3.3°
+over 7.37 of travel). **The relocated position is outside its carrier's domain**,
+so the mesh arrangement's local topology disagrees with the exact geometry —
+§4.5.2 local refinement's trigger, not a merge and not `ReorderConic`.
 
 ## Stage-6 non-2-manifold site census (2026-08-19, post-5c.13) — the second absolute-floor anchor
 

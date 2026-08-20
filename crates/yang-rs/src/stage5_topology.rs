@@ -103,6 +103,33 @@ fn fold_merge_enabled() -> bool {
     !matches!(std::env::var("YANG_441_FOLD_MERGE"), Ok(v) if v == "0" || v == "off")
 }
 
+/// Is the §4-I8 FAN-OF-ONE rebuild on — the victim carrying a SINGLE triangle
+/// in a holder patch, where the merge DELETES that triangle rather than
+/// re-triangulating a 2-vertex link?
+///
+/// **ALWAYS-ON since 2026-08-20** — `YANG_441_FAN_OF_ONE=0|off` is the dev A/B
+/// off-knob, which restores the pre-flip loud refusal. Flip bar: the full corpus
+/// with this and [`merge_carrier_guard_enabled`] on measured BYTE-IDENTICAL to
+/// the banked 265C/0W/43E/1EE/0T — zero category and zero detail deltas over all
+/// 312 cases — so the repair costs nothing and stops declining a configuration
+/// whose answer is known.
+fn fan_of_one_enabled() -> bool {
+    !matches!(std::env::var("YANG_441_FAN_OF_ONE"), Ok(v) if v == "0" || v == "off")
+}
+
+/// Is the §4-I8 carrier-containment precondition on the Fig-11 merge enforced?
+///
+/// **ALWAYS-ON since 2026-08-20** — `YANG_441_MERGE_CARRIER=0|off` is the dev
+/// A/B off-knob. Flip bar: byte-identical corpus (see [`fan_of_one_enabled`]),
+/// and the guard is a P10 safety net — gated off it protects nothing. It refuses
+/// 7 sites over R0011/R0044/R0074/R0085 that today decline only by accident (a
+/// small holder happens not to contain the survivor) and would otherwise merge a
+/// model CORNER into a curve junction, and it refuses ZERO of the merges F0045
+/// and R0090 rely on.
+fn merge_carrier_guard_enabled() -> bool {
+    !matches!(std::env::var("YANG_441_MERGE_CARRIER"), Ok(v) if v == "0" || v == "off")
+}
+
 /// Is the pre-position map wanted for REPORTING (as opposed to being wanted at
 /// all)? The map's `YANG_S5_MOVED_SET` / `YANG_S5_REMAP` lines are probe output;
 /// the Fig-11 merge needs the map itself but not the chatter, so it must not
@@ -703,10 +730,55 @@ fn run_fold_merge_passes(
                 None => (Vec::new(), Default::default()),
             }
         });
-        let sites: Vec<crate::stage4_fold_risk::FoldMergeSite> = all_sites
+        let mut sites: Vec<crate::stage4_fold_risk::FoldMergeSite> = all_sites
             .into_iter()
             .filter(|s| !blocked.contains(&s.victim))
             .collect();
+        if std::env::var_os("YANG_441_MERGE_SITE_PROBE").is_some() {
+            // Before the guard, so the sites it REJECTS are the ones the probe
+            // can still be pointed at — they are the interesting ones.
+            for site in &sites {
+                probe_merge_site(mesh, attribution, a, b, &patches, site);
+            }
+        }
+        if merge_carrier_guard_enabled() {
+            // §4-I8 — CARRIER CONTAINMENT. A merge IDENTIFIES two positions, so
+            // it is authority-preserving exactly when the victim lies on nothing
+            // the survivor is off: `carried(victim) ⊆ carried(survivor)`. Then
+            // the victim is a plain sample and the survivor is the richer point
+            // on the same carriers (Fig-11's p and q — measured on F0045:
+            // victim {B:0, B:2} ⊂ survivor {A:2, B:0, B:2}, and on R0090
+            // likewise). If instead the victim carries a surface the survivor
+            // is OFF, the two are DISTINCT model points and no merge can join
+            // them: merging would evict a face-loop vertex off a surface it
+            // lies on — the eviction KV15b I1b already forbids for the
+            // sub-resolution collapse, here applied to the Fig-11 merge.
+            //
+            // Measured 2026-08-20 over the ring-reject family: R0011
+            // {B:1, B:180, B:181} vs {A:2, B:1, B:181} (victim 3.43 off A:2,
+            // survivor 0.42 off B:180), R0074 and R0085 the same shape —
+            // equal-size sets that differ, i.e. a model CORNER and a curve
+            // junction 5–7 local units apart. A count-only richness test calls
+            // those a TIE; containment names them for what they are.
+            sites.retain(|site| {
+                let off =
+                    carrier_lost_by_merge(mesh, attribution, a, b, site.victim, site.survivor);
+                match off {
+                    None => true,
+                    Some(surf) => {
+                        c441_log!(
+                            "[s4-fold-merge] pass={pass}: NOT-A-MERGE v{} -> v{} — the victim \
+                             carries {surf:?}, which the survivor is off: two DISTINCT model \
+                             points, not Fig-11's p and q",
+                            site.victim,
+                            site.survivor,
+                        );
+                        blocked.insert(site.victim);
+                        false
+                    }
+                }
+            });
+        }
         c441_log!(
             "[s4-fold-merge] pass={pass}: SELECT corners={} inversions={} \
              apex_moved={} (on_curve={}) apex_minted={} survivor_still={} ambiguous={} \
@@ -762,7 +834,14 @@ fn run_fold_merge_passes(
             let mut plan = Vec::with_capacity(holders.len());
             let mut declined = None;
             for &h in &holders {
-                match rebuild_merge_fan(mesh, h, &patches[h], site.victim, site.survivor) {
+                match rebuild_merge_fan(
+                    mesh,
+                    h,
+                    &patches[h],
+                    site.victim,
+                    site.survivor,
+                    fan_of_one_enabled(),
+                ) {
                     Ok(r) => plan.push(r),
                     Err(e) => {
                         c441_log!(
@@ -861,6 +940,213 @@ fn run_fold_merge_passes(
         c441_log!("[s4-fold-merge] TOTAL {applied_total} Fig-11 merges applied");
     }
     Ok(())
+}
+
+/// `YANG_441_MERGE_SITE_PROBE` — the per-site configuration behind a Fig-11
+/// merge decision, printed before the repair runs.
+///
+/// Three views, each of which answered a question the decline codes could not
+/// (§4-I8): per HOLDER, its attribution / fan size / whether the survivor is in
+/// that fan / each endpoint's distance to that holder's own surface; per SITE,
+/// the surfaces each endpoint carries and how far the other endpoint is from
+/// each; and the survivor's TRAVEL segment with the victim's parameter on it —
+/// the certificate that separates "p too close to q" from a relocation that slid
+/// along a carrier past that carrier's own endpoint.
+fn probe_merge_site(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+    patches: &[crate::stage4_splice::SplicePatch],
+    site: &crate::stage4_fold_risk::FoldMergeSite,
+) {
+    let holders: Vec<usize> = patches
+        .iter()
+        .enumerate()
+        .filter(|&(_pj, pat)| {
+            pat.tris
+                .iter()
+                .any(|&t| mesh.tris[t as usize].contains(&site.victim))
+        })
+        .map(|(pj, _)| pj)
+        .collect();
+    // Where the survivor CAME FROM, and whether the victim lies on
+    // the path it travelled: a relocation that slid along a model
+    // edge PAST that edge's own endpoint is a different defect from
+    // Fig-11's "p is too close to q".
+    S4_PRE_POS.with(|c| {
+        if let Some(pre) = c.borrow().as_ref() {
+            let post = |v: u32| mesh.verts[v as usize].as_array();
+            let (sv, vi) = (site.survivor, site.victim);
+            let rich = |v: u32| {
+                crate::stage4_correct::surface_incidence_count(
+                    mesh,
+                    &attribution.attributions,
+                    a,
+                    b,
+                    v,
+                    mesh.verts[v as usize].as_array(),
+                )
+            };
+            eprintln!(
+                "[s4-merge-rich] victim=v{vi} rich={} survivor=v{sv} rich={}",
+                rich(vi),
+                rich(sv),
+            );
+            // Every surface each endpoint carries, and how far the
+            // OTHER endpoint is from it. If the two carry the same
+            // surfaces they are two samples of one thing; if one
+            // carries a surface the other is far from, they are
+            // distinct model points and no merge can identify them.
+            for v in [vi, sv] {
+                let mut seen: Vec<crate::geom::Surface> = Vec::new();
+                for (t, tri) in mesh.tris.iter().enumerate() {
+                    if !tri.contains(&v) {
+                        continue;
+                    }
+                    let Some(att) = attribution.attributions[t] else {
+                        continue;
+                    };
+                    let faces = match att.input {
+                        crate::brep::InputId::A => a.faces(),
+                        crate::brep::InputId::B => b.faces(),
+                    };
+                    let Some(face) = faces.get(att.face as usize) else {
+                        continue;
+                    };
+                    if seen.contains(&face.surface) {
+                        continue;
+                    }
+                    seen.push(face.surface);
+                    let dv = |x: u32| {
+                        crate::stage4_relocate::surface_distance_and_normal(
+                            face.surface,
+                            mesh.verts[x as usize].as_array(),
+                        )
+                        .map(|(f, _)| f)
+                    };
+                    eprintln!(
+                        "[s4-merge-carrier] of v{v}: {:?}:{} d_victim={:?} \
+                                 d_survivor={:?}",
+                        att.input,
+                        att.face,
+                        dv(vi),
+                        dv(sv),
+                    );
+                }
+            }
+            if let Some(&p0) = pre.get(&sv) {
+                let p1 = post(sv);
+                let q = post(vi);
+                let d = |x: [f64; 3], y: [f64; 3]| {
+                    ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2)).sqrt()
+                };
+                // Parameter of the victim projected on the
+                // survivor's travel segment, and how far off it.
+                let seg = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+                let len2 = seg[0] * seg[0] + seg[1] * seg[1] + seg[2] * seg[2];
+                let t = if len2 > 0.0 {
+                    ((q[0] - p0[0]) * seg[0] + (q[1] - p0[1]) * seg[1] + (q[2] - p0[2]) * seg[2])
+                        / len2
+                } else {
+                    f64::NAN
+                };
+                let foot = [p0[0] + t * seg[0], p0[1] + t * seg[1], p0[2] + t * seg[2]];
+                eprintln!(
+                    "[s4-merge-travel] v{vi} <- v{sv}: pre=({:.6},{:.6},{:.6}) \
+                             post=({:.6},{:.6},{:.6}) travel={:.4e} victim_t={t:.4} \
+                             victim_off_travel={:.4e} victim_pre_moved={:?}",
+                    p0[0],
+                    p0[1],
+                    p0[2],
+                    p1[0],
+                    p1[1],
+                    p1[2],
+                    d(p0, p1),
+                    d(q, foot),
+                    pre.get(&vi).map(|&x| d(x, q)),
+                );
+            }
+        }
+    });
+    // Per-holder configuration of ONE proposed site: what the
+    // repair is actually being handed. A decline names its
+    // condition; this names the geometry behind the condition.
+    for &h in &holders {
+        let fan: Vec<[u32; 3]> = patches[h]
+            .tris
+            .iter()
+            .map(|&t| mesh.tris[t as usize])
+            .filter(|tri| tri.contains(&site.victim))
+            .collect();
+        let touches = fan.iter().any(|tri| tri.contains(&site.survivor));
+        // Does the SURVIVOR lie on this holder's own surface? A
+        // merge re-anchors every holder's triangles onto it, so a
+        // survivor off the holder's surface would evict that
+        // patch's face off its analytic carrier — the question the
+        // `FanSurvivorNotAdjacent` refusal is really asking.
+        let dist = |v: u32| {
+            crate::stage4_relocate::surface_distance_and_normal(
+                patches[h].surface,
+                mesh.verts[v as usize].as_array(),
+            )
+            .map(|(f, _)| f)
+        };
+        let att = patches[h]
+            .tris
+            .first()
+            .and_then(|&t| attribution.attributions[t as usize])
+            .map(|a| format!("{:?}:{}", a.input, a.face))
+            .unwrap_or_else(|| "none".into());
+        eprintln!(
+            "[s4-merge-site] v{} -> v{} holder={h} att={att} tris={} fan={} \
+                     survivor_in_fan={touches} d_victim={:?} d_survivor={:?} gap={:.4e} \
+                     fan_tris={fan:?} surface={:?}",
+            site.victim,
+            site.survivor,
+            patches[h].tris.len(),
+            fan.len(),
+            dist(site.victim),
+            dist(site.survivor),
+            {
+                let (x, y) = (
+                    mesh.verts[site.victim as usize].as_array(),
+                    mesh.verts[site.survivor as usize].as_array(),
+                );
+                ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2)).sqrt()
+            },
+            patches[h].surface,
+        );
+    }
+}
+
+/// §4-I8: the first surface the VICTIM lies on that the SURVIVOR does not —
+/// `None` when `carried(victim) ⊆ carried(survivor)` and the merge therefore
+/// discards no analytic authority.
+///
+/// Incidence is certified at `junction_certificate_band` on each side, the same
+/// band that certifies a Stage-4 exact junction, so the test is tolerance-free
+/// in the sense that matters: it asks "does the survivor lie on this surface at
+/// junction precision?", never "is it close enough?". A surface whose distance
+/// function declines to answer counts as LOST — the refusing direction, never
+/// the merging one.
+fn carrier_lost_by_merge(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+    victim: u32,
+    survivor: u32,
+) -> Option<Surface> {
+    let vp = mesh.verts[victim as usize].as_array();
+    let sp = mesh.verts[survivor as usize].as_array();
+    crate::stage4_correct::carried_surfaces(mesh, &attribution.attributions, a, b, victim, vp)
+        .into_iter()
+        .find(|&surf| {
+            !crate::stage4_relocate::surface_distance_and_normal(surf, sp).is_some_and(|(f, _)| {
+                f.abs() <= crate::stage4_relocate::junction_certificate_band(sp, surf)
+            })
+        })
 }
 
 /// Every mesh vertex as a bare `[f64; 3]` — the position view the

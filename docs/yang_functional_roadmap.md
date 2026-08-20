@@ -449,9 +449,34 @@ name, never measured).
    (surface-incidence richness, KV15b I1b) added to the I6 merge; **GROSS**
    (R0085 median 6.07×, 42 % beyond 10×, max 1737×) is **§4.5.2 local
    refinement**'s own trigger — item 4 below, not an unowned class.
-   Remaining loud refusals on the sites that ARE Fig-11's: `FanNotSimple`
-   (pinched victim — R0011/R0074/R0085) and unchartable cone/torus holders
-   (R0044). Spec §4-I6.
+   **§4.4.1 I8 — the Fig-11 merge's two preconditions, landed gated 2026-08-20
+   (`YANG_441_FAN_OF_ONE`, `YANG_441_MERGE_CARRIER`; spec §4-I8).** (a) The
+   `FanNotSimple` refusals on R0011/R0074/R0085 were NOT "pinched victims" —
+   that was an inference from the variant's name. The variant now carries a
+   reason (`Degenerate`/`Pinch`/`Split`/`Short`) and all three measure
+   `Short { fan: 1, link: 2 }`: the victim has a SINGLE triangle in the
+   declining patch, so the merge degenerates it and the correct rebuild is the
+   EMPTY one. (b) With that repaired, the next decline exposed the real
+   precondition: **a merge may IDENTIFY two positions only when
+   `carried(victim) ⊆ carried(survivor)`**, certified at
+   `junction_certificate_band`. Measured — F0045 `{B:0,B:2} ⊂ {A:2,B:0,B:2}`
+   and R0090 likewise (both still APPLY, still CORRECT); R0011
+   `{B:1,B:180,B:181}` vs `{A:2,B:1,B:181}` and R0074/R0044/R0085 the same
+   shape: equal-size sets that DIFFER, i.e. a model CORNER and a curve∩edge
+   junction 5–7 local units apart, which no merge can join. Closes a latent
+   silent-wrong (those sites are refused today only because a small holder
+   happens not to contain the survivor). (c) **I7's named next increment is
+   RETRACTED**: R0011's site is not a both-moved corner (its overrun end never
+   moved). The four blocked sites carry one sharp certificate instead — the
+   victim lies EXACTLY on the survivor's travel segment (off-travel 6e-13 to 0,
+   at t = 0.04–0.67) versus 5–6.6 % of travel for the two that converted. The
+   relocation slid along a straight carrier (the model edge it stayed exactly
+   on) and overshot that carrier's ENDPOINT, so **the relocated position is
+   outside its carrier's domain** — §4.5.2 local refinement's trigger (item 4),
+   not a merge and not `ReorderConic`. The honest intermediate step, not built:
+   a relocation-domain STOP at the `(2s)`/`(2t)` arms.
+   Remaining loud refusals: unchartable cone/torus holders (R0044, 13 sites).
+   Spec §4-I6, §4-I8.
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

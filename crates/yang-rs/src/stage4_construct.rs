@@ -634,12 +634,46 @@ pub(crate) enum ConstructError {
     /// [`rebuild_merge_fan`]: the triangles incident to the victim do not form
     /// ONE simple fan — their opposite edges chain into more than one run, or a
     /// vertex is reached twice. A pinched / non-manifold vertex; re-triangulating
-    /// it locally would guess which sheet the merge belongs to.
-    FanNotSimple { patch: usize, victim: u32 },
+    /// it locally would guess which sheet the merge belongs to. `reason` names
+    /// WHICH condition rejected, so the decline is attributable without a
+    /// re-run (the §4-I6 census lesson: a refusal that does not name its
+    /// condition cannot be scoped).
+    FanNotSimple {
+        patch: usize,
+        victim: u32,
+        reason: FanReason,
+    },
     /// [`rebuild_merge_fan`]: the survivor is not on the victim's link, so the
     /// two are not joined by a triangle edge and the merge is not the local
     /// Fig-11 operation.
     FanSurvivorNotAdjacent { patch: usize, victim: u32 },
+}
+
+/// Which condition made [`rebuild_merge_fan`] declare the victim's fan
+/// unsimple. Diagnostic only — every variant is the same loud refusal — but it
+/// separates populations that need DIFFERENT repairs, so the census can scope
+/// them apart instead of reporting one opaque `FanNotSimple` count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FanReason {
+    /// A fan triangle repeats the victim, or its two link corners coincide.
+    Degenerate,
+    /// Two fan triangles leave the victim toward the SAME link vertex, or two
+    /// arrive at the same one: the patch meets the victim on more than one
+    /// sheet and the link is not a path.
+    Pinch { fan: usize },
+    /// The link edges chain into `runs` disjoint runs — the patch holds the
+    /// victim in several separate fans. `with_survivor` counts the runs whose
+    /// link contains the survivor.
+    Split {
+        fan: usize,
+        runs: usize,
+        with_survivor: usize,
+    },
+    /// One run, but shorter than a triangle: the link has 2 vertices, so the
+    /// victim carries a SINGLE fan triangle in this patch (`fan == 1`) or a
+    /// doubled pair over the same link edge (`fan == 2`). Those are different
+    /// configurations, so the count is reported.
+    Short { fan: usize, link: usize },
 }
 
 /// One patch's single-sided rebuild, entirely in MESH index space and ready
@@ -1109,6 +1143,40 @@ fn i2e_seed_grid(
     seeds
 }
 
+/// Chain a victim's link edges into every maximal run — the general form of the
+/// single-run walk [`rebuild_merge_fan`] performs. With in- and out-degree both
+/// capped at 1 the link graph is a disjoint union of paths and cycles, so the
+/// paths (each from an in-degree-0 source) and then the leftover cycles cover it
+/// exactly. Deterministic: `BTreeMap` order throughout.
+fn chain_link_runs(next: &BTreeMap<u32, u32>, indeg: &BTreeMap<u32, usize>) -> Vec<Vec<u32>> {
+    fn walk(next: &BTreeMap<u32, u32>, seen: &mut BTreeSet<u32>, start: u32) -> Vec<u32> {
+        let mut run = vec![start];
+        seen.insert(start);
+        let mut cur = start;
+        while let Some(&nx) = next.get(&cur) {
+            if !seen.insert(nx) {
+                break;
+            }
+            run.push(nx);
+            cur = nx;
+        }
+        run
+    }
+    let mut seen: BTreeSet<u32> = BTreeSet::new();
+    let mut runs: Vec<Vec<u32>> = Vec::new();
+    for (&v, &d) in indeg {
+        if d == 0 && !seen.contains(&v) {
+            runs.push(walk(next, &mut seen, v));
+        }
+    }
+    for &v in indeg.keys() {
+        if !seen.contains(&v) {
+            runs.push(walk(next, &mut seen, v));
+        }
+    }
+    runs
+}
+
 /// Yang §4.4.1 **Fig-11(b)→(c)**, LOCALLY: merge `victim` into `survivor` by
 /// re-triangulating exactly the triangles of `patch` incident to `victim`.
 ///
@@ -1143,12 +1211,19 @@ fn i2e_seed_grid(
 /// then precisely "the boundary now runs to the survivor instead of the victim".
 /// The polygon is triangulated in the patch's chart and orientation-matched to
 /// the triangles it replaces, exactly as the whole-patch rebuild does.
+///
+/// `fan_of_one` enables the §4-I8 degenerate case (the victim has a SINGLE
+/// triangle here, so the merge deletes it rather than re-triangulating a
+/// 2-vertex link); it is the caller's gate (always-on in the driver since
+/// 2026-08-20), passed explicitly rather than read from the environment so the
+/// tests can exercise both settings.
 pub(crate) fn rebuild_merge_fan(
     mesh: &Mesh,
     patch_index: usize,
     patch: &SplicePatch,
     victim: u32,
     survivor: u32,
+    fan_of_one: bool,
 ) -> Result<PatchRebuild, ConstructError> {
     let chart = SurfaceChart::new(patch.surface)
         .ok_or(ConstructError::NonPlanarPatch { patch: patch_index })?;
@@ -1167,6 +1242,7 @@ pub(crate) fn rebuild_merge_fan(
             return Err(ConstructError::FanNotSimple {
                 patch: patch_index,
                 victim,
+                reason: FanReason::Degenerate,
             });
         }
         link_edges.push((x, y));
@@ -1177,6 +1253,7 @@ pub(crate) fn rebuild_merge_fan(
 
     // Chain the directed link edges into ONE run. A vertex appearing as the
     // source (or target) of two edges is a pinch — loud, never guessed.
+    let fan = old_tris.len();
     let mut next: BTreeMap<u32, u32> = BTreeMap::new();
     let mut indeg: BTreeMap<u32, usize> = BTreeMap::new();
     for &(x, y) in &link_edges {
@@ -1184,6 +1261,7 @@ pub(crate) fn rebuild_merge_fan(
             return Err(ConstructError::FanNotSimple {
                 patch: patch_index,
                 victim,
+                reason: FanReason::Pinch { fan },
             });
         }
         *indeg.entry(y).or_default() += 1;
@@ -1193,6 +1271,7 @@ pub(crate) fn rebuild_merge_fan(
         return Err(ConstructError::FanNotSimple {
             patch: patch_index,
             victim,
+            reason: FanReason::Pinch { fan },
         });
     }
     // Start at the run's source (boundary victim) or anywhere (interior victim,
@@ -1212,22 +1291,82 @@ pub(crate) fn rebuild_merge_fan(
             return Err(ConstructError::FanNotSimple {
                 patch: patch_index,
                 victim,
+                reason: FanReason::Pinch { fan },
             });
         }
         link.push(nx);
         cur = nx;
     }
-    if link.len() != indeg.len() || link.len() < 3 {
+    if link.len() != indeg.len() {
         // Not every link vertex was reached: the fan is split into several runs.
+        // Enumerate them all so the decline reports HOW MANY sheets meet at the
+        // victim and which of them the survivor is on — the two numbers that
+        // decide whether a multi-run repair is even well-posed.
+        let runs = chain_link_runs(&next, &indeg);
+        let with_survivor = runs.iter().filter(|r| r.contains(&survivor)).count();
         return Err(ConstructError::FanNotSimple {
             patch: patch_index,
             victim,
+            reason: FanReason::Split {
+                fan,
+                runs: runs.len(),
+                with_survivor,
+            },
         });
     }
     if !link.contains(&survivor) {
         return Err(ConstructError::FanSurvivorNotAdjacent {
             patch: patch_index,
             victim,
+        });
+    }
+    if link.len() == 2 && fan == 1 && fan_of_one {
+        // FAN OF ONE. The victim is a corner of exactly ONE triangle here, so
+        // its link is the single edge `(x, y)` — no polygon to re-triangulate.
+        // That is not a refusal, it is the ANSWER: the merge rewrites the
+        // triangle `(victim, x, y)` as `(survivor, x, y)` with `survivor` one of
+        // `x`/`y` (checked above), which is degenerate, so the triangle is
+        // simply removed. The patch's boundary walk `… y → victim → x …`
+        // becomes `… y → x …`, exactly one edge, which is what the merge means
+        // — and the same edge every OTHER holder's re-CDT produces, so the
+        // batch stays conformal.
+        //
+        // Measured 2026-08-20 over the ring-reject family: `Short { fan: 1,
+        // link: 2 }` was the decline on EVERY Fig-11 site that reached its
+        // repair (R0011 v828, R0074 v127, R0085 v316) — the fan-of-one is the
+        // family's dominant configuration, not an exotic one. (The spec's
+        // earlier reading of these declines as a "pinched victim" was an
+        // inference; the reason discriminator measured them.)
+        if crate::stage5_topology::c441_verbose() {
+            eprintln!(
+                "[s4-construct] FAN-OF-ONE patch {patch_index}: victim v{victim} -> v{survivor}, \
+                 dropping tri {} of the patch's {} ({} link)",
+                old_tris[0],
+                patch.tris.len(),
+                link.len(),
+            );
+        }
+        return Ok(PatchRebuild {
+            patch: patch_index,
+            old_tris,
+            new_tris: Vec::new(),
+            new_verts: Vec::new(),
+            dropped: [victim].into_iter().collect(),
+            plan_verts: mesh.verts.len() as u32,
+            plan_tris: mesh.tris.len() as u32,
+        });
+    }
+    if link.len() < 3 {
+        // A 2-vertex link with TWO triangles is a doubled pair over the same
+        // link edge — a distinct configuration this has never measured. Loud,
+        // never guessed.
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim,
+            reason: FanReason::Short {
+                fan,
+                link: link.len(),
+            },
         });
     }
 
@@ -1812,7 +1951,7 @@ mod tests {
             tris: vec![[0, 4, 5], [4, 1, 5], [1, 2, 5], [2, 3, 5], [3, 0, 5]],
         };
         let patch = plane_patch(vec![vec![0, 4, 1, 2, 3]], vec![0, 1, 2, 3, 4]);
-        let r = rebuild_merge_fan(&mesh, 9, &patch, 4, 0).expect("fan rebuild");
+        let r = rebuild_merge_fan(&mesh, 9, &patch, 4, 0, false).expect("fan rebuild");
         assert_eq!(r.patch, 9);
         assert_eq!(r.old_tris, vec![0, 1], "exactly the two triangles at v4");
         assert_eq!(r.dropped, [4u32].into());
@@ -1841,7 +1980,7 @@ mod tests {
     fn rebuild_merge_fan_handles_an_interior_victim() {
         let mesh = square_fan_mesh();
         let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1, 2, 3]);
-        let r = rebuild_merge_fan(&mesh, 0, &patch, 4, 0).expect("interior fan rebuild");
+        let r = rebuild_merge_fan(&mesh, 0, &patch, 4, 0, false).expect("interior fan rebuild");
         assert_eq!(r.old_tris, vec![0, 1, 2, 3], "the whole fan");
         assert_eq!(r.dropped, [4u32].into());
         assert_eq!(r.new_tris.len(), 2, "the square link is two triangles");
@@ -1865,7 +2004,7 @@ mod tests {
         };
         let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1, 2, 3]);
         assert_eq!(
-            rebuild_merge_fan(&mesh, 2, &patch, 4, 5),
+            rebuild_merge_fan(&mesh, 2, &patch, 4, 5, false),
             Err(ConstructError::FanSurvivorNotAdjacent {
                 patch: 2,
                 victim: 4
@@ -1893,10 +2032,102 @@ mod tests {
         };
         let patch = plane_patch(vec![vec![1, 2, 0, 3, 4]], vec![0, 1]);
         assert_eq!(
-            rebuild_merge_fan(&mesh, 4, &patch, 0, 1),
+            rebuild_merge_fan(&mesh, 4, &patch, 0, 1, false),
             Err(ConstructError::FanNotSimple {
                 patch: 4,
+                victim: 0,
+                reason: FanReason::Split {
+                    fan: 2,
+                    runs: 2,
+                    with_survivor: 1
+                }
+            })
+        );
+    }
+
+    /// A FAN OF ONE — the victim is a corner of exactly one triangle in this
+    /// patch. The merge makes that triangle degenerate, so the rebuild is the
+    /// EMPTY one: drop the triangle, add nothing. Measured 2026-08-20 to be the
+    /// configuration of every Fig-11 site in the ring-reject family that
+    /// reached its repair (R0011 / R0074 / R0085).
+    #[test]
+    fn rebuild_merge_fan_drops_a_fan_of_one() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+            ],
+            // Vertex 0 is a corner of ONE triangle; vertex 2 of both.
+            tris: vec![[0, 1, 2], [2, 3, 0]],
+        };
+        // The patch holds only the first triangle, so v0's fan there is a
+        // single triangle with link [1, 2].
+        let patch = plane_patch(vec![vec![0, 1, 2]], vec![0]);
+        let r = rebuild_merge_fan(&mesh, 3, &patch, 0, 1, true).expect("fan-of-one merge");
+        // Gate off, the same fan is the pre-2026-08-20 loud refusal.
+        assert_eq!(
+            rebuild_merge_fan(&mesh, 3, &patch, 0, 1, false),
+            Err(ConstructError::FanNotSimple {
+                patch: 3,
+                victim: 0,
+                reason: FanReason::Short { fan: 1, link: 2 }
+            })
+        );
+        assert_eq!(r.old_tris, vec![0]);
+        assert!(r.new_tris.is_empty(), "the merged triangle is degenerate");
+        assert_eq!(r.dropped, [0].into_iter().collect());
+    }
+
+    /// A fan of one whose survivor is NOT on the link is still refused: that
+    /// merge would RE-ANCHOR the triangle rather than degenerate it, which is
+    /// not the local Fig-11 operation.
+    #[test]
+    fn rebuild_merge_fan_of_one_refuses_a_survivor_off_the_link() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+            ],
+            tris: vec![[0, 1, 2], [2, 3, 0]],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2]], vec![0]);
+        assert_eq!(
+            rebuild_merge_fan(&mesh, 3, &patch, 0, 3, true),
+            Err(ConstructError::FanSurvivorNotAdjacent {
+                patch: 3,
                 victim: 0
+            })
+        );
+    }
+
+    /// The decline NAMES its condition: a victim whose fan triangles leave it
+    /// toward the same link vertex twice is a `Pinch`, not a `Split` — two
+    /// populations that would need different repairs, so the census must not
+    /// see one opaque count.
+    #[test]
+    fn rebuild_merge_fan_names_a_pinch_apart_from_a_split() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+            ],
+            // Both triangles leave the victim toward vertex 1: the link is not
+            // a path (duplicate source), which is the pinch condition.
+            tris: vec![[0, 1, 2], [0, 1, 3]],
+        };
+        let patch = plane_patch(vec![vec![1, 2, 0, 3]], vec![0, 1]);
+        assert_eq!(
+            rebuild_merge_fan(&mesh, 7, &patch, 0, 1, false),
+            Err(ConstructError::FanNotSimple {
+                patch: 7,
+                victim: 0,
+                reason: FanReason::Pinch { fan: 2 }
             })
         );
     }
@@ -1930,7 +2161,7 @@ mod tests {
                 radius: 1.0,
             },
         };
-        let r = rebuild_merge_fan(&mesh, 1, &patch, 0, 1).expect("branch-cut fan rebuild");
+        let r = rebuild_merge_fan(&mesh, 1, &patch, 0, 1, false).expect("branch-cut fan rebuild");
         assert_eq!(r.dropped, [0u32].into());
         assert!(r.new_tris.iter().flatten().all(|&v| v != 0));
         assert_eq!(r.new_tris.len(), 2, "link 1,2,3,4 is two triangles");

@@ -3352,6 +3352,74 @@ pub(crate) fn weld_f32_render_twins(
     welded
 }
 
+/// How many DISTINCT analytic surfaces `pos` lies on, counted over the faces
+/// carried by the triangles incident to `vi` — the KV15b I1b "richness" measure
+/// (spec `kv15b_mint_site_subresolution_collapse` §I1b-curved).
+///
+/// Incidence is certified at [`junction_certificate_band`], the same band that
+/// certifies a Stage-4 exact junction, so a chord-level (un-relocated) curved
+/// sample contributes nothing: the count is strictly richer only for positions
+/// Stage 4 actually placed ON the surface. Counting EVERY surface, not planes
+/// alone, is the 2026-08-19 R0047 amendment.
+///
+/// Richness ranks two candidate positions for one model point: the richer one
+/// carries more analytic authority, so it is the one a merge must keep — merging
+/// into the poorer one evicts a face-loop vertex off a surface it lies on.
+pub(crate) fn surface_incidence_count(
+    mesh: &Mesh,
+    attribution: &[Option<TriangleAttribution>],
+    a: &BRep,
+    b: &BRep,
+    vi: u32,
+    pos: [f64; 3],
+) -> usize {
+    carried_surfaces(mesh, attribution, a, b, vi, pos).len()
+}
+
+/// The DISTINCT analytic surfaces `pos` lies on, over the faces carried by the
+/// triangles incident to `vi` — [`surface_incidence_count`]'s underlying set.
+///
+/// The set, not just its size, is what decides whether two positions may be
+/// IDENTIFIED: a merge is authority-preserving exactly when the victim's set is
+/// contained in the survivor's (see §4-I8 in
+/// `specs/yang_441_trim_cdt_construction.md`). Two sets of equal size that
+/// differ are two DISTINCT model points, which no merge can join.
+pub(crate) fn carried_surfaces(
+    mesh: &Mesh,
+    attribution: &[Option<TriangleAttribution>],
+    a: &BRep,
+    b: &BRep,
+    vi: u32,
+    pos: [f64; 3],
+) -> Vec<Surface> {
+    let mut seen: Vec<Surface> = Vec::new();
+    for (t, tri) in mesh.tris.iter().enumerate() {
+        if !tri.contains(&vi) {
+            continue;
+        }
+        let Some(att) = attribution.get(t).copied().flatten() else {
+            continue;
+        };
+        let faces = match att.input {
+            InputId::A => a.faces(),
+            InputId::B => b.faces(),
+        };
+        let Some(face) = faces.get(att.face as usize) else {
+            continue;
+        };
+        let surf = face.surface;
+        let on = surface_distance_and_normal(surf, pos)
+            .is_some_and(|(f, _)| f.abs() <= junction_certificate_band(pos, surf));
+        if !on {
+            continue;
+        }
+        if !seen.contains(&surf) {
+            seen.push(surf);
+        }
+    }
+    seen
+}
+
 /// KV15b (spec `kv15b_mint_site_subresolution_collapse`): collapse
 /// sub-resolution intersection segments before Phase-B emission.
 ///
@@ -3419,34 +3487,7 @@ pub(crate) fn collapse_subresolution_intersection_segments(
                        attribution: &[Option<TriangleAttribution>],
                        vi: u32,
                        pos: [f64; 3]|
-     -> usize {
-        let mut seen: Vec<Surface> = Vec::new();
-        for (t, tri) in mesh.tris.iter().enumerate() {
-            if !tri.contains(&vi) {
-                continue;
-            }
-            let Some(att) = attribution.get(t).copied().flatten() else {
-                continue;
-            };
-            let faces = match att.input {
-                InputId::A => a.faces(),
-                InputId::B => b.faces(),
-            };
-            let Some(face) = faces.get(att.face as usize) else {
-                continue;
-            };
-            let surf = face.surface;
-            let on = surface_distance_and_normal(surf, pos)
-                .is_some_and(|(f, _)| f.abs() <= junction_certificate_band(pos, surf));
-            if !on {
-                continue;
-            }
-            if !seen.contains(&surf) {
-                seen.push(surf);
-            }
-        }
-        seen.len()
-    };
+     -> usize { surface_incidence_count(mesh, attribution, a, b, vi, pos) };
     let mut any = false;
     for &(u, v) in intersection_curves.keys() {
         let (ru, rv) = (resolve(&redirect, u), resolve(&redirect, v));

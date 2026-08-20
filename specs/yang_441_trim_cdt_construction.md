@@ -1645,6 +1645,113 @@ No displacement band is needed: the fan rebuild already refuses loudly
 (`FanNotSimple`, `Cdt`) wherever the configuration is not locally repairable, so
 the GROSS half declines itself rather than being excluded by a threshold.
 
+### I8 — the fan of one, and what a merge may IDENTIFY (2026-08-20)
+
+**Status: LANDED GATED** (`YANG_441_FAN_OF_ONE`, `YANG_441_MERGE_CARRIER`; both
+default OFF). Two findings, the second of which RETRACTS I7's recorded next
+increment.
+
+#### (a) The `FanNotSimple` decline was never a pinch
+
+I6 recorded "`FanNotSimple` (pinched victim — R0011/R0074/R0085)" as the
+remaining refusal on the sites that ARE Fig-11's. That was an inference from the
+variant's name; the variant carried no reason. It now does
+(`ConstructError::FanNotSimple { reason: FanReason }` — `Degenerate` / `Pinch` /
+`Split { runs, with_survivor }` / `Short { fan, link }`), and the measurement is
+unambiguous: **every one of the three is `Short { fan: 1, link: 2 }`.** Not a
+pinch, not a split — the victim carries a SINGLE triangle in the declining
+patch, so its link is one edge and there is no polygon to re-triangulate.
+
+That is not a refusal, it is the ANSWER. With `survivor ∈ {x, y}` the merge
+rewrites `(victim, x, y)` as `(survivor, x, y)`, which is degenerate, so the
+triangle is simply DROPPED — an empty [`rebuild_merge_fan`] result. The
+patch's boundary `… y → victim → x …` becomes `… y → x …`, exactly the edge
+every other holder's re-CDT produces, so the batch stays conformal. Measured:
+the fan-of-one fires on R0085 (patch 1, dropping 1 of that patch's 40 triangles
+— no patch is emptied).
+
+#### (b) What a merge may IDENTIFY: carrier CONTAINMENT
+
+With the fan of one repaired, R0011 and R0074 declined one layer deeper —
+`FanSurvivorNotAdjacent`, because a tiny 2-triangle holder held the victim in a
+triangle the survivor was not part of. Probing that holder (new
+`YANG_441_MERGE_SITE_PROBE`: per-holder attribution, fan, and each endpoint's
+distance to the holder's own surface) showed the refusal was RIGHT and its
+stated reason IRRELEVANT. The endpoints' carried-surface sets:
+
+| case | verdict | victim carries | survivor carries | victim off survivor's extra | survivor off victim's extra |
+|---|---|---|---|---|---|
+| F0045 | APPLIED | `{B:0, B:2}` | `{A:2, B:0, B:2}` | — (⊆) | — |
+| R0090 | APPLIED | 2 surfaces | 3 surfaces | — (⊆) | — |
+| R0011 | blocked | `{B:1, B:180, B:181}` | `{A:2, B:1, B:181}` | **3.425** off `A:2` | **0.424** off `B:180` |
+| R0074 | blocked | `{A:0, A:162, A:163}` | `{A:0, A:162, B:2}` | 1.98e-4 off `B:2` | 2.59e-5 off `A:163` |
+
+The two merges that CONVERTED have `carried(victim) ⊆ carried(survivor)`: the
+victim is a plain sample on a model edge and the survivor is the exact junction
+ON that same edge — Fig-11's p and q verbatim. The blocked ones have sets of
+EQUAL SIZE that DIFFER: a model CORNER (three faces of one input) and a
+curve∩edge junction, 5–7 local units apart. **A count-only richness test calls
+those a tie; containment names them.** So the merge's precondition is
+
+> a Fig-11 merge is legitimate iff `carried(victim) ⊆ carried(survivor)`,
+
+certified on each side at `junction_certificate_band` — tolerance-free in the
+sense that matters: it asks "does the survivor lie on this surface at junction
+precision?", never "is it close enough?". Landed as `carrier_lost_by_merge`,
+which returns the first lost surface so the refusal NAMES it. Measured: fires on
+7 sites over R0011 (1), R0044 (3, cone carriers), R0074 (1), R0085 (2), and on
+ZERO sites of F0045/R0090 — both still apply their merge and stay
+SUPPORTED_CORRECT.
+
+This closes a latent silent-wrong. Today those four sites are refused only
+because a small holder happens not to contain the survivor; had every holder
+contained it, the merge would have applied and evicted a model corner off one of
+its own faces (R0011: 0.424 off `B:180`) while discarding a certified junction
+(3.425 off `A:2`). The eviction KV15b I1b forbids for the sub-resolution
+collapse is the same eviction, and the Fig-11 merge had no guard against it.
+
+#### (c) The residue, REASSIGNED — and I7's next increment retracted
+
+I7 named the next increment as "extend the Fig-11 merge to a BOTH-MOVED corner,
+survivor by surface-incidence richness", targeting R0011 as LOCAL (displacement
+1.48× the local edge). **Measured, R0011's site is not a both-moved corner at
+all** — its overrun end never moved (`disp_over = 0`), and its one site is the
+still/moved shape I6 already selects. The both-moved arm is real for R0025
+(0 sites today, all four inversions both-moved) and adds sites on R0074/R0085,
+but it is NOT what R0011 needs.
+
+What the four blocked sites are, measured (`YANG_441_MERGE_SITE_PROBE`'s travel
+arm): **the victim lies EXACTLY on the survivor's travel segment**, strictly
+between its pre and post positions —
+
+| case | travel | victim t | victim off travel |
+|---|---|---|---|
+| R0011 | 2.221e1 | 0.668 | 6.4e-13 |
+| R0074 | 7.404e-4 | 0.296 | 1.4e-17 |
+| R0085 (a) | 3.989e-2 | 0.376 | 0.0 |
+| R0085 (b) | 5.777e-3 | 0.043 | 6.2e-17 |
+
+— against 5.0 % / 6.6 % of travel for the two that converted (R0090 / F0045),
+which are genuinely OFF the line. So the relocation slid the vertex along a
+STRAIGHT CARRIER (the model edge shared by the two surfaces it stayed exactly
+on) and overshot a vertex sitting on that carrier — the carrier's own ENDPOINT,
+the model corner where a third face joins. R0011 makes the mechanism plain: the
+vertex started 14.85 INSIDE the edge, travelled 22.21, and ended 7.37 BEYOND the
+corner, 0.424 off the third face — the 3.3° angle between the two walls, over
+7.37 of travel.
+
+**The relocated position is outside its carrier's DOMAIN.** The exact
+intersection of `A` with the LINE of `B`'s edge exists there; the edge does not.
+No mesh update can absorb that, because the defect is not the mesh — the mesh
+arrangement's local topology ("A crosses this edge") disagrees with the exact
+geometry ("A crosses past its end"). That is §4.5.2 local refinement's own
+trigger (roadmap item 4), the same owner I7 assigned the GROSS half to, reached
+by a different and much sharper certificate than a displacement ratio. The
+honest intermediate step, not yet built, is a relocation-domain STOP at the
+`(2s)`/`(2t)` arms: a relocation whose travel segment CONTAINS another vertex of
+its own carrier has left the domain, and should refuse there rather than be
+discovered three stages later as a folded loop.
+
 ## 5. After this epic (recorded, not started)
 
 - **§4.5.4 removal half / §4.5.2 guard shell** (roadmap item 3d/4): route the
