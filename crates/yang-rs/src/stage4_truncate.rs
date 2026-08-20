@@ -327,7 +327,7 @@ pub(crate) enum DomainTruncation {
 /// §4-I9 fires on, so the repair cannot fire on a configuration the STOP would
 /// not have named, nor decline one it would.
 ///
-/// Measured shape of the class this serves (§4-I10, 24 sites / 5 cases): the
+/// Measured shape of the class this MEASURES (§4-I10, 24 sites / 5 cases): the
 /// traveller rides its carrier model edge and overruns the edge's own endpoint,
 /// so the truncation parameter is the corner's position along the step —
 /// R0074's site at `t ≈ 0.296` of a `7.40e-4` travel, R0011's four between
@@ -336,10 +336,18 @@ pub(crate) enum DomainTruncation {
 /// Pure and deterministic. Ties (two candidates at the same `t`) resolve by
 /// lowest vertex index so the answer does not depend on input order.
 ///
-/// **This is the truncation only.** §4.5.1 continues by re-parameterizing the
-/// landed point on the neighbouring surface `S1` and solving `q1`/`q2` on `C_b`;
-/// that is the next increment, and until it exists a caller must leave the
-/// §4-I9 STOP standing rather than accept the landed point as a final answer.
+/// **Scope, corrected 2026-08-20 (§4-I10 (f)).** This was built as the first step
+/// of §4.5.1's continuation for the §4-I9 class. It is NOT that: the paper
+/// EXCLUDES that class from §4.5.1 — *"the first strategy only applies to the
+/// interior points but not to the boundary points that glide along the boundary
+/// curves"* (`refs/text/yang2025_hybrid_boolean.txt:637-651`), and Fig-13(c)
+/// draws the topology error crossing the corner causes. All 24 sites measure as
+/// boundary-gliding, so they are §4.5.2's, and the §4-I9 STOP stays their answer.
+///
+/// What survives is the primitive itself: it measures WHERE a step leaves its
+/// carrier's bounded domain, which is a fact §4.5.2 needs to detect and bound an
+/// erroneous region just as much as §4.5.1 would have. It remains report-only,
+/// and must not be read as authorising a landing.
 pub(crate) fn max_in_domain_step(
     pre: [f64; 3],
     post: [f64; 3],

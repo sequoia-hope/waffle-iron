@@ -520,17 +520,25 @@ name, never measured).
    predicate** (`:740-744` — §4.5.1 only when the failure points are bounded by
    two successfully optimized points on the SAME surface, else §4.5.2 local
    refinement) over the 24 sites; the measurement picks the strategy, not a
-   preference. **TAKEN, same session (`YANG_S45_SELECT`): FIRST STRATEGY
-   (§4.5.1), 24/24.** The erroneous region is ONE point, every bound (2–6 per
-   site, all 1 hop away) is converged, all bounds share EXACTLY ONE surface, and
-   the traveller is on it too — and that surface is the near-operand CARRIER
-   face, i.e. the paper's `S2` (R0011's four sites all name the same
-   `Cylinder{r=6277.3}` = face B:1). So the next build is §4.5.1: remove the one
-   failing point, replace it with the midpoint of its two converged bounds, and
-   re-optimize with a DOMAIN-truncated step. The missing primitive is a domain
-   truncation — the analogue of the exact, tested, unwired
-   `stage4_truncate::max_simple_step` — built beside it, gated
-   (`YANG_451_DOMAIN_TRUNCATE`), census first, flip on zero category deltas.
+   preference. **TAKEN (`YANG_S45_SELECT`) — then CORRECTED: SECOND
+   STRATEGY (§4.5.2), 24/24.** The first reading said §4.5.1 because the census
+   implemented only the second of §4.5's TWO selector clauses. The first
+   (`refs/text/yang2025_hybrid_boolean.txt:637-651`) excludes this class outright:
+   *"the first strategy only applies to the interior points but not to the
+   boundary points that glide along the boundary curves"*, and Fig-13(c) draws
+   the topology error crossing the corner causes — which IS §4-I9's
+   `RelocationCrossedCarrierVertex`. Measured: every traveller is on TWO surfaces
+   of one operand at both ends of its step (riding its boundary curve) and every
+   crossed `q` is on THREE (Fig-13's corner `s`). **24/24 excluded**, so §4-I8's
+   original assignment to §4.5.2 stands, and the §4-I9 STOP is the answer until
+   §4.5.2 exists. `stage4_truncate::max_in_domain_step` survives as a domain-exit
+   measurement (which §4.5.2 also needs), not as a step of §4.5.1.
+   The bounding data from the superseded first reading still stands and is kept
+   for the record — the erroneous region is ONE point, every bound (2–6 per site,
+   all 1 hop away) is converged, all bounds share EXACTLY ONE surface (the
+   near-operand CARRIER face; R0011's four sites all name the same
+   `Cylinder{r=6277.3}` = face B:1), and the traveller is on it too. Sound data,
+   wrong verdict: it answers §4.5's second clause, and the first clause decides.
    Also corrected: I9's R0074 armed detail is `OffCurveBeyondChordBand`
    v91, not `RelocationCrossedCarrierVertex` (counts unaffected). Spec §4-I10.
    Remaining loud refusals: unchartable cone/torus holders (R0044, 13 sites).

@@ -149,12 +149,13 @@ mod stage4_project;
 // `stage5_topology::run_meshup_splice_passes` (N2-3b step 2, 2026-08-06).
 mod stage4_construct;
 mod stage4_splice;
-// #169 / N2 — Yang §4.5.1 step truncation. TWO primitives, both UNWIRED:
+// #169 / N2 — Yang step truncation. TWO primitives, both UNWIRED:
 // `max_simple_step` (loop-simplicity trigger, a borrow justified by its own
-// census) and `max_in_domain_step` (§4-I10: the paper's OWN trigger — a step
-// that leaves its carrier's bounded domain). Wiring either one needs §4.5.1's
-// continuation — re-parameterize the landed point on the neighbouring surface
-// and solve the paper's q1/q2 on C_b — which is the next increment.
+// census) and `max_in_domain_step` (§4-I10: measures where a step leaves its
+// carrier's bounded domain). NEITHER is §4.5.1's continuation for the §4-I9
+// class: the paper EXCLUDES boundary points gliding along boundary curves from
+// its first strategy (Fig-13), and all 24 sites measure as exactly that, so they
+// belong to §4.5.2 local refinement. See spec §4-I10 (f).
 mod stage4_truncate;
 pub mod stage4_update;
 pub use errors::{SsiRefinementError, Stage4InvalidReason, YangError};

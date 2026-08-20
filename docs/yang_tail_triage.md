@@ -1186,16 +1186,37 @@ same `Cylinder{r = 6277.3}` (face `B:1`, the face the section curve runs across)
 R0074's names its `Torus`. The FAR surface the traveller is chasing is not the
 common one.
 
-So the next build is §4.5.1 with `S2` = that measured common surface: remove the
-one failing point, replace it with the midpoint of its two converged bounds
-(both on `S2`), and re-optimize with a **domain-truncated** step so it lands on
-the boundary curve instead of past it. The missing primitive is a domain
-truncation — the exact analogue of the existing, exact, tested and unwired
-`stage4_truncate::max_simple_step`, which answers the same shape of question for
-loop simplicity. Build it beside that one, gated
-(`YANG_451_DOMAIN_TRUNCATE`), census first, flip on zero category deltas; a
-truncation that cannot certify its landing point must leave the §4-I9 STOP
-standing.
+So the next build is §4.5.1 with `S2` = that measured common surface … **— NO.
+See the correction immediately below; §4.5.1 does not apply to this class.**
+
+> ### CORRECTED 2026-08-20 — §4.5.1 does NOT apply; the paper EXCLUDES this class
+>
+> The verdict above is wrong. §4.5's selector has TWO clauses and the census
+> above implemented only the second. The first, one paragraph earlier
+> (`refs/text/yang2025_hybrid_boolean.txt:637-651`): *"the first strategy only
+> applies to the **interior points** but not to the **boundary points that glide
+> along the boundary curves**. … `s` is a corner point where more than two
+> surfaces meet … the points may glide toward `s` … after reaching `s`, it is
+> difficult to predict in which direction each vertex goes … this may lead to
+> **topology errors**, as illustrated in Fig. 13(c)."*
+>
+> Measured (`YANG_S45_SELECT`, the `carrier:` line): a traveller on TWO surfaces
+> of one operand at BOTH ends of its step rides that operand's boundary curve; a
+> crossed vertex on THREE is Fig-13's corner `s`. Uniform and unanimous over all
+> 24 sites — `pre (A0,B2) → post (A1,B2)`, `q (A0,B3)` (R0011/R0004/R0044) and
+> the mirrored `(A2,B0) → (A2,B1)`, `q (A3,B0)` (R0074/R0085). **24/24 EXCLUDED
+> ⇒ SECOND STRATEGY (§4.5.2).** Not one site is an interior point.
+>
+> Fig-13(c) — "crossing the corner point causes a topological error" — IS
+> §4-I9's `RelocationCrossedCarrierVertex`. The paper draws the failure that
+> strategy 1 would cause here.
+>
+> **§4-I8 was right** to assign this class to §4.5.2; the selector census
+> overrode it on half a rule. `stage4_truncate::max_in_domain_step` survives as a
+> domain-exit MEASUREMENT (a fact §4.5.2 needs too) but is NOT a step of
+> §4.5.1's continuation for these sites, and the §4-I9 STOP stays their answer.
+> The selector now evaluates the exclusion FIRST. Full detail:
+> `specs/yang_441_trim_cdt_construction.md` §4-I10 (f).
 
 ## Stage-6 non-2-manifold site census (2026-08-19, post-5c.13) — the second absolute-floor anchor
 

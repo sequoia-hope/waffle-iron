@@ -1976,16 +1976,25 @@ The answer is unanimous over all 24 sites in all five cases:
 | bounds converged | **all of them**, on every branch (2–6 per site) |
 | surface common to ALL bounds | **exactly 1**, every site |
 | traveller also on that surface | **yes**, every site |
-| **verdict** | **FIRST STRATEGY (§4.5.1)**, 24/24 |
+| **verdict** | ~~FIRST STRATEGY (§4.5.1), 24/24~~ — **WRONG, corrected in (f)** |
 
 And the common surface is the near-operand CARRIER face, which is the paper's
 `S2` — "the surface where the point is initially located". R0011's four sites all
 name the same `Cylinder{r = 6277.3}` = face `B:1`, the face the section curve runs
 across; R0074's names the `Torus` its traveller sits on. The far surface the
-traveller is chasing is NOT the common one. So the erroneous region, its bounds,
-and `S2` line up exactly as §4.5.1 describes.
+traveller is chasing is NOT the common one.
 
-#### (d2) The design this reading implies — recorded, not built
+> **The VERDICT above is wrong — see (f).** The bounding data in this table is
+> sound and still stands; the verdict drawn from it is not. §4.5's selector has a
+> second clause, stated one paragraph earlier than the one implemented here, and
+> it EXCLUDES this class. This section is left as measured so the error and its
+> cause stay legible.
+
+#### (d2) The design this reading implies — RETRACTED, see (f)
+
+> **Do not build this.** The reading it rests on is refuted in (f): the paper
+> explicitly excludes this class from §4.5.1. Kept for the record because the
+> primitive built under it is sound and still useful; its stated CUSTOMER is not.
 
 §4.5.1, applied with `S2` = the measured common surface:
 
@@ -2095,6 +2104,88 @@ assay reports is not pinned down. It cost one wrong row in a ledger. Worth an
 instrument (an invocation counter in the STOP's diagnostic) before the next
 armed-flip measurement, so a detail delta can be attributed to an invocation
 rather than inferred.
+
+#### (f) CORRECTION — §4.5.1 does NOT apply: the paper EXCLUDES this class (Fig-13)
+
+**Status: MEASUREMENT + record correction.** Asked to build §4.5.1's
+continuation, I re-read the section end to end first. The page that follows
+Fig-12 states an exclusion that (d) never tested, and it names this class exactly.
+
+**The clause** (`refs/text/yang2025_hybrid_boolean.txt:637-651`, the right-hand
+column of p. 114:9):
+
+> *"We note that the first strategy only applies to the **interior points** but
+> not to the **boundary points that glide along the boundary curves**. As shown
+> in Fig. 13 (a), `s` is a corner point where more than two surfaces meet, and
+> the white dots are the target positions of the boundary intersection points.
+> If the initial positions indicated by the mesh intersections are given as in
+> Fig. 13 (b), the points may **glide toward `s`** under optimization. However,
+> after reaching `s`, it is difficult to predict in which direction each vertex
+> goes. … However, this may lead to **topology errors**, as illustrated in (c).
+> Thus, we only use the first strategy in cases where the failure points are
+> bounded by two successfully optimized points on the same surface. For other
+> cases, we apply the second strategy as described below."*
+
+So §4.5's selector has TWO clauses. (d) implemented the second ("bounded by two
+successfully optimized points on the same surface") and never tested the first
+("interior points, not boundary points gliding along boundary curves"). The first
+is the one that decides this class.
+
+**Measured, not assumed** (`YANG_S45_SELECT`, the `carrier:` line). A traveller
+on TWO distinct surfaces of one operand at BOTH ends of its step is riding that
+operand's boundary curve; a crossed vertex on THREE is Fig-13's corner `s`
+("where more than two surfaces meet"). Over all 24 sites in all five cases the
+signature is uniform and unanimous:
+
+| | R0011 / R0004 / R0044 | R0074 / R0085 |
+|---|---|---|
+| traveller at `pre` | `(A0, B2)` | `(A2, B0)` |
+| traveller at `post` | `(A1, B2)` | `(A2, B1)` |
+| crossed `q` | `(A0, B3)` | `(A3, B0)` |
+| glides on a boundary curve | **yes** | **yes** |
+| `q` is a corner where >2 surfaces meet | **yes** | **yes** |
+| **verdict** | **SECOND STRATEGY (§4.5.2)** | **SECOND STRATEGY (§4.5.2)** |
+
+**24/24 EXCLUDED.** Not one site is an interior point. The far-operand count
+rising 0 → 1 across the step is the same fact (b) measured as `d_pre > 0`,
+`d_post = 0`, seen through a second instrument.
+
+**Fig-13(c) is our defect, drawn.** "Crossing the corner point causes a
+topological error" — that is §4-I9's `RelocationCrossedCarrierVertex`, and the
+folded loop the render CDT rejects three stages later. The paper does not merely
+decline to fix this with strategy 1; it draws the failure that strategy 1 would
+cause.
+
+**Consequences.**
+
+1. **§4.5.1's continuation must not be built for this class**, and the
+   §4-I9 STOP stays the answer until §4.5.2 exists. Building it would be
+   inventing mechanism the paper assigns elsewhere — the exact failure
+   `feedback`/`yang_read_paper_before_scoping` names, and the one (c) of this
+   very section congratulated itself for closing.
+2. **§4-I8 was RIGHT.** It assigned this class to §4.5.2 ("outside its DOMAIN ⇒
+   §4.5.2, not a merge, not `ReorderConic`"). (d) overrode that on an incomplete
+   predicate; the paper restores it. When a fresh measurement contradicts a
+   previous session's paper-grounded assignment, the measurement is the thing to
+   re-check first.
+3. **`max_in_domain_step` survives, its stated customer does not.** The primitive
+   measures where a step leaves its carrier's domain; that fact is what §4.5.2
+   needs to DETECT and bound its erroneous region too. What must be struck is the
+   claim that it is one step of §4.5.1's continuation for these sites. Its doc
+   comment is corrected accordingly.
+4. **The selector is now the paper's, both clauses**, and the exclusion is
+   evaluated FIRST — so no future reading can reach the bounding test on a
+   boundary-gliding point.
+
+**The methodological miss, named.** (d) was careful about the right thing and
+still got it wrong: the note in (d) even flagged that "the traveller does not step
+off a SURFACE into its neighbour — it steps off a boundary CURVE … the analogue is
+an inference and must not be built as though the paper stated it". That instinct
+was correct and the selector's verdict overrode it, because the selector
+implemented one sentence of the paper rather than the section. **A measurement is
+only as sound as the predicate it encodes; encoding half a stated rule produces a
+confident number and a wrong answer.** Read the section to its end before
+implementing its test.
 
 ## 5. After this epic (recorded, not started)
 

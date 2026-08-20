@@ -3770,10 +3770,48 @@ fn strategy_selection_census(
     b: &BRep,
     adj: &std::collections::BTreeMap<u32, std::collections::BTreeSet<u32>>,
     sites: &[(u32, u32)],
+    entry: &[[f64; 3]],
     on_curve: &dyn Fn(u32) -> bool,
     converged: &dyn Fn(u32) -> bool,
 ) {
     let failed: std::collections::BTreeSet<u32> = sites.iter().map(|&(v, _)| v).collect();
+    // How many DISTINCT surfaces of each operand does `pos` lie on, over the
+    // faces carried by `vid`'s incident triangles? The Fig-13 discriminator
+    // reads this: a point on ONE surface per operand is INTERIOR to that
+    // surface; a point on TWO adjacent surfaces of the same operand lies on
+    // their shared boundary curve.
+    let per_input = |vid: u32, pos: [f64; 3]| -> (usize, usize) {
+        let (mut sa, mut sb): (Vec<Surface>, Vec<Surface>) = (Vec::new(), Vec::new());
+        for (t, tri) in mesh.tris.iter().enumerate() {
+            if !tri.contains(&vid) {
+                continue;
+            }
+            let Some(att) = attribution.get(t).copied().flatten() else {
+                continue;
+            };
+            let faces = match att.input {
+                InputId::A => a.faces(),
+                InputId::B => b.faces(),
+            };
+            let Some(face) = faces.get(att.face as usize) else {
+                continue;
+            };
+            let surf = face.surface;
+            if !surface_distance_and_normal(surf, pos)
+                .is_some_and(|(d, _)| d.abs() <= junction_certificate_band(pos, surf))
+            {
+                continue;
+            }
+            let bucket = match att.input {
+                InputId::A => &mut sa,
+                InputId::B => &mut sb,
+            };
+            if !bucket.contains(&surf) {
+                bucket.push(surf);
+            }
+        }
+        (sa.len(), sb.len())
+    };
     let empty_adj: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     let curve_nbrs = |w: u32| -> Vec<u32> {
         adj.get(&w)
@@ -3813,6 +3851,38 @@ fn strategy_selection_census(
             branches.len(),
             on_curve(v)
         );
+
+        // ---- the Fig-13 EXCLUSION, which the paper states before its selector
+        //
+        // "We note that the first strategy only applies to the INTERIOR points
+        // but not to the BOUNDARY POINTS THAT GLIDE ALONG THE BOUNDARY CURVES.
+        // … s is a corner point where more than two surfaces meet … the points
+        // may glide toward s … after reaching s, it is difficult to predict in
+        // which direction each vertex goes … this may lead to topology errors"
+        // (`refs/text/yang2025_hybrid_boolean.txt:637-651`).
+        //
+        // Measured, not assumed: a traveller on TWO surfaces of one operand at
+        // BOTH ends of its step is riding that operand's boundary curve, and a
+        // crossed vertex on THREE is the corner `s`.
+        let (pre_a, pre_b) = per_input(v, entry[v as usize]);
+        let (post_a, post_b) = per_input(v, mesh.verts[v as usize].as_array());
+        let (q_a, q_b) = per_input(q, mesh.verts[q as usize].as_array());
+        let near_pre = pre_a.max(pre_b);
+        let near_post = post_a.max(post_b);
+        let glides = near_pre >= 2 && near_post >= 2;
+        let corner_s = q_a.max(q_b) >= 3;
+        eprintln!(
+            "YANG_S45_SELECT   v{v} carrier: pre=(A{pre_a},B{pre_b}) post=(A{post_a},B{post_b}) \
+             q=(A{q_a},B{q_b}) glides_on_boundary={glides} q_is_corner_s={corner_s}"
+        );
+        if glides && corner_s {
+            eprintln!(
+                "YANG_S45_SELECT   v{v} VERDICT=SECOND_STRATEGY (§4.5.2) — EXCLUDED by the \
+                 Fig-13 clause: a BOUNDARY point gliding along a boundary curve, past a \
+                 corner where more than two surfaces meet. §4.5.1 does not apply."
+            );
+            continue;
+        }
         let mut bounds: Vec<(u32, usize)> = Vec::new();
         for &start in &branches {
             match walk(v, start) {
@@ -4160,6 +4230,7 @@ fn relocation_domain_postcondition(
             b,
             &adj,
             &census_sites,
+            entry,
             &on_curve,
             &converged,
         );
