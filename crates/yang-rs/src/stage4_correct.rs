@@ -3746,6 +3746,147 @@ pub(crate) fn compact_unreferenced_verts(
 /// change. Full-corpus census 2026-08-20: fires on R0004/R0011/R0044/R0074/R0085
 /// only — every one already an ERROR, so arming cannot cost a correct case, and
 /// no category moves.
+/// §4-I10 (d) — the paper's §4.5 STRATEGY SELECTOR, measured.
+///
+/// Yang 2025 §4.5 (`refs/text/yang2025_hybrid_boolean.txt:740-744`): *"we only
+/// use the first strategy in cases where the failure points are bounded by two
+/// successfully optimized points **on the same surface**. For other cases, we
+/// apply the second strategy"* — §4.5.1 "optimize across boundaries" versus
+/// §4.5.2 "local refinement". Which one the §4-I9 fire list needs is a
+/// MEASUREMENT, not a preference, and this is the instrument that takes it.
+///
+/// For each failing traveller, walk the intersection curve outward in each
+/// direction to the nearest successfully-optimized curve vertex, then report
+/// whether the two bounds share a surface. Census-only; no behaviour.
+///
+/// A curve vertex is a "failure" exactly when it is in the §4-I9 fire list:
+/// converged as an equation, not within its domain. "Successfully optimized" is
+/// therefore `converged(w) && !failed(w)`.
+#[allow(clippy::too_many_arguments)]
+fn strategy_selection_census(
+    mesh: &Mesh,
+    attribution: &[Option<TriangleAttribution>],
+    a: &BRep,
+    b: &BRep,
+    adj: &std::collections::BTreeMap<u32, std::collections::BTreeSet<u32>>,
+    sites: &[(u32, u32)],
+    on_curve: &dyn Fn(u32) -> bool,
+    converged: &dyn Fn(u32) -> bool,
+) {
+    let failed: std::collections::BTreeSet<u32> = sites.iter().map(|&(v, _)| v).collect();
+    let empty_adj: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    let curve_nbrs = |w: u32| -> Vec<u32> {
+        adj.get(&w)
+            .unwrap_or(&empty_adj)
+            .iter()
+            .copied()
+            .filter(|&x| on_curve(x))
+            .collect()
+    };
+    let good = |w: u32| -> bool { converged(w) && !failed.contains(&w) };
+    // Walk one branch of the curve polyline, away from `v` through `start`,
+    // until a successfully-optimized vertex is reached. Bounded, and it stops
+    // rather than guessing wherever the curve is not locally a simple polyline.
+    let walk = |v: u32, start: u32| -> Result<(u32, usize), &'static str> {
+        let (mut prev, mut cur) = (v, start);
+        for hop in 1..=64usize {
+            if good(cur) {
+                return Ok((cur, hop));
+            }
+            let nbrs: Vec<u32> = curve_nbrs(cur).into_iter().filter(|&x| x != prev).collect();
+            match nbrs.len() {
+                0 => return Err("curve ends"),
+                1 => {
+                    prev = cur;
+                    cur = nbrs[0];
+                }
+                _ => return Err("curve branches"),
+            }
+        }
+        Err("64 hops, no converged bound")
+    };
+
+    for &(v, q) in sites {
+        let branches = curve_nbrs(v);
+        eprintln!(
+            "YANG_S45_SELECT v{v} (crossed v{q}) curve_degree={} on_curve={}",
+            branches.len(),
+            on_curve(v)
+        );
+        let mut bounds: Vec<(u32, usize)> = Vec::new();
+        for &start in &branches {
+            match walk(v, start) {
+                Ok((w, hop)) => {
+                    eprintln!(
+                        "YANG_S45_SELECT   v{v} branch via v{start}: bound v{w} at {hop} hop(s)"
+                    );
+                    bounds.push((w, hop));
+                }
+                Err(why) => {
+                    eprintln!("YANG_S45_SELECT   v{v} branch via v{start}: NO BOUND ({why})");
+                }
+            }
+        }
+        bounds.sort_unstable();
+        bounds.dedup();
+        if bounds.len() < 2 {
+            eprintln!(
+                "YANG_S45_SELECT   v{v} VERDICT=SECOND_STRATEGY (§4.5.2) — \
+                 only {} distinct converged bound(s); the paper's first strategy \
+                 requires two",
+                bounds.len()
+            );
+            continue;
+        }
+        // "on the same surface". Where the curve neighbourhood has degree > 2
+        // the choice of WHICH two bounds must not decide the verdict, so
+        // intersect over ALL of them: a surface common to every bound is common
+        // to any pair of them, and its absence is reported as such.
+        let mut common: Option<Vec<Surface>> = None;
+        for &(w, _) in &bounds {
+            let sw = carried_surfaces(
+                mesh,
+                attribution,
+                a,
+                b,
+                w,
+                mesh.verts[w as usize].as_array(),
+            );
+            common = Some(match common {
+                None => sw,
+                Some(prev) => prev.into_iter().filter(|x| sw.contains(x)).collect(),
+            });
+        }
+        let common = common.unwrap_or_default();
+        // Is the traveller itself on that shared surface? §4.5.1 replaces the
+        // erroneous region with the MIDPOINT of the two bounds and re-optimizes
+        // it, so the region and its bounds must live on one surface together.
+        let v_surfs = carried_surfaces(
+            mesh,
+            attribution,
+            a,
+            b,
+            v,
+            mesh.verts[v as usize].as_array(),
+        );
+        let v_on_common = common.iter().filter(|x| v_surfs.contains(x)).count();
+        eprintln!(
+            "YANG_S45_SELECT   v{v} bounds={} common_surfaces={} \
+             traveller_on_common={v_on_common} VERDICT={}",
+            bounds.len(),
+            common.len(),
+            if common.is_empty() {
+                "SECOND_STRATEGY (§4.5.2) — bounds share no surface"
+            } else {
+                "FIRST_STRATEGY (§4.5.1) — all bounds on a common surface"
+            }
+        );
+        for surf in &common {
+            eprintln!("YANG_S45_SELECT     v{v} common surface {surf:?}");
+        }
+    }
+}
+
 fn relocation_domain_postcondition(
     mesh: &Mesh,
     attribution: &TriangleAttributionMap,
@@ -3758,6 +3899,68 @@ fn relocation_domain_postcondition(
         return Ok(());
     }
     let census = mode == "census";
+
+    // Census-only: the FACE-level picture the §4-I10 measurements need, built
+    // ONCE (one pass over the triangles) rather than per query.
+    //
+    // Two uses. (1) inc-4b's trim eligibility is `patches(v) subset-of
+    // patches(q)` — a collapse v -> q reroutes every patch incident to v onto q.
+    // (2) the paper's §4.5 strategy selector needs to walk the intersection
+    // CURVE, and a vertex is on that curve exactly when its incident attributed
+    // patches span BOTH inputs.
+    let mut patch_map: std::collections::BTreeMap<u32, std::collections::BTreeSet<(InputId, u32)>> =
+        std::collections::BTreeMap::new();
+    if census {
+        for (ti, tri) in mesh.tris.iter().enumerate() {
+            if let Some(Some(att)) = attribution.attributions.get(ti) {
+                for &tv in tri {
+                    patch_map
+                        .entry(tv)
+                        .or_default()
+                        .insert((att.input, att.face));
+                }
+            }
+        }
+    }
+    let empty_patches: std::collections::BTreeSet<(InputId, u32)> =
+        std::collections::BTreeSet::new();
+    let patches_of = |target: u32| -> &std::collections::BTreeSet<(InputId, u32)> {
+        patch_map.get(&target).unwrap_or(&empty_patches)
+    };
+    // A vertex of the intersection curve: its patches span both inputs.
+    let on_curve = |target: u32| -> bool {
+        let p = patches_of(target);
+        p.iter().any(|x| x.0 == InputId::A) && p.iter().any(|x| x.0 == InputId::B)
+    };
+    // "Successfully optimized" in §4.5's sense, split into its two halves. A
+    // curve vertex CONVERGED when its current position actually lies on a
+    // surface of each operand (distance 0 to both, at the shared certificate
+    // band) — that is "converged to a distance of 0". Whether it did so WITHIN
+    // ITS DOMAIN is the separate question this postcondition answers, so the
+    // caller subtracts the fire list.
+    let converged = |target: u32| -> bool {
+        let (mut ok_a, mut ok_b) = (false, false);
+        let pos = mesh.verts[target as usize].as_array();
+        for &(input, face) in patches_of(target) {
+            let faces = match input {
+                InputId::A => a.faces(),
+                InputId::B => b.faces(),
+            };
+            let Some(f) = faces.get(face as usize) else {
+                continue;
+            };
+            let surf = f.surface;
+            if surface_distance_and_normal(surf, pos)
+                .is_some_and(|(d, _)| d.abs() <= junction_certificate_band(pos, surf))
+            {
+                match input {
+                    InputId::A => ok_a = true,
+                    InputId::B => ok_b = true,
+                }
+            }
+        }
+        ok_a && ok_b
+    };
 
     // Still-ness is judged against the ENTRY snapshot. Vertices are only
     // appended during Stage 4, so an index below the snapshot's length names the
@@ -3790,6 +3993,10 @@ fn relocation_domain_postcondition(
 
     let mut first: Option<u32> = None;
     let mut fires = 0usize;
+    // Census-only: the (traveller, crossed corner) pairs, for the §4.5
+    // strategy-selection walk after the loop (it needs the WHOLE fire list to
+    // know which curve vertices are the failures).
+    let mut census_sites: Vec<(u32, u32)> = Vec::new();
     for (&v, neighbours) in &adj {
         let Some((pre, post)) = moved_at(v) else {
             continue;
@@ -3844,9 +4051,17 @@ fn relocation_domain_postcondition(
             fires += 1;
             first.get_or_insert(v);
             if census {
+                census_sites.push((v, q));
+                let (pv, pq) = (patches_of(v), patches_of(q));
+                let subset = pv.is_subset(pq);
+                let dqv = {
+                    let d = [qpos[0] - post[0], qpos[1] - post[1], qpos[2] - post[2]];
+                    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+                };
                 eprintln!(
                     "YANG_S4_CARRIER_DOMAIN v{v} crossed still v{q} travel={travel:.4e} \
-                     lost={} pre=({:.9},{:.9},{:.9}) post=({:.9},{:.9},{:.9}) first_lost={:?}",
+                     overrun={dqv:.4e} lost={} subset={subset} \
+                     pre=({:.9},{:.9},{:.9}) post=({:.9},{:.9},{:.9}) first_lost={:?}",
                     lost.len(),
                     pre[0],
                     pre[1],
@@ -3855,6 +4070,65 @@ fn relocation_domain_postcondition(
                     post[1],
                     post[2],
                     lost[0],
+                );
+                eprintln!(
+                    "YANG_S4_CARRIER_DOMAIN-PATCH   v{v} patches={pv:?}\n\
+                     YANG_S4_CARRIER_DOMAIN-PATCH   v{q} patches={pq:?}"
+                );
+                // Is the relocation a SMALL correction on a coarse mesh, or a
+                // jump to a different root? Report, per incident face of the
+                // traveller, |distance| at pre and at post; plus the local mesh
+                // edge scale at `v` (entry positions). A legitimate refinement
+                // has travel of the order of the pre-distances.
+                let mut seen_face: std::collections::BTreeSet<(InputId, u32)> =
+                    std::collections::BTreeSet::new();
+                for (ti, tri) in mesh.tris.iter().enumerate() {
+                    if !tri.contains(&v) {
+                        continue;
+                    }
+                    let Some(Some(att)) = attribution.attributions.get(ti) else {
+                        continue;
+                    };
+                    if !seen_face.insert((att.input, att.face)) {
+                        continue;
+                    }
+                    let faces = match att.input {
+                        InputId::A => a.faces(),
+                        InputId::B => b.faces(),
+                    };
+                    let Some(face) = faces.get(att.face as usize) else {
+                        continue;
+                    };
+                    let surf = face.surface;
+                    let dpre = surface_distance_and_normal(surf, pre).map(|(f, _)| f.abs());
+                    let dpost = surface_distance_and_normal(surf, post).map(|(f, _)| f.abs());
+                    let dq = surface_distance_and_normal(surf, qpos).map(|(f, _)| f.abs());
+                    let band = junction_certificate_band(post, surf);
+                    eprintln!(
+                        "YANG_S4_CARRIER_DOMAIN-SURF    v{v} face={:?}:{} \
+                         d_pre={dpre:?} d_post={dpost:?} d_q={dq:?} band={band:.3e}",
+                        att.input, att.face
+                    );
+                }
+                let (mut emin, mut esum, mut ecount) = (f64::INFINITY, 0.0f64, 0usize);
+                for &w in neighbours {
+                    let wi = w as usize;
+                    if wi >= n {
+                        continue;
+                    }
+                    let (e0, e1) = (entry[v as usize], entry[wi]);
+                    let d = ((e0[0] - e1[0]).powi(2)
+                        + (e0[1] - e1[1]).powi(2)
+                        + (e0[2] - e1[2]).powi(2))
+                    .sqrt();
+                    emin = emin.min(d);
+                    esum += d;
+                    ecount += 1;
+                }
+                eprintln!(
+                    "YANG_S4_CARRIER_DOMAIN-SCALE   v{v} travel={travel:.4e} \
+                     edge_min={emin:.4e} edge_mean={:.4e} deg={ecount}",
+                    esum / (ecount.max(1) as f64)
                 );
             } else {
                 return Err(YangError::stage4_region_invalid(
@@ -3868,6 +4142,16 @@ fn relocation_domain_postcondition(
         eprintln!(
             "YANG_S4_CARRIER_DOMAIN TOTAL fires={fires} first=v{:?}",
             first
+        );
+        strategy_selection_census(
+            mesh,
+            &attribution.attributions,
+            a,
+            b,
+            &adj,
+            &census_sites,
+            &on_curve,
+            &converged,
         );
     }
     Ok(())

@@ -1805,7 +1805,7 @@ cases; the corpus runner nulls child stderr, so this was run case-by-case):
 | R0011 | ERROR | 4 | **4** |
 | R0085 | ERROR | 11 | **11** |
 | R0044 | ERROR | 7 | **7** |
-| R0074 | ERROR | 1 | **1** |
+| R0074 | ERROR | 1 | **1** | (armed detail corrected — §4-I10 (e)) |
 | R0004 | ERROR | 1 | **1** |
 | R0051 | ERROR | 1 | 0 — sample |
 | F0064 | UNSUPPORTED(coplanar) | 2 | 0 — sample |
@@ -1816,7 +1816,9 @@ case. Armed full corpus: **265C/0W/43E/1EE/0T, unchanged**, with exactly FOUR
 detail deltas — R0011, R0044, R0074, R0085 — each ERROR→ERROR, trading a
 downstream `TessellationFailed { ring rejected by CDT }` for
 `Stage-4 relocation region around vertex N is invalid:
-RelocationCrossedCarrierVertex` at the stage that caused it.
+RelocationCrossedCarrierVertex` at the stage that caused it. **Three of the
+four.** R0074's armed detail is a DIFFERENT pre-existing Stage-4 STOP —
+corrected and explained in §4-I10 (e).
 
 R0004 is the fifth firing case and its detail did NOT change: `YANG_LRR_PROBE`
 confirms the STOP fires there (once, v427), but its two reported engine errors
@@ -1836,6 +1838,233 @@ surface-level containment. The I9 sites differ in exactly one respect: their
 corner is an INHERITED input model corner, not a mint. Extending inc-4b's trim
 to inherited corners is the natural next increment and is a REPAIR, not a STOP —
 recorded here, not built.
+
+> **REFUTED 2026-08-20 (third session) — see §4-I10.** The extension does not
+> fire. The blocker is not mint-ness; it is inc-4b's own patch-subset guard,
+> which refuses **24 of 24** measured sites. Read §4-I10 before attempting it.
+
+### I10 — the trim extension REFUTED, and the class anchored to §4.5's own trigger (2026-08-20)
+
+**Status: MEASUREMENT.** No behaviour change; the census gained the face-level
+and surface-level columns the decision needed, and they answered it.
+
+#### (a) The recorded next increment does not fire — 24/24
+
+`YANG_S4_CARRIER_DOMAIN=census` now also reports, per site, the attributed patch
+set of the traveller `v` and of the crossed corner `q`, and whether inc-4b's
+eligibility test `patches(v) ⊆ patches(q)` holds. Over every firing site of every
+firing case (R0011 4, R0044 7, R0074 1, R0085 11, R0004 1 = 24):
+
+| | traveller `v` | crossed corner `q` |
+|---|---|---|
+| R0074 v129 / v127 | `{A:0, A:162, B:2}` | `{A:0, A:162, A:163}` |
+| R0011 v78 / v834 | `{A:2, B:1, B:181}` | `{B:1, B:180, B:181}` |
+| R0044 v8 / v991 | `{A:2, B:1, B:154}` | `{B:1, B:154, B:155}` |
+| R0085 v4165 / v388 | `{A:227, A:228, B:2}` | `{A:0, A:227, A:228}` |
+| R0004 v427 / v571 | `{A:5, B:0, B:289}` | `{B:0, B:288, B:289}` |
+
+**`subset = false` on all 24.** The shape is the same every time and it is
+structural, not incidental:
+
+- `v` is a **cross-operand junction** — two ADJACENT faces of the near operand
+  (its carrier model edge) plus ONE face of the FAR operand (the surface it is
+  being relocated onto);
+- `q` is a **pure single-operand model corner** — three faces of the near
+  operand, and none of the far one.
+
+So `v` always carries the far-operand face and `q` never does, and the subset
+test fails on exactly that element. It is *right* to fail: collapsing `v` onto
+`q` would drag the far operand's intersection strip onto a point that is not on
+the far operand's surface at all — measured `d_q` below is how far off.
+
+**The lesson is the one §4-I8 already taught, one level up.** "Minted vs
+inherited" was never the operative distinction; it was a PROXY for *does the
+corner carry the traveller's far-operand face?* A Stage-1 mint is a
+cross-operand junction by construction, so it carries both operands and the
+subset holds. An inherited model corner is single-operand by construction, so it
+cannot. Extending the trim by relaxing mint-ness relaxes the proxy and leaves the
+real guard — correctly — refusing.
+
+#### (b) What the sites actually are: §4.5's own stated trigger, measured
+
+The census also reports, per incident face of the traveller, `|d|` at `pre`, at
+`post`, and at the corner `q`:
+
+| site | far face | `d_pre` | `d_q` | `pre→q` | `overrun` |
+|---|---|---|---|---|---|
+| R0074 v129 | B:2 | 2.806e-4 | 1.979e-4 | 2.192e-4 | 5.213e-4 |
+| R0011 v78 | A:2 | 1.031e1 | 3.425e0 | 1.484e1 | 7.368e0 |
+| R0011 v27 | A:2 | 5.221e1 | 4.116e1 | 7.053e1 | 2.576e2 |
+| R0011 v37 | A:2 | 8.468e1 | 7.296e1 | 3.407e1 | 2.114e2 |
+| R0011 v42 | A:2 | 1.075e2 | 7.421e1 | 7.775e1 | 1.675e2 |
+
+Every traveller is EXACTLY on its two near-operand surfaces at both `pre` and
+`post` (measured 0.0 / ~1e-13, against bands of ~1e-11): it lives on its carrier
+model edge and never leaves it. It is the FAR surface it is chasing, and `d_pre`
+is the distance to it at the mesh crossing.
+
+**The relocation is arithmetically correct.** Extrapolate the approach linearly —
+rate `= (d_pre − d_q)/|pre→q|`, remaining `= d_q/rate` — and it predicts the
+measured overrun to **0.3 %–3.6 %** (0.56, 0.27, 1.96, 0.32, 3.55; the residual
+is surface curvature). The arm is not diverging and is not on a wrong root. It is
+solving the right equation and the answer is outside the domain.
+
+**Which is the paper's stated trigger, verbatim.** §4.5
+(`refs/text/yang2025_hybrid_boolean.txt:652-656`): *"we collect the point pairs
+that cannot converge to a distance of 0 **within their domains**."* Along the
+carrier edge from `pre` to its endpoint `q`, the distance to the far surface
+falls monotonically from `d_pre` to `d_q` and **stops there**: the minimum
+attainable distance inside the domain is `d_q > 0`. Distance 0 exists only past
+the corner. That is non-convergence within the domain, measured, not inferred.
+
+And §4.5.1 (`:672-690`) describes the defect in the same words the census
+prints: *"Instead of taking a full step length that takes the point to a position
+`p1` **outside** the surface `S2` where the point is initially located, we
+truncate the step so that the point moves to `p` on the boundary curve `C_b`
+between `S2` and the neighboring surface `S1`. In the next iteration, the
+optimization step of `p` is computed using the parameterization of `S1`."*
+
+#### (c) Consequence: `stage4_truncate`'s recorded scope gap is CLOSED
+
+`crates/yang-rs/src/stage4_truncate.rs` implements §4.5.1's truncation MECHANISM
+and says so honestly in its header: its trigger is loop-simplicity, while
+*"§4.5.1's stated trigger is an erroneous region — points that 'cannot converge
+to a distance of 0 within their domains' … **Our relocations converge exactly**
+… this module implements §4.5.1's MECHANISM under a trigger the paper does not
+state for it."*
+
+That premise was true when written and is no longer. The I9 fire list is the
+corpus's first measured population of §4.5.1's OWN stated trigger: relocations
+that converge exactly *as equations* and provably do not converge *within their
+domains*. The mechanism and its trigger can now be joined without borrowing.
+
+#### (d) The next increment, and the measurement that selects it
+
+The paper's ladder is explicit (`:740-744`): *"we only use the first strategy in
+cases where the failure points are bounded by two successfully optimized points
+**on the same surface**. For other cases, we apply the second strategy"*
+(§4.5.2 local refinement). So the next step is neither "build §4.5.1" nor "build
+§4.5.2" — it is to **measure the selection predicate** on the 24 sites: for each,
+walk the intersection curve to the nearest successfully-optimized point on each
+side and report whether both lie on a common surface. That answer, not a
+preference, picks the strategy. Recorded here, not built.
+
+Note the sub-shape this measurement must settle: the traveller does not step off
+a SURFACE into its neighbour — it steps off a boundary CURVE (its carrier model
+edge) past that curve's own endpoint, where a third face joins. §4.5.1's
+"truncate to the boundary curve `C_b`, then re-parameterize on the neighbour
+`S1`" has an obvious one-level-down analogue (truncate at the corner, continue on
+the next edge), but the analogue is an inference and must not be built as though
+the paper stated it — the §4.5.2 mislabel of 2026-08-04 and this section's own
+(a) are both what borrowing across triggers costs.
+
+**MEASURED, same session.** `strategy_selection_census` (`YANG_S45_SELECT`, in
+the same census branch) implements the selector and takes the reading. For each
+failing traveller it walks the intersection curve outward along every branch to
+the nearest **successfully optimized** vertex — `converged(w) && !failed(w)`,
+where `converged` means the position lies on a surface of EACH operand at the
+shared certificate band, and `failed` is the §4-I9 fire list itself, which is
+precisely "converged as an equation, but not within its domain". Where the curve
+neighbourhood has degree > 2 the surface set is intersected over ALL bounds, so
+the choice of which pair cannot decide the verdict.
+
+The answer is unanimous over all 24 sites in all five cases:
+
+| | measured |
+|---|---|
+| erroneous region size | **one point** — every bound is 1 hop away, on every branch |
+| bounds converged | **all of them**, on every branch (2–6 per site) |
+| surface common to ALL bounds | **exactly 1**, every site |
+| traveller also on that surface | **yes**, every site |
+| **verdict** | **FIRST STRATEGY (§4.5.1)**, 24/24 |
+
+And the common surface is the near-operand CARRIER face, which is the paper's
+`S2` — "the surface where the point is initially located". R0011's four sites all
+name the same `Cylinder{r = 6277.3}` = face `B:1`, the face the section curve runs
+across; R0074's names the `Torus` its traveller sits on. The far surface the
+traveller is chasing is NOT the common one. So the erroneous region, its bounds,
+and `S2` line up exactly as §4.5.1 describes.
+
+#### (d2) The design this reading implies — recorded, not built
+
+§4.5.1, applied with `S2` = the measured common surface:
+
+1. **Region.** The failing traveller alone (measured: the region is one point).
+2. **Replace.** Remove it; insert the MIDPOINT of its two converged bounds — both
+   on `S2`, so the midpoint is on/near `S2` by construction.
+3. **Re-optimize with a truncated step.** Optimize the midpoint by §4.3.2, but
+   *"instead of taking a full step length that takes the point to a position `p1`
+   outside the surface `S2` … truncate the step so that the point moves to `p` on
+   the boundary curve `C_b`"*. `C_b` here is the carrier model edge, and its own
+   endpoint is the corner `q` that §4-I9 reports.
+4. **Continue on the neighbour.** *"In the next iteration, the optimization step
+   of `p` is computed using the parameterization of `S1`"* — the face across
+   `C_b`.
+
+**What must be built, and what already exists.** The missing primitive is a
+DOMAIN truncation — "how far along this step before the point leaves `S2`'s
+bounded domain?" — the exact analogue of `stage4_truncate::max_simple_step`,
+which answers the same shape of question for loop simplicity ("how far before the
+loop stops being simple?") and is already exact, tested, and unwired. The domain
+version should be built beside it, not inside it: same module, same
+`StepTruncation` vocabulary, different predicate.
+
+**Fail-closed, and gated.** A truncation that cannot certify its landing point on
+`C_b` must leave the §4-I9 STOP standing rather than accept a position it cannot
+justify — the STOP is the safety net this repair is trying to earn its way past,
+and a repair that half-fires is worse than one that declines. Land it gated
+(`YANG_451_DOMAIN_TRUNCATE`), census first, flip on a zero-category-delta corpus.
+
+**Still an inference, still flagged.** Step 3's `C_b` is a model EDGE and the
+traveller rides it lengthwise, whereas §4.5.1's figure has the point crossing
+`C_b` transversally off a surface. The measured facts — region on `S2`, bounds on
+`S2`, traveller on `S2` — put the configuration inside §4.5.1's stated scope, and
+that is what the borrow now rests on. It is no longer a borrow across TRIGGERS
+(that gap closed in (c)); it is a one-level-down reading of the mechanism, and it
+stays labelled as such until a case proves it.
+
+#### (e) Record correction — §4-I9's R0074 row, and a second instance of its open question
+
+Re-measuring the four armed detail deltas found three reproduce and one does not:
+
+| case | armed reason (measured 2026-08-20, third session) | I9 recorded |
+|---|---|---|
+| R0011 | `RelocationCrossedCarrierVertex` | ✅ matches |
+| R0044 | `RelocationCrossedCarrierVertex` | ✅ matches |
+| R0085 | `RelocationCrossedCarrierVertex` (+ `not 2-manifold`, op 3) | ✅ matches |
+| **R0074** | **`OffCurveBeyondChordBand` v91** | ❌ recorded as `RelocationCrossedCarrierVertex` |
+
+`YANG_LRR_PROBE` explains it, and the explanation is the same open question §4-I9
+recorded for R0004 — R0074 is its second instance, this time visible in the
+detail:
+
+```
+ARMED : YANG_LRR_SITE …stage4_correct.rs:3942 reason=RelocationCrossedCarrierVertex v=129
+        YANG_LRR_SITE …stage4_correct.rs:6770 reason=OffCurveBeyondChordBand      v=91
+OFF   : YANG_LRR_SITE …stage4_correct.rs:6770 reason=OffCurveBeyondChordBand      v=91
+```
+
+The `OffCurveBeyondChordBand` STOP at v91 fires in **both** modes — it is
+pre-existing and independent of I9. Arming adds the postcondition STOP at v129 in
+a different invocation of the same op ("Revolve 2: Auto-union"), and the detail
+the case reports switches from the downstream ring-reject to that pre-existing
+STOP. So arming did not create the reported reason; it removed the invocation
+whose ring-reject used to be reported, and the other STOP surfaced.
+
+The counts are unaffected: still FOUR detail deltas, still ERROR→ERROR, still
+zero category deltas, corpus still 265C/0W/43E/1EE/0T. What is corrected is which
+reason R0074 reports.
+
+Gate hygiene re-verified while measuring: `YANG_S4_CARRIER_DOMAIN=census` is
+byte-identical to `=0` on R0074 (both `ring rejected by CDT`), so the census mode
+is behaviour-free as designed, and the enriched columns added here keep it so —
+every new line is inside the `census` branch.
+
+**Open, and now twice-observed:** which invocation of a multi-invocation op the
+assay reports is not pinned down. It cost one wrong row in a ledger. Worth an
+instrument (an invocation counter in the STOP's diagnostic) before the next
+armed-flip measurement, so a detail delta can be attributed to an invocation
+rather than inferred.
 
 ## 5. After this epic (recorded, not started)
 

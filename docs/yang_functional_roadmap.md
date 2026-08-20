@@ -499,6 +499,40 @@ name, never measured).
    sibling of I8's surface-level containment. The I9 sites differ only in that
    their corner is INHERITED. Extending that trim to inherited corners is the
    next increment and is a repair, not a STOP.
+
+   **§4.4.1 I10 — that increment is REFUTED, and the class is REASSIGNED
+   (2026-08-20, measurement only).** The census now reports the face-level and
+   surface-level columns, and inc-4b's own patch-subset guard refuses **24 of
+   24** sites. Mint-ness was never the operative distinction: it PROXIED "does
+   the corner carry the traveller's far-operand face?", and an inherited model
+   corner is single-operand by construction, so it never can. What the sites
+   actually are: the traveller rides its carrier model edge (exactly on both
+   near surfaces at pre AND post) chasing a FAR surface whose distance falls to
+   `d_q > 0` at the edge's own endpoint and reaches 0 only past it — a linear
+   extrapolation predicts the measured overrun to 0.3–3.6 %. That is Yang §4.5's
+   stated trigger verbatim ("cannot converge to a distance of 0 **within their
+   domains**", `refs/text/yang2025_hybrid_boolean.txt:652-656`), and §4.5.1
+   `:672-690` describes the defect in the same words. Consequence:
+   `stage4_truncate.rs` already holds §4.5.1's truncation mechanism and records
+   that it BORROWS it under a non-paper trigger because "our relocations converge
+   exactly" — that premise does not cover this class, so the borrow is
+   unnecessary here. **Next increment: measure the paper's own strategy-selection
+   predicate** (`:740-744` — §4.5.1 only when the failure points are bounded by
+   two successfully optimized points on the SAME surface, else §4.5.2 local
+   refinement) over the 24 sites; the measurement picks the strategy, not a
+   preference. **TAKEN, same session (`YANG_S45_SELECT`): FIRST STRATEGY
+   (§4.5.1), 24/24.** The erroneous region is ONE point, every bound (2–6 per
+   site, all 1 hop away) is converged, all bounds share EXACTLY ONE surface, and
+   the traveller is on it too — and that surface is the near-operand CARRIER
+   face, i.e. the paper's `S2` (R0011's four sites all name the same
+   `Cylinder{r=6277.3}` = face B:1). So the next build is §4.5.1: remove the one
+   failing point, replace it with the midpoint of its two converged bounds, and
+   re-optimize with a DOMAIN-truncated step. The missing primitive is a domain
+   truncation — the analogue of the exact, tested, unwired
+   `stage4_truncate::max_simple_step` — built beside it, gated
+   (`YANG_451_DOMAIN_TRUNCATE`), census first, flip on zero category deltas.
+   Also corrected: I9's R0074 armed detail is `OffCurveBeyondChordBand`
+   v91, not `RelocationCrossedCarrierVertex` (counts unaffected). Spec §4-I10.
    Remaining loud refusals: unchartable cone/torus holders (R0044, 13 sites).
    Spec §4-I6, §4-I8, §4-I9.
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R

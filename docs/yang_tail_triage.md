@@ -1087,7 +1087,7 @@ traveller's own carrier.
 | R0085 | ERROR | 11 | **11** | ring-reject → `RelocationCrossedCarrierVertex` |
 | R0044 | ERROR | 7 | **7** | ring-reject → `RelocationCrossedCarrierVertex` |
 | R0011 | ERROR | 4 | **4** | ring-reject → `RelocationCrossedCarrierVertex` |
-| R0074 | ERROR | 1 | **1** | ring-reject → `RelocationCrossedCarrierVertex` |
+| R0074 | ERROR | 1 | **1** | ring-reject → `OffCurveBeyondChordBand` v91 — **corrected 2026-08-20**, see below |
 | R0004 | ERROR | 1 | **1** | unchanged (fires in a non-reported invocation) |
 | R0051 | ERROR | 1 | 0 | leg 2 exempts it — a SAMPLE, so its self-intersection has another cause |
 | F0064 | UNSUPPORTED(coplanar) | 2 | 0 | leg 2 exempts it — SAMPLEs; without leg 2 this case would have been pushed to ERROR |
@@ -1105,6 +1105,97 @@ corner is a Stage-1 MINT, guarded by a patch-subset test that is the face-level
 sibling of §4-I8's surface-level containment. The I9 sites differ only in that
 their corner is an INHERITED input model corner. Extending that trim to inherited
 corners is the next increment, and it is a REPAIR.
+
+> ### REFUTED 2026-08-20 — the trim extension does not fire (§4-I10)
+>
+> The census was extended with the face-level column the decision needed
+> (`patches(v)`, `patches(q)`, and inc-4b's eligibility test
+> `patches(v) ⊆ patches(q)`) and it refuses **24 of 24** sites. The blocker is
+> not mint-ness; it is inc-4b's own patch-subset guard, and it is right to
+> refuse.
+>
+> | | traveller `v` | crossed corner `q` |
+> |---|---|---|
+> | R0074 v129 / v127 | `{A:0, A:162, B:2}` | `{A:0, A:162, A:163}` |
+> | R0011 v78 / v834 | `{A:2, B:1, B:181}` | `{B:1, B:180, B:181}` |
+> | R0044 v8 / v991 | `{A:2, B:1, B:154}` | `{B:1, B:154, B:155}` |
+> | R0085 v4165 / v388 | `{A:227, A:228, B:2}` | `{A:0, A:227, A:228}` |
+> | R0004 v427 / v571 | `{A:5, B:0, B:289}` | `{B:0, B:288, B:289}` |
+>
+> `v` is always a CROSS-operand junction (its carrier model edge — two adjacent
+> near-operand faces — plus the ONE far-operand face it is chasing); `q` is
+> always a PURE single-operand model corner. `v` carries the far face, `q` never
+> does, and that element is what fails the subset. **"Minted vs inherited" was a
+> proxy for "does the corner carry the traveller's far-operand face?"** — a mint
+> is cross-operand by construction and an inherited corner is single-operand by
+> construction. Relaxing mint-ness relaxes the proxy and leaves the real guard
+> refusing.
+>
+> **What the class IS.** Per-surface distances say the traveller never leaves its
+> carrier edge (exactly on both near surfaces at `pre` and `post`), and chases
+> the far surface from `d_pre` down to `d_q > 0` at the edge's endpoint, hitting
+> 0 only beyond it. A linear extrapolation of that approach predicts the measured
+> overrun to **0.3 %–3.6 %** — the arm solves the right equation and the answer
+> is out of domain. That is the paper's §4.5 trigger word for word ("cannot
+> converge to a distance of 0 **within their domains**",
+> `refs/text/yang2025_hybrid_boolean.txt:652-656`), and §4.5.1 `:672-690`
+> describes the defect verbatim.
+>
+> **Consequence.** `stage4_truncate.rs` implements §4.5.1's truncation mechanism
+> and records that it borrows the mechanism under a non-paper trigger because
+> "our relocations converge exactly". That premise no longer covers this class,
+> so the borrow is unnecessary for it. **Next increment: measure the paper's own
+> strategy-selection predicate** (`:740-744`) on the 24 sites — are the failure
+> points bounded by two successfully optimized points on the SAME surface (⇒
+> §4.5.1) or not (⇒ §4.5.2)? **Measured the same session — see the next block.**
+> Full detail: `specs/yang_441_trim_cdt_construction.md` §4-I10.
+>
+> **Record correction (same session).** Re-measuring the four armed detail deltas:
+> R0011 / R0044 / R0085 reproduce as `RelocationCrossedCarrierVertex`; **R0074
+> does not** — its armed detail is `OffCurveBeyondChordBand` v91. `YANG_LRR_PROBE`
+> shows that STOP fires in BOTH armed and off modes (pre-existing, independent of
+> I9); arming adds the v129 postcondition STOP in another invocation of the same
+> op, and the reported detail switches to the pre-existing STOP. Counts unchanged
+> (four detail deltas, zero category deltas, 265C/0W/43E/1EE/0T). This is the
+> second sighting of the R0004 open question — which invocation of a
+> multi-invocation op the assay reports — and it is worth an instrument before the
+> next armed-flip measurement.
+
+### §4.5 strategy-selection census (2026-08-20) — §4-I10 (d), `YANG_S45_SELECT`
+
+The paper picks between its two §4.5 strategies by a stated test
+(`refs/text/yang2025_hybrid_boolean.txt:740-744`): the FIRST strategy (§4.5.1
+optimize across boundaries) applies *"in cases where the failure points are
+bounded by two successfully optimized points on the same surface"*; otherwise the
+SECOND (§4.5.2 local refinement). `strategy_selection_census` takes that reading
+on the §4-I9 fire list — walking the intersection curve outward along every
+branch to the nearest vertex that is `converged && !failed`, then intersecting
+the surface sets over ALL bounds so the choice of pair cannot decide the verdict.
+
+| | measured, all 24 sites / 5 cases |
+|---|---|
+| erroneous region size | **one point** (every bound 1 hop away, every branch) |
+| bounds converged | **all** (2–6 per site) |
+| surface common to ALL bounds | **exactly 1** |
+| traveller on that surface | **yes** |
+| **verdict** | **FIRST STRATEGY (§4.5.1), 24/24** |
+
+The common surface is the near-operand CARRIER face — the paper's `S2`, "the
+surface where the point is initially located". R0011's four sites all name the
+same `Cylinder{r = 6277.3}` (face `B:1`, the face the section curve runs across);
+R0074's names its `Torus`. The FAR surface the traveller is chasing is not the
+common one.
+
+So the next build is §4.5.1 with `S2` = that measured common surface: remove the
+one failing point, replace it with the midpoint of its two converged bounds
+(both on `S2`), and re-optimize with a **domain-truncated** step so it lands on
+the boundary curve instead of past it. The missing primitive is a domain
+truncation — the exact analogue of the existing, exact, tested and unwired
+`stage4_truncate::max_simple_step`, which answers the same shape of question for
+loop simplicity. Build it beside that one, gated
+(`YANG_451_DOMAIN_TRUNCATE`), census first, flip on zero category deltas; a
+truncation that cannot certify its landing point must leave the §4-I9 STOP
+standing.
 
 ## Stage-6 non-2-manifold site census (2026-08-19, post-5c.13) — the second absolute-floor anchor
 

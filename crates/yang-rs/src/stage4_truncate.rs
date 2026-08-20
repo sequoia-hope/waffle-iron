@@ -38,6 +38,29 @@
 //!
 //! What justifies the borrow is the census, not the section heading.
 //!
+//! ## UPDATE 2026-08-20 — the gap above is CLOSED, for a DIFFERENT class
+//!
+//! The premise "our relocations converge exactly" was true of the class this
+//! module was built for, and is measurably false of another one. The §4-I9
+//! relocation-domain fire list (`YANG_S4_CARRIER_DOMAIN`) is a population of
+//! relocations that converge exactly *as equations* and provably do **not**
+//! converge *within their domains*: the traveller rides its carrier model edge,
+//! the distance to the far surface falls monotonically to `d_q > 0` at the
+//! edge's own endpoint, and reaches 0 only past it. Measured on 24 sites over
+//! five cases, with a linear extrapolation predicting the overrun to 0.3–3.6 %.
+//!
+//! That is §4.5.1's stated trigger, and §4.5.1 describes the defect in the same
+//! words: *"a full step length that takes the point to a position `p1` outside
+//! the surface `S2` where the point is initially located"*. So the mechanism
+//! here and its paper-stated trigger can be joined without borrowing — for that
+//! class. The loop-simplicity trigger this module currently answers to remains a
+//! borrow, justified by its own census.
+//!
+//! Before wiring either one, the paper's own selection predicate must be
+//! measured (`:740-744` — first strategy only when the failure points are
+//! bounded by two successfully optimized points ON THE SAME SURFACE; otherwise
+//! §4.5.2). See `specs/yang_441_trim_cdt_construction.md` §4-I10 (d).
+//!
 //! # What this module computes
 //!
 //! One question, exactly: **how far along its relocation step can a loop vertex
