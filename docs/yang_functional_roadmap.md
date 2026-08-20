@@ -541,6 +541,29 @@ name, never measured).
    wrong verdict: it answers §4.5's second clause, and the first clause decides.
    Also corrected: I9's R0074 armed detail is `OffCurveBeyondChordBand`
    v91, not `RelocationCrossedCarrierVertex` (counts unaffected). Spec §4-I10.
+
+   **§4.4.1 I11 — does §4.5.1 have ANY customer? YES: 5 vertices in 3 cases
+   (2026-08-20, measurement only).** Widened the census from the I9 list to the
+   paper's own failure population over all 312 cases, taken from BOTH exits of
+   Stage 4 (a run that STOPs never reaches the end-of-stage postcondition, and
+   the hardest cases all STOP; even then the STOP'd vertex is never WRITTEN, so
+   it is classified directly). Coverage: 125 all-planar cases never run Stage 4
+   (`if has_conic`, 0 of them report as predicted); of 187 curved, 113 report
+   from the postcondition, 16 from a STOP, 65 produce no conic output edge.
+   Result over 30 287 curve vertices / 10 194 moved — **completing Stage 4: 36 of
+   36 failure members are BOUNDARY points (§4.5.2's), interior = 0**, extending
+   I10 (f) from the I9 list to the whole completing population; **Stage-4 STOP
+   vertices: 6 of 12 are INTERIOR**, of which five are candidates — C0065 (v3,
+   v8), R0003 (v4233, v10583), R0028 (v64), all `OffCurveBeyondChordBand` with
+   carrier `(A0,B1)` = Fig-12(a) "the intersection of the meshes is shifted onto
+   S2, completely bypassing S1"; C0065's STOP site is the owner-face hull check =
+   Fig-12(c). R0050 is excluded on inspection (converged `(A1,B1)`; its STOP is a
+   torus-endpoint scope wall). **Still untested and it decides: §4.5's SECOND
+   clause (bounded by two converged points on the same surface) has not been run
+   on these five** — they are CANDIDATES, not confirmed customers. Next
+   measurement: the bounding walk from the STOP vertex on C0065/R0003/R0028.
+   Instrument validated by reproducing the I9 fire list exactly (24). Census cost:
+   R0038 ERROR→TIMEOUT under census only. Spec §4-I11.
    Remaining loud refusals: unchartable cone/torus holders (R0044, 13 sites).
    Spec §4-I6, §4-I8, §4-I9.
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R

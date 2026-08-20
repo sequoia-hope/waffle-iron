@@ -1218,6 +1218,70 @@ See the correction immediately below; §4.5.1 does not apply to this class.**
 > The selector now evaluates the exclusion FIRST. Full detail:
 > `specs/yang_441_trim_cdt_construction.md` §4-I10 (f).
 
+## §4.5.1 customer census (2026-08-20) — §4-I11, `YANG_S45_POP`
+
+Does the paper's FIRST strategy have any customer here, or does §4.5.2 absorb the
+whole §4.5 budget? Measured over all 312 cases, against **the paper's own failure
+population** (`:652-656` — "point pairs that cannot converge to a distance of 0
+within their domains"), classified by the Fig-13 discriminator at each point's
+INITIAL location.
+
+**The census had to be taken from BOTH exits of Stage 4.** A first pass measured
+only from the end-of-stage postcondition and reported interior = 0 — a run that
+STOPs never reaches the end, and the hardest cases all STOP. Even from a STOP the
+population reads empty, because **the STOP'd vertex is never written**, so
+"Stage 4 moved it" — the proxy for "the optimization ran on it" — is false for
+exactly the vertex that failed. It is now classified directly.
+
+Coverage (a zero is only as good as its denominator): 125 all-planar cases never
+run Stage 4 at all (`if has_conic`); of 187 curved, 113 report from the
+postcondition, 16 from a STOP, and 65 produce no conic output edge. **0 planar
+cases report**, as predicted.
+
+| population | members | INTERIOR | BOUNDARY | unlocated |
+|---|---|---|---|---|
+| completed Stage 4 — in-domain non-convergence | 12 | 0 | 12 | 0 |
+| completed Stage 4 — out-of-domain (§4-I9) | 24 | **0** | 24 | 0 |
+| **Stage-4 STOP vertices** | 12 | **6** | 5 | 1 |
+
+over 30 287 curve vertices, 10 194 moved. The I9 half reproduces the known fire
+list exactly (R0004 1 / R0011 4 / R0044 7 / R0074 1 / R0085 11 = 24), which is
+what validates the instrument.
+
+**Answer: §4.5.1 is NOT customer-less.** Among relocations that COMPLETE, 36 of
+36 failure members are boundary points — §4.5.2's, extending §4-I10 (f) from the
+I9 list to the whole completing population. But among the 12 STOP vertices, six
+are interior, and five of those are candidates:
+
+| case | vertex | STOP reason | carrier |
+|---|---|---|---|
+| C0065 | v3, v8 | `OffCurveBeyondChordBand` | `(A0, B1)` |
+| R0003 | v4233, v10583 | `OffCurveBeyondChordBand` | `(A0, B1)` |
+| R0028 | v64 | `OffCurveBeyondChordBand` | `(A0, B1)` |
+| ~~R0050~~ | ~~v125~~ | `LocalRefinementRequired` | `(A1, B1)` — **not a customer** |
+
+R0050 is excluded on inspection: `(A1,B1)` means it CONVERGED (one surface of each
+operand) and its STOP is an explicit capability refusal (torus endpoint that is
+also a conic endpoint, "out of v1 scope") — a scope wall, not a convergence
+failure.
+
+The other five are Fig-12(a) drawn: `(A0,B1)` = on one surface of one operand and
+NONE of the other, interior to its own — *"the intersection of the meshes is
+shifted onto `S2`, completely bypassing `S1`"*. C0065's STOP site is the
+owner-face hull check, i.e. Fig-12(c) *"a full step takes `p0` to an
+out-of-boundary location `p1`"*.
+
+**Still untested, and it decides:** §4.5's SECOND clause ("bounded by two
+successfully optimized points on the same surface") has not been run on these
+five — the selector walks from a site list the STOP path does not produce. They
+are **candidates, not confirmed customers**. Next measurement: run the bounding
+walk from the STOP vertex on C0065, R0003, R0028.
+
+**Census cost:** under `census` the extra output pushes R0038 ERROR → TIMEOUT
+(verified ERROR with census off and at default). Census-only overhead — a census
+run's category spread is not a corpus score. Full detail:
+`specs/yang_441_trim_cdt_construction.md` §4-I11.
+
 ## Stage-6 non-2-manifold site census (2026-08-19, post-5c.13) — the second absolute-floor anchor
 
 `NONMANIFOLD_SITE_PROBE` over the nine `reassembled output would be

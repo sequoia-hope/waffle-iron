@@ -3746,6 +3746,284 @@ pub(crate) fn compact_unreferenced_verts(
 /// change. Full-corpus census 2026-08-20: fires on R0004/R0011/R0044/R0074/R0085
 /// only — every one already an ERROR, so arming cannot cost a correct case, and
 /// no category moves.
+/// Vertex → the `(input, face)` patches its incident attributed triangles carry.
+/// Built once per census; every predicate below reads it instead of rescanning
+/// the triangle list, so a whole-mesh census is O(V·deg) and not O(V·T).
+fn build_patch_map(
+    mesh: &Mesh,
+    attribution: &[Option<TriangleAttribution>],
+) -> std::collections::BTreeMap<u32, std::collections::BTreeSet<(InputId, u32)>> {
+    let mut out: std::collections::BTreeMap<u32, std::collections::BTreeSet<(InputId, u32)>> =
+        std::collections::BTreeMap::new();
+    for (ti, tri) in mesh.tris.iter().enumerate() {
+        if let Some(Some(att)) = attribution.get(ti) {
+            for &tv in tri {
+                out.entry(tv).or_default().insert((att.input, att.face));
+            }
+        }
+    }
+    out
+}
+
+/// A vertex of the intersection curve: its incident attributed patches span BOTH
+/// inputs.
+fn vertex_on_curve(
+    patches: &std::collections::BTreeMap<u32, std::collections::BTreeSet<(InputId, u32)>>,
+    v: u32,
+) -> bool {
+    let Some(p) = patches.get(&v) else {
+        return false;
+    };
+    p.iter().any(|x| x.0 == InputId::A) && p.iter().any(|x| x.0 == InputId::B)
+}
+
+/// "Converged to a distance of 0" in Yang §4.5's sense: the vertex's current
+/// position lies on a surface of EACH operand, at the shared certificate band.
+/// Whether it did so WITHIN ITS DOMAIN is the separate question §4-I9 answers,
+/// so callers subtract that fire list themselves.
+///
+/// One definition, shared by the postcondition, the strategy selector and the
+/// failure-population census — a second copy would be free to drift.
+fn vertex_converged(
+    mesh: &Mesh,
+    patches: &std::collections::BTreeMap<u32, std::collections::BTreeSet<(InputId, u32)>>,
+    a: &BRep,
+    b: &BRep,
+    v: u32,
+) -> bool {
+    let (mut ok_a, mut ok_b) = (false, false);
+    let pos = mesh.verts[v as usize].as_array();
+    let Some(faces_of_v) = patches.get(&v) else {
+        return false;
+    };
+    for &(input, face) in faces_of_v {
+        let faces = match input {
+            InputId::A => a.faces(),
+            InputId::B => b.faces(),
+        };
+        let Some(f) = faces.get(face as usize) else {
+            continue;
+        };
+        let surf = f.surface;
+        if surface_distance_and_normal(surf, pos)
+            .is_some_and(|(d, _)| d.abs() <= junction_certificate_band(pos, surf))
+        {
+            match input {
+                InputId::A => ok_a = true,
+                InputId::B => ok_b = true,
+            }
+        }
+    }
+    ok_a && ok_b
+}
+
+/// Run the §4-I11 failure-population census against a mesh in whatever state it
+/// is in, building the shared predicates first.
+///
+/// `tag` names the vantage point, because the two are NOT equivalent: `ok` is
+/// the end of a Stage 4 that completed, `stopped` is the mesh frozen at a STOP,
+/// where later repairs never ran.
+fn census_failure_population(
+    mesh: &Mesh,
+    attribution: &[Option<TriangleAttribution>],
+    a: &BRep,
+    b: &BRep,
+    entry: &[[f64; 3]],
+    i9_sites: &[(u32, u32)],
+    tag: &str,
+) {
+    let patches = build_patch_map(mesh, attribution);
+    let on_curve = |v: u32| vertex_on_curve(&patches, v);
+    let converged = |v: u32| vertex_converged(mesh, &patches, a, b, v);
+    failure_population_census(
+        mesh, a, b, &patches, i9_sites, entry, &on_curve, &converged, tag,
+    );
+}
+
+/// How many DISTINCT analytic surfaces of each operand does `pos` lie on, over
+/// the faces carried by `vid`'s incident triangles?
+///
+/// This is the reading Yang's Fig-13 clause turns on
+/// (`refs/text/yang2025_hybrid_boolean.txt:637-651`): a point lying on ONE
+/// surface per operand is INTERIOR to that surface; a point lying on TWO
+/// adjacent surfaces of the same operand is on their shared BOUNDARY CURVE, and
+/// a point on THREE is the corner `s` "where more than two surfaces meet".
+///
+/// Takes the precomputed vertex→patches map rather than rescanning the triangle
+/// list, so a whole-mesh census is O(V·deg) and not O(V·T).
+fn carrier_counts(
+    patches: &std::collections::BTreeMap<u32, std::collections::BTreeSet<(InputId, u32)>>,
+    a: &BRep,
+    b: &BRep,
+    vid: u32,
+    pos: [f64; 3],
+) -> (usize, usize) {
+    let (mut sa, mut sb): (Vec<Surface>, Vec<Surface>) = (Vec::new(), Vec::new());
+    let Some(faces_of_v) = patches.get(&vid) else {
+        return (0, 0);
+    };
+    for &(input, face) in faces_of_v {
+        let faces = match input {
+            InputId::A => a.faces(),
+            InputId::B => b.faces(),
+        };
+        let Some(f) = faces.get(face as usize) else {
+            continue;
+        };
+        let surf = f.surface;
+        if !surface_distance_and_normal(surf, pos)
+            .is_some_and(|(d, _)| d.abs() <= junction_certificate_band(pos, surf))
+        {
+            continue;
+        }
+        let bucket = match input {
+            InputId::A => &mut sa,
+            InputId::B => &mut sb,
+        };
+        if !bucket.contains(&surf) {
+            bucket.push(surf);
+        }
+    }
+    (sa.len(), sb.len())
+}
+
+/// One reported member of the §4.5 failure population: the vertex, which half of
+/// the population it belongs to, its Fig-13 class, and its carrier counts at the
+/// two ends of its step.
+type CandidateRow = (
+    u32,
+    &'static str,
+    &'static str,
+    (usize, usize),
+    (usize, usize),
+);
+
+/// §4-I11 — does §4.5.1 have ANY customer here?
+///
+/// §4-I10 (f) measured the §4-I9 fire list as 24/24 EXCLUDED from the paper's
+/// first strategy by the Fig-13 clause. That answers the question for one
+/// population. This answers it for the whole of Stage 4's output, so the epic
+/// can tell whether §4.5.1 is worth building at all or whether §4.5.2 absorbs
+/// the entire §4.5 budget.
+///
+/// **The population is the paper's, not ours.** §4.5: *"we collect the point
+/// pairs that cannot converge to a distance of 0 within their domains"*
+/// (`:652-656`). That has two halves, and both are enumerated here:
+///
+/// - **in-domain non-convergence** — the optimization ran on the point and its
+///   final position does not lie on a surface of EACH operand;
+/// - **out-of-domain convergence** — it does lie on both, but past its carrier's
+///   own endpoint: the §4-I9 fire list.
+///
+/// Each member is then classified by the Fig-13 discriminator: INTERIOR (one
+/// surface per operand at both ends of its step ⇒ §4.5.1's stated scope) or
+/// BOUNDARY-GLIDING (two or more of one operand at both ends ⇒ excluded, §4.5.2).
+///
+/// **Honest limits, stated because they bound the conclusion.** (1) "The
+/// optimization ran on it" is proxied by "Stage 4 MOVED it" — a relocation that
+/// failed without writing a position is invisible here, so the in-domain half is
+/// a LOWER bound. (2) This is a postcondition, so cases whose Stage 4 STOPs
+/// earlier never report. (3) Denominators are printed with every count; a bare
+/// count from this instrument is not a finding.
+#[allow(clippy::too_many_arguments)]
+fn failure_population_census(
+    mesh: &Mesh,
+    a: &BRep,
+    b: &BRep,
+    patches: &std::collections::BTreeMap<u32, std::collections::BTreeSet<(InputId, u32)>>,
+    i9_sites: &[(u32, u32)],
+    entry: &[[f64; 3]],
+    on_curve: &dyn Fn(u32) -> bool,
+    converged: &dyn Fn(u32) -> bool,
+    tag: &str,
+) {
+    let i9: std::collections::BTreeSet<u32> = i9_sites.iter().map(|&(v, _)| v).collect();
+    let n = entry.len().min(mesh.verts.len());
+
+    // Tallies per half, bucketed by the point's INITIAL location — §4.5.1's own
+    // wording is "the surface `S2` where the point is initially located", and
+    // Fig-13's excluded category is the "boundary intersection points", i.e.
+    // points LOCATED on boundary curves. Index: 0 = interior at pre,
+    // 1 = boundary at pre, 2 = on neither (off its own carrier at pre).
+    let (mut in_dom, mut out_dom) = ([0usize; 3], [0usize; 3]);
+    // Of the boundary-at-pre members, how many also end on a boundary curve
+    // (Fig-13's "glide ALONG") versus leave it? Reported so the exclusion can be
+    // read either way and the answer does not depend on which reading is taken.
+    let (mut glides, mut left_boundary) = (0usize, 0usize);
+    let (mut curve_verts, mut moved_curve) = (0usize, 0usize);
+    let mut interior_examples: Vec<CandidateRow> = Vec::new();
+
+    for v in 0..n as u32 {
+        if !on_curve(v) {
+            continue;
+        }
+        curve_verts += 1;
+        let (pre, post) = (entry[v as usize], mesh.verts[v as usize].as_array());
+        let moved = pre != post;
+        if moved {
+            moved_curve += 1;
+        }
+        let is_i9 = i9.contains(&v);
+        // Membership in the paper's failure population.
+        let half = if is_i9 {
+            "out-of-domain"
+        } else if moved && !converged(v) {
+            "in-domain"
+        } else {
+            continue;
+        };
+        let cpre = carrier_counts(patches, a, b, v, pre);
+        let cpost = carrier_counts(patches, a, b, v, post);
+        let (near_pre, near_post) = (cpre.0.max(cpre.1), cpost.0.max(cpost.1));
+        let bucket = if near_pre >= 2 {
+            // A BOUNDARY intersection point — Fig-13's excluded category.
+            if near_post >= 2 {
+                glides += 1;
+            } else {
+                left_boundary += 1;
+            }
+            1
+        } else if near_pre == 1 {
+            0 // INTERIOR to its surface at its initial location — §4.5.1's scope
+        } else {
+            2 // on no surface of either operand at pre — not a located point
+        };
+        // Examples are printed for INTERIOR (a §4.5.1 customer would be one) and
+        // for the unclassified bucket, because a customer could hide in there
+        // behind a classification that is too strict rather than behind a real
+        // absence.
+        if bucket != 1 && interior_examples.len() < 12 {
+            interior_examples.push((
+                v,
+                half,
+                if bucket == 0 { "INTERIOR" } else { "unlocated" },
+                cpre,
+                cpost,
+            ));
+        }
+        if is_i9 {
+            out_dom[bucket] += 1;
+        } else {
+            in_dom[bucket] += 1;
+        }
+    }
+
+    eprintln!(
+        "YANG_S45_POP at={tag} curve_verts={curve_verts} moved={moved_curve} \
+         | in-domain: interior={} boundary={} unlocated={} \
+         | out-of-domain(I9): interior={} boundary={} unlocated={} \
+         | of-boundary: glides={glides} left={left_boundary}",
+        in_dom[0], in_dom[1], in_dom[2], out_dom[0], out_dom[1], out_dom[2]
+    );
+    for (v, half, kind, cpre, cpost) in &interior_examples {
+        eprintln!(
+            "YANG_S45_POP   CANDIDATE v{v} half={half} class={kind} \
+             pre=(A{},B{}) post=(A{},B{})",
+            cpre.0, cpre.1, cpost.0, cpost.1
+        );
+    }
+}
+
 /// §4-I10 (d) — the paper's §4.5 STRATEGY SELECTOR, measured.
 ///
 /// Yang 2025 §4.5 (`refs/text/yang2025_hybrid_boolean.txt:740-744`): *"we only
@@ -3769,6 +4047,7 @@ fn strategy_selection_census(
     a: &BRep,
     b: &BRep,
     adj: &std::collections::BTreeMap<u32, std::collections::BTreeSet<u32>>,
+    patches: &std::collections::BTreeMap<u32, std::collections::BTreeSet<(InputId, u32)>>,
     sites: &[(u32, u32)],
     entry: &[[f64; 3]],
     on_curve: &dyn Fn(u32) -> bool,
@@ -3780,38 +4059,8 @@ fn strategy_selection_census(
     // reads this: a point on ONE surface per operand is INTERIOR to that
     // surface; a point on TWO adjacent surfaces of the same operand lies on
     // their shared boundary curve.
-    let per_input = |vid: u32, pos: [f64; 3]| -> (usize, usize) {
-        let (mut sa, mut sb): (Vec<Surface>, Vec<Surface>) = (Vec::new(), Vec::new());
-        for (t, tri) in mesh.tris.iter().enumerate() {
-            if !tri.contains(&vid) {
-                continue;
-            }
-            let Some(att) = attribution.get(t).copied().flatten() else {
-                continue;
-            };
-            let faces = match att.input {
-                InputId::A => a.faces(),
-                InputId::B => b.faces(),
-            };
-            let Some(face) = faces.get(att.face as usize) else {
-                continue;
-            };
-            let surf = face.surface;
-            if !surface_distance_and_normal(surf, pos)
-                .is_some_and(|(d, _)| d.abs() <= junction_certificate_band(pos, surf))
-            {
-                continue;
-            }
-            let bucket = match att.input {
-                InputId::A => &mut sa,
-                InputId::B => &mut sb,
-            };
-            if !bucket.contains(&surf) {
-                bucket.push(surf);
-            }
-        }
-        (sa.len(), sb.len())
-    };
+    let per_input =
+        |vid: u32, pos: [f64; 3]| -> (usize, usize) { carrier_counts(patches, a, b, vid, pos) };
     let empty_adj: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     let curve_nbrs = |w: u32| -> Vec<u32> {
         adj.get(&w)
@@ -3998,39 +4247,14 @@ fn relocation_domain_postcondition(
         patch_map.get(&target).unwrap_or(&empty_patches)
     };
     // A vertex of the intersection curve: its patches span both inputs.
-    let on_curve = |target: u32| -> bool {
-        let p = patches_of(target);
-        p.iter().any(|x| x.0 == InputId::A) && p.iter().any(|x| x.0 == InputId::B)
-    };
+    let on_curve = |target: u32| -> bool { vertex_on_curve(&patch_map, target) };
     // "Successfully optimized" in §4.5's sense, split into its two halves. A
     // curve vertex CONVERGED when its current position actually lies on a
     // surface of each operand (distance 0 to both, at the shared certificate
     // band) — that is "converged to a distance of 0". Whether it did so WITHIN
     // ITS DOMAIN is the separate question this postcondition answers, so the
     // caller subtracts the fire list.
-    let converged = |target: u32| -> bool {
-        let (mut ok_a, mut ok_b) = (false, false);
-        let pos = mesh.verts[target as usize].as_array();
-        for &(input, face) in patches_of(target) {
-            let faces = match input {
-                InputId::A => a.faces(),
-                InputId::B => b.faces(),
-            };
-            let Some(f) = faces.get(face as usize) else {
-                continue;
-            };
-            let surf = f.surface;
-            if surface_distance_and_normal(surf, pos)
-                .is_some_and(|(d, _)| d.abs() <= junction_certificate_band(pos, surf))
-            {
-                match input {
-                    InputId::A => ok_a = true,
-                    InputId::B => ok_b = true,
-                }
-            }
-        }
-        ok_a && ok_b
-    };
+    let converged = |target: u32| -> bool { vertex_converged(mesh, &patch_map, a, b, target) };
 
     // Still-ness is judged against the ENTRY snapshot. Vertices are only
     // appended during Stage 4, so an index below the snapshot's length names the
@@ -4218,6 +4442,19 @@ fn relocation_domain_postcondition(
             }
         }
     }
+    if census {
+        failure_population_census(
+            mesh,
+            a,
+            b,
+            &patch_map,
+            &census_sites,
+            entry,
+            &on_curve,
+            &converged,
+            "postcondition",
+        );
+    }
     if census && fires > 0 {
         eprintln!(
             "YANG_S4_CARRIER_DOMAIN TOTAL fires={fires} first=v{:?}",
@@ -4229,6 +4466,7 @@ fn relocation_domain_postcondition(
             a,
             b,
             &adj,
+            &patch_map,
             &census_sites,
             entry,
             &on_curve,
@@ -4238,7 +4476,73 @@ fn relocation_domain_postcondition(
     Ok(())
 }
 
+/// §4-I11: the failure-population census must also see the runs that STOP.
+///
+/// `relocation_domain_postcondition` sits at the END of Stage 4, so a run that
+/// refuses earlier — and the hardest cases all do — reports nothing at all. The
+/// corpus census measured 114 of 187 curved cases from the postcondition alone;
+/// six of the missing ones STOP inside Stage 4, and a §4.5.1 customer could only
+/// have hidden there. So the census is taken on BOTH exits, and the print is
+/// tagged with which one, because they are not equivalent: at a STOP the mesh is
+/// frozen mid-repair and the later passes never ran.
+///
+/// This is the same argument that made §4-I9 a postcondition rather than a check
+/// at each of thirteen relocation sites — one vantage point that covers every
+/// exit, present and future, instead of an edit per site that the next site will
+/// forget.
 pub(crate) fn stage4_relocate_and_correct(
+    mesh: &mut Mesh,
+    attribution: &mut TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+    minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
+    edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
+) -> Result<(Vec<(u32, f64)>, bool), YangError> {
+    let census = std::env::var("YANG_S4_CARRIER_DOMAIN").as_deref() == Ok("census");
+    // Taken before the inner call, so it is the mesh exactly as Stage 4 received
+    // it — strictly earlier than the inner snapshot and never later.
+    let entry: Option<Vec<[f64; 3]>> =
+        census.then(|| mesh.verts.iter().map(Point3::as_array).collect());
+    let out = stage4_relocate_and_correct_inner(
+        mesh,
+        attribution,
+        a,
+        b,
+        minted_junction_keys,
+        edge_provenance,
+    );
+    if let (Some(entry), Err(e)) = (entry.as_ref(), out.as_ref()) {
+        eprintln!("YANG_S45_POP stop_reason={e}");
+        // No §4-I9 site list here: that STOP is disabled in census mode, so a run
+        // that refused did so for some OTHER reason and its I9 population is
+        // whatever the in-domain half reports.
+        census_failure_population(mesh, &attribution.attributions, a, b, entry, &[], "stopped");
+        // The STOP'd vertex itself is the one member the population census
+        // CANNOT see: the refusal happens where the answer is rejected, so the
+        // vertex is never written and "Stage 4 moved it" — the proxy for "the
+        // optimization ran on it" — is false. It is nonetheless the clearest
+        // §4.5 failure in the run, so classify it directly.
+        if let YangError::Stage4RegionInvalid { vertex, reason } = e {
+            let patches = build_patch_map(mesh, &attribution.attributions);
+            let pos = mesh.verts[*vertex as usize].as_array();
+            let (ca, cb) = carrier_counts(&patches, a, b, *vertex, pos);
+            let near = ca.max(cb);
+            eprintln!(
+                "YANG_S45_POP STOP-VERTEX v{vertex} reason={reason:?} on_curve={} \
+                 carrier=(A{ca},B{cb}) class={}",
+                vertex_on_curve(&patches, *vertex),
+                match near {
+                    0 => "unlocated (on no surface of either operand)",
+                    1 => "INTERIOR — a §4.5.1 customer",
+                    _ => "BOUNDARY — excluded from §4.5.1 by Fig-13",
+                }
+            );
+        }
+    }
+    out
+}
+
+fn stage4_relocate_and_correct_inner(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
     a: &BRep,

@@ -2187,6 +2187,127 @@ only as sound as the predicate it encodes; encoding half a stated rule produces 
 confident number and a wrong answer.** Read the section to its end before
 implementing its test.
 
+### I11 — does §4.5.1 have ANY customer in the corpus? YES: 5 vertices, 3 cases (2026-08-20)
+
+**Status: MEASUREMENT.** No behaviour change; every added line is census-gated
+and `YANG_S4_CARRIER_DOMAIN=census` is verified outcome-identical to `=0` on
+R0074, R0011 and C0065.
+
+§4-I10 (f) answered the strategy question for ONE population — the §4-I9 fire
+list, 24/24 excluded from §4.5.1. That is not the same as "§4.5.1 has no
+customer", and the epic needs the second answer before spending sessions on
+either strategy. So the census was widened from the I9 list to **the paper's own
+failure population**, over all 312 cases.
+
+#### (a) The population is the paper's, and it has two halves
+
+§4.5 (`refs/text/yang2025_hybrid_boolean.txt:652-656`): *"we collect the point
+pairs that cannot converge to a distance of 0 **within their domains**"*. Both
+halves are enumerated:
+
+- **in-domain non-convergence** — the optimization ran on the point and its final
+  position does not lie on a surface of EACH operand;
+- **out-of-domain convergence** — it lies on both, but past its carrier's own
+  endpoint: the §4-I9 fire list.
+
+Each member is classified by the Fig-13 discriminator at its INITIAL location
+(§4.5.1's own wording is "the surface `S2` where the point is **initially
+located**"): one surface per operand ⇒ INTERIOR ⇒ §4.5.1's stated scope; two or
+more of one operand ⇒ a BOUNDARY intersection point ⇒ excluded.
+
+#### (b) The census had to be taken from BOTH exits, and that is where the answer was
+
+A first pass measured only from `relocation_domain_postcondition`, at the END of
+Stage 4, and found **interior = 0** — which would have said "no customer". It was
+wrong, for a structural reason: **a run that STOPs never reaches the end**, and
+the hardest cases all STOP. So the census is now taken on both exits of
+`stage4_relocate_and_correct`, tagged `at=postcondition` / `at=stopped`.
+
+Even that was not enough. From a STOP the population still measured empty,
+because **the STOP'd vertex is never written**: the refusal happens where the
+answer is rejected, so "Stage 4 moved it" — the proxy for "the optimization ran
+on it" — is false for precisely the vertex that failed. It is classified
+directly instead (`YANG_S45_POP STOP-VERTEX`).
+
+The same argument as §4-I9's: one vantage point covering every exit, rather than
+an edit per site that the next site will forget.
+
+#### (c) The measurement, all 312 cases
+
+Coverage first, because a zero is only as good as its denominator:
+
+| | cases |
+|---|---|
+| all-planar — Stage 4 never runs (`if has_conic`) | 125 |
+| curved | 187 |
+| … reporting from the postcondition | 113 |
+| … reporting from a STOP | 16 |
+| … no conic output edge, so no §4.5 optimization at all | 65 |
+| planar cases reporting (expected 0) | **0** |
+
+And the population, validated against ground truth — the I9 half reproduces the
+known fire list exactly (R0004 1, R0011 4, R0044 7, R0074 1, R0085 11 = 24):
+
+| population | members | INTERIOR | BOUNDARY | unlocated |
+|---|---|---|---|---|
+| completed Stage 4 — in-domain non-convergence | 12 | 0 | 12 | 0 |
+| completed Stage 4 — out-of-domain (§4-I9) | 24 | **0** | 24 | 0 |
+| **Stage-4 STOP vertices** | 12 | **6** | 5 | 1 |
+
+over 30 287 curve vertices, 10 194 of which Stage 4 moved.
+
+#### (d) The answer: YES — and everything in the completing half is §4.5.2's
+
+**Among relocations that COMPLETE, 36 of 36 failure members are boundary points.**
+§4.5.1 has no customer there, which extends §4-I10 (f) from the I9 list to the
+whole completing population.
+
+**Among the 12 STOP vertices, 6 are interior points**, in 4 cases:
+
+| case | vertex | STOP reason | carrier |
+|---|---|---|---|
+| C0065 | v3, v8 | `OffCurveBeyondChordBand` | `(A0, B1)` |
+| R0003 | v4233, v10583 | `OffCurveBeyondChordBand` | `(A0, B1)` |
+| R0028 | v64 | `OffCurveBeyondChordBand` | `(A0, B1)` |
+| R0050 | v125 | `LocalRefinementRequired` | `(A1, B1)` |
+
+**R0050 is not a customer** and is excluded on inspection: `(A1,B1)` means it lies
+on one surface of EACH operand — it CONVERGED — and its STOP is an explicit
+capability refusal ("a torus-edge endpoint that is also a conic endpoint mixes
+the implicit-pair and closed-form relocations — out of v1 scope"). A scope wall
+is not a convergence failure.
+
+**The other five are Fig-12(a) drawn.** `(A0,B1)` says the vertex lies on ONE
+surface of one operand and NONE of the other — it has not converged onto the far
+surface at all, while sitting interior to its own. The paper's caption:
+*"C is the correct B-Rep intersection curve passing through surfaces `S1` and
+`S2`. The intersection of the meshes is shifted onto `S2`, completely bypassing
+`S1`."* And C0065's STOP site is the owner-face hull check — the relocated
+position fell outside the bounding hull of its own input face — which is
+Fig-12(c): *"A full step takes `p0` to an out-of-boundary location `p1`."*
+
+So **§4.5.1 is not dead code for us**: C0065, R0003 and R0028 (5 vertices) are
+candidates.
+
+#### (e) What is still untested, and it is the deciding clause
+
+§4.5's selector has two clauses and this section tested only the FIRST (interior
+vs boundary) — the same one-clause mistake §4-I10 (d) made in the other
+direction, avoided here only because (f) had just named it. **The second clause —
+"bounded by two successfully optimized points on the same surface" — is NOT
+tested on these five**, because `strategy_selection_census` walks the curve from
+a site list the STOP path does not produce.
+
+So the honest state is: **three cases are §4.5.1 CANDIDATES, not confirmed
+customers.** The next measurement is to run the bounding walk from the STOP
+vertex on C0065, R0003 and R0028. Only if it holds are they §4.5.1's; if it does
+not, they are §4.5.2's too and §4.5.2 absorbs the entire §4.5 budget.
+
+**Census cost, recorded:** under `census` the extra output pushes R0038 from
+ERROR to TIMEOUT (verified ERROR with the census off and at default). Census-only
+overhead, not a behaviour change — but it means a census run's category spread is
+not a corpus score.
+
 ## 5. After this epic (recorded, not started)
 
 - **§4.5.4 removal half / §4.5.2 guard shell** (roadmap item 3d/4): route the
