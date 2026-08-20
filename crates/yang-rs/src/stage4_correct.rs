@@ -4130,6 +4130,16 @@ fn relocation_domain_postcondition(
                      edge_min={emin:.4e} edge_mean={:.4e} deg={ecount}",
                     esum / (ecount.max(1) as f64)
                 );
+                // §4-I10 (d2): exercise the §4.5.1 DOMAIN truncation primitive
+                // on the real site, so it is measured on live data before it is
+                // ever load-bearing. Report-only — the answer is printed, not
+                // applied; §4.5.1's continuation (re-parameterize on the
+                // neighbouring surface, solve q1/q2 on C_b) does not exist yet,
+                // so the §4-I9 STOP stays the answer.
+                eprintln!(
+                    "YANG_S45_TRUNCATE v{v} -> {:?}",
+                    crate::stage4_truncate::max_in_domain_step(pre, post, &[(q, qpos)])
+                );
             } else {
                 return Err(YangError::stage4_region_invalid(
                     v,

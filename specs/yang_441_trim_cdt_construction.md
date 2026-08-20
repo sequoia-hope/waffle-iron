@@ -2006,8 +2006,38 @@ DOMAIN truncation — "how far along this step before the point leaves `S2`'s
 bounded domain?" — the exact analogue of `stage4_truncate::max_simple_step`,
 which answers the same shape of question for loop simplicity ("how far before the
 loop stops being simple?") and is already exact, tested, and unwired. The domain
-version should be built beside it, not inside it: same module, same
-`StepTruncation` vocabulary, different predicate.
+version should be built beside it, not inside it: same module, same vocabulary,
+different predicate.
+
+> **BUILT, same session — `stage4_truncate::max_in_domain_step`.** Pure,
+> deterministic, unwired for behaviour, and exercised on live data.
+>
+> - Answers `FullStepInDomain` / `TruncateAtVertex { t, at }` / `Unmeasurable`.
+>   The caller must land on the STORED POSITION of `at` (exact input
+>   coordinates), never on `lerp(pre, post, t)` — `t` is a rounded projection,
+>   returned for ordering and diagnostics.
+> - Candidate selection stays with the CALLER, because what makes a still
+>   neighbour a domain END rather than a sample Yang's near-curve removal owns is
+>   §4-I9's leg-2 certificate. The primitive only decides which certified
+>   candidate the step reaches first.
+> - Acceptance reuses the SHARED relative collinearity identity
+>   (`point_on_segment_interior`), the same gate §4-I9 fires on — so the repair
+>   cannot fire where the STOP would not, nor decline where it would, and no new
+>   band enters the system.
+> - Ten unit tests, RED-VERIFIED by two mutations: reversing the ordering rule
+>   fails `picks_the_first_boundary` + `ties_resolve_by_lowest_vertex_index`;
+>   removing the collinearity gate fails
+>   `full_step_when_no_candidate_lies_on_the_segment`.
+> - **Measured on every live site** from the census (`YANG_S45_TRUNCATE`,
+>   report-only): all 24 return a strictly interior truncation, `t` from 0.0399
+>   (R0085 v4359) to 0.9203 (R0085 v4216). R0074's live `t = 0.29599` agrees with
+>   the unit test's `0.296`, which is derived independently from the measured
+>   overrun/travel ratio.
+>
+> What it does NOT do, and must not be read as doing: §4.5.1's continuation —
+> re-parameterizing the landed point on the neighbouring surface `S1` and solving
+> `q1`/`q2` on `C_b`. Until that exists the §4-I9 STOP remains the answer, and
+> the primitive stays report-only.
 
 **Fail-closed, and gated.** A truncation that cannot certify its landing point on
 `C_b` must leave the §4-I9 STOP standing rather than accept a position it cannot

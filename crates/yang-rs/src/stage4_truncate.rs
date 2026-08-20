@@ -284,6 +284,97 @@ fn rbig_to_f64(r: &RBig) -> Option<f64> {
     v.is_finite().then_some(v)
 }
 
+/// The outcome of a §4.5.1 DOMAIN truncation query.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum DomainTruncation {
+    /// The full step stays inside the carrier's domain — nothing to truncate.
+    /// This is the expected answer for the overwhelming majority of steps.
+    FullStepInDomain,
+    /// The step leaves the domain at vertex `at`, which lies on the step
+    /// segment; stop there. `t` is the fraction of the full step at which that
+    /// happens.
+    ///
+    /// The caller must land the point on the STORED POSITION of `at`, not on
+    /// `lerp(pre, post, t)`: `at` is a model corner whose coordinates are exact
+    /// input data, while `t` is a rounded projection. `t` is returned for
+    /// ordering and diagnostics, not as the landing point.
+    TruncateAtVertex { t: f64, at: u32 },
+    /// A zero-length step, or a non-finite coordinate. Never treated as "the
+    /// full step is fine".
+    Unmeasurable,
+}
+
+/// §4.5.1 DOMAIN truncation — *"instead of taking a full step length that takes
+/// the point to a position `p1` outside the surface `S2` where the point is
+/// initially located, we truncate the step so that the point moves to `p` on the
+/// boundary curve `C_b`"* (`refs/text/yang2025_hybrid_boolean.txt:672-690`).
+///
+/// This answers the domain half of the same question [`max_simple_step`] answers
+/// for loop simplicity: **how far along its step can a vertex move before it
+/// leaves its carrier's bounded domain?**
+///
+/// `candidates` are the domain-boundary vertices the caller has certified — in
+/// the §4-I9 wiring, the still neighbours carrying a surface the relocated
+/// position is OFF, which is what makes them domain ENDPOINTS (a third face
+/// joins) rather than plain samples of the traveller's own carrier. Selecting
+/// them is the caller's job precisely because that certificate is what
+/// distinguishes a domain end from a point Yang's near-curve removal owns; this
+/// function only decides WHICH of them the step reaches first, and where.
+///
+/// A candidate counts when it lies strictly inside the `pre → post` segment at
+/// the project's shared relative collinearity identity
+/// ([`crate::stage4_construct::point_on_segment_interior`]) — the same gate
+/// §4-I9 fires on, so the repair cannot fire on a configuration the STOP would
+/// not have named, nor decline one it would.
+///
+/// Measured shape of the class this serves (§4-I10, 24 sites / 5 cases): the
+/// traveller rides its carrier model edge and overruns the edge's own endpoint,
+/// so the truncation parameter is the corner's position along the step —
+/// R0074's site at `t ≈ 0.296` of a `7.40e-4` travel, R0011's four between
+/// `t ≈ 0.21` and `t ≈ 0.67`.
+///
+/// Pure and deterministic. Ties (two candidates at the same `t`) resolve by
+/// lowest vertex index so the answer does not depend on input order.
+///
+/// **This is the truncation only.** §4.5.1 continues by re-parameterizing the
+/// landed point on the neighbouring surface `S1` and solving `q1`/`q2` on `C_b`;
+/// that is the next increment, and until it exists a caller must leave the
+/// §4-I9 STOP standing rather than accept the landed point as a final answer.
+pub(crate) fn max_in_domain_step(
+    pre: [f64; 3],
+    post: [f64; 3],
+    candidates: &[(u32, [f64; 3])],
+) -> DomainTruncation {
+    let d = [post[0] - pre[0], post[1] - pre[1], post[2] - pre[2]];
+    let dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    if !dd.is_finite() || dd <= 0.0 || !pre.iter().chain(post.iter()).all(|c| c.is_finite()) {
+        return DomainTruncation::Unmeasurable;
+    }
+    let mut best: Option<(f64, u32)> = None;
+    for &(vid, q) in candidates {
+        if !q.iter().all(|c| c.is_finite()) {
+            continue;
+        }
+        if !crate::stage4_construct::point_on_segment_interior(pre, post, q) {
+            continue;
+        }
+        let t = ((q[0] - pre[0]) * d[0] + (q[1] - pre[1]) * d[1] + (q[2] - pre[2]) * d[2]) / dd;
+        if !t.is_finite() || t <= 0.0 || t >= 1.0 {
+            // `point_on_segment_interior` already certified strict interiority;
+            // a projection that disagrees is a degenerate case, not a boundary.
+            continue;
+        }
+        match best {
+            Some((bt, bv)) if (bt, bv) <= (t, vid) => {}
+            _ => best = Some((t, vid)),
+        }
+    }
+    match best {
+        Some((t, at)) => DomainTruncation::TruncateAtVertex { t, at },
+        None => DomainTruncation::FullStepInDomain,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -442,5 +533,138 @@ mod tests {
         let c2: Vec<[f64; 3]> = c.iter().map(|p| [p[0], 0.0, p[1]]).collect();
         let in_xz = max_simple_step(&c2, 3, [-2.0, 0.0, 1.0], [0.0, 1.0, 0.0]);
         assert_eq!(in_xy, in_xz);
+    }
+
+    // ---- §4.5.1 DOMAIN truncation (`max_in_domain_step`) ----
+
+    /// The overwhelmingly common answer: nothing on the step's path.
+    #[test]
+    fn domain_full_step_when_no_candidate_lies_on_the_segment() {
+        let (pre, post) = ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+        let cands = [(7u32, [0.5, 0.3, 0.0]), (9, [2.0, 0.0, 0.0])];
+        assert_eq!(
+            max_in_domain_step(pre, post, &cands),
+            DomainTruncation::FullStepInDomain
+        );
+    }
+
+    /// An empty candidate list is "nothing in the way", not "unmeasurable".
+    #[test]
+    fn domain_no_candidates_is_a_full_step() {
+        assert_eq!(
+            max_in_domain_step([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], &[]),
+            DomainTruncation::FullStepInDomain
+        );
+    }
+
+    #[test]
+    fn domain_truncates_at_the_candidate_on_the_segment() {
+        let (pre, post) = ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+        match max_in_domain_step(pre, post, &[(4u32, [0.25, 0.0, 0.0])]) {
+            DomainTruncation::TruncateAtVertex { t, at } => {
+                assert_eq!(at, 4);
+                assert!((t - 0.25).abs() < 1e-12, "t = {t}");
+            }
+            other => panic!("expected a truncation, got {other:?}"),
+        }
+    }
+
+    /// The step stops at the FIRST domain boundary it reaches, not the last.
+    #[test]
+    fn domain_picks_the_first_boundary_along_the_step() {
+        let (pre, post) = ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+        let cands = [(11u32, [0.8, 0.0, 0.0]), (3, [0.2, 0.0, 0.0])];
+        match max_in_domain_step(pre, post, &cands) {
+            DomainTruncation::TruncateAtVertex { t, at } => {
+                assert_eq!(at, 3, "the nearer boundary wins regardless of order");
+                assert!((t - 0.2).abs() < 1e-12, "t = {t}");
+            }
+            other => panic!("expected a truncation, got {other:?}"),
+        }
+    }
+
+    /// Order-independence: a tie resolves by vertex index, both ways round.
+    #[test]
+    fn domain_ties_resolve_by_lowest_vertex_index() {
+        let (pre, post) = ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+        let q = [0.5, 0.0, 0.0];
+        for cands in [[(8u32, q), (2u32, q)], [(2u32, q), (8u32, q)]] {
+            match max_in_domain_step(pre, post, &cands) {
+                DomainTruncation::TruncateAtVertex { at, .. } => assert_eq!(at, 2),
+                other => panic!("expected a truncation, got {other:?}"),
+            }
+        }
+    }
+
+    /// The endpoints are not INTERIOR, so neither is a domain crossing: a step
+    /// that merely ends on a boundary vertex has not left the domain.
+    #[test]
+    fn domain_endpoints_are_not_a_crossing() {
+        let (pre, post) = ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+        for q in [pre, post] {
+            assert_eq!(
+                max_in_domain_step(pre, post, &[(1u32, q)]),
+                DomainTruncation::FullStepInDomain,
+                "q = {q:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn domain_zero_length_step_is_unmeasurable() {
+        let p = [1.0, 2.0, 3.0];
+        assert_eq!(
+            max_in_domain_step(p, p, &[(1u32, p)]),
+            DomainTruncation::Unmeasurable
+        );
+    }
+
+    #[test]
+    fn domain_non_finite_is_unmeasurable() {
+        assert_eq!(
+            max_in_domain_step([0.0, 0.0, 0.0], [f64::NAN, 0.0, 0.0], &[]),
+            DomainTruncation::Unmeasurable
+        );
+        assert_eq!(
+            max_in_domain_step([f64::INFINITY, 0.0, 0.0], [1.0, 0.0, 0.0], &[]),
+            DomainTruncation::Unmeasurable
+        );
+    }
+
+    /// A non-finite CANDIDATE is skipped, not fatal — the rest of the list still
+    /// decides.
+    #[test]
+    fn domain_non_finite_candidate_is_skipped() {
+        let (pre, post) = ([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+        let cands = [(1u32, [f64::NAN, 0.0, 0.0]), (2, [0.4, 0.0, 0.0])];
+        match max_in_domain_step(pre, post, &cands) {
+            DomainTruncation::TruncateAtVertex { at, .. } => assert_eq!(at, 2),
+            other => panic!("expected a truncation, got {other:?}"),
+        }
+    }
+
+    /// The measured §4-I10 shape, at its measured SCALE: R0074's site travels
+    /// 7.40e-4 at coordinates of order 1e-1 and overruns its corner by 5.21e-4,
+    /// i.e. the corner sits at t ≈ 0.296. A gate with an absolute floor anywhere
+    /// in it would call this step degenerate; the shared relative identity does
+    /// not. (The absolute-floor class is the 2026-08-19b / 08-19c anchor.)
+    #[test]
+    fn domain_truncation_holds_at_the_measured_r0074_scale() {
+        let pre: [f64; 3] = [-0.019966852, 0.101451355, 0.131249979];
+        let post: [f64; 3] = [-0.020060107, 0.101700514, 0.130558979];
+        let travel =
+            ((post[0] - pre[0]).powi(2) + (post[1] - pre[1]).powi(2) + (post[2] - pre[2]).powi(2))
+                .sqrt();
+        assert!((travel - 7.4044e-4).abs() < 1e-8, "travel = {travel:e}");
+        let t_expected = 1.0 - 5.2128e-4 / travel;
+        let q = lerp(pre, post, t_expected);
+        match max_in_domain_step(pre, post, &[(127u32, q)]) {
+            DomainTruncation::TruncateAtVertex { t, at } => {
+                assert_eq!(at, 127);
+                assert!((t - t_expected).abs() < 1e-9, "t = {t}, want {t_expected}");
+                assert!((t - 0.296).abs() < 1e-3, "t = {t}");
+            }
+            other => panic!("expected a truncation, got {other:?}"),
+        }
     }
 }
