@@ -220,6 +220,8 @@ fn s451_post_sweep_census(
         failed.len()
     );
     let mut seen: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    // Repair previews are per REGION, not per member — dedup by bound pair.
+    let mut previewed: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
     for &(v, _) in failures {
         if !seen.insert(v) {
             continue;
@@ -246,6 +248,7 @@ fn s451_post_sweep_census(
         }
         let mut bounds_found = 0usize;
         let mut directions = 0usize;
+        let mut dir_bounds: Vec<Option<u32>> = Vec::new();
         for curve in &own_curves {
             let nbrs_on = |w: u32| -> Vec<u32> {
                 curves0
@@ -256,11 +259,13 @@ fn s451_post_sweep_census(
             };
             for start in nbrs_on(v) {
                 directions += 1;
+                let mut this_bound: Option<u32> = None;
                 let mut region: Vec<u32> = vec![v];
                 let (mut prev, mut cur) = (v, start);
                 let outcome: String = loop {
                     if good(cur) {
                         bounds_found += 1;
+                        this_bound = Some(cur);
                         break format!("bound v{cur} (converged)");
                     }
                     region.push(cur);
@@ -282,6 +287,109 @@ fn s451_post_sweep_census(
                     region.len(),
                     &region[..region.len().min(24)]
                 );
+                dir_bounds.push(this_bound);
+            }
+        }
+        // §4.5.1 inc-2a repair PREVIEW (census-only, spec §9): the data that
+        // decides the repair VARIANT per region. The paper replaces the region
+        // with the midpoint of the bounds and re-optimizes; whether that
+        // optimization stays on ONE surface pair (a DRIFT region — simple
+        // projection) or must cross a patch boundary (a STRADDLE region —
+        // Fig-12's full cross-boundary mechanism) is readable from the bounds'
+        // carried far-operand surfaces. For a shared cone+plane pair the
+        // simple repair's outcome is computable outright: project the midpoint
+        // onto the section and check the shared certificate on both surfaces —
+        // no repair code involved.
+        if let [Some(w0), Some(w1)] = dir_bounds[..] {
+            let key = (w0.min(w1), w0.max(w1));
+            if previewed.insert(key) {
+                let p0 = mesh.verts[w0 as usize].as_array();
+                let p1 = mesh.verts[w1 as usize].as_array();
+                let (sa0, sb0) = carrier_surface_sets(&patches, a, b, w0, p0);
+                let (sa1, sb1) = carrier_surface_sets(&patches, a, b, w1, p1);
+                // The FAR operand is the one the failed traveller is OFF
+                // (count 0). A hull-check failure can be within band on both
+                // operands; B is taken as far there, and both sets print.
+                let (far0, far1) = if ca == 0 { (&sa0, &sa1) } else { (&sb0, &sb1) };
+                let shared_far: Vec<Surface> =
+                    far0.iter().filter(|s| far1.contains(s)).copied().collect();
+                let all_shared: Vec<Surface> = sa0
+                    .iter()
+                    .chain(sb0.iter())
+                    .filter(|s| sa1.contains(s) || sb1.contains(s))
+                    .copied()
+                    .collect();
+                let mid = [
+                    (p0[0] + p1[0]) * 0.5,
+                    (p0[1] + p1[1]) * 0.5,
+                    (p0[2] + p1[2]) * 0.5,
+                ];
+                eprintln!(
+                    "YANG_451_PREVIEW v{v} bounds=(v{w0},v{w1}) far0={} far1={} \
+                     shared_far={} kind={}",
+                    far0.len(),
+                    far1.len(),
+                    shared_far.len(),
+                    if shared_far.is_empty() {
+                        "STRADDLE (cross-boundary needed)"
+                    } else {
+                        "DRIFT (single pair)"
+                    }
+                );
+                let cone = all_shared
+                    .iter()
+                    .copied()
+                    .find(|s| matches!(s, Surface::Cone { .. }));
+                let plane = all_shared
+                    .iter()
+                    .copied()
+                    .find(|s| matches!(s, Surface::Plane { .. }));
+                if let (
+                    Some(
+                        sc @ Surface::Cone {
+                            apex,
+                            axis_dir,
+                            half_angle,
+                        },
+                    ),
+                    Some(sp @ Surface::Plane { normal, d }),
+                ) = (cone, plane)
+                {
+                    match project_onto_cone_section(
+                        Point3::new(mid[0], mid[1], mid[2]),
+                        apex,
+                        axis_dir,
+                        half_angle,
+                        normal,
+                        d,
+                    ) {
+                        Ok(proj) => {
+                            let pa = proj.as_array();
+                            let mut cert = true;
+                            let mut dists = String::new();
+                            for s in [sc, sp] {
+                                let dd = surface_distance_and_normal(s, pa).map(|(x, _)| x.abs());
+                                let band = junction_certificate_band(pa, s);
+                                cert &= dd.is_some_and(|x| x <= band);
+                                dists.push_str(&format!(" d={dd:?}/band={band:.3e}"));
+                            }
+                            eprintln!(
+                                "YANG_451_PREVIEW v{v} simple_projection \
+                                 proj=({:.9},{:.9},{:.9}) certificate={cert}{dists}",
+                                pa[0], pa[1], pa[2]
+                            );
+                        }
+                        Err(reason) => {
+                            eprintln!("YANG_451_PREVIEW v{v} simple_projection FAILED: {reason:?}")
+                        }
+                    }
+                } else {
+                    eprintln!(
+                        "YANG_451_PREVIEW v{v} shared pair is not cone+plane \
+                         ({} shared surfaces) — no closed-form preview in census",
+                        all_shared.len()
+                    );
+                }
             }
         }
         let confirmed = near == 1 && directions == 2 && bounds_found == 2;
@@ -295,6 +403,309 @@ fn s451_post_sweep_census(
             }
         );
     }
+}
+
+/// One planned §4.5.1 DRIFT-region repair (spec
+/// `specs/yang_451_optimize_across_boundaries.md` §9–10): the region's
+/// members collapse onto `survivor`, which moves to `proj` (the closed-form
+/// projection of the bounds' midpoint onto the region's shared cone∩plane
+/// section) with retag param `t`.
+struct S451PlannedRepair {
+    survivor: u32,
+    victims: Vec<u32>,
+    proj: Point3,
+    t: f64,
+}
+
+/// §4.5.1 inc-2b — the DRIFT-region repair, planned read-only.
+///
+/// The variant was SELECTED by the inc-2a preview (spec §9): on the measured
+/// population every bounded region is a DRIFT region (both bounds carry the
+/// SAME far-operand surface) whose midpoint projection certificates on both
+/// surfaces — the cross-boundary half of §4.5.1 (truncation, neighbour-patch
+/// continuation, q1/q2) has NO measured customer and stays unbuilt until one
+/// appears.
+///
+/// Per distinct recorded failure, walk its own-curve chain both ways to the
+/// nearest `good` vertex (converged ∧ not recorded ∧ not an I9-style
+/// crosser). A region repairs only when ALL of:
+/// - clause 1: every position reading is INTERIOR (the Fig-13 exclusion);
+/// - two DISTINCT converged bounds exist (the paper's clause 2);
+/// - the bounds share a cone+plane pair and the midpoint's projection onto
+///   that section lies within the shared certificate band of BOTH surfaces;
+/// - the projection stays at the region's own scale (`|proj − mid| ≤
+///   |p0 − p1|` — a sanity STOP that turns a far-side conic landing into a
+///   loud decline, never an acceptance band);
+/// - §4-I8's containment holds for every collapse (`carried(victim) ⊆
+///   carried(survivor at proj)`);
+/// - the retag param is computable (Ellipse / Hyperbola — the measured
+///   kinds).
+///
+/// Any condition failing for any recorded failure ⇒ `Err(())` and the caller
+/// returns the FIRST recorded error unchanged (P10: no partial acceptance,
+/// no band widening — the certificate and the collapse rule are the shared
+/// ones).
+///
+/// Planning is READ-ONLY and complete before the first mutation, so region
+/// walks never see a half-collapsed mesh; bounds may be shared between
+/// adjacent regions (they are converged, never victims).
+#[allow(clippy::too_many_arguments)]
+fn s451_plan_repairs(
+    mesh: &Mesh,
+    attribution: &[Option<TriangleAttribution>],
+    a: &BRep,
+    b: &BRep,
+    curves0: &std::collections::BTreeMap<(u32, u32), Curve>,
+    entry: &[[f64; 3]],
+    failures: &[(u32, YangError)],
+) -> Result<Vec<S451PlannedRepair>, ()> {
+    let patches = build_patch_map(mesh, attribution);
+    let adj = build_live_adjacency(mesh);
+    let failed: std::collections::BTreeSet<u32> = failures.iter().map(|&(v, _)| v).collect();
+    let good = |w: u32| -> bool {
+        !failed.contains(&w)
+            && vertex_converged(mesh, &patches, a, b, w)
+            && !vertex_crossed_domain_endpoint(mesh, attribution, a, b, &adj, entry, w)
+    };
+    let mut consumed: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    let mut plans: Vec<S451PlannedRepair> = Vec::new();
+
+    for &(v, _) in failures {
+        if consumed.contains(&v) {
+            continue;
+        }
+        // Clause 1 at the failure itself.
+        let pos = mesh.verts[v as usize].as_array();
+        let (ca, cb) = carrier_counts(&patches, a, b, v, pos);
+        if ca.max(cb) != 1 {
+            eprintln!("YANG_451_REPAIR v{v} DECLINE clause1 carrier=(A{ca},B{cb})");
+            return Err(());
+        }
+        // The failure's own conic (LineSegment cannot key a chain).
+        let mut own_curves: Vec<Curve> = Vec::new();
+        for (&(s, e), &c) in curves0.iter() {
+            if (s == v || e == v) && c != Curve::LineSegment && !own_curves.contains(&c) {
+                own_curves.push(c);
+            }
+        }
+        let [curve] = own_curves[..] else {
+            eprintln!(
+                "YANG_451_REPAIR v{v} DECLINE own-curve count {} != 1",
+                own_curves.len()
+            );
+            return Err(());
+        };
+        let nbrs_on = |w: u32| -> Vec<u32> {
+            curves0
+                .iter()
+                .filter(|(&(s, e), c)| (s == w || e == w) && **c == curve)
+                .map(|(&(s, e), _)| if s == w { e } else { s })
+                .collect()
+        };
+        let mut members: Vec<u32> = vec![v];
+        let mut bounds: Vec<u32> = Vec::new();
+        for start in nbrs_on(v) {
+            let (mut prev, mut cur) = (v, start);
+            loop {
+                if good(cur) {
+                    bounds.push(cur);
+                    break;
+                }
+                if members.len() > 128 {
+                    eprintln!("YANG_451_REPAIR v{v} DECLINE region cap");
+                    return Err(());
+                }
+                if !members.contains(&cur) {
+                    members.push(cur);
+                }
+                let next: Vec<u32> = nbrs_on(cur).into_iter().filter(|&x| x != prev).collect();
+                match next.len() {
+                    1 => {
+                        prev = cur;
+                        cur = next[0];
+                    }
+                    n => {
+                        eprintln!(
+                            "YANG_451_REPAIR v{v} DECLINE chain via v{start}: {} continuations",
+                            n
+                        );
+                        return Err(());
+                    }
+                }
+            }
+        }
+        let [w0, w1] = bounds[..] else {
+            eprintln!("YANG_451_REPAIR v{v} DECLINE bounds {} != 2", bounds.len());
+            return Err(());
+        };
+        if w0 == w1 {
+            eprintln!("YANG_451_REPAIR v{v} DECLINE bounds coincide (v{w0})");
+            return Err(());
+        }
+        // The shared cone+plane pair, read from the bounds' carried surfaces.
+        let p0 = mesh.verts[w0 as usize].as_array();
+        let p1 = mesh.verts[w1 as usize].as_array();
+        let (sa0, sb0) = carrier_surface_sets(&patches, a, b, w0, p0);
+        let (sa1, sb1) = carrier_surface_sets(&patches, a, b, w1, p1);
+        let shared: Vec<Surface> = sa0
+            .iter()
+            .chain(sb0.iter())
+            .filter(|s| sa1.contains(s) || sb1.contains(s))
+            .copied()
+            .collect();
+        let cone = shared
+            .iter()
+            .copied()
+            .find(|s| matches!(s, Surface::Cone { .. }));
+        let plane = shared
+            .iter()
+            .copied()
+            .find(|s| matches!(s, Surface::Plane { .. }));
+        let (
+            Some(
+                sc @ Surface::Cone {
+                    apex,
+                    axis_dir,
+                    half_angle,
+                },
+            ),
+            Some(sp @ Surface::Plane { normal, d }),
+        ) = (cone, plane)
+        else {
+            eprintln!(
+                "YANG_451_REPAIR v{v} DECLINE shared pair not cone+plane ({} shared)",
+                shared.len()
+            );
+            return Err(());
+        };
+        let mid = [
+            (p0[0] + p1[0]) * 0.5,
+            (p0[1] + p1[1]) * 0.5,
+            (p0[2] + p1[2]) * 0.5,
+        ];
+        let proj = match project_onto_cone_section(
+            Point3::new(mid[0], mid[1], mid[2]),
+            apex,
+            axis_dir,
+            half_angle,
+            normal,
+            d,
+        ) {
+            Ok(p) => p,
+            Err(reason) => {
+                eprintln!("YANG_451_REPAIR v{v} DECLINE projection failed: {reason:?}");
+                return Err(());
+            }
+        };
+        let pa = proj.as_array();
+        // Shared certificate on BOTH surfaces — the same reading the selector
+        // and §4-I9 use; no new band.
+        for s in [sc, sp] {
+            let ok = surface_distance_and_normal(s, pa)
+                .is_some_and(|(x, _)| x.abs() <= junction_certificate_band(pa, s));
+            if !ok {
+                eprintln!("YANG_451_REPAIR v{v} DECLINE certificate fails on {s:?}");
+                return Err(());
+            }
+        }
+        // Region-scale sanity: a projection landing on a FAR part of the same
+        // infinite conic is a wrong answer — STOP, never accept.
+        let chord = dist3(p0, p1);
+        if dist3(pa, mid) > chord {
+            eprintln!(
+                "YANG_451_REPAIR v{v} DECLINE projection left the region scale \
+                 (|proj-mid|={:.3e} > |bounds|={:.3e})",
+                dist3(pa, mid),
+                chord
+            );
+            return Err(());
+        }
+        // Retag param on the region's own conic (the measured kinds).
+        let t = match curve {
+            Curve::Ellipse {
+                center,
+                normal: en,
+                major_axis,
+                major_radius,
+                minor_radius,
+            } => ellipse_param(proj, center, en, major_axis, major_radius, minor_radius),
+            Curve::Hyperbola {
+                center,
+                normal: hn,
+                major_axis,
+                semi_conjugate,
+                ..
+            } => {
+                // t = asinh(v_coord / b) in the stored frame — the same
+                // round-trip the cone-hyperbola arm records.
+                let n = normalize3(hn.as_array());
+                let maj = normalize3(major_axis.as_array());
+                let conj = [
+                    n[1] * maj[2] - n[2] * maj[1],
+                    n[2] * maj[0] - n[0] * maj[2],
+                    n[0] * maj[1] - n[1] * maj[0],
+                ];
+                let ctr = center.as_array();
+                let vc = (pa[0] - ctr[0]) * conj[0]
+                    + (pa[1] - ctr[1]) * conj[1]
+                    + (pa[2] - ctr[2]) * conj[2];
+                (vc / semi_conjugate).asinh()
+            }
+            other => {
+                eprintln!("YANG_451_REPAIR v{v} DECLINE unretaggable curve kind {other:?}");
+                return Err(());
+            }
+        };
+        // §4-I8 containment per collapse, against the survivor's FINAL
+        // position: every victim's carried set must be a subset of what the
+        // repaired survivor carries.
+        let surv_carried: Vec<Surface> = {
+            let (xa, xb) = carrier_surface_sets(&patches, a, b, v, pa);
+            xa.into_iter().chain(xb).collect()
+        };
+        members.sort_unstable();
+        members.dedup();
+        let survivor = members[0];
+        for &m in &members {
+            let mp = mesh.verts[m as usize].as_array();
+            let (ma, mb) = carrier_surface_sets(&patches, a, b, m, mp);
+            if !ma.iter().chain(mb.iter()).all(|s| surv_carried.contains(s)) {
+                eprintln!("YANG_451_REPAIR v{v} DECLINE §4-I8 containment fails for member v{m}");
+                return Err(());
+            }
+        }
+        eprintln!(
+            "YANG_451_REPAIR region k={} survivor=v{survivor} bounds=(v{w0},v{w1}) \
+             proj=({:.9},{:.9},{:.9}) t={t:.6} cone_tan={:.6} chord={chord:.4e}",
+            members.len(),
+            pa[0],
+            pa[1],
+            pa[2],
+            half_angle.tan()
+        );
+        let victims: Vec<u32> = members.iter().copied().filter(|&m| m != survivor).collect();
+        consumed.extend(members.iter().copied());
+        plans.push(S451PlannedRepair {
+            survivor,
+            victims,
+            proj,
+            t,
+        });
+    }
+    // Every recorded failure must belong to a planned region — a failure the
+    // walk could not reach (e.g. a torus-carried vertex with no conic edges)
+    // means the repair set is incomplete and the stage must STOP.
+    for &(v, _) in failures {
+        if !consumed.contains(&v) {
+            eprintln!("YANG_451_REPAIR v{v} DECLINE not reachable by any planned region");
+            return Err(());
+        }
+    }
+    Ok(plans)
+}
+
+fn dist3(p: [f64; 3], q: [f64; 3]) -> f64 {
+    ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()
 }
 
 /// PR-YR10: compute the Phase-A structures (adjacency → patches → cycles →
@@ -4089,9 +4500,26 @@ fn carrier_counts(
     vid: u32,
     pos: [f64; 3],
 ) -> (usize, usize) {
+    let (sa, sb) = carrier_surface_sets(patches, a, b, vid, pos);
+    (sa.len(), sb.len())
+}
+
+/// The SETS behind [`carrier_counts`]: which distinct analytic surfaces of each
+/// operand `pos` lies on, over the faces carried by `vid`'s incident triangles.
+/// Split out (§4.5.1 inc-2a) because the repair-preview census needs the
+/// surfaces themselves — the bounds' shared far-operand surface is what decides
+/// a drift region (one pair, simple projection) from a straddle region
+/// (cross-boundary continuation).
+fn carrier_surface_sets(
+    patches: &std::collections::BTreeMap<u32, std::collections::BTreeSet<(InputId, u32)>>,
+    a: &BRep,
+    b: &BRep,
+    vid: u32,
+    pos: [f64; 3],
+) -> (Vec<Surface>, Vec<Surface>) {
     let (mut sa, mut sb): (Vec<Surface>, Vec<Surface>) = (Vec::new(), Vec::new());
     let Some(faces_of_v) = patches.get(&vid) else {
-        return (0, 0);
+        return (sa, sb);
     };
     for &(input, face) in faces_of_v {
         let faces = match input {
@@ -4115,7 +4543,7 @@ fn carrier_counts(
             bucket.push(surf);
         }
     }
-    (sa.len(), sb.len())
+    (sa, sb)
 }
 
 /// One reported member of the §4.5 failure population: the vertex, which half of
@@ -4992,7 +5420,10 @@ fn stage4_relocate_and_correct_inner(
     // abort-at-first-fire to record-and-skip; the post-sweep census then
     // reports at the paper's vantage and returns the FIRST recorded error
     // unchanged. Default: gates abort exactly as today.
-    let s451_census = std::env::var("YANG_451").as_deref() == Ok("census");
+    let s451_mode = std::env::var("YANG_451").unwrap_or_default();
+    let s451_census = s451_mode == "census";
+    let s451_repair = s451_mode == "1";
+    let s451_collect = s451_census || s451_repair;
     let mut s45_failures: Vec<(u32, YangError)> = Vec::new();
 
     // d_ε relocation budget (a conic edge implies a curved input ⇒ Some).
@@ -6287,7 +6718,7 @@ fn stage4_relocate_and_correct_inner(
             let sin_theta = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
             let gate = tangent_plane_corridor(d_eps, sin_theta);
             if rho > gate {
-                if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                     return Err(e);
                 }
                 continue;
@@ -6551,7 +6982,7 @@ fn stage4_relocate_and_correct_inner(
             // assignment is producer-confirmed, and `project_onto_circle`
             // below is already the distance-minimizing projection onto the
             // exact curve, a certificate the band cannot strengthen.)
-            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+            if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                 return Err(e);
             }
             continue;
@@ -6611,7 +7042,7 @@ fn stage4_relocate_and_correct_inner(
         if rho > gate && !prov_verts.contains(&v) {
             // (Provenance-vouched exemption — spec inc-2 §3c; `j` is the
             // exact circle∩circle corner on both curves by construction.)
-            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+            if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                 return Err(e);
             }
             continue;
@@ -6677,7 +7108,7 @@ fn stage4_relocate_and_correct_inner(
                     "KV11_PROBE ellipse band reject: v={v} rho={rho:.3e} gate={gate:.3e} p={p:?}"
                 );
             }
-            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+            if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                 return Err(e);
             }
             continue;
@@ -6741,7 +7172,7 @@ fn stage4_relocate_and_correct_inner(
                 );
             }
             if move_len(near_proj) > budget {
-                if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                     return Err(e);
                 }
                 continue;
@@ -6912,7 +7343,7 @@ fn stage4_relocate_and_correct_inner(
                     "KV11_PROBE junction band reject: v={v} rho={rho:.3e} gate={gate:.3e} p={p:?} j={j:?}"
                 );
             }
-            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+            if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                 return Err(e);
             }
             continue;
@@ -7074,7 +7505,7 @@ fn stage4_relocate_and_correct_inner(
         let p = mesh.verts[v as usize];
         let rho = cone_ellipse_residual(p, cer);
         if rho > cer.cone_d_eps {
-            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+            if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                 return Err(e);
             }
             continue;
@@ -7124,7 +7555,7 @@ fn stage4_relocate_and_correct_inner(
             cpr.plane_d,
         );
         if rho > cpr.cone_d_eps {
-            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+            if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                 return Err(e);
             }
             continue;
@@ -7177,7 +7608,7 @@ fn stage4_relocate_and_correct_inner(
             chr.plane_d,
         );
         if rho > chr.cone_d_eps {
-            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+            if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                 return Err(e);
             }
             continue;
@@ -7236,7 +7667,7 @@ fn stage4_relocate_and_correct_inner(
         // radial band, and not the global d_ε (whose owner mix is wrong for
         // cylinder×cylinder lines).
         if rho > lr.band_budget {
-            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+            if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                 return Err(e);
             }
             continue;
@@ -7299,7 +7730,7 @@ fn stage4_relocate_and_correct_inner(
         // PR-F3b: line-band component carries the propagated budget; the
         // along-line crossing component stays at the raw d_ε.
         if rho > lr.band_budget + d_eps {
-            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+            if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                 return Err(e);
             }
             continue;
@@ -7355,7 +7786,7 @@ fn stage4_relocate_and_correct_inner(
         let sin_theta = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
         let gate = tangent_plane_corridor(d_eps, sin_theta);
         if rho > gate {
-            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+            if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                 return Err(e);
             }
             continue;
@@ -7668,7 +8099,7 @@ fn stage4_relocate_and_correct_inner(
                 );
             }
             if rho > gate {
-                if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                     return Err(e);
                 }
                 continue;
@@ -7777,7 +8208,8 @@ fn stage4_relocate_and_correct_inner(
                     proj.as_array()[k] >= h[k] - d_eps && proj.as_array()[k] <= h[3 + k] + d_eps
                 });
                 if !inside {
-                    if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                    if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0)
+                    {
                         return Err(e);
                     }
                     // Recorded: skip THIS TORUS VERTEX — a plain `continue`
@@ -7799,22 +8231,68 @@ fn stage4_relocate_and_correct_inner(
     // recorded error unchanged: the stage cannot complete with unrepaired
     // failures (P10), and every later pass's precondition (a fully-relocated
     // mesh) stays intact because none of them run.
+    let mut s451_repaired_any = false;
     if !s45_failures.is_empty() {
-        s451_post_sweep_census(
-            mesh,
-            &attribution.attributions,
-            brep_a,
-            brep_b,
-            &curves0,
-            &s4_entry_pos,
-            &s45_failures,
-        );
-        let (_, first) = s45_failures.swap_remove(0);
-        return Err(first);
+        if s451_repair {
+            // §4.5.1 inc-2b: plan every region READ-ONLY, then apply. Any
+            // decline returns the FIRST recorded error unchanged (P10 — no
+            // partial acceptance), so a case whose failures the repair cannot
+            // own keeps today's exact STOP.
+            match s451_plan_repairs(
+                mesh,
+                &attribution.attributions,
+                brep_a,
+                brep_b,
+                &curves0,
+                &s4_entry_pos,
+                &s45_failures,
+            ) {
+                Ok(plans) => {
+                    for plan in &plans {
+                        for &victim in &plan.victims {
+                            collapse_vertex(
+                                mesh,
+                                &mut attribution.attributions,
+                                victim,
+                                plan.survivor,
+                            );
+                        }
+                        mesh.verts[plan.survivor as usize] = plan.proj;
+                        moved.insert(plan.survivor);
+                        processed.insert(plan.survivor);
+                        relocations.push((plan.survivor, plan.t));
+                    }
+                    eprintln!(
+                        "YANG_451_REPAIR applied {} region repair(s); stage continues",
+                        plans.len()
+                    );
+                    s451_repaired_any = !plans.is_empty();
+                    s45_failures.clear();
+                }
+                Err(()) => {
+                    let (_, first) = s45_failures.swap_remove(0);
+                    return Err(first);
+                }
+            }
+        } else {
+            s451_post_sweep_census(
+                mesh,
+                &attribution.attributions,
+                brep_a,
+                brep_b,
+                &curves0,
+                &s4_entry_pos,
+                &s45_failures,
+            );
+            let (_, first) = s45_failures.swap_remove(0);
+            return Err(first);
+        }
     }
 
     // (3) §4.5.3 reversed-intersection correction sweep.
-    let mut collapsed_any = false;
+    // (`collapsed_any` starts true when §4.5.1 repairs collapsed vertices
+    // above — the post-collapse Phase-A recompute must run for those too.)
+    let mut collapsed_any = s451_repaired_any;
     let mut attr_vec = std::mem::take(&mut attribution.attributions);
     // PR-KV9: junction vertices that landed on the SAME exact point are
     // duplicates of one geometric junction (near a tangency-grade curve

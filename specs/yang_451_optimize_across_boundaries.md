@@ -44,8 +44,10 @@ intersections under refinement.
   assigned analytic curve, i.e. the discrete intersection point is too far
   off-curve to be a trustworthy initialization — the paper's §4.5 trigger
   verbatim. The gate fires BEFORE the arm writes anything.
-- **R0003's two regions** (separate invocations — main run + the in-line
-  composition oracle's re-run — and genuinely different cones):
+- **R0003's two regions** (separate stage-4 invocations of the case's one
+  boolean — the second invocation's trigger is NOT yet attributed (an earlier
+  "composition oracle re-run" reading was an unverified inference) — and
+  genuinely different cones):
   - v10583: degree-2 curve vertex, bounds `v10564`/`v10585` both converged at
     1 hop, common surfaces = {Cone, Plane}, traveller on one. The paper's
     Fig-12 picture exactly. **Erroneous region = ONE vertex.**
@@ -319,3 +321,90 @@ byte-identical to canonical.
    is the next measurement. NOTE: the parallel assay runner nulls child
    stderr, so enumeration needs the per-case single_case loop (the I11
    pattern), while the plain corpus run verifies neutrality only.
+
+## 9. inc-2a — the repair-variant PREVIEW (census columns; written 2026-08-22, awaiting the corpus run to build)
+
+§8 left the repair increment with one unmeasured fork: for a bounded region,
+does the paper's midpoint re-optimization stay on ONE surface pair, or must
+it cross a patch boundary? The variants differ by an order of magnitude of
+machinery:
+
+- **DRIFT region** (both bounds carry the SAME far-operand surface): the true
+  curve segment lies on the region's own pair; repair = collapse region to
+  one survivor → move to `midpoint(v0, v1)` → the arm's own closed-form
+  projection (`project_onto_cone_section` for cone+plane, callable from the
+  bare `Surface` values — no map plumbing) → shared certificate. No boundary
+  crossing, no q1/q2.
+- **STRADDLE region** (bounds carry DIFFERENT far-operand surfaces, e.g. two
+  adjacent gear-facet cones): Fig-12's full mechanism — truncation at the
+  patch boundary, continuation on the neighbour pair, q1/q2 minted as triple
+  points (`relocate_onto_implicit_triple` exists), §4.3.4 re-densifies.
+
+The preview computes, per region (deduped by bound pair), with no repair
+code: the bounds' `carrier_surface_sets` (split out of `carrier_counts`),
+the shared far-operand surface count (`kind=DRIFT|STRADDLE`), and — when the
+shared pair is cone+plane — the midpoint's projection and its certificate
+verdict on both surfaces (`YANG_451_PREVIEW … simple_projection …
+certificate=true|false`). A `certificate=true` DRIFT region is repairable by
+the simple variant outright; the counts over R0003's ~14 regions decide
+what inc-2b builds first.
+
+Known preview limits, stated: `ca==0` picks the far operand (hull-check
+failures within band on both operands default to B — both sets print);
+non-cone+plane pairs get no closed-form preview (R0003 is all cone+plane;
+the torus-carried candidates are out of the conic instrument's scope
+regardless, per §8).
+
+## 10. inc-2b — the DRIFT repair LANDED GATED (`YANG_451=1`) and measured on the pin (2026-08-22, same session)
+
+**Status: BUILT, GATED, RED-VERIFIED, MEASURED. Default path untouched
+(yang-rs 1110/0; targeted gate-off re-runs byte-identical; rewrite tier).**
+
+`s451_plan_repairs` plans every region READ-ONLY (walks never see a
+half-collapsed mesh; bounds may be shared between adjacent regions — they are
+converged, never victims), then the hook applies: §4-I8-checked collapses of
+victims onto the smallest-id survivor, survivor moved to the projected
+midpoint, retag param pushed to `relocations`, `collapsed_any` seeded so
+§4.5.3's Phase-A recompute covers the mutations. ALL recorded failures must
+belong to a planned region and every plan condition must hold, or the FIRST
+recorded error returns unchanged (P10 — no partial acceptance). Conditions:
+clause 1 interior; exactly one own-conic; two distinct converged bounds;
+shared cone+plane pair; midpoint projection within the shared certificate
+band on BOTH surfaces; `|proj − mid| ≤ |bounds|` (scale sanity — a far-side
+conic landing becomes a loud decline, never an acceptance); Ellipse/Hyperbola
+retag computable.
+
+**Red-verified by two mutations**, each returning the ORIGINAL v4233 error
+bit-identically: (1) scale gate forced (`chord·0`) → DECLINE (and the real
+margins measured healthy: `|proj−mid|` = 1.47e-1 vs chord 8.5, 1.75e-4 vs
+1.7); (2) certificate forced impossible (`band·0`) → DECLINE on the cone.
+
+**The pin measurement:** R0003 under `YANG_451=1` repairs **11/11 regions**
+across both invocations (k = 8, 17, 12 and eight k=1 — the plan's full-region
+k exceeds the census's capped per-direction prints), **the Stage-4 wall is
+CLEARED**, and the case advances to a NEW downstream wall:
+`TessellationFailed FaceId(435)` — the KV9-F2 developable unroll fold.
+**Masked latent, not minted (direct hypothesis refuted):** the folded face's
+cone has `tan = 2.396066`; the repaired regions' cones are
+{1.4016, 1.8510, 2.6977, 3.2322, 4.0759, 4.8549} — none matches. The fold is
+the developable-ring family's pre-existing wall (R0028/R0049's ledger class),
+reachable for the first time now that Stage 4 completes. (Indirect
+topological effects of the collapses on neighbouring faces are not fully
+excluded; the direct sparse-arc-folds-its-own-face mechanism is.)
+
+R0028 and C0065 under the gate DECLINE cleanly (`own-curve count 0` — the
+torus-carried instrument limit, §8) and keep their exact original errors.
+
+**Deliberately deferred, with reasoning recorded:** the paper ends §4.5.1
+with q1/q2 + §4.3.4 refinement. No measured region crossed a boundary (all
+DRIFT), so q1/q2 has no customer. The refine-after-repair density debt is
+real but did not cause this fold (render tessellation samples the analytic
+edges, and the fold is not on a repaired arc); it will be judged by the
+witness-volume oracles the day R0003 completes, and the paper's step stays on
+the books as the follow-on for that day.
+
+**Flip bar (unchanged posture):** the gate stays OFF until the corpus-wide
+default run is byte-identical and a gated corpus run's deltas are each
+explained. Next measurements: (a) corpus default-neutrality proof; (b) gated
+corpus run to enumerate what else repairs (any conic-carried OffCurve case
+masked behind first-fire aborts).

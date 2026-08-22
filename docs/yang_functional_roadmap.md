@@ -597,9 +597,20 @@ name, never measured).
    collapse from the start); C0065/R0028's frozen-vantage non-confirmations
    FLIP — their interior failures are §4.5.1 candidates too (torus-carried;
    need surface-pair region identity, a follow-on sub-increment); only
-   C0065's two boundary gliders are Fig-13-excluded §4.5.2. Next: the conic
-   §4.5.1 repair (R0003 pin), then the corpus-wide paper-vantage census.
-   Spec §4-I12.
+   C0065's two boundary gliders are Fig-13-excluded §4.5.2. **inc-2a/2b (same
+   day): the repair-variant preview measured R0003 as 11/11 DRIFT regions
+   with certificating midpoint projections (0 straddle — the cross-boundary
+   half of §4.5.1 has NO measured customer and stays unbuilt), and the DRIFT
+   repair LANDED GATED (`YANG_451=1`): plan-then-apply, §4-I8-checked
+   collapses, shared-certificate + scale-sanity acceptance, red-verified by
+   two mutations. Under the gate R0003 CLEARS Stage 4 (11/11) and advances
+   to the KV9-F2 developable fold — a masked latent of the developable-ring
+   family (fold cone tan 2.3961 matches no repaired cone), not a mint.
+   Torus-carried cases decline to their exact original errors. Gate OFF
+   pending the corpus flip bar.** Next: corpus default-neutrality proof +
+   gated corpus enumeration; then the surface-pair region identity
+   sub-increment; §4.3.4 refine-after-repair deferred with reasoning (spec
+   §10). Spec §4-I12 + `specs/yang_451_optimize_across_boundaries.md`.
    Remaining loud refusals: unchartable cone/torus holders (R0044, 13 sites).
    Spec §4-I6, §4-I8, §4-I9.
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
