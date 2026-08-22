@@ -578,7 +578,8 @@ name, never measured).
    ways) fall to §4.5.2** by the paper's own sentence ("if such bound cannot be
    found … the second strategy"). Vantage caveat recorded: the STOP freezes the
    mesh mid-sweep; the paper selects post-sweep — the two non-confirmations
-   could flip there, the confirmations cannot. Build order (spec §4-I12 (d)):
+   could flip there, the confirmations cannot. Build order (spec §4-I12 (d);
+   design spec `specs/yang_451_optimize_across_boundaries.md`):
    (1) §4.5.1 gated at the refusal site — midpoint of bounds +
    `max_in_domain_step` truncation + cross-boundary continuation + q1/q2 on
    C_b + §4.3.4 refine; pin R0003; (2) refusal → record-and-continue loop
