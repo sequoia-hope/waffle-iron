@@ -2308,6 +2308,144 @@ ERROR to TIMEOUT (verified ERROR with the census off and at default). Census-onl
 overhead, not a behaviour change — but it means a census run's category spread is
 not a corpus score.
 
+### I12 — clause 2 from the STOP vantage: the five candidates SPLIT — R0003's two vertices are §4.5.1's first CONFIRMED customers; C0065 and R0028 fall to §4.5.2 (2026-08-22)
+
+**Status: MEASUREMENT.** Census-gated only; the corpus paths are untouched (the
+only default-path edits are a mechanical extraction of the postcondition's
+live-adjacency build into `build_live_adjacency` and a bounds guard on the
+STOP-VERTEX classification for sentinel `u32::MAX` STOPs, which previously
+indexed out of range).
+
+I11 left one deciding measurement: §4.5's SECOND clause — *"the failure points
+are bounded by two successfully optimized points on the same surface"*
+(`refs/text/yang2025_hybrid_boolean.txt:740-744`) — had never run on the five
+interior STOP vertices, because `strategy_selection_census` walks from a site
+list the STOP path does not produce.
+
+#### (a) The instrument
+
+The clause-2 walk (branch walk → distinct converged bounds → common-surface
+intersection → traveller-on-common) is EXTRACTED from
+`strategy_selection_census` into `selector_clause2_walk` and now runs from both
+vantages:
+
+- the end-of-stage selector calls it unchanged — R0074 re-run: postcondition
+  output identical to the recorded I10 behaviour (v129 Fig-13 exclusion, mirror
+  carrier `(A2,B0)→(A2,B1)`, `q=(A3,B0)`);
+- the STOP exit (`stage4_relocate_and_correct`'s census branch) calls it on the
+  STOP'd vertex, after the existing clause-1 classification, printing under
+  `YANG_S45_SELECT … vantage=stopped` plus a COMBINED clause1+clause2 verdict.
+
+"Successfully optimized" cannot be computed identically at the two vantages.
+The postcondition subtracts its §4-I9 fire list; a STOP'd run HAS no fire list
+(the postcondition never ran), so the walk re-takes I9's two-leg reading per
+candidate bound — `vertex_crossed_domain_endpoint`: travelled across a STILL
+neighbour ON its pre→post segment (leg 1) that carries a surface the final
+position is OFF (leg 2). Bounds skipped for that reason are counted and
+printed (`i9_style_crossers_skipped`).
+
+Two instrument-honesty items, both closed in the same commit:
+
+- **Distinct-bounds fix.** The pre-I12 walk deduped `(vertex, hops)` PAIRS, so
+  two branches reaching the same converged vertex (a loop around the erroneous
+  region) would have counted as two bounds. The paper's clause names two
+  POINTS `v0` and `v1`; now deduped by vertex. No recorded measurement is
+  affected — every §4-I10 site reported distinct bound ids.
+- **The predicate's zero had to be validated** (I11's lesson: a zero from an
+  instrument is a claim about its vantage). `vertex_crossed_domain_endpoint`
+  read 0 on every walked vertex, so it is cross-checked in census mode against
+  the postcondition's own inline two-leg detection at each of its fire sites
+  (`YANG_S45_XCHECK`): R0074's v129 fires `true`. The walk's zeros are genuine
+  absences, not a dead predicate.
+
+#### (b) The measurement
+
+All three cases run under `YANG_S4_CARRIER_DOMAIN=census`, twice (pre- and
+post-extraction of the shared predicate), byte-identical walk output:
+
+| case | vertex | clause 1 | clause-2 walk | verdict |
+|---|---|---|---|---|
+| R0003 | v4233 | INTERIOR `(A0,B1)` | degree 4: bounds v4167/v4169/v4183 ALL at 1 hop (one branch refuses at a curve branch point); common surfaces = 2 (cone + plane); traveller on 1 | **§4.5.1 CONFIRMED** |
+| R0003 | v10583 | INTERIOR `(A0,B1)` | degree 2: bounds v10564/v10585 both at 1 hop; common = 2 (cone + plane); traveller on 1 | **§4.5.1 CONFIRMED** |
+| C0065 | v8 | INTERIOR `(A0,B1)` | bound v3 at 1 hop; the other branch refuses (curve branches) → 1 distinct bound | §4.5.2 |
+| C0065 | v3 | INTERIOR `(A0,B1)` | bound v2 at 1 hop; the OTHER THREE branches (v8/v67/v68) all refuse (curve branches) → 1 distinct bound | §4.5.2 |
+| R0028 | v64 | INTERIOR `(A0,B1)` | both branches walk 64 hops without a converged bound → 0 bounds | §4.5.2 |
+
+`i9_style_crossers_skipped = 0` at every site.
+
+Readings:
+
+- **R0003 v10583 is Fig-12 drawn to the letter**: an interior failure point
+  whose neighbours on BOTH branches converged one hop away, the bounds sharing
+  exactly one surface per operand (`Cone` + `Plane` — both bounds sit on the
+  same intersection-curve pair), the traveller on exactly one of the two (its
+  carrier `B`-surface; it is OFF the other operand's surface — *"shifted onto
+  `S2`, completely bypassing `S1`"*). This is the configuration §4.5.1's
+  midpoint-and-truncated-step repair is FOR, and `max_in_domain_step` (I10) is
+  its step primitive.
+- **R0003 v4233 confirms too, with a wrinkle the build must own**: it sits at
+  a degree-4 curve junction; three branches bound immediately, the fourth
+  refuses at a further branch point. The paper's erroneous region is a simple
+  segment between `v0` and `v1`; a multi-branch region needs the repair to
+  define WHICH points "between the bounds" are removed (per-branch pairs, or
+  the whole junction neighbourhood). Recorded as a design obligation, not
+  resolved here.
+- **C0065's two STOP vertices are curve-ADJACENT** — v8's walk reaches v3 as a
+  converged bound in v8's own (earlier) invocation; v3's walk passes through v8
+  in its later one. One erroneous REGION seen from two invocations. v3 is a
+  degree-4 curve junction and every refusing branch dies at a branch point: the
+  region reaches corner territory, where Fig-13 warns and the walk declines to
+  guess. The paper's own selector sentence — *"If such bound cannot be found …
+  the second strategy"* — lands it in §4.5.2.
+- **R0028's region has no converged bound within 64 hops either way** — same
+  sentence, same owner: §4.5.2.
+
+#### (c) The vantage caveat, stated
+
+The walk runs on the mesh FROZEN at the STOP — mid-sweep: where §4.5's repair
+would run in our architecture today, but NOT where the paper runs its selector
+(after a completed optimization sweep, failures collected). A vertex reading
+non-converged here might have converged later in the sweep, so the two
+NON-confirmations are vantage-sensitive — a post-sweep reading could find
+bounds for C0065/R0028. The two CONFIRMATIONS are robust in that direction (a
+converged, still bound stays a bound). Once the §4.5 loop exists (d), the
+selector runs at the paper's own vantage and the C0065/R0028 verdicts are
+re-taken there for free.
+
+#### (d) What this decides, and the build order
+
+**§4.5.1 must be built — it has confirmed customers** (I11's question is
+answered). Everything else measured to date is §4.5.2's: the completing
+population (36/36 boundary), the I9 fire list (24/24 Fig-13-excluded), and — at
+this vantage — C0065 and R0028.
+
+The faithful build, in increments:
+
+1. **§4.5.1 wired AT the refusal site, gated** — when the acceptance gate would
+   STOP on an interior vertex, run the selector; where both clauses hold,
+   repair: remove the region's points, insert the midpoint of the bounds,
+   re-optimize with `max_in_domain_step` truncation at the domain exit,
+   continue on the neighbouring patch's parameterization (Fig-12 (c)–(d)),
+   then solve `q1`/`q2` on `C_b` and refine per §4.3.4. STOP unchanged where
+   any clause fails or the repair does not converge (P10). Pin case: R0003.
+2. **The §4.5 loop conversion** — the paper collects failures after the sweep
+   and repairs region-by-region, repeating until none persist (`:652-670`);
+   ours STOPs at the first refusal. Converting refusal → record-and-continue
+   (vertex left unmoved = the paper's "cannot converge" state) with the
+   repair loop post-sweep keeps P10 (a run with unrepaired failures still
+   cannot complete) and puts the selector at the paper's vantage. Natural
+   companion of §4.5.2, which needs the post-sweep view anyway.
+3. **§4.5.2 local refinement** (the majority owner) per Fig-14 — roadmap item
+   3d/4's guard-shell posture stands.
+
+**Scope honesty:** the confirmed population is 2 vertices in ONE case;
+§4.5.1's direct corpus reach is at most R0003 (currently ERROR), and only if
+its two regions are that run's whole story — each STOP is one invocation, and
+a repaired run continues into whatever failure is next. The reason to build it
+is not case count: increment 1 is the paper's stated first strategy, its step
+primitive already exists and is red-verified (I10 (g)), and its first region
+is measured to the letter of Fig-12.
+
 ## 5. After this epic (recorded, not started)
 
 - **§4.5.4 removal half / §4.5.2 guard shell** (roadmap item 3d/4): route the

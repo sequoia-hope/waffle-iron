@@ -564,6 +564,28 @@ name, never measured).
    measurement: the bounding walk from the STOP vertex on C0065/R0003/R0028.
    Instrument validated by reproducing the I9 fire list exactly (24). Census cost:
    R0038 ERROR→TIMEOUT under census only. Spec §4-I11.
+
+   **§4.4.1 I12 — clause 2 from the STOP vantage: the five candidates SPLIT
+   (2026-08-22, measurement only).** The clause-2 bounding walk (extracted as
+   `selector_clause2_walk`, postcondition output unchanged on R0074) now runs
+   from the STOP exit, with "successfully optimized" = converged ∧ not an
+   §4-I9-style out-of-domain crosser (`vertex_crossed_domain_endpoint`,
+   cross-checked `true` at the postcondition's own fire site). Result:
+   **R0003's v4233 + v10583 are §4.5.1's FIRST CONFIRMED customers** — interior,
+   bounds 1 hop away on every branch, all sharing cone+plane, traveller on one
+   of them: Fig-12 to the letter. **C0065 (v3+v8 — one curve-adjacent region
+   reaching a degree-4 junction) and R0028 (no converged bound in 64 hops both
+   ways) fall to §4.5.2** by the paper's own sentence ("if such bound cannot be
+   found … the second strategy"). Vantage caveat recorded: the STOP freezes the
+   mesh mid-sweep; the paper selects post-sweep — the two non-confirmations
+   could flip there, the confirmations cannot. Build order (spec §4-I12 (d)):
+   (1) §4.5.1 gated at the refusal site — midpoint of bounds +
+   `max_in_domain_step` truncation + cross-boundary continuation + q1/q2 on
+   C_b + §4.3.4 refine; pin R0003; (2) refusal → record-and-continue loop
+   conversion (the paper's collect-then-repair, `:652-670`), which also puts
+   the selector at the paper's vantage; (3) §4.5.2 local refinement (the
+   majority owner — completing population 36/36, I9 24/24, plus C0065/R0028).
+   Spec §4-I12.
    Remaining loud refusals: unchartable cone/torus holders (R0044, 13 sites).
    Spec §4-I6, §4-I8, §4-I9.
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R

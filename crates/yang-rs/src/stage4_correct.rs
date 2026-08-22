@@ -3765,6 +3765,26 @@ fn build_patch_map(
     out
 }
 
+/// Adjacency over LIVE triangles only: a vertex the collapses orphaned is no
+/// longer anyone's neighbour and cannot bound (or fold) anything.
+fn build_live_adjacency(
+    mesh: &Mesh,
+) -> std::collections::BTreeMap<u32, std::collections::BTreeSet<u32>> {
+    let mut adj: std::collections::BTreeMap<u32, std::collections::BTreeSet<u32>> =
+        std::collections::BTreeMap::new();
+    for tri in &mesh.tris {
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (u, w) = (tri[i], tri[j]);
+            if u == w {
+                continue;
+            }
+            adj.entry(u).or_default().insert(w);
+            adj.entry(w).or_default().insert(u);
+        }
+    }
+    adj
+}
+
 /// A vertex of the intersection curve: its incident attributed patches span BOTH
 /// inputs.
 fn vertex_on_curve(
@@ -4024,6 +4044,192 @@ fn failure_population_census(
     }
 }
 
+/// §4-I9's two-leg out-of-domain reading as a per-vertex predicate: did `w`
+/// travel across a STILL neighbour lying ON its pre→post segment (leg 1, the
+/// shared collinearity identity inside `point_on_segment_interior`) that
+/// carries a surface the final position is OFF (leg 2 — a domain ENDPOINT,
+/// not a sample)?
+///
+/// Extracted so the STOP-vantage walk (§4-I12) and the postcondition's census
+/// cross-check share ONE reading; the postcondition's STOP path keeps its
+/// richer inline diagnostics. Census-only callers.
+fn vertex_crossed_domain_endpoint(
+    mesh: &Mesh,
+    attribution: &[Option<TriangleAttribution>],
+    a: &BRep,
+    b: &BRep,
+    adj: &std::collections::BTreeMap<u32, std::collections::BTreeSet<u32>>,
+    entry: &[[f64; 3]],
+    w: u32,
+) -> bool {
+    let n = entry.len().min(mesh.verts.len());
+    let wi = w as usize;
+    if wi >= n {
+        return false; // minted during Stage 4: no pre, travelled nowhere
+    }
+    let (wpre, wpost) = (entry[wi], mesh.verts[wi].as_array());
+    if wpre == wpost {
+        return false;
+    }
+    adj.get(&w).is_some_and(|nbrs| {
+        nbrs.iter().any(|&q| {
+            let qi = q as usize;
+            if qi >= n {
+                return false;
+            }
+            let qpos = mesh.verts[qi].as_array();
+            if entry[qi] != qpos {
+                return false; // both travelled — not a still carrier vertex
+            }
+            if !crate::stage4_construct::point_on_segment_interior(wpre, wpost, qpos) {
+                return false;
+            }
+            carried_surfaces(mesh, attribution, a, b, q, qpos)
+                .into_iter()
+                .any(|surf| {
+                    !surface_distance_and_normal(surf, wpost)
+                        .is_some_and(|(d, _)| d.abs() <= junction_certificate_band(wpost, surf))
+                })
+        })
+    })
+}
+
+/// §4.5's SECOND selector clause, measured: *"we only use the first strategy
+/// in cases where the failure points are bounded by two successfully optimized
+/// points **on the same surface**"* (`refs/text/yang2025_hybrid_boolean.txt:740-744`).
+///
+/// Walks the intersection curve outward from `v` along every branch to the
+/// nearest vertex `good` accepts, then reports whether all such bounds share a
+/// surface — and whether `v` itself lies on it. What "successfully optimized"
+/// means is the CALLER's claim, because the two vantage points cannot compute
+/// it the same way: the end-of-stage selector subtracts its §4-I9 fire list,
+/// while the STOP-vantage caller (§4-I12) has no fire list — the postcondition
+/// never ran — and re-takes I9's two-leg reading per candidate bound instead.
+///
+/// Bounds are DISTINCT VERTICES: two branches reaching the same converged
+/// vertex (a loop around the erroneous region) are ONE bound — the paper's
+/// clause names two POINTS `v0` and `v1`, not two arrivals. (The pre-I12
+/// instrument deduped `(vertex, hops)` pairs, which could have double-counted
+/// such a bound; no recorded measurement is affected — every §4-I10 site
+/// reported distinct bound ids.)
+///
+/// Census-only; prints under `YANG_S45_SELECT` and returns whether the first
+/// strategy's clause holds.
+#[allow(clippy::too_many_arguments)]
+fn selector_clause2_walk(
+    mesh: &Mesh,
+    attribution: &[Option<TriangleAttribution>],
+    a: &BRep,
+    b: &BRep,
+    adj: &std::collections::BTreeMap<u32, std::collections::BTreeSet<u32>>,
+    v: u32,
+    on_curve: &dyn Fn(u32) -> bool,
+    good: &dyn Fn(u32) -> bool,
+) -> bool {
+    let empty_adj: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    let curve_nbrs = |w: u32| -> Vec<u32> {
+        adj.get(&w)
+            .unwrap_or(&empty_adj)
+            .iter()
+            .copied()
+            .filter(|&x| on_curve(x))
+            .collect()
+    };
+    // Walk one branch of the curve polyline, away from `v` through `start`,
+    // until a successfully-optimized vertex is reached. Bounded, and it stops
+    // rather than guessing wherever the curve is not locally a simple polyline.
+    let walk = |v: u32, start: u32| -> Result<(u32, usize), &'static str> {
+        let (mut prev, mut cur) = (v, start);
+        for hop in 1..=64usize {
+            if good(cur) {
+                return Ok((cur, hop));
+            }
+            let nbrs: Vec<u32> = curve_nbrs(cur).into_iter().filter(|&x| x != prev).collect();
+            match nbrs.len() {
+                0 => return Err("curve ends"),
+                1 => {
+                    prev = cur;
+                    cur = nbrs[0];
+                }
+                _ => return Err("curve branches"),
+            }
+        }
+        Err("64 hops, no converged bound")
+    };
+
+    let branches = curve_nbrs(v);
+    let mut bounds: Vec<(u32, usize)> = Vec::new();
+    for &start in &branches {
+        match walk(v, start) {
+            Ok((w, hop)) => {
+                eprintln!("YANG_S45_SELECT   v{v} branch via v{start}: bound v{w} at {hop} hop(s)");
+                bounds.push((w, hop));
+            }
+            Err(why) => {
+                eprintln!("YANG_S45_SELECT   v{v} branch via v{start}: NO BOUND ({why})");
+            }
+        }
+    }
+    bounds.sort_unstable();
+    bounds.dedup_by_key(|&mut (w, _)| w);
+    if bounds.len() < 2 {
+        eprintln!(
+            "YANG_S45_SELECT   v{v} VERDICT=SECOND_STRATEGY (§4.5.2) — \
+             only {} distinct converged bound(s); the paper's first strategy \
+             requires two",
+            bounds.len()
+        );
+        return false;
+    }
+    // "on the same surface". Where the curve neighbourhood has degree > 2
+    // the choice of WHICH two bounds must not decide the verdict, so
+    // intersect over ALL of them: a surface common to every bound is common
+    // to any pair of them, and its absence is reported as such.
+    let mut common: Option<Vec<Surface>> = None;
+    for &(w, _) in &bounds {
+        let sw = carried_surfaces(
+            mesh,
+            attribution,
+            a,
+            b,
+            w,
+            mesh.verts[w as usize].as_array(),
+        );
+        common = Some(match common {
+            None => sw,
+            Some(prev) => prev.into_iter().filter(|x| sw.contains(x)).collect(),
+        });
+    }
+    let common = common.unwrap_or_default();
+    // Is the traveller itself on that shared surface? §4.5.1 replaces the
+    // erroneous region with the MIDPOINT of the two bounds and re-optimizes
+    // it, so the region and its bounds must live on one surface together.
+    let v_surfs = carried_surfaces(
+        mesh,
+        attribution,
+        a,
+        b,
+        v,
+        mesh.verts[v as usize].as_array(),
+    );
+    let v_on_common = common.iter().filter(|x| v_surfs.contains(x)).count();
+    eprintln!(
+        "YANG_S45_SELECT   v{v} bounds={} common_surfaces={} \
+         traveller_on_common={v_on_common} VERDICT={}",
+        bounds.len(),
+        common.len(),
+        if common.is_empty() {
+            "SECOND_STRATEGY (§4.5.2) — bounds share no surface"
+        } else {
+            "FIRST_STRATEGY (§4.5.1) — all bounds on a common surface"
+        }
+    );
+    for surf in &common {
+        eprintln!("YANG_S45_SELECT     v{v} common surface {surf:?}");
+    }
+    !common.is_empty()
+}
+
 /// §4-I10 (d) — the paper's §4.5 STRATEGY SELECTOR, measured.
 ///
 /// Yang 2025 §4.5 (`refs/text/yang2025_hybrid_boolean.txt:740-744`): *"we only
@@ -4071,27 +4277,6 @@ fn strategy_selection_census(
             .collect()
     };
     let good = |w: u32| -> bool { converged(w) && !failed.contains(&w) };
-    // Walk one branch of the curve polyline, away from `v` through `start`,
-    // until a successfully-optimized vertex is reached. Bounded, and it stops
-    // rather than guessing wherever the curve is not locally a simple polyline.
-    let walk = |v: u32, start: u32| -> Result<(u32, usize), &'static str> {
-        let (mut prev, mut cur) = (v, start);
-        for hop in 1..=64usize {
-            if good(cur) {
-                return Ok((cur, hop));
-            }
-            let nbrs: Vec<u32> = curve_nbrs(cur).into_iter().filter(|&x| x != prev).collect();
-            match nbrs.len() {
-                0 => return Err("curve ends"),
-                1 => {
-                    prev = cur;
-                    cur = nbrs[0];
-                }
-                _ => return Err("curve branches"),
-            }
-        }
-        Err("64 hops, no converged bound")
-    };
 
     for &(v, q) in sites {
         let branches = curve_nbrs(v);
@@ -4132,77 +4317,7 @@ fn strategy_selection_census(
             );
             continue;
         }
-        let mut bounds: Vec<(u32, usize)> = Vec::new();
-        for &start in &branches {
-            match walk(v, start) {
-                Ok((w, hop)) => {
-                    eprintln!(
-                        "YANG_S45_SELECT   v{v} branch via v{start}: bound v{w} at {hop} hop(s)"
-                    );
-                    bounds.push((w, hop));
-                }
-                Err(why) => {
-                    eprintln!("YANG_S45_SELECT   v{v} branch via v{start}: NO BOUND ({why})");
-                }
-            }
-        }
-        bounds.sort_unstable();
-        bounds.dedup();
-        if bounds.len() < 2 {
-            eprintln!(
-                "YANG_S45_SELECT   v{v} VERDICT=SECOND_STRATEGY (§4.5.2) — \
-                 only {} distinct converged bound(s); the paper's first strategy \
-                 requires two",
-                bounds.len()
-            );
-            continue;
-        }
-        // "on the same surface". Where the curve neighbourhood has degree > 2
-        // the choice of WHICH two bounds must not decide the verdict, so
-        // intersect over ALL of them: a surface common to every bound is common
-        // to any pair of them, and its absence is reported as such.
-        let mut common: Option<Vec<Surface>> = None;
-        for &(w, _) in &bounds {
-            let sw = carried_surfaces(
-                mesh,
-                attribution,
-                a,
-                b,
-                w,
-                mesh.verts[w as usize].as_array(),
-            );
-            common = Some(match common {
-                None => sw,
-                Some(prev) => prev.into_iter().filter(|x| sw.contains(x)).collect(),
-            });
-        }
-        let common = common.unwrap_or_default();
-        // Is the traveller itself on that shared surface? §4.5.1 replaces the
-        // erroneous region with the MIDPOINT of the two bounds and re-optimizes
-        // it, so the region and its bounds must live on one surface together.
-        let v_surfs = carried_surfaces(
-            mesh,
-            attribution,
-            a,
-            b,
-            v,
-            mesh.verts[v as usize].as_array(),
-        );
-        let v_on_common = common.iter().filter(|x| v_surfs.contains(x)).count();
-        eprintln!(
-            "YANG_S45_SELECT   v{v} bounds={} common_surfaces={} \
-             traveller_on_common={v_on_common} VERDICT={}",
-            bounds.len(),
-            common.len(),
-            if common.is_empty() {
-                "SECOND_STRATEGY (§4.5.2) — bounds share no surface"
-            } else {
-                "FIRST_STRATEGY (§4.5.1) — all bounds on a common surface"
-            }
-        );
-        for surf in &common {
-            eprintln!("YANG_S45_SELECT     v{v} common surface {surf:?}");
-        }
+        selector_clause2_walk(mesh, attribution, a, b, adj, v, on_curve, &good);
     }
 }
 
@@ -4270,20 +4385,7 @@ fn relocation_domain_postcondition(
         (entry[i] != post).then_some((entry[i], post))
     };
 
-    // Adjacency over LIVE triangles only: a vertex the collapses orphaned is no
-    // longer anyone's neighbour and cannot fold anything.
-    let mut adj: std::collections::BTreeMap<u32, std::collections::BTreeSet<u32>> =
-        std::collections::BTreeMap::new();
-    for tri in &mesh.tris {
-        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
-            let (u, w) = (tri[i], tri[j]);
-            if u == w {
-                continue;
-            }
-            adj.entry(u).or_default().insert(w);
-            adj.entry(w).or_default().insert(u);
-        }
-    }
+    let adj = build_live_adjacency(mesh);
 
     let mut first: Option<u32> = None;
     let mut fires = 0usize;
@@ -4460,6 +4562,27 @@ fn relocation_domain_postcondition(
             "YANG_S4_CARRIER_DOMAIN TOTAL fires={fires} first=v{:?}",
             first
         );
+        // §4-I12 instrument validation: the STOP-vantage walk excludes candidate
+        // bounds via `vertex_crossed_domain_endpoint`, a predicate that read
+        // ZERO on every vertex walked in its first measurement. A zero from an
+        // instrument is a claim about its vantage, so verify the predicate
+        // FIRES where this postcondition's own inline two-leg detection just
+        // did — the two are meant to be one reading.
+        for &(v, _) in &census_sites {
+            let xc = vertex_crossed_domain_endpoint(
+                mesh,
+                &attribution.attributions,
+                a,
+                b,
+                &adj,
+                entry,
+                v,
+            );
+            eprintln!(
+                "YANG_S45_XCHECK v{v} crossed_domain_endpoint={xc} \
+                 (postcondition fire site; expect true)"
+            );
+        }
         strategy_selection_census(
             mesh,
             &attribution.attributions,
@@ -4523,20 +4646,94 @@ pub(crate) fn stage4_relocate_and_correct(
         // optimization ran on it" — is false. It is nonetheless the clearest
         // §4.5 failure in the run, so classify it directly.
         if let YangError::Stage4RegionInvalid { vertex, reason } = e {
-            let patches = build_patch_map(mesh, &attribution.attributions);
-            let pos = mesh.verts[*vertex as usize].as_array();
-            let (ca, cb) = carrier_counts(&patches, a, b, *vertex, pos);
-            let near = ca.max(cb);
-            eprintln!(
-                "YANG_S45_POP STOP-VERTEX v{vertex} reason={reason:?} on_curve={} \
-                 carrier=(A{ca},B{cb}) class={}",
-                vertex_on_curve(&patches, *vertex),
-                match near {
+            if (*vertex as usize) >= mesh.verts.len() {
+                // Sentinel STOPs (u32::MAX) name no vertex; nothing to classify.
+                eprintln!(
+                    "YANG_S45_POP STOP-VERTEX v{vertex} reason={reason:?} — sentinel, \
+                     no vertex to classify"
+                );
+            } else {
+                let patches = build_patch_map(mesh, &attribution.attributions);
+                let pos = mesh.verts[*vertex as usize].as_array();
+                let (ca, cb) = carrier_counts(&patches, a, b, *vertex, pos);
+                let near = ca.max(cb);
+                let class = match near {
                     0 => "unlocated (on no surface of either operand)",
                     1 => "INTERIOR — a §4.5.1 customer",
                     _ => "BOUNDARY — excluded from §4.5.1 by Fig-13",
-                }
-            );
+                };
+                eprintln!(
+                    "YANG_S45_POP STOP-VERTEX v{vertex} reason={reason:?} on_curve={} \
+                     carrier=(A{ca},B{cb}) class={class}",
+                    vertex_on_curve(&patches, *vertex),
+                );
+                // §4-I12 — §4.5's SECOND selector clause, from the STOP vantage.
+                //
+                // §4-I11 classified the STOP vertex by the Fig-13 clause alone and
+                // recorded the second clause — "bounded by two successfully
+                // optimized points on the same surface" — as the untested,
+                // deciding half. It is taken here, where §4.5's repair would
+                // actually run: the mesh is frozen at the refusal, mid-repair.
+                //
+                // "Successfully optimized" at this vantage: CONVERGED (on a
+                // surface of each operand at the shared certificate band), not
+                // the STOP vertex itself, and not an out-of-domain crosser in
+                // §4-I9's sense. The postcondition that computes I9's fire list
+                // never runs on a STOP'd run, so its two-leg reading is re-taken
+                // per candidate bound: the vertex travelled across a STILL
+                // neighbour lying ON its pre→post segment (leg 1) that carries a
+                // surface the final position is OFF (leg 2) — a domain ENDPOINT,
+                // not a sample. Skipped crossers are counted and printed so a
+                // bound reached PAST one is visible as such.
+                let adj = build_live_adjacency(mesh);
+                let crossers = std::cell::Cell::new(0usize);
+                let crossed_endpoint = |w: u32| -> bool {
+                    vertex_crossed_domain_endpoint(
+                        mesh,
+                        &attribution.attributions,
+                        a,
+                        b,
+                        &adj,
+                        entry,
+                        w,
+                    )
+                };
+                let on_curve = |w: u32| vertex_on_curve(&patches, w);
+                let good = |w: u32| -> bool {
+                    if w == *vertex || !vertex_converged(mesh, &patches, a, b, w) {
+                        return false;
+                    }
+                    if crossed_endpoint(w) {
+                        crossers.set(crossers.get() + 1);
+                        return false;
+                    }
+                    true
+                };
+                eprintln!(
+                    "YANG_S45_SELECT v{vertex} vantage=stopped — §4.5 clause-2 walk from \
+                     the STOP vertex (§4-I12)"
+                );
+                let first = selector_clause2_walk(
+                    mesh,
+                    &attribution.attributions,
+                    a,
+                    b,
+                    &adj,
+                    *vertex,
+                    &on_curve,
+                    &good,
+                );
+                eprintln!(
+                    "YANG_S45_SELECT v{vertex} vantage=stopped i9_style_crossers_skipped={} \
+                     COMBINED clause1={class} clause2_first_strategy={first} => {}",
+                    crossers.get(),
+                    if near == 1 && first {
+                        "§4.5.1 CONFIRMED customer (both clauses hold)"
+                    } else {
+                        "§4.5.2 (a selector clause fails)"
+                    }
+                );
+            }
         }
     }
     out

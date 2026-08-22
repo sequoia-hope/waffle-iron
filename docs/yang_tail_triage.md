@@ -56,7 +56,7 @@ Re-generate the baseline column only from a committed `results.json`.
 |---|---|---|---|---|
 | C0065 | Stage-4 OffCurve v8 | torus∩plane grazing loop reaches \|y\|=0.384 outside the box face; needs exact triple-junction corner insert + stitch (primitive proven, N-137.1) | CONFIRMED (#137 spec) | P3b-#137 |
 | R0074 | ~~Stage-4 OffCurve v89~~ ring rejected by CDT (FaceId 593) | ~~torus∩plane grazing — same class as C0065~~ **DRIFTED + RE-DIAGNOSED 2026-07-29 (`KV2_RING_PROVENANCE`, 70ccf32c): this is no longer a #137 grazing case.** The OffCurve layer is gone; R0074 now fails as a ring-reject and is the **cleanest witness of the planar seam-overlap class**. PLANAR builder, 541 half-edges, **all LineSegment, ZERO interior samples** (sampler exonerated). 7 adjacency runs; all three crossings (111×113/114/115) sit on the run-B→run-C seam at idx 114, with folds of 179.90° / 156.70° / 177.15° against a ring median of 2.86°. The four fold points project onto the v111→v116 chord at t = 0.588, 0.590, 0.471, 0.263 — monotone **DESCENDING** where traversal demands ascending — and v112/v113 are **9.1e-6 apart (near-dup pair)** at the seam. **Control: the ring's OTHER seam (idx 58) turns a genuine 86.6°/80.9° corner and is clean** ⇒ seam does not imply fold; overlapping chain RANGES do. This is the "mint once exactly, share by identity" contract (`docs/yang_junction_research_findings.md`) violated in Stage-5/6 **OUTPUT** assembly, not the Stage-1 input sampling #146 chases | CONFIRMED (2026-07-29; mechanism settled by the positional oracle — 67/78 folds straddle the moved/still boundary, 329 of 2731 verts moved) | **Stage-4 partial relocation of a boundary chain** (with R0011, F0045). NOTE: the conic `relocations` oracle is BLIND here (torus arm records no `t` retag) — an earlier pass wrongly read `n_relocations=0` as "nothing moved" and re-vehicled this row to #146; RETRACTED |
-| R0003 | Stage-4 OffCurve v4233 | multi-map over-band chain (v4233→v8508); needs ellipse×hyperbola junction handling, band-fixing exhausted (N45/N46) | CONFIRMED (N51/N52) | P3-junction |
+| R0003 | Stage-4 OffCurve v4233 | multi-map over-band chain (v4233→v8508); needs ellipse×hyperbola junction handling, band-fixing exhausted (N45/N46). **§4-I12 2026-08-22: v4233 AND v10583 measured as §4.5.1's first confirmed customers** — interior, bounded 1 hop each side by converged vertices sharing cone+plane; the paper's first-strategy repair (midpoint + truncated cross-boundary re-optimize) is the owner, not more junction vocabulary | CONFIRMED (N51/N52; I12) | **§4.5.1 increment 1 (pin case)** — was P3-junction |
 | R0015 | Stage-4 OffCurve v84 | probe 2026-07-18: N51 "no-curve-type" REFUTED — v84 IS in the torus map (`torus=true`); `YANG_TORUS_PROBE` shows the pair Newton relocates it EXACTLY (rho=0, F_torus(proj)=0) and it passes the displacement gate, so the STOP is the **bounded-face containment** check below the gate (`stage4_correct.rs:4225`) — the C0065 grazing-loop-outside-face signature, at MICRO scale (torus R=5.97e-5/r=3.98e-5, coords ~1e-4) | CONFIRMED (#171 pass 2) | P3b-#137 (C0065 containment class, micro-scale) |
 | R0026 | Stage-4 OffCurve v218 | probe 2026-07-18: same as R0015 — v218 `torus=true`, pair Newton rho=9.65e-6 ≪ gate 3.0e-3, then bounded-face containment STOP; micro torus∩plane (R=0.0214/r=0.0143) | CONFIRMED (#171 pass 2) | P3b-#137 (C0065 containment class, micro-scale) |
 | R0070 | Stage-4 OffCurve v1028 (+op2 LRR v47) | probe 2026-07-18: v1028 sits on a micro Ellipse edge (1025,1028; major_r 0.028) AND a LineSegment edge (1028,1029) — an ellipse∩line conic junction endpoint whose ellipse relocation lands beyond band at micro scale. ~~**op2 v47** is the surface-pair endpoint-mix STOP, R0044 class~~ **op2's endpoint-mix layer RESOLVED 2026-07-28 (triple-block wiring)** — R0070 raises no LRR at all now; the surviving failure is the v1028 OffCurve half only | CONFIRMED (#171 pass 2; op2 half closed 2026-07-28) | P3-junction (v1028 OffCurve half only) |
@@ -1271,16 +1271,37 @@ shifted onto `S2`, completely bypassing `S1`"*. C0065's STOP site is the
 owner-face hull check, i.e. Fig-12(c) *"a full step takes `p0` to an
 out-of-boundary location `p1`"*.
 
-**Still untested, and it decides:** §4.5's SECOND clause ("bounded by two
+~~**Still untested, and it decides:** §4.5's SECOND clause ("bounded by two
 successfully optimized points on the same surface") has not been run on these
-five — the selector walks from a site list the STOP path does not produce. They
-are **candidates, not confirmed customers**. Next measurement: run the bounding
-walk from the STOP vertex on C0065, R0003, R0028.
+five.~~ **RESOLVED 2026-08-22 (§4-I12) — the five SPLIT, see below.**
 
 **Census cost:** under `census` the extra output pushes R0038 ERROR → TIMEOUT
 (verified ERROR with census off and at default). Census-only overhead — a census
 run's category spread is not a corpus score. Full detail:
 `specs/yang_441_trim_cdt_construction.md` §4-I11.
+
+### §4-I12 (2026-08-22): clause 2 run from the STOP vantage — R0003's two vertices are §4.5.1's first CONFIRMED customers; C0065 and R0028 fall to §4.5.2
+
+The clause-2 bounding walk was extracted from `strategy_selection_census`
+(`selector_clause2_walk`) and wired at the STOP exit, with "successfully
+optimized" at that vantage = converged ∧ not the STOP vertex ∧ not an
+out-of-domain crosser by §4-I9's two-leg reading
+(`vertex_crossed_domain_endpoint`, cross-checked `true` at the postcondition's
+own R0074 v129 fire site — `YANG_S45_XCHECK`).
+
+| case | vertex | clause-2 walk | verdict |
+|---|---|---|---|
+| R0003 | v4233 | 3 distinct bounds, all 1 hop; common = cone+plane; traveller on 1 | **§4.5.1 CONFIRMED** |
+| R0003 | v10583 | 2 bounds, both 1 hop; common = cone+plane; traveller on 1 | **§4.5.1 CONFIRMED** |
+| C0065 | v8, v3 | 1 distinct bound each; other branches refuse at curve branch points (the two vertices are curve-ADJACENT — one region, two invocations; v3 is a degree-4 junction) | §4.5.2 |
+| R0028 | v64 | 0 bounds — 64 hops both ways without a converged vertex | §4.5.2 |
+
+Vantage caveat: the walk runs on the mesh frozen at the STOP (mid-sweep), not
+at the paper's post-sweep selector vantage — the two NON-confirmations could
+flip there; the confirmations cannot. Build order recorded in the spec:
+(1) §4.5.1 gated at the refusal site, pin R0003; (2) refusal →
+record-and-continue loop conversion (the paper's collect-then-repair);
+(3) §4.5.2. Full detail: `specs/yang_441_trim_cdt_construction.md` §4-I12.
 
 ## Stage-6 non-2-manifold site census (2026-08-19, post-5c.13) — the second absolute-floor anchor
 
