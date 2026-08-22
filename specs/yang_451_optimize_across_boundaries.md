@@ -1,6 +1,12 @@
 # §4.5.1 "Optimize across boundaries" — design spec (increment 1 of the §4.5 build)
 
-**Status: DESIGN (2026-08-22).** No code yet. Follows §4-I12
+**Status: DESIGN v2 (2026-08-22).** inc-0's probe landed and its measurement
+REVISED the design the same day — see §7. The headline: **repair-at-refusal is
+refuted for the pin case** (the far bound is structurally invisible at the
+refusal vantage because the sweep has not reached it yet), so the
+record-and-continue conversion that v1 deferred to "§4.5 build step 2" is the
+FRAME of increment 1. §§3–4 below are v1's design; §7 records the measured
+revision and supersedes §3.1's interception model. Follows §4-I12
 (`specs/yang_441_trim_cdt_construction.md`), which confirmed this strategy's
 first customers by measurement. Pin case: **R0003** (two erroneous regions,
 both `OffCurveBeyondChordBand` STOPs, both clause-confirmed §4.5.1).
@@ -187,3 +193,69 @@ For a k-vertex region on one curve chain between bounds `v0`, `v1`:
   domain truncation, and the cross-boundary continuation.
 - `feedback_stop_band_tuning_build_mesh_updating`: this is capability, not a
   band. `max_in_domain_step` is reused as built; no new thresholds.
+
+## 7. inc-0 MEASURED (2026-08-22, same session) — Q1 answered, and the design revised
+
+The probe (`offcurve_beyond_chord_band`, `#[track_caller]`, all **14** gate
+sites — the v1 spec said ten; the audit grep was head-truncated — plus the
+own-curve chain walk under `YANG_451=census`) ran on R0003/R0028/C0065:
+
+| vertex | firing arm (site) | own-curve chains |
+|---|---|---|
+| R0003 v4233 | cone-ELLIPSE residual (`:6872`) | via v4167: ends at 1 hop (v4167 = chain end, converged). Via v4234: **≥32 further ellipse vertices, walk capped**, all ids > 4233 |
+| R0003 v10583 | cone-HYPERBOLA residual (`:6969`) | both directions end at 1 hop (v10564 / v10585 = the segment's endpoints, both converged) |
+| C0065 v3, v8 | owner-face hull check (`:7546`) | (see log) |
+| R0028 v64 | `:7440` | (see log) |
+
+### Q1 — ANSWERED: own-curve pairing works, and the I12 walk over-counted
+
+Only TWO of v4233's four curve-graph branches carry a Phase-A curve
+assignment, and both carry the SAME `Ellipse` (bit-identical params): v4167
+and v4234. The I12 all-branch walk's three "bounds" (v4167/v4169/v4183) were
+partly cross-curve artifacts of the patch-span adjacency — under the own-curve
+reading the correct picture is ONE chain with one near bound (v4167) and a
+long unadjudicated far side. v10583's own-curve bounds coincide with the I12
+walk's — it stays confirmed unchanged.
+
+### The revision: the refusal vantage cannot see a bound the sweep has not reached
+
+Across every measured vertex the convergence pattern matches SWEEP ORDER
+(BTreeMap per-classification loops, ascending id): v4167/v4169/v4183 (< 4233)
+converged; v4234…v4268 (> 4233) not converged — not because the region is
+30+ vertices of true failure, but because the sweep aborts at the FIRST gate
+fire and never processes them. (v10585 > 10583 converged is the benign
+exception: a chain-end vertex already within the certificate band at its
+minted position.) **A repair at the refusal site therefore cannot evaluate
+clause 2 for any region whose far bound sweeps later — the selector is not
+well-posed mid-sweep.** This is WHY the paper collects failures after
+optimization (§4.5 `:652-656`) and repairs region-by-region.
+
+### Consequence — increment order revised (supersedes §3.1's interception and §4-I12 (d)'s order)
+
+**Increment 1 = record-and-continue with post-sweep repair**, structured so
+every existing pass's precondition is preserved:
+
+1. Each of the 14 gates, via the shared choke point: gate OFF → return the
+   error exactly as today (byte-identical). Census/on → RECORD
+   `(v, site, error)` and SKIP the vertex's relocation (per-site skip
+   semantics audited individually — the skip must target the per-vertex
+   loop).
+2. The sweep's classification loops complete: every non-failed vertex
+   relocates.
+3. Post-sweep, pre-everything-else: for each recorded failure, the selector
+   (clause 1 + own-curve clause-2 walk, `converged` now at the paper's
+   vantage) → §3.3's repair where both clauses hold.
+4. Any failure unrepaired → return the FIRST recorded error (bit-identical
+   category+detail to today — P10: the run still cannot complete with
+   unrepaired failures). All repaired → the stage proceeds (fold validation,
+   §4.4.1 passes, §4.3.4, §4-I9 postcondition all see a fully-relocated
+   mesh, their precondition unchanged).
+
+Census mode = steps 1–3 with the repair replaced by verdict prints, then
+step 4's error unconditionally: corpus-neutral, and it re-adjudicates
+C0065/R0028 (and v4233's far side) at the paper's vantage — the measurement
+§4-I12 (c) wanted.
+
+Open sub-questions folded in: Q2 (is v4233's region k>1 at the paper's
+vantage?) and the per-site skip-semantics audit are answered by the census
+increment before any repair code runs.

@@ -86,6 +86,78 @@ pub(crate) type PhaseA = (
     std::collections::BTreeMap<(u32, u32), Curve>,
 );
 
+/// §4.5.1 inc-0 (spec `specs/yang_451_optimize_across_boundaries.md`): the
+/// shared constructor for the relocation sweep's `OffCurveBeyondChordBand`
+/// STOPs — behaviour identical to constructing the error inline. Under
+/// `YANG_451=census` it additionally prints the firing SITE (`#[track_caller]`,
+/// so sites don't lie — the `YANG_LRR_PROBE` pattern) and the vertex's
+/// incident edge-level curve assignments, the data that decides the spec's
+/// Q1: at a curve-graph junction, can the branches be paired by the vertex's
+/// own assigned conic?
+#[track_caller]
+fn offcurve_beyond_chord_band(
+    v: u32,
+    curves0: &std::collections::BTreeMap<(u32, u32), Curve>,
+    inc0: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+) -> YangError {
+    if std::env::var("YANG_451").as_deref() == Ok("census") {
+        let loc = std::panic::Location::caller();
+        eprintln!("YANG_451_SITE v{v} at {}:{}", loc.file(), loc.line());
+        for (&(s, e), curve) in curves0.iter() {
+            if s == v || e == v {
+                eprintln!("YANG_451_EDGE v{v} edge=({s},{e}) curve={curve:?}");
+            }
+        }
+        for (&(s, e), entries) in inc0.iter() {
+            if s == v || e == v {
+                eprintln!("YANG_451_INC v{v} edge=({s},{e}) surfs={entries:?}");
+            }
+        }
+        // Own-curve CHAIN (spec Q1's other half): follow edges assigned the
+        // SAME analytic curve VALUE outward from `v`, both directions. This
+        // supplies the region's topology; which chain vertices are CONVERGED
+        // is adjudicated against the I12 walk's log at the outer STOP catch.
+        // `LineSegment` is a unit variant (every segment compares equal), so
+        // it cannot key a chain and is skipped — the §4.5 population is conic.
+        let mut own_curves: Vec<Curve> = Vec::new();
+        for (&(s, e), &c) in curves0.iter() {
+            if (s == v || e == v) && c != Curve::LineSegment && !own_curves.contains(&c) {
+                own_curves.push(c);
+            }
+        }
+        for curve in &own_curves {
+            let nbrs_on = |w: u32| -> Vec<u32> {
+                curves0
+                    .iter()
+                    .filter(|(&(s, e), c)| (s == w || e == w) && *c == curve)
+                    .map(|(&(s, e), _)| if s == w { e } else { s })
+                    .collect()
+            };
+            for start in nbrs_on(v) {
+                let mut chain = vec![v, start];
+                let (mut prev, mut cur) = (v, start);
+                let end: &str = loop {
+                    if chain.len() > 32 {
+                        break "cap";
+                    }
+                    let next: Vec<u32> = nbrs_on(cur).into_iter().filter(|&x| x != prev).collect();
+                    match next.len() {
+                        0 => break "chain ends (no continuing same-curve edge)",
+                        1 => {
+                            prev = cur;
+                            cur = next[0];
+                            chain.push(cur);
+                        }
+                        _ => break "own-curve BRANCHES",
+                    }
+                };
+                eprintln!("YANG_451_CHAIN v{v} via v{start}: {chain:?} end={end} curve={curve:?}");
+            }
+        }
+    }
+    YangError::stage4_region_invalid(v, Stage4InvalidReason::OffCurveBeyondChordBand)
+}
+
 /// PR-YR10: compute the Phase-A structures (adjacency → patches → cycles →
 /// incidence → exact intersection curves) from the current mesh + attribution.
 /// Factored out of `reconstruct_topology` so it can be re-run after a §4.5.3
@@ -6069,10 +6141,7 @@ fn stage4_relocate_and_correct_inner(
             let sin_theta = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
             let gate = tangent_plane_corridor(d_eps, sin_theta);
             if rho > gate {
-                return Err(YangError::stage4_region_invalid(
-                    v,
-                    Stage4InvalidReason::OffCurveBeyondChordBand,
-                ));
+                return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
             }
             if std::env::var_os("YANG_RIM_JUNCTION_PROBE").is_some() {
                 eprintln!(
@@ -6333,10 +6402,7 @@ fn stage4_relocate_and_correct_inner(
             // assignment is producer-confirmed, and `project_onto_circle`
             // below is already the distance-minimizing projection onto the
             // exact curve, a certificate the band cannot strengthen.)
-            return Err(YangError::stage4_region_invalid(
-                v,
-                Stage4InvalidReason::OffCurveBeyondChordBand,
-            ));
+            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
         }
         // Preserve the original combined-max `rho` for the `> TAU_WORK`
         // move-gate so its semantics are unchanged.
@@ -6393,10 +6459,7 @@ fn stage4_relocate_and_correct_inner(
         if rho > gate && !prov_verts.contains(&v) {
             // (Provenance-vouched exemption — spec inc-2 §3c; `j` is the
             // exact circle∩circle corner on both curves by construction.)
-            return Err(YangError::stage4_region_invalid(
-                v,
-                Stage4InvalidReason::OffCurveBeyondChordBand,
-            ));
+            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
         }
         // `j` is on circle_a by construction; project to get its frame angle `t`
         // for the source retag (positionally exact on both circles either way).
@@ -6459,10 +6522,7 @@ fn stage4_relocate_and_correct_inner(
                     "KV11_PROBE ellipse band reject: v={v} rho={rho:.3e} gate={gate:.3e} p={p:?}"
                 );
             }
-            return Err(YangError::stage4_region_invalid(
-                v,
-                Stage4InvalidReason::OffCurveBeyondChordBand,
-            ));
+            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
         }
         let (proj, t) = project_onto_ellipse_via_cylinder(p, er)
             .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
@@ -6523,10 +6583,7 @@ fn stage4_relocate_and_correct_inner(
                 );
             }
             if move_len(near_proj) > budget {
-                return Err(YangError::stage4_region_invalid(
-                    v,
-                    Stage4InvalidReason::OffCurveBeyondChordBand,
-                ));
+                return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
             }
             (near_proj, near_t)
         };
@@ -6694,10 +6751,7 @@ fn stage4_relocate_and_correct_inner(
                     "KV11_PROBE junction band reject: v={v} rho={rho:.3e} gate={gate:.3e} p={p:?} j={j:?}"
                 );
             }
-            return Err(YangError::stage4_region_invalid(
-                v,
-                Stage4InvalidReason::OffCurveBeyondChordBand,
-            ));
+            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
         }
         let proj = Point3::new(j[0], j[1], j[2]);
         // Param on e_a's ellipse for the source retag (output edges of BOTH
@@ -6856,10 +6910,7 @@ fn stage4_relocate_and_correct_inner(
         let p = mesh.verts[v as usize];
         let rho = cone_ellipse_residual(p, cer);
         if rho > cer.cone_d_eps {
-            return Err(YangError::stage4_region_invalid(
-                v,
-                Stage4InvalidReason::OffCurveBeyondChordBand,
-            ));
+            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
         }
         let proj = project_onto_cone_section(
             p,
@@ -6906,10 +6957,7 @@ fn stage4_relocate_and_correct_inner(
             cpr.plane_d,
         );
         if rho > cpr.cone_d_eps {
-            return Err(YangError::stage4_region_invalid(
-                v,
-                Stage4InvalidReason::OffCurveBeyondChordBand,
-            ));
+            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
         }
         let proj = project_onto_cone_section(
             p,
@@ -6959,10 +7007,7 @@ fn stage4_relocate_and_correct_inner(
             chr.plane_d,
         );
         if rho > chr.cone_d_eps {
-            return Err(YangError::stage4_region_invalid(
-                v,
-                Stage4InvalidReason::OffCurveBeyondChordBand,
-            ));
+            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
         }
         let proj = project_onto_cone_section(
             p,
@@ -7018,10 +7063,7 @@ fn stage4_relocate_and_correct_inner(
         // radial band, and not the global d_ε (whose owner mix is wrong for
         // cylinder×cylinder lines).
         if rho > lr.band_budget {
-            return Err(YangError::stage4_region_invalid(
-                v,
-                Stage4InvalidReason::OffCurveBeyondChordBand,
-            ));
+            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
         }
         let d = normalize3(lr.dir.as_array());
         let pt = lr.point.as_array();
@@ -7081,10 +7123,7 @@ fn stage4_relocate_and_correct_inner(
         // PR-F3b: line-band component carries the propagated budget; the
         // along-line crossing component stays at the raw d_ε.
         if rho > lr.band_budget + d_eps {
-            return Err(YangError::stage4_region_invalid(
-                v,
-                Stage4InvalidReason::OffCurveBeyondChordBand,
-            ));
+            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
         }
         let (proj, t) = project_onto_circle(j, center, normal, radius)
             .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
@@ -7137,10 +7176,7 @@ fn stage4_relocate_and_correct_inner(
         let sin_theta = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
         let gate = tangent_plane_corridor(d_eps, sin_theta);
         if rho > gate {
-            return Err(YangError::stage4_region_invalid(
-                v,
-                Stage4InvalidReason::OffCurveBeyondChordBand,
-            ));
+            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
         }
         // Branch 4: `j` is exactly on the line and on the circle's sphere;
         // the circle projection yields the frame angle `t` for the retag
@@ -7442,10 +7478,7 @@ fn stage4_relocate_and_correct_inner(
                 );
             }
             if rho > gate {
-                return Err(YangError::stage4_region_invalid(
-                    v,
-                    Stage4InvalidReason::OffCurveBeyondChordBand,
-                ));
+                return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
             }
             // Bounded-face containment (KV6d closed torus, spec
             // `kv6d_closed_torus_revolve.md` failure modes): the wedge gate
@@ -7551,10 +7584,7 @@ fn stage4_relocate_and_correct_inner(
                     proj.as_array()[k] >= h[k] - d_eps && proj.as_array()[k] <= h[3 + k] + d_eps
                 });
                 if !inside {
-                    return Err(YangError::stage4_region_invalid(
-                        v,
-                        Stage4InvalidReason::OffCurveBeyondChordBand,
-                    ));
+                    return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
                 }
             }
             if rho > cad_primitives::TAU_WORK {
