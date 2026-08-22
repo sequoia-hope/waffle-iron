@@ -408,3 +408,29 @@ default run is byte-identical and a gated corpus run's deltas are each
 explained. Next measurements: (a) corpus default-neutrality proof; (b) gated
 corpus run to enumerate what else repairs (any conic-carried OffCurve case
 masked behind first-fire aborts).
+
+## 11. FLIPPED ALWAYS-ON (2026-08-22, same session) — the flip bar was met with one explained delta
+
+The corpus measurements that justified the flip, in order:
+
+1. **Default-mode corpus (pre-flip commit stack):** 265C/0W/43E/1EE/0T in
+   544s, and the run's freshly-written `results.json` left the git tree
+   CLEAN — bit-identical to the committed canonical baseline, details
+   included. All five of the session's commits were corpus-neutral.
+2. **Gated corpus (`YANG_451=1`):** category-identical (265C/0W/43E/1EE/0T,
+   535s), and the ERROR-detail diff against the default run shows **exactly
+   one changed row: R0003** (Stage-4 OffCurve v4233 → the KV9-F2 fold,
+   FaceId 435). Every other case — every torus-carried OffCurve fire, every
+   other family — keeps its exact original error. R0003 is the corpus's
+   only conic-carried §4.5.1 customer today, and the repair declines
+   everywhere else.
+
+Flip semantics: default = repair; `YANG_451=0|off` restores the historical
+abort-at-first-fire; `census` still measures. Verified post-flip: default
+R0003 repairs 11/11 and reports the fold; `=0` reproduces the old OffCurve
+error byte-identically; yang-rs 1110/0.
+
+The canonical baseline (`results.json`) is updated in the flip commit with
+R0003's new detail — the recorded wall now names the true next owner (the
+developable-ring fold family) instead of the repaired one. Canonical score
+stays **265C/0W/43E/1EE/0T**.

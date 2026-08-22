@@ -606,8 +606,10 @@ name, never measured).
    two mutations. Under the gate R0003 CLEARS Stage 4 (11/11) and advances
    to the KV9-F2 developable fold — a masked latent of the developable-ring
    family (fold cone tan 2.3961 matches no repaired cone), not a mint.
-   Torus-carried cases decline to their exact original errors. Gate OFF
-   pending the corpus flip bar.** Next: corpus default-neutrality proof +
+   Torus-carried cases decline to their exact original errors. **FLIPPED
+   ALWAYS-ON same day (spec §11): corpus category-identical, exactly one
+   explained detail delta (R0003 → the KV9-F2 fold); `YANG_451=0`
+   restores the abort; baseline results.json updated.** Next: corpus default-neutrality proof +
    gated corpus enumeration; then the surface-pair region identity
    sub-increment; §4.3.4 refine-after-repair deferred with reasoning (spec
    §10). Spec §4-I12 + `specs/yang_451_optimize_across_boundaries.md`.

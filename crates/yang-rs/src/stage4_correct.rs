@@ -5422,7 +5422,12 @@ fn stage4_relocate_and_correct_inner(
     // unchanged. Default: gates abort exactly as today.
     let s451_mode = std::env::var("YANG_451").unwrap_or_default();
     let s451_census = s451_mode == "census";
-    let s451_repair = s451_mode == "1";
+    // FLIPPED ALWAYS-ON 2026-08-22 (spec `yang_451_optimize_across_boundaries.md`
+    // §11): the corpus under the gate is category-identical with EXACTLY ONE
+    // explained detail delta (R0003: Stage-4 OffCurve → the pre-existing
+    // KV9-F2 developable fold it unmasks). `0`/`off` restores the
+    // abort-at-first-fire behaviour; `census` measures.
+    let s451_repair = !s451_census && s451_mode != "0" && s451_mode != "off";
     let s451_collect = s451_census || s451_repair;
     let mut s45_failures: Vec<(u32, YangError)> = Vec::new();
 
