@@ -158,6 +158,145 @@ fn offcurve_beyond_chord_band(
     YangError::stage4_region_invalid(v, Stage4InvalidReason::OffCurveBeyondChordBand)
 }
 
+/// §4.5.1 inc-1 census (spec `specs/yang_451_optimize_across_boundaries.md`
+/// §7): the record-and-continue valve on the `OffCurveBeyondChordBand` gates.
+///
+/// Gate OFF (`YANG_451` unset/`0`): returns `Some(err)` and the caller aborts
+/// exactly as today — byte-identical. `YANG_451=census`: RECORDS the failure
+/// and returns `None`, and the caller SKIPS the vertex's relocation (the
+/// paper's "cannot converge" state — the point keeps its mesh position) so
+/// the sweep completes and the post-sweep selector measures at the paper's
+/// own vantage (§4.5 `:652-656`, failures collected AFTER optimization —
+/// inc-0 measured WHY: a mid-sweep refusal cannot see a bound the sweep has
+/// not reached). The stage still cannot complete: after the census the FIRST
+/// recorded error returns unchanged (P10).
+#[track_caller]
+fn s451_stop(
+    census: bool,
+    failures: &mut Vec<(u32, YangError)>,
+    v: u32,
+    curves0: &std::collections::BTreeMap<(u32, u32), Curve>,
+    inc0: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+) -> Option<YangError> {
+    let err = offcurve_beyond_chord_band(v, curves0, inc0);
+    if census {
+        failures.push((v, err));
+        None
+    } else {
+        Some(err)
+    }
+}
+
+/// §4.5.1 inc-1: the post-sweep selector census at the paper's vantage —
+/// every non-failed vertex is relocated, so "successfully optimized" is
+/// finally well-posed. Per recorded failure (deduped by vertex, sweep
+/// order): clause 1 (Fig-13 carrier reading), I12's all-curve clause-2 walk
+/// (`failed` = the recorded set), and the OWN-CURVE chain with per-vertex
+/// convergence — the region's true extent and its bounds, the §4.5.1/§4.5.2
+/// verdict data. Census-only prints; the caller returns the first error
+/// after this regardless.
+#[allow(clippy::too_many_arguments)]
+fn s451_post_sweep_census(
+    mesh: &Mesh,
+    attribution: &[Option<TriangleAttribution>],
+    a: &BRep,
+    b: &BRep,
+    curves0: &std::collections::BTreeMap<(u32, u32), Curve>,
+    entry: &[[f64; 3]],
+    failures: &[(u32, YangError)],
+) {
+    let patches = build_patch_map(mesh, attribution);
+    let adj = build_live_adjacency(mesh);
+    let failed: std::collections::BTreeSet<u32> = failures.iter().map(|&(v, _)| v).collect();
+    let on_curve = |w: u32| vertex_on_curve(&patches, w);
+    let good = |w: u32| -> bool {
+        !failed.contains(&w)
+            && vertex_converged(mesh, &patches, a, b, w)
+            && !vertex_crossed_domain_endpoint(mesh, attribution, a, b, &adj, entry, w)
+    };
+    eprintln!(
+        "YANG_451_POSTSWEEP failures={} distinct={}",
+        failures.len(),
+        failed.len()
+    );
+    let mut seen: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    for &(v, _) in failures {
+        if !seen.insert(v) {
+            continue;
+        }
+        let pos = mesh.verts[v as usize].as_array();
+        let (ca, cb) = carrier_counts(&patches, a, b, v, pos);
+        let near = ca.max(cb);
+        let class = match near {
+            0 => "unlocated",
+            1 => "INTERIOR",
+            _ => "BOUNDARY",
+        };
+        eprintln!("YANG_451_POSTSWEEP v{v} carrier=(A{ca},B{cb}) clause1={class}");
+        let all_curve = selector_clause2_walk(mesh, attribution, a, b, &adj, v, &on_curve, &good);
+        // OWN-CURVE region: follow edges assigned the SAME analytic curve
+        // VALUE from `v`, each direction, until a `good` vertex (the bound)
+        // or the chain gives out. `LineSegment` is a unit variant (every
+        // segment equal) and cannot key a chain — skipped.
+        let mut own_curves: Vec<Curve> = Vec::new();
+        for (&(s, e), &c) in curves0.iter() {
+            if (s == v || e == v) && c != Curve::LineSegment && !own_curves.contains(&c) {
+                own_curves.push(c);
+            }
+        }
+        let mut bounds_found = 0usize;
+        let mut directions = 0usize;
+        for curve in &own_curves {
+            let nbrs_on = |w: u32| -> Vec<u32> {
+                curves0
+                    .iter()
+                    .filter(|(&(s, e), c)| (s == w || e == w) && *c == curve)
+                    .map(|(&(s, e), _)| if s == w { e } else { s })
+                    .collect()
+            };
+            for start in nbrs_on(v) {
+                directions += 1;
+                let mut region: Vec<u32> = vec![v];
+                let (mut prev, mut cur) = (v, start);
+                let outcome: String = loop {
+                    if good(cur) {
+                        bounds_found += 1;
+                        break format!("bound v{cur} (converged)");
+                    }
+                    region.push(cur);
+                    if region.len() > 128 {
+                        break "cap(128)".to_string();
+                    }
+                    let next: Vec<u32> = nbrs_on(cur).into_iter().filter(|&x| x != prev).collect();
+                    match next.len() {
+                        0 => break "chain ends".to_string(),
+                        1 => {
+                            prev = cur;
+                            cur = next[0];
+                        }
+                        _ => break "own-curve branches".to_string(),
+                    }
+                };
+                eprintln!(
+                    "YANG_451_REGION v{v} via v{start}: len={} members={:?} outcome={outcome}",
+                    region.len(),
+                    &region[..region.len().min(24)]
+                );
+            }
+        }
+        let confirmed = near == 1 && directions == 2 && bounds_found == 2;
+        eprintln!(
+            "YANG_451_POSTSWEEP v{v} VERDICT clause1={class} allcurve_clause2={all_curve} \
+             owncurve_bounds={bounds_found}/{directions} => {}",
+            if confirmed {
+                "§4.5.1 (region bounded both ways on its own curve)"
+            } else {
+                "§4.5.2 (a selector condition fails at the paper's vantage)"
+            }
+        );
+    }
+}
+
 /// PR-YR10: compute the Phase-A structures (adjacency → patches → cycles →
 /// incidence → exact intersection curves) from the current mesh + attribution.
 /// Factored out of `reconstruct_topology` so it can be re-run after a §4.5.3
@@ -4849,6 +4988,13 @@ fn stage4_relocate_and_correct_inner(
     // one check rather than a dozen.
     let s4_entry_pos: Vec<[f64; 3]> = mesh.verts.iter().map(Point3::as_array).collect();
 
+    // §4.5.1 inc-1 census (spec §7): `census` flips every OffCurve gate from
+    // abort-at-first-fire to record-and-skip; the post-sweep census then
+    // reports at the paper's vantage and returns the FIRST recorded error
+    // unchanged. Default: gates abort exactly as today.
+    let s451_census = std::env::var("YANG_451").as_deref() == Ok("census");
+    let mut s45_failures: Vec<(u32, YangError)> = Vec::new();
+
     // d_ε relocation budget (a conic edge implies a curved input ⇒ Some).
     let d_eps = match stage4_chord_band(a, b) {
         Some(de) => de,
@@ -6141,7 +6287,10 @@ fn stage4_relocate_and_correct_inner(
             let sin_theta = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
             let gate = tangent_plane_corridor(d_eps, sin_theta);
             if rho > gate {
-                return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
+                if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                    return Err(e);
+                }
+                continue;
             }
             if std::env::var_os("YANG_RIM_JUNCTION_PROBE").is_some() {
                 eprintln!(
@@ -6402,7 +6551,10 @@ fn stage4_relocate_and_correct_inner(
             // assignment is producer-confirmed, and `project_onto_circle`
             // below is already the distance-minimizing projection onto the
             // exact curve, a certificate the band cannot strengthen.)
-            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
+            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                return Err(e);
+            }
+            continue;
         }
         // Preserve the original combined-max `rho` for the `> TAU_WORK`
         // move-gate so its semantics are unchanged.
@@ -6459,7 +6611,10 @@ fn stage4_relocate_and_correct_inner(
         if rho > gate && !prov_verts.contains(&v) {
             // (Provenance-vouched exemption — spec inc-2 §3c; `j` is the
             // exact circle∩circle corner on both curves by construction.)
-            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
+            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                return Err(e);
+            }
+            continue;
         }
         // `j` is on circle_a by construction; project to get its frame angle `t`
         // for the source retag (positionally exact on both circles either way).
@@ -6522,7 +6677,10 @@ fn stage4_relocate_and_correct_inner(
                     "KV11_PROBE ellipse band reject: v={v} rho={rho:.3e} gate={gate:.3e} p={p:?}"
                 );
             }
-            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
+            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                return Err(e);
+            }
+            continue;
         }
         let (proj, t) = project_onto_ellipse_via_cylinder(p, er)
             .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
@@ -6583,7 +6741,10 @@ fn stage4_relocate_and_correct_inner(
                 );
             }
             if move_len(near_proj) > budget {
-                return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
+                if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                    return Err(e);
+                }
+                continue;
             }
             (near_proj, near_t)
         };
@@ -6751,7 +6912,10 @@ fn stage4_relocate_and_correct_inner(
                     "KV11_PROBE junction band reject: v={v} rho={rho:.3e} gate={gate:.3e} p={p:?} j={j:?}"
                 );
             }
-            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
+            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                return Err(e);
+            }
+            continue;
         }
         let proj = Point3::new(j[0], j[1], j[2]);
         // Param on e_a's ellipse for the source retag (output edges of BOTH
@@ -6910,7 +7074,10 @@ fn stage4_relocate_and_correct_inner(
         let p = mesh.verts[v as usize];
         let rho = cone_ellipse_residual(p, cer);
         if rho > cer.cone_d_eps {
-            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
+            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                return Err(e);
+            }
+            continue;
         }
         let proj = project_onto_cone_section(
             p,
@@ -6957,7 +7124,10 @@ fn stage4_relocate_and_correct_inner(
             cpr.plane_d,
         );
         if rho > cpr.cone_d_eps {
-            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
+            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                return Err(e);
+            }
+            continue;
         }
         let proj = project_onto_cone_section(
             p,
@@ -7007,7 +7177,10 @@ fn stage4_relocate_and_correct_inner(
             chr.plane_d,
         );
         if rho > chr.cone_d_eps {
-            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
+            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                return Err(e);
+            }
+            continue;
         }
         let proj = project_onto_cone_section(
             p,
@@ -7063,7 +7236,10 @@ fn stage4_relocate_and_correct_inner(
         // radial band, and not the global d_ε (whose owner mix is wrong for
         // cylinder×cylinder lines).
         if rho > lr.band_budget {
-            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
+            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                return Err(e);
+            }
+            continue;
         }
         let d = normalize3(lr.dir.as_array());
         let pt = lr.point.as_array();
@@ -7123,7 +7299,10 @@ fn stage4_relocate_and_correct_inner(
         // PR-F3b: line-band component carries the propagated budget; the
         // along-line crossing component stays at the raw d_ε.
         if rho > lr.band_budget + d_eps {
-            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
+            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                return Err(e);
+            }
+            continue;
         }
         let (proj, t) = project_onto_circle(j, center, normal, radius)
             .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
@@ -7176,7 +7355,10 @@ fn stage4_relocate_and_correct_inner(
         let sin_theta = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
         let gate = tangent_plane_corridor(d_eps, sin_theta);
         if rho > gate {
-            return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
+            if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                return Err(e);
+            }
+            continue;
         }
         // Branch 4: `j` is exactly on the line and on the circle's sphere;
         // the circle projection yields the frame angle `t` for the retag
@@ -7223,11 +7405,19 @@ fn stage4_relocate_and_correct_inner(
             eprintln!("YANG_LRR_EXTRA processed-but-not-endpoint v={v}");
         }
     }
-    if processed != endpoint_set || processed != relocation_keys {
+    // §4.5.1 inc-1 census: a RECORDED OffCurve failure is a HANDLED endpoint —
+    // the paper's collected "cannot converge" state — not a silent skip. The
+    // audit's job is catching UNRECORDED skips, so recorded vertices are
+    // subtracted from the expectation. Gate off: the set is empty and the
+    // audit is byte-identical.
+    let s45_failed_set: HashSet<u32> = s45_failures.iter().map(|&(v, _)| v).collect();
+    let endpoint_expectation: HashSet<u32> =
+        endpoint_set.difference(&s45_failed_set).copied().collect();
+    if processed != endpoint_expectation || processed != relocation_keys {
         if std::env::var_os("YANG_LRR_PROBE").is_some() {
             eprintln!(
                 "YANG_LRR_STOP site=no_skip_audit ep_ne_proc={} proc_ne_reloc={}",
-                processed != endpoint_set,
+                processed != endpoint_expectation,
                 processed != relocation_keys
             );
         }
@@ -7362,7 +7552,7 @@ fn stage4_relocate_and_correct_inner(
                 }
             }
         }
-        for (&v, &t_surf) in &vert_torus {
+        'torus_verts: for (&v, &t_surf) in &vert_torus {
             // A torus-edge endpoint that is also a CONIC endpoint mixes the
             // implicit-pair and closed-form relocations — out of v1 scope, STOP.
             if endpoint_set.contains(&v) {
@@ -7478,7 +7668,10 @@ fn stage4_relocate_and_correct_inner(
                 );
             }
             if rho > gate {
-                return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
+                if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                    return Err(e);
+                }
+                continue;
             }
             // Bounded-face containment (KV6d closed torus, spec
             // `kv6d_closed_torus_revolve.md` failure modes): the wedge gate
@@ -7584,7 +7777,13 @@ fn stage4_relocate_and_correct_inner(
                     proj.as_array()[k] >= h[k] - d_eps && proj.as_array()[k] <= h[3 + k] + d_eps
                 });
                 if !inside {
-                    return Err(offcurve_beyond_chord_band(v, &curves0, &inc0));
+                    if let Some(e) = s451_stop(s451_census, &mut s45_failures, v, &curves0, &inc0) {
+                        return Err(e);
+                    }
+                    // Recorded: skip THIS TORUS VERTEX — a plain `continue`
+                    // would only skip the current partner-face check and fall
+                    // through to the relocation write below.
+                    continue 'torus_verts;
                 }
             }
             if rho > cad_primitives::TAU_WORK {
@@ -7592,6 +7791,26 @@ fn stage4_relocate_and_correct_inner(
                 moved.insert(v);
             }
         }
+    }
+
+    // §4.5.1 inc-1 census (spec §7): the sweep completed past recorded
+    // OffCurve failures. Measure the selector at the paper's own vantage —
+    // every non-failed vertex is now relocated — then return the FIRST
+    // recorded error unchanged: the stage cannot complete with unrepaired
+    // failures (P10), and every later pass's precondition (a fully-relocated
+    // mesh) stays intact because none of them run.
+    if !s45_failures.is_empty() {
+        s451_post_sweep_census(
+            mesh,
+            &attribution.attributions,
+            brep_a,
+            brep_b,
+            &curves0,
+            &s4_entry_pos,
+            &s45_failures,
+        );
+        let (_, first) = s45_failures.swap_remove(0);
+        return Err(first);
     }
 
     // (3) §4.5.3 reversed-intersection correction sweep.

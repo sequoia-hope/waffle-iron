@@ -259,3 +259,63 @@ C0065/R0028 (and v4233's far side) at the paper's vantage — the measurement
 Open sub-questions folded in: Q2 (is v4233's region k>1 at the paper's
 vantage?) and the per-site skip-semantics audit are answered by the census
 increment before any repair code runs.
+
+## 8. inc-1 census LANDED and MEASURED (2026-08-22, same session) — the paper-vantage population, and Q2 flipped
+
+The record-and-continue census (§7's structure) is implemented behind
+`YANG_451=census`: every OffCurve gate routes through `s451_stop`
+(record-and-skip under census; byte-identical abort otherwise; the labelled
+`continue 'torus_verts` covers the hull-check site whose plain `continue`
+would have fallen through to the relocation write), the conic no-skip audit
+subtracts recorded failures from its expectation (a recorded failure is the
+paper's collected "cannot converge" state, not a silent skip — audit
+byte-identical when the set is empty), and `s451_post_sweep_census` reports
+clause 1, I12's all-curve clause-2 walk, and the own-curve region per
+failure, then returns the FIRST recorded error unchanged. Default-path
+neutrality verified: yang-rs 1110/0 twice, R0074 + R0003 gate-off details
+byte-identical to canonical.
+
+### The measurement (paper's vantage, three cases)
+
+- **R0003 — unanimous §4.5.1, and the region is BIGGER than the frozen
+  vantage showed.** ~45 failures per invocation (37 cone-ellipse + 8
+  cone-hyperbola sites), 100 % INTERIOR, 100 % bounded both ways on their
+  own conic: contiguous regions of len 1–12 (v4233's region =
+  {v4233..v4240}, 8 vertices, bounds v4167/v4241 both converged —
+  Fig-12(b) drawn). The final propagated error stays v4233
+  OffCurveBeyondChordBand, byte-identical.
+- **Q2 ANSWERED — k>1 regions exist (len up to ~12), so the repair's
+  region-collapse step (§3.3.1) is REQUIRED, not optional.** The k=1
+  shortcut is refuted.
+- **R0028 v64 and C0065's interior failures are §4.5.1 candidates at the
+  paper's vantage after all** — I12's frozen non-confirmations FLIP:
+  `allcurve_clause2=true` (converged bounds on common surfaces exist once
+  the sweep completes). Their `owncurve_bounds=0/0` is an INSTRUMENT
+  LIMITATION, not a verdict: both fire in the TORUS block (rho gate /
+  hull check), whose vertices relocate by implicit surface-pair Newton —
+  their curve is no conic, so `curves0` carries no edges for them and the
+  own-curve reading is structurally empty. The combined verdict line
+  prints §4.5.2 for them only because of that conservative
+  operationalization.
+- **C0065's population splits**: 4 interior (v3, v8, v231, v399 — hull
+  check) = §4.5.1 candidates; 2 boundary gliders (v362, v397, carrier
+  `(A0,B2)`, torus rho gate) = Fig-13-excluded, genuinely §4.5.2.
+- **Continuing past failures unmasks more of the family**: C0065 2→6
+  failures, R0003 2→~90 across invocations. I12's STOP-vertex table was
+  the first-fire tip of each run's iceberg, as predicted by inc-0's
+  "masked behind earlier STOPs" note.
+
+### Consequences for the build
+
+1. The repair increment's first customer stays **R0003** (conic-assigned,
+   fully measured, unanimous). Its regions are k ≤ ~12 → §3.3 step 1 uses
+   the §4.4.1 collapse machinery from the start.
+2. **Torus/surface-pair failures need their own region identity** (the
+   surface PAIR, not a `Curve` value) before they can be repaired — a
+   separate sub-increment after the conic one; until then their STOP
+   stands (they are C0065/R0028's owners).
+3. The corpus-wide census (every case, paper-vantage family enumeration +
+   proof that the first-error propagation is byte-identical corpus-wide)
+   is the next measurement. NOTE: the parallel assay runner nulls child
+   stderr, so enumeration needs the per-case single_case loop (the I11
+   pattern), while the plain corpus run verifies neutrality only.

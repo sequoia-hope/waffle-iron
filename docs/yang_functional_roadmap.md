@@ -584,8 +584,21 @@ name, never measured).
    `max_in_domain_step` truncation + cross-boundary continuation + q1/q2 on
    C_b + §4.3.4 refine; pin R0003; (2) refusal → record-and-continue loop
    conversion (the paper's collect-then-repair, `:652-670`), which also puts
-   the selector at the paper's vantage; (3) §4.5.2 local refinement (the
-   majority owner — completing population 36/36, I9 24/24, plus C0065/R0028).
+   the selector at the paper's vantage; (3) §4.5.2 local refinement.
+   **REVISED the same day by inc-0/inc-1 (spec
+   `yang_451_optimize_across_boundaries.md` §7–8):** inc-0 measured that a
+   mid-sweep refusal cannot see a bound the sweep has not reached (the
+   convergence pattern IS sweep order), so record-and-continue moved from
+   step 2 to the FRAME of step 1 and is LANDED as a census
+   (`YANG_451=census`: gates record-and-skip, post-sweep selector at the
+   paper's vantage, first error returns unchanged; default byte-identical).
+   At the paper's vantage: R0003 = ~45 failures/invocation, 100 % interior
+   + own-conic-bounded (regions len 1–12 ⇒ the repair needs the region
+   collapse from the start); C0065/R0028's frozen-vantage non-confirmations
+   FLIP — their interior failures are §4.5.1 candidates too (torus-carried;
+   need surface-pair region identity, a follow-on sub-increment); only
+   C0065's two boundary gliders are Fig-13-excluded §4.5.2. Next: the conic
+   §4.5.1 repair (R0003 pin), then the corpus-wide paper-vantage census.
    Spec §4-I12.
    Remaining loud refusals: unchartable cone/torus holders (R0044, 13 sites).
    Spec §4-I6, §4-I8, §4-I9.

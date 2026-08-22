@@ -1303,6 +1303,29 @@ flip there; the confirmations cannot. Build order recorded in the spec:
 record-and-continue loop conversion (the paper's collect-then-repair);
 (3) §4.5.2. Full detail: `specs/yang_441_trim_cdt_construction.md` §4-I12.
 
+
+### §4.5.1 inc-0/inc-1 census (2026-08-22, later the same day): record-and-continue landed; at the PAPER's vantage the family is larger and MORE §4.5.1-shaped
+
+`YANG_451=census` flips the 14 `OffCurveBeyondChordBand` gates from
+abort-at-first-fire to record-and-skip; the sweep completes, the post-sweep
+selector measures at the paper's own vantage (§4.5 collects failures AFTER
+optimization), and the FIRST recorded error returns unchanged (default and
+corpus byte-identical — R0074/R0003 details verified; yang-rs 1110/0).
+
+| case | paper-vantage failures | verdicts |
+|---|---|---|
+| R0003 | ~45/invocation (regions len 1–12, v4233's = 8 verts bounded by v4167/v4241) | **100 % §4.5.1** (interior + own-conic bounds both ways) |
+| C0065 | 6 across 2 invocations (2→6 unmasked) | 4 interior = §4.5.1 candidates (torus-carried); 2 boundary gliders = §4.5.2 (Fig-13) |
+| R0028 | 1 (v64) | interior + all-curve bounds TRUE ⇒ §4.5.1 candidate (torus-carried) |
+
+**I12's frozen-vantage non-confirmations FLIP at the paper's vantage** — as
+I12 (c) predicted they could. The torus-carried candidates' `owncurve 0/0`
+is an instrument limit (surface-pair vertices have no `curves0` conic), not
+a verdict. Build order: conic repair (R0003 pin, k≤12 regions ⇒ collapse
+step required) → surface-pair region identity → §4.5.2 for the genuine
+boundary gliders. Full detail: `specs/yang_451_optimize_across_boundaries.md`
+§7–8.
+
 ## Stage-6 non-2-manifold site census (2026-08-19, post-5c.13) — the second absolute-floor anchor
 
 `NONMANIFOLD_SITE_PROBE` over the nine `reassembled output would be
