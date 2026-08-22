@@ -463,3 +463,41 @@ Next increment, precisely scoped: extract the torus block's planar-hull
 check for reuse → preview the hull verdict on the pair-Newton projections →
 build the torus-region repair only where BOTH halves pass (expected
 customer: R0028; expected decline: C0065 → #137).
+
+## 13. inc-3b — the TORUS-REGION arm LANDED (2026-08-22, same session): R0028 clears Stage 4; C0065 refused by its own hull, as measured
+
+The plan gained an own-curve-less arm: when the failure's pair traces no
+`Curve` conic, region and bounds come from the intersection-curve graph
+(`selector_clause2_walk`'s bounds — k = 1 only, both bounds must be DIRECT
+curve neighbours; no measured k>1 torus customer) and the re-optimization is
+`relocate_onto_implicit_pair` from the bounds' midpoint. Acceptance = the
+SAME three-part reading the torus gate uses: shared certificate on both pair
+surfaces + region scale + the owner-face hull —
+`planar_partner_hull_contains`, EXTRACTED from the torus block's inline
+check (pure refactor; C0065 + R0015 off-mode details byte-identical through
+the extracted fn). Torus repairs carry `retag: None` (the torus arm records
+no `t`; bookkeeping is `moved` only, mirroring the block).
+
+Measured under the flipped default:
+
+- **R0028**: v64 repairs (k=1), **Stage 4 CLEARS**, and the case advances to
+  `VertexOffSurface { FaceId(32) }` — FaceId 32 is R0028's OWN long-recorded
+  developable-ring face (ledger: "ring rejected by CDT (FaceId 32),
+  developable patch, closure fold"). The masked latent is the case's known
+  next wall, surfacing one strict-validation layer above the recorded CDT
+  reject.
+- **C0065**: v8's repair is REFUSED by the hull on the wall plane
+  `Plane { normal: [1,0,0], d: -1.45 }` — §12's prediction, now enforced by
+  the repair's own acceptance — and the case keeps its byte-identical
+  original error. v3 declines separately (4 all-curve bounds — the degree-4
+  junction). **C0065 → #137 is now triply anchored**: the ledger diagnosis,
+  the §12 preview, and the live repair's decline.
+
+Corpus proof (same day): **265C/0W/43E/1EE/0T with exactly ONE baseline
+delta — R0028's detail row** (Stage-4 OffCurve v64 → VertexOffSurface
+FaceId 32); every other case byte-identical, C0065 included. The new wall's
+FACE matches R0028's recorded developable-ring defect; the gate differs
+(strict-validation VertexOffSurface vs the recorded CDT ring reject), so the
+family match is anchored by the face id and the vertex-level anchor (which
+vertex, off which surface) is the case's next investigation — recorded, not
+assumed. Baseline updated in the inc-3b commit.

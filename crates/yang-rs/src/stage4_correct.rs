@@ -496,7 +496,10 @@ struct S451PlannedRepair {
     survivor: u32,
     victims: Vec<u32>,
     proj: Point3,
-    t: f64,
+    /// Conic repairs carry the curve param for the `relocations` retag; the
+    /// torus-region arm carries `None` — the torus block records no retag
+    /// (its bookkeeping is `moved` only), and the repair mirrors its arm.
+    retag: Option<f64>,
 }
 
 /// §4.5.1 inc-2b — the DRIFT-region repair, planned read-only.
@@ -569,6 +572,109 @@ fn s451_plan_repairs(
             if (s == v || e == v) && c != Curve::LineSegment && !own_curves.contains(&c) {
                 own_curves.push(c);
             }
+        }
+        if own_curves.is_empty() {
+            // §4.5.1 inc-3 TORUS-REGION arm (spec §12–13): the failure's pair
+            // traces no `Curve` conic (torus-carried), so region and bounds
+            // come from the intersection-curve graph and the re-optimization
+            // is the torus block's own implicit-pair Newton — accepted by the
+            // SAME three-part reading its gate uses: shared certificate,
+            // region scale, and the owner-face hull
+            // (`planar_partner_hull_contains`, the extracted gate reading).
+            // k = 1 only: both bounds must be DIRECT curve neighbours of the
+            // failure — no measured k>1 torus customer.
+            let on_curve = |w: u32| vertex_on_curve(&patches, w);
+            let Some((walk_bounds, common)) =
+                selector_clause2_walk(mesh, attribution, a, b, &adj, v, &on_curve, &good)
+            else {
+                eprintln!("YANG_451_REPAIR v{v} DECLINE torus arm: clause 2 fails");
+                return Err(());
+            };
+            let [w0, w1] = walk_bounds[..] else {
+                eprintln!(
+                    "YANG_451_REPAIR v{v} DECLINE torus arm: {} bounds (need 2)",
+                    walk_bounds.len()
+                );
+                return Err(());
+            };
+            let direct = |w: u32| adj.get(&v).is_some_and(|nb| nb.contains(&w)) && on_curve(w);
+            if !(direct(w0) && direct(w1)) {
+                eprintln!("YANG_451_REPAIR v{v} DECLINE torus arm: region k > 1");
+                return Err(());
+            }
+            let p0 = mesh.verts[w0 as usize].as_array();
+            let p1 = mesh.verts[w1 as usize].as_array();
+            let mid = [
+                (p0[0] + p1[0]) * 0.5,
+                (p0[1] + p1[1]) * 0.5,
+                (p0[2] + p1[2]) * 0.5,
+            ];
+            let pair: Option<(Surface, Surface)> = match common[..] {
+                [s0, s1] => Some((s0, s1)),
+                [s0] => {
+                    let (va, vb) = carrier_surface_sets(&patches, a, b, v, pos);
+                    va.into_iter()
+                        .chain(vb)
+                        .find(|s| *s != s0)
+                        .map(|s1| (s0, s1))
+                }
+                _ => None,
+            };
+            let Some((s0, s1)) = pair else {
+                eprintln!(
+                    "YANG_451_REPAIR v{v} DECLINE torus arm: no usable pair (common={})",
+                    common.len()
+                );
+                return Err(());
+            };
+            let Some(proj) =
+                relocate_onto_implicit_pair(Point3::new(mid[0], mid[1], mid[2]), s0, s1)
+            else {
+                eprintln!("YANG_451_REPAIR v{v} DECLINE torus arm: pair Newton diverged");
+                return Err(());
+            };
+            let pa2 = proj.as_array();
+            for s in [s0, s1] {
+                let ok = surface_distance_and_normal(s, pa2)
+                    .is_some_and(|(x, _)| x.abs() <= junction_certificate_band(pa2, s));
+                if !ok {
+                    eprintln!("YANG_451_REPAIR v{v} DECLINE torus arm: certificate fails on {s:?}");
+                    return Err(());
+                }
+            }
+            let chord = dist3(p0, p1);
+            if dist3(pa2, mid) > chord {
+                eprintln!(
+                    "YANG_451_REPAIR v{v} DECLINE torus arm: projection left the region                      scale (|proj-mid|={:.3e} > |bounds|={:.3e})",
+                    dist3(pa2, mid),
+                    chord
+                );
+                return Err(());
+            }
+            let Some(d_eps) = stage4_chord_band(a, b) else {
+                eprintln!("YANG_451_REPAIR v{v} DECLINE torus arm: no chord band");
+                return Err(());
+            };
+            for s in [s0, s1] {
+                if planar_partner_hull_contains(a, b, s, pa2, d_eps) == Some(false) {
+                    eprintln!(
+                        "YANG_451_REPAIR v{v} DECLINE torus arm: owner-face hull refuses                          on {s:?}"
+                    );
+                    return Err(());
+                }
+            }
+            eprintln!(
+                "YANG_451_REPAIR torus region k=1 survivor=v{v} bounds=(v{w0},v{w1})                  proj=({:.9},{:.9},{:.9})",
+                pa2[0], pa2[1], pa2[2]
+            );
+            consumed.insert(v);
+            plans.push(S451PlannedRepair {
+                survivor: v,
+                victims: Vec::new(),
+                proj,
+                retag: None,
+            });
+            continue;
         }
         let [curve] = own_curves[..] else {
             eprintln!(
@@ -771,7 +877,7 @@ fn s451_plan_repairs(
             survivor,
             victims,
             proj,
-            t,
+            retag: Some(t),
         });
     }
     // Every recorded failure must belong to a planned region — a failure the
@@ -788,6 +894,90 @@ fn s451_plan_repairs(
 
 fn dist3(p: [f64; 3], q: [f64; 3]) -> f64 {
     ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()
+}
+
+/// The torus block's owner-face containment reading, EXTRACTED (§4.5.1
+/// inc-3) so the torus-region repair applies the SAME acceptance its gate
+/// uses — one reading, two callers, no drift.
+///
+/// For a PLANAR `partner` surface: a conservative AABB over every matching
+/// face of either input — loop vertices plus each boundary CURVE's own
+/// extent (a disk's loop is one closed circle through a single anchor
+/// vertex, so vertex hulls under-bound curved loops — the t134 trap).
+/// Returns `Some(inside)` when a bounded hull exists; `None` = NO VERDICT
+/// (non-planar partner, a loop curve without a cheap conservative bound, or
+/// no matching input face) — callers must treat `None` as "no wall",
+/// exactly as the gate always has (defensive: never a false wall).
+fn planar_partner_hull_contains(
+    a: &BRep,
+    b: &BRep,
+    partner: Surface,
+    pos: [f64; 3],
+    d_eps: f64,
+) -> Option<bool> {
+    let Surface::Plane { .. } = partner else {
+        return None;
+    };
+    let mut hull: Option<[f64; 6]> = None;
+    for brep in [a, b] {
+        for face in brep.faces() {
+            if face.surface != partner {
+                continue;
+            }
+            let mut lo = [f64::MAX; 3];
+            let mut hi = [f64::MIN; 3];
+            for &e in face
+                .outer_loop
+                .iter()
+                .chain(face.inner_loops.iter().flatten())
+            {
+                let ed = &brep.edges()[e as usize];
+                for vid in [ed.start, ed.end] {
+                    let q = brep.vertices()[vid as usize].point.as_array();
+                    for k in 0..3 {
+                        lo[k] = lo[k].min(q[k]);
+                        hi[k] = hi[k].max(q[k]);
+                    }
+                }
+                match ed.curve {
+                    Curve::LineSegment => {}
+                    Curve::Circle {
+                        center,
+                        normal,
+                        radius,
+                    } => {
+                        let c = center.as_array();
+                        let n = normalize3(normal.as_array());
+                        for k in 0..3 {
+                            let ext = radius * (1.0 - n[k] * n[k]).max(0.0).sqrt();
+                            lo[k] = lo[k].min(c[k] - ext);
+                            hi[k] = hi[k].max(c[k] + ext);
+                        }
+                    }
+                    Curve::Ellipse {
+                        center,
+                        major_radius,
+                        ..
+                    } => {
+                        let c = center.as_array();
+                        for k in 0..3 {
+                            lo[k] = lo[k].min(c[k] - major_radius);
+                            hi[k] = hi[k].max(c[k] + major_radius);
+                        }
+                    }
+                    _ => return None,
+                }
+            }
+            let h =
+                hull.get_or_insert([f64::MAX, f64::MAX, f64::MAX, f64::MIN, f64::MIN, f64::MIN]);
+            for k in 0..3 {
+                h[k] = h[k].min(lo[k]);
+                h[3 + k] = h[3 + k].max(hi[k]);
+            }
+        }
+    }
+    let h = hull?;
+    Some((0..3).all(|k| pos[k] >= h[k] - d_eps && pos[k] <= h[3 + k] + d_eps))
 }
 
 /// PR-YR10: compute the Phase-A structures (adjacency → patches → cycles →
@@ -8215,94 +8405,12 @@ fn stage4_relocate_and_correct_inner(
             // the honest fix). Planes only: a planar face's loop hull bounds
             // the face (curved hulls under-bound — closed seam loops).
             for partner in partners {
-                let Surface::Plane { .. } = partner else {
-                    continue;
-                };
-                // Per matching face: an AABB that BOUNDS the face — loop
-                // vertices plus each boundary CURVE's own extent (a disk's
-                // loop is one closed circle through a single anchor vertex,
-                // so vertex hulls under-bound curved loops — the t134 trap).
-                // A loop curve without a cheap conservative bound makes the
-                // face unbounded → the whole partner check is skipped
-                // (defensive: no verdict, never a false wall).
-                let mut hull: Option<[f64; 6]> = None;
-                let mut unbounded = false;
-                'faces: for brep in [a, b] {
-                    for face in brep.faces() {
-                        if face.surface != *partner {
-                            continue;
-                        }
-                        let mut lo = [f64::MAX; 3];
-                        let mut hi = [f64::MIN; 3];
-                        for &e in face
-                            .outer_loop
-                            .iter()
-                            .chain(face.inner_loops.iter().flatten())
-                        {
-                            let ed = &brep.edges()[e as usize];
-                            for vid in [ed.start, ed.end] {
-                                let q = brep.vertices()[vid as usize].point.as_array();
-                                for k in 0..3 {
-                                    lo[k] = lo[k].min(q[k]);
-                                    hi[k] = hi[k].max(q[k]);
-                                }
-                            }
-                            match ed.curve {
-                                Curve::LineSegment => {}
-                                Curve::Circle {
-                                    center,
-                                    normal,
-                                    radius,
-                                } => {
-                                    let c = center.as_array();
-                                    let n = normalize3(normal.as_array());
-                                    for k in 0..3 {
-                                        let ext = radius * (1.0 - n[k] * n[k]).max(0.0).sqrt();
-                                        lo[k] = lo[k].min(c[k] - ext);
-                                        hi[k] = hi[k].max(c[k] + ext);
-                                    }
-                                }
-                                Curve::Ellipse {
-                                    center,
-                                    major_radius,
-                                    ..
-                                } => {
-                                    let c = center.as_array();
-                                    for k in 0..3 {
-                                        lo[k] = lo[k].min(c[k] - major_radius);
-                                        hi[k] = hi[k].max(c[k] + major_radius);
-                                    }
-                                }
-                                _ => {
-                                    unbounded = true;
-                                    break 'faces;
-                                }
-                            }
-                        }
-                        let h = hull.get_or_insert([
-                            f64::MAX,
-                            f64::MAX,
-                            f64::MAX,
-                            f64::MIN,
-                            f64::MIN,
-                            f64::MIN,
-                        ]);
-                        for k in 0..3 {
-                            h[k] = h[k].min(lo[k]);
-                            h[3 + k] = h[3 + k].max(hi[k]);
-                        }
-                    }
-                }
-                if unbounded {
-                    continue;
-                }
-                let Some(h) = hull else {
-                    continue; // no matching input face (defensive): no verdict
-                };
-                let inside = (0..3).all(|k| {
-                    proj.as_array()[k] >= h[k] - d_eps && proj.as_array()[k] <= h[3 + k] + d_eps
-                });
-                if !inside {
+                // The containment reading lives in `planar_partner_hull_contains`
+                // (extracted for the §4.5.1 torus-region repair — one reading,
+                // two callers). `None` = no verdict = no wall, as always.
+                if planar_partner_hull_contains(a, b, *partner, proj.as_array(), d_eps)
+                    == Some(false)
+                {
                     if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0)
                     {
                         return Err(e);
@@ -8354,8 +8462,10 @@ fn stage4_relocate_and_correct_inner(
                         }
                         mesh.verts[plan.survivor as usize] = plan.proj;
                         moved.insert(plan.survivor);
-                        processed.insert(plan.survivor);
-                        relocations.push((plan.survivor, plan.t));
+                        if let Some(t) = plan.retag {
+                            processed.insert(plan.survivor);
+                            relocations.push((plan.survivor, t));
+                        }
                     }
                     eprintln!(
                         "YANG_451_REPAIR applied {} region repair(s); stage continues",
