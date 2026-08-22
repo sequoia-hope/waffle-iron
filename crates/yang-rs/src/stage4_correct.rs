@@ -235,7 +235,9 @@ fn s451_post_sweep_census(
             _ => "BOUNDARY",
         };
         eprintln!("YANG_451_POSTSWEEP v{v} carrier=(A{ca},B{cb}) clause1={class}");
-        let all_curve = selector_clause2_walk(mesh, attribution, a, b, &adj, v, &on_curve, &good);
+        let all_curve_data =
+            selector_clause2_walk(mesh, attribution, a, b, &adj, v, &on_curve, &good);
+        let all_curve = all_curve_data.is_some();
         // OWN-CURVE region: follow edges assigned the SAME analytic curve
         // VALUE from `v`, each direction, until a `good` vertex (the bound)
         // or the chain gives out. `LineSegment` is a unit variant (every
@@ -388,6 +390,86 @@ fn s451_post_sweep_census(
                         "YANG_451_PREVIEW v{v} shared pair is not cone+plane \
                          ({} shared surfaces) — no closed-form preview in census",
                         all_shared.len()
+                    );
+                }
+            }
+        }
+        // §4.5.1 inc-3 preview (spec §12): failures with NO own-curve chain
+        // (torus-carried — their pair traces no `Curve` conic) preview via the
+        // ALL-CURVE walk's bounds and the implicit-pair Newton, the same arm
+        // the torus block relocates with. The pair: the bounds' two common
+        // surfaces when there are two; else the single common surface plus a
+        // carrier surface of the traveller. Certificate + region-scale sanity
+        // only — the owner-face hull verdict (C0065's own gate) is NOT
+        // previewed and stays with the repair increment.
+        if directions == 0 {
+            if let Some((walk_bounds, common)) = &all_curve_data {
+                if let [w0, w1] = walk_bounds[..] {
+                    let key = (w0.min(w1), w0.max(w1));
+                    if previewed.insert(key) {
+                        let p0 = mesh.verts[w0 as usize].as_array();
+                        let p1 = mesh.verts[w1 as usize].as_array();
+                        let mid = [
+                            (p0[0] + p1[0]) * 0.5,
+                            (p0[1] + p1[1]) * 0.5,
+                            (p0[2] + p1[2]) * 0.5,
+                        ];
+                        let pair: Option<(Surface, Surface)> = match common[..] {
+                            [s0, s1] => Some((s0, s1)),
+                            [s0] => {
+                                let (va, vb) = carrier_surface_sets(&patches, a, b, v, pos);
+                                va.into_iter()
+                                    .chain(vb)
+                                    .find(|s| *s != s0)
+                                    .map(|s1| (s0, s1))
+                            }
+                            _ => None,
+                        };
+                        match pair {
+                            Some((s0, s1)) => {
+                                match relocate_onto_implicit_pair(
+                                    Point3::new(mid[0], mid[1], mid[2]),
+                                    s0,
+                                    s1,
+                                ) {
+                                    Some(proj) => {
+                                        let pn = proj.as_array();
+                                        let mut cert = true;
+                                        let mut dists = String::new();
+                                        for s in [s0, s1] {
+                                            let dd = surface_distance_and_normal(s, pn)
+                                                .map(|(x, _)| x.abs());
+                                            let band = junction_certificate_band(pn, s);
+                                            cert &= dd.is_some_and(|x| x <= band);
+                                            dists.push_str(&format!(" d={dd:?}/band={band:.3e}"));
+                                        }
+                                        let chord = dist3(p0, p1);
+                                        let scale_ok = dist3(pn, mid) <= chord;
+                                        eprintln!(
+                                            "YANG_451_PREVIEW v{v} pair_newton \
+                                             bounds=(v{w0},v{w1}) \
+                                             proj=({:.9},{:.9},{:.9}) certificate={cert} \
+                                             scale_ok={scale_ok}{dists}",
+                                            pn[0], pn[1], pn[2]
+                                        );
+                                    }
+                                    None => eprintln!(
+                                        "YANG_451_PREVIEW v{v} pair_newton \
+                                         bounds=(v{w0},v{w1}) NEWTON DIVERGED"
+                                    ),
+                                }
+                            }
+                            None => eprintln!(
+                                "YANG_451_PREVIEW v{v} pair_newton: no usable pair \
+                                 (common={})",
+                                common.len()
+                            ),
+                        }
+                    }
+                } else {
+                    eprintln!(
+                        "YANG_451_PREVIEW v{v} pair_newton: {} all-curve bounds (need 2)",
+                        walk_bounds.len()
                     );
                 }
             }
@@ -4752,8 +4834,11 @@ fn vertex_crossed_domain_endpoint(
 /// such a bound; no recorded measurement is affected — every §4-I10 site
 /// reported distinct bound ids.)
 ///
-/// Census-only; prints under `YANG_S45_SELECT` and returns whether the first
-/// strategy's clause holds.
+/// Census-only; prints under `YANG_S45_SELECT`. Returns `Some((bounds,
+/// common))` — the distinct bound vertices and their common surfaces — when
+/// the first strategy's clause holds (≥2 distinct bounds sharing ≥1
+/// surface), else `None`. The §4.5.1 inc-3 pair-Newton preview consumes the
+/// bounds for failures whose own-curve chain is empty (torus-carried).
 #[allow(clippy::too_many_arguments)]
 fn selector_clause2_walk(
     mesh: &Mesh,
@@ -4764,7 +4849,7 @@ fn selector_clause2_walk(
     v: u32,
     on_curve: &dyn Fn(u32) -> bool,
     good: &dyn Fn(u32) -> bool,
-) -> bool {
+) -> Option<(Vec<u32>, Vec<Surface>)> {
     let empty_adj: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     let curve_nbrs = |w: u32| -> Vec<u32> {
         adj.get(&w)
@@ -4818,7 +4903,7 @@ fn selector_clause2_walk(
              requires two",
             bounds.len()
         );
-        return false;
+        return None;
     }
     // "on the same surface". Where the curve neighbourhood has degree > 2
     // the choice of WHICH two bounds must not decide the verdict, so
@@ -4866,7 +4951,11 @@ fn selector_clause2_walk(
     for surf in &common {
         eprintln!("YANG_S45_SELECT     v{v} common surface {surf:?}");
     }
-    !common.is_empty()
+    if common.is_empty() {
+        None
+    } else {
+        Some((bounds.iter().map(|&(w, _)| w).collect(), common))
+    }
 }
 
 /// §4-I10 (d) — the paper's §4.5 STRATEGY SELECTOR, measured.
@@ -4956,7 +5045,7 @@ fn strategy_selection_census(
             );
             continue;
         }
-        selector_clause2_walk(mesh, attribution, a, b, adj, v, on_curve, &good);
+        let _ = selector_clause2_walk(mesh, attribution, a, b, adj, v, on_curve, &good);
     }
 }
 
@@ -5361,7 +5450,8 @@ pub(crate) fn stage4_relocate_and_correct(
                     *vertex,
                     &on_curve,
                     &good,
-                );
+                )
+                .is_some();
                 eprintln!(
                     "YANG_S45_SELECT v{vertex} vantage=stopped i9_style_crossers_skipped={} \
                      COMBINED clause1={class} clause2_first_strategy={first} => {}",

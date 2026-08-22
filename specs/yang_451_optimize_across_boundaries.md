@@ -434,3 +434,32 @@ The canonical baseline (`results.json`) is updated in the flip commit with
 R0003's new detail — the recorded wall now names the true next owner (the
 developable-ring fold family) instead of the repaired one. Canonical score
 stays **265C/0W/43E/1EE/0T**.
+
+## 12. inc-3 preview — the pair-Newton half for the TORUS-CARRIED candidates; C0065 measured OUT of §4.5.1 (2026-08-22, same session)
+
+`selector_clause2_walk` now returns its bounds + common surfaces (prints
+unchanged — R0074 census parity byte-identical), and the post-sweep census
+previews own-curve-less failures via `relocate_onto_implicit_pair` from the
+bounds' midpoint (pair = the two common surfaces, or the single common one
+plus a traveller carrier surface). Certificate + region-scale sanity only —
+the owner-face HULL half of acceptance is deliberately not previewed.
+
+Measured:
+
+- **R0028 v64**: pair-Newton certificates at ~1e-18 with scale_ok — a
+  genuine repair candidate pending the face-domain verdict.
+- **C0065 v8/v231/v399**: certificate=true, scale_ok=true — and the
+  projections land at `x = 1.450000000` exactly, `|y| ∈ [0.348, 0.374]`,
+  against the case's long-recorded anchor: the wall face at x=1.45 spans
+  `|y| ≤ 0.25`. The pair-Newton answer is ON both surfaces and OUTSIDE the
+  bounded face — the midpoint re-initialization does NOT rescue C0065; its
+  true curve segment between the bounds runs outside the face, which is the
+  #137 grazing-loop / corner-insert diagnosis its ledger row has carried
+  since N-137.1. **C0065 is measured OUT of the §4.5.1 repair** (the hull
+  acceptance would refuse), not merely deferred. v3 (degree-4 junction, 4
+  all-curve bounds) and the boundary gliders decline the 2-bound preview.
+
+Next increment, precisely scoped: extract the torus block's planar-hull
+check for reuse → preview the hull verdict on the pair-Newton projections →
+build the torus-region repair only where BOTH halves pass (expected
+customer: R0028; expected decline: C0065 → #137).

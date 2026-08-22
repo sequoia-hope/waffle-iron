@@ -1330,7 +1330,7 @@ by two mutations, and measured on the pin — R0003 repairs 11/11 regions
 to the KV9-F2 developable unroll fold (FaceId 435, cone tan 2.3961 — NONE of
 the repaired cones, so a masked latent of the developable-ring family, not a
 mint). R0028/C0065 decline cleanly to their original errors (torus-carried).
-**FLIPPED ALWAYS-ON the same day (spec §11): default corpus = category-identical with exactly ONE explained detail delta (R0003 → the KV9-F2 fold it unmasks); every other case byte-identical; `YANG_451=0` restores the abort. Baseline results.json updated with R0003's new detail.** Full detail:
+**inc-3 preview (spec §12): the pair-Newton half certificates for the torus-carried candidates, and C0065 is measured OUT of §4.5.1 — its midpoint projections land at x=1.450, |y|≈0.35-0.37, outside the wall face's |y| ≤ 0.25: the #137 corner-insert diagnosis confirmed by the repair path itself. R0028 v64 stays a candidate pending the face-domain verdict.** **FLIPPED ALWAYS-ON the same day (spec §11): default corpus = category-identical with exactly ONE explained detail delta (R0003 → the KV9-F2 fold it unmasks); every other case byte-identical; `YANG_451=0` restores the abort. Baseline results.json updated with R0003's new detail.** Full detail:
 `specs/yang_451_optimize_across_boundaries.md` §7–11.
 
 ## Stage-6 non-2-manifold site census (2026-08-19, post-5c.13) — the second absolute-floor anchor
