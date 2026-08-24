@@ -1,8 +1,8 @@
 {
-  "errored": 43,
+  "errored": 40,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 265,
+  "passed": 267,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -149,10 +149,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(584), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0025",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -167,10 +167,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(29), reason: \"torus patch UV-CDT failed (self-intersecting projection / seam-crossing patch)\" }. Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0028",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -191,10 +191,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 089554e1-2746-405d-9c0d-70e00e9097a2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: ab4df593-6e6f-47f8-aeca-66f2bf645d12: operation error: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(593) [curved lateral is a torus with a non-structured outer loop and no inner loop (Slice-F CDT re-entry needs a wrapping inner profile)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0032",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "SUPPORTED_CORRECT",

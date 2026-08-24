@@ -96,6 +96,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N56 | PERMANENT (B) | `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the so… |
 | N57 | PERMANENT (P5) | #178 sub-resolution coplanar-gap STOP: cross pair of DISTINCT parallel planes (gap above rounding noise) re… |
 | N58 | RESOLVED by user directive 2026-07-21 (criterion swapped to the paper's own §4.3.4 h/l/α test, d_p=1e-7=TAU_MODEL) | #169 P3b inc-4c: Stage-4 post-merge fan re-CDT + seam-order canonicalization (§4.4.1/§4.3); chain-sample drop now uses Yang's published refinement acceptance test |
+| N59 | RESOLVED 2026-08-24 (same-session fix; P5 convention) | §4.5.3 reversal sweep covered TYPED chains only — pair-relocated (untyped) chains never swept; fixed by the pair-site arm (spec `yang_453_pair_chain_reversal.md`), R0028+R0025 convert, R0032 advances to a NotSupported boundary |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -3603,6 +3604,43 @@ The 24 Case D missing triangles are presumably the ones spade chose differently 
 **Deviation magnitude:** Scope (Bézier-specific algorithm). Becomes a structural deviation when D14 (NURBS support) is closed.
 
 ---
+
+### N59 — §4.5.3 reversal sweep covered TYPED chains only; pair-relocated (untyped) chains were never swept
+
+**State:** RESOLVED 2026-08-24 (same-session discovery and fix; spec
+`yang_453_pair_chain_reversal.md`; P5 convention — red/green by census-vs-act
+on the pin plus the byte-identical off-knob, full assay: 265→267 C, 0 WRONG,
+three explained deltas — R0028 + R0025 (both recorded ring-fold cases,
+ERROR→SUPPORTED_CORRECT, all oracles) and R0032 (the Stage-6 double-cover
+wall peeled; the chain advances to the recognized curved partial-patch
+NotSupported boundary — ERROR→UNSUPPORTED(curved-profile))).
+
+- **Code:** `stage4_correct/reversal.rs` `sweep_reversed_intersections`.
+- **Paper:** §4.5.3 (`refs/text/yang2025_hybrid_boolean.txt:700-745`) — the
+  reversed-intersection correction is stated for the optimized intersection
+  polyline generally; Fig. 15's accurate tangent `n_A × n_B` is
+  surface-agnostic.
+- **Was:** the sweep tested all-conic cycles (angle band), mixed-cycle
+  straight runs (`LineSegment`-typed, angle band), and shared-conic sites
+  (#145, exact parameter order). Edges relocated by the torus block's
+  implicit-pair/triple Newton carry NO `Curve` entry: untyped sites always
+  fell into the shared-conic `continue`, and a fully-quartic boundary cycle
+  was not even collected (`any_intersection` demanded a typed edge).
+- **Consequence:** pair-Newton relocation projects onto the INFINITE pair
+  curve; near a junction the nearest point can lie past the domain endpoint
+  (R0028: v66/v67 entered Stage 4 at cap −3.6e-5, relocated to +2.0e-4 —
+  within the corridor gate), producing an out-of-order tail the un-extended
+  sweep never corrected — surfacing three stages later as the recorded
+  developable-ring closure fold ("ring rejected by CDT" / torus UV-CDT).
+- **Now:** pair sites (both edges untyped, Phase-A incidence dedups to the
+  SAME both-input 2-surface pair) are tested by progression sign along
+  `n₀ × n₁` (`d1·d2 < 0` — the #145 parameter test's general-surface form;
+  the angle band stays out, its coarse-chord false positives being
+  P10-disproven), victim = p_r with the tangent-nearer survivor, through the
+  existing resolution gate / junction-protected collapse / restart path.
+  Junction safety is structural: eligibility makes p_r chain-interior.
+  `YANG_453_PAIR`: unset/1 = on, 0/off = off-knob, census = report-only.
+
 
 ## HISTORICAL — investigation journal (diagnoses, refutations, superseded mechanisms)
 

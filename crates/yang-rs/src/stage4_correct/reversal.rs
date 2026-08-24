@@ -22,6 +22,15 @@ pub(crate) fn sweep_reversed_intersections(
     let lo = std::f64::consts::FRAC_PI_4 - ANG_TOL; // 45° − tol
     let hi = 3.0 * std::f64::consts::FRAC_PI_4 + ANG_TOL; // 135° + tol
 
+    // Spec `yang_453_pair_chain_reversal` §4 (FLIPPED ALWAYS-ON 2026-08-24
+    // after the gated corpus run: R0028 ERROR→CORRECT, every other case
+    // byte-identical): unset/`1` = act; `0`/`off` = the dev A/B off-knob;
+    // `census` = report pair-site reversals, never act.
+    let pair_arm = std::env::var("YANG_453_PAIR");
+    let pair_arm_census = matches!(pair_arm.as_deref(), Ok("census"));
+    let pair_arm_act =
+        !pair_arm_census && !matches!(pair_arm.as_deref(), Ok("0") | Ok("off"));
+
     let mut collapsed_any = false;
     // Bound the outer restart loop by the initial triangle count (each pass
     // either makes progress by collapsing ≥1 triangle or terminates).
@@ -71,7 +80,22 @@ pub(crate) fn sweep_reversed_intersections(
                             | Some(Curve::LineSegment)
                     )
                 });
-                if !any_intersection {
+                // Spec `yang_453_pair_chain_reversal` §3: under the pair arm,
+                // an UNTYPED both-input edge (a pair-relocated intersection
+                // edge — e.g. torus∩cylinder) also qualifies the cycle; a
+                // fully-quartic boundary has no typed edge at all and was
+                // invisible to the sweep. `YANG_453_PAIR=0|off` restores the
+                // pre-arm collection byte-identically.
+                let any_pair = (pair_arm_act || pair_arm_census)
+                    && cycle.iter().any(|&(s, e)| {
+                        let key = if s < e { (s, e) } else { (e, s) };
+                        !curves.contains_key(&key)
+                            && incidence.get(&key).is_some_and(|entries| {
+                                entries.iter().any(|&(i, _)| i == InputId::A)
+                                    && entries.iter().any(|&(i, _)| i == InputId::B)
+                            })
+                    });
+                if !(any_intersection || any_pair) {
                     continue;
                 }
                 // Spec §3c final scope: ALL-CONIC cycles keep the pre-§3c
@@ -126,9 +150,29 @@ pub(crate) fn sweep_reversed_intersections(
                 if !all_conic {
                     let key_n = if p_r < p_n { (p_r, p_n) } else { (p_n, p_r) };
                     let key_b = if p_b < p_r { (p_b, p_r) } else { (p_r, p_b) };
-                    let both_line = matches!(curves.get(&key_n), Some(Curve::LineSegment))
-                        && matches!(curves.get(&key_b), Some(Curve::LineSegment));
-                    if !both_line {
+                    // Spec `yang_453_pair_chain_reversal` §3: BOTH incident
+                    // edges untyped ⇒ a candidate PAIR site (the torus-block
+                    // population, never previously swept). Gated; every path
+                    // here ends by setting the victim or skipping the site —
+                    // the typed arms below never see untyped edges (their
+                    // matches! on `Some(..)` are false for `None`, so today
+                    // these sites die in the shared-conic `continue`).
+                    if !curves.contains_key(&key_n) && !curves.contains_key(&key_b) {
+                        if !(pair_arm_act || pair_arm_census) {
+                            continue;
+                        }
+                        let Some((vic, sur)) = pair_site_reversal(mesh, &incidence, p_b, p_r, p_n)
+                        else {
+                            continue;
+                        };
+                        if pair_arm_census {
+                            eprintln!(
+                                "[s453-pair] REVERSAL p_b={p_b} p_r={p_r} p_n={p_n}                                  victim={vic} survivor={sur} (census: not acting)"
+                            );
+                            continue;
+                        }
+                        conic_backtrack = Some((vic, sur));
+                    } else if !both_line_edges(&curves, key_b, key_n) {
                         // Task #145 diagnosis probe (read-only, env-gated): a
                         // conic site skipped by the mixed-cycle rule whose two
                         // incident edges carry the SAME conic AND whose discrete
@@ -279,6 +323,83 @@ pub(crate) fn sweep_reversed_intersections(
             return Ok(collapsed_any);
         }
     }
+}
+
+/// Spec `yang_453_pair_chain_reversal` §3 — are both incident edges typed
+/// `LineSegment` (a straight run in a mixed cycle)? Extracted so the pair
+/// arm's insertion keeps the original branch byte-identical.
+fn both_line_edges(
+    curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    key_b: (u32, u32),
+    key_n: (u32, u32),
+) -> bool {
+    matches!(curves.get(&key_n), Some(Curve::LineSegment))
+        && matches!(curves.get(&key_b), Some(Curve::LineSegment))
+}
+
+/// Spec `yang_453_pair_chain_reversal` §3: pair-site reversal detection.
+///
+/// Site eligibility: each incident edge's Phase-A incidence dedups to
+/// EXACTLY 2 distinct `(input, surface)` entries with both inputs present
+/// (an intersection edge — ≥3 entries is a junction edge, no verdict), and
+/// the two edges carry the SAME pair. p_r is then chain-INTERIOR by
+/// construction — a junction vertex can never be the victim (the conic
+/// arm's safety argument with pair identity in place of curve identity).
+///
+/// Reversal test (Yang Fig. 15 in its general-surface form, as a
+/// progression-sign test — never the angle band, whose coarse-chord false
+/// positives are P10-disproven for conics): `t = n₀ × n₁` at p_r
+/// (|cross| < 1e-6 = Yang §5's angular tolerance ⇒ near-tangential, no
+/// verdict); reversal ⇔ `((p_r−p_b)·t) · ((p_n−p_r)·t) < 0`. Victim = p_r,
+/// survivor = the tangent-nearer bracketing neighbour (spec
+/// `yang_453_mixed_cycle_conic_backtrack` branches 9a/9b, same shape).
+fn pair_site_reversal(
+    mesh: &Mesh,
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    p_b: u32,
+    p_r: u32,
+    p_n: u32,
+) -> Option<(u32, u32)> {
+    const PAIR_RANK_FLOOR: f64 = 1e-6; // sin(angle) floor — Yang §5 angular tol.
+    let key = |a: u32, b: u32| if a < b { (a, b) } else { (b, a) };
+    let pair_of = |k: (u32, u32)| -> Option<[(InputId, Surface); 2]> {
+        let entries = incidence.get(&k)?;
+        let mut ded: Vec<(InputId, Surface)> = Vec::new();
+        for &e in entries {
+            if !ded.contains(&e) {
+                ded.push(e);
+            }
+        }
+        match ded[..] {
+            [x, y] if x.0 != y.0 => Some([x, y]),
+            _ => None,
+        }
+    };
+    let bp = pair_of(key(p_b, p_r))?;
+    let np = pair_of(key(p_r, p_n))?;
+    if !(bp == np || (bp[0] == np[1] && bp[1] == np[0])) {
+        return None;
+    }
+    let pr = mesh.verts[p_r as usize].as_array();
+    let (_, n0) = surface_value_and_normal(bp[0].1, pr)?;
+    let (_, n1) = surface_value_and_normal(bp[1].1, pr)?;
+    let t = [
+        n0[1] * n1[2] - n0[2] * n1[1],
+        n0[2] * n1[0] - n0[0] * n1[2],
+        n0[0] * n1[1] - n0[1] * n1[0],
+    ];
+    let tl = (t[0] * t[0] + t[1] * t[1] + t[2] * t[2]).sqrt();
+    if tl < PAIR_RANK_FLOOR {
+        return None;
+    }
+    let pb = mesh.verts[p_b as usize].as_array();
+    let pn = mesh.verts[p_n as usize].as_array();
+    let d1 = ((pr[0] - pb[0]) * t[0] + (pr[1] - pb[1]) * t[1] + (pr[2] - pb[2]) * t[2]) / tl;
+    let d2 = ((pn[0] - pr[0]) * t[0] + (pn[1] - pr[1]) * t[1] + (pn[2] - pr[2]) * t[2]) / tl;
+    if d1 * d2 >= 0.0 {
+        return None;
+    }
+    Some((p_r, if d1.abs() <= d2.abs() { p_b } else { p_n }))
 }
 
 /// Task #146 (spec `yang_stage4_circle_pp_line_junction` branches 1–3): the

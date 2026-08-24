@@ -609,10 +609,33 @@ name, never measured).
    Torus-carried cases decline to their exact original errors. **FLIPPED
    ALWAYS-ON same day (spec §11): corpus category-identical, exactly one
    explained detail delta (R0003 → the KV9-F2 fold); `YANG_451=0`
-   restores the abort; baseline results.json updated.** Next: corpus default-neutrality proof +
-   gated corpus enumeration; then the surface-pair region identity
-   sub-increment; §4.3.4 refine-after-repair deferred with reasoning (spec
-   §10). Spec §4-I12 + `specs/yang_451_optimize_across_boundaries.md`.
+   restores the abort; baseline results.json updated.** The torus-region arm
+   (inc-3b, 2026-08-22) repaired R0028's v64 and C0065's repair was refused
+   by its own hull (#137 triply anchored). **inc-4 (2026-08-24, always-on):
+   the torus arm's repair was MINTING at the triple point — v64 is a
+   torus∩plane∩cylinder q-point (the paper's q on C_b) and the pair
+   completion solved 2 of its 3 surfaces; fixed by (4a) certificate on the
+   vertex's FULL inc0 constraint set in BOTH arms + (4b) solve set = the
+   constraint set (3 surfaces → `relocate_onto_implicit_triple`),
+   red-verified by force-degrading the triple. Behind it, R0028's REAL
+   recorded fold: the torus-block pair-Newton relocates near-junction curve
+   vertices PAST the junction (entry cap −3.6e-5 → +2.0e-4 — retracting the
+   2026-08-04 'Stage 4 relocated NOTHING' exclusion; `n_relocations` is
+   blind to torus-block moves). Owner: §4.5.3, which covered TYPED chains
+   only — the NEW pair-chain reversal sweep
+   (`specs/yang_453_pair_chain_reversal.md`, deviation N59, FLIPPED
+   ALWAYS-ON same day) tests progression-sign along n₀×n₁ at untyped pair
+   sites and collapses the overshooters through the existing
+   gate/collapse/restart path. Corpus: **267C/0W/40E/1EE/0T** — R0028 and
+   R0025 (both recorded ring-fold cases) ERROR→SUPPORTED_CORRECT, R0032's
+   non-2-manifold wall peeled onto the recognized curved partial-patch
+   NotSupported boundary (⇒ UNSUPPORTED(curved-profile)); off-knob
+   `YANG_453_PAIR=0` restores each prior error. R0044 (whose row named
+   this vehicle) is census-quiet — its crease reversal is
+   junction-adjacent, outside same-pair eligibility; junction-site
+   handling is the recorded next increment.** §4.3.4
+   refine-after-repair stays deferred with reasoning (spec §10). Spec
+   §4-I12 + `specs/yang_451_optimize_across_boundaries.md` §14–15.
    Remaining loud refusals: unchartable cone/torus holders (R0044, 13 sites).
    Spec §4-I6, §4-I8, §4-I9.
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
