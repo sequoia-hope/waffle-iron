@@ -933,6 +933,9 @@ fn tessellate_developable_patch(
         .zip(pool_node.iter())
         .map(|(&p, &n)| WNode { p2: p, node: n })
         .collect();
+    // Fold-probe context: nodes below this index existed before refinement
+    // (ring/pool); at or above = minted by the LEPP splits.
+    let n_prerefine = nodes.len();
     let mut wtris: Vec<[usize; 3]> = cdt_tris
         .iter()
         .map(|t| [t[0] as usize, t[1] as usize, t[2] as usize])
@@ -1219,15 +1222,37 @@ fn tessellate_developable_patch(
                         for (label, w) in [("a", t[0]), ("b", t[1]), ("c", t[2])] {
                             let wn = &wnodes[w];
                             let p = nodes[wn.node].pos;
+                            // Deviation from the ideal development: the 3D
+                            // distance between the stored position and the
+                            // surface point of the node's own work coords.
+                            let ideal = surface_point(wn.p2.x(), wn.p2.y());
+                            let dev = ((p[0] - ideal[0]).powi(2)
+                                + (p[1] - ideal[1]).powi(2)
+                                + (p[2] - ideal[2]).powi(2))
+                            .sqrt();
                             eprintln!(
-                                "  {label}: p2=({:.6},{:.6}) node={} pos=({:.9e},{:.9e},{:.9e})",
+                                "  {label}: p2=({:.6},{:.6}) node={}{} dev={dev:.3e} \
+                                 pos=({:.9e},{:.9e},{:.9e})",
                                 wn.p2.x(),
                                 wn.p2.y(),
                                 wn.node,
+                                if wn.node < n_prerefine {
+                                    " (pool)"
+                                } else {
+                                    " (split)"
+                                },
                                 p[0],
                                 p[1],
                                 p[2]
                             );
+                        }
+                        for (la, lb, i, j) in [
+                            ("a", "b", t[0], t[1]),
+                            ("b", "c", t[1], t[2]),
+                            ("c", "a", t[2], t[0]),
+                        ] {
+                            let kind = kind_of(&wnodes[i], &wnodes[j], &boundary);
+                            eprintln!("  edge {la}-{lb}: kind={kind:?}");
                         }
                     }
                     return Err(fail(

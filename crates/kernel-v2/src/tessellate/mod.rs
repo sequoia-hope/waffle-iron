@@ -427,7 +427,7 @@ mod surfaces;
 pub(crate) use surfaces::*;
 /// Boundary-edge geometry kind in the unrolled patch triangulation: what a
 /// refinement split of the edge must follow.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum PatchEdgeKind {
     /// A straight 3D segment (boundary chords/rulings, seam bridges, hole
     /// bridges): splits at the 3D midpoint — exactly collinear, so a
