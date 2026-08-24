@@ -534,13 +534,38 @@ struct S451PlannedRepair {
 /// Planning is READ-ONLY and complete before the first mutation, so region
 /// walks never see a half-collapsed mesh; bounds may be shared between
 /// adjacent regions (they are converged, never victims).
-#[allow(clippy::too_many_arguments)]
+/// §4.5.1 inc-4a (spec §14): the DISTINCT surfaces carried by the inc0 edges
+/// incident to any vertex in `verts` — the full constraint set a repair's
+/// relocation must satisfy. A collapse rewires victims' edges onto the
+/// survivor, so the survivor inherits every member's constraints; a repaired
+/// position off ANY of them is the R0028 v64 mint (a q-point solved on 2 of
+/// its 3 surfaces), never acceptable.
+fn s451_constraint_surfaces(
+    inc0: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    verts: &[u32],
+) -> Vec<Surface> {
+    let mut out: Vec<Surface> = Vec::new();
+    for (&(s, e), entries) in inc0 {
+        if !(verts.contains(&s) || verts.contains(&e)) {
+            continue;
+        }
+        for &(_input, surf) in entries {
+            if !out.contains(&surf) {
+                out.push(surf);
+            }
+        }
+    }
+    out
+}
+
+#[allow(clippy::too_many_arguments)] // the READ-ONLY planner takes the stage's shared context
 fn s451_plan_repairs(
     mesh: &Mesh,
     attribution: &[Option<TriangleAttribution>],
     a: &BRep,
     b: &BRep,
     curves0: &std::collections::BTreeMap<(u32, u32), Curve>,
+    inc0: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
     entry: &[[f64; 3]],
     failures: &[(u32, YangError)],
 ) -> Result<Vec<S451PlannedRepair>, ()> {
@@ -584,7 +609,7 @@ fn s451_plan_repairs(
             // k = 1 only: both bounds must be DIRECT curve neighbours of the
             // failure — no measured k>1 torus customer.
             let on_curve = |w: u32| vertex_on_curve(&patches, w);
-            let Some((walk_bounds, common)) =
+            let Some((walk_bounds, _common)) =
                 selector_clause2_walk(mesh, attribution, a, b, &adj, v, &on_curve, &good)
             else {
                 eprintln!("YANG_451_REPAIR v{v} DECLINE torus arm: clause 2 fails");
@@ -609,32 +634,38 @@ fn s451_plan_repairs(
                 (p0[1] + p1[1]) * 0.5,
                 (p0[2] + p1[2]) * 0.5,
             ];
-            let pair: Option<(Surface, Surface)> = match common[..] {
-                [s0, s1] => Some((s0, s1)),
-                [s0] => {
-                    let (va, vb) = carrier_surface_sets(&patches, a, b, v, pos);
-                    va.into_iter()
-                        .chain(vb)
-                        .find(|s| *s != s0)
-                        .map(|s1| (s0, s1))
+            // §4.5.1 inc-4b (spec §14): the solve set is the failure's FULL
+            // inc0 constraint set, not a pair completed from carrier order.
+            // 3 distinct surfaces = the paper's q-point on C_b (`:665-668`,
+            // "solve the intersection points q1 and q2 on C_b using Newton's
+            // method") computed as 3 implicits — the same primitive the
+            // sweep's own triple block uses. The walk still supplies the
+            // bounds; `common` is no longer the solve authority.
+            let constraints = s451_constraint_surfaces(inc0, &[v]);
+            let midp = Point3::new(mid[0], mid[1], mid[2]);
+            let proj = match constraints[..] {
+                [s0, s1] => relocate_onto_implicit_pair(midp, s0, s1),
+                [s0, s1, s2] => relocate_onto_implicit_triple(midp, s0, s1, s2),
+                _ => {
+                    eprintln!(
+                        "YANG_451_REPAIR v{v} DECLINE torus arm: {} constraint surfaces \
+                         (need 2 or 3)",
+                        constraints.len()
+                    );
+                    return Err(());
                 }
-                _ => None,
             };
-            let Some((s0, s1)) = pair else {
+            let Some(proj) = proj else {
                 eprintln!(
-                    "YANG_451_REPAIR v{v} DECLINE torus arm: no usable pair (common={})",
-                    common.len()
+                    "YANG_451_REPAIR v{v} DECLINE torus arm: Newton diverged on {} surfaces",
+                    constraints.len()
                 );
                 return Err(());
             };
-            let Some(proj) =
-                relocate_onto_implicit_pair(Point3::new(mid[0], mid[1], mid[2]), s0, s1)
-            else {
-                eprintln!("YANG_451_REPAIR v{v} DECLINE torus arm: pair Newton diverged");
-                return Err(());
-            };
             let pa2 = proj.as_array();
-            for s in [s0, s1] {
+            // inc-4a: certificate on EVERY constraint surface — a projection
+            // off any carried surface is the v64 mint, a loud decline.
+            for &s in &constraints {
                 let ok = surface_distance_and_normal(s, pa2)
                     .is_some_and(|(x, _)| x.abs() <= junction_certificate_band(pa2, s));
                 if !ok {
@@ -655,7 +686,7 @@ fn s451_plan_repairs(
                 eprintln!("YANG_451_REPAIR v{v} DECLINE torus arm: no chord band");
                 return Err(());
             };
-            for s in [s0, s1] {
+            for &s in &constraints {
                 if planar_partner_hull_contains(a, b, s, pa2, d_eps) == Some(false) {
                     eprintln!(
                         "YANG_451_REPAIR v{v} DECLINE torus arm: owner-face hull refuses                          on {s:?}"
@@ -664,8 +695,11 @@ fn s451_plan_repairs(
                 }
             }
             eprintln!(
-                "YANG_451_REPAIR torus region k=1 survivor=v{v} bounds=(v{w0},v{w1})                  proj=({:.9},{:.9},{:.9})",
-                pa2[0], pa2[1], pa2[2]
+                "YANG_451_REPAIR torus region k=1 survivor=v{v} bounds=(v{w0},v{w1})                  n_surfs={} proj=({:.9},{:.9},{:.9})",
+                constraints.len(),
+                pa2[0],
+                pa2[1],
+                pa2[2]
             );
             consumed.insert(v);
             plans.push(S451PlannedRepair {
@@ -793,6 +827,20 @@ fn s451_plan_repairs(
                 .is_some_and(|(x, _)| x.abs() <= junction_certificate_band(pa, s));
             if !ok {
                 eprintln!("YANG_451_REPAIR v{v} DECLINE certificate fails on {s:?}");
+                return Err(());
+            }
+        }
+        // §4.5.1 inc-4a (spec §14): the survivor inherits every member's inc0
+        // edges under the collapse, so the projection must ALSO certificate on
+        // every surface the whole region carries — a third surface here is a
+        // boundary-crossing region (the R0028 v64 shape) and declines loudly.
+        for s in s451_constraint_surfaces(inc0, &members) {
+            let ok = surface_distance_and_normal(s, pa)
+                .is_some_and(|(x, _)| x.abs() <= junction_certificate_band(pa, s));
+            if !ok {
+                eprintln!(
+                    "YANG_451_REPAIR v{v} DECLINE region constraint surface fails at proj: {s:?}"
+                );
                 return Err(());
             }
         }
@@ -8447,6 +8495,7 @@ fn stage4_relocate_and_correct_inner(
                 brep_a,
                 brep_b,
                 &curves0,
+                &inc0,
                 &s4_entry_pos,
                 &s45_failures,
             ) {

@@ -724,7 +724,21 @@ pub fn tessellate_torus_patch(
     holes: &[Vec<Point3>],
     max_3d_area: f64,
 ) -> Option<(Vec<Point3>, Vec<[u32; 3]>)> {
+    // Env-gated decline probe (zero-cost off): the torus patch waller names
+    // its site — a `None` here surfaces downstream as one shared wall string
+    // ("torus patch UV-CDT failed"), which cannot self-localize.
+    let probe = std::env::var_os("YANG_TORUS_PATCH_PROBE").is_some();
+    if probe {
+        eprintln!(
+            "[torus-patch] boundary={} holes={} major={major:.6e} minor={minor:.6e}",
+            boundary.len(),
+            holes.len()
+        );
+    }
     if boundary.len() < 3 || major <= 0.0 || minor <= 0.0 {
+        if probe {
+            eprintln!("[torus-patch] DECLINE degenerate inputs");
+        }
         return None;
     }
     let ax = normalize3(axis_dir.as_array());
@@ -799,6 +813,13 @@ pub fn tessellate_torus_patch(
         }
         let (us, vs) = invert(pts);
         if net_wrap(&vs) != 0 {
+            if probe {
+                eprintln!(
+                    "[torus-patch] DECLINE longitude wrap {} on a {}-pt loop",
+                    net_wrap(&vs),
+                    pts.len()
+                );
+            }
             return None; // a LONGITUDE wrap is a full-torus seam — out of scope
         }
         let wu = net_wrap(&us);
@@ -866,6 +887,12 @@ pub fn tessellate_torus_patch(
                 (&ploops[b], &ploops[a])
             };
             if pc.wu + mc.wu != 0 {
+                if probe {
+                    eprintln!(
+                        "[torus-patch] DECLINE band wu mismatch ({} + {})",
+                        pc.wu, mc.wu
+                    );
+                }
                 return None;
             }
             // Window u-intervals (the non-wrapping loops) so the seam bridge can
@@ -909,7 +936,15 @@ pub fn tessellate_torus_patch(
             o
         }
         // 1 wrapping loop (degenerate) or > 2 wraps: out of scope.
-        _ => return None,
+        _ => {
+            if probe {
+                eprintln!(
+                    "[torus-patch] DECLINE {} meridian-wrapping loops (need 0 or 2)",
+                    wrapping.len()
+                );
+            }
+            return None;
+        }
     };
 
     // Chord-band seeding (2026-08-08, `docs/audits/volume_oracle_flags_anchored.md`
@@ -922,14 +957,47 @@ pub fn tessellate_torus_patch(
     // (budget s); `sv = v·major`, so the θ-step budget is
     // `Δsv = per·major = s·major/(major+minor)`.
     let s = max_3d_area.sqrt();
-    let (ref_verts, tris) = cherchi_rs::cdt_polygon_with_holes_refined_seeded(
+    let (ref_verts, tris) = match cherchi_rs::cdt_polygon_with_holes_refined_seeded(
         &verts2d,
         &outer,
         &hole_idx,
         max_3d_area,
         [s, s * (major / (major + minor))],
-    )
-    .ok()?;
+    ) {
+        Ok(x) => x,
+        Err(e) => {
+            if probe {
+                eprintln!(
+                    "[torus-patch] DECLINE CDT: {e:?} (outer={} pts, {} holes)",
+                    outer.len(),
+                    hole_idx.len()
+                );
+                for (k, &i) in outer.iter().enumerate() {
+                    let q = verts2d[i as usize];
+                    let p3 = vert3d[i as usize].as_array();
+                    eprintln!(
+                        "[torus-patch]   outer[{k}] su={:.9e} sv={:.9e} p=({:.9e},{:.9e},{:.9e})",
+                        q.x(),
+                        q.y(),
+                        p3[0],
+                        p3[1],
+                        p3[2]
+                    );
+                }
+                for (h, hi) in hole_idx.iter().enumerate() {
+                    for (k, &i) in hi.iter().enumerate() {
+                        let q = verts2d[i as usize];
+                        let p3 = vert3d[i as usize].as_array();
+                        eprintln!(
+                            "[torus-patch]   hole{h}[{k}] su={:.9e} sv={:.9e} p=({:.9e},{:.9e},{:.9e})",
+                            q.x(), q.y(), p3[0], p3[1], p3[2]
+                        );
+                    }
+                }
+            }
+            return None;
+        }
+    };
 
     // Map back: boundary verts → EXACT input 3D; refined Steiner verts (appended
     // after) → `face_eval`. A band's duplicated seam vertices carry the same 3D

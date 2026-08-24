@@ -501,3 +501,108 @@ FACE matches R0028's recorded developable-ring defect; the gate differs
 family match is anchored by the face id and the vertex-level anchor (which
 vertex, off which surface) is the case's next investigation — recorded, not
 assumed. Baseline updated in the inc-3b commit.
+
+## 14. inc-4 — the torus arm's repair was MINTING at the triple point: v64 is a q-point on C_b (2026-08-24)
+
+> **Status: LANDED ALWAYS-ON same day, red-verified.** inc-4a (constraint-set
+> certificate, both arms) + inc-4b (solve set = the failure's full inc0
+> constraint set; 3 surfaces → `relocate_onto_implicit_triple`). Red proof:
+> with the triple solve force-degraded to the pair, inc-4a DECLINES naming
+> the cylinder and the case returns the original OffCurve v64 error
+> bit-identically — the guard catches exactly the mint this section anchors.
+> `YANG_451=0` still reproduces the historical abort. Measured default:
+> **v64 repairs to the true junction (proj=(0.012870230,−0.008495216,
+> −0.012324022), on all three surfaces), Stage 4 clears honestly, and R0028
+> advances to `TessellationFailed FaceId(29)`** — the torus-side ring's
+> closure fold, which §15 anchors as the case's REAL recorded family plus a
+> §4.5.3 completeness gap. R0003 (11/11 conic repairs, fold FaceId 435) and
+> C0065 (hull decline) byte-identical through inc-4.
+
+**Anchor (vertex-level, per §13's recorded next investigation).** R0028's new
+wall `VertexOffSurface FaceId(32)` is NOT the developable-ring latent — it is
+the inc-3b repair's OWN output, anchored byte-for-byte:
+
+- `KV2_OFFSURF_PROBE`: the failing vertex is loop 37's i=0,
+  p=(1.22270491882620989e-2, −8.64770840179114424e-3, −1.35062389169124820e-2),
+  `site=cylpatch-vertex`, residual **6.008e-4** vs band 1.014e-9 on FaceId 32's
+  cylinder. Every other loop vertex sits at ≤1e-15.
+- `YANG_451=census`: the repair's print `proj=(0.012227049,−0.008647708,
+  −0.013506239)` — the SAME point to every printed digit.
+- v64's inc0 edges carry THREE distinct surfaces: (64,65) torus×plane,
+  (64,66) torus×**cylinder**, (64,274) plane×cylinder — and that cylinder is
+  byte-identical to the probe's FaceId-32 cylinder. The pair completion
+  (`common=[torus]` → `.find(first other carried)`) picked the plane and never
+  consulted the cylinder; the acceptance certificates only `[s0, s1]`.
+
+**What v64 IS (the paper's own vocabulary).** Edge (64,274) runs along the
+rim circle = plane∩cylinder = the boundary curve **C_b** between B's cap and
+lateral patches; the bounds v65/v66 sit on DIFFERENT B-patches (cap vs
+lateral). v64 is the crossing point of the intersection curve with C_b — the
+paper's **q-point** (`:665-668`: "we first solve the intersection points q1
+and q2 on C_b using Newton's method"). Its correct position lies on ALL THREE
+surfaces. §10's "cross-boundary half has no customer" was measured on R0003's
+conic regions and was true there; the torus arm landed WITH a q-point customer.
+
+**Confirming context.** v64's original OffCurve STOP is the `rho > gate`
+corridor refusal at `stage4_correct.rs:8387` AFTER the sweep's own
+`relocate_onto_implicit_triple{torus,plane,cylinder}` CONVERGED — the sweep
+already computes the junction; it refuses the move because v64's mesh position
+error (the 2026-08-04 cap-overshoot anchor, ~3.6e-4 beyond the cap) is not a
+chord artifact. §4.5.1's midpoint re-initialization is the paper's answer to
+exactly that bad initialization — the repair just solved 2 of the 3 constraints.
+
+**inc-4a — the constraint-set certificate (both arms, the P10 guard).** A
+repair may relocate a vertex only to a point that certificates on EVERY
+surface its inc0 edges carry (for the conic arm: union over ALL region
+members — collapse rewires victims' edges onto the survivor, so the survivor
+inherits their constraints). Same `junction_certificate_band` reading, loud
+DECLINE otherwise. This alone converts the mint into a clean decline (R0028
+reverts to its OffCurve v64 error).
+
+**inc-4b — the q-point solve (torus arm).** Derive the failure's constraint
+set from inc0 (the `vert_surfs` dedup the sweep already uses): 2 distinct
+surfaces → pair Newton (today's path); **3 → `relocate_onto_implicit_triple`
+from the bounds' midpoint** — the paper's q-solve on C_b computed as 3
+implicits (same solution set: C_b ∩ far surface; same primitive the sweep's
+own triple block uses); ≥4 → decline. Acceptance: inc-4a's full-set
+certificate + region scale + planar-partner hulls, unchanged.
+
+Expected: v64 re-optimizes to the true torus∩plane∩cylinder junction, R0028
+clears Stage 4 honestly; next wall = measure, don't assume (the recorded
+ring-closure CDT fold is the standing candidate). C0065 v8/v3 keep their
+byte-identical declines (v8's hull refusal fires regardless of arity; v3
+declines at bounds). R0003 must re-measure 11/11 under inc-4a — if any conic
+region member carries a third surface, the decline is HONEST (a straddling
+region needing the q-solve) and gets its own row.
+
+
+## 15. The wall behind the mint: relocation overshoot past the junction — a §4.5.3 completeness gap (2026-08-24, same session)
+
+With v64 at its exact junction, face 29's band CDT rejects: hole0 (the
+43-pt ring) self-crosses at its CLOSURE (segs 0×40, 40×42) — R0028's
+long-recorded fold shape, on the torus side. Anchored vertex-by-vertex:
+
+- Chain v118→v68→v67→v66→v64, ALL on the torus∩cylinder curve; cap-plane
+  coords −5.5e-4 → −2.1e-4 → **+1.97e-4 → +2.02e-4** → 0 — the tail
+  overshoots PAST the junction, and the closure folds back.
+- **Minted by the torus-block pair-Newton, not Stage 2**: v66/v67 ENTERED
+  Stage 4 at cap −3.6e-5 (inside the face); the relocation to the nearest
+  point of the INFINITE pair curve moved them (ρ≈2.5e-4, within the
+  corridor gate 6.9e-4) onto the far side of the junction. This also
+  RETRACTS the 2026-08-04 "Stage 4 relocated NOTHING" exclusion for this
+  case — `n_relocations` counts only conic moves, exactly the blindness
+  that anchor's own caveat warned about.
+- The paper's Fig-15 test fires at v66 (angle 91.4°, |t̃|=0.046) and reads
+  ordered (177–179°) everywhere else — but `sweep_reversed_intersections`
+  implements §4.5.3 for TYPED chains only; pair-relocated (untyped)
+  edges have never been swept, and a fully-quartic cycle is not even
+  collected.
+
+The owner is the NEW spec `yang_453_pair_chain_reversal.md` (measured
+design, gated `YANG_453_PAIR`): pair-site eligibility from Phase-A
+incidence, progression-sign reversal along n₀×n₁, victim=p_r with the
+tangent-nearer survivor, the existing resolution gate / collapse /
+restart path unchanged. **Measured on the pin: census fires exactly at
+v66; acting, the sweep collapses v66 then v67 and R0028 goes
+SUPPORTED_CORRECT — all oracle checks pass — the first conversion of a
+developable-ring fold case.**

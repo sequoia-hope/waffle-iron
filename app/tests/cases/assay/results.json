@@ -168,7 +168,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: VertexOffSurface { face: FaceId(32) }. Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(29), reason: \"torus patch UV-CDT failed (self-intersecting projection / seam-crossing patch)\" }. Body created as standalone.",
       "id": "R0028",
       "status": "error"
     },
