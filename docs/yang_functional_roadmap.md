@@ -682,12 +682,33 @@ name, never measured).
    bit-identical pre-flip; post-flip corpus category-identical
    271C/0W/36E/1EE/0T with exactly two explained detail rows — R0003
    advances 437→467 (202 merges apply; the NEXT family is the
-   out-of-band terminal RUN at the junction, ≥2 vertices on the
-   neighbor cone's conic — I13d run-level junction absorption, spec
-   §I13(c), not built) and R0004's ring-CDT subtract wall CLEARS (its
-   unrelated RevolveAxisIntersectsProfile first error remains). R0100
-   face 15 unmoved — not this family; own anchor owed. Off-knobs:
+   out-of-band terminal RUN at the junction) and R0004's ring-CDT
+   subtract wall CLEARS (its unrelated RevolveAxisIntersectsProfile
+   first error remains). R0100 face 15 unmoved — not this family; own
+   anchor owed. Off-knobs:
    `YANG_441_CONE_CHART|OPEN_CONIC_PARAM|ONCURVE_MERGE=0|off`.
+   **I13d (2026-08-25, FLIPPED ALWAYS-ON same day — spec §I13(d);
+   off-knob `YANG_441_RUN_ABSORB=0|off`, `census` mode kept): run-level
+   junction absorption.** Flip proofs: default corpus bit-identical
+   pre-flip; gated corpus category-identical 271C/0W/36E/1EE/0T with
+   exactly one explained detail row (R0003 face 467 → 517); heaviest
+   case 320s. Walk-back probe revises
+   the anchor: face 467's run = the JUNCTION relocated 0.67 onto its
+   rim×cut solve, HOPPING its first two chain samples in curve
+   parameter (the samples barely move). Certificate = symmetric
+   pre/post pair-ORDER inversion of (sample, junction) along the typed
+   conic + a minted chord-inversion witness (structurally refuses the
+   junction's other in-domain chain) + strictly-richer carrier; repair
+   = `rebuild_run_fan`, ONE region rebuild per holder absorbing every
+   run victim into the junction (per-victim fans are structurally
+   refused — each link polygon holds the still-folded sibling).
+   Measured gated on R0003: 31 sites first fixed point (runs to 8
+   victims), 25 absorb cleanly, **face 467 CLEARS → face 517** = the
+   residual SIX single-overrun sites on the wall plane, measured
+   (`YANG_441_FAN_PROBE`) as genuinely self-intersecting fan polygons
+   of mutually INTERLOCKED PAIRS (adjacent strips' deep overruns cross
+   on the wall) — next increment I13e cross-site group absorption,
+   spec §I13(d) tail.
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

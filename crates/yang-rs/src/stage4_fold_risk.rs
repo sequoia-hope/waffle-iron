@@ -684,6 +684,30 @@ pub(crate) fn oncurve_merge_enabled() -> bool {
     !matches!(std::env::var("YANG_441_ONCURVE_MERGE"), Ok(v) if v == "0" || v == "off")
 }
 
+/// I13d — the run-level junction-absorption arm (`YANG_441_RUN_ABSORB`).
+/// **FLIPPED ALWAYS-ON 2026-08-25** (same day as landing) with the corpus
+/// proofs: gate-off default corpus BIT-IDENTICAL to the committed baseline;
+/// gate-on corpus CATEGORY-IDENTICAL — 271C/0W/36E/1EE/0T with exactly ONE
+/// explained detail row (R0003 advances face 467 → 517, the I13e
+/// interlocked-pair wall). `YANG_441_RUN_ABSORB=0|off` is the dev A/B
+/// off-knob; `census` selects and reports at the fold-merge fixed points
+/// without applying.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RunAbsorbMode {
+    Off,
+    Census,
+    On,
+}
+
+pub(crate) fn run_absorb_mode() -> RunAbsorbMode {
+    match std::env::var("YANG_441_RUN_ABSORB") {
+        Err(_) => RunAbsorbMode::On,
+        Ok(v) if v == "0" || v == "off" => RunAbsorbMode::Off,
+        Ok(v) if v == "census" => RunAbsorbMode::Census,
+        Ok(_) => RunAbsorbMode::On,
+    }
+}
+
 /// I13c certificate: is corner `i` of `cyc` (post-inversion `t` already
 /// established by the caller) a TERMINAL overrun on its own intersection
 /// curve? Yes iff:
@@ -965,6 +989,256 @@ pub fn fold_merge_sites_censused<'a>(
             chord_t,
         })
         .collect();
+    (sites, census)
+}
+
+/// I13d (spec `yang_441_trim_cdt_construction.md` §I13(c)) — one **run-level
+/// junction absorption** site: a maximal same-curve boundary run whose
+/// Stage-4 relocation carried a junction-adjacent prefix of vertices PAST the
+/// run's junction terminal, in curve parameter. Every out-of-band prefix
+/// vertex merges into the junction (Fig-11's p→q at run granularity).
+///
+/// The corner-level I13c arm is structurally blind to this family (measured,
+/// R0003 face 467): the only chord-inverted corner's chord-sign survivor is
+/// the NEXT run vertex — itself out-of-band — and its far-side edge continues
+/// on the same curve, so the terminal condition refuses. The run vantage sees
+/// what the corner cannot: the junction bounding the run, and each vertex's
+/// pre→post side of it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunAbsorptionSite {
+    /// The junction terminal — carries strictly more surfaces than every
+    /// victim (a model junction), so the merge discards no authority (I8).
+    pub survivor: u32,
+    /// The out-of-band run vertices, junction-nearest first. Each one's curve
+    /// parameter crossed the junction's between its pre and post positions.
+    pub victims: Vec<u32>,
+}
+
+/// Per-condition coverage ledger for [`run_absorption_sites`] — every
+/// refused candidate is attributable to a CONDITION, mirroring
+/// [`FoldMergeCensus`]'s discipline.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RunAbsorptionCensus {
+    /// Maximal same-curve runs examined (≥1 typed edge, both ends bounded).
+    pub runs: usize,
+    /// Terminal ends walked (two per run unless the cycle is fully typed).
+    pub terminals: usize,
+    /// Terminals refused: the junction's own curve parameter is undefined.
+    pub no_param: usize,
+    /// Terminals refused: no vertex flipped sides of the junction (the
+    /// healthy-chain verdict — pre and post both in-band).
+    pub no_flip: usize,
+    /// Terminals refused: a flipped prefix exists but no MINTED chord
+    /// inversion sits on it (pre inside its neighbours' chord, post outside)
+    /// — the doubling-back witness Stage 4's own relocation must supply.
+    pub no_inversion: usize,
+    /// Terminals refused: the junction is not strictly richer than every
+    /// flipped vertex (missing carrier ⇒ not a model junction ⇒ absorbing
+    /// would discard authority).
+    pub not_richer: usize,
+    /// Victims dropped because two sites with different survivors claim them.
+    pub ambiguous: usize,
+    /// Sites emitted (after cross-cycle dedupe).
+    pub sites: usize,
+}
+
+/// I13d selection — the run-level junction-absorption sites over a
+/// patch-cycle set.
+///
+/// For each maximal run of consecutive cycle edges typed on the SAME curve
+/// (identity up to the stored normal's sign), each bounded end `J` is a
+/// candidate junction terminal. Walking outward from `J`, a vertex `w` is
+/// out-of-band iff Stage 4's relocation INVERTED the order of the pair
+/// `(w, J)` along the curve — strict opposite signs of
+/// `t_pre(w) − t_pre(J)` and `t_post(w) − t_post(J)` (wrapped to (−π, π]
+/// for periodic conics, raw for open ones; the standing chord-subtends-<π
+/// convention). The test is symmetric in WHICH endpoint moved — measured
+/// both ways on R0003: a spur vertex carried past a solved junction (the
+/// face-437 shape), and a junction solved 0.67 PAST its first two chain
+/// samples (face 467: v2332 hops v2331/v2330 on their shared hyperbola,
+/// which the samples' own one-sided view calls healthy). The maximal
+/// inverted prefix is the victim set. A site is emitted iff:
+///
+/// 1. the prefix is nonempty (the pair order inverted for someone);
+/// 2. at least one prefix vertex is a MINTED chord inversion in its cycle
+///    corner (pre inside `[0,1]`, post outside) — the doubling-back
+///    witness. Load-bearing, not decorative: the junction's own large
+///    relocation can invert its pre/post pair order against the NEIGHBOUR
+///    chain's in-domain samples too (projection artifacts of the drifted
+///    pre position), but an in-domain chain stays post-monotone and can
+///    have no minted fold at its samples, so this witness structurally
+///    refuses that side;
+/// 3. `strictly_richer(J, w)` holds for every victim `w` — the caller's
+///    carrier oracle: `carried(w) ⊂ carried(J)` proper, the I8 containment
+///    plus junction-hood.
+///
+/// No distance band anywhere (P10): every test is an order or containment
+/// certificate. Sites found from two cycles (each boundary chain appears in
+/// both adjacent patches' cycles) dedupe by value; a victim claimed by two
+/// different survivors drops BOTH sites, loudly, never guessed.
+pub fn run_absorption_sites<'a>(
+    cycles: impl IntoIterator<Item = &'a [u32]>,
+    pre: &HashMap<u32, [f64; 3]>,
+    post: &[[f64; 3]],
+    curves: &BTreeMap<(u32, u32), crate::Curve>,
+    strictly_richer: impl Fn(u32, u32) -> bool,
+) -> (Vec<RunAbsorptionSite>, RunAbsorptionCensus) {
+    use crate::stage4_correct::{
+        conic_param, conic_param_periodic, conics_equal_up_to_normal_sign,
+    };
+    let mut census = RunAbsorptionCensus::default();
+    let mut sites: Vec<RunAbsorptionSite> = Vec::new();
+    let same = |x: &crate::Curve, y: &crate::Curve| x == y || conics_equal_up_to_normal_sign(x, y);
+    let wrap = |mut d: f64| -> f64 {
+        while d > std::f64::consts::PI {
+            d -= 2.0 * std::f64::consts::PI;
+        }
+        while d <= -std::f64::consts::PI {
+            d += 2.0 * std::f64::consts::PI;
+        }
+        d
+    };
+    for cyc in cycles {
+        let n = cyc.len();
+        if n < 3 {
+            continue;
+        }
+        let key = |x: u32, y: u32| (x.min(y), x.max(y));
+        let edge_curve =
+            |i: usize| -> Option<&crate::Curve> { curves.get(&key(cyc[i], cyc[(i + 1) % n])) };
+        // Maximal same-curve runs of edges. A run STARTS at a typed edge whose
+        // predecessor does not continue its curve; a cycle typed end-to-end on
+        // ONE curve has no start and is skipped — that is a closed seam, the
+        // reorder authority's shape, with no bounded end to absorb into.
+        for i in 0..n {
+            let Some(c0) = edge_curve(i) else {
+                continue;
+            };
+            if edge_curve((i + n - 1) % n).is_some_and(|c| same(c, c0)) {
+                continue; // mid-run: its start is found at its own index
+            }
+            let mut len = 1usize;
+            while len < n {
+                match edge_curve((i + len) % n) {
+                    Some(c) if same(c, c0) => len += 1,
+                    _ => break,
+                }
+            }
+            census.runs += 1;
+            // Run vertices w_0..w_len (len edges): cyc[i..=i+len] mod n.
+            let w = |k: usize| cyc[(i + k) % n];
+            for (jk, dir) in [(0usize, 1i64), (len, -1i64)] {
+                census.terminals += 1;
+                let j = w(jk);
+                let param = |p: [f64; 3]| conic_param(c0, cad_primitives::Point3::from(p));
+                let (Some(t_j), Some(t_j_pre)) = (
+                    post.get(j as usize).copied().and_then(param),
+                    pre.get(&j).copied().and_then(param),
+                ) else {
+                    census.no_param += 1;
+                    continue;
+                };
+                let sided = |t: f64, tref: f64| -> f64 {
+                    if conic_param_periodic(c0) {
+                        wrap(t - tref)
+                    } else {
+                        t - tref
+                    }
+                };
+                // Maximal ORDER-INVERTED prefix walking outward from the
+                // junction: the pre→post relocation swapped which side of the
+                // junction the vertex lies on, in curve parameter. Symmetric
+                // in which endpoint moved — measured both ways on R0003:
+                // face 437's spur vertex carried past a solved junction, and
+                // face 467's junction solved 0.67 PAST its first two chain
+                // samples (v2332 hops v2331/v2330 on their shared hyperbola).
+                let mut victims: Vec<u32> = Vec::new();
+                let mut k = jk as i64 + dir;
+                while (0..=len as i64).contains(&k) {
+                    let v = w(k as usize);
+                    if v == j {
+                        break;
+                    }
+                    let flipped = (|| -> Option<bool> {
+                        let tq = param(*post.get(v as usize)?)?;
+                        let tp = param(*pre.get(&v)?)?;
+                        let (dq, dp) = (sided(tq, t_j), sided(tp, t_j_pre));
+                        Some(dq != 0.0 && dp != 0.0 && (dq > 0.0) != (dp > 0.0))
+                    })();
+                    if flipped != Some(true) {
+                        break;
+                    }
+                    victims.push(v);
+                    k += dir;
+                }
+                if victims.is_empty() {
+                    census.no_flip += 1;
+                    continue;
+                }
+                // Doubling-back witness: a MINTED chord inversion whose apex
+                // is a victim, in this cycle's corner context.
+                let minted_inversion = |v: u32| -> bool {
+                    let Some(iv) = (0..n).find(|&x| cyc[x] == v) else {
+                        return false;
+                    };
+                    let (a, b, c) = (cyc[(iv + n - 1) % n], cyc[iv], cyc[(iv + 1) % n]);
+                    if a == b || b == c || a == c {
+                        return false;
+                    }
+                    let (Some(&pa), Some(&pb), Some(&pc)) = (pre.get(&a), pre.get(&b), pre.get(&c))
+                    else {
+                        return false;
+                    };
+                    let (Some(&qa), Some(&qb), Some(&qc)) = (
+                        post.get(a as usize),
+                        post.get(b as usize),
+                        post.get(c as usize),
+                    ) else {
+                        return false;
+                    };
+                    let (Some(tp), Some(tq)) = (chord_param(pa, pb, pc), chord_param(qa, qb, qc))
+                    else {
+                        return false;
+                    };
+                    (0.0..=1.0).contains(&tp) && !(0.0..=1.0).contains(&tq)
+                };
+                if !victims.iter().any(|&v| minted_inversion(v)) {
+                    census.no_inversion += 1;
+                    continue;
+                }
+                if !victims.iter().all(|&v| strictly_richer(j, v)) {
+                    census.not_richer += 1;
+                    continue;
+                }
+                let site = RunAbsorptionSite {
+                    survivor: j,
+                    victims,
+                };
+                if !sites.contains(&site) {
+                    sites.push(site);
+                }
+            }
+        }
+    }
+    // A victim claimed by two different survivors: drop every site touching
+    // it — ambiguity is refused, never guessed.
+    let mut owner: BTreeMap<u32, u32> = BTreeMap::new();
+    let mut poisoned: BTreeSet<u32> = BTreeSet::new();
+    for s in &sites {
+        for &v in &s.victims {
+            match owner.get(&v) {
+                Some(&j0) if j0 != s.survivor => {
+                    poisoned.insert(v);
+                }
+                _ => {
+                    owner.insert(v, s.survivor);
+                }
+            }
+        }
+    }
+    census.ambiguous = poisoned.len();
+    sites.retain(|s| s.victims.iter().all(|v| !poisoned.contains(v)));
+    census.sites = sites.len();
     (sites, census)
 }
 
@@ -1728,5 +2002,337 @@ mod tests {
         let pre = m(&[(0, [0.0, 0.0, 0.0]), (1, [0.0, 0.0, 0.0])]);
         let post = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]];
         assert!(rank_fold_risks(&pre, &post, &e(&[(1, 1), (0, 1)])).is_empty());
+    }
+
+    // ---- I13d run-level junction absorption ----------------------------
+
+    /// Positions off the run curve (the rim chain in the measured shape):
+    /// scaled circle points, so every conic_param is still defined but the
+    /// vertices sit on no typed edge.
+    fn off_circle(t: f64) -> [f64; 3] {
+        let p = on_circle(t);
+        [2.0 * p[0], 2.0 * p[1], p[2]]
+    }
+
+    fn absorb(
+        cycles: &[Vec<u32>],
+        pre: &HashMap<u32, [f64; 3]>,
+        post: &[[f64; 3]],
+        curves: &BTreeMap<(u32, u32), crate::Curve>,
+        richer: impl Fn(u32, u32) -> bool,
+    ) -> (Vec<RunAbsorptionSite>, RunAbsorptionCensus) {
+        run_absorption_sites(cycles.iter().map(Vec::as_slice), pre, post, curves, richer)
+    }
+
+    /// The R0003 face-467 shape in miniature: junction 1 at t=0.50, victims
+    /// 2 (t 0.55→0.40, deepest) and 3 (t 0.58→0.45) carried past it, then
+    /// the healthy ascending chain 4 (0.60), 5 (0.70) up to the far junction
+    /// 6 (0.80). The run selector absorbs BOTH victims into junction 1; the
+    /// corner selector is blind here (2's chord-sign survivor is 3, whose
+    /// far edge continues the curve).
+    #[test]
+    fn run_absorption_certifies_the_face_467_two_vertex_run() {
+        let cyc = vec![0u32, 1, 2, 3, 4, 5, 6, 7];
+        let pre = m(&[
+            (0, off_circle(0.45)),
+            (1, on_circle(0.50)),
+            (2, on_circle(0.55)),
+            (3, on_circle(0.58)),
+            (4, on_circle(0.60)),
+            (5, on_circle(0.70)),
+            (6, on_circle(0.80)),
+            (7, off_circle(0.85)),
+        ]);
+        let post = vec![
+            off_circle(0.45),
+            on_circle(0.50),
+            on_circle(0.40),
+            on_circle(0.45),
+            on_circle(0.60),
+            on_circle(0.70),
+            on_circle(0.80),
+            off_circle(0.85),
+        ];
+        let curves = curve_map(&[(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)]);
+        let (sites, census) = absorb(&[cyc], &pre, &post, &curves, |j, _| j == 1);
+        assert_eq!(
+            sites,
+            vec![RunAbsorptionSite {
+                survivor: 1,
+                victims: vec![2, 3],
+            }]
+        );
+        assert_eq!(census.runs, 1);
+        // The far terminal's walk finds no flipped vertex (healthy chain).
+        assert_eq!(census.no_flip, 1);
+    }
+
+    /// The REAL face-467 shape (measured 2026-08-25): the chain samples
+    /// barely move, and the JUNCTION's own relocation solves it past the
+    /// first two of them in curve parameter. The one-sided view from the
+    /// samples calls this healthy; the pair-order inversion certifies it,
+    /// and the same two-victim absorption falls out.
+    #[test]
+    fn run_absorption_certifies_a_junction_that_hopped_its_samples() {
+        let cyc = vec![0u32, 1, 2, 3, 4, 5];
+        let pre = m(&[
+            (0, off_circle(0.35)),
+            (1, on_circle(0.40)), // junction pre: below the whole chain
+            (2, on_circle(0.44)),
+            (3, on_circle(0.47)),
+            (4, on_circle(0.60)),
+            (5, off_circle(0.65)),
+        ]);
+        let post = vec![
+            off_circle(0.35),
+            on_circle(0.50), // junction solved PAST samples 2 and 3
+            on_circle(0.44),
+            on_circle(0.47),
+            on_circle(0.60),
+            off_circle(0.65),
+        ];
+        let curves = curve_map(&[(1, 2), (2, 3), (3, 4)]);
+        let (sites, census) = absorb(&[cyc], &pre, &post, &curves, |j, _| j == 1);
+        assert_eq!(
+            sites,
+            vec![RunAbsorptionSite {
+                survivor: 1,
+                victims: vec![2, 3],
+            }]
+        );
+        assert_eq!(census.no_flip, 1); // the far terminal's healthy walk
+    }
+
+    /// The v3264 shape: ONE victim between two junctions, carried past the
+    /// nearer one. Same site the corner arm certifies — the two arms agree.
+    #[test]
+    fn run_absorption_matches_the_corner_arm_on_a_single_overrun() {
+        let cyc = vec![0u32, 1, 2, 3, 4];
+        let pre = m(&[
+            (0, off_circle(0.65)),
+            (1, on_circle(0.60)),
+            (2, on_circle(0.55)),
+            (3, on_circle(0.50)),
+            (4, off_circle(0.45)),
+        ]);
+        let post = vec![
+            off_circle(0.65),
+            on_circle(0.60),
+            on_circle(0.45),
+            on_circle(0.50),
+            off_circle(0.45),
+        ];
+        let curves = curve_map(&[(1, 2), (2, 3)]);
+        let (sites, census) = absorb(&[cyc], &pre, &post, &curves, |_, _| true);
+        assert_eq!(
+            sites,
+            vec![RunAbsorptionSite {
+                survivor: 3,
+                victims: vec![2],
+            }]
+        );
+        assert_eq!(census.no_flip, 1); // the far junction's end
+    }
+
+    /// A healthy chain — every vertex pre AND post in-band — produces no
+    /// site: the flip test is what separates a legitimate same-curve run
+    /// bounded by a junction from an overrun one.
+    #[test]
+    fn run_absorption_leaves_a_healthy_chain_alone() {
+        let cyc = vec![0u32, 1, 2, 3, 4];
+        let pts = [
+            off_circle(0.65),
+            on_circle(0.60),
+            on_circle(0.55),
+            on_circle(0.50),
+            off_circle(0.45),
+        ];
+        let pre = m(&[
+            (0, pts[0]),
+            (1, pts[1]),
+            (2, on_circle(0.53)), // moved, but stays in-band
+            (3, pts[3]),
+            (4, pts[4]),
+        ]);
+        let post = pts.to_vec();
+        let curves = curve_map(&[(1, 2), (2, 3)]);
+        let (sites, census) = absorb(&[cyc], &pre, &post, &curves, |_, _| true);
+        assert!(sites.is_empty());
+        assert_eq!(census.no_flip, 2);
+    }
+
+    /// A flipped vertex whose corner was ALREADY outside its neighbours'
+    /// chord before Stage 4 is inherited geometry: no MINTED inversion, no
+    /// absorption.
+    #[test]
+    fn run_absorption_refuses_an_inherited_fold() {
+        let cyc = vec![0u32, 1, 2, 3, 4];
+        let pre = m(&[
+            (0, off_circle(0.65)),
+            (1, on_circle(0.60)),
+            (2, on_circle(0.65)), // outside [1,3]'s chord already
+            (3, on_circle(0.50)),
+            (4, off_circle(0.45)),
+        ]);
+        let post = vec![
+            off_circle(0.65),
+            on_circle(0.60),
+            on_circle(0.45),
+            on_circle(0.50),
+            off_circle(0.45),
+        ];
+        let curves = curve_map(&[(1, 2), (2, 3)]);
+        let (sites, census) = absorb(&[cyc], &pre, &post, &curves, |_, _| true);
+        assert!(sites.is_empty());
+        // Both terminals walk a flipped prefix (the pre position sits outside
+        // the whole band), and both refuse it as inherited.
+        assert_eq!(census.no_inversion, 2);
+    }
+
+    /// The junction must be strictly richer than every victim — a terminal
+    /// that is a plain 2-carrier vertex is not a model junction, and
+    /// absorbing into it would discard nothing-provable.
+    #[test]
+    fn run_absorption_requires_the_richer_junction() {
+        let cyc = vec![0u32, 1, 2, 3, 4];
+        let pre = m(&[
+            (0, off_circle(0.65)),
+            (1, on_circle(0.60)),
+            (2, on_circle(0.55)),
+            (3, on_circle(0.50)),
+            (4, off_circle(0.45)),
+        ]);
+        let post = vec![
+            off_circle(0.65),
+            on_circle(0.60),
+            on_circle(0.45),
+            on_circle(0.50),
+            off_circle(0.45),
+        ];
+        let curves = curve_map(&[(1, 2), (2, 3)]);
+        let (sites, census) = absorb(&[cyc], &pre, &post, &curves, |_, _| false);
+        assert!(sites.is_empty());
+        assert_eq!(census.not_richer, 1);
+    }
+
+    /// Periodic parameters: the flip test wraps deltas to (−π, π], so an
+    /// overrun across the circle's branch cut still certifies.
+    #[test]
+    fn run_absorption_wraps_the_flip_across_the_branch_cut() {
+        let cyc = vec![0u32, 1, 2, 3, 4];
+        let pre = m(&[
+            (0, off_circle(2.7)),
+            (1, on_circle(2.8)),
+            (2, on_circle(2.9)),
+            (3, on_circle(3.0)),
+            (4, off_circle(3.05)),
+        ]);
+        let post = vec![
+            off_circle(2.7),
+            on_circle(2.8),
+            on_circle(-3.1), // ≈ +3.18 wrapped: past the junction at 3.0
+            on_circle(3.0),
+            off_circle(3.05),
+        ];
+        let curves = curve_map(&[(1, 2), (2, 3)]);
+        let (sites, _) = absorb(&[cyc], &pre, &post, &curves, |_, _| true);
+        assert_eq!(
+            sites,
+            vec![RunAbsorptionSite {
+                survivor: 3,
+                victims: vec![2],
+            }]
+        );
+    }
+
+    /// The same boundary chain appears in BOTH adjacent patches' cycles —
+    /// the reversed walk derives the identical site, deduped to one.
+    #[test]
+    fn run_absorption_dedupes_across_the_two_holder_cycles() {
+        let fwd = vec![0u32, 1, 2, 3, 4];
+        let rev = vec![4u32, 3, 2, 1, 0];
+        let pre = m(&[
+            (0, off_circle(0.65)),
+            (1, on_circle(0.60)),
+            (2, on_circle(0.55)),
+            (3, on_circle(0.50)),
+            (4, off_circle(0.45)),
+        ]);
+        let post = vec![
+            off_circle(0.65),
+            on_circle(0.60),
+            on_circle(0.45),
+            on_circle(0.50),
+            off_circle(0.45),
+        ];
+        let curves = curve_map(&[(1, 2), (2, 3)]);
+        let (sites, census) = absorb(&[fwd, rev], &pre, &post, &curves, |_, _| true);
+        assert_eq!(sites.len(), 1);
+        assert_eq!(census.sites, 1);
+    }
+
+    /// A vertex shared by TWO curve chains whose pair order inverted against
+    /// a different junction on each: two sites with different survivors
+    /// claim it — both drop, loudly, and the census names the ambiguity.
+    #[test]
+    fn run_absorption_drops_an_ambiguous_victim() {
+        // C1 = the unit circle; C2 = a unit circle centred at (0.5, 0, 0).
+        let c2 = crate::Curve::Circle {
+            center: cad_primitives::Point3::new(0.5, 0.0, 0.0),
+            normal: crate::Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        };
+        let on_c2 = |t: f64| [0.5 + t.cos(), t.sin(), 0.0];
+        // Vertex 2 sits on both chains: its C1 order vs junction 1 inverts
+        // (0.55 → 0.45 about 0.50), and its C2 order vs junction 3 inverts
+        // (C2 params of those positions are ≈0.977 → ≈0.827 about 0.90).
+        let cyc_a = vec![8u32, 1, 2, 9];
+        let cyc_b = vec![7u32, 3, 2, 6];
+        let pre = m(&[
+            (8, off_circle(0.40)),
+            (1, on_circle(0.50)),
+            (2, on_circle(0.55)),
+            (9, on_circle(0.60)),
+            (7, off_circle(0.40)),
+            (3, on_c2(0.90)),
+            (6, on_c2(1.05)),
+        ]);
+        let mut post = vec![[0.0; 3]; 10];
+        post[8] = off_circle(0.40);
+        post[1] = on_circle(0.50);
+        post[2] = on_circle(0.45);
+        post[9] = on_circle(0.60);
+        post[7] = off_circle(0.40);
+        post[3] = on_c2(0.90);
+        post[6] = on_c2(1.05);
+        let mut curves = curve_map(&[(1, 2)]);
+        curves.insert((2, 3), c2);
+        let richer = |j: u32, _v: u32| j == 1 || j == 3;
+        let (sites, census) = absorb(&[cyc_a, cyc_b], &pre, &post, &curves, richer);
+        assert!(sites.is_empty(), "both claims dropped: {sites:?}");
+        assert_eq!(census.ambiguous, 1);
+    }
+
+    /// A cycle typed end-to-end on one curve is a CLOSED seam — no bounded
+    /// end, the reorder authority's shape, never absorbed.
+    #[test]
+    fn run_absorption_skips_a_fully_typed_cycle() {
+        let cyc = vec![0u32, 1, 2, 3];
+        let pre = m(&[
+            (0, on_circle(0.0)),
+            (1, on_circle(1.5)),
+            (2, on_circle(3.0)),
+            (3, on_circle(4.5)),
+        ]);
+        let post = vec![
+            on_circle(0.0),
+            on_circle(1.5),
+            on_circle(3.0),
+            on_circle(4.5),
+        ];
+        let curves = curve_map(&[(0, 1), (1, 2), (2, 3), (3, 0)]);
+        let (sites, census) = absorb(&[cyc], &pre, &post, &curves, |_, _| true);
+        assert!(sites.is_empty());
+        assert_eq!(census.runs, 0);
     }
 }

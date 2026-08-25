@@ -2580,11 +2580,91 @@ R0017/R0053 (expected untouched), then gated corpus vs default byte-identity.
   and that run in CHAIN order but between the run and the ascending cut in
   CURVE order. Corner-level certificates are structurally inadequate here:
   the chord-sign survivor pick chooses the far sample, and the
-  junction-ward corner mixes two curves. **Next increment (I13d, not built):
-  run-level junction absorption** — for a maximal same-curve run bounded by
-  a strictly-richer-carrier junction terminal whose chain doubles back
-  (chord-inverted corners on the run), merge every out-of-band run vertex
-  into the junction terminal, I8-checked per merge, fan-rebuild per holder.
+  junction-ward corner mixes two curves. Next increment: I13d, §(d) below.
+
+#### (d) I13d — run-level junction absorption (`YANG_441_RUN_ABSORB`)
+
+**Status: FLIPPED ALWAYS-ON (2026-08-25, same day as landing).** Flip
+proofs: gate-off default corpus BIT-IDENTICAL (tracked results.json
+unchanged after a full run, clean tree); gate-on corpus CATEGORY-IDENTICAL
+— **271C/0W/36E/1EE/0T**, zero CORRECT regressions, exactly ONE explained
+detail row (**R0003 advances face 467 → 517**, the I13e interlocked-pair
+wall below); heaviest case 320 s (budget ≥360 s unchanged).
+`YANG_441_RUN_ABSORB=0|off` is the dev A/B off-knob; `census` =
+select-and-report at the fold-merge fixed points, never apply.
+
+**Anchor revision by walk-back probe** (`YANG_441_RUN_PROBE_AT=x,y,z` — the
+ring node's exact 3D position keyed back to its Stage-4/5 cycle): face 467's
+run is NOT a spur of relocated chain vertices. The chain samples barely move
+(v2331/v2330, 0.079/0.077); **the JUNCTION v2332 moved 0.67** — solved onto
+the rim×cut junction — **hopping PAST its first two chain samples in curve
+parameter** (junction t: pre 0.26522 → post 0.26871; samples still at
+0.26645/0.26772; the next sample 0.26925 stays ahead). The §(c) reading
+("samples relocated onto the neighbor conic") was the one-sided view from
+the samples; both edges are typed on the strip's OWN conic (C0, hyperbola).
+
+**Certificate (symmetric pair-order inversion, P10-clean).** For each
+maximal same-curve run of typed cycle edges, each bounded end `J`: walking
+outward, a vertex `w` is out-of-band iff Stage 4 INVERTED the order of the
+pair `(w, J)` along the curve — strict opposite signs of
+`t_pre(w) − t_pre(J)` and `t_post(w) − t_post(J)` (wrapped deltas for
+periodic conics, raw for open; `conic_param` is the single authority).
+Symmetric in which endpoint moved — covers the §(a) spur shape AND the
+junction-hop shape. Site = the maximal inverted prefix, iff (1) nonempty;
+(2) ≥1 prefix vertex is a MINTED chord inversion (pre in-chord, post out) —
+**load-bearing**: the junction's own big relocation also inverts pair
+orders against its OTHER chain's in-domain samples (projection artifacts of
+the drifted pre position — measured refused on C1: order preserved there,
+but the witness is the structural guard since an in-domain chain stays
+post-monotone and cannot carry a minted fold); (3) `carried(w) ⊂
+carried(J)` proper for every victim (strictly-richer junction; I8
+re-checked per merge in the apply path via `carrier_lost_by_merge`).
+Ambiguity (a victim claimed by two survivors) drops every touching site.
+
+**Repair: `rebuild_run_fan`** — ONE region rebuild per holder covering ALL
+run victims: region = triangles touching any victim; link = the region
+boundary's non-victim edges chained into one open run; polygon = link
+closed by (end→start), whose closure edge IS the absorbed boundary chain
+`survivor → far neighbour` — hence the SURVIVOR must be a link ENDPOINT
+(a mid-link survivor would be stranded off the new boundary; refused).
+An ORPHAN guard refuses any region vertex that is neither victim nor link
+(a boundary vertex sandwiched between non-consecutive victims, or an
+enclosed interior vertex, would be silently disconnected — caught by unit
+test before it could ship). The per-victim fan is structurally unable to
+do this repair: each single link polygon still contains the still-folded
+run sibling, so every per-victim CDT is refused (measured — the wall
+declines all six single-site fans with `TriangulationFailed`).
+
+**Driver**: consulted at BOTH fold-merge fixed-point exits (no corner site
+found / all refused); one site per pass; shares the corner arm's `blocked`
+set (a victim the wall already refused as a corner merge is not re-proposed
+as a 1-victim run — the region would be identical).
+
+**Measured on R0003 (gated ON, 2026-08-25):** first-op fixed point selects
+**31 sites** (runs up to 8 victims: `[8014…8018] → v8015`), census
+attribution clean (ambiguous 0; the spurious one-sided-flip population the
+old certificate put in `no_inversion` (141) collapses to 14/3). **25
+absorptions apply over both holders each (strip cone + wall plane), zero
+declines — face 467's ring-CDT wall CLEARS; R0003 advances 467 → 517.**
+Face 517 = the SIX remaining corner-certified single-overrun sites (v3221,
+v3649, v8582, v8600, v9168, v9187 → their junctions, all on wall patch
+475): `YANG_441_FAN_PROBE` (new; dumps the link polygon at every fan-CDT
+decline) shows every declined polygon GENUINELY self-intersecting
+(crossings=1) — and the link ids name the mechanism: the sites are
+**mutually INTERLOCKED PAIRS** — adjacent strips' deep overruns cross each
+other's wall territory, so each victim's fan polygon contains the
+partner's fold (v3221's link holds {3647, 3649}; v3649's holds
+{3219, 3221}; likewise the 8xxx/9xxx pairs and the v6xxx ladder). The CDT
+is RIGHT to refuse each single fan.
+
+**Next increment (I13e, not built): cross-site group absorption.** Absorb
+an interlocked GROUP in one region rebuild per holder: region = union of
+the group's victims' triangles; its boundary meets the patch boundary in
+k arcs (one per site) — the link chains into k runs, and the polygon is
+the runs stitched in cycle order with one closure edge per site (each
+site's survivor an endpoint of its own arc), victims substituted per-site.
+Group = the transitive closure of "my fan polygon contains your victim".
+Everything else (certificates, I8, blocked, one-group-per-pass) unchanged.
 
 ## 5. After this epic (recorded, not started)
 

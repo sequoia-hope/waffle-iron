@@ -804,9 +804,8 @@ fn run_fold_merge_passes(
             census.ambiguous,
             sites.len(),
         );
-        if sites.is_empty() {
-            break;
-        }
+        // An empty corner-site set falls through: the I13d run-level arm
+        // below is consulted before the pass loop concludes.
 
         // Holder closure. Every patch holding the victim in a TRIANGLE rebuilds
         // its fan — all-holders-or-none, so no triangle is ever re-pointed
@@ -908,18 +907,62 @@ fn run_fold_merge_passes(
             progressed = true;
             break;
         }
+        let mut run_merged: Option<(u32, Vec<u32>)> = None;
         if !progressed {
-            // Every site this pass was refused; the refusals are persistent, so
-            // another pass would re-derive exactly the same set.
-            break;
+            // Every corner-level site this pass was refused (or none existed);
+            // those refusals are persistent, so the corner arm is at its fixed
+            // point. Consult the I13d run-level arm before concluding.
+            if std::env::var_os("YANG_441_RUN_PROBE").is_some() {
+                // I13d anchor probe: the all-blocked fixed point IS the
+                // residual the run-level absorption must own — dump each
+                // refused site's cycle neighbourhood (per-edge curve typing,
+                // per-vertex carriers and moved flags, curve parameters).
+                for site in &sites {
+                    probe_run_neighborhood(
+                        mesh,
+                        attribution,
+                        a,
+                        b,
+                        &patches,
+                        intersection_curves,
+                        site.victim,
+                        site.survivor,
+                    );
+                }
+            }
+            match run_absorption_attempt(
+                mesh,
+                attribution,
+                a,
+                b,
+                &patches,
+                &cyc_refs,
+                intersection_curves,
+                &mut blocked,
+                pass,
+            ) {
+                Some((plan, survivor, victims)) => {
+                    rebuilds = plan;
+                    run_merged = Some((survivor, victims));
+                }
+                None => break,
+            }
         }
         match apply_rebuild_batch(mesh, attribution, &rebuilds, &BTreeMap::new()) {
             Ok(()) => {
-                let (victim, survivor) = merged.expect("progressed implies a merge");
-                c441_log!(
-                    "[s4-fold-merge] pass={pass}: APPLIED v{victim} -> v{survivor} over {} fans",
-                    rebuilds.len()
-                );
+                if let Some((survivor, victims)) = &run_merged {
+                    c441_log!(
+                        "[i13d-absorb] pass={pass}: APPLIED run {victims:?} -> v{survivor} \
+                         over {} fans",
+                        rebuilds.len()
+                    );
+                } else {
+                    let (victim, survivor) = merged.expect("progressed implies a merge");
+                    c441_log!(
+                        "[s4-fold-merge] pass={pass}: APPLIED v{victim} -> v{survivor} over {} fans",
+                        rebuilds.len()
+                    );
+                }
                 applied_total += 1;
             }
             Err(e) => {
@@ -1129,6 +1172,310 @@ fn probe_merge_site(
             },
             patches[h].surface,
         );
+    }
+}
+
+/// I13d (**ALWAYS-ON since the 2026-08-25 flip** — see
+/// `stage4_fold_risk::run_absorb_mode`; `YANG_441_RUN_ABSORB=0|off` is the
+/// dev off-knob): at the corner arm's fixed point — no corner-level site
+/// found, or every one refused — select the run-level junction-absorption
+/// sites, report them (the census ledger prints in both census and on
+/// modes), and in ON mode plan the first applicable site's rebuild batch.
+/// Census mode never applies. Off = no work at all (the pre-flip
+/// byte-identical pipeline).
+///
+/// The strictly-richer oracle is carrier containment measured on the mesh:
+/// `carried(victim) ⊆ carried(junction)` with the junction carrying at least
+/// one surface the victim does not — the I8 containment plus junction-hood,
+/// certified at `junction_certificate_band` like every carrier question.
+/// Application re-checks each victim through [`carrier_lost_by_merge`] (the
+/// same I8 gate the corner arm uses), closes over every holder patch, and
+/// verifies no triangle outside the planned fans references a victim — the
+/// bare-collapse guard, unchanged.
+#[allow(clippy::too_many_arguments)]
+fn run_absorption_attempt(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+    patches: &[crate::stage4_splice::SplicePatch],
+    cyc_refs: &[Vec<u32>],
+    curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    blocked: &mut std::collections::BTreeSet<u32>,
+    pass: usize,
+) -> Option<(Vec<crate::stage4_construct::PatchRebuild>, u32, Vec<u32>)> {
+    use crate::stage4_construct::rebuild_run_fan;
+    use crate::stage4_fold_risk::{run_absorb_mode, run_absorption_sites, RunAbsorbMode};
+    let mode = run_absorb_mode();
+    if mode == RunAbsorbMode::Off {
+        return None;
+    }
+    // Position-keyed anchor probe: `YANG_441_RUN_PROBE_AT=x,y,z` dumps the
+    // cycle neighbourhood of the mesh vertex nearest that position at this
+    // fixed point — for walking BACK from a downstream artifact (a rejected
+    // tessellation ring's 3D node) to the Stage-4/5 cycle that produced it.
+    if let Some(spec) = std::env::var_os("YANG_441_RUN_PROBE_AT") {
+        let parts: Vec<f64> = spec
+            .to_string_lossy()
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
+        if let [x, y, z] = parts[..] {
+            let d2 = |p: &Point3| {
+                let q = p.as_array();
+                (q[0] - x).powi(2) + (q[1] - y).powi(2) + (q[2] - z).powi(2)
+            };
+            let on_cycle: std::collections::BTreeSet<u32> =
+                cyc_refs.iter().flatten().copied().collect();
+            if let Some(&v) = on_cycle.iter().min_by(|&&p, &&q| {
+                d2(&mesh.verts[p as usize]).total_cmp(&d2(&mesh.verts[q as usize]))
+            }) {
+                eprintln!(
+                    "[i13d-run] PROBE_AT ({x},{y},{z}) nearest cycle vertex v{v} \
+                     dist={:.6e}",
+                    d2(&mesh.verts[v as usize]).sqrt()
+                );
+                probe_run_neighborhood(mesh, attribution, a, b, patches, curves, v, v);
+            }
+        }
+    }
+    let richer = |j: u32, v: u32| -> bool {
+        let cs = |x: u32| {
+            crate::stage4_correct::carried_surfaces(
+                mesh,
+                &attribution.attributions,
+                a,
+                b,
+                x,
+                mesh.verts[x as usize].as_array(),
+            )
+        };
+        let (cj, cv) = (cs(j), cs(v));
+        cv.iter().all(|s| cj.contains(s)) && cj.iter().any(|s| !cv.contains(s))
+    };
+    let (sites, census) = S4_PRE_POS.with(|c| {
+        let borrow = c.borrow();
+        match borrow.as_ref() {
+            Some(pre) => {
+                let post = mesh_positions(mesh);
+                run_absorption_sites(
+                    cyc_refs.iter().map(Vec::as_slice),
+                    pre,
+                    &post,
+                    curves,
+                    richer,
+                )
+            }
+            None => (Vec::new(), Default::default()),
+        }
+    });
+    eprintln!(
+        "[i13d-absorb] SELECT runs={} terminals={} no_param={} no_flip={} \
+         no_inversion={} not_richer={} ambiguous={} -> sites={}",
+        census.runs,
+        census.terminals,
+        census.no_param,
+        census.no_flip,
+        census.no_inversion,
+        census.not_richer,
+        census.ambiguous,
+        census.sites,
+    );
+    for s in &sites {
+        eprintln!(
+            "[i13d-absorb] SITE survivor=v{} victims={:?}",
+            s.survivor,
+            s.victims
+                .iter()
+                .map(|&v| format!("v{v}"))
+                .collect::<Vec<_>>(),
+        );
+    }
+    if mode == RunAbsorbMode::Census {
+        return None;
+    }
+    let chartable = |s: &Surface| crate::stage4_project::SurfaceChart::supports(s);
+    'site: for site in &sites {
+        if site.victims.iter().any(|v| blocked.contains(v)) {
+            continue;
+        }
+        // §4-I8 per merge: each victim must lie on nothing the junction is
+        // off. The selector's richness oracle asked the same question; this
+        // re-check keeps the apply path under the exact gate the corner arm
+        // uses, in refusing-direction form.
+        for &v in &site.victims {
+            if let Some(surf) = carrier_lost_by_merge(mesh, attribution, a, b, v, site.survivor) {
+                c441_log!(
+                    "[i13d-absorb] pass={pass}: NOT-A-MERGE v{v} -> v{} — the victim \
+                     carries {surf:?}, which the junction is off",
+                    site.survivor,
+                );
+                blocked.extend(site.victims.iter().copied());
+                continue 'site;
+            }
+        }
+        let vic: std::collections::BTreeSet<u32> = site.victims.iter().copied().collect();
+        let holders: Vec<usize> = patches
+            .iter()
+            .enumerate()
+            .filter(|&(_pj, pat)| {
+                pat.tris
+                    .iter()
+                    .any(|&t| mesh.tris[t as usize].iter().any(|v| vic.contains(v)))
+            })
+            .map(|(pj, _)| pj)
+            .collect();
+        if holders.is_empty() || holders.iter().any(|&h| !chartable(&patches[h].surface)) {
+            c441_log!(
+                "[i13d-absorb] pass={pass}: REFUSED run {:?} -> v{} — unchartable (or no) \
+                 holder in {holders:?}; blocked",
+                site.victims,
+                site.survivor
+            );
+            blocked.extend(site.victims.iter().copied());
+            continue;
+        }
+        let mut plan = Vec::with_capacity(holders.len());
+        for &h in &holders {
+            match rebuild_run_fan(mesh, h, &patches[h], &vic, site.survivor) {
+                Ok(r) => plan.push(r),
+                Err(e) => {
+                    c441_log!(
+                        "[i13d-absorb] pass={pass}: DECLINED patch {h} for run {:?} — {e:?}",
+                        site.victims
+                    );
+                    blocked.extend(site.victims.iter().copied());
+                    continue 'site;
+                }
+            }
+        }
+        // Bare-collapse guard: the victims must not survive anywhere outside
+        // the rebuilt fans.
+        let planned: std::collections::BTreeSet<u32> = plan
+            .iter()
+            .flat_map(|r| r.old_tris.iter().copied())
+            .collect();
+        if let Some(t) = (0..mesh.tris.len() as u32).find(|t| {
+            !planned.contains(t) && mesh.tris[*t as usize].iter().any(|v| vic.contains(v))
+        }) {
+            c441_log!(
+                "[i13d-absorb] pass={pass}: BLOCKED run {:?} -> v{} — triangle {t} holds a \
+                 victim outside every holder fan",
+                site.victims,
+                site.survivor
+            );
+            blocked.extend(site.victims.iter().copied());
+            continue;
+        }
+        c441_log!(
+            "[i13d-absorb] pass={pass}: ABSORB run {:?} -> v{} holders={holders:?}",
+            site.victims,
+            site.survivor
+        );
+        return Some((plan, site.survivor, site.victims.clone()));
+    }
+    None
+}
+
+/// I13d anchor probe (`YANG_441_RUN_PROBE`): the cycle neighbourhood of one
+/// refused Fig-11 site, printed at the fold-merge all-blocked fixed point.
+/// For every patch cycle containing the victim: a ±6 window of vertices
+/// (id, moved flag + displacement, carried-surface refs, position) and the
+/// window's edges (typed-curve ref + both endpoints' curve parameters).
+/// Surfaces and curves are deduplicated per call and printed once as a
+/// legend, so two windows sharing a conic share its ref — which curve a
+/// chain is ON is exactly what the I13d selector must read.
+#[allow(clippy::too_many_arguments)]
+fn probe_run_neighborhood(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+    patches: &[crate::stage4_splice::SplicePatch],
+    curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    victim: u32,
+    survivor: u32,
+) {
+    use crate::stage4_correct::{carried_surfaces, conic_param};
+    let mut surf_legend: Vec<Surface> = Vec::new();
+    let mut curve_legend: Vec<Curve> = Vec::new();
+    fn legend_ref<T: PartialEq + Clone>(legend: &mut Vec<T>, item: &T) -> usize {
+        match legend.iter().position(|x| x == item) {
+            Some(i) => i,
+            None => {
+                legend.push(item.clone());
+                legend.len() - 1
+            }
+        }
+    }
+    for (pj, pat) in patches.iter().enumerate() {
+        for cyc in &pat.cycles {
+            let n = cyc.len();
+            let Some(k) = cyc.iter().position(|&v| v == victim) else {
+                continue;
+            };
+            let s = legend_ref(&mut surf_legend, &pat.surface);
+            eprintln!(
+                "[i13d-run] victim=v{victim} survivor=v{survivor} patch={pj} surf=S{s} \
+                 cyc_len={n} at={k}"
+            );
+            for off in -6i64..=6 {
+                let idx = (k as i64 + off).rem_euclid(n as i64) as usize;
+                let v = cyc[idx];
+                let p = mesh.verts[v as usize].as_array();
+                let carried: Vec<String> =
+                    carried_surfaces(mesh, &attribution.attributions, a, b, v, p)
+                        .into_iter()
+                        .map(|surf| format!("S{}", legend_ref(&mut surf_legend, &surf)))
+                        .collect();
+                let moved = S4_PRE_POS.with(|c| {
+                    c.borrow().as_ref().and_then(|pre| pre.get(&v)).map(|&q| {
+                        ((q[0] - p[0]).powi(2) + (q[1] - p[1]).powi(2) + (q[2] - p[2]).powi(2))
+                            .sqrt()
+                    })
+                });
+                eprintln!(
+                    "[i13d-run]   [{off:+}] v{v} moved={moved:?} carried={carried:?} \
+                     p=({:.9},{:.9},{:.9})",
+                    p[0], p[1], p[2]
+                );
+                if off < 6 {
+                    let w = cyc[(idx + 1) % n];
+                    let key = (v.min(w), v.max(w));
+                    match curves.get(&key) {
+                        Some(curve) => {
+                            let c = legend_ref(&mut curve_legend, curve);
+                            let t_v = conic_param(curve, mesh.verts[v as usize]);
+                            let t_w = conic_param(curve, mesh.verts[w as usize]);
+                            // Pre-relocation params: the pre/post ORDER of a
+                            // (sample, junction) pair along the shared curve
+                            // is the I13d flip certificate's raw material.
+                            let tp = |x: u32| {
+                                S4_PRE_POS.with(|cell| {
+                                    cell.borrow().as_ref().and_then(|pre| {
+                                        pre.get(&x)
+                                            .and_then(|&p| conic_param(curve, Point3::from(p)))
+                                    })
+                                })
+                            };
+                            eprintln!(
+                                "[i13d-run]   edge v{v}-v{w}: C{c} t_v={t_v:?} t_w={t_w:?} \
+                                 tp_v={:?} tp_w={:?}",
+                                tp(v),
+                                tp(w),
+                            );
+                        }
+                        None => eprintln!("[i13d-run]   edge v{v}-v{w}: untyped"),
+                    }
+                }
+            }
+        }
+    }
+    for (i, surf) in surf_legend.iter().enumerate() {
+        eprintln!("[i13d-run] legend S{i}={surf:?}");
+    }
+    for (i, curve) in curve_legend.iter().enumerate() {
+        eprintln!("[i13d-run] legend C{i}={curve:?}");
     }
 }
 

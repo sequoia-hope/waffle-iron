@@ -690,6 +690,11 @@ pub(crate) enum FanReason {
     /// doubled pair over the same link edge (`fan == 2`). Those are different
     /// configurations, so the count is reported.
     Short { fan: usize, link: usize },
+    /// I13d run regions only: a region vertex that is neither a victim nor on
+    /// the link — the rebuild would silently disconnect it (a boundary vertex
+    /// sandwiched between non-consecutive victims, or an interior vertex whose
+    /// whole fan lies inside the region). Refused, never guessed.
+    Orphaned { fan: usize, vertex: u32 },
 }
 
 /// One patch's single-sided rebuild, entirely in MESH index space and ready
@@ -1427,6 +1432,19 @@ pub(crate) fn rebuild_merge_fan(
     let boundary: Vec<u32> = (0..link.len() as u32).collect();
     let tris2 =
         cdt_with_interior_constraints(&pool, &boundary, &[], &[], &[]).map_err(|error| {
+            if std::env::var_os("YANG_441_FAN_PROBE").is_some() {
+                let poly: Vec<(u32, f64, f64)> = link
+                    .iter()
+                    .zip(pool.iter())
+                    .map(|(&v, p)| (v, p.x(), p.y()))
+                    .collect();
+                eprintln!(
+                    "[i13d-fan] CDT-DECLINE patch={patch_index} victim=v{victim} \
+                     survivor=v{survivor} err={error:?} link_poly={poly:?} \
+                     victim_uv={:?}",
+                    (base.x(), base.y()),
+                );
+            }
             ConstructError::Cdt {
                 patch: patch_index,
                 error,
@@ -1467,6 +1485,233 @@ pub(crate) fn rebuild_merge_fan(
         new_tris,
         new_verts: Vec::new(),
         dropped: [victim].into_iter().collect(),
+        plan_verts: mesh.verts.len() as u32,
+        plan_tris: mesh.tris.len() as u32,
+    })
+}
+
+/// I13d — the run-level analog of [`rebuild_merge_fan`]: re-triangulate the
+/// union of SEVERAL victims' fans in one rebuild, absorbing them all into
+/// the junction survivor.
+///
+/// The single-victim fan is structurally unable to repair a multi-vertex
+/// overrun run: each victim's link polygon still contains its still-folded
+/// run sibling, so every per-victim CDT is refused (measured 2026-08-25,
+/// R0003 — the wall patch declines each of the six single sites with
+/// `TriangulationFailed`). The REGION's outer link contains no victim at
+/// all, so that refusal cannot recur by construction.
+///
+/// Construction: region = every patch triangle touching any victim; its
+/// boundary = directed edges whose reverse is absent from the region; the
+/// LINK = boundary edges with no victim endpoint, chained into ONE open run.
+/// The victims sit on the patch boundary, so the link is open and its two
+/// endpoints are where the region meets the boundary chain. The polygon is
+/// the link closed by (end → start), whose closure edge becomes the NEW
+/// boundary segment — which equals the absorbed chain `survivor → far
+/// neighbour` exactly when the SURVIVOR is a link endpoint. A survivor
+/// interior to the link (a boundary ear extending the region past the
+/// junction) would be stranded off the new boundary by the closure, so that
+/// configuration is refused loudly, never guessed.
+pub(crate) fn rebuild_run_fan(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    victims: &BTreeSet<u32>,
+    survivor: u32,
+) -> Result<PatchRebuild, ConstructError> {
+    let chart = SurfaceChart::new(patch.surface)
+        .ok_or(ConstructError::NonPlanarPatch { patch: patch_index })?;
+    let mut old_tris: Vec<u32> = Vec::new();
+    let mut directed: BTreeSet<(u32, u32)> = BTreeSet::new();
+    for &t in &patch.tris {
+        let tri = mesh.tris[t as usize];
+        if !tri.iter().any(|v| victims.contains(v)) {
+            continue;
+        }
+        old_tris.push(t);
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            if x == y || !directed.insert((x, y)) {
+                // A degenerate triangle, or two region triangles sharing a
+                // DIRECTED edge — the region is not an oriented 2-manifold
+                // piece here.
+                return Err(ConstructError::FanNotSimple {
+                    patch: patch_index,
+                    victim: survivor,
+                    reason: FanReason::Degenerate,
+                });
+            }
+        }
+    }
+    if old_tris.is_empty() {
+        return Err(ConstructError::MalformedPatch { patch: patch_index });
+    }
+    let fan = old_tris.len();
+    let mut next: BTreeMap<u32, u32> = BTreeMap::new();
+    let mut indeg: BTreeMap<u32, usize> = BTreeMap::new();
+    for &(x, y) in &directed {
+        if directed.contains(&(y, x)) {
+            continue; // interior to the region
+        }
+        if victims.contains(&x) || victims.contains(&y) {
+            continue; // the open end along the patch boundary chain
+        }
+        if next.insert(x, y).is_some() {
+            return Err(ConstructError::FanNotSimple {
+                patch: patch_index,
+                victim: survivor,
+                reason: FanReason::Pinch { fan },
+            });
+        }
+        *indeg.entry(y).or_default() += 1;
+        indeg.entry(x).or_default();
+    }
+    if indeg.values().any(|&d| d > 1) {
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim: survivor,
+            reason: FanReason::Pinch { fan },
+        });
+    }
+    // The victims are boundary-cycle vertices, so the link must be ONE open
+    // run. A closed link (no source) means an interior victim — malformed
+    // input for this repair; several runs mean the region meets the boundary
+    // in separate sheets.
+    let Some(start) = indeg.iter().find(|&(_, &d)| d == 0).map(|(&v, _)| v) else {
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim: survivor,
+            reason: FanReason::Pinch { fan },
+        });
+    };
+    let mut link: Vec<u32> = vec![start];
+    let mut cur = start;
+    while let Some(&nx) = next.get(&cur) {
+        if link.len() > next.len() {
+            return Err(ConstructError::FanNotSimple {
+                patch: patch_index,
+                victim: survivor,
+                reason: FanReason::Pinch { fan },
+            });
+        }
+        link.push(nx);
+        cur = nx;
+    }
+    if link.len() != indeg.len() {
+        let runs = chain_link_runs(&next, &indeg);
+        let with_survivor = runs.iter().filter(|r| r.contains(&survivor)).count();
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim: survivor,
+            reason: FanReason::Split {
+                fan,
+                runs: runs.len(),
+                with_survivor,
+            },
+        });
+    }
+    if link.first() != Some(&survivor) && link.last() != Some(&survivor) {
+        // Present mid-link (a boundary ear past the junction) or absent: the
+        // closure edge would bypass the survivor — refused, see above.
+        return Err(ConstructError::FanSurvivorNotAdjacent {
+            patch: patch_index,
+            victim: survivor,
+        });
+    }
+    // Every region vertex must be a victim (dropped) or on the link (kept in
+    // the polygon): anything else would be silently disconnected by the
+    // rebuild — a boundary vertex sandwiched between non-consecutive victims,
+    // or an interior vertex fully enclosed by the region.
+    if let Some(&orphan) = old_tris
+        .iter()
+        .flat_map(|&t| mesh.tris[t as usize].iter())
+        .find(|v| !victims.contains(v) && !link.contains(v))
+    {
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim: survivor,
+            reason: FanReason::Orphaned {
+                fan,
+                vertex: orphan,
+            },
+        });
+    }
+    if link.len() < 3 {
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim: survivor,
+            reason: FanReason::Short {
+                fan,
+                link: link.len(),
+            },
+        });
+    }
+
+    // Chart coordinates, θ-unwrapped against the SURVIVOR's branch (the
+    // region is local: every link vertex is within π of the junction).
+    let base = chart.project(mesh.verts[survivor as usize]);
+    let periodic = matches!(
+        patch.surface,
+        Surface::Cylinder { .. } | Surface::Cone { .. }
+    );
+    if matches!(chart, SurfaceChart::Cone { .. })
+        && victims
+            .iter()
+            .copied()
+            .chain(link.iter().copied())
+            .any(|v| chart.project(mesh.verts[v as usize]).y() <= 0.0)
+    {
+        return Err(ConstructError::ApexInPatch { patch: patch_index });
+    }
+    let uv_of = |v: u32| -> Point2 {
+        let uv = chart.project(mesh.verts[v as usize]);
+        if periodic {
+            let k = ((base.x() - uv.x()) / std::f64::consts::TAU).round();
+            Point2::new(uv.x() + k * std::f64::consts::TAU, uv.y())
+        } else {
+            uv
+        }
+    };
+    let pool: Vec<Point2> = link.iter().map(|&v| uv_of(v)).collect();
+    let boundary: Vec<u32> = (0..link.len() as u32).collect();
+    let tris2 =
+        cdt_with_interior_constraints(&pool, &boundary, &[], &[], &[]).map_err(|error| {
+            ConstructError::Cdt {
+                patch: patch_index,
+                error,
+            }
+        })?;
+    let old: Vec<[u32; 3]> = old_tris.iter().map(|&t| mesh.tris[t as usize]).collect();
+    let mesh_pos = |v: u32| -> Point3 { mesh.verts[v as usize] };
+    let pos3 = |i: u32| -> Point3 { mesh.verts[link[i as usize] as usize] };
+    let want = crate::stage4_splice::area_vector(&old, &mesh_pos);
+    let got = crate::stage4_splice::area_vector(&tris2, &pos3);
+    let d = crate::stage4_splice::dot3(want, got);
+    if d == 0.0 || !d.is_finite() {
+        return Err(ConstructError::DegenerateOrientation { patch: patch_index });
+    }
+    let mut tris2 = tris2;
+    if d < 0.0 {
+        for t in &mut tris2 {
+            t.swap(1, 2);
+        }
+    }
+    let new_tris: Vec<[u32; 3]> = tris2
+        .iter()
+        .map(|t| {
+            [
+                link[t[0] as usize],
+                link[t[1] as usize],
+                link[t[2] as usize],
+            ]
+        })
+        .collect();
+    Ok(PatchRebuild {
+        patch: patch_index,
+        old_tris,
+        new_tris,
+        new_verts: Vec::new(),
+        dropped: victims.iter().copied().collect(),
         plan_verts: mesh.verts.len() as u32,
         plan_tris: mesh.tris.len() as u32,
     })
@@ -2173,6 +2418,154 @@ mod tests {
                 victim: 0
             })
         );
+    }
+
+    // ---- I13d rebuild_run_fan -----------------------------------------
+
+    /// Hexagon boundary 0..5 fanned to interior 6; boundary run victims
+    /// {1, 2} absorb into their junction 0: the region is the three
+    /// triangles touching them, the link chains 3 → 6 → 0 with the survivor
+    /// at an END, and the closure edge (0, 3) is exactly the absorbed
+    /// boundary chain.
+    #[test]
+    fn rebuild_run_fan_absorbs_a_two_victim_boundary_run() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),   // 0 = junction survivor
+                Point3::new(0.4, -0.3, 0.0),  // 1 = victim (out-of-band)
+                Point3::new(0.8, -0.15, 0.0), // 2 = victim (out-of-band)
+                Point3::new(1.2, 0.0, 0.0),   // 3 = far boundary neighbour
+                Point3::new(1.2, 1.0, 0.0),   // 4
+                Point3::new(0.0, 1.0, 0.0),   // 5
+                Point3::new(0.6, 0.5, 0.0),   // 6 = interior
+            ],
+            tris: vec![
+                [0, 1, 6],
+                [1, 2, 6],
+                [2, 3, 6],
+                [3, 4, 6],
+                [4, 5, 6],
+                [5, 0, 6],
+            ],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3, 4, 5]], vec![0, 1, 2, 3, 4, 5]);
+        let victims: BTreeSet<u32> = [1, 2].into_iter().collect();
+        let r = rebuild_run_fan(&mesh, 7, &patch, &victims, 0).expect("run rebuild");
+        assert_eq!(r.patch, 7);
+        assert_eq!(r.old_tris, vec![0, 1, 2], "the three triangles at the run");
+        assert_eq!(r.dropped, victims);
+        assert!(r.new_tris.iter().flatten().all(|v| !victims.contains(v)));
+        assert_eq!(r.new_tris.len(), 1, "link 3→6→0 closes into one triangle");
+        assert_eq!(
+            r.new_tris[0].iter().copied().collect::<BTreeSet<u32>>(),
+            [0u32, 3, 6].into()
+        );
+        let pos = |v: u32| -> Point3 { mesh.verts[v as usize] };
+        let want = crate::stage4_splice::area_vector(&[[0, 1, 6], [1, 2, 6], [2, 3, 6]], &pos);
+        let got = crate::stage4_splice::area_vector(&r.new_tris, &pos);
+        assert!(crate::stage4_splice::dot3(want, got) > 0.0);
+    }
+
+    /// A survivor that is not a link ENDPOINT is refused: the closure edge
+    /// would bypass it, stranding the junction off the new boundary.
+    #[test]
+    fn rebuild_run_fan_refuses_a_mid_link_survivor() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, -0.3, 0.0), // 1 = victim
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.5, 0.5, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(0.5, 0.5, 0.0), // 5 = interior (mid-link)
+            ],
+            tris: vec![[0, 1, 5], [1, 2, 5], [2, 3, 5], [3, 4, 5], [4, 0, 5]],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3, 4]], vec![0, 1, 2, 3, 4]);
+        let victims: BTreeSet<u32> = [1].into_iter().collect();
+        // Link chains 2 → 5 → 0; vertex 5 is interior to it.
+        assert_eq!(
+            rebuild_run_fan(&mesh, 3, &patch, &victims, 5),
+            Err(ConstructError::FanSurvivorNotAdjacent {
+                patch: 3,
+                victim: 5
+            })
+        );
+        // The endpoints ARE accepted.
+        assert!(rebuild_run_fan(&mesh, 3, &patch, &victims, 0).is_ok());
+        assert!(rebuild_run_fan(&mesh, 3, &patch, &victims, 2).is_ok());
+    }
+
+    /// Non-consecutive victims: the region here happens to be CONNECTED (the
+    /// sandwiched vertex's triangles each touch a victim), so the link chains
+    /// cleanly — and the sandwiched boundary vertex would be silently
+    /// disconnected. The orphan guard is what refuses the shape.
+    #[test]
+    fn rebuild_run_fan_refuses_non_consecutive_victims() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, -0.3, 0.0), // 1 = victim
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.3, 0.7, 0.0), // 3 = victim, not adjacent to 1
+                Point3::new(0.6, 1.2, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(0.6, 0.4, 0.0), // 6 = interior
+            ],
+            tris: vec![
+                [0, 1, 6],
+                [1, 2, 6],
+                [2, 3, 6],
+                [3, 4, 6],
+                [4, 5, 6],
+                [5, 0, 6],
+            ],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3, 4, 5]], vec![0, 1, 2, 3, 4, 5]);
+        let victims: BTreeSet<u32> = [1, 3].into_iter().collect();
+        // The region is CONNECTED (vertex 2's triangles each touch a victim),
+        // so the link chains cleanly — and boundary vertex 2, sandwiched
+        // between the non-consecutive victims, would be silently
+        // disconnected. The orphan guard is what refuses this shape.
+        match rebuild_run_fan(&mesh, 0, &patch, &victims, 0) {
+            Err(ConstructError::FanNotSimple {
+                reason: FanReason::Orphaned { vertex, .. },
+                ..
+            }) => assert_eq!(vertex, 2),
+            other => panic!("expected an Orphaned refusal, got {other:?}"),
+        }
+    }
+
+    /// The doubled-back spur shape from R0003 face 467: the boundary walks
+    /// out past the junction and back over the same territory. The region
+    /// polygon (junction → far side, through the interior link) is clean
+    /// even though the removed boundary chain is a hairpin.
+    #[test]
+    fn rebuild_run_fan_repairs_a_hairpin_spur() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),    // 0 = junction
+                Point3::new(-0.4, -0.55, 0.0), // 1 = deep victim
+                Point3::new(-0.1, -0.3, 0.0),  // 2 = shallow victim
+                Point3::new(1.0, 0.0, 0.0),    // 3 = far neighbour
+                Point3::new(0.5, 0.9, 0.0),    // 4
+                Point3::new(-0.5, 0.6, 0.0),   // 5
+                Point3::new(0.2, 0.35, 0.0),   // 6 = interior
+            ],
+            tris: vec![
+                [0, 1, 6],
+                [1, 2, 6],
+                [2, 3, 6],
+                [3, 4, 6],
+                [4, 5, 6],
+                [5, 0, 6],
+            ],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3, 4, 5]], vec![0, 1, 2, 3, 4, 5]);
+        let victims: BTreeSet<u32> = [1, 2].into_iter().collect();
+        let r = rebuild_run_fan(&mesh, 0, &patch, &victims, 0).expect("hairpin absorbed");
+        assert_eq!(r.old_tris, vec![0, 1, 2]);
+        assert!(r.new_tris.iter().flatten().all(|v| !victims.contains(v)));
     }
 
     /// The decline NAMES its condition: a victim whose fan triangles leave it
