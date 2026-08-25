@@ -228,6 +228,7 @@ fn decide_run(
     canon: &Curve,
     verts: &[Point3],
     stats: &mut MergeStats,
+    min_pieces: usize,
 ) -> RunDecision {
     let k = chain.len();
     // Params along the canonical curve.
@@ -288,9 +289,14 @@ fn decide_run(
     }
 
     let n_pieces = if closed {
+        // A closed whole-loop run rebuilds as 4 arcs — always ≥ the 3-edge
+        // loop contract.
         4
     } else {
-        ((total / SWEEP_MAX).ceil() as usize).max(1)
+        // Sweep-based count, floored by the owner loops' 3-edge contract
+        // (`min_pieces`, the pre-pass maximum over BOTH owners so the twin
+        // reuse of this cached decision satisfies every loop).
+        ((total / SWEEP_MAX).ceil() as usize).max(1).max(min_pieces)
     };
     // Enough chain vertices to host the splits?
     if (closed && k < 4) || (!closed && n_pieces > k - 1) {
@@ -536,6 +542,55 @@ pub(crate) fn merge_conic_seam_runs(
         .map(|(&v, _)| v)
         .collect();
 
+    // ── Loop-floor pre-pass ──────────────────────────────────────────────
+    // from_yang rejects any loop below 3 edges, so an OPEN run may not
+    // coalesce further than its owner loops allow. Per canonical chain,
+    // the piece floor = max over its owner loops of
+    // `3 − (verbatim edges + one piece for every OTHER mergeable stretch)`
+    // — conservative: assumes every other stretch shrinks to a single
+    // piece. Cached decisions then satisfy BOTH owners (twin conformance).
+    // Closed whole-loop runs rebuild as 4 arcs and need no floor.
+    let mut floor_of: BTreeMap<Vec<u32>, usize> = BTreeMap::new();
+    for f in faces.iter() {
+        for lp in std::iter::once(&f.outer_loop).chain(f.inner_loops.iter()) {
+            let Some(cycle) = loop_cycle(edges, lp) else {
+                continue;
+            };
+            let part = partition_loop(edges, lp, &cycle, &elidable);
+            if part.whole_closed {
+                continue;
+            }
+            let m = lp.len();
+            let mergeable: Vec<(usize, usize)> = part
+                .stretches
+                .iter()
+                .filter(|(_, len, k)| k.is_some() && *len >= 2)
+                .map(|&(r, len, _)| (r, len))
+                .collect();
+            if mergeable.is_empty() {
+                continue;
+            }
+            let verbatim: usize = m - mergeable.iter().map(|&(_, l)| l).sum::<usize>();
+            let others = mergeable.len() - 1;
+            for &(start_r, len) in &mergeable {
+                let need = 3usize.saturating_sub(verbatim + others);
+                if need <= 1 {
+                    continue;
+                }
+                // The SAME canonical chain emit_stretch will derive.
+                let orig_pos = |r: usize| (part.offset + r) % m;
+                let mut chain: Vec<u32> = Vec::with_capacity(len + 1);
+                for r in start_r..start_r + len {
+                    chain.push(cycle[orig_pos(r)]);
+                }
+                chain.push(cycle[orig_pos(start_r + len) % m]);
+                let (canon_chain, _) = canonical_open_chain(&chain);
+                let e = floor_of.entry(canon_chain).or_insert(1);
+                *e = (*e).max(need);
+            }
+        }
+    }
+
     // ── Decisions per canonical chain (cached: the twin reuses them) ─────
     let mut decisions: BTreeMap<Vec<u32>, RunDecision> = BTreeMap::new();
     // First-copy piece assignment for sources retagging.
@@ -621,7 +676,19 @@ pub(crate) fn merge_conic_seam_runs(
                     return;
                 };
                 let decision = decisions.entry(canon_chain.clone()).or_insert_with(|| {
-                    decide_run(&canon_chain, closed_whole, &canon_curve, verts, stats)
+                    let min_pieces = if closed_whole {
+                        1
+                    } else {
+                        floor_of.get(&canon_chain).copied().unwrap_or(1)
+                    };
+                    decide_run(
+                        &canon_chain,
+                        closed_whole,
+                        &canon_curve,
+                        verts,
+                        stats,
+                        min_pieces,
+                    )
                 });
                 let RunDecision::Merge { boundaries, canon } = decision else {
                     verbatim(new_lp, covers);
@@ -946,6 +1013,107 @@ mod tests {
             },
         ];
         (verts, edges, faces)
+    }
+
+    /// Open-run loop floor (§4.4.2 restoration follow-up, spec
+    /// `yang_434_output_chord_refinement.md` inc-3): a loop of ONE long
+    /// on-circle run plus a single closing line must NOT coalesce to a
+    /// 2-edge loop — from_yang rejects any loop below 3 edges. The run must
+    /// split into enough pieces to keep every owner loop at ≥ 3.
+    #[test]
+    fn open_run_keeps_loop_at_three_edges() {
+        let c = circle([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+        let n = 11usize; // verts 0..=10 along a 1.5 rad arc
+        let verts: Vec<Point3> = (0..n)
+            .map(|i| {
+                let t = 0.15 * i as f64;
+                Point3::new(t.cos(), t.sin(), 0.0)
+            })
+            .collect();
+        let mut edges = Vec::new();
+        // Face A: arc segments 0→1→…→10, then the closing line 10→0.
+        let a_loop: Vec<u32> = (0..n)
+            .map(|i| {
+                let (s, e, curve) = if i + 1 < n {
+                    (i as u32, (i + 1) as u32, c)
+                } else {
+                    ((n - 1) as u32, 0, Curve::LineSegment)
+                };
+                edges.push(BRepEdge {
+                    start: s,
+                    end: e,
+                    curve,
+                });
+                (edges.len() - 1) as u32
+            })
+            .collect();
+        // Face B: the reversed twin.
+        let b_loop: Vec<u32> = (0..n)
+            .map(|i| {
+                let (s, e, curve) = if i == 0 {
+                    (0, (n - 1) as u32, Curve::LineSegment)
+                } else {
+                    let k = n - i;
+                    (k as u32, (k - 1) as u32, c)
+                };
+                edges.push(BRepEdge {
+                    start: s,
+                    end: e,
+                    curve,
+                });
+                (edges.len() - 1) as u32
+            })
+            .collect();
+        let plane = crate::geom::Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: 0.0,
+        };
+        let mut faces = vec![
+            BRepFace {
+                surface: plane,
+                outer_loop: a_loop,
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: plane,
+                outer_loop: b_loop,
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ];
+        let mut sources: Vec<TessellationSource> = (0..verts.len() as u32)
+            .map(TessellationSource::BRepVertex)
+            .collect();
+        let stats = merge_conic_seam_runs(&verts, &mut edges, &mut faces, &mut sources);
+        assert!(stats.runs_merged >= 1, "{stats:?}");
+        for (fi, f) in faces.iter().enumerate() {
+            assert!(
+                f.outer_loop.len() >= 3,
+                "face {fi} rebuilt loop has {} edges (< 3): {stats:?}",
+                f.outer_loop.len()
+            );
+        }
+        // Twin conformance still holds: identical undirected piece sets.
+        let pair = |lp: &[u32], edges: &[BRepEdge]| -> BTreeSet<(u32, u32)> {
+            lp.iter()
+                .map(|&ei| {
+                    let e = &edges[ei as usize];
+                    (e.start.min(e.end), e.start.max(e.end))
+                })
+                .collect()
+        };
+        assert_eq!(
+            pair(&faces[0].outer_loop, &edges),
+            pair(&faces[1].outer_loop, &edges)
+        );
+        // Loops stay stored-direction continuous.
+        for f in &faces {
+            for (i, &ei) in f.outer_loop.iter().enumerate() {
+                let nxt = f.outer_loop[(i + 1) % f.outer_loop.len()];
+                assert_eq!(edges[ei as usize].end, edges[nxt as usize].start);
+            }
+        }
     }
 
     #[test]
