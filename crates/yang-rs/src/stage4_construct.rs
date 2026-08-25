@@ -601,6 +601,11 @@ pub(crate) enum ConstructError {
     /// encircles the axis, a vertex is reached on two branches, or an
     /// interior vertex has no branch inside the unwrapped boundary span.
     ThetaUnwrap { patch: usize },
+    /// I13a: a cone patch's boundary touches or crosses the apex station
+    /// (`z ≤ 0` in the chart) — the single-nappe `(θ, z)` chart is not
+    /// injective there, so the rebuild refuses rather than re-triangulate
+    /// through the apex.
+    ApexInPatch { patch: usize },
     /// The plain CDT of the modified cycle polygon refused. The two live
     /// classes: `TriangulationFailed` — the modified boundary still
     /// self-crosses (a residual crossing NOT minted by a seam chain) — and
@@ -766,10 +771,7 @@ pub(crate) fn rebuild_patch_planar(
     patch_index: usize,
     patch: &SplicePatch,
 ) -> Result<PatchRebuild, ConstructError> {
-    if !matches!(
-        patch.surface,
-        Surface::Plane { .. } | Surface::Cylinder { .. }
-    ) {
+    if !SurfaceChart::supports(&patch.surface) {
         return Err(ConstructError::NonPlanarPatch { patch: patch_index });
     }
     let chart = SurfaceChart::new(patch.surface)
@@ -783,6 +785,14 @@ pub(crate) fn rebuild_patch_planar(
     .map_err(|_| ConstructError::ThetaUnwrap { patch: patch_index })?;
     let (p2, back) = patch_from_cycles_shifted(&chart, &mesh.verts, &patch.cycles, &shift)
         .ok_or(ConstructError::MalformedPatch { patch: patch_index })?;
+    // I13a apex guard: the cone chart's `(θ, z)` is injective only on the
+    // single nappe strictly beyond the apex (`z > 0` — the same `v ≥ 0`
+    // convention `d_of_t` certifies; the apex itself has no azimuth). A patch
+    // touching or crossing the apex station refuses loudly — a capability
+    // boundary, never a fallback.
+    if matches!(chart, SurfaceChart::Cone { .. }) && p2.verts.iter().any(|p| p.y() <= 0.0) {
+        return Err(ConstructError::ApexInPatch { patch: patch_index });
+    }
 
     // Interior carry (cylinder only): every old-triangle vertex not on the
     // cycles, branch-assigned into the unwrapped boundary span.
@@ -790,7 +800,7 @@ pub(crate) fn rebuild_patch_planar(
     let mut interior_back: Vec<u32> = Vec::new();
     let mut pool = p2.verts.clone();
     let mut interior_idx: Vec<u32> = Vec::new();
-    let theta_span: Option<(f64, f64)> = if matches!(patch.surface, Surface::Cylinder { .. }) {
+    let theta_span: Option<(f64, f64)> = if !matches!(patch.surface, Surface::Plane { .. }) {
         Some(
             pool.iter()
                 .take(back.len())
@@ -847,6 +857,12 @@ pub(crate) fn rebuild_patch_planar(
     let mut old_arc_span = 0.0f64;
     let radius = match chart {
         SurfaceChart::Cylinder { radius, .. } => radius,
+        // I13a: the θ↔arc-length reference for seed spacing / arc spans. The
+        // patch's LARGEST station gives the largest local radius — seeds are
+        // then never sparser than `spacing` anywhere on the patch.
+        SurfaceChart::Cone { tan_half, .. } => {
+            p2.verts.iter().fold(0.0f64, |m, p| m.max(p.y())) * tan_half
+        }
         SurfaceChart::Plane { .. } => 0.0,
     };
     if let Some((theta_min, theta_max)) = theta_span {
@@ -1384,7 +1400,20 @@ pub(crate) fn rebuild_merge_fan(
     // Chart coordinates, θ-unwrapped against the VICTIM's own branch: the fan is
     // local, so every link vertex is within π of it and the branch is unique.
     let base = chart.project(mesh.verts[victim as usize]);
-    let periodic = matches!(patch.surface, Surface::Cylinder { .. });
+    let periodic = matches!(
+        patch.surface,
+        Surface::Cylinder { .. } | Surface::Cone { .. }
+    );
+    // I13a apex guard, fan form: the cone chart is injective only strictly
+    // beyond the apex — refuse a fan any of whose vertices sits at or behind
+    // the apex station (same contract as the whole-patch rebuild).
+    if matches!(chart, SurfaceChart::Cone { .. })
+        && std::iter::once(victim)
+            .chain(link.iter().copied())
+            .any(|v| chart.project(mesh.verts[v as usize]).y() <= 0.0)
+    {
+        return Err(ConstructError::ApexInPatch { patch: patch_index });
+    }
     let uv_of = |v: u32| -> Point2 {
         let uv = chart.project(mesh.verts[v as usize]);
         if periodic {
@@ -1582,6 +1611,11 @@ pub(crate) fn census_conic_seam_density(
     if n < 2 {
         return None;
     }
+    // I13b: the (−π, π] delta wrap below is angle-domain — open-conic params
+    // must not pass through it. Same loud `None` a missing parameter produced.
+    if !crate::stage4_correct::conic_param_periodic(curve) {
+        return None;
+    }
     let mut out = ChainDensityCensus::default();
     let pair_count = if closed { n } else { n - 1 };
     for i in 0..pair_count {
@@ -1666,6 +1700,11 @@ pub(crate) fn refine_conic_chain(
     use crate::stage4_correct::conic_param;
     let pi = std::f64::consts::PI;
     if chain.len() < 2 {
+        return None;
+    }
+    // I13b: same angle-domain guard as `census_conic_seam_density` — the
+    // wrap below and the midpoint recursion are for periodic params only.
+    if !crate::stage4_correct::conic_param_periodic(curve) {
         return None;
     }
     let mut new_points: Vec<Point3> = Vec::new();

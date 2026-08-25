@@ -231,6 +231,14 @@ fn decide_run(
     min_pieces: usize,
 ) -> RunDecision {
     let k = chain.len();
+    // I13b: the run decision's sweep math (wrap_delta, 2π budgets, SWEEP_MAX
+    // splitting) is angle-domain — an open conic's unbounded parameter must
+    // not enter it. Decline in the same bucket the missing parameter used
+    // before the extension.
+    if !crate::stage4_correct::conic_param_periodic(canon) {
+        stats.declined_param += 1;
+        return RunDecision::Decline;
+    }
     // Params along the canonical curve.
     let mut ts: Vec<f64> = Vec::with_capacity(k);
     for &v in chain {

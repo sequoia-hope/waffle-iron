@@ -2446,6 +2446,135 @@ is not case count: increment 1 is the paper's stated first strategy, its step
 primitive already exists and is red-verified (I10 (g)), and its first region
 is measured to the letter of Fig-12.
 
+### I13 — the rim×cut junction terminal overrun: Fig-11's on-curve arm + the Cone chart (2026-08-25)
+
+**Wall:** R0003 `TessellationFailed FaceId(437) "ring rejected by CDT"` — the
+post-§4.5.1/§4.4.2 next wall (R0100 face 15 / R0004 face 514 recorded as the
+same family; R0053 face 474 separately rooted `i6-input-overuse`).
+
+#### (a) Anchor (measured, offline conic fit + `YANG_441_FOLD_ONCURVE` census)
+
+Face 437 is a cone strip (r≈192, station band 0.0504 wide — a fine
+revolve-profile step) cut by a plane; the cut curve is a HYPERBOLA, monotone
+s(θ) through the strip (one generator crossing per azimuth). The emitted trim
+loop's cut chain is `i8 → i9 → i10` (two typed `HyperbolaArc` edges), where
+ALL THREE nodes lie exactly on cone∩plane, but their CURVE order is
+`i8 (upper junction, s=0) → i10 (lower junction, s=0.0504) → i9 (s=0.0946)`:
+the interior vertex sits BEYOND the terminal junction, 0.044 below the strip's
+own rim, and the chain doubles back over the same conic segment — an
+out-and-back spur whose chart image crosses the lower-rim edge 6.5e-4 from the
+junction. Only the cone face's chart CDT sees the crossing (the wall plane's
+2D image of the same spur is a simple V), which is why exactly one face fails.
+
+Mesh-level story (fold census, the failing subtract): corner
+`(v1818, v1817, v1788)`, both edges on the intersection curve. Pre-relocation
+all three sit ON the tool plane but 0.24 OFF the conic (the recorded §4.5.1
+DRIFT configuration), stations healthy `0 / 0.027 / 0.0504`, order clean.
+Post: the ends land exactly on their rim junctions (§4.5.1 repairs, ~1.5
+displacement); the interior vertex is repaired onto the conic AT ITS OWN
+AZIMUTH (θ preserved to 9 decimals — the generator projection), which on this
+steep hyperbola is station 0.2656 — 4.3 strip-widths past the terminal
+junction. Chord inversion t=+5.31. The fold-merge SELECT line for the op:
+`inversions=539 apex_moved=539 (on_curve=429) → sites=0` — the always-on
+Fig-11 merge owns NONE of them, by its own condition 1 (still apex).
+
+#### (b) Why the owner is Fig-11's merge, not ReorderConic
+
+The census doc assigned on-curve moved-apex inversions to §4.3.4
+`ReorderConic`. For the TERMINAL shape that assignment is structurally
+impossible: `order_along_curve` refuses an ordering that changes an open
+seam's endpoint set (`SeamEndpointsReordered` — reordering `(i8,i9,i10)` to
+`(i8,i10,i9)` re-roots the seam junction other patches share). And a reorder
+would keep the out-of-band vertex on the face whose domain excludes it. The
+correct op is the paper's own Fig-11(b)→(c): q = the intersection point ON
+the boundary curve (the junction, richer carrier set), p = the chain vertex
+the relocation carried past it; merge p into q inside the §4.4.1
+re-triangulation. Post-merge the cut chain is the direct in-band arc
+`i8 → i10` on all three incident faces (upper strip, wall, lower strip
+untouched); §4.3.4/I5 refinement re-densifies it if sag demands. The existing
+merge machinery (substitution-in-cycles + holder re-CDT + I8 carrier
+containment) is reused verbatim — I8 also blocks the backwards merge the
+junction's own corner would propose (t=1.096 on `(v1782, v1788, v1817)`):
+the junction victim carries surfaces the interior survivor is off.
+
+Blockers, each its own sub-gate:
+
+1. **I13a `YANG_441_CONE_CHART` — `SurfaceChart::Cone`.** The victim's cone
+   holder must rebuild; today `SurfaceChart::new` is Plane|Cylinder and five
+   chartability pre-filters repeat that `matches!`. Consolidate them onto one
+   gate-aware `SurfaceChart::supports`; add the Cone variant (project =
+   (θ, station); lift = apex + z·axis + z·tan(α)·radial — exact on-surface;
+   refuse any patch vertex at/behind the apex station, loudly). This is the
+   I2 tail's named "Cone chart" item: gate-on also lifts the construct pass's
+   `curved` skip and the corner-merge/rim-trim unchartable-holder refusals
+   for cone patches (R0044's 13 blocked sites are this class).
+2. **I13b `YANG_441_OPEN_CONIC_PARAM` — `conic_param` += Hyperbola.** The
+   selector's certificate needs the curve-parameter order; `conic_param` is
+   the recorded single authority ("never a second notion of along-the-curve")
+   but covers Circle/Ellipse only. Add the open-conic arm
+   (t = asinh(v/semi_conjugate), monotone on the branch, no wrap) and make
+   the two wrap-assuming consumers variant-aware (`order_along_curve`'s
+   largest-circular-gap cut and `conic_param_deltas`' (−π,π] wrap apply to
+   PERIODIC params only). Gated because the always-on §4.5.3 sweep, I5-1b
+   seam merge, and construct refine all consume this authority — the flip
+   measures them together. Parabola stays None (no measured customer).
+3. **I13c `YANG_441_ONCURVE_MERGE` — the selector arm.** For an on-curve
+   moved-apex inversion, propose victim=apex, survivor=the end it crossed,
+   iff: both corner edges carry the SAME intersection curve; the survivor is
+   the seam run's TERMINAL (its far-side cycle edge is not on that curve);
+   the apex is run-INTERIOR; and the curve-parameter order certifies the
+   overrun (t_apex strictly beyond t_survivor w.r.t. the t_other→t_survivor
+   direction). No distance band (P10) — the certificate is the order
+   inversion. Downstream I8 containment and holder-rebuild discipline apply
+   unchanged; multi-vertex overruns resolve one merge per pass.
+
+Pin case R0003; measure R0100/R0004 (family), R0044 (holder unblocks),
+R0017/R0053 (expected untouched), then gated corpus vs default byte-identity.
+
+#### (c) Measured en route (R0003 gated, 2026-08-25)
+
+- **The population is ~190 sites per boolean, not 1–2** — one terminal
+  overrun per strip×wall junction of the fine revolve profile, nearly all
+  holding the SAME wall patch. Two consequences, both fixed:
+  - the fold-merge pass cap of 32 (tuned to the still-apex family) BINDS and
+    strands the family half-repaired; the cap is now derived from the true
+    runaway bound (each applied pass strictly removes one boundary vertex ⇒
+    `mesh.verts.len()`, floored at 32). Cost measured: ~200 single-site
+    passes ≈ +5 s on the case.
+  - `rebuild_merge_fan`'s victim-branch θ-unwrap keyed on
+    `Surface::Cylinder` only — a cone fan straddling ±π would have charted
+    wrong; now `Cylinder | Cone`, with the apex guard applied to the fan's
+    vertex set too.
+- **First full drain: 202 merges applied, wall moves 437 → 467 (same
+  class).** At the fixed point 57 inversions remain: 14 terminal-overrun
+  sites BLOCKED by the wall's fan CDT (`TriangulationFailed` — the fan
+  polygon inherits neighbouring folds), 32 interior on-curve crossings, 11
+  off-curve. The interior crossings are ReorderConic's; interleaved with the
+  remaining terminal overruns they corrupt the fan polygons — so the
+  open-conic ordering is NOT deferrable for this case:
+  `order_along_curve` gained the open-conic arm (ascending order IS the
+  chain order; no circular-gap cut; a closed chain on an open conic declines;
+  endpoint guard unchanged).
+- The construct pass's cone-patch rebuilds decline with `ChordDegradation`
+  (old_max ≈ 2.5 → new_max ≈ 39–52, the geometry-blind chart CDT shaving the
+  strip bulge) — loud, safe, and a recorded quality tail for the cone chart
+  (I2e seeding may need the cone's station-dependent radius).
+- **The alternation converges** (`SeamEndpointsReordered` declines 496 → 44;
+  one extra merge in round 2; joint fixed point reached) and the residual is
+  measured: 14 certified sites blocked (7 by the wall patch's fan-CDT
+  refusal), 32 cert-refused on-curve inversions. Face 467's rejected ring
+  (probe captured 2026-08-25) names the family: an **out-of-band terminal
+  RUN** — ring nodes 14/15 sit BELOW the rim on (by the mixed-corner
+  declines) the NEIGHBOR cone's conic, the junction node 13 sits between rim
+  and that run in CHAIN order but between the run and the ascending cut in
+  CURVE order. Corner-level certificates are structurally inadequate here:
+  the chord-sign survivor pick chooses the far sample, and the
+  junction-ward corner mixes two curves. **Next increment (I13d, not built):
+  run-level junction absorption** — for a maximal same-curve run bounded by
+  a strictly-richer-carrier junction terminal whose chain doubles back
+  (chord-inverted corners on the run), merge every out-of-band run vertex
+  into the junction terminal, I8-checked per merge, fan-rebuild per holder.
+
 ## 5. After this epic (recorded, not started)
 
 - **§4.5.4 removal half / §4.5.2 guard shell** (roadmap item 3d/4): route the

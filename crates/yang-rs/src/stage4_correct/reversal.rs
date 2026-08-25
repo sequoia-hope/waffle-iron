@@ -465,6 +465,27 @@ pub(crate) fn conics_equal_up_to_normal_sign(a: &Curve, b: &Curve) -> bool {
                 minor_radius: b1,
             },
         ) => c0 == c1 && m0 == m1 && a0 == a1 && b0 == b1 && (*n0 == *n1 || *n0 == neg(*n1)),
+        // I13: same frame-choice fact for the hyperbola — negating the stored
+        // normal flips the derived conjugate direction (`normal × major`),
+        // tracing the identical +branch point set with the parameter running
+        // the other way. `major_axis` is untouched, so the branch choice
+        // (`u > 0`) is preserved.
+        (
+            Curve::Hyperbola {
+                center: c0,
+                normal: n0,
+                major_axis: m0,
+                semi_transverse: a0,
+                semi_conjugate: b0,
+            },
+            Curve::Hyperbola {
+                center: c1,
+                normal: n1,
+                major_axis: m1,
+                semi_transverse: a1,
+                semi_conjugate: b1,
+            },
+        ) => c0 == c1 && m0 == m1 && a0 == a1 && b0 == b1 && (*n0 == *n1 || *n0 == neg(*n1)),
         _ => false,
     }
 }
@@ -503,8 +524,41 @@ pub(crate) fn conic_param(curve: &Curve, pt: Point3) -> Option<f64> {
             *major_radius,
             *minor_radius,
         )),
+        // I13b (gated `YANG_441_OPEN_CONIC_PARAM`): the hyperbola's own
+        // parameter — strictly monotone along the branch and UNBOUNDED:
+        // consumers whose math lives in the angle domain (wraps, 2π sweeps,
+        // circular-gap cuts) must gate on [`conic_param_periodic`] and
+        // decline open params — never wrap them.
+        Curve::Hyperbola {
+            center,
+            normal,
+            major_axis,
+            semi_conjugate,
+            ..
+        } if open_conic_param_enabled() => Some(crate::geom::hyperbola_param(
+            pt,
+            *center,
+            *normal,
+            *major_axis,
+            *semi_conjugate,
+        )),
         _ => None,
     }
+}
+
+/// I13b opt-in gate: `conic_param` on OPEN conics (Hyperbola). Default OFF —
+/// open conics keep returning `None`, byte-identical.
+pub(crate) fn open_conic_param_enabled() -> bool {
+    matches!(std::env::var("YANG_441_OPEN_CONIC_PARAM"), Ok(v) if v == "1")
+}
+
+/// Is [`conic_param`]'s parameterization of `curve` an ANGLE (2π-periodic)?
+/// `true` for Circle/Ellipse — wraps, circular-gap cuts and 2π sweep budgets
+/// are meaningful. `false` for the open conics (Hyperbola), whose parameter
+/// is unbounded: angle-domain consumers must DECLINE those, in their
+/// existing decline bucket, exactly as a `None` parameter declines.
+pub(crate) fn conic_param_periodic(curve: &Curve) -> bool {
+    matches!(curve, Curve::Circle { .. } | Curve::Ellipse { .. })
 }
 
 /// Task #145 branch 9/10: do `p_b`, `p_r`, `p_n` FAIL to progress along the
@@ -536,6 +590,12 @@ pub(crate) fn conic_param_deltas(
     p_r: Point3,
     p_n: Point3,
 ) -> Option<(f64, f64)> {
+    // I13b: the (−π, π] wrap below is angle-domain math — an open conic's
+    // unbounded parameter must not pass through it. Same `None` ("cannot
+    // diagnose") the missing parameter produced before the extension.
+    if !conic_param_periodic(curve) {
+        return None;
+    }
     let (t_b, t_r, t_n) = (
         conic_param(curve, p_b)?,
         conic_param(curve, p_r)?,

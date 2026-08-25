@@ -665,6 +665,23 @@ name, never measured).
    (fixture-only, zero corpus customers). Next walls unchanged: the
    rim×cut junction boundary hook (R0003 face 437 / R0100 face 15 /
    R0004's family) and R0017's F2b inversion.
+   **I13 (2026-08-25, gated — spec `yang_441_trim_cdt_construction.md`
+   §I13): the rim×cut hook ANCHORED and its first repair BUILT.** Face
+   437 = an out-and-back spur past the solved rim junction (the interior
+   curve vertex relocated onto the conic at its preserved azimuth, 4.3
+   strip-widths beyond the terminal). Three gated mechanisms:
+   `YANG_441_CONE_CHART` (SurfaceChart::Cone — the I2 tail's named item;
+   five chartability pre-filters consolidated onto `supports()`),
+   `YANG_441_OPEN_CONIC_PARAM` (`conic_param` += Hyperbola with a
+   periodic/open split guarding every angle-domain consumer;
+   `order_along_curve` open-conic ordering), `YANG_441_ONCURVE_MERGE`
+   (the Fig-11 on-curve terminal-overrun selector arm + the
+   construct/fold-merge alternation; fold-merge pass cap now derived
+   from the true runaway bound). Gated R0003: 202 merges apply, face
+   437 resolves, the case advances to face 467 = the NEXT family
+   (out-of-band terminal RUN at the junction, ≥2 vertices on the
+   neighbor cone's conic — I13d run-level junction absorption, spec
+   §I13(c), not built).
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

@@ -676,22 +676,27 @@ fn run_fold_merge_passes(
     infos: &mut Vec<crate::stage4_correct::PatchInfo>,
     intersection_curves: &mut std::collections::BTreeMap<(u32, u32), Curve>,
     relocations: &mut Vec<(u32, f64)>,
-) -> Result<(), YangError> {
+) -> Result<usize, YangError> {
     use crate::stage4_construct::{apply_rebuild_batch, rebuild_merge_fan};
     use crate::stage4_fold_risk::fold_merge_sites_censused;
     use crate::stage4_splice::SplicePatch;
     use std::collections::{BTreeMap, BTreeSet};
 
     // Each applied pass strictly removes at least one boundary vertex, so the
-    // cap is a runaway guard, not an expected limit.
-    const MAX_PASSES: usize = 32;
+    // pass count is bounded by the mesh's own vertex count — that bound IS
+    // the runaway guard. The historical fixed cap of 32 was tuned to the
+    // still-apex family (1–2 sites per case) and BINDS on the I13c on-curve
+    // population (R0003 measured ~190 legitimate terminal-overrun sites in
+    // one boolean — one per strip×wall junction of a fine revolve profile);
+    // an exhausted cap strands the family half-repaired.
+    let max_passes: usize = mesh.verts.len().max(32);
 
     // Victims refused by a holder — persistent across passes so a refusal can
     // never livelock into re-proposing the same merge.
     let mut blocked: BTreeSet<u32> = BTreeSet::new();
     let mut applied_total = 0usize;
 
-    for pass in 0..MAX_PASSES {
+    for pass in 0..max_passes {
         let adjacency = triangle_adjacency(mesh);
         let raw = crate::stage4_correct::merge_same_plane_patches(
             flood_fill_patches(mesh, attribution, &adjacency),
@@ -724,7 +729,6 @@ fn run_fold_merge_passes(
 
         let cyc_refs: Vec<Vec<u32>> = patches.iter().flat_map(|p| p.cycles.clone()).collect();
         let post = mesh_positions(mesh);
-        let curve_edges: BTreeSet<(u32, u32)> = intersection_curves.keys().copied().collect();
         let (all_sites, census) = S4_PRE_POS.with(|c| {
             let borrow = c.borrow();
             match borrow.as_ref() {
@@ -732,7 +736,7 @@ fn run_fold_merge_passes(
                     cyc_refs.iter().map(Vec::as_slice),
                     pre,
                     &post,
-                    &curve_edges,
+                    intersection_curves,
                 ),
                 None => (Vec::new(), Default::default()),
             }
@@ -788,12 +792,13 @@ fn run_fold_merge_passes(
         }
         c441_log!(
             "[s4-fold-merge] pass={pass}: SELECT corners={} inversions={} \
-             apex_moved={} (on_curve={}) apex_minted={} survivor_still={} ambiguous={} \
-             -> sites={}",
+             apex_moved={} (on_curve={} oncurve_sites={}) apex_minted={} survivor_still={} \
+             ambiguous={} -> sites={}",
             census.corners,
             census.inversions,
             census.apex_moved,
             census.apex_moved_on_curve,
+            census.oncurve_sites,
             census.apex_minted,
             census.survivor_still,
             census.ambiguous,
@@ -815,7 +820,7 @@ fn run_fold_merge_passes(
         // separately-attributable rebuild rather than a merged plan.
         let mut rebuilds: Vec<crate::stage4_construct::PatchRebuild> = Vec::new();
         let mut merged: Option<(u32, u32)> = None;
-        let chartable = |s: &Surface| matches!(s, Surface::Plane { .. } | Surface::Cylinder { .. });
+        let chartable = |s: &Surface| crate::stage4_project::SurfaceChart::supports(s);
         let mut progressed = false;
         for site in &sites {
             let holders: Vec<usize> = patches
@@ -946,7 +951,7 @@ fn run_fold_merge_passes(
     if applied_total > 0 {
         c441_log!("[s4-fold-merge] TOTAL {applied_total} Fig-11 merges applied");
     }
-    Ok(())
+    Ok(applied_total)
 }
 
 /// `YANG_441_MERGE_SITE_PROBE` — the per-site configuration behind a Fig-11
@@ -1170,7 +1175,7 @@ fn run_construct_passes(
     infos: &mut Vec<crate::stage4_correct::PatchInfo>,
     intersection_curves: &mut std::collections::BTreeMap<(u32, u32), Curve>,
     relocations: &mut Vec<(u32, f64)>,
-) -> Result<(), YangError> {
+) -> Result<usize, YangError> {
     use crate::stage4_construct::{
         apply_rebuild_batch, rebuild_patch_planar, replace_seam_run, seam_groups,
     };
@@ -1280,9 +1285,9 @@ fn run_construct_passes(
         for (gi, g) in groups.iter().enumerate() {
             let (pi, qi) = g.pair;
             // I2a: Plane AND Cylinder owners rebuild single-sided (interior
-            // carry + θ-unwrap); Sphere/Cone/Torus stay a loud skip.
-            let chartable =
-                |s: &Surface| matches!(s, Surface::Plane { .. } | Surface::Cylinder { .. });
+            // carry + θ-unwrap); I13a adds Cone behind `YANG_441_CONE_CHART`;
+            // Sphere/Torus stay a loud skip.
+            let chartable = |s: &Surface| crate::stage4_project::SurfaceChart::supports(s);
             if !chartable(&patches[pi].surface) || !chartable(&patches[qi].surface) {
                 skip[1] += 1;
                 c441_log!(
@@ -2288,8 +2293,7 @@ fn run_construct_passes(
                     } else {
                         holders.clone()
                     };
-                    let chartable =
-                        |s: &Surface| matches!(s, Surface::Plane { .. } | Surface::Cylinder { .. });
+                    let chartable = |s: &Surface| crate::stage4_project::SurfaceChart::supports(s);
                     if pulled.iter().any(|&h| !chartable(&patches[h].surface)) {
                         c441_log!(
                             "[s4-construct] pass={pass}: CORNER-MERGE REFUSED v{p} -> \
@@ -2574,9 +2578,8 @@ fn run_construct_passes(
                                 })
                                 .map(|(pj, _)| pj)
                                 .collect();
-                            let chartable = |s: &Surface| {
-                                matches!(s, Surface::Plane { .. } | Surface::Cylinder { .. })
-                            };
+                            let chartable =
+                                |s: &Surface| crate::stage4_project::SurfaceChart::supports(s);
                             if holders.iter().any(|&h| !chartable(&patches[h].surface)) {
                                 c441_log!(
                                     "[s4-construct] pass={pass}: RIM-TRIM REFUSED v{v} — \
@@ -3326,7 +3329,7 @@ fn run_construct_passes(
         );
         mesh.verts.truncate(verts_floor);
     }
-    Ok(())
+    Ok(applied_total)
 }
 
 /// J1-0 (spec §4-J1): read-only boundary-exit junction census for ONE open
@@ -4304,21 +4307,18 @@ pub(crate) fn reconstruct_topology_stage4(
         // (`YANG_441_CORNER_MERGE`, `YANG_441_INPUT_REFINE`,
         // `YANG_441_BOUNDARY_EXIT`, `YANG_441_RIM_TRIM`) keep their own
         // opt-in reads.
-        run_construct_passes(
-            mesh,
-            attribution,
-            a,
-            b,
-            &mut infos,
-            &mut intersection_curves,
-            &mut relocations,
-        )?;
-        // §4.4.1 Fig-11(b)→(c) — merge the boundary vertices the relocation
-        // overran. Placed AFTER the construct pass so it sees the final
-        // cycles (a collapsed/refined seam changes which vertices are on a
-        // boundary at all), and so a gate-off run is byte-identical.
-        if fold_merge_enabled() {
-            run_fold_merge_passes(
+        // I13c alternation (gated `YANG_441_ONCURVE_MERGE`): the construct
+        // pass's ReorderConic and the Fig-11 merge repair INTERLEAVED defects
+        // on the same chains — a reorder is refused while a terminal-overrun
+        // vertex mis-roots the seam (`SeamEndpointsReordered`, R0003: 496
+        // declines), and a merge's fan CDT is refused while neighbouring
+        // interior crossings corrupt the fan polygon. Each round of merges
+        // frees endpoints for the next round of reorders and vice versa, so
+        // the pair runs to a joint fixed point, bounded. Gate off = exactly
+        // one construct + one fold-merge invocation, byte-identical.
+        const ALTERNATION_CAP: usize = 8;
+        for round in 0..ALTERNATION_CAP {
+            let c_applied = run_construct_passes(
                 mesh,
                 attribution,
                 a,
@@ -4327,6 +4327,39 @@ pub(crate) fn reconstruct_topology_stage4(
                 &mut intersection_curves,
                 &mut relocations,
             )?;
+            // §4.4.1 Fig-11(b)→(c) — merge the boundary vertices the
+            // relocation overran. Placed AFTER the construct pass so it sees
+            // the final cycles (a collapsed/refined seam changes which
+            // vertices are on a boundary at all), and so a gate-off run is
+            // byte-identical.
+            let m_applied = if fold_merge_enabled() {
+                run_fold_merge_passes(
+                    mesh,
+                    attribution,
+                    a,
+                    b,
+                    &mut infos,
+                    &mut intersection_curves,
+                    &mut relocations,
+                )?
+            } else {
+                0
+            };
+            if !crate::stage4_fold_risk::oncurve_merge_enabled() {
+                break; // today's single sequence — the alternation is gated
+            }
+            let _ = c_applied; // consumed by this round's own fold-merge
+            if m_applied == 0 {
+                // The merge runs LAST in a round, so only ITS changes can
+                // unlock the next round's reorders; a round with no merges
+                // is the joint fixed point.
+                break;
+            }
+            if round + 1 == ALTERNATION_CAP {
+                c441_log!(
+                    "[s4-construct] alternation CAP reached ({ALTERNATION_CAP} rounds) —                      leaving the residue to the loud downstream walls"
+                );
+            }
         }
     }
 

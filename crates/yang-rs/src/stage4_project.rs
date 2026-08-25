@@ -38,6 +38,13 @@ use cad_primitives::{Point2, Point3};
 ///   patch that STRADDLES the `θ = ±π` seam must be unwrapped by the caller
 ///   before CDT (the projected boundary would otherwise self-cross); `lift`
 ///   itself is seam-agnostic.
+/// * `Cone` (I13a, gated `YANG_441_CONE_CHART`): param = `(θ, z)` with `z` the
+///   axial station FROM THE APEX and radius `z·tan(α)` — the same single-nappe
+///   `v ≥ 0` convention `stage4_dt::d_of_t` certifies, in the same
+///   `ortho_basis(axis)` frame. Injective for `z > 0` given the caller's
+///   θ-unwrap; the apex (`z = 0`) has no azimuth and `z ≤ 0` is off the nappe,
+///   so [`rebuild ...`](crate::stage4_construct::rebuild_patch_planar) refuses
+///   any patch touching either — loudly, never a fallback.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum SurfaceChart {
     Plane {
@@ -52,6 +59,21 @@ pub(crate) enum SurfaceChart {
         e2: [f64; 3],
         radius: f64,
     },
+    Cone {
+        apex: [f64; 3],
+        axis: [f64; 3],
+        e1: [f64; 3],
+        e2: [f64; 3],
+        tan_half: f64,
+    },
+}
+
+/// I13a opt-in gate: the Cone chart (and with it, cone-owner rebuilds in the
+/// construct/fold-merge/corner-merge/rim-trim passes). Default OFF —
+/// `SurfaceChart::new` and every `supports` pre-filter answer exactly as
+/// before, byte-identical.
+pub(crate) fn cone_chart_enabled() -> bool {
+    matches!(std::env::var("YANG_441_CONE_CHART"), Ok(v) if v == "1")
 }
 
 impl SurfaceChart {
@@ -86,7 +108,33 @@ impl SurfaceChart {
                     radius,
                 })
             }
+            Surface::Cone {
+                apex,
+                axis_dir,
+                half_angle,
+            } if cone_chart_enabled() => {
+                let (e1v, e2v) = ortho_basis(axis_dir);
+                Some(SurfaceChart::Cone {
+                    apex: apex.as_array(),
+                    axis: normalize3(axis_dir.as_array()),
+                    e1: e1v.as_array(),
+                    e2: e2v.as_array(),
+                    tan_half: half_angle.tan(),
+                })
+            }
             Surface::Sphere { .. } | Surface::Cone { .. } | Surface::Torus { .. } => None,
+        }
+    }
+
+    /// The chartability pre-filter — the ONE capability test every construct /
+    /// fold-merge / corner-merge / rim-trim holder gate consults (previously
+    /// five hand-copied `matches!(Plane | Cylinder)` sites). `true` exactly
+    /// when [`new`](Self::new) would return `Some`, gate state included.
+    pub(crate) fn supports(s: &Surface) -> bool {
+        match s {
+            Surface::Plane { .. } | Surface::Cylinder { .. } => true,
+            Surface::Cone { .. } => cone_chart_enabled(),
+            Surface::Sphere { .. } | Surface::Torus { .. } => false,
         }
     }
 
@@ -110,6 +158,15 @@ impl SurfaceChart {
                     x[1] - axis_point[1],
                     x[2] - axis_point[2],
                 ];
+                let z = dot(w, axis);
+                let radial = [w[0] - z * axis[0], w[1] - z * axis[1], w[2] - z * axis[2]];
+                let theta = dot(radial, e2).atan2(dot(radial, e1));
+                Point2::new(theta, z)
+            }
+            SurfaceChart::Cone {
+                apex, axis, e1, e2, ..
+            } => {
+                let w = [x[0] - apex[0], x[1] - apex[1], x[2] - apex[2]];
                 let z = dot(w, axis);
                 let radial = [w[0] - z * axis[0], w[1] - z * axis[1], w[2] - z * axis[2]];
                 let theta = dot(radial, e2).atan2(dot(radial, e1));
@@ -143,6 +200,22 @@ impl SurfaceChart {
                     axis_point[0] + radius * (ct * e1[0] + st * e2[0]) + z * axis[0],
                     axis_point[1] + radius * (ct * e1[1] + st * e2[1]) + z * axis[1],
                     axis_point[2] + radius * (ct * e1[2] + st * e2[2]) + z * axis[2],
+                )
+            }
+            SurfaceChart::Cone {
+                apex,
+                axis,
+                e1,
+                e2,
+                tan_half,
+            } => {
+                let (theta, z) = (uv.x(), uv.y());
+                let (ct, st) = (theta.cos(), theta.sin());
+                let r = z * tan_half;
+                Point3::new(
+                    apex[0] + r * (ct * e1[0] + st * e2[0]) + z * axis[0],
+                    apex[1] + r * (ct * e1[1] + st * e2[1]) + z * axis[1],
+                    apex[2] + r * (ct * e1[2] + st * e2[2]) + z * axis[2],
                 )
             }
         }

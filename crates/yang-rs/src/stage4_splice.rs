@@ -455,17 +455,28 @@ pub(crate) fn merge_seam_chains(
 /// [`crate::stage4_correct::conic_param`], which is why this reuses it rather
 /// than inventing a second notion of "along the curve".
 ///
-/// Closed-form conics only (`Circle` / `Ellipse`); anything else yields
-/// [`SpliceError::SeamCurveNotConic`] and the caller keeps the mesh order.
-/// For an OPEN seam the points lie on one arc, so the single largest circular
-/// gap in the parameters is the arc's complement — cutting there linearizes the
-/// order without needing a branch convention.
+/// Closed-form conics only (`Circle` / `Ellipse`, plus `Hyperbola` under the
+/// I13b gate); anything else yields [`SpliceError::SeamCurveNotConic`] and the
+/// caller keeps the mesh order. For an OPEN seam on a PERIODIC conic the
+/// points lie on one arc, so the single largest circular gap in the
+/// parameters is the arc's complement — cutting there linearizes the order
+/// without needing a branch convention; an open conic's parameter is already
+/// linear, so ascending order needs no cut.
 pub(crate) fn order_along_curve(
     curve: &Curve,
     verts: &[Point3],
     chain: &[u32],
     closed: bool,
 ) -> Result<Vec<u32>, SpliceError> {
+    // I13b: an open conic's parameter is unbounded and strictly monotone —
+    // ascending order IS the chain order, and no circular-gap cut applies. A
+    // CLOSED chain on an open conic is geometrically impossible (a hyperbola
+    // branch does not close) — decline it. Under the default env the open
+    // params are `None` and the decline below is byte-identical to before.
+    let periodic = crate::stage4_correct::conic_param_periodic(curve);
+    if !periodic && closed {
+        return Err(SpliceError::SeamCurveNotConic);
+    }
     let mut keyed: Vec<(f64, u32)> = Vec::with_capacity(chain.len());
     for &v in chain {
         let t = crate::stage4_correct::conic_param(curve, verts[v as usize])
@@ -484,7 +495,7 @@ pub(crate) fn order_along_curve(
         // lowest vertex index so the result is deterministic.
         let k = (0..n).min_by_key(|&i| keyed[i].1).expect("non-empty");
         keyed.rotate_left(k);
-    } else {
+    } else if periodic {
         // Cut at the largest circular gap — the complement of the arc.
         let mut best = (f64::NEG_INFINITY, 0usize);
         for i in 0..n {
