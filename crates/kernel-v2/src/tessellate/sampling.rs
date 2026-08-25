@@ -5,19 +5,186 @@
 
 use super::*;
 
-/// Interior sample points of an arc half-edge at the chord-bound angular
-/// resolution (endpoints excluded), IN THE HALF-EDGE'S WALK DIRECTION.
+/// Axis-canonical in-plane frame for GRID-ALIGNED arc sampling: derived
+/// from the circle NORMAL alone (no anchor vertex, no start point), so
+/// every coaxial arc — any radius, any station along the axis, either twin
+/// orientation — measures azimuth from the same origin. Returns
+/// `(g1, g2, s)` with `(g1, g2, n_c)` right-handed around the
+/// sign-canonicalized axis `n_c = s·normal` (`s = ±1` flips the axis so its
+/// largest-magnitude component is positive; a unit vector's largest
+/// component is ≥ 1/√3, so the pick is well-defined).
+fn axis_grid_frame(normal: crate::arena::UnitVector3) -> ([f64; 3], [f64; 3], f64) {
+    let n = [normal.x, normal.y, normal.z];
+    let mut imax = 0usize;
+    let mut imin = 0usize;
+    for k in 1..3 {
+        if n[k].abs() > n[imax].abs() {
+            imax = k;
+        }
+        if n[k].abs() < n[imin].abs() {
+            imin = k;
+        }
+    }
+    let s = if n[imax] < 0.0 { -1.0 } else { 1.0 };
+    let nc = [s * n[0], s * n[1], s * n[2]];
+    // Seed: the coordinate axis least aligned with the axis (|component|
+    // ≤ 1/√3 < 1, so the rejection below cannot vanish).
+    let mut seed = [0.0f64; 3];
+    seed[imin] = 1.0;
+    let d = seed[0] * nc[0] + seed[1] * nc[1] + seed[2] * nc[2];
+    let g1_raw = [
+        seed[0] - d * nc[0],
+        seed[1] - d * nc[1],
+        seed[2] - d * nc[2],
+    ];
+    let l = (g1_raw[0] * g1_raw[0] + g1_raw[1] * g1_raw[1] + g1_raw[2] * g1_raw[2]).sqrt();
+    let g1 = [g1_raw[0] / l, g1_raw[1] / l, g1_raw[2] / l];
+    let g2 = [
+        nc[1] * g1[2] - nc[2] * g1[1],
+        nc[2] * g1[0] - nc[0] * g1[2],
+        nc[0] * g1[1] - nc[1] * g1[0],
+    ];
+    (g1, g2, s)
+}
+
+/// Interior samples of the arc `(center, normal, radius, start→end CCW by
+/// `sweep`)`, as `(walk-fraction, point)` pairs ordered along the walk.
+/// Pure geometry — the arena-facing wrappers below resolve the canonical
+/// half-edge, gather the conforming vertex pool, and reverse for the twin.
+///
+/// Two conformality mechanisms replace the former per-arc uniform
+/// subdivision anchored at each arc's own start vertex (the KV9-F2a/R0054
+/// family: a thin strip between coaxial rim arcs folds when a boundary
+/// node lands mid-chord of an opposing chord that sags below the surface
+/// deeper than the strip is wide — the mesh polylines the §4.4.2
+/// restoration replaced were phase-locked for free by Stage-1's shared
+/// revolve grid):
+///
+/// 1. **Global azimuth grid**: samples sit on `{j·2π/n_seg}` measured in
+///    the [`axis_grid_frame`], so every coaxial arc — any radius, station,
+///    start vertex, or twin orientation — samples at the SAME azimuths and
+///    opposing chords pair into aligned ladder rungs (sample-vs-sample
+///    grazes cannot form needles).
+/// 2. **Conforming vertex inserts**: for each pool point (the incident
+///    faces' boundary vertices) whose exact 3D distance to this circle is
+///    within `4×` the arc's own max chord sag, an interior sample is
+///    inserted at the point's azimuth — a junction vertex of an opposing
+///    coaxial arc then faces a chord ENDPOINT, never a mid-chord
+///    (vertex-vs-sample grazes cannot form needles). Points below the f32
+///    render quantum off the circle are skipped (a sample there would
+///    coincide with the vertex and trip the CDT's coincidence rejection);
+///    beyond `4×` the sag, a needle's apex clears the chord by ≥ 4× its
+///    deviation — far outside the fold margin.
+///
+/// Interior grid steps are exactly `2π/n_seg` and end/insert-adjacent
+/// steps are shorter, so the per-chord sag bound is preserved. Samples
+/// closer to an endpoint or predecessor than the f32 render quantum are
+/// dropped — such a sample would mint a boundary sub-edge below render
+/// resolution (the B2 degeneracy class).
+pub(crate) fn arc_grid_samples(
+    center: Point3,
+    normal: crate::arena::UnitVector3,
+    radius: f64,
+    start: Point3,
+    sweep: f64,
+    n_seg: u32,
+    conform: &[Point3],
+) -> Vec<(f64, Point3)> {
+    use std::f64::consts::PI;
+    let (g1, g2, s) = axis_grid_frame(normal);
+    let ds = [
+        start.x() - center.x(),
+        start.y() - center.y(),
+        start.z() - center.z(),
+    ];
+    // Walk azimuth of the start around `normal` from `g1`: α = s·β with β
+    // the azimuth in the canonical frame (ν×g1 = s·g2).
+    let alpha_s = s
+        * (ds[0] * g2[0] + ds[1] * g2[1] + ds[2] * g2[2])
+            .atan2(ds[0] * g1[0] + ds[1] * g1[1] + ds[2] * g1[2]);
+    let two_pi = 2.0 * PI;
+    let delta = two_pi / f64::from(n_seg);
+    // f32 end-guard: the render-precision quantum at this circle's
+    // coordinate magnitude, as an angle.
+    let scale = center
+        .x()
+        .abs()
+        .max(center.y().abs())
+        .max(center.z().abs())
+        .max(radius)
+        .max(1.0);
+    let lin_guard = 8.0 * f64::from(f32::EPSILON) * scale;
+    let ang_guard = lin_guard / radius;
+    let on_circle = |beta: f64| -> Point3 {
+        let (sb, cb) = beta.sin_cos();
+        Point3::new(
+            center.x() + radius * (cb * g1[0] + sb * g2[0]),
+            center.y() + radius * (cb * g1[1] + sb * g2[1]),
+            center.z() + radius * (cb * g1[2] + sb * g2[2]),
+        )
+    };
+    let mut samples: Vec<(f64, Point3)> = Vec::new();
+    for j in 0..n_seg {
+        let beta = f64::from(j) * delta;
+        // Walk parameter of this grid azimuth: t ∈ [0, 2π) past the start.
+        let t = (s * beta - alpha_s).rem_euclid(two_pi);
+        if t <= ang_guard || t >= sweep - ang_guard {
+            continue;
+        }
+        samples.push((t, on_circle(beta)));
+    }
+    // Conforming vertex inserts (mechanism 2 above).
+    let sag_max = radius * (1.0 - (delta / 2.0).cos());
+    for p in conform {
+        let dp = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
+        let x = dp[0] * g1[0] + dp[1] * g1[1] + dp[2] * g1[2];
+        let y = dp[0] * g2[0] + dp[1] * g2[1] + dp[2] * g2[2];
+        let dz = dp[0] * normal.x + dp[1] * normal.y + dp[2] * normal.z;
+        let rho = (x * x + y * y).sqrt();
+        if !(rho.is_finite() && rho > 0.0) {
+            continue; // on the axis — no azimuth
+        }
+        let d3 = (dz * dz + (rho - radius) * (rho - radius)).sqrt();
+        if d3 < lin_guard || d3 > 4.0 * sag_max {
+            continue;
+        }
+        let beta = y.atan2(x);
+        let t = (s * beta - alpha_s).rem_euclid(two_pi);
+        if t <= ang_guard || t >= sweep - ang_guard {
+            continue;
+        }
+        samples.push((t, on_circle(beta)));
+    }
+    samples.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // Deterministic sweep-dedup: drop any sample within the f32 quantum of
+    // its kept predecessor (grid points are ≥ Δ apart; only inserts can
+    // crowd, and a dropped GRID point leaves a step ≤ Δ + guard).
+    let mut kept: Vec<(f64, Point3)> = Vec::with_capacity(samples.len());
+    let mut t_prev = 0.0f64; // the start endpoint
+    for (t, p) in samples {
+        if t - t_prev <= ang_guard {
+            continue;
+        }
+        t_prev = t;
+        kept.push((t / sweep, p));
+    }
+    kept
+}
+
+/// Interior sample points of an arc half-edge on the global azimuth grid
+/// (endpoints excluded), as `(walk-fraction, point)` pairs IN THE
+/// HALF-EDGE'S WALK DIRECTION.
 ///
 /// Bitwise twin-symmetric: the samples are computed on the CANONICAL
 /// (lower-id) half-edge of the twin pair and reversed for the other side,
 /// so the two faces sharing the arc emit identical sample positions —
 /// load-bearing for cross-face watertightness (a planar annulus face and
 /// the cylinder patch share their intersection-circle arcs).
-pub(crate) fn arc_interior_samples(
+pub(crate) fn arc_interior_samples_frac(
     arena: &BrepArena,
     h: crate::arena::HalfEdgeId,
     n_seg: u32,
-) -> Result<Vec<Point3>, KernelV2Error> {
+) -> Result<Vec<(f64, Point3)>, KernelV2Error> {
     let he = arena.half_edge(h)?;
     if !matches!(he.curve, Curve::Arc { .. }) {
         return Ok(Vec::new());
@@ -43,29 +210,53 @@ pub(crate) fn arc_interior_samples(
             reason: "degenerate arc (endpoint has no radial direction)",
         });
     };
-    // e1 anchored at the canonical start so sample 0 continues from it.
-    let Some((e1, e2)) = circle_frame(center, normal, start) else {
-        return Err(KernelV2Error::TessellationFailed {
-            face: fid,
-            reason: "degenerate arc frame (start not radial)",
-        });
-    };
-    let step = 2.0 * std::f64::consts::PI / f64::from(n_seg);
-    let k = (sweep / step).ceil().max(1.0) as u32;
-    let mut samples = Vec::with_capacity(k as usize - 1);
-    for j in 1..k {
-        let theta = sweep * f64::from(j) / f64::from(k);
-        let (s, c) = theta.sin_cos();
-        samples.push(Point3::new(
-            center.x() + radius * (c * e1[0] + s * e2[0]),
-            center.y() + radius * (c * e1[1] + s * e2[1]),
-            center.z() + radius * (c * e1[2] + s * e2[2]),
-        ));
+    // Conforming vertex pool: every boundary vertex of the two incident
+    // faces except this arc's own endpoints — resolved from the CANONICAL
+    // half-edge, so both faces sharing the arc gather the identical pool
+    // (twin symmetry of the inserted samples). Which pool points actually
+    // insert a sample is decided geometrically in [`arc_grid_samples`].
+    let end_vid = arena.half_edge(che.next)?.origin;
+    let fid_twin = arena.loop_(arena.half_edge(che.twin)?.loop_id)?.face;
+    let mut conform: Vec<Point3> = Vec::new();
+    let mut pool_faces = vec![fid];
+    if fid_twin != fid {
+        pool_faces.push(fid_twin);
     }
+    for pf in pool_faces {
+        let face = arena.face(pf)?;
+        let mut lids = vec![face.outer_loop];
+        lids.extend(face.inner_loops.iter().copied());
+        for lid in lids {
+            for h2 in arena.loop_half_edges(lid)? {
+                let o = arena.half_edge(h2)?.origin;
+                if o != che.origin && o != end_vid {
+                    conform.push(arena.vertex(o)?.point);
+                }
+            }
+        }
+    }
+    let mut samples = arc_grid_samples(center, normal, radius, start, sweep, n_seg, &conform);
     if h != canon {
         samples.reverse();
+        for (frac, _) in &mut samples {
+            *frac = 1.0 - *frac;
+        }
     }
     Ok(samples)
+}
+
+/// [`arc_interior_samples_frac`] without the walk fractions, for callers
+/// that only chain the polyline (introspection, sphere/torus/planar loop
+/// sampling).
+pub(crate) fn arc_interior_samples(
+    arena: &BrepArena,
+    h: crate::arena::HalfEdgeId,
+    n_seg: u32,
+) -> Result<Vec<Point3>, KernelV2Error> {
+    Ok(arc_interior_samples_frac(arena, h, n_seg)?
+        .into_iter()
+        .map(|(_, p)| p)
+        .collect())
 }
 
 /// Interior sample points of an ELLIPSE-arc half-edge (PR-KV9), endpoints

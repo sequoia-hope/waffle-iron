@@ -1,11 +1,17 @@
 # Spec: carried-edge curve restoration in the boolean OUTPUT — the KV9-F2a fold family's owner
 
-**Status: inc-0..inc-3 BUILT AND MEASURED 2026-08-24/25. The restoration
-is GATED `YANG_434_OUT=1` (flip blocked on two explained regressions:
-R0054 conformal-sampling sliver, F0085 chained NonPlanarFace — see inc-3).
-The I5-1b merge open-run LOOP FLOOR from inc-3 is ALWAYS-ON and converts
-R0009 in default mode → NEW CANONICAL 268C/0W/39E/1EE/0T. Design REVISED
-BY MEASUREMENT — the owner moved from §4.3.4 (intersection-curve
+**Status: FLIPPED ALWAYS-ON 2026-08-26 (N60 RESOLVED) — NEW CANONICAL
+271C/0W/36E/1EE/0T (+R0020, +R0095, and +C0105 via the inc-7 hole-window
+fix; zero CORRECT regressions; seven explained detail shifts). `YANG_434_OUT=0|off` is the dev off-knob;
+`census` stays read-only. Both flip blockers were fixed structurally the
+same day: R0054 by kernel-v2 conformal grid-aligned arc sampling (inc-4)
+and F0085 by the invariant-4 debug-tiering alignment (inc-5). One NEW
+capability gap recorded: the M8 n-ary mixed-arc vocabulary's seam-split
+(4-arc) strip lateral (inc-6, zero corpus customers, quarantined naming
+fixture). inc-0..inc-3 were BUILT AND MEASURED 2026-08-24/25 gated;
+the I5-1b merge open-run LOOP FLOOR from inc-3 is ALWAYS-ON since then
+(converted R0009 → the prior canonical 268C/0W/39E/1EE/0T). Design
+REVISED BY MEASUREMENT — the owner moved from §4.3.4 (intersection-curve
 refinement) to §4.4.2 (boundary-curve restoration). Original design
 checkpoint recorded 2026-08-24 after the §4.5.1/§4.5.3 session.**
 
@@ -153,9 +159,140 @@ rejected.
     not. Structural fix: conformal/boundary-aware arc sampling in the
     kernel-v2 patch tessellator (insert near-coincident boundary vertices'
     chart positions into the sample chain, or CDT-split the graze) — NOT a
-    fold-margin band (P10).
+    fold-margin band (P10). **→ inc-4 below.**
   - **F0085** — NonPlanarFace(35097) deep in the 20-op chain (≈300s/run);
     unanchored; suspect the same family through a chained re-entry.
+- **inc-4 (BUILT 2026-08-25, always-on): conformal grid-aligned arc
+  sampling in kernel-v2** (`tessellate/sampling.rs::arc_grid_samples`,
+  red-verified per mechanism, face fixture in
+  `arc_grid_sampling_tests.rs`). The R0054 probe anchored the full shape:
+  FaceId(548) is a 0.0089-wide cone strip between TWO coaxial restored rim
+  arcs (a fine revolve-profile step), each rim independently resampled
+  (upper u-step 4.8043, lower 4.7643/4.5271) — the grids drift out of
+  phase and the CDT builds needles whose apex sits mid-chord where the
+  chord sags 0.052 below the surface. The grazing "pool vertex" is the
+  OTHER rim's arc sample, not a B-Rep vertex — per-vertex insertion alone
+  is the wrong shape, and the strip's junction vertices (u −134.52 upper /
+  −142.93 lower, mutually mid-chord of the opposite rim) fold it a second
+  way (measured: the face fixture still folds with grid alignment alone).
+  Two mechanisms, both band-free:
+  1. **Global azimuth grid**: Arc interior samples sit on `{j·2π/n_seg}`
+     in an axis-canonical frame derived from the circle NORMAL alone
+     (sign-canonicalized; no anchor vertex) — every coaxial arc samples at
+     the SAME azimuths, so opposing chords pair into ladder rungs
+     (sample-vs-sample needles impossible). This restores analytically the
+     phase-lock Stage-1's shared revolve grid gave the mesh polylines for
+     free. Chord-bound density contract unchanged (interior steps exactly
+     Δ, end steps shorter).
+  2. **Conforming vertex inserts**: for each boundary vertex of the two
+     incident faces (canonical pool — twin-symmetric) whose EXACT 3D
+     distance to the circle is within 4× the arc's own max chord sag, an
+     interior sample is inserted at the vertex's azimuth — a junction
+     vertex then faces a chord ENDPOINT, never a mid-chord
+     (vertex-vs-sample needles impossible). Below the f32 render quantum
+     the insert is skipped (would coincide); beyond 4× sag a needle's apex
+     already clears the fold margin geometrically. The 4× is a
+     constructive-coverage radius (over-inclusion adds harmless on-curve
+     samples), not an acceptance band.
+  Both twin-canonical as before (computed on the lower-id half-edge,
+  reversed for the other side). ALWAYS-ON: the defect is general
+  (any coaxial-arc-bounded thin strip), the restoration only made it
+  common; default-corpus neutrality proven by the corpus run below.
+
+  **inc-4 measurements (2026-08-25/26):** kernel-v2 suite green (299
+  tests); gated singles — **R0054 ERROR→SUPPORTED_CORRECT** (blocker
+  cleared), R0020/R0095/R0047/F0076/F0084/R0063/R0009 all stay CORRECT,
+  R0003/R0100 stand at the ring-CDT next wall (FaceId 437/15, R0004's
+  family) and R0017 at its F2b fold — pre-existing ERROR families, not
+  regressions. **Full default corpus: score identical to canonical
+  (268C/0W/39E/1EE/0T), EXACTLY ONE detail-only delta** — R0051 (already
+  ERROR) keeps SelfIntersectingBooleanOutput on the same face pair (8, 10)
+  with penetrations 116→127: the count is measured over the tessellation,
+  which changed phase — the underlying defect is untouched. baseline
+  results.json updated with that count. **Remaining flip blocker: F0085
+  alone** (NonPlanarFace(35097) — investigation inc-5 below).
+- **inc-5 (ANCHORED 2026-08-26): F0085's NonPlanarFace is a DOCUMENTED
+  DEBUG-TIER CHECK RUNNING IN PRODUCTION, tripped by chained re-entry
+  precision ratchet — not a restoration defect.** Probe chain
+  (`KV2_PLANARITY_PROBE` + new `[nonplanar-probe]` site prints at all four
+  NonPlanarFace raise sites, permanent):
+  - The failing vertex (Extrude 19's union output, planar FaceId(35097))
+    sits d=3.712e-12 off its face's stored plane, band 3.307e-12 — and it
+    is EXACT (1e-17/1e-18) on both twin faces' planes (a triple-plane
+    corner: a rational arrangement point of the two neighbor planes).
+  - The WHOLE loop is smoothly 0.7–3.7e-12 off the stored plane — the
+    stored (bit-inherited) plane vs the mesh-carried boundary disagree by
+    a small tilt that RATCHETS per chained op (each op re-derives boundary
+    vertices from the previous op's near-band mesh); op 19 is where the
+    max crossed the band. The restoration's re-minted boundary geometry
+    only shifts the lottery (default landed ≤3.3e-12, gated 3.712e-12).
+  - The raise site is `validate_planar_face`'s per-loop-vertex planarity
+    check at `PLANARITY_DEBUG_TOLERANCE` (1e-12 tier), reached in
+    PRODUCTION via `from_yang_brep → finalize_solid → validate_solid`.
+    The validate.rs module docs declare invariant 4 (on-surface geometry)
+    "**debug builds only**" and the constant "not a production gate"; the
+    F1 gate (`validate_boolean_output_planarity`, TAU_EVAL=1e-9, design
+    review 2026-07-12) was BUILT as the production boolean-output
+    planarity contract precisely because "planar by construction is false
+    for yang re-entry" — but the strict check never got debug-gated, so
+    the F1 gate is currently unreachable dead code for planar faces.
+  - **Fix: gate the loop-vertex strict planarity check to debug builds**
+    (code aligned with the ratified design; the F1 1e-9 gate + selfx stay
+    the loud production walls — defect-class residuals ≥ MIN_FEATURE_SIZE
+    exceed 1e-9 by ≥1000×, so no silent-wrong window opens; P10 satisfied
+    by F1's own design analysis). Debug builds (the test tiers) keep the
+    strict tripwire. Scope: ONLY the fired site. The curved analogs
+    (validate_cylinder/torus/cone per-vertex strict residuals) share the
+    same documented divergence but are left untouched until a case names
+    them — several recorded loud walls (the R0028 VertexOffSurface class)
+    live at those sites and cannot be re-tiered without their own
+    adjudication.
+- **inc-6 (FLIP, 2026-08-26): restoration ALWAYS-ON; N60 RESOLVED.**
+  F0085 fixed (inc-5) → flip corpus (with inc-7)
+  **271C/0W/36E/1EE/0T**: +R0020 +R0095 +C0105 (its selfx penetrations
+  76→3→0 across the fixes — the inc-7 filled-corridor latent was its
+  root), zero CORRECT regressions, seven explained detail shifts (R0003
+  435→437 and R0100 14→15 = the recorded ring-CDT advances; R0017 14→17
+  keeps its F2b fold; R0015 same Stage-4 wall at a shifted vertex index;
+  R0026 ADVANCES past its input-manifold wall to a pre-existing Stage-3
+  SSI AmbiguousCurve; R0051 ADVANCES past its subtract's selfx wall to a
+  later union's pre-existing non-2-manifold reassembly wall; F0082 hits
+  its same face-372 CDT wall two ops earlier). Flip fallout in yang-internal
+  re-entry (the Stage-0 unit fixtures, NOT a production path): a yang
+  OUTPUT brep carries per-face directed duplicate curved edges, and two
+  independently-computed chains of one arc agree geometrically but not
+  BITWISE — production only re-enters through the kernel round-trip, whose
+  `to_yang` shares one edge record per twin pair (why 19-deep chains are
+  watertight corpus-wide). The two fixture tests were normalized with
+  `share_twin_curved_edges` (models `to_yang`'s dedup exactly; merges only
+  bit-certified twins/duplicates — a same-normal swapped pair is the
+  COMPLEMENTARY arc and never merges). t133 green;
+  `nary_tessellated_group_stage0_meshes` now names a NEW capability gap —
+  the restored rims move its flush-pocket top faces from the polygon
+  overlay class into the MIXED class, whose `arc_lateral_opposite`
+  vocabulary requires the 2-arc strip while this lateral's rims are
+  seam-split (4 arcs) → loud `mixed-arc-lateral-unpaired`
+  (`CoplanarFacesUnsupported`); zero corpus customers; quarantined with
+  the milestone tag until the vocabulary extension.
+- **inc-7 (2026-08-26, always-on): barrel-arm HOLE WINDOWING latent fixed
+  in kernel-v2** — unmasked by the flip, red-verified by
+  `boolean_chains::curved_output_reentry_through_boss` (a slot cut through
+  a recovered boss; the selfx gate caught 2 penetrations). The seam-cut
+  ring is anchored at the CHOSEN bridge azimuth `[base_x, base_x+span)`,
+  but hole chains were only pre-centered near the +wrap chain's MIDPOINT
+  and `blocked()` tested bridge candidates against holes at those raw
+  positions: a hole left at a ±span image of its in-ring position lies
+  OUTSIDE the outer polygon (measured: hole u∈[0, 0.615] vs ring
+  [0.6438, 5.6703]), the flood-fill CDT ignores it, and the corridor over
+  its territory is silently FILLED — the notch tessellated as solid wall.
+  Pre-flip, mesh-density rim chains happened to yield anchors left of
+  every hole; the restoration's short arc chains shifted the anchor and
+  unmasked it. Fix: `blocked()` tests each un-pinned hole chain at its
+  image inside the candidate window (rigid `k·span`, chain-mid nearest
+  the window center), and acceptance applies the SAME validated shift
+  before hole-ring construction. Pinned chains stay frame-locked.
+  `KV2_PATCH_PASS_PROBE` now also prints ring/hole window extents (a
+  hole outside the outer ring's window is this defect's signature).
 - **NEXT WALL (named, not this spec):** the boundary-hook self-intersection
   at the rim×cut junction (R0003 face 437 / R0100 face 15 / R0004's
   family): the cut's hyperbola hook extends below the face's own rim —

@@ -638,6 +638,33 @@ name, never measured).
    §4-I12 + `specs/yang_451_optimize_across_boundaries.md` §14–15.
    Remaining loud refusals: unchartable cone/torus holders (R0044, 13 sites).
    Spec §4-I6, §4-I8, §4-I9.
+   **§4.4.2 carried-edge curve restoration (2026-08-25/26, spec
+   `yang_434_output_chord_refinement.md`, deviation N60 → RESOLVED):**
+   the KV9-F2a "deep chord" family measured as CARRIED INPUT RIM CIRCLES
+   (15077/15077 matched at 1e-11) tessellated at Stage-1 mesh density and
+   never re-typed — the owner is §4.4.2's "original boundary curves", not
+   §4.3.4. `restore_carried_edge_curves` re-types eligible chords onto
+   their input circles (certified with from_yang's own band + midpoint
+   DOMAIN check); the always-on I5-1b merge coalesces; consumers sample at
+   their own density. **FLIPPED ALWAYS-ON 2026-08-26** after fixing both
+   blockers structurally: R0054 by kernel-v2 CONFORMAL grid-aligned arc
+   sampling (axis-canonical global azimuth grid + conforming vertex
+   inserts — coaxial rims phase-lock the way Stage-1's shared mesh grid
+   did), F0085 by aligning the strict 1e-12 loop-vertex planarity check
+   with its documented debug-only tier (the F1 `TAU_EVAL` gate is the
+   production boolean-output contract), plus the barrel-arm HOLE-WINDOW
+   latent the flip unmasked (a hole outside the assembled ring's window
+   is silently filled — C0105's selfx root; red-verified by
+   `curved_output_reentry_through_boss`). Corpus: **271C/0W/36E/1EE/0T**
+   (+R0020 +R0095 +C0105; zero CORRECT regressions; seven explained
+   detail shifts; `YANG_434_OUT=0|off` = dev off-knob). The conformal
+   sampling also flips the [M5]/#172 seam-sampling pin: the general
+   unequal-radius 90° cyl×cyl union now completes validated
+   (`unequal_perpendicular_now_supported`). New quarantined
+   capability gap: M8 n-ary mixed-arc seam-split (4-arc) strip lateral
+   (fixture-only, zero corpus customers). Next walls unchanged: the
+   rim×cut junction boundary hook (R0003 face 437 / R0100 face 15 /
+   R0004's family) and R0017's F2b inversion.
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

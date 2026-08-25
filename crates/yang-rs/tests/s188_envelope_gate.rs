@@ -349,8 +349,12 @@ fn gate_on_synthetic_free_space_envelope() {
     };
     cycles.sort_by(|a, b| mean_v(a).total_cmp(&mean_v(b)));
     let bottom = &cycles[0];
+    // Floor: a valid closed loop. Before the always-on §4.4.2 restoration
+    // this rim was a mesh-density polyline (dozens of vertices; the old
+    // floor was 6); restored rims coalesce through the I5-1b merge into a
+    // handful of typed arcs (its closed-run loop floor keeps ≥ 3).
     assert!(
-        bottom.len() >= 6,
+        bottom.len() >= 3,
         "bottom cycle implausibly small: {bottom:?}"
     );
 

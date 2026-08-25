@@ -1002,22 +1002,40 @@ fn t2_same_input_edges_stay_line_segments() {
     let r = boolean(&a, &b, BoolOp::Union, &mock).expect("yr9: single-input mock union must Ok");
 
     assert!(!r.edges().is_empty(), "yr9: expected ≥1 output edge");
-    // SAME-INPUT (A↔A) edges must NEVER become conics: EVERY edge is LineSegment.
+    // SAME-INPUT (A↔A) edges must never become SSI conics — Stage 3 has no
+    // entry for A↔A pairs. Since the §4.4.2 carried-edge restoration
+    // (always-on, spec `yang_434_output_chord_refinement.md`), a same-input
+    // boundary chord IS re-typed — but only onto one of input A's OWN
+    // boundary circles (an original boundary curve, not an SSI product).
+    // Accept exactly LineSegment or a match of an input circle.
+    let input_circles: Vec<(Point3, f64)> = a
+        .edges()
+        .iter()
+        .filter_map(|e| match e.curve {
+            Curve::Circle { center, radius, .. } => Some((center, radius)),
+            _ => None,
+        })
+        .collect();
     for (i, e) in r.edges().iter().enumerate() {
-        assert!(
-            matches!(e.curve, Curve::LineSegment),
-            "yr9 §7.5: same-input boundary edge {i} must stay Curve::LineSegment (no SSI \
-             entry for A↔A edges), got {:?}",
-            e.curve
-        );
+        match e.curve {
+            Curve::LineSegment => {}
+            Curve::Circle { center, radius, .. } => {
+                assert!(
+                    input_circles.iter().any(|&(c, rr)| {
+                        norm(sub(center.as_array(), c.as_array())) <= TAU_MODEL
+                            && (radius - rr).abs() <= TAU_MODEL
+                    }),
+                    "yr9 §7.5 + §4.4.2: same-input boundary edge {i} carries a Circle that \
+                     matches NO input boundary circle (an SSI mint for an A↔A edge?): {:?}",
+                    e.curve
+                );
+            }
+            ref other => panic!(
+                "yr9 §7.5: same-input boundary edge {i} must be LineSegment or a restored \
+                 input circle, got {other:?}"
+            ),
+        }
     }
-    // And no Circle/Ellipse anywhere in the output (over-reach guard).
-    assert_eq!(
-        conic_edges(&r).len(),
-        0,
-        "yr9 §7.5: a single-input solid must produce ZERO conic edges; the SSI conversion \
-         over-reached to same-input boundaries"
-    );
 }
 
 // =========================================================================
@@ -1457,8 +1475,16 @@ fn t6_e2e_cylinder_union_box_has_exact_cap_circle() {
         r.edges().iter().map(|e| e.curve).collect::<Vec<_>>()
     );
 
+    // Cap-ring SSI oracles at the box faces (z=0/1) PLUS the cylinder's own
+    // cap rims (z=-0.5/1.5): the §4.4.2 restoration (always-on) re-types
+    // carried same-input rim chords onto their original input circles, so
+    // those rims are legitimately `Curve::Circle` in the output too.
     let oracle_bottom = oracle_cap_circle(0.0);
     let oracle_top = oracle_cap_circle(1.0);
+    let input_rims = [
+        (p(0.5, 0.5, -0.5), CYL_RADIUS),
+        (p(0.5, 0.5, 1.5), CYL_RADIUS),
+    ];
     let (
         ssi_rs::SsiCurve::Circle {
             center: ocb,
@@ -1485,10 +1511,15 @@ fn t6_e2e_cylinder_union_box_has_exact_cap_circle() {
             && (radius - orb).abs() <= TAU_MODEL;
         let near_top = norm(sub(center.as_array(), oct.as_array())) <= TAU_MODEL
             && (radius - ort).abs() <= TAU_MODEL;
+        let near_input_rim = input_rims.iter().any(|&(c, rr)| {
+            norm(sub(center.as_array(), c.as_array())) <= TAU_MODEL
+                && (radius - rr).abs() <= TAU_MODEL
+        });
         assert!(
-            near_bottom || near_top,
+            near_bottom || near_top || near_input_rim,
             "yr9 E2E: Circle (center {center:?}, r {radius}) must match a cap-ring oracle \
-             (bottom {ocb:?}/{orb} or top {oct:?}/{ort}) within TAU_MODEL"
+             (bottom {ocb:?}/{orb} or top {oct:?}/{ort}) or a restored input cap rim \
+             (z=-0.5/1.5, r {CYL_RADIUS}) within TAU_MODEL"
         );
     }
 

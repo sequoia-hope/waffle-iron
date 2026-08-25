@@ -137,12 +137,162 @@ pub(crate) fn validate_planar_face(
                     );
                 }
             }
-            for p in arena.loop_points(lid)? {
-                let d = (p.x() - plane.point.x()) * plane.normal.x
-                    + (p.y() - plane.point.y()) * plane.normal.y
-                    + (p.z() - plane.point.z()) * plane.normal.z;
-                if d.abs() > planarity_band(p) {
-                    return Err(KernelV2Error::NonPlanarFace { face: f });
+            // Invariant 4 on-surface tier — DEBUG BUILDS ONLY (module docs:
+            // `PLANARITY_DEBUG_TOLERANCE` "is not a production gate"; it
+            // rests on "planar by construction", which is FALSE for yang
+            // re-entry). Chained boolean re-entry legitimately ratchets
+            // loop vertices to a few 1e-12 off the bit-inherited plane
+            // (F0085: a triple-plane corner at 3.7e-12 after 19 ops, exact
+            // on both neighbor planes). The PRODUCTION planarity contract
+            // for boolean outputs is the F1 gate
+            // (`validate_boolean_output_planarity`, TAU_EVAL·(1+s)) —
+            // defect-class residuals (≥ MIN_FEATURE_SIZE) exceed it by
+            // ≥1000×, so gating this tier opens no silent-wrong window.
+            if cfg!(debug_assertions) {
+                for p in arena.loop_points(lid)? {
+                    let d = (p.x() - plane.point.x()) * plane.normal.x
+                        + (p.y() - plane.point.y()) * plane.normal.y
+                        + (p.z() - plane.point.z()) * plane.normal.z;
+                    if d.abs() > planarity_band(p) {
+                        if std::env::var_os("KV2_PLANARITY_PROBE").is_some() {
+                            eprintln!(
+                                "[nonplanar-probe] site=loop-vertex face={f:?} d={d:.3e} \
+                             band={:.3e} p=({:.17e},{:.17e},{:.17e})",
+                                planarity_band(p),
+                                p.x(),
+                                p.y(),
+                                p.z()
+                            );
+                            // Incident-curve context: every loop half-edge of
+                            // this face touching the failing vertex, its curve,
+                            // and (for arcs/circles) the curve's own residuals —
+                            // center-to-plane and vertex-to-circle.
+                            for &h2 in &arena.loop_half_edges(lid)? {
+                                let he2 = arena.half_edge(h2)?;
+                                let o = arena.vertex(he2.origin)?.point;
+                                let nx = arena.vertex(arena.half_edge(he2.next)?.origin)?.point;
+                                if o != p && nx != p {
+                                    continue;
+                                }
+                                match he2.curve {
+                                    Curve::Arc {
+                                        center,
+                                        normal,
+                                        radius,
+                                    }
+                                    | Curve::Circle {
+                                        center,
+                                        normal,
+                                        radius,
+                                    } => {
+                                        let dc = (center.x() - plane.point.x()) * plane.normal.x
+                                            + (center.y() - plane.point.y()) * plane.normal.y
+                                            + (center.z() - plane.point.z()) * plane.normal.z;
+                                        let cn = normal.x * plane.normal.x
+                                            + normal.y * plane.normal.y
+                                            + normal.z * plane.normal.z;
+                                        let dv = [
+                                            p.x() - center.x(),
+                                            p.y() - center.y(),
+                                            p.z() - center.z(),
+                                        ];
+                                        let h =
+                                            dv[0] * normal.x + dv[1] * normal.y + dv[2] * normal.z;
+                                        let rho = ((dv[0] - h * normal.x).powi(2)
+                                            + (dv[1] - h * normal.y).powi(2)
+                                            + (dv[2] - h * normal.z).powi(2))
+                                        .sqrt();
+                                        eprintln!(
+                                            "  incident {h2:?} curve={} r={radius:.17e} \
+                                         center_to_plane={dc:.3e} |n·pn|={:.12} \
+                                         vert_axial={h:.3e} vert_radial={:.3e}",
+                                            if matches!(he2.curve, Curve::Arc { .. }) {
+                                                "Arc"
+                                            } else {
+                                                "Circle"
+                                            },
+                                            cn.abs(),
+                                            rho - radius,
+                                        );
+                                    }
+                                    ref c => {
+                                        let kind = match c {
+                                            Curve::LineSegment => "Line",
+                                            Curve::EllipseArc { .. } => "EllipseArc",
+                                            Curve::HyperbolaArc { .. } => "HyperbolaArc",
+                                            Curve::SurfacePair { .. } => "SurfacePair",
+                                            _ => "other",
+                                        };
+                                        // Twin face: whose surface is the other
+                                        // side, and does the failing vertex lie
+                                        // on it?
+                                        let tw = arena.half_edge(he2.twin)?;
+                                        let tf = arena.loop_(tw.loop_id)?.face;
+                                        let tsurf = arena.face(tf)?.surface;
+                                        let (tkind, tres) = match &tsurf {
+                                            Some(Surface::Plane(pl)) => (
+                                                "Plane",
+                                                (p.x() - pl.point.x()) * pl.normal.x
+                                                    + (p.y() - pl.point.y()) * pl.normal.y
+                                                    + (p.z() - pl.point.z()) * pl.normal.z,
+                                            ),
+                                            Some(Surface::Cylinder {
+                                                axis_point,
+                                                axis_dir,
+                                                radius,
+                                                ..
+                                            }) => {
+                                                let dv = [
+                                                    p.x() - axis_point.x(),
+                                                    p.y() - axis_point.y(),
+                                                    p.z() - axis_point.z(),
+                                                ];
+                                                let h = dv[0] * axis_dir.x
+                                                    + dv[1] * axis_dir.y
+                                                    + dv[2] * axis_dir.z;
+                                                let rho = ((dv[0] - h * axis_dir.x).powi(2)
+                                                    + (dv[1] - h * axis_dir.y).powi(2)
+                                                    + (dv[2] - h * axis_dir.z).powi(2))
+                                                .sqrt();
+                                                ("Cylinder", rho - radius)
+                                            }
+                                            Some(Surface::Cone {
+                                                apex,
+                                                axis_dir,
+                                                half_angle,
+                                                ..
+                                            }) => {
+                                                let dv = [
+                                                    p.x() - apex.x(),
+                                                    p.y() - apex.y(),
+                                                    p.z() - apex.z(),
+                                                ];
+                                                let h = dv[0] * axis_dir.x
+                                                    + dv[1] * axis_dir.y
+                                                    + dv[2] * axis_dir.z;
+                                                let rho = ((dv[0] - h * axis_dir.x).powi(2)
+                                                    + (dv[1] - h * axis_dir.y).powi(2)
+                                                    + (dv[2] - h * axis_dir.z).powi(2))
+                                                .sqrt();
+                                                (
+                                                    "Cone",
+                                                    (rho - h * half_angle.tan()) * half_angle.cos(),
+                                                )
+                                            }
+                                            Some(Surface::Sphere { .. }) => ("Sphere", f64::NAN),
+                                            Some(Surface::Torus { .. }) => ("Torus", f64::NAN),
+                                            None => ("none", f64::NAN),
+                                        };
+                                        eprintln!(
+                                            "  incident {h2:?} curve={kind} twin_face={tf:?} \
+                                         twin_surface={tkind} vert_residual={tres:.3e}",
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        return Err(KernelV2Error::NonPlanarFace { face: f });
+                    }
                 }
             }
             // Circle/arc centers on the plane; endpoints on their circles.
@@ -169,6 +319,15 @@ pub(crate) fn validate_planar_face(
                         + (center.y() - plane.point.y()) * plane.normal.y
                         + (center.z() - plane.point.z()) * plane.normal.z;
                     if d.abs() > band {
+                        if std::env::var_os("KV2_PLANARITY_PROBE").is_some() {
+                            eprintln!(
+                                "[nonplanar-probe] site=ellipse-center face={f:?} d={d:.3e} \
+                                 band={band:.3e} center=({:.17e},{:.17e},{:.17e})",
+                                center.x(),
+                                center.y(),
+                                center.z()
+                            );
+                        }
                         return Err(KernelV2Error::NonPlanarFace { face: f });
                     }
                     let nu = [normal.x, normal.y, normal.z];
@@ -223,6 +382,15 @@ pub(crate) fn validate_planar_face(
                         + (center.y() - plane.point.y()) * plane.normal.y
                         + (center.z() - plane.point.z()) * plane.normal.z;
                     if d.abs() > band {
+                        if std::env::var_os("KV2_PLANARITY_PROBE").is_some() {
+                            eprintln!(
+                                "[nonplanar-probe] site=hyperbola-center face={f:?} d={d:.3e} \
+                                 band={band:.3e} center=({:.17e},{:.17e},{:.17e})",
+                                center.x(),
+                                center.y(),
+                                center.z()
+                            );
+                        }
                         return Err(KernelV2Error::NonPlanarFace { face: f });
                     }
                     let nu = [normal.x, normal.y, normal.z];
@@ -287,6 +455,23 @@ pub(crate) fn validate_planar_face(
                     + (center.y() - plane.point.y()) * plane.normal.y
                     + (center.z() - plane.point.z()) * plane.normal.z;
                 if d.abs() > plane_band {
+                    if std::env::var_os("KV2_PLANARITY_PROBE").is_some() {
+                        eprintln!(
+                            "[nonplanar-probe] site=circle-arc-center face={f:?} is_arc={is_arc} \
+                             d={d:.3e} band={plane_band:.3e} radius={radius:.17e} \
+                             center=({:.17e},{:.17e},{:.17e}) plane.n=({:.17},{:.17},{:.17}) \
+                             plane.pt=({:.17e},{:.17e},{:.17e})",
+                            center.x(),
+                            center.y(),
+                            center.z(),
+                            plane.normal.x,
+                            plane.normal.y,
+                            plane.normal.z,
+                            plane.point.x(),
+                            plane.point.y(),
+                            plane.point.z()
+                        );
+                    }
                     return Err(KernelV2Error::NonPlanarFace { face: f });
                 }
                 let mut endpoints = vec![arena.vertex(he.origin)?.point];

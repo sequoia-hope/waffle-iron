@@ -258,22 +258,20 @@ fn steinmetz_subtract_exact_volume() {
     );
 }
 
-/// M5 (`specs/m5_surface_pair_curve.md`) — REVISED at #173 (2026-07-17):
-/// the surface-pair-curve increment let this general unequal-radius 90°
-/// cyl×cyl union COMPLETE (watertight, volume-plausible), but the N6
-/// render-level gate (`validate::selfx`, spec `yang_173_selfx_detector.md`)
-/// exposed the completion as a FALSE GREEN: the emitted shell fails the
-/// corpus' own inter-face self-intersection standard (79 penetrations
-/// beyond the grazing band at render resolution — this fixture simply
-/// never ran under that oracle before). The prior expectation asserted
-/// watertight/volume but not self-intersection. Root fix is [M5]/#172
-/// territory (exact degree-4 trim + conformal seam sampling — the
-/// equal-radius Steinmetz corpus cases pass because their intersection
-/// degenerates to exact ellipses); flip this pin back when that lands.
-/// Was `unequal_perpendicular_now_supported`; before that,
+/// M5 (`specs/m5_surface_pair_curve.md`) — REVISED at #173 (2026-07-17),
+/// FLIPPED BACK 2026-08-26: the #173 revision pinned the N6 selfx STOP
+/// (79 render-level penetrations) and named its root fix "[M5]/#172
+/// territory (exact degree-4 trim + CONFORMAL SEAM SAMPLING)". The
+/// kernel-v2 conformal grid-aligned arc sampling (spec
+/// `yang_434_output_chord_refinement.md` inc-4) is that sampling half:
+/// under it the emitted shell passes the selfx gate, so the union
+/// completes and must now VALIDATE — watertight, and volume inside the
+/// strict union bounds (max(V1,V2), V1+V2). History:
+/// `unequal_perpendicular_walls_on_selfx_gate` ← 
+/// `unequal_perpendicular_now_supported` ←
 /// `unequal_perpendicular_stays_walled`.
 #[test]
-fn unequal_perpendicular_walls_on_selfx_gate() {
+fn unequal_perpendicular_now_supported() {
     let mut a = BrepArena::new();
     let (r1, r2) = (0.3_f64, 0.18_f64);
     let c1 = cyl(
@@ -296,14 +294,20 @@ fn unequal_perpendicular_walls_on_selfx_gate() {
         r2,
         1.0,
     );
-    let err = boolean_op(&mut a, c1, c2, BoolOp::Union)
-        .expect_err("[M5]/#172 pin: the union must wall on the N6 self-intersection gate");
+    let out = boolean_op(&mut a, c1, c2, BoolOp::Union)
+        .expect("[M5]/#172: under conformal seam sampling the union passes the selfx gate");
+    kernel_v2::validate_solid(&a, out).expect("union output validates");
+    let mesh = kernel_v2::tessellate(&a, out).expect("tessellates");
+    let vol = mesh_signed_volume(&mesh);
+    let (v1, v2) = (
+        std::f64::consts::PI * r1 * r1 * 1.0,
+        std::f64::consts::PI * r2 * r2 * 1.0,
+    );
     assert!(
-        matches!(
-            err,
-            kernel_v2::KernelV2Error::SelfIntersectingBooleanOutput { .. }
-        ),
-        "expected the typed §4.5.4 STOP, got: {err:?}"
+        vol > v1.max(v2) && vol < v1 + v2,
+        "union volume {vol} outside ({}, {})",
+        v1.max(v2),
+        v1 + v2
     );
 }
 

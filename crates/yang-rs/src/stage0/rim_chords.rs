@@ -1367,6 +1367,13 @@ pub(crate) fn arc_lateral_opposite(
             })
             .collect();
         if arcs.len() != 2 || !arcs.contains(&e) {
+            if std::env::var_os("YANG_COPLANAR_PROBE").is_some() {
+                eprintln!(
+                    "[lateral-probe] e={e} gi={gi} arcs={arcs:?} outer={:?} inners={}",
+                    g.outer_loop,
+                    g.inner_loops.len()
+                );
+            }
             return Err("mixed-arc-lateral-unpaired");
         }
         let opp = if arcs[0] == e { arcs[1] } else { arcs[0] };

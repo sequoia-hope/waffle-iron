@@ -322,11 +322,9 @@ fn tessellate_developable_patch(
                     } else {
                         -1.0
                     };
-                    let samples = arc_interior_samples(arena, h, n_seg)?;
-                    let k = samples.len() + 1;
+                    let samples = arc_interior_samples_frac(arena, h, n_seg)?;
                     entries.push((origin_node, PatchEdgeKind::ArcSample));
-                    for (j, sp) in samples.iter().enumerate() {
-                        let frac = (j + 1) as f64 / k as f64;
+                    for (frac, sp) in &samples {
                         let su = u_cur + sense * dir * sweep * frac * r_unroll;
                         let (_, sh) = theta_h(*sp, e1, e2)?;
                         entries.push((nodes.len(), PatchEdgeKind::ArcSample));
@@ -775,7 +773,23 @@ fn tessellate_developable_patch(
                     (ring[m].p2, ring[m + 1].p2),
                     (ring[m + 1 + mm].p2, ring[0].p2),
                 ];
-                let blocked = |p: Point2, q: Point2| -> bool {
+                // Hole chains must be tested (and later placed) at their
+                // image INSIDE this candidate ring's window [base_x,
+                // base_x+span): the pre-pass mid-window shift centered them
+                // near the +wrap chain's MIDPOINT, but the assembled ring is
+                // anchored at the CHOSEN bridge azimuth — a hole left at a
+                // ±span image of its in-ring position is outside the outer
+                // polygon, the flood-fill CDT ignores it, and the corridor
+                // over its territory is silently FILLED (measured:
+                // `curved_output_reentry_through_boss`, a slot window on a
+                // recovered boss whose bridge anchor landed right of the
+                // hole after the §4.4.2 restoration shortened the rim
+                // chains; the selfx gate caught the filled notch). Pinned
+                // chains are frame-locked to the ring and never shifted.
+                let hole_window_k = |c: &Chain, base_x: f64| -> f64 {
+                    ((base_x + span / 2.0 - mid_u(c, &nodes)) / span).round()
+                };
+                let blocked = |p: Point2, q: Point2, base_x: f64| -> bool {
                     let mut edges_iter: Vec<(Point2, Point2)> = Vec::new();
                     let rl = ring.len();
                     for i in 0..rl {
@@ -791,11 +805,18 @@ fn tessellate_developable_patch(
                         if ci == ci_p || ci == ci_m {
                             continue;
                         }
+                        let k = if is_pinned(c) {
+                            0.0
+                        } else {
+                            hole_window_k(c, base_x)
+                        };
                         let cm = c.entries.len();
                         for i in 0..cm {
+                            let a2 = nodes[c.entries[i].0].p2;
+                            let b2 = nodes[c.entries[(i + 1) % cm].0].p2;
                             edges_iter.push((
-                                nodes[c.entries[i].0].p2,
-                                nodes[c.entries[(i + 1) % cm].0].p2,
+                                Point2::new(a2.x() + k * span, a2.y()),
+                                Point2::new(b2.x() + k * span, b2.y()),
                             ));
                         }
                     }
@@ -803,8 +824,23 @@ fn tessellate_developable_patch(
                         .into_iter()
                         .any(|(ea, eb)| exact2d::bridge_blocked_by(p, q, ea, eb))
                 };
-                if bridge_pairs.iter().any(|&(p, q)| p == q || blocked(p, q)) {
+                if bridge_pairs
+                    .iter()
+                    .any(|&(p, q)| p == q || blocked(p, q, base_x))
+                {
                     continue 'anchors;
+                }
+                // Accepted: place every un-pinned hole chain at its image
+                // inside THIS ring's window (rigid k·span shift — the same
+                // image `blocked` just validated against).
+                let shifts: Vec<(usize, f64)> = chains
+                    .iter()
+                    .enumerate()
+                    .filter(|&(ci, c)| ci != ci_p && ci != ci_m && !is_pinned(c))
+                    .map(|(ci, c)| (ci, hole_window_k(c, base_x)))
+                    .collect();
+                for (ci, k) in shifts {
+                    shift_chain(&chains[ci], k, &mut nodes);
                 }
                 // Register the bridge edges (Chord kind) for refinement.
                 let xs = pe[xi].0;
@@ -1178,6 +1214,27 @@ fn tessellate_developable_patch(
             wnodes.len(),
             split_cache.len()
         );
+        // Ring/hole window extents: a hole outside the outer ring's window
+        // is the filled-corridor defect the barrel-arm hole re-windowing
+        // guards against.
+        for (hi_, hole) in holes.iter().enumerate() {
+            let us: Vec<f64> = hole.iter().map(|n| n.p2.x()).collect();
+            let (lo, hi2) = us
+                .iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), &u| {
+                    (a.min(u), b.max(u))
+                });
+            eprintln!("[hole-ring] {hi_}: u=[{lo:.4},{hi2:.4}] n={}", hole.len());
+        }
+        {
+            let us: Vec<f64> = poly.iter().map(|n| n.p2.x()).collect();
+            let (lo, hi2) = us
+                .iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), &u| {
+                    (a.min(u), b.max(u))
+                });
+            eprintln!("[outer-ring] u=[{lo:.4},{hi2:.4}] n={}", poly.len());
+        }
     }
 
     // §4.3.4 inc-0 census: post-refinement stats. The row itself prints at

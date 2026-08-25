@@ -17,7 +17,8 @@
 //! cases onto an INPUT `Circle` edge (15 077/15 077 at ≤1.0e-11) — carried
 //! revolve rims, not Stage-3 intersection output.
 //!
-//! [`restore_carried_edge_curves`] (gated `YANG_434_OUT=1`) re-types the
+//! [`restore_carried_edge_curves`] (ALWAYS-ON; `YANG_434_OUT=0|off` restores
+//! the polyline emission) re-types the
 //! certified chords in place; the always-on I5-1b merge then coalesces the
 //! runs into arc edges and kernel-v2 samples them at render density.
 //!
@@ -311,10 +312,17 @@ pub(crate) fn census_output_pair_chords(
 // at render density — the F2a depth family dissolves at its root.
 // =========================================================================
 
-/// Gate: `YANG_434_OUT=1` applies the restoration; anything else leaves the
-/// emission untouched (`census` stays read-only measurement).
+/// Gate: the restoration is ALWAYS-ON (flipped 2026-08-26 after the two
+/// blocker fixes — kernel-v2 conformal grid-aligned arc sampling for R0054
+/// and the invariant-4 debug-tiering for F0085; spec
+/// `yang_434_output_chord_refinement.md` inc-4/inc-5). `YANG_434_OUT=0`
+/// or `off` restores the mesh-polyline emission; `census` stays read-only
+/// measurement (no apply).
 pub(crate) fn restore_gate_enabled() -> bool {
-    matches!(std::env::var("YANG_434_OUT"), Ok(v) if v == "1")
+    match std::env::var("YANG_434_OUT") {
+        Ok(v) => v != "0" && v != "off" && v != "census",
+        Err(_) => true,
+    }
 }
 
 #[derive(Default)]
