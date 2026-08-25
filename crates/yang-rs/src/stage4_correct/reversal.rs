@@ -28,8 +28,7 @@ pub(crate) fn sweep_reversed_intersections(
     // `census` = report pair-site reversals, never act.
     let pair_arm = std::env::var("YANG_453_PAIR");
     let pair_arm_census = matches!(pair_arm.as_deref(), Ok("census"));
-    let pair_arm_act =
-        !pair_arm_census && !matches!(pair_arm.as_deref(), Ok("0") | Ok("off"));
+    let pair_arm_act = !pair_arm_census && !matches!(pair_arm.as_deref(), Ok("0") | Ok("off"));
 
     let mut collapsed_any = false;
     // Bound the outer restart loop by the initial triangle count (each pass

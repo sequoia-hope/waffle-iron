@@ -97,16 +97,70 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N57 | PERMANENT (P5) | #178 sub-resolution coplanar-gap STOP: cross pair of DISTINCT parallel planes (gap above rounding noise) re… |
 | N58 | RESOLVED by user directive 2026-07-21 (criterion swapped to the paper's own §4.3.4 h/l/α test, d_p=1e-7=TAU_MODEL) | #169 P3b inc-4c: Stage-4 post-merge fan re-CDT + seam-order canonicalization (§4.4.1/§4.3); chain-sample drop now uses Yang's published refinement acceptance test |
 | N59 | RESOLVED 2026-08-24 (same-session fix; P5 convention) | §4.5.3 reversal sweep covered TYPED chains only — pair-relocated (untyped) chains never swept; fixed by the pair-site arm (spec `yang_453_pair_chain_reversal.md`), R0028+R0025 convert, R0032 advances to a NotSupported boundary |
+| N60 | OPEN (fix built+gated 2026-08-25; flip blocked on R0054/F0085) | §4.4.2 output boundary-curve restoration partial — carried same-input curves (revolve rims) emitted as mesh-density LineSegment polylines; owner of the KV9-F2a fold family |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count: 1** (N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure). Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count: 2** (N2, N60 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure). Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
 ## OPEN deviations (temporary; remediation tracked; investigation blocked)
 
 The live paper-compliance backlog. N2 is the §4.4.1 mesh-updating + §4.5.2 local-refinement gap (epic #169, `specs/yang_mesh_updating_epic.md`); since the 2026-07-17 N6 closure it also carries the §4.5.4 removal half (the `YANG_SELFX_PROBE` 53-case fire-list is that increment's worklist — spec `specs/yang_173_selfx_detector.md` §7).
+
+### N60 — §4.4.2 output boundary-curve restoration partial: carried same-input curves emitted as mesh polylines
+
+**State:** OPEN — fix BUILT AND GATED (`YANG_434_OUT=1`, 2026-08-25);
+default-flip blocked on two explained CORRECT-case regressions (below).
+Remediation tracked in `specs/yang_434_output_chord_refinement.md` inc-3.
+
+**Code location:** `crates/yang-rs/src/stage5_output_refine.rs`
+(`restore_carried_edge_curves`, wired in `stage5_topology::emit_topology`
+immediately before the I5-1b seam chain-merge).
+
+**Paper section:** §4.4.2 (`refs/text/yang2025_hybrid_boolean.txt:592-605`)
+— the B-Rep Boolean output restores patches bounded by "either the original
+boundary curves or the intersection curves".
+
+**Current (default) behavior:** the emission types cross-input intersection
+seams via `intersection_curves` but leaves ORIGINAL boundary curves between
+same-input output faces as one `LineSegment` edge per mesh seam segment — a
+polyline at Stage-1 mesh density. Corpus-wide consumer census
+(`KV2_CHORD_DEPTH_CENSUS`, 2026-08-24): 372 developable-patch faces in 40
+cases carry boundary chords deeper than their own render facet band (to
+78×; 29 of the cases SUPPORTED_CORRECT — silent render sag); the KV9-F2a
+folds (R0003/R0100/R0020) are this depth meeting a CDT sliver. Producer
+census (`YANG_434_OUT=census`): 15 077/15 077 deep chords matched an INPUT
+`Circle` edge at ≤1.0e-11 (revolve rim circles).
+
+**Gated behavior:** eligible chords (2 loop uses / 2 faces / same input /
+different input faces; both endpoints on exactly ONE candidate input circle
+within `TAU_EVAL·(1+max(r,coord))`; sweep ≤ π/2; minor-arc midpoint ON BOTH
+owner surfaces) are re-typed onto the input circle; the always-on I5-1b
+merge coalesces the runs; kernel-v2 samples at render density. Gated corpus
+(after the two 2026-08-25 follow-up fixes: the merge open-run loop floor,
+always-on; the midpoint domain certification): R0020 + R0095
+ERROR→SUPPORTED_CORRECT; R0003/R0100 advance from their folds to the
+pre-existing ring-CDT family; six initial regressions reduced to TWO:
+
+- **R0054** — render-density conformality: a sliver between two adjacent
+  `ArcSample`s (sagitta 0.052) and a boundary vertex 0.0089 away in-chart
+  folds at dot −0.1042; the old mesh polyline was conformal through
+  near-rim vertices by construction. Fix: boundary-aware/conformal arc
+  sampling in the kernel-v2 patch tessellator (P10: not a margin band).
+- **F0085** — NonPlanarFace(35097) deep in the 20-op chain; unanchored.
+
+**Oracles:** 8 unit tests (`tests_unit/s434_output_restore.rs` ×7 incl.
+decline-identity and the R0063 chord-of-rim red pin;
+`stage5_seam_merge::open_run_keeps_loop_at_three_edges`). Pre-fix default
+corpus BIT-IDENTICAL (267C/0W/40E/1EE/0T); the always-on merge loop floor
+then converts R0009 in default mode as its exactly-one delta (its
+material-CCW cylinder-loop error was the conic merge's own under-3
+coalescing) → canonical 268C/0W/39E/1EE/0T.
+
+**Remediation:** anchor + fix the two blockers, then flip
+(`YANG_434_OUT=0|off` becomes the dev off-knob) and rebaseline.
 
 ### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
 

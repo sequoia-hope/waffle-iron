@@ -368,6 +368,8 @@ pub(crate) fn s6_planar_loop_offplane_vertex_rejected() {
         &BTreeMap::new(),
         &[],
         BoolOp::Union,
+        (&[], &[]),
+        (&[], &[]),
     )
     .expect_err("a planar patch with an off-plane loop vertex must be rejected");
     assert!(
@@ -391,6 +393,8 @@ pub(crate) fn s6_planar_loop_offplane_vertex_rejected() {
         &BTreeMap::new(),
         &[],
         BoolOp::Union,
+        (&[], &[]),
+        (&[], &[]),
     )
     .expect("a genuinely planar quad must assemble");
     assert_eq!(ok.2.len(), 1, "the flat quad yields exactly one face");

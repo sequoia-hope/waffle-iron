@@ -130,6 +130,17 @@ fn tessellate_developable_patch(
         DevSurface::Cone { tan_half_angle } => tan_half_angle,
     };
     let w_facet = 2.0 * PI * r_unroll / f64::from(n_seg);
+    // §4.3.4 inc-0 census (spec `yang_434_output_chord_refinement.md` §3,
+    // env-gated `KV2_CHORD_DEPTH_CENSUS`, print-only): per face, the depth of
+    // the boundary `LineSegment` chords below this developable surface
+    // (`max_chord_sag`, measured at each chord's midpoint against the ideal
+    // development) and — after refinement — the materialized split deviation
+    // (`max_split_dev`), the thinnest emitted 2D triangle (`min_h2d`), and
+    // whether the KV9-F2 fold tripwire fired. Decides the refinement band
+    // target and blast radius for the §4.3.4 output-polyline refinement.
+    let census_on = std::env::var_os("KV2_CHORD_DEPTH_CENSUS").is_some();
+    let mut census_n_chord = 0usize;
+    let mut census_max_sag = 0.0f64;
 
     let mut all_loops = vec![face.outer_loop];
     all_loops.extend(face.inner_loops.iter().copied());
@@ -272,9 +283,28 @@ fn tessellate_developable_patch(
             }
             match he.curve {
                 Curve::LineSegment => {
-                    let (theta_q, _) = theta_h(q, e1, e2)?;
+                    let (theta_q, hq) = theta_h(q, e1, e2)?;
                     let delta = crate::geom::wrap_to_pi(theta_q - theta_p);
                     entries.push((origin_node, PatchEdgeKind::Chord));
+                    if census_on {
+                        // Chord depth at the midpoint: 3D lerp vs the ideal
+                        // development at the averaged work coords — exactly
+                        // the deviation a future Chord split there would keep.
+                        let u_mid = u_cur + sense * delta * r_unroll / 2.0;
+                        let h_mid = (hp + hq) / 2.0;
+                        let ideal = surface_point(u_mid, h_mid);
+                        let mid = [
+                            (p.x() + q.x()) / 2.0,
+                            (p.y() + q.y()) / 2.0,
+                            (p.z() + q.z()) / 2.0,
+                        ];
+                        let sag = ((mid[0] - ideal[0]).powi(2)
+                            + (mid[1] - ideal[1]).powi(2)
+                            + (mid[2] - ideal[2]).powi(2))
+                        .sqrt();
+                        census_n_chord += 1;
+                        census_max_sag = census_max_sag.max(sag);
+                    }
                     u_cur += sense * delta * r_unroll;
                     total_theta += delta;
                 }
@@ -898,14 +928,25 @@ fn tessellate_developable_patch(
     if prov_on {
         for (i, nd) in poly.iter().enumerate() {
             let nid = nd.vid as usize;
-            let (he_s, tw_s) = match node_prov.get(&nid) {
-                Some((h, t)) => (format!("{h:?}"), format!("{t:?}")),
-                None => ("sample".to_string(), "sample".to_string()),
+            let (he_s, tw_s, ck) = match node_prov.get(&nid) {
+                Some((h, t)) => (
+                    format!("{h:?}"),
+                    format!("{t:?}"),
+                    arena.half_edge(*h).map_or("?", |he| match he.curve {
+                        Curve::LineSegment => "Line",
+                        Curve::SurfacePair { .. } => "SurfacePair",
+                        Curve::Circle { .. } => "Circle",
+                        Curve::Arc { .. } => "Arc",
+                        Curve::EllipseArc { .. } => "EllipseArc",
+                        Curve::HyperbolaArc { .. } => "HyperbolaArc",
+                    }),
+                ),
+                None => ("sample".to_string(), "sample".to_string(), "sample"),
             };
             let p = nodes[nid].pos;
             eprintln!(
                 "KV2_PATCH_PROV face={fid:?} idx={i} node={nid} he={he_s} twin={tw_s} \
-                 p2=[{:.12},{:.12}] pos=[{:.12},{:.12},{:.12}]",
+                 curve={ck} p2=[{:.12},{:.12}] pos=[{:.12},{:.12},{:.12}]",
                 nd.p2.x(),
                 nd.p2.y(),
                 p[0],
@@ -1139,6 +1180,50 @@ fn tessellate_developable_patch(
         );
     }
 
+    // §4.3.4 inc-0 census: post-refinement stats. The row itself prints at
+    // the emit exits (fold verdict known there); `None` when the census is
+    // off — zero cost on the production path.
+    let census_prefix: Option<String> = if census_on {
+        let mut max_split_dev = 0.0f64;
+        for wn in &wnodes {
+            if wn.node >= n_prerefine {
+                let p = nodes[wn.node].pos;
+                let ideal = surface_point(wn.p2.x(), wn.p2.y());
+                let dev = ((p[0] - ideal[0]).powi(2)
+                    + (p[1] - ideal[1]).powi(2)
+                    + (p[2] - ideal[2]).powi(2))
+                .sqrt();
+                max_split_dev = max_split_dev.max(dev);
+            }
+        }
+        let mut min_h2d = f64::INFINITY;
+        for t in &wtris {
+            let (a2, b2, c2) = (wnodes[t[0]].p2, wnodes[t[1]].p2, wnodes[t[2]].p2);
+            let area2 = ((b2.x() - a2.x()) * (c2.y() - a2.y())
+                - (b2.y() - a2.y()) * (c2.x() - a2.x()))
+            .abs();
+            let mut lmax = 0.0f64;
+            for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                let (pi2, pj2) = (wnodes[t[i]].p2, wnodes[t[j]].p2);
+                let l2 = (pi2.x() - pj2.x()).powi(2) + (pi2.y() - pj2.y()).powi(2);
+                lmax = lmax.max(l2);
+            }
+            let lmax = lmax.sqrt();
+            if area2 > 0.0 && lmax > 0.0 {
+                min_h2d = min_h2d.min(area2 / lmax);
+            }
+        }
+        Some(format!(
+            "[chord-census] face={fid:?} kind=dev w_facet={w_facet:.6e} \
+             r_unroll={r_unroll:.6e} n_chord={census_n_chord} \
+             max_chord_sag={census_max_sag:.6e} n_split={} \
+             max_split_dev={max_split_dev:.6e} min_h2d={min_h2d:.6e}",
+            split_cache.len()
+        ))
+    } else {
+        None
+    };
+
     // ---- pass 5: emit ------------------------------------------------------
     // Sense-adjusted outward normal at a surface point: `unit(r̂ − tan α·â)`
     // — the generator-perpendicular cone normal, reducing EXACTLY to the
@@ -1255,6 +1340,9 @@ fn tessellate_developable_patch(
                             eprintln!("  edge {la}-{lb}: kind={kind:?}");
                         }
                     }
+                    if let Some(prefix) = &census_prefix {
+                        eprintln!("{prefix} fold=inverted");
+                    }
                     return Err(fail(
                         "patch triangulation folded (inverted triangle) — KV9-F2: the                          unrolled ear-clip/refinement produced inward-facing geometry;                          loud instead of silently-wrong render output",
                     ));
@@ -1294,12 +1382,18 @@ fn tessellate_developable_patch(
             }
         }
         if pos_n > 0 && neg_n > 0 {
+            if let Some(prefix) = &census_prefix {
+                eprintln!("{prefix} fold=mixed2d");
+            }
             return Err(fail(
                 "patch triangulation folded (mixed 2D orientation) — KV7-F1/KV9-F2: \
                  the unrolled ear-clip/refinement self-overlapped; loud instead of \
                  silently-wrong render output",
             ));
         }
+    }
+    if let Some(prefix) = &census_prefix {
+        eprintln!("{prefix} fold=0");
     }
     out.face_ranges.push(FaceRange {
         face: fid,

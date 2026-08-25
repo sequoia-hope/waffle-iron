@@ -271,6 +271,56 @@ pub(crate) fn tessellate_torus_patch(
     let seg = 2.0 * PI * r_min / f64::from(n_seg.max(3));
     let max_area = seg * seg;
 
+    // §4.3.4 inc-0 census (spec `yang_434_output_chord_refinement.md` §3,
+    // env-gated `KV2_CHORD_DEPTH_CENSUS`, print-only): the torus-patch
+    // analogue of the developable chord-depth row. No split/fold machinery
+    // here (UV-CDT mints interior Steiner points on-surface); the signal is
+    // the midpoint depth of `LineSegment` boundary chords off the torus.
+    if std::env::var_os("KV2_CHORD_DEPTH_CENSUS").is_some() {
+        let mut n_chord = 0usize;
+        let mut max_sag = 0.0f64;
+        let mut all_loops = vec![face.outer_loop];
+        all_loops.extend(face.inner_loops.iter().copied());
+        for &lid in &all_loops {
+            for &h in &arena.loop_half_edges(lid)? {
+                let he = arena.half_edge(h)?;
+                if !matches!(he.curve, Curve::LineSegment) {
+                    continue;
+                }
+                let p = arena.vertex(he.origin)?.point;
+                let q = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+                let m = [
+                    (p.x() + q.x()) / 2.0,
+                    (p.y() + q.y()) / 2.0,
+                    (p.z() + q.z()) / 2.0,
+                ];
+                let d = [m[0] - c[0], m[1] - c[1], m[2] - c[2]];
+                let t = d[0] * ax[0] + d[1] * ax[1] + d[2] * ax[2];
+                let rv = [d[0] - t * ax[0], d[1] - t * ax[1], d[2] - t * ax[2]];
+                let rl = (rv[0] * rv[0] + rv[1] * rv[1] + rv[2] * rv[2])
+                    .sqrt()
+                    .max(1e-300);
+                let tube = [
+                    c[0] + r_maj * rv[0] / rl,
+                    c[1] + r_maj * rv[1] / rl,
+                    c[2] + r_maj * rv[2] / rl,
+                ];
+                let dt = ((m[0] - tube[0]).powi(2)
+                    + (m[1] - tube[1]).powi(2)
+                    + (m[2] - tube[2]).powi(2))
+                .sqrt();
+                n_chord += 1;
+                max_sag = max_sag.max((dt - r_min).abs());
+            }
+        }
+        if n_chord > 0 {
+            eprintln!(
+                "[chord-census] face={fid:?} kind=torus seg={seg:.6e} r_min={r_min:.6e} \
+                 n_chord={n_chord} max_chord_sag={max_sag:.6e}"
+            );
+        }
+    }
+
     let axis_v = Vector3::new(ax[0], ax[1], ax[2]);
     let Some((verts, tris)) =
         yang_rs::tessellate_torus_patch(center, axis_v, r_maj, r_min, &boundary, &holes, max_area)

@@ -38,6 +38,7 @@ mod p3b_tube_insertion;
 mod s188_envelope;
 mod s194_edge_collapse;
 mod s195_rim_plane_graze;
+mod s434_output_restore;
 mod s4_boundary_curve;
 mod stage0_rim_projection;
 mod stage1_cdt_flap;

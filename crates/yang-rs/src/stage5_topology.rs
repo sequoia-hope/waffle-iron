@@ -339,8 +339,15 @@ pub(crate) fn reconstruct_topology(
         b,
         &crate::stage3_ssi::NO_EDGE_PROVENANCE,
     )?;
-    let (vertices, edges, faces, _sources, _face_attr) =
-        emit_topology(mesh, &infos, &intersection_curves, &[], BoolOp::Union)?;
+    let (vertices, edges, faces, _sources, _face_attr) = emit_topology(
+        mesh,
+        &infos,
+        &intersection_curves,
+        &[],
+        BoolOp::Union,
+        (&a.faces, &a.edges),
+        (&b.faces, &b.edges),
+    )?;
     Ok((vertices, edges, faces))
 }
 
@@ -4529,7 +4536,15 @@ pub(crate) fn reconstruct_topology_stage4(
         }
     }
 
-    emit_topology(mesh, &infos, &intersection_curves, &relocations, op)
+    emit_topology(
+        mesh,
+        &infos,
+        &intersection_curves,
+        &relocations,
+        op,
+        (&a.faces, &a.edges),
+        (&b.faces, &b.edges),
+    )
 }
 
 /// PR-YR5/YR9 Phase-B emission (factored out in PR-YR10 so both
@@ -4618,6 +4633,8 @@ pub(crate) fn emit_topology(
     intersection_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
     relocations: &[(u32, f64)],
     op: BoolOp,
+    input_a: (&[BRepFace], &[BRepEdge]),
+    input_b: (&[BRepFace], &[BRepEdge]),
 ) -> Result<ReconstructedTopology, YangError> {
     if std::env::var_os("YANG_S5_FOLD_PROBE").is_some() {
         eprintln!(
@@ -6115,6 +6132,31 @@ pub(crate) fn emit_topology(
         );
     }
 
+    // §4.4.2 carried-edge curve restoration (gated `YANG_434_OUT=1`; spec
+    // `yang_434_output_chord_refinement.md` inc-1, revised by the inc-0
+    // census): re-type same-input boundary chords onto their carried input
+    // circles so the merge below can coalesce them and kernel-v2 samples
+    // them at render density. Pure in-place re-typing; gate off (or nothing
+    // certified) leaves emission byte-identical.
+    if crate::stage5_output_refine::restore_gate_enabled() {
+        let st = crate::stage5_output_refine::restore_carried_edge_curves(
+            &mesh.verts,
+            &mut edges,
+            &faces,
+            &face_attribution,
+            input_a,
+            input_b,
+        );
+        c441_log!(
+            "[s434-restore] eligible={} typed={} no_cand={} off={} ambig={} sweep={}",
+            st.eligible,
+            st.typed_chords,
+            st.no_candidate,
+            st.declined_offcurve,
+            st.declined_ambiguous,
+            st.declined_sweep
+        );
+    }
     // I5-1b (ALWAYS-ON since the I5-2 flip; `YANG_434_MERGE=0|off` is the
     // dev off-knob; spec §4-I5-1b/§4-I5-2): coalesce per-segment
     // conic seam runs into single analytic arc edges — the paper's §4.4.2
@@ -6142,6 +6184,20 @@ pub(crate) fn emit_topology(
             st.skipped_discontinuous_loops
         );
     }
+    // Output-chord census (`YANG_434_OUT=census`, read-only, apply off;
+    // spec `yang_434_output_chord_refinement.md` inc-1): every untyped
+    // seam chord's owner class, depth, and carried input-circle match —
+    // the measurement that moved this family's owner from §4.3.4 to
+    // §4.4.2 restoration.
+    crate::stage5_output_refine::census_output_pair_chords(
+        &mesh.verts,
+        &edges,
+        &faces,
+        &face_attribution,
+        intersection_curves,
+        input_a,
+        input_b,
+    );
     // Read-only output-incidence probe (env `YANG_OUT_INCIDENCE_PROBE`,
     // 2026-08-19 R0047 anchor): for every conic output edge, the endpoint
     // residual against the STORED curve (what kernel-v2's import gate
