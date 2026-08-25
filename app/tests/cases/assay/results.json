@@ -18,13 +18,13 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 9bf3f664-2436-4144-9e52-9e07c56f21d4: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(437), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "detail": "1 engine error(s): 9bf3f664-2436-4144-9e52-9e07c56f21d4: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(467), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
       "id": "R0003",
       "status": "error"
     },
     {
       "category": "ERROR",
-      "detail": "2 engine error(s): 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile; f3f795d7-4b9d-4d45-8fd7-93be32b6585b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(514), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "detail": "1 engine error(s): 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile",
       "id": "R0004",
       "status": "error"
     },

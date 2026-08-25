@@ -665,8 +665,9 @@ name, never measured).
    (fixture-only, zero corpus customers). Next walls unchanged: the
    rim×cut junction boundary hook (R0003 face 437 / R0100 face 15 /
    R0004's family) and R0017's F2b inversion.
-   **I13 (2026-08-25, gated — spec `yang_441_trim_cdt_construction.md`
-   §I13): the rim×cut hook ANCHORED and its first repair BUILT.** Face
+   **I13 (2026-08-25, FLIPPED ALWAYS-ON same day — spec
+   `yang_441_trim_cdt_construction.md` §I13): the rim×cut hook ANCHORED
+   and its first repair LIVE.** Face
    437 = an out-and-back spur past the solved rim junction (the interior
    curve vertex relocated onto the conic at its preserved azimuth, 4.3
    strip-widths beyond the terminal). Three gated mechanisms:
@@ -677,11 +678,16 @@ name, never measured).
    `order_along_curve` open-conic ordering), `YANG_441_ONCURVE_MERGE`
    (the Fig-11 on-curve terminal-overrun selector arm + the
    construct/fold-merge alternation; fold-merge pass cap now derived
-   from the true runaway bound). Gated R0003: 202 merges apply, face
-   437 resolves, the case advances to face 467 = the NEXT family
-   (out-of-band terminal RUN at the junction, ≥2 vertices on the
+   from the true runaway bound). Flip proofs: default corpus
+   bit-identical pre-flip; post-flip corpus category-identical
+   271C/0W/36E/1EE/0T with exactly two explained detail rows — R0003
+   advances 437→467 (202 merges apply; the NEXT family is the
+   out-of-band terminal RUN at the junction, ≥2 vertices on the
    neighbor cone's conic — I13d run-level junction absorption, spec
-   §I13(c), not built).
+   §I13(c), not built) and R0004's ring-CDT subtract wall CLEARS (its
+   unrelated RevolveAxisIntersectsProfile first error remains). R0100
+   face 15 unmoved — not this family; own anchor owed. Off-knobs:
+   `YANG_441_CONE_CHART|OPEN_CONIC_PARAM|ONCURVE_MERGE=0|off`.
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

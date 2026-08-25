@@ -675,11 +675,13 @@ pub struct FoldMergeSite {
 ///
 /// Ambiguity is dropped, never guessed: a victim claimed by two different
 /// survivors is excluded. Deterministic — `BTreeMap` iteration only.
-/// I13c opt-in gate: the on-curve TERMINAL-overrun arm of the Fig-11 merge
-/// selector. Default OFF — the selector is byte-identical to the still-apex
-/// selector.
+/// I13c — the on-curve TERMINAL-overrun arm of the Fig-11 merge selector
+/// (and the driver's construct/fold-merge alternation). **FLIPPED ALWAYS-ON
+/// 2026-08-25** with the I13 corpus proofs (see
+/// `stage4_project::cone_chart_enabled`). `YANG_441_ONCURVE_MERGE=0|off` is
+/// the dev A/B off-knob.
 pub(crate) fn oncurve_merge_enabled() -> bool {
-    matches!(std::env::var("YANG_441_ONCURVE_MERGE"), Ok(v) if v == "1")
+    !matches!(std::env::var("YANG_441_ONCURVE_MERGE"), Ok(v) if v == "0" || v == "off")
 }
 
 /// I13c certificate: is corner `i` of `cyc` (post-inversion `t` already
@@ -1530,14 +1532,12 @@ mod tests {
         );
     }
 
-    /// Gate pin: with `YANG_441_ONCURVE_MERGE` unset (the default), a corner
-    /// the certificate WOULD accept produces no site and no census count —
-    /// the selector stays byte-identical to the still-apex selector.
+    /// Gate pin (FLIPPED 2026-08-25): the arm is always-on — the certified
+    /// corner yields exactly one site by default; the off-knob
+    /// (`YANG_441_ONCURVE_MERGE=0|off`) restores the still-apex-only
+    /// selector, byte-identically.
     #[test]
-    fn oncurve_arm_is_off_by_default() {
-        if oncurve_merge_enabled() {
-            return; // the pin is about the DEFAULT env; skip under the dev knob
-        }
+    fn oncurve_arm_follows_the_flipped_gate() {
         let cyc = vec![0u32, 1, 2, 3, 4];
         // v4 sits so corner (2,3,4) is NOT chord-inverted — only the on-curve
         // corner (1,2,3) carries the inversion, and its apex MOVED, so the
@@ -1559,8 +1559,14 @@ mod tests {
         let curves = curve_map(&[(1, 2), (2, 3)]);
         let (sites, census) = fold_merge_sites_censused([cyc.as_slice()], &pre, &post, &curves);
         assert_eq!(census.apex_moved_on_curve, 1, "the corner IS censused");
-        assert_eq!(census.oncurve_sites, 0, "but the gated arm never proposes");
-        assert!(sites.is_empty(), "{sites:?}");
+        if oncurve_merge_enabled() {
+            assert_eq!(census.oncurve_sites, 1, "the always-on arm proposes it");
+            assert_eq!(sites.len(), 1, "{sites:?}");
+            assert_eq!((sites[0].victim, sites[0].survivor), (2, 3));
+        } else {
+            assert_eq!(census.oncurve_sites, 0, "off-knob: arm never proposes");
+            assert!(sites.is_empty(), "{sites:?}");
+        }
     }
 
     /// A healthy convex cycle has every corner inside its own chord — the

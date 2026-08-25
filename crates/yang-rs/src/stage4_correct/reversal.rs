@@ -546,10 +546,11 @@ pub(crate) fn conic_param(curve: &Curve, pt: Point3) -> Option<f64> {
     }
 }
 
-/// I13b opt-in gate: `conic_param` on OPEN conics (Hyperbola). Default OFF —
-/// open conics keep returning `None`, byte-identical.
+/// I13b — `conic_param` on OPEN conics (Hyperbola). **FLIPPED ALWAYS-ON
+/// 2026-08-25** with the I13 corpus proofs (see `cone_chart_enabled`).
+/// `YANG_441_OPEN_CONIC_PARAM=0|off` is the dev A/B off-knob.
 pub(crate) fn open_conic_param_enabled() -> bool {
-    matches!(std::env::var("YANG_441_OPEN_CONIC_PARAM"), Ok(v) if v == "1")
+    !matches!(std::env::var("YANG_441_OPEN_CONIC_PARAM"), Ok(v) if v == "0" || v == "off")
 }
 
 /// Is [`conic_param`]'s parameterization of `curve` an ANGLE (2π-periodic)?

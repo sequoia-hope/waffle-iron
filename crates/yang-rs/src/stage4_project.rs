@@ -13,11 +13,10 @@
 //! param space, and the result lifts back conformally (both sides land on the
 //! same world curve → 2-manifold seam, Yang 2025 §4.4.1).
 //!
-//! Charts are provided for **Plane** and **Cylinder** — the pair that dominates
-//! the non-2-manifold reassembly bucket and #168's degenerate-cylinder case
-//! (`replan_degenerate_cylinder_patches` already uses the same cylinder (θ,z)
-//! frame). Sphere / Cone / Torus return `None` for now, so the Phase-B wiring
-//! simply does not engage those patches and leaves them byte-identical.
+//! Charts are provided for **Plane**, **Cylinder**, and (I13a, always-on
+//! since 2026-08-25) **Cone**. Sphere / Torus return `None` for now, so the
+//! Phase-B wiring simply does not engage those patches and leaves them
+//! byte-identical.
 //!
 //! WIRED (2026-08-06, N2-3b step 2): this is the projection layer
 //! [`crate::stage4_splice`]'s loop consumes, reached from
@@ -38,7 +37,8 @@ use cad_primitives::{Point2, Point3};
 ///   patch that STRADDLES the `θ = ±π` seam must be unwrapped by the caller
 ///   before CDT (the projected boundary would otherwise self-cross); `lift`
 ///   itself is seam-agnostic.
-/// * `Cone` (I13a, gated `YANG_441_CONE_CHART`): param = `(θ, z)` with `z` the
+/// * `Cone` (I13a, always-on; `YANG_441_CONE_CHART=0|off` dev knob): param =
+///   `(θ, z)` with `z` the
 ///   axial station FROM THE APEX and radius `z·tan(α)` — the same single-nappe
 ///   `v ≥ 0` convention `stage4_dt::d_of_t` certifies, in the same
 ///   `ortho_basis(axis)` frame. Injective for `z > 0` given the caller's
@@ -68,17 +68,19 @@ pub(crate) enum SurfaceChart {
     },
 }
 
-/// I13a opt-in gate: the Cone chart (and with it, cone-owner rebuilds in the
-/// construct/fold-merge/corner-merge/rim-trim passes). Default OFF —
-/// `SurfaceChart::new` and every `supports` pre-filter answer exactly as
-/// before, byte-identical.
+/// I13a — the Cone chart (and with it, cone-owner rebuilds in the
+/// construct/fold-merge/corner-merge/rim-trim passes). **FLIPPED ALWAYS-ON
+/// 2026-08-25** after the corpus proofs (default corpus bit-identical
+/// pre-flip; gated corpus category-identical, 271C/0W/36E/1EE, two explained
+/// detail rows: R0003 advances 437→467, R0004's ring-CDT wall clears).
+/// `YANG_441_CONE_CHART=0|off` is the dev A/B off-knob.
 pub(crate) fn cone_chart_enabled() -> bool {
-    matches!(std::env::var("YANG_441_CONE_CHART"), Ok(v) if v == "1")
+    !matches!(std::env::var("YANG_441_CONE_CHART"), Ok(v) if v == "0" || v == "off")
 }
 
 impl SurfaceChart {
-    /// Build a chart for `surface`, or `None` for a surface type Phase B does not
-    /// yet re-triangulate (Sphere / Cone / Torus). The caller keeps its existing
+    /// Build a chart for `surface`, or `None` for a surface type Phase B does
+    /// not yet re-triangulate (Sphere / Torus). The caller keeps its existing
     /// behaviour for those (byte-identical).
     pub(crate) fn new(surface: Surface) -> Option<Self> {
         match surface {
@@ -580,12 +582,17 @@ mod tests {
             radius: 1.0
         })
         .is_none());
-        assert!(SurfaceChart::new(Surface::Cone {
-            apex: Point3::new(0.0, 0.0, 0.0),
-            axis_dir: Vector3::new(0.0, 0.0, 1.0),
-            half_angle: 0.5
-        })
-        .is_none());
+        // I13a (always-on since 2026-08-25): the cone IS charted now; the
+        // off-knob (`YANG_441_CONE_CHART=0|off`) restores `None`.
+        assert_eq!(
+            SurfaceChart::new(Surface::Cone {
+                apex: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                half_angle: 0.5
+            })
+            .is_some(),
+            cone_chart_enabled()
+        );
         assert!(SurfaceChart::new(Surface::Torus {
             center: Point3::new(0.0, 0.0, 0.0),
             axis_dir: Vector3::new(0.0, 0.0, 1.0),

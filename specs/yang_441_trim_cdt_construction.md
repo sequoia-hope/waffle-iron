@@ -2448,6 +2448,17 @@ is measured to the letter of Fig-12.
 
 ### I13 — the rim×cut junction terminal overrun: Fig-11's on-curve arm + the Cone chart (2026-08-25)
 
+**Status: FLIPPED ALWAYS-ON (2026-08-25, same day).** Flip proofs: default
+corpus BIT-IDENTICAL pre-flip (tracked results.json unchanged, clean tree);
+gated corpus CATEGORY-IDENTICAL — 271C/0W/36E/1EE/0T, zero CORRECT
+regressions, exactly TWO explained detail rows (**R0003** advances face
+437 → 467, the I13d out-of-band-run wall; **R0004's ring-CDT subtract wall
+CLEARS** — only its pre-existing unrelated `RevolveAxisIntersectsProfile`
+first error remains); per-case times equivalent (heaviest 322 s → 307 s).
+`YANG_441_CONE_CHART=0|off`, `YANG_441_OPEN_CONIC_PARAM=0|off`,
+`YANG_441_ONCURVE_MERGE=0|off` are the dev A/B off-knobs. R0100's face-15
+wall did NOT move — it is not this family's shape; its own anchor is owed.
+
 **Wall:** R0003 `TessellationFailed FaceId(437) "ring rejected by CDT"` — the
 post-§4.5.1/§4.4.2 next wall (R0100 face 15 / R0004 face 514 recorded as the
 same family; R0053 face 474 separately rooted `i6-input-overuse`).

@@ -72,12 +72,16 @@ fn hyperbola_param_is_strictly_monotone_along_the_branch() {
 }
 
 #[test]
-fn conic_param_declines_the_hyperbola_without_its_gate() {
-    if crate::stage4_correct::open_conic_param_enabled() {
-        return; // the pin is about the DEFAULT env; skip under the dev knob
-    }
+fn conic_param_covers_the_hyperbola_by_default() {
+    // FLIPPED 2026-08-25: the open-conic arm is always-on;
+    // `YANG_441_OPEN_CONIC_PARAM=0|off` restores the pre-I13b `None`.
     let (h, ..) = sample_hyperbola();
-    assert_eq!(conic_param(&h, hyperbola_point(0.3)), None);
+    if crate::stage4_correct::open_conic_param_enabled() {
+        let t = conic_param(&h, hyperbola_point(0.3)).expect("open-conic param is on");
+        assert!((t - 0.3).abs() < 1e-12);
+    } else {
+        assert_eq!(conic_param(&h, hyperbola_point(0.3)), None);
+    }
 }
 
 #[test]
@@ -189,17 +193,17 @@ fn cone_chart_lift_lands_on_the_cone() {
 }
 
 #[test]
-fn cone_chartability_is_gated_off_by_default() {
-    if crate::stage4_project::cone_chart_enabled() {
-        return; // the pin is about the DEFAULT env; skip under the dev knob
-    }
+fn cone_chartability_follows_the_flipped_gate() {
+    // FLIPPED 2026-08-25: cone chartability is always-on;
+    // `YANG_441_CONE_CHART=0|off` restores the I2a Plane|Cylinder scope.
     let cone = Surface::Cone {
         apex: Point3::new(0.0, 0.0, 0.0),
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         half_angle: 0.3,
     };
-    assert!(!SurfaceChart::supports(&cone));
-    assert!(SurfaceChart::new(cone).is_none());
+    let on = crate::stage4_project::cone_chart_enabled();
+    assert_eq!(SurfaceChart::supports(&cone), on);
+    assert_eq!(SurfaceChart::new(cone).is_some(), on);
     // The consolidated pre-filter keeps the I2a scope for the others.
     assert!(SurfaceChart::supports(&Surface::Plane {
         normal: Vector3::new(0.0, 0.0, 1.0),
