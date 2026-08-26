@@ -2664,7 +2664,10 @@ proofs: gate-off default corpus BIT-IDENTICAL (tracked `results.json`
 unchanged after a full 312-case run, clean tree, 532.9 s); gate-on corpus
 CATEGORY-IDENTICAL — **271C/0W/36E/1EE/0T**, zero CORRECT regressions,
 exactly ONE explained detail row (**R0003 advances face 517 → 577**), and
-marginally FASTER overall (521.1 s). `YANG_441_GROUP_ABSORB=0|off` is the
+marginally FASTER overall (521.1 s); rewrite tier green pre- AND post-flip
+(1205 s → 1180 s — the flip costs nothing, which is what settles the
+debug-build slowness of `s434_typed_rim_seam_mint` / `m8_swiss_cheese_chain`
+as pre-existing, not introduced). `YANG_441_GROUP_ABSORB=0|off` is the
 dev A/B off-knob; `census` = select-and-report at the run arm's fixed
 point, never apply.
 
