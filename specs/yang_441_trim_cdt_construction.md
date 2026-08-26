@@ -2736,6 +2736,44 @@ is `KV2_CHORD_DEPTH_CENSUS`, whose per-patch rows carry the
 `fold=inverted` verdict
 (`crates/kernel-v2/src/tessellate/developable.rs:1400`).
 
+**KV9-F2 fold ANCHOR taken on R0017 (2026-08-26).** R0017 reproduces the
+identical fold in **0.09 s** (vs R0003's 46 s) — it is the vehicle for
+this family, ~500x faster. Two existing instruments answer it without
+building anything: `KV2_CHORD_DEPTH_CENSUS` (per-face rows) and
+`KV2_PATCH_FOLD_PROBE` (dumps the folded triangle).
+
+*The control pair.* Faces 14 and 17 share the SAME development —
+identical `w_facet=3.604323e2` and `r_unroll=4.072886e3`. Face 14:
+`n_split=16`, `min_h2d=11.39`, `fold=0`. Face 17: `n_split=109`,
+`min_h2d=8.11`, **`fold=inverted`**. Same surface, denser refinement,
+folds.
+
+*What it is NOT.* All three folded-triangle nodes sit EXACTLY on the ideal
+development (`dev` = 6.8e-13, 0, 0). The fold is not a displacement or
+deviation defect, and face 17's `max_split_dev` (7.41) is SMALLER than
+non-folding face 14's (15.74). Two of the three nodes are refinement
+`split` nodes and all three edges are `Interior` — the refinement's own
+interior triangulation, not a boundary artifact.
+
+*What it IS.* The triangle is an extreme SLIVER. In the unrolled chart its
+longest edge is 1073.3 against a minimum height of 8.114 — **aspect
+132:1** (and it is exactly the face's `min_h2d` triangle). Lifted to 3D it
+degenerates further: the three points are collinear to one part in 1e5
+(`|ab|+|bc| = 1225.62` vs `|ac| = 1225.61` over a 1225-unit span), so its
+3D normal is meaningless and reads as strongly inverted (`dot = -0.8051`,
+not a marginal miss). The 3D chord short-cuts the curved surface, so a thin
+2D sliver spanning a large arc becomes an even thinner 3D one.
+
+*Framing for the repair.* This is the I2d lesson on a different surface:
+**a chart-valid triangulation is NOT geometry-valid on a curved
+development.** The structural fix belongs in how the developable
+refinement triangulates (geometry-aware connectivity), NOT in an aspect-
+ratio band — banding the sliver away would be exactly the tolerance
+tuning P9/P10 forbids, and would silence a loud STOP without fixing what
+mints the sliver. Note also that the census's `min_h2d` takes `.abs()` of
+the signed 2D area, so it measures thinness but is sign-blind; the
+tripwire's inversion test is 3D (triangle normal vs `outward_at`).
+
 **Corpus-wide customer census (gate-off, 2026-08-26).** The ring-CDT wall
 is the standing verdict of exactly THREE of the 36 ERROR cases — R0003
 (face 517), **R0053** (face 474) and **R0100** (face 15). I13e converts
