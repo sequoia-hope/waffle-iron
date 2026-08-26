@@ -2657,14 +2657,95 @@ partner's fold (v3221's link holds {3647, 3649}; v3649's holds
 {3219, 3221}; likewise the 8xxx/9xxx pairs and the v6xxx ladder). The CDT
 is RIGHT to refuse each single fan.
 
-**Next increment (I13e, not built): cross-site group absorption.** Absorb
-an interlocked GROUP in one region rebuild per holder: region = union of
-the group's victims' triangles; its boundary meets the patch boundary in
-k arcs (one per site) — the link chains into k runs, and the polygon is
-the runs stitched in cycle order with one closure edge per site (each
-site's survivor an endpoint of its own arc), victims substituted per-site.
-Group = the transitive closure of "my fan polygon contains your victim".
-Everything else (certificates, I8, blocked, one-group-per-pass) unchanged.
+#### (e) I13e — cross-site group absorption (`YANG_441_GROUP_ABSORB`)
+
+**Status: FLIPPED ALWAYS-ON (2026-08-26, same day as landing).** Flip
+proofs: gate-off default corpus BIT-IDENTICAL (tracked `results.json`
+unchanged after a full 312-case run, clean tree, 532.9 s); gate-on corpus
+CATEGORY-IDENTICAL — **271C/0W/36E/1EE/0T**, zero CORRECT regressions,
+exactly ONE explained detail row (**R0003 advances face 517 → 577**), and
+marginally FASTER overall (521.1 s). `YANG_441_GROUP_ABSORB=0|off` is the
+dev A/B off-knob; `census` = select-and-report at the run arm's fixed
+point, never apply.
+
+**Mechanism.** Absorb an interlocked GROUP in one region rebuild per
+holder (`rebuild_group_fan`, the cross-site analog of `rebuild_run_fan`):
+region = union of the group's victims' triangles on the patch; its
+boundary edges — victim-incident ones INCLUDED, unlike the run fan's open
+link — chain into ONE closed cycle (several loops = not a disk, refused
+loudly as `Split`). Each site's victims appear on the cycle as one maximal
+ARC; deleting every arc joins each arc's two flanking vertices with a
+closure edge = that site's absorbed boundary span `survivor → far
+neighbour`, so each site's survivor must FLANK its own arc
+(`FanSurvivorNotAdjacent` otherwise). A fused/split/partial arc has no
+per-site closure edge and is refused (`ArcMismatch`); the orphan guard is
+the run fan's. A holder where only SOME of the group's sites are present
+contributes only their arcs — the strip cones each see one site (the k = 1
+restriction IS the run-fan construction), the wall plane sees them all —
+and its `dropped` lists only the present victims (the `PatchRebuild`
+contract is per-patch).
+
+**Grouping (`interlock_groups`).** Candidates = the run selector's sites
+at the fixed point where every per-site proposal was refused (their
+`blocked` membership is expected — the per-site refusal is what routes
+them here), minus refused groups (`group_blocked`, the livelock guard),
+minus I8 failures (a not-a-merge victim disqualifies its SITE, not its
+whole component — the remainder may still form a repairable group).
+Interlock relation: "some mesh triangle contains a victim of mine and a
+victim of yours" — exactly "my fan polygon contains your victim", since a
+shared triangle puts the other victim on my link. Groups = connected
+components of size ≥ 2 (a singleton IS the already-refused per-site
+repair; never re-proposed). One group applies per pass; certificates, I8
+re-check in apply, the bare-collapse guard, and the all-holders-or-none
+closure are the run arm's, unchanged.
+
+**Measured on R0003 (gated ON, 2026-08-25).** Census (never applying): 5
+fixed-point consultations across the op chain — 14, 14, 7, 6, 6
+candidates pairing into 7 + 7 + 3 + 3 + 3 groups, ALL size 2 (the
+"v6xxx ladder" of §(d) is four parallel pairs), `i8_dropped=0`
+everywhere. The final-op pairing is v3221↔v3649, **v8582↔v9187,
+v8600↔v9168** — the true shared-triangle components CROSS the 8xxx/9xxx
+ranges, so §(d)'s conjecture ("v8582↔v8600, v9168↔v9187", read off the
+declined links rather than measured) had two of its three pairs wrong.
+A declined link polygon names WHICH victims interfere with the site; only
+the shared triangle names WHICH sites form one repair unit.
+Apply: **10 group absorptions, zero declines, zero I8 drops,
+`group_blocked` never populated** — the first op drains its candidates
+14→12→…→0 one pair per pass; a later op drains 7→…→1 (one partnerless
+singleton correctly left measured, not guessed); two downstream fixed
+points vanish entirely (upstream absorption healed them). Runtime flat
+(46.6 s vs 46.2 s baseline). **Face 517's ring-CDT wall CLEARS; R0003
+advances 517 → 577**, `TessellationFailed { face: 577, "patch
+triangulation folded (inverted triangle) — KV9-F2" }` — the KV9-F2 fold
+family (§4.3.4/§4.4.2 territory; the F2b anchor was already recorded as
+owed).
+
+**Is R0003's face-577 fold MINTED by I13e or merely UNMASKED by it?**
+The wall is fail-fast, so the gate-off run never reaches 577 and a
+per-face comparison is unavailable (face ids are Stage-6 assignments and
+shift with the mesh anyway). Two independent measurements say UNMASKED.
+(1) The corpus is the discriminator — a fold-minting repair regresses
+cases that tessellate today, and gate-on regressed NONE of the 271. (2)
+The KV9-F2 fold is already the standing wall of **R0017** (face 17) with
+the gate off, so the family pre-exists this arm; its F2b anchor was
+already recorded as owed. The census instrument when that anchor is taken
+is `KV2_CHORD_DEPTH_CENSUS`, whose per-patch rows carry the
+`fold=inverted` verdict
+(`crates/kernel-v2/src/tessellate/developable.rs:1400`).
+
+**Corpus-wide customer census (gate-off, 2026-08-26).** The ring-CDT wall
+is the standing verdict of exactly THREE of the 36 ERROR cases — R0003
+(face 517), **R0053** (face 474) and **R0100** (face 15). I13e converts
+R0003's wall and leaves the other two untouched, so the interlocked-pair
+shape is not what blocks them; their anchors stay separately owed
+(R0100's face-15 anchor was already on the books). Reporting the
+denominator: this arm's addressable population was 3, it moved 1, and the
+other 2 are measured OUT of the family rather than assumed in.
+
+Unit tests: 6 `rebuild_group_fan` (the measured interlocked-pair
+shape with BOTH single fans proven to self-intersect, k = 1 degeneration
+to the run fan, fused arcs, mid-cycle survivor, enclosed-interior orphan,
+three-site ladder) + 4 `interlock_groups`.
 
 ## 5. After this epic (recorded, not started)
 

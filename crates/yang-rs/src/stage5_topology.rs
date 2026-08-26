@@ -694,6 +694,11 @@ fn run_fold_merge_passes(
     // Victims refused by a holder — persistent across passes so a refusal can
     // never livelock into re-proposing the same merge.
     let mut blocked: BTreeSet<u32> = BTreeSet::new();
+    // I13e: victims of a GROUP absorption a holder refused — separate from
+    // `blocked` because group membership is exactly the population `blocked`
+    // already holds (each member's per-site repair was refused first); this
+    // set is what keeps a refused GROUP from being re-proposed.
+    let mut group_blocked: BTreeSet<u32> = BTreeSet::new();
     let mut applied_total = 0usize;
 
     for pass in 0..max_passes {
@@ -907,7 +912,7 @@ fn run_fold_merge_passes(
             progressed = true;
             break;
         }
-        let mut run_merged: Option<(u32, Vec<u32>)> = None;
+        let mut run_merged: Option<Vec<(u32, Vec<u32>)>> = None;
         if !progressed {
             // Every corner-level site this pass was refused (or none existed);
             // those refusals are persistent, so the corner arm is at its fixed
@@ -939,23 +944,35 @@ fn run_fold_merge_passes(
                 &cyc_refs,
                 intersection_curves,
                 &mut blocked,
+                &mut group_blocked,
                 pass,
             ) {
-                Some((plan, survivor, victims)) => {
+                Some((plan, absorbed)) => {
                     rebuilds = plan;
-                    run_merged = Some((survivor, victims));
+                    run_merged = Some(absorbed);
                 }
                 None => break,
             }
         }
         match apply_rebuild_batch(mesh, attribution, &rebuilds, &BTreeMap::new()) {
             Ok(()) => {
-                if let Some((survivor, victims)) = &run_merged {
-                    c441_log!(
-                        "[i13d-absorb] pass={pass}: APPLIED run {victims:?} -> v{survivor} \
-                         over {} fans",
-                        rebuilds.len()
-                    );
+                if let Some(absorbed) = &run_merged {
+                    if let [(survivor, victims)] = &absorbed[..] {
+                        c441_log!(
+                            "[i13d-absorb] pass={pass}: APPLIED run {victims:?} -> v{survivor} \
+                             over {} fans",
+                            rebuilds.len()
+                        );
+                    } else {
+                        c441_log!(
+                            "[i13e-group] pass={pass}: APPLIED group {:?} over {} fans",
+                            absorbed
+                                .iter()
+                                .map(|(s, vs)| format!("{vs:?}->v{s}"))
+                                .collect::<Vec<_>>(),
+                            rebuilds.len()
+                        );
+                    }
                 } else {
                     let (victim, survivor) = merged.expect("progressed implies a merge");
                     c441_log!(
@@ -986,6 +1003,10 @@ fn run_fold_merge_passes(
         // next pass re-derives its site from the compacted mesh anyway.
         if let Some(map) = remap.as_ref() {
             blocked = blocked
+                .iter()
+                .filter_map(|&v| map.get(v as usize).copied().flatten())
+                .collect();
+            group_blocked = group_blocked
                 .iter()
                 .filter_map(|&v| map.get(v as usize).copied().flatten())
                 .collect();
@@ -1175,6 +1196,14 @@ fn probe_merge_site(
     }
 }
 
+/// A committed absorption: the per-holder rebuild plan plus each absorbed
+/// site's `(survivor, victims)` — one entry from the I13d run arm, several
+/// from the I13e group arm.
+type AbsorptionPlan = (
+    Vec<crate::stage4_construct::PatchRebuild>,
+    Vec<(u32, Vec<u32>)>,
+);
+
 /// I13d (**ALWAYS-ON since the 2026-08-25 flip** — see
 /// `stage4_fold_risk::run_absorb_mode`; `YANG_441_RUN_ABSORB=0|off` is the
 /// dev off-knob): at the corner arm's fixed point — no corner-level site
@@ -1192,6 +1221,14 @@ fn probe_merge_site(
 /// same I8 gate the corner arm uses), closes over every holder patch, and
 /// verifies no triangle outside the planned fans references a victim — the
 /// bare-collapse guard, unchanged.
+///
+/// When every per-site proposal is refused, the I13e group arm
+/// (**ALWAYS-ON since the 2026-08-26 flip**; `YANG_441_GROUP_ABSORB=0|off`
+/// is the dev off-knob) takes the residue: mutually interlocked
+/// sites — each one's fan polygon containing a partner's still-folded
+/// victim, so the per-site CDTs refuse in every order — are absorbed as one
+/// interference GROUP per pass via [`rebuild_group_fan`], under the same
+/// I8/holder-closure/bare-collapse gates (spec §I13(e)).
 #[allow(clippy::too_many_arguments)]
 fn run_absorption_attempt(
     mesh: &Mesh,
@@ -1202,10 +1239,14 @@ fn run_absorption_attempt(
     cyc_refs: &[Vec<u32>],
     curves: &std::collections::BTreeMap<(u32, u32), Curve>,
     blocked: &mut std::collections::BTreeSet<u32>,
+    group_blocked: &mut std::collections::BTreeSet<u32>,
     pass: usize,
-) -> Option<(Vec<crate::stage4_construct::PatchRebuild>, u32, Vec<u32>)> {
-    use crate::stage4_construct::rebuild_run_fan;
-    use crate::stage4_fold_risk::{run_absorb_mode, run_absorption_sites, RunAbsorbMode};
+) -> Option<AbsorptionPlan> {
+    use crate::stage4_construct::{rebuild_group_fan, rebuild_run_fan};
+    use crate::stage4_fold_risk::{
+        group_absorb_mode, interlock_groups, run_absorb_mode, GroupAbsorbMode, RunAbsorbMode,
+    };
+    use crate::stage4_fold_risk::{run_absorption_sites, RunAbsorptionSite};
     let mode = run_absorb_mode();
     if mode == RunAbsorbMode::Off {
         return None;
@@ -1372,7 +1413,144 @@ fn run_absorption_attempt(
             site.victims,
             site.survivor
         );
-        return Some((plan, site.survivor, site.victims.clone()));
+        return Some((plan, vec![(site.survivor, site.victims.clone())]));
+    }
+
+    // ---- I13e: cross-site group absorption ------------------------------
+    // Every per-site proposal above is at its fixed point (an applied one
+    // returned; the rest are blocked). The residual family: mutually
+    // INTERLOCKED sites — adjacent strips' deep overruns crossing each
+    // other's territory, so each site's fan polygon contains a partner's
+    // still-folded victim and the per-site CDTs refuse in EVERY repair
+    // order (R0003 wall patch 475, measured 2026-08-25). The repair unit is
+    // the interference group: one region rebuild per holder, one closure
+    // edge per site.
+    let gmode = group_absorb_mode();
+    if gmode == GroupAbsorbMode::Off {
+        return None;
+    }
+    // Candidates: this pass's still-certified sites — their per-site repair
+    // is what was refused, so `blocked` membership is expected, but a group
+    // already refused stays refused (`group_blocked`, the livelock guard)
+    // and I8 holds unchanged: a not-a-merge victim disqualifies its SITE
+    // (dropping the site, not the whole component — the rest may still
+    // form a repairable group).
+    let mut cand: Vec<&RunAbsorptionSite> = Vec::new();
+    let mut group_blocked_n = 0usize;
+    let mut i8_dropped = 0usize;
+    for site in &sites {
+        if site.victims.iter().any(|v| group_blocked.contains(v)) {
+            group_blocked_n += 1;
+            continue;
+        }
+        let off = site
+            .victims
+            .iter()
+            .find_map(|&v| carrier_lost_by_merge(mesh, attribution, a, b, v, site.survivor));
+        if let Some(surf) = off {
+            c441_log!(
+                "[i13e-group] pass={pass}: NOT-A-MERGE run {:?} -> v{} — a victim carries \
+                 {surf:?}, which the junction is off; site dropped from grouping",
+                site.victims,
+                site.survivor,
+            );
+            i8_dropped += 1;
+            continue;
+        }
+        cand.push(site);
+    }
+    let victim_sets: Vec<std::collections::BTreeSet<u32>> = cand
+        .iter()
+        .map(|s| s.victims.iter().copied().collect())
+        .collect();
+    let groups = interlock_groups(&victim_sets, &mesh.tris);
+    eprintln!(
+        "[i13e-group] SELECT candidates={} group_blocked={group_blocked_n} \
+         i8_dropped={i8_dropped} groups={} sizes={:?}",
+        cand.len(),
+        groups.len(),
+        groups.iter().map(Vec::len).collect::<Vec<_>>(),
+    );
+    for g in &groups {
+        eprintln!(
+            "[i13e-group] GROUP {:?}",
+            g.iter()
+                .map(|&i| format!("{:?}->v{}", cand[i].victims, cand[i].survivor))
+                .collect::<Vec<_>>(),
+        );
+    }
+    if gmode == GroupAbsorbMode::Census {
+        return None;
+    }
+    'group: for g in &groups {
+        let gsites: Vec<(std::collections::BTreeSet<u32>, u32)> = g
+            .iter()
+            .map(|&i| (victim_sets[i].clone(), cand[i].survivor))
+            .collect();
+        let vic_all: std::collections::BTreeSet<u32> = gsites
+            .iter()
+            .flat_map(|(vs, _)| vs.iter().copied())
+            .collect();
+        let holders: Vec<usize> = patches
+            .iter()
+            .enumerate()
+            .filter(|&(_pj, pat)| {
+                pat.tris
+                    .iter()
+                    .any(|&t| mesh.tris[t as usize].iter().any(|v| vic_all.contains(v)))
+            })
+            .map(|(pj, _)| pj)
+            .collect();
+        if holders.is_empty() || holders.iter().any(|&h| !chartable(&patches[h].surface)) {
+            c441_log!(
+                "[i13e-group] pass={pass}: REFUSED group {vic_all:?} — unchartable (or no) \
+                 holder in {holders:?}; blocked",
+            );
+            group_blocked.extend(vic_all.iter().copied());
+            continue;
+        }
+        let mut plan = Vec::with_capacity(holders.len());
+        for &h in &holders {
+            match rebuild_group_fan(mesh, h, &patches[h], &gsites) {
+                Ok(r) => plan.push(r),
+                Err(e) => {
+                    c441_log!(
+                        "[i13e-group] pass={pass}: DECLINED patch {h} for group {vic_all:?} \
+                         — {e:?}",
+                    );
+                    group_blocked.extend(vic_all.iter().copied());
+                    continue 'group;
+                }
+            }
+        }
+        // Bare-collapse guard: no group victim may survive outside the
+        // rebuilt fans.
+        let planned: std::collections::BTreeSet<u32> = plan
+            .iter()
+            .flat_map(|r| r.old_tris.iter().copied())
+            .collect();
+        if let Some(t) = (0..mesh.tris.len() as u32).find(|t| {
+            !planned.contains(t) && mesh.tris[*t as usize].iter().any(|v| vic_all.contains(v))
+        }) {
+            c441_log!(
+                "[i13e-group] pass={pass}: BLOCKED group {vic_all:?} — triangle {t} holds a \
+                 victim outside every holder fan",
+            );
+            group_blocked.extend(vic_all.iter().copied());
+            continue;
+        }
+        c441_log!(
+            "[i13e-group] pass={pass}: ABSORB group of {} sites {vic_all:?} \
+             holders={holders:?}",
+            gsites.len(),
+        );
+        return Some((
+            plan,
+            gsites
+                .iter()
+                .map(|(vs, s)| (*s, vs.iter().copied().collect()))
+                .collect(),
+        ));
     }
     None
 }

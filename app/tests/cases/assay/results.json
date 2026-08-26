@@ -18,7 +18,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 9bf3f664-2436-4144-9e52-9e07c56f21d4: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(517), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "detail": "1 engine error(s): 9bf3f664-2436-4144-9e52-9e07c56f21d4: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(577), reason: \"patch triangulation folded (inverted triangle) — KV9-F2: the                          unrolled ear-clip/refinement produced inward-facing geometry;                          loud instead of silently-wrong render output\" }",
       "id": "R0003",
       "status": "error"
     },

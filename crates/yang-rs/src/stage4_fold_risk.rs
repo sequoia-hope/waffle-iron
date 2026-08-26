@@ -708,6 +708,94 @@ pub(crate) fn run_absorb_mode() -> RunAbsorbMode {
     }
 }
 
+/// I13e — the cross-site group-absorption arm (`YANG_441_GROUP_ABSORB`).
+/// **FLIPPED ALWAYS-ON 2026-08-26** (same day as landing) with the corpus
+/// proofs: gate-off default corpus BIT-IDENTICAL to the committed baseline
+/// (tracked `results.json` unchanged after a full 312-case run, clean
+/// tree); gate-on corpus CATEGORY-IDENTICAL — 271C/0W/36E/1EE/0T with
+/// exactly ONE explained detail row (R0003 advances face 517 → 577, off
+/// the ring-CDT wall and into the pre-existing KV9-F2 fold family that
+/// R0017 already fails on independently). `YANG_441_GROUP_ABSORB=0|off` is
+/// the dev A/B off-knob; `census` selects and reports groups at the run
+/// arm's fixed point without applying. The arm sits strictly downstream of
+/// the I13d per-site loop: it only sees sites whose per-site repair the
+/// holders already refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GroupAbsorbMode {
+    Off,
+    Census,
+    On,
+}
+
+pub(crate) fn group_absorb_mode() -> GroupAbsorbMode {
+    match std::env::var("YANG_441_GROUP_ABSORB") {
+        Err(_) => GroupAbsorbMode::On,
+        Ok(v) if v == "0" || v == "off" => GroupAbsorbMode::Off,
+        Ok(v) if v == "census" => GroupAbsorbMode::Census,
+        Ok(_) => GroupAbsorbMode::On,
+    }
+}
+
+/// I13e grouping: connected components of the interlock relation "some mesh
+/// triangle contains a victim of mine and a victim of yours" over the given
+/// per-site victim sets. A shared triangle is exactly the spec's "my fan
+/// polygon contains your victim" — the other site's victim is then a link
+/// vertex of mine — so the components are the sites whose single fans
+/// mutually contain each other's still-folded overruns and refuse in every
+/// repair order (R0003 wall patch 475, measured 2026-08-25).
+///
+/// Returns only components of size ≥ 2 (a singleton IS the single-site
+/// repair, already tried and refused by the caller), each sorted by site
+/// index, ordered by smallest member. Victim sets must be pairwise disjoint
+/// (the selector's ambiguity rule drops overlapping claims upstream).
+pub(crate) fn interlock_groups(
+    victims_per_site: &[std::collections::BTreeSet<u32>],
+    tris: &[[u32; 3]],
+) -> Vec<Vec<usize>> {
+    use std::collections::BTreeMap;
+    let mut site_of: BTreeMap<u32, usize> = BTreeMap::new();
+    for (i, vs) in victims_per_site.iter().enumerate() {
+        for &v in vs {
+            let prior = site_of.insert(v, i);
+            debug_assert!(prior.is_none(), "victim sets must be disjoint");
+        }
+    }
+    fn find(parent: &mut [usize], i: usize) -> usize {
+        let mut r = i;
+        while parent[r] != r {
+            r = parent[r];
+        }
+        let mut c = i;
+        while parent[c] != c {
+            let up = parent[c];
+            parent[c] = r;
+            c = up;
+        }
+        r
+    }
+    let mut parent: Vec<usize> = (0..victims_per_site.len()).collect();
+    for tri in tris {
+        let mut hit = [usize::MAX; 3];
+        let mut k = 0;
+        for v in tri {
+            if let Some(&si) = site_of.get(v) {
+                hit[k] = si;
+                k += 1;
+            }
+        }
+        for a in 1..k {
+            let (ra, rb) = (find(&mut parent, hit[0]), find(&mut parent, hit[a]));
+            parent[ra.max(rb)] = ra.min(rb);
+        }
+    }
+    let mut components: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for i in 0..victims_per_site.len() {
+        let r = find(&mut parent, i);
+        components.entry(r).or_default().push(i);
+    }
+    components.into_values().filter(|c| c.len() >= 2).collect()
+}
+
 /// I13c certificate: is corner `i` of `cyc` (post-inversion `t` already
 /// established by the caller) a TERMINAL overrun on its own intersection
 /// curve? Yes iff:
@@ -2334,5 +2422,55 @@ mod tests {
         let (sites, census) = absorb(&[cyc], &pre, &post, &curves, |_, _| true);
         assert!(sites.is_empty());
         assert_eq!(census.runs, 0);
+    }
+
+    // ---- I13e interlock_groups ----------------------------------------
+
+    fn vsets(sets: &[&[u32]]) -> Vec<BTreeSet<u32>> {
+        sets.iter().map(|s| s.iter().copied().collect()).collect()
+    }
+
+    /// The R0003 wall shape: three disjoint pairs, each pair sharing fold
+    /// triangles — three components, no cross-pair merging.
+    #[test]
+    fn interlock_groups_forms_the_measured_pairs() {
+        let sites = vsets(&[&[10], &[20], &[30], &[40], &[50], &[60]]);
+        let tris: Vec<[u32; 3]> = vec![
+            [10, 11, 20], // pair 10-20
+            [10, 20, 12],
+            [30, 31, 40], // pair 30-40
+            [50, 51, 60], // pair 50-60
+            [1, 2, 3],    // no victims at all
+        ];
+        assert_eq!(
+            interlock_groups(&sites, &tris),
+            vec![vec![0, 1], vec![2, 3], vec![4, 5]]
+        );
+    }
+
+    /// Transitivity: A shares a triangle with B, B with C — one component
+    /// of three, even though A and C never share a triangle. A site with
+    /// no shared triangle stays a singleton and is not reported.
+    #[test]
+    fn interlock_groups_closes_transitively_and_drops_singletons() {
+        let sites = vsets(&[&[10], &[20], &[30], &[99]]);
+        let tris: Vec<[u32; 3]> = vec![[10, 20, 5], [20, 6, 30], [99, 7, 8]];
+        assert_eq!(interlock_groups(&sites, &tris), vec![vec![0, 1, 2]]);
+    }
+
+    /// A multi-victim run groups through ANY of its victims, and two
+    /// victims of the SAME site in one triangle do not self-group.
+    #[test]
+    fn interlock_groups_spans_run_victims() {
+        let sites = vsets(&[&[10, 11, 12], &[20], &[30]]);
+        let tris: Vec<[u32; 3]> = vec![[10, 11, 5], [12, 20, 6], [30, 7, 8]];
+        assert_eq!(interlock_groups(&sites, &tris), vec![vec![0, 1]]);
+    }
+
+    #[test]
+    fn interlock_groups_reports_nothing_without_shared_triangles() {
+        let sites = vsets(&[&[10], &[20]]);
+        let tris: Vec<[u32; 3]> = vec![[10, 1, 2], [20, 3, 4]];
+        assert!(interlock_groups(&sites, &tris).is_empty());
     }
 }

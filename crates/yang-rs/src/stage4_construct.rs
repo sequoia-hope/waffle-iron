@@ -695,6 +695,16 @@ pub(crate) enum FanReason {
     /// sandwiched between non-consecutive victims, or an interior vertex whose
     /// whole fan lies inside the region). Refused, never guessed.
     Orphaned { fan: usize, vertex: u32 },
+    /// I13e group regions only: the region-boundary cycle's maximal victim
+    /// arcs do not correspond one-to-one with the group's sites present on
+    /// this patch — two sites' arcs fused (victims of different sites
+    /// adjacent on the boundary), one site's victims split into several
+    /// arcs or partially region-interior, or an arc mixes two sites.
+    ArcMismatch {
+        fan: usize,
+        arcs: usize,
+        sites: usize,
+    },
 }
 
 /// One patch's single-sided rebuild, entirely in MESH index space and ready
@@ -1717,6 +1727,323 @@ pub(crate) fn rebuild_run_fan(
     })
 }
 
+/// I13e — the cross-site analog of [`rebuild_run_fan`]: re-triangulate the
+/// union of an interlocked GROUP's regions in one rebuild, absorbing each
+/// site's victims into that site's own junction survivor.
+///
+/// The per-site rebuild is structurally unable to repair an interlocked
+/// group: adjacent strips' deep overruns cross each other's territory, so
+/// each site's link polygon contains the partner's still-folded victim and
+/// its CDT is RIGHT to refuse (measured 2026-08-25, R0003 wall patch 475 —
+/// all six single fans decline with `TriangulationFailed`,
+/// `YANG_441_FAN_PROBE` crossings=1, in both repair orders). Once every
+/// arc of the group is absorbed together, the region's boundary contains
+/// no group victim at all, so that refusal cannot recur by construction.
+///
+/// Construction: region = every patch triangle touching any victim of any
+/// site; its boundary edges chain into ONE closed cycle (the region must
+/// be a disk — several loops are refused loudly). Each site's victims
+/// appear on that cycle as one maximal ARC; deleting the arc joins its two
+/// flanking vertices with a closure edge, which becomes the new boundary
+/// span `survivor → far neighbour` — hence each site's survivor must FLANK
+/// its own arc. A site with no victim on this patch contributes no arc (a
+/// strip holder sees only its own site; the wall holder sees them all), so
+/// the k = 1 restriction of this construction is exactly
+/// [`rebuild_run_fan`]'s.
+pub(crate) fn rebuild_group_fan(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    sites: &[(BTreeSet<u32>, u32)],
+) -> Result<PatchRebuild, ConstructError> {
+    let chart = SurfaceChart::new(patch.surface)
+        .ok_or(ConstructError::NonPlanarPatch { patch: patch_index })?;
+    let mut site_of: BTreeMap<u32, usize> = BTreeMap::new();
+    for (i, (victims, _)) in sites.iter().enumerate() {
+        for &v in victims {
+            if site_of.insert(v, i).is_some() || sites.iter().any(|&(_, s)| s == v) {
+                // A victim claimed by two sites, or doubling as a survivor —
+                // the selector's ambiguity rule should have dropped this
+                // group; refused, never guessed.
+                return Err(ConstructError::MalformedPatch { patch: patch_index });
+            }
+        }
+    }
+    let report = sites.first().map(|&(_, s)| s).unwrap_or(0);
+    let is_victim = |v: &u32| site_of.contains_key(v);
+    let mut old_tris: Vec<u32> = Vec::new();
+    let mut directed: BTreeSet<(u32, u32)> = BTreeSet::new();
+    for &t in &patch.tris {
+        let tri = mesh.tris[t as usize];
+        if !tri.iter().any(is_victim) {
+            continue;
+        }
+        old_tris.push(t);
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            if x == y || !directed.insert((x, y)) {
+                // A degenerate triangle, or two region triangles sharing a
+                // DIRECTED edge — not an oriented 2-manifold piece.
+                return Err(ConstructError::FanNotSimple {
+                    patch: patch_index,
+                    victim: report,
+                    reason: FanReason::Degenerate,
+                });
+            }
+        }
+    }
+    if old_tris.is_empty() {
+        return Err(ConstructError::MalformedPatch { patch: patch_index });
+    }
+    let fan = old_tris.len();
+    // The FULL region boundary — victim-incident edges included, unlike the
+    // run fan's open link: the cycle ORDER is what assigns each arc its
+    // flanks.
+    let mut next: BTreeMap<u32, u32> = BTreeMap::new();
+    let mut indeg: BTreeMap<u32, usize> = BTreeMap::new();
+    for &(x, y) in &directed {
+        if directed.contains(&(y, x)) {
+            continue; // interior to the region
+        }
+        if next.insert(x, y).is_some() {
+            return Err(ConstructError::FanNotSimple {
+                patch: patch_index,
+                victim: report,
+                reason: FanReason::Pinch { fan },
+            });
+        }
+        *indeg.entry(y).or_default() += 1;
+        indeg.entry(x).or_default();
+    }
+    if indeg.values().any(|&d| d != 1) || next.len() != indeg.len() {
+        // A manifold region's boundary is closed cycles — every boundary
+        // vertex has exactly one in- and one out-edge; any imbalance means
+        // the boundary passes a vertex twice.
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim: report,
+            reason: FanReason::Pinch { fan },
+        });
+    }
+    let Some(&start) = next.keys().next() else {
+        // A bounded region with no boundary edge at all — malformed input.
+        return Err(ConstructError::MalformedPatch { patch: patch_index });
+    };
+    let mut cycle: Vec<u32> = vec![start];
+    let mut cur = start;
+    while let Some(&nx) = next.get(&cur) {
+        if nx == start || cycle.len() > next.len() {
+            break;
+        }
+        cycle.push(nx);
+        cur = nx;
+    }
+    if cycle.len() != next.len() {
+        // Several boundary loops: the region is disconnected on this patch,
+        // or encloses a hole. Not a disk — refused; the census names the
+        // configuration if it ever occurs in the wild.
+        let mut seen: BTreeSet<u32> = cycle.iter().copied().collect();
+        let mut runs = 1usize;
+        let mut with_survivor = usize::from(sites.iter().any(|&(_, s)| seen.contains(&s)));
+        while let Some(&s2) = next.keys().find(|v| !seen.contains(v)) {
+            runs += 1;
+            let mut c = s2;
+            let mut lp: BTreeSet<u32> = BTreeSet::new();
+            loop {
+                lp.insert(c);
+                seen.insert(c);
+                c = next[&c];
+                if c == s2 {
+                    break;
+                }
+            }
+            with_survivor += usize::from(sites.iter().any(|&(_, s)| lp.contains(&s)));
+        }
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim: report,
+            reason: FanReason::Split {
+                fan,
+                runs,
+                with_survivor,
+            },
+        });
+    }
+    // Rotate so position 0 is a non-victim: arcs then never straddle the
+    // wrap. All victims on the boundary and no non-victim at all would be a
+    // region with no link — malformed.
+    let Some(off) = cycle.iter().position(|v| !is_victim(v)) else {
+        return Err(ConstructError::MalformedPatch { patch: patch_index });
+    };
+    cycle.rotate_left(off);
+    let mut arcs: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0;
+    while i < cycle.len() {
+        if is_victim(&cycle[i]) {
+            let s = i;
+            while i < cycle.len() && is_victim(&cycle[i]) {
+                i += 1;
+            }
+            arcs.push((s, i - 1));
+        } else {
+            i += 1;
+        }
+    }
+    // Sites present on this patch (≥ 1 victim in a region triangle — which
+    // is every patch triangle containing that victim, by construction).
+    let present: BTreeSet<usize> = old_tris
+        .iter()
+        .flat_map(|&t| mesh.tris[t as usize])
+        .filter_map(|v| site_of.get(&v).copied())
+        .collect();
+    // One arc per present site, each arc exactly that site's COMPLETE victim
+    // set: a fused/split/partial arc has no single closure edge to absorb it.
+    let mismatch = || {
+        Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim: report,
+            reason: FanReason::ArcMismatch {
+                fan,
+                arcs: arcs.len(),
+                sites: present.len(),
+            },
+        })
+    };
+    if arcs.len() != present.len() {
+        return mismatch();
+    }
+    let mut owner: Vec<bool> = vec![false; sites.len()];
+    for &(s, e) in &arcs {
+        let arc_set: BTreeSet<u32> = cycle[s..=e].iter().copied().collect();
+        let si = site_of[&cycle[s]];
+        if sites[si].0 != arc_set || std::mem::replace(&mut owner[si], true) {
+            return mismatch();
+        }
+    }
+    // Each site's survivor must flank its own arc: the closure edge for the
+    // arc runs `flank → flank`, and a survivor elsewhere on (or off) the
+    // cycle would be stranded off its absorbed boundary span.
+    let n = cycle.len();
+    for &(s, e) in &arcs {
+        let survivor = sites[site_of[&cycle[s]]].1;
+        if survivor != cycle[(s + n - 1) % n] && survivor != cycle[(e + 1) % n] {
+            return Err(ConstructError::FanSurvivorNotAdjacent {
+                patch: patch_index,
+                victim: survivor,
+            });
+        }
+    }
+    let polygon: Vec<u32> = cycle.iter().copied().filter(|v| !is_victim(v)).collect();
+    // Every region vertex is a victim (dropped) or on the polygon (kept):
+    // anything else would be silently disconnected by the rebuild.
+    let on_polygon: BTreeSet<u32> = polygon.iter().copied().collect();
+    if let Some(&orphan) = old_tris
+        .iter()
+        .flat_map(|&t| mesh.tris[t as usize].iter())
+        .find(|v| !is_victim(v) && !on_polygon.contains(v))
+    {
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim: report,
+            reason: FanReason::Orphaned {
+                fan,
+                vertex: orphan,
+            },
+        });
+    }
+    if polygon.len() < 3 {
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim: report,
+            reason: FanReason::Short {
+                fan,
+                link: polygon.len(),
+            },
+        });
+    }
+    // Chart coordinates, θ-unwrapped against the first present site's
+    // survivor (a cycle vertex by the flank check; the region is local —
+    // interlocked sites overlap by definition).
+    let Some(&base_si) = present.iter().next() else {
+        return Err(ConstructError::MalformedPatch { patch: patch_index });
+    };
+    let base_v = sites[base_si].1;
+    let base = chart.project(mesh.verts[base_v as usize]);
+    let periodic = matches!(
+        patch.surface,
+        Surface::Cylinder { .. } | Surface::Cone { .. }
+    );
+    if matches!(chart, SurfaceChart::Cone { .. })
+        && site_of
+            .keys()
+            .copied()
+            .chain(polygon.iter().copied())
+            .any(|v| chart.project(mesh.verts[v as usize]).y() <= 0.0)
+    {
+        return Err(ConstructError::ApexInPatch { patch: patch_index });
+    }
+    let uv_of = |v: u32| -> Point2 {
+        let uv = chart.project(mesh.verts[v as usize]);
+        if periodic {
+            let k = ((base.x() - uv.x()) / std::f64::consts::TAU).round();
+            Point2::new(uv.x() + k * std::f64::consts::TAU, uv.y())
+        } else {
+            uv
+        }
+    };
+    let pool: Vec<Point2> = polygon.iter().map(|&v| uv_of(v)).collect();
+    let boundary: Vec<u32> = (0..polygon.len() as u32).collect();
+    let tris2 =
+        cdt_with_interior_constraints(&pool, &boundary, &[], &[], &[]).map_err(|error| {
+            ConstructError::Cdt {
+                patch: patch_index,
+                error,
+            }
+        })?;
+    let old: Vec<[u32; 3]> = old_tris.iter().map(|&t| mesh.tris[t as usize]).collect();
+    let mesh_pos = |v: u32| -> Point3 { mesh.verts[v as usize] };
+    let pos3 = |i: u32| -> Point3 { mesh.verts[polygon[i as usize] as usize] };
+    let want = crate::stage4_splice::area_vector(&old, &mesh_pos);
+    let got = crate::stage4_splice::area_vector(&tris2, &pos3);
+    let d = crate::stage4_splice::dot3(want, got);
+    if d == 0.0 || !d.is_finite() {
+        return Err(ConstructError::DegenerateOrientation { patch: patch_index });
+    }
+    let mut tris2 = tris2;
+    if d < 0.0 {
+        for t in &mut tris2 {
+            t.swap(1, 2);
+        }
+    }
+    let new_tris: Vec<[u32; 3]> = tris2
+        .iter()
+        .map(|t| {
+            [
+                polygon[t[0] as usize],
+                polygon[t[1] as usize],
+                polygon[t[2] as usize],
+            ]
+        })
+        .collect();
+    // Per the `dropped` contract: vertices THIS patch's old triangles
+    // referenced that its rebuild does not — the present sites' victims
+    // only, not the whole group's (a strip holder never referenced the
+    // partner strip's victim).
+    let dropped: BTreeSet<u32> = present
+        .iter()
+        .flat_map(|&si| sites[si].0.iter().copied())
+        .collect();
+    Ok(PatchRebuild {
+        patch: patch_index,
+        old_tris,
+        new_tris,
+        new_verts: Vec::new(),
+        dropped,
+        plan_verts: mesh.verts.len() as u32,
+        plan_tris: mesh.tris.len() as u32,
+    })
+}
+
 /// Write a batch of [`PatchRebuild`]s into the mesh in ONE pass: drop every
 /// rebuilt patch's old triangles, append each patch's replacements carrying
 /// that patch's (uniform) attribution. `attribution.attributions` stays in
@@ -2566,6 +2893,245 @@ mod tests {
         let r = rebuild_run_fan(&mesh, 0, &patch, &victims, 0).expect("hairpin absorbed");
         assert_eq!(r.old_tris, vec![0, 1, 2]);
         assert!(r.new_tris.iter().flatten().all(|v| !victims.contains(v)));
+    }
+
+    // ---- I13e rebuild_group_fan ---------------------------------------
+
+    /// The R0003 wall-patch-475 shape, scaled down: two strips' overruns
+    /// (victims 2 and 5) each fold across the OTHER strip's territory, so
+    /// each single fan's link polygon contains the partner's victim and
+    /// self-intersects — both per-site CDTs refuse, in either order. The
+    /// GROUP region's boundary cycle carries both victims as arcs flanked
+    /// by their own survivors; deleting both arcs leaves a simple quad.
+    fn interlocked_pair() -> (Mesh, SplicePatch) {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),  // 0 = far neighbour of victim 2
+                Point3::new(0.0, 2.0, 0.0),  // 1 = survivor of victim 2
+                Point3::new(0.0, 4.0, 0.0),  // 2 = victim (strip A)
+                Point3::new(10.0, 3.0, 0.0), // 3 = far neighbour of victim 5
+                Point3::new(10.0, 1.0, 0.0), // 4 = survivor of victim 5
+                Point3::new(10.0, 0.5, 0.0), // 5 = victim (strip B)
+                Point3::new(5.0, -2.0, 0.0), // 6 = spectator (outside region)
+            ],
+            tris: vec![
+                [2, 0, 4], // strip A's fold reaching into B's territory
+                [2, 4, 5], // the interlock: both victims in one triangle
+                [2, 5, 1], // ditto
+                [5, 3, 1], // strip B's fold reaching into A's territory
+                [4, 0, 6], // spectator: keeps (0, 4) a patch-interior edge
+            ],
+        };
+        let patch = plane_patch(vec![vec![2, 0, 6, 4, 5, 3, 1]], vec![0, 1, 2, 3, 4]);
+        (mesh, patch)
+    }
+
+    #[test]
+    fn rebuild_group_fan_absorbs_the_interlocked_pair() {
+        let (mesh, patch) = interlocked_pair();
+        // The interlock property, measured: BOTH single fans decline (each
+        // link polygon contains the partner's still-folded victim and
+        // self-intersects), in either repair order.
+        for (victim, survivor) in [(2, 1), (5, 4)] {
+            assert!(
+                matches!(
+                    rebuild_merge_fan(&mesh, 9, &patch, victim, survivor, false),
+                    Err(ConstructError::Cdt { .. })
+                ),
+                "single fan of v{victim} must self-intersect"
+            );
+        }
+        let sites: Vec<(BTreeSet<u32>, u32)> = vec![
+            ([2].into_iter().collect(), 1),
+            ([5].into_iter().collect(), 4),
+        ];
+        let r = rebuild_group_fan(&mesh, 9, &patch, &sites).expect("group rebuild");
+        assert_eq!(r.patch, 9);
+        assert_eq!(r.old_tris, vec![0, 1, 2, 3], "the four folded triangles");
+        assert_eq!(r.dropped, [2u32, 5].into_iter().collect::<BTreeSet<u32>>());
+        assert!(r.new_tris.iter().flatten().all(|v| *v != 2 && *v != 5));
+        assert_eq!(r.new_tris.len(), 2, "the quad 0-4-3-1 as two triangles");
+        let pos = |v: u32| -> Point3 { mesh.verts[v as usize] };
+        let old: Vec<[u32; 3]> = r.old_tris.iter().map(|&t| mesh.tris[t as usize]).collect();
+        let want = crate::stage4_splice::area_vector(&old, &pos);
+        let got = crate::stage4_splice::area_vector(&r.new_tris, &pos);
+        assert!(crate::stage4_splice::dot3(want, got) > 0.0);
+    }
+
+    /// A holder where only ONE of the group's sites is present (the strip
+    /// cone in the real case): the group rebuild degenerates to exactly the
+    /// run-level rebuild, and `dropped` lists only the present victims —
+    /// the absent site's victim was never referenced by this patch.
+    #[test]
+    fn rebuild_group_fan_reduces_to_the_run_fan_when_one_site_is_present() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),   // 0 = junction survivor
+                Point3::new(0.4, -0.3, 0.0),  // 1 = victim
+                Point3::new(0.8, -0.15, 0.0), // 2 = victim
+                Point3::new(1.2, 0.0, 0.0),
+                Point3::new(1.2, 1.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(0.6, 0.5, 0.0), // 6 = interior
+            ],
+            tris: vec![
+                [0, 1, 6],
+                [1, 2, 6],
+                [2, 3, 6],
+                [3, 4, 6],
+                [4, 5, 6],
+                [5, 0, 6],
+            ],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3, 4, 5]], vec![0, 1, 2, 3, 4, 5]);
+        let run_victims: BTreeSet<u32> = [1, 2].into_iter().collect();
+        let run = rebuild_run_fan(&mesh, 7, &patch, &run_victims, 0).expect("run rebuild");
+        // Site B's victim (99) has no triangle on this patch at all.
+        let sites: Vec<(BTreeSet<u32>, u32)> = vec![
+            ([1, 2].into_iter().collect(), 0),
+            ([99].into_iter().collect(), 98),
+        ];
+        let group = rebuild_group_fan(&mesh, 7, &patch, &sites).expect("group rebuild");
+        assert_eq!(group.old_tris, run.old_tris);
+        assert_eq!(group.dropped, run.dropped, "present victims only");
+        let norm = |tris: &[[u32; 3]]| -> BTreeSet<BTreeSet<u32>> {
+            tris.iter().map(|t| t.iter().copied().collect()).collect()
+        };
+        assert_eq!(norm(&group.new_tris), norm(&run.new_tris));
+    }
+
+    /// Victims of DIFFERENT sites adjacent on the boundary fuse into one
+    /// arc: there is no per-site closure edge that absorbs a fused arc, so
+    /// the shape is refused loudly, never guessed.
+    #[test]
+    fn rebuild_group_fan_refuses_fused_arcs() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.4, -0.3, 0.0),  // 1 = site A's victim
+                Point3::new(0.8, -0.15, 0.0), // 2 = site B's victim, adjacent
+                Point3::new(1.2, 0.0, 0.0),
+                Point3::new(1.2, 1.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(0.6, 0.5, 0.0),
+            ],
+            tris: vec![
+                [0, 1, 6],
+                [1, 2, 6],
+                [2, 3, 6],
+                [3, 4, 6],
+                [4, 5, 6],
+                [5, 0, 6],
+            ],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3, 4, 5]], vec![0, 1, 2, 3, 4, 5]);
+        let sites: Vec<(BTreeSet<u32>, u32)> = vec![
+            ([1].into_iter().collect(), 0),
+            ([2].into_iter().collect(), 3),
+        ];
+        match rebuild_group_fan(&mesh, 0, &patch, &sites) {
+            Err(ConstructError::FanNotSimple {
+                reason: FanReason::ArcMismatch { arcs, sites, .. },
+                ..
+            }) => {
+                assert_eq!((arcs, sites), (1, 2), "one fused arc, two sites");
+            }
+            other => panic!("expected an ArcMismatch refusal, got {other:?}"),
+        }
+    }
+
+    /// Each site's survivor must flank its OWN arc: a survivor that flanks
+    /// the partner's arc instead would be stranded off its absorbed span.
+    #[test]
+    fn rebuild_group_fan_refuses_a_survivor_off_its_own_arc() {
+        let (mesh, patch) = interlocked_pair();
+        // Victim 5's survivor wrongly set to 1 (which flanks victim 2's arc).
+        let sites: Vec<(BTreeSet<u32>, u32)> = vec![
+            ([2].into_iter().collect(), 1),
+            ([5].into_iter().collect(), 1),
+        ];
+        assert_eq!(
+            rebuild_group_fan(&mesh, 9, &patch, &sites),
+            Err(ConstructError::FanSurvivorNotAdjacent {
+                patch: 9,
+                victim: 1
+            })
+        );
+    }
+
+    /// A region vertex fully enclosed by the group's triangles is neither a
+    /// victim nor on the boundary cycle — the rebuild would silently
+    /// disconnect it, so the orphan guard refuses.
+    #[test]
+    fn rebuild_group_fan_refuses_an_enclosed_interior_vertex() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),  // 0
+                Point3::new(0.0, 2.0, 0.0),  // 1
+                Point3::new(0.0, 4.0, 0.0),  // 2 = victim A
+                Point3::new(10.0, 3.0, 0.0), // 3
+                Point3::new(10.0, 1.0, 0.0), // 4
+                Point3::new(10.0, 0.5, 0.0), // 5 = victim B
+                Point3::new(5.0, 1.5, 0.0),  // 6 = enclosed interior vertex
+            ],
+            tris: vec![
+                [2, 0, 4],
+                [2, 4, 6],
+                [4, 5, 6],
+                [2, 6, 5],
+                [2, 5, 1],
+                [5, 3, 1],
+            ],
+        };
+        let patch = plane_patch(vec![vec![2, 0, 4, 5, 3, 1]], vec![0, 1, 2, 3, 4, 5]);
+        let sites: Vec<(BTreeSet<u32>, u32)> = vec![
+            ([2].into_iter().collect(), 1),
+            ([5].into_iter().collect(), 4),
+        ];
+        match rebuild_group_fan(&mesh, 0, &patch, &sites) {
+            Err(ConstructError::FanNotSimple {
+                reason: FanReason::Orphaned { vertex, .. },
+                ..
+            }) => assert_eq!(vertex, 6),
+            other => panic!("expected an Orphaned refusal, got {other:?}"),
+        }
+    }
+
+    /// Three sites chained by shared triangles (the ladder): all three arcs
+    /// absorb in ONE rebuild, each closure edge flanked by its own survivor.
+    #[test]
+    fn rebuild_group_fan_absorbs_a_three_site_ladder() {
+        // Convex octagon fanned from boundary vertex 0; victims 0, 2, 5.
+        // Triangle (0,1,2) links sites B and A; (0,4,5) links B and C.
+        let octagon = |k: usize| {
+            let a = (22.5 + 45.0 * k as f64).to_radians();
+            Point3::new(a.cos(), a.sin(), 0.0)
+        };
+        let mesh = Mesh {
+            verts: (0..8).map(octagon).collect(),
+            tris: vec![
+                [0, 1, 2],
+                [0, 2, 3],
+                [0, 3, 4],
+                [0, 4, 5],
+                [0, 5, 6],
+                [0, 6, 7],
+            ],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3, 4, 5, 6, 7]], (0..6).collect());
+        let sites: Vec<(BTreeSet<u32>, u32)> = vec![
+            ([2].into_iter().collect(), 3),
+            ([0].into_iter().collect(), 7),
+            ([5].into_iter().collect(), 4),
+        ];
+        let r = rebuild_group_fan(&mesh, 4, &patch, &sites).expect("ladder rebuild");
+        assert_eq!(r.old_tris, vec![0, 1, 2, 3, 4, 5], "every triangle folded");
+        assert_eq!(
+            r.dropped,
+            [0u32, 2, 5].into_iter().collect::<BTreeSet<u32>>()
+        );
+        assert!(r.new_tris.iter().flatten().all(|v| ![0, 2, 5].contains(v)));
+        assert_eq!(r.new_tris.len(), 3, "pentagon 1-3-4-6-7 as three triangles");
     }
 
     /// The decline NAMES its condition: a victim whose fan triangles leave it
