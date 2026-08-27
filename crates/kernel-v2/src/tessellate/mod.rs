@@ -709,6 +709,8 @@ fn triangulate_ring(
                     .map(|&i| (p2[i as usize].x(), p2[i as usize].y()))
                     .collect();
                 eprintln!("KV2_RING_REJECT_PROBE hole[{hi}]={hp:?}");
+                let hp3: Vec<[f64; 3]> = h.iter().map(|&i| p3[i as usize]).collect();
+                eprintln!("KV2_RING_REJECT_PROBE hole_pts3[{hi}]={hp3:?}");
             }
         }
         "ring rejected by CDT (degenerate/self-intersecting)"

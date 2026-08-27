@@ -9959,6 +9959,14 @@ fn stage4_relocate_and_correct_inner(
                 }
             }
         }
+        // §4.3.3 Case-IV corner-phantom census (spec
+        // `specs/yang_433_case_iv_corner_phantom.md` inc-0): read-only,
+        // print-only, gated. Runs at this postcondition because `inc_bc` is
+        // the recomputed POST-relocation incidence — the vantage where the
+        // paper's "no solution in the parametric domains" clause is testable.
+        if std::env::var_os("YANG_433_PHANTOM").is_some() {
+            crate::stage4_phantom::census_case_iv_phantom(mesh, brep_a, brep_b, &inc_bc);
+        }
         if !rim_curves.is_empty() {
             // Vertices claimed by a CROSS-input curve are A×B junctions that
             // must lie on BOTH curves; moving one would break that.

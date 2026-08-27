@@ -586,6 +586,313 @@ pub(crate) fn rim_plane_graze_min_segments(a: &BRep, b: &BRep) -> Option<usize> 
     gated
 }
 
+/// SIGNED perpendicular distance from a point to the guard's curved target
+/// surfaces (exact closed forms; `None` = out-of-scope surface kind).
+/// Negative = radially INSIDE the flank (toward the axis) — the side the
+/// inscribed Stage-1 chords dip toward, the only side a mesh sag can
+/// phantom-cross from.
+fn point_surface_signed(p: [f64; 3], s: Surface) -> Option<f64> {
+    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    match s {
+        Surface::Sphere { center, radius } => {
+            let w = sub(p, center.as_array());
+            Some(dot(w, w).sqrt() - radius)
+        }
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => {
+            let u = normalize3(axis_dir.as_array());
+            let w = sub(p, axis_point.as_array());
+            let h = dot(w, u);
+            let radial = (dot(w, w) - h * h).max(0.0).sqrt();
+            Some(radial - radius)
+        }
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => {
+            let u = normalize3(axis_dir.as_array());
+            let w = sub(p, apex.as_array());
+            let h = dot(w, u);
+            let radial = (dot(w, w) - h * h).max(0.0).sqrt();
+            // Perpendicular distance to the infinite (canonical-nappe) cone
+            // flank — exact for a right cone.
+            Some((radial - h * half_angle.tan()) * half_angle.cos())
+        }
+        _ => None,
+    }
+}
+
+/// §4.3.3 Case-IV CORNER-phantom guard (spec
+/// `specs/yang_433_case_iv_corner_phantom.md`, inc-1 — GATED
+/// `YANG_433_GUARD=1|on`): the derived rim-N requirement over every
+/// (LineSegment B-Rep edge of one operand) × (curved face of the other)
+/// pair whose exact line×surface roots BOTH fall outside the edge's own
+/// segment — the edge passes the surface without piercing it, so any
+/// mesh-level crossing there is a phantom (Yang Fig. 8 Case IV; the paper's
+/// §4.3.3 "no solution in the parametric domains" rule-out, realized at
+/// Stage 1 like the sibling guards).
+///
+/// Measured anchor (R0100 face 15): a prism cap-corner wedge clears the
+/// 11.77° cone by 1.33 while the natural N=24 mesh sags 2.29 — the mesh
+/// clips the wedge and mints a 3-vertex loop that everts under relocation.
+/// The nearest wedge ELEMENT to the surface is derived per edge: the
+/// segment↔surface clearance `g` (a certified lower bound: sampled min
+/// minus the Lipschitz slack `len/(2(S−1))`, the distance being
+/// 1-Lipschitz along the segment). The demand is the smallest `N` with
+/// `sag(r_max, N) ≤ g/2` — the factor-2 phase margin, same argument as the
+/// sibling guards (A14.3: a finer N is always chord-valid). Measured green
+/// floor on the vehicle is N=30; the derivation yields N≈39 from the
+/// corner-edge clearance 2.12.
+///
+/// Fail-closed edges of scope: a segment whose lower-bound clearance is not
+/// strictly positive (touching / authoring noise) derives nothing — the
+/// loud downstream STOP remains its tripwire; a demand beyond 4096 is
+/// dropped the same way (true near-tangency); Torus targets and curved
+/// B-Rep edges are out of scope this increment.
+pub(crate) fn edge_graze_min_rim_segments(a: &BRep, b: &BRep) -> Option<usize> {
+    if !matches!(
+        std::env::var("YANG_433_GUARD").as_deref(),
+        Ok("1") | Ok("on")
+    ) {
+        return None;
+    }
+    let req = edge_graze_requirement(a, b);
+    let gated = match req {
+        Some(n) if n > natural_rim_n(a) || n > natural_rim_n(b) => Some(n),
+        _ => None,
+    };
+    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+        eprintln!(
+            "[edge-graze-guard] req={req:?} natural=({},{}) gated={gated:?}",
+            natural_rim_n(a),
+            natural_rim_n(b),
+        );
+    }
+    gated
+}
+
+/// The face's axial station band, derived from its own rim circles (their
+/// centers projected on the surface axis) — the face's mesh lives strictly
+/// within this sweep (rim vertices lie ON the rims), so clearance against
+/// the surface's infinite extension beyond it can never mint a phantom on
+/// THIS face. `None` for a face with fewer than one rim circle or a
+/// non-axial surface — the guard then skips the face (fail closed: no
+/// demand, the downstream STOP remains).
+fn face_station_band(f: &BRepFace, brep: &BRep) -> Option<([f64; 3], [f64; 3], f64, f64)> {
+    let (origin, axis) = match f.surface {
+        Surface::Cone { apex, axis_dir, .. } => (apex.as_array(), axis_dir.as_array()),
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            ..
+        } => (axis_point.as_array(), axis_dir.as_array()),
+        _ => return None,
+    };
+    let u = normalize3(axis);
+    let mut lo = f64::INFINITY;
+    let mut hi = f64::NEG_INFINITY;
+    let mut any = false;
+    for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+        if let Curve::Circle { center, .. } = brep.edges()[ei as usize].curve {
+            let c = center.as_array();
+            let h =
+                (c[0] - origin[0]) * u[0] + (c[1] - origin[1]) * u[1] + (c[2] - origin[2]) * u[2];
+            lo = lo.min(h);
+            hi = hi.max(h);
+            any = true;
+        }
+    }
+    if !any {
+        return None;
+    }
+    Some((origin, u, lo, hi))
+}
+
+/// The un-gated requirement (unit-testable): max derived N over both
+/// directions' qualifying (CORNER cluster, curved face) pairs, before the
+/// natural-N self-limiting gate.
+///
+/// **Corner-cluster scope (measured 2026-08-27, spec §7):** the broad
+/// per-segment form was corpus-measured and REJECTED — it boosted 52
+/// cases on real single-edge near-grazes (demands to N=1449), regressing
+/// eight CORRECT cases (R0017 broke under a mere N=33 boost) and turning
+/// R0011's loud ERROR silently WRONG. The minting configuration is a
+/// WEDGE: a B-Rep vertex of one operand BURIED under the other's curved
+/// face (radially inside the flank, within the face's own station band)
+/// with at least TWO incident LineSegment edges that each inside-graze
+/// that face without piercing it in-band. Single-edge grazes derive
+/// nothing and keep their loud downstream tripwires.
+pub(crate) fn edge_graze_requirement(a: &BRep, b: &BRep) -> Option<usize> {
+    let mut req: Option<usize> = None;
+    for (x, y) in [(a, b), (b, a)] {
+        // Per-vertex incident LineSegment edges of the edge-side operand.
+        let mut incident: std::collections::BTreeMap<u32, Vec<usize>> = Default::default();
+        for (ei, e) in x.edges().iter().enumerate() {
+            if e.curve == Curve::LineSegment && e.start != e.end {
+                incident.entry(e.start).or_default().push(ei);
+                incident.entry(e.end).or_default().push(ei);
+            }
+        }
+        for f in y.faces() {
+            if !matches!(f.surface, Surface::Cylinder { .. } | Surface::Cone { .. }) {
+                continue; // Sphere/Torus: no census customers, out of scope
+            }
+            // Banded by the face's own rim stations; a face the band cannot
+            // be derived for is skipped (fail closed).
+            let Some(band) = face_station_band(f, y) else {
+                continue;
+            };
+            // The face's own max rim radius drives its sagitta; a face
+            // bounded by no Circle edge falls back to the operand's global
+            // max (the same radius Stage 1's N derivation uses).
+            let face_r = f
+                .outer_loop
+                .iter()
+                .chain(f.inner_loops.iter().flatten())
+                .filter_map(|&ei| match y.edges()[ei as usize].curve {
+                    Curve::Circle { radius, .. } => Some(radius),
+                    _ => None,
+                })
+                .fold(0.0f64, f64::max);
+            let r_max = if face_r > 0.0 {
+                face_r
+            } else {
+                y.edges()
+                    .iter()
+                    .filter_map(|e| match e.curve {
+                        Curve::Circle { radius, .. } => Some(radius),
+                        _ => None,
+                    })
+                    .fold(0.0f64, f64::max)
+            };
+            if r_max <= 0.0 || r_max.is_nan() {
+                continue; // nothing the rim-N vocabulary can boost
+            }
+            for (&v, edges) in &incident {
+                if edges.len() < 2 {
+                    continue;
+                }
+                let p = x.vertices()[v as usize].point.as_array();
+                // The wedge signature: the corner vertex is buried under
+                // the flank (radially inside) within the face's band.
+                let (origin, u, v_lo, v_hi) = band;
+                let d_v = match point_surface_signed(p, f.surface) {
+                    Some(d) if d < 0.0 => -d,
+                    _ => continue,
+                };
+                let h = (p[0] - origin[0]) * u[0]
+                    + (p[1] - origin[1]) * u[1]
+                    + (p[2] - origin[2]) * u[2];
+                if h < v_lo - d_v || h > v_hi + d_v {
+                    continue;
+                }
+                // Every incident edge's verdict; the cluster fires only
+                // with ≥2 grazing (non-piercing, inside, in-band) edges.
+                let mut demands: Vec<usize> = Vec::new();
+                for &ei in edges {
+                    let e = &x.edges()[ei];
+                    let p0 = x.vertices()[e.start as usize].point.as_array();
+                    let p1 = x.vertices()[e.end as usize].point.as_array();
+                    if let Some(n) = segment_face_graze_n(p0, p1, f.surface, r_max, band) {
+                        demands.push(n);
+                    }
+                }
+                if demands.len() < 2 {
+                    continue;
+                }
+                let n = demands.into_iter().max().unwrap();
+                req = Some(req.map_or(n, |r: usize| r.max(n)));
+            }
+        }
+    }
+    req
+}
+
+/// One (segment, curved surface) pair's demand: `None` when the segment
+/// genuinely pierces the FACE (a root inside `[0,1]` whose station lies in
+/// the face's band — the Case-III direction, out of scope), when no sample
+/// approaches the face's own station band (the graze is against the
+/// surface's infinite extension where this face has no mesh), when the
+/// clearance lower bound is not strictly positive (touching — the
+/// downstream STOP owns tangency), or when the demand exceeds 4096 (true
+/// near-tangency, same cap as the cyl guard).
+///
+/// `band` is `(axis_origin, axis_unit, v_lo, v_hi)` from
+/// [`face_station_band`]. A sample point at distance `d` from the surface
+/// counts only when its own axial station is within `[v_lo − d, v_hi + d]`
+/// — the perpendicular foot lies within distance `d` of the point, so this
+/// superset test is conservative in the fail-closed direction and needs no
+/// tuned margin.
+pub(crate) fn segment_face_graze_n(
+    p0: [f64; 3],
+    p1: [f64; 3],
+    surface: Surface,
+    r_max: f64,
+    band: ([f64; 3], [f64; 3], f64, f64),
+) -> Option<usize> {
+    let (origin, u, v_lo, v_hi) = band;
+    let station = |p: [f64; 3]| {
+        (p[0] - origin[0]) * u[0] + (p[1] - origin[1]) * u[1] + (p[2] - origin[2]) * u[2]
+    };
+    let seg = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    let at = |t: f64| [p0[0] + t * seg[0], p0[1] + t * seg[1], p0[2] + t * seg[2]];
+    let roots = crate::stage4_phantom::segment_surface_roots(p0, p1, surface)?;
+    if roots.iter().any(|&t| {
+        (0.0..=1.0).contains(&t) && {
+            let h = station(at(t));
+            (v_lo..=v_hi).contains(&h)
+        }
+    }) {
+        return None; // real pierce of THIS face
+    }
+    let len = (seg[0] * seg[0] + seg[1] * seg[1] + seg[2] * seg[2]).sqrt();
+    if len <= 0.0 || len.is_nan() {
+        return None;
+    }
+    const S: usize = 65;
+    let mut min_d = f64::INFINITY;
+    for i in 0..S {
+        let t = i as f64 / (S - 1) as f64;
+        let p = at(t);
+        let signed = point_surface_signed(p, surface)?;
+        if signed >= 0.0 {
+            // Radially OUTSIDE the flank: inscribed chords recede from
+            // here — a mesh sag cannot phantom-cross from this side.
+            continue;
+        }
+        let d = -signed;
+        let h = station(p);
+        if h < v_lo - d || h > v_hi + d {
+            continue; // approaches only the face's infinite extension
+        }
+        min_d = min_d.min(d);
+    }
+    if !min_d.is_finite() {
+        return None; // never inside-near the face's own band
+    }
+    // Certified lower bound: the distance is 1-Lipschitz in space, so along
+    // the segment |d'| ≤ len; the sampled min overestimates the true min by
+    // at most len/(2(S−1)).
+    let g = min_d - len / (2.0 * (S - 1) as f64);
+    if g <= 0.0 || g.is_nan() {
+        return None; // touching / authoring noise — fail closed, stay loud
+    }
+    let bound = g / 2.0;
+    let mut n = 3usize;
+    while r_max * (1.0 - (std::f64::consts::PI / n as f64).cos()) > bound {
+        n += 1;
+        if n > 4096 {
+            return None; // near-tangency: no practical demand, stay loud
+        }
+    }
+    Some(n)
+}
+
 /// N2/F0059 epic increment 2, BANKED-UNWIRED (spec
 /// `yang_rim_junction_insertion`): per full-circle rim edge of `x`, the
 /// exact points where that rim circle transversally CROSSES one of `y`'s
@@ -1206,4 +1513,126 @@ pub(crate) fn rim_junction_overrides(
     std::collections::BTreeMap<u32, Vec<Point3>>,
 ) {
     (rim_junctions_against(a, b), rim_junctions_against(b, a))
+}
+
+#[cfg(test)]
+mod edge_graze_tests {
+    use super::*;
+
+    /// R0100's anchor numbers verbatim (spec
+    /// `yang_433_case_iv_corner_phantom.md` §1): face-15's cone and the
+    /// prism cap-corner edge S1∩S2 from the corner vertex to the wedge-face
+    /// exit. Both exact roots fall outside the segment (t=+9.30 behind the
+    /// corner, t=−225.9 beyond the far end), the corner sits 2.118 under
+    /// the surface, and the derived demand must clear the measured green
+    /// floor (N=30) with the factor-2 phase margin.
+    fn r0100_cone() -> Surface {
+        Surface::Cone {
+            apex: Point3::new(-158.66237771434626, 712.2418755345027, 1139.4608460321217),
+            axis_dir: Vector3::new(0.0, -0.628340168224518, -0.7779387077370457),
+            half_angle: 0.2054337405657868,
+        }
+    }
+    const R0100_CORNER: [f64; 3] = [110.48001521746164, -91.02777345602973, -51.176854359112916];
+    const R0100_V0: [f64; 3] = [125.549753154, -151.880624691, -51.176854359];
+    const R0100_RMAX: f64 = 322.1053789887729;
+    /// Face 15's own station band (bottom rim to top rim on the cone axis).
+    fn r0100_band() -> ([f64; 3], [f64; 3], f64, f64) {
+        (
+            [-158.66237771434626, 712.2418755345027, 1139.4608460321217],
+            normalize3([0.0, -0.628340168224518, -0.7779387077370457]),
+            1429.233100113699,
+            1545.8089032486437,
+        )
+    }
+
+    #[test]
+    fn r0100_corner_edge_derives_above_green_floor() {
+        let n = segment_face_graze_n(
+            R0100_CORNER,
+            R0100_V0,
+            r0100_cone(),
+            R0100_RMAX,
+            r0100_band(),
+        )
+        .expect("non-piercing near edge must derive a demand");
+        assert!(
+            (30..=64).contains(&n),
+            "derived N={n} must clear the measured green floor 30 and stay practical"
+        );
+    }
+
+    #[test]
+    fn piercing_segment_derives_nothing() {
+        // A segment straddling the cone surface radially at the corner's
+        // station: from the (buried) corner straight out past the flank.
+        let out = [
+            R0100_CORNER[0] + 20.0 * 0.9464,
+            R0100_CORNER[1] + 20.0 * (-0.2434),
+            R0100_CORNER[2] + 20.0 * 0.2113,
+        ];
+        // Direction chosen radially-ish; verify the premise (a root inside)
+        // via the shared solver, then the guard must decline.
+        let roots =
+            crate::stage4_phantom::segment_surface_roots(R0100_CORNER, out, r0100_cone()).unwrap();
+        assert!(
+            roots.iter().any(|t| (0.0..=1.0).contains(t)),
+            "test premise: the segment must pierce (roots {roots:?})"
+        );
+        assert_eq!(
+            segment_face_graze_n(R0100_CORNER, out, r0100_cone(), R0100_RMAX, r0100_band()),
+            None
+        );
+    }
+
+    #[test]
+    fn far_segment_demand_is_absorbed_by_any_natural_n() {
+        // A segment ~300 under the surface derives a tiny N (huge clearance
+        // halves into a huge sagitta budget) — the natural-N gate absorbs it.
+        let p0 = [-158.0, 500.0, 900.0];
+        let p1 = [-150.0, 480.0, 880.0];
+        let n = segment_face_graze_n(p0, p1, r0100_cone(), R0100_RMAX, r0100_band());
+        if let Some(n) = n {
+            assert!(
+                n <= 24,
+                "far segment must not out-demand natural N (got {n})"
+            );
+        }
+    }
+
+    #[test]
+    fn touching_segment_stays_loud_not_derived() {
+        // A segment with an endpoint exactly ON the flank (clearance lower
+        // bound not strictly positive) derives nothing — tangency stays
+        // with the loud downstream STOP.
+        let s = r0100_cone();
+        // Point on the surface: walk from the corner radially to the flank.
+        let (apex, u, ha) = match s {
+            Surface::Cone {
+                apex,
+                axis_dir,
+                half_angle,
+            } => (apex.as_array(), normalize3(axis_dir.as_array()), half_angle),
+            _ => unreachable!(),
+        };
+        let w = [
+            R0100_CORNER[0] - apex[0],
+            R0100_CORNER[1] - apex[1],
+            R0100_CORNER[2] - apex[2],
+        ];
+        let h = w[0] * u[0] + w[1] * u[1] + w[2] * u[2];
+        let rad = [w[0] - h * u[0], w[1] - h * u[1], w[2] - h * u[2]];
+        let rl = (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
+        let target = h * ha.tan();
+        let on = [
+            apex[0] + h * u[0] + rad[0] / rl * target,
+            apex[1] + h * u[1] + rad[1] / rl * target,
+            apex[2] + h * u[2] + rad[2] / rl * target,
+        ];
+        let p1 = [on[0] + 1.0, on[1], on[2]];
+        assert_eq!(
+            segment_face_graze_n(on, p1, s, R0100_RMAX, r0100_band()),
+            None
+        );
+    }
 }

@@ -137,6 +137,7 @@ pub(crate) use stage1_tessellate::*;
 pub(crate) use stage4_correct::*;
 pub(crate) use stage4_relocate::*;
 mod stage4_boundary_curve;
+mod stage4_phantom;
 // N2-3a (Yang §4.4.1): the fold-risk planner — decides WHICH relocations need
 // the Fig-11 mesh update. Pure decision function, NOT wired into
 // `stage4_relocate_and_correct`; wiring the merge arm onto its plan is N2-3b.

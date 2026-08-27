@@ -524,6 +524,13 @@ fn boolean_once(
         phantom_min_rim_segments(a, b),
         graze_min_rim_segments(a, b)?,
         rim_plane_req,
+        // §4.3.3 Case-IV corner-phantom guard (spec
+        // `yang_433_case_iv_corner_phantom.md` inc-1, GATED
+        // `YANG_433_GUARD=1|on`): a B-Rep edge passing within an operand's
+        // chord band of a curved face WITHOUT piercing it (both exact roots
+        // outside the segment) demands the rim N that keeps the inscribed
+        // mesh strictly clear of the wedge the surfaces clear.
+        edge_graze_min_rim_segments(a, b),
     ]
     .into_iter()
     .flatten()

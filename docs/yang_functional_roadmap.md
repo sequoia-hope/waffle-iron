@@ -739,6 +739,37 @@ name, never measured).
    **272C/0W/35E/1EE/0T with exactly ONE category move and ZERO detail
    moves**, zero CORRECT regressions, marginally faster (521.6 s).
    R0017's fold clears on FIVE extra splits (109 → 114).
+   **§4.3.3 Case-IV corner phantom (2026-08-27 — spec
+   `specs/yang_433_case_iv_corner_phantom.md`): R0100's face-15 ring-CDT
+   wall ANCHORED as a PHANTOM intersection loop; census built
+   (`YANG_433_PHANTOM=census`); Stage-1 corner-graze guard BUILT but
+   flip REFUSED by corpus measurement — the wall stays, correctly
+   named.** The extrude-cut prism's cap-corner wedge analytically MISSES
+   face-15's cone by ≥1.33 (the whole true cut is on the neighboring
+   shoulder cone and never crosses their shared rim), but Stage-1's
+   inscribed mesh sags 2.26–2.29 there and mints a 3-vertex loop;
+   relocation solves each vertex to an exact-but-VIRTUAL pierce point
+   (both edge-line×cone roots outside the B-edge's own segment AND the
+   face's station band — the paper's §4.3.3 "no solution in the
+   parametric domains ⇒ rule out Case IV" clause, `refs/text:518-537`),
+   everting the loop 12× across the rim → the misnamed CDT reject.
+   Corpus census: exactly FIVE cases carry certified phantom claims —
+   ALL ERRORs, ZERO of the 272 CORRECT (R0100 = the corner shape;
+   R0004/R0011/R0044 behind other walls; R0053's 64 claims are a
+   seam-population/coplanar-graze signature, M8 territory, not this
+   family; R0003 f577 has NO claims — its F2a fold stays with §4.4.2).
+   The gated guard (fourth `boolean()` rim-N arm,
+   `edge_graze_min_rim_segments`: buried-corner clusters of ≥2
+   inside-grazing non-piercing LineSegment edges vs a station-banded
+   cone/cylinder face; exact roots + Lipschitz-certified clearance →
+   `sag ≤ g/2` N) converts R0100 AND R0049 gated, but two full gate-on
+   sweeps measured 26 cases boosted and 6+ CORRECT regressions
+   (R0017 breaks under an N=33 mesh perturbation; R0011 ERROR→silent
+   WRONG) — mesh-density triggers are structurally too broad here, and
+   the downstream rule-out needs the B-side's MISSED mirror crossings
+   (Case III) created, i.e. the phase-3 junction-layer conformal mesh
+   update. Guard stays `YANG_433_GUARD=1|on` dev-gated with 4 unit
+   tests; the census is the family's permanent instrument.
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

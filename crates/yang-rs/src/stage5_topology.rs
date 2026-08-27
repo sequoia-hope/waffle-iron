@@ -1606,17 +1606,24 @@ fn probe_run_neighborhood(
                         .into_iter()
                         .map(|surf| format!("S{}", legend_ref(&mut surf_legend, &surf)))
                         .collect();
-                let moved = S4_PRE_POS.with(|c| {
-                    c.borrow().as_ref().and_then(|pre| pre.get(&v)).map(|&q| {
-                        ((q[0] - p[0]).powi(2) + (q[1] - p[1]).powi(2) + (q[2] - p[2]).powi(2))
-                            .sqrt()
-                    })
+                let pre_pos =
+                    S4_PRE_POS.with(|c| c.borrow().as_ref().and_then(|pre| pre.get(&v).copied()));
+                let moved = pre_pos.map(|q| {
+                    ((q[0] - p[0]).powi(2) + (q[1] - p[1]).powi(2) + (q[2] - p[2]).powi(2)).sqrt()
                 });
                 eprintln!(
                     "[i13d-run]   [{off:+}] v{v} moved={moved:?} carried={carried:?} \
                      p=({:.9},{:.9},{:.9})",
                     p[0], p[1], p[2]
                 );
+                if let (Some(d), Some(q)) = (moved, pre_pos) {
+                    if d > 0.0 {
+                        eprintln!(
+                            "[i13d-run]        pre=({:.9},{:.9},{:.9})",
+                            q[0], q[1], q[2]
+                        );
+                    }
+                }
                 if off < 6 {
                     let w = cyc[(idx + 1) % n];
                     let key = (v.min(w), v.max(w));
