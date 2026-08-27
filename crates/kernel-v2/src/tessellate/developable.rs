@@ -16,6 +16,84 @@ enum DevSurface {
     Cone { tan_half_angle: f64 },
 }
 
+/// The ISOMETRIC development of a developable patch chart: the plane in
+/// which Euclidean distance equals surface (geodesic) distance.
+///
+/// The engine's working chart is `(u, v) = (sense·θ·r_unroll, axial)`. For a
+/// CYLINDER that chart already IS the isometric development. For a CONE it
+/// is not — there `|∂P/∂u| = v·tanα/r_unroll`, which both differs from 1 and
+/// VARIES with `v`, while `|∂P/∂v| = 1/cos α`. The cone's isometric
+/// development is the polar unroll about the apex: slant radius
+/// `ρ = v/cos α`, developed angle `φ = θ·sin α`.
+///
+/// This matters because Rivara longest-edge bisection's non-degeneracy
+/// guarantee (finitely many similarity classes ⇒ angles bounded below by the
+/// initial mesh's) is a statement about ONE Euclidean structure — the one
+/// "longest edge" and "midpoint" are both taken in. Run in the working chart
+/// on a cone, it bounds chart angles while surface angles degrade freely
+/// (KV9-F2: R0017 face 17 went from a worst 3D aspect of 204 to 947 and
+/// folded, while its same-development control face 14 held at 109.80).
+///
+/// Both operations work in a frame ROTATED so that `a` sits on the +x axis,
+/// i.e. from the RELATIVE angle Δφ only. No `atan2` is ever taken of an
+/// absolute developed angle, so a patch whose u-window is unwrapped across
+/// the seam (`|φ| > π`) stays well-defined.
+#[derive(Clone, Copy, Debug)]
+struct IsoDev {
+    /// Developed angle per unit chart `u` (`sin α / r_unroll`).
+    dphi_du: f64,
+    /// Chart `v` per unit slant radius (`cos α`).
+    cos_a: f64,
+    /// False for a cylinder (chart already isometric) and for a cone whose
+    /// developed angle is degenerate (α → 0); then both operations are the
+    /// plain chart ones.
+    active: bool,
+}
+
+impl IsoDev {
+    fn new(dev: &DevSurface, r_unroll: f64) -> Self {
+        match *dev {
+            DevSurface::Cylinder { .. } => Self {
+                dphi_du: 0.0,
+                cos_a: 1.0,
+                active: false,
+            },
+            DevSurface::Cone { tan_half_angle } => {
+                let cos_a = 1.0 / (1.0 + tan_half_angle * tan_half_angle).sqrt();
+                let dphi_du = tan_half_angle * cos_a / r_unroll;
+                Self {
+                    dphi_du,
+                    cos_a,
+                    active: dphi_du.is_finite() && dphi_du > 0.0 && cos_a > 0.0,
+                }
+            }
+        }
+    }
+
+    /// The two developed slant radii, or `None` when this chart has no usable
+    /// polar development for these points — a cylinder, a degenerate cone, or
+    /// a point at/behind the apex (`ρ ≤ 0`, the other nappe). Callers then
+    /// fall back to the plain chart, which is what they had before.
+    fn radii(&self, a: Point2, b: Point2) -> Option<(f64, f64)> {
+        if !self.active {
+            return None;
+        }
+        let (ra, rb) = (a.y() / self.cos_a, b.y() / self.cos_a);
+        (ra > 0.0 && rb > 0.0 && ra.is_finite() && rb.is_finite()).then_some((ra, rb))
+    }
+
+    /// Squared isometric (geodesic) distance between two chart points.
+    fn dist2(&self, a: Point2, b: Point2) -> f64 {
+        let Some((ra, rb)) = self.radii(a, b) else {
+            let (dx, dy) = (a.x() - b.x(), a.y() - b.y());
+            return dx * dx + dy * dy;
+        };
+        let dphi = (b.x() - a.x()) * self.dphi_du;
+        // Law of cosines in the developed sector.
+        (ra * ra + rb * rb - 2.0 * ra * rb * dphi.cos()).max(0.0)
+    }
+}
+
 pub(crate) fn tessellate_cylinder_patch(
     arena: &BrepArena,
     fid: FaceId,
@@ -192,6 +270,24 @@ fn tessellate_developable_patch(
             ap[2] + v * a[2] + rr * (c * e1[2] + s * e2[2]),
         ]
     };
+
+    let outward_at = |pos: [f64; 3]| -> Option<[f64; 3]> {
+        let d = [pos[0] - ap[0], pos[1] - ap[1], pos[2] - ap[2]];
+        let h = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+        let r = [d[0] - h * a[0], d[1] - h * a[1], d[2] - h * a[2]];
+        let rl = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+        if !(rl.is_finite() && rl > 0.0) {
+            return None;
+        }
+        let raw = [
+            r[0] / rl - tan_a * a[0],
+            r[1] / rl - tan_a * a[1],
+            r[2] / rl - tan_a * a[2],
+        ];
+        let m = (raw[0] * raw[0] + raw[1] * raw[1] + raw[2] * raw[2]).sqrt();
+        Some([sense * raw[0] / m, sense * raw[1] / m, sense * raw[2] / m])
+    };
+    let iso = IsoDev::new(&dev, r_unroll);
 
     // TEMP diagnostic (uncommitted): boundary feature-size survey.
     if std::env::var_os("KV2_PATCH_MINLEN_PROBE").is_some() {
@@ -1044,6 +1140,100 @@ fn tessellate_developable_patch(
     // blew the triangle count up and emitted zero-area slivers. Convergence
     // of the stop criterion: bisection halves edge lengths geometrically,
     // and an edge's Δu is bounded by its length.
+    // KV9-F2b: the SECOND refinement criterion — the chart→3D lift must be
+    // orientation-faithful on every emitted triangle.
+    //
+    // The Δu criterion below bounds each chord's sagitta, which is what the
+    // render band needs, but it says nothing about whether a triangle SURVIVES
+    // the lift. A chart triangle is lifted by taking its three corners onto the
+    // surface and spanning them flat; the chords cut INSIDE the surface, so a
+    // triangle thin enough relative to the sagitta of its own edges comes out
+    // facing inward. That is the KV9-F2 fold, and until now nothing upstream of
+    // the emit tripwire could prevent it — the refinement was free to MINT a
+    // folded triangle and the tripwire's only move was to fail the whole patch.
+    //
+    // Bisection converges on this quadratically: halving an edge quarters its
+    // sagitta while only halving the triangle's height, so height/sagitta
+    // doubles per level.
+    //
+    // But bisection can only ever remove SAGITTA. It cannot move a node that
+    // sits off the ideal development, and a fold caused by such a node is not
+    // this criterion's to fix — that is the F2a family, owned by
+    // `yang_434_output_chord_refinement.md` (a `Chord` split inheriting its
+    // parent chord's off-surface depth). The two are told apart by comparing
+    // the two quantities directly, with no tuned constant between them:
+    //
+    //   dev  = how far the nodes sit OFF the ideal development  (immovable)
+    //   sag  = the ideal chart-lift sagitta of the triangle's edges (removable)
+    //
+    // Refining is worth attempting only while `dev < sag`. This also makes the
+    // arm SELF-TERMINATING: sag falls quadratically under bisection, so it
+    // crosses any fixed dev within a few levels and the arm declines on its
+    // own. Measured: R0003 face 577 (dev 8.2e-2 against a sag of 1.4e-9 — a
+    // node further off-surface than the triangle is wide) declines immediately
+    // instead of burning 28 104 splits on a fold refinement cannot reach.
+    //
+    // This is NOT a tolerance band. The predicate is `the lift inverts`
+    // (dot ≤ 0), not a tuned margin; it is strictly INSIDE the emit tripwire's
+    // own −0.1 verdict; and it silences nothing — a triangle it declines, or
+    // fails to fix, reaches the tripwire and fails loudly exactly as before.
+    let lift_inverts = |t: [usize; 3], wnodes: &[WNode], nodes: &[PatchNode]| -> bool {
+        let p = |w: usize| nodes[wnodes[w].node].pos;
+        let (pa, pb, pc) = (p(t[0]), p(t[1]), p(t[2]));
+        let u = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+        let v = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
+        let n3 = [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ];
+        let nl = (n3[0] * n3[0] + n3[1] * n3[1] + n3[2] * n3[2]).sqrt();
+        // Same sub-resolution skip the emit tripwire uses: below this the
+        // normal carries no signal to refine towards. A NaN falls through to
+        // the dot test below, which is false for NaN — so it is skipped too.
+        if nl <= 1e-12 * (1.0 + r_unroll * r_unroll) {
+            return false;
+        }
+        let cen = [
+            (pa[0] + pb[0] + pc[0]) / 3.0,
+            (pa[1] + pb[1] + pc[1]) / 3.0,
+            (pa[2] + pb[2] + pc[2]) / 3.0,
+        ];
+        let inverted = match outward_at(cen) {
+            Some(ow) => (n3[0] * ow[0] + n3[1] * ow[1] + n3[2] * ow[2]) / nl <= 0.0,
+            None => false,
+        };
+        if !inverted {
+            return false;
+        }
+        let dist = |x: [f64; 3], y: [f64; 3]| -> f64 {
+            let d = [x[0] - y[0], x[1] - y[1], x[2] - y[2]];
+            (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+        };
+        // How far the nodes sit off the ideal development — what bisection
+        // CANNOT remove.
+        let mut dev = 0.0f64;
+        for &w in &t {
+            let q = wnodes[w].p2;
+            dev = dev.max(dist(nodes[wnodes[w].node].pos, surface_point(q.x(), q.y())));
+        }
+        // The ideal chart-lift sagitta of the triangle's edges — what bisection
+        // CAN remove. Taken between IDEAL surface points so it stays
+        // independent of `dev` above.
+        let mut sag = 0.0f64;
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (qa, qb) = (wnodes[t[i]].p2, wnodes[t[j]].p2);
+            let (sa, sb) = (surface_point(qa.x(), qa.y()), surface_point(qb.x(), qb.y()));
+            let chord_mid = [
+                (sa[0] + sb[0]) / 2.0,
+                (sa[1] + sb[1]) / 2.0,
+                (sa[2] + sb[2]) / 2.0,
+            ];
+            let on_surf = surface_point((qa.x() + qb.x()) / 2.0, (qa.y() + qb.y()) / 2.0);
+            sag = sag.max(dist(chord_mid, on_surf));
+        }
+        dev < sag
+    };
     let max_du = |t: [usize; 3], wnodes: &[WNode]| -> f64 {
         let mut best = -1.0f64;
         for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
@@ -1090,8 +1280,22 @@ fn tessellate_developable_patch(
     }
     let mut work: std::collections::VecDeque<usize> = (0..wtris.len()).collect();
     let mut guard = 0usize;
+    // Convergence budget for the orientation arm (NOT an accuracy band): how
+    // far below the chord criterion it may keep bisecting before giving up and
+    // letting the emit tripwire speak. Sagitta falls as Δu², so 2^-12 of a
+    // facet width is ~1.7e7× less sag than the chord criterion allows — far
+    // past where any real fold survives. A triangle that still inverts there
+    // is chart-degenerate, and more bisection cannot help it.
+    let du_floor = w_limit / 4096.0;
+    let lift_refine = !matches!(
+        std::env::var("KV2_PATCH_LIFT_REFINE").as_deref(),
+        Ok("0") | Ok("off")
+    );
     while let Some(seed) = work.pop_front() {
-        if max_du(wtris[seed], &wnodes) <= w_limit {
+        let du = max_du(wtris[seed], &wnodes);
+        if du <= w_limit
+            && !(lift_refine && du > du_floor && lift_inverts(wtris[seed], &wnodes, &nodes))
+        {
             continue;
         }
         guard += 1;
@@ -1190,6 +1394,47 @@ fn tessellate_developable_patch(
                 }
             }
             let new_idx = wtris.len();
+            // TEMP diagnostic (KV9-F2b, env-gated `KV2_PATCH_MINT_PROBE`):
+            // the MINTING event. For each split, the parent's and the two
+            // children's aspect in the surface metric, printed when a child
+            // is materially worse than its parent. Names which bisection
+            // degrades quality rather than inferring it from the end state.
+            if std::env::var_os("KV2_PATCH_MINT_PROBE").is_some() {
+                let asp = |x: usize, y: usize, z: usize| -> f64 {
+                    let (p, q, r) = (wnodes[x].p2, wnodes[y].p2, wnodes[z].p2);
+                    let (la, lb, lc) = (
+                        iso.dist2(p, q).sqrt(),
+                        iso.dist2(q, r).sqrt(),
+                        iso.dist2(r, p).sqrt(),
+                    );
+                    let s = (la + lb + lc) / 2.0;
+                    let ar =
+                        (s * (s - la).max(0.0) * (s - lb).max(0.0) * (s - lc).max(0.0)).max(0.0);
+                    let area2 = 2.0 * ar.sqrt();
+                    let lmax = la.max(lb).max(lc);
+                    if area2 <= 0.0 {
+                        f64::INFINITY
+                    } else {
+                        lmax * lmax / area2
+                    }
+                };
+                let parent = asp(na, nb, nc);
+                let (c1, c2) = (asp(na, mid_w, nc), asp(mid_w, nb, nc));
+                if c1.max(c2) > 2.0 * parent.max(20.0) {
+                    eprintln!(
+                        "[mint] face={fid:?} split#{} parent_asp={parent:.1} \
+                         children={c1:.1},{c2:.1} kind={kind:?} hops={hops} \
+                         edge=({:.3},{:.3})-({:.3},{:.3}) apex=({:.3},{:.3})",
+                        split_cache.len(),
+                        wa.p2.x(),
+                        wa.p2.y(),
+                        wb.p2.x(),
+                        wb.p2.y(),
+                        wnodes[nc].p2.x(),
+                        wnodes[nc].p2.y()
+                    );
+                }
+            }
             wtris[tj] = [na, mid_w, nc];
             wtris.push([mid_w, nb, nc]);
             for (ti2, tri) in [(tj, [na, mid_w, nc]), (new_idx, [mid_w, nb, nc])] {
@@ -1204,6 +1449,80 @@ fn tessellate_developable_patch(
         }
         // The seed may still carry an over-limit edge — requeue it.
         work.push_back(seed);
+    }
+
+    // TEMP diagnostic (KV9-F2 anchor, env-gated `KV2_PATCH_ASPECT_PROBE`):
+    // triangle quality measured in the TRUE SURFACE metric (3D chord aspect =
+    // lmax^2 / (2*area3D)), reported for the initial CDT and for the
+    // post-refinement mesh. Answers whether the refinement MINTS the KV9-F2
+    // sliver or inherits it from the CDT. The chart metric is NOT the surface
+    // metric on a cone, so a chart-benign triangle can be a 3D sliver.
+    if std::env::var_os("KV2_PATCH_ASPECT_PROBE").is_some() {
+        let aspect3 = |na: usize, nb: usize, nc: usize| -> f64 {
+            let (pa, pb, pc) = (nodes[na].pos, nodes[nb].pos, nodes[nc].pos);
+            let u = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+            let v = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
+            let w = [pc[0] - pb[0], pc[1] - pb[1], pc[2] - pb[2]];
+            let n3 = [
+                u[1] * v[2] - u[2] * v[1],
+                u[2] * v[0] - u[0] * v[2],
+                u[0] * v[1] - u[1] * v[0],
+            ];
+            let area2 = (n3[0] * n3[0] + n3[1] * n3[1] + n3[2] * n3[2]).sqrt();
+            let l = |d: [f64; 3]| (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+            let lmax = l(u).max(l(v)).max(l(w));
+            if area2 <= 0.0 {
+                f64::INFINITY
+            } else {
+                lmax * lmax / area2
+            }
+        };
+        let aspect_iso = |na: usize, nb: usize, nc: usize| -> f64 {
+            let (a2, b2, c2) = (nodes[na].p2, nodes[nb].p2, nodes[nc].p2);
+            let (la, lb, lc) = (
+                iso.dist2(a2, b2).sqrt(),
+                iso.dist2(b2, c2).sqrt(),
+                iso.dist2(c2, a2).sqrt(),
+            );
+            let s = (la + lb + lc) / 2.0;
+            let ar = (s * (s - la).max(0.0) * (s - lb).max(0.0) * (s - lc).max(0.0)).max(0.0);
+            let area2 = 2.0 * ar.sqrt();
+            let lmax = la.max(lb).max(lc);
+            if area2 <= 0.0 {
+                f64::INFINITY
+            } else {
+                lmax * lmax / area2
+            }
+        };
+        let mut cdt_worst_iso = 0.0f64;
+        let mut ref_worst_iso = 0.0f64;
+        let mut cdt_worst = 0.0f64;
+        for t in &cdt_tris {
+            let (i, j, k) = (t[0] as usize, t[1] as usize, t[2] as usize);
+            cdt_worst = cdt_worst.max(aspect3(pool_node[i], pool_node[j], pool_node[k]));
+            cdt_worst_iso = cdt_worst_iso.max(aspect_iso(pool_node[i], pool_node[j], pool_node[k]));
+        }
+        let mut ref_worst = 0.0f64;
+        let mut n_over_100 = 0usize;
+        for t in &wtris {
+            let a3 = aspect3(wnodes[t[0]].node, wnodes[t[1]].node, wnodes[t[2]].node);
+            ref_worst_iso = ref_worst_iso.max(aspect_iso(
+                wnodes[t[0]].node,
+                wnodes[t[1]].node,
+                wnodes[t[2]].node,
+            ));
+            ref_worst = ref_worst.max(a3);
+            if a3 > 100.0 {
+                n_over_100 += 1;
+            }
+        }
+        eprintln!(
+            "[aspect-probe] face={fid:?} cdt_tris={} cdt_worst3={cdt_worst:.2} \
+             cdt_worst_iso={cdt_worst_iso:.2} refined_tris={} refined_worst3={ref_worst:.2} \
+             refined_worst_iso={ref_worst_iso:.2} n_over_100={n_over_100}",
+            cdt_tris.len(),
+            wtris.len()
+        );
     }
 
     if std::env::var_os("KV2_PATCH_PASS_PROBE").is_some() {
@@ -1285,22 +1604,6 @@ fn tessellate_developable_patch(
     // Sense-adjusted outward normal at a surface point: `unit(r̂ − tan α·â)`
     // — the generator-perpendicular cone normal, reducing EXACTLY to the
     // pure radial `r̂` for cylinders (tan α = 0). `None` on the axis.
-    let outward_at = |pos: [f64; 3]| -> Option<[f64; 3]> {
-        let d = [pos[0] - ap[0], pos[1] - ap[1], pos[2] - ap[2]];
-        let h = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
-        let r = [d[0] - h * a[0], d[1] - h * a[1], d[2] - h * a[2]];
-        let rl = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
-        if !(rl.is_finite() && rl > 0.0) {
-            return None;
-        }
-        let raw = [
-            r[0] / rl - tan_a * a[0],
-            r[1] / rl - tan_a * a[1],
-            r[2] / rl - tan_a * a[2],
-        ];
-        let m = (raw[0] * raw[0] + raw[1] * raw[1] + raw[2] * raw[2]).sqrt();
-        Some([sense * raw[0] / m, sense * raw[1] / m, sense * raw[2] / m])
-    };
     let range_start = out.indices.len() as u32;
     let base = out.num_vertices() as u32;
     // One render vertex per WORK node (seam duplicates emit twice at the
@@ -1458,4 +1761,104 @@ fn tessellate_developable_patch(
         count: out.indices.len() as u32 - range_start,
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A 30° half-angle cone, the R0017 anchor's shape.
+    fn cone(r_unroll: f64) -> IsoDev {
+        IsoDev::new(
+            &DevSurface::Cone {
+                tan_half_angle: (30.0f64).to_radians().tan(),
+            },
+            r_unroll,
+        )
+    }
+
+    fn chart_dist2(a: Point2, b: Point2) -> f64 {
+        let (dx, dy) = (a.x() - b.x(), a.y() - b.y());
+        dx * dx + dy * dy
+    }
+
+    #[test]
+    fn cylinder_chart_is_already_isometric() {
+        // The (θ·r, h) chart of a cylinder IS its isometric development, so
+        // the surface metric must be the plain chart one, exactly.
+        let iso = IsoDev::new(&DevSurface::Cylinder { radius: 7.0 }, 7.0);
+        assert!(!iso.active);
+        let (a, b) = (Point2::new(-3.0, 11.0), Point2::new(5.0, 2.0));
+        assert_eq!(iso.dist2(a, b), chart_dist2(a, b));
+    }
+
+    #[test]
+    fn cone_same_generator_distance_is_slant_length() {
+        // Two points on one generator (equal θ) are `Δv / cos α` apart on the
+        // surface — the chart, which measures |Δv|, understates by 1/cos α.
+        let iso = cone(4000.0);
+        let (a, b) = (Point2::new(120.0, 3000.0), Point2::new(120.0, 5000.0));
+        let want = 2000.0 / (30.0f64).to_radians().cos();
+        let got = iso.dist2(a, b).sqrt();
+        assert!((got - want).abs() < 1e-9, "got {got} want {want}");
+        assert!(iso.dist2(a, b) > chart_dist2(a, b));
+    }
+
+    #[test]
+    fn cone_same_height_short_arc_matches_circumferential_arc_length() {
+        // At height v the on-surface radius is v·tanα, so a small Δθ spans an
+        // arc of v·tanα·Δθ — while the chart calls it Δθ·r_unroll. The two
+        // agree only where v·tanα == r_unroll; this is the varying u-scale
+        // that makes the working chart non-isometric on a cone.
+        let r_unroll = 4000.0;
+        let iso = cone(r_unroll);
+        let (v, dtheta) = (5000.0, 1.0e-4);
+        let du = dtheta * r_unroll;
+        let (a, b) = (Point2::new(0.0, v), Point2::new(du, v));
+        let want = v * (30.0f64).to_radians().tan() * dtheta;
+        let got = iso.dist2(a, b).sqrt();
+        assert!((got - want).abs() < 1e-6 * want, "got {got} want {want}");
+        // The chart overstates here: v·tanα (2886.8) < r_unroll (4000).
+        assert!(got < chart_dist2(a, b).sqrt());
+    }
+
+    #[test]
+    fn cone_distance_is_wrap_safe_beyond_half_a_turn() {
+        // A patch unwrapped across the seam has |u| > π·r_unroll, so the
+        // developed angle φ leaves (−π, π]. Working from the RELATIVE Δφ keeps
+        // the metric continuous there: translating both points by a whole
+        // extra turn must not change the distance.
+        let r_unroll = 4000.0;
+        let iso = cone(r_unroll);
+        let turn = 2.0 * std::f64::consts::PI * r_unroll;
+        let (a, b) = (Point2::new(100.0, 5000.0), Point2::new(900.0, 5200.0));
+        let (a2, b2) = (
+            Point2::new(a.x() + turn, a.y()),
+            Point2::new(b.x() + turn, b.y()),
+        );
+        assert!((iso.dist2(a, b) - iso.dist2(a2, b2)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cone_falls_back_to_the_chart_at_or_behind_the_apex() {
+        // ρ ≤ 0 is the apex/other nappe: no usable polar development, so the
+        // metric degrades to exactly the chart one rather than yielding a NaN.
+        let iso = cone(4000.0);
+        let (a, b) = (Point2::new(100.0, -50.0), Point2::new(900.0, 5200.0));
+        assert_eq!(iso.dist2(a, b), chart_dist2(a, b));
+    }
+
+    #[test]
+    fn degenerate_cone_falls_back_to_the_chart() {
+        // α → 0 has no developed angle at all (dphi_du == 0).
+        let iso = IsoDev::new(
+            &DevSurface::Cone {
+                tan_half_angle: 0.0,
+            },
+            4000.0,
+        );
+        assert!(!iso.active);
+        let (a, b) = (Point2::new(1.0, 2.0), Point2::new(4.0, 6.0));
+        assert_eq!(iso.dist2(a, b), 25.0);
+    }
 }

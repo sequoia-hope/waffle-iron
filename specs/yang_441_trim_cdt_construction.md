@@ -2764,9 +2764,23 @@ degenerates further: the three points are collinear to one part in 1e5
 not a marginal miss). The 3D chord short-cuts the curved surface, so a thin
 2D sliver spanning a large arc becomes an even thinner 3D one.
 
-*Framing for the repair.* This is the I2d lesson on a different surface:
-**a chart-valid triangulation is NOT geometry-valid on a curved
-development.** The structural fix belongs in how the developable
+*RESOLVED 2026-08-27* — `specs/kv9_f2b_lift_faithful_refinement.md`. The
+framing below was right that the fix belongs in the refinement, and the
+sliver IS minted there (surface-metric worst aspect 204 → 3473, against a
+same-development control face that holds at 109.80 exactly). But the
+*mechanism* was not the metric: the LEPP walk is a faithful Rivara
+implementation and its parent→child degradation on the minting split is
+66.8 → 132.3, exactly the factor of 2 its theorem promises. The guarantee
+simply does not control the FOLD, which is a property of the lift to 3D, not
+of chart angles. Moving the refinement into the isometric development was
+measured and REFUTED in both possible forms (see that spec §4). The repair is
+a second refinement criterion — refine while the chart→3D lift inverts —
+which converts R0017 on five extra splits. Canonical 271C →
+**272C/0W/35E/1EE/0T**.
+
+*Framing for the repair (as recorded when the anchor was taken).* This is the
+I2d lesson on a different surface: **a chart-valid triangulation is NOT
+geometry-valid on a curved development.** The structural fix belongs in how the developable
 refinement triangulates (geometry-aware connectivity), NOT in an aspect-
 ratio band — banding the sliver away would be exactly the tolerance
 tuning P9/P10 forbids, and would silence a loud STOP without fixing what

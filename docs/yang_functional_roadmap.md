@@ -709,6 +709,36 @@ name, never measured).
    of mutually INTERLOCKED PAIRS (adjacent strips' deep overruns cross
    on the wall) — next increment I13e cross-site group absorption,
    spec §I13(d) tail.
+   **KV9-F2b (2026-08-27, FLIPPED ALWAYS-ON — spec
+   `specs/kv9_f2b_lift_faithful_refinement.md`; off-knob
+   `KV2_PATCH_LIFT_REFINE=0|off`): the developable patch refinement
+   refines until the chart→3D LIFT is orientation-faithful. NEW
+   CANONICAL 272C/0W/35E/1EE/0T** (+R0017). Anchored on R0017 (0.09 s
+   vehicle, ~500× faster than R0003). Two new instruments named it:
+   `KV2_PATCH_ASPECT_PROBE` (surface-metric worst aspect, CDT vs
+   refined — the fold face goes 204 → 3473 while its SAME-development
+   control face holds at 109.80 exactly, so the refinement MINTS the
+   sliver) and `KV2_PATCH_MINT_PROBE` (per-split parent/child aspect —
+   the minting split bisects a needle of base 17.0 against 1075 sides).
+   The LEPP walk is a faithful Rivara implementation and its
+   parent→child degradation there is 66.8 → 132.3, EXACTLY the factor
+   of 2 its theorem promises: Rivara bounds CHART angles, and the fold
+   is a property of the lift. Moving the refinement into the cone's
+   isometric development was measured and REFUTED in both forms it can
+   take (spec §4) — mixed metrics fold the control face; the true
+   developed midpoint lies OFF the chart edge it splits and
+   self-overlaps the patch (R0032 regressed to `mixed 2D orientation`).
+   Repair = a second work-queue criterion, `dev < sag`, comparing what
+   bisection CAN remove (ideal chart-lift sagitta) against what it
+   cannot (nodes off the development) — no tuned constant, and
+   self-terminating because sag falls quadratically. That comparison
+   IS the F2a/F2b discriminator and the two separate by 21 orders of
+   magnitude (R0017 f17 `dev/sag = 7.9e-14` refine; R0003 f577
+   `dev/sag = 5.1e+07` decline). Flip proofs: gate-off corpus
+   BYTE-IDENTICAL to the committed baseline (530.9 s); gate-on
+   **272C/0W/35E/1EE/0T with exactly ONE category move and ZERO detail
+   moves**, zero CORRECT regressions, marginally faster (521.6 s).
+   R0017's fold clears on FIVE extra splits (109 → 114).
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

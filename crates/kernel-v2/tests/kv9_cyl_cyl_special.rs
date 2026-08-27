@@ -267,7 +267,7 @@ fn steinmetz_subtract_exact_volume() {
 /// under it the emitted shell passes the selfx gate, so the union
 /// completes and must now VALIDATE — watertight, and volume inside the
 /// strict union bounds (max(V1,V2), V1+V2). History:
-/// `unequal_perpendicular_walls_on_selfx_gate` ← 
+/// `unequal_perpendicular_walls_on_selfx_gate` ←
 /// `unequal_perpendicular_now_supported` ←
 /// `unequal_perpendicular_stays_walled`.
 #[test]

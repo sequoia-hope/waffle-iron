@@ -36,8 +36,19 @@ verdict (plus a torus-patch analogue row).
   a UBIQUITOUS depth defect, not a property of the deepest chords. The
   depth is silent render sag everywhere else.
 - R0017 (F2b) also carries a 5.2× deep chord on its fold face; its fold
-  mechanism (all-on-surface 2D/3D inversion at r_unroll=4073) remains
-  separate and UNANCHORED — not this spec's customer.
+  mechanism (all-on-surface 2D/3D inversion at r_unroll=4073) is separate and
+  is **not this spec's customer**. **ANCHORED AND RESOLVED 2026-08-27** —
+  `specs/kv9_f2b_lift_faithful_refinement.md`: the refinement MINTS that
+  sliver (surface-metric worst aspect 204 → 3473 on the fold face, while its
+  same-development control face holds at 109.80), and the repair is a second
+  refinement criterion — refine while the chart→3D lift inverts. R0017
+  converts; canonical 271C → **272C/0W/35E/1EE/0T**.
+  The two families are told apart with no tuned constant, by comparing what
+  bisection CAN remove against what it cannot: `dev` (nodes off the ideal
+  development, immovable — F2a, this spec) vs `sag` (the ideal chart-lift
+  sagitta, removable — F2b). Measured they separate by 21 orders of
+  magnitude: R0017 face 17 `dev/sag = 7.9e-14`, R0003 face 577
+  `dev/sag = 5.1e+07`.
 
 **inc-1 producer census (`YANG_434_OUT=census`, same day):** for every
 2-use `LineSegment` output chord between two distinct faces: owner classes
