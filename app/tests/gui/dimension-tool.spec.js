@@ -238,22 +238,21 @@ test.describe('dimension popup via __waffle API', () => {
 });
 
 test.describe('dimension popup DOM interaction', () => {
-	// QUARANTINED (DISPLAY-UNITS stale expectations): this test's assertions are
-	// meter-space (`defaultValue: 2.0` expected to render as "2.0", typed "7.5"
-	// expected to store 7.5), but the popup renders and parses DISPLAY units
-	// (DimensionInput.svelte:36 `formatForInput(popup.defaultValue, displayUnit)`
-	// — 2.0 m shows as "2000" in mm, and a typed "7.5" stores 0.0075 m). The
-	// expectations predate the 2026-03-02 document-unit system (040c57cc).
-	// Verified failing on a clean tree 2026-08-28 (expected 2, received 2000),
-	// independent of any local change; it was green in the 2026-07-28 full-tier
-	// run, so a later indirect change surfaced the mismatch — no commit since
-	// 2026-07-20 touches DimensionInput.svelte, units.js, or showDimensionPopup.
-	// Un-fixme (grep DISPLAY-UNITS) by rewriting the expectations in
-	// display-unit terms, not by changing the popup.
-	test.fixme('dimension input popup appears and accepts value', async ({ waffle }) => {
+	// Unlike the API-driven tests above (applyDimensionFromPopup takes internal
+	// METERS), this test drives the real DOM input, which renders and parses
+	// DISPLAY units (DimensionInput.svelte: formatForInput / parseAndConvert).
+	// Expectations are therefore display-unit-space on the input and meter-space
+	// on the stored constraint.
+	test('dimension input popup appears and accepts value', async ({ waffle }) => {
 		await clickSketch(waffle.page);
 		await drawLine(waffle.page, -100, 0, 100, 0);
 		await waitForEntityCount(waffle.page, 3, 3000);
+
+		// Pin the display unit this test's conversions assume.
+		const unit = await waffle.page.evaluate(
+			() => window.__waffle.getDocumentState().documentDisplayUnit
+		);
+		expect(unit).toBe('mm');
 
 		// Show dimension popup via API (reliable trigger)
 		const entities = await getEntities(waffle.page);
@@ -267,7 +266,7 @@ test.describe('dimension popup DOM interaction', () => {
 				sketchX: 0,
 				sketchY: 0,
 				dimType: 'distance',
-				defaultValue: 2.0
+				defaultValue: 2.0 // internal meters
 			});
 		}, line.id);
 
@@ -275,11 +274,11 @@ test.describe('dimension popup DOM interaction', () => {
 		const input = waffle.page.locator('.dimension-input');
 		await input.waitFor({ state: 'visible', timeout: 3000 });
 
-		// Input should have the default value
+		// Input shows the default converted to display units: 2.0 m → 2000 mm
 		const inputValue = await input.inputValue();
-		expect(parseFloat(inputValue)).toBe(2.0);
+		expect(parseFloat(inputValue)).toBe(2000);
 
-		// Type a new value and press Enter
+		// Type a new value in display units (mm) and press Enter
 		await input.fill('7.5');
 		await waffle.page.keyboard.press('Enter');
 		await waffle.page.waitForTimeout(200);
@@ -287,11 +286,11 @@ test.describe('dimension popup DOM interaction', () => {
 		// Popup should be dismissed
 		await expect(input).not.toBeVisible();
 
-		// Constraint should be created with the typed value
+		// Constraint stores internal meters: 7.5 mm → 0.0075 m
 		const constraints = await getConstraints(waffle.page);
 		const distConstraint = constraints.find(c => c.type === 'Distance');
 		expect(distConstraint).toBeTruthy();
-		expect(distConstraint.value).toBe(7.5);
+		expect(distConstraint.value).toBeCloseTo(0.0075, 12);
 	});
 
 	test('Escape dismisses dimension popup without creating constraint', async ({ waffle }) => {
