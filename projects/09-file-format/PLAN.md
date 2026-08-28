@@ -58,6 +58,19 @@
 | M6 Round-Trip | 4 | ✅ All pass |
 | **Total** | **26** | **✅** |
 
+## Discovered tasks (2026-08-28 format audit — see `docs/FILE_FORMAT.md` §14–15)
+
+- [x] Write an accurate spec of the v3 format → `docs/FILE_FORMAT.md` (supersedes this dossier's v1 description)
+- [ ] Consolidate to a single document writer: route JS `buildDocumentJson` through Rust `save_document` (currently dead in production), or add a golden test pinning JS/Rust writer equivalence
+- [ ] Fix `created` timestamp destroyed on every save (JS writer stamps `created: now` — store.svelte.js:5558)
+- [ ] Fix `extractDisplayUnit` reading the v2 path (`project.display_unit`) only — v3 file-open resets unit to `mm` (store.svelte.js:6361)
+- [ ] Multi-tab File→Open: `LoadProject` keeps only the active tab and JS tab state is not reinitialized — route through `initDocumentState`/`load_document`
+- [ ] Forward-compat policy: add `min_reader_version` (or bump `version` on enum-variant additions) so old builds fail with `FutureVersion` instead of raw serde ParseError
+- [ ] Save-time guard against non-finite floats (NaN serializes as `null` → file saves but never loads)
+- [ ] Load-time hardening for shared files: cap STEP blob inflation, bounds-check counts
+- [ ] Deduplicate `PreviewMesh` (defined in both file-format and feature-engine)
+- [ ] (defer) Region size: `outer` + `outer_edges` store the same boundary twice (374 KB in one observed extrude)
+
 ## Blockers
 
 (None — all milestones complete)

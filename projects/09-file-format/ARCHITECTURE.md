@@ -1,5 +1,17 @@
 # 09 — File Format: Architecture
 
+> **⚠️ STALE — superseded by [`docs/FILE_FORMAT.md`](../../docs/FILE_FORMAT.md)
+> (2026-08-28).** This dossier describes format **v1**; the current format is
+> **v3** (multi-tab documents, meters, `combine`/`targets` booleans, regions,
+> ImportedBody STEP blobs, body names, projected geometry). Known-wrong claims
+> below: unknown fields are **not** preserved (no `#[serde(flatten)]` exists —
+> they are dropped on resave); solved sketch positions/profiles **are** stored
+> (recomputed only when absent); STEP export goes through the `Kernel` trait and
+> kernel-v2 currently returns `NotSupported` (ruststep/truck is gone). The
+> production document writer is `buildDocumentJson` in
+> `app/src/lib/engine/store.svelte.js`, not this crate alone. Read the new spec
+> first; use this file only for v1 historical context.
+
 ## Purpose
 
 Save, load, and export Waffle Iron projects. The native format stores the parametric recipe (feature tree), not geometry. The model rebuilds from the recipe on load. STEP export produces standard geometry files for interchange.
