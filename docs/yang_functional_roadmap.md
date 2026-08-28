@@ -785,11 +785,21 @@ name, never measured).
    curve-sample pool for arcs was built GATED OFF
    (`KV2_ARC_CONFORM_CURVES=1`) — no corpus customer. R0003 advances to
    FaceId(903): a WALL-PLANE ring-CDT reject whose crossing is entirely
-   between B-Rep VERTEX origins (a 16.2-long LineSegment × a hyperbola
-   chain piece doubling back 0.04 at their junction — the I13d
-   "junction hopped its chain samples" shape at an untyped junction),
-   i.e. pre-existing yang-side geometry unmasked from behind 577; its
-   anchor is the named next increment (I13 family).
+   between B-Rep VERTEX origins — pre-existing yang-side geometry
+   unmasked from behind 577. **ANCHORED same day as §I13(f)** (spec
+   `yang_441_trim_cdt_construction.md`): an INVERTED JUNCTION PAIR on
+   the S3-band hyperbola — the cut-corner triple {S3,S2,S4} is a
+   junction-level PHANTOM (its exact solve lies outside the band's
+   rim-bounded domain: the §4.3.3 rule-out clause, R0100's Case-IV
+   lesson at a junction), the S3-band's 0.04 wall sliver does not exist
+   in exact geometry, and the true topology needs the MISSED mirror
+   crossing {S0,S2,S4} minted on the adjacent band's hyperbola. I13d's
+   selector fires its certificates and correctly refuses at
+   `strictly_richer` (both are true corners). Repair = junction
+   RE-HOMING across a rim (certify phantom by the domain clause → mint
+   the mirror crossing once → update the affected cycles) — the
+   phase-3 junction-layer mesh update's first SMALL customer, the
+   right vehicle before R0100's loop-level case.
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

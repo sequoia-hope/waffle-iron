@@ -2802,6 +2802,63 @@ shape with BOTH single fans proven to self-intersect, k = 1 degeneration
 to the run fan, fused arcs, mid-cycle survivor, enclosed-interior orphan,
 three-site ladder) + 4 `interlock_groups`.
 
+#### (f) I13f — the INVERTED JUNCTION PAIR: a phantom junction whose exact solve lies outside its band, and the missed mirror crossing (ANCHORED 2026-08-28, not built)
+
+R0003's wall after the inc-8 ellipse fix (`yang_434` — f577 skins) is
+**FaceId(903), "ring rejected by CDT"**: the WALL-PLANE ring's single
+proper 2D crossing, entirely between B-Rep VERTEX origins (unmasked, not
+minted — the inc-8 change is render-side only). Anchor by
+`YANG_441_RUN_PROBE_AT=-199.7376,-113.9101,-25.9313` (the spur vertex),
+first absorption pass of the final subtract:
+
+- The wall cycle (patch 485, S2 = the wall plane, cyc_len 305) walks the
+  revolve profile's cone-band stack; each band's wall trace is its own
+  hyperbola (S0→C0, S3→C1, S1→C6, …), and band-rim × wall vertices are
+  triple junctions.
+- The crossing pair: **v8413** carries {S3, S2, S4} (cut-plane corner:
+  wall ∩ cone S3 ∩ second cut plane S4; relocated 0.048) and **v8398**
+  carries {S0, S3, S2} (band-rim corner: wall ∩ S0/S3 rim; relocated
+  0.566 onto its exact triple). Cycle order: … → v8413 → v8398 → … with
+  the connecting edge typed C1.
+- **Pair-order inversion along C1, in numbers:** pre (mesh) t(v8413) =
+  −1.6045121 < t(v8398) = −1.6019084; post (exact triples) t(v8398) =
+  −1.6047422 < t(v8413) = −1.6045353. The I13d selector FIRES its order
+  and minted-chord-inversion certificates on this pair and refuses at
+  `strictly_richer` (not_richer bucket): NEITHER triple's carrier set
+  contains the other — absorption would delete a true corner. That
+  refusal is CORRECT (the I8 lesson); the family needs a different
+  repair, not a loosened gate.
+- **What the true order means:** on the S3 cone face (patch 430) the
+  band's whole wall trace is the C1 stretch [v8398 → v8413] — 0.04 long.
+  Post-relocation that stretch has NEGATIVE length: the exact
+  S3∩S2∩S4 point lies 0.0002 in parameter BEYOND the S0/S3 rim, i.e.
+  **outside the S3 band's domain — v8413 is a junction-level PHANTOM
+  (the §4.3.3 rule-out clause, R0100's Case-IV lesson at a junction
+  instead of a loop)**. In exact geometry the S3-band's wall corner
+  sliver does not exist: the cut line S4∩S2 truly crosses the S0 band's
+  hyperbola C0 at a junction {S0, S2, S4} **that the mesh never minted**
+  (the missed mirror crossing), the wall boundary runs S4-line → newJ →
+  C0 → v8394 → …, and v8398 (the rim corner) leaves the wall cycle.
+- **Repair shape (phase-3 junction layer, first small customer):**
+  junction RE-HOMING across a rim — (1) certify the phantom by the
+  domain clause (exact solve outside the band's rim-bounded parameter
+  interval on its typed conic); (2) mint the mirror crossing on the
+  ADJACENT band's conic (solve S4∩C0 exactly; mint ONCE, share by
+  identity — the junction contract in
+  `docs/yang_junction_research_findings.md` is BINDING); (3) update the
+  affected cycles (wall + both cone bands) to the true topology; every
+  decline is a loud typed STOP naming the pair. This is the same
+  structural need R0100's corner-phantom session recorded ("ruling out
+  the loop leaves pieces whose true boundary needs the MISSED mirror
+  crossings created"), in a 1-junction/1-crossing shape — the right
+  vehicle to build the junction-layer mesh-update primitive against
+  before the R0100 loop-level case.
+- SELECT accounting at the pass: runs=692 terminals=1384 no_param=40
+  no_flip=1242 no_inversion=14 **not_richer=26** ambiguous=0 → 31 sites
+  (absorbed elsewhere); the I13f pair is in the not_richer bucket, which
+  a census mode should split into "true-corner pairs" (this family) vs
+  other refusals before building.
+
 ## 5. After this epic (recorded, not started)
 
 - **§4.5.4 removal half / §4.5.2 guard shell** (roadmap item 3d/4): route the
