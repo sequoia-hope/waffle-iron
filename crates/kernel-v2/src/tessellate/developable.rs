@@ -369,6 +369,32 @@ fn tessellate_developable_patch(
             if i == 0 {
                 u_cur = unroll_u(theta_p);
             }
+            // Dev-only chain probe: per-half-edge curve kind + endpoints for
+            // one face id — names WHICH boundary curve minted a fold's deep
+            // ArcSample layer (Arc gets conforming inserts; the conic arms
+            // do not).
+            if std::env::var("KV2_PATCH_CHAIN_PROBE").is_ok_and(|v| v == format!("{}", fid.0)) {
+                let kind = match &he.curve {
+                    Curve::LineSegment => "LineSegment",
+                    Curve::Arc { .. } => "Arc",
+                    Curve::Circle { .. } => "Circle",
+                    Curve::EllipseArc { .. } => "EllipseArc",
+                    Curve::HyperbolaArc { .. } => "HyperbolaArc",
+                    Curve::SurfacePair { .. } => "SurfacePair",
+                };
+                eprintln!(
+                    "[chain-probe] face={} loop={lid:?} i={i} h={h:?} kind={kind} n0={} \
+                     p=({:.9e},{:.9e},{:.9e}) q=({:.9e},{:.9e},{:.9e})",
+                    fid.0,
+                    nodes.len(),
+                    p.x(),
+                    p.y(),
+                    p.z(),
+                    q.x(),
+                    q.y(),
+                    q.z()
+                );
+            }
             let origin_node = nodes.len();
             nodes.push(PatchNode {
                 p2: Point2::new(u_cur, hp),
@@ -432,100 +458,38 @@ fn tessellate_developable_patch(
                     u_cur += sense * dir * sweep * r_unroll;
                     total_theta += dir * sweep;
                 }
-                Curve::EllipseArc {
-                    center,
-                    normal,
-                    major_axis,
-                    major_radius,
-                    minor_radius,
-                } => {
-                    // PR-KV9: oblique-section arc on this CYLINDER. The
-                    // azimuth advance equals the SIGNED parametric sweep
-                    // (the axis-⊥ projection of a cylinder-section ellipse
-                    // is the radius-r circle: Δθ = s_w·Δt, s_w the frame
-                    // handedness sign — see geom::cylinder_arc_patch_flux).
-                    // A cone-section ellipse has NO such constant-radius
-                    // projection — KV16 routes it through the per-sample
-                    // wrapped-Δθ walk (the SurfacePair/HyperbolaArc
-                    // mechanism below); the cylinder path stays
-                    // byte-identical.
-                    if matches!(dev, DevSurface::Cone { .. }) {
-                        let samples = ellipse_interior_samples(arena, h, n_seg)?;
-                        let mut theta_prev = theta_p;
-                        entries.push((origin_node, PatchEdgeKind::ArcSample));
-                        for sp in &samples {
-                            let (theta_s, sh) = theta_h(*sp, e1, e2)?;
-                            let delta = crate::geom::wrap_to_pi(theta_s - theta_prev);
-                            u_cur += sense * delta * r_unroll;
-                            total_theta += delta;
-                            theta_prev = theta_s;
-                            entries.push((nodes.len(), PatchEdgeKind::ArcSample));
-                            nodes.push(PatchNode {
-                                p2: Point2::new(u_cur, sh),
-                                pos: [sp.x(), sp.y(), sp.z()],
-                            });
-                        }
-                        let (theta_q, _) = theta_h(q, e1, e2)?;
-                        let delta = crate::geom::wrap_to_pi(theta_q - theta_prev);
+                Curve::EllipseArc { .. } => {
+                    // Oblique-section arc: per-sample wrapped-Δθ walk (the
+                    // SurfacePair/HyperbolaArc mechanism) — each sample's
+                    // azimuth is derived from its POSITION, never from its
+                    // index. A uniform-fraction shortcut existed here for
+                    // cylinders (Δθ = s_w·Δt with uniform-in-parameter
+                    // samples); inc-8's sag-bound ellipse sampling is
+                    // NON-uniform in parameter, so the shortcut's premise
+                    // is gone and it scrambled the chart (fold tripwire,
+                    // `ellipse_bounded_tunnel_reentry`). The walk is
+                    // kind-agnostic and was already the cone-section path
+                    // (KV16). Samples are grid-step dense, far below the
+                    // wrap_to_pi ambiguity at π.
+                    let samples = ellipse_interior_samples(arena, h, n_seg)?;
+                    let mut theta_prev = theta_p;
+                    entries.push((origin_node, PatchEdgeKind::ArcSample));
+                    for sp in &samples {
+                        let (theta_s, sh) = theta_h(*sp, e1, e2)?;
+                        let delta = crate::geom::wrap_to_pi(theta_s - theta_prev);
                         u_cur += sense * delta * r_unroll;
                         total_theta += delta;
-                        continue;
-                    }
-                    let nu = [normal.x, normal.y, normal.z];
-                    let mr = [major_axis.x, major_axis.y, major_axis.z];
-                    let m_dot_a = mr[0] * a[0] + mr[1] * a[1] + mr[2] * a[2];
-                    let e1r = [
-                        mr[0] - m_dot_a * a[0],
-                        mr[1] - m_dot_a * a[1],
-                        mr[2] - m_dot_a * a[2],
-                    ];
-                    let e1l = (e1r[0] * e1r[0] + e1r[1] * e1r[1] + e1r[2] * e1r[2]).sqrt();
-                    if e1l < 1e-12 {
-                        return Err(fail(
-                            "patch ellipse-arc major axis parallel to the cylinder axis",
-                        ));
-                    }
-                    let e2v = [
-                        (a[1] * e1r[2] - a[2] * e1r[1]) / e1l,
-                        (a[2] * e1r[0] - a[0] * e1r[2]) / e1l,
-                        (a[0] * e1r[1] - a[1] * e1r[0]) / e1l,
-                    ];
-                    let w = [
-                        nu[1] * mr[2] - nu[2] * mr[1],
-                        nu[2] * mr[0] - nu[0] * mr[2],
-                        nu[0] * mr[1] - nu[1] * mr[0],
-                    ];
-                    let s_w = if w[0] * e2v[0] + w[1] * e2v[1] + w[2] * e2v[2] >= 0.0 {
-                        1.0
-                    } else {
-                        -1.0
-                    };
-                    let Some(sweep) = crate::geom::ellipse_ccw_sweep(
-                        center,
-                        nu,
-                        mr,
-                        major_radius,
-                        minor_radius,
-                        p,
-                        q,
-                    ) else {
-                        return Err(fail("degenerate patch ellipse arc"));
-                    };
-                    let samples = ellipse_interior_samples(arena, h, n_seg)?;
-                    let k = samples.len() + 1;
-                    entries.push((origin_node, PatchEdgeKind::ArcSample));
-                    for (j, sp) in samples.iter().enumerate() {
-                        let frac = (j + 1) as f64 / k as f64;
-                        let su = u_cur + sense * s_w * sweep * frac * r_unroll;
-                        let (_, sh) = theta_h(*sp, e1, e2)?;
+                        theta_prev = theta_s;
                         entries.push((nodes.len(), PatchEdgeKind::ArcSample));
                         nodes.push(PatchNode {
-                            p2: Point2::new(su, sh),
+                            p2: Point2::new(u_cur, sh),
                             pos: [sp.x(), sp.y(), sp.z()],
                         });
                     }
-                    u_cur += sense * s_w * sweep * r_unroll;
-                    total_theta += s_w * sweep;
+                    let (theta_q, _) = theta_h(q, e1, e2)?;
+                    let delta = crate::geom::wrap_to_pi(theta_q - theta_prev);
+                    u_cur += sense * delta * r_unroll;
+                    total_theta += delta;
                 }
                 Curve::Circle { .. } => {
                     return Err(fail("full-circle edge inside a partial cylinder patch"))
@@ -1698,6 +1662,48 @@ fn tessellate_developable_patch(
                         ] {
                             let kind = kind_of(&wnodes[i], &wnodes[j], &boundary);
                             eprintln!("  edge {la}-{lb}: kind={kind:?}");
+                        }
+                        // Deep-chord localizer: every Chord-kind boundary
+                        // entry whose 3D midpoint sits off the ideal
+                        // development names a candidate F2a parent. Print
+                        // the deepest with node ids + 3D endpoints so the
+                        // producing yang output edge is identifiable by
+                        // coordinates.
+                        let mut deep: Vec<(f64, usize, usize)> = boundary
+                            .iter()
+                            .filter(|(_, k)| **k == PatchEdgeKind::Chord)
+                            .map(|(&(i, j), _)| {
+                                let (a, b) = (&nodes[i], &nodes[j]);
+                                let mp2x = (a.p2.x() + b.p2.x()) / 2.0;
+                                let mp2y = (a.p2.y() + b.p2.y()) / 2.0;
+                                let ideal = surface_point(mp2x, mp2y);
+                                let mid = [
+                                    (a.pos[0] + b.pos[0]) / 2.0,
+                                    (a.pos[1] + b.pos[1]) / 2.0,
+                                    (a.pos[2] + b.pos[2]) / 2.0,
+                                ];
+                                let dev = ((mid[0] - ideal[0]).powi(2)
+                                    + (mid[1] - ideal[1]).powi(2)
+                                    + (mid[2] - ideal[2]).powi(2))
+                                .sqrt();
+                                (dev, i, j)
+                            })
+                            .collect();
+                        deep.sort_by(|x, y| y.0.total_cmp(&x.0));
+                        for &(dev, i, j) in deep.iter().take(8) {
+                            let (a, b) = (&nodes[i], &nodes[j]);
+                            eprintln!(
+                                "  [deep-chord] dev={dev:.3e} n{i}{}–n{j}{} \
+                                 pa=({:.9e},{:.9e},{:.9e}) pb=({:.9e},{:.9e},{:.9e})",
+                                if i < n_prerefine { "" } else { "*" },
+                                if j < n_prerefine { "" } else { "*" },
+                                a.pos[0],
+                                a.pos[1],
+                                a.pos[2],
+                                b.pos[0],
+                                b.pos[1],
+                                b.pos[2]
+                            );
                         }
                     }
                     if let Some(prefix) = &census_prefix {

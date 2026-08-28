@@ -308,6 +308,64 @@ rejected.
   at the rim×cut junction (R0003 face 437 / R0100 face 15 / R0004's
   family): the cut's hyperbola hook extends below the face's own rim —
   face-domain/junction assembly territory, needs its own anchor.
+  *(RESOLVED through I13/I13d/I13e in `yang_441_trim_cdt_construction.md`;
+  R0003 then advanced 437 → 467 → 517 → the FaceId(577) fold below.)*
+- **inc-8 (2026-08-28): the R0003 FaceId(577) F2a fold ANCHORED and FIXED —
+  the deviant sampler was `ellipse_interior_samples`, whose uniform-parameter
+  grid bounds chord sag only at the ELLIPSE'S OWN scale.** Fold-probe walk
+  (new `[deep-chord]` localizer + `KV2_PATCH_CHAIN_PROBE=<fid>` +
+  `KV2_ARC_CONFORM_PROBE=<fid>`): face 577's `Chord`-kind boundary is clean
+  (deepest 5.7e-14 — the restoration + I5-1b did their jobs), and the
+  dev = 9.122e-2 split node descends from an **EllipseArc sub-chord**: the
+  steep cut-plane×cone section (R_maj ≈ 93 ≫ r_local ≈ 71→4.3-band) got
+  only 3 interior samples for a ~29-long arc — k = ceil(sweep/(2π/n_seg))
+  is uniform in PARAMETER, so max chord sag ≈ R_maj·(1−cos(π/n_seg)) =
+  0.091, which swallowed the 0.102-tall strip between the ellipse and the
+  rim arc below it (chart-aspect-498 needle → inverted lift → tripwire).
+  Every other boundary sampler already honors the circle-step sag contract
+  at a SURFACE-derived scale (arc/circle: own radius; surface-pair: the
+  smallest defining-surface local radius). Fix, in `sampling.rs`:
+  1. **Sag-bound ellipse sampling** — keep the k-grid, then recursively
+     bisect each span while its measured sag (ellipse point at the
+     parametric midpoint vs the chord midpoint) exceeds
+     `r_local·(1−cos(π/n_seg))`, `r_local` = the smallest local radius of
+     the two incident faces' surfaces at the edge endpoints (planes
+     contribute none; no scale at all ⇒ the ellipse's own scale stands =
+     the prior behavior). Depth-capped with a typed failure; an endpoint at
+     a cone apex (local radius 0) fails loud, matching the surface-pair
+     sampler's apex posture. Dev off-knob `KV2_ELLIPSE_SAG=0|off` restores
+     the pure k-grid byte-identically. 4 unit tests
+     (`arc_grid_sampling_tests.rs` §ellipse sag contract).
+  2. **EllipseArc chain walk unified** (`developable.rs`) — the cylinder
+     patch's uniform-fraction azimuth shortcut (`Δθ = s_w·Δt·frac`)
+     assumed samples uniform in parameter; non-uniform sag-bound samples
+     scrambled its chart (fold in `ellipse_bounded_tunnel_reentry`). All
+     EllipseArc boundaries now use the per-sample wrapped-Δθ walk that was
+     already the cone-section path (position-derived, kind-agnostic).
+  3. **inc-8a, built GATED OFF (`KV2_ARC_CONFORM_CURVES=1|on`)**: the
+     conforming CURVE-SAMPLE pool — `arc_interior_samples_frac` can extend
+     its conforming pool with the incident boundary curves' own sample
+     points (Arc/Circle contribute pure-grid samples, no recursion), the
+     completion of inc-4's "…or CDT-split the graze" sentence. Built first
+     on the f577 hypothesis, measured byte-identical there (the ellipse's
+     sparse samples sat outside every window) — NO corpus customer, so it
+     stays off: an arc-vs-curve graze inside one band fails LOUD (fold
+     tripwire), never silent.
+  Measured: R0003 f577 SKINS (ellipse gets 7 sag-bound samples); the case
+  advances to **FaceId(903), "ring rejected by CDT"** — a WALL-PLANE ring
+  whose crossing is between four B-REP VERTEX origins (LineSegment h7641's
+  16.2-long span × the h7643 hyperbola piece 0.04 past its end), i.e.
+  pre-existing yang-side geometry MASKED behind 577, untouched by this
+  render-side change: the typed hyperbola chain takes ONE step in the
+  wrong direction at a LineSegment junction (out-and-back spur — the I13d
+  "junction hopped its first chain samples" shape at an UNTYPED junction).
+  Its anchor is the next increment (yang-rs, `yang_441` I13 family).
+  **Sibling recorded, not changed (no customer):**
+  `hyperbola_interior_samples`' tol is `max(a,b)·(1−cos(π/n_seg))` — the
+  hyperbola's OWN scale, the same class of deviation this increment fixed
+  for the ellipse. Corpus hyperbola chains are per-mesh-piece today
+  (n_interior = 0 everywhere measured), so the tol never engages; a future
+  I5-1b-merged long HyperbolaArc edge is its customer.
 
 ## 4. Constraints
 

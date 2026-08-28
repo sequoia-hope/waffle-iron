@@ -6713,13 +6713,14 @@ pub(crate) fn emit_topology(
             input_b,
         );
         c441_log!(
-            "[s434-restore] eligible={} typed={} no_cand={} off={} ambig={} sweep={}",
+            "[s434-restore] eligible={} typed={} no_cand={} off={} ambig={} sweep={} mid={}",
             st.eligible,
             st.typed_chords,
             st.no_candidate,
             st.declined_offcurve,
             st.declined_ambiguous,
-            st.declined_sweep
+            st.declined_sweep,
+            st.declined_midpoint
         );
     }
     // I5-1b (ALWAYS-ON since the I5-2 flip; `YANG_434_MERGE=0|off` is the

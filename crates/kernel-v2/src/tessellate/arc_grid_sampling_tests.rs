@@ -297,3 +297,231 @@ fn thin_coaxial_rim_strip_tessellates_without_folding() {
     );
     assert!(mesh.indices.len() >= 3, "non-empty triangulation");
 }
+
+// ------------------------------------------------- ellipse sag contract
+// inc-8 (spec `yang_434_output_chord_refinement.md`, R0003 FaceId(577)):
+// `ellipse_interior_samples` must honor the circle-step sag contract at the
+// INCIDENT SURFACES' local scale. The uniform-parameter grid alone bounds
+// chord sag only at the ellipse's own scale (≈ R_maj·(1−cos(π/n_seg))); a
+// steep plane×cone section has R_maj far above the cone's local radius, so
+// its chords cut deeper into the face than any on-surface feature and the
+// patch CDT folds against them.
+
+use super::sampling::ellipse_interior_samples;
+
+const X_AXIS: UnitVector3 = UnitVector3 {
+    x: 1.0,
+    y: 0.0,
+    z: 0.0,
+};
+
+/// Fixture: one EllipseArc half-edge (plus a LineSegment closer) on a face
+/// with the given surface. Returns the arena; the ellipse half-edge is id 0.
+fn ellipse_edge_arena(
+    surface: Option<Surface>,
+    major_radius: f64,
+    minor_radius: f64,
+    t_start: f64,
+    t_end: f64,
+) -> (BrepArena, Curve) {
+    let center = Point3::new(0.0, 0.0, 20.0);
+    let nu = [0.0, 0.0, 1.0];
+    let mr = [1.0, 0.0, 0.0];
+    let ell = Curve::EllipseArc {
+        center,
+        normal: UP,
+        major_axis: X_AXIS,
+        major_radius,
+        minor_radius,
+    };
+    let p0 = crate::geom::ellipse_point_at(center, nu, mr, major_radius, minor_radius, t_start);
+    let p1 = crate::geom::ellipse_point_at(center, nu, mr, major_radius, minor_radius, t_end);
+    let mut arena = BrepArena::new();
+    arena.vertices.push(Some(Vertex { point: p0 }));
+    arena.vertices.push(Some(Vertex { point: p1 }));
+    let fid = FaceId(0);
+    let outer = add_loop(
+        &mut arena,
+        fid,
+        0,
+        &[(0, ell), (1, Curve::LineSegment)],
+        LoopKind::Outer,
+    );
+    arena.faces.push(Some(Face {
+        surface,
+        outer_loop: outer,
+        inner_loops: vec![],
+        shell: ShellId(0),
+    }));
+    (arena, ell)
+}
+
+/// The measured certificate the sampler enforces: for every adjacent pair
+/// of the emitted polyline, the ellipse point at the parametric midpoint
+/// deviates from the chord midpoint by at most `tol`.
+fn worst_mid_sag(polyline: &[Point3], ell: &Curve) -> f64 {
+    let Curve::EllipseArc {
+        center,
+        normal,
+        major_axis,
+        major_radius,
+        minor_radius,
+    } = *ell
+    else {
+        unreachable!()
+    };
+    let nu = [normal.x, normal.y, normal.z];
+    let mr = [major_axis.x, major_axis.y, major_axis.z];
+    let mut worst = 0.0f64;
+    for w in polyline.windows(2) {
+        let ta = crate::geom::ellipse_param(center, nu, mr, major_radius, minor_radius, w[0])
+            .expect("on-ellipse");
+        let tb = crate::geom::ellipse_param(center, nu, mr, major_radius, minor_radius, w[1])
+            .expect("on-ellipse");
+        let pm = crate::geom::ellipse_point_at(
+            center,
+            nu,
+            mr,
+            major_radius,
+            minor_radius,
+            0.5 * (ta + tb),
+        );
+        let mid = [
+            0.5 * (w[0].x() + w[1].x()),
+            0.5 * (w[0].y() + w[1].y()),
+            0.5 * (w[0].z() + w[1].z()),
+        ];
+        let sag =
+            ((pm.x() - mid[0]).powi(2) + (pm.y() - mid[1]).powi(2) + (pm.z() - mid[2]).powi(2))
+                .sqrt();
+        worst = worst.max(sag);
+    }
+    worst
+}
+
+#[test]
+fn eccentric_ellipse_sampling_is_sag_bound_at_the_surface_scale() {
+    // Cone local radius at the endpoints (z = 20, tan α = 0.2): r_local = 4;
+    // R_maj = 100 — the R0003 f577 shape (steep plane×cone section).
+    let cone = Surface::Cone {
+        apex: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: UP,
+        half_angle: 0.2f64.atan(),
+        reversed: false,
+    };
+    let (arena, ell) = ellipse_edge_arena(Some(cone), 100.0, 4.0, 0.02, 0.30);
+    let n_seg = 71u32;
+    let tol = 4.0 * (1.0 - (PI / f64::from(n_seg)).cos());
+
+    // The pre-fix uniform k-grid violates the surface-scale contract: its
+    // spans sag at the ellipse's OWN scale (documents the red state).
+    let k = (0.28f64 / (2.0 * PI / f64::from(n_seg))).ceil();
+    let grid: Vec<Point3> = (0..=k as u32)
+        .map(|j| {
+            crate::geom::ellipse_point_at(
+                Point3::new(0.0, 0.0, 20.0),
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                100.0,
+                4.0,
+                0.02 + 0.28 * f64::from(j) / k,
+            )
+        })
+        .collect();
+    assert!(
+        worst_mid_sag(&grid, &ell) > 10.0 * tol,
+        "fixture must make the uniform grid violate the surface-scale band \
+         decisively (else the test proves nothing)"
+    );
+
+    let samples = ellipse_interior_samples(&arena, HalfEdgeId(0), n_seg).expect("samples");
+    assert!(
+        samples.len() > k as usize - 1,
+        "bisection must add samples beyond the uniform grid ({} ≤ {})",
+        samples.len(),
+        k as usize - 1
+    );
+    let mut poly = vec![arena.vertex(VertexId(0)).unwrap().point];
+    poly.extend(samples);
+    poly.push(arena.vertex(VertexId(1)).unwrap().point);
+    let worst = worst_mid_sag(&poly, &ell);
+    assert!(
+        worst <= tol * (1.0 + 1e-9),
+        "every sub-chord must meet the surface-scale sag band: worst {worst:.3e} > tol {tol:.3e}"
+    );
+}
+
+#[test]
+fn near_circular_ellipse_keeps_the_uniform_grid() {
+    // R_maj = R_min = r on a cylinder of the same radius: the uniform grid
+    // already meets the surface-scale band — the samples must be exactly
+    // the grid points (no densification of healthy sections).
+    let cyl = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: UP,
+        radius: 30.0,
+        reversed: false,
+    };
+    let (arena, _) = ellipse_edge_arena(Some(cyl), 30.0, 30.0, 0.02, 0.17);
+    let n_seg = 71u32;
+    let samples = ellipse_interior_samples(&arena, HalfEdgeId(0), n_seg).expect("samples");
+    // sweep 0.15 at grid step 2π/71 → k = 2 → exactly one interior sample,
+    // bitwise at the uniform-grid parameter (t0/sweep recovered from the
+    // endpoint POSITIONS, exactly as the sampler does).
+    assert_eq!(samples.len(), 1);
+    for (j, s) in samples.iter().enumerate() {
+        let expect = grid_expect(&arena, 30.0, 30.0, 2.0, j);
+        assert_eq!(s.as_array(), expect.as_array());
+    }
+}
+
+#[test]
+fn scaleless_faces_fall_back_to_the_ellipse_scale() {
+    // No incident surface contributes a local radius (surface: None here;
+    // a plane behaves the same): the ellipse's own scale stands and the
+    // eccentric arc keeps the pure uniform grid.
+    let (arena, _) = ellipse_edge_arena(None, 100.0, 4.0, 0.02, 0.30);
+    let n_seg = 71u32;
+    let k = (0.28f64 / (2.0 * PI / f64::from(n_seg))).ceil();
+    let samples = ellipse_interior_samples(&arena, HalfEdgeId(0), n_seg).expect("samples");
+    assert_eq!(samples.len(), k as usize - 1);
+    for (j, s) in samples.iter().enumerate() {
+        let expect = grid_expect(&arena, 100.0, 4.0, k, j);
+        assert_eq!(s.as_array(), expect.as_array());
+    }
+}
+
+/// The pre-fix uniform-grid point `j` (0-based interior index) of the
+/// fixture's ellipse edge, with `t0`/`sweep` recovered from the endpoint
+/// POSITIONS exactly the way the sampler recovers them.
+fn grid_expect(arena: &BrepArena, a: f64, b: f64, k: f64, j: usize) -> Point3 {
+    let center = Point3::new(0.0, 0.0, 20.0);
+    let nu = [0.0, 0.0, 1.0];
+    let mr = [1.0, 0.0, 0.0];
+    let p0 = arena.vertex(VertexId(0)).unwrap().point;
+    let p1 = arena.vertex(VertexId(1)).unwrap().point;
+    let t0 = crate::geom::ellipse_param(center, nu, mr, a, b, p0).unwrap();
+    let sweep = crate::geom::ellipse_ccw_sweep(center, nu, mr, a, b, p0, p1).unwrap();
+    crate::geom::ellipse_point_at(center, nu, mr, a, b, t0 + sweep * (j as f64 + 1.0) / k)
+}
+
+#[test]
+fn ellipse_at_the_apex_scale_fails_loud() {
+    // An endpoint at the cone apex has local radius 0 → tol 0: the
+    // refinement cannot terminate and must fail with its typed reason
+    // (P9 — a boundary conic through the apex is degenerate), matching
+    // the surface-pair sampler's apex behavior.
+    let cone = Surface::Cone {
+        apex: Point3::new(0.0, 0.0, 20.0), // apex in the ellipse plane
+        axis_dir: UP,
+        half_angle: 0.2f64.atan(),
+        reversed: false,
+    };
+    let (arena, _) = ellipse_edge_arena(Some(cone), 100.0, 4.0, 0.02, 0.30);
+    let err = ellipse_interior_samples(&arena, HalfEdgeId(0), 71).unwrap_err();
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("depth cap exceeded"),
+        "expected the typed depth-cap failure, got: {msg}"
+    );
+}

@@ -770,6 +770,26 @@ name, never measured).
    (Case III) created, i.e. the phase-3 junction-layer conformal mesh
    update. Guard stays `YANG_433_GUARD=1|on` dev-gated with 4 unit
    tests; the census is the family's permanent instrument.
+   **inc-8 ellipse density contract (2026-08-28 — spec
+   `yang_434_output_chord_refinement.md` inc-8): R0003's FaceId(577) F2a
+   fold ANCHORED and FIXED in kernel-v2 sampling.** The off-development
+   node (dev 9.122e-2) descends from an EllipseArc sub-chord:
+   `ellipse_interior_samples` was the ONE boundary sampler with no
+   surface-scale sag contract (uniform in parameter ⇒ max chord sag ≈
+   R_maj·(1−cos(π/n_seg)); the steep cut-plane×cone section's R_maj ≈ 93
+   dwarfs the strip it bounds). Fixed by sag-bound recursive bisection at
+   the incident faces' smallest local surface radius (the surface-pair
+   sampler's precedent; off-knob `KV2_ELLIPSE_SAG=0|off`), plus unifying
+   the EllipseArc chain walk on the per-sample wrapped-Δθ mechanism (the
+   cylinder fraction shortcut assumed uniform samples). A conforming
+   curve-sample pool for arcs was built GATED OFF
+   (`KV2_ARC_CONFORM_CURVES=1`) — no corpus customer. R0003 advances to
+   FaceId(903): a WALL-PLANE ring-CDT reject whose crossing is entirely
+   between B-Rep VERTEX origins (a 16.2-long LineSegment × a hyperbola
+   chain piece doubling back 0.04 at their junction — the I13d
+   "junction hopped its chain samples" shape at an untyped junction),
+   i.e. pre-existing yang-side geometry unmasked from behind 577; its
+   anchor is the named next increment (I13 family).
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

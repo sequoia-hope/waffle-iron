@@ -171,6 +171,79 @@ pub(crate) fn arc_grid_samples(
     kept
 }
 
+/// Gate for the conforming CURVE-SAMPLE pool (spec
+/// `yang_434_output_chord_refinement.md` inc-8a): `KV2_ARC_CONFORM_CURVES=1`
+/// extends the arc's conforming pool with the incident boundary CURVES' own
+/// sample points. DEFAULT OFF — built as the completion of inc-4's design
+/// sentence ("…or CDT-split the graze") while anchoring R0003 face 577, but
+/// that fold's defect measured as the ellipse sampler's density contract
+/// (inc-8), and no corpus case names this mechanism yet. A future arc-vs-
+/// curve graze (both sag-bound, still closer than one band) is its customer;
+/// such a configuration fails LOUD (the fold tripwire), never silent, so
+/// off-by-default opens no silent-wrong window.
+fn curve_conform_enabled() -> bool {
+    matches!(std::env::var("KV2_ARC_CONFORM_CURVES"), Ok(v) if v == "1" || v == "on")
+}
+
+/// Interior sample points of one boundary half-edge for the conforming
+/// POOL of a nearby arc (inc-8): the points this edge will contribute to
+/// its own face chains, so the arc can conform to them exactly like it
+/// conforms to B-Rep vertices. `Arc`/`Circle` pool edges use their PURE
+/// grid samples (grid azimuths are fixed, so no recursion into their own
+/// conforming pass — and a coaxial arc's grid samples dedup against ours
+/// anyway); the conic kinds use their own canonical samplers verbatim.
+/// `LineSegment` contributes nothing (its endpoints are already in the
+/// vertex pool). Errors propagate: a pool edge that cannot be sampled
+/// fails ITS OWN face chain the same way in the same tessellation.
+fn boundary_curve_pool_samples(
+    arena: &BrepArena,
+    h: crate::arena::HalfEdgeId,
+    n_seg: u32,
+) -> Result<Vec<Point3>, KernelV2Error> {
+    let he = arena.half_edge(h)?;
+    match he.curve {
+        Curve::LineSegment => Ok(Vec::new()),
+        Curve::Arc { .. } | Curve::Circle { .. } => {
+            let canon = h.min(he.twin);
+            let che = arena.half_edge(canon)?;
+            let start = arena.vertex(che.origin)?.point;
+            let (center, normal, radius, sweep) = match che.curve {
+                Curve::Arc {
+                    center,
+                    normal,
+                    radius,
+                } => {
+                    let end = arena.vertex(arena.half_edge(che.next)?.origin)?.point;
+                    let n_arr = [normal.x, normal.y, normal.z];
+                    let Some(sweep) = crate::geom::ccw_sweep(center, n_arr, start, end) else {
+                        let fid = arena.loop_(che.loop_id)?.face;
+                        return Err(KernelV2Error::TessellationFailed {
+                            face: fid,
+                            reason: "degenerate arc (endpoint has no radial direction)",
+                        });
+                    };
+                    (center, normal, radius, sweep)
+                }
+                Curve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => (center, normal, radius, 2.0 * std::f64::consts::PI),
+                _ => unreachable!("outer match narrowed to Arc | Circle"),
+            };
+            Ok(
+                arc_grid_samples(center, normal, radius, start, sweep, n_seg, &[])
+                    .into_iter()
+                    .map(|(_, p)| p)
+                    .collect(),
+            )
+        }
+        Curve::EllipseArc { .. } => ellipse_interior_samples(arena, h, n_seg),
+        Curve::HyperbolaArc { .. } => hyperbola_interior_samples(arena, h, n_seg),
+        Curve::SurfacePair { .. } => surface_pair_edge_samples(arena, h, n_seg),
+    }
+}
+
 /// Interior sample points of an arc half-edge on the global azimuth grid
 /// (endpoints excluded), as `(walk-fraction, point)` pairs IN THE
 /// HALF-EDGE'S WALK DIRECTION.
@@ -210,32 +283,76 @@ pub(crate) fn arc_interior_samples_frac(
             reason: "degenerate arc (endpoint has no radial direction)",
         });
     };
-    // Conforming vertex pool: every boundary vertex of the two incident
-    // faces except this arc's own endpoints — resolved from the CANONICAL
-    // half-edge, so both faces sharing the arc gather the identical pool
-    // (twin symmetry of the inserted samples). Which pool points actually
-    // insert a sample is decided geometrically in [`arc_grid_samples`].
+    // Conforming pool: every boundary vertex of the two incident faces
+    // except this arc's own endpoints, PLUS (inc-8, the R0003 face-577
+    // family) every boundary CURVE'S own interior sample points — a
+    // non-coaxial curve grazing this arc realizes its closeness in its
+    // samples, not its vertices, and without conforming inserts the arc's
+    // chord sag swallows the strip between them (inverted-lift fold).
+    // Resolved from the CANONICAL half-edge, so both faces sharing the arc
+    // gather the identical pool (twin symmetry of the inserted samples).
+    // Which pool points actually insert a sample is decided geometrically
+    // in [`arc_grid_samples`] (the 4×sag constructive-coverage window).
     let end_vid = arena.half_edge(che.next)?.origin;
     let fid_twin = arena.loop_(arena.half_edge(che.twin)?.loop_id)?.face;
+    let curve_pool = curve_conform_enabled();
     let mut conform: Vec<Point3> = Vec::new();
     let mut pool_faces = vec![fid];
     if fid_twin != fid {
         pool_faces.push(fid_twin);
     }
+    let mut n_vert_pool = 0usize;
     for pf in pool_faces {
         let face = arena.face(pf)?;
         let mut lids = vec![face.outer_loop];
         lids.extend(face.inner_loops.iter().copied());
         for lid in lids {
             for h2 in arena.loop_half_edges(lid)? {
-                let o = arena.half_edge(h2)?.origin;
+                let he2 = arena.half_edge(h2)?;
+                let o = he2.origin;
                 if o != che.origin && o != end_vid {
                     conform.push(arena.vertex(o)?.point);
+                    n_vert_pool += 1;
+                }
+                if curve_pool && h2.min(he2.twin) != canon {
+                    conform.extend(boundary_curve_pool_samples(arena, h2, n_seg)?);
                 }
             }
         }
     }
     let mut samples = arc_grid_samples(center, normal, radius, start, sweep, n_seg, &conform);
+    // Dev-only conforming-pool probe (inc-8): per-arc pool composition +
+    // window decisions, filtered to one incident face id.
+    if std::env::var("KV2_ARC_CONFORM_PROBE")
+        .is_ok_and(|v| v == format!("{}", fid.0) || v == format!("{}", fid_twin.0))
+    {
+        let (g1, g2, _) = axis_grid_frame(normal);
+        let delta = 2.0 * std::f64::consts::PI / f64::from(n_seg);
+        let sag_max = radius * (1.0 - (delta / 2.0).cos());
+        let mut d3min = f64::INFINITY;
+        let mut n_in_window = 0usize;
+        for p in &conform {
+            let dp = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
+            let x = dp[0] * g1[0] + dp[1] * g1[1] + dp[2] * g1[2];
+            let y = dp[0] * g2[0] + dp[1] * g2[1] + dp[2] * g2[2];
+            let dz = dp[0] * normal.x + dp[1] * normal.y + dp[2] * normal.z;
+            let rho = (x * x + y * y).sqrt();
+            let d3 = (dz * dz + (rho - radius) * (rho - radius)).sqrt();
+            d3min = d3min.min(d3);
+            if d3 <= 4.0 * sag_max {
+                n_in_window += 1;
+            }
+        }
+        eprintln!(
+            "[conform-probe] canon={canon:?} faces=({},{}) r={radius:.6e} sweep={sweep:.6e} \
+             n_seg={n_seg} sag_max={sag_max:.3e} pool_verts={n_vert_pool} \
+             pool_total={} in_window={n_in_window} d3min={d3min:.3e} emitted={}",
+            fid.0,
+            fid_twin.0,
+            conform.len(),
+            samples.len()
+        );
+    }
     if h != canon {
         samples.reverse();
         for (frac, _) in &mut samples {
@@ -305,22 +422,135 @@ pub(crate) fn ellipse_interior_samples(
     };
     let step = 2.0 * std::f64::consts::PI / f64::from(n_seg);
     let k = (sweep / step).ceil().max(1.0) as u32;
-    let mut samples = Vec::with_capacity(k as usize - 1);
-    for j in 1..k {
+    // inc-8 (spec `yang_434_output_chord_refinement.md`, the R0003 face-577
+    // fold): the uniform-parameter grid alone bounds chord sag only at the
+    // ELLIPSE'S OWN scale (max chord sag ≈ R_maj·(1−cos(π/n_seg))) — a
+    // steep plane×cone section has R_maj far above the surface's local
+    // radius, so its chords cut deeper into the face than any on-surface
+    // render feature and the patch CDT folds against them. The density
+    // contract every other boundary sampler honors is the circle-step sag
+    // at the SURFACE'S local scale (`surface_pair_edge_samples` uses the
+    // smallest defining-surface radius; the arc grid uses its own circle's
+    // radius). Bring the ellipse to the same contract: bisect each grid
+    // span while its measured sag exceeds `r_local·(1−cos(π/n_seg))`,
+    // r_local the smallest local radius of the two incident faces'
+    // surfaces at the edge endpoints. Planes contribute no scale of their
+    // own; if neither face has one, the ellipse's own scale stands (the
+    // prior behavior, and the grid already meets it).
+    let fid_twin = arena.loop_(arena.half_edge(che.twin)?.loop_id)?.face;
+    let mut r_local = f64::INFINITY;
+    for pf in [fid, fid_twin] {
+        if let Some(surf) = &arena.face(pf)?.surface {
+            for p in [start, end] {
+                if let Some(r) = face_surface_local_scale(surf, p) {
+                    r_local = r_local.min(r);
+                }
+            }
+        }
+    }
+    if !r_local.is_finite() {
+        r_local = major_radius.max(minor_radius);
+    }
+    // Dev off-knob: `KV2_ELLIPSE_SAG=0|off` restores the pure k-grid
+    // (an infinite tol makes every span pass, byte-identically).
+    let tol = if matches!(std::env::var("KV2_ELLIPSE_SAG"), Ok(v) if v == "0" || v == "off") {
+        f64::INFINITY
+    } else {
+        r_local * (1.0 - (std::f64::consts::PI / f64::from(n_seg)).cos())
+    };
+    #[allow(clippy::too_many_arguments)]
+    fn refine(
+        center: Point3,
+        nu: [f64; 3],
+        mr: [f64; 3],
+        a: f64,
+        b: f64,
+        seg: (f64, Point3, f64, Point3),
+        tol: f64,
+        depth: u32,
+        out: &mut Vec<Point3>,
+    ) -> Result<(), &'static str> {
+        let (ta, pa, tb, pb) = seg;
+        let tm = 0.5 * (ta + tb);
+        let pm = crate::geom::ellipse_point_at(center, nu, mr, a, b, tm);
+        let mid = [
+            0.5 * (pa.x() + pb.x()),
+            0.5 * (pa.y() + pb.y()),
+            0.5 * (pa.z() + pb.z()),
+        ];
+        let sag =
+            ((pm.x() - mid[0]).powi(2) + (pm.y() - mid[1]).powi(2) + (pm.z() - mid[2]).powi(2))
+                .sqrt();
+        if sag <= tol {
+            return Ok(());
+        }
+        if depth == 0 || sag.is_nan() {
+            return Err("ellipse-arc refinement depth cap exceeded");
+        }
+        refine(center, nu, mr, a, b, (ta, pa, tm, pm), tol, depth - 1, out)?;
+        out.push(pm);
+        refine(center, nu, mr, a, b, (tm, pm, tb, pb), tol, depth - 1, out)
+    }
+    let ep = |j: u32| -> (f64, Point3) {
         let t = t0 + sweep * f64::from(j) / f64::from(k);
-        samples.push(crate::geom::ellipse_point_at(
+        if j == 0 {
+            (t, start)
+        } else if j == k {
+            (t, end)
+        } else {
+            (
+                t,
+                crate::geom::ellipse_point_at(center, nu, mr, major_radius, minor_radius, t),
+            )
+        }
+    };
+    let mut samples = Vec::with_capacity(k as usize - 1);
+    for j in 0..k {
+        let (ta, pa) = ep(j);
+        let (tb, pb) = ep(j + 1);
+        refine(
             center,
             nu,
             mr,
             major_radius,
             minor_radius,
-            t,
-        ));
+            (ta, pa, tb, pb),
+            tol,
+            SURFACE_PAIR_REFINE_DEPTH,
+            &mut samples,
+        )
+        .map_err(|reason| KernelV2Error::TessellationFailed { face: fid, reason })?;
+        if j + 1 < k {
+            samples.push(pb);
+        }
     }
     if h != canon {
         samples.reverse();
     }
     Ok(samples)
+}
+
+/// Local density scale of a face's surface at a point — the radius the
+/// circle-step sag contract applies at. `None` for a plane (no curvature
+/// of its own to bound sampling against).
+fn face_surface_local_scale(surface: &crate::arena::Surface, p: Point3) -> Option<f64> {
+    use crate::arena::Surface;
+    match *surface {
+        Surface::Plane(_) => None,
+        Surface::Cylinder { radius, .. } | Surface::Sphere { radius, .. } => Some(radius),
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+            ..
+        } => {
+            let a = [axis_dir.x, axis_dir.y, axis_dir.z];
+            let d = [p.x() - apex.x(), p.y() - apex.y(), p.z() - apex.z()];
+            let h = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+            Some(h.abs() * half_angle.tan())
+        }
+        Surface::Torus { minor_radius, .. } => Some(minor_radius),
+    }
 }
 
 /// Interior sample points of a HYPERBOLA-arc half-edge (KV16, spec
