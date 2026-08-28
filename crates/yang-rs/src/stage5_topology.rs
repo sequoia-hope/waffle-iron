@@ -610,6 +610,165 @@ pub(crate) fn c441_verbose() -> bool {
         || std::env::var_os("YANG_441_VERBOSE").is_some()
 }
 
+/// f2c-3 χ-localization probe gate (`YANG_CHI_AUDIT`, unset = off,
+/// byte-identical): prints the id-complex invariants at the stage
+/// boundaries (stage-2 kept submesh, stage-4/5 reconstruct entry, each
+/// construct/fold-merge alternation round) and reports any single apply
+/// that changes them. Built 2026-08-28 to localize R0003's measured
+/// main-shell genus-2 (per-component χ [-2, 2, 2] at the rehome applies,
+/// which are themselves neutral).
+pub(crate) fn chi_audit_enabled() -> bool {
+    std::env::var_os("YANG_CHI_AUDIT").is_some()
+}
+
+/// Index-complex invariants of a triangle soup, by VERTEX ID: (V, E
+/// undirected, F, χ = V−E+F, connected components, per-component χ
+/// sorted — the genus distribution, χ_c = 2 − 2g_c per closed
+/// component). Pure counting; the composition oracle's position-welded
+/// complex is a different instrument.
+pub(crate) fn tris_complex_stats(tris: &[[u32; 3]]) -> (usize, usize, usize, i64, usize, Vec<i64>) {
+    let mut ids: std::collections::BTreeMap<u32, usize> = Default::default();
+    for tri in tris {
+        for &v in tri {
+            let n = ids.len();
+            ids.entry(v).or_insert(n);
+        }
+    }
+    let mut edges: std::collections::BTreeSet<(u32, u32)> = Default::default();
+    for tri in tris {
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            edges.insert((x.min(y), x.max(y)));
+        }
+    }
+    let mut parent: Vec<usize> = (0..ids.len()).collect();
+    fn find(p: &mut [usize], mut x: usize) -> usize {
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        x
+    }
+    for &(a, b) in &edges {
+        let (ra, rb) = (find(&mut parent, ids[&a]), find(&mut parent, ids[&b]));
+        if ra != rb {
+            parent[ra.max(rb)] = ra.min(rb);
+        }
+    }
+    let mut roots: std::collections::BTreeSet<usize> = Default::default();
+    for i in 0..ids.len() {
+        roots.insert(find(&mut parent, i));
+    }
+    let mut per: std::collections::BTreeMap<usize, (i64, i64, i64)> = Default::default();
+    for &slot in ids.values() {
+        let r = find(&mut parent, slot);
+        per.entry(r).or_default().0 += 1;
+    }
+    for &(a, _) in &edges {
+        let r = find(&mut parent, ids[&a]);
+        per.entry(r).or_default().1 += 1;
+    }
+    for tri in tris {
+        let r = find(&mut parent, ids[&tri[0]]);
+        per.entry(r).or_default().2 += 1;
+    }
+    let mut chis: Vec<i64> = per.values().map(|&(v, e, f)| v - e + f).collect();
+    chis.sort_unstable();
+    let (v, e, f) = (ids.len(), edges.len(), tris.len());
+    (v, e, f, v as i64 - e as i64 + f as i64, roots.len(), chis)
+}
+
+/// χ-audit vertex-link scan (no-op unless [`chi_audit_enabled`]): count
+/// vertices whose link (the graph of their incident triangles' opposite
+/// edges) has more than one connected component — vertex-level PINCHES,
+/// the non-manifoldness an all-2 edge-use histogram cannot see. Each
+/// pinch of multiplicity m costs χ exactly (m−1), so k simple pinches on
+/// an otherwise-clean surface read as χ deficit k. Prints up to 8 with
+/// positions — the anchors.
+pub(crate) fn chi_audit_pinch_scan(label: &str, tris: &[[u32; 3]], verts: &[Point3]) {
+    if !chi_audit_enabled() {
+        return;
+    }
+    let mut inc: std::collections::BTreeMap<u32, Vec<(u32, u32)>> = Default::default();
+    for tri in tris {
+        for k in 0..3 {
+            inc.entry(tri[k])
+                .or_default()
+                .push((tri[(k + 1) % 3], tri[(k + 2) % 3]));
+        }
+    }
+    let mut pinches = 0usize;
+    for (&v, opps) in &inc {
+        let mut ids: std::collections::BTreeMap<u32, usize> = Default::default();
+        for &(a, b) in opps {
+            let n = ids.len();
+            ids.entry(a).or_insert(n);
+            let n = ids.len();
+            ids.entry(b).or_insert(n);
+        }
+        let mut parent: Vec<usize> = (0..ids.len()).collect();
+        fn find(p: &mut [usize], mut x: usize) -> usize {
+            while p[x] != x {
+                p[x] = p[p[x]];
+                x = p[x];
+            }
+            x
+        }
+        for &(a, b) in opps {
+            let (ra, rb) = (find(&mut parent, ids[&a]), find(&mut parent, ids[&b]));
+            if ra != rb {
+                parent[ra.max(rb)] = ra.min(rb);
+            }
+        }
+        let mut roots: std::collections::BTreeSet<usize> = Default::default();
+        for i in 0..ids.len() {
+            roots.insert(find(&mut parent, i));
+        }
+        if roots.len() > 1 {
+            pinches += 1;
+            if pinches <= 8 {
+                let p = verts[v as usize].as_array();
+                eprintln!(
+                    "[chi-audit] {label}: PINCH v{v} link-components={} fan={} \
+                     p=({:.9},{:.9},{:.9})",
+                    roots.len(),
+                    opps.len(),
+                    p[0],
+                    p[1],
+                    p[2]
+                );
+            }
+        }
+    }
+    eprintln!("[chi-audit] {label}: {pinches} pinch vertex(es)");
+}
+
+/// One χ-audit boundary line (no-op unless [`chi_audit_enabled`]).
+/// The edge-USE histogram discriminates a kept spurious MEMBRANE (edges
+/// at ≠2 uses — invisible to the distinct-edge χ) from a genuinely
+/// closed surface with wrong genus (all-2).
+pub(crate) fn chi_audit_report(label: &str, tris: &[[u32; 3]]) {
+    if !chi_audit_enabled() {
+        return;
+    }
+    let (v, e, f, chi, comps, chis) = tris_complex_stats(tris);
+    let mut uses: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+    for tri in tris {
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            *uses.entry((x.min(y), x.max(y))).or_default() += 1;
+        }
+    }
+    let mut hist: std::collections::BTreeMap<u32, usize> = Default::default();
+    for &n in uses.values() {
+        *hist.entry(n).or_default() += 1;
+    }
+    eprintln!(
+        "[chi-audit] {label}: V({v}) - E({e}) + F({f}) = {chi} components={comps} \
+         per-component-chi={chis:?} edge-use-hist={hist:?}"
+    );
+}
+
 /// `eprintln!` gated on [`c441_verbose`] — the construct pass's diagnostic
 /// chatter (SKIP/DECLINED/APPLIED/REORDERED/census lines).
 macro_rules! c441_log {
@@ -979,76 +1138,21 @@ fn run_fold_merge_passes(
             }
             m
         };
-        // f2c-2: the index-complex invariants around the apply — V−E+F and
-        // connected components of the pipeline mesh BY VERTEX ID. The
-        // composition oracle measures the position-welded complex; printing
-        // the id-complex here separates "an apply shifted χ" from "the
-        // defect is positional (dupes / T-junctions) and only the weld sees
-        // it".
-        let complex_stats = |uses: &std::collections::BTreeMap<(u32, u32), u32>,
-                             mesh: &Mesh|
-         -> (usize, usize, usize, i64, usize, Vec<i64>) {
-            let mut ids: std::collections::BTreeMap<u32, usize> = Default::default();
-            for tri in &mesh.tris {
-                for &v in tri {
-                    let n = ids.len();
-                    ids.entry(v).or_insert(n);
-                }
-            }
-            let mut parent: Vec<usize> = (0..ids.len()).collect();
-            fn find(p: &mut [usize], mut x: usize) -> usize {
-                while p[x] != x {
-                    p[x] = p[p[x]];
-                    x = p[x];
-                }
-                x
-            }
-            for &(a, b) in uses.keys() {
-                let (ra, rb) = (find(&mut parent, ids[&a]), find(&mut parent, ids[&b]));
-                if ra != rb {
-                    parent[ra.max(rb)] = ra.min(rb);
-                }
-            }
-            let mut roots: std::collections::BTreeSet<usize> = Default::default();
-            for i in 0..ids.len() {
-                roots.insert(find(&mut parent, i));
-            }
-            // Per-component χ — the genus DISTRIBUTION (χ_c = 2 − 2g_c for a
-            // closed component): which shell carries a handle defect.
-            let mut per: std::collections::BTreeMap<usize, (i64, i64, i64)> = Default::default();
-            for (&id, &slot) in &ids {
-                let r = find(&mut parent, slot);
-                per.entry(r).or_default().0 += 1;
-                let _ = id;
-            }
-            for &(a, _) in uses.keys() {
-                let r = find(&mut parent, ids[&a]);
-                per.entry(r).or_default().1 += 1;
-            }
-            for tri in &mesh.tris {
-                let r = find(&mut parent, ids[&tri[0]]);
-                per.entry(r).or_default().2 += 1;
-            }
-            let mut chis: Vec<i64> = per.values().map(|&(v, e, f)| v - e + f).collect();
-            chis.sort_unstable();
-            let (v, e, f) = (ids.len(), uses.len(), mesh.tris.len());
-            (
-                v,
-                e,
-                f,
-                v as i64 - e as i64 + f as i64,
-                roots.len(),
-                chis,
-            )
-        };
         let pre_uses = rehome_reloc.map(|_| edge_uses(mesh));
-        if let Some(pre) = &pre_uses {
-            let (v, e, f, chi, comps, chis) = complex_stats(pre, mesh);
+        if let Some(_pre) = &pre_uses {
+            let (v, e, f, chi, comps, chis) = tris_complex_stats(&mesh.tris);
             eprintln!(
                 "[i13f-rehome]   audit: PRE  V({v}) - E({e}) + F({f}) = {chi} \
                  components={comps} per-component-chi={chis:?}"
             );
         }
+        // f2c-3 χ-localization (`YANG_CHI_AUDIT`): bracket EVERY fold-merge/
+        // absorb/rehome apply with the id-complex invariants — the genus-2
+        // measured at the rehome applies (2026-08-28) predates them, and the
+        // ~135 passes of earlier applies are suspects exactly like the
+        // upstream stages.
+        let chi_pre =
+            (chi_audit_enabled() && pre_uses.is_none()).then(|| tris_complex_stats(&mesh.tris));
         match apply_rebuild_batch(mesh, attribution, &rebuilds, &BTreeMap::new()) {
             Ok(()) => {
                 // §I13(f) f2: the re-homed corner's mint position — the fans
@@ -1092,11 +1196,37 @@ fn run_fold_merge_passes(
                         "[i13f-rehome]   audit: {torn} edge(s) changed 2-manifold status \
                          across the apply"
                     );
-                    let (v, e, f, chi, comps, chis) = complex_stats(&post, mesh);
+                    let (v, e, f, chi, comps, chis) = tris_complex_stats(&mesh.tris);
                     eprintln!(
                         "[i13f-rehome]   audit: POST V({v}) - E({e}) + F({f}) = {chi} \
                          components={comps} per-component-chi={chis:?}"
                     );
+                }
+                // f2c-3: report ONLY the applies that CHANGE an invariant —
+                // pass, kind, and the before/after (χ, components,
+                // per-component χ). Silence means every apply was neutral.
+                if let Some(pre_stats) = &chi_pre {
+                    let post_stats = tris_complex_stats(&mesh.tris);
+                    if pre_stats.3 != post_stats.3
+                        || pre_stats.4 != post_stats.4
+                        || pre_stats.5 != post_stats.5
+                    {
+                        let kind = if run_merged.is_some() {
+                            "run/group"
+                        } else {
+                            "fold-merge"
+                        };
+                        eprintln!(
+                            "[chi-audit] pass={pass} kind={kind}: chi {} -> {} \
+                             components {} -> {} per-component {:?} -> {:?}",
+                            pre_stats.3,
+                            post_stats.3,
+                            pre_stats.4,
+                            post_stats.4,
+                            pre_stats.5,
+                            post_stats.5
+                        );
+                    }
                 }
                 if let Some(absorbed) = &run_merged {
                     if let (Some((rv, rp)), [(_, victims)]) = (&rehome_reloc, &absorbed[..]) {
@@ -5705,6 +5835,7 @@ pub(crate) fn reconstruct_topology_stage4(
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
     edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
 ) -> Result<ReconstructedTopology, YangError> {
+    chi_audit_report("s4-reconstruct entry", &mesh.tris);
     // (4) Phase A: per-patch ordered loops + inherited surface (`infos`), and the
     // exact per-edge intersection `Curve` map.
     let (mut infos, incidence, mut intersection_curves) =
@@ -6266,6 +6397,9 @@ pub(crate) fn reconstruct_topology_stage4(
                 &mut intersection_curves,
                 &mut relocations,
             )?;
+            if chi_audit_enabled() {
+                chi_audit_report(&format!("round={round} post-construct"), &mesh.tris);
+            }
             // §4.4.1 Fig-11(b)→(c) — merge the boundary vertices the
             // relocation overran. Placed AFTER the construct pass so it sees
             // the final cycles (a collapsed/refined seam changes which
@@ -6284,6 +6418,9 @@ pub(crate) fn reconstruct_topology_stage4(
             } else {
                 0
             };
+            if chi_audit_enabled() {
+                chi_audit_report(&format!("round={round} post-fold-merge"), &mesh.tris);
+            }
             if !crate::stage4_fold_risk::oncurve_merge_enabled() {
                 break; // today's single sequence — the alternation is gated
             }

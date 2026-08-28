@@ -879,6 +879,12 @@ fn boolean_once(
         // the pre-YR26 path.
         None => (a.as_mesh(), b.as_mesh()),
     };
+    crate::stage5_topology::chi_audit_report("stage2-input-a", &mesh_a.tris);
+    crate::stage5_topology::chi_audit_report("stage2-input-b", &mesh_b.tris);
+    if crate::stage5_topology::chi_audit_enabled() && stage0.is_some() {
+        crate::stage5_topology::chi_audit_report("stage1-raw-a", &a.as_mesh().tris);
+        crate::stage5_topology::chi_audit_report("stage1-raw-b", &b.as_mesh().tris);
+    }
     // M8 diagnostic operand dump (env-gated, read-only; spec
     // `m8_stage0_inputcheck_clean_emission` §6).
     stage0_dump(
@@ -1808,6 +1814,12 @@ fn boolean_once(
         }
     }
     let kept_submesh = Mesh::new(compact_verts, compact_tris);
+    crate::stage5_topology::chi_audit_report("stage2-kept-submesh", &kept_submesh.tris);
+    crate::stage5_topology::chi_audit_pinch_scan(
+        "stage2-kept-submesh",
+        &kept_submesh.tris,
+        &kept_submesh.verts,
+    );
 
     // (5) Stage 6: face resolution → FULL attribution. PRIMARY path is N4
     // provenance (cherchi `source` → B-Rep face via the per-triangle face map,
