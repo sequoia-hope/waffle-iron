@@ -1320,6 +1320,37 @@ fn run_absorption_attempt(
                 shared
             );
         }
+        // f1 planner, report-only (`YANG_441_REHOME=census`): run the
+        // §I13(f) corner-rehoming planner on every refused pair and print
+        // the plan or its typed decline — the corpus-honest measurement of
+        // the planner's certificates before anything applies.
+        if !ok && std::env::var("YANG_441_REHOME").is_ok_and(|x| x == "census") {
+            let out = crate::stage4_rehome::plan_corner_rehoming(
+                j,
+                mesh.verts[j as usize].as_array(),
+                &cj,
+                v,
+                mesh.verts[v as usize].as_array(),
+                &cv,
+            );
+            match out {
+                Ok(p) => eprintln!(
+                    "[i13f-rehome] PLAN j_cut=v{} j_rim=v{} new_wall=({:.9e},{:.9e},{:.9e}) \
+                     new_rim=({:.9e},{:.9e},{:.9e}) residual={:.3e} rim_side_of_cut={:.3e}",
+                    p.j_cut,
+                    p.j_rim,
+                    p.new_wall[0],
+                    p.new_wall[1],
+                    p.new_wall[2],
+                    p.new_rim[0],
+                    p.new_rim[1],
+                    p.new_rim[2],
+                    p.residual,
+                    p.rim_side_of_cut
+                ),
+                Err(d) => eprintln!("[i13f-rehome] DECLINE j=v{j} v=v{v} reason={d:?}"),
+            }
+        }
         ok
     };
     let (sites, census) = S4_PRE_POS.with(|c| {

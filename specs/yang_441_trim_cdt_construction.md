@@ -2892,6 +2892,67 @@ booleans, all passes:
   share by identity (the BINDING junction contract). Declines = loud
   typed STOP naming the pair.
 
+**The full true-corner surgery (derived from the anchor's exact order;
+naming: S_i = the shared cone [phantom band], S_j = the rim corner's
+extra cone [neighbor band], W = the shared plane [wall], K = the cut
+corner's extra plane, R = S_i∩S_j [the rim circle]):**
+
+- KILL two mesh junctions: `j_cut` {S_i, W, K} (exact solve outside
+  S_i's band — the §4.3.3 domain rule-out at a junction) and `j_rim`
+  {S_i, S_j, W} (the rim×wall point lies on K's waste side once the
+  true order is known — cut away).
+- MINT two true junctions: `newJ_wall` = (W∩K line) ∩ S_j — on the
+  wall's cut-line edge and the S_j band's wall conic; `newJ_rim` =
+  R ∩ K — where the cut truncates the rim edge between the two cone
+  faces. Mint ONCE each, share by identity across every incident cycle.
+- SPLICE four patch cycles: W (cut line now runs to newJ_wall, then
+  S_j's conic toward the interior — j_cut and j_rim both leave the wall
+  cycle); K (gains the K∩S_j stretch [newJ_wall → newJ_rim] the mesh
+  never had); S_j (j_rim replaced by newJ_rim → K∩S_j → newJ_wall on
+  its wall side); S_i (loses its wall contact entirely — rim runs to
+  newJ_rim then onto K∩S_i's trace).
+
+**Build plan (f-increments; f0 = the census above, DONE):**
+
+1. **f1 — `plan_corner_rehoming` (pure planner, census-wired) — BUILT
+   AND MEASURED 2026-08-28 (`stage4_rehome.rs`, 7 unit tests incl. the
+   anchor pair's verbatim surfaces).** From a refused pair + carrier
+   sets: derive S_i/S_j/W/K by the measured shape (anything else
+   declines typed), certify S_i/S_j coaxial, construct R closed-form on
+   the site's nappes, solve newJ_rim (`circle_plane_nearest_root`) and
+   newJ_wall (exact W∩K line × S_j quadratic, local-nappe filtered,
+   window = the pair's own scale, ambiguity declines), certify solve
+   consistency (both strictly off-rim on one common side) and mint
+   residuals at the exactness band. **The pair's ORDER INVERSION
+   authority stays the I13d selector's** (which side of the rim is
+   whose band is authored profile data, not derivable from the two
+   surfaces — the planner's only production entry is a
+   selector-certified pair; f2 re-plumbs the selector's t-params to the
+   apply site). Wired report-only under `YANG_441_REHOME=census`.
+   **Measured on R0003: 10/10 physical sites PLAN, zero declines,
+   worst mint residual 2.6e-12**; the anchor site's new_wall lands at
+   the predicted ℓ∩C0 spot. Two lessons banked: (a) a nappe-filter
+   double-shift bug (apex_j-relative station minus a_j again) was
+   INVISIBLE to the synthetic fixture (its apex layout kept the sign)
+   and caught only by the anchor-verbatim test — real-data pins beat
+   synthetic-only suites; (b) **the rim×cut junction {S_i, S_j, K}
+   ALREADY EXISTS in the mesh** (R0003 anchor: v8397, relocated onto
+   its exact triple — the planner's new_rim reproduces its position to
+   print precision), so f2's surgery is RECOGNIZE-AND-SHARE for
+   newJ_rim (the junction contract's identity rule) and a true MINT
+   only for newJ_wall {S_j, W, K}; the corrected corner anatomy is:
+   the S_i wall trace [j_rim → j_cut] and j_rim itself lie on K's
+   WASTE side (the cut truncates the band before it reaches the wall),
+   the wall cycle re-routes cut-line → newJ_wall → C0, and the
+   cone-side chains truncate at the existing rim×cut junction.
+2. **f2 — wall-cycle splice, gated:** apply the W-cycle half (replace
+   [.., j_cut, j_rim, ..] by [.., newJ_wall, ..] with the typed S_j
+   conic edge), region-rebuild via the existing fan machinery, measure
+   f903 gated.
+3. **f3 — the four-cycle surgery** (K gains its new stretch; S_i/S_j
+   splices), fixed-point integration with I13d/e, full corpus gated.
+4. **f4 — flip** per the standing two-proof protocol.
+
 ## 5. After this epic (recorded, not started)
 
 - **§4.5.4 removal half / §4.5.2 guard shell** (roadmap item 3d/4): route the
