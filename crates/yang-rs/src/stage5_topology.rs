@@ -963,6 +963,23 @@ fn run_fold_merge_passes(
                 None => break,
             }
         }
+        // f2c apply-time MESH edge-use audit (rehome applies only): the
+        // undirected-edge use counts before vs after the batch — any edge
+        // torn open (2 → ≠2 uses) or healed is printed with positions.
+        // This is the mesh-level truth the output emission's run-collapsed
+        // loops obscure (measured 2026-08-28: the ON-run Stage-6 pairing
+        // STOP decodes to exactly these tears).
+        let edge_uses = |mesh: &Mesh| -> std::collections::BTreeMap<(u32, u32), u32> {
+            let mut m: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+            for tri in &mesh.tris {
+                for k in 0..3 {
+                    let (x, y) = (tri[k], tri[(k + 1) % 3]);
+                    *m.entry((x.min(y), x.max(y))).or_default() += 1;
+                }
+            }
+            m
+        };
+        let pre_uses = rehome_reloc.map(|_| edge_uses(mesh));
         match apply_rebuild_batch(mesh, attribution, &rebuilds, &BTreeMap::new()) {
             Ok(()) => {
                 // §I13(f) f2: the re-homed corner's mint position — the fans
@@ -970,6 +987,42 @@ fn run_fold_merge_passes(
                 // with them (a refused batch leaves the mesh untouched).
                 if let Some((v, p)) = rehome_reloc {
                     mesh.verts[v as usize] = p;
+                }
+                if let Some(pre) = &pre_uses {
+                    let post = edge_uses(mesh);
+                    let mut torn = 0usize;
+                    for (&e, &n) in &post {
+                        let was = pre.get(&e).copied().unwrap_or(0);
+                        if n == was || (n == 2) == (was == 2) {
+                            continue;
+                        }
+                        torn += 1;
+                        if torn <= 24 {
+                            let p0 = mesh.verts[e.0 as usize].as_array();
+                            let p1 = mesh.verts[e.1 as usize].as_array();
+                            eprintln!(
+                                "[i13f-rehome]   audit: edge (v{},v{}) uses {was}->{n} \
+                                 a=({:.6},{:.6},{:.6}) b=({:.6},{:.6},{:.6})",
+                                e.0, e.1, p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]
+                            );
+                        }
+                    }
+                    for (&e, &was) in pre {
+                        if was != 2 || post.contains_key(&e) {
+                            continue;
+                        }
+                        torn += 1;
+                        if torn <= 24 {
+                            eprintln!(
+                                "[i13f-rehome]   audit: edge (v{},v{}) uses {was}->0 (gone)",
+                                e.0, e.1
+                            );
+                        }
+                    }
+                    eprintln!(
+                        "[i13f-rehome]   audit: {torn} edge(s) changed 2-manifold status \
+                         across the apply"
+                    );
                 }
                 if let Some(absorbed) = &run_merged {
                     if let (Some((rv, rp)), [(_, victims)]) = (&rehome_reloc, &absorbed[..]) {
@@ -1715,6 +1768,17 @@ fn rehome_attempt(
         Vec<crate::stage4_construct::PatchRebuild>,
         Point3,
     )> = Vec::new();
+    // f2c: material-KEPT views (margin < 0) are not declined per-view —
+    // they are collected and grouped by phantom below: a site presenting
+    // BOTH mirrored views as kept is the measured inverted-junction-pair
+    // signature, and its repair re-homes the phantom, absorbing nothing.
+    struct KeptView<'a> {
+        cand: &'a crate::stage4_fold_risk::RehomeCandidate,
+        plan: crate::stage4_rehome::RehomePlan,
+        rim_j: u32,
+        kept_edge: Option<(u32, &'a Curve)>,
+    }
+    let mut kept_views: Vec<KeptView> = Vec::new();
     'cand: for cand in cands {
         if rehome_blocked.contains(&pair_key(cand.j, cand.v)) {
             skipped_blocked += 1;
@@ -1806,6 +1870,7 @@ fn rehome_attempt(
             .flatten()
             .filter(|&x| x != plan.j_cut && x != plan.j_rim && x != rim_j)
             .collect();
+        let mut kept_edge: Option<(u32, &Curve)> = None;
         if let (1, Some(&w)) = (far.len(), far.iter().next()) {
             let key = (rim_j.min(w), rim_j.max(w));
             let verdict = curves.get(&key).and_then(|c| {
@@ -1822,6 +1887,11 @@ fn rehome_attempt(
             eprintln!(
                 "[i13f-rehome]   kept-edge report: v{rim_j}-v{w} mint_interposes={verdict:?}"
             );
+            // f2c consumes the kept edge only when the mint provably
+            // interposes on its conic — the chain-split/insert target.
+            if verdict == Some(true) {
+                kept_edge = curves.get(&key).map(|c| (w, c));
+            }
         }
         // f2b — kept/waste view discrimination by MATERIAL evidence (the
         // stage-2 labels, read as the corner witness patch's result-outward
@@ -2019,7 +2089,15 @@ fn rehome_attempt(
             }
         }
         if mat.margin < 0.0 {
-            decline(RehomeDecline::KeptByMaterial, rehome_blocked);
+            // NOT a per-view decline: a site whose BOTH mirrored views read
+            // material-kept is the family's measured signature, and the f2c
+            // site pass below owns it. Single-kept-view sites decline there.
+            kept_views.push(KeptView {
+                cand,
+                plan,
+                rim_j,
+                kept_edge,
+            });
             continue;
         }
         // Per-holder fan plans: every patch holding the victim rebuilds; the
@@ -2162,6 +2240,241 @@ fn rehome_attempt(
             ));
         }
         would_apply += 1;
+    }
+    // f2c — the corrected surgery for BOTH-CORNERS-KEPT sites (the family's
+    // measured signature, censuses 10–12): the only false object is the
+    // phantom. Relocate it to the mint, delete its S_i fan (the fossil
+    // sliver overhanging the rim — the link IS the existing rim chain,
+    // whose ends are the two true corners), and seam-insert it into BOTH
+    // S_j fragments' boundary chains at its interposed parameter (one
+    // fragment per view's kept corner). Nothing is absorbed. Every
+    // certificate failure declines the whole site loudly and pair-blocks
+    // both views.
+    {
+        use crate::stage4_construct::{delete_boundary_fan, split_boundary_edge};
+        use crate::stage4_correct::{conic_param, conics_equal_up_to_normal_sign};
+        let pos = |x: u32| mesh.verts[x as usize].as_array();
+        let mut by_site: std::collections::BTreeMap<u32, Vec<&KeptView>> = Default::default();
+        for kv in &kept_views {
+            by_site.entry(kv.plan.j_cut).or_default().push(kv);
+        }
+        'site: for (&jc, views) in &by_site {
+            let decline_site =
+                |d: crate::stage4_rehome::RehomeDecline,
+                 blocked: &mut std::collections::BTreeSet<(u32, u32)>| {
+                    for v in views {
+                        eprintln!(
+                            "[i13f-rehome] pass={pass}: DECLINE pair v{}/v{} reason={d:?} \
+                         (f2c site j_cut=v{jc})",
+                            v.cand.j, v.cand.v
+                        );
+                        blocked.insert(pair_key(v.cand.j, v.cand.v));
+                    }
+                };
+            let [va, vb] = match views[..] {
+                [a2, b2] => [a2, b2],
+                _ => {
+                    decline_site(RehomeDecline::NotAKeptPair, rehome_blocked);
+                    continue;
+                }
+            };
+            // One site, one frame: shared bands, distinct kept corners, and
+            // ONE mint (independently solved per view; they must agree at
+            // the evaluation-noise floor).
+            let corners: std::collections::BTreeSet<u32> =
+                [va.plan.j_rim, vb.plan.j_rim].into_iter().collect();
+            if va.plan.s_i != vb.plan.s_i || va.plan.s_j != vb.plan.s_j || corners.len() != 2 {
+                decline_site(RehomeDecline::NotAKeptPair, rehome_blocked);
+                continue;
+            }
+            let mint = va.plan.new_wall;
+            let scale = mint.iter().fold(0.0f64, |m, &c| m.max(c.abs()));
+            let floor = 64.0 * cad_primitives::TAU_EVAL * (1.0 + scale);
+            let mint_gap = {
+                let o = vb.plan.new_wall;
+                ((mint[0] - o[0]).powi(2) + (mint[1] - o[1]).powi(2) + (mint[2] - o[2]).powi(2))
+                    .sqrt()
+            };
+            if !(mint_gap.is_finite() && mint_gap <= floor) {
+                decline_site(RehomeDecline::MintMismatch, rehome_blocked);
+                continue;
+            }
+            let mint_pt = Point3::new(mint[0], mint[1], mint[2]);
+            // Measured precondition: no S_j patch holds the phantom yet.
+            if patches.iter().any(|p| {
+                p.surface == va.plan.s_j
+                    && p.tris.iter().any(|&t| mesh.tris[t as usize].contains(&jc))
+            }) {
+                decline_site(RehomeDecline::AlreadyJoined, rehome_blocked);
+                continue;
+            }
+            // The S_i fossil fan: exactly one holder patch, deletion link
+            // ends = the two true corners.
+            let si: Vec<usize> = patches
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| {
+                    p.surface == va.plan.s_i
+                        && p.tris.iter().any(|&t| mesh.tris[t as usize].contains(&jc))
+                })
+                .map(|(pi, _)| pi)
+                .collect();
+            let [si_pi] = si[..] else {
+                eprintln!(
+                    "[i13f-rehome]   f2c site j_cut=v{jc}: {} S_i holder patches {si:?}",
+                    si.len()
+                );
+                decline_site(RehomeDecline::SiFanUnresolved, rehome_blocked);
+                continue;
+            };
+            let (si_del, link) = match delete_boundary_fan(mesh, si_pi, &patches[si_pi], jc) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("[i13f-rehome]   f2c site j_cut=v{jc}: fan delete — {e:?}");
+                    decline_site(RehomeDecline::SiFanUnresolved, rehome_blocked);
+                    continue;
+                }
+            };
+            let ends: std::collections::BTreeSet<u32> =
+                [link[0], link[link.len() - 1]].into_iter().collect();
+            if ends != corners {
+                eprintln!(
+                    "[i13f-rehome]   f2c site j_cut=v{jc}: link ends {ends:?} != corners \
+                     {corners:?} (link {link:?})"
+                );
+                decline_site(RehomeDecline::SiFanUnresolved, rehome_blocked);
+                continue;
+            }
+            // The two seam-inserts: per view, the S_j fragment whose cycle
+            // holds the view's KEPT corner (its recognized rim junction),
+            // on the boundary edge carrying the view's kept conic with the
+            // mint's parameter interposed.
+            let mut rebuilds = vec![si_del];
+            let mut insert_report: Vec<String> = Vec::new();
+            for v in [va, vb] {
+                let Some((_, kc)) = v.kept_edge else {
+                    decline_site(RehomeDecline::KeptEdgeUnresolved, rehome_blocked);
+                    continue 'site;
+                };
+                let mut targets: Vec<(usize, u32)> = Vec::new();
+                for (pi, pat) in patches.iter().enumerate() {
+                    if pat.surface != v.plan.s_j {
+                        continue;
+                    }
+                    for cyc in &pat.cycles {
+                        let n = cyc.len();
+                        for i in 0..n {
+                            if cyc[i] != v.rim_j {
+                                continue;
+                            }
+                            for nb in [cyc[(i + n - 1) % n], cyc[(i + 1) % n]] {
+                                let key = (v.rim_j.min(nb), v.rim_j.max(nb));
+                                let Some(c) = curves.get(&key) else { continue };
+                                if !(c == kc || conics_equal_up_to_normal_sign(c, kc)) {
+                                    continue;
+                                }
+                                let t = |p: [f64; 3]| conic_param(c, Point3::new(p[0], p[1], p[2]));
+                                let inter = (|| {
+                                    crate::stage4_rehome::mint_interposes(
+                                        c,
+                                        t(pos(v.rim_j))?,
+                                        t(mint)?,
+                                        t(pos(nb))?,
+                                    )
+                                })();
+                                if inter == Some(true) {
+                                    targets.push((pi, nb));
+                                }
+                            }
+                        }
+                    }
+                }
+                targets.sort_unstable();
+                targets.dedup();
+                let [(frag_pi, nb)] = targets[..] else {
+                    eprintln!(
+                        "[i13f-rehome]   f2c site j_cut=v{jc}: {} insert targets at \
+                         corner v{} — {targets:?}",
+                        targets.len(),
+                        v.rim_j
+                    );
+                    decline_site(RehomeDecline::InsertEdgeUnresolved, rehome_blocked);
+                    continue 'site;
+                };
+                match split_boundary_edge(
+                    mesh,
+                    frag_pi,
+                    &patches[frag_pi],
+                    v.rim_j,
+                    nb,
+                    jc,
+                    mint_pt,
+                ) {
+                    Ok(r) => {
+                        insert_report.push(format!("patch={frag_pi} edge=(v{},v{nb})", v.rim_j));
+                        rebuilds.push(r);
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[i13f-rehome]   f2c site j_cut=v{jc}: split at corner v{} \
+                             — {e:?}",
+                            v.rim_j
+                        );
+                        decline_site(RehomeDecline::InsertEdgeUnresolved, rehome_blocked);
+                        continue 'site;
+                    }
+                }
+            }
+            // Ride-along orientation guard: every triangle keeping the moved
+            // vertex OUTSIDE the planned rebuilds must keep its sense under
+            // the relocation (sign-only, no band).
+            let planned: std::collections::BTreeSet<u32> = rebuilds
+                .iter()
+                .flat_map(|r| r.old_tris.iter().copied())
+                .collect();
+            for (t, tri) in mesh.tris.iter().enumerate() {
+                if planned.contains(&(t as u32)) || !tri.contains(&jc) {
+                    continue;
+                }
+                let at = |v2: u32, moved: bool| -> Point3 {
+                    if moved && v2 == jc {
+                        mint_pt
+                    } else {
+                        mesh.verts[v2 as usize]
+                    }
+                };
+                let av = |moved: bool| {
+                    crate::stage4_splice::area_vector(&[*tri], &|v2: u32| at(v2, moved))
+                };
+                let d = crate::stage4_splice::dot3(av(false), av(true));
+                if !(d.is_finite() && d > 0.0) {
+                    decline_site(RehomeDecline::TriangleFlip, rehome_blocked);
+                    continue 'site;
+                }
+            }
+            eprintln!(
+                "[i13f-rehome] pass={pass}: {} f2c site j_cut=v{jc} -> \
+                 ({:.9e},{:.9e},{:.9e}) corners={corners:?} fan_delete{{patch={si_pi}, \
+                 tris={}, link={link:?}}} inserts[{}]",
+                if mode == RehomeMode::On {
+                    "APPLY"
+                } else {
+                    "WOULD-APPLY"
+                },
+                mint[0],
+                mint[1],
+                mint[2],
+                rebuilds[0].old_tris.len(),
+                insert_report.join(", "),
+            );
+            for v in views {
+                rehome_blocked.insert(pair_key(v.cand.j, v.cand.v));
+            }
+            if mode == RehomeMode::On {
+                return Some((rebuilds, vec![(jc, vec![])], Some((jc, mint_pt))));
+            }
+            would_apply += 1;
+        }
     }
     if mode == RehomeMode::Census {
         eprintln!(

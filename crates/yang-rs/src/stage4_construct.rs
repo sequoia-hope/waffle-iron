@@ -663,6 +663,19 @@ pub(crate) enum ConstructError {
     /// two are not joined by a triangle edge and the merge is not the local
     /// Fig-11 operation.
     FanSurvivorNotAdjacent { patch: usize, victim: u32 },
+    /// f2c [`split_boundary_edge`]: the named edge has `incident` patch
+    /// triangles instead of exactly one — it is absent, interior, or the
+    /// patch is non-manifold there. A boundary seam-insert only splits a
+    /// true boundary edge.
+    EdgeNotBoundary {
+        patch: usize,
+        edge: (u32, u32),
+        incident: usize,
+    },
+    /// f2c [`split_boundary_edge`]: a split child would flip or degenerate
+    /// the parent triangle's orientation with the inserted vertex at its
+    /// mint position.
+    SplitFlip { patch: usize },
 }
 
 /// Which condition made [`rebuild_merge_fan`] declare the victim's fan
@@ -673,6 +686,11 @@ pub(crate) enum ConstructError {
 pub(crate) enum FanReason {
     /// A fan triangle repeats the victim, or its two link corners coincide.
     Degenerate,
+    /// f2c `delete_boundary_fan` only: the victim's link is not a single
+    /// simple OPEN chain — the victim is interior to the patch (closed
+    /// link: deleting the fan would punch a hole) or the region walk did
+    /// not cover every link edge in one run.
+    Closed { fan: usize },
     /// Two fan triangles leave the victim toward the SAME link vertex, or two
     /// arrive at the same one: the patch meets the victim on more than one
     /// sheet and the link is not a path.
@@ -1557,6 +1575,192 @@ pub(crate) fn rebuild_rehome_fan(
         survivor,
         Some(survivor_pos),
     )
+}
+
+/// §I13(f) f2c — delete a BOUNDARY vertex's whole fan from one patch: the
+/// generalized empty rebuild. The victim's fan region (every patch
+/// triangle touching it) is removed with NO replacement; its link — which
+/// must be a single simple OPEN chain between the victim's two patch-cycle
+/// neighbors — becomes the patch boundary. This is the S_i-side repair of
+/// the inverted-junction-pair corner: the phantom's fan is the fossil
+/// sliver overhanging the band rim, and the link IS the already-existing
+/// rim chain (measured, f2c precondition census 2026-08-28). Returns the
+/// rebuild and the ordered link chain for the caller's certification
+/// (its ends must be the two true corners).
+///
+/// A closed link (interior vertex — deleting would punch a hole), a
+/// pinch, a multi-run link, or any degeneracy declines typed. The victim
+/// vertex itself is NOT dropped — it lives on in other patches (the f2c
+/// relocation moves it).
+pub(crate) fn delete_boundary_fan(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    victim: u32,
+) -> Result<(PatchRebuild, Vec<u32>), ConstructError> {
+    let mut old_tris: Vec<u32> = Vec::new();
+    let mut directed: BTreeSet<(u32, u32)> = BTreeSet::new();
+    for &t in &patch.tris {
+        let tri = mesh.tris[t as usize];
+        if !tri.contains(&victim) {
+            continue;
+        }
+        old_tris.push(t);
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            if x == y || !directed.insert((x, y)) {
+                return Err(ConstructError::FanNotSimple {
+                    patch: patch_index,
+                    victim,
+                    reason: FanReason::Degenerate,
+                });
+            }
+        }
+    }
+    if old_tris.is_empty() {
+        return Err(ConstructError::MalformedPatch { patch: patch_index });
+    }
+    let fan = old_tris.len();
+    // The link: region-boundary edges not touching the victim, chained.
+    let mut next: BTreeMap<u32, u32> = BTreeMap::new();
+    let mut has_pred: BTreeSet<u32> = BTreeSet::new();
+    for &(x, y) in &directed {
+        if directed.contains(&(y, x)) || x == victim || y == victim {
+            continue;
+        }
+        if next.insert(x, y).is_some() {
+            return Err(ConstructError::FanNotSimple {
+                patch: patch_index,
+                victim,
+                reason: FanReason::Pinch { fan },
+            });
+        }
+        has_pred.insert(y);
+    }
+    let Some(start) = next.keys().find(|x| !has_pred.contains(x)).copied() else {
+        // No chain start: the link is closed — an interior vertex.
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim,
+            reason: FanReason::Closed { fan },
+        });
+    };
+    let mut link: Vec<u32> = vec![start];
+    let mut cur = start;
+    while let Some(&n) = next.get(&cur) {
+        if link.contains(&n) {
+            return Err(ConstructError::FanNotSimple {
+                patch: patch_index,
+                victim,
+                reason: FanReason::Pinch { fan },
+            });
+        }
+        link.push(n);
+        cur = n;
+    }
+    if link.len() != next.len() + 1 {
+        // The walk did not cover every link edge in one run.
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim,
+            reason: FanReason::Closed { fan },
+        });
+    }
+    Ok((
+        PatchRebuild {
+            patch: patch_index,
+            old_tris,
+            new_tris: Vec::new(),
+            new_verts: Vec::new(),
+            dropped: BTreeSet::new(),
+            plan_verts: mesh.verts.len() as u32,
+            plan_tris: mesh.tris.len() as u32,
+        },
+        link,
+    ))
+}
+
+/// §I13(f) f2c — seam-insert an EXISTING mesh vertex into a patch's
+/// boundary edge: the unique patch triangle carrying edge {x, y} splits
+/// into two children sharing the inserted vertex, winding preserved. This
+/// is the S_j-side repair (both fragments): the moved phantom lands ON
+/// the fragment's boundary conic between two of its chain vertices, and
+/// without the split the neighbor patch's new corner is a T-junction.
+///
+/// `insert_pos` is the vertex's POST-relocation position (the mint) — the
+/// orientation guard evaluates the children against it, because the batch
+/// write applies rebuilds first and the relocation with them. The vertex
+/// must not already be on the triangle; the edge must have exactly one
+/// incident patch triangle (a true boundary edge).
+pub(crate) fn split_boundary_edge(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    x: u32,
+    y: u32,
+    insert_v: u32,
+    insert_pos: Point3,
+) -> Result<PatchRebuild, ConstructError> {
+    let hits: Vec<u32> = patch
+        .tris
+        .iter()
+        .copied()
+        .filter(|&t| {
+            let tri = mesh.tris[t as usize];
+            tri.contains(&x) && tri.contains(&y)
+        })
+        .collect();
+    let (t, tri) = match hits[..] {
+        [t] => (t, mesh.tris[t as usize]),
+        _ => {
+            return Err(ConstructError::EdgeNotBoundary {
+                patch: patch_index,
+                edge: (x.min(y), x.max(y)),
+                incident: hits.len(),
+            })
+        }
+    };
+    if tri.contains(&insert_v) || x == y || insert_v == x || insert_v == y {
+        return Err(ConstructError::EdgeNotBoundary {
+            patch: patch_index,
+            edge: (x.min(y), x.max(y)),
+            incident: hits.len(),
+        });
+    }
+    let k = (0..3)
+        .find(|&k| {
+            let (p, q) = (tri[k], tri[(k + 1) % 3]);
+            (p == x && q == y) || (p == y && q == x)
+        })
+        .expect("both endpoints on the triangle imply an edge");
+    let (p, q, a) = (tri[k], tri[(k + 1) % 3], tri[(k + 2) % 3]);
+    let children = [[p, insert_v, a], [insert_v, q, a]];
+    // Orientation guard at the post-relocation position: both children
+    // must keep the parent's sense (sign-only, no band).
+    let at = |v: u32| -> Point3 {
+        if v == insert_v {
+            insert_pos
+        } else {
+            mesh.verts[v as usize]
+        }
+    };
+    let parent_av = crate::stage4_splice::area_vector(&[tri], &|v: u32| at(v));
+    for child in &children {
+        let av = crate::stage4_splice::area_vector(&[*child], &|v: u32| at(v));
+        let d = crate::stage4_splice::dot3(parent_av, av);
+        if !(d.is_finite() && d > 0.0) {
+            return Err(ConstructError::SplitFlip { patch: patch_index });
+        }
+    }
+    Ok(PatchRebuild {
+        patch: patch_index,
+        old_tris: vec![t],
+        new_tris: children.to_vec(),
+        new_verts: Vec::new(),
+        dropped: BTreeSet::new(),
+        plan_verts: mesh.verts.len() as u32,
+        plan_tris: mesh.tris.len() as u32,
+    })
 }
 
 fn fan_rebuild_core(
@@ -4099,5 +4303,88 @@ mod tests {
         assert_eq!(out[0], vec![0, 1, 5, 9]);
         // Not found.
         assert!(replace_seam_run(&cycles_wrap, &[2, 3, 4]).is_none());
+    }
+    // ---- §I13(f) f2c delete_boundary_fan / split_boundary_edge ---------
+
+    /// The measured corner shape: a boundary vertex 6 whose fan overhangs
+    /// a chain [1, 2, 3] (the rim); deleting the fan leaves the chain as
+    /// the boundary with no replacement triangles.
+    #[test]
+    fn delete_boundary_fan_leaves_the_link_chain() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),  // 0
+                Point3::new(1.0, 0.0, 0.0),  // 1
+                Point3::new(2.0, 0.05, 0.0), // 2 (rim chain)
+                Point3::new(3.0, 0.0, 0.0),  // 3
+                Point3::new(4.0, 0.0, 0.0),  // 4
+                Point3::new(2.0, 1.0, 0.0),  // 5 interior
+                Point3::new(2.0, -0.6, 0.0), // 6 = victim (overhang)
+            ],
+            tris: vec![
+                [0, 1, 5],
+                [1, 2, 5],
+                [2, 3, 5],
+                [3, 4, 5],
+                [1, 6, 2], // fan of 6 over the chain
+                [2, 6, 3],
+            ],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 6, 3, 4, 5]], vec![0, 1, 2, 3, 4, 5]);
+        let (r, link) = delete_boundary_fan(&mesh, 3, &patch, 6).expect("boundary fan");
+        assert_eq!(r.old_tris, vec![4, 5]);
+        assert!(r.new_tris.is_empty() && r.new_verts.is_empty() && r.dropped.is_empty());
+        assert_eq!(link, vec![3, 2, 1], "the rim chain, region-oriented");
+        // An interior vertex's closed link declines: deleting would hole.
+        let square = square_fan_mesh();
+        let sq_patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1, 2, 3]);
+        match delete_boundary_fan(&square, 0, &sq_patch, 4) {
+            Err(ConstructError::FanNotSimple {
+                reason: FanReason::Closed { fan: 4 },
+                ..
+            }) => {}
+            other => panic!("interior vertex must decline Closed, got {other:?}"),
+        }
+    }
+
+    /// Splitting a true boundary edge yields two winding-preserving
+    /// children; interior and absent edges decline; a flipping insert
+    /// position declines.
+    #[test]
+    fn split_boundary_edge_splits_exactly_one_triangle() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0), // 0
+                Point3::new(2.0, 0.0, 0.0), // 1
+                Point3::new(2.0, 1.0, 0.0), // 2
+                Point3::new(0.0, 1.0, 0.0), // 3
+                Point3::new(9.0, 9.0, 9.0), // 4 = vertex to insert (moved)
+            ],
+            tris: vec![[0, 1, 2], [0, 2, 3]],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1]);
+        let mint = Point3::new(1.0, -0.01, 0.0);
+        let r = split_boundary_edge(&mesh, 2, &patch, 0, 1, 4, mint).expect("boundary split");
+        assert_eq!(r.old_tris, vec![0]);
+        assert_eq!(r.new_tris, vec![[0, 4, 2], [4, 1, 2]]);
+        assert!(r.dropped.is_empty());
+        // The reversed call splits the same directed occurrence.
+        let r2 = split_boundary_edge(&mesh, 2, &patch, 1, 0, 4, mint).expect("order-free");
+        assert_eq!(r2.new_tris, r.new_tris);
+        // The diagonal {0, 2} is interior (two incident patch triangles).
+        match split_boundary_edge(&mesh, 2, &patch, 0, 2, 4, mint) {
+            Err(ConstructError::EdgeNotBoundary { incident: 2, .. }) => {}
+            other => panic!("interior edge must decline, got {other:?}"),
+        }
+        // An absent edge declines with zero incidents.
+        match split_boundary_edge(&mesh, 2, &patch, 1, 3, 4, mint) {
+            Err(ConstructError::EdgeNotBoundary { incident: 0, .. }) => {}
+            other => panic!("absent edge must decline, got {other:?}"),
+        }
+        // A mint on the far side of the apex flips a child: declined.
+        match split_boundary_edge(&mesh, 2, &patch, 0, 1, 4, Point3::new(1.0, 2.0, 0.0)) {
+            Err(ConstructError::SplitFlip { .. }) => {}
+            other => panic!("flipping insert must decline, got {other:?}"),
+        }
     }
 }

@@ -801,13 +801,18 @@ name, never measured).
    phase-3 junction-layer mesh update's first SMALL customer, the
    right vehicle before R0100's loop-level case.
    [STATUS 2026-08-28: f0 census + f1 planner + f2 gated apply arm +
-   f2b material discriminator BUILT (`YANG_441_REHOME`); the f2b
-   census REFUTED the interim absorb-a-corner apply shape — BOTH old
-   corners are true junctions (kept rim = the stub between them), only
-   the phantom is false, so the repair is exactly this paragraph's
-   original shape: relocate + re-home the phantom, absorb nothing
-   (spec §I13(f) f2c). Corpus untouched; f903 stays the loud wall
-   until f2c/f3 land.]
+   f2b material discriminator + f2c re-homing arm BUILT
+   (`YANG_441_REHOME`); the f2b census REFUTED the interim
+   absorb-a-corner apply shape — BOTH old corners are true junctions,
+   only the phantom is false. The f2c ON run measured: all applies
+   converge and **f903's ring-CDT RESOLVES**, then output edge-pairing
+   STOPs loudly; the apply-time mesh edge-use audit decodes the tears
+   (the fossil fan is the thin band's own local surface straddling the
+   true rim; deleting it opens a hole whose rim alternates between the
+   two bands' surviving patches). NEXT = f2c-2, the junction-layer
+   HOLE RE-FILL (true rim polyline through the hole + two-sided
+   band-attributed CDT + all-carrier chain splits) — spec §I13(f)
+   item 5. Corpus untouched; f903 stays the loud wall until it lands.]
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

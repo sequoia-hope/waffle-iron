@@ -104,10 +104,30 @@ pub(crate) enum RehomeDecline {
     /// f2b: the victim's material margin against the oriented cut plane
     /// is within the evaluation-noise floor — the side is undecidable.
     MaterialMarginDegenerate,
-    /// f2b: the victim lies strictly on the MATERIAL side of the view's
-    /// cut plane — this view is the wrong mirror (its "victim" is the
-    /// kept corner).
-    KeptByMaterial,
+    /// f2c: a site qualified as both-corners-kept but did not present
+    /// exactly TWO material-kept views sharing the phantom — the family
+    /// signature (measured 2026-08-28: every corner presents both) is
+    /// absent, so the corrected surgery does not know the second corner.
+    NotAKeptPair,
+    /// f2c: the two mirrored views' independently-planned mints disagree
+    /// beyond the evaluation-noise floor — one site, two surgeries; never
+    /// guessed between.
+    MintMismatch,
+    /// f2c: a view's kept-edge (the recognized junction's far chain edge
+    /// on the view's cut patch, with the mint interposed) could not be
+    /// resolved — the chain-split/insert target is unknown.
+    KeptEdgeUnresolved,
+    /// f2c: the phantom's S_i fan is not held by exactly one S_i-surface
+    /// patch, or its deletion link's ends are not exactly the two true
+    /// corners — the fossil sliver is not the measured shape.
+    SiFanUnresolved,
+    /// f2c: no unique S_j-fragment boundary edge at the view's kept
+    /// corner carries the view's kept conic with the mint's parameter
+    /// interposed — the seam-insert target is unknown.
+    InsertEdgeUnresolved,
+    /// f2c: some S_j-surface patch already holds the phantom — the
+    /// measured precondition (the join is an INSERT) does not hold here.
+    AlreadyJoined,
 }
 
 /// §I13(f) f2 gate — `YANG_441_REHOME`. Unset/other = Off (the arm does

@@ -3095,12 +3095,55 @@ false. Kept for the derivation's frame naming, which stands.]:**
    site (the measured family signature); a genuinely-waste view
    (margin > 0, unreached on today's corpus) stays with the old
    absorb branch.
-5. **f3 — chain splits + cycle integration** (split BOTH continuing
+
+   **f2c BUILT GATED + ON-MEASURED 2026-08-28 (same session):**
+   primitives `delete_boundary_fan` + `split_boundary_edge`
+   (stage4_construct, unit-tested), the site pass in `rehome_attempt`
+   (group kept views by phantom, certify pair/mint-agreement/
+   preconditions, fan-delete + 2 fragment inserts + reloc as one
+   batch), and an apply-time MESH EDGE-USE AUDIT (pre/post undirected
+   use-count diff, printed per apply). Census-13: 5/5 sites plan
+   cleanly, zero declines, verdict unchanged. **ON run: all 6 applies
+   execute and converge; f903's "ring rejected by CDT" RESOLVES — the
+   wall ring triangulates — but the final subtract STOPS loudly at
+   output assembly ("an undirected output edge is not used by exactly
+   two directed edges"), and the audit decodes the tears at EVERY
+   apply (~9 edges/site): the 4 link edges of the deleted fan (2→1 —
+   the HOLE), the 2 old insert edges (2→1 — the unsplit PARTNER on
+   the wall/flank side), the 2 fan-interior edges (2→0, correct), and
+   one lucky 0→2.** Two design refutations measured: (i) the "tight
+   rim stub" reading of the S_i fan link was wrong — the link's ends
+   are the corners but its INTERIOR zigzags both rims far around the
+   band: the fan IS the thin band's local surface, so the empty
+   delete un-covers the band; (ii) a plain absorb-into-corner re-fan
+   also cannot close it, because the hole's rim ALTERNATES between
+   S_i- and S_j-surviving patches (output faces 420→422→421→419 each
+   walk one stretch) — the fossil fan blob straddles the TRUE rim
+   boundary, so no per-triangle reassignment exists.
+
+5. **f2c-2 — the junction-layer HOLE RE-FILL** (NEXT; this is the
+   epic's promised "phase-3 junction-layer mesh update" first
+   customer, now precisely scoped by the audit): delete the fossil
+   fan (the hole), then re-triangulate the hole with the TRUE
+   structure — construct the true rim-1 polyline through the hole
+   (the exact rim circle through B and C plus the stub [B→C]),
+   partition the hole polygon by that polyline, CDT each side with
+   its own band's attribution (S_i strip side; S_j corner side —
+   which reconnects the two S_j fragments the fossil fan separated),
+   and split EVERY carrier of each insert edge (fragment AND
+   wall/flank partner — the measured 2→1 partner tears). The audit is
+   the acceptance instrument: a correct fill shows 2→0 interior
+   drops and NOTHING at 2→1. Then f3's chain splits/retypes (the
+   recompute re-derives edge conics from endpoint carriers, so
+   retypes are expected free — verify: one split child emitted
+   HypArc but its sibling emitted an untyped Seg in the ON run, an
+   asymmetry to chase in f2c-2's census).
+6. **f3 — chain splits + cycle integration** (split BOTH continuing
    chains at the mint per the kept-edge report — mint_interposes
    measured TRUE on both; K gains [newJ → C]; the flank's [C…w] chain
    and the wall's [B…w'] chain each gain newJ), fixed-point
    integration with I13d/e, full corpus gated.
-6. **f4 — flip** per the standing two-proof protocol.
+7. **f4 — flip** per the standing two-proof protocol.
 
 ## 5. After this epic (recorded, not started)
 
