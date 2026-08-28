@@ -3061,20 +3061,40 @@ false. Kept for the derivation's frame naming, which stands.]:**
    gate is therefore load-bearing as a REFUTATION: the honest fixed
    point applies NOTHING, loudly, until the corrected surgery lands.
 4. **f2c — the corrected surgery: re-home the phantom, absorb NOTHING**
-   (NEXT, replaces the absorb-j_rim apply arm): per the measured
-   anatomy the only false object is the phantom `j_cut` = A; B and C
-   both stay. (a) relocate A → `new_wall` (f2's position-override +
-   batch write, kept); (b) REMOVE the moved vertex from the S_i patch
-   only — fan-rebuild with victim = A on S_i's holders (its boundary
-   then runs C1[…→B] → rim stub [B→C] → flank trace [C→…]; first
-   census must print A's S_i-fan link to confirm the B/flank-side
-   neighbors); (c) seam-INSERT the moved vertex into the S_j patch's
-   C0 boundary chain between B and its far neighbor (the §4.3.4/I5
-   insert primitive — a T-junction otherwise); (d) retype the wall
-   cycle's [newJ→B] edge C1→C0; declines typed + pair-blocked, at the
-   same I13d/e fixed point, exclusivity replaced by the f2b material
-   gate run on BOTH old corners (both must read KEPT for the site to
-   qualify — the measured signature of this family).
+   (NEXT, replaces the absorb-j_rim apply arm). **Precondition census
+   BUILT + MEASURED 2026-08-28 (censuses 11–12, `f2c precond` +
+   `f2c s_j-join` rows; all 5 corners identical in shape):**
+   - Holders of `j_cut` = exactly {S_i, W, K}; NO S_j patch holds it
+     (the join really is an insert).
+   - `j_cut`'s S_i fan link runs [C, r1..rk, B] where the interior
+     vertices are SHARED with the S_j patches' cycles — **the rim stub
+     [C…B] already exists as a mesh chain**, and the phantom's whole
+     S_i fan is the fossil sliver overhanging the rim. The S_i repair
+     is therefore the GENERALIZED EMPTY REBUILD: delete the fan, the
+     existing rim chain becomes the boundary (no absorb, no new
+     triangles; the patch cycle [… B → A → C …] becomes
+     [… B → rk → … → r1 → C …]).
+   - Cycle adjacency: W cycle runs ℓ(untyped) → A → B[pair-conic C1]
+     (retype target C1→C0); K cycle runs C[S_i-trace] → A →
+     ℓ(untyped) (retype target S_i-trace→S_j-trace); W holds B not C,
+     K holds C not B.
+   - **The S_j band is split into TWO fragments at the corner** (the
+     tooth bite between them): one fragment's cycle holds B, the
+     other holds C; B's S_j-side adjacency is (rim-chain vertex
+     [untyped] .. C0-chain vertex [other]) — the JOIN edge is B's
+     C0-side boundary edge on B's fragment; newJ seam-inserts into
+     that chain at its interposed param (§4.3.4/I5 primitive — a
+     T-junction otherwise).
+
+   Surgery: (a) relocate A → `new_wall` (f2's position-override +
+   batch write + ride-along orientation guard, kept); (b) S_i
+   generalized empty fan-delete; (c) seam-insert into B's-fragment C0
+   chain; (d) retypes + chain splits per f3. Declines typed +
+   pair-blocked, at the same I13d/e fixed point. Trigger signature =
+   the f2b material gate reading KEPT on BOTH mirrored views of a
+   site (the measured family signature); a genuinely-waste view
+   (margin > 0, unreached on today's corpus) stays with the old
+   absorb branch.
 5. **f3 — chain splits + cycle integration** (split BOTH continuing
    chains at the mint per the kept-edge report — mint_interposes
    measured TRUE on both; K gains [newJ → C]; the flank's [C…w] chain

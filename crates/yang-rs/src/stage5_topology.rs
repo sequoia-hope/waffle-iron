@@ -1848,6 +1848,176 @@ fn rehome_attempt(
              floor={:.1e} cut_patches={}",
             cand.j, cand.v, plan.j_rim, mat.margin, mat.floor, mat.cut_patches
         );
+        // f2c precondition census (report-only, census mode): the corrected
+        // surgery's input anatomy, measured before building it — which
+        // patches hold the phantom `j_cut` (by frame role), its cycle
+        // neighbors with each edge typed against the pair's own fossil
+        // conic vs the kept-edge conic (the retype/split targets), the
+        // S_i-patch fan link of `j_cut` in order (does it run from the
+        // victim-side corner to the recognized junction — the rim stub's
+        // endpoints?), and whether the S_j patch already holds it (it must
+        // NOT — the seam-insert is the join).
+        if mode == RehomeMode::Census {
+            use crate::stage4_correct::conics_equal_up_to_normal_sign;
+            let role = |s: &crate::Surface| {
+                if *s == plan.s_i {
+                    "s_i"
+                } else if *s == plan.s_j {
+                    "s_j"
+                } else if *s == plan.wall {
+                    "wall"
+                } else if *s == plan.cut {
+                    "cut"
+                } else {
+                    "other"
+                }
+            };
+            let kept_curve = curves.get(&{
+                let far: std::collections::BTreeSet<u32> = patches
+                    .iter()
+                    .filter(|pat| pat.surface == plan.cut)
+                    .flat_map(|pat| pat.cycles.iter())
+                    .flat_map(|cyc| {
+                        let n = cyc.len();
+                        (0..n)
+                            .filter(move |&i| cyc[i] == rim_j)
+                            .map(move |i| [cyc[(i + n - 1) % n], cyc[(i + 1) % n]])
+                    })
+                    .flatten()
+                    .filter(|&x| x != plan.j_cut && x != plan.j_rim && x != rim_j)
+                    .collect();
+                match (far.len(), far.iter().next()) {
+                    (1, Some(&w)) => (rim_j.min(w), rim_j.max(w)),
+                    _ => (u32::MAX, u32::MAX),
+                }
+            });
+            let type_of = |x: u32, y: u32| -> &'static str {
+                match curves.get(&(x.min(y), x.max(y))) {
+                    None => "untyped",
+                    Some(c)
+                        if *c == cand.curve || conics_equal_up_to_normal_sign(c, &cand.curve) =>
+                    {
+                        "pair-conic"
+                    }
+                    Some(c)
+                        if kept_curve
+                            .is_some_and(|k| k == c || conics_equal_up_to_normal_sign(k, c)) =>
+                    {
+                        "kept-conic"
+                    }
+                    Some(_) => "other",
+                }
+            };
+            for (pi, pat) in patches.iter().enumerate() {
+                let holds = pat
+                    .tris
+                    .iter()
+                    .any(|&t| mesh.tris[t as usize].contains(&plan.j_cut));
+                let adj: Vec<(u32, u32)> = pat
+                    .cycles
+                    .iter()
+                    .flat_map(|cyc| {
+                        let n = cyc.len();
+                        (0..n)
+                            .filter(move |&i| cyc[i] == plan.j_cut)
+                            .map(move |i| (cyc[(i + n - 1) % n], cyc[(i + 1) % n]))
+                    })
+                    .collect();
+                if !holds && adj.is_empty() {
+                    continue;
+                }
+                let adj_s: Vec<String> = adj
+                    .iter()
+                    .map(|&(p, q)| {
+                        format!(
+                            "(v{p}[{}] .. v{q}[{}])",
+                            type_of(p, plan.j_cut),
+                            type_of(plan.j_cut, q)
+                        )
+                    })
+                    .collect();
+                // Ordered fan link of `j_cut` on this patch: boundary chain
+                // of its triangle region, excluding the vertex itself (the
+                // fan_rebuild_core walk, read-only).
+                let mut directed: std::collections::BTreeSet<(u32, u32)> = Default::default();
+                for &t in &pat.tris {
+                    let tri = mesh.tris[t as usize];
+                    if !tri.contains(&plan.j_cut) {
+                        continue;
+                    }
+                    for k in 0..3 {
+                        directed.insert((tri[k], tri[(k + 1) % 3]));
+                    }
+                }
+                let mut nexts: std::collections::BTreeMap<u32, u32> = Default::default();
+                for &(x, y) in &directed {
+                    if !directed.contains(&(y, x)) && x != plan.j_cut && y != plan.j_cut {
+                        nexts.insert(x, y);
+                    }
+                }
+                let start = nexts
+                    .keys()
+                    .find(|x| !nexts.values().any(|v| v == *x))
+                    .copied();
+                let mut link: Vec<u32> = Vec::new();
+                let mut cur = start;
+                while let Some(v) = cur {
+                    if link.contains(&v) {
+                        break;
+                    }
+                    link.push(v);
+                    cur = nexts.get(&v).copied();
+                }
+                eprintln!(
+                    "[i13f-rehome]   f2c precond: pair v{}/v{} patch={pi} role={} \
+                     holds_j_cut={holds} cyc_adj={} link={:?} has_j_rim={} has_rim_j={}",
+                    cand.j,
+                    cand.v,
+                    role(&pat.surface),
+                    adj_s.join(" "),
+                    link,
+                    pat.cycles.iter().any(|c| c.contains(&plan.j_rim)),
+                    pat.cycles.iter().any(|c| c.contains(&rim_j)),
+                );
+            }
+            // The S_j-side JOIN edge: the victim's cycle adjacency on the
+            // S_j patch (in the victim-is-B view this is B's C0 chain — the
+            // boundary edge the moved phantom must be seam-inserted into).
+            for (pi, pat) in patches.iter().enumerate() {
+                if pat.surface != plan.s_j {
+                    continue;
+                }
+                let adj: Vec<String> = pat
+                    .cycles
+                    .iter()
+                    .flat_map(|cyc| {
+                        let n = cyc.len();
+                        (0..n)
+                            .filter(move |&i| cyc[i] == plan.j_rim)
+                            .map(move |i| (cyc[(i + n - 1) % n], cyc[(i + 1) % n]))
+                    })
+                    .map(|(p, q)| {
+                        format!(
+                            "(v{p}[{}] .. v{q}[{}])",
+                            type_of(p, plan.j_rim),
+                            type_of(plan.j_rim, q)
+                        )
+                    })
+                    .collect();
+                if !adj.is_empty() {
+                    eprintln!(
+                        "[i13f-rehome]   f2c s_j-join: pair v{}/v{} patch={pi} \
+                         victim_cyc_adj={} holds_j_cut={}",
+                        cand.j,
+                        cand.v,
+                        adj.join(" "),
+                        pat.tris
+                            .iter()
+                            .any(|&t| mesh.tris[t as usize].contains(&plan.j_cut)),
+                    );
+                }
+            }
+        }
         if mat.margin < 0.0 {
             decline(RehomeDecline::KeptByMaterial, rehome_blocked);
             continue;
