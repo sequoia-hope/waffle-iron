@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { getActiveProvider, migrateLocalStorage, generateDocId, getStore, registerProvider, unregisterProvider, setActiveProvider } from '$lib/storage/index.js';
+	import { FORMAT_VERSION, MIN_READER_VERSION } from '$lib/engine/format.js';
 	import { onMount } from 'svelte';
 	import HomeHeader from '$lib/ui/HomeHeader.svelte';
 	import DocumentGrid from '$lib/ui/DocumentGrid.svelte';
@@ -39,7 +40,8 @@
 			id,
 			json: JSON.stringify({
 				format: 'waffle-iron',
-				version: 3,
+				version: FORMAT_VERSION,
+				min_reader_version: MIN_READER_VERSION,
 				document: {
 					name: 'Untitled',
 					created: new Date(now).toISOString(),

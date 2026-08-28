@@ -21,6 +21,7 @@ import { classifyDimension } from '$lib/sketch/dimensionHeuristic.js';
 import { findConnectedChain, orderChain } from '$lib/sketch/chain.js';
 import { resolveChainSegments, offsetChainSegments } from '$lib/sketch/offset.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
+import { FORMAT_VERSION, MIN_READER_VERSION, fileTooNew } from './format.js';
 import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, deleteTestCase as apiDeleteTestCase } from './testCaseApi.js';
 
 /**
@@ -362,6 +363,16 @@ let documentTabs = $state([]);
 
 /** @type {string} Human-readable document name */
 let documentName = $state('Untitled');
+
+/**
+ * The document's original `created` timestamp (ISO string), adopted from the
+ * file/storage doc on open. `null` until a document is opened; the writer
+ * falls back to "now" (an unsaved fresh session's first save IS its creation).
+ * Without this the writer used to stamp `created: now` on every save,
+ * destroying the creation time (docs/FILE_FORMAT.md §14.2).
+ * @type {string | null}
+ */
+let documentCreated = null;
 
 // -- Gear state --
 
@@ -1099,7 +1110,11 @@ export async function initEngine() {
 				activeTabId,
 				documentTabs: documentTabs.map(t => ({ id: t.id, name: t.name, kind: t.kind?.type })),
 				documentName,
+				documentCreated,
+				documentDisplayUnit,
 			}),
+			// Test/debug: the exact document JSON the save paths write.
+			buildDocumentJson: () => buildDocumentJson(),
 		};
 	}
 }
@@ -5509,6 +5524,13 @@ export function initDocumentState(docId, parsed) {
 	activeDocId = docId;
 	documentName = parsed.document?.name || 'Untitled';
 	projectName = documentName;
+	// Adopt the document's creation time (v3: document.*, legacy: project.*)
+	// so saves preserve it instead of re-stamping "now".
+	documentCreated = parsed.document?.created || parsed.project?.created || null;
+	// Adopt the display unit here too: an EMPTY document never reaches the
+	// loadProject/extractDisplayUnit path, and its stored unit must still stick.
+	const unit = parsed.document?.display_unit ?? parsed.project?.display_unit;
+	documentDisplayUnit = typeof unit === 'string' && unit ? unit : 'mm';
 	// New document context: its rebuild warnings are "new" again.
 	lastRebuildWarnings = new Set();
 
@@ -5556,30 +5578,48 @@ export async function buildDocumentJson() {
 	}
 
 	const now = new Date().toISOString();
+	// Latch the creation time on first save so it stays stable within the session.
+	if (!documentCreated) documentCreated = now;
 	// Deep-clone documentTabs to unwrap Svelte 5 proxies
 	const tabSnapshot = JSON.parse(JSON.stringify(documentTabs));
-	const tabs = tabSnapshot.map(t => {
-		const features = (t.id === activeTabId && liveFeatures)
-			? liveFeatures
-			: (t.kind?.features || { features: [], active_index: null });
-		return {
-			id: t.id,
-			name: t.name,
-			kind: { type: t.kind?.type || 'Part', features, preview_mesh: t.kind?.preview_mesh || null }
-		};
-	});
+	// A doc-less editor session (plain `/`, no initDocumentState) has no tabs;
+	// wrap the live tree in an implicit tab so the download path never emits an
+	// empty document. "default" is the historical implicit-first-tab id.
+	const implicitTabId = activeTabId || 'default';
+	const tabs = tabSnapshot.length > 0
+		? tabSnapshot.map(t => {
+			const features = (t.id === activeTabId && liveFeatures)
+				? liveFeatures
+				: (t.kind?.features || { features: [], active_index: null });
+			return {
+				id: t.id,
+				name: t.name,
+				kind: { type: t.kind?.type || 'Part', features, preview_mesh: t.kind?.preview_mesh || null }
+			};
+		})
+		: [{
+			id: implicitTabId,
+			name: 'Part 1',
+			kind: {
+				type: 'Part',
+				features: liveFeatures || { features: [], active_index: null },
+				preview_mesh: null
+			}
+		}];
 
 	const doc = {
 		format: 'waffle-iron',
-		version: 3,
+		version: FORMAT_VERSION,
+		min_reader_version: MIN_READER_VERSION,
 		document: {
 			name: documentName,
-			created: now,
+			// Preserved from open (or latched at first save) — never re-stamped.
+			created: documentCreated,
 			modified: now,
 			display_unit: documentDisplayUnit
 		},
 		tabs,
-		active_tab: activeTabId
+		active_tab: tabSnapshot.length > 0 ? activeTabId : implicitTabId
 	};
 
 	return JSON.stringify(doc);
@@ -6243,10 +6283,18 @@ function redoSketchAction() {
 export async function saveProject() {
 	if (!bridge || !engineReady) return null;
 	log('action', 'Save project');
-	const response = await bridge.send({ type: 'SaveProject' });
-	if (response.type !== 'SaveReady' || !response.json_data) return null;
-
-	const jsonData = response.json_data;
+	// Full document (all tabs, preserved metadata) — the raw engine SaveProject
+	// only carries the active tab's tree, so downloading it dropped every other
+	// tab of a multi-tab document. docs/FILE_FORMAT.md §14.4.
+	let jsonData = null;
+	try {
+		jsonData = await buildDocumentJson();
+	} catch (err) {
+		log('error', `Save project failed: ${err.message || err}`);
+		showToast('error', `Save failed: ${err.message || err}`);
+		return null;
+	}
+	if (!jsonData) return null;
 	log('action', 'Project saved', { bytes: jsonData.length });
 	showToast('success', 'Project saved');
 
@@ -6361,7 +6409,10 @@ export async function exportStep() {
 function extractDisplayUnit(jsonData) {
 	try {
 		const parsed = JSON.parse(jsonData);
-		const unit = parsed?.project?.display_unit;
+		// v3 stores it at document.display_unit; v1/v2 at project.display_unit.
+		// (Reading only the legacy path silently reset v3 files to mm —
+		// docs/FILE_FORMAT.md §14.3.)
+		const unit = parsed?.document?.display_unit ?? parsed?.project?.display_unit;
 		if (unit && typeof unit === 'string') {
 			documentDisplayUnit = unit;
 		} else {
@@ -6525,6 +6576,10 @@ export async function loadProject(jsonData) {
 
 	log('action', 'Load project');
 	if (jsonData) {
+		// Programmatic path: the caller owns the document state
+		// (loadPendingDocument runs initDocumentState itself; test-case loads
+		// deliberately keep the current document context).
+		if (parseTooNew(jsonData)) return false;
 		extractDisplayUnit(jsonData);
 		await sendRebuild({ type: 'LoadProject', data: jsonData });
 		showToast('info', 'Project loaded');
@@ -6539,13 +6594,36 @@ export async function loadProject(jsonData) {
 		input.onchange = async () => {
 			const file = input.files?.[0];
 			if (!file) { resolve(false); return; }
-			// Set project name from filename (remove extension)
-			const nameWithoutExt = file.name.replace(/\.(waffle|json)$/i, '');
-			if (nameWithoutExt) setProjectName(nameWithoutExt);
 			const text = await file.text();
+			let parsed = null;
+			try { parsed = JSON.parse(text); } catch { /* engine load will report it */ }
+			if (parsed && fileTooNew(parsed)) {
+				showToast('error', 'This file was saved by a newer version of Waffle Iron');
+				resolve(false);
+				return;
+			}
+			// A pending autosave still belongs to the PREVIOUS document; firing
+			// after the engine swaps trees would capture mixed state.
+			if (autoSaveTimer) {
+				clearTimeout(autoSaveTimer);
+				autoSaveTimer = null;
+			}
 			extractDisplayUnit(text);
 			try {
 				await sendRebuild({ type: 'LoadProject', data: text });
+				// Adopt the opened file's tab structure (the engine only holds
+				// the active tab's tree) under a FRESH storage doc id — autosave
+				// keeps working for the opened file but can no longer overwrite
+				// the previously open storage document with this file's content
+				// (docs/FILE_FORMAT.md §14.4). Same convention as initEngine's
+				// direct-`/` bootstrap.
+				if (parsed) {
+					const { generateDocId } = await import('$lib/storage/types.js');
+					initDocumentState(generateDocId(), parsed);
+				}
+				// Project name from filename (wins over the stored doc name).
+				const nameWithoutExt = file.name.replace(/\.(waffle|json)$/i, '');
+				if (nameWithoutExt) setProjectName(nameWithoutExt);
 				showToast('info', 'Project loaded');
 				resolve(true);
 			} catch (err) {
@@ -6556,4 +6634,19 @@ export async function loadProject(jsonData) {
 		};
 		input.click();
 	});
+}
+
+/**
+ * Parse-and-check helper for the programmatic load path: true (with an error
+ * toast) if the JSON declares a newer reader requirement than this build.
+ * @param {string} jsonData
+ */
+function parseTooNew(jsonData) {
+	try {
+		if (fileTooNew(JSON.parse(jsonData))) {
+			showToast('error', 'This file was saved by a newer version of Waffle Iron');
+			return true;
+		}
+	} catch { /* not JSON — let the engine load path report it */ }
+	return false;
 }

@@ -61,12 +61,12 @@
 ## Discovered tasks (2026-08-28 format audit — see `docs/FILE_FORMAT.md` §14–15)
 
 - [x] Write an accurate spec of the v3 format → `docs/FILE_FORMAT.md` (supersedes this dossier's v1 description)
-- [ ] Consolidate to a single document writer: route JS `buildDocumentJson` through Rust `save_document` (currently dead in production), or add a golden test pinning JS/Rust writer equivalence
-- [ ] Fix `created` timestamp destroyed on every save (JS writer stamps `created: now` — store.svelte.js:5558)
-- [ ] Fix `extractDisplayUnit` reading the v2 path (`project.display_unit`) only — v3 file-open resets unit to `mm` (store.svelte.js:6361)
-- [ ] Multi-tab File→Open: `LoadProject` keeps only the active tab and JS tab state is not reinitialized — route through `initDocumentState`/`load_document`
-- [ ] Forward-compat policy: add `min_reader_version` (or bump `version` on enum-variant additions) so old builds fail with `FutureVersion` instead of raw serde ParseError
-- [ ] Save-time guard against non-finite floats (NaN serializes as `null` → file saves but never loads)
+- [x] **(2026-08-28 seam fixes)** Fix `created` timestamp destroyed on every save — `initDocumentState` adopts it, the writer latches it
+- [x] **(2026-08-28)** Fix `extractDisplayUnit` v2-only path — reads `document.display_unit ?? project.display_unit`; `initDocumentState` adopts the unit too (covers empty docs)
+- [x] **(2026-08-28)** Multi-tab File→Open: picker branch adopts the file's tabs via `initDocumentState` under a fresh storage doc id; download path (`saveProject`) writes the full document via `buildDocumentJson`
+- [x] **(2026-08-28)** Forward-compat: `min_reader_version` written by all writers (Rust `save.rs` + JS via `$lib/engine/format.js`), enforced by Rust loaders + JS open paths → clean `FutureVersion` / toast instead of parse noise
+- [x] **(2026-08-28)** Save-time guard against non-finite floats: bridge `SaveProject` uses `save_project_verified` (serialize + self-load); regression tests in `format_tests.rs` + `app/tests/gui/document-format-seam.spec.js`
+- [ ] Consolidate to a single document writer: route JS `buildDocumentJson` through Rust `save_document` via a bridge `SaveDocument{tabs…}` message (the JS-writer envelope is regression-pinned by `document-format-seam.spec.js` in the meantime)
 - [ ] Load-time hardening for shared files: cap STEP blob inflation, bounds-check counts
 - [ ] Deduplicate `PreviewMesh` (defined in both file-format and feature-engine)
 - [ ] (defer) Region size: `outer` + `outer_edges` store the same boundary twice (374 KB in one observed extrude)

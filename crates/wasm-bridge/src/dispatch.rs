@@ -189,7 +189,15 @@ fn handle_message(
         UiToEngine::SaveProject => {
             let meta =
                 ProjectMetadata::new(&state.project_name).with_display_unit(&state.display_unit);
-            let json = file_format::save_project(&state.engine.tree, &meta);
+            // Verified: refuse to emit a file the loader would reject (e.g. a
+            // non-finite float serialized as `null`) — a loud save error beats
+            // a file that saves silently and never opens again.
+            let json =
+                file_format::save_project_verified(&state.engine.tree, &meta).map_err(|e| {
+                    BridgeError::Serialization {
+                        reason: format!("refusing to save a corrupt document: {e}"),
+                    }
+                })?;
             Ok(EngineToUi::SaveReady { json_data: json })
         }
 

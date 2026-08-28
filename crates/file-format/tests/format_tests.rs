@@ -1436,3 +1436,110 @@ fn step_export_reports_the_kernel_capability_gap_loudly() {
         ),
     }
 }
+
+// ── min_reader_version + verified save (2026-08-28 seam fixes) ───────────
+// See docs/FILE_FORMAT.md §13 (forward-compat) and §14.10 (NaN poisoning).
+
+#[test]
+fn save_writes_min_reader_version() {
+    use file_format::MIN_READER_VERSION;
+
+    let tree = make_simple_tree();
+    let meta = ProjectMetadata::new("Test Project");
+    let parsed: serde_json::Value = serde_json::from_str(&save_project(&tree, &meta)).unwrap();
+    assert_eq!(parsed["min_reader_version"], MIN_READER_VERSION);
+
+    let doc = DocumentMetadata {
+        name: "Doc".to_string(),
+        created: Utc::now(),
+        modified: Utc::now(),
+        display_unit: None,
+    };
+    let tab = Tab {
+        id: "t1".to_string(),
+        name: "Part 1".to_string(),
+        kind: TabKind::Part {
+            features: make_simple_tree(),
+            preview_mesh: None,
+        },
+    };
+    let parsed: serde_json::Value =
+        serde_json::from_str(&save_document(&doc, &[tab], "t1")).unwrap();
+    assert_eq!(parsed["min_reader_version"], MIN_READER_VERSION);
+}
+
+#[test]
+fn load_refuses_file_requiring_newer_reader() {
+    // version stays 3 but min_reader_version demands a newer build: both entry
+    // points must refuse with FutureVersion (clean), NOT a serde ParseError.
+    let json = r#"{
+        "format": "waffle-iron",
+        "version": 3,
+        "min_reader_version": 99,
+        "document": { "name": "n", "created": "2026-01-01T00:00:00Z", "modified": "2026-01-01T00:00:00Z" },
+        "tabs": [],
+        "active_tab": "x"
+    }"#;
+    for result in [load_project(json).err(), load_document(json).err()] {
+        match result {
+            Some(LoadError::FutureVersion {
+                file_version,
+                supported_version,
+            }) => {
+                assert_eq!(file_version, 99);
+                assert_eq!(supported_version, FORMAT_VERSION);
+            }
+            other => panic!("expected FutureVersion, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn load_accepts_files_without_min_reader_version() {
+    // Every pre-2026-08-28 file (including the whole assay corpus) lacks the
+    // field; absence must mean "no requirement".
+    let tree = make_simple_tree();
+    let meta = ProjectMetadata::new("Legacy");
+    let mut value: serde_json::Value = serde_json::from_str(&save_project(&tree, &meta)).unwrap();
+    value.as_object_mut().unwrap().remove("min_reader_version");
+    let json = serde_json::to_string(&value).unwrap();
+    load_project(&json).expect("file without min_reader_version must load");
+    load_document(&json).expect("file without min_reader_version must load");
+}
+
+#[test]
+fn verified_save_round_trips_a_healthy_tree() {
+    use file_format::save_project_verified;
+
+    let tree = make_simple_tree();
+    let meta = ProjectMetadata::new("Healthy");
+    let json = save_project_verified(&tree, &meta).expect("healthy tree must save");
+    let (loaded, _) = load_project(&json).unwrap();
+    assert_eq!(loaded.features.len(), tree.features.len());
+}
+
+#[test]
+fn verified_save_refuses_non_finite_floats() {
+    use file_format::save_project_verified;
+
+    // serde_json writes NaN as `null`; the raw save "succeeds" and produces a
+    // file no loader will ever accept again. The verified save must catch it.
+    let mut tree = make_simple_tree();
+    if let Operation::Sketch { sketch } = &mut tree.features[0].operation {
+        if let Some(SketchEntity::Point { x, .. }) = sketch.entities.first_mut() {
+            *x = f64::NAN;
+        } else {
+            panic!("fixture changed: expected first entity to be a Point");
+        }
+    } else {
+        panic!("fixture changed: expected first feature to be a Sketch");
+    }
+
+    let meta = ProjectMetadata::new("Poisoned");
+    let err = save_project_verified(&tree, &meta)
+        .expect_err("a NaN in the tree must be a loud save-time error");
+    assert!(
+        matches!(err, LoadError::ParseError(_)),
+        "expected the self-check to surface the parse failure, got {err:?}"
+    );
+}

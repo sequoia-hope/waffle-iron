@@ -26,13 +26,11 @@ struct WaffleFileV3Raw {
     pub active_tab: String,
 }
 
-/// Load a v3 document from JSON.
-/// Handles both v2 (flat) and v3 (tabbed) formats.
-/// For v2/v1, wraps the single feature tree into a Part tab.
-pub fn load_document(json: &str) -> Result<(DocumentMetadata, Vec<Tab>, String), LoadError> {
-    let value: serde_json::Value =
-        serde_json::from_str(json).map_err(|e| LoadError::ParseError(e.to_string()))?;
-
+/// Shared envelope validation: `format` identifier, `version`, and
+/// `min_reader_version` (absent in pre-2026-08-28 files ⇒ 0 ⇒ passes). A file
+/// that requires a newer reader fails with a clean [`LoadError::FutureVersion`]
+/// instead of a raw serde parse error further down.
+fn check_envelope(value: &serde_json::Value) -> Result<u32, LoadError> {
     if value.get("format").and_then(|f| f.as_str()) != Some("waffle-iron") {
         let fmt = value
             .get("format")
@@ -43,12 +41,28 @@ pub fn load_document(json: &str) -> Result<(DocumentMetadata, Vec<Tab>, String),
     }
 
     let version = value.get("version").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-    if version > FORMAT_VERSION {
+    let min_reader = value
+        .get("min_reader_version")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+    let required = version.max(min_reader);
+    if required > FORMAT_VERSION {
         return Err(LoadError::FutureVersion {
-            file_version: version,
+            file_version: required,
             supported_version: FORMAT_VERSION,
         });
     }
+    Ok(version)
+}
+
+/// Load a v3 document from JSON.
+/// Handles both v2 (flat) and v3 (tabbed) formats.
+/// For v2/v1, wraps the single feature tree into a Part tab.
+pub fn load_document(json: &str) -> Result<(DocumentMetadata, Vec<Tab>, String), LoadError> {
+    let value: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| LoadError::ParseError(e.to_string()))?;
+
+    let version = check_envelope(&value)?;
 
     // V3+ format: has "document" and "tabs"
     if version >= 3 && value.get("tabs").is_some() {
@@ -94,22 +108,7 @@ pub fn load_project(json: &str) -> Result<(FeatureTree, ProjectMetadata), LoadEr
     let value: serde_json::Value =
         serde_json::from_str(json).map_err(|e| LoadError::ParseError(e.to_string()))?;
 
-    if value.get("format").and_then(|f| f.as_str()) != Some("waffle-iron") {
-        let fmt = value
-            .get("format")
-            .and_then(|f| f.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-        return Err(LoadError::UnknownFormat(fmt));
-    }
-
-    let version = value.get("version").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-    if version > FORMAT_VERSION {
-        return Err(LoadError::FutureVersion {
-            file_version: version,
-            supported_version: FORMAT_VERSION,
-        });
-    }
+    let version = check_envelope(&value)?;
 
     // V3+ format: has "document" and "tabs"
     if version >= 3 && value.get("tabs").is_some() {

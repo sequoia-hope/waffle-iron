@@ -52,7 +52,7 @@ by the app's file picker.
 | IDs — sketch entities | `u32`, unique *within one sketch*. |
 | Built-in datum planes | Fixed well-known UUIDs (`app/src/lib/engine/planes.js`): Front `00000000-0000-0000-0000-000000000001`, Top `…0002`, Right `…0003`. |
 | Timestamps | RFC 3339 / ISO-8601 UTC strings (chrono `DateTime<Utc>` serde), e.g. `"2026-07-05T01:21:04.049Z"`. |
-| Floats | IEEE-754 doubles. serde_json and `JSON.stringify` both round-trip f64 exactly (shortest-representation printing). **Hazard:** a non-finite value (NaN/∞) serializes as `null` in both writers and then **fails to load** (`null` is not a valid f64 for serde). A NaN anywhere in live state produces a file that saves silently and never loads. No writer currently guards against this. |
+| Floats | IEEE-754 doubles. serde_json and `JSON.stringify` both round-trip f64 exactly (shortest-representation printing). **Hazard:** a non-finite value (NaN/∞) serializes as `null` in both writers and then **fails to load** (`null` is not a valid f64 for serde). Guarded since 2026-08-28: the bridge save path self-verifies (`save_project_verified`) and errors loudly instead of emitting an unloadable file (§14.10). |
 | Tuples | Rust `(f64, f64)` serializes as a 2-element array `[x, y]`. Fixed arrays `[f64; 3]` as 3-element arrays. |
 | Maps with u32 keys | JSON objects with **stringified** keys (`"12": [x, y]`) via the `u32_key_map` helper (`crates/waffle-types/src/sketch.rs:10`). |
 | Enums | All persisted enums are **internally tagged**: `#[serde(tag = "type")]` (one exception: `RegionEdge` uses `tag = "kind"`, and `PlaneDefinition` uses `tag = "method"` with renamed variants). An unknown tag value is a **hard parse error** — see §13. |
@@ -69,6 +69,7 @@ by the app's file picker.
 {
   "format": "waffle-iron",
   "version": 3,
+  "min_reader_version": 3,
   "document": {
     "name": "Untitled",
     "created": "2026-07-05T01:21:04.049Z",
@@ -94,6 +95,7 @@ by the app's file picker.
 |---|---|---|---|
 | `format` | string | ✔ | Must be exactly `"waffle-iron"`; anything else ⇒ `LoadError::UnknownFormat`. |
 | `version` | u32 | ✔* | Format version. `> 3` ⇒ `LoadError::FutureVersion` (refuse, don't guess). *The Rust loader defaults a missing/non-numeric version to `0`, which then fails migration (`no migration path from v0`). |
+| `min_reader_version` | u32 | opt (default 0) | Since 2026-08-28: the oldest reader (by its `FORMAT_VERSION`) that can parse this file. Readers refuse `max(version, min_reader_version) > FORMAT_VERSION` with `FutureVersion`. Writers set it to `MIN_READER_VERSION` (currently 3); bump it together with `version` whenever a change lands that old readers cannot parse — **including new enum variants**. Absent in pre-2026-08-28 files ⇒ no requirement. |
 | `document` | DocumentMetadata | ✔ | §5.1. |
 | `tabs` | Tab[] | ✔ | At least one tab expected; `load_document` rejects an `active_tab` that names no tab; `load_project` falls back to the first tab. |
 | `active_tab` | string | ✔ | Id of the tab open when saved. |
@@ -502,15 +504,16 @@ Anyone changing the format must touch all of them:
 | Component | Location | Role |
 |---|---|---|
 | `file-format` crate | `crates/file-format/` | Reference implementation. `save_project`/`load_project` (single-tree, v3-wrapped), `save_document`/`load_document` (full multi-tab), `migrate`, `export_step`. **`save_document`/`load_document` currently have no production callers** — only tests; the bridge exposes only the single-tree pair. |
-| wasm-bridge | `crates/wasm-bridge/src/dispatch.rs:189-208` | `SaveProject` ⇒ Rust-serialized v3 (one tab, live tree). `LoadProject{data}` ⇒ Rust load (with migrations) of **the active tab only**, then full rebuild. `SwitchTab{features}` swaps trees without touching the file format. |
-| JS document writer | `buildDocumentJson`, `app/src/lib/engine/store.svelte.js:5535` | **The production writer.** Pulls the live tree via `SaveProject`, splices it into the active tab, re-assembles the full v3 envelope in JS (all tabs, metadata, preview meshes). Used by autosave (3 s debounce), Ctrl+S, and provider sync. |
-| JS new-doc template | `app/src/routes/home/+page.svelte:41` | Hand-writes a minimal empty v3 document (note: no `display_unit`, no `preview_mesh` keys — legal per §2 optionality). |
+| wasm-bridge | `crates/wasm-bridge/src/dispatch.rs:189-216` | `SaveProject` ⇒ Rust-serialized v3 (one tab, live tree), **verified** via `save_project_verified` (self round-trip; a corrupt tree is a loud bridge error, not a dead file). `LoadProject{data}` ⇒ Rust load (with migrations) of **the active tab only**, then full rebuild. `SwitchTab{features}` swaps trees without touching the file format. |
+| JS document writer | `buildDocumentJson`, `app/src/lib/engine/store.svelte.js` | **The production writer.** Pulls the live tree via `SaveProject`, splices it into the active tab, re-assembles the full v3 envelope in JS (all tabs, metadata, preview meshes, `min_reader_version`, preserved `created`). Used by autosave (3 s debounce), Ctrl+S, provider sync, and (since 2026-08-28) the file-download path, which previously dropped every non-active tab. Version constants live in `app/src/lib/engine/format.js` (must mirror the Rust constants). |
+| JS new-doc template | `app/src/routes/home/+page.svelte` | Hand-writes a minimal empty v3 document from the `format.js` constants (note: no `display_unit`, no `preview_mesh` keys — legal per §2 optionality). |
 | JS loader/bookkeeper | `initDocumentState` / `loadPendingDocument`, store.svelte.js:5395/5508 | Parses the document in JS for tab structure, then feeds the whole JSON to the Rust loader for the engine model. |
 | Storage envelope — IndexedDB | `app/src/lib/storage/indexeddb.js` | DB `waffle-iron`, store `documents`, records `{id, json: <the .waffle text>, created, modified}` (epoch ms). The `.waffle` JSON travels as an opaque string. |
 | Storage envelope — GitHub | `app/src/lib/storage/github.js` | One file per document in a user repo (default `waffle-iron-documents`) plus an index file `.waffle-index.json`. Same opaque JSON. Documents can be **shared** — files must be treated as potentially untrusted input (§14.8). |
 | sessionStorage handoff | keys `waffle-active-doc` / `waffle-active-json` | Route → editor transfer of the full JSON. |
 | Assay corpus | `app/tests/cases/assay/*.waffle` (312 v3 files) + `crates/test-harness/src/assay/gen.rs:4874` | De-facto backward-compat pin: every kernel assay run loads the corpus through `file_format::load_project`. A change that breaks old files breaks the assay loudly. |
-| file-format tests | `crates/file-format/tests/format_tests.rs` (38 tests) | Round-trips (incl. rebuild + topology compare), v1→v3 chains, tab validity, non-UUID tab ids, constraint round-trips, back-compat for pre-`combine`/pre-`body_names` files. |
+| file-format tests | `crates/file-format/tests/format_tests.rs` (43 tests) | Round-trips (incl. rebuild + topology compare), v1→v3 chains, tab validity, non-UUID tab ids, constraint round-trips, back-compat for pre-`combine`/pre-`body_names`/pre-`min_reader_version` files, `FutureVersion` refusal, verified-save NaN rejection. |
+| JS-writer regression spec | `app/tests/gui/document-format-seam.spec.js` | Pins the production (JS) writer's envelope: `created` preservation, `display_unit` round-trip, `min_reader_version`, multi-tab File→Open adoption + storage-doc re-homing, clean refusal of too-new files. |
 
 ---
 
@@ -521,32 +524,42 @@ Anyone changing the format must touch all of them:
    post-v3 additive field, legacy-flag normalization (`combine == null` ⇒ derive
    from `cut`/`merge` — `normalize_extrude_combine`), tolerant tab-id strings.
    Pinned by the assay corpus and back-compat unit tests.
-2. **Forward (new file, old build): not supported, and fails messily.** A file
-   whose `version` is bumped fails cleanly (`FutureVersion`), but additive changes
-   have **not** bumped the version, so an old build hits an unknown enum tag or
-   missing field and reports a generic `ParseError`. There is no
-   "ignore-unknown-variant" mechanism, and unknown *fields* are silently dropped
-   on the next save (round-tripping a newer file through an older build strips
-   data without warning).
-3. **Version-bump rule (implicit, as practiced):** bump only for
-   value-reinterpreting or structural changes (v1→v2 units, v2→v3 tabs); additive
-   optional fields and new enum variants ship without a bump. New enum *variants*
-   are wire-breaking for old readers despite being "additive" — treat any new
-   `Operation`/`TabKind`/constraint/selector variant as a forward-compat break.
+2. **Forward (new file, old build): not supported, but now fails cleanly going
+   forward.** Since 2026-08-28 every writer emits `min_reader_version` (§3.1)
+   and every reader (Rust loaders + the JS open paths via
+   `format.js/fileTooNew`) refuses files that demand a newer reader with a
+   clean `FutureVersion` / "saved by a newer version" error. Builds older than
+   2026-08-28 ignore the field and still fail with parse noise on future
+   variants — unavoidable retroactively. Unknown *fields* are still silently
+   dropped on resave (round-tripping a newer file through an older build strips
+   data without warning); there is still no "ignore-unknown-variant" mechanism.
+3. **Version-bump rule (now explicit):** bump `version` for value-reinterpreting
+   or structural changes (v1→v2 units, v2→v3 tabs). Bump `MIN_READER_VERSION`
+   (Rust `save.rs` + JS `format.js`, together with `version`) for **any** change
+   old readers cannot parse — which includes new enum *variants*
+   (`Operation`/`TabKind`/constraint/selector tags), not just structural
+   changes. Purely additive defaulted fields need no bump.
 4. **Writer duties:** never emit NaN/∞ (serializes as `null`, poisons the file —
-   §2); preserve `created` (currently violated, §14.2); preserve fields you don't
-   understand — impossible today, which is why non-Rust tooling should modify
-   files only field-wise, never load-modify-save through partial models.
-5. **Reader duties:** validate `format`; refuse `version > 3`; run migrations
-   *before* interpreting values; treat derived fields per the §10 contract;
-   validate `active_tab` (fall back to first tab); treat blob decode failures and
+   §2): the bridge save path enforces this via `save_project_verified`, which
+   round-trips its own output through the loader and errors loudly instead of
+   emitting an unloadable file. Preserve `created` (the JS writer latches it at
+   open / first save). Preserve fields you don't understand — impossible today,
+   which is why non-Rust tooling should modify files only field-wise, never
+   load-modify-save through partial models.
+5. **Reader duties:** validate `format`; refuse
+   `max(version, min_reader_version) > FORMAT_VERSION`; run migrations *before*
+   interpreting values; treat derived fields per the §10 contract; validate
+   `active_tab` (fall back to first tab); treat blob decode failures and
    unknown `blob_encoding` as loud per-feature errors, not file rejection.
 
 ---
 
 ## 14. Known defects and divergences (verified 2026-08-28)
 
-Numbered for reference; none are fixed by this document.
+Numbered for reference. Items 2, 3, 4, 10, and 11 were **FIXED on 2026-08-28**
+(the seam-fix change set; regression-pinned by
+`app/tests/gui/document-format-seam.spec.js` and the new format_tests) — their
+original text is kept for the record with a status line.
 
 1. **Stale dossier.** `projects/09-file-format/ARCHITECTURE.md`/`PLAN.md`/
    `INTERFACES.md` describe v1, claim `#[serde(flatten)]` unknown-field
@@ -555,21 +568,33 @@ Numbered for reference; none are fixed by this document.
    is deleted; kernel-v2's `export_step` returns `NotSupported`, surfaced as
    `ExportError::StepExportFailed` — `crates/file-format/src/step_export.rs`).
    Last substantive update: initial commit `c2b6cb9d`.
-2. **`created` is destroyed on every save.** `buildDocumentJson` stamps
-   `created: now` (store.svelte.js:5558, `const now = …` → `document: {created: now, modified: now}`).
-   The storage envelope keeps its own honest `created`, but the file's is wrong.
+2. **`created` is destroyed on every save.** `buildDocumentJson` stamped
+   `created: now` on every save. The storage envelope kept its own honest
+   `created`, but the file's was wrong.
+   **FIXED 2026-08-28:** `initDocumentState` adopts the stored `created`
+   (v3 `document.*` or legacy `project.*`); the writer emits the latched value
+   and only stamps "now" on a document's first-ever save.
 3. **`display_unit` lost on file-open of v3 files.** `extractDisplayUnit`
-   (store.svelte.js:6361) reads `parsed?.project?.display_unit` — the **v2** path
-   only. Opening a v3 file resets the JS-side unit to `mm`; the next autosave
-   persists the reset. (The engine-side unit is set correctly via the Rust
-   loader; the two then disagree.)
+   read `parsed?.project?.display_unit` — the **v2** path only. Opening a v3
+   file reset the JS-side unit to `mm`; the next autosave persisted the reset.
+   **FIXED 2026-08-28:** both `extractDisplayUnit` and `initDocumentState` read
+   `document.display_unit ?? project.display_unit` (the latter also covers
+   empty documents, which never reach the engine-load path).
 4. **Multi-tab loss through the single-tree path.** `load_project` returns only
    the active tab's tree by design, and the bridge `LoadProject` uses it — so
-   File→Open of a multi-tab document loads one tab into the engine while the JS
-   `documentTabs` are **not** reinitialized by `loadProject()` (only the
-   doc-route path calls `initDocumentState`). A subsequent autosave merges live
-   features into whatever tab state JS happens to hold. Multi-tab documents are
-   safe only through the doc-route open path.
+   File→Open of a multi-tab document loaded one tab into the engine while the
+   JS `documentTabs` were **not** reinitialized; a subsequent autosave merged
+   live features into whatever tab state JS happened to hold (potentially
+   overwriting the previously open storage document), and the file-download
+   path emitted only the active tab.
+   **FIXED 2026-08-28:** the File→Open picker branch cancels any pending
+   autosave, then on successful engine load adopts the file's full tab
+   structure via `initDocumentState` under a **fresh storage doc id** (autosave
+   keeps working for the opened file; the previously open storage doc is
+   untouchable), and the download path (`saveProject`) now writes the full
+   document via `buildDocumentJson` — including a doc-less editor session,
+   where the live tree is wrapped in an implicit tab. Programmatic
+   `loadProject(json)` callers still own their document state by design.
 5. **JS legacy branch drops v2 features from tab bookkeeping.**
    `initDocumentState`'s legacy fallback creates an *empty* implicit tab; the
    engine separately loads the real tree via the Rust path, and the next
@@ -590,13 +615,24 @@ Numbered for reference; none are fixed by this document.
    `active_features`, types.rs:83).
 9. **Region duplication bloat.** §10.3: the same boundary stored tessellated
    *and* curve-recovered; dominates file size when sub-region extrudes exist.
-10. **NaN poisoning.** §2 floats hazard: both writers emit `null` for non-finite
-    floats; every reader then rejects the file. Save succeeds, load never does —
-    silent data loss of the only copy if it was the autosave.
+10. **NaN poisoning.** §2 floats hazard: both writers emit `null` for
+    non-finite floats; every reader then rejects the file. Save succeeded, load
+    never did — silent data loss of the only copy if it was the autosave.
+    **FIXED (guarded) 2026-08-28:** the bridge save path uses
+    `save_project_verified` (serialize, then self-load); a poisoned tree is a
+    loud save-time error (toast on Ctrl+S, console warning from autosave, which
+    then leaves the last good stored copy untouched). Residual: NaN that
+    entered a *JS-held inactive tab* via an earlier `ModelUpdated` was already
+    null-ed by that serialization and is not caught — the guard covers the live
+    tree, where NaN originates.
 11. **`version` is not honest about content.** Post-v3 additive changes
     (ImportedBody et al.) shipped without a bump or a `min_reader_version`
     field, so old builds fail with parse noise instead of a clean
     "file is newer than this app" message (§13.2).
+    **FIXED (forward) 2026-08-28:** all writers emit `min_reader_version`
+    (§3.1); all readers refuse too-new files cleanly. Builds older than this
+    change still fail with parse noise on future files — unavoidable
+    retroactively.
 
 ---
 
@@ -613,34 +649,37 @@ spec, and (b) a small set of correctness bugs and policy gaps at the
 JS/Rust seam (§14.2-5, 7, 11), of which two silently corrupt user-visible
 metadata today (`created`, `display_unit`).
 
-### Recommended, in priority order
+### Recommended, in priority order (status as of 2026-08-28, post seam fixes)
 
-1. **(done by this doc)** Replace the stale v1 dossier as the format's reference;
-   keep this spec updated in the same PR as any format change.
-2. **Single writer.** Route `buildDocumentJson` through the Rust
-   `save_document` (exposed via a bridge `SaveDocument{tabs…}` message), or at
-   minimum add a golden test asserting JS and Rust writers produce equivalent
-   envelopes. Fixes §14.2/3/7 structurally; the two metadata bugs are one-line
-   fixes if done piecemeal (`created`: thread the stored value; `extractDisplayUnit`:
-   read `document.display_unit` first).
-3. **Forward-compat policy.** Add `min_reader_version` (or start bumping
-   `version` on variant additions) so older builds fail with `FutureVersion`
-   instead of parse noise; decide and document whether unknown-field
-   preservation is wanted (if yes, it must be designed in — serde `flatten`
-   catch-alls on every struct — not assumed).
-4. **Multi-tab load correctness** (§14.4): make File→Open call
-   `initDocumentState`, or make the bridge `LoadProject` return all tabs.
-5. **Guardrails:** reject non-finite floats at save time (loud toast beats a
-   file that never loads again); cap STEP blob inflation (e.g. 64 MB) and
-   bounds-check counts at load for shared-file safety.
-6. **Defer:** region size optimization (drop the redundant tessellated `outer`
-   when `outer_edges` is present, behind a version bump), binary/compressed
-   container, JSON Schema generation. Real but not urgent at current file sizes.
+1. **DONE.** The stale v1 dossier is superseded by this spec; keep this spec
+   updated in the same PR as any format change.
+2. **Single writer — PARTIALLY DONE.** The two metadata drift bugs are fixed
+   (`created` latched, `extractDisplayUnit` reads the v3 path), the JS version
+   literals are consolidated into `app/src/lib/engine/format.js`, and
+   `document-format-seam.spec.js` pins the JS writer's envelope. The structural
+   consolidation (routing `buildDocumentJson` through the Rust `save_document`
+   via a bridge `SaveDocument{tabs…}` message) remains OPEN — it is what would
+   prevent the next drift class outright.
+3. **Forward-compat policy — DONE.** `min_reader_version` is written by all
+   writers and enforced by all readers (§13.2-3). Unknown-field preservation
+   remains deliberately absent (documented in §2); designing it in (serde
+   `flatten` catch-alls on every struct) is OPEN and unscheduled.
+4. **Multi-tab load correctness — DONE.** File→Open adopts the file's tab
+   structure under a fresh storage doc id and the download path writes the
+   full document (§14.4).
+5. **Guardrails — PARTIALLY DONE.** Non-finite floats are rejected loudly at
+   save time via the verified bridge save (§14.10). Load-time hardening for
+   shared files (STEP blob inflation cap, count bounds-checking) remains OPEN.
+6. **Defer (unchanged):** region size optimization (drop the redundant
+   tessellated `outer` when `outer_edges` is present, behind a version bump),
+   binary/compressed container, JSON Schema generation, `PreviewMesh` type
+   dedup (§14.6). Real but not urgent at current file sizes.
 
 ### Priority context
 
 Per the project's standing priorities (root `CLAUDE.md`), the Yang kernel
-pipeline outranks file-format work. Items 2-5 are small, self-contained,
-app-layer sessions (no kernel risk) suitable for a change-of-pace slot; item 1
-was cheap and is done. Nothing here blocks kernel work; conversely, the assay
-corpus means kernel work already exercises this format's load path on every run.
+pipeline outranks file-format work. The 2026-08-28 seam-fix session closed the
+user-facing correctness bugs (items 2-5 above, minus the flagged OPEN parts);
+what remains is hardening and consolidation, suitable for a change-of-pace
+slot. Nothing here blocks kernel work; conversely, the assay corpus means
+kernel work already exercises this format's load path on every run.
