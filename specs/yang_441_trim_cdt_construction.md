@@ -3176,17 +3176,48 @@ false. Kept for the derivation's frame naming, which stands.]:**
    passes over it) — the fine truth (the notch's above-rim crossing
    of the band, K∩S_i/W∩S_i chains + their far junctions) is
    arrangement-level structure stage 2 never built; if an instrument
-   STOPs on it, that STOP names the next increment. Then f3's chain
+   STOPs on it, that STOP names the next increment. **It did, same
+   session: with the fill ON, R0003 COMPLETES and the composition
+   oracle catches SUPPORTED_WRONG (χ=2 vs 6 for 3 shells). The
+   `YANG_CHI_AUDIT` instrument (id-complex V−E+F + components +
+   per-component χ + edge-use histogram + vertex-link pinch scan at
+   every stage boundary and around every apply) fully brackets it:
+   stage-1 raw operands and the stage-0 overlay meshes are PERFECT
+   (one genus-0 shell, all edges 2-used); the STAGE-2 KEPT SUBMESH
+   already reads 3 components with per-component χ [−2, 2, 2] at
+   every boolean evaluation, all edges exactly 2-used, ZERO pinch
+   vertices — the main component is a GENUINE closed genus-2
+   surface; and every downstream apply (construct/fold-merge/absorb/
+   rehome, ~135 passes) is invariant-neutral. Reading: near-tangent
+   crossings fall inside the operand meshes' chord gap, so the
+   mesh-exact arrangement genuinely BRIDGES the notch where the
+   analytic truth severs the [B..C] rim window — kept-triangle
+   handles, the defect class the paper's stage-4/5 analytic
+   refinement owns. Each corner fan is itself a disk (the link
+   certificate), so the handles are the larger corner-bridge
+   loops.** Then f3's chain
    splits/retypes (the recompute re-derives edge conics from endpoint
    carriers, so retypes are expected free — verify: one split child
    emitted HypArc but its sibling emitted an untyped Seg in the ON
    run, an asymmetry to chase).
-6. **f3 — chain splits + cycle integration** (split BOTH continuing
+6. **f2c-3 — the junction-layer SLIT (NEXT)**: sever the [B..C] rim
+   window where the analytic truth cuts through — delete the bridge
+   surface, extend the plane-wall patches to mate the slit's sides,
+   mint the above-rim K∩S_i / W∩S_i trace chains and their far
+   junctions (the structure stage 2's chord-gap bridging never
+   built). Triple-anchored: the χ oracle's SUPPORTED_WRONG, the
+   census-15 fine anatomy, and the genus localization. Acceptance
+   instruments: `YANG_CHI_AUDIT` (χ must rise by +2 per severed
+   handle-bridge toward the shell-consistent total) and the standing
+   edge-use audit. Scope note: this REPLACES the f2c-2 bite/bridge
+   at qualifying corners — the coarse fill stays the fallback where
+   the slit's preconditions fail (typed declines, loud).
+7. **f3 — chain splits + cycle integration** (split BOTH continuing
    chains at the mint per the kept-edge report — mint_interposes
    measured TRUE on both; K gains [newJ → C]; the flank's [C…w] chain
    and the wall's [B…w'] chain each gain newJ), fixed-point
    integration with I13d/e, full corpus gated.
-7. **f4 — flip** per the standing two-proof protocol.
+8. **f4 — flip** per the standing two-proof protocol.
 
 ## 5. After this epic (recorded, not started)
 
