@@ -3121,23 +3121,66 @@ false. Kept for the derivation's frame naming, which stands.]:**
    walk one stretch) — the fossil fan blob straddles the TRUE rim
    boundary, so no per-triangle reassignment exists.
 
-5. **f2c-2 — the junction-layer HOLE RE-FILL** (NEXT; this is the
-   epic's promised "phase-3 junction-layer mesh update" first
-   customer, now precisely scoped by the audit): delete the fossil
-   fan (the hole), then re-triangulate the hole with the TRUE
-   structure — construct the true rim-1 polyline through the hole
-   (the exact rim circle through B and C plus the stub [B→C]),
-   partition the hole polygon by that polyline, CDT each side with
-   its own band's attribution (S_i strip side; S_j corner side —
-   which reconnects the two S_j fragments the fossil fan separated),
-   and split EVERY carrier of each insert edge (fragment AND
-   wall/flank partner — the measured 2→1 partner tears). The audit is
-   the acceptance instrument: a correct fill shows 2→0 interior
-   drops and NOTHING at 2→1. Then f3's chain splits/retypes (the
-   recompute re-derives edge conics from endpoint carriers, so
-   retypes are expected free — verify: one split child emitted
-   HypArc but its sibling emitted an untyped Seg in the ON run, an
-   asymmetry to chase in f2c-2's census).
+5. **f2c-2 — the junction-layer HOLE RE-FILL** (the epic's promised
+   "phase-3 junction-layer mesh update" first customer). **Anatomy
+   censuses 14–15 (2026-08-28, 4th session; hole positions + partner
+   attributions + `probe_run_neighborhood` cycle windows on every hole
+   vertex) superseded the item's first draft** ("rim polyline through
+   the hole, two-sided partition CDT"):
+   - Both corners and every rim-side link vertex sit EXACTLY on the
+     planner's rim circle (station and radius match to the printed
+     digit); the mint sits strictly below it, azimuth BETWEEN the
+     corners. The fossil S_i cycle detours [1849 → C → jc → B → 1847]
+     BELOW the rim through the phantom, on TYPED conic edges — (C,jc)
+     the K∩S_i hyperbola, (jc,B) the W∩S_i hyperbola — the §4.3.3
+     domain violation fossilized as chains.
+   - The plane patches' corner triangles ([B,jc,2018] on W,
+     [jc,C,2018] on K, 2018 = the W∩K line's far crossing) are exactly
+     on-plane and combinatorially correct sectors; the W-cycle walks
+     [… 1850 →(W∩S_j)→ B →(fossil W∩S_i)→ jc →(line)→ 2018 …] — the
+     TRUE cycle turns at the MINT: [… 1850 → jc → 2018 …], each
+     view's corner leaving its OWN plane's cycle only.
+   - **The fragments' rim chords OVERSHOOT each other's corner** (the
+     chain-level fossil of the pre-relocation swap): chord (1849→C)
+     spans past B's rim azimuth, chord (B→1847) past C's. In any
+     radius-collapsing chart the [B..C] window is therefore covered
+     three times — keeping BOTH corners on the band boundary needs
+     the window edge thrice (unrepresentable). Exactly one corner
+     stays on the band rim.
+
+   **The mate-exact surgery (BUILT GATED, this session):** per site,
+   one batch, zero new vertices —
+   - S_i side: seedless chart CDT of the link polygon MINUS its
+     dropped-end corner (`refill_fan_hole`, + unit tests: chain
+     θ-unwrap, apex guard, orientation match, I2d like-for-like d(T)
+     budget from the fossil fan's own certified bound). Deterministic
+     drop rule: the link walk's START corner tucks below; certificate
+     = the kept corner interposes on the dropped corner's link chord
+     along the planner's rim circle (`HoleFillUnresolved` otherwise).
+   - The dropped corner's chord splits at the kept corner on the
+     dropped view's fragment (the rim chain reads true-order after),
+     and the BITE triangle [dropped, kept, jc@mint] — all three
+     exactly on S_j — rides in that rebuild: it reconnects the two
+     fragments and mates the window edge and both spokes' insert
+     children exactly.
+   - The two kept-conic seam-inserts (fragment side) stand unchanged.
+   - **Each view's own corner absorbs on its OWN plane patch only**
+     (`rebuild_rehome_fan`, victims={j_rim}, survivor=jc@mint) — the
+     f2b AmbiguousViews symmetry resolved: both mirrored absorb
+     halves were right, one plane each. This subsumes the measured
+     2→1 insert-edge partner tears (no separate all-carrier split).
+   The audit is the acceptance instrument: a correct fill shows
+   interior drops and NOTHING at 2→1 (hand-verified over every
+   changed edge class at the anchor site). Residual coarse deviation,
+   recorded: the dropped corner leaves the band-rim chain (its chord
+   passes over it) — the fine truth (the notch's above-rim crossing
+   of the band, K∩S_i/W∩S_i chains + their far junctions) is
+   arrangement-level structure stage 2 never built; if an instrument
+   STOPs on it, that STOP names the next increment. Then f3's chain
+   splits/retypes (the recompute re-derives edge conics from endpoint
+   carriers, so retypes are expected free — verify: one split child
+   emitted HypArc but its sibling emitted an untyped Seg in the ON
+   run, an asymmetry to chase).
 6. **f3 — chain splits + cycle integration** (split BOTH continuing
    chains at the mint per the kept-edge report — mint_interposes
    measured TRUE on both; K gains [newJ → C]; the flank's [C…w] chain

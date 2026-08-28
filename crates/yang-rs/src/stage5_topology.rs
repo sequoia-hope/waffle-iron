@@ -979,7 +979,76 @@ fn run_fold_merge_passes(
             }
             m
         };
+        // f2c-2: the index-complex invariants around the apply — V−E+F and
+        // connected components of the pipeline mesh BY VERTEX ID. The
+        // composition oracle measures the position-welded complex; printing
+        // the id-complex here separates "an apply shifted χ" from "the
+        // defect is positional (dupes / T-junctions) and only the weld sees
+        // it".
+        let complex_stats = |uses: &std::collections::BTreeMap<(u32, u32), u32>,
+                             mesh: &Mesh|
+         -> (usize, usize, usize, i64, usize, Vec<i64>) {
+            let mut ids: std::collections::BTreeMap<u32, usize> = Default::default();
+            for tri in &mesh.tris {
+                for &v in tri {
+                    let n = ids.len();
+                    ids.entry(v).or_insert(n);
+                }
+            }
+            let mut parent: Vec<usize> = (0..ids.len()).collect();
+            fn find(p: &mut [usize], mut x: usize) -> usize {
+                while p[x] != x {
+                    p[x] = p[p[x]];
+                    x = p[x];
+                }
+                x
+            }
+            for &(a, b) in uses.keys() {
+                let (ra, rb) = (find(&mut parent, ids[&a]), find(&mut parent, ids[&b]));
+                if ra != rb {
+                    parent[ra.max(rb)] = ra.min(rb);
+                }
+            }
+            let mut roots: std::collections::BTreeSet<usize> = Default::default();
+            for i in 0..ids.len() {
+                roots.insert(find(&mut parent, i));
+            }
+            // Per-component χ — the genus DISTRIBUTION (χ_c = 2 − 2g_c for a
+            // closed component): which shell carries a handle defect.
+            let mut per: std::collections::BTreeMap<usize, (i64, i64, i64)> = Default::default();
+            for (&id, &slot) in &ids {
+                let r = find(&mut parent, slot);
+                per.entry(r).or_default().0 += 1;
+                let _ = id;
+            }
+            for &(a, _) in uses.keys() {
+                let r = find(&mut parent, ids[&a]);
+                per.entry(r).or_default().1 += 1;
+            }
+            for tri in &mesh.tris {
+                let r = find(&mut parent, ids[&tri[0]]);
+                per.entry(r).or_default().2 += 1;
+            }
+            let mut chis: Vec<i64> = per.values().map(|&(v, e, f)| v - e + f).collect();
+            chis.sort_unstable();
+            let (v, e, f) = (ids.len(), uses.len(), mesh.tris.len());
+            (
+                v,
+                e,
+                f,
+                v as i64 - e as i64 + f as i64,
+                roots.len(),
+                chis,
+            )
+        };
         let pre_uses = rehome_reloc.map(|_| edge_uses(mesh));
+        if let Some(pre) = &pre_uses {
+            let (v, e, f, chi, comps, chis) = complex_stats(pre, mesh);
+            eprintln!(
+                "[i13f-rehome]   audit: PRE  V({v}) - E({e}) + F({f}) = {chi} \
+                 components={comps} per-component-chi={chis:?}"
+            );
+        }
         match apply_rebuild_batch(mesh, attribution, &rebuilds, &BTreeMap::new()) {
             Ok(()) => {
                 // §I13(f) f2: the re-homed corner's mint position — the fans
@@ -1022,6 +1091,11 @@ fn run_fold_merge_passes(
                     eprintln!(
                         "[i13f-rehome]   audit: {torn} edge(s) changed 2-manifold status \
                          across the apply"
+                    );
+                    let (v, e, f, chi, comps, chis) = complex_stats(&post, mesh);
+                    eprintln!(
+                        "[i13f-rehome]   audit: POST V({v}) - E({e}) + F({f}) = {chi} \
+                         components={comps} per-component-chi={chis:?}"
                     );
                 }
                 if let Some(absorbed) = &run_merged {
@@ -2345,12 +2419,169 @@ fn rehome_attempt(
                 decline_site(RehomeDecline::SiFanUnresolved, rehome_blocked);
                 continue;
             }
+            // f2c-2 HOLE-ANATOMY census (read-only): everything the
+            // junction-layer re-fill must know, measured before building it.
+            // (a) Every hole-boundary edge (link + the two jc spokes) with
+            // its SURVIVING partner triangle — patch role, attribution, and
+            // whether the partner already references the phantom (the
+            // all-carrier split feasibility question). (b) Every hole vertex
+            // in the shared-axis frame (θ, station, radius) against both
+            // cones' expected radii — which band each link stretch lies on,
+            // and where the true rim arc runs. (c) Patch attribution
+            // uniformity for every patch the fill will touch.
+            if mode == RehomeMode::Census {
+                let frame = (|| {
+                    let Surface::Cone { apex, axis_dir, .. } = va.plan.s_i else {
+                        return None;
+                    };
+                    let ax = axis_dir.as_array();
+                    let l = (ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]).sqrt();
+                    let u = [ax[0] / l, ax[1] / l, ax[2] / l];
+                    let (e1v, e2v) = crate::ortho_basis(axis_dir);
+                    Some((apex.as_array(), u, e1v.as_array(), e2v.as_array()))
+                })();
+                if let Some((apex, u, e1, e2)) = frame {
+                    let dot3 = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+                    let cyl = |p: [f64; 3]| -> (f64, f64, f64) {
+                        let d = [p[0] - apex[0], p[1] - apex[1], p[2] - apex[2]];
+                        let s = dot3(d, u);
+                        let rad = [d[0] - s * u[0], d[1] - s * u[1], d[2] - s * u[2]];
+                        let r = dot3(rad, rad).sqrt();
+                        (dot3(rad, e2).atan2(dot3(rad, e1)), s, r)
+                    };
+                    let tan_of = |surf: &Surface| -> Option<(f64, f64)> {
+                        let Surface::Cone {
+                            apex: a2,
+                            half_angle,
+                            ..
+                        } = surf
+                        else {
+                            return None;
+                        };
+                        let d = a2.as_array();
+                        let d = [d[0] - apex[0], d[1] - apex[1], d[2] - apex[2]];
+                        Some((dot3(d, u), half_angle.tan()))
+                    };
+                    let (a_i, t_i) = tan_of(&va.plan.s_i).unwrap_or((0.0, f64::NAN));
+                    let (a_j, t_j) = tan_of(&va.plan.s_j).unwrap_or((0.0, f64::NAN));
+                    let (s_rim, r_rim) = match va.plan.rim {
+                        Curve::Circle { center, radius, .. } => {
+                            let c = center.as_array();
+                            (
+                                dot3([c[0] - apex[0], c[1] - apex[1], c[2] - apex[2]], u),
+                                radius,
+                            )
+                        }
+                        _ => (f64::NAN, f64::NAN),
+                    };
+                    let (th_m, s_m, r_m) = cyl(mint);
+                    eprintln!(
+                        "[i13f-rehome]   f2c-2 frame: site j_cut=v{jc} s_rim={s_rim:.9} \
+                         r_rim={r_rim:.9} a_i={a_i:.6} tan_i={t_i:.6} a_j={a_j:.6} \
+                         tan_j={t_j:.6} mint(th,s,r)=({th_m:.9},{s_m:.9},{r_m:.9})"
+                    );
+                    let hole: Vec<u32> = std::iter::once(jc).chain(link.iter().copied()).collect();
+                    for &v2 in &hole {
+                        let p = pos(v2);
+                        let (th, s, r) = cyl(p);
+                        eprintln!(
+                            "[i13f-rehome]   f2c-2 vert: v{v2} th={th:+.9} s={s:.9} \
+                             r={r:.9} r_i={:.9} r_j={:.9} p=({:.6},{:.6},{:.6})",
+                            (s - a_i).abs() * t_i,
+                            (s - a_j).abs() * t_j,
+                            p[0],
+                            p[1],
+                            p[2]
+                        );
+                    }
+                    let fan_set: std::collections::BTreeSet<u32> =
+                        si_del.old_tris.iter().copied().collect();
+                    let n_hole = hole.len();
+                    for k in 0..n_hole {
+                        let (x, y) = (hole[k], hole[(k + 1) % n_hole]);
+                        let users: Vec<u32> = (0..mesh.tris.len() as u32)
+                            .filter(|&t| {
+                                let tri = mesh.tris[t as usize];
+                                tri.contains(&x) && tri.contains(&y)
+                            })
+                            .collect();
+                        for &t in &users {
+                            if fan_set.contains(&t) {
+                                continue;
+                            }
+                            let tri = mesh.tris[t as usize];
+                            let pi = patches.iter().position(|p| p.tris.contains(&t));
+                            let role = pi.map(|pi| {
+                                let s = &patches[pi].surface;
+                                if *s == va.plan.s_i {
+                                    "s_i"
+                                } else if *s == va.plan.s_j {
+                                    "s_j"
+                                } else if *s == va.plan.wall {
+                                    "wall"
+                                } else if *s == va.plan.cut {
+                                    "cut"
+                                } else {
+                                    "other"
+                                }
+                            });
+                            eprintln!(
+                                "[i13f-rehome]   f2c-2 hole-edge (v{x},v{y}): partner \
+                                 t{t}={tri:?} patch={pi:?} role={role:?} attr={:?} \
+                                 has_jc={}",
+                                attribution.attributions[t as usize],
+                                tri.contains(&jc)
+                            );
+                        }
+                        if users.len() != 2 {
+                            eprintln!(
+                                "[i13f-rehome]   f2c-2 hole-edge (v{x},v{y}): {} users \
+                                 {users:?} (expected 2)",
+                                users.len()
+                            );
+                        }
+                    }
+                    let mut attr_pats: Vec<usize> = vec![si_pi];
+                    for (pi, pat) in patches.iter().enumerate() {
+                        if pat.surface == va.plan.s_j
+                            && pat
+                                .cycles
+                                .iter()
+                                .any(|c| corners.iter().any(|cn| c.contains(cn)))
+                        {
+                            attr_pats.push(pi);
+                        }
+                    }
+                    for pi in attr_pats {
+                        let mut attrs: Vec<_> = patches[pi]
+                            .tris
+                            .iter()
+                            .map(|&t| attribution.attributions[t as usize])
+                            .collect();
+                        attrs.sort();
+                        attrs.dedup();
+                        eprintln!(
+                            "[i13f-rehome]   f2c-2 patch-attr: patch={pi} tris={} \
+                             attrs={attrs:?}",
+                            patches[pi].tris.len()
+                        );
+                    }
+                    // The arrangement's OWN local topology claim is the fill's
+                    // authority — probe every hole vertex's cycle windows
+                    // (carried surfaces, neighbors, per-edge curve refs).
+                    for &v2 in &hole {
+                        probe_run_neighborhood(mesh, attribution, a, b, patches, curves, v2, jc);
+                    }
+                }
+            }
             // The two seam-inserts: per view, the S_j fragment whose cycle
             // holds the view's KEPT corner (its recognized rim junction),
             // on the boundary edge carrying the view's kept conic with the
             // mint's parameter interposed.
-            let mut rebuilds = vec![si_del];
-            let mut insert_report: Vec<String> = Vec::new();
+            // f2c-2 — resolve BOTH views' seam-insert targets first (the
+            // corrected surgery needs the fragment identities before the
+            // chord/fill construction below).
+            let mut insert_targets: Vec<(usize, u32)> = Vec::new();
             for v in [va, vb] {
                 let Some((_, kc)) = v.kept_edge else {
                     decline_site(RehomeDecline::KeptEdgeUnresolved, rehome_blocked);
@@ -2391,6 +2622,45 @@ fn rehome_attempt(
                 }
                 targets.sort_unstable();
                 targets.dedup();
+                // f2c-2 census: every user of the chosen insert edge — the
+                // measured 2→1 partner tears name the OTHER carriers the
+                // all-carrier split must also split.
+                if mode == RehomeMode::Census {
+                    if let [(_, nb)] = targets[..] {
+                        let (x, y) = (v.rim_j, nb);
+                        let users: Vec<u32> = (0..mesh.tris.len() as u32)
+                            .filter(|&t| {
+                                let tri = mesh.tris[t as usize];
+                                tri.contains(&x) && tri.contains(&y)
+                            })
+                            .collect();
+                        for &t in &users {
+                            let tri = mesh.tris[t as usize];
+                            let pi = patches.iter().position(|p| p.tris.contains(&t));
+                            let role = pi.map(|pi| {
+                                let s = &patches[pi].surface;
+                                if *s == v.plan.s_i {
+                                    "s_i"
+                                } else if *s == v.plan.s_j {
+                                    "s_j"
+                                } else if *s == v.plan.wall {
+                                    "wall"
+                                } else if *s == v.plan.cut {
+                                    "cut"
+                                } else {
+                                    "other"
+                                }
+                            });
+                            eprintln!(
+                                "[i13f-rehome]   f2c-2 insert-edge (v{x},v{y}): user \
+                                 t{t}={tri:?} patch={pi:?} role={role:?} attr={:?} \
+                                 has_jc={}",
+                                attribution.attributions[t as usize],
+                                tri.contains(&jc)
+                            );
+                        }
+                    }
+                }
                 let [(frag_pi, nb)] = targets[..] else {
                     eprintln!(
                         "[i13f-rehome]   f2c site j_cut=v{jc}: {} insert targets at \
@@ -2401,6 +2671,156 @@ fn rehome_attempt(
                     decline_site(RehomeDecline::InsertEdgeUnresolved, rehome_blocked);
                     continue 'site;
                 };
+                insert_targets.push((frag_pi, nb));
+            }
+            // f2c-2 — corner roles by the deterministic link walk: the
+            // link's END corner stays on the band patch's rim; the START
+            // corner tucks below onto the neighbor-band side (the measured
+            // chord-overshoot anatomy: keeping both corners on the band
+            // boundary would claim the rim-window edge three times — the
+            // fossil's own stacked-chord slit — so exactly one stays).
+            let dropped = link[0];
+            let kept = *link.last().expect("link ends were certified");
+            // A view's seam-insert happens AT its RECOGNIZED junction
+            // (`rim_j`) — the OPPOSITE corner of its victim `j_rim` — so the
+            // fragment owning a corner belongs to the view whose `rim_j` IS
+            // that corner.
+            let view_ix = |corner: u32| [va, vb].into_iter().position(|v| v.rim_j == corner);
+            let (Some(vd_ix), Some(vk_ix)) = (view_ix(dropped), view_ix(kept)) else {
+                decline_site(RehomeDecline::NotAKeptPair, rehome_blocked);
+                continue;
+            };
+            let (v_dropped, v_kept) = ([va, vb][vd_ix], [va, vb][vk_ix]);
+            let (frag_d_pi, _) = insert_targets[vd_ix];
+            let (frag_k_pi, _) = insert_targets[vk_ix];
+            // Certificate: the kept corner interposes on the dropped
+            // corner's link chord ALONG THE PLANNER'S OWN RIM CIRCLE (the
+            // overshoot the chord split undoes; wrapped-Δ convention).
+            let rim_t = |p: [f64; 3]| {
+                crate::stage4_correct::conic_param(&va.plan.rim, Point3::new(p[0], p[1], p[2]))
+            };
+            let overshoot = (|| {
+                crate::stage4_rehome::mint_interposes(
+                    &va.plan.rim,
+                    rim_t(pos(dropped))?,
+                    rim_t(pos(kept))?,
+                    rim_t(pos(link[1]))?,
+                )
+            })();
+            if overshoot != Some(true) {
+                eprintln!(
+                    "[i13f-rehome]   f2c site j_cut=v{jc}: kept corner v{kept} does not \
+                     interpose on chord (v{dropped},v{}) — overshoot={overshoot:?}",
+                    link[1]
+                );
+                decline_site(RehomeDecline::HoleFillUnresolved, rehome_blocked);
+                continue;
+            }
+            // Certificate: each end chord's surviving user is its own view's
+            // fragment (the fill mates them by construction).
+            let chord_user = |x: u32, y: u32| -> Option<u32> {
+                let users: Vec<u32> = (0..mesh.tris.len() as u32)
+                    .filter(|&t| {
+                        let tri = mesh.tris[t as usize];
+                        tri.contains(&x) && tri.contains(&y) && !si_del.old_tris.contains(&t)
+                    })
+                    .collect();
+                match users[..] {
+                    [t] => Some(t),
+                    _ => None,
+                }
+            };
+            let dropped_chord = chord_user(dropped, link[1]);
+            let kept_chord = chord_user(kept, link[link.len() - 2]);
+            let frag_holds =
+                |pi: usize, t: Option<u32>| t.is_some_and(|t| patches[pi].tris.contains(&t));
+            if !frag_holds(frag_d_pi, dropped_chord) || !frag_holds(frag_k_pi, kept_chord) {
+                eprintln!(
+                    "[i13f-rehome]   f2c site j_cut=v{jc}: end-chord users not on their \
+                     views' fragments — dropped={dropped_chord:?} kept={kept_chord:?}"
+                );
+                decline_site(RehomeDecline::HoleFillUnresolved, rehome_blocked);
+                continue;
+            }
+            // The S_i-side fill: seedless chart CDT of the link polygon
+            // minus the dropped corner (the phantom leaves the band patch —
+            // its true carriers are {S_j, W, K}).
+            let mut si_fill = si_del;
+            match crate::stage4_construct::refill_fan_hole(
+                mesh,
+                si_pi,
+                &patches[si_pi],
+                &link[1..],
+                &si_fill.old_tris,
+            ) {
+                Ok(tris) => si_fill.new_tris = tris,
+                Err(e) => {
+                    eprintln!("[i13f-rehome]   f2c site j_cut=v{jc}: hole re-fill — {e:?}");
+                    decline_site(RehomeDecline::HoleFillUnresolved, rehome_blocked);
+                    continue;
+                }
+            }
+            // The dropped corner's chord split: the kept corner (at its
+            // CURRENT exact position) enters the dropped view's fragment
+            // boundary chain — the rim chain reads true-order afterwards.
+            let kept_pos = Point3::new(pos(kept)[0], pos(kept)[1], pos(kept)[2]);
+            let mut chord_split = match split_boundary_edge(
+                mesh,
+                frag_d_pi,
+                &patches[frag_d_pi],
+                dropped,
+                link[1],
+                kept,
+                kept_pos,
+            ) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("[i13f-rehome]   f2c site j_cut=v{jc}: chord split — {e:?}");
+                    decline_site(RehomeDecline::HoleFillUnresolved, rehome_blocked);
+                    continue;
+                }
+            };
+            // The bite triangle [dropped, kept, jc@mint] — all three exactly
+            // on the neighbor band (both corners on the rim circle, the mint
+            // on S_j by construction). It reconnects the two fragments and
+            // mates the chord-split window edge, both spokes' insert
+            // children, and nothing else. Oriented to the fragment's sense.
+            let frag_sense = {
+                let old: Vec<[u32; 3]> = patches[frag_d_pi]
+                    .tris
+                    .iter()
+                    .map(|&t| mesh.tris[t as usize])
+                    .collect();
+                crate::stage4_splice::area_vector(&old, &|v2: u32| mesh.verts[v2 as usize])
+            };
+            let bite_pos = |v2: u32| -> Point3 {
+                if v2 == jc {
+                    mint_pt
+                } else {
+                    mesh.verts[v2 as usize]
+                }
+            };
+            let mut bite = [dropped, kept, jc];
+            let bd = crate::stage4_splice::dot3(
+                frag_sense,
+                crate::stage4_splice::area_vector(&[bite], &bite_pos),
+            );
+            if !(bd.is_finite() && bd != 0.0) {
+                eprintln!(
+                    "[i13f-rehome]   f2c site j_cut=v{jc}: bite orientation degenerate \
+                     (d={bd:.3e})"
+                );
+                decline_site(RehomeDecline::HoleFillUnresolved, rehome_blocked);
+                continue;
+            }
+            if bd < 0.0 {
+                bite.swap(1, 2);
+            }
+            chord_split.new_tris.push(bite);
+            let mut rebuilds = vec![si_fill, chord_split];
+            let mut insert_report: Vec<String> = Vec::new();
+            // The two seam-inserts (fragment side).
+            for (v, &(frag_pi, nb)) in [va, vb].into_iter().zip(&insert_targets) {
                 match split_boundary_edge(
                     mesh,
                     frag_pi,
@@ -2421,6 +2841,62 @@ fn rehome_attempt(
                             v.rim_j
                         );
                         decline_site(RehomeDecline::InsertEdgeUnresolved, rehome_blocked);
+                        continue 'site;
+                    }
+                }
+            }
+            // Each view's OWN corner leaves its OWN plane patch — the
+            // mirrored absorb halves, each restricted to the plane its
+            // corner actually terminates on (the f2b AmbiguousViews
+            // symmetry resolved: both were right, one plane each). The fan
+            // re-homes to the mint, which subsumes the insert edges' plane-
+            // side partners (the measured 2→1 partner tears).
+            if v_dropped.plan.wall == v_kept.plan.wall {
+                decline_site(RehomeDecline::PlaneAbsorbUnresolved, rehome_blocked);
+                continue;
+            }
+            for v in [v_dropped, v_kept] {
+                let wall_pis: Vec<usize> = patches
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, p)| {
+                        p.surface == v.plan.wall
+                            && p.tris
+                                .iter()
+                                .any(|&t| mesh.tris[t as usize].contains(&v.plan.j_rim))
+                    })
+                    .map(|(pi, _)| pi)
+                    .collect();
+                let [wpi] = wall_pis[..] else {
+                    eprintln!(
+                        "[i13f-rehome]   f2c site j_cut=v{jc}: {} wall patches hold \
+                         corner v{} — {wall_pis:?}",
+                        wall_pis.len(),
+                        v.plan.j_rim
+                    );
+                    decline_site(RehomeDecline::PlaneAbsorbUnresolved, rehome_blocked);
+                    continue 'site;
+                };
+                let vic: std::collections::BTreeSet<u32> = [v.plan.j_rim].into_iter().collect();
+                match crate::stage4_construct::rebuild_rehome_fan(
+                    mesh,
+                    wpi,
+                    &patches[wpi],
+                    &vic,
+                    jc,
+                    mint_pt,
+                ) {
+                    Ok(r) => {
+                        insert_report.push(format!("absorb v{} on patch={wpi}", v.plan.j_rim));
+                        rebuilds.push(r);
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[i13f-rehome]   f2c site j_cut=v{jc}: plane absorb of v{} \
+                             — {e:?}",
+                            v.plan.j_rim
+                        );
+                        decline_site(RehomeDecline::PlaneAbsorbUnresolved, rehome_blocked);
                         continue 'site;
                     }
                 }

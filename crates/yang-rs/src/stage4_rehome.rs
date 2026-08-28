@@ -128,6 +128,16 @@ pub(crate) enum RehomeDecline {
     /// f2c: some S_j-surface patch already holds the phantom — the
     /// measured precondition (the join is an INSERT) does not hold here.
     AlreadyJoined,
+    /// f2c-2: the S_i-side hole re-fill could not be certified — the kept
+    /// corner does not interpose on the dropped corner's rim chord (the
+    /// measured overshoot anatomy is absent), the chord's surviving user is
+    /// not the dropped view's fragment, the chart CDT of the link polygon
+    /// refused, or the bite triangle's orientation is degenerate.
+    HoleFillUnresolved,
+    /// f2c-2: a view's own-plane corner absorb could not be certified —
+    /// the view's wall surface has no unique patch holding its corner, or
+    /// the re-homed fan rebuild refused.
+    PlaneAbsorbUnresolved,
 }
 
 /// §I13(f) f2 gate — `YANG_441_REHOME`. Unset/other = Off (the arm does
@@ -351,6 +361,9 @@ pub(crate) struct RehomePlan {
     /// analysis; the apply increment interprets the sign against the
     /// kept material).
     pub rim_side_of_cut: f64,
+    /// The shared S_i∩S_j rim circle (the planner's own exact solve) — the
+    /// f2c-2 hole re-fill constructs the true rim polyline on it.
+    pub rim: Curve,
     /// The classified frame, for the apply increments: `s_i` the phantom
     /// band, `s_j` the neighbor band, `wall` the shared plane W, `cut` the
     /// cut plane K. The rim×cut junction's identity triple is
@@ -601,6 +614,7 @@ pub(crate) fn plan_corner_rehoming(
         new_rim,
         residual: worst,
         rim_side_of_cut,
+        rim,
         s_i: frame.s_i,
         s_j: frame.s_j,
         wall: frame.wall,

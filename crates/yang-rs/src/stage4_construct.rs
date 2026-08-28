@@ -1763,6 +1763,146 @@ pub(crate) fn split_boundary_edge(
     })
 }
 
+/// §I13(f) f2c-2 — the S_i-side HOLE RE-FILL: seedless CDT of the fossil
+/// fan's link polygon MINUS its dropped-end corner, in the patch's chart.
+/// The phantom is NOT on the polygon — the re-homed corner leaves the band
+/// patch entirely (its true carriers are {S_j, W, K}), and the dropped-end
+/// corner tucks below the rim onto the neighbor-band side (the measured
+/// chord-overshoot anatomy, census-15 2026-08-28: keeping BOTH corners on
+/// the band boundary needs the window edge twice — the fossil's own
+/// stacked-chord slit — so exactly one corner stays, deterministically the
+/// link-walk's END).
+///
+/// `polygon` is the cyclic boundary in mesh ids (the link minus its first
+/// vertex); `reference` the old fan triangles being replaced (orientation
+/// and — on curved charts — the like-for-like d(T) budget, Yang §4.4.1's
+/// closing sentence). Returns oriented replacement triangles in mesh ids.
+/// Every failure is a typed refusal; nothing is legalized.
+pub(crate) fn refill_fan_hole(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    polygon: &[u32],
+    reference: &[u32],
+) -> Result<Vec<[u32; 3]>, ConstructError> {
+    let chart = SurfaceChart::new(patch.surface)
+        .ok_or(ConstructError::NonPlanarPatch { patch: patch_index })?;
+    if polygon.len() < 3 || reference.is_empty() {
+        return Err(ConstructError::MalformedPatch { patch: patch_index });
+    }
+    // Chain θ-unwrap: each vertex within a half turn of its predecessor —
+    // the polygon is corner-local by construction, so a wrap means the
+    // premise failed and the CDT would be fed a self-crossing boundary.
+    let planar = matches!(chart, SurfaceChart::Plane { .. });
+    let mut pool: Vec<Point2> = Vec::with_capacity(polygon.len());
+    for (i, &v) in polygon.iter().enumerate() {
+        let uv = chart.project(mesh.verts[v as usize]);
+        let theta = if i == 0 || planar {
+            uv.x()
+        } else {
+            let prev = pool[i - 1].x();
+            let mut d = uv.x() - prev;
+            while d > std::f64::consts::PI {
+                d -= std::f64::consts::TAU;
+            }
+            while d <= -std::f64::consts::PI {
+                d += std::f64::consts::TAU;
+            }
+            prev + d
+        };
+        pool.push(Point2::new(theta, uv.y()));
+    }
+    if matches!(chart, SurfaceChart::Cone { .. }) && pool.iter().any(|p| p.y() <= 0.0) {
+        return Err(ConstructError::ApexInPatch { patch: patch_index });
+    }
+    if !planar {
+        let (lo, hi) = pool
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+                (lo.min(p.x()), hi.max(p.x()))
+            });
+        if !(hi - lo).is_finite() || hi - lo >= std::f64::consts::TAU {
+            return Err(ConstructError::ThetaUnwrap { patch: patch_index });
+        }
+    }
+    let boundary: Vec<u32> = (0..polygon.len() as u32).collect();
+    let tris2 =
+        cdt_with_interior_constraints(&pool, &boundary, &[], &[], &[]).map_err(|error| {
+            ConstructError::Cdt {
+                patch: patch_index,
+                error,
+            }
+        })?;
+    let old: Vec<[u32; 3]> = reference.iter().map(|&t| mesh.tris[t as usize]).collect();
+    let mesh_pos = |v: u32| -> Point3 { mesh.verts[v as usize] };
+    let want = crate::stage4_splice::area_vector(&old, &mesh_pos);
+    let pos3 = |i: u32| -> Point3 { mesh.verts[polygon[i as usize] as usize] };
+    let got = crate::stage4_splice::area_vector(&tris2, &pos3);
+    let d = crate::stage4_splice::dot3(want, got);
+    if d == 0.0 || !d.is_finite() {
+        return Err(ConstructError::DegenerateOrientation { patch: patch_index });
+    }
+    let mut tris2 = tris2;
+    if d < 0.0 {
+        for t in &mut tris2 {
+            t.swap(1, 2);
+        }
+    }
+    // I2d like-for-like d(T) on curved charts: the fossil fan's own
+    // certified bound is the budget — no external constant. Old-triangle
+    // vertices (the phantom included) unwrap toward the pool's span mid.
+    if !planar {
+        let (lo, hi) = pool
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+                (lo.min(p.x()), hi.max(p.x()))
+            });
+        let mid = 0.5 * (lo + hi);
+        let uv_of = |v: u32| -> Result<Point2, ConstructError> {
+            let uv = chart.project(mesh.verts[v as usize]);
+            let k = ((mid - uv.x()) / std::f64::consts::TAU).round();
+            Ok(Point2::new(uv.x() + k * std::f64::consts::TAU, uv.y()))
+        };
+        let mut budget = 0.0f64;
+        for t in &old {
+            let uv = [uv_of(t[0])?, uv_of(t[1])?, uv_of(t[2])?];
+            budget = budget.max(
+                crate::stage4_dt::d_of_t(&patch.surface, uv)
+                    .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?,
+            );
+        }
+        let mut new_max = 0.0f64;
+        for t in &tris2 {
+            let uv = [
+                pool[t[0] as usize],
+                pool[t[1] as usize],
+                pool[t[2] as usize],
+            ];
+            new_max = new_max.max(
+                crate::stage4_dt::d_of_t(&patch.surface, uv)
+                    .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?,
+            );
+        }
+        if new_max > budget {
+            return Err(ConstructError::ChordDegradation {
+                patch: patch_index,
+                old_max: budget,
+                new_max,
+            });
+        }
+    }
+    Ok(tris2
+        .iter()
+        .map(|t| {
+            [
+                polygon[t[0] as usize],
+                polygon[t[1] as usize],
+                polygon[t[2] as usize],
+            ]
+        })
+        .collect())
+}
+
 fn fan_rebuild_core(
     mesh: &Mesh,
     patch_index: usize,
@@ -4385,6 +4525,104 @@ mod tests {
         match split_boundary_edge(&mesh, 2, &patch, 0, 1, 4, Point3::new(1.0, 2.0, 0.0)) {
             Err(ConstructError::SplitFlip { .. }) => {}
             other => panic!("flipping insert must decline, got {other:?}"),
+        }
+    }
+
+    // ---- §I13(f) f2c-2 refill_fan_hole ---------------------------------
+
+    /// The measured hole shape on a planar stand-in: a boundary victim 5
+    /// whose fossil fan spans the strip; the fill re-covers the link
+    /// polygon MINUS the dropped-end corner, orientation matched.
+    #[test]
+    fn refill_fan_hole_covers_the_trimmed_polygon() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),  // 0 = dropped corner
+                Point3::new(1.0, 1.0, 0.0),  // 1 upper link
+                Point3::new(2.0, 1.1, 0.0),  // 2 upper link
+                Point3::new(3.0, 1.0, 0.0),  // 3 upper link
+                Point3::new(3.5, 0.0, 0.0),  // 4 = kept corner
+                Point3::new(1.7, -0.4, 0.0), // 5 = victim (overhang)
+            ],
+            tris: vec![[5, 0, 1], [5, 1, 2], [5, 2, 3], [5, 3, 4]],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3, 4, 5]], vec![0, 1, 2, 3]);
+        let (r, link) = delete_boundary_fan(&mesh, 0, &patch, 5).expect("boundary fan");
+        assert_eq!(link, vec![0, 1, 2, 3, 4]);
+        let fill = refill_fan_hole(&mesh, 0, &patch, &link[1..], &r.old_tris).expect("planar fill");
+        assert_eq!(fill.len(), 2, "quad polygon fills with two triangles");
+        // Only polygon vertices referenced; the victim and the dropped
+        // corner appear nowhere.
+        for t in &fill {
+            for v in t {
+                assert!(link[1..].contains(v), "foreign vertex {v} in {fill:?}");
+            }
+        }
+        // Orientation matches the fossil fan's sense per triangle.
+        let pos = |v: u32| mesh.verts[v as usize];
+        let want = area_vector(&[[5, 0, 1], [5, 1, 2], [5, 2, 3], [5, 3, 4]], &pos);
+        for t in &fill {
+            let av = area_vector(&[*t], &pos);
+            assert!(dot3(want, av) > 0.0, "triangle {t:?} flipped");
+        }
+        // A polygon shorter than a triangle refuses loudly.
+        match refill_fan_hole(&mesh, 0, &patch, &link[3..], &r.old_tris) {
+            Err(ConstructError::MalformedPatch { .. }) => {}
+            other => panic!("short polygon must refuse, got {other:?}"),
+        }
+    }
+
+    /// The cone-chart path: chain θ-unwrap, the like-for-like d(T) budget
+    /// (the fossil slivers' own certified bound), and the apex guard.
+    #[test]
+    fn refill_fan_hole_cone_chart_unwraps_and_respects_the_budget() {
+        let half_angle = 0.4f64;
+        let tan = half_angle.tan();
+        let on_cone = |theta: f64, z: f64| {
+            // ortho_basis(+z) is deterministic; evaluate through the chart
+            // itself so the fixture matches project() exactly.
+            let chart = crate::stage4_project::SurfaceChart::Cone {
+                apex: [0.0, 0.0, 0.0],
+                axis: [0.0, 0.0, 1.0],
+                e1: [1.0, 0.0, 0.0],
+                e2: [0.0, 1.0, 0.0],
+                tan_half: tan,
+            };
+            chart.lift(cad_primitives::Point2::new(theta, z))
+        };
+        let surface = Surface::Cone {
+            apex: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            half_angle,
+        };
+        let mesh = Mesh {
+            verts: vec![
+                on_cone(0.00, 2.0),  // 0 = dropped corner (on the lower rim)
+                on_cone(0.30, 2.6),  // 1 upper link
+                on_cone(-0.10, 2.6), // 2 upper link (θ zigzag)
+                on_cone(0.12, 2.0),  // 3 = kept corner
+                on_cone(0.06, 1.9),  // 4 = victim below the rim
+            ],
+            tris: vec![[4, 0, 1], [4, 1, 2], [4, 2, 3]],
+        };
+        let patch = SplicePatch {
+            cycles: vec![vec![0, 1, 2, 3, 4]],
+            tris: vec![0, 1, 2],
+            surface,
+        };
+        let (r, link) = delete_boundary_fan(&mesh, 0, &patch, 4).expect("boundary fan");
+        assert_eq!(link, vec![0, 1, 2, 3]);
+        let fill = refill_fan_hole(&mesh, 0, &patch, &link[1..], &r.old_tris).expect("cone fill");
+        assert_eq!(fill.len(), 1, "triangle polygon fills with one triangle");
+        let pos = |v: u32| mesh.verts[v as usize];
+        let want = area_vector(&[[4, 0, 1], [4, 1, 2], [4, 2, 3]], &pos);
+        assert!(dot3(want, area_vector(&fill, &pos)) > 0.0);
+        // A polygon touching the apex station refuses loudly.
+        let mut apex_mesh = mesh.clone();
+        apex_mesh.verts[1] = Point3::new(0.0, 0.0, 0.0);
+        match refill_fan_hole(&apex_mesh, 0, &patch, &link[1..], &r.old_tris) {
+            Err(ConstructError::ApexInPatch { .. }) => {}
+            other => panic!("apex polygon must refuse, got {other:?}"),
         }
     }
 }
