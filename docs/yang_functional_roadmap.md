@@ -800,6 +800,14 @@ name, never measured).
    the mirror crossing once → update the affected cycles) — the
    phase-3 junction-layer mesh update's first SMALL customer, the
    right vehicle before R0100's loop-level case.
+   [STATUS 2026-08-28: f0 census + f1 planner + f2 gated apply arm +
+   f2b material discriminator BUILT (`YANG_441_REHOME`); the f2b
+   census REFUTED the interim absorb-a-corner apply shape — BOTH old
+   corners are true junctions (kept rim = the stub between them), only
+   the phantom is false, so the repair is exactly this paragraph's
+   original shape: relocate + re-home the phantom, absorb nothing
+   (spec §I13(f) f2c). Corpus untouched; f903 stays the loud wall
+   until f2c/f3 land.]
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

@@ -92,6 +92,22 @@ pub(crate) enum RehomeDecline {
     /// orientation of a mesh triangle that rides along with the moved
     /// vertex outside the rebuilt fans.
     TriangleFlip,
+    /// f2b: no kept patch on the view's cut surface has the recognized
+    /// rim junction on a boundary cycle — the corner-locality requirement
+    /// of the material test has no witness patch.
+    CutPatchAbsent,
+    /// f2b: a corner patch on the cut surface has incoherent or
+    /// degenerate result-outward winding (planarity ratio, zero area, or
+    /// two corner patches disagreeing in sense) — the material
+    /// orientation cannot be read.
+    CutPatchWindingDegenerate,
+    /// f2b: the victim's material margin against the oriented cut plane
+    /// is within the evaluation-noise floor — the side is undecidable.
+    MaterialMarginDegenerate,
+    /// f2b: the victim lies strictly on the MATERIAL side of the view's
+    /// cut plane — this view is the wrong mirror (its "victim" is the
+    /// kept corner).
+    KeptByMaterial,
 }
 
 /// §I13(f) f2 gate — `YANG_441_REHOME`. Unset/other = Off (the arm does
@@ -193,6 +209,109 @@ pub(crate) fn mint_interposes(curve: &Curve, t_r: f64, t_j: f64, t_w: f64) -> Op
         return None;
     }
     Some((d1 > 0.0) == (d2 > 0.0))
+}
+
+/// §I13(f) f2b — the material verdict for one view: `margin > 0` means
+/// the view's victim sits strictly in VOID at corner scale (absorbing it
+/// is sound); `margin < 0` means it sits strictly against kept material
+/// (the view is the wrong mirror). `floor` is the degeneracy guard the
+/// margin cleared.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MaterialVerdict {
+    pub margin: f64,
+    pub floor: f64,
+    /// Corner witness patches on the cut surface (all sense-consistent).
+    pub cut_patches: usize,
+}
+
+/// §I13(f) f2b — the kept/waste VIEW DISCRIMINATOR (material evidence).
+///
+/// A site's two mirrored views are symmetric under every pair-local
+/// order/side test (censuses 3–8, 2026-08-28): the defective chains
+/// fossilize the arrangement's PRE-relocation order, so mesh-anchored
+/// walks are circular and raw plane sides are uninterpreted. The bit
+/// that separates the views — which old corner is WASTE — is stage-2
+/// LABEL information, and the surviving mesh still carries it: the
+/// in/out classification plus the per-op keep flip
+/// ([`crate::boolean::flip_for_op`], mirroring Cherchi 2022 §5's
+/// `booleans.cpp`) leave every kept triangle RESULT-outward oriented, so
+/// a kept patch's winding names the void side of its carrier surface.
+/// That orientation is bulk material data a corner-order defect cannot
+/// touch.
+///
+/// The test: the view claims its victim `j_rim` = {S_i, S_j, wall} lies
+/// beyond the view's CUT plane. Witnesses are the kept patch(es) ON the
+/// cut surface whose boundary cycle contains the view's recognized rim
+/// junction — the corner-locality requirement (the census-3 refuted
+/// discriminator failed on FAR samples against the planes' infinite
+/// extensions; here one corner-scale point is tested against a face
+/// whose kept footprint provably reaches this corner). Each witness must
+/// read as a coherent planar patch (|Σ signed area·n̂| ≥ ½ Σ |area| —
+/// an internal-consistency requirement, not a geometric acceptance
+/// band), and all witnesses must agree in sense; `margin` =
+/// sense × sdist(victim)/|n|. The floor is the evaluation-noise model
+/// (`TAU_EVAL·(1+scale)`, small multiplier) — a degeneracy STOP
+/// converting an unreadable side into a loud decline, never a band that
+/// admits a case.
+pub(crate) fn view_material_verdict(
+    mesh: &crate::Mesh,
+    patches: &[crate::stage4_splice::SplicePatch],
+    cut: &Surface,
+    rim_j: u32,
+    victim: [f64; 3],
+) -> Result<MaterialVerdict, RehomeDecline> {
+    let Surface::Plane { normal, d } = *cut else {
+        return Err(RehomeDecline::ShapeMismatch);
+    };
+    let n = normal.as_array();
+    let n_len = norm(n);
+    if !(n_len.is_finite() && n_len > 0.0) {
+        return Err(RehomeDecline::ShapeMismatch);
+    }
+    let n_hat = [n[0] / n_len, n[1] / n_len, n[2] / n_len];
+    let mut sense: Option<f64> = None;
+    let mut witnesses = 0usize;
+    for pat in patches {
+        if pat.surface != *cut || !pat.cycles.iter().any(|c| c.contains(&rim_j)) {
+            continue;
+        }
+        witnesses += 1;
+        // Result-outward winding vs the plane normal, with a planarity
+        // coherence requirement: a folded or sliver-only patch cannot
+        // orient the material side.
+        let mut signed = 0.0f64;
+        let mut total = 0.0f64;
+        for &t in &pat.tris {
+            let tri = mesh.tris[t as usize];
+            let p = |v: u32| mesh.verts[v as usize].as_array();
+            let (p0, p1, p2) = (p(tri[0]), p(tri[1]), p(tri[2]));
+            let av = cross(sub(p1, p0), sub(p2, p0));
+            signed += dot(av, n_hat);
+            total += norm(av);
+        }
+        if !(total.is_finite() && total > 0.0 && signed.abs() >= 0.5 * total) {
+            return Err(RehomeDecline::CutPatchWindingDegenerate);
+        }
+        let s = signed.signum();
+        if *sense.get_or_insert(s) != s {
+            return Err(RehomeDecline::CutPatchWindingDegenerate);
+        }
+    }
+    let Some(sense) = sense else {
+        return Err(RehomeDecline::CutPatchAbsent);
+    };
+    let sdist = (dot(n, victim) + d) / n_len;
+    let scale = victim.iter().fold(0.0f64, |m, &c| m.max(c.abs()));
+    let floor = 64.0 * cad_primitives::TAU_EVAL * (1.0 + scale);
+    let margin = sense * sdist;
+    if !(margin.is_finite() && margin.abs() > floor) {
+        return Err(RehomeDecline::MaterialMarginDegenerate);
+    }
+    Ok(MaterialVerdict {
+        margin,
+        floor,
+        cut_patches: witnesses,
+    })
 }
 
 /// The planned surgery for one inverted pair. Positions are exact-solve
@@ -877,5 +996,122 @@ mod anchor_debug {
             }
             Err(e) => panic!("the anchor pair must plan, got {e:?}"),
         }
+    }
+
+    // ---- f2b view_material_verdict --------------------------------------
+
+    /// Unit square kept patch in z=0 wound CCW from +z (result-outward
+    /// +z), with the corner junction v0 on its cycle. The plane's stored
+    /// normal is deliberately NON-unit and z-negative to pin the
+    /// normalization and the winding-not-surface-normal sense authority.
+    fn material_fixture(ccw: bool) -> (crate::Mesh, Vec<crate::stage4_splice::SplicePatch>) {
+        let mesh = crate::Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+            ],
+            tris: if ccw {
+                vec![[0, 1, 2], [0, 2, 3]]
+            } else {
+                vec![[0, 2, 1], [0, 3, 2]]
+            },
+        };
+        let patch = crate::stage4_splice::SplicePatch {
+            cycles: vec![vec![0, 1, 2, 3]],
+            tris: vec![0, 1],
+            surface: cut_plane(),
+        };
+        (mesh, vec![patch])
+    }
+
+    fn cut_plane() -> Surface {
+        Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, -2.0),
+            d: 0.0,
+        }
+    }
+
+    #[test]
+    fn material_verdict_signs_follow_the_kept_winding() {
+        // CCW-from-+z winding: result-outward is +z, so +z is VOID.
+        let (mesh, patches) = material_fixture(true);
+        let above = view_material_verdict(&mesh, &patches, &cut_plane(), 0, [0.2, 0.2, 0.5])
+            .expect("clean margin");
+        assert!(
+            above.margin > 0.49 && above.margin < 0.51,
+            "void-side victim is WASTE at its physical distance, got {:+.3e}",
+            above.margin
+        );
+        assert_eq!(above.cut_patches, 1);
+        let below = view_material_verdict(&mesh, &patches, &cut_plane(), 0, [0.2, 0.2, -0.5])
+            .expect("clean margin");
+        assert!(
+            below.margin < -0.49 && below.margin > -0.51,
+            "material-side victim reads KEPT, got {:+.3e}",
+            below.margin
+        );
+        // Flipped winding: the SAME victim flips verdict — the sense
+        // authority is the kept patch's winding, not the surface normal.
+        let (mesh, patches) = material_fixture(false);
+        let above = view_material_verdict(&mesh, &patches, &cut_plane(), 0, [0.2, 0.2, 0.5])
+            .expect("clean margin");
+        assert!(above.margin < 0.0, "flipped winding flips the void side");
+    }
+
+    #[test]
+    fn material_verdict_requires_a_corner_witness() {
+        let (mesh, patches) = material_fixture(true);
+        // Junction v9 is on no cycle of the cut surface's patches.
+        assert_eq!(
+            view_material_verdict(&mesh, &patches, &cut_plane(), 9, [0.2, 0.2, 0.5]).unwrap_err(),
+            RehomeDecline::CutPatchAbsent
+        );
+        // A non-plane cut declines as a shape mismatch.
+        let sphere = Surface::Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+        };
+        assert_eq!(
+            view_material_verdict(&mesh, &patches, &sphere, 0, [0.2, 0.2, 0.5]).unwrap_err(),
+            RehomeDecline::ShapeMismatch
+        );
+    }
+
+    #[test]
+    fn material_verdict_degeneracies_decline() {
+        // A folded witness (its two triangles wind oppositely) cannot
+        // orient the material side.
+        let (mesh, mut patches) = material_fixture(true);
+        patches[0].tris = vec![0, 1];
+        let folded = crate::Mesh {
+            verts: mesh.verts.clone(),
+            tris: vec![[0, 1, 2], [0, 3, 2]],
+        };
+        assert_eq!(
+            view_material_verdict(&folded, &patches, &cut_plane(), 0, [0.2, 0.2, 0.5]).unwrap_err(),
+            RehomeDecline::CutPatchWindingDegenerate
+        );
+        // Two corner witnesses with OPPOSITE senses decline.
+        let (mesh2, patches2) = material_fixture(true);
+        let (_, patches_cw) = material_fixture(false);
+        let both = vec![patches2[0].clone(), patches_cw[0].clone()];
+        let two_patch_mesh = crate::Mesh {
+            verts: mesh2.verts.clone(),
+            tris: vec![[0, 1, 2], [0, 2, 3], [0, 2, 1], [0, 3, 2]],
+        };
+        let mut both = both;
+        both[1].tris = vec![2, 3];
+        assert_eq!(
+            view_material_verdict(&two_patch_mesh, &both, &cut_plane(), 0, [0.2, 0.2, 0.5])
+                .unwrap_err(),
+            RehomeDecline::CutPatchWindingDegenerate
+        );
+        // An on-plane victim is inside the evaluation-noise floor.
+        assert_eq!(
+            view_material_verdict(&mesh, &patches, &cut_plane(), 0, [0.2, 0.2, 0.0]).unwrap_err(),
+            RehomeDecline::MaterialMarginDegenerate
+        );
     }
 }

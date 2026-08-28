@@ -2895,7 +2895,11 @@ booleans, all passes:
 **The full true-corner surgery (derived from the anchor's exact order;
 naming: S_i = the shared cone [phantom band], S_j = the rim corner's
 extra cone [neighbor band], W = the shared plane [wall], K = the cut
-corner's extra plane, R = S_i∩S_j [the rim circle]):**
+corner's extra plane, R = S_i∩S_j [the rim circle]).
+[SUPERSEDED 2026-08-28 by the f2b material census — see f2b/f2c in the
+build plan: the "KILL j_rim" half read the kept rim direction
+backwards; BOTH old corners are true junctions and only the phantom is
+false. Kept for the derivation's frame naming, which stands.]:**
 
 - KILL two mesh junctions: `j_cut` {S_i, W, K} (exact solve outside
   S_i's band — the §4.3.3 domain rule-out at a junction) and `j_rim`
@@ -2975,7 +2979,9 @@ corner's extra plane, R = S_i∩S_j [the rim circle]):**
      other's j_rim as its rim junction (residuals 4e-14…2.6e-12,
      recognition 100%). The final subtract re-encounters one of the
      same 5 corners — the f903 site.
-   - **True corner anatomy** (from the census-8 exact params at the
+   - **True corner anatomy** [the "B waste" half SUPERSEDED by the f2b
+     material census, item 3 below — B survives; the kept-direction
+     read was backwards] (from the census-8 exact params at the
      anchor): ONE kept mint `newJ` {S_j, W, K}; the rim truncates at
      C = rim∩K (KEPT — the recognized junction); B = rim∩W and the
      phantom A are BOTH waste; K gains the [newJ → C] stretch; and
@@ -3010,17 +3016,71 @@ corner's extra plane, R = S_i∩S_j [the rim circle]):**
      to the census run; f903 unchanged (its corner is ambiguous —
      nothing applied there); no new walls. The machinery is proven
      end-to-end on a real site; the remaining corners wait on f2b.
-3. **f2b — the kept/waste view discriminator** (OPEN): certify which
-   old corner is waste with material/label evidence rather than
-   pair-local order (candidates: the stage-2 arrangement labels at the
-   corner wedge; a §4.3.4-densified probe of the wall's own kept chain
-   against the cut at corner scale). Then drop `AmbiguousViews` for a
-   certified single view per site.
-4. **f3 — the four-cycle surgery** (split BOTH continuing chains at the
-   mint per the kept-edge report; K gains [newJ → C]; S_i/S_j splices;
-   cone-side chains truncate at the recognized junction), fixed-point
+3. **f2b — the kept/waste view discriminator — BUILT + MEASURED
+   2026-08-28 (3rd session): the material evidence REFUTES the
+   absorb-a-corner surgery itself.**
+   `stage4_rehome::view_material_verdict` (3 unit tests): the surviving
+   mesh IS the stage-2 label store — the in/out classification plus the
+   per-op keep flip (`boolean::flip_for_op`, Cherchi 2022 §5) leave
+   every kept triangle RESULT-outward oriented (verified in code:
+   `compact_tris` is pushed post-flip at `boolean.rs` ≈1615→1686, so
+   the stage-4/5 mesh inherits it), so a kept patch's winding names the
+   void side of its carrier plane, immune to the corner's fossilized
+   chain order and to stored-normal ancestry (the margin formula is
+   stored-normal-invariant). Witness = the kept patch on the view's cut
+   plane whose cycle contains the view's recognized rim junction
+   (corner locality — the census-3 refuted discriminator failed on FAR
+   samples; this is one corner-scale point against a face whose kept
+   footprint reaches the corner). Winding must be planar-coherent
+   (|Σ signed| ≥ ½ Σ |area|) and sense-consistent across witnesses;
+   margin = sense × sdist(victim); |margin| ≤ 64·TAU_EVAL·(1+scale)
+   declines (`MaterialMarginDegenerate` — a degeneracy STOP, not a
+   band). Wired into the f2 chain after rim recognition; margin < 0 ⇒
+   typed `KeptByMaterial` decline.
+
+   **Census-10 (R0003): ALL 10 views declined `KeptByMaterial` — 5
+   corners × 2 views, margins −2.237e-2 … −1.232e0, floors ≈1.2e-5
+   (≥1.7e3× separation), cut_patches=1 everywhere, verdict unchanged
+   (f903, 41.1s).** Both victims of every site sit strictly on the
+   MATERIAL side of their view's cut. Two independent orientation
+   authorities agree (the winding sense, and the planner's
+   `rim_side_of_cut` against the stored input-outward normals — every
+   magnitude matches exactly). Reading, at the anchor: B = rim×wall is
+   0.0415 OUTSIDE the tool (the gear-tooth flank never reaches the
+   revolve's own corner — B is an input-A vertex that SURVIVES the
+   subtract); C = rim×flank is 0.0996 INSIDE the material wedge (a
+   true ∂A∩∂tool junction). **The kept rim near the wall is the STUB
+   [B…C]; the deep-chain side beyond C is the removed side — the
+   census-8 anatomy read the kept direction backwards.** That one
+   mis-read explains the whole discrimination impasse: the four
+   refuted pair-local discriminators and the AmbiguousViews symmetry
+   all failed because THERE IS NO WASTE CORNER — both views proposed
+   absorbing a TRUE junction. (It also convicts the earlier gated ON
+   apply of the census-9 "exclusive" site as a silent-wrong the
+   material gate now catches — env-gated, never persisted.) The f2b
+   gate is therefore load-bearing as a REFUTATION: the honest fixed
+   point applies NOTHING, loudly, until the corrected surgery lands.
+4. **f2c — the corrected surgery: re-home the phantom, absorb NOTHING**
+   (NEXT, replaces the absorb-j_rim apply arm): per the measured
+   anatomy the only false object is the phantom `j_cut` = A; B and C
+   both stay. (a) relocate A → `new_wall` (f2's position-override +
+   batch write, kept); (b) REMOVE the moved vertex from the S_i patch
+   only — fan-rebuild with victim = A on S_i's holders (its boundary
+   then runs C1[…→B] → rim stub [B→C] → flank trace [C→…]; first
+   census must print A's S_i-fan link to confirm the B/flank-side
+   neighbors); (c) seam-INSERT the moved vertex into the S_j patch's
+   C0 boundary chain between B and its far neighbor (the §4.3.4/I5
+   insert primitive — a T-junction otherwise); (d) retype the wall
+   cycle's [newJ→B] edge C1→C0; declines typed + pair-blocked, at the
+   same I13d/e fixed point, exclusivity replaced by the f2b material
+   gate run on BOTH old corners (both must read KEPT for the site to
+   qualify — the measured signature of this family).
+5. **f3 — chain splits + cycle integration** (split BOTH continuing
+   chains at the mint per the kept-edge report — mint_interposes
+   measured TRUE on both; K gains [newJ → C]; the flank's [C…w] chain
+   and the wall's [B…w'] chain each gain newJ), fixed-point
    integration with I13d/e, full corpus gated.
-5. **f4 — flip** per the standing two-proof protocol.
+6. **f4 — flip** per the standing two-proof protocol.
 
 ## 5. After this epic (recorded, not started)
 

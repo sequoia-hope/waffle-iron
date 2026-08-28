@@ -1823,6 +1823,35 @@ fn rehome_attempt(
                 "[i13f-rehome]   kept-edge report: v{rim_j}-v{w} mint_interposes={verdict:?}"
             );
         }
+        // f2b — kept/waste view discrimination by MATERIAL evidence (the
+        // stage-2 labels, read as the corner witness patch's result-outward
+        // winding on the view's cut plane). Strictly positive margin =
+        // the victim sits in void at corner scale (this view is the true
+        // mirror); strictly negative = it sits against kept material (the
+        // wrong mirror — typed decline). Anything unreadable declines and
+        // the site keeps its loud standing wall.
+        let mat = match crate::stage4_rehome::view_material_verdict(
+            mesh,
+            patches,
+            &plan.cut,
+            rim_j,
+            pos(plan.j_rim),
+        ) {
+            Ok(m) => m,
+            Err(d) => {
+                decline(d, rehome_blocked);
+                continue;
+            }
+        };
+        eprintln!(
+            "[i13f-rehome]   f2b material: pair v{}/v{} victim=v{} margin={:+.3e} \
+             floor={:.1e} cut_patches={}",
+            cand.j, cand.v, plan.j_rim, mat.margin, mat.floor, mat.cut_patches
+        );
+        if mat.margin < 0.0 {
+            decline(RehomeDecline::KeptByMaterial, rehome_blocked);
+            continue;
+        }
         // Per-holder fan plans: every patch holding the victim rebuilds; the
         // survivor is evaluated at its mint and may JOIN the neighbor band.
         let new_wall = Point3::new(plan.new_wall[0], plan.new_wall[1], plan.new_wall[2]);
