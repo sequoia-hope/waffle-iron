@@ -107,7 +107,7 @@ fn surface_kind(s: &Surface) -> &'static str {
     }
 }
 
-fn curve_kind(c: &Curve) -> &'static str {
+pub(crate) fn curve_kind(c: &Curve) -> &'static str {
     match c {
         Curve::LineSegment => "LineSegment",
         Curve::Circle { .. } => "Circle",

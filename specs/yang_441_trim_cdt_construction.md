@@ -2855,9 +2855,42 @@ first absorption pass of the final subtract:
   before the R0100 loop-level case.
 - SELECT accounting at the pass: runs=692 terminals=1384 no_param=40
   no_flip=1242 no_inversion=14 **not_richer=26** ambiguous=0 → 31 sites
-  (absorbed elsewhere); the I13f pair is in the not_richer bucket, which
-  a census mode should split into "true-corner pairs" (this family) vs
-  other refusals before building.
+  (absorbed elsewhere); the I13f pair is in the not_richer bucket.
+
+**not_richer census (`YANG_441_I13F=census`, BUILT + MEASURED same day):**
+two joined read-only prints — params/curve at the selector's refusal,
+carrier-set sizes/kinds at the caller's `richer` closure. R0003, all
+booleans, all passes:
+
+- **The bucket is PURELY this family: 228/228 distinct id-pairs are
+  true-corner pairs** (both ends 3 carriers, sets incomparable,
+  shared = 2), every one the same kind-shape — {cone, plane, plane}
+  (cut corner) vs {cone, cone, plane} (band-rim corner) — on Hyperbola
+  (668 line-occurrences) and Ellipse (78) conics. No ordinary refusals
+  hide in the bucket for this case.
+- Id-pairs dedupe by (curve, rounded params) to **exactly 10 PHYSICAL
+  sites** (each re-printed 52–120× = per pass per terminal; absorption
+  rebuilds renumber ids each pass, which is why id-level counting
+  overstates 23×). Post-relocation param gaps: 1.88e-5 … 6.517e-3
+  (≈ 3.6e-3 … ≈1.2 physical at the conics' ~77–190 scale) — all at or
+  above render scale, NO sub-resolution noise cluster: these are ten
+  genuine order defects, not near-coincident-junction jitter.
+- Only ONE site currently breaks a ring (f903's pair, gap 2.069e-4);
+  the other nine pass their CDTs today — i.e. the mesh topology
+  contradicts the exact junction order LATENTLY in nine places. That is
+  the silent-wrong risk profile (P10) that justifies the structural
+  repair over a per-crossing patch; the repair must treat all certified
+  sites uniformly, and the flip measurement must watch the nine latent
+  sites' faces for unmasked walls.
+- Sub-case analysis (one canonical repair): the phantom candidate is
+  ALWAYS the cut corner — its domain is the band's rim-bounded conic
+  interval; the rim corner exists independently of the cut. Inverted
+  order ⇒ the cut line crosses the neighbor band, so the repair is
+  RE-HOMING the cut corner across the shared rim: rule out {S_i, W, K}
+  by the domain clause, solve {S_j, W, K} exactly on the neighbor
+  band's conic, splice the wall + both cone-band cycles, mint once and
+  share by identity (the BINDING junction contract). Declines = loud
+  typed STOP naming the pair.
 
 ## 5. After this epic (recorded, not started)
 

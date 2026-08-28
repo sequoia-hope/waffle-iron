@@ -1292,7 +1292,35 @@ fn run_absorption_attempt(
             )
         };
         let (cj, cv) = (cs(j), cs(v));
-        cv.iter().all(|s| cj.contains(s)) && cj.iter().any(|s| !cv.contains(s))
+        let ok = cv.iter().all(|s| cj.contains(s)) && cj.iter().any(|s| !cv.contains(s));
+        // I13f census companion print (spec §I13(f)): the carrier sets of a
+        // refused pair — a TRUE-CORNER pair (both ≥3 carriers, sets
+        // incomparable) is the inverted-junction family; everything else in
+        // the not_richer bucket is an ordinary refusal.
+        if !ok && std::env::var("YANG_441_I13F").is_ok_and(|x| x == "census") {
+            let kinds = |c: &[crate::Surface]| -> String {
+                c.iter()
+                    .map(|s| match s {
+                        crate::Surface::Plane { .. } => "P",
+                        crate::Surface::Cylinder { .. } => "Y",
+                        crate::Surface::Cone { .. } => "C",
+                        crate::Surface::Sphere { .. } => "S",
+                        crate::Surface::Torus { .. } => "T",
+                    })
+                    .collect::<Vec<_>>()
+                    .join("")
+            };
+            let shared = cv.iter().filter(|s| cj.contains(s)).count();
+            eprintln!(
+                "[i13f-census] CARRIERS j=v{j} n={} kinds={} vs v{v} n={} kinds={} shared={}",
+                cj.len(),
+                kinds(&cj),
+                cv.len(),
+                kinds(&cv),
+                shared
+            );
+        }
+        ok
     };
     let (sites, census) = S4_PRE_POS.with(|c| {
         let borrow = c.borrow();

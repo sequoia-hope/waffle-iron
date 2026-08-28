@@ -1296,6 +1296,30 @@ pub fn run_absorption_sites<'a>(
                 }
                 if !victims.iter().all(|&v| strictly_richer(j, v)) {
                     census.not_richer += 1;
+                    // I13f census (spec §I13(f), read-only): the not_richer
+                    // bucket holds the inverted-junction-pair family (both
+                    // ends true corners — R0003 face 903) among ordinary
+                    // refusals. Params + curve kind here; the caller's
+                    // richer-closure prints the carrier sets for the same
+                    // ids.
+                    if std::env::var("YANG_441_I13F").is_ok_and(|v| v == "census") {
+                        let vic: Vec<String> = victims
+                            .iter()
+                            .map(|&v| {
+                                let (tq, tp) = (
+                                    post.get(v as usize).copied().and_then(param),
+                                    pre.get(&v).copied().and_then(param),
+                                );
+                                format!("v{v}(t={tq:?} pre={tp:?})")
+                            })
+                            .collect();
+                        eprintln!(
+                            "[i13f-census] NOT_RICHER j=v{j} t_j={t_j:.9} \
+                             t_j_pre={t_j_pre:.9} curve={} victims=[{}]",
+                            crate::stage5_output_refine::curve_kind(c0),
+                            vic.join(", ")
+                        );
+                    }
                     continue;
                 }
                 let site = RunAbsorptionSite {
