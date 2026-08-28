@@ -699,6 +699,12 @@ fn run_fold_merge_passes(
     // already holds (each member's per-site repair was refused first); this
     // set is what keeps a refused GROUP from being re-proposed.
     let mut group_blocked: BTreeSet<u32> = BTreeSet::new();
+    // §I13(f) f2: PAIRS a re-homing certificate refused — the arm's own
+    // livelock guard (decline paths must guarantee progress), keyed by the
+    // unordered id pair: a site's two W↔K-mirrored views SHARE the phantom
+    // vertex, so blocking a refused view's VERTICES would silently skip
+    // its sibling (the true view).
+    let mut rehome_blocked: BTreeSet<(u32, u32)> = BTreeSet::new();
     let mut applied_total = 0usize;
 
     for pass in 0..max_passes {
@@ -913,6 +919,7 @@ fn run_fold_merge_passes(
             break;
         }
         let mut run_merged: Option<Vec<(u32, Vec<u32>)>> = None;
+        let mut rehome_reloc: Option<(u32, Point3)> = None;
         if !progressed {
             // Every corner-level site this pass was refused (or none existed);
             // those refusals are persistent, so the corner arm is at its fixed
@@ -945,19 +952,36 @@ fn run_fold_merge_passes(
                 intersection_curves,
                 &mut blocked,
                 &mut group_blocked,
+                &mut rehome_blocked,
                 pass,
             ) {
-                Some((plan, absorbed)) => {
+                Some((plan, absorbed, reloc)) => {
                     rebuilds = plan;
                     run_merged = Some(absorbed);
+                    rehome_reloc = reloc;
                 }
                 None => break,
             }
         }
         match apply_rebuild_batch(mesh, attribution, &rebuilds, &BTreeMap::new()) {
             Ok(()) => {
+                // §I13(f) f2: the re-homed corner's mint position — the fans
+                // in `rebuilds` were planned against it, so it lands only
+                // with them (a refused batch leaves the mesh untouched).
+                if let Some((v, p)) = rehome_reloc {
+                    mesh.verts[v as usize] = p;
+                }
                 if let Some(absorbed) = &run_merged {
-                    if let [(survivor, victims)] = &absorbed[..] {
+                    if let (Some((rv, rp)), [(_, victims)]) = (&rehome_reloc, &absorbed[..]) {
+                        c441_log!(
+                            "[i13f-rehome] pass={pass}: APPLIED re-homing {victims:?} -> \
+                             v{rv}@({:.6},{:.6},{:.6}) over {} fans",
+                            rp.as_array()[0],
+                            rp.as_array()[1],
+                            rp.as_array()[2],
+                            rebuilds.len()
+                        );
+                    } else if let [(survivor, victims)] = &absorbed[..] {
                         c441_log!(
                             "[i13d-absorb] pass={pass}: APPLIED run {victims:?} -> v{survivor} \
                              over {} fans",
@@ -1009,6 +1033,16 @@ fn run_fold_merge_passes(
             group_blocked = group_blocked
                 .iter()
                 .filter_map(|&v| map.get(v as usize).copied().flatten())
+                .collect();
+            rehome_blocked = rehome_blocked
+                .iter()
+                .filter_map(|&(a2, b2)| {
+                    let (a2, b2) = (
+                        map.get(a2 as usize).copied().flatten()?,
+                        map.get(b2 as usize).copied().flatten()?,
+                    );
+                    Some((a2.min(b2), a2.max(b2)))
+                })
                 .collect();
         }
     }
@@ -1198,10 +1232,13 @@ fn probe_merge_site(
 
 /// A committed absorption: the per-holder rebuild plan plus each absorbed
 /// site's `(survivor, victims)` — one entry from the I13d run arm, several
-/// from the I13e group arm.
+/// from the I13e group arm — plus, for the §I13(f) re-homing arm only, the
+/// survivor's mint position (applied by the caller together with the batch;
+/// `None` for every absorption).
 type AbsorptionPlan = (
     Vec<crate::stage4_construct::PatchRebuild>,
     Vec<(u32, Vec<u32>)>,
+    Option<(u32, Point3)>,
 );
 
 /// I13d (**ALWAYS-ON since the 2026-08-25 flip** — see
@@ -1240,6 +1277,7 @@ fn run_absorption_attempt(
     curves: &std::collections::BTreeMap<(u32, u32), Curve>,
     blocked: &mut std::collections::BTreeSet<u32>,
     group_blocked: &mut std::collections::BTreeSet<u32>,
+    rehome_blocked: &mut std::collections::BTreeSet<(u32, u32)>,
     pass: usize,
 ) -> Option<AbsorptionPlan> {
     use crate::stage4_construct::{rebuild_group_fan, rebuild_run_fan};
@@ -1353,7 +1391,7 @@ fn run_absorption_attempt(
         }
         ok
     };
-    let (sites, census) = S4_PRE_POS.with(|c| {
+    let (sites, census, rehome_cands) = S4_PRE_POS.with(|c| {
         let borrow = c.borrow();
         match borrow.as_ref() {
             Some(pre) => {
@@ -1366,7 +1404,7 @@ fn run_absorption_attempt(
                     richer,
                 )
             }
-            None => (Vec::new(), Default::default()),
+            None => (Vec::new(), Default::default(), Vec::new()),
         }
     });
     eprintln!(
@@ -1472,7 +1510,7 @@ fn run_absorption_attempt(
             site.victims,
             site.survivor
         );
-        return Some((plan, vec![(site.survivor, site.victims.clone())]));
+        return Some((plan, vec![(site.survivor, site.victims.clone())], None));
     }
 
     // ---- I13e: cross-site group absorption ------------------------------
@@ -1609,7 +1647,329 @@ fn run_absorption_attempt(
                 .iter()
                 .map(|(vs, s)| (*s, vs.iter().copied().collect()))
                 .collect(),
+            None,
         ));
+    }
+
+    rehome_attempt(
+        mesh,
+        attribution,
+        a,
+        b,
+        patches,
+        curves,
+        &rehome_cands,
+        rehome_blocked,
+        pass,
+    )
+}
+
+/// §I13(f) f2 — the inverted-junction-pair RE-HOMING arm (wall-cycle half;
+/// spec `specs/yang_441_trim_cdt_construction.md` §I13(f) f2). Gated OFF by
+/// default (`YANG_441_REHOME`); runs strictly at the absorption fixed point
+/// (no I13d site applied, no I13e group applied).
+///
+/// The candidates are the selector's single-victim `not_richer` refusals —
+/// TRUE-corner pairs whose mesh cycle order contradicts their exact order
+/// (both I13d certificates fired; richness refused CORRECTLY: absorption
+/// would delete a true corner). The repair is re-homing the cut corner
+/// across the shared rim: relocate `j_cut` onto the planner's `newJ_wall`
+/// mint {S_j, W, K} and absorb `j_rim` (on K's waste side) into it. The
+/// wall cycle re-routes cut-line → newJ_wall → C0, the neighbor band gains
+/// its true wall corner (the survivor JOINS the S_j patch —
+/// [`rebuild_rehome_fan`]), and the cone-side chains meet at the
+/// RECOGNIZED rim×cut junction (carrier-identity, never minted twice).
+///
+/// Certificate chain, every decline loud and typed: the f1 planner's
+/// construction certificates → the selector's inversion re-verified from
+/// its own plumbed t-params → rim×cut junction recognized by carrier
+/// identity → per-holder fan plans → bare-collapse guard → ride-along
+/// triangle orientation guard. `census` mode runs the whole chain and
+/// reports without mutating.
+#[allow(clippy::too_many_arguments)]
+fn rehome_attempt(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+    patches: &[crate::stage4_splice::SplicePatch],
+    curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    cands: &[crate::stage4_fold_risk::RehomeCandidate],
+    rehome_blocked: &mut std::collections::BTreeSet<(u32, u32)>,
+    pass: usize,
+) -> Option<AbsorptionPlan> {
+    use crate::stage4_rehome::{
+        inversion_still_holds, plan_corner_rehoming, recognize_rim_junction, rehome_mode,
+        RehomeDecline, RehomeMode,
+    };
+    let mode = rehome_mode();
+    if mode == RehomeMode::Off || cands.is_empty() {
+        return None;
+    }
+    let mut would_apply = 0usize;
+    let mut skipped_blocked = 0usize;
+    let pair_key = |a: u32, b: u32| (a.min(b), a.max(b));
+    let mut survivors: Vec<(
+        &crate::stage4_fold_risk::RehomeCandidate,
+        crate::stage4_rehome::RehomePlan,
+        Vec<crate::stage4_construct::PatchRebuild>,
+        Point3,
+    )> = Vec::new();
+    'cand: for cand in cands {
+        if rehome_blocked.contains(&pair_key(cand.j, cand.v)) {
+            skipped_blocked += 1;
+            continue;
+        }
+        let carried = |x: u32, pos: [f64; 3]| {
+            crate::stage4_correct::carried_surfaces(mesh, &attribution.attributions, a, b, x, pos)
+        };
+        let pos = |x: u32| mesh.verts[x as usize].as_array();
+        let (cj, cv) = (carried(cand.j, pos(cand.j)), carried(cand.v, pos(cand.v)));
+        let decline = |d: RehomeDecline, blocked: &mut std::collections::BTreeSet<(u32, u32)>| {
+            eprintln!(
+                "[i13f-rehome] pass={pass}: DECLINE pair v{}/v{} reason={d:?}",
+                cand.j, cand.v
+            );
+            blocked.insert(pair_key(cand.j, cand.v));
+        };
+        let plan = match plan_corner_rehoming(cand.j, pos(cand.j), &cj, cand.v, pos(cand.v), &cv) {
+            Ok(p) => p,
+            Err(d) => {
+                decline(d, rehome_blocked);
+                continue;
+            }
+        };
+        // The selector's inversion authority, re-verified from its own
+        // plumbed t-params (guards the plumb, not the math).
+        if !inversion_still_holds(cand) {
+            decline(RehomeDecline::InversionUnverified, rehome_blocked);
+            continue;
+        }
+        // Recognize the existing rim×cut junction {S_i, S_j, K} by carrier
+        // IDENTITY. The distance scan is a search pre-filter at the pair's
+        // own scale (the planner's window formula), not an acceptance band.
+        let gap = {
+            let (p, q) = (pos(plan.j_cut), pos(plan.j_rim));
+            ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()
+        };
+        let scale = plan.new_rim.iter().fold(0.0f64, |m, &c| m.max(c.abs()));
+        let win = 16.0 * gap + 1e3 * cad_primitives::TAU_EVAL * (1.0 + scale);
+        let near: Vec<(u32, Vec<Surface>)> = (0..mesh.verts.len() as u32)
+            .filter(|&x| x != plan.j_cut && x != plan.j_rim)
+            .filter(|&x| {
+                let p = pos(x);
+                let d2 = (p[0] - plan.new_rim[0]).powi(2)
+                    + (p[1] - plan.new_rim[1]).powi(2)
+                    + (p[2] - plan.new_rim[2]).powi(2);
+                d2 <= win * win
+            })
+            .map(|x| (x, carried(x, pos(x))))
+            .collect();
+        let rim_j = match recognize_rim_junction(&near, &[plan.s_i, plan.s_j, plan.cut]) {
+            Ok(v) => v,
+            Err(d) => {
+                decline(d, rehome_blocked);
+                continue;
+            }
+        };
+        let rim_dist = {
+            let p = pos(rim_j);
+            ((p[0] - plan.new_rim[0]).powi(2)
+                + (p[1] - plan.new_rim[1]).powi(2)
+                + (p[2] - plan.new_rim[2]).powi(2))
+            .sqrt()
+        };
+        // Mint-interposition REPORT (feeds the f3 chain-split work order,
+        // not a certificate): both old corners' continuing chains straddle
+        // the mint's exact parameter — the missed crossing was never
+        // inserted into EITHER the s_j∩wall conic chain or the s_j∩cut
+        // trace chain, so the f3 surgery must split both there. Measured
+        // symmetric across a site's two mirrored views (censuses 7–8,
+        // 2026-08-28), which is why this is a report and not a view
+        // discriminator: every pair-local order/side test is symmetric at
+        // this defect — the defective chains are the arrangement's
+        // pre-relocation order fossilized, and the exact relocation
+        // swapped the pair along the rim. View discrimination (which old
+        // corner is waste) is kept/waste information and stands OPEN as
+        // f2b; until it lands, the cross-view exclusivity guard below
+        // refuses both-certified sites loudly.
+        let far: std::collections::BTreeSet<u32> = patches
+            .iter()
+            .filter(|pat| pat.surface == plan.cut)
+            .flat_map(|pat| pat.cycles.iter())
+            .flat_map(|cyc| {
+                let n = cyc.len();
+                (0..n)
+                    .filter(move |&i| cyc[i] == rim_j)
+                    .map(move |i| [cyc[(i + n - 1) % n], cyc[(i + 1) % n]])
+            })
+            .flatten()
+            .filter(|&x| x != plan.j_cut && x != plan.j_rim && x != rim_j)
+            .collect();
+        if let (1, Some(&w)) = (far.len(), far.iter().next()) {
+            let key = (rim_j.min(w), rim_j.max(w));
+            let verdict = curves.get(&key).and_then(|c| {
+                let t = |p: [f64; 3]| {
+                    crate::stage4_correct::conic_param(c, Point3::new(p[0], p[1], p[2]))
+                };
+                crate::stage4_rehome::mint_interposes(
+                    c,
+                    t(pos(rim_j))?,
+                    t(plan.new_wall)?,
+                    t(pos(w))?,
+                )
+            });
+            eprintln!(
+                "[i13f-rehome]   kept-edge report: v{rim_j}-v{w} mint_interposes={verdict:?}"
+            );
+        }
+        // Per-holder fan plans: every patch holding the victim rebuilds; the
+        // survivor is evaluated at its mint and may JOIN the neighbor band.
+        let new_wall = Point3::new(plan.new_wall[0], plan.new_wall[1], plan.new_wall[2]);
+        let vic: std::collections::BTreeSet<u32> = [plan.j_rim].into_iter().collect();
+        let holders: Vec<usize> = patches
+            .iter()
+            .enumerate()
+            .filter(|&(_pj, pat)| {
+                pat.tris
+                    .iter()
+                    .any(|&t| mesh.tris[t as usize].contains(&plan.j_rim))
+            })
+            .map(|(pj, _)| pj)
+            .collect();
+        let chartable = |s: &Surface| crate::stage4_project::SurfaceChart::supports(s);
+        if holders.is_empty() || holders.iter().any(|&h| !chartable(&patches[h].surface)) {
+            eprintln!(
+                "[i13f-rehome] pass={pass}: REFUSED pair v{}/v{} — unchartable (or no) \
+                 holder in {holders:?}",
+                cand.j, cand.v
+            );
+            rehome_blocked.insert(pair_key(cand.j, cand.v));
+            continue;
+        }
+        let mut fans = Vec::with_capacity(holders.len());
+        for &h in &holders {
+            match crate::stage4_construct::rebuild_rehome_fan(
+                mesh,
+                h,
+                &patches[h],
+                &vic,
+                plan.j_cut,
+                new_wall,
+            ) {
+                Ok(r) => fans.push(r),
+                Err(e) => {
+                    eprintln!(
+                        "[i13f-rehome] pass={pass}: DECLINED patch {h} for pair v{}/v{} — {e:?}",
+                        cand.j, cand.v
+                    );
+                    rehome_blocked.insert(pair_key(cand.j, cand.v));
+                    continue 'cand;
+                }
+            }
+        }
+        // Bare-collapse guard: the victim must not survive anywhere outside
+        // the rebuilt fans.
+        let planned: std::collections::BTreeSet<u32> = fans
+            .iter()
+            .flat_map(|r| r.old_tris.iter().copied())
+            .collect();
+        if let Some(t) = (0..mesh.tris.len() as u32)
+            .find(|t| !planned.contains(t) && mesh.tris[*t as usize].contains(&plan.j_rim))
+        {
+            eprintln!(
+                "[i13f-rehome] pass={pass}: BLOCKED pair v{}/v{} — triangle {t} holds the \
+                 victim outside every holder fan",
+                cand.j, cand.v
+            );
+            rehome_blocked.insert(pair_key(cand.j, cand.v));
+            continue;
+        }
+        // Ride-along orientation guard: every triangle that keeps the moved
+        // vertex OUTSIDE the rebuilt fans must keep its orientation sense
+        // under the relocation (sign-only, no band).
+        for (t, tri) in mesh.tris.iter().enumerate() {
+            if planned.contains(&(t as u32)) || !tri.contains(&plan.j_cut) {
+                continue;
+            }
+            let at = |v: u32, moved: bool| -> Point3 {
+                if moved && v == plan.j_cut {
+                    new_wall
+                } else {
+                    mesh.verts[v as usize]
+                }
+            };
+            let av =
+                |moved: bool| crate::stage4_splice::area_vector(&[*tri], &|v: u32| at(v, moved));
+            let d = crate::stage4_splice::dot3(av(false), av(true));
+            if !(d.is_finite() && d > 0.0) {
+                decline(RehomeDecline::TriangleFlip, rehome_blocked);
+                continue 'cand;
+            }
+        }
+        eprintln!(
+            "[i13f-rehome] pass={pass}: CERTIFIED pair v{}/v{} j_cut=v{} -> \
+             ({:.9e},{:.9e},{:.9e}) absorb j_rim=v{} rim_junction=v{rim_j} \
+             rim_dist={rim_dist:.3e} residual={:.3e} holders={holders:?}",
+            cand.j,
+            cand.v,
+            plan.j_cut,
+            plan.new_wall[0],
+            plan.new_wall[1],
+            plan.new_wall[2],
+            plan.j_rim,
+            plan.residual,
+        );
+        survivors.push((cand, plan, fans, new_wall));
+    }
+    // Cross-view EXCLUSIVITY: a site (keyed by the phantom `j_cut`) whose
+    // TWO mirrored views both survive the full certificate chain is never
+    // guessed between — decline both, loudly. Exactly one surviving view
+    // is the apply/report unit.
+    let mut exclusive: Vec<&(_, _, _, _)> = Vec::new();
+    for sv in &survivors {
+        let twins = survivors.iter().filter(|o| o.1.j_cut == sv.1.j_cut).count();
+        if twins == 1 {
+            exclusive.push(sv);
+        } else {
+            let (cand, plan, ..) = sv;
+            eprintln!(
+                "[i13f-rehome] pass={pass}: DECLINE pair v{}/v{} reason=AmbiguousViews \
+                 ({} certified views share j_cut=v{})",
+                cand.j, cand.v, twins, plan.j_cut
+            );
+            rehome_blocked.insert(pair_key(cand.j, cand.v));
+        }
+    }
+    for sv in &exclusive {
+        let (cand, plan, fans, new_wall) = sv;
+        eprintln!(
+            "[i13f-rehome] pass={pass}: {} pair v{}/v{} j_cut=v{} absorb j_rim=v{}",
+            if mode == RehomeMode::On {
+                "APPLY"
+            } else {
+                "WOULD-APPLY"
+            },
+            cand.j,
+            cand.v,
+            plan.j_cut,
+            plan.j_rim,
+        );
+        if mode == RehomeMode::On {
+            return Some((
+                fans.clone(),
+                vec![(plan.j_cut, vec![plan.j_rim])],
+                Some((plan.j_cut, *new_wall)),
+            ));
+        }
+        would_apply += 1;
+    }
+    if mode == RehomeMode::Census {
+        eprintln!(
+            "[i13f-rehome] pass={pass}: census fixed point — {} candidate pair(s), \
+             {would_apply} would apply, {skipped_blocked} skipped (blocked)",
+            cands.len()
+        );
     }
     None
 }

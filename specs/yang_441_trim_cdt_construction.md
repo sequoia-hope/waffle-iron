@@ -2945,13 +2945,82 @@ corner's extra plane, R = S_i∩S_j [the rim circle]):**
    WASTE side (the cut truncates the band before it reaches the wall),
    the wall cycle re-routes cut-line → newJ_wall → C0, and the
    cone-side chains truncate at the existing rim×cut junction.
-2. **f2 — wall-cycle splice, gated:** apply the W-cycle half (replace
-   [.., j_cut, j_rim, ..] by [.., newJ_wall, ..] with the typed S_j
-   conic edge), region-rebuild via the existing fan machinery, measure
-   f903 gated.
-3. **f3 — the four-cycle surgery** (K gains its new stretch; S_i/S_j
-   splices), fixed-point integration with I13d/e, full corpus gated.
-4. **f4 — flip** per the standing two-proof protocol.
+2. **f2 — wall-cycle splice, gated — BUILT + MEASURED 2026-08-28
+   (`YANG_441_REHOME`: unset=off, `census`=full-chain dry run, `on`=apply;
+   R0003 censuses 1–9 + one gated ON run).** The apply arm runs strictly
+   at the I13d/e absorption fixed point on the selector's single-victim
+   `not_richer` pairs, carried out of `run_absorption_sites` as
+   `RehomeCandidate`s WITH the selector's own t-params (the inversion
+   authority plumb). Certificate chain, every decline typed and
+   pair-blocked (livelock guard is PAIR-keyed — a site's two views share
+   the phantom, so vertex-keyed blocking would skip the sibling):
+   f1 planner → selector inversion re-verified from the plumbed t-params
+   → rim junction RECOGNIZED by carrier identity (exact triple set
+   match; the geometric window is a search pre-filter only) → per-holder
+   fan plans via `rebuild_rehome_fan` (survivor evaluated at its mint;
+   may JOIN a patch it has no triangle on — appended to the link polygon
+   where the victim arc was; a single-sliver fan `(victim, survivor, w)`
+   yields the EMPTY rebuild, deleting the degenerate triangle) →
+   bare-collapse guard → ride-along orientation guard → cross-view
+   EXCLUSIVITY. Relocation lands only with a successful batch write.
+
+   **Measured anatomy (R0003; this measurement CORRECTS the f0 census's
+   site count and the f1 session's corner reading):**
+   - The `not_richer` bucket's "10 physical sites" are **5 physical
+     corners × 2 MIRRORED VIEWS**: every corner presents TWO refused
+     pairs sharing the phantom `j_cut` — (A, B) on the S_i∩W conic and
+     (A, C) on the S_i∩K trace — and the planner's classify accepts
+     both with W↔K swapped frames, minting the IDENTICAL `newJ_wall`
+     but proposing to absorb OPPOSITE corners; each view RECOGNIZES the
+     other's j_rim as its rim junction (residuals 4e-14…2.6e-12,
+     recognition 100%). The final subtract re-encounters one of the
+     same 5 corners — the f903 site.
+   - **True corner anatomy** (from the census-8 exact params at the
+     anchor): ONE kept mint `newJ` {S_j, W, K}; the rim truncates at
+     C = rim∩K (KEPT — the recognized junction); B = rim∩W and the
+     phantom A are BOTH waste; K gains the [newJ → C] stretch; and
+     BOTH continuing chains (the C0 conic chain AND the inherited
+     S_j∩K trace chain) run UNSPLIT past the mint — the missed
+     crossing must be INSERTED into both (f3's split work; the
+     `kept-edge report` prints `mint_interposes=Some(true)` on both).
+     The defective chains are the ARRANGEMENT's pre-relocation order
+     fossilized: pre-relocation the rim reads [chain … B … C], the
+     exact relocation swaps the pair to [chain … C … B].
+   - **View discrimination is OPEN (= f2b).** Four candidate
+     certificates were built and REFUTED BY MEASUREMENT, censuses 3–8:
+     (1) global plane-side "waste side" signs — unsound, the kept rim
+     chain straddles both planes' infinite extensions (kept rim at
+     dW −17.9 … +19.0); (2) chain-neighbor severance signs — the
+     inherited trace chain crosses the other plane's extension
+     (witness contamination at coarse chain spacing); (3) rim-order
+     with mesh chain anchors — circular, each corner's fossil chain
+     connects to its own side, and the pair swap is anchor-independent;
+     (4) mint interposition — TRUE for both views (it measures the f3
+     split obligation, kept as a report). Every pair-local order/side
+     test is symmetric at this defect; the discriminating bit (which
+     old corner is WASTE) is kept/waste information the pair
+     neighborhood does not carry. Until f2b lands it, the exclusivity
+     guard refuses both-certified sites loudly (`AmbiguousViews`) —
+     4 of 5 corners; the fifth (its mirror dies at the wall-patch fan
+     CDT) is the one exclusive site.
+   - **Gated ON run (R0003):** the exclusive site APPLIED cleanly —
+     write-back succeeded, and at the next fixed point its mirror
+     declined `RimNotRecognized` (the absorb target no longer exists:
+     the predicted post-apply guard, measured). STOP profile IDENTICAL
+     to the census run; f903 unchanged (its corner is ambiguous —
+     nothing applied there); no new walls. The machinery is proven
+     end-to-end on a real site; the remaining corners wait on f2b.
+3. **f2b — the kept/waste view discriminator** (OPEN): certify which
+   old corner is waste with material/label evidence rather than
+   pair-local order (candidates: the stage-2 arrangement labels at the
+   corner wedge; a §4.3.4-densified probe of the wall's own kept chain
+   against the cut at corner scale). Then drop `AmbiguousViews` for a
+   certified single view per site.
+4. **f3 — the four-cycle surgery** (split BOTH continuing chains at the
+   mint per the kept-edge report; K gains [newJ → C]; S_i/S_j splices;
+   cone-side chains truncate at the recognized junction), fixed-point
+   integration with I13d/e, full corpus gated.
+5. **f4 — flip** per the standing two-proof protocol.
 
 ## 5. After this epic (recorded, not started)
 

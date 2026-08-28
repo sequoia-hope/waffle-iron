@@ -1102,6 +1102,29 @@ pub struct RunAbsorptionSite {
     pub victims: Vec<u32>,
 }
 
+/// §I13(f) — a single-victim `not_richer` refusal carried OUT of the
+/// selector with its certified inversion evidence: the selector's own
+/// t-params along the run curve. The selector is the only production
+/// authority for the pair's ORDER INVERSION (which side of a rim belongs
+/// to which band is authored profile data); the re-homing planner
+/// (`stage4_rehome`) certifies construction, never order, so the apply
+/// arm re-verifies these exact params at its site (spec §I13(f) f2).
+/// Multi-victim refusals are not the measured family (f0 census: 228/228
+/// R0003 pairs are single-victim true-corner pairs) and are not carried.
+#[derive(Clone, Copy, Debug)]
+pub struct RehomeCandidate {
+    /// The run terminal at the refusal.
+    pub j: u32,
+    /// The single inverted-prefix vertex.
+    pub v: u32,
+    /// The run's typed curve — the conic both t-params live on.
+    pub curve: crate::Curve,
+    pub t_pre_j: f64,
+    pub t_post_j: f64,
+    pub t_pre_v: f64,
+    pub t_post_v: f64,
+}
+
 /// Per-condition coverage ledger for [`run_absorption_sites`] — every
 /// refused candidate is attributable to a CONDITION, mirroring
 /// [`FoldMergeCensus`]'s discipline.
@@ -1170,12 +1193,17 @@ pub fn run_absorption_sites<'a>(
     post: &[[f64; 3]],
     curves: &BTreeMap<(u32, u32), crate::Curve>,
     strictly_richer: impl Fn(u32, u32) -> bool,
-) -> (Vec<RunAbsorptionSite>, RunAbsorptionCensus) {
+) -> (
+    Vec<RunAbsorptionSite>,
+    RunAbsorptionCensus,
+    Vec<RehomeCandidate>,
+) {
     use crate::stage4_correct::{
         conic_param, conic_param_periodic, conics_equal_up_to_normal_sign,
     };
     let mut census = RunAbsorptionCensus::default();
     let mut sites: Vec<RunAbsorptionSite> = Vec::new();
+    let mut rehome: Vec<RehomeCandidate> = Vec::new();
     let same = |x: &crate::Curve, y: &crate::Curve| x == y || conics_equal_up_to_normal_sign(x, y);
     let wrap = |mut d: f64| -> f64 {
         while d > std::f64::consts::PI {
@@ -1296,6 +1324,31 @@ pub fn run_absorption_sites<'a>(
                 }
                 if !victims.iter().all(|&v| strictly_richer(j, v)) {
                     census.not_richer += 1;
+                    // §I13(f): carry the single-victim refused PAIR out with
+                    // this terminal's inversion params. Both terminals of the
+                    // pair's run (and both adjacent patches' cycles) refuse
+                    // here — dedupe by unordered ids, keeping the first
+                    // sighting's params (same mesh state, same evidence).
+                    if let [v] = victims[..] {
+                        let seen = rehome
+                            .iter()
+                            .any(|c| (c.j.min(c.v), c.j.max(c.v)) == (j.min(v), j.max(v)));
+                        let params = (
+                            pre.get(&v).copied().and_then(param),
+                            post.get(v as usize).copied().and_then(param),
+                        );
+                        if let (false, (Some(t_pre_v), Some(t_post_v))) = (seen, params) {
+                            rehome.push(RehomeCandidate {
+                                j,
+                                v,
+                                curve: *c0,
+                                t_pre_j: t_j_pre,
+                                t_post_j: t_j,
+                                t_pre_v,
+                                t_post_v,
+                            });
+                        }
+                    }
                     // I13f census (spec §I13(f), read-only): the not_richer
                     // bucket holds the inverted-junction-pair family (both
                     // ends true corners — R0003 face 903) among ordinary
@@ -1351,7 +1404,7 @@ pub fn run_absorption_sites<'a>(
     census.ambiguous = poisoned.len();
     sites.retain(|s| s.victims.iter().all(|v| !poisoned.contains(v)));
     census.sites = sites.len();
-    (sites, census)
+    (sites, census, rehome)
 }
 
 #[cfg(test)]
@@ -2133,7 +2186,9 @@ mod tests {
         curves: &BTreeMap<(u32, u32), crate::Curve>,
         richer: impl Fn(u32, u32) -> bool,
     ) -> (Vec<RunAbsorptionSite>, RunAbsorptionCensus) {
-        run_absorption_sites(cycles.iter().map(Vec::as_slice), pre, post, curves, richer)
+        let (sites, census, _) =
+            run_absorption_sites(cycles.iter().map(Vec::as_slice), pre, post, curves, richer);
+        (sites, census)
     }
 
     /// The R0003 face-467 shape in miniature: junction 1 at t=0.50, victims
@@ -2322,9 +2377,26 @@ mod tests {
             off_circle(0.45),
         ];
         let curves = curve_map(&[(1, 2), (2, 3)]);
-        let (sites, census) = absorb(&[cyc], &pre, &post, &curves, |_, _| false);
+        let (sites, census, cands) =
+            run_absorption_sites([cyc.as_slice()], &pre, &post, &curves, |_, _| false);
         assert!(sites.is_empty());
         assert_eq!(census.not_richer, 1);
+        // §I13(f): the single-victim refusal is carried OUT with this
+        // terminal's inversion params, and those params re-certify the
+        // inversion at the apply site (the f2 plumb).
+        let [c] = cands[..] else {
+            panic!("one rehome candidate, got {cands:?}");
+        };
+        assert_eq!(c.v, 2, "the flipped vertex is the pair's victim");
+        assert!(c.j == 1 || c.j == 3, "the run terminal, got v{}", c.j);
+        let t_of = |p: [f64; 3]| {
+            crate::stage4_correct::conic_param(&c.curve, cad_primitives::Point3::from(p)).unwrap()
+        };
+        assert_eq!(c.t_pre_v, t_of(pre[&2]));
+        assert_eq!(c.t_post_v, t_of(post[2]));
+        assert_eq!(c.t_pre_j, t_of(pre[&c.j]));
+        assert_eq!(c.t_post_j, t_of(post[c.j as usize]));
+        assert!(crate::stage4_rehome::inversion_still_holds(&c));
     }
 
     /// Periodic parameters: the flip test wraps deltas to (−π, π], so an

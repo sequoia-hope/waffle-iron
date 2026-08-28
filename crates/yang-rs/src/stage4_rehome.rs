@@ -77,6 +77,122 @@ pub(crate) enum RehomeDecline {
     /// inversion authority; f2's apply plumb re-verifies the selector's
     /// t-params at the apply site.
     SolvesInconsistent,
+    /// f2: the selector's plumbed t-params no longer certify the order
+    /// inversion at the apply site — the plumb itself failed, not the
+    /// geometry.
+    InversionUnverified,
+    /// f2: no mesh vertex carries exactly the rim×cut triple {S_i, S_j, K}
+    /// near the planned `new_rim` — the junction the cone-side chains must
+    /// truncate at does not exist yet (an f3 MINT case; f2 declines loudly).
+    RimNotRecognized,
+    /// f2: two or more mesh vertices carry the rim×cut triple near the
+    /// planned `new_rim` — identity is ambiguous, never guessed.
+    RimAmbiguous,
+    /// f2: re-homing the cut corner would flip (or degenerate) the
+    /// orientation of a mesh triangle that rides along with the moved
+    /// vertex outside the rebuilt fans.
+    TriangleFlip,
+}
+
+/// §I13(f) f2 gate — `YANG_441_REHOME`. Unset/other = Off (the arm does
+/// not run; the f1 report-only planner print in the selector's richer
+/// closure keys on `census` separately). `census` = the arm runs its full
+/// certificate chain (plan → inversion re-verify → rim recognition → fan
+/// planning → flip guard) and REPORTS, applying nothing. `on` = apply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RehomeMode {
+    Off,
+    Census,
+    On,
+}
+
+pub(crate) fn rehome_mode() -> RehomeMode {
+    match std::env::var("YANG_441_REHOME") {
+        Ok(v) if v == "census" => RehomeMode::Census,
+        Ok(v) if v == "on" || v == "1" => RehomeMode::On,
+        _ => RehomeMode::Off,
+    }
+}
+
+/// §I13(f) f2 — re-verify the SELECTOR's order-inversion certificate from
+/// the exact t-params it plumbed through ([`RehomeCandidate`]): the sided
+/// pre and post parameter differences of the pair along its typed conic
+/// must be nonzero and of OPPOSITE sign (the selector's own `flipped`
+/// test, same wrap convention). The selector stays the inversion
+/// authority; this guards the plumb, not the math.
+pub(crate) fn inversion_still_holds(c: &crate::stage4_fold_risk::RehomeCandidate) -> bool {
+    let wrap = |mut d: f64| -> f64 {
+        while d > std::f64::consts::PI {
+            d -= 2.0 * std::f64::consts::PI;
+        }
+        while d <= -std::f64::consts::PI {
+            d += 2.0 * std::f64::consts::PI;
+        }
+        d
+    };
+    let periodic = crate::stage4_correct::conic_param_periodic(&c.curve);
+    let sided = |t: f64, tref: f64| -> f64 {
+        if periodic {
+            wrap(t - tref)
+        } else {
+            t - tref
+        }
+    };
+    let (dq, dp) = (sided(c.t_post_v, c.t_post_j), sided(c.t_pre_v, c.t_pre_j));
+    dq != 0.0 && dp != 0.0 && (dq > 0.0) != (dp > 0.0)
+}
+
+/// §I13(f) f2 — recognize the EXISTING rim×cut junction by carrier
+/// IDENTITY (the BINDING junction contract's identity rule, `docs/
+/// yang_junction_research_findings.md`): among the pre-filtered mesh
+/// vertices `cands` (id, measured carrier set), exactly ONE must carry
+/// exactly the triple {S_i, S_j, K}. The caller's geometric pre-filter is
+/// a search window, not an acceptance band — identity is the certificate.
+pub(crate) fn recognize_rim_junction(
+    cands: &[(u32, Vec<Surface>)],
+    target: &[Surface; 3],
+) -> Result<u32, RehomeDecline> {
+    let hits: Vec<u32> = cands
+        .iter()
+        .filter(|(_, cs)| cs.len() == 3 && target.iter().all(|t| cs.contains(t)))
+        .map(|&(v, _)| v)
+        .collect();
+    match hits[..] {
+        [] => Err(RehomeDecline::RimNotRecognized),
+        [v] => Ok(v),
+        _ => Err(RehomeDecline::RimAmbiguous),
+    }
+}
+
+/// §I13(f) f2 — the mint-interposition test: on the kept edge's typed
+/// conic, does the mint's parameter `t_j` fall strictly BETWEEN the kept
+/// junction's `t_r` and its far neighbor's `t_w`? (Wrapped deltas for
+/// periodic conics — the standing chord-subtends-<π convention.) `None`
+/// = undecidable (a zero step): the caller declines loudly rather than
+/// guessing.
+pub(crate) fn mint_interposes(curve: &Curve, t_r: f64, t_j: f64, t_w: f64) -> Option<bool> {
+    let wrap = |mut d: f64| -> f64 {
+        while d > std::f64::consts::PI {
+            d -= 2.0 * std::f64::consts::PI;
+        }
+        while d <= -std::f64::consts::PI {
+            d += 2.0 * std::f64::consts::PI;
+        }
+        d
+    };
+    let periodic = crate::stage4_correct::conic_param_periodic(curve);
+    let delta = |a: f64, b: f64| -> f64 {
+        if periodic {
+            wrap(b - a)
+        } else {
+            b - a
+        }
+    };
+    let (d1, d2) = (delta(t_r, t_j), delta(t_j, t_w));
+    if d1 == 0.0 || d2 == 0.0 {
+        return None;
+    }
+    Some((d1 > 0.0) == (d2 > 0.0))
 }
 
 /// The planned surgery for one inverted pair. Positions are exact-solve
@@ -96,6 +212,17 @@ pub(crate) struct RehomePlan {
     /// analysis; the apply increment interprets the sign against the
     /// kept material).
     pub rim_side_of_cut: f64,
+    /// The classified frame, for the apply increments: `s_i` the phantom
+    /// band, `s_j` the neighbor band, `wall` the shared plane W, `cut` the
+    /// cut plane K. The rim×cut junction's identity triple is
+    /// {`s_i`, `s_j`, `cut`}.
+    pub s_i: Surface,
+    pub s_j: Surface,
+    /// (Consumed by the f3 four-cycle surgery; pinned by the planner's unit
+    /// tests until then.)
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub wall: Surface,
+    pub cut: Surface,
 }
 
 struct Frame {
@@ -335,6 +462,10 @@ pub(crate) fn plan_corner_rehoming(
         new_rim,
         residual: worst,
         rim_side_of_cut,
+        s_i: frame.s_i,
+        s_j: frame.s_j,
+        wall: frame.wall,
+        cut: frame.cut,
     })
 }
 
@@ -483,6 +614,11 @@ mod tests {
         // the phantom's out-of-band solve).
         assert!((plan.new_wall[2] - s_rim).signum() == (p_cut[2] - s_rim).signum());
         assert_eq!((plan.j_cut, plan.j_rim), (7, 9));
+        // The classified frame rides on the plan for the apply increments.
+        assert_eq!(
+            (plan.s_i, plan.s_j, plan.wall, plan.cut),
+            (cone(0.0, HA_I), cone(-2.0, HA_J), wall(), cut)
+        );
     }
 
     #[test]
@@ -566,6 +702,124 @@ mod tests {
         assert_eq!(
             plan_corner_rehoming(7, p_cut, &cc, 9, p_rim, &rc).unwrap_err(),
             RehomeDecline::WallLineDegenerate
+        );
+    }
+
+    // ---- f2 apply-side certificates ------------------------------------
+
+    fn cand(
+        curve: crate::Curve,
+        t_pre_j: f64,
+        t_post_j: f64,
+        t_pre_v: f64,
+        t_post_v: f64,
+    ) -> crate::stage4_fold_risk::RehomeCandidate {
+        crate::stage4_fold_risk::RehomeCandidate {
+            j: 1,
+            v: 2,
+            curve,
+            t_pre_j,
+            t_post_j,
+            t_pre_v,
+            t_post_v,
+        }
+    }
+
+    fn unit_circle() -> crate::Curve {
+        crate::Curve::Circle {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        }
+    }
+
+    #[test]
+    fn inversion_reverify_certifies_opposite_signs_only() {
+        // Open conic, raw diffs: pre v ahead of j, post v behind — inverted.
+        let c = cand(crate::Curve::LineSegment, 0.0, 0.0, 0.1, -0.02);
+        assert!(inversion_still_holds(&c));
+        // Same order on both sides — no inversion.
+        let c = cand(crate::Curve::LineSegment, 0.0, 0.0, 0.1, 0.02);
+        assert!(!inversion_still_holds(&c));
+        // A zero diff cannot certify.
+        let c = cand(crate::Curve::LineSegment, 0.0, 0.0, 0.0, -0.02);
+        assert!(!inversion_still_holds(&c));
+    }
+
+    #[test]
+    fn inversion_reverify_wraps_periodic_params() {
+        // Post pair straddles the branch cut: raw diff −6.0, wrapped +0.28 —
+        // opposite the pre diff only under the periodic convention.
+        let c = cand(unit_circle(), 3.0, 3.0, 2.9, -3.0);
+        assert!(inversion_still_holds(&c));
+        // The same numbers on an OPEN curve read raw: both diffs negative.
+        let c = cand(crate::Curve::LineSegment, 3.0, 3.0, 2.9, -3.0);
+        assert!(!inversion_still_holds(&c));
+    }
+
+    #[test]
+    fn mint_interposition_is_a_pure_order_test() {
+        let circle = || crate::Curve::Circle {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: 5.0,
+        };
+        // Mint strictly inside the kept edge: interposes (the false view).
+        assert_eq!(mint_interposes(&circle(), 0.10, 0.15, 0.30), Some(true));
+        assert_eq!(mint_interposes(&circle(), 0.30, 0.15, 0.10), Some(true));
+        // Mint outside (beyond the kept junction): clean.
+        assert_eq!(mint_interposes(&circle(), 0.15, 0.10, 0.30), Some(false));
+        // A zero step cannot certify.
+        assert_eq!(mint_interposes(&circle(), 0.15, 0.15, 0.30), None);
+        // Wrapped across the branch cut: 3.10 → −3.12 → −3.05 is a short
+        // monotone walk through the cut — the mint interposes.
+        assert_eq!(mint_interposes(&circle(), 3.10, -3.12, -3.05), Some(true));
+        // The same numbers raw (open conic): d1 = −6.22 and d2 = +0.07
+        // disagree — no interposition.
+        assert_eq!(
+            mint_interposes(&crate::Curve::LineSegment, 3.10, -3.12, -3.05),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn rim_recognition_is_carrier_identity() {
+        let target = [cone(0.0, HA_I), cone(-2.0, HA_J), wall()];
+        let triple = || vec![cone(0.0, HA_I), cone(-2.0, HA_J), wall()];
+        // Exactly one exact-triple vertex: recognized.
+        let cands = vec![
+            (4u32, vec![cone(0.0, HA_I), wall()]),
+            (7u32, triple()),
+            (9u32, vec![cone(0.0, HA_I), cone(-2.0, HA_J)]),
+        ];
+        assert_eq!(recognize_rim_junction(&cands, &target), Ok(7));
+        // A SUPERSET carrier set is not the junction's identity.
+        let cands = vec![(
+            7u32,
+            vec![
+                cone(0.0, HA_I),
+                cone(-2.0, HA_J),
+                wall(),
+                Surface::Plane {
+                    normal: Vector3::new(0.0, 1.0, 0.0),
+                    d: 0.0,
+                },
+            ],
+        )];
+        assert_eq!(
+            recognize_rim_junction(&cands, &target),
+            Err(RehomeDecline::RimNotRecognized)
+        );
+        // No candidate: not recognized (an f3 mint case, loud at f2).
+        assert_eq!(
+            recognize_rim_junction(&[], &target),
+            Err(RehomeDecline::RimNotRecognized)
+        );
+        // Two exact triples: identity is ambiguous, never guessed.
+        let cands = vec![(7u32, triple()), (8u32, triple())];
+        assert_eq!(
+            recognize_rim_junction(&cands, &target),
+            Err(RehomeDecline::RimAmbiguous)
         );
     }
 }

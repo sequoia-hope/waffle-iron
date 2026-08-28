@@ -1529,8 +1529,52 @@ pub(crate) fn rebuild_run_fan(
     victims: &BTreeSet<u32>,
     survivor: u32,
 ) -> Result<PatchRebuild, ConstructError> {
+    fan_rebuild_core(mesh, patch_index, patch, victims, survivor, None)
+}
+
+/// §I13(f) f2 — the re-homing variant of [`rebuild_run_fan`]: the survivor
+/// is evaluated at `survivor_pos` (its post-surgery mint, applied by the
+/// caller only if the whole batch plans), and it may JOIN a patch it has no
+/// triangle on. On the re-homed corner's neighbor-band patch the old corner
+/// vertex is absent from the victim's link entirely; the true topology puts
+/// the minted corner exactly where the victim arc was, so the closure
+/// appends the survivor to the link polygon between the chain's two ends.
+/// A survivor present but MID-link keeps the [`rebuild_run_fan`] refusal —
+/// that shape is a genuine pinch, not a join.
+pub(crate) fn rebuild_rehome_fan(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    victims: &BTreeSet<u32>,
+    survivor: u32,
+    survivor_pos: Point3,
+) -> Result<PatchRebuild, ConstructError> {
+    fan_rebuild_core(
+        mesh,
+        patch_index,
+        patch,
+        victims,
+        survivor,
+        Some(survivor_pos),
+    )
+}
+
+fn fan_rebuild_core(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    victims: &BTreeSet<u32>,
+    survivor: u32,
+    survivor_pos: Option<Point3>,
+) -> Result<PatchRebuild, ConstructError> {
     let chart = SurfaceChart::new(patch.surface)
         .ok_or(ConstructError::NonPlanarPatch { patch: patch_index })?;
+    let vert_pos = |v: u32| -> Point3 {
+        match survivor_pos {
+            Some(p) if v == survivor => p,
+            _ => mesh.verts[v as usize],
+        }
+    };
     let mut old_tris: Vec<u32> = Vec::new();
     let mut directed: BTreeSet<(u32, u32)> = BTreeSet::new();
     for &t in &patch.tris {
@@ -1620,13 +1664,20 @@ pub(crate) fn rebuild_run_fan(
             },
         });
     }
+    let mut joins = false;
     if link.first() != Some(&survivor) && link.last() != Some(&survivor) {
-        // Present mid-link (a boundary ear past the junction) or absent: the
-        // closure edge would bypass the survivor — refused, see above.
-        return Err(ConstructError::FanSurvivorNotAdjacent {
-            patch: patch_index,
-            victim: survivor,
-        });
+        // Present mid-link (a boundary ear past the junction): the closure
+        // edge would bypass the survivor — refused in every mode. Absent
+        // entirely: refused for a run absorption; a re-homing survivor JOINS
+        // the patch instead (appended to the polygon where the victim arc
+        // was — see `rebuild_rehome_fan`).
+        if survivor_pos.is_none() || link.contains(&survivor) {
+            return Err(ConstructError::FanSurvivorNotAdjacent {
+                patch: patch_index,
+                victim: survivor,
+            });
+        }
+        joins = true;
     }
     // Every region vertex must be a victim (dropped) or on the link (kept in
     // the polygon): anything else would be silently disconnected by the
@@ -1646,7 +1697,30 @@ pub(crate) fn rebuild_run_fan(
             },
         });
     }
+    if joins {
+        // The victim arc ran v_last → victims → v_first along the old
+        // boundary; the survivor replaces that arc, closing the polygon.
+        link.push(survivor);
+    }
     if link.len() < 3 {
+        // Re-homing, survivor flanking a 2-vertex link: the region is ONE
+        // sliver triangle (victim, survivor, other) — under the merge it
+        // degenerates to (survivor, survivor, other), so the correct
+        // rebuild is EMPTY: the sliver is deleted and the survivor→other
+        // edge becomes the boundary (measured shape: every R0003 §I13(f)
+        // pair's sliver-band fan, census 2026-08-28). Run absorptions keep
+        // the refusal — a shrinking region there is a selector defect.
+        if survivor_pos.is_some() && !joins && link.len() == 2 {
+            return Ok(PatchRebuild {
+                patch: patch_index,
+                old_tris,
+                new_tris: Vec::new(),
+                new_verts: Vec::new(),
+                dropped: victims.iter().copied().collect(),
+                plan_verts: mesh.verts.len() as u32,
+                plan_tris: mesh.tris.len() as u32,
+            });
+        }
         return Err(ConstructError::FanNotSimple {
             patch: patch_index,
             victim: survivor,
@@ -1659,7 +1733,7 @@ pub(crate) fn rebuild_run_fan(
 
     // Chart coordinates, θ-unwrapped against the SURVIVOR's branch (the
     // region is local: every link vertex is within π of the junction).
-    let base = chart.project(mesh.verts[survivor as usize]);
+    let base = chart.project(vert_pos(survivor));
     let periodic = matches!(
         patch.surface,
         Surface::Cylinder { .. } | Surface::Cone { .. }
@@ -1669,12 +1743,12 @@ pub(crate) fn rebuild_run_fan(
             .iter()
             .copied()
             .chain(link.iter().copied())
-            .any(|v| chart.project(mesh.verts[v as usize]).y() <= 0.0)
+            .any(|v| chart.project(vert_pos(v)).y() <= 0.0)
     {
         return Err(ConstructError::ApexInPatch { patch: patch_index });
     }
     let uv_of = |v: u32| -> Point2 {
-        let uv = chart.project(mesh.verts[v as usize]);
+        let uv = chart.project(vert_pos(v));
         if periodic {
             let k = ((base.x() - uv.x()) / std::f64::consts::TAU).round();
             Point2::new(uv.x() + k * std::f64::consts::TAU, uv.y())
@@ -1692,8 +1766,11 @@ pub(crate) fn rebuild_run_fan(
             }
         })?;
     let old: Vec<[u32; 3]> = old_tris.iter().map(|&t| mesh.tris[t as usize]).collect();
+    // `want` is the OLD region's outward sense — old positions on purpose;
+    // `got` evaluates the replacement at the survivor's (possibly re-homed)
+    // position.
     let mesh_pos = |v: u32| -> Point3 { mesh.verts[v as usize] };
-    let pos3 = |i: u32| -> Point3 { mesh.verts[link[i as usize] as usize] };
+    let pos3 = |i: u32| -> Point3 { vert_pos(link[i as usize]) };
     let want = crate::stage4_splice::area_vector(&old, &mesh_pos);
     let got = crate::stage4_splice::area_vector(&tris2, &pos3);
     let d = crate::stage4_splice::dot3(want, got);
@@ -2893,6 +2970,149 @@ mod tests {
         let r = rebuild_run_fan(&mesh, 0, &patch, &victims, 0).expect("hairpin absorbed");
         assert_eq!(r.old_tris, vec![0, 1, 2]);
         assert!(r.new_tris.iter().flatten().all(|v| !victims.contains(v)));
+    }
+
+    // ---- §I13(f) rebuild_rehome_fan ------------------------------------
+
+    /// The neighbor-band shape: the survivor has NO triangle on this patch
+    /// (mesh vertex 7 rides on other patches), so it JOINS — appended to
+    /// the link polygon where the victim's arc was, evaluated at its mint.
+    #[test]
+    fn rebuild_rehome_fan_survivor_joins_the_patch() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),   // 0
+                Point3::new(0.4, -0.3, 0.0),  // 1 = victim (j_rim)
+                Point3::new(0.8, -0.15, 0.0), // 2
+                Point3::new(1.2, 0.0, 0.0),   // 3
+                Point3::new(1.2, 1.0, 0.0),   // 4
+                Point3::new(0.0, 1.0, 0.0),   // 5
+                Point3::new(0.6, 0.5, 0.0),   // 6 = interior
+                Point3::new(9.0, 9.0, 9.0),   // 7 = j_cut, on OTHER patches
+            ],
+            tris: vec![
+                [0, 1, 6],
+                [1, 2, 6],
+                [2, 3, 6],
+                [3, 4, 6],
+                [4, 5, 6],
+                [5, 0, 6],
+            ],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3, 4, 5]], vec![0, 1, 2, 3, 4, 5]);
+        let victims: BTreeSet<u32> = [1].into_iter().collect();
+        let mint = Point3::new(0.5, -0.25, 0.0);
+        let r = rebuild_rehome_fan(&mesh, 7, &patch, &victims, 7, mint).expect("joins");
+        assert_eq!(r.old_tris, vec![0, 1], "the two triangles at the victim");
+        assert_eq!(r.dropped, victims);
+        assert!(r.new_tris.iter().flatten().all(|v| !victims.contains(v)));
+        assert_eq!(r.new_tris.len(), 2, "quad 2→6→0→7 splits into two");
+        let used: BTreeSet<u32> = r.new_tris.iter().flatten().copied().collect();
+        assert_eq!(used, [0u32, 2, 6, 7].into(), "the survivor joined");
+        // Orientation matches the old region at the survivor's MINT.
+        let pos = |v: u32| -> Point3 {
+            if v == 7 {
+                mint
+            } else {
+                mesh.verts[v as usize]
+            }
+        };
+        let want = crate::stage4_splice::area_vector(&[[0, 1, 6], [1, 2, 6]], &|v: u32| {
+            mesh.verts[v as usize]
+        });
+        let got = crate::stage4_splice::area_vector(&r.new_tris, &pos);
+        assert!(crate::stage4_splice::dot3(want, got) > 0.0);
+    }
+
+    /// With the survivor already FLANKING the link and its override equal to
+    /// its mesh position, the rehome fan reduces exactly to the run fan.
+    #[test]
+    fn rebuild_rehome_fan_flanking_reduces_to_the_run_fan() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.4, -0.3, 0.0),
+                Point3::new(0.8, -0.15, 0.0),
+                Point3::new(1.2, 0.0, 0.0),
+                Point3::new(1.2, 1.0, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(0.6, 0.5, 0.0),
+            ],
+            tris: vec![
+                [0, 1, 6],
+                [1, 2, 6],
+                [2, 3, 6],
+                [3, 4, 6],
+                [4, 5, 6],
+                [5, 0, 6],
+            ],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3, 4, 5]], vec![0, 1, 2, 3, 4, 5]);
+        let victims: BTreeSet<u32> = [1, 2].into_iter().collect();
+        let run = rebuild_run_fan(&mesh, 7, &patch, &victims, 0).expect("run");
+        let reh = rebuild_rehome_fan(&mesh, 7, &patch, &victims, 0, mesh.verts[0]).expect("rehome");
+        assert_eq!(run.old_tris, reh.old_tris);
+        assert_eq!(run.new_tris, reh.new_tris);
+        assert_eq!(run.dropped, reh.dropped);
+    }
+
+    /// A survivor present MID-link keeps the refusal in rehome mode — that
+    /// shape is a genuine pinch, not a join.
+    #[test]
+    fn rebuild_rehome_fan_still_refuses_a_mid_link_survivor() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, -0.3, 0.0), // 1 = victim
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.5, 0.5, 0.0),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(0.5, 0.5, 0.0), // 5 = interior (mid-link)
+            ],
+            tris: vec![[0, 1, 5], [1, 2, 5], [2, 3, 5], [3, 4, 5], [4, 0, 5]],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3, 4]], vec![0, 1, 2, 3, 4]);
+        let victims: BTreeSet<u32> = [1].into_iter().collect();
+        let err = rebuild_rehome_fan(&mesh, 0, &patch, &victims, 5, mesh.verts[5]).unwrap_err();
+        assert!(
+            matches!(err, ConstructError::FanSurvivorNotAdjacent { .. }),
+            "{err:?}"
+        );
+    }
+
+    /// A single sliver triangle (victim, survivor, other): under the merge
+    /// it degenerates, so the rehome rebuild is EMPTY — sliver deleted,
+    /// survivor→other edge becomes the boundary. The run fan keeps its
+    /// Short refusal on the same shape.
+    #[test]
+    fn rebuild_rehome_fan_deletes_a_single_sliver_triangle() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),   // 0 = survivor
+                Point3::new(0.5, -0.05, 0.0), // 1 = victim (sliver apex)
+                Point3::new(1.0, 0.0, 0.0),   // 2
+                Point3::new(0.5, 1.0, 0.0),   // 3
+            ],
+            tris: vec![[0, 1, 2], [0, 2, 3]],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1]);
+        let victims: BTreeSet<u32> = [1].into_iter().collect();
+        let r = rebuild_rehome_fan(&mesh, 4, &patch, &victims, 0, mesh.verts[0])
+            .expect("sliver deletion");
+        assert_eq!(r.old_tris, vec![0]);
+        assert!(r.new_tris.is_empty(), "{:?}", r.new_tris);
+        assert_eq!(r.dropped, victims);
+        let err = rebuild_run_fan(&mesh, 4, &patch, &victims, 0).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ConstructError::FanNotSimple {
+                    reason: FanReason::Short { fan: 1, link: 2 },
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
     }
 
     // ---- I13e rebuild_group_fan ---------------------------------------
