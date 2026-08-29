@@ -181,16 +181,28 @@ is exactly the failure mode the I13f epic warned about):
   minting the exact clip topology).**
 - **R0074 (1 site): the corner-clip class again** — both candidates exact
   on corner-incident straight edges (base-side t = 0.257, crease t = 0.0027).
-- **R0044 (7 sites, cone bands with CHORD-LATTICE edges): the inc-0 "v8
-  anomaly" dissolves — v8 is a clean BASE-side transit** (exact 5.1e-13 on
-  a corner-incident straight edge at t = 0.39; the crease candidate is off
-  by 17.5). The remaining sites are BLOCKED on a carrier-authority
-  question: this operand's B-Rep carries exact Cone surfaces but stores
-  boundary edges as chords (off_line 3–90 ≈ the band sag), so "on the model
-  edge" is ill-defined until inc-2 decides the edge authority (surface-triple
-  junction vs F∩chord-edge crossing) consistently with how Stage 3/4 treats
-  these operands' edges elsewhere (the shared-INDEX seam-identity /
-  curve-authority lessons apply).
+- **R0044 (7 sites, gear-profile partial revolve — cone bands with SHARED
+  Circle rim edges): fully classified once the ranking metric became
+  curve-aware.** The first pass ranked every loop edge by clamped CHORD
+  distance, which is biased against arcs (a rim's chord sits far from a
+  point exactly ON the arc), so straight cap/meridian edges won spuriously
+  and the sites looked "carrier-authority blocked" (off_line 3–90 ≈ what
+  was actually the sol-to-unrelated-chord distance). With Circle edges
+  ranked by their true circle distance √(axial² + (radial−r)²), every
+  crease candidate finds the converter-shared rim (own=SN, q_end = 0) and
+  the wrapped-arc test reads a consistent orientation (in_ccw uniformly;
+  span_ccw = 5.3155 rad = the meta's 304.56° revolve). Classification:
+  v75/v76 = crease transits (rim junction 71.6/45.8 along the arc from the
+  corner; base candidate NOT corner-incident); v8/v89/v105 = CORNER CLIPS
+  (base edge exact in-segment AND rim in-arc); **v142/v144 (the mirrored
+  pair) land on the SAME rim edge 2025 at the SAME arc parameter
+  (sol_ccw = 0.0761) — one mint, two views, the I13f anatomy verbatim; the
+  base candidates at both views are off-edge (41.5/90.5), so the pair is a
+  single crease transit, deduplicated by the shared mint.** No
+  carrier-authority wall exists on this case; the operand's rims are exact
+  shared Circle edges. (Lesson for the record: a census RANKING metric can
+  manufacture a phantom capability wall — make the instrument curve-aware
+  before concluding about the data.)
 - **R0085 (11 sites, planar facets at scale ~3): the rule's EXCLUSION arm
   is validated, and the operand's own lattice quality surfaces.** v467 and
   v4216 are clean BASE transits (exact on corner-incident edges, t = 0.26 /
@@ -205,7 +217,11 @@ is exactly the failure mode the I13f epic warned about):
   edge-lattice INCONSISTENCY (two sides of one boundary), consistent with
   R0085's separate op-3 `input B-Rep is not 2-manifold` wall. For those
   sites the transit repair is downstream of operand quality — record, don't
-  force.
+  force. *Re-measured under the curve-aware ranking (inc-1b): byte-identical
+  — R0085's loop edges are all straight, so the arc-ranking artifact is
+  excluded and these residuals are REAL. The base loop passes exactly
+  through SOME facet corners (v4216 q_end = 0, off = 0) and misses others
+  by 0.01–0.03: mixed conformality of the operand's own boundary.*
 
 ## 4. Increment ledger
 
@@ -214,13 +230,16 @@ is exactly the failure mode the I13f epic warned about):
   convergence, planar-hull in-domain wherever the verdict applies. Mirrored
   pairs, crease-rider chains, and the v8 anomaly recorded for inc-1.
 - **inc-1** (2026-08-29, same session): edge-domain discriminator census
-  LANDED + MEASURED family-wide; rule VALIDATED on straight-carrier sites
-  in both directions — inclusion (R0011 4/4: 3 crease transits + 1 corner
-  clip; R0074 1/1 clip; R0044 v8 base transit; R0085 v467+v4216 base
-  transits) AND exclusion (R0085's crease candidates rejected on-line
-  past-end). Open for inc-2: the chord-lattice carrier-authority decision
-  (R0044's cone bands) and the R0085 operand lattice inconsistency
-  (downstream of that case's own input-n2m wall). §3b above.
+  LANDED + MEASURED family-wide, then the ranking metric made CURVE-AWARE
+  (chord ranking is biased against arcs and had manufactured a phantom
+  "carrier-authority wall" on R0044). Rule VALIDATED in both directions —
+  inclusion (R0011 4/4: 3 crease transits + 1 corner clip; R0074 1/1
+  clip; R0044 7 sites: 2 crease transits + 3 corner clips + the v142/v144
+  mirrored pair sharing ONE rim mint; R0085 v467+v4216 base transits) AND
+  exclusion (R0085's crease candidates rejected on-line past-end; R0044's
+  non-real candidates not corner-incident / off-edge). Remaining open:
+  the R0085 rider-site residual reading (re-measured under the
+  curve-aware ranking — see §3b). §3b above.
 - inc-2: (a) the carrier-authority decision for chord-lattice operands
   (R0044-class), consistent with Stage 3/4's existing treatment of those
   edges; then (b) the gated apply arm (`YANG_451_TRANSIT` or an extension

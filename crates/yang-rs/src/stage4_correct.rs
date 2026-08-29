@@ -5586,24 +5586,47 @@ fn relocation_domain_postcondition(
                             let e = &edges[ei as usize];
                             let ps = verts[e.start as usize].point.as_array();
                             let pe = verts[e.end as usize].point.as_array();
-                            // chord-projection distance from sol (clamped
-                            // to the segment) — a curve-agnostic proxy
-                            // good enough to RANK candidates; the exact
-                            // parameter verdict below re-reads the winner
-                            // by its true curve.
-                            let dv = [pe[0] - ps[0], pe[1] - ps[1], pe[2] - ps[2]];
-                            let l2 = dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2];
-                            let t = if l2 > 0.0 {
-                                (((sol[0] - ps[0]) * dv[0]
-                                    + (sol[1] - ps[1]) * dv[1]
-                                    + (sol[2] - ps[2]) * dv[2])
-                                    / l2)
-                                    .clamp(0.0, 1.0)
+                            // Curve-aware distance from sol, for RANKING
+                            // (the exact parameter verdict below re-reads
+                            // the winner by its true curve). A plain
+                            // chord-projection proxy is BIASED AGAINST
+                            // ARCS — a rim circle's chord can be far from a
+                            // point lying exactly on the arc, so straight
+                            // cap/meridian edges win spuriously (measured
+                            // on R0044's gear-revolve bands). Circle edges
+                            // rank by their true circle distance
+                            // √(axial² + (radial − r)²); everything else by
+                            // the clamped chord.
+                            let ds = if let Curve::Circle {
+                                center,
+                                normal,
+                                radius,
+                            } = e.curve
+                            {
+                                let nu = normalize3(normal.as_array());
+                                let c = center.as_array();
+                                let w = [sol[0] - c[0], sol[1] - c[1], sol[2] - c[2]];
+                                let ax = w[0] * nu[0] + w[1] * nu[1] + w[2] * nu[2];
+                                let rad = [w[0] - ax * nu[0], w[1] - ax * nu[1], w[2] - ax * nu[2]];
+                                let rl =
+                                    (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
+                                (ax * ax + (rl - radius) * (rl - radius)).sqrt()
                             } else {
-                                0.0
+                                let dv = [pe[0] - ps[0], pe[1] - ps[1], pe[2] - ps[2]];
+                                let l2 = dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2];
+                                let t = if l2 > 0.0 {
+                                    (((sol[0] - ps[0]) * dv[0]
+                                        + (sol[1] - ps[1]) * dv[1]
+                                        + (sol[2] - ps[2]) * dv[2])
+                                        / l2)
+                                        .clamp(0.0, 1.0)
+                                } else {
+                                    0.0
+                                };
+                                let proj =
+                                    [ps[0] + t * dv[0], ps[1] + t * dv[1], ps[2] + t * dv[2]];
+                                d(sol, proj)
                             };
-                            let proj = [ps[0] + t * dv[0], ps[1] + t * dv[1], ps[2] + t * dv[2]];
-                            let ds = d(sol, proj);
                             let dq = d(ps, qpos).min(d(pe, qpos));
                             if best.is_none_or(|(_, bd, _)| ds < bd) {
                                 best = Some((ei, ds, dq));
