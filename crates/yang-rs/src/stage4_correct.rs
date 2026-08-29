@@ -5530,6 +5530,179 @@ fn relocation_domain_postcondition(
                         "YANG_S4_CARRIER_DOMAIN-TRANSIT v{v} q=v{q} far={far:?} \
                          next={next:?} shared={shared:?}"
                     );
+                    // inc-1: the continuing-edge DISCRIMINATOR reading. A
+                    // candidate {far, shared_i, next} is the true transit
+                    // target only if its junction lies INSIDE the model edge
+                    // (shared_i ∩ next)'s own segment/arc domain — hull
+                    // membership cannot discriminate (inc-0: both candidates
+                    // converge in-hull at planar sites). Report, per
+                    // candidate: the operand edge shared by the two faces
+                    // (picked by nearest endpoint to q), its curve kind, the
+                    // q-endpoint residual, and the solution's parameter
+                    // against the edge's own extent. Report-only.
+                    let edge_domain_report = |sp: &(InputId, u32),
+                                              np: &(InputId, u32),
+                                              sol: [f64; 3]|
+                     -> String {
+                        if sp.0 != np.0 {
+                            return "cross-operand-pair".into();
+                        }
+                        let brep = match sp.0 {
+                            InputId::A => a,
+                            InputId::B => b,
+                        };
+                        let faces = brep.faces();
+                        let (Some(fs), Some(fnx)) =
+                            (faces.get(sp.1 as usize), faces.get(np.1 as usize))
+                        else {
+                            return "face-out-of-range".into();
+                        };
+                        // The candidate junction lies on the curve
+                        // shared_i ∩ next, so it must sit on a boundary
+                        // edge present in BOTH faces' loops — but the
+                        // to_yang converter shares only CURVED edges
+                        // between faces (LineSegments are per-loop
+                        // copies, the m1 convention), so index
+                        // intersection finds nothing on facet chains.
+                        // Geometric reading instead: over the UNION of
+                        // both faces' loop edges, pick the edge nearest
+                        // SOL by point-to-chord distance and report its
+                        // parameter verdict (LineSegment exact; the
+                        // pre-existing Circle arm below reads arcs).
+                        let verts = brep.vertices();
+                        let edges = brep.edges();
+                        let d = |x: [f64; 3], y: [f64; 3]| {
+                            ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2))
+                                .sqrt()
+                        };
+                        let mut best: Option<(u32, f64, f64)> = None; // (edge, d_sol, d_q_end)
+                        for &ei in fs
+                            .outer_loop
+                            .iter()
+                            .chain(fs.inner_loops.iter().flatten())
+                            .chain(fnx.outer_loop.iter())
+                            .chain(fnx.inner_loops.iter().flatten())
+                        {
+                            let e = &edges[ei as usize];
+                            let ps = verts[e.start as usize].point.as_array();
+                            let pe = verts[e.end as usize].point.as_array();
+                            // chord-projection distance from sol (clamped
+                            // to the segment) — a curve-agnostic proxy
+                            // good enough to RANK candidates; the exact
+                            // parameter verdict below re-reads the winner
+                            // by its true curve.
+                            let dv = [pe[0] - ps[0], pe[1] - ps[1], pe[2] - ps[2]];
+                            let l2 = dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2];
+                            let t = if l2 > 0.0 {
+                                (((sol[0] - ps[0]) * dv[0]
+                                    + (sol[1] - ps[1]) * dv[1]
+                                    + (sol[2] - ps[2]) * dv[2])
+                                    / l2)
+                                    .clamp(0.0, 1.0)
+                            } else {
+                                0.0
+                            };
+                            let proj = [ps[0] + t * dv[0], ps[1] + t * dv[1], ps[2] + t * dv[2]];
+                            let ds = d(sol, proj);
+                            let dq = d(ps, qpos).min(d(pe, qpos));
+                            if best.is_none_or(|(_, bd, _)| ds < bd) {
+                                best = Some((ei, ds, dq));
+                            }
+                        }
+                        let Some((ei, _, dq)) = best else {
+                            return "no-loop-edges".into();
+                        };
+                        // Owner tag: which of the candidate's two faces
+                        // carries the winning edge in its loops (S =
+                        // shared_i, N = next; SN = both — only possible
+                        // for converter-shared curved edges).
+                        let in_loops = |f: &BRepFace| {
+                            f.outer_loop
+                                .iter()
+                                .chain(f.inner_loops.iter().flatten())
+                                .any(|&x| x == ei)
+                        };
+                        let own = match (in_loops(fs), in_loops(fnx)) {
+                            (true, true) => "SN",
+                            (true, false) => "S",
+                            (false, true) => "N",
+                            (false, false) => "-",
+                        };
+                        let e = &edges[ei as usize];
+                        let ps = verts[e.start as usize].point.as_array();
+                        let pe = verts[e.end as usize].point.as_array();
+                        match e.curve {
+                            Curve::LineSegment => {
+                                let dv = [pe[0] - ps[0], pe[1] - ps[1], pe[2] - ps[2]];
+                                let l2 = dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2];
+                                if l2 <= 0.0 {
+                                    return format!(
+                                        "edge={ei} own={own} LineSegment DEGENERATE q_end={dq:.2e}"
+                                    );
+                                }
+                                let t = ((sol[0] - ps[0]) * dv[0]
+                                    + (sol[1] - ps[1]) * dv[1]
+                                    + (sol[2] - ps[2]) * dv[2])
+                                    / l2;
+                                let proj =
+                                    [ps[0] + t * dv[0], ps[1] + t * dv[1], ps[2] + t * dv[2]];
+                                format!(
+                                    "edge={ei} own={own} LineSegment q_end={dq:.2e} t={t:.4} \
+                                         off_line={:.3e} in_segment={}",
+                                    d(sol, proj),
+                                    t > 0.0 && t < 1.0
+                                )
+                            }
+                            Curve::Circle {
+                                center,
+                                normal,
+                                radius,
+                            } => {
+                                let nu = normalize3(normal.as_array());
+                                let Some((e1, e2)) = crate::stage4_slit::circle_frame(nu) else {
+                                    return format!(
+                                            "edge={ei} own={own} Circle frame-degenerate q_end={dq:.2e}"
+                                        );
+                                };
+                                let c = center.as_array();
+                                let theta = |p: [f64; 3]| -> f64 {
+                                    let w = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+                                    let x = w[0] * e1[0] + w[1] * e1[1] + w[2] * e1[2];
+                                    let y = w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2];
+                                    y.atan2(x)
+                                };
+                                let tau = std::f64::consts::TAU;
+                                let wrap = |x: f64| x.rem_euclid(tau);
+                                let (ts, te, tp) = (theta(ps), theta(pe), theta(sol));
+                                if e.start == e.end {
+                                    return format!(
+                                        "edge={ei} own={own} Circle CLOSED q_end={dq:.2e} \
+                                             theta_sol={tp:.4}"
+                                    );
+                                }
+                                // Both orientations reported: the loop
+                                // direction convention is not assumed —
+                                // the census data decides which reading
+                                // discriminates.
+                                let span_ccw = wrap(te - ts);
+                                let sol_ccw = wrap(tp - ts);
+                                let in_ccw = sol_ccw > 0.0 && sol_ccw < span_ccw;
+                                let span_cw = wrap(ts - te);
+                                let sol_cw = wrap(tp - te);
+                                let in_cw = sol_cw > 0.0 && sol_cw < span_cw;
+                                format!(
+                                    "edge={ei} own={own} Circle r={radius:.4} q_end={dq:.2e} \
+                                         span_ccw={span_ccw:.4} sol_ccw={sol_ccw:.4} \
+                                         in_ccw={in_ccw} in_cw={in_cw}"
+                                )
+                            }
+                            ref other => format!(
+                                "edge={ei} own={own} curve={:?} q_end={dq:.2e} (param test not \
+                                     implemented in inc-1)",
+                                std::mem::discriminant(other)
+                            ),
+                        }
+                    };
                     if let ([fp], [np]) = (far.as_slice(), next.as_slice()) {
                         for sp in &shared {
                             let (Some(sf), Some(ss), Some(sn)) =
@@ -5570,6 +5743,10 @@ fn relocation_domain_postcondition(
                                         sa[0],
                                         sa[1],
                                         sa[2],
+                                    );
+                                    eprintln!(
+                                        "YANG_S4_CARRIER_DOMAIN-TRANSIT     edge{label} -> {}",
+                                        edge_domain_report(sp, np, sa)
                                     );
                                 }
                                 None => {

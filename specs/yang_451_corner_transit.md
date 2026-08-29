@@ -1,8 +1,11 @@
 # §4.5.1 Corner Transit — the §4-I9 corner-crosser repair (I13f rehome kin)
 
-**Status: inc-0 (feasibility census) COMPLETE, 2026-08-29 — feasibility
-CONFIRMED family-wide (46/46 triples converge at 23/23 sites); NEXT =
-inc-1 (continuing-edge discriminator + corner-local view dedup).** Epic opened by
+**Status: inc-0 + inc-1 census arms LANDED and MEASURED, 2026-08-29 —
+feasibility CONFIRMED family-wide (46/46 triples converge at 23/23 sites);
+the corner-incident-edge discriminator VALIDATED on straight-carrier sites
+and the sites CLASSIFIED (crease transit / base transit / corner clip);
+NEXT = inc-2 (carrier authority for chord-lattice operands, then the gated
+apply arm).** Epic opened by
 the §4.5.2 adjudication (`specs/yang_452_local_refinement.md`): the recovery
 loop the paper prescribes for this class was measured out (zero conversions at
 2×/4×/8× uniform density), so the class needs the repair the paper does NOT
@@ -112,12 +115,15 @@ share by identity, multiplicity is a loud STOP)
 At the §4-I9 detection (or pre-emptively at the (2s)/(2t) relocation arms):
 1. Recognize: relocation target is an exact triple {far, base, facet_k}
    whose path crosses still corner q carrying {base, facet_k, facet_j}.
-2. Discriminate the continuing edge at q (inc-1): the true transit target
-   lies on the far∩base curve past q — accept {far, base, facet_j} iff the
-   solution lies inside facet_j's edge/face domain (edge-segment parameter
-   test against the model edge base∩facet_j, not a hull heuristic);
-   typed decline otherwise (AmbiguousTransit — the honest gated fixed
-   point, I13f-f2b precedent).
+2. Discriminate at q by the corner-incident-edge rule (inc-1, MEASURED —
+   see §3b; the pre-measurement "accept {far, base, facet_j}" presumption
+   was refuted): a candidate junction is REAL iff it lies within band ON a
+   model edge with an endpoint at q, inside that edge's segment/arc domain.
+   Sites classify as 1-real (single transit — crease OR base side, both
+   occur) or 2-real (corner clip: two junctions + the connecting segment
+   across the adjacent face). No real candidate, or an unresolvable
+   carrier-authority read → typed decline (AmbiguousTransit — the honest
+   gated fixed point, I13f-f2b precedent).
 3. Apply: truncate the traveller's step at q (share the EXISTING corner
    vertex — no mint), relocate the traveller to the corrected junction,
    and re-route the curve/patch structure so facet_k's chain ends at q and
@@ -134,17 +140,94 @@ constraint sets make the transit deterministic and certificated. This is a
 junction-layer EXTENSION — when it flips always-on, sign it into
 `docs/yang_deviations.md` per the compliance-endgame plan (N2 remit).
 
+## 3b. inc-1 — the continuing-edge discriminator (census arm LANDED
+2026-08-29, same session; measurements below)
+
+The census arm gains, per candidate, an EDGE-DOMAIN report: over the union
+of both candidate faces' loop edges, the edge nearest the solution (by
+clamped chord projection), its owner tag (S = shared_i's loops, N = next's,
+SN = converter-shared curved), the q-endpoint residual, and the parameter
+verdict (LineSegment exact; Circle arcs read via `circle_frame` wrapped
+angles both orientations). Two structural facts surfaced immediately:
+
+- **Face pairs share no edge INDICES for straight edges** — `to_yang_brep`
+  emits one directed yang edge PER HALF-EDGE for LineSegments (the m1
+  per-loop-copy convention); only curved edges (Arc/Circle twins) are
+  shared. Any index-intersection adjacency test finds nothing on facet
+  chains; adjacency must be read geometrically (or via twin-position
+  matching).
+- **`off_line` against a LineSegment is chord deviation, not domain
+  exclusion**, when the B-Rep edge is a chord over a curved carrier. The
+  discriminator is EXACT only where the true carrier is straight.
+
+**Measured verdicts.** The inc-0 "clean pattern = {far, base, facet_j}"
+reading is REFUTED by the edge data (the d_from_q ≈ overrun signature was a
+coincidence of the fan geometry — hypotheses hardened into pattern-matching
+is exactly the failure mode the I13f epic warned about):
+
+- **R0011 (4 sites, all straight carriers — axial prism-skirt facets on the
+  giant cylinder): the rule works.** A candidate is REAL iff its solution
+  lies within band ON a corner-incident model edge (q_end = 0) in-segment.
+  v27/v37/v42: exactly ONE real candidate — the CREASE triple
+  {F, facet_k, facet_j}, exact (off ≤ 2.3e-13) at t = 0.009–0.017 just past
+  the corner; the base-side junction lies on NO corner-incident edge
+  (nearest q_end 90–199). **Clean crease transit.** v78: TWO real
+  candidates, both exact on corner-incident edges (crease t = 0.0008, base
+  edge t = 0.11) — the far plane passes so close to the corner that the
+  exact curve CLIPS it, running a short segment across the adjacent facet
+  between two true junctions. **The repair vocabulary is therefore
+  per-site: 1-real → single transit junction; 2-real → mint the two-junction
+  corner clip + the connecting segment (Yang Fig-13(c)'s error, fixed by
+  minting the exact clip topology).**
+- **R0074 (1 site): the corner-clip class again** — both candidates exact
+  on corner-incident straight edges (base-side t = 0.257, crease t = 0.0027).
+- **R0044 (7 sites, cone bands with CHORD-LATTICE edges): the inc-0 "v8
+  anomaly" dissolves — v8 is a clean BASE-side transit** (exact 5.1e-13 on
+  a corner-incident straight edge at t = 0.39; the crease candidate is off
+  by 17.5). The remaining sites are BLOCKED on a carrier-authority
+  question: this operand's B-Rep carries exact Cone surfaces but stores
+  boundary edges as chords (off_line 3–90 ≈ the band sag), so "on the model
+  edge" is ill-defined until inc-2 decides the edge authority (surface-triple
+  junction vs F∩chord-edge crossing) consistently with how Stage 3/4 treats
+  these operands' edges elsewhere (the shared-INDEX seam-identity /
+  curve-authority lessons apply).
+- **R0085 (11 sites, planar facets at scale ~3): the rule's EXCLUSION arm
+  is validated, and the operand's own lattice quality surfaces.** v467 and
+  v4216 are clean BASE transits (exact on corner-incident edges, t = 0.26 /
+  0.35, off ≤ 5.6e-17) with the crease candidates excluded while lying
+  exactly ON the crease's line but PAST its far endpoint (t = 1.0170 and
+  1.0013, off ≤ 5.9e-16, in_segment = false) — the walking-chain adjacency
+  measured: each crease junction lands at/past the NEXT corner in the fan.
+  The crease-rider sites' nearest base edges carry small NONZERO residuals
+  (q_end 0.01–0.03, off 2e-4–5e-3 at scale ~3, several different sites
+  landing on the SAME long base edge at increasing t) — the base face's
+  loop and the facet chain disagree at authoring scale: an operand
+  edge-lattice INCONSISTENCY (two sides of one boundary), consistent with
+  R0085's separate op-3 `input B-Rep is not 2-manifold` wall. For those
+  sites the transit repair is downstream of operand quality — record, don't
+  force.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
   §2); 23 sites / 46 candidate triples across R0011+R0074+R0044+R0085, 100%
   convergence, planar-hull in-domain wherever the verdict applies. Mirrored
   pairs, crease-rider chains, and the v8 anomaly recorded for inc-1.
-- inc-1: continuing-edge discriminator census (edge-segment domain test at
-  q; cone-band in-domain reading for R0044/R0085's facets).
-- inc-2: gated apply arm (`YANG_451_TRANSIT` or an extension of
-  `YANG_441_REHOME`'s household pattern) — truncate-share-relocate-reroute,
-  audit-clean per I13f discipline.
+- **inc-1** (2026-08-29, same session): edge-domain discriminator census
+  LANDED + MEASURED family-wide; rule VALIDATED on straight-carrier sites
+  in both directions — inclusion (R0011 4/4: 3 crease transits + 1 corner
+  clip; R0074 1/1 clip; R0044 v8 base transit; R0085 v467+v4216 base
+  transits) AND exclusion (R0085's crease candidates rejected on-line
+  past-end). Open for inc-2: the chord-lattice carrier-authority decision
+  (R0044's cone bands) and the R0085 operand lattice inconsistency
+  (downstream of that case's own input-n2m wall). §3b above.
+- inc-2: (a) the carrier-authority decision for chord-lattice operands
+  (R0044-class), consistent with Stage 3/4's existing treatment of those
+  edges; then (b) the gated apply arm (`YANG_451_TRANSIT` or an extension
+  of `YANG_441_REHOME`'s household pattern) — per-site transit or
+  corner-clip mint + re-route, audit-clean per I13f discipline. The
+  corner-incident-edge classification (1-real / 2-real) from inc-1 is the
+  plan input.
 - inc-3: fixed-point integration (multiple sites per case; R0085 has two
   failing ops) + full-corpus gated measurement; flip under the standing
   two-proof protocol.
