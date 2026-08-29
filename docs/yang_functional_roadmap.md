@@ -825,9 +825,12 @@ name, never measured).
    exactly; R0003 authored (2, 3 shells) and pinned in
    `historical_authoring_fixes_pinned` with the derivation;
    measured: R0003 at 4× = SUPPORTED_CORRECT all-checks-pass,
-   baseline byte-identical canonical ERROR). NEXT = the f2c/f2c-2
-   flip under the two-proof protocol. Corpus untouched; f903 stays
-   the loud wall until the flip.]
+   baseline byte-identical canonical ERROR). **f4 FLIP LANDED 2026-08-29:
+   `YANG_441_REHOME` ALWAYS-ON — gate-off corpus byte-identical;
+   gate-on exactly ONE move: R0003 ERROR → SUPPORTED_CORRECT, all
+   oracles pass. NEW CANONICAL 273C/0W/34E/1EE/0T.** The §I13(f)
+   inverted-junction-pair epic is CLOSED end-to-end (phantom re-homed
+   across the rim, junction-layer hole re-fill, genus-aware oracle).]
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

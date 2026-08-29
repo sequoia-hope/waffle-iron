@@ -140,11 +140,18 @@ pub(crate) enum RehomeDecline {
     PlaneAbsorbUnresolved,
 }
 
-/// §I13(f) f2 gate — `YANG_441_REHOME`. Unset/other = Off (the arm does
-/// not run; the f1 report-only planner print in the selector's richer
-/// closure keys on `census` separately). `census` = the arm runs its full
-/// certificate chain (plan → inversion re-verify → rim recognition → fan
-/// planning → flip guard) and REPORTS, applying nothing. `on` = apply.
+/// §I13(f) f2/f2c/f2c-2 gate — `YANG_441_REHOME`. **FLIPPED ALWAYS-ON
+/// 2026-08-29 (f4)** with the two-proof corpus runs recorded in spec
+/// `specs/yang_441_trim_cdt_construction.md` §I13(f): gate-off default
+/// corpus byte-identical to the committed baseline; gate-on corpus
+/// exactly ONE category move — R0003 ERROR → SUPPORTED_CORRECT (the
+/// re-homing + junction-layer hole re-fill resolve f903's ring-CDT, the
+/// boolean completes, and every oracle passes under the adjudicated
+/// genus-aware expectation: 3 shells, main shell genus 2, χ = 2).
+/// `YANG_441_REHOME=0|off` is the dev A/B off-knob; `census` runs the
+/// full certificate chain (plan → inversion re-verify → rim recognition
+/// → material gate → fan planning → flip guard) and REPORTS, applying
+/// nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RehomeMode {
     Off,
@@ -154,9 +161,10 @@ pub(crate) enum RehomeMode {
 
 pub(crate) fn rehome_mode() -> RehomeMode {
     match std::env::var("YANG_441_REHOME") {
+        Err(_) => RehomeMode::On,
+        Ok(v) if v == "0" || v == "off" => RehomeMode::Off,
         Ok(v) if v == "census" => RehomeMode::Census,
-        Ok(v) if v == "on" || v == "1" => RehomeMode::On,
-        _ => RehomeMode::Off,
+        Ok(_) => RehomeMode::On,
     }
 }
 

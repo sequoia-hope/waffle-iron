@@ -3356,7 +3356,22 @@ false. Kept for the derivation's frame naming, which stands.]:**
    measured TRUE on both; K gains [newJ → C]; the flank's [C…w] chain
    and the wall's [B…w'] chain each gain newJ), fixed-point
    integration with I13d/e, full corpus gated.
-8. **f4 — flip** per the standing two-proof protocol.
+8. **f4 — flip: DONE (2026-08-29).** `YANG_441_REHOME` FLIPPED
+   ALWAYS-ON (household pattern: unset/other = On, `0|off` = the dev
+   A/B knob, `census` = report-only), two-proof corpus runs:
+   - Gate-off (`YANG_441_REHOME=0`): **272C/0W/35E/1EE/0T,
+     `results.json` BYTE-IDENTICAL** to the committed baseline (F0085
+     honest CORRECT 308.3s).
+   - Gate-on (default): **273C/0W/34E/1EE/0T — exactly ONE category
+     move (R0003 ERROR → SUPPORTED_CORRECT, "all checks passed") and
+     ZERO other category or detail moves** (F0085 306.9s, F0065
+     167.3s both honest). The nine latent I13f sites ride inside
+     R0003's own all-oracles-pass result.
+   f3's chain-split work never became load-bearing on this path — the
+   f2c/f2c-2 completion is oracle-clean end-to-end (the split-child
+   HypArc/Seg typing asymmetry noted in the f2c-2 record stays a
+   recorded curiosity, not a defect any instrument names). Rewrite
+   tier green; NEW CANONICAL corpus score 273C/0W/34E/1EE/0T.
 
 ## 5. After this epic (recorded, not started)
 
