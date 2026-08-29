@@ -3200,7 +3200,7 @@ false. Kept for the derivation's frame naming, which stands.]:**
    carriers, so retypes are expected free — verify: one split child
    emitted HypArc but its sibling emitted an untyped Seg in the ON
    run, an asymmetry to chase).
-6. **f2c-3 — the junction-layer SLIT (NEXT)**: sever the [B..C] rim
+6. **f2c-3 — the junction-layer SLIT**: sever the [B..C] rim
    window where the analytic truth cuts through — delete the bridge
    surface, extend the plane-wall patches to mate the slit's sides,
    mint the above-rim K∩S_i / W∩S_i trace chains and their far
@@ -3212,6 +3212,115 @@ false. Kept for the derivation's frame naming, which stands.]:**
    edge-use audit. Scope note: this REPLACES the f2c-2 bite/bridge
    at qualifying corners — the coarse fill stays the fallback where
    the slit's preconditions fail (typed declines, loud).
+
+   **BRIDGE CENSUS BUILT + MEASURED (2026-08-28, 5th session;
+   `stage4_slit.rs`, gate `YANG_441_SLIT=census`, wired at stage-4
+   reconstruct entry; 5 unit tests). The instrument:** the anchor
+   tool is a CONVEX ALL-PLANAR prism, so the analytic truth is
+   closed-form — a kept triangle is bridge surface iff its ANALYTIC
+   carrier lift (closed-form nearest-point projection onto the
+   attributed cone/cylinder/plane, barycentric grid 8) dips strictly
+   inside every tool half-space beyond the eval-noise floor. The
+   chords themselves sit OUTSIDE the tool (the box tessellates with
+   zero sag — that is exactly why stage 2 kept them, correctly per
+   its mesh-exact contract). Census findings on R0003 (n_seg=41,
+   floor 2.78e-5, closest skipped prefilter margin 4.0):
+   - **897 convicted tris in 19 blobs — two populations.** 17 deep
+     blobs (depth 4e-2…2e-1, hugging the deep-cut planes #2/#3/#5
+     along the notch outline, partner histograms = B-wall x dozens +
+     one edge per crossed band) are BOUNDARY-DISPLACEMENT ribbons:
+     the mesh trace chains exist there, displaced by chord sag
+     (sag ≈ chord²·κ/8 ≈ 0.1 at chord ≈ 12). Two SHALLOW strips
+     (1.8e-4 / 1.3e-3 — the flat cones' own sag scale) are the only
+     blobs binding the GRAZING side plane #4; the anchor strip's
+     south end lands exactly on the I13f corner pair (v8658, 0.045
+     from the probe junction).
+   - **Every blob is an intrinsic DISK** (V−E+F=1) and every
+     solo-sever is disk-like (Δχ=−1, comps stay 3). Deleting all 897
+     reads χ'=−17 with non-simple boundary — the naive
+     delete-and-cap surgery is REFUTED by its own arithmetic, and so
+     is ANY delete-a-disk-recover-a-disk surgery: replacing a disk
+     region by any disk-decomposed cover of the same boundary loop
+     is χ-INVARIANT (measured, then proved). The +2-per-bridge
+     severance requires a non-disk cut. The [strip ∪ nearby wall
+     tris] tube probe also reads DISK (χ=1, 1 loop) — no local
+     annulus.
+   - **The rim-window solves (closed-form coaxial-cone rim ×
+     tool-plane roots) reproduce every f2b census number and locate
+     the missed junctions.** Anchor: the OUTER rim (375,376) crosses
+     plane #4 at 0.0996 outside the mouth and the mouth plane #0 at
+     the EXACT probe anchor (−199.7376,−113.9101,−25.9313), 0.0415
+     outside #4 — the outer rim NEVER truly enters the tool (B
+     survives; the "stub" is the whole rim). The INNER rim (374,375)
+     IS truly cut — mouth-side root (−200.227,−116.069,−26.061)
+     oth=−2.17, side-plane root (−194.967,−115.157,−23.818)
+     oth=−5.36 — and BOTH junctions are MISSING from the mesh
+     (nearest verts 0.54 / 1.29 away). Same signature at the second
+     strip (rim(18,19): roots inside by 0.65/1.50, missing by
+     0.44/1.27).
+   - **True local anatomy: the graze keeps a paper-thin FILM** (the
+     flange material ≤1.3e-3 proud of plane #4 near the wall corner)
+     — a sock over the flange tip capped at the wall by the f903
+     ring sliver; genus-NEUTRAL in truth. The mesh's genus-2 is a
+     mis-weave from the missing near-tangent traces, NOT a roofed
+     tunnel.
+   - **Density-ladder adjudication (`YANG_NSEG_FLOOR`, dev/debug-only
+     knob; `YANG_CHI_AUDIT` readout): THE GENUS IS TRUE TOPOLOGY — the
+     SLIT is REFUTED.** n_seg 41 → 82 → 164 (chord sag 1.3e-3 →
+     3.2e-4 → 8e-5, the last an order below BOTH graze depths):
+     stage-2 kept-submesh per-component χ is IDENTICAL [−2, 2, 2] at
+     every rung, all edges 2-used, zero pinches — converged, not
+     artifact. Closed-form verification from the census's own data:
+     the point 0.5 under the anchor film's deepest witness is inside
+     ALL SIX tool half-spaces (pocket void), and both film ends attach
+     to material (north: the flange beyond the #4-trace exit; south:
+     the 0.03–0.04-thick sliver behind the wall outside the prism
+     footprint, pinching to zero at the ℓ'×outline crossing jc). The
+     film is a genuine material bridge arching over the pocket-corner
+     void — a REAL handle, thickness ~1.3e-3 at scale 216 (≫ absolute
+     MIN_FEATURE_SIZE). R0003's true result: 3 shells, main shell
+     genus 2, χ_true = −2+2+2 = 2 — exactly what the boolean produces
+     at every density. **The wrong party is the composition oracle's
+     "genus-0 credit per extra shell" expectation (χ = 2·shells): a
+     FALSE-ALARM `SUPPORTED_WRONG`** — today env-gated-only (the
+     standing corpus ERRORs at f903 before the oracle fires, so
+     0W/272C is uncontaminated), but it becomes load-bearing the
+     moment the f2c/f2c-2 machinery (which resolves f903 gated-ON)
+     flips.
+
+   **RESCOPE — f2c-3 becomes the ORACLE GENUS TERM + HANDLE
+   CERTIFICATE (NEXT):** the flag lives in
+   `check_mesh_euler_characteristic` (`test-harness/src/oracle.rs`,
+   the TH1 per-shell adjustment): expected = euler_target +
+   2·(measured_shells − euler_target/2), which TELESCOPES to
+   2·measured_shells for every target — **no authored euler_target
+   value can express "3 shells, total genus 2"** (R0003's authored
+   target 2 equals the true χ only by cancellation: +4 from the two
+   real genus-0 fragments, −4 from the main shell's two handles). So
+   this is a FORMULA increment in the KV5b-F2 lineage (the "decode
+   the meta's shell count, credit only shells beyond" fix), not a
+   meta pin — though the adjudication method follows the
+   `historical_authoring_fixes_pinned` precedents exactly (C0075
+   grid flood-fill, R0006 slab/fiber analysis: independent
+   derivation → correct the expectation → pin). Design: the oracle
+   accepts a genus-bearing expectation ONLY with a per-handle
+   analytic certificate — the census machinery hardened: for an
+   all-planar convex tool, (i) the void-arch test (kept-surface
+   analytic lift arching over tool-interior void, closed-form),
+   (ii) both attachments to material certified, (iii) accept iff
+   χ == 2·shells − 2·h with h the certified handle count. Anything
+   uncertifiable keeps the loud flag (no band — P9/P10 intact), and
+   R0003's h=2 gets pinned with its derivation the way C0075's χ=−2
+   is. Then the f2c/f2c-2 flip proceeds under the standing two-proof
+   protocol (f903's ring-CDT resolves gated-ON at baseline density;
+   the ring-wall ladder is 41→f903 ERROR, 82→f904 ERROR,
+   164→COMPLETES end-to-end — at 4× the finished B-Rep reads χ=2
+   with 3 shells and the oracle flags verbatim "expected 6 for 3
+   shell(s)": the only gap at 4× IS the formula). The
+   slit-surgery text above is RETIRED; `stage4_slit.rs` stays as the
+   census + future certificate home; `YANG_441_SLIT=on` remains
+   reserved (currently census-equal; no slit apply arm will be
+   built).
 7. **f3 — chain splits + cycle integration** (split BOTH continuing
    chains at the mint per the kept-edge report — mint_interposes
    measured TRUE on both; K gains [newJ → C]; the flank's [C…w] chain

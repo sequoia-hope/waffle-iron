@@ -800,19 +800,30 @@ name, never measured).
    the mirror crossing once → update the affected cycles) — the
    phase-3 junction-layer mesh update's first SMALL customer, the
    right vehicle before R0100's loop-level case.
-   [STATUS 2026-08-28: f0 census + f1 planner + f2 gated apply arm +
-   f2b material discriminator + f2c re-homing arm BUILT
-   (`YANG_441_REHOME`); the f2b census REFUTED the interim
-   absorb-a-corner apply shape — BOTH old corners are true junctions,
-   only the phantom is false. The f2c ON run measured: all applies
-   converge and **f903's ring-CDT RESOLVES**, then output edge-pairing
-   STOPs loudly; the apply-time mesh edge-use audit decodes the tears
-   (the fossil fan is the thin band's own local surface straddling the
-   true rim; deleting it opens a hole whose rim alternates between the
-   two bands' surviving patches). NEXT = f2c-2, the junction-layer
-   HOLE RE-FILL (true rim polyline through the hole + two-sided
-   band-attributed CDT + all-carrier chain splits) — spec §I13(f)
-   item 5. Corpus untouched; f903 stays the loud wall until it lands.]
+   [STATUS 2026-08-28 (5 sessions): f0 census + f1 planner + f2 gated
+   apply arm + f2b material discriminator + f2c re-homing arm + f2c-2
+   junction-layer hole re-fill ALL BUILT GATED (`YANG_441_REHOME`) and
+   ON-measured — **f903's ring-CDT RESOLVES gated-ON** with a CLEAN
+   edge-use audit; the composition oracle then flagged the completed
+   result SUPPORTED_WRONG (χ=2 vs 6 for 3 shells), and the same-day
+   `YANG_CHI_AUDIT` instrument localized a genuine stage-2 genus-2.
+   **The f2c-3 bridge census (`stage4_slit.rs`, `YANG_441_SLIT`) +
+   density-ladder adjudication (`YANG_NSEG_FLOOR` 41/82/164, χ
+   [−2,2,2] at every rung) then REFUTED the planned slit repair: the
+   genus is TRUE topology** — two micro-filament handles where the
+   gear flange corners arch over the pocket-corner void (verified
+   closed-form: void under the film, both ends attached). The wrong
+   party is the composition oracle's per-shell genus-0 credit, whose
+   formula telescopes to χ=2·shells and cannot express R0003's truth
+   (spec §I13(f) item 6 RESCOPE). At 4× density the case COMPLETES
+   end-to-end with no rehome machinery (ring ladder: 41→f903 ERROR,
+   82→f904 ERROR, 164→completes; finished B-Rep χ=2, 3 shells) — at
+   that density the ONLY gap is the oracle formula. NEXT = the
+   oracle genus term +
+   per-handle analytic certificate (C0075/R0006
+   `historical_authoring_fixes_pinned` adjudication pattern), then
+   the f2c/f2c-2 flip under the two-proof protocol. Corpus untouched;
+   f903 stays the loud wall until the flip.]
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam

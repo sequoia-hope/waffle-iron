@@ -5836,6 +5836,15 @@ pub(crate) fn reconstruct_topology_stage4(
     edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
 ) -> Result<ReconstructedTopology, YangError> {
     chi_audit_report("s4-reconstruct entry", &mesh.tris);
+    // §I13(f) f2c-3 — the read-only BRIDGE CENSUS (`YANG_441_SLIT`, unset =
+    // byte-identical): lift kept triangles onto their analytic carriers and
+    // test the lifts against the tool half-spaces. Its 2026-08-28
+    // measurement REFUTED the slit repair (R0003's genus-2 is TRUE
+    // topology — see stage4_slit's module docs); the instrument stays as
+    // the future handle-certificate home.
+    if crate::stage4_slit::slit_mode() != crate::stage4_slit::SlitMode::Off {
+        crate::stage4_slit::bridge_census(mesh, attribution, a, b, op);
+    }
     // (4) Phase A: per-patch ordered loops + inherited surface (`infos`), and the
     // exact per-edge intersection `Curve` map.
     let (mut infos, incidence, mut intersection_curves) =
