@@ -5502,6 +5502,86 @@ fn relocation_domain_postcondition(
                     "YANG_S45_TRUNCATE v{v} -> {:?}",
                     crate::stage4_truncate::max_in_domain_step(pre, post, &[(q, qpos)])
                 );
+                // Corner-transit epic inc-0 (spec `yang_452_local_refinement.md`
+                // routing): feasibility of the CORRECTED junction. The
+                // traveller's own solve minted the phantom triple
+                // {far, base, facet_k} beyond the still corner q; the transit
+                // repair would instead solve {far, base, facet_j} with
+                // facet_j = q's third face (the adjacent facet past the
+                // corner). Which member of pv∩pq is the continuing base and
+                // which is the dropped facet_k is not decidable from the sets
+                // alone, so BOTH candidate triples are solved and reported —
+                // the real transit target is the one that converges a
+                // ~overrun distance past q and lands inside the adjacent
+                // facet's hull. Report-only (census mode), applies nothing.
+                {
+                    let surface_of = |patch: &(InputId, u32)| -> Option<Surface> {
+                        let faces = match patch.0 {
+                            InputId::A => a.faces(),
+                            InputId::B => b.faces(),
+                        };
+                        faces.get(patch.1 as usize).map(|f| f.surface)
+                    };
+                    let (pv, pq) = (patches_of(v), patches_of(q));
+                    let far: Vec<_> = pv.difference(pq).collect();
+                    let next: Vec<_> = pq.difference(pv).collect();
+                    let shared: Vec<_> = pv.intersection(pq).collect();
+                    eprintln!(
+                        "YANG_S4_CARRIER_DOMAIN-TRANSIT v{v} q=v{q} far={far:?} \
+                         next={next:?} shared={shared:?}"
+                    );
+                    if let ([fp], [np]) = (far.as_slice(), next.as_slice()) {
+                        for sp in &shared {
+                            let (Some(sf), Some(ss), Some(sn)) =
+                                (surface_of(fp), surface_of(sp), surface_of(np))
+                            else {
+                                continue;
+                            };
+                            let label = format!("[{fp:?},{sp:?},{np:?}]");
+                            match crate::stage4_relocate::relocate_onto_implicit_triple(
+                                Point3::new(qpos[0], qpos[1], qpos[2]),
+                                sf,
+                                ss,
+                                sn,
+                            ) {
+                                Some(sol) => {
+                                    let sa = sol.as_array();
+                                    let dist = |x: [f64; 3], y: [f64; 3]| {
+                                        ((x[0] - y[0]).powi(2)
+                                            + (x[1] - y[1]).powi(2)
+                                            + (x[2] - y[2]).powi(2))
+                                        .sqrt()
+                                    };
+                                    // Does the corrected junction lie inside
+                                    // the adjacent facet's own extent? Planes
+                                    // only (None = no verdict), at the
+                                    // Stage-1 chord band the hull's chord
+                                    // vertices honestly carry.
+                                    let hull = stage4_chord_band(a, b).and_then(|de| {
+                                        planar_partner_hull_contains(a, b, sn, sa, de)
+                                    });
+                                    eprintln!(
+                                        "YANG_S4_CARRIER_DOMAIN-TRANSIT   triple{label} -> \
+                                         CONVERGED d_from_q={:.4e} d_from_post={:.4e} \
+                                         overrun={:.4e} next_hull={hull:?} sol=({:.9},{:.9},{:.9})",
+                                        dist(sa, qpos),
+                                        dist(sa, post),
+                                        dist(post, qpos),
+                                        sa[0],
+                                        sa[1],
+                                        sa[2],
+                                    );
+                                }
+                                None => {
+                                    eprintln!(
+                                        "YANG_S4_CARRIER_DOMAIN-TRANSIT   triple{label} -> \
+                                         NO-CONVERGE"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
                 return Err(YangError::stage4_region_invalid(
                     v,

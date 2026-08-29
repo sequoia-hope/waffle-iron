@@ -175,7 +175,8 @@ open as its own item.
   selector at all; the phantom is caught only by the §4-I9 stage-end
   postcondition. The epic's recognizer therefore needs its own hook at the
   I9 detection (or pre-emptively at the relocation arms), not a widening of
-  the I13d branch.
+  the I13d branch. **Epic opened: `specs/yang_451_corner_transit.md`** (inc-0
+  feasibility census landed same day).
 - #168 degenerate-cap wall (R0038): epic #169 C/D two-sided junction-aware
   re-CDT.
 - Tangent disc∩disc (C0067): §4.3.3 tangent-point insertion milestone.
