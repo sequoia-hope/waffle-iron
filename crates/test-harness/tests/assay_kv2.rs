@@ -396,7 +396,11 @@ fn replay_case(case: &DiscoveredCase) -> CaseOutcome {
                 ));
             }
         }
-        let v = oracle::check_mesh_euler_characteristic(&mesh, meta.oracles.euler_target);
+        let v = oracle::check_mesh_euler_characteristic_with_shells(
+            &mesh,
+            meta.oracles.euler_target,
+            meta.oracles.expected_shell_count,
+        );
         if !v.passed {
             failures.push(format!("mesh_euler_characteristic: {}", v.detail));
         }

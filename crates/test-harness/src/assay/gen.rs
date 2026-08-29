@@ -129,6 +129,22 @@ pub struct OracleExpectations {
     /// `None` ⇒ the legacy "multi-op ⇒ 1 merged solid" check applies.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_solid_count: Option<usize>,
+    /// Expected SHELL count (mesh connected components) of the final
+    /// result, for cases whose true shell/genus split `euler_target`
+    /// alone cannot encode. The euler oracle decodes shells from the
+    /// target as max(1, ⌊χ/2⌋) and credits +2 per shell beyond it, which
+    /// telescopes its expectation to 2·shells for every positive target —
+    /// so e.g. "3 shells, total genus 2" (R0003, adjudicated 2026-08-28:
+    /// bridge census + density ladder + closed-form void-arch
+    /// verification, spec `yang_441_trim_cdt_construction.md` §I13(f)
+    /// item 6) is inexpressible without this field. When present the
+    /// oracle expects χ == `euler_target` EXACTLY and the measured shell
+    /// count must EQUAL this value — strictly, with no extra-shell
+    /// allowance (stricter than the legacy floor). Hand-adjudicated
+    /// entries only, in the `historical_authoring_fixes_pinned` lineage;
+    /// the generator never emits it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_shell_count: Option<usize>,
 }
 
 /// A generated test case ready to be written to disk.
@@ -737,6 +753,7 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
             expected_volume: None,
             expected_volume_tol_rel: None,
             expected_solid_count: None,
+            expected_shell_count: None,
         },
         generator_version: GENERATOR_VERSION,
         featured: false,
@@ -1634,6 +1651,7 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -1885,6 +1903,7 @@ fn generate_oblique_plane_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -2057,6 +2076,7 @@ fn generate_intersecting_oblique_cases(output_dir: &std::path::Path) -> Vec<Mani
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -2299,6 +2319,7 @@ fn generate_circle_boss_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -2408,6 +2429,7 @@ fn generate_box_minus_cyl_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -2520,6 +2542,7 @@ fn generate_cyl_minus_box_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -2634,6 +2657,7 @@ fn generate_cyl_cyl_parallel_cases(output_dir: &std::path::Path) -> Vec<Manifest
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -2737,6 +2761,7 @@ fn generate_mixed_cross_plane_cases(output_dir: &std::path::Path) -> Vec<Manifes
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -2862,6 +2887,7 @@ fn generate_scale_extreme_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -2965,6 +2991,7 @@ fn generate_cyl_cyl_angled_cases(output_dir: &std::path::Path) -> Vec<ManifestEn
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -3081,6 +3108,7 @@ fn generate_gear_cut_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry> {
             expected_volume: None,
             expected_volume_tol_rel: None,
             expected_solid_count: None,
+            expected_shell_count: None,
         },
         generator_version: GENERATOR_VERSION,
         featured: true,
@@ -3180,6 +3208,7 @@ fn generate_box_through_hole_cases(output_dir: &std::path::Path) -> Vec<Manifest
             expected_volume: None,
             expected_volume_tol_rel: None,
             expected_solid_count: None,
+            expected_shell_count: None,
         },
         generator_version: GENERATOR_VERSION,
         featured: true,
@@ -3288,6 +3317,7 @@ fn generate_chained_extrude_cases(output_dir: &std::path::Path) -> Vec<ManifestE
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -3629,6 +3659,7 @@ fn generate_off_axis_chained_cases(output_dir: &std::path::Path) -> Vec<Manifest
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -3771,6 +3802,7 @@ fn generate_swiss_cheese_disc_cases(output_dir: &std::path::Path) -> Vec<Manifes
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -3866,6 +3898,7 @@ fn generate_face_to_face_union_cases(output_dir: &std::path::Path) -> Vec<Manife
             expected_volume: None,
             expected_volume_tol_rel: None,
             expected_solid_count: None,
+            expected_shell_count: None,
         },
         generator_version: GENERATOR_VERSION,
         featured: true,
@@ -3981,6 +4014,7 @@ fn generate_internal_void_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -4098,6 +4132,7 @@ fn generate_revolve_self_intersection_cases(output_dir: &std::path::Path) -> Vec
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -4202,6 +4237,7 @@ fn generate_revolve_self_intersection_cases(output_dir: &std::path::Path) -> Vec
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -4306,6 +4342,7 @@ fn generate_revolve_self_intersection_cases(output_dir: &std::path::Path) -> Vec
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,

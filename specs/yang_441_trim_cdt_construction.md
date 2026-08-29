@@ -3321,6 +3321,36 @@ false. Kept for the derivation's frame naming, which stands.]:**
    census + future certificate home; `YANG_441_SLIT=on` remains
    reserved (currently census-equal; no slit apply arm will be
    built).
+
+   **ORACLE GENUS TERM BUILT + MEASURED (2026-08-29, same
+   continuation):** `OracleExpectations` gains the optional
+   hand-adjudicated `expected_shell_count` (serde-defaulted; the
+   generator never emits it), and
+   `check_mesh_euler_characteristic_with_shells` enforces it
+   STRICTLY in both branches (exact-bits and hybrid): measured
+   shells must EQUAL the authored count (a distinct loud fail
+   detail; no extra-shell allowance at all) and expected χ =
+   `euler_target` exactly — strictly tighter than the legacy
+   telescoped floor, which stays byte-identical for every meta
+   without the field. Both production runners (`assay_kv2`,
+   `randomized_runner`) pass the field through. R0003's meta gains
+   `expected_shell_count: 3` (euler_target stays 2 — the TRUE χ);
+   the adjudication is pinned in
+   `assay_euler_consistency::historical_authoring_fixes_pinned`
+   alongside C0075/R0006 with the full derivation cited. Unit test
+   `euler_characteristic_authored_shell_count_is_strict` pins all
+   four behaviors incl. the R0003-shape inverse (a genus-0 triple
+   against the authored genus-bearing split FAILS) and the legacy
+   telescoped blindness the field exists to fix. **Acceptance
+   measured: R0003 at 4× density (`YANG_NSEG_FLOOR=164`, debug) =
+   SUPPORTED_CORRECT, ALL oracle checks pass (575s); at baseline the
+   verdict is byte-identical canonical ERROR(f903) (41.6s release) —
+   corpus 272C/0W untouched.** The per-handle analytic CERTIFICATE
+   (mechanizing the void-arch adjudication for future genus-bearing
+   cases) stays future work in `stage4_slit.rs`; today's authored
+   field covers the adjudicated-case path exactly like the
+   euler_target hand-corrections before it. NEXT = the f2c/f2c-2
+   flip (two-proof protocol).
 7. **f3 — chain splits + cycle integration** (split BOTH continuing
    chains at the mint per the kept-edge report — mint_interposes
    measured TRUE on both; K gains [newJ → C]; the flank's [C…w] chain

@@ -40,7 +40,8 @@
       "increase",
       "decrease"
     ],
-    "expect_rebuild_error": false
+    "expect_rebuild_error": false,
+    "expected_shell_count": 3
   },
   "generator_version": 4,
   "featured": false

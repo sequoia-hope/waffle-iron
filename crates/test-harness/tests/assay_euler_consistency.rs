@@ -253,7 +253,33 @@ fn historical_authoring_fixes_pinned() {
         "C0075 corrected target regressed (must stay genus-2 χ=−2)"
     );
 
-    eprintln!("historical_authoring_fixes_pinned: R0099, R0006, R0091, R0063 & C0075 targets held");
+    // R0003 was hand-adjudicated 2026-08-28 (spec
+    // `yang_441_trim_cdt_construction.md` §I13(f) item 6, the f2c-3
+    // rescope): the completed result is 3 shells with the MAIN shell
+    // genus 2 — two micro-filament handles where the gear-flange corners
+    // arch over the pocket-corner void. Adjudication: the `YANG_441_SLIT`
+    // bridge census (closed-form analytic-lift classification against
+    // the all-planar convex tool + rim-window solves locating both true
+    // junctions) + the density ladder (`YANG_NSEG_FLOOR` 41/82/164,
+    // per-component χ [−2,2,2] at every rung — converged, not chord-gap
+    // artifact; at 164 the case completes end-to-end and the finished
+    // B-Rep reads χ=2 with 3 shells) + the void-arch verification (a
+    // point under each film's witness is inside all six tool
+    // half-spaces; both film ends attach to material). Total
+    // χ = −2+2+2 = 2 EQUALS the authored euler_target by cancellation,
+    // but the χ-derived shell floor decodes "1 shell" and telescopes the
+    // expectation to 2·shells = 6 — inexpressible without the authored
+    // `expected_shell_count` (which the oracle enforces STRICTLY: exact
+    // shell count, no extra-shell allowance).
+    let r0003 = load_meta("R0003");
+    assert_eq!(r0003.oracles.euler_target, 2, "R0003 χ target regressed");
+    assert_eq!(
+        r0003.oracles.expected_shell_count,
+        Some(3),
+        "R0003 adjudicated shell count regressed (3 shells, main genus 2)"
+    );
+
+    eprintln!("historical_authoring_fixes_pinned: R0099, R0006, R0091, R0063, C0075 & R0003 held");
 }
 
 /// Check 4 — the randomized generator must only ever emit even targets.

@@ -1522,6 +1522,27 @@ pub fn check_volume_magnitude(mesh: &RenderMesh, scale: f64) -> OracleVerdict {
 /// Interior/residual faces from incomplete boolean operations shift χ away
 /// from the expected value, making this oracle effective at catching them.
 pub fn check_mesh_euler_characteristic(mesh: &RenderMesh, expected_chi: i64) -> OracleVerdict {
+    check_mesh_euler_characteristic_with_shells(mesh, expected_chi, None)
+}
+
+/// [`check_mesh_euler_characteristic`] with an optional AUTHORED shell
+/// count (`meta.oracles.expected_shell_count`). The legacy path decodes
+/// the meta's shell count from `euler_target` as max(1, ⌊χ/2⌋) and
+/// credits +2 per shell beyond it (KV5b-F2) — an expectation that
+/// telescopes to 2·shells for every positive target, silently assuming
+/// every unpredicted shell AND the predicted ones are genus-0. A true
+/// shell/genus split like R0003's "3 shells, total genus 2, χ = 2"
+/// (adjudicated 2026-08-28: bridge census + density-ladder convergence +
+/// closed-form void-arch verification, spec
+/// `yang_441_trim_cdt_construction.md` §I13(f) item 6) is inexpressible
+/// there. With an authored count the check is STRICTER, not looser: the
+/// measured shell count must EQUAL it (no extra-shell allowance at all)
+/// and χ must equal `euler_target` exactly.
+pub fn check_mesh_euler_characteristic_with_shells(
+    mesh: &RenderMesh,
+    expected_chi: i64,
+    authored_shells: Option<usize>,
+) -> OracleVerdict {
     use std::collections::HashSet;
 
     if mesh.vertices.is_empty() || mesh.indices.is_empty() {
@@ -1568,7 +1589,19 @@ pub fn check_mesh_euler_characteristic(mesh: &RenderMesh, expected_chi: i64) -> 
             roots.insert(find(&mut parent, i));
         }
         let shells = roots.len().max(1) as i64;
-        let meta_shells = expected_chi.div_euclid(2).max(1);
+        if let Some(n) = authored_shells {
+            if shells != n as i64 {
+                return OracleVerdict::fail_val(
+                    "mesh_euler_characteristic",
+                    format!("{shells} shell(s) != authored expected_shell_count {n} (exact bits)"),
+                    shells as f64,
+                );
+            }
+        }
+        let meta_shells = match authored_shells {
+            Some(n) => n as i64,
+            None => expected_chi.div_euclid(2).max(1),
+        };
         let expected_total = expected_chi + 2 * (shells - meta_shells).max(0);
         let v = unique_verts.len() as i64;
         let e = exact.len() as i64;
@@ -1590,9 +1623,22 @@ pub fn check_mesh_euler_characteristic(mesh: &RenderMesh, expected_chi: i64) -> 
     let hybrid = hybrid_edge_complex(mesh, inv_grid);
 
     let shells = hybrid.shells as i64;
-    // Shell count already encoded in the meta's euler_target (KV5b-F2):
+    if let Some(n) = authored_shells {
+        if shells != n as i64 {
+            return OracleVerdict::fail_val(
+                "mesh_euler_characteristic",
+                format!("{shells} shell(s) != authored expected_shell_count {n}"),
+                shells as f64,
+            );
+        }
+    }
+    // Shell count: authored (strict, no extra-shell allowance) or decoded
+    // from the meta's euler_target (KV5b-F2):
     // euler_target = 2·B − 2·g with g ≥ 0, so B_meta = max(1, ⌊χ/2⌋).
-    let meta_shells = expected_chi.div_euclid(2).max(1);
+    let meta_shells = match authored_shells {
+        Some(n) => n as i64,
+        None => expected_chi.div_euclid(2).max(1),
+    };
     let expected_total = expected_chi + 2 * (shells - meta_shells).max(0);
 
     let v = hybrid.vertex_count as i64;
@@ -2829,6 +2875,47 @@ mod tests {
             "defective 2-shell mesh must fail against euler_target=4: {}",
             verdict.detail
         );
+    }
+
+    #[test]
+    fn euler_characteristic_authored_shell_count_is_strict() {
+        // §I13(f) f2c-3 rescope (2026-08-28): an AUTHORED
+        // `expected_shell_count` pins the exact shell/genus split the
+        // χ-derived floor cannot express (R0003: 3 shells, total genus 2,
+        // χ=2 — the telescoped per-shell expectation read 2·shells=6).
+        // With the authored count the check is STRICTER: χ must equal
+        // euler_target exactly and the measured shell count must match.
+        let mut mesh = empty_mesh();
+        push_plain_cube(&mut mesh, [0.0, 0.0, 0.0]);
+        push_plain_cube(&mut mesh, [3.0, 0.0, 0.0]);
+        finish_single_range(&mut mesh);
+        // Matching authored count: expected = euler_target exactly.
+        let v = check_mesh_euler_characteristic_with_shells(&mesh, 4, Some(2));
+        assert!(v.passed, "authored count match: {}", v.detail);
+        assert_eq!(v.value, Some(4.0));
+        // Authored count mismatch fails LOUDLY even where the legacy
+        // allowance would have credited the extra shell (+2).
+        let v = check_mesh_euler_characteristic_with_shells(&mesh, 2, Some(1));
+        assert!(!v.passed, "authored count mismatch must fail: {}", v.detail);
+        // The R0003-shape inverse: authored (χ=2, 3 shells) against a
+        // 3-genus-0-shell mesh (χ=6) must FAIL — the authored field never
+        // admits a genus-0 result for a genus-bearing expectation.
+        let mut m3 = empty_mesh();
+        push_plain_cube(&mut m3, [0.0, 0.0, 0.0]);
+        push_plain_cube(&mut m3, [3.0, 0.0, 0.0]);
+        push_plain_cube(&mut m3, [6.0, 0.0, 0.0]);
+        finish_single_range(&mut m3);
+        let v = check_mesh_euler_characteristic_with_shells(&m3, 2, Some(3));
+        assert!(
+            !v.passed,
+            "genus-0 triple against authored genus-2 split must fail: {}",
+            v.detail
+        );
+        // The same mesh under the LEGACY path still passes (the
+        // telescoped blindness the authored field exists to fix).
+        let v = check_mesh_euler_characteristic_with_shells(&m3, 2, None);
+        assert!(v.passed, "legacy telescoped allowance: {}", v.detail);
+        assert_eq!(v.value, Some(6.0));
     }
 
     #[test]

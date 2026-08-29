@@ -177,6 +177,7 @@ fn update_single_result(dir: &Path, case: &DiscoveredCase, result: &AssayResult)
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: 0,
             featured: false,
@@ -485,8 +486,11 @@ fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
 
     // Mesh Euler characteristic check
     if !mesh.vertices.is_empty() {
-        let verdict =
-            crate::oracle::check_mesh_euler_characteristic(&mesh, meta.oracles.euler_target);
+        let verdict = crate::oracle::check_mesh_euler_characteristic_with_shells(
+            &mesh,
+            meta.oracles.euler_target,
+            meta.oracles.expected_shell_count,
+        );
         if !verdict.passed {
             failures.push(format!("mesh_euler_characteristic: {}", verdict.detail));
         }
@@ -909,6 +913,7 @@ pub fn build_catalog(dir: &Path, report: &AssayReport) -> Vec<CatalogEntry> {
                     expected_volume: None,
                     expected_volume_tol_rel: None,
                     expected_solid_count: None,
+                    expected_shell_count: None,
                 },
                 generator_version: 0,
                 featured: false,
@@ -1250,6 +1255,7 @@ mod tests {
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: 3,
             featured: false,
@@ -1312,6 +1318,7 @@ mod tests {
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: 3,
             featured: false,
@@ -1397,6 +1404,7 @@ mod tests {
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: 3,
             featured: false,
@@ -1450,6 +1458,7 @@ mod tests {
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: 3,
             featured: false,
@@ -1500,6 +1509,7 @@ mod tests {
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: 3,
             featured: false,
@@ -1575,6 +1585,7 @@ mod tests {
                 expected_volume: None,
                 expected_volume_tol_rel: None,
                 expected_solid_count: None,
+                expected_shell_count: None,
             },
             generator_version: 2,
             featured: false,

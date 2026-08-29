@@ -818,12 +818,16 @@ name, never measured).
    (spec §I13(f) item 6 RESCOPE). At 4× density the case COMPLETES
    end-to-end with no rehome machinery (ring ladder: 41→f903 ERROR,
    82→f904 ERROR, 164→completes; finished B-Rep χ=2, 3 shells) — at
-   that density the ONLY gap is the oracle formula. NEXT = the
-   oracle genus term +
-   per-handle analytic certificate (C0075/R0006
-   `historical_authoring_fixes_pinned` adjudication pattern), then
-   the f2c/f2c-2 flip under the two-proof protocol. Corpus untouched;
-   f903 stays the loud wall until the flip.]
+   that density the ONLY gap is the oracle formula. **The oracle
+   genus term LANDED 2026-08-29** (optional hand-adjudicated
+   `expected_shell_count` in the meta oracles, enforced STRICTLY —
+   exact shell count, no extra-shell allowance, χ == euler_target
+   exactly; R0003 authored (2, 3 shells) and pinned in
+   `historical_authoring_fixes_pinned` with the derivation;
+   measured: R0003 at 4× = SUPPORTED_CORRECT all-checks-pass,
+   baseline byte-identical canonical ERROR). NEXT = the f2c/f2c-2
+   flip under the two-proof protocol. Corpus untouched; f903 stays
+   the loud wall until the flip.]
    Stage-6 non-2-manifold family map (ledger table): F0058 = equal-R
    perpendicular cyl CUT whose A-seam passes through the exact tangency
    point — the kept upper/lower sheets both fan onto the lower seam
