@@ -936,7 +936,10 @@ pub(crate) fn stage1_tessellate_inner_overrides(
                      (the branch is unbounded)"
                 )));
             }
-            let d_eps = 1e-2 * semi_transverse.max(semi_conjugate);
+            // Same rule (and same A14.3 single source) as the hyperbola arm
+            // of `ellipse_rim_chord_bound` — the 1e-2 base lives in
+            // `chord_rel()`, so the §4.5.2 census knob covers this path too.
+            let d_eps = ellipse_chord_bound(semi_transverse.max(semi_conjugate));
             let param_of = |v: u32| -> Result<f64, YangError> {
                 let p = verts.get(v as usize).map(|vv| vv.point).ok_or_else(|| {
                     YangError::MalformedTopology(format!(

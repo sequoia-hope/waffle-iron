@@ -116,6 +116,32 @@ pub(crate) fn orient_tri(verts: &[Point3], tri: &mut [u32; 3], target: [f64; 3])
     }
 }
 
+/// The relative chord-bound base `1e-2` — the ONE place the constant lives
+/// (governance A14.3; every `*_chord_bound` below multiplies its own scale by
+/// this). Debug builds honor the §4.5.2 census knob `YANG_CHORD_REFINE=<f>`
+/// (f ≥ 1): every chord bound divides by `f`, uniformly refining ALL curved
+/// tessellation densities (≈ √f more segments per full turn) while the
+/// derived Stage-3/4/6 membership bands tighten CONSISTENTLY (they call the
+/// same functions — `fix_all_gates_sharing_a_metric`). This is the
+/// density-ladder lever for adjudicating "is this failure density-limited?"
+/// across every surface type (the older `YANG_NSEG_FLOOR` floors only the
+/// circle-chain branch, so sphere/cone/torus cases never feel it). Release
+/// builds compile the knob out — production density is not configurable.
+pub(crate) fn chord_rel() -> f64 {
+    const BASE: f64 = 1e-2;
+    #[cfg(debug_assertions)]
+    {
+        if let Some(f) = std::env::var("YANG_CHORD_REFINE")
+            .ok()
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|f| f.is_finite() && *f >= 1.0)
+        {
+            return BASE / f;
+        }
+    }
+    BASE
+}
+
 /// Stage-1 chord bound for an ELLIPSE rim chain (KV14 ellipse-arc re-entry):
 /// `d_ε = 1e-2 · major_radius` — the circle chord rule applied at the
 /// ellipse's worst-case curvature scale. SINGLE SOURCE (A14.3, spec
@@ -124,7 +150,7 @@ pub(crate) fn orient_tri(verts: &[Point3], tri: &mut [u32; 3], target: [f64; 3])
 /// `chord_tol_for_curved_owner` fallback reuses the SAME bound for owners
 /// whose only curved rims are ellipses.
 pub(crate) fn ellipse_chord_bound(major_radius: f64) -> f64 {
-    1e-2 * major_radius
+    chord_rel() * major_radius
 }
 
 /// Stage-3 fallback bound for a curved-owning input with NO Circle rim: the
@@ -197,7 +223,7 @@ pub(crate) fn curved_chord_bound(edges: &[BRepEdge]) -> Option<f64> {
     let dy = hi[1] - lo[1];
     let dz = hi[2] - lo[2];
     let diag = (dx * dx + dy * dy + dz * dz).sqrt();
-    Some(1e-2 * diag)
+    Some(chord_rel() * diag)
 }
 
 /// PR-YR15: the Stage-1 chord bound for a `Surface::Sphere` tessellation,
@@ -212,7 +238,7 @@ pub(crate) fn curved_chord_bound(edges: &[BRepEdge]) -> Option<f64> {
 /// `2r√3` chord error, so a sphere face must use its own bound here — not the
 /// rim band. This is A14.3/A15, not tolerance widening.
 pub(crate) fn sphere_chord_bound(radius: f64) -> f64 {
-    1e-2 * 2.0 * radius * 3f64.sqrt()
+    chord_rel() * 2.0 * radius * 3f64.sqrt()
 }
 
 /// PR-YR16 (spec §3): the Stage-1 chord bound for a `Surface::Cone`
@@ -229,7 +255,7 @@ pub(crate) fn sphere_chord_bound(radius: f64) -> f64 {
 /// widening.
 pub(crate) fn cone_chord_bound(height: f64, half_angle: f64) -> f64 {
     let r = height * half_angle.tan();
-    1e-2 * ((2.0 * r).powi(2) + height.powi(2)).sqrt()
+    chord_rel() * ((2.0 * r).powi(2) + height.powi(2)).sqrt()
 }
 
 /// The Stage-1 chord bound of ONE specific cone band — the selection band for

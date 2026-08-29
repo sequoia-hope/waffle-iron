@@ -842,7 +842,17 @@ name, never measured).
    C0044 M8 flush stack; R0053 chained INPUT not watertight
    (`i6-input-overuse`).**
 4. **§4.5.4 removal / §4.5.2 guard-shell loop** (item 3d/4 below) after the
-   construction lands.
+   construction lands. *§4.5.2-as-RECOVERY ADJUDICATED OUT 2026-08-29
+   (`specs/yang_452_local_refinement.md`): the uniform density ladder
+   (`YANG_CHORD_REFINE`, debug-only, all surface types) measured the whole
+   10-case `Stage4RegionInvalid` family at 2×/4×(/8×) — ZERO convert; the
+   persist class is tangency/junction-topology (scale-free), R0038 alone
+   completes at ≥4× (ladder-stable plausibly-true genus-1; owner stays
+   #169 C/D), and refinement UNMASKS defects in R0050/R0077 rather than
+   fixing them. The typed STOPs + in-line oracles ARE the faithful
+   guard-shell posture; do not build the recovery loop. The §4.5.4 REMOVAL
+   half (SELFX fire-list on ~33 CORRECT cases) is unmeasured and stays
+   open.*
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the
@@ -1194,7 +1204,11 @@ in the ledger is PERMANENT with user sign-off.
       cases — every confirmed LRR case is tangential/missing-solver/micro-
       feature): transversality entry gate, per-pass strict-decrease monitor,
       budget, watertight-gated output — so refinement can only STOP, never
-      silently accept.
+      silently accept. *Q3 RE-CONFIRMED by direct measurement 2026-08-29
+      (`specs/yang_452_local_refinement.md`): the post-I13f family census —
+      uniform 2×/4×(/8×) refinement over all 10 `Stage4RegionInvalid` cases —
+      converts zero. The existing typed STOPs are the guard shell; no
+      recovery loop gets built against this tail.*
    N2 closes as the sum of these wirings, not as an abstract epic.
 4. **N6 detector-first** — §4.5.4 illegal-self-intersection detection as a new
    loud STOP class; removal comes after. *DETECTION SHIPPED 2026-07-17 (task

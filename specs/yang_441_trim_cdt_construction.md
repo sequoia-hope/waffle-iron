@@ -3382,5 +3382,11 @@ false. Kept for the derivation's frame naming, which stands.]:**
   loop and termination argument: `refs/text/yang2025_hybrid_boolean.txt:659-670`,
   `:752-758`. Expected small customer count post-I4 (findings Q3) — it is the
   faithful closer for tangential/micro-feature residue, not a case farm.
+  *ADJUDICATED 2026-08-29 (`specs/yang_452_local_refinement.md`): the §4.5.2
+  recovery half is measured OUT — the uniform density ladder
+  (`YANG_CHORD_REFINE`) over the full 10-case `Stage4RegionInvalid` family
+  converts ZERO at 2×/4×(/8×); the typed STOPs + in-line oracles stay as the
+  guard shell. Only the §4.5.4 REMOVAL half (the SELFX fire-list on CORRECT
+  cases) remains open under this item.*
 - The AmbiguousCurve quartet, Root-C upstream-mint cleanup (R0019/R0025),
   R0028, R0053, and the P10 contract walls stay separately-anchored items.
