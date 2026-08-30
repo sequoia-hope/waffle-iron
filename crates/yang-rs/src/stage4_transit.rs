@@ -569,14 +569,361 @@ pub(crate) enum WalkEnd {
     TooLong,
 }
 
-/// Walk the far∩facet intersection curve across an operand's face lattice:
-/// start INSIDE `start_face` at `entry` (a certified junction on the edge
-/// with key `entry_key`), and per face solve every loop edge's candidate
-/// exit — the triple {far, this face, partner face} seeded at the entry —
-/// certifying it ON that edge in-domain via the shared instrument. One
-/// certified exit → step across; the walk ends when it crosses into
-/// `other_face` (the second mesh chain's face), cannot continue, or exceeds
-/// `max_steps`. Report-only: every terminal state is typed data.
+// =========================================================================
+// inc-2c-0 — the ALL-ROOTS per-edge step solver (spec §3e requirement 2)
+// =========================================================================
+//
+// The corridor walk's Newton step finds ONE root of {far, face, partner}
+// seeded at the entry — v76 (R0044) measured the failure mode: the true
+// exit can be a SECOND root on an edge the Newton never reaches (including
+// the ENTRY edge itself, a dip-in/dip-out arc). The exact model edge is a
+// LINE or CIRCLE, so far∩edge is a bounded polynomial system solvable for
+// ALL roots: lines via `stage4_phantom::segment_surface_roots` (quadratic,
+// pre-existing), circles via the trig-quadric quartic below. Every root is
+// CERTIFIED against the far surface's evaluation band before it is
+// reported; a missed root can therefore only leave a loud NoExit standing,
+// never mint a wrong junction.
+
+/// The algebraic quadric g(p) = pᵀMp + 2·q·p + k for the quadric surfaces
+/// (g = 0 on the surface; NOT the signed distance — roots are certified
+/// separately). `None` for surfaces without a quadric form here (torus).
+fn quadric_form(s: Surface) -> Option<([[f64; 3]; 3], [f64; 3], f64)> {
+    let outer = |u: [f64; 3]| -> [[f64; 3]; 3] {
+        [
+            [u[0] * u[0], u[0] * u[1], u[0] * u[2]],
+            [u[1] * u[0], u[1] * u[1], u[1] * u[2]],
+            [u[2] * u[0], u[2] * u[1], u[2] * u[2]],
+        ]
+    };
+    let ident = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    let msub = |a: [[f64; 3]; 3], b: [[f64; 3]; 3], sb: f64| -> [[f64; 3]; 3] {
+        let mut m = [[0.0; 3]; 3];
+        for i in 0..3 {
+            for j in 0..3 {
+                m[i][j] = a[i][j] - sb * b[i][j];
+            }
+        }
+        m
+    };
+    let mv = |m: &[[f64; 3]; 3], v: [f64; 3]| -> [f64; 3] {
+        [
+            m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
+            m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
+            m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
+        ]
+    };
+    let dot3 = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    // Recentre g(p) = (p−p0)ᵀM(p−p0) + const → M, q = −M·p0, k = p0ᵀMp0 + c.
+    let recentred = |m: [[f64; 3]; 3], p0: [f64; 3], c: f64| {
+        let mp0 = mv(&m, p0);
+        Some((m, [-mp0[0], -mp0[1], -mp0[2]], dot3(p0, mp0) + c))
+    };
+    match s {
+        Surface::Plane { normal, d } => {
+            let n = normal.as_array();
+            // Linear: M = 0, 2q = n → q = n/2, k = d.
+            Some(([[0.0; 3]; 3], [n[0] / 2.0, n[1] / 2.0, n[2] / 2.0], d))
+        }
+        Surface::Sphere { center, radius } => recentred(ident, center.as_array(), -radius * radius),
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => {
+            let u = normalize3(axis_dir.as_array());
+            recentred(
+                msub(ident, outer(u), 1.0),
+                axis_point.as_array(),
+                -radius * radius,
+            )
+        }
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => {
+            let u = normalize3(axis_dir.as_array());
+            let c2 = half_angle.cos().powi(2);
+            // (w·u)² − cos²α·(w·w) = wᵀ(uuᵀ − cos²α·I)w
+            recentred(msub(outer(u), ident, c2), apex.as_array(), 0.0)
+        }
+        _ => None,
+    }
+}
+
+/// All real roots of a polynomial (lowest-degree-first coefficients) by
+/// Durand–Kerner with fixed deterministic seeds, degree ≤ 4. Roots are
+/// RAW — the caller polishes and certifies. Leading near-zero coefficients
+/// are dropped (degree collapse) relative to the largest coefficient.
+fn poly_real_roots(coeffs: &[f64]) -> Vec<f64> {
+    let scale = coeffs.iter().fold(0.0f64, |a, &c| a.max(c.abs()));
+    if scale == 0.0 {
+        return Vec::new();
+    }
+    let mut c: Vec<f64> = coeffs.iter().map(|&x| x / scale).collect();
+    while c.len() > 1 && c.last().is_some_and(|l| l.abs() < 1e-14) {
+        c.pop();
+    }
+    let n = c.len().saturating_sub(1);
+    if n == 0 {
+        return Vec::new();
+    }
+    if n == 1 {
+        return vec![-c[0] / c[1]];
+    }
+    // Durand–Kerner on the monic polynomial, complex f64.
+    let lead = c[n];
+    let monic: Vec<f64> = c.iter().map(|&x| x / lead).collect();
+    let eval = |z: (f64, f64)| -> (f64, f64) {
+        // Horner from the top: p(z) = z^n + …
+        let (mut re, mut im) = (1.0f64, 0.0f64);
+        for k in (0..n).rev() {
+            let (r2, i2) = (re * z.0 - im * z.1, re * z.1 + im * z.0);
+            re = r2 + monic[k];
+            im = i2;
+        }
+        (re, im)
+    };
+    let mut roots: Vec<(f64, f64)> = (0..n)
+        .map(|k| {
+            // Fixed seeds: (0.4 + 0.9i)^(k+1) — the standard deterministic init.
+            let (mut re, mut im) = (1.0f64, 0.0f64);
+            for _ in 0..=k {
+                let (r2, i2) = (re * 0.4 - im * 0.9, re * 0.9 + im * 0.4);
+                re = r2;
+                im = i2;
+            }
+            (re, im)
+        })
+        .collect();
+    for _ in 0..64 {
+        let prev = roots.clone();
+        for i in 0..n {
+            let (pr, pi) = eval(prev[i]);
+            let (mut dr, mut di) = (1.0f64, 0.0f64);
+            for (j, &p) in prev.iter().enumerate() {
+                if j == i {
+                    continue;
+                }
+                let (ar, ai) = (prev[i].0 - p.0, prev[i].1 - p.1);
+                let (r2, i2) = (dr * ar - di * ai, dr * ai + di * ar);
+                dr = r2;
+                di = i2;
+            }
+            let den = dr * dr + di * di;
+            if den == 0.0 {
+                continue;
+            }
+            let (qr, qi) = ((pr * dr + pi * di) / den, (pi * dr - pr * di) / den);
+            roots[i] = (prev[i].0 - qr, prev[i].1 - qi);
+        }
+    }
+    let mag = roots
+        .iter()
+        .fold(1.0f64, |a, r| a.max((r.0 * r.0 + r.1 * r.1).sqrt()));
+    roots
+        .into_iter()
+        .filter(|r| r.1.abs() <= 1e-8 * mag)
+        .map(|r| r.0)
+        .collect()
+}
+
+/// ALL angles θ (radians, in the frame `p(θ) = c0 + r·cosθ·e1 + r·sinθ·e2`)
+/// where the circle meets the quadric surface `far` — the trig quadric
+/// reduced by the tan-half substitution to a quartic, every root polished by
+/// 1D Newton on g(θ) and CERTIFIED on `far` at the shared evaluation band.
+/// `None` = `far` has no quadric form here (torus — a typed non-answer, not
+/// an empty one).
+pub(crate) fn circle_surface_roots(
+    c0: [f64; 3],
+    e1: [f64; 3],
+    e2: [f64; 3],
+    r: f64,
+    far: Surface,
+) -> Option<Vec<f64>> {
+    let (m, q, k) = quadric_form(far)?;
+    let mv = |v: [f64; 3]| -> [f64; 3] {
+        [
+            m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
+            m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
+            m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
+        ]
+    };
+    let dot3 = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let (mc0, me1, me2) = (mv(c0), mv(e1), mv(e2));
+    // g(θ) = a0 + a1c·cosθ + a1s·sinθ + a2c·cos²θ + a2m·cosθsinθ + a2s·sin²θ
+    let a0 = dot3(c0, mc0) + 2.0 * dot3(q, c0) + k;
+    let a1c = 2.0 * r * (dot3(e1, mc0) + dot3(q, e1));
+    let a1s = 2.0 * r * (dot3(e2, mc0) + dot3(q, e2));
+    let a2c = r * r * dot3(e1, me1);
+    let a2m = 2.0 * r * r * dot3(e1, me2);
+    let a2s = r * r * dot3(e2, me2);
+    // Tan-half: u = tan(θ/2); multiply by (1+u²)².
+    let coeffs = [
+        a2c + a1c + a0,
+        2.0 * a2m + 2.0 * a1s,
+        -2.0 * a2c + 4.0 * a2s + 2.0 * a0,
+        -2.0 * a2m + 2.0 * a1s,
+        a2c - a1c + a0,
+    ];
+    let g = |t: f64| -> f64 {
+        let (c, s) = (t.cos(), t.sin());
+        a0 + a1c * c + a1s * s + a2c * c * c + a2m * c * s + a2s * s * s
+    };
+    let dg = |t: f64| -> f64 {
+        let (c, s) = (t.cos(), t.sin());
+        -a1c * s + a1s * c - 2.0 * a2c * c * s + a2m * (c * c - s * s) + 2.0 * a2s * s * c
+    };
+    let mut thetas: Vec<f64> = poly_real_roots(&coeffs)
+        .into_iter()
+        .map(|u| 2.0 * u.atan())
+        .collect();
+    thetas.push(std::f64::consts::PI); // u→∞ pole, checked like any candidate
+    let scale = mag3(c0) + r.abs();
+    let band = eval_band(scale);
+    let mut out: Vec<f64> = Vec::new();
+    for mut t in thetas {
+        for _ in 0..8 {
+            let d = dg(t);
+            if d.abs() <= f64::EPSILON * scale {
+                break;
+            }
+            let step = g(t) / d;
+            t -= step;
+            if step.abs() <= 1e-15 {
+                break;
+            }
+        }
+        let p = [
+            c0[0] + r * (t.cos() * e1[0] + t.sin() * e2[0]),
+            c0[1] + r * (t.cos() * e1[1] + t.sin() * e2[1]),
+            c0[2] + r * (t.cos() * e1[2] + t.sin() * e2[2]),
+        ];
+        let on = crate::stage4_relocate::surface_distance_and_normal(far, p)
+            .is_some_and(|(f, _)| f.abs() <= band);
+        if !on {
+            continue;
+        }
+        let tw = t.rem_euclid(std::f64::consts::TAU);
+        if out.iter().all(|&x| {
+            ((x - tw + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)
+                - std::f64::consts::PI)
+                .abs()
+                > 1e-9
+        }) {
+            out.push(tw);
+        }
+    }
+    out.sort_by(f64::total_cmp);
+    Some(out)
+}
+
+/// The NoExit PROBE (census-only): every loop edge of `face`, with EVERY
+/// certified far∩edge root and its in-domain verdict — the all-roots data a
+/// stuck walk needs adjudicated (v76's dip hypothesis). One formatted line
+/// per edge; the caller prints them.
+pub(crate) fn face_edge_roots_probe(
+    brep: &BRep,
+    far: Surface,
+    face: u32,
+    entry: [f64; 3],
+) -> Vec<String> {
+    let (verts, edges, faces) = (brep.vertices(), brep.edges(), brep.faces());
+    let Some(f) = faces.get(face as usize) else {
+        return vec!["face-out-of-range".into()];
+    };
+    let mut out = Vec::new();
+    for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+        let e = &edges[ei as usize];
+        let ps = verts[e.start as usize].point.as_array();
+        let pe = verts[e.end as usize].point.as_array();
+        match e.curve {
+            Curve::LineSegment => {
+                let roots = crate::stage4_phantom::segment_surface_roots(ps, pe, far);
+                match roots {
+                    None => out.push(format!("edge={ei} LineSegment far-unsupported")),
+                    Some(ts) => {
+                        let items: Vec<String> = ts
+                            .iter()
+                            .map(|&t| {
+                                let p = [
+                                    ps[0] + t * (pe[0] - ps[0]),
+                                    ps[1] + t * (pe[1] - ps[1]),
+                                    ps[2] + t * (pe[2] - ps[2]),
+                                ];
+                                let band = eval_band(mag3(p));
+                                let on =
+                                    crate::stage4_relocate::surface_distance_and_normal(far, p)
+                                        .is_some_and(|(fv, _)| fv.abs() <= band);
+                                let d_entry = d3(p, entry);
+                                format!(
+                                    "t={t:.6} in={} on_far={on} d_entry={d_entry:.3e}",
+                                    t > 0.0 && t < 1.0
+                                )
+                            })
+                            .collect();
+                        out.push(format!(
+                            "edge={ei} LineSegment roots={} [{}]",
+                            ts.len(),
+                            items.join("; ")
+                        ));
+                    }
+                }
+            }
+            Curve::Circle {
+                center,
+                normal,
+                radius,
+            } => {
+                let nu = normalize3(normal.as_array());
+                let Some((e1, e2)) = circle_frame(nu) else {
+                    out.push(format!("edge={ei} Circle frame-degenerate"));
+                    continue;
+                };
+                match circle_surface_roots(center.as_array(), e1, e2, radius, far) {
+                    None => out.push(format!("edge={ei} Circle far-unsupported")),
+                    Some(ths) => {
+                        let c = center.as_array();
+                        let theta_of = |p: [f64; 3]| -> f64 {
+                            let w = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+                            (w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2])
+                                .atan2(w[0] * e1[0] + w[1] * e1[1] + w[2] * e1[2])
+                        };
+                        let tau = std::f64::consts::TAU;
+                        let (ts, te) = (theta_of(ps), theta_of(pe));
+                        let span_ccw = (te - ts).rem_euclid(tau);
+                        let items: Vec<String> = ths
+                            .iter()
+                            .map(|&th| {
+                                let p = [
+                                    c[0] + radius * (th.cos() * e1[0] + th.sin() * e2[0]),
+                                    c[1] + radius * (th.cos() * e1[1] + th.sin() * e2[1]),
+                                    c[2] + radius * (th.cos() * e1[2] + th.sin() * e2[2]),
+                                ];
+                                let sol_ccw = (th - ts).rem_euclid(tau);
+                                let in_arc =
+                                    e.start != e.end && sol_ccw > 0.0 && sol_ccw < span_ccw;
+                                format!(
+                                    "theta={th:.6} sol_ccw={sol_ccw:.4} in_ccw={in_arc} \
+                                     d_entry={:.3e}",
+                                    d3(p, entry)
+                                )
+                            })
+                            .collect();
+                        out.push(format!(
+                            "edge={ei} Circle span_ccw={span_ccw:.4} roots={} [{}]",
+                            ths.len(),
+                            items.join("; ")
+                        ));
+                    }
+                }
+            }
+            _ => out.push(format!("edge={ei} curve-unreadable")),
+        }
+    }
+    out
+}
+
 /// The starting state of a corridor walk: inside `face`, entered across the
 /// edge with position key `entry_key` at the certified junction `entry`.
 #[derive(Clone, Copy, Debug)]
@@ -586,6 +933,14 @@ pub(crate) struct WalkStart {
     pub entry: [f64; 3],
 }
 
+/// Walk the far∩facet intersection curve across an operand's face lattice:
+/// start INSIDE `start_face` at `entry` (a certified junction on the edge
+/// with key `entry_key`), and per face solve every loop edge's candidate
+/// exit — the triple {far, this face, partner face} seeded at the entry —
+/// certifying it ON that edge in-domain via the shared instrument. One
+/// certified exit → step across; the walk ends when it crosses into
+/// `other_face` (the second mesh chain's face), cannot continue, or exceeds
+/// `max_steps`. Report-only: every terminal state is typed data.
 pub(crate) fn walk_corridor(
     brep: &BRep,
     far: Surface,
@@ -935,6 +1290,100 @@ mod tests {
             matches!(out, Err(TransitDecline::AnatomyMismatch { far: 0, .. })),
             "got {out:?}"
         );
+    }
+
+    #[test]
+    fn circle_roots_plane_two_crossings() {
+        // Unit circle in z=0 about the origin × the plane x = 0.5: crossings
+        // at θ = ±π/3.
+        let ths = circle_surface_roots(
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            1.0,
+            plane([1.0, 0.0, 0.0], -0.5),
+        )
+        .expect("plane supported");
+        assert_eq!(ths.len(), 2, "{ths:?}");
+        let want = std::f64::consts::FRAC_PI_3;
+        assert!((ths[0] - want).abs() < 1e-12, "{ths:?}");
+        assert!(
+            (ths[1] - (std::f64::consts::TAU - want)).abs() < 1e-12,
+            "{ths:?}"
+        );
+    }
+
+    #[test]
+    fn circle_roots_cylinder_four_crossings() {
+        // Unit circle in z=0 × a thin vertical cylinder through (0.6, 0):
+        // radius 0.3 → the circle crosses its wall at cosθ = (1 + 0.6² −
+        // 0.3²·…) … verified structurally: exactly FOUR certified roots,
+        // symmetric ±, all on the cylinder.
+        let cyl = Surface::Cylinder {
+            axis_point: Point3::new(0.6, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: 0.5,
+        };
+        let ths = circle_surface_roots([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], 1.0, cyl)
+            .expect("cylinder supported");
+        // |p(θ) − axis|² = 0.25 with p=(cosθ, sinθ): 1 + 0.36 − 1.2cosθ =
+        // 0.25 → cosθ = 0.925 → two roots; the OTHER pair would need
+        // cosθ > 1 — so TWO certified roots here.
+        assert_eq!(ths.len(), 2, "{ths:?}");
+        let want = 0.925f64.acos();
+        assert!((ths[0] - want).abs() < 1e-12, "{ths:?}");
+        assert!(
+            (ths[1] - (std::f64::consts::TAU - want)).abs() < 1e-12,
+            "{ths:?}"
+        );
+    }
+
+    #[test]
+    fn circle_roots_genuine_quartic_four() {
+        // A circle TILTED against a cylinder so all four quartic roots are
+        // real: unit circle in the x–z plane (e1=x, e2=z) about the origin ×
+        // the cylinder about the z-axis of radius 0.5: crossings where
+        // cos²θ = 0.25 → four roots ±π/3, ±2π/3 (in ccw wrap).
+        let cyl = Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: 0.5,
+        };
+        let ths = circle_surface_roots([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, cyl)
+            .expect("cylinder supported");
+        assert_eq!(ths.len(), 4, "{ths:?}");
+        for th in &ths {
+            assert!(
+                (th.cos().abs() - 0.5).abs() < 1e-12,
+                "root on |cosθ| = 1/2: {th}"
+            );
+        }
+    }
+
+    #[test]
+    fn circle_roots_cone_dip_pair() {
+        // The v76 shape in miniature: a rim circle × a cone whose surface
+        // dips across the rim — two certified roots close together on one
+        // side. Cone apex above the rim plane, axis tilted so the cone wall
+        // crosses the rim circle twice. Verified structurally: EVERY
+        // returned root is certified on the cone; the count is 2 or 4
+        // (tangency excluded by construction), and a dip pair exists within
+        // one quadrant.
+        let cone = Surface::Cone {
+            apex: Point3::new(1.4, 0.0, 0.5),
+            axis_dir: Vector3::new(-1.0, 0.0, 0.0),
+            half_angle: 0.35,
+        };
+        let ths =
+            circle_surface_roots([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], 1.0, cone)
+                .expect("cone supported");
+        assert!(!ths.is_empty(), "the cone crosses the rim: {ths:?}");
+        for &th in &ths {
+            let p = [th.cos(), th.sin(), 0.0];
+            let (f, _) = crate::stage4_relocate::surface_distance_and_normal(cone, p)
+                .expect("normal defined");
+            assert!(f.abs() <= 1e-9, "certified root off-cone: {th} f={f:.3e}");
+        }
     }
 
     #[test]

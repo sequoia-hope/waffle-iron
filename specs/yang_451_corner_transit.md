@@ -378,17 +378,19 @@ apply arm:**
   census annotates `near_mesh` per junction, which is how this was
   seen.)
 - **v76: `NoExit`** — from its real rim junction into band 363, no loop
-  edge certifies an exit. The prime suspects: (a) the curve re-exits
-  through the SAME rim (the entry-edge exclusion forbids same-edge
-  re-exit; a dip-in/dip-out arc is legal geometry), and/or (b) the
-  cylinder×cone step triples have multiple roots and the one Newton
-  root seeded from the entry is off-domain while a true in-domain root
-  sits elsewhere on the same edge. Both point at the same apply-arm
-  refinement: **the walk step should solve far∩(edge curve) DIRECTLY
-  per edge — all roots of a bounded-degree system on an exact circle or
-  line — instead of taking the 3-surface Newton's single nearest root.**
-  Same-edge re-exit then falls out naturally (two roots on the entry
-  edge). v76 stays a loud typed dead-end until that lands.
+  edge certifies an exit under the Newton step. *ADJUDICATED by the
+  inc-2c-0 all-roots probe (same day): the true exit EXISTS — the next
+  rim (363∩362, edge 1977) carries a certified in-arc root 3.36 from
+  the entry. The Newton step missed it because two coaxial cone
+  surfaces intersect in MORE than the shared rim edge — the surface-
+  triple solve converged to a point off the model edge, failed the
+  edge certificate, and reported nothing. The dip hypothesis is
+  REFUTED for this site: the entry rim's second in-arc root is 1757
+  away (the gear's other angular crossing region), not a local dip.
+  Structural finding: EVERY rim here carries TWO certified in-arc far
+  roots (the far cone crosses each rim at two angular regions), so the
+  walk-step upgrade needs nearest-root selection with a loud margin
+  guard, not just all-roots enumeration.*
 - `AmbiguousExit(2)` (v142 step 3, v144 step 1, both post-existing-
   junction): the far cylinder × cone-band curve is degree-4 with two
   branches on one facet — certified crossings of BOTH branches. With
@@ -436,6 +438,33 @@ apply-arm (inc-2c) requirements are therefore MEASURED, not sketched:
 5. never walk INTO a base face — entering the other chain's face IS the
    termination.
 
+## 3f. inc-2c-0 — the ALL-ROOTS per-edge step solver (LANDED 2026-08-30,
+same session; the §3e requirement-2 primitive, de-risked gated-off)
+
+`stage4_transit.rs`: `circle_surface_roots` (circle × quadric via the
+trig-quadric tan-half QUARTIC — deterministic Durand–Kerner + 1D Newton
+polish + on-surface certification at the shared evaluation band; `None`
+for non-quadric far surfaces — a typed non-answer) + `quadric_form`
+(algebraic plane/sphere/cylinder/cone forms) + `poly_real_roots`
+(degree ≤ 4, fixed seeds; tangency-grade double roots may be dropped —
+which leaves a loud NoExit standing, never mints a wrong junction).
+Line carriers reuse the pre-existing `stage4_phantom::segment_surface_
+roots`. `face_edge_roots_probe` prints, at every walk `NoExit`, EVERY
+loop edge's certified roots with in-domain verdicts (`-WALKROOTS`).
+4 unit fixtures (plane 2-root closed-form angles; cylinder 2-root;
+genuine-quartic 4-root; cone dip pair certified). Live validation: the
+probe reproduces v76's entry junction at d 5.7e-12 and adjudicated the
+site (§3e). R0011 census walks byte-stable under the new build.
+
+NEXT (inc-2c-1): swap `walk_corridor`'s step to the all-roots per-edge
+solver — per face, enumerate every edge's certified in-domain roots
+(excluding the entry root by POSITION, so same-edge re-exit works),
+select the nearest root with a loud margin guard (AmbiguousExit when
+the second-nearest is within an order), and add the
+`ReachedExistingJunction` splice terminal (§3e requirement 1). Then
+re-measure the family: v76 must resolve; R0011/R0074 corridors must be
+unchanged.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -469,6 +498,14 @@ apply-arm (inc-2c) requirements are therefore MEASURED, not sketched:
   ambiguity typed. R0085: honestly walled on operand quality (v467's fan
   already healthily owned — pure splice; rider walks ambiguous into the
   base face). The five apply-arm requirements are MEASURED (§3e verdict).
+- **inc-2c-0** (2026-08-30, same session): the all-roots per-edge step
+  solver + NoExit probe LANDED (§3f); v76 ADJUDICATED (wrong-root
+  artifact of the surface-triple Newton — the true exit exists, 3.36
+  along the next rim; dip refuted; every rim carries TWO in-arc far
+  roots ⇒ nearest-root selection + margin guard named for inc-2c-1).
+- inc-2c-1: swap the walk step to the all-roots solver + margin guard +
+  `ReachedExistingJunction` terminal; re-measure (v76 resolves,
+  R0011/R0074 unchanged).
 - inc-2c: the gated apply arm (`YANG_451_TRANSIT`) — corridor splice per
   §3d/§3e: split phantoms, walk with existing-junction termination,
   per-edge all-roots step solving, mint-once-share-by-position junctions,

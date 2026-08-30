@@ -5673,6 +5673,28 @@ fn relocation_domain_postcondition(
                                         other.shared,
                                         juncs.len(),
                                     );
+                                    // inc-2c-0: a stuck walk gets the
+                                    // ALL-ROOTS probe on its dead-end face —
+                                    // every loop edge's certified far∩edge
+                                    // roots (the v76 dip-hypothesis data).
+                                    if end == crate::stage4_transit::WalkEnd::NoExit {
+                                        let (stuck_face, probe_entry) = match juncs.last() {
+                                            Some(j) => (j.face_to, j.sol),
+                                            None => (site.next.1, sa),
+                                        };
+                                        for line in crate::stage4_transit::face_edge_roots_probe(
+                                            brep_n,
+                                            far_surf,
+                                            stuck_face,
+                                            probe_entry,
+                                        ) {
+                                            eprintln!(
+                                                "YANG_S4_CARRIER_DOMAIN-WALKROOTS v{v} \
+                                                 face={:?} {line}",
+                                                (site.next.0, stuck_face),
+                                            );
+                                        }
+                                    }
                                     for (k, wj) in juncs.iter().enumerate() {
                                         // Nearest existing mesh vertex carrying
                                         // this junction's triple {far, from, to}

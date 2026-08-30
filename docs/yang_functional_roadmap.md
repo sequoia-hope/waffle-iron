@@ -863,8 +863,12 @@ name, never measured).
    census: the repair unit is the fan-walking CORRIDOR (truncate-at-
    the-corner refuted; the v42→v78 corridor merge proven bit-equal;
    existing-healthy-junction splice terminals measured on R0044;
-   R0085 walled on its own operand quality). Next: inc-2c, the gated
-   apply arm against the five measured requirements (spec §3e).*
+   R0085 walled on its own operand quality). inc-2c-0 (same day) landed the
+   all-roots per-edge step solver (circle×quadric quartic, certified)
+   and ADJUDICATED v76 (wrong-root Newton artifact — the true exit
+   exists). Next: inc-2c-1 (all-roots walk step + margin guard +
+   ReachedExistingJunction terminal), then the gated apply arm against
+   the five measured requirements (spec §3e).*
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the
