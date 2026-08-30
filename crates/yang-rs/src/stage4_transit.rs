@@ -558,10 +558,16 @@ pub(crate) enum WalkEnd {
     /// The exit crossed into the OTHER chain's face: the last junction is the
     /// far chain's true end; the corridor is fully discovered.
     ReachedOtherChain,
+    /// The last junction lies within the evaluation band of an EXISTING mesh
+    /// vertex carrying its surface triple: the curve beyond is already
+    /// healthily owned — the corridor ends by SPLICE, minting nothing there
+    /// (§3e requirement 1; measured on R0044/R0085).
+    ReachedExistingJunction { vertex: u32 },
     /// No loop edge of the current face carries a certified in-domain exit.
     NoExit,
-    /// ≥2 distinct certified exits from one face — the curve's route across
-    /// this face is not decided by the local read (loud data, never guessed).
+    /// The nearest certified exit does not dominate the second-nearest (the
+    /// 4× margin guard): the continuation is not decided by 3D proximity —
+    /// loud data, never guessed.
     AmbiguousExit(usize),
     /// An exit edge's position key resolves to ≠1 partner face.
     PartnerUnresolved(usize),
@@ -933,36 +939,50 @@ pub(crate) struct WalkStart {
     pub entry: [f64; 3],
 }
 
-/// Walk the far∩facet intersection curve across an operand's face lattice:
-/// start INSIDE `start_face` at `entry` (a certified junction on the edge
-/// with key `entry_key`), and per face solve every loop edge's candidate
-/// exit — the triple {far, this face, partner face} seeded at the entry —
-/// certifying it ON that edge in-domain via the shared instrument. One
-/// certified exit → step across; the walk ends when it crosses into
-/// `other_face` (the second mesh chain's face), cannot continue, or exceeds
-/// `max_steps`. Report-only: every terminal state is typed data.
+/// The walk's per-operand context: the lattice, the far surface, the
+/// position-keyed edge adjacency, and the EXISTING-junction lookup (nearest
+/// mesh vertex carrying {far, face_from, face_to} near a position — the
+/// splice terminal's witness; `|_, _, _| None` disables the terminal).
+pub(crate) struct WalkCtx<'a> {
+    pub brep: &'a BRep,
+    pub far: Surface,
+    pub adj: &'a EdgeAdjacency,
+    pub existing: &'a dyn Fn(u32, u32, [f64; 3]) -> Option<(u32, f64)>,
+}
+
+/// Walk the far∩facet intersection curve across an operand's face lattice
+/// (inc-2c-1: the ALL-ROOTS step). Start INSIDE `start.face` at
+/// `start.entry`; per face, enumerate EVERY loop edge's certified far∩edge
+/// roots (lines via `segment_surface_roots`, circles via
+/// `circle_surface_roots` — the entry junction excluded by POSITION, so
+/// same-edge re-exit is representable; the inc-2b Newton step remains as
+/// the per-edge fallback where a carrier×far pair has no bounded solver —
+/// R0074's torus far), keep the in-domain ones, and step
+/// across the nearest root — guarded: the second-nearest exit must be ≥4×
+/// farther or the face is a loud `AmbiguousExit` (v76 measured the need:
+/// every gear rim carries TWO in-arc far roots; the true exit was 18×
+/// nearer). The walk ends crossing into `other_face`, at an existing mesh
+/// junction (`ReachedExistingJunction` — the splice terminal), on a
+/// dead-end, or at the step cap. Report-only: every terminal is typed data.
 pub(crate) fn walk_corridor(
-    brep: &BRep,
-    far: Surface,
-    adj: &EdgeAdjacency,
+    ctx: &WalkCtx,
     start: WalkStart,
     other_face: u32,
     max_steps: usize,
 ) -> (Vec<WalkJunction>, WalkEnd) {
-    let (verts, edges, faces) = (brep.vertices(), brep.edges(), brep.faces());
+    let (verts, edges, faces) = (ctx.brep.vertices(), ctx.brep.edges(), ctx.brep.faces());
     let mut out = Vec::new();
-    let (mut face, mut in_key, mut j_in) = (start.face, start.entry_key, start.entry);
+    let (mut face, mut j_in) = (start.face, start.entry);
+    let _ = start.entry_key; // superseded by position-exclusion (dip re-exit)
     for _ in 0..max_steps {
         let Some(f) = faces.get(face as usize) else {
             return (out, WalkEnd::NoExit);
         };
-        let mut exits: Vec<(u32, u32, [f64; 3], f64)> = Vec::new();
+        // (edge, partner, pos, d_entry, d_on_edge)
+        let mut exits: Vec<(u32, u32, [f64; 3], f64, f64)> = Vec::new();
         for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
             let key = edge_pos_key(verts, &edges[ei as usize]);
-            if key == in_key {
-                continue; // the entry edge — the curve came in here
-            }
-            let Some(copies) = adj.get(&key) else {
+            let Some(copies) = ctx.adj.get(&key) else {
                 continue;
             };
             let partners: Vec<u32> = copies
@@ -976,39 +996,98 @@ pub(crate) fn walk_corridor(
                 }
                 return (out, WalkEnd::PartnerUnresolved(partners.len()));
             };
-            let Some(pf) = faces.get(*partner as usize) else {
-                continue;
+            let e = &edges[ei as usize];
+            let ps = verts[e.start as usize].point.as_array();
+            let pe = verts[e.end as usize].point.as_array();
+            // ONE certification authority for every candidate position,
+            // whichever solver produced it: not the entry junction, ON the
+            // far surface at the evaluation band, and inside THIS edge's own
+            // segment/arc domain (via the shared single-edge certifier).
+            let mut push_candidate = |pos: [f64; 3]| {
+                let band = eval_band(mag3(pos) + mag3(j_in));
+                if d3(pos, j_in) <= band {
+                    return; // the entry junction itself
+                }
+                if !crate::stage4_relocate::surface_distance_and_normal(ctx.far, pos)
+                    .is_some_and(|(fv, _)| fv.abs() <= band)
+                {
+                    return;
+                }
+                let er = edge_domain_of(verts, edges, ei, j_in, pos);
+                let ok = match er.domain {
+                    DomainVerdict::Segment {
+                        inside, off_line, ..
+                    } => inside && off_line <= band,
+                    DomainVerdict::Arc { in_ccw, .. } => in_ccw && er.d_on_edge <= band,
+                    _ => false,
+                };
+                if ok {
+                    exits.push((ei, *partner, pos, d3(pos, j_in), er.d_on_edge));
+                }
             };
-            let Some(sol) = relocate_onto_implicit_triple(
-                Point3::new(j_in[0], j_in[1], j_in[2]),
-                far,
-                f.surface,
-                pf.surface,
-            ) else {
-                continue;
-            };
-            let sa = sol.as_array();
-            let er = edge_domain_of(verts, edges, ei, j_in, sa);
-            let band = eval_band(mag3(sa) + mag3(j_in));
-            let in_dom = match er.domain {
-                DomainVerdict::Segment {
-                    inside, off_line, ..
-                } => inside && off_line <= band,
-                DomainVerdict::Arc { in_ccw, .. } => in_ccw && er.d_on_edge <= band,
-                _ => false,
-            };
-            // Exclude re-finding the entry junction itself (a solve seeded at
-            // a triple's own root returns it).
-            if in_dom && d3(sa, j_in) > band {
-                exits.push((ei, *partner, sa, er.d_on_edge));
+            // ALL-ROOTS where the far surface has a bounded solve on this
+            // carrier; the inc-2b Newton step as the per-edge FALLBACK where
+            // it does not (measured need: R0074's far is a TORUS — the
+            // quadric solvers decline, and a silent skip turned its
+            // determined clip corridor into a spurious NoExit).
+            let mut solved_all_roots = false;
+            match e.curve {
+                Curve::LineSegment => {
+                    if let Some(ts) = crate::stage4_phantom::segment_surface_roots(ps, pe, ctx.far)
+                    {
+                        solved_all_roots = true;
+                        for t in ts {
+                            push_candidate([
+                                ps[0] + t * (pe[0] - ps[0]),
+                                ps[1] + t * (pe[1] - ps[1]),
+                                ps[2] + t * (pe[2] - ps[2]),
+                            ]);
+                        }
+                    }
+                }
+                Curve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => {
+                    let nu = normalize3(normal.as_array());
+                    if let Some((e1, e2)) = circle_frame(nu) {
+                        if let Some(ths) =
+                            circle_surface_roots(center.as_array(), e1, e2, radius, ctx.far)
+                        {
+                            solved_all_roots = true;
+                            let c = center.as_array();
+                            for th in ths {
+                                push_candidate([
+                                    c[0] + radius * (th.cos() * e1[0] + th.sin() * e2[0]),
+                                    c[1] + radius * (th.cos() * e1[1] + th.sin() * e2[1]),
+                                    c[2] + radius * (th.cos() * e1[2] + th.sin() * e2[2]),
+                                ]);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if !solved_all_roots {
+                if let Some(sol) = relocate_onto_implicit_triple(
+                    Point3::new(j_in[0], j_in[1], j_in[2]),
+                    ctx.far,
+                    f.surface,
+                    faces[*partner as usize].surface,
+                ) {
+                    push_candidate(sol.as_array());
+                }
             }
         }
-        match exits.len() {
-            0 => return (out, WalkEnd::NoExit),
-            1 => {}
-            n => return (out, WalkEnd::AmbiguousExit(n)),
+        if exits.is_empty() {
+            return (out, WalkEnd::NoExit);
         }
-        let (ei, partner, sol, d_on_edge) = exits.pop().expect("len checked");
+        exits.sort_by(|a, b| a.3.total_cmp(&b.3));
+        if exits.len() > 1 && exits[1].3 < 4.0 * exits[0].3 {
+            return (out, WalkEnd::AmbiguousExit(exits.len()));
+        }
+        let (ei, partner, sol, _de, d_on_edge) = exits[0];
         out.push(WalkJunction {
             face_from: face,
             face_to: partner,
@@ -1019,7 +1098,11 @@ pub(crate) fn walk_corridor(
         if partner == other_face {
             return (out, WalkEnd::ReachedOtherChain);
         }
-        in_key = edge_pos_key(verts, &edges[ei as usize]);
+        if let Some((w, dw)) = (ctx.existing)(face, partner, sol) {
+            if dw <= eval_band(mag3(sol)) {
+                return (out, WalkEnd::ReachedExistingJunction { vertex: w });
+            }
+        }
         j_in = sol;
         face = partner;
     }
@@ -1398,10 +1481,15 @@ mod tests {
         assert!(crease.real && crease.shared == (InputId::B, 1));
         let (sol, er) = (crease.sol.unwrap(), crease.edge.as_ref().unwrap());
         let adj = build_edge_adjacency(&fx.b);
-        let (juncs, end) = walk_corridor(
-            &fx.b,
+        let no_existing = |_: u32, _: u32, _: [f64; 3]| -> Option<(u32, f64)> { None };
+        let ctx = WalkCtx {
+            brep: &fx.b,
             far,
-            &adj,
+            adj: &adj,
+            existing: &no_existing,
+        };
+        let (juncs, end) = walk_corridor(
+            &ctx,
             WalkStart {
                 face: 2, // facet_j
                 entry_key: edge_key(&fx.b, er.edge),
@@ -1439,10 +1527,15 @@ mod tests {
         let crease = &site.cands[1];
         let (sol, er) = (crease.sol.unwrap(), crease.edge.as_ref().unwrap());
         let adj = build_edge_adjacency(&fx.b);
-        let (juncs, end) = walk_corridor(
-            &fx.b,
+        let no_existing = |_: u32, _: u32, _: [f64; 3]| -> Option<(u32, f64)> { None };
+        let ctx = WalkCtx {
+            brep: &fx.b,
             far,
-            &adj,
+            adj: &adj,
+            existing: &no_existing,
+        };
+        let (juncs, end) = walk_corridor(
+            &ctx,
             WalkStart {
                 face: 2,
                 entry_key: edge_key(&fx.b, er.edge),
@@ -1461,6 +1554,38 @@ mod tests {
             "{:?}",
             juncs[1]
         );
+    }
+
+    #[test]
+    fn corridor_walk_stops_at_existing_junction() {
+        // Same two-facet corridor, but the FIRST discovered junction is
+        // claimed by an existing mesh vertex: the walk must stop there with
+        // the splice terminal instead of walking on.
+        let far = plane([-0.1, -5.0, 1.0], -3.0);
+        let fx = fixture(far);
+        let site = read_site(&fx.a, &fx.b, &fx.pv, &fx.pq, [0.0, 0.0, 0.0]).expect("site");
+        let crease = &site.cands[1];
+        let (sol, er) = (crease.sol.unwrap(), crease.edge.as_ref().unwrap());
+        let adj = build_edge_adjacency(&fx.b);
+        let claimed = |_: u32, _: u32, _: [f64; 3]| -> Option<(u32, f64)> { Some((77, 0.0)) };
+        let ctx = WalkCtx {
+            brep: &fx.b,
+            far,
+            adj: &adj,
+            existing: &claimed,
+        };
+        let (juncs, end) = walk_corridor(
+            &ctx,
+            WalkStart {
+                face: 2,
+                entry_key: edge_key(&fx.b, er.edge),
+                entry: sol,
+            },
+            0,
+            8,
+        );
+        assert_eq!(end, WalkEnd::ReachedExistingJunction { vertex: 77 });
+        assert_eq!(juncs.len(), 1, "{juncs:?}");
     }
 
     #[test]

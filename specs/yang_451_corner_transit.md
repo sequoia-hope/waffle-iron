@@ -7,8 +7,11 @@ POSITION identity); the anatomy census REFUTED the "truncate at q" sketch
 — the repair unit is the fan-walking CORRIDOR (§3d), and the walk census
 MEASURED every corridor (§3e): R0011/R0074 fully determined (the v42→v78
 merge bit-equal), R0044 determined up to two named refinements, R0085
-walled on its own operand quality. NEXT = inc-2c: the gated apply arm,
-against the five measured requirements in §3e.** Epic opened by
+walled on its own operand quality. inc-2c-0/-1 (same day) landed the
+all-roots per-edge solvers + the v2 walk (margin guard, splice
+terminal, torus Newton fallback): v76 resolved, every family corridor
+DETERMINED (§3f/§3g). NEXT = inc-2c-2: the gated APPLY (phantom splits,
+mints, splices, re-fill) against fully-measured corridors.** Epic opened by
 the §4.5.2 adjudication (`specs/yang_452_local_refinement.md`): the recovery
 loop the paper prescribes for this class was measured out (zero conversions at
 2×/4×/8× uniform density), so the class needs the repair the paper does NOT
@@ -456,14 +459,55 @@ genuine-quartic 4-root; cone dip pair certified). Live validation: the
 probe reproduces v76's entry junction at d 5.7e-12 and adjudicated the
 site (§3e). R0011 census walks byte-stable under the new build.
 
-NEXT (inc-2c-1): swap `walk_corridor`'s step to the all-roots per-edge
-solver — per face, enumerate every edge's certified in-domain roots
-(excluding the entry root by POSITION, so same-edge re-exit works),
-select the nearest root with a loud margin guard (AmbiguousExit when
-the second-nearest is within an order), and add the
-`ReachedExistingJunction` splice terminal (§3e requirement 1). Then
-re-measure the family: v76 must resolve; R0011/R0074 corridors must be
-unchanged.
+inc-2c-1 (landed same session, §3g) swapped the walk step onto this
+solver with the Newton per-edge fallback, the 4× margin guard, and the
+`ReachedExistingJunction` splice terminal — v76 resolved,
+R0011/R0074 unchanged.
+
+## 3g. inc-2c-1 — the ALL-ROOTS walk step (LANDED 2026-08-30, same
+session; measured family-wide)
+
+`walk_corridor` v2: per face, EVERY loop edge's candidate exits are
+enumerated by the bounded solvers (lines `segment_surface_roots`,
+circles `circle_surface_roots`) with the inc-2b Newton step as the
+per-edge FALLBACK where a carrier×far pair has no bounded solver
+(measured need: R0074's far is a TORUS — revolve(circle); the first
+all-roots cut silently skipped its edges and turned the determined clip
+corridor into a spurious NoExit). ONE certification authority for every
+candidate (entry-exclusion by POSITION — same-edge re-exit
+representable; on-far at the evaluation band; in-domain via the shared
+single-edge certifier). Selection: nearest exit by distance from the
+entry, guarded — the second-nearest must be ≥4× farther or the face is
+a loud `AmbiguousExit`. New terminal `ReachedExistingJunction{vertex}`:
+the walk stops when a discovered junction lies within the evaluation
+band of an existing mesh vertex carrying its triple (the census
+`existing` lookup; unit-tested). `WalkCtx` bundles the operand context.
+
+Measured:
+- **R0011: corridors IDENTICAL** (same faces/edges/positions; straight-
+  edge residuals improve to exact 0 — the root is on the line by
+  construction).
+- **R0074: restored bit-equal** through the Newton fallback (1 step
+  each way onto the other candidate's junction).
+- **R0044: v76 RESOLVES — 5 steps 363→362→361→360→359→wall,
+  `ReachedOtherChain`, and its step-3/step-4 junctions are BIT-EQUAL to
+  v105's clip pair: the v76 corridor MERGES with v105 exactly as v42's
+  merged with v78's on R0011.** v142 → `ReachedExistingJunction{v152}`
+  (3 steps), v144 → `{v165}` (3 steps) — no post-termination ambiguity
+  noise remains. All other sites unchanged.
+- Splice-band note for the apply arm: the census terminal uses the
+  EVALUATION band, under which v142's step-0 junction (1.24e-11 from
+  v157, band ≈ 6.6e-12) did NOT terminate and the walk ran two more
+  steps to a tighter match. The apply's splice identity should use the
+  junction-contract identity band (1e-9·(1+scale)) — under it the
+  corridor ends at the FIRST owned junction.
+
+**The walk instrument is now COMPLETE on the family: every corridor is
+determined** — R0011 4 sites (2 merged pairs of corridors + 2 solo),
+R0074 1 clip, R0044 7 sites (v76+v105 merged; v142/v144 splice to the
+existing curve), R0085 honestly walled on operand quality. What remains
+for inc-2c is pure APPLY: phantom splits, mints, runs, splices,
+re-fill, postconditions.
 
 ## 4. Increment ledger
 
@@ -503,9 +547,11 @@ unchanged.
   artifact of the surface-triple Newton — the true exit exists, 3.36
   along the next rim; dip refuted; every rim carries TWO in-arc far
   roots ⇒ nearest-root selection + margin guard named for inc-2c-1).
-- inc-2c-1: swap the walk step to the all-roots solver + margin guard +
-  `ReachedExistingJunction` terminal; re-measure (v76 resolves,
-  R0011/R0074 unchanged).
+- **inc-2c-1** (2026-08-30, same session): the all-roots walk step
+  LANDED + measured (§3g) — v76 RESOLVED (5-step corridor, merging
+  bit-equal with v105's clip), v142/v144 terminate at existing
+  junctions, R0011 identical, R0074 restored via the per-edge Newton
+  fallback (torus far). Every family corridor is now DETERMINED.
 - inc-2c: the gated apply arm (`YANG_451_TRANSIT`) — corridor splice per
   §3d/§3e: split phantoms, walk with existing-junction termination,
   per-edge all-roots step solving, mint-once-share-by-position junctions,

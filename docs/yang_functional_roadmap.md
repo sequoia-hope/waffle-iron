@@ -866,9 +866,12 @@ name, never measured).
    R0085 walled on its own operand quality). inc-2c-0 (same day) landed the
    all-roots per-edge step solver (circle×quadric quartic, certified)
    and ADJUDICATED v76 (wrong-root Newton artifact — the true exit
-   exists). Next: inc-2c-1 (all-roots walk step + margin guard +
-   ReachedExistingJunction terminal), then the gated apply arm against
-   the five measured requirements (spec §3e).*
+   exists). inc-2c-1 (same day) swapped the
+   walk onto it (margin guard, ReachedExistingJunction splice terminal,
+   torus Newton fallback): v76 RESOLVED (its corridor merges bit-equal
+   with v105's clip) — EVERY family corridor is now determined. Next:
+   inc-2c-2, the gated apply arm (phantom splits, mints, splices,
+   re-fill) against fully-measured corridors (spec §3e–§3g).*
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the

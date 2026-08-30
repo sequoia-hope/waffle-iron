@@ -5632,6 +5632,30 @@ fn relocation_domain_postcondition(
                                         + (x[2] - y[2]).powi(2))
                                     .sqrt()
                                 };
+                                // Existing-junction lookup (the splice
+                                // terminal's witness AND the per-junction
+                                // annotation): nearest mesh vertex whose
+                                // attributed patches contain the junction's
+                                // full triple {far, from, to}.
+                                let far_patch = site.far;
+                                let next_op = site.next.0;
+                                let existing =
+                                    |ff: u32, ft: u32, pos: [f64; 3]| -> Option<(u32, f64)> {
+                                        let want = [far_patch, (next_op, ff), (next_op, ft)];
+                                        patch_map
+                                            .iter()
+                                            .filter(|(_, ps)| want.iter().all(|t| ps.contains(t)))
+                                            .map(|(&w, _)| {
+                                                (w, d3w(mesh.verts[w as usize].as_array(), pos))
+                                            })
+                                            .min_by(|x, y| x.1.total_cmp(&y.1))
+                                    };
+                                let walk_ctx = crate::stage4_transit::WalkCtx {
+                                    brep: brep_n,
+                                    far: far_surf,
+                                    adj: &walk_adj,
+                                    existing: &existing,
+                                };
                                 for c in &site.cands {
                                     if !c.real {
                                         continue;
@@ -5652,9 +5676,7 @@ fn relocation_domain_postcondition(
                                         continue;
                                     }
                                     let (juncs, end) = crate::stage4_transit::walk_corridor(
-                                        brep_n,
-                                        far_surf,
-                                        &walk_adj,
+                                        &walk_ctx,
                                         crate::stage4_transit::WalkStart {
                                             face: site.next.1,
                                             entry_key: crate::stage4_transit::edge_key(
@@ -5677,7 +5699,11 @@ fn relocation_domain_postcondition(
                                     // ALL-ROOTS probe on its dead-end face —
                                     // every loop edge's certified far∩edge
                                     // roots (the v76 dip-hypothesis data).
-                                    if end == crate::stage4_transit::WalkEnd::NoExit {
+                                    if matches!(
+                                        end,
+                                        crate::stage4_transit::WalkEnd::NoExit
+                                            | crate::stage4_transit::WalkEnd::AmbiguousExit(_)
+                                    ) {
                                         let (stuck_face, probe_entry) = match juncs.last() {
                                             Some(j) => (j.face_to, j.sol),
                                             None => (site.next.1, sa),
@@ -5699,18 +5725,7 @@ fn relocation_domain_postcondition(
                                         // Nearest existing mesh vertex carrying
                                         // this junction's triple {far, from, to}
                                         // — the re-anchor candidate.
-                                        let want = [
-                                            site.far,
-                                            (site.next.0, wj.face_from),
-                                            (site.next.0, wj.face_to),
-                                        ];
-                                        let near = patch_map
-                                            .iter()
-                                            .filter(|(_, ps)| want.iter().all(|t| ps.contains(t)))
-                                            .map(|(&w, _)| {
-                                                (w, d3w(mesh.verts[w as usize].as_array(), wj.sol))
-                                            })
-                                            .min_by(|x, y| x.1.total_cmp(&y.1));
+                                        let near = existing(wj.face_from, wj.face_to, wj.sol);
                                         let near_s = match near {
                                             Some((w, dw)) => {
                                                 let moved = (w as usize) < n
