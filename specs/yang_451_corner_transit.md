@@ -509,6 +509,213 @@ existing curve), R0085 honestly walled on operand quality. What remains
 for inc-2c is pure APPLY: phantom splits, mints, runs, splices,
 re-fill, postconditions.
 
+## 3h. inc-2c-2 — corridor ASSEMBLY (the pure apply-plan builder;
+design 2026-08-30)
+
+The mutation must consume REPAIR UNITS, not per-site walks: the measured
+family has two corridors each sampled by TWO sites (v42+v78, v76+v105)
+and two walked in BOTH directions (the clips) — applying per-site would
+double-mint every shared junction and rebuild the same facets twice.
+inc-2c-2 builds the unit: `assemble_corridors` in `stage4_transit.rs`,
+pure and census-printed, consumed verbatim by the mutation (inc-2c-3).
+
+Structures (`stage4_transit.rs`):
+- `CorridorJunction { sol, faces: (from, to), edge, disposition }`,
+  `JunctionDisposition::{Mint, Splice{vertex, d}}` — splice identity at
+  the junction-CONTRACT band `1e-9·(1+scale)` (`contract_band`), never
+  the evaluation band (§3g's splice-band note; under it v142's corridor
+  ends at its FIRST owned junction, one facet in).
+- `CorridorRepair { far, walk_op, phantoms, corners, junctions, runs }`
+  — `runs[i]` crosses the single facet shared by `junctions[i]` and
+  `junctions[i+1]`; `RunSource::{Samples(Vec<pos>), ExistingChain(Vec<
+  vertex>)}`.
+
+Assembly steps, every failure a typed `AssemblyDecline`:
+1. **Per-site walks under APPLY semantics** — the §3g walker with the
+   splice terminal at the CONTRACT band (`WalkBand::Contract`; the
+   census keeps `Eval` so inc-2b lines stay byte-stable). Real
+   candidate → entry junction; walk junctions include the terminal.
+   Any non-terminal end (`NoExit`/`AmbiguousExit`/`PartnerUnresolved`/
+   `TooLong`) declines the SITE (`WalkFailed`).
+2. **Cross-site merge by POSITION identity** (the MINTGROUP lesson
+   generalized): walks sharing any junction within the contract band
+   (same walk operand + far patch) cluster; the longest walk is the
+   SPINE and every clustered walk must match a CONTIGUOUS run of it,
+   forward or reversed (`SpineMismatch` otherwise). One cluster = one
+   corridor; its phantom set = the clustered sites.
+3. **Face-chain verification**: consecutive junctions must name the
+   crossed facet consistently (`faces.to(i) == faces.from(i+1)`), the
+   run's facet (`FaceChainBroken` otherwise).
+4. **Dispositions**: per merged junction, the existing-vertex lookup at
+   the contract band → `Splice`, else `Mint`. Shared-view identity is
+   free — merged junctions are ONE entry (mint-once-by-position).
+5. **Run sourcing**: per facet run, the EXISTING far∩facet chain census
+   (v80-class: mesh vertices carrying {far, facet} — the healthy chains
+   §3d requires re-anchoring). A chain whose ends land at the run's two
+   junctions (contract band) becomes `ExistingChain` (the mutation
+   splices its ends, minting nothing interior). No chain → fresh
+   `Samples` from `sample_run_chord`: recursive chord midpoint
+   subdivision against far×facet (`relocate_onto_implicit_pair`,
+   seeded at midpoints), accepting when the midpoint sag ≤ d_eps (the
+   Stage-1 chord band — the paper's §4.3.4 refinement criterion),
+   depth-capped loud (`RunSampleFailed`). A chain present but with ends
+   NOT at the junctions is inc-2c-2 census data (printed, site
+   declined `ChainEndsUnmatched`) — the mutation must not guess.
+6. **Consumption check**: every fired site either belongs to exactly
+   one corridor or carries a typed decline; a site in two corridors is
+   `CorridorConflict` (measured family: none).
+
+Census lines (`YANG_S4_CARRIER_DOMAIN-CORRIDOR`): per corridor —
+phantoms, corners, junction list (disposition + faces + d-to-existing),
+per-run source (chain vertices / sample count + max sag), declines
+per non-assembled site. Unit fixtures: two-walk merge (spine +
+reversed subsequence), clip both-directions dedupe, chord subdivision
+depth/acceptance, contract-band disposition split.
+
+**inc-2c-3 (the mutation, next)** consumes `CorridorRepair` per §3d:
+split each phantom into its two chain-end junctions, mint `Mint`
+junctions ONCE, splice `Splice` junctions and `ExistingChain` ends,
+insert runs conformally on BOTH sides (far patch + traversed facets;
+`split_boundary_edge` for junctions on lattice edges, fan delete +
+`refill_fan_hole` for the phantom regions — the f2c vocabulary), then
+§4-I9 re-check + oracle gate, all behind `YANG_451_TRANSIT`.
+
+### §3h measured (2026-08-30, LANDED same day; census family-wide)
+
+The first assembly run CORRECTED two design points before anything
+mutates — both measured, neither visible from the per-site walks:
+
+1. **"Corridor merge" is CROSS-INVOCATION consistency, not a merge.**
+   R0011 runs TWO boolean ops; v27/v37/v42 fire in op-1's Stage 4 and
+   v78 in op-2's (R0044 likewise: v8…v144 op-1, v105 op-2). The
+   bit-equal junctions (v42 junc0/junc1 ≡ v78's pair to the last bit,
+   in two DIFFERENT meshes) are the same analytic curve recurring, not
+   one repair unit: each invocation assembles and repairs its OWN
+   corridors. Within-op grouping is still real — it dedupes the clip's
+   two walk directions (measured on every clip) and any true same-op
+   pair.
+2. **Union-find over shared junctions is the WRONG grouping.** R0044's
+   v142/v144 share exactly ONE junction — their shared rim mint, an
+   ENDPOINT of both — and are TWO corridors (the mirrored pair).
+   Grouping is now greedy longest-spine with contiguous-sub-run
+   absorption (fwd/rev); a non-sub-run walk starts its own corridor;
+   cross-corridor overlap beyond one endpoint-to-endpoint junction is
+   the loud `CorridorConflict` (unit-tested both ways). Shared
+   endpoint mints print as `SHARED-MINT` — the apply mints ONCE across
+   corridors (the MINTGROUP contract).
+3. **Run sourcing must be LOCAL.** R0044's run facets carry healthy
+   far∩facet chains ~1.7e3 away — the far cone's OTHER angular
+   crossing region on the same gear band. Components are filtered by
+   nearest approach to the run's chord (≤ max(d_eps, contract));
+   distant chains are patch neighbours, never sources.
+
+Measured per case (debug census; corridors are per-invocation):
+- **R0011: 4 corridors (op-1: v27 3-junc, v37 4-junc, v42 4-junc;
+  op-2: v78 2-junc), ALL applyable — every junction Mint, every run
+  fresh `SAMPLES n=0`** (far is a plane: the runs are straight, the
+  bare chord meets d_eps). consumed=3/3 and 1/1.
+- **R0074: 1 corridor (v129 clip, 2 mints, 1 run n=0), applyable** —
+  the torus-far per-edge Newton fallback holds under apply semantics.
+- **R0044 op-1: 6/6 applyable, consumed 6/6.** v76 6-junc, v75 4-junc,
+  v8/v89 2-junc — all-Mint with fresh runs once the locality filter
+  ignores the distant chains; **v142/v144: two corridors, each
+  1 Splice (v157 @1.2e-11 / v160 @5.9e-12) + the SHARED rim mint
+  (`SHARED-MINT corridors=(#4,#5)`), runs measured in the `Spliced`
+  shape** — v144's healthy rider v161 keeps its chain and bridges
+  fresh to the mint (`SPLICED chain=[161]`), v142's trims to pure
+  samples. The wrong edges being replaced are the riders' edges into
+  the TWIN phantom (v157→v144, v161→v142). v105 rides op-2.
+- **R0085: the honest wall, typed end to end.** v467's corridor:
+  junc0 = the FIRST live `Splice` (existing traveller v6232 at
+  1.6e-15 — the contract band doing exactly its job), junc1 Mint; its
+  run declines `ChainEndsUnmatched`: the healthy 58-vertex chain ends
+  at v6232 (exact) and at v6182, which is 1.5e-2 off junc1 and
+  adjacency-attached to the OTHER rider phantom v6071 — the
+  mixed-conformal operand residual, measured to the vertex. Riders
+  v4216/v6071 decline `WalkFailed AmbiguousExit(2)`. Nothing consumed;
+  R0085 stays gated behind operand quality (op-3 input-n2m), exactly
+  as inc-1 recorded.
+
+**Phantom chain-end attachment rule (measured on every R0011 site).**
+The -ANAT curve neighbours of each phantom are its two chain ends, and
+each names its corridor junction by PATCH MEMBERSHIP: v78's v75
+{A2,B1} → the (1,180) junction, v80 {A2,B181} → (180,181); v27's v26
+{A2,B1} → (1,214), v20 {A2,B211,B212} → (213,212). Unique on every
+measured site — the mutation's attachment certificate (decline if not
+unique). The connector edge (neighbour → its junction) crosses ONE
+facet beyond the corridor (the neighbour's own facet) and replaces the
+neighbour→phantom mesh edge; its chord density is certifiable by the
+same `sample_run_chord`.
+
+**Family verdict at the plan level (final binary): R0011 4/4
+corridors applyable (consumed 3/3 + 1/1), R0074 1/1, R0044 7/7 (op-1
+6/6 incl. both v142/v144 spliced corridors, op-2 v105 1/1), R0085 0
+consumed — honestly walled, all declines typed.**
+
+**inc-2c-3 therefore splits** (the base-side cycle surgery — which
+side of the curve each patch's region lies on, where q's crease path
+rejoins — must be measured, not sketched):
+- **3a: cycle-surgery planner census** (LANDED with this increment:
+  the `-CYCLES` lines) — per applyable corridor: the attachment
+  certificate live (each phantom's on-curve neighbours → their
+  junction by patch membership, `NOT-UNIQUE` loud), and per affected
+  patch (far ∪ run facets ∪ the two terminal-outer patches) the
+  connected component + boundary cycles with surgery sites marked —
+  phantom position, junction HOST edges (the boundary edge whose
+  segment carries the junction), ±4-vertex windows tagged
+  P/Q/N. Report-only; measured on R0011 (see below).
+- **3b: the gated mutation** (`YANG_451_TRANSIT`) — apply the planned
+  cycles via wholesale per-component rebuilds (`rebuild_patch_planar`
+  vocabulary; Plane+Cylinder charts first — R0011/R0074 class; cone
+  bands decline typed until the chart lands), mint-once via the
+  SHARED-MINT registry, §4-I9 re-check + oracle gate.
+
+### §3h-3a measured (R0011 corridor #1 = v42; same shapes on #0/#2 and
+op-2's clip; 2026-08-30)
+
+- **Attachment certificate: UNIQUE at every phantom** (`-CYCLES phantom`
+  lines). v42: v39 {A2,B1} → junc0, v43 {A2,B183,B184} → junc3. v37 has
+  THREE on-curve mesh neighbours (v35/v39 → junc0, v46 → junc3) — the
+  cycle, not the fan, names the true chain topology: on B1's boundary
+  v37's cycle-neighbours are exactly q and v39.
+- **The far patch (A2)'s surgery site is a HOLE cycle**: cycles
+  [24,15,7]; the 7-cycle [v41 v43 v42[P] v39[N] v37[P] v46 v45] is the
+  hole where B's teeth poke through — BOTH phantoms ride it, each
+  between its two [N] neighbours. Surgery: replace each phantom with
+  its corridor chain oriented neighbour-junction-first. A2 hosts no
+  junction (they lie interior to A2's face) — the chain vertices enter
+  as new cycle vertices.
+- **Junctions host on their model-CREASE mesh edges** (never on curve
+  edges): v42's junc0 hosts on B1's (v686,v682) = the (1,180) crease,
+  and on B180's (v682,v686); junc1 on B180's (v686,v273) = the
+  (180,181) crease — each crease is ONE mesh edge here, present in both
+  incident patches' cycles ✓ conformal split points.
+- **The base (B1) surgery is measured to the vertex**: one 398-edge
+  cycle carries the whole far∩base curve + creases; window
+  [... v39[N] → v42[P] → v687[Q] → v688 → v686 → v682 ...]. Corrected:
+  connector (v39 → J0) replaces the phantom edge, the cycle TURNS at J0
+  onto the crease toward v682, and the sub-path [v42, v687, v688, v686]
+  is EXCISED — those vertices stay mesh vertices on their other
+  patches' cycles (q "stays a patch vertex" is exactly this).
+- **Run facets are cut**: B180 = a 2-triangle quad [v271 v682 J0-host
+  J1-host v273]; the run J0→J1 splits it and the v686-side sliver is
+  the OUT side (inside operand A) — removed by rebuilding from the
+  corrected cycle [v271, v682, J0, run, J1, v273]. Sub-path side
+  selection is certifiable by the far surface's SIGN at the sub-path's
+  vertices (mixed signs = loud decline).
+- **R0085 sharpened the admission rule**: v467's corridor is applyable
+  in isolation (57-vertex SPLICED chain, on-far ends, n=0 bridges) but
+  its surgery would rewire an edge into the UNCONSUMED rider phantom
+  v6071 (declined `WalkFailed`). **3b applies only when EVERY fired
+  site of the invocation is consumed by an applyable corridor** —
+  R0011 (3/3, 1/1), R0074 (1/1), R0044 (6/6, 1/1) qualify; R0085
+  (1/3 + riders) declines wholesale, keeping the honest STOP.
+
+3b's remaining work is then mechanical: corrected cycles per affected
+component (splice chains/samples in, excise phantom-side sub-paths,
+split host edges at mints), wholesale re-CDT per component, mint-once
+registry, apply as one batch, §4-I9 re-check + full oracle gate.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -552,11 +759,21 @@ re-fill, postconditions.
   bit-equal with v105's clip), v142/v144 terminate at existing
   junctions, R0011 identical, R0074 restored via the per-edge Newton
   fallback (torus far). Every family corridor is now DETERMINED.
-- inc-2c: the gated apply arm (`YANG_451_TRANSIT`) — corridor splice per
-  §3d/§3e: split phantoms, walk with existing-junction termination,
-  per-edge all-roots step solving, mint-once-share-by-position junctions,
-  corridor runs at chord density, two-sided re-fill, §4-I9 re-check +
-  oracle gate.
+- **inc-2c-2 + 3a** (2026-08-30, second session): corridor ASSEMBLY
+  LANDED + MEASURED family-wide (§3h) — `assemble_corridors` (greedy
+  spine grouping, contract-band splice dispositions, locality-filtered
+  run sourcing with `Spliced` chains, cross-corridor conflict/
+  SHARED-MINT identity) + the cycle-surgery planner census (`-CYCLES`:
+  attachment certificates, junction host edges, tagged windows). THREE
+  designs corrected by measurement (cross-invocation "merges";
+  endpoint-shared corridors; distant-chain locality). R0011 4/4 +
+  R0074 1/1 + R0044 7/7 applyable & fully consumed; R0085 walled with
+  the all-consumed admission rule named (§3h-3a).
+- inc-2c-3b: the gated mutation (`YANG_451_TRANSIT`) — corrected
+  cycles per affected component (splice chains in, excise phantom-side
+  sub-paths, split host edges at mints), wholesale re-CDT per
+  component, mint-once registry, one batch, §4-I9 re-check + oracle
+  gate; admission = every fired site consumed.
 - inc-3: fixed-point integration (multiple sites per case; R0085 has two
   failing ops) + full-corpus gated measurement; flip under the standing
   two-proof protocol.

@@ -5363,6 +5363,10 @@ fn relocation_domain_postcondition(
     // operand, model edge, solution) — grouped after the loop to surface
     // shared-mint pairs (two views, one junction; R0044 v142/v144).
     let mut mint_reads: Vec<(u32, u32, InputId, u32, [f64; 3])> = Vec::new();
+    // Census-only (inc-2c-2, spec §3h): per-site walks under APPLY semantics
+    // (contract-band splice terminal), assembled into CORRIDOR repair units
+    // after the loop.
+    let mut transit_walks: Vec<crate::stage4_transit::SiteWalk> = Vec::new();
     for (&v, neighbours) in &adj {
         let Some((pre, post)) = moved_at(v) else {
             continue;
@@ -5655,6 +5659,18 @@ fn relocation_domain_postcondition(
                                     far: far_surf,
                                     adj: &walk_adj,
                                     existing: &existing,
+                                    splice_band: crate::stage4_transit::WalkBand::Eval,
+                                };
+                                // inc-2c-2 (spec §3h): the same walk under
+                                // APPLY semantics — the splice terminal at
+                                // the junction-CONTRACT band, so the
+                                // corridor ends at the FIRST owned junction.
+                                let walk_ctx_apply = crate::stage4_transit::WalkCtx {
+                                    brep: brep_n,
+                                    far: far_surf,
+                                    adj: &walk_adj,
+                                    existing: &existing,
+                                    splice_band: crate::stage4_transit::WalkBand::Contract,
                                 };
                                 for c in &site.cands {
                                     if !c.real {
@@ -5748,6 +5764,38 @@ fn relocation_domain_postcondition(
                                             wj.sol[2],
                                         );
                                     }
+                                    // inc-2c-2: record the APPLY-semantics
+                                    // walk for the post-loop corridor
+                                    // assembly (contract-band terminal; the
+                                    // census walk above stays byte-stable).
+                                    let (ajuncs, aend) = crate::stage4_transit::walk_corridor(
+                                        &walk_ctx_apply,
+                                        crate::stage4_transit::WalkStart {
+                                            face: site.next.1,
+                                            entry_key: crate::stage4_transit::edge_key(
+                                                brep_n, er.edge,
+                                            ),
+                                            entry: sa,
+                                        },
+                                        other.shared.1,
+                                        64,
+                                    );
+                                    transit_walks.push(crate::stage4_transit::SiteWalk {
+                                        site: v,
+                                        corner: q,
+                                        far: site.far,
+                                        far_surf,
+                                        walk_op: site.next.0,
+                                        entry: crate::stage4_transit::WalkJunction {
+                                            face_from: c.shared.1,
+                                            face_to: site.next.1,
+                                            edge: er.edge,
+                                            sol: sa,
+                                            d_on_edge: er.d_on_edge,
+                                        },
+                                        juncs: ajuncs,
+                                        end: aend,
+                                    });
                                 }
                             }
                         }
@@ -5850,6 +5898,425 @@ fn relocation_domain_postcondition(
                      sites={members:?} spread={spread:.3e} — ONE mint, {} views",
                     members.len()
                 );
+            }
+        }
+    }
+    if census && !transit_walks.is_empty() {
+        // inc-2c-2 (spec §3h): assemble the APPLY-semantics walks into
+        // canonical CORRIDOR repair units — merged by position identity,
+        // junctions dispositioned (mint vs contract-band splice), runs
+        // sourced (existing healthy chain vs fresh chord-density samples).
+        // Report-only; the mutation (inc-2c-3) consumes these units.
+        use crate::stage4_transit::{JunctionDisposition, RunSource};
+        let d3c = |x: [f64; 3], y: [f64; 3]| {
+            ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2)).sqrt()
+        };
+        // Splices must target HEALTHY vertices: the fired travellers are the
+        // objects being repaired, never splice or chain anchors.
+        let fired: std::collections::BTreeSet<u32> = census_sites.iter().map(|&(v, _)| v).collect();
+        let existing_g = |far: (InputId, u32),
+                          op: InputId,
+                          ff: u32,
+                          ft: u32,
+                          pos: [f64; 3]|
+         -> Option<(u32, f64)> {
+            let want = [far, (op, ff), (op, ft)];
+            patch_map
+                .iter()
+                .filter(|(w, ps)| !fired.contains(w) && want.iter().all(|t| ps.contains(t)))
+                .map(|(&w, _)| (w, d3c(mesh.verts[w as usize].as_array(), pos)))
+                .min_by(|x, y| x.1.total_cmp(&y.1))
+        };
+        // Existing far∩facet carrier components (v80-class), each ordered as
+        // a path when the induced live adjacency is one.
+        let facet_chain =
+            |far: (InputId, u32), op: InputId, f: u32| -> Vec<crate::stage4_transit::FacetChain> {
+                let want = [far, (op, f)];
+                let members: std::collections::BTreeSet<u32> = patch_map
+                    .iter()
+                    .filter(|(w, ps)| !fired.contains(w) && want.iter().all(|t| ps.contains(t)))
+                    .map(|(&w, _)| w)
+                    .collect();
+                let ind_nbrs = |x: u32| -> Vec<u32> {
+                    adj.get(&x)
+                        .into_iter()
+                        .flatten()
+                        .copied()
+                        .filter(|y| members.contains(y))
+                        .collect()
+                };
+                let mut seen: std::collections::BTreeSet<u32> = Default::default();
+                let mut comps = Vec::new();
+                for &s in &members {
+                    if seen.contains(&s) {
+                        continue;
+                    }
+                    let mut comp = std::collections::BTreeSet::from([s]);
+                    let mut stack = vec![s];
+                    seen.insert(s);
+                    while let Some(x) = stack.pop() {
+                        for y in ind_nbrs(x) {
+                            if comp.insert(y) {
+                                seen.insert(y);
+                                stack.push(y);
+                            }
+                        }
+                    }
+                    let degs: Vec<(u32, usize)> = comp
+                        .iter()
+                        .map(|&x| (x, ind_nbrs(x).iter().filter(|y| comp.contains(y)).count()))
+                        .collect();
+                    let ends: Vec<u32> = degs
+                        .iter()
+                        .filter(|&&(_, d)| d <= 1)
+                        .map(|&(x, _)| x)
+                        .collect();
+                    let is_path =
+                        degs.iter().all(|&(_, d)| d <= 2) && (comp.len() == 1 || ends.len() == 2);
+                    let verts: Vec<(u32, [f64; 3])> = if is_path && comp.len() > 1 {
+                        // Walk from the smaller-id end — deterministic.
+                        let mut order = vec![*ends.iter().min().expect("two ends")];
+                        let mut prev: Option<u32> = None;
+                        while order.len() < comp.len() {
+                            let x = *order.last().expect("non-empty");
+                            let nxt = ind_nbrs(x)
+                                .into_iter()
+                                .find(|&y| comp.contains(&y) && Some(y) != prev);
+                            match nxt {
+                                Some(y) => {
+                                    prev = Some(x);
+                                    order.push(y);
+                                }
+                                None => break,
+                            }
+                        }
+                        order
+                            .iter()
+                            .map(|&x| (x, mesh.verts[x as usize].as_array()))
+                            .collect()
+                    } else {
+                        comp.iter()
+                            .map(|&x| (x, mesh.verts[x as usize].as_array()))
+                            .collect()
+                    };
+                    comps.push(crate::stage4_transit::FacetChain {
+                        path: is_path && verts.len() == comp.len(),
+                        verts,
+                    });
+                }
+                comps
+            };
+        let face_surface = |op: InputId, f: u32| -> Option<Surface> {
+            let faces = match op {
+                InputId::A => a.faces(),
+                InputId::B => b.faces(),
+            };
+            faces.get(f as usize).map(|x| x.surface)
+        };
+        match stage4_chord_band(a, b) {
+            None => eprintln!(
+                "YANG_S4_CARRIER_DOMAIN-CORRIDOR no chord band (planar-only inputs) — \
+                 assembly skipped"
+            ),
+            Some(d_eps) => {
+                let actx = crate::stage4_transit::AssembleCtx {
+                    existing: &existing_g,
+                    facet_chain: &facet_chain,
+                    face_surface: &face_surface,
+                    d_eps,
+                };
+                let (corridors, declines) =
+                    crate::stage4_transit::assemble_corridors(&actx, &transit_walks);
+                for (k, c) in corridors.iter().enumerate() {
+                    let mints = c
+                        .junctions
+                        .iter()
+                        .filter(|j| j.disposition == JunctionDisposition::Mint)
+                        .count();
+                    eprintln!(
+                        "YANG_S4_CARRIER_DOMAIN-CORRIDOR #{k} op={:?} far={:?} \
+                         phantoms={:?} corners={:?} juncs={} mints={mints} splices={} \
+                         applyable={}",
+                        c.walk_op,
+                        c.far,
+                        c.phantoms,
+                        c.corners,
+                        c.junctions.len(),
+                        c.junctions.len() - mints,
+                        c.applyable(),
+                    );
+                    for (i, j) in c.junctions.iter().enumerate() {
+                        eprintln!(
+                            "YANG_S4_CARRIER_DOMAIN-CORRIDOR   #{k} junc{i} \
+                             faces={:?} edge={} {:?} sol=({:.9},{:.9},{:.9})",
+                            j.faces, j.edge, j.disposition, j.sol[0], j.sol[1], j.sol[2],
+                        );
+                    }
+                    for (i, (f, src)) in c.runs.iter().enumerate() {
+                        let (p0, p1) = (c.junctions[i].sol, c.junctions[i + 1].sol);
+                        match src {
+                            Ok(RunSource::Samples(s)) => eprintln!(
+                                "YANG_S4_CARRIER_DOMAIN-CORRIDOR   #{k} run{i} facet={f} \
+                                 SAMPLES n={}",
+                                s.len()
+                            ),
+                            Ok(RunSource::Spliced { head, chain, tail }) => eprintln!(
+                                "YANG_S4_CARRIER_DOMAIN-CORRIDOR   #{k} run{i} facet={f} \
+                                 SPLICED head_n={} chain={chain:?} tail_n={}",
+                                head.len(),
+                                tail.len(),
+                            ),
+                            Err(issue) => {
+                                eprintln!(
+                                    "YANG_S4_CARRIER_DOMAIN-CORRIDOR   #{k} run{i} \
+                                     facet={f} ISSUE {issue:?}"
+                                );
+                                // The measured anatomy the mutation's
+                                // re-anchoring rule needs: each carrier
+                                // component's ends against the bounding
+                                // junctions, and their phantom adjacency.
+                                for (ci, comp) in
+                                    facet_chain(c.far, c.walk_op, *f).iter().enumerate()
+                                {
+                                    let ids: Vec<u32> =
+                                        comp.verts.iter().map(|&(x, _)| x).collect();
+                                    eprintln!(
+                                        "YANG_S4_CARRIER_DOMAIN-CORRIDOR     #{k} run{i} \
+                                         comp{ci} path={} verts={ids:?}",
+                                        comp.path
+                                    );
+                                    if comp.path && !comp.verts.is_empty() {
+                                        for &(x, xp) in
+                                            [comp.verts[0], comp.verts[comp.verts.len() - 1]].iter()
+                                        {
+                                            let phn: Vec<u32> = adj
+                                                .get(&x)
+                                                .into_iter()
+                                                .flatten()
+                                                .copied()
+                                                .filter(|y| fired.contains(y))
+                                                .collect();
+                                            eprintln!(
+                                                "YANG_S4_CARRIER_DOMAIN-CORRIDOR     #{k} \
+                                                 run{i} comp{ci} end v{x} d_j0={:.3e} \
+                                                 d_j1={:.3e} phantom_nbrs={phn:?}",
+                                                d3c(xp, p0),
+                                                d3c(xp, p1),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                for d in &declines {
+                    use crate::stage4_transit::AssemblyDecline as AD;
+                    let s = match d {
+                        AD::WalkFailed { site, end } => {
+                            format!("site=v{site} WALK-FAILED end={end:?}")
+                        }
+                        AD::FaceChainBroken { site, at } => {
+                            format!("site=v{site} FACE-CHAIN-BROKEN at={at}")
+                        }
+                        AD::CorridorConflict { sites } => {
+                            format!("sites={sites:?} CORRIDOR-CONFLICT")
+                        }
+                    };
+                    eprintln!("YANG_S4_CARRIER_DOMAIN-CORRIDOR DECLINE {s}");
+                }
+                // Shared endpoint mints across corridors (the v142/v144
+                // ONE-mint contract): the apply must mint such a junction
+                // once and share it between both corridors.
+                for i in 0..corridors.len() {
+                    for j in (i + 1)..corridors.len() {
+                        let (ci, cj) = (&corridors[i], &corridors[j]);
+                        if ci.walk_op != cj.walk_op || ci.far != cj.far {
+                            continue;
+                        }
+                        let ends = |c: &crate::stage4_transit::CorridorRepair| {
+                            [0, c.junctions.len() - 1]
+                                .map(|k| c.junctions[k].sol)
+                                .to_vec()
+                        };
+                        for ea in ends(ci) {
+                            for &eb in &ends(cj) {
+                                let scale = ea.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
+                                if d3c(ea, eb) <= crate::stage4_transit::contract_band(scale) {
+                                    eprintln!(
+                                        "YANG_S4_CARRIER_DOMAIN-CORRIDOR SHARED-MINT \
+                                         corridors=(#{i},#{j}) \
+                                         sol=({:.9},{:.9},{:.9})",
+                                        ea[0], ea[1], ea[2],
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                let walked: std::collections::BTreeSet<u32> =
+                    transit_walks.iter().map(|w| w.site).collect();
+                let consumed: std::collections::BTreeSet<u32> = corridors
+                    .iter()
+                    .filter(|c| c.applyable())
+                    .flat_map(|c| c.phantoms.iter().copied())
+                    .collect();
+                let unconsumed: Vec<u32> = walked.difference(&consumed).copied().collect();
+                eprintln!(
+                    "YANG_S4_CARRIER_DOMAIN-CORRIDOR TOTAL corridors={} applyable={} \
+                     consumed={}/{} unconsumed={unconsumed:?}",
+                    corridors.len(),
+                    corridors.iter().filter(|c| c.applyable()).count(),
+                    consumed.len(),
+                    walked.len(),
+                );
+                // inc-2c-3a (spec §3h): the CYCLE-SURGERY planner census —
+                // per applyable corridor, each affected patch's connected
+                // component and boundary cycles with the surgery sites
+                // marked (phantom position, junction HOST edges, chain
+                // neighbours + their junction attachment by patch
+                // membership). Report-only; the mutation (3b) consumes
+                // measured cycles, never sketched ones.
+                let adjacency_t = crate::stage5_topology::triangle_adjacency(mesh);
+                let raw_patches =
+                    crate::stage5_topology::flood_fill_patches(mesh, attribution, &adjacency_t);
+                for (k, c) in corridors.iter().enumerate() {
+                    if !c.applyable() {
+                        continue;
+                    }
+                    // The attachment certificate, measured live: each
+                    // phantom's on-curve mesh neighbours name their
+                    // junction by patch membership (§3h) — unique or the
+                    // mutation declines.
+                    for &p in &c.phantoms {
+                        for &w in adj.get(&p).into_iter().flatten() {
+                            if !on_curve(w) {
+                                continue;
+                            }
+                            let pw = patches_of(w);
+                            let hits: Vec<usize> = c
+                                .junctions
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, j)| {
+                                    pw.contains(&(c.walk_op, j.faces.0))
+                                        || pw.contains(&(c.walk_op, j.faces.1))
+                                })
+                                .map(|(i, _)| i)
+                                .collect();
+                            eprintln!(
+                                "YANG_S4_CARRIER_DOMAIN-CYCLES  #{k} phantom v{p} nbr v{w} \
+                                 patches={pw:?} attaches_to_juncs={hits:?}{}",
+                                if hits.len() == 1 { "" } else { " NOT-UNIQUE" },
+                            );
+                        }
+                    }
+                    // Affected patch keys: far ∪ run facets ∪ the two
+                    // terminal-outer patches.
+                    let mut keys: Vec<(InputId, u32)> = vec![
+                        c.far,
+                        (c.walk_op, c.junctions[0].faces.0),
+                        (c.walk_op, c.junctions[c.junctions.len() - 1].faces.1),
+                    ];
+                    keys.extend(c.runs.iter().map(|&(f, _)| (c.walk_op, f)));
+                    keys.sort_unstable();
+                    keys.dedup();
+                    for key in keys {
+                        for (pi, patch) in raw_patches
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, p)| (p.attribution.input, p.attribution.face) == key)
+                        {
+                            let holds_phantom = patch.tri_indices.iter().any(|&t| {
+                                let tri = mesh.tris[t as usize];
+                                c.phantoms.iter().any(|&p| tri.contains(&p))
+                            });
+                            let cycles =
+                                match crate::stage5_topology::patch_boundary_cycle(patch, mesh) {
+                                    Ok(cy) => cy,
+                                    Err(e) => {
+                                        eprintln!(
+                                            "YANG_S4_CARRIER_DOMAIN-CYCLES  #{k} patch={key:?} \
+                                         comp={pi} CYCLE-WALK-FAILED {e:?}"
+                                        );
+                                        continue;
+                                    }
+                                };
+                            // Junction HOST edges: the boundary edge whose
+                            // segment carries the junction solution.
+                            let mut hosts: Vec<(usize, usize, usize)> = Vec::new();
+                            for (ji, j) in c.junctions.iter().enumerate() {
+                                let scale = j.sol.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
+                                let band = cad_primitives::TAU_WORK.max(8.0 * f64::EPSILON * scale);
+                                for (ci, cy) in cycles.iter().enumerate() {
+                                    for (ei, &(x, y)) in cy.iter().enumerate() {
+                                        let d = crate::stage4_transit::dist_point_segment(
+                                            j.sol,
+                                            mesh.verts[x as usize].as_array(),
+                                            mesh.verts[y as usize].as_array(),
+                                        );
+                                        if d <= band {
+                                            hosts.push((ji, ci, ei));
+                                        }
+                                    }
+                                }
+                            }
+                            if !holds_phantom && hosts.is_empty() {
+                                continue; // unrelated component (e.g. the other crossing region)
+                            }
+                            let lens: Vec<usize> = cycles.iter().map(|cy| cy.len()).collect();
+                            eprintln!(
+                                "YANG_S4_CARRIER_DOMAIN-CYCLES  #{k} patch={key:?} comp={pi} \
+                                 tris={} cycles={lens:?} phantom_in_comp={holds_phantom} \
+                                 junc_hosts={hosts:?}",
+                                patch.tri_indices.len(),
+                            );
+                            // Windows: ±4 boundary vertices around each mark,
+                            // tagged P (phantom), Q (corner), N (phantom
+                            // curve-neighbour).
+                            let tag = |v: u32| -> String {
+                                if c.phantoms.contains(&v) {
+                                    format!("v{v}[P]")
+                                } else if c.corners.contains(&v) {
+                                    format!("v{v}[Q]")
+                                } else if c
+                                    .phantoms
+                                    .iter()
+                                    .any(|&p| adj.get(&p).is_some_and(|ns| ns.contains(&v)))
+                                    && on_curve(v)
+                                {
+                                    format!("v{v}[N]")
+                                } else {
+                                    format!("v{v}")
+                                }
+                            };
+                            let mut windows: Vec<(usize, usize, String)> = Vec::new();
+                            for (ci, cy) in cycles.iter().enumerate() {
+                                for (ei, &(x, _)) in cy.iter().enumerate() {
+                                    let hit = c.phantoms.contains(&x)
+                                        || hosts.iter().any(|&(_, hc, he)| {
+                                            hc == ci && (he == ei || (he + 1) % cy.len() == ei)
+                                        });
+                                    if hit {
+                                        let n = cy.len();
+                                        let w = 9.min(n);
+                                        let start = if n <= 9 { 0 } else { (ei + n - 4) % n };
+                                        let s: Vec<String> = (0..w)
+                                            .map(|o| tag(cy[(start + o) % n].0))
+                                            .collect();
+                                        windows.push((ci, ei, s.join(" ")));
+                                    }
+                                }
+                            }
+                            for (ci, ei, w) in windows {
+                                eprintln!(
+                                    "YANG_S4_CARRIER_DOMAIN-CYCLES  #{k} patch={key:?} \
+                                     comp={pi} cycle={ci} at={ei}: {w}"
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
     }

@@ -869,9 +869,21 @@ name, never measured).
    exists). inc-2c-1 (same day) swapped the
    walk onto it (margin guard, ReachedExistingJunction splice terminal,
    torus Newton fallback): v76 RESOLVED (its corridor merges bit-equal
-   with v105's clip) — EVERY family corridor is now determined. Next:
-   inc-2c-2, the gated apply arm (phantom splits, mints, splices,
-   re-fill) against fully-measured corridors (spec §3e–§3g).*
+   with v105's clip) — EVERY family corridor is now determined.
+   inc-2c-2+3a (2026-08-30, second session) landed the corridor
+   ASSEMBLY (`assemble_corridors`: greedy spine grouping, contract-band
+   splice dispositions, locality-filtered `Spliced` run sourcing,
+   SHARED-MINT identity) + the `-CYCLES` cycle-surgery census, and the
+   measurements corrected three designs (the "merges" are
+   CROSS-INVOCATION consistency — 2 ops/case, each op repairs its own
+   mesh; v142/v144 are TWO corridors sharing one endpoint mint; run
+   sourcing must be chord-local). R0011 4/4 + R0074 1/1 + R0044 7/7
+   corridors applyable and fully consumed; R0085 walled by the
+   ALL-CONSUMED admission rule. The mutation's surgery is measured to
+   the vertex (A2 hole-cycle swap; junctions host on crease mesh
+   edges; base excision turning at J0; run facets cut with far-sign
+   side selection). Next: inc-2c-3b, the gated mutation
+   (`YANG_451_TRANSIT`) per spec §3h/§3h-3a.*
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the

@@ -63,6 +63,16 @@ fn eval_band(l: f64) -> f64 {
     cad_primitives::TAU_WORK.max(8.0 * f64::EPSILON * l)
 }
 
+/// Junction-CONTRACT identity band — `1e-9·(1+scale)`, the mint-once
+/// grouping band (spec §3h). Two junction reads within this band are ONE
+/// physical junction (merge, splice, share); the evaluation band stays the
+/// EXACTNESS certificate. §3g measured the difference live: v142's step-0
+/// junction sits 1.24e-11 from the owned traveller v157 — inside contract,
+/// outside eval — and the apply corridor must end there, not walk on.
+pub(crate) fn contract_band(l: f64) -> f64 {
+    1e-9 * (1.0 + l)
+}
+
 /// Typed decline reasons. A decline leaves the site to the standing loud
 /// §4-I9 STOP; nothing is applied, nothing is guessed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -543,7 +553,7 @@ pub(crate) fn build_edge_adjacency(brep: &BRep) -> EdgeAdjacency {
 
 /// One certified corridor junction: the walk left `face_from` across `edge`
 /// (the copy on `face_from`'s loop) into `face_to`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct WalkJunction {
     pub face_from: u32,
     pub face_to: u32,
@@ -553,7 +563,7 @@ pub(crate) struct WalkJunction {
 }
 
 /// Why a corridor walk stopped.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WalkEnd {
     /// The exit crossed into the OTHER chain's face: the last junction is the
     /// far chain's true end; the corridor is fully discovered.
@@ -948,6 +958,18 @@ pub(crate) struct WalkCtx<'a> {
     pub far: Surface,
     pub adj: &'a EdgeAdjacency,
     pub existing: &'a dyn Fn(u32, u32, [f64; 3]) -> Option<(u32, f64)>,
+    /// Which identity band arms the splice terminal. The census keeps
+    /// [`WalkBand::Eval`] (inc-2b/2c-1 lines stay byte-stable); the APPLY
+    /// assembly uses [`WalkBand::Contract`] so the corridor ends at the
+    /// FIRST owned junction (§3g's splice-band note).
+    pub splice_band: WalkBand,
+}
+
+/// The splice terminal's identity band selector (see [`WalkCtx::splice_band`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WalkBand {
+    Eval,
+    Contract,
 }
 
 /// Walk the far∩facet intersection curve across an operand's face lattice
@@ -1099,7 +1121,11 @@ pub(crate) fn walk_corridor(
             return (out, WalkEnd::ReachedOtherChain);
         }
         if let Some((w, dw)) = (ctx.existing)(face, partner, sol) {
-            if dw <= eval_band(mag3(sol)) {
+            let band = match ctx.splice_band {
+                WalkBand::Eval => eval_band(mag3(sol)),
+                WalkBand::Contract => contract_band(mag3(sol)),
+            };
+            if dw <= band {
                 return (out, WalkEnd::ReachedExistingJunction { vertex: w });
             }
         }
@@ -1107,6 +1133,468 @@ pub(crate) fn walk_corridor(
         face = partner;
     }
     (out, WalkEnd::TooLong)
+}
+
+/// Disposition of one corridor junction in the apply plan (spec §3h):
+/// mint a new mesh vertex, or splice to an existing one that already
+/// carries the junction within the CONTRACT band.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum JunctionDisposition {
+    Mint,
+    Splice { vertex: u32, d: f64 },
+}
+
+/// One junction of an assembled corridor: the exact solution, the walk
+/// operand's face pair it separates (oriented along the corridor), a
+/// representative model-edge copy, and its disposition.
+#[derive(Clone, Debug)]
+pub(crate) struct CorridorJunction {
+    pub sol: [f64; 3],
+    pub faces: (u32, u32),
+    pub edge: u32,
+    pub disposition: JunctionDisposition,
+}
+
+/// Source of the run crossing one facet between consecutive junctions.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum RunSource {
+    /// Fresh chord-density interior samples (may be empty: the single chord
+    /// already meets d_eps).
+    Samples(Vec<[f64; 3]>),
+    /// An existing healthy interior chain covers part (or all) of the run,
+    /// ordered junc0-side → junc1-side, with fresh chord-density samples
+    /// bridging each junction gap (R0044 v144: v161 rides mid-facet with
+    /// its wrong edge into the phantom; the repair keeps the healthy chain
+    /// and bridges v161 → the rim mint).
+    Spliced {
+        head: Vec<[f64; 3]>,
+        chain: Vec<u32>,
+        tail: Vec<[f64; 3]>,
+    },
+}
+
+/// Why one run could not be sourced. The corridor still assembles (its
+/// junction anatomy is census data either way); only a corridor whose
+/// every run is sourced is APPLYABLE — the mutation refuses the rest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RunIssue {
+    /// Chord subdivision hit the depth cap, the pair Newton diverged, or
+    /// the facet surface is unavailable.
+    SampleFailed,
+    /// Existing far∩facet carriers are present but do not form ONE simple
+    /// path whose ends land on the run's junctions at the contract band —
+    /// census data for the mutation's re-anchoring rule, never guessed.
+    ChainEndsUnmatched { comps: usize },
+}
+
+/// One assembled repair unit — the CORRIDOR (spec §3d/§3h). `runs[i]`
+/// crosses the single facet shared by `junctions[i]` and `junctions[i+1]`.
+#[derive(Clone, Debug)]
+pub(crate) struct CorridorRepair {
+    pub far: (InputId, u32),
+    pub walk_op: InputId,
+    /// Fired travellers this corridor consumes (merged sites; sorted).
+    pub phantoms: Vec<u32>,
+    /// Their crossed corner vertices (sorted).
+    pub corners: Vec<u32>,
+    pub junctions: Vec<CorridorJunction>,
+    pub runs: Vec<(u32, Result<RunSource, RunIssue>)>,
+}
+
+impl CorridorRepair {
+    /// Every run sourced — the mutation's admission test.
+    pub(crate) fn applyable(&self) -> bool {
+        self.runs.iter().all(|(_, r)| r.is_ok())
+    }
+}
+
+/// Typed assembly declines — a declined site keeps the standing loud
+/// §4-I9 STOP; nothing is guessed (P10).
+#[derive(Clone, Debug)]
+pub(crate) enum AssemblyDecline {
+    /// The walk did not terminate on a chain end or an owned junction.
+    WalkFailed { site: u32, end: WalkEnd },
+    /// Consecutive junctions do not name the crossed facet consistently.
+    FaceChainBroken { site: u32, at: usize },
+    /// Two corridors overlap beyond one endpoint-to-endpoint shared mint —
+    /// one curve read as two units; both withdrawn.
+    CorridorConflict { sites: Vec<u32> },
+}
+
+/// One existing far∩facet carrier component, as the caller's census closure
+/// reports it: adjacency-ordered when `path` (ends first/last), unordered
+/// otherwise.
+#[derive(Clone, Debug)]
+pub(crate) struct FacetChain {
+    pub verts: Vec<(u32, [f64; 3])>,
+    pub path: bool,
+}
+
+/// One site's walk observation under APPLY semantics — the assembly input.
+/// `entry` is the real candidate junction oriented INTO the walk (face_from
+/// = the candidate's shared face, face_to = the site's `next`); `juncs`
+/// includes the terminal junction (the walker pushes before terminating).
+#[derive(Clone, Debug)]
+pub(crate) struct SiteWalk {
+    pub site: u32,
+    pub corner: u32,
+    pub far: (InputId, u32),
+    pub far_surf: Surface,
+    pub walk_op: InputId,
+    pub entry: WalkJunction,
+    pub juncs: Vec<WalkJunction>,
+    pub end: WalkEnd,
+}
+
+/// Nearest existing mesh vertex carrying a junction triple
+/// {far, (op, face_from), (op, face_to)} near a position.
+pub(crate) type ExistingLookup<'a> =
+    &'a dyn Fn((InputId, u32), InputId, u32, u32, [f64; 3]) -> Option<(u32, f64)>;
+
+/// The assembly's mesh-side lookups, provided by the caller (the pure
+/// assembly never touches the mesh itself).
+pub(crate) struct AssembleCtx<'a> {
+    pub existing: ExistingLookup<'a>,
+    /// Existing far∩facet carrier components on one facet (v80-class).
+    pub facet_chain: &'a dyn Fn((InputId, u32), InputId, u32) -> Vec<FacetChain>,
+    /// Surface of a walk-operand face.
+    pub face_surface: &'a dyn Fn(InputId, u32) -> Option<Surface>,
+    /// The Stage-1 chord band (d_ε) — the run acceptance criterion.
+    pub d_eps: f64,
+}
+
+/// Chord-density interior samples of the far∩facet run between two exact
+/// junctions (the paper's §4.3.4 criterion at the Stage-1 chord band):
+/// recursive midpoint subdivision, each midpoint re-solved onto BOTH
+/// surfaces by the pair Newton; a chord whose solved midpoint sags ≤ d_eps
+/// is accepted. Depth-capped LOUD (`None`) — a diverging Newton or an
+/// unreachable band never silently emits a straight chord.
+pub(crate) fn sample_run_chord(
+    far: Surface,
+    facet: Surface,
+    j0: [f64; 3],
+    j1: [f64; 3],
+    d_eps: f64,
+) -> Option<Vec<[f64; 3]>> {
+    fn rec(
+        far: Surface,
+        facet: Surface,
+        a: [f64; 3],
+        b: [f64; 3],
+        d_eps: f64,
+        depth: usize,
+        out: &mut Vec<[f64; 3]>,
+    ) -> bool {
+        let mid = [
+            0.5 * (a[0] + b[0]),
+            0.5 * (a[1] + b[1]),
+            0.5 * (a[2] + b[2]),
+        ];
+        let Some(sol) = crate::stage4_relocate::relocate_onto_implicit_pair(
+            Point3::new(mid[0], mid[1], mid[2]),
+            far,
+            facet,
+        ) else {
+            return false;
+        };
+        let sol = sol.as_array();
+        if d3(sol, mid) <= d_eps {
+            return true;
+        }
+        if depth == 0 {
+            return false;
+        }
+        rec(far, facet, a, sol, d_eps, depth - 1, out) && {
+            out.push(sol);
+            rec(far, facet, sol, b, d_eps, depth - 1, out)
+        }
+    }
+    // A chord already at identity scale needs no interior structure.
+    if d3(j0, j1) <= contract_band(mag3(j0).max(mag3(j1))) {
+        return Some(Vec::new());
+    }
+    let mut out = Vec::new();
+    rec(far, facet, j0, j1, d_eps, 10, &mut out).then_some(out)
+}
+
+/// Assemble per-site walks into canonical CORRIDOR repair units
+/// (spec §3h). Walks sharing any junction within the contract band (same
+/// walk operand + far patch) are one corridor: the longest walk is the
+/// SPINE, every clustered walk must match a contiguous sub-run of it
+/// (forward or reversed), the merged junction list is dispositioned
+/// against the mesh, and each between-junctions run is sourced from an
+/// existing healthy chain or fresh chord-density samples. Every failure
+/// is a typed [`AssemblyDecline`]; a declined cluster builds nothing.
+pub(crate) fn assemble_corridors(
+    ctx: &AssembleCtx,
+    walks: &[SiteWalk],
+) -> (Vec<CorridorRepair>, Vec<AssemblyDecline>) {
+    let mut declines = Vec::new();
+    let mut ok: Vec<&SiteWalk> = Vec::new();
+    for w in walks {
+        match w.end {
+            WalkEnd::ReachedOtherChain | WalkEnd::ReachedExistingJunction { .. } => ok.push(w),
+            _ => declines.push(AssemblyDecline::WalkFailed {
+                site: w.site,
+                end: w.end,
+            }),
+        }
+    }
+    // Full oriented junction sequence per walk: entry ++ walk junctions.
+    let seq_of = |w: &SiteWalk| -> Vec<WalkJunction> {
+        let mut s = Vec::with_capacity(1 + w.juncs.len());
+        s.push(w.entry);
+        s.extend(w.juncs.iter().copied());
+        s
+    };
+    let seqs: Vec<Vec<WalkJunction>> = ok.iter().map(|w| seq_of(w)).collect();
+    // Position identity at the contract band.
+    let same = |x: [f64; 3], y: [f64; 3]| d3(x, y) <= contract_band(mag3(x).max(mag3(y)));
+    // Greedy corridor formation per (operand, far patch): the longest
+    // unassigned walk becomes a corridor SPINE, absorbing every remaining
+    // walk that is a contiguous sub-run of it (forward or reversed, by
+    // position identity) — the clip's two directions, and any second site
+    // sampling the same curve. A walk sharing junctions WITHOUT being a
+    // sub-run starts its OWN corridor: R0044 measured v142/v144 sharing
+    // exactly their rim-mint ENDPOINT — two corridors, ONE shared mint.
+    // Cross-corridor sharing beyond endpoint-to-endpoint is a loud
+    // conflict (checked after assembly).
+    let mut order: Vec<usize> = (0..ok.len()).collect();
+    order.sort_by_key(|&i| (std::cmp::Reverse(seqs[i].len()), ok[i].site, i));
+    let mut assigned = vec![false; ok.len()];
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for &i in &order {
+        if assigned[i] {
+            continue;
+        }
+        assigned[i] = true;
+        let mut members = vec![i];
+        for &j in &order {
+            if assigned[j] || ok[j].walk_op != ok[i].walk_op || ok[j].far != ok[i].far {
+                continue;
+            }
+            let (s, t) = (&seqs[i], &seqs[j]);
+            let matches_at = |start: usize, rev: bool| -> bool {
+                (0..t.len()).all(|k| {
+                    let tk = if rev { t.len() - 1 - k } else { k };
+                    same(s[start + k].sol, t[tk].sol)
+                })
+            };
+            let fits = t.len() <= s.len()
+                && (0..=(s.len() - t.len()))
+                    .any(|st| matches_at(st, false) || matches_at(st, true));
+            if fits {
+                assigned[j] = true;
+                members.push(j);
+            }
+        }
+        groups.push(members);
+    }
+    let mut out = Vec::new();
+    'cluster: for members in &groups {
+        let spine_i = members[0];
+        // Canonical orientation: first junction position key ≤ last (bitwise
+        // lexicographic), so re-runs and mirrored walks agree.
+        let key = |p: [f64; 3]| [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()];
+        let mut spine: Vec<WalkJunction> = seqs[spine_i].clone();
+        let reversed = key(spine[spine.len() - 1].sol) < key(spine[0].sol);
+        if reversed {
+            spine.reverse();
+            for j in &mut spine {
+                j.face_from = std::mem::replace(&mut j.face_to, j.face_from);
+            }
+        }
+        // Face chain: consecutive junctions must agree on the crossed facet.
+        let w0 = ok[spine_i];
+        for i in 0..spine.len().saturating_sub(1) {
+            if spine[i].face_to != spine[i + 1].face_from {
+                declines.push(AssemblyDecline::FaceChainBroken {
+                    site: w0.site,
+                    at: i,
+                });
+                continue 'cluster;
+            }
+        }
+        // Dispositions: mint once by position; splice where the mesh already
+        // owns the junction at the contract band.
+        let junctions: Vec<CorridorJunction> = spine
+            .iter()
+            .map(|j| {
+                let near = (ctx.existing)(w0.far, w0.walk_op, j.face_from, j.face_to, j.sol);
+                let disposition = match near {
+                    Some((v, d)) if d <= contract_band(mag3(j.sol)) => {
+                        JunctionDisposition::Splice { vertex: v, d }
+                    }
+                    _ => JunctionDisposition::Mint,
+                };
+                CorridorJunction {
+                    sol: j.sol,
+                    faces: (j.face_from, j.face_to),
+                    edge: j.edge,
+                    disposition,
+                }
+            })
+            .collect();
+        // Runs: existing healthy chain (ends on the junctions) or fresh
+        // chord-density samples. A run that cannot be sourced is a typed
+        // per-run issue — the corridor still assembles (census), it is just
+        // not applyable.
+        let mut runs = Vec::with_capacity(junctions.len().saturating_sub(1));
+        for i in 0..junctions.len().saturating_sub(1) {
+            let facet = junctions[i].faces.1;
+            let (p0, p1) = (junctions[i].sol, junctions[i + 1].sol);
+            // Only carrier components LOCAL to this run matter: nearest
+            // approach to the run's chord within max(d_eps, contract).
+            // R0044 measured healthy chains of the far surface's OTHER
+            // angular crossing region on these same facets, ~1.7e3 away —
+            // neighbours of the patch, never this run's source.
+            let local = ctx.d_eps.max(contract_band(mag3(p0).max(mag3(p1))));
+            let comps: Vec<FacetChain> = (ctx.facet_chain)(w0.far, w0.walk_op, facet)
+                .into_iter()
+                .filter(|c| {
+                    c.verts
+                        .iter()
+                        .any(|&(_, vp)| dist_point_segment(vp, p0, p1) <= local)
+                })
+                .collect();
+            // Trim each component's ENDS while they sit at a junction (the
+            // splice vertex IS the junction, not run interior); a component
+            // fully consumed by trimming vanishes.
+            let comps: Vec<FacetChain> = comps
+                .into_iter()
+                .filter_map(|mut c| {
+                    if !c.path {
+                        return Some(c);
+                    }
+                    while c
+                        .verts
+                        .first()
+                        .is_some_and(|&(_, vp)| same(vp, p0) || same(vp, p1))
+                    {
+                        c.verts.remove(0);
+                    }
+                    while c
+                        .verts
+                        .last()
+                        .is_some_and(|&(_, vp)| same(vp, p0) || same(vp, p1))
+                    {
+                        c.verts.pop();
+                    }
+                    (!c.verts.is_empty()).then_some(c)
+                })
+                .collect();
+            let fresh = |a: [f64; 3], b: [f64; 3]| -> Option<Vec<[f64; 3]>> {
+                let fs = (ctx.face_surface)(w0.walk_op, facet)?;
+                sample_run_chord(w0.far_surf, fs, a, b, ctx.d_eps)
+            };
+            let source = match comps.as_slice() {
+                [] => match fresh(p0, p1) {
+                    Some(samples) => Ok(RunSource::Samples(samples)),
+                    None => Err(RunIssue::SampleFailed),
+                },
+                [c] if c.path => {
+                    // Orient junc0-side first, certify both ends ON the far
+                    // surface (an off-surface end is the operand's own
+                    // conformal residual — R0085's 1.5e-2 wall; never bridge
+                    // from it), then bridge each junction gap fresh.
+                    let (h, t) = (c.verts[0], c.verts[c.verts.len() - 1]);
+                    let forward = d3(h.1, p0).min(d3(t.1, p1)) <= d3(h.1, p1).min(d3(t.1, p0));
+                    let ordered: Vec<(u32, [f64; 3])> = if forward {
+                        c.verts.clone()
+                    } else {
+                        c.verts.iter().rev().copied().collect()
+                    };
+                    let on_far = |pos: [f64; 3]| {
+                        crate::stage4_relocate::surface_distance_and_normal(w0.far_surf, pos)
+                            .is_some_and(|(f, _)| f.abs() <= eval_band(mag3(pos)))
+                    };
+                    let (e0, e1) = (ordered[0].1, ordered[ordered.len() - 1].1);
+                    if !(on_far(e0) && on_far(e1)) {
+                        Err(RunIssue::ChainEndsUnmatched { comps: 1 })
+                    } else {
+                        match (fresh(p0, e0), fresh(e1, p1)) {
+                            (Some(head), Some(tail)) => Ok(RunSource::Spliced {
+                                head,
+                                chain: ordered.iter().map(|&(v, _)| v).collect(),
+                                tail,
+                            }),
+                            _ => Err(RunIssue::SampleFailed),
+                        }
+                    }
+                }
+                _ => Err(RunIssue::ChainEndsUnmatched { comps: comps.len() }),
+            };
+            runs.push((facet, source));
+        }
+        let mut phantoms: Vec<u32> = members.iter().map(|&m| ok[m].site).collect();
+        phantoms.sort_unstable();
+        phantoms.dedup();
+        let mut corners: Vec<u32> = members.iter().map(|&m| ok[m].corner).collect();
+        corners.sort_unstable();
+        corners.dedup();
+        out.push(CorridorRepair {
+            far: w0.far,
+            walk_op: w0.walk_op,
+            phantoms,
+            corners,
+            junctions,
+            runs,
+        });
+    }
+    // Cross-corridor identity check: two corridors may share junction
+    // positions only ENDPOINT-to-ENDPOINT, and only one (the v142/v144
+    // shared rim mint — ONE physical mint, two corridors). An interior
+    // share or a ≥2-junction overlap reads one curve as two units —
+    // both corridors are withdrawn, loudly.
+    let mut conflicted: Vec<usize> = Vec::new();
+    for i in 0..out.len() {
+        for j in (i + 1)..out.len() {
+            if out[i].walk_op != out[j].walk_op || out[i].far != out[j].far {
+                continue;
+            }
+            let mut shared = 0usize;
+            let mut endpoint_only = true;
+            for (a, ja) in out[i].junctions.iter().enumerate() {
+                for (b, jb) in out[j].junctions.iter().enumerate() {
+                    if same(ja.sol, jb.sol) {
+                        shared += 1;
+                        let ea = a == 0 || a == out[i].junctions.len() - 1;
+                        let eb = b == 0 || b == out[j].junctions.len() - 1;
+                        endpoint_only &= ea && eb;
+                    }
+                }
+            }
+            if shared > 1 || (shared == 1 && !endpoint_only) {
+                conflicted.push(i);
+                conflicted.push(j);
+            }
+        }
+    }
+    if !conflicted.is_empty() {
+        conflicted.sort_unstable();
+        conflicted.dedup();
+        let sites: Vec<u32> = conflicted
+            .iter()
+            .flat_map(|&k| out[k].phantoms.iter().copied())
+            .collect();
+        declines.push(AssemblyDecline::CorridorConflict { sites });
+        for &k in conflicted.iter().rev() {
+            out.remove(k);
+        }
+    }
+    (out, declines)
+}
+
+/// Distance from `p` to the segment `a`→`b`.
+pub(crate) fn dist_point_segment(p: [f64; 3], a: [f64; 3], b: [f64; 3]) -> f64 {
+    let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+    let l2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+    if l2 == 0.0 {
+        return d3(p, a);
+    }
+    let t = ((ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / l2).clamp(0.0, 1.0);
+    d3(p, [a[0] + t * ab[0], a[1] + t * ab[1], a[2] + t * ab[2]])
 }
 
 /// The corner-incident-edge rule's site classification: 1-real → transit,
@@ -1487,6 +1975,7 @@ mod tests {
             far,
             adj: &adj,
             existing: &no_existing,
+            splice_band: WalkBand::Eval,
         };
         let (juncs, end) = walk_corridor(
             &ctx,
@@ -1533,6 +2022,7 @@ mod tests {
             far,
             adj: &adj,
             existing: &no_existing,
+            splice_band: WalkBand::Eval,
         };
         let (juncs, end) = walk_corridor(
             &ctx,
@@ -1573,6 +2063,7 @@ mod tests {
             far,
             adj: &adj,
             existing: &claimed,
+            splice_band: WalkBand::Eval,
         };
         let (juncs, end) = walk_corridor(
             &ctx,
@@ -1666,5 +2157,303 @@ mod tests {
             }
             other => panic!("expected arc verdict, got {other:?}"),
         }
+    }
+
+    // ---- inc-2c-2: corridor assembly (spec §3h) --------------------------
+
+    /// A corridor fixture on the x-axis: far = plane z=0; the walk operand's
+    /// facets are planes through the x-axis (y + k·z = 0), so every far∩facet
+    /// run is the x-axis itself — chord midpoints re-solve onto the chord and
+    /// fresh runs need zero interior samples.
+    fn wj(x: f64, from: u32, to: u32) -> WalkJunction {
+        WalkJunction {
+            face_from: from,
+            face_to: to,
+            edge: 0,
+            sol: [x, 0.0, 0.0],
+            d_on_edge: 0.0,
+        }
+    }
+    fn axis_walk(site: u32, entry: WalkJunction, juncs: Vec<WalkJunction>) -> SiteWalk {
+        SiteWalk {
+            site,
+            corner: site + 1,
+            far: (InputId::A, 0),
+            far_surf: plane([0.0, 0.0, 1.0], 0.0),
+            walk_op: InputId::B,
+            entry,
+            juncs,
+            end: WalkEnd::ReachedOtherChain,
+        }
+    }
+    fn axis_ctx<'a>(
+        existing: ExistingLookup<'a>,
+        facet_chain: &'a dyn Fn((InputId, u32), InputId, u32) -> Vec<FacetChain>,
+        face_surface: &'a dyn Fn(InputId, u32) -> Option<Surface>,
+    ) -> AssembleCtx<'a> {
+        AssembleCtx {
+            existing,
+            facet_chain,
+            face_surface,
+            d_eps: 1e-6,
+        }
+    }
+    fn axis_facet(_op: InputId, f: u32) -> Option<Surface> {
+        // Distinct planes all containing the x-axis.
+        Some(plane([0.0, 1.0, 0.1 * f as f64], 0.0))
+    }
+
+    #[test]
+    fn assembly_merges_spine_and_both_clip_directions() {
+        // Spine (site 100): entry J0 + walk J1..J3 across facets 11,12,13.
+        // A clip (site 200) samples the corridor's TAIL in both directions —
+        // the measured v42+v78 merge shape. One corridor, both phantoms.
+        let spine = axis_walk(
+            100,
+            wj(0.0, 10, 11),
+            vec![wj(1.0, 11, 12), wj(2.0, 12, 13), wj(3.0, 13, 14)],
+        );
+        let clip_fwd = axis_walk(200, wj(2.0, 12, 13), vec![wj(3.0, 13, 14)]);
+        let clip_rev = axis_walk(200, wj(3.0, 14, 13), vec![wj(2.0, 13, 12)]);
+        let none_existing =
+            |_: (InputId, u32), _: InputId, _: u32, _: u32, _: [f64; 3]| -> Option<(u32, f64)> {
+                None
+            };
+        let no_chain = |_: (InputId, u32), _: InputId, _: u32| -> Vec<FacetChain> { Vec::new() };
+        let ctx = axis_ctx(&none_existing, &no_chain, &axis_facet);
+        let (corridors, declines) = assemble_corridors(&ctx, &[spine, clip_fwd, clip_rev]);
+        assert!(declines.is_empty(), "{declines:?}");
+        assert_eq!(corridors.len(), 1, "{corridors:?}");
+        let c = &corridors[0];
+        assert_eq!(c.phantoms, vec![100, 200]);
+        assert_eq!(c.corners, vec![101, 201]);
+        assert_eq!(c.junctions.len(), 4);
+        let faces: Vec<(u32, u32)> = c.junctions.iter().map(|j| j.faces).collect();
+        assert_eq!(faces, vec![(10, 11), (11, 12), (12, 13), (13, 14)]);
+        assert!(c
+            .junctions
+            .iter()
+            .all(|j| j.disposition == JunctionDisposition::Mint));
+        assert_eq!(c.runs.len(), 3);
+        for (f, src) in &c.runs {
+            match src {
+                Ok(RunSource::Samples(s)) => {
+                    assert!(s.is_empty(), "straight run needs no samples: facet {f}")
+                }
+                other => panic!("expected sourced samples on facet {f}, got {other:?}"),
+            }
+        }
+        assert!(c.applyable());
+    }
+
+    #[test]
+    fn assembly_splices_only_inside_the_contract_band() {
+        let spine = axis_walk(100, wj(0.0, 10, 11), vec![wj(1.0, 11, 12), wj(2.0, 12, 13)]);
+        // v77 owns J1 within the contract band (~3e-9 at scale 2); v88 sits
+        // near J2 but outside it.
+        let existing =
+            |_: (InputId, u32), _: InputId, ff: u32, ft: u32, _: [f64; 3]| -> Option<(u32, f64)> {
+                match (ff, ft) {
+                    (11, 12) => Some((77, 1e-9)),
+                    (12, 13) => Some((88, 1e-3)),
+                    _ => None,
+                }
+            };
+        let no_chain = |_: (InputId, u32), _: InputId, _: u32| -> Vec<FacetChain> { Vec::new() };
+        let ctx = axis_ctx(&existing, &no_chain, &axis_facet);
+        let (corridors, declines) = assemble_corridors(&ctx, &[spine]);
+        assert!(declines.is_empty(), "{declines:?}");
+        let c = &corridors[0];
+        assert_eq!(
+            c.junctions[1].disposition,
+            JunctionDisposition::Splice {
+                vertex: 77,
+                d: 1e-9
+            }
+        );
+        assert_eq!(c.junctions[0].disposition, JunctionDisposition::Mint);
+        assert_eq!(c.junctions[2].disposition, JunctionDisposition::Mint);
+    }
+
+    #[test]
+    fn assembly_declines_walks_without_a_terminal() {
+        let mut w = axis_walk(100, wj(0.0, 10, 11), vec![wj(1.0, 11, 12)]);
+        w.end = WalkEnd::NoExit;
+        let none_existing =
+            |_: (InputId, u32), _: InputId, _: u32, _: u32, _: [f64; 3]| -> Option<(u32, f64)> {
+                None
+            };
+        let no_chain = |_: (InputId, u32), _: InputId, _: u32| -> Vec<FacetChain> { Vec::new() };
+        let ctx = axis_ctx(&none_existing, &no_chain, &axis_facet);
+        let (corridors, declines) = assemble_corridors(&ctx, &[w]);
+        assert!(corridors.is_empty());
+        match declines.as_slice() {
+            [AssemblyDecline::WalkFailed { site: 100, end }] => {
+                assert_eq!(*end, WalkEnd::NoExit)
+            }
+            other => panic!("expected one WalkFailed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn assembly_withdraws_corridors_sharing_an_interior_junction() {
+        // Site 300 shares the spine's INTERIOR junction J1 and then leaves
+        // the spine — a curve cannot branch: both corridors are withdrawn
+        // with one loud conflict naming both sites.
+        let spine = axis_walk(100, wj(0.0, 10, 11), vec![wj(1.0, 11, 12), wj(2.0, 12, 13)]);
+        let stray = axis_walk(300, wj(1.0, 11, 12), vec![wj(9.0, 12, 77)]);
+        let none_existing =
+            |_: (InputId, u32), _: InputId, _: u32, _: u32, _: [f64; 3]| -> Option<(u32, f64)> {
+                None
+            };
+        let no_chain = |_: (InputId, u32), _: InputId, _: u32| -> Vec<FacetChain> { Vec::new() };
+        let ctx = axis_ctx(&none_existing, &no_chain, &axis_facet);
+        let (corridors, declines) = assemble_corridors(&ctx, &[spine, stray]);
+        assert!(corridors.is_empty(), "{corridors:?}");
+        match declines.as_slice() {
+            [AssemblyDecline::CorridorConflict { sites }] => assert_eq!(sites, &vec![100, 300]),
+            other => panic!("expected one CorridorConflict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn assembly_keeps_two_corridors_sharing_one_endpoint_mint() {
+        // The measured v142/v144 shape: two mirrored corridors meeting at
+        // ONE shared rim-mint endpoint. Both assemble; the shared junction
+        // is one physical mint (the caller's SHARED-MINT report), never a
+        // conflict.
+        let left = axis_walk(142, wj(1.0, 20, 11), vec![wj(0.0, 11, 10)]);
+        let right = axis_walk(144, wj(1.0, 21, 12), vec![wj(2.0, 12, 13)]);
+        let none_existing =
+            |_: (InputId, u32), _: InputId, _: u32, _: u32, _: [f64; 3]| -> Option<(u32, f64)> {
+                None
+            };
+        let no_chain = |_: (InputId, u32), _: InputId, _: u32| -> Vec<FacetChain> { Vec::new() };
+        let ctx = axis_ctx(&none_existing, &no_chain, &axis_facet);
+        let (corridors, declines) = assemble_corridors(&ctx, &[left, right]);
+        assert!(declines.is_empty(), "{declines:?}");
+        assert_eq!(corridors.len(), 2, "{corridors:?}");
+        let sites: Vec<Vec<u32>> = corridors.iter().map(|c| c.phantoms.clone()).collect();
+        assert!(sites.contains(&vec![142]) && sites.contains(&vec![144]));
+    }
+
+    #[test]
+    fn assembly_declines_a_broken_face_chain() {
+        // J1 exits into face 12 but J2 claims to cross out of face 55: the
+        // corridor's facet sequence is inconsistent — typed decline.
+        let w = axis_walk(100, wj(0.0, 10, 11), vec![wj(1.0, 11, 12), wj(2.0, 55, 13)]);
+        let none_existing =
+            |_: (InputId, u32), _: InputId, _: u32, _: u32, _: [f64; 3]| -> Option<(u32, f64)> {
+                None
+            };
+        let no_chain = |_: (InputId, u32), _: InputId, _: u32| -> Vec<FacetChain> { Vec::new() };
+        let ctx = axis_ctx(&none_existing, &no_chain, &axis_facet);
+        let (corridors, declines) = assemble_corridors(&ctx, &[w]);
+        assert!(corridors.is_empty(), "{corridors:?}");
+        assert!(
+            matches!(
+                declines.as_slice(),
+                [AssemblyDecline::FaceChainBroken { site: 100, at: 1 }]
+            ),
+            "{declines:?}"
+        );
+    }
+
+    #[test]
+    fn assembly_splices_chains_and_rejects_off_surface_ends() {
+        // Facet 11: a healthy path whose junction-coincident ends TRIM away
+        // (they are the junctions) leaving one interior vertex — the run
+        // splices it with empty fresh bridges (reversed order — the
+        // assembly aligns junc0-first). Facet 12: a mid-run rider whose
+        // wrong edge into the phantom is bridged fresh on both sides (the
+        // R0044 v161 shape). Facet 13 (via a third junction): a LOCAL
+        // carrier whose end is OFF the far surface — the operand's own
+        // conformal residual (R0085's wall): typed, never bridged.
+        let spine = axis_walk(
+            100,
+            wj(0.0, 10, 11),
+            vec![wj(1.0, 11, 12), wj(2.0, 12, 13), wj(3.0, 13, 14)],
+        );
+        let chain = |_: (InputId, u32), _: InputId, f: u32| -> Vec<FacetChain> {
+            match f {
+                11 => vec![FacetChain {
+                    verts: vec![
+                        (501, [1.0, 0.0, 0.0]),
+                        (502, [0.5, 0.0, 0.0]),
+                        (503, [0.0, 0.0, 0.0]),
+                    ],
+                    path: true,
+                }],
+                12 => vec![FacetChain {
+                    verts: vec![(601, [1.4, 0.0, 0.0]), (602, [1.7, 0.0, 0.0])],
+                    path: true,
+                }],
+                13 => vec![FacetChain {
+                    verts: vec![(701, [2.4, 0.0, 5.0e-7]), (702, [2.7, 0.0, 0.0])],
+                    path: true,
+                }],
+                _ => Vec::new(),
+            }
+        };
+        let none_existing =
+            |_: (InputId, u32), _: InputId, _: u32, _: u32, _: [f64; 3]| -> Option<(u32, f64)> {
+                None
+            };
+        let ctx = axis_ctx(&none_existing, &chain, &axis_facet);
+        let (corridors, declines) = assemble_corridors(&ctx, &[spine]);
+        assert!(declines.is_empty(), "{declines:?}");
+        let c = &corridors[0];
+        match &c.runs[0].1 {
+            Ok(RunSource::Spliced { head, chain, tail }) => {
+                assert_eq!(chain, &vec![502]);
+                assert!(head.is_empty() && tail.is_empty(), "straight bridges");
+            }
+            other => panic!("facet 11 should splice the interior chain: {other:?}"),
+        }
+        match &c.runs[1].1 {
+            Ok(RunSource::Spliced { head, chain, tail }) => {
+                assert_eq!(chain, &vec![601, 602]);
+                assert!(head.is_empty() && tail.is_empty());
+            }
+            other => panic!("facet 12 should splice the rider chain: {other:?}"),
+        }
+        assert_eq!(
+            c.runs[2].1,
+            Err(RunIssue::ChainEndsUnmatched { comps: 1 }),
+            "{:?}",
+            c.runs[2]
+        );
+        assert!(!c.applyable());
+    }
+
+    #[test]
+    fn sample_run_chord_meets_the_chord_band() {
+        // far = unit cylinder about z, facet = plane z=0: the run is the unit
+        // circle. A loose band accepts the bare chord; a tight one subdivides
+        // and every inserted sample lies exactly on the circle; an
+        // unreachable band fails LOUD.
+        let far = Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        };
+        let facet = plane([0.0, 0.0, 1.0], 0.0);
+        let (j0, j1) = ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
+        assert_eq!(
+            sample_run_chord(far, facet, j0, j1, 1.0),
+            Some(Vec::new()),
+            "a loose band accepts the bare chord"
+        );
+        let samples = sample_run_chord(far, facet, j0, j1, 1e-3).expect("subdivides");
+        assert!(!samples.is_empty());
+        for s in &samples {
+            let r = (s[0] * s[0] + s[1] * s[1]).sqrt();
+            assert!((r - 1.0).abs() <= 1e-9 && s[2].abs() <= 1e-9, "{s:?}");
+        }
+        assert_eq!(
+            sample_run_chord(far, facet, j0, j1, 1e-16),
+            None,
+            "an unreachable band hits the depth cap loud"
+        );
     }
 }
