@@ -852,7 +852,17 @@ name, never measured).
    fixing them. The typed STOPs + in-line oracles ARE the faithful
    guard-shell posture; do not build the recovery loop. The §4.5.4 REMOVAL
    half (SELFX fire-list on ~33 CORRECT cases) is unmeasured and stays
-   open.*
+   open.* *The corner-crosser sub-family the same census identified
+   (R0011/R0044/R0074/R0085 — `RelocationCrossedCarrierVertex`, I13f
+   rehome kin) has its own epic: `specs/yang_451_corner_transit.md`.
+   inc-0/inc-1 (2026-08-29) confirmed feasibility 46/46 and validated
+   the corner-incident-edge discriminator; inc-2a (2026-08-30) landed
+   the pure transit PLANNER (`stage4_transit.rs`, 23/23 verdicts = 12
+   transit + 5 clip + 6 typed declines, shared mints deduped by
+   POSITION identity across m1 edge copies) and the anatomy census
+   established the repair unit is the fan-walking CORRIDOR, refuting
+   the truncate-at-the-corner sketch. Next: inc-2b corridor-walk
+   census, then the gated apply arm (inc-2c).*
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the

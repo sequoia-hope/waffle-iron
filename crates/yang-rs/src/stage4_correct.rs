@@ -5359,6 +5359,10 @@ fn relocation_domain_postcondition(
     // strategy-selection walk after the loop (it needs the WHOLE fire list to
     // know which curve vertices are the failures).
     let mut census_sites: Vec<(u32, u32)> = Vec::new();
+    // Census-only: every REAL corner-transit junction read (site, corner,
+    // operand, model edge, solution) — grouped after the loop to surface
+    // shared-mint pairs (two views, one junction; R0044 v142/v144).
+    let mut mint_reads: Vec<(u32, u32, InputId, u32, [f64; 3])> = Vec::new();
     for (&v, neighbours) in &adj {
         let Some((pre, post)) = moved_at(v) else {
             continue;
@@ -5502,26 +5506,16 @@ fn relocation_domain_postcondition(
                     "YANG_S45_TRUNCATE v{v} -> {:?}",
                     crate::stage4_truncate::max_in_domain_step(pre, post, &[(q, qpos)])
                 );
-                // Corner-transit epic inc-0 (spec `yang_452_local_refinement.md`
-                // routing): feasibility of the CORRECTED junction. The
-                // traveller's own solve minted the phantom triple
-                // {far, base, facet_k} beyond the still corner q; the transit
-                // repair would instead solve {far, base, facet_j} with
-                // facet_j = q's third face (the adjacent facet past the
-                // corner). Which member of pv∩pq is the continuing base and
-                // which is the dropped facet_k is not decidable from the sets
-                // alone, so BOTH candidate triples are solved and reported —
-                // the real transit target is the one that converges a
-                // ~overrun distance past q and lands inside the adjacent
-                // facet's hull. Report-only (census mode), applies nothing.
+                // Corner-transit epic (spec `specs/yang_451_corner_transit.md`):
+                // inc-0 solved both candidate corrected triples (feasibility,
+                // 46/46 converge); inc-1 read each solution against the
+                // candidate faces' own edge domains and VALIDATED the
+                // corner-incident-edge rule; inc-2a extracts that instrument
+                // into the pure planner (`stage4_transit`) so census and the
+                // eventual apply arm share ONE reading, and adds the site
+                // ANATOMY the apply design needs (curve-neighbour chains,
+                // per-attribution fans, the v–q wedge). Report-only.
                 {
-                    let surface_of = |patch: &(InputId, u32)| -> Option<Surface> {
-                        let faces = match patch.0 {
-                            InputId::A => a.faces(),
-                            InputId::B => b.faces(),
-                        };
-                        faces.get(patch.1 as usize).map(|f| f.surface)
-                    };
                     let (pv, pq) = (patches_of(v), patches_of(q));
                     let far: Vec<_> = pv.difference(pq).collect();
                     let next: Vec<_> = pq.difference(pv).collect();
@@ -5530,263 +5524,185 @@ fn relocation_domain_postcondition(
                         "YANG_S4_CARRIER_DOMAIN-TRANSIT v{v} q=v{q} far={far:?} \
                          next={next:?} shared={shared:?}"
                     );
-                    // inc-1: the continuing-edge DISCRIMINATOR reading. A
-                    // candidate {far, shared_i, next} is the true transit
-                    // target only if its junction lies INSIDE the model edge
-                    // (shared_i ∩ next)'s own segment/arc domain — hull
-                    // membership cannot discriminate (inc-0: both candidates
-                    // converge in-hull at planar sites). Report, per
-                    // candidate: the operand edge shared by the two faces
-                    // (picked by nearest endpoint to q), its curve kind, the
-                    // q-endpoint residual, and the solution's parameter
-                    // against the edge's own extent. Report-only.
-                    let edge_domain_report = |sp: &(InputId, u32),
-                                              np: &(InputId, u32),
-                                              sol: [f64; 3]|
-                     -> String {
-                        if sp.0 != np.0 {
-                            return "cross-operand-pair".into();
-                        }
-                        let brep = match sp.0 {
-                            InputId::A => a,
-                            InputId::B => b,
-                        };
-                        let faces = brep.faces();
-                        let (Some(fs), Some(fnx)) =
-                            (faces.get(sp.1 as usize), faces.get(np.1 as usize))
-                        else {
-                            return "face-out-of-range".into();
-                        };
-                        // The candidate junction lies on the curve
-                        // shared_i ∩ next, so it must sit on a boundary
-                        // edge present in BOTH faces' loops — but the
-                        // to_yang converter shares only CURVED edges
-                        // between faces (LineSegments are per-loop
-                        // copies, the m1 convention), so index
-                        // intersection finds nothing on facet chains.
-                        // Geometric reading instead: over the UNION of
-                        // both faces' loop edges, pick the edge nearest
-                        // SOL by point-to-chord distance and report its
-                        // parameter verdict (LineSegment exact; the
-                        // pre-existing Circle arm below reads arcs).
-                        let verts = brep.vertices();
-                        let edges = brep.edges();
-                        let d = |x: [f64; 3], y: [f64; 3]| {
-                            ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2))
+                    match crate::stage4_transit::read_site(a, b, pv, pq, qpos) {
+                        Err(d) => eprintln!(
+                            "YANG_S4_CARRIER_DOMAIN-TRANSIT   PLAN v{v} q=v{q} DECLINE {d:?}"
+                        ),
+                        Ok(site) => {
+                            let dist = |x: [f64; 3], y: [f64; 3]| {
+                                ((x[0] - y[0]).powi(2)
+                                    + (x[1] - y[1]).powi(2)
+                                    + (x[2] - y[2]).powi(2))
                                 .sqrt()
-                        };
-                        let mut best: Option<(u32, f64, f64)> = None; // (edge, d_sol, d_q_end)
-                        for &ei in fs
-                            .outer_loop
-                            .iter()
-                            .chain(fs.inner_loops.iter().flatten())
-                            .chain(fnx.outer_loop.iter())
-                            .chain(fnx.inner_loops.iter().flatten())
-                        {
-                            let e = &edges[ei as usize];
-                            let ps = verts[e.start as usize].point.as_array();
-                            let pe = verts[e.end as usize].point.as_array();
-                            // Curve-aware distance from sol, for RANKING
-                            // (the exact parameter verdict below re-reads
-                            // the winner by its true curve). A plain
-                            // chord-projection proxy is BIASED AGAINST
-                            // ARCS — a rim circle's chord can be far from a
-                            // point lying exactly on the arc, so straight
-                            // cap/meridian edges win spuriously (measured
-                            // on R0044's gear-revolve bands). Circle edges
-                            // rank by their true circle distance
-                            // √(axial² + (radial − r)²); everything else by
-                            // the clamped chord.
-                            let ds = if let Curve::Circle {
-                                center,
-                                normal,
-                                radius,
-                            } = e.curve
-                            {
-                                let nu = normalize3(normal.as_array());
-                                let c = center.as_array();
-                                let w = [sol[0] - c[0], sol[1] - c[1], sol[2] - c[2]];
-                                let ax = w[0] * nu[0] + w[1] * nu[1] + w[2] * nu[2];
-                                let rad = [w[0] - ax * nu[0], w[1] - ax * nu[1], w[2] - ax * nu[2]];
-                                let rl =
-                                    (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
-                                (ax * ax + (rl - radius) * (rl - radius)).sqrt()
-                            } else {
-                                let dv = [pe[0] - ps[0], pe[1] - ps[1], pe[2] - ps[2]];
-                                let l2 = dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2];
-                                let t = if l2 > 0.0 {
-                                    (((sol[0] - ps[0]) * dv[0]
-                                        + (sol[1] - ps[1]) * dv[1]
-                                        + (sol[2] - ps[2]) * dv[2])
-                                        / l2)
-                                        .clamp(0.0, 1.0)
-                                } else {
-                                    0.0
-                                };
-                                let proj =
-                                    [ps[0] + t * dv[0], ps[1] + t * dv[1], ps[2] + t * dv[2]];
-                                d(sol, proj)
                             };
-                            let dq = d(ps, qpos).min(d(pe, qpos));
-                            if best.is_none_or(|(_, bd, _)| ds < bd) {
-                                best = Some((ei, ds, dq));
-                            }
-                        }
-                        let Some((ei, _, dq)) = best else {
-                            return "no-loop-edges".into();
-                        };
-                        // Owner tag: which of the candidate's two faces
-                        // carries the winning edge in its loops (S =
-                        // shared_i, N = next; SN = both — only possible
-                        // for converter-shared curved edges).
-                        let in_loops = |f: &BRepFace| {
-                            f.outer_loop
-                                .iter()
-                                .chain(f.inner_loops.iter().flatten())
-                                .any(|&x| x == ei)
-                        };
-                        let own = match (in_loops(fs), in_loops(fnx)) {
-                            (true, true) => "SN",
-                            (true, false) => "S",
-                            (false, true) => "N",
-                            (false, false) => "-",
-                        };
-                        let e = &edges[ei as usize];
-                        let ps = verts[e.start as usize].point.as_array();
-                        let pe = verts[e.end as usize].point.as_array();
-                        match e.curve {
-                            Curve::LineSegment => {
-                                let dv = [pe[0] - ps[0], pe[1] - ps[1], pe[2] - ps[2]];
-                                let l2 = dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2];
-                                if l2 <= 0.0 {
-                                    return format!(
-                                        "edge={ei} own={own} LineSegment DEGENERATE q_end={dq:.2e}"
-                                    );
-                                }
-                                let t = ((sol[0] - ps[0]) * dv[0]
-                                    + (sol[1] - ps[1]) * dv[1]
-                                    + (sol[2] - ps[2]) * dv[2])
-                                    / l2;
-                                let proj =
-                                    [ps[0] + t * dv[0], ps[1] + t * dv[1], ps[2] + t * dv[2]];
-                                format!(
-                                    "edge={ei} own={own} LineSegment q_end={dq:.2e} t={t:.4} \
-                                         off_line={:.3e} in_segment={}",
-                                    d(sol, proj),
-                                    t > 0.0 && t < 1.0
-                                )
-                            }
-                            Curve::Circle {
-                                center,
-                                normal,
-                                radius,
-                            } => {
-                                let nu = normalize3(normal.as_array());
-                                let Some((e1, e2)) = crate::stage4_slit::circle_frame(nu) else {
-                                    return format!(
-                                            "edge={ei} own={own} Circle frame-degenerate q_end={dq:.2e}"
-                                        );
-                                };
-                                let c = center.as_array();
-                                let theta = |p: [f64; 3]| -> f64 {
-                                    let w = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
-                                    let x = w[0] * e1[0] + w[1] * e1[1] + w[2] * e1[2];
-                                    let y = w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2];
-                                    y.atan2(x)
-                                };
-                                let tau = std::f64::consts::TAU;
-                                let wrap = |x: f64| x.rem_euclid(tau);
-                                let (ts, te, tp) = (theta(ps), theta(pe), theta(sol));
-                                if e.start == e.end {
-                                    return format!(
-                                        "edge={ei} own={own} Circle CLOSED q_end={dq:.2e} \
-                                             theta_sol={tp:.4}"
-                                    );
-                                }
-                                // Both orientations reported: the loop
-                                // direction convention is not assumed —
-                                // the census data decides which reading
-                                // discriminates.
-                                let span_ccw = wrap(te - ts);
-                                let sol_ccw = wrap(tp - ts);
-                                let in_ccw = sol_ccw > 0.0 && sol_ccw < span_ccw;
-                                let span_cw = wrap(ts - te);
-                                let sol_cw = wrap(tp - te);
-                                let in_cw = sol_cw > 0.0 && sol_cw < span_cw;
-                                format!(
-                                    "edge={ei} own={own} Circle r={radius:.4} q_end={dq:.2e} \
-                                         span_ccw={span_ccw:.4} sol_ccw={sol_ccw:.4} \
-                                         in_ccw={in_ccw} in_cw={in_cw}"
-                                )
-                            }
-                            ref other => format!(
-                                "edge={ei} own={own} curve={:?} q_end={dq:.2e} (param test not \
-                                     implemented in inc-1)",
-                                std::mem::discriminant(other)
-                            ),
-                        }
-                    };
-                    if let ([fp], [np]) = (far.as_slice(), next.as_slice()) {
-                        for sp in &shared {
-                            let (Some(sf), Some(ss), Some(sn)) =
-                                (surface_of(fp), surface_of(sp), surface_of(np))
-                            else {
-                                continue;
-                            };
-                            let label = format!("[{fp:?},{sp:?},{np:?}]");
-                            match crate::stage4_relocate::relocate_onto_implicit_triple(
-                                Point3::new(qpos[0], qpos[1], qpos[2]),
-                                sf,
-                                ss,
-                                sn,
-                            ) {
-                                Some(sol) => {
-                                    let sa = sol.as_array();
-                                    let dist = |x: [f64; 3], y: [f64; 3]| {
-                                        ((x[0] - y[0]).powi(2)
-                                            + (x[1] - y[1]).powi(2)
-                                            + (x[2] - y[2]).powi(2))
-                                        .sqrt()
-                                    };
-                                    // Does the corrected junction lie inside
-                                    // the adjacent facet's own extent? Planes
-                                    // only (None = no verdict), at the
-                                    // Stage-1 chord band the hull's chord
-                                    // vertices honestly carry.
-                                    let hull = stage4_chord_band(a, b).and_then(|de| {
-                                        planar_partner_hull_contains(a, b, sn, sa, de)
-                                    });
-                                    eprintln!(
-                                        "YANG_S4_CARRIER_DOMAIN-TRANSIT   triple{label} -> \
-                                         CONVERGED d_from_q={:.4e} d_from_post={:.4e} \
-                                         overrun={:.4e} next_hull={hull:?} sol=({:.9},{:.9},{:.9})",
-                                        dist(sa, qpos),
-                                        dist(sa, post),
-                                        dist(post, qpos),
-                                        sa[0],
-                                        sa[1],
-                                        sa[2],
-                                    );
-                                    eprintln!(
-                                        "YANG_S4_CARRIER_DOMAIN-TRANSIT     edge{label} -> {}",
-                                        edge_domain_report(sp, np, sa)
-                                    );
-                                }
-                                None => {
+                            for c in &site.cands {
+                                let label =
+                                    format!("[{:?},{:?},{:?}]", site.far, c.shared, site.next);
+                                let Some(sa) = c.sol else {
                                     eprintln!(
                                         "YANG_S4_CARRIER_DOMAIN-TRANSIT   triple{label} -> \
                                          NO-CONVERGE"
                                     );
+                                    continue;
+                                };
+                                // inc-0 continuity: the planar-hull reading
+                                // (planes only; None = no verdict) at the
+                                // Stage-1 chord band.
+                                let sn = {
+                                    let faces = match site.next.0 {
+                                        InputId::A => a.faces(),
+                                        InputId::B => b.faces(),
+                                    };
+                                    faces.get(site.next.1 as usize).map(|f| f.surface)
+                                };
+                                let hull = sn.and_then(|sn| {
+                                    stage4_chord_band(a, b).and_then(|de| {
+                                        planar_partner_hull_contains(a, b, sn, sa, de)
+                                    })
+                                });
+                                eprintln!(
+                                    "YANG_S4_CARRIER_DOMAIN-TRANSIT   triple{label} -> \
+                                     CONVERGED d_from_q={:.4e} d_from_post={:.4e} \
+                                     overrun={:.4e} next_hull={hull:?} sol=({:.9},{:.9},{:.9})",
+                                    dist(sa, qpos),
+                                    dist(sa, post),
+                                    dist(post, qpos),
+                                    sa[0],
+                                    sa[1],
+                                    sa[2],
+                                );
+                                eprintln!(
+                                    "YANG_S4_CARRIER_DOMAIN-TRANSIT     edge{label} -> {} \
+                                     real={}{}{}",
+                                    crate::stage4_transit::format_edge_read(&c.edge),
+                                    c.real,
+                                    if c.why.is_empty() { "" } else { " why=" },
+                                    c.why,
+                                );
+                            }
+                            match crate::stage4_transit::classify(&site, qpos) {
+                                Ok(class) => {
+                                    eprintln!(
+                                        "YANG_S4_CARRIER_DOMAIN-TRANSIT   PLAN v{v} q=v{q} \
+                                         {class:?}"
+                                    );
+                                    // Collect every REAL junction read for the
+                                    // post-loop shared-mint grouping (the I13f
+                                    // two-views-one-mint anatomy; R0044
+                                    // v142/v144).
+                                    for c in &site.cands {
+                                        if let (true, Some(sa), Some(er)) =
+                                            (c.real, c.sol, c.edge.as_ref())
+                                        {
+                                            mint_reads.push((v, q, c.shared.0, er.edge, sa));
+                                        }
+                                    }
                                 }
+                                Err(d) => eprintln!(
+                                    "YANG_S4_CARRIER_DOMAIN-TRANSIT   PLAN v{v} q=v{q} \
+                                     DECLINE {d:?}"
+                                ),
                             }
                         }
                     }
+                    // Site ANATOMY for the inc-2 apply design: which mesh
+                    // curve chains arrive at the traveller, what each incident
+                    // fan is attributed to, and which triangles ride the v–q
+                    // wedge. Report-only.
+                    let d3 = |x: [f64; 3], y: [f64; 3]| {
+                        ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2))
+                            .sqrt()
+                    };
+                    if let Some(nbrs) = adj.get(&v) {
+                        for &w in nbrs {
+                            let wpos = mesh.verts[w as usize].as_array();
+                            let moved = (w as usize) < n && entry[w as usize] != wpos;
+                            eprintln!(
+                                "YANG_S4_CARRIER_DOMAIN-ANAT    v{v} nbr v{w} d={:.4e} \
+                                 moved={moved} on_curve={} patches={:?}",
+                                d3(post, wpos),
+                                on_curve(w),
+                                patches_of(w),
+                            );
+                        }
+                    }
+                    for target in [v, q] {
+                        let mut fan: std::collections::BTreeMap<Option<(InputId, u32)>, usize> =
+                            std::collections::BTreeMap::new();
+                        for (ti, tri) in mesh.tris.iter().enumerate() {
+                            if tri.contains(&target) {
+                                let key = match attribution.attributions.get(ti) {
+                                    Some(Some(att)) => Some((att.input, att.face)),
+                                    _ => None,
+                                };
+                                *fan.entry(key).or_default() += 1;
+                            }
+                        }
+                        eprintln!("YANG_S4_CARRIER_DOMAIN-ANAT    v{v} fan v{target}: {fan:?}");
+                    }
+                    let wedge: Vec<(usize, Option<(InputId, u32)>)> = mesh
+                        .tris
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, tri)| tri.contains(&v) && tri.contains(&q))
+                        .map(|(ti, _)| {
+                            (
+                                ti,
+                                match attribution.attributions.get(ti) {
+                                    Some(Some(att)) => Some((att.input, att.face)),
+                                    _ => None,
+                                },
+                            )
+                        })
+                        .collect();
+                    eprintln!("YANG_S4_CARRIER_DOMAIN-ANAT    v{v} vq-wedge tris: {wedge:?}");
                 }
             } else {
                 return Err(YangError::stage4_region_invalid(
                     v,
                     Stage4InvalidReason::RelocationCrossedCarrierVertex,
                 ));
+            }
+        }
+    }
+    if census && !mint_reads.is_empty() {
+        // Shared-mint grouping: REAL junctions from different sites landing on
+        // the SAME model edge at the SAME position are two views of ONE mint —
+        // the apply arm must mint once and share by identity (the junction
+        // contract), never once per view.
+        let d3 = |x: [f64; 3], y: [f64; 3]| {
+            ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2)).sqrt()
+        };
+        // Identity is POSITION on one operand, never the edge index: the m1
+        // convention emits one directed edge copy per half-edge, so two views
+        // of one physical junction can name DIFFERENT edge indices for the
+        // same physical edge (R0085 v467/v6071: edges 351/2520, t and 1−t).
+        let mut grouped = vec![false; mint_reads.len()];
+        for i in 0..mint_reads.len() {
+            if grouped[i] {
+                continue;
+            }
+            let (vi, _, op, edge, sol) = mint_reads[i];
+            let scale = sol[0].abs().max(sol[1].abs()).max(sol[2].abs());
+            let band = 1e-9 * (1.0 + scale);
+            let mut members = vec![vi];
+            let mut edges = std::collections::BTreeSet::from([edge]);
+            let mut spread = 0.0f64;
+            for j in (i + 1)..mint_reads.len() {
+                let (vj, _, opj, edgej, solj) = mint_reads[j];
+                if !grouped[j] && opj == op && d3(sol, solj) <= band {
+                    grouped[j] = true;
+                    members.push(vj);
+                    edges.insert(edgej);
+                    spread = spread.max(d3(sol, solj));
+                }
+            }
+            if members.len() > 1 {
+                eprintln!(
+                    "YANG_S4_CARRIER_DOMAIN-MINTGROUP op={op:?} edge-copies={edges:?} \
+                     sites={members:?} spread={spread:.3e} — ONE mint, {} views",
+                    members.len()
+                );
             }
         }
     }

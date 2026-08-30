@@ -1,11 +1,12 @@
 # §4.5.1 Corner Transit — the §4-I9 corner-crosser repair (I13f rehome kin)
 
-**Status: inc-0 + inc-1 census arms LANDED and MEASURED, 2026-08-29 —
-feasibility CONFIRMED family-wide (46/46 triples converge at 23/23 sites);
-the corner-incident-edge discriminator VALIDATED on straight-carrier sites
-and the sites CLASSIFIED (crease transit / base transit / corner clip);
-NEXT = inc-2 (carrier authority for chord-lattice operands, then the gated
-apply arm).** Epic opened by
+**Status: inc-2a PLANNER LANDED + VALIDATED family-wide, 2026-08-30 —
+`stage4_transit.rs` (pure recognize/discriminate/classify, typed declines)
+now owns the inc-1 instrument; 23/23 site verdicts reproduce (and on R0085
+refine) the inc-1 classification: 12 TRANSIT + 5 CLIP + 6 typed declines;
+shared mints auto-detected by position identity. The anatomy census REFUTED
+the §3 "truncate at q" apply sketch: the repair unit is the CORRIDOR (§3d).
+NEXT = inc-2b (corridor-walk census), then inc-2c (the gated apply arm).** Epic opened by
 the §4.5.2 adjudication (`specs/yang_452_local_refinement.md`): the recovery
 loop the paper prescribes for this class was measured out (zero conversions at
 2×/4×/8× uniform density), so the class needs the repair the paper does NOT
@@ -223,6 +224,109 @@ is exactly the failure mode the I13f epic warned about):
   through SOME facet corners (v4216 q_end = 0, off = 0) and misses others
   by 0.01–0.03: mixed conformality of the operand's own boundary.*
 
+## 3c. inc-2a — the pure planner (LANDED 2026-08-30, verdicts measured
+family-wide)
+
+`crates/yang-rs/src/stage4_transit.rs`: `read_site` (anatomy split far/next/
+shared with typed `AnatomyMismatch` off the measured (1,1,2) shape; both
+triple solves seeded at q; the inc-1 edge-domain instrument extracted as a
+structured read — curve-aware ranking, owner tag, corner-endpoint residual,
+segment/arc domain verdict) + `classify` (the corner-incident-edge rule:
+1-real → `Transit`, 2-real → `Clip`, else `NoRealCandidate` /
+`JunctionAtCorner`). The §4-I9 census branch is now planner-driven (ONE
+instrument for census and the future apply arm), prints a `PLAN` verdict per
+site, the site ANATOMY (§3d), and position-keyed `MINTGROUP` lines. Unit
+tests: 7 fixtures (crease/base/clip/no-real/at-corner/anatomy/arc-domain).
+
+Measured verdicts (debug census, natural density, 2026-08-30):
+
+- **R0011**: v27/v37/v42 `Transit{crease}` + v78 `Clip` — 4/4 ≡ inc-1.
+- **R0074**: v129 `Clip` — 1/1 ≡ inc-1.
+- **R0044**: v75/v76 `Transit{crease}` (rim junction: own=SN, in_ccw,
+  d_on_circle 6.3e-12 ≤ the 1.2e-11 eval band at scale 3.5e3 — the
+  exactness band VALIDATED on arcs, live) + v8/v89/v105 `Clip` +
+  v142/v144 `Transit` auto-grouped: `MINTGROUP edge 2025, spread 0.0` —
+  one rim mint, two views, instrument-confirmed.
+- **R0085**: v467+v4216 `Transit{base}` ≡ inc-1; the planner REFINES the
+  inc-1 rider reading — v6071, v401, v4359 are `Transit` with EXACT real
+  junctions (≤5.6e-17): v401/v4359 auto-grouped (spread 0.0), and
+  **v467/v6071 solve the SAME junction bit-equal but name DIFFERENT edge
+  indices (351 vs 2520) at parameters t and 1−t — the two m1 per-loop
+  COPIES of one physical edge, antiparallel.** Junction identity is
+  therefore POSITION on an operand, never an edge index (the MINTGROUP
+  key was fixed accordingly). Only the six walking-chain riders (v387,
+  v4165, v4169, v4174, v4180, v4197) decline `NoRealCandidate` — their
+  nearest-edge residuals (2.8e-4 … 2.2e-2) are the operand's own
+  mixed-conformal boundary (inc-1's finding stands: record, don't force).
+
+Tally: 12 Transit + 5 Clip + 6 declines = 23/23. Physical junction count
+after view dedup: R0085's five transit views name THREE junctions.
+
+## 3d. The measured apply anatomy — the repair unit is the CORRIDOR
+(anatomy census 2026-08-30; this SUPERSEDES the §3 sketch's "truncate the
+step at q / share the corner vertex" — measured wrong in general)
+
+Per-site `-ANAT` lines (curve-neighbour patch sets, per-attribution fans,
+the v–q wedge triangles) establish, uniformly across R0011/R0074/R0085:
+
+1. **Two mesh curve chains arrive at every fired traveller** — a
+   far∩shared_a chain and a far∩shared_b chain (plain 2-patch curve
+   vertices: v26, v75, v80; or an adjacent JUNCTION vertex where the
+   curve crossed the previous lattice edge: v20 {A2,B211,B212}, v43
+   {A2,B183,B184}, v1402). The phantom FUSED the two chains' true
+   endpoints into one vertex.
+2. **The true local structure is two junctions + a connecting run across
+   `next`**, not one relocated vertex:
+   - CLIP (v78, v129, v8/v89/v105): both endpoints are this site's two
+     real candidates, corner-incident (v78: base edge t=0.11 + crease
+     t=0.0008); the run crosses `next` beside the corner. The corner
+     vertex q keeps its patch-boundary role but is generally NOT on the
+     repaired intersection curve.
+   - TRANSIT (v27-class): the corner-side endpoint is the real
+     candidate; the OTHER chain's true endpoint is NOT in this site's
+     candidate list in general. v27: the base-chain end is cand-0's
+     junction mid base∩B213 edge (in-domain per the 1.458 chord-sag
+     read), one facet over — corridor length 1. v42: cand-0 solves a
+     DIFFERENT facet's plane (off-line 5.2 near edge 606 — the fan's
+     planes are nearly parallel, adjacent solves land ~5 apart); the
+     true base exit measured at v78's cand-0 (edge 606, t=0.11, exact):
+     **v42 and v78 sample ONE curve corridor that walks facets
+     183→182→181→180**, its middle crease junction (182∩181) owned by
+     NO fired site (the mesh far∩B181 chain v80 exists and re-anchors
+     there). The walking-chain adjacency R0085 measured (bit-equal
+     adjacent solutions) is this same structure.
+3. **Fans at the traveller**: ~3 far-side triangles + 1–2 per shared
+   face; the v–q wedge is exactly 2 triangles (one per shared face)
+   riding the phantom's crossing. `next` has NO triangles at v — the
+   corridor's chart region is untouched by the traveller today.
+
+**Apply design (inc-2c input).** The apply unit is the CORRIDOR between
+the two mesh chain-ends: split the phantom into the two true junction
+endpoints, mint the intermediate crease junctions the walk discovers
+(each shared by identity when several views/sites name it — position on
+the operand, never edge index), build the run's curve chain across each
+traversed facet at chord density, re-anchor every existing healthy chain
+the corridor meets (v80-class), and re-fill the affected patch regions
+two-sidedly (the I13f f2c/f2c-2 fan/CDT vocabulary). q stays a patch
+vertex; nothing is truncated AT q. Postconditions: §4-I9 re-check clean,
+junction-contract identity (mint once, share by position), full oracle
+gate (P10).
+
+## 3e. inc-2b — the corridor-walk census (NEXT; report-only)
+
+Per planned site, walk the far∩facet curve across the fan from the real
+corner-side junction: build the per-operand POSITION-KEYED edge-copy
+adjacency (m1: LineSegment copies pair by endpoint positions, curved
+edges by index), then per facet solve the candidate exits {far, facet,
+partner} over the facet's loop edges and certificate in-domain via the
+shared instrument. Terminate at: an EXISTING healthy mesh junction
+(identity: carried triple + position within band — e.g. v80's chain-end),
+another fired site's junction (corridor MERGE — v42+v78), the other
+chain's mid-lattice exit (v27), or a typed decline. Report per corridor:
+facet list, junction list with certificates, termination kind, and which
+existing mesh chains re-anchor where. The walk census turns §3d's
+two-site inference into per-corridor DATA before the apply arm is built.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -240,13 +344,18 @@ is exactly the failure mode the I13f epic warned about):
   non-real candidates not corner-incident / off-edge). Remaining open:
   the R0085 rider-site residual reading (re-measured under the
   curve-aware ranking — see §3b). §3b above.
-- inc-2: (a) the carrier-authority decision for chord-lattice operands
-  (R0044-class), consistent with Stage 3/4's existing treatment of those
-  edges; then (b) the gated apply arm (`YANG_451_TRANSIT` or an extension
-  of `YANG_441_REHOME`'s household pattern) — per-site transit or
-  corner-clip mint + re-route, audit-clean per I13f discipline. The
-  corner-incident-edge classification (1-real / 2-real) from inc-1 is the
-  plan input.
+- **inc-2a** (2026-08-30): the pure PLANNER landed (`stage4_transit.rs`)
+  + census planner-driven + site anatomy + position-keyed mint grouping;
+  verdicts measured family-wide, 23/23 ≡/refining inc-1 (§3c). The
+  carrier-authority item dissolved with inc-1b (the R0044 rims are exact
+  shared Circle edges; the arc band validated live, §3c). The anatomy
+  census refuted the "truncate at q" apply sketch — the repair unit is
+  the CORRIDOR (§3d).
+- inc-2b: the corridor-walk census (§3e) — corridors, junction lists,
+  termination kinds, chain re-anchors, as report-only data.
+- inc-2c: the gated apply arm (`YANG_451_TRANSIT`) — corridor splice per
+  §3d: split phantoms, mint-once-share-by-position junctions, corridor
+  runs at chord density, two-sided re-fill, §4-I9 re-check + oracle gate.
 - inc-3: fixed-point integration (multiple sites per case; R0085 has two
   failing ops) + full-corpus gated measurement; flip under the standing
   two-proof protocol.
