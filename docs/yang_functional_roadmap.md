@@ -856,13 +856,15 @@ name, never measured).
    (R0011/R0044/R0074/R0085 — `RelocationCrossedCarrierVertex`, I13f
    rehome kin) has its own epic: `specs/yang_451_corner_transit.md`.
    inc-0/inc-1 (2026-08-29) confirmed feasibility 46/46 and validated
-   the corner-incident-edge discriminator; inc-2a (2026-08-30) landed
+   the corner-incident-edge discriminator; inc-2a+2b (2026-08-30) landed
    the pure transit PLANNER (`stage4_transit.rs`, 23/23 verdicts = 12
    transit + 5 clip + 6 typed declines, shared mints deduped by
-   POSITION identity across m1 edge copies) and the anatomy census
-   established the repair unit is the fan-walking CORRIDOR, refuting
-   the truncate-at-the-corner sketch. Next: inc-2b corridor-walk
-   census, then the gated apply arm (inc-2c).*
+   POSITION identity across m1 edge copies) AND the corridor-walk
+   census: the repair unit is the fan-walking CORRIDOR (truncate-at-
+   the-corner refuted; the v42→v78 corridor merge proven bit-equal;
+   existing-healthy-junction splice terminals measured on R0044;
+   R0085 walled on its own operand quality). Next: inc-2c, the gated
+   apply arm against the five measured requirements (spec §3e).*
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the

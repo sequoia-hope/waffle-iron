@@ -199,69 +199,59 @@ fn surface_of(a: &BRep, b: &BRep, patch: (InputId, u32)) -> Option<Surface> {
 /// The inc-1 instrument, structured: nearest loop edge of the two candidate
 /// faces (curve-aware ranking), its owner tag, corner-endpoint residual, and
 /// the solution's verdict against the edge's own domain.
-fn read_edge_domain(
+/// The curve-aware RANKING metric (the inc-1b lesson): true circle distance
+/// for arcs — √(axial² + (radial − r)²) — and the clamped chord distance for
+/// everything else. A plain chord metric is biased against arcs (a rim's
+/// chord sits far from a point exactly ON the arc) and manufactured a
+/// phantom "carrier-authority wall" on R0044.
+fn curve_aware_distance(
     verts: &[crate::BRepVertex],
     edges: &[crate::BRepEdge],
-    fs: &BRepFace,
-    fnx: &BRepFace,
-    qpos: [f64; 3],
+    ei: u32,
     sol: [f64; 3],
-) -> Option<EdgeRead> {
-    let mut best: Option<(u32, f64, f64)> = None; // (edge, d_sol, d_q_end)
-    for &ei in fs
-        .outer_loop
-        .iter()
-        .chain(fs.inner_loops.iter().flatten())
-        .chain(fnx.outer_loop.iter())
-        .chain(fnx.inner_loops.iter().flatten())
+) -> f64 {
+    let e = &edges[ei as usize];
+    let ps = verts[e.start as usize].point.as_array();
+    let pe = verts[e.end as usize].point.as_array();
+    if let Curve::Circle {
+        center,
+        normal,
+        radius,
+    } = e.curve
     {
-        let e = &edges[ei as usize];
-        let ps = verts[e.start as usize].point.as_array();
-        let pe = verts[e.end as usize].point.as_array();
-        let ds = if let Curve::Circle {
-            center,
-            normal,
-            radius,
-        } = e.curve
-        {
-            let nu = normalize3(normal.as_array());
-            let c = center.as_array();
-            let w = [sol[0] - c[0], sol[1] - c[1], sol[2] - c[2]];
-            let ax = w[0] * nu[0] + w[1] * nu[1] + w[2] * nu[2];
-            let rad = [w[0] - ax * nu[0], w[1] - ax * nu[1], w[2] - ax * nu[2]];
-            let rl = (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
-            (ax * ax + (rl - radius) * (rl - radius)).sqrt()
+        let nu = normalize3(normal.as_array());
+        let c = center.as_array();
+        let w = [sol[0] - c[0], sol[1] - c[1], sol[2] - c[2]];
+        let ax = w[0] * nu[0] + w[1] * nu[1] + w[2] * nu[2];
+        let rad = [w[0] - ax * nu[0], w[1] - ax * nu[1], w[2] - ax * nu[2]];
+        let rl = (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
+        (ax * ax + (rl - radius) * (rl - radius)).sqrt()
+    } else {
+        let dv = [pe[0] - ps[0], pe[1] - ps[1], pe[2] - ps[2]];
+        let l2 = dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2];
+        let t = if l2 > 0.0 {
+            (((sol[0] - ps[0]) * dv[0] + (sol[1] - ps[1]) * dv[1] + (sol[2] - ps[2]) * dv[2]) / l2)
+                .clamp(0.0, 1.0)
         } else {
-            let dv = [pe[0] - ps[0], pe[1] - ps[1], pe[2] - ps[2]];
-            let l2 = dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2];
-            let t = if l2 > 0.0 {
-                (((sol[0] - ps[0]) * dv[0] + (sol[1] - ps[1]) * dv[1] + (sol[2] - ps[2]) * dv[2])
-                    / l2)
-                    .clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let proj = [ps[0] + t * dv[0], ps[1] + t * dv[1], ps[2] + t * dv[2]];
-            d3(sol, proj)
+            0.0
         };
-        let dq = d3(ps, qpos).min(d3(pe, qpos));
-        if best.is_none_or(|(_, bd, _)| ds < bd) {
-            best = Some((ei, ds, dq));
-        }
+        let proj = [ps[0] + t * dv[0], ps[1] + t * dv[1], ps[2] + t * dv[2]];
+        d3(sol, proj)
     }
-    let (ei, d_on_edge, d_q_end) = best?;
-    let in_loops = |f: &BRepFace| {
-        f.outer_loop
-            .iter()
-            .chain(f.inner_loops.iter().flatten())
-            .any(|&x| x == ei)
-    };
-    let own = match (in_loops(fs), in_loops(fnx)) {
-        (true, true) => "SN",
-        (true, false) => "S",
-        (false, true) => "N",
-        (false, false) => "-",
-    };
+}
+
+/// Certify a solution against ONE known edge: the curve-aware distance, the
+/// residual from the edge's nearer endpoint to the reference point `refp`
+/// (the corner q at planner sites; the entry junction during a corridor
+/// walk), and the segment/arc domain verdict. `own` is the caller's to fill
+/// — it depends on which face pair is being read.
+pub(crate) fn edge_domain_of(
+    verts: &[crate::BRepVertex],
+    edges: &[crate::BRepEdge],
+    ei: u32,
+    refp: [f64; 3],
+    sol: [f64; 3],
+) -> EdgeRead {
     let e = &edges[ei as usize];
     let ps = verts[e.start as usize].point.as_array();
     let pe = verts[e.end as usize].point.as_array();
@@ -318,13 +308,52 @@ fn read_edge_domain(
         }
         _ => DomainVerdict::Unreadable,
     };
-    Some(EdgeRead {
+    EdgeRead {
         edge: ei,
-        own,
-        d_on_edge,
-        d_q_end,
+        own: "-",
+        d_on_edge: curve_aware_distance(verts, edges, ei, sol),
+        d_q_end: d3(ps, refp).min(d3(pe, refp)),
         domain,
-    })
+    }
+}
+
+fn read_edge_domain(
+    verts: &[crate::BRepVertex],
+    edges: &[crate::BRepEdge],
+    fs: &BRepFace,
+    fnx: &BRepFace,
+    qpos: [f64; 3],
+    sol: [f64; 3],
+) -> Option<EdgeRead> {
+    let mut best: Option<(u32, f64)> = None; // (edge, d_sol)
+    for &ei in fs
+        .outer_loop
+        .iter()
+        .chain(fs.inner_loops.iter().flatten())
+        .chain(fnx.outer_loop.iter())
+        .chain(fnx.inner_loops.iter().flatten())
+    {
+        let ds = curve_aware_distance(verts, edges, ei, sol);
+        if best.is_none_or(|(_, bd)| ds < bd) {
+            best = Some((ei, ds));
+        }
+    }
+    let (ei, _) = best?;
+    let in_loops = |f: &BRepFace| {
+        f.outer_loop
+            .iter()
+            .chain(f.inner_loops.iter().flatten())
+            .any(|&x| x == ei)
+    };
+    let own = match (in_loops(fs), in_loops(fnx)) {
+        (true, true) => "SN",
+        (true, false) => "S",
+        (false, true) => "N",
+        (false, false) => "-",
+    };
+    let mut er = edge_domain_of(verts, edges, ei, qpos, sol);
+    er.own = own;
+    Some(er)
 }
 
 /// Solve and read both candidate corrected triples for one §4-I9 site.
@@ -469,6 +498,179 @@ pub(crate) fn read_site(
     })
 }
 
+// =========================================================================
+// inc-2b — the corridor walk (spec §3e; report-only census instrument)
+// =========================================================================
+
+/// Position key for pairing m1 per-loop edge COPIES across faces: the two
+/// endpoint bit-keys, order-normalized. Identity across copies is GEOMETRIC
+/// (the v467/v6071 lesson: two views of one physical edge carry different
+/// indices; positions are bit-equal).
+fn edge_pos_key(verts: &[crate::BRepVertex], e: &crate::BRepEdge) -> ([u64; 3], [u64; 3]) {
+    let k = |v: u32| {
+        let p = verts[v as usize].point.as_array();
+        [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()]
+    };
+    let (a, b) = (k(e.start), k(e.end));
+    if a <= b {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
+
+/// Public accessor: the position key of one edge by index.
+pub(crate) fn edge_key(brep: &BRep, ei: u32) -> ([u64; 3], [u64; 3]) {
+    edge_pos_key(brep.vertices(), &brep.edges()[ei as usize])
+}
+
+/// Per-operand edge-copy adjacency: position key → every (face, edge) whose
+/// loops carry an edge at that key. Faces sharing a key are edge-adjacent.
+pub(crate) type EdgeAdjacency = std::collections::BTreeMap<([u64; 3], [u64; 3]), Vec<(u32, u32)>>;
+
+pub(crate) fn build_edge_adjacency(brep: &BRep) -> EdgeAdjacency {
+    let (verts, edges) = (brep.vertices(), brep.edges());
+    let mut map: EdgeAdjacency = std::collections::BTreeMap::new();
+    for (fi, f) in brep.faces().iter().enumerate() {
+        for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+            map.entry(edge_pos_key(verts, &edges[ei as usize]))
+                .or_default()
+                .push((fi as u32, ei));
+        }
+    }
+    map
+}
+
+/// One certified corridor junction: the walk left `face_from` across `edge`
+/// (the copy on `face_from`'s loop) into `face_to`.
+#[derive(Clone, Debug)]
+pub(crate) struct WalkJunction {
+    pub face_from: u32,
+    pub face_to: u32,
+    pub edge: u32,
+    pub sol: [f64; 3],
+    pub d_on_edge: f64,
+}
+
+/// Why a corridor walk stopped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum WalkEnd {
+    /// The exit crossed into the OTHER chain's face: the last junction is the
+    /// far chain's true end; the corridor is fully discovered.
+    ReachedOtherChain,
+    /// No loop edge of the current face carries a certified in-domain exit.
+    NoExit,
+    /// ≥2 distinct certified exits from one face — the curve's route across
+    /// this face is not decided by the local read (loud data, never guessed).
+    AmbiguousExit(usize),
+    /// An exit edge's position key resolves to ≠1 partner face.
+    PartnerUnresolved(usize),
+    /// Step cap hit.
+    TooLong,
+}
+
+/// Walk the far∩facet intersection curve across an operand's face lattice:
+/// start INSIDE `start_face` at `entry` (a certified junction on the edge
+/// with key `entry_key`), and per face solve every loop edge's candidate
+/// exit — the triple {far, this face, partner face} seeded at the entry —
+/// certifying it ON that edge in-domain via the shared instrument. One
+/// certified exit → step across; the walk ends when it crosses into
+/// `other_face` (the second mesh chain's face), cannot continue, or exceeds
+/// `max_steps`. Report-only: every terminal state is typed data.
+/// The starting state of a corridor walk: inside `face`, entered across the
+/// edge with position key `entry_key` at the certified junction `entry`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WalkStart {
+    pub face: u32,
+    pub entry_key: ([u64; 3], [u64; 3]),
+    pub entry: [f64; 3],
+}
+
+pub(crate) fn walk_corridor(
+    brep: &BRep,
+    far: Surface,
+    adj: &EdgeAdjacency,
+    start: WalkStart,
+    other_face: u32,
+    max_steps: usize,
+) -> (Vec<WalkJunction>, WalkEnd) {
+    let (verts, edges, faces) = (brep.vertices(), brep.edges(), brep.faces());
+    let mut out = Vec::new();
+    let (mut face, mut in_key, mut j_in) = (start.face, start.entry_key, start.entry);
+    for _ in 0..max_steps {
+        let Some(f) = faces.get(face as usize) else {
+            return (out, WalkEnd::NoExit);
+        };
+        let mut exits: Vec<(u32, u32, [f64; 3], f64)> = Vec::new();
+        for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+            let key = edge_pos_key(verts, &edges[ei as usize]);
+            if key == in_key {
+                continue; // the entry edge — the curve came in here
+            }
+            let Some(copies) = adj.get(&key) else {
+                continue;
+            };
+            let partners: Vec<u32> = copies
+                .iter()
+                .filter(|&&(pf, _)| pf != face)
+                .map(|&(pf, _)| pf)
+                .collect();
+            let [partner] = partners.as_slice() else {
+                if partners.is_empty() {
+                    continue; // open-lattice boundary edge — no face to cross into
+                }
+                return (out, WalkEnd::PartnerUnresolved(partners.len()));
+            };
+            let Some(pf) = faces.get(*partner as usize) else {
+                continue;
+            };
+            let Some(sol) = relocate_onto_implicit_triple(
+                Point3::new(j_in[0], j_in[1], j_in[2]),
+                far,
+                f.surface,
+                pf.surface,
+            ) else {
+                continue;
+            };
+            let sa = sol.as_array();
+            let er = edge_domain_of(verts, edges, ei, j_in, sa);
+            let band = eval_band(mag3(sa) + mag3(j_in));
+            let in_dom = match er.domain {
+                DomainVerdict::Segment {
+                    inside, off_line, ..
+                } => inside && off_line <= band,
+                DomainVerdict::Arc { in_ccw, .. } => in_ccw && er.d_on_edge <= band,
+                _ => false,
+            };
+            // Exclude re-finding the entry junction itself (a solve seeded at
+            // a triple's own root returns it).
+            if in_dom && d3(sa, j_in) > band {
+                exits.push((ei, *partner, sa, er.d_on_edge));
+            }
+        }
+        match exits.len() {
+            0 => return (out, WalkEnd::NoExit),
+            1 => {}
+            n => return (out, WalkEnd::AmbiguousExit(n)),
+        }
+        let (ei, partner, sol, d_on_edge) = exits.pop().expect("len checked");
+        out.push(WalkJunction {
+            face_from: face,
+            face_to: partner,
+            edge: ei,
+            sol,
+            d_on_edge,
+        });
+        if partner == other_face {
+            return (out, WalkEnd::ReachedOtherChain);
+        }
+        in_key = edge_pos_key(verts, &edges[ei as usize]);
+        j_in = sol;
+        face = partner;
+    }
+    (out, WalkEnd::TooLong)
+}
+
 /// The corner-incident-edge rule's site classification: 1-real → transit,
 /// 2-real → corner clip, else a typed decline.
 pub(crate) fn classify(site: &SiteRead, qpos: [f64; 3]) -> Result<TransitClass, TransitDecline> {
@@ -573,6 +775,7 @@ mod tests {
             vtx([4.0, -4.0, 0.0]),
             vtx([0.0, -4.0, 4.0]),
             vtx([4.0, 0.0, 4.0]),
+            vtx([4.0, -4.0, 4.0]),
         ];
         let edges = vec![
             // base (z=0): q → x1 → bx → y1 → q  (edges 0..4)
@@ -590,6 +793,11 @@ mod tests {
             seg(2, 6),
             seg(6, 1),
             seg(1, 0),
+            // facet_l (x=4): x1 → jx → lx → bx → x1  (edges 12..16)
+            seg(1, 6),
+            seg(6, 7),
+            seg(7, 4),
+            seg(4, 1),
         ];
         let faces = vec![
             BRepFace {
@@ -607,6 +815,16 @@ mod tests {
             BRepFace {
                 surface: plane([0.0, 1.0, 0.0], 0.0),
                 outer_loop: vec![8, 9, 10, 11],
+                inner_loops: vec![],
+                reversed: false,
+            },
+            // facet_l (x=4), edge-adjacent to facet_j (the jx–x1 copy pair)
+            // and to base (the bx–x1 pair): gives corridor walks an
+            // intermediate facet to traverse. Never a candidate face — the
+            // planner tests are unaffected.
+            BRepFace {
+                surface: plane([1.0, 0.0, 0.0], -4.0),
+                outer_loop: vec![12, 13, 14, 15],
                 inner_loops: vec![],
                 reversed: false,
             },
@@ -716,6 +934,83 @@ mod tests {
         assert!(
             matches!(out, Err(TransitDecline::AnatomyMismatch { far: 0, .. })),
             "got {out:?}"
+        );
+    }
+
+    #[test]
+    fn corridor_walk_clip_reaches_other_chain_in_one_step() {
+        // The clip plane: from the crease junction (0,0,0.5), the run across
+        // facet_j exits straight onto the base∩facet_j edge at (0.1,0,0) —
+        // the other real candidate's junction. One step, other chain reached.
+        let far = plane([1.0, 1.0, 0.2], -0.1);
+        let fx = fixture(far);
+        let site = read_site(&fx.a, &fx.b, &fx.pv, &fx.pq, [0.0, 0.0, 0.0]).expect("site");
+        let crease = &site.cands[1];
+        assert!(crease.real && crease.shared == (InputId::B, 1));
+        let (sol, er) = (crease.sol.unwrap(), crease.edge.as_ref().unwrap());
+        let adj = build_edge_adjacency(&fx.b);
+        let (juncs, end) = walk_corridor(
+            &fx.b,
+            far,
+            &adj,
+            WalkStart {
+                face: 2, // facet_j
+                entry_key: edge_key(&fx.b, er.edge),
+                entry: sol,
+            },
+            0, // base — the other chain's face
+            8,
+        );
+        assert_eq!(end, WalkEnd::ReachedOtherChain, "juncs: {juncs:?}");
+        assert_eq!(juncs.len(), 1);
+        let j = &juncs[0];
+        assert_eq!((j.face_from, j.face_to), (2, 0));
+        let base = &site.cands[0];
+        let bs = base.sol.unwrap();
+        assert!(
+            d3(j.sol, bs) <= 1e-12,
+            "walk lands on the base candidate's junction: {j:?} vs {bs:?}"
+        );
+    }
+
+    #[test]
+    fn corridor_walk_crosses_intermediate_facet() {
+        // Far plane −0.1·x − 5·y + z − 3 = 0: enters facet_j at the crease
+        // (0,0,3); its base∩facet_j crossing is at x = −30 (outside), so the
+        // run leaves facet_j across the facet_j∩facet_l edge at (4,0,3.4),
+        // traverses facet_l, and exits to base at (4,−0.68,0). Two steps.
+        let far = plane([-0.1, -5.0, 1.0], -3.0);
+        let fx = fixture(far);
+        let site = read_site(&fx.a, &fx.b, &fx.pv, &fx.pq, [0.0, 0.0, 0.0]).expect("site");
+        assert_eq!(
+            classify(&site, [0.0, 0.0, 0.0]),
+            Ok(TransitClass::Transit { cand: 1 }),
+            "the crease candidate is the single real one: {site:?}"
+        );
+        let crease = &site.cands[1];
+        let (sol, er) = (crease.sol.unwrap(), crease.edge.as_ref().unwrap());
+        let adj = build_edge_adjacency(&fx.b);
+        let (juncs, end) = walk_corridor(
+            &fx.b,
+            far,
+            &adj,
+            WalkStart {
+                face: 2,
+                entry_key: edge_key(&fx.b, er.edge),
+                entry: sol,
+            },
+            0,
+            8,
+        );
+        assert_eq!(end, WalkEnd::ReachedOtherChain, "juncs: {juncs:?}");
+        assert_eq!(juncs.len(), 2, "{juncs:?}");
+        assert_eq!((juncs[0].face_from, juncs[0].face_to), (2, 3));
+        assert!(d3(juncs[0].sol, [4.0, 0.0, 3.4]) <= 1e-9, "{:?}", juncs[0]);
+        assert_eq!((juncs[1].face_from, juncs[1].face_to), (3, 0));
+        assert!(
+            d3(juncs[1].sol, [4.0, -0.68, 0.0]) <= 1e-9,
+            "{:?}",
+            juncs[1]
         );
     }
 

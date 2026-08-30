@@ -1,12 +1,14 @@
 # §4.5.1 Corner Transit — the §4-I9 corner-crosser repair (I13f rehome kin)
 
-**Status: inc-2a PLANNER LANDED + VALIDATED family-wide, 2026-08-30 —
-`stage4_transit.rs` (pure recognize/discriminate/classify, typed declines)
-now owns the inc-1 instrument; 23/23 site verdicts reproduce (and on R0085
-refine) the inc-1 classification: 12 TRANSIT + 5 CLIP + 6 typed declines;
-shared mints auto-detected by position identity. The anatomy census REFUTED
-the §3 "truncate at q" apply sketch: the repair unit is the CORRIDOR (§3d).
-NEXT = inc-2b (corridor-walk census), then inc-2c (the gated apply arm).** Epic opened by
+**Status: inc-2a PLANNER + inc-2b CORRIDOR-WALK CENSUS LANDED + MEASURED
+family-wide, 2026-08-30 — `stage4_transit.rs` owns the inc-1 instrument
+(23/23 verdicts: 12 TRANSIT + 5 CLIP + 6 typed declines; mints deduped by
+POSITION identity); the anatomy census REFUTED the "truncate at q" sketch
+— the repair unit is the fan-walking CORRIDOR (§3d), and the walk census
+MEASURED every corridor (§3e): R0011/R0074 fully determined (the v42→v78
+merge bit-equal), R0044 determined up to two named refinements, R0085
+walled on its own operand quality. NEXT = inc-2c: the gated apply arm,
+against the five measured requirements in §3e.** Epic opened by
 the §4.5.2 adjudication (`specs/yang_452_local_refinement.md`): the recovery
 loop the paper prescribes for this class was measured out (zero conversions at
 2×/4×/8× uniform density), so the class needs the repair the paper does NOT
@@ -284,9 +286,11 @@ the v–q wedge triangles) establish, uniformly across R0011/R0074/R0085:
      repaired intersection curve.
    - TRANSIT (v27-class): the corner-side endpoint is the real
      candidate; the OTHER chain's true endpoint is NOT in this site's
-     candidate list in general. v27: the base-chain end is cand-0's
-     junction mid base∩B213 edge (in-domain per the 1.458 chord-sag
-     read), one facet over — corridor length 1. v42: cand-0 solves a
+     candidate list in general. v27: the base-chain end sits mid-lattice
+     one-plus facets over (*inc-2b correction: the walk measured the
+     corridor as 213→214→base — cand-0's mid-lattice solve was a nearby
+     OFF-domain root ~1.5 from the true base∩214 exit; the 1.458
+     chord-sag reading was real but belonged to the wrong edge*). v42: cand-0 solves a
      DIFFERENT facet's plane (off-line 5.2 near edge 606 — the fan's
      planes are nearly parallel, adjacent solves land ~5 apart); the
      true base exit measured at v78's cand-0 (edge 606, t=0.11, exact):
@@ -312,20 +316,125 @@ vertex; nothing is truncated AT q. Postconditions: §4-I9 re-check clean,
 junction-contract identity (mint once, share by position), full oracle
 gate (P10).
 
-## 3e. inc-2b — the corridor-walk census (NEXT; report-only)
+## 3e. inc-2b — the corridor-walk census (LANDED 2026-08-30; measured)
 
-Per planned site, walk the far∩facet curve across the fan from the real
-corner-side junction: build the per-operand POSITION-KEYED edge-copy
-adjacency (m1: LineSegment copies pair by endpoint positions, curved
-edges by index), then per facet solve the candidate exits {far, facet,
-partner} over the facet's loop edges and certificate in-domain via the
-shared instrument. Terminate at: an EXISTING healthy mesh junction
-(identity: carried triple + position within band — e.g. v80's chain-end),
-another fired site's junction (corridor MERGE — v42+v78), the other
-chain's mid-lattice exit (v27), or a typed decline. Report per corridor:
-facet list, junction list with certificates, termination kind, and which
-existing mesh chains re-anchor where. The walk census turns §3d's
-two-site inference into per-corridor DATA before the apply arm is built.
+`walk_corridor` + `build_edge_adjacency` in `stage4_transit.rs`: per
+planned site, walk the far∩facet curve across the operand's face lattice
+from each real junction — per facet, solve every loop edge's candidate
+exit {far, facet, partner} seeded at the entry junction, certify it ON
+that edge in-domain (`edge_domain_of`, the shared instrument's
+single-edge certifier), step across the unique certified exit. Edge-copy
+adjacency is POSITION-KEYED (m1 copies pair by endpoint bit-keys; the
+v467/v6071 lesson). Terminal states are typed: `ReachedOtherChain` /
+`NoExit` / `AmbiguousExit(n)` / `PartnerUnresolved(n)` / `TooLong` — a
+walk is never guessed past a non-unique read. Census `-WALK` lines
+annotate each junction with the nearest existing mesh vertex carrying
+its triple. Unit tests: clip walk (1 step onto the other real
+candidate's junction, bit-equal) + a two-facet corridor.
+
+**Measured (2026-08-30) — R0011 + R0074: every walk terminates
+`ReachedOtherChain`; zero ambiguity, zero dead ends:**
+
+- v27: **2 steps** — 213→214 (crease junction, NO site) → 214→base
+  exit. The inc-0 cand-0 solve ({far, base, 213}) had converged to a
+  nearby OFF-domain root ~1.5 away from the true base exit (which is on
+  the base∩214 edge) — its `not-corner-incident` reading was correct,
+  and the §3d "corridor length 1" inference for v27 is CORRECTED by the
+  instrument: the walk, not the discarded candidate, owns the far
+  endpoint.
+- v37: 3 steps — 187→188→189→base. v42: 3 steps — 182→181→180→base,
+  and **v42's step-1 junction ≡ v78's crease candidate BIT-EQUAL, its
+  step-2 ≡ v78's base candidate BIT-EQUAL: the corridors MERGE — v78's
+  entire clip is the tail of v42's corridor.** The two sites are one
+  repair unit spanning creases 183∩182 (v42's real), 182∩181
+  (walk-discovered, NO fired site), 181∩180 and the base exit (v78's
+  pair).
+- v78 (clip, both directions) and R0074 v129 (both directions): 1 step
+  each, landing bit-equal on the site's OTHER real candidate — the clip
+  class self-validates symmetrically.
+- `near_mesh=NONE` at every walk junction: NO existing mesh vertex
+  carries any intermediate junction's triple. Every corridor junction
+  must be MINTED; existing chains (e.g. v80's far∩181 chain) re-anchor
+  at corridor junctions by having their ENDS spliced there — tracing
+  each chain's far end is apply-arm work (inc-2c), not census work.
+- All junction-to-edge residuals ≤ 6e-12, inside the evaluation band at
+  scale 5e3.
+
+**R0044 (arc lattice) — measured same day; three NEW structures for the
+apply arm:**
+
+- v8/v89 (clips): both directions 1 step, bit-equal onto the other real
+  candidate — the clip class self-validates on arcs too. v75: 3-step
+  corridor 373→374→375→wall, `ReachedOtherChain`, residuals ≤ 7.1e-12.
+- **v142/v144's walk junctions land BIT-NEAR EXISTING HEALTHY
+  travellers** (v157/v156/v152/v160 at 0.9e-12–3.3e-12, all moved,
+  in-domain, no §4-I9 fire): the fan between the shared rim mint and the
+  existing curve is already healthily owned. The corridor must TERMINATE
+  at the first such junction (`ReachedExistingJunction`) and SPLICE —
+  minting nothing there. v142's effective corridor is ONE facet (378) to
+  v157; the census walk, lacking that terminal, kept walking and later
+  hit `AmbiguousExit(2)` — post-termination noise, not corridor data.
+  (The apply-arm walk takes an existing-junction lookup and stops; the
+  census annotates `near_mesh` per junction, which is how this was
+  seen.)
+- **v76: `NoExit`** — from its real rim junction into band 363, no loop
+  edge certifies an exit. The prime suspects: (a) the curve re-exits
+  through the SAME rim (the entry-edge exclusion forbids same-edge
+  re-exit; a dip-in/dip-out arc is legal geometry), and/or (b) the
+  cylinder×cone step triples have multiple roots and the one Newton
+  root seeded from the entry is off-domain while a true in-domain root
+  sits elsewhere on the same edge. Both point at the same apply-arm
+  refinement: **the walk step should solve far∩(edge curve) DIRECTLY
+  per edge — all roots of a bounded-degree system on an exact circle or
+  line — instead of taking the 3-surface Newton's single nearest root.**
+  Same-edge re-exit then falls out naturally (two roots on the entry
+  edge). v76 stays a loud typed dead-end until that lands.
+- `AmbiguousExit(2)` (v142 step 3, v144 step 1, both post-existing-
+  junction): the far cylinder × cone-band curve is degree-4 with two
+  branches on one facet — certified crossings of BOTH branches. With
+  `ReachedExistingJunction` termination these sites never reach the
+  ambiguity; if a live corridor ever does, the branch-continuation
+  choice (nearest-along-curve from the entry) must be certificated, not
+  guessed.
+
+**R0085 (mixed-conformal operand) — measured same day: the walks read
+the operand's own quality wall, exactly as inc-1 predicted:**
+
+- **v467: 14 steps across the fan 352→353→…→365→base, EVERY junction
+  bit-near an existing healthy moved traveller (8.2e-16–1.6e-13)** —
+  the far∩fan curve is ALREADY correctly built in the mesh; v467's real
+  junction is the missing base-side END of that existing chain (pure
+  splice, zero mints). Its OTHER chain (far∩A:351) has NO exact ending
+  at this corner (both its candidates off-line 2.2e-2 / past-end — the
+  mixed-conformal residual), so the 351-chain's disposition stays
+  downstream of operand quality; the walk's post-base `AmbiguousExit`
+  is past-termination noise.
+- **v401: the v467 shape again** — 8 steps 233→…→240→base, every
+  junction bit-near an existing healthy traveller (≤3.1e-14): pure
+  splice, zero mints, then post-base-re-entry ambiguity (noise).
+- v4216 / v6071 / v4359: `AmbiguousExit(2)` at step 0 — their `next`
+  is the BASE face, and a base face is not a narrow facet: the long
+  far∩base conic certifies two crossings immediately. Walking INTO a
+  base face is ill-posed without direction control; for these
+  crease-rider shapes the other chain's end is again the
+  mixed-conformal wall. R0085's transit repairs stay gated behind
+  operand quality (its op-3 has an independent input-not-2-manifold
+  wall), exactly as recorded in inc-1.
+
+**inc-2b VERDICT.** The corridor unit is CONFIRMED as the apply shape,
+and the walk instrument is sufficient on the clean-lattice cases:
+R0011/R0074 fully determined (merge proven bit-equal), R0044 determined
+up to two named refinements (`ReachedExistingJunction` splice terminal;
+all-roots far∩edge-curve step solving, which also unlocks v76's
+same-edge re-exit), R0085 honestly walled on operand quality. The
+apply-arm (inc-2c) requirements are therefore MEASURED, not sketched:
+1. walk with existing-junction termination + splice;
+2. per-edge all-roots step solving (exact circle/line carriers);
+3. branch/direction-aware continuation only if a live corridor ever
+   reaches an ambiguity (none does today after refinement 1);
+4. mint-once-by-position across views/sites (the MINTGROUP identity);
+5. never walk INTO a base face — entering the other chain's face IS the
+   termination.
 
 ## 4. Increment ledger
 
@@ -351,11 +460,20 @@ two-site inference into per-corridor DATA before the apply arm is built.
   shared Circle edges; the arc band validated live, §3c). The anatomy
   census refuted the "truncate at q" apply sketch — the repair unit is
   the CORRIDOR (§3d).
-- inc-2b: the corridor-walk census (§3e) — corridors, junction lists,
-  termination kinds, chain re-anchors, as report-only data.
+- **inc-2b** (2026-08-30, same session): the corridor-walk census LANDED
+  + MEASURED family-wide (§3e). R0011/R0074: every walk
+  `ReachedOtherChain`, the v42→v78 corridor merge proven BIT-EQUAL, v27
+  corrected to 2 facets. R0044: existing-healthy-junction re-anchors
+  measured at 1e-12 (the `ReachedExistingJunction` splice terminal named),
+  v76 `NoExit` names the all-roots per-edge step solver, degree-4 branch
+  ambiguity typed. R0085: honestly walled on operand quality (v467's fan
+  already healthily owned — pure splice; rider walks ambiguous into the
+  base face). The five apply-arm requirements are MEASURED (§3e verdict).
 - inc-2c: the gated apply arm (`YANG_451_TRANSIT`) — corridor splice per
-  §3d: split phantoms, mint-once-share-by-position junctions, corridor
-  runs at chord density, two-sided re-fill, §4-I9 re-check + oracle gate.
+  §3d/§3e: split phantoms, walk with existing-junction termination,
+  per-edge all-roots step solving, mint-once-share-by-position junctions,
+  corridor runs at chord density, two-sided re-fill, §4-I9 re-check +
+  oracle gate.
 - inc-3: fixed-point integration (multiple sites per case; R0085 has two
   failing ops) + full-corpus gated measurement; flip under the standing
   two-proof protocol.

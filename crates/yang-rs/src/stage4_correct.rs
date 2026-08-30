@@ -5603,6 +5603,116 @@ fn relocation_domain_postcondition(
                                      DECLINE {d:?}"
                                 ),
                             }
+                            // inc-2b (spec §3e): the CORRIDOR WALK — from
+                            // each real junction, walk the far∩facet curve
+                            // across `next`'s lattice toward the OTHER
+                            // chain's face, and annotate every discovered
+                            // junction with the nearest existing mesh vertex
+                            // carrying its surface triple (the re-anchor
+                            // candidates). Report-only.
+                            'walks: {
+                                let brep_n = match site.next.0 {
+                                    InputId::A => a,
+                                    InputId::B => b,
+                                };
+                                let far_surf = {
+                                    let faces = match site.far.0 {
+                                        InputId::A => a.faces(),
+                                        InputId::B => b.faces(),
+                                    };
+                                    match faces.get(site.far.1 as usize) {
+                                        Some(f) => f.surface,
+                                        None => break 'walks,
+                                    }
+                                };
+                                let walk_adj = crate::stage4_transit::build_edge_adjacency(brep_n);
+                                let d3w = |x: [f64; 3], y: [f64; 3]| {
+                                    ((x[0] - y[0]).powi(2)
+                                        + (x[1] - y[1]).powi(2)
+                                        + (x[2] - y[2]).powi(2))
+                                    .sqrt()
+                                };
+                                for c in &site.cands {
+                                    if !c.real {
+                                        continue;
+                                    }
+                                    let (Some(sa), Some(er)) = (c.sol, c.edge.as_ref()) else {
+                                        continue;
+                                    };
+                                    let Some(other) =
+                                        site.cands.iter().find(|o| o.shared != c.shared)
+                                    else {
+                                        continue;
+                                    };
+                                    if c.shared.0 != site.next.0 || other.shared.0 != site.next.0 {
+                                        eprintln!(
+                                            "YANG_S4_CARRIER_DOMAIN-WALK    v{v} SKIP \
+                                             cross-operand shape"
+                                        );
+                                        continue;
+                                    }
+                                    let (juncs, end) = crate::stage4_transit::walk_corridor(
+                                        brep_n,
+                                        far_surf,
+                                        &walk_adj,
+                                        crate::stage4_transit::WalkStart {
+                                            face: site.next.1,
+                                            entry_key: crate::stage4_transit::edge_key(
+                                                brep_n, er.edge,
+                                            ),
+                                            entry: sa,
+                                        },
+                                        other.shared.1,
+                                        64,
+                                    );
+                                    eprintln!(
+                                        "YANG_S4_CARRIER_DOMAIN-WALK    v{v} from \
+                                         real{:?} into {:?} toward {:?}: steps={} end={end:?}",
+                                        c.shared,
+                                        site.next,
+                                        other.shared,
+                                        juncs.len(),
+                                    );
+                                    for (k, wj) in juncs.iter().enumerate() {
+                                        // Nearest existing mesh vertex carrying
+                                        // this junction's triple {far, from, to}
+                                        // — the re-anchor candidate.
+                                        let want = [
+                                            site.far,
+                                            (site.next.0, wj.face_from),
+                                            (site.next.0, wj.face_to),
+                                        ];
+                                        let near = patch_map
+                                            .iter()
+                                            .filter(|(_, ps)| want.iter().all(|t| ps.contains(t)))
+                                            .map(|(&w, _)| {
+                                                (w, d3w(mesh.verts[w as usize].as_array(), wj.sol))
+                                            })
+                                            .min_by(|x, y| x.1.total_cmp(&y.1));
+                                        let near_s = match near {
+                                            Some((w, dw)) => {
+                                                let moved = (w as usize) < n
+                                                    && entry[w as usize]
+                                                        != mesh.verts[w as usize].as_array();
+                                                format!("near_mesh=v{w} d={dw:.3e} moved={moved}")
+                                            }
+                                            None => "near_mesh=NONE".into(),
+                                        };
+                                        eprintln!(
+                                            "YANG_S4_CARRIER_DOMAIN-WALK      step{k} \
+                                             {:?}->{:?} edge={} d_on_edge={:.3e} \
+                                             sol=({:.9},{:.9},{:.9}) {near_s}",
+                                            (site.next.0, wj.face_from),
+                                            (site.next.0, wj.face_to),
+                                            wj.edge,
+                                            wj.d_on_edge,
+                                            wj.sol[0],
+                                            wj.sol[1],
+                                            wj.sol[2],
+                                        );
+                                    }
+                                }
+                            }
                         }
                     }
                     // Site ANATOMY for the inc-2 apply design: which mesh
