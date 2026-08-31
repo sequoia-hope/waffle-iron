@@ -694,6 +694,27 @@ pub(crate) fn plan_invocation(
                             }
                         }
                         _ => {
+                            // inc-2c-3b-8 (spec §3p): a phantom NEITHER of
+                            // whose cycle neighbours resolves to a junction,
+                            // on a component with no hosted junction for
+                            // this corridor, is the WHOLLY-CONDEMNED
+                            // third-face pocket (R0044's B:0 corner sliver
+                            // at q=v513 — the rim-domain census REFUTED the
+                            // base-leg reading: the candidate junctions sit
+                            // out-of-domain beyond the corner, and the far
+                            // body swallows the whole pocket). This
+                            // component carries no anchor because it keeps
+                            // NOTHING; every vertex is removed by the other
+                            // components' certified plans. Leave it
+                            // unplanned — the driver's closure sweep
+                            // consumes it against the invocation's removed
+                            // set, and the batch-integrity scan stays the
+                            // loud backstop if anything survives. A
+                            // component that DOES host this corridor's
+                            // junctions keeps the typed decline.
+                            if hosts.is_empty() {
+                                continue;
+                            }
                             declines.push((
                                 k,
                                 comp.comp,
@@ -1115,6 +1136,100 @@ mod tests {
             ]
         );
         assert_eq!(plans[0].removed, vec![11, 12, 13]);
+    }
+
+    /// inc-2c-3b-8 (spec §3p) — the WHOLLY-CONDEMNED third-face pocket
+    /// (R0044's B:0 corner sliver): the phantom's cycle neighbours resolve
+    /// to NO junction and the component hosts nothing for the corridor —
+    /// the planner leaves it UNPLANNED (no decline; the driver's closure
+    /// sweep consumes it against the invocation's removed set).
+    #[test]
+    fn plan_invocation_leaves_a_wholly_condemned_component_to_the_sweep() {
+        let (corridors, mut comps) = r0011_like_invocation();
+        // The pocket: phantom 42 between unattached neighbours, plus the
+        // crossed corner — no vertex of it resolves to any junction.
+        comps.push(ComponentInput {
+            key: (InputId::B, 9),
+            comp: 9,
+            cycles: vec![vec![42, 60, 687, 61]],
+        });
+        let far_value = |_: usize, v: u32| -> Option<f64> {
+            Some(match v {
+                687 | 688 | 686 | 71 => -1.0,
+                42 => 0.0,
+                _ => 1.0,
+            })
+        };
+        let attachments = |_: usize, p: u32| -> Vec<(u32, usize)> {
+            if p == 42 {
+                vec![(39, 0), (43, 1)]
+            } else {
+                vec![]
+            }
+        };
+        let hosts = |_: usize, comp: u32| -> Vec<(usize, (u32, u32))> {
+            match comp {
+                1 => vec![(0, (686, 682))],
+                2 => vec![(0, (70, 71)), (1, (71, 72))],
+                _ => vec![],
+            }
+        };
+        let band = |_: u32| 1e-9;
+        let ctx = r0011_ctx(&far_value, &attachments, &hosts, &band, &healthy_pos);
+        let mut pool = MintPool::default();
+        let (plans, declines) = plan_invocation(&corridors, &comps, &ctx, &mut pool);
+        assert!(declines.is_empty(), "{declines:?}");
+        // The three measured generators still plan; the pocket emits none.
+        assert_eq!(plans.len(), 3, "{plans:?}");
+        assert!(plans.iter().all(|pl| pl.comp != 9));
+    }
+
+    /// The guard: the same unattached-phantom shape on a component that
+    /// DOES host the corridor's junctions keeps the typed decline — a
+    /// hosted component keeps territory, so an unresolvable anchor there
+    /// is a genuine defect, never sweep fodder.
+    #[test]
+    fn plan_invocation_still_declines_an_unattached_phantom_on_a_hosted_component() {
+        let (corridors, mut comps) = r0011_like_invocation();
+        comps.push(ComponentInput {
+            key: (InputId::B, 9),
+            comp: 9,
+            cycles: vec![vec![42, 60, 687, 61]],
+        });
+        let far_value = |_: usize, v: u32| -> Option<f64> {
+            Some(match v {
+                687 | 688 | 686 | 71 => -1.0,
+                42 => 0.0,
+                _ => 1.0,
+            })
+        };
+        let attachments = |_: usize, p: u32| -> Vec<(u32, usize)> {
+            if p == 42 {
+                vec![(39, 0), (43, 1)]
+            } else {
+                vec![]
+            }
+        };
+        let hosts = |_: usize, comp: u32| -> Vec<(usize, (u32, u32))> {
+            match comp {
+                1 => vec![(0, (686, 682))],
+                2 => vec![(0, (70, 71)), (1, (71, 72))],
+                9 => vec![(0, (60, 687))],
+                _ => vec![],
+            }
+        };
+        let band = |_: u32| 1e-9;
+        let ctx = r0011_ctx(&far_value, &attachments, &hosts, &band, &healthy_pos);
+        let mut pool = MintPool::default();
+        let (plans, declines) = plan_invocation(&corridors, &comps, &ctx, &mut pool);
+        assert!(plans.iter().all(|pl| pl.comp != 9));
+        assert!(
+            declines
+                .iter()
+                .any(|(_, c, d)| *c == 9
+                    && matches!(d, PlanDecline::AttachmentMismatch { phantom: 42 })),
+            "{declines:?}"
+        );
     }
 
     #[test]

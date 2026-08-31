@@ -5933,7 +5933,13 @@ fn corner_transit_apply(
             // inc-2c-3b-8 census: the crossed corner's THIRD faces (its
             // memberships beyond far and the walk's junction faces) — does
             // a true junction {far, third, junction-face} exist near the
-            // corner (the base-boundary re-closure candidate)?
+            // corner (the base-boundary re-closure candidate)? Part 2 (the
+            // cycle shapes): B-Rep rim roots on the third + junction faces
+            // (the definitive crossing census with in-domain flags), host
+            // admission of every candidate solution against the third /
+            // junction / far components' cycles, the third face's cycle
+            // windows near q, the leg run's sourceability, and each
+            // phantom's distance to its candidate true home.
             for &q in &c.corners {
                 let pq = patches_of(q);
                 let jfaces: std::collections::BTreeSet<(InputId, u32)> = c
@@ -5943,14 +5949,18 @@ fn corner_transit_apply(
                     .collect();
                 let far_s = faces_of(c.far.0).get(c.far.1 as usize).map(|f| f.surface);
                 let qpos = mesh.verts[q as usize];
-                let d3 = |a: Point3, b: [f64; 3]| -> f64 {
+                let d3p = |a: Point3, b: [f64; 3]| -> f64 {
                     ((a.x() - b[0]).powi(2) + (a.y() - b[1]).powi(2) + (a.z() - b[2]).powi(2))
                         .sqrt()
                 };
+                type ThirdSol = ((InputId, u32), (InputId, u32), [f64; 3]);
+                let mut thirds: std::collections::BTreeSet<(InputId, u32)> = Default::default();
+                let mut sols: Vec<ThirdSol> = Vec::new();
                 for &t in pq
                     .iter()
                     .filter(|kk| **kk != c.far && !jfaces.contains(*kk))
                 {
+                    thirds.insert(t);
                     let ts = faces_of(t.0).get(t.1 as usize).map(|f| f.surface);
                     for &(fi, ff) in &jfaces {
                         let fs = faces_of(fi).get(ff as usize).map(|f| f.surface);
@@ -5959,14 +5969,17 @@ fn corner_transit_apply(
                                 qpos, a0, a1, a2,
                             );
                             match sol {
-                                Some(x) => eprintln!(
-                                    "[451-base] #{k} q=v{q} third={t:?} jf=({fi:?},{ff}) \
-                                     sol=({:.3},{:.3},{:.3}) d_q={:.4e}",
-                                    x.x(),
-                                    x.y(),
-                                    x.z(),
-                                    d3(x, qpos.as_array()),
-                                ),
+                                Some(x) => {
+                                    eprintln!(
+                                        "[451-base] #{k} q=v{q} third={t:?} jf=({fi:?},{ff}) \
+                                         sol=({:.3},{:.3},{:.3}) d_q={:.4e}",
+                                        x.x(),
+                                        x.y(),
+                                        x.z(),
+                                        d3p(x, qpos.as_array()),
+                                    );
+                                    sols.push((t, (fi, ff), x.as_array()));
+                                }
                                 None => eprintln!(
                                     "[451-base] #{k} q=v{q} third={t:?} \
                                      jf=({fi:?},{ff}) NO-CONVERGE"
@@ -5974,6 +5987,250 @@ fn corner_transit_apply(
                             }
                         }
                     }
+                }
+                // (a) B-Rep rim roots: every far∩edge root on the third and
+                // junction faces, with in-domain flags — the crossing
+                // parity census. Root-free edges are elided.
+                if let Some(fs) = far_s {
+                    for &(ti, tf) in thirds.iter().chain(jfaces.iter()) {
+                        let brep_t = match ti {
+                            InputId::A => a,
+                            InputId::B => b,
+                        };
+                        for l in s4t::face_edge_roots_probe(brep_t, fs, tf, qpos.as_array()) {
+                            if !l.contains("roots=0") {
+                                eprintln!("[451-bleg-rim] #{k} q=v{q} face=({ti:?},{tf}) {l}");
+                            }
+                        }
+                    }
+                }
+                let maxdq = sols
+                    .iter()
+                    .map(|&(_, _, s)| d3p(qpos, s))
+                    .fold(0.0f64, f64::max);
+                // (a2) Face-loop edge inventory near q: every loop edge of
+                // the junction faces (their loops are small), and the third
+                // faces' edges with an endpoint within 8× the farthest
+                // candidate d_q — id, curve kind, endpoint distances.
+                for &(ti, tf) in thirds.iter().chain(jfaces.iter()) {
+                    let brep_t = match ti {
+                        InputId::A => a,
+                        InputId::B => b,
+                    };
+                    let Some(f) = brep_t.faces().get(tf as usize) else {
+                        continue;
+                    };
+                    for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+                        let e = &brep_t.edges()[ei as usize];
+                        let ps = brep_t.vertices()[e.start as usize].point.as_array();
+                        let pe = brep_t.vertices()[e.end as usize].point.as_array();
+                        let (dqs, dqe) = (d3p(qpos, ps), d3p(qpos, pe));
+                        if !jfaces.contains(&(ti, tf)) && dqs.min(dqe) > 8.0 * maxdq {
+                            continue;
+                        }
+                        let kind = match e.curve {
+                            Curve::LineSegment => "Line",
+                            Curve::Circle { .. } => "Circle",
+                            _ => "Other",
+                        };
+                        eprintln!(
+                            "[451-bleg-edge] #{k} face=({ti:?},{tf}) edge={ei} {kind} \
+                             vs={}@dq={dqs:.1} ve={}@dq={dqe:.1}",
+                            e.start, e.end
+                        );
+                    }
+                }
+                // (f) Mesh vertices near the corner (within 2× the farthest
+                // candidate d_q): id, d_q, far value, patch memberships.
+                for (&v, ps) in patch_map.iter() {
+                    let vp = mesh.verts[v as usize].as_array();
+                    let dq = d3p(qpos, vp);
+                    if dq <= 2.0 * maxdq {
+                        let f = far_value(k, v).map_or("?".into(), |x| format!("{x:.2e}"));
+                        eprintln!("[451-bleg-v] #{k} v{v} d_q={dq:.1} far={f} memb={ps:?}");
+                    }
+                }
+                // (g) The phantom/corner star: every triangle touching a
+                // fired traveller or the corner, with its attribution.
+                for (ti2, tri) in mesh.tris.iter().enumerate() {
+                    if tri
+                        .iter()
+                        .any(|v| c.phantoms.contains(v) || c.corners.contains(v))
+                    {
+                        let att = attribution
+                            .attributions
+                            .get(ti2)
+                            .and_then(|x| x.as_ref())
+                            .map(|x| (x.input, x.face));
+                        eprintln!("[451-bleg-tri] #{k} t{ti2} {tri:?} att={att:?}");
+                    }
+                }
+                // (b) Host admission of each candidate solution against the
+                // cycles of every component keyed by its third face, its
+                // junction face, or the far patch — which chords would host
+                // the leg's junctions.
+                for &(t, jf, sol) in &sols {
+                    let scale = sol.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
+                    let eval = cad_primitives::TAU_WORK.max(8.0 * f64::EPSILON * scale);
+                    let contract = s4t::contract_band(scale);
+                    let val_at = |inp: InputId, f: u32| -> Option<f64> {
+                        let s = faces_of(inp).get(f as usize)?.surface;
+                        surface_value_and_normal(s, sol).map(|(v, _)| v)
+                    };
+                    for key in [t, jf, c.far] {
+                        for (pi, patch) in raw_patches
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, p)| (p.attribution.input, p.attribution.face) == key)
+                        {
+                            let Some(cycles_v) = cycles_of(pi) else {
+                                continue;
+                            };
+                            let on_curve = |x: u32, y: u32| -> bool {
+                                val_at(patch.attribution.input, patch.attribution.face)
+                                    .is_some_and(|v| v.abs() <= contract)
+                                    && mesh.tris.iter().enumerate().any(|(ti2, tri)| {
+                                        tri.contains(&x)
+                                            && tri.contains(&y)
+                                            && !patch.tri_indices.contains(&(ti2 as u32))
+                                            && attribution
+                                                .attributions
+                                                .get(ti2)
+                                                .and_then(|a| a.as_ref())
+                                                .and_then(|att| val_at(att.input, att.face))
+                                                .is_some_and(|v| v.abs() <= contract)
+                                    })
+                            };
+                            for cy in &cycles_v {
+                                let n = cy.len();
+                                for i in 0..n {
+                                    let (x, y) = (cy[i], cy[(i + 1) % n]);
+                                    let (px, py) = (
+                                        mesh.verts[x as usize].as_array(),
+                                        mesh.verts[y as usize].as_array(),
+                                    );
+                                    let d = s4t::dist_point_segment(sol, px, py);
+                                    if d <= eval.max(d_eps) {
+                                        let e = [py[0] - px[0], py[1] - px[1], py[2] - px[2]];
+                                        let w = [sol[0] - px[0], sol[1] - px[1], sol[2] - px[2]];
+                                        let l2 = e[0] * e[0] + e[1] * e[1] + e[2] * e[2];
+                                        let tp = (w[0] * e[0] + w[1] * e[1] + w[2] * e[2])
+                                            / l2.max(1e-300);
+                                        let admit =
+                                            s4t::arc_host_admit(sol, px, py, eval, d_eps, || {
+                                                on_curve(x, y)
+                                            });
+                                        eprintln!(
+                                            "[451-bleg-host] #{k} jf={jf:?} comp={pi} \
+                                             key={key:?} cand=({x},{y}) d={d:.4e} t={tp:+.3} \
+                                             admit={admit}"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // (c) The third-face components' cycle windows near q — the
+                // surgery target shapes (contiguous runs within 3× the
+                // farthest candidate's d_q).
+                let rmax = sols
+                    .iter()
+                    .map(|&(_, _, s)| d3p(qpos, s))
+                    .fold(0.0f64, f64::max)
+                    * 3.0;
+                for &t in &thirds {
+                    for (pi, _) in raw_patches
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, p)| (p.attribution.input, p.attribution.face) == t)
+                    {
+                        let Some(cycles_v) = cycles_of(pi) else {
+                            continue;
+                        };
+                        for (ci, cy) in cycles_v.iter().enumerate() {
+                            let n = cy.len();
+                            let near: Vec<bool> = cy
+                                .iter()
+                                .map(|&v| d3p(qpos, mesh.verts[v as usize].as_array()) <= rmax)
+                                .collect();
+                            if !near.iter().any(|&x| x) {
+                                continue;
+                            }
+                            let mut i = 0usize;
+                            while i < n {
+                                if !near[i] || (i > 0 && near[i - 1]) {
+                                    i += 1;
+                                    continue;
+                                }
+                                let mut jj = i;
+                                while jj + 1 < n && near[jj + 1] {
+                                    jj += 1;
+                                }
+                                let row: Vec<String> = (i..=jj)
+                                    .map(|ix| {
+                                        let v = cy[ix];
+                                        let f = far_value(k, v)
+                                            .map_or("?".into(), |x| format!("{x:.2e}"));
+                                        format!(
+                                            "v{v}(far={f},d_q={:.1})",
+                                            d3p(qpos, mesh.verts[v as usize].as_array())
+                                        )
+                                    })
+                                    .collect();
+                                eprintln!(
+                                    "[451-bleg-cyc] #{k} comp={pi} key={t:?} cyc={ci} \
+                                     idx={i}..{jj}/{n}: {}",
+                                    row.join(" ")
+                                );
+                                i = jj + 1;
+                            }
+                        }
+                    }
+                }
+                // (d) The leg run between candidate pairs on the same third
+                // face — sourceability at the chord band.
+                for i in 0..sols.len() {
+                    for j2 in (i + 1)..sols.len() {
+                        let (t1, jf1, s1) = sols[i];
+                        let (t2, jf2, s2) = sols[j2];
+                        if t1 != t2 || jf1 == jf2 {
+                            continue;
+                        }
+                        let third_s = faces_of(t1.0).get(t1.1 as usize).map(|f| f.surface);
+                        if let (Some(fs), Some(ts2)) = (far_s, third_s) {
+                            let run = s4t::sample_run_chord(fs, ts2, s1, s2, d_eps);
+                            eprintln!(
+                                "[451-bleg-run] #{k} third={t1:?} {jf1:?}->{jf2:?} \
+                                 chord={:.3e} run={:?}",
+                                {
+                                    let dd = [s2[0] - s1[0], s2[1] - s1[1], s2[2] - s1[2]];
+                                    (dd[0] * dd[0] + dd[1] * dd[1] + dd[2] * dd[2]).sqrt()
+                                },
+                                run.map(|v| v.len())
+                            );
+                        }
+                    }
+                }
+                // (e) Each phantom's distance to q and to every candidate —
+                // which solution is each glided traveller's true home.
+                for &p in &c.phantoms {
+                    let pp = mesh.verts[p as usize].as_array();
+                    let ds: Vec<String> = sols
+                        .iter()
+                        .map(|&(_, jf, s)| {
+                            let dd = [s[0] - pp[0], s[1] - pp[1], s[2] - pp[2]];
+                            format!(
+                                "{jf:?}:{:.3e}",
+                                (dd[0] * dd[0] + dd[1] * dd[1] + dd[2] * dd[2]).sqrt()
+                            )
+                        })
+                        .collect();
+                    eprintln!(
+                        "[451-bleg-ph] #{k} v{p} d_q={:.3e} {}",
+                        d3p(qpos, pp),
+                        ds.join(" ")
+                    );
                 }
             }
         }
@@ -6154,16 +6411,19 @@ fn corner_transit_apply(
                     seed_pts.len()
                 );
             }
-            mesh.verts.extend(seed_pts.iter().copied());
+            // Seeds ride the batch (`new_verts` + the I2e remap): an eager
+            // append here would move the vertex baseline mid-mutation and
+            // stale every other rebuild's plan stamp (measured: R0044's
+            // first live seed → batch StalePlan, spec §3p).
             replaced.extend(del.old_tris.iter().copied());
             removed_all.extend(victims.iter().copied());
             rebuilds.push(crate::stage4_construct::PatchRebuild {
                 patch: pi,
                 old_tris: del.old_tris,
                 new_tris,
-                new_verts: Vec::new(),
+                new_verts: seed_pts,
                 dropped: victims.clone(),
-                plan_verts: mesh.verts.len() as u32,
+                plan_verts: seed_base,
                 plan_tris: mesh.tris.len() as u32,
             });
         }
@@ -6279,15 +6539,14 @@ fn corner_transit_apply(
                             return Ok(false);
                         }
                     };
-                    mesh.verts.extend(seed_pts.iter().copied());
                     replaced.extend(del.old_tris.iter().copied());
                     rebuilds.push(crate::stage4_construct::PatchRebuild {
                         patch: pl.comp as usize,
                         old_tris: del.old_tris,
                         new_tris,
-                        new_verts: Vec::new(),
+                        new_verts: seed_pts,
                         dropped: victims.clone(),
-                        plan_verts: mesh.verts.len() as u32,
+                        plan_verts: seed_base,
                         plan_tris: mesh.tris.len() as u32,
                     });
                 }
@@ -6342,6 +6601,40 @@ fn corner_transit_apply(
             .filter(|v| removed_all.contains(v))
             .collect();
         if holds.is_empty() {
+            continue;
+        }
+        // inc-2c-3b-8 (spec §3p) — a component whose EVERY vertex is
+        // removed-certified rebuilds EMPTY as one unit: the wholly-condemned
+        // third-face pocket (R0044's B:0 corner sliver [v144 v141 v142 q] —
+        // the far body swallows the whole pocket; each vertex is removed by
+        // another component's certified plan, and the planner left the comp
+        // unplanned because it keeps nothing). A partially-condemned comp
+        // falls through to the fan-local path below, whose refusals stay
+        // typed.
+        let all_verts: std::collections::BTreeSet<u32> = patch
+            .tri_indices
+            .iter()
+            .flat_map(|&t| mesh.tris[t as usize])
+            .collect();
+        if all_verts.iter().all(|v| removed_all.contains(v)) {
+            if census {
+                eprintln!(
+                    "[451-sweep] comp={pi} key={:?} WHOLE-COMPONENT excision: verts={all_verts:?} \
+                     tris={}",
+                    (patch.attribution.input, patch.attribution.face),
+                    patch.tri_indices.len(),
+                );
+            }
+            replaced.extend(patch.tri_indices.iter().copied());
+            rebuilds.push(crate::stage4_construct::PatchRebuild {
+                patch: pi,
+                old_tris: patch.tri_indices.clone(),
+                new_tris: Vec::new(),
+                new_verts: Vec::new(),
+                dropped: all_verts,
+                plan_verts: mesh.verts.len() as u32,
+                plan_tris: mesh.tris.len() as u32,
+            });
             continue;
         }
         let surface = match faces_of(patch.attribution.input)
@@ -6409,15 +6702,65 @@ fn corner_transit_apply(
                     return Ok(false);
                 }
             };
+            if census {
+                let key = (patch.attribution.input, patch.attribution.face);
+                let old: Vec<[u32; 3]> = del
+                    .old_tris
+                    .iter()
+                    .map(|&t| mesh.tris[t as usize])
+                    .collect();
+                // Each victim's distance to the direct-reconnection chord —
+                // the sliver rule's own yardstick (chord accuracy).
+                let ds: Vec<String> = if let [a, b] = polygon.as_slice() {
+                    let (pa, pb) = (
+                        mesh.verts[*a as usize].as_array(),
+                        mesh.verts[*b as usize].as_array(),
+                    );
+                    victims
+                        .iter()
+                        .map(|&v| {
+                            format!(
+                                "v{v}:{:.3e}",
+                                crate::stage4_transit::dist_point_segment(
+                                    mesh.verts[v as usize].as_array(),
+                                    pa,
+                                    pb,
+                                )
+                            )
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                eprintln!(
+                    "[451-sweep] comp={pi} key={key:?} victims={victims:?} runs={runs:?} \
+                     polygon={polygon:?} old={old:?} d_eps={d_eps:.3e} chord_d=[{}]",
+                    ds.join(" ")
+                );
+            }
             if polygon.len() < 3 {
-                // A 2-vertex hole is ONE sliver triangle: the correct
-                // rebuild is EMPTY — the opposite edge becomes the boundary
-                // (the fan_rebuild_core sliver shape, measured on A:3's
-                // v107 fan). More old triangles than that is a geometry
-                // defect, refused.
-                if del.old_tris.len() != 1 {
+                // A 2-vertex hole rebuilds EMPTY: the surviving rim
+                // collapses to one edge, and direct reconnection consumes
+                // the residual fan strip between it and the condemned
+                // vertices (the fan_rebuild_core sliver, A:3's v107; the
+                // measured 3-triangle overshoot strip on R0044's B:371 —
+                // victims v90/v91/v92, the §3m absorb chain — is the same
+                // shape one fan wider, spec §3p). Every victim is already
+                // in the invocation's certified-removed set by the sweep's
+                // own definition; the only new obligation is that the
+                // strip is SELF-CONTAINED — a deleted triangle referencing
+                // a vertex that neither dies nor sits on the rim would
+                // strand a survivor silently, refused.
+                let rim: std::collections::BTreeSet<u32> = polygon.iter().copied().collect();
+                let contained = del.old_tris.iter().all(|&t| {
+                    mesh.tris[t as usize]
+                        .iter()
+                        .all(|v| victims.contains(v) || rim.contains(v))
+                });
+                if !contained {
                     refuse(&format!(
-                        "closure-sweep comp={pi}: {}-gon hole over {} tris",
+                        "closure-sweep comp={pi}: {}-gon hole over {} tris strands a \
+                         survivor victims={victims:?} runs={runs:?}",
                         polygon.len(),
                         del.old_tris.len()
                     ));
@@ -6453,15 +6796,14 @@ fn corner_transit_apply(
                     return Ok(false);
                 }
             };
-            mesh.verts.extend(seed_pts.iter().copied());
             replaced.extend(del.old_tris.iter().copied());
             rebuilds.push(crate::stage4_construct::PatchRebuild {
                 patch: pi,
                 old_tris: del.old_tris,
                 new_tris,
-                new_verts: Vec::new(),
+                new_verts: seed_pts,
                 dropped: victims.clone(),
-                plan_verts: mesh.verts.len() as u32,
+                plan_verts: seed_base,
                 plan_tris: mesh.tris.len() as u32,
             });
         }
@@ -6526,6 +6868,51 @@ fn corner_transit_apply(
         pool.verts.len(),
         removed_all.len(),
     );
+    if census {
+        // Post-batch watertightness audit: the result mesh must pair every
+        // directed edge (fwd == rev). An unpaired edge here localizes a
+        // repair-introduced hole at its source instead of at the stage-6
+        // boundary walk.
+        let mut dir: std::collections::BTreeMap<(u32, u32), i64> = Default::default();
+        for t in &mesh.tris {
+            for k in 0..3 {
+                let (x, y) = (t[k], t[(k + 1) % 3]);
+                *dir.entry((x.min(y), x.max(y))).or_default() += if x < y { 1 } else { -1 };
+            }
+        }
+        let bad: Vec<((u32, u32), i64)> =
+            dir.into_iter().filter(|&(_, n)| n != 0).take(40).collect();
+        if !bad.is_empty() {
+            eprintln!("[451-audit] unpaired directed edges post-batch: {bad:?}");
+            // inc-2c-3b-9 census: per unpaired edge, the witness triangles
+            // with their post-batch attributions — which rebuild emitted
+            // each side, and who failed to match.
+            for &((x, y), n) in bad.iter().take(20) {
+                let wits: Vec<String> = mesh
+                    .tris
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, t)| t.contains(&x) && t.contains(&y))
+                    .map(|(ti, t)| {
+                        let att = attribution
+                            .attributions
+                            .get(ti)
+                            .and_then(|a| a.as_ref())
+                            .map(|a| (a.input, a.face));
+                        format!("t{ti}{t:?}@{att:?}")
+                    })
+                    .collect();
+                let d = d3(
+                    mesh.verts[x as usize].as_array(),
+                    mesh.verts[y as usize].as_array(),
+                );
+                eprintln!(
+                    "[451-audit-edge] ({x},{y}) n={n} len={d:.3e} wits: {}",
+                    wits.join(" ")
+                );
+            }
+        }
+    }
     if std::env::var_os("YANG_451_CHI").is_some() {
         let chi = |mesh: &Mesh| -> (usize, usize, usize) {
             let mut vs: std::collections::BTreeSet<u32> = Default::default();

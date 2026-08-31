@@ -1228,6 +1228,112 @@ leg — a corridor-shaped structure the walk never solved because it
 crossed the facet fan, not the base. inc-2c-3b-8 builds the BASE LEG
 (assembly + planning + apply), census-first on the cycle shapes.
 
+## 3p. inc-2c-3b-8 — the base-leg REFUTATION and the total-excision
+closure (LANDED 2026-08-31, fourth session; R0044's natural
+invocation APPLIES — corridors=6 plans=20 mints=15 removed=25 — and
+the case stops typed at the batch boundary-conformality wall, named
+inc-2c-3b-9)
+
+**The cycle-shape census (part 2 of `[451-base]`, all probes kept:
+`[451-bleg-rim]` B-Rep rim roots with in-domain flags,
+`[451-bleg-edge]` face-loop inventories, `[451-bleg-v]` near-corner
+memberships, `[451-bleg-tri]` phantom stars, `[451-bleg-host]` host
+admission, `[451-bleg-cyc]` cycle windows, `[451-bleg-run]` leg
+sourcing, `[451-bleg-ph]` phantom→solution distances) REFUTED the
+base-leg reading before anything was built:**
+
+- **The candidate junctions are OUT-OF-DOMAIN.** On the REAL creases
+  (B-Rep base-loop edge 72 = the 378∩base seam [q → bv73, length
+  51.7]; edge 71 = the 379∩base seam [bv71 → q]) the far roots sit at
+  **t = −0.924 and t = +1.787 — beyond the corner, off both
+  segments**. The wall-bottom seam corner is WHOLLY inside the far
+  body (far < 0 along edges 71/72 end to end; far(q) = −30); the base
+  face's real boundary crossings sit at d_q ≈ 538 and 712 (edges
+  98/100), other seam sites that never fired.
+- **The anchor's census was CIRCULAR.** v144 IS the {far, base,
+  378-extended} triple solution (distance 0.0, bit-equal) and v142 IS
+  the {far, base, 379-extended} one (2.9e-12): Newton seeded at q
+  converges onto the fired travellers' OWN relocated positions —
+  §4.3 relocation had already pulled them onto the extended-surface
+  triples. The "bit-equal across the mirrors" observation is the same
+  seed and surfaces, not evidence of a boundary junction. **An
+  extended-surface triple convergence is an IDENTIFICATION, not a
+  domain certificate — adjudicate against the B-Rep edge domains
+  (`face_edge_roots_probe`) before reading it as topology.**
+- **The true local anatomy:** the carried chain [v144 → v141 → v142]
+  is INTERIOR far∩base curve crossing the base face's reflex sector
+  at the corner; the sliver comp B:0/11 (exactly 2 triangles
+  [142,513,141]/[141,513,144]) is the wrongly-kept pocket between
+  that chain and q. The three standing plans (far, band 378, band
+  379) already produce the true transit topology
+  [v160, v161, MINT, v157] — v161 is the healthy mid-transit vertex.
+  **comp 11's true plan is EMPTY — total excision.**
+
+Landed (three mechanisms, each measured against its own wall):
+
+1. **The planner fall-through** (`plan_invocation`'s (None, None)
+   attachment arm): a phantom neither of whose cycle neighbours
+   resolves to a junction, on a component with NO hosted junction for
+   the corridor, is the wholly-condemned pocket — leave it UNPLANNED
+   (no decline) for the driver's closure sweep; a hosted component
+   keeps the typed `AttachmentMismatch`. Unit-pinned both ways.
+2. **The sweep's whole-component excision + the contained-strip
+   2-gon closure.** A component whose EVERY vertex is
+   removed-certified rebuilds EMPTY as one unit (comp 11). The 2-gon
+   hole arm generalizes from `old_tris == 1` to the structural
+   containment certificate — every deleted triangle's vertex ∈
+   victims ∪ rim — measured on B:371's 3-triangle overshoot strip
+   (victims v90/v91/v92, the §3m absorb chain, chord distances
+   77.8–119.3 vs d_eps 127.7). NO distance band: the precedent sliver
+   (A:3 v107) reads 128.6 vs d_eps 127.7 — 1.007× — so any band
+   tight enough to mean something breaks the precedent, and the
+   victims' removal certificates (phantom/sign/absorb, already held
+   by every sweep victim by construction) are the sound authority.
+3. **Batch-carried seeds.** `refill_fan_hole_seeded` seeds now ride
+   `PatchRebuild::new_verts` through `apply_rebuild_batch`'s I2e
+   remap (plan stamp = the pre-seed baseline) instead of eager
+   mid-mutation appends — R0044's first live seed had moved the
+   vertex baseline and staled every other rebuild's plan stamp
+   (`StalePlan` with equal printed tris; the failing arm was verts).
+
+**Measured (R0044, both gates): the natural invocation APPLIES —
+`corridors=6 plans=20 mints=15 removed=25` — all six fires consumed;
+the op proceeds to Stage 6 and stops typed at
+`NonManifoldOutput` (s6-boundary-walk-deadend v13998), and the §4.5.4
+refine retry's own corner fire (v105) still refuses at the standing
+ChordDegradation wall (no longer moot — it is ON the path when the
+natural output is broken).** The post-batch watertightness audit
+(`[451-audit]`, census-gated, kept) localizes the whole wall: **16
+unpaired directed edges in 4 repair neighbourhoods**, one family —
+the batch rebuilds each patch to its corrected cycle independently,
+and boundary edges pair only between patches sharing the same
+corrected chains. Two sub-defects:
+
+- **(A) Cross-plan retained-removed vertices**: comp B:372/391's plan
+  keeps v90 as a host-edge survivor (`to` endpoint of host (102,90))
+  while corridor #0's far plan REMOVES v90 — the corrected cycle
+  references a globally-removed vertex, and the batch-integrity scan
+  misses it because it checks only OLD triangles outside `replaced`,
+  never the plans' corrected cycles / new_tris.
+- **(B) Un-planned neighbours never adopt the mints** splitting their
+  shared chains: A:3's sweep closes (79, 249) directly while the far
+  refill routes through mint 16360 between them; B:371's empty
+  closure leaves (13799, 13831) unpaired against band 372's minted
+  chain. The missing arm is the paper's §4.4.1 Fig-11(a) on the
+  NEIGHBOUR side: locate the constrained edge containing the
+  junction and SPLIT it (combinatorial, position already exact at
+  contract).
+
+**inc-2c-3b-9 = the batch boundary-conformality closure**: (A) treat
+`removed_all` as a batch-wide substitution/exclusion authority over
+every corrected cycle (the I13 interference-group lesson at the PLAN
+level), and (B) a neighbour-side edge-split pass for mints landing on
+chains shared with un-planned patches — census-first on the 16
+measured edges. R0011 (`corridors=3 plans=13 mints=11 removed=13`)
+and R0074 (`corridors=1 plans=4 mints=2 removed=2`): byte-identical
+APPLIED lines, both SUPPORTED_CORRECT; gates-off R0044 reproduces the
+honest ERROR verbatim; 799 lib tests green.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -1359,13 +1465,34 @@ crossed the facet fan, not the base. inc-2c-3b-8 builds the BASE LEG
   membership keys + planner phantom-presence affectedness (B:0 plans)
   + the closure SWEEP (synthesized correction, sliver-empty rebuilds).
   R0044 stops typed at B:0's `AttachmentMismatch{v142}` (§3o).
-- inc-2c-3b-8: the BASE-BOUNDARY adjudication — B:0's corner anatomy
-  (the removed run lies ON far∩base; mint-splice vs reconnection vs a
-  far∩base segment), census + paper first (§3o).
-- Also open: the incursion strips' two-sided conformality (B:370/371,
-  currently behind the closure sweep's downstream adjudication), and
-  the retry-path v105 refill (ChordDegradation under centroid seeding
-  — an edge-split question; moot while the natural pass is live).
+- **inc-2c-3b-8** (2026-08-31, fourth session): the base-leg
+  REFUTATION + the total-excision closure (§3p). The rim-domain
+  census (`face_edge_roots_probe` on the B-Rep loops) adjudicated the
+  candidate base junctions OUT-OF-DOMAIN (t = −0.924 / +1.787 beyond
+  the corner; the census had converged onto the phantoms' own
+  relocated positions — circular); the wall-bottom seam corner is
+  wholly inside the far body and comp B:0/11 is a 2-triangle
+  wrongly-kept pocket. Landed: the planner (None,None)+no-hosts
+  fall-through, the sweep's whole-component excision + contained-strip
+  2-gon closure (structural certificate, NO band), batch-carried
+  seeds (the StalePlan anatomy). **R0044's natural invocation APPLIES
+  — corridors=6 plans=20 mints=15 removed=25 — and stops typed at
+  Stage-6 NonManifoldOutput (v13998)**; the `[451-audit]` post-batch
+  watertightness census names 16 unpaired directed edges in 4 repair
+  neighbourhoods. R0011/R0074 byte-identical, gates-off verbatim.
+- inc-2c-3b-9: the batch boundary-conformality closure (§3p) —
+  (A) `removed_all` as a batch-wide authority over every corrected
+  cycle (comp 391 retains far-removed v90 as a host-edge survivor);
+  (B) the §4.4.1 Fig-11(a) neighbour-side edge split for mints on
+  chains shared with un-planned patches (A:3's (79,249) vs mint
+  16360; B:371's (13799,13831) vs band 372's minted chain).
+  Census-first on the 16 measured edges.
+- Also open: the retry-path v105 refill (ChordDegradation under
+  centroid seeding — an edge-split question; NO LONGER moot: the
+  §4.5.4 refine retry fires whenever the natural output is broken,
+  and its corner fire keeps the retry walled), and the incursion
+  strips' remaining two-sided cases beyond the 3b-8 contained-strip
+  closure (subsumed into 3b-9's conformality work).
 - inc-3: fixed-point integration (multiple sites per case; R0085 has two
   failing ops) + full-corpus gated measurement; flip under the standing
   two-proof protocol. R0085 stays honestly walled on operand quality

@@ -894,9 +894,21 @@ name, never measured).
    far regions with the arc-stitch polygon + density-capped seeded
    refill + wrap-band dispatch, and the removed-membership closure:
    R0044 advances through eleven typed walls to the B:0 base-boundary
-   adjudication (spec §3o, inc-2c-3b-8 — census + paper first).
-   R0085 stays walled on operand quality. Then inc-3: full-corpus
-   gated measurement, two-proof flip.*
+   adjudication (spec §3o). inc-2c-3b-8 (2026-08-31, fourth session)
+   REFUTED the base-leg reading by rim-domain census (the candidate
+   junctions sit out-of-domain beyond the corner; the anchor census
+   had converged onto the phantoms' own relocated positions) and
+   landed the total-excision closure (planner fall-through + sweep
+   whole-component/contained-strip arms + batch-carried seeds):
+   **R0044's natural invocation now APPLIES (corridors=6 plans=20
+   mints=15 removed=25)** and stops typed at Stage-6
+   NonManifoldOutput — the `[451-audit]` census names 16 unpaired
+   directed edges in 4 repair neighbourhoods = inc-2c-3b-9, the batch
+   boundary-conformality closure (spec §3p: removed_all as a
+   batch-wide authority over corrected cycles; §4.4.1 Fig-11(a)
+   neighbour-side edge splits for mints on shared chains). R0085
+   stays walled on operand quality. Then inc-3: full-corpus gated
+   measurement, two-proof flip.*
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the
