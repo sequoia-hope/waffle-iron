@@ -394,6 +394,30 @@ fn tessellate_developable_patch(
                     q.y(),
                     q.z()
                 );
+                if let Curve::Arc {
+                    center,
+                    normal,
+                    radius,
+                } = &he.curve
+                {
+                    eprintln!(
+                        "[chain-probe]   arc center=({:.9e},{:.9e},{:.9e}) \
+                         normal=({:.9e},{:.9e},{:.9e}) radius={radius:.9e} \
+                         face_axis=({:.9e},{:.9e},{:.9e}) face_apex=({:.9e},{:.9e},{:.9e})",
+                        center.x(),
+                        center.y(),
+                        center.z(),
+                        normal.x,
+                        normal.y,
+                        normal.z,
+                        a[0],
+                        a[1],
+                        a[2],
+                        ap[0],
+                        ap[1],
+                        ap[2]
+                    );
+                }
             }
             let origin_node = nodes.len();
             nodes.push(PatchNode {
@@ -1073,6 +1097,24 @@ fn tessellate_developable_patch(
     // Fold-probe context: nodes below this index existed before refinement
     // (ring/pool); at or above = minted by the LEPP splits.
     let n_prerefine = nodes.len();
+    // Dev-only chain probe part 2: the FINAL work-node chart table (post
+    // seam-window shifts), one row per work node — names which samples are
+    // grid-aligned, which are conforming inserts, and where the ladders
+    // interleave.
+    if std::env::var("KV2_PATCH_CHAIN_PROBE").is_ok_and(|v| v == format!("{}", fid.0)) {
+        for (wi, wn) in wnodes.iter().enumerate() {
+            let p = nodes[wn.node].pos;
+            eprintln!(
+                "[chain-node] w={wi} node={} u={:.6} v={:.6} pos=({:.9e},{:.9e},{:.9e})",
+                wn.node,
+                wn.p2.x(),
+                wn.p2.y(),
+                p[0],
+                p[1],
+                p[2]
+            );
+        }
+    }
     let mut wtris: Vec<[usize; 3]> = cdt_tris
         .iter()
         .map(|t| [t[0] as usize, t[1] as usize, t[2] as usize])

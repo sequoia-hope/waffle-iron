@@ -351,6 +351,38 @@ rejected.
      sparse samples sat outside every window) — NO corpus customer, so it
      stays off: an arc-vs-curve graze inside one band fails LOUD (fold
      tripwire), never silent.
+- **inc-8b (2026-08-31): FIRST CORPUS CUSTOMER + the pool's INSERT gap
+  closed — R0044 FaceId(626) under the corner-transit gate set**
+  (`specs/yang_451_corner_transit.md` §3s RESOLVED block, inc-2c-3b-11).
+  A legitimate ~304° near-sliver carried cone band (strip 1.19 wide,
+  facet chord sag 3.60) rung-pairs perfectly under the R0054 grid EXCEPT
+  where a twin-face vertex (d3=1.656, mid-grid azimuth) mints a
+  mechanism-2 insert on ONE rail: the pool is EDGE-local (the arc's two
+  incident faces) while the fold constraint is FACE-local, so the
+  opposing rail of the SAME strip face never sees the vertex and its
+  ladder stays unpaired mid-chord (sample-vs-INSERT — the R0054 needle
+  geometry one mechanism level up). F2b behaves exactly as designed: it
+  fires on the inverted all-on-surface triangle, LEPP-splits the rung,
+  lerps the split on the chord (the load-bearing T-junction rule), and
+  then `dev ≥ sag` rightly declines its own minted off-development node.
+  inc-8a as built could NOT fix it: pool arcs contributed PURE-grid
+  samples, which already align and dedup — the insert azimuth was
+  invisible (measured: gate-on byte-identical fold). **Fix: pool arcs
+  contribute their grid samples PLUS their own vertex-pool conforming
+  inserts** (`boundary_curve_pool_samples`; the vertex pool is static
+  B-Rep data — depth-1, no recursion into curves). The azimuth-set
+  closure is exact at depth 1: every chain azimuth originates in some
+  arc's grid+vertex-insert set, which every in-window neighbour conforms
+  to directly. Unit-pinned both ways
+  (`pool_curves_carry_their_vertex_inserts_across_the_strip`: gate off =
+  the pinned loud fold, gate on = paired ladder, tessellates; un-pin the
+  off arm when the mechanism flips always-on). Measured: face 626
+  converts (`n_split=0 fold=0`), R0044 advances to the unmasked
+  FaceId(627) ring rejection (yang-side emission defect — a
+  SurfacePair→HyperbolaArc junction 0.15 off the face's cone; owned by
+  the corner-transit epic, not this spec). Gate stays DEFAULT OFF —
+  the flip is its own decision with a full-corpus W-scan (the R0053
+  mask lesson); today it is the fourth knob of R0044's conversion path.
   Measured: R0003 f577 SKINS (ellipse gets 7 sag-bound samples); the case
   advances to **FaceId(903), "ring rejected by CDT"** — a WALL-PLANE ring
   whose crossing is between four B-REP VERTEX origins (LineSegment h7641's

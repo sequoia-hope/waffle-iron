@@ -1531,11 +1531,65 @@ triangle)`, measured by `KV2_CHORD_DEPTH_CENSUS`: `kind=dev
 w_facet=325.9 r_unroll=3683.1 n_split=1 max_split_dev=3.60
 max_chord_sag=2.4e-12 min_h2d=1.18 fold=inverted` — the KV9-F2
 inverted arm with dev ≫ sag despite the F2b lift-faithful refinement
-criterion, on a near-sliver 2D height (min_h2d 1.18). The next
-increment's census: face 626's boundary provenance (which repaired
-chains feed it) and why the F2b refinement did not fire.** R0011
+criterion, on a near-sliver 2D height (min_h2d 1.18).** R0011
 (3/13/11/13) + R0074 (1/4/2/2): byte-identical, both
 SUPPORTED_CORRECT under the arm.
+
+**RESOLVED (inc-2c-3b-11, 2026-08-31): FaceId(626) = the one-sided
+conforming-insert fold — kernel-v2 inc-8b closes it.** The full
+anatomy, measured (`[chain-probe]`+`[chain-node]` final chart table,
+`KV2_PATCH_FOLD_PROBE`, `[conform-pt]`): face 626 is a LEGITIMATE
+carried B-band — a ~304° near-sliver cone strip (tan α=1.596)
+between coaxial rims r=3681.154/3683.060, chart width 1.19 vs facet
+chord sag 3.60. The R0054 grid alignment rung-pairs the two rails
+bitwise for the whole strip EXCEPT one node: a face-627 boundary
+vertex at d3=1.656 from rail 1's circle (azimuth 58.495Δ) mints a
+mechanism-2 conforming insert on rail 1 — and rail 2's pool (its
+incident faces are 625/626, not 627) can never see that vertex,
+though it sits well inside rail 2's window too. The pool is
+EDGE-local; the fold constraint is FACE-local. The unpaired insert
+lands mid-chord of rail 2's rung (sag 3.6 ≫ strip 1.19, and the
+inversion needs the cone's tilted normal — a cylinder merely
+degrades); F2b then fires on the inverted all-on-surface triangle
+(dev≈0 < sag ✓), LEPP-splits the rung, and its ArcSample split rule
+lerps the mint ON the 3D chord (dev=3.605 — the census's split; the
+T-junction closure contract, correct as designed), after which
+`dev ≥ sag` rightly refuses to chase the arm's own off-development
+node. The fix is NOT the split rule and NOT a band: **kernel-v2
+inc-8b** (spec `yang_434_output_chord_refinement.md`) completes the
+gated inc-8a curve pool (`KV2_ARC_CONFORM_CURVES`) to depth 1 — a
+pool arc contributes its grid samples PLUS its own vertex-pool
+inserts (static B-Rep data, no recursion into curves), making the
+pool view of an arc EQUAL to its chain view's insert set; the
+azimuth-set closure is exact at depth 1. R0044 is inc-8a's FIRST
+corpus customer. Unit-pinned both ways
+(`pool_curves_carry_their_vertex_inserts_across_the_strip`); gate
+off, the fold stays the pinned loud wall. Under
+transit+torus+SPAIR+`KV2_ARC_CONFORM_CURVES=1` (the gate set is now
+FOUR knobs) face 626 tessellates clean (`n_split=0 fold=0`,
+min_h2d=1.19 = the strip width) and the case advances to
+**`FaceId(627): ring rejected by CDT`** — an UNMASKED latent (626's
+fold was the loud stop hiding it; the R0053 lesson shape, §3o).
+ANCHORED same session (`KV2_RING_REJECT_PROBE` +
+`[chain-probe]` 627): face 627 is the next band down (rims
+3681.154/3548.944) carrying the corner-transit notch itself —
+SurfacePair → 2×HyperbolaArc (per-mesh-piece, n_interior=0) → arc
+chains. The junction vertex X=(−1813.598774,−2388.465072,
+−6104.296761) between the SurfacePair edge and the first
+HyperbolaArc sits **0.15 OFF face 627's own cone** (ρ=3682.56 vs
+cone 3682.71 at its station — ~250× the eval band) and 0.83 PAST the
+r=3681.154 rim's station, while that rim arc's ~304° span covers X's
+azimuth; the developable chart collapses radial deviation, so X's
+descending hyperbola edge aliases into a ring self-intersection
+(crossing the rim polyline's constant-v run at u≈65.7) and the CDT
+rejects — a CORRECT loud stop over a defective yang-side emission.
+The crossing exists with or without inc-8b's inserts. Next
+increment's anchor (yang Stage-4/5, this epic's own §4.5 corner
+region): why is the SurfacePair→HyperbolaArc junction emitted
+off-surface and past the rim — a relocation identification-vs-domain
+defect, an unrelocated far-chord vertex, or a TRUE crossing whose
+transit into the 626 strip band was never built (626 carries no
+notch).**
 
 **GATED `YANG_453_SPAIR` (default OFF) by the always-on corpus run's
 verdict: ONE E→W flip — R0053, the M8 coplanar-graze case.** Its
@@ -1729,6 +1783,25 @@ byte-identical canonical 273C/0W/34E/1EE/0T (re-proven).
   flip condition = R0053's χ adjudication or M8 Stage-0.** R0044's
   conversion path now reads
   `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1 YANG_453_SPAIR=1`.
+- **inc-2c-3b-11** (2026-08-31, fifth session): the FaceId(626) wall
+  ANCHORED and RESOLVED (§3s "RESOLVED" block) — the one-sided
+  conforming-insert fold on a legitimate ~304° near-sliver carried
+  band (pool is EDGE-local, fold constraint is FACE-local; a face-627
+  vertex inserts on rail 1 only, mid-chord of rail 2's sagging rung).
+  Fixed in kernel-v2 as **inc-8b** (`sampling.rs`,
+  spec `yang_434_output_chord_refinement.md`): the gated inc-8a curve
+  pool completed to depth 1 — pool arcs contribute grid samples PLUS
+  their own vertex-pool inserts; azimuth-set closure exact at depth 1;
+  R0044 is inc-8a's first corpus customer. Unit-pinned both ways;
+  default path untouched (inside the `KV2_ARC_CONFORM_CURVES` gate,
+  still default OFF pending its own corpus flip proof). R0044's
+  conversion path is now FOUR knobs (`… KV2_ARC_CONFORM_CURVES=1`);
+  face 626 tessellates clean and the case advances to the UNMASKED
+  `FaceId(627)` ring rejection, anchored same session: the notch
+  chain's SurfacePair→HyperbolaArc junction X is emitted 0.15 off
+  face 627's own cone and 0.83 past the rim station whose ~304° arc
+  covers its azimuth — chart aliasing self-intersects the ring; the
+  defect is yang-side Stage-4/5 emission, the next increment.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

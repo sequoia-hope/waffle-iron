@@ -15,7 +15,7 @@
 //! tessellation used one shared azimuth grid); the global grid restores
 //! that conformality analytically, for every coaxial family at once.
 
-use super::sampling::arc_grid_samples;
+use super::sampling::{arc_grid_samples, arc_interior_samples_frac};
 use super::{tessellate_cone_patch, RenderMesh};
 use crate::arena::{
     BrepArena, Curve, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId, LoopKind,
@@ -296,6 +296,155 @@ fn thin_coaxial_rim_strip_tessellates_without_folding() {
          misaligned per-arc sampling folds it (apex mid-chord under the sag)",
     );
     assert!(mesh.indices.len() >= 3, "non-empty triangulation");
+}
+
+/// inc-8b (R0044 FaceId(626)): a conforming VERTEX insert is one-sided —
+/// it fires for the rail whose incident faces carry the vertex, and the
+/// opposing rail of the SAME strip face (whose own incident faces do not)
+/// never sees it, so the strip's ladder gains an unpaired node mid-chord
+/// of a rung that sags deeper than the strip is wide and the lift folds.
+/// The closure is the curve-sample pool (`KV2_ARC_CONFORM_CURVES`, inc-8a)
+/// completed to depth 1: a pool arc contributes its grid samples PLUS its
+/// own vertex-pool inserts, so the opposing rail conforms to the insert's
+/// azimuth. Gate OFF the fold stays a pinned LOUD wall (un-pin when the
+/// mechanism flips always-on).
+#[test]
+fn pool_curves_carry_their_vertex_inserts_across_the_strip() {
+    let tan_a: f64 = 3.0;
+    let half_angle = tan_a.atan();
+    let (v_hi, v_lo) = (18.0, 18.0 - 0.002);
+    let (r_hi, r_lo) = (v_hi * tan_a, v_lo * tan_a);
+    let n_seg = 72u32;
+    let delta = 2.0 * PI / f64::from(n_seg);
+    let theta_end = 2.4;
+    // The disturbing vertex: a NEIGHBOUR-face boundary vertex near the low
+    // rim at a mid-grid azimuth, off the rim circle by well under one chord
+    // sag (in the 4×sag window, above the f32 render quantum).
+    let theta_v = 13.5 * delta;
+    let r_v = r_lo + 0.02;
+
+    let mut arena = BrepArena::new();
+    let vid = |arena: &mut BrepArena, p: Point3| -> u32 {
+        arena.vertices.push(Some(Vertex { point: p }));
+        (arena.vertices.len() - 1) as u32
+    };
+    let lo0 = vid(&mut arena, cone_point(0.0, v_lo, tan_a));
+    let lo2 = vid(&mut arena, cone_point(theta_end, v_lo, tan_a));
+    let hi2 = vid(&mut arena, cone_point(theta_end, v_hi, tan_a));
+    let hi0 = vid(&mut arena, cone_point(0.0, v_hi, tan_a));
+    let vv = vid(
+        &mut arena,
+        Point3::new(r_v * theta_v.cos(), r_v * theta_v.sin(), v_lo),
+    );
+    // Far vertex closing the neighbour loop, outside every sag window.
+    let ww = vid(&mut arena, cone_point(theta_end, 17.0, tan_a));
+
+    let arc_lo = Curve::Arc {
+        center: Point3::new(0.0, 0.0, v_lo),
+        normal: UP,
+        radius: r_lo,
+    };
+    let arc_lo_rev = Curve::Arc {
+        center: Point3::new(0.0, 0.0, v_lo),
+        normal: DOWN, // twin copy, traversal-negated normal
+        radius: r_lo,
+    };
+    let arc_hi = Curve::Arc {
+        center: Point3::new(0.0, 0.0, v_hi),
+        normal: DOWN, // walked θ-decreasing (CCW around −z)
+        radius: r_hi,
+    };
+
+    // Strip face (h0..h3): low rim θ-increasing, up, high rim back, down.
+    let fid = FaceId(0);
+    let outer = add_loop(
+        &mut arena,
+        fid,
+        0,
+        &[
+            (lo0, arc_lo),
+            (lo2, Curve::LineSegment),
+            (hi2, arc_hi),
+            (hi0, Curve::LineSegment),
+        ],
+        LoopKind::Outer,
+    );
+    // Neighbour face across the LOW rim (h4..h7): carries the disturbing
+    // vertex. Never tessellated here — it exists so the low rim's incident
+    // faces (and only they) reach `vv` through the vertex pool.
+    let fid_n = FaceId(1);
+    let outer_n = add_loop(
+        &mut arena,
+        fid_n,
+        4,
+        &[
+            (lo2, arc_lo_rev),
+            (lo0, Curve::LineSegment),
+            (vv, Curve::LineSegment),
+            (ww, Curve::LineSegment),
+        ],
+        LoopKind::Outer,
+    );
+    // Twin the shared low-rim arc across the two faces.
+    arena.half_edges[0].as_mut().unwrap().twin = HalfEdgeId(4);
+    arena.half_edges[4].as_mut().unwrap().twin = HalfEdgeId(0);
+    let cone = Surface::Cone {
+        apex: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: UP,
+        half_angle,
+        reversed: false,
+    };
+    arena.faces.push(Some(Face {
+        surface: Some(cone),
+        outer_loop: outer,
+        inner_loops: vec![],
+        shell: ShellId(0),
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(cone),
+        outer_loop: outer_n,
+        inner_loops: vec![],
+        shell: ShellId(0),
+    }));
+    arena.shells.push(Some(Shell {
+        solid: SolidId(0),
+        faces: vec![fid, fid_n],
+        genus: 0,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![ShellId(0)],
+    }));
+
+    // Gate OFF (default): the low rim inserts at θ_V (vertex pool, always
+    // on), the high rim cannot see it — the unpaired node sits mid-chord
+    // of a rung sagging ~8× the strip width and the patch folds LOUDLY.
+    let mut mesh = RenderMesh::default();
+    let off = tessellate_cone_patch(&arena, fid, n_seg, &mut mesh);
+    let off_err = format!(
+        "{:?}",
+        off.expect_err("pinned wall: one-sided insert folds the strip while inc-8b is gated off")
+    );
+    assert!(
+        off_err.contains("folded"),
+        "the gated-off wall must be the fold tripwire, got: {off_err}"
+    );
+
+    // Gate ON: the high rim's pool carries the low rim's REAL sample set —
+    // grid samples plus its vertex insert — so the ladder pairs at θ_V.
+    std::env::set_var("KV2_ARC_CONFORM_CURVES", "1");
+    let hi_samples = arc_interior_samples_frac(&arena, HalfEdgeId(2), n_seg)
+        .expect("high-rim sampling with the curve pool");
+    assert!(
+        hi_samples
+            .iter()
+            .any(|(_, p)| ang_dist(azimuth(*p), theta_v) < 1e-9),
+        "the high rim must conform to the low rim's vertex insert at θ_V"
+    );
+    let mut mesh_on = RenderMesh::default();
+    let on = tessellate_cone_patch(&arena, fid, n_seg, &mut mesh_on);
+    std::env::remove_var("KV2_ARC_CONFORM_CURVES");
+    on.expect("inc-8b: with the insert-closed curve pool the strip must tessellate");
+    assert!(mesh_on.indices.len() >= 3, "non-empty triangulation");
 }
 
 // ------------------------------------------------- ellipse sag contract

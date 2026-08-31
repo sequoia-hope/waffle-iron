@@ -177,9 +177,12 @@ pub(crate) fn arc_grid_samples(
 /// sample points. DEFAULT OFF — built as the completion of inc-4's design
 /// sentence ("…or CDT-split the graze") while anchoring R0003 face 577, but
 /// that fold's defect measured as the ellipse sampler's density contract
-/// (inc-8), and no corpus case names this mechanism yet. A future arc-vs-
-/// curve graze (both sag-bound, still closer than one band) is its customer;
-/// such a configuration fails LOUD (the fold tripwire), never silent, so
+/// (inc-8). FIRST CORPUS CUSTOMER (2026-08-31): R0044 FaceId(626) under
+/// the corner-transit gate set — a carried ~304° near-sliver cone band
+/// (strip 1.19 wide vs 3.6 chord sag) whose one rail carries a twin-face
+/// vertex insert the opposing rail cannot see (inc-8b closed the pool's
+/// insert gap). Still off by default pending the corpus flip proof; the
+/// configuration fails LOUD (the fold tripwire), never silent, so
 /// off-by-default opens no silent-wrong window.
 fn curve_conform_enabled() -> bool {
     matches!(std::env::var("KV2_ARC_CONFORM_CURVES"), Ok(v) if v == "1" || v == "on")
@@ -188,13 +191,21 @@ fn curve_conform_enabled() -> bool {
 /// Interior sample points of one boundary half-edge for the conforming
 /// POOL of a nearby arc (inc-8): the points this edge will contribute to
 /// its own face chains, so the arc can conform to them exactly like it
-/// conforms to B-Rep vertices. `Arc`/`Circle` pool edges use their PURE
-/// grid samples (grid azimuths are fixed, so no recursion into their own
-/// conforming pass — and a coaxial arc's grid samples dedup against ours
-/// anyway); the conic kinds use their own canonical samplers verbatim.
-/// `LineSegment` contributes nothing (its endpoints are already in the
-/// vertex pool). Errors propagate: a pool edge that cannot be sampled
-/// fails ITS OWN face chain the same way in the same tessellation.
+/// conforms to B-Rep vertices. `Arc`/`Circle` pool edges contribute their
+/// grid samples PLUS their own conforming VERTEX inserts (inc-8b, the
+/// R0044 FaceId(626) fold): the vertex pool is static B-Rep data, so this
+/// depth-1 closure needs no recursion into other curves, and it makes the
+/// pool view of an arc EQUAL to its chain view's vertex-insert set — the
+/// former pure-grid pool view hid exactly the insert that a twin-face
+/// vertex mints on one rail of a thin strip, leaving the opposing rail's
+/// ladder unpaired mid-chord (the R0054 needle geometry, one level up:
+/// sample-vs-INSERT). The azimuth-set closure is exact at depth 1: every
+/// chain azimuth originates in some arc's grid+vertex-insert set, which
+/// every in-window neighbour conforms to directly. The conic kinds use
+/// their own canonical samplers verbatim. `LineSegment` contributes
+/// nothing (its endpoints are already in the vertex pool). Errors
+/// propagate: a pool edge that cannot be sampled fails ITS OWN face chain
+/// the same way in the same tessellation.
 fn boundary_curve_pool_samples(
     arena: &BrepArena,
     h: crate::arena::HalfEdgeId,
@@ -231,8 +242,33 @@ fn boundary_curve_pool_samples(
                 } => (center, normal, radius, 2.0 * std::f64::consts::PI),
                 _ => unreachable!("outer match narrowed to Arc | Circle"),
             };
+            // inc-8b: the pool arc's OWN vertex-pool inserts — gathered
+            // exactly like its chain sampling gathers them (the two
+            // incident faces' boundary vertices, own endpoints excluded),
+            // so the pool view reproduces the chain view's insert set.
+            let end_vid = arena.half_edge(che.next)?.origin;
+            let fid_p = arena.loop_(che.loop_id)?.face;
+            let fid_pt = arena.loop_(arena.half_edge(che.twin)?.loop_id)?.face;
+            let mut vconform: Vec<Point3> = Vec::new();
+            let mut pool_faces = vec![fid_p];
+            if fid_pt != fid_p {
+                pool_faces.push(fid_pt);
+            }
+            for pf in pool_faces {
+                let face = arena.face(pf)?;
+                let mut lids = vec![face.outer_loop];
+                lids.extend(face.inner_loops.iter().copied());
+                for lid in lids {
+                    for h2 in arena.loop_half_edges(lid)? {
+                        let o = arena.half_edge(h2)?.origin;
+                        if o != che.origin && o != end_vid {
+                            vconform.push(arena.vertex(o)?.point);
+                        }
+                    }
+                }
+            }
             Ok(
-                arc_grid_samples(center, normal, radius, start, sweep, n_seg, &[])
+                arc_grid_samples(center, normal, radius, start, sweep, n_seg, &vconform)
                     .into_iter()
                     .map(|(_, p)| p)
                     .collect(),
@@ -341,6 +377,18 @@ pub(crate) fn arc_interior_samples_frac(
             d3min = d3min.min(d3);
             if d3 <= 4.0 * sag_max {
                 n_in_window += 1;
+            }
+            if d3 <= 8.0 * sag_max {
+                let beta = y.atan2(x).rem_euclid(2.0 * std::f64::consts::PI);
+                eprintln!(
+                    "[conform-pt] canon={canon:?} d3={d3:.3e} beta/delta={:.4} \
+                     in={} p=({:.9e},{:.9e},{:.9e})",
+                    beta / delta,
+                    d3 <= 4.0 * sag_max,
+                    p.x(),
+                    p.y(),
+                    p.z()
+                );
             }
         }
         eprintln!(

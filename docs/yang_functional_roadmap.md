@@ -915,9 +915,24 @@ name, never measured).
    always-on corpus run measured ONE E→W — R0053, M8 coplanar-graze,
    whose fold's ring rejection was a loud stop MASKING the M8 gap;
    flip = that χ adjudication or M8 Stage-0): under it R0044's
-   FaceId(459) ring wall falls → FaceId(626) folded-triangulation
-   (unmeasured). R0044's gate set: `YANG_451_TRANSIT=1
-   YANG_441_TORUS_CHART=1 YANG_453_SPAIR=1`. Also open: the v105
+   FaceId(459) ring wall falls → FaceId(626) folded-triangulation.
+   inc-2c-3b-11 (2026-08-31, fifth session) RESOLVED FaceId(626) in
+   kernel-v2 (F2a spec inc-8b): the fold was a ONE-SIDED conforming
+   insert on a legitimate ~304° near-sliver carried band (the
+   conforming pool is EDGE-local, the fold constraint FACE-local — a
+   face-627 vertex inserted on one rail only, mid-chord of the
+   opposing sagging rung); the gated inc-8a curve pool
+   (`KV2_ARC_CONFORM_CURVES`, still default OFF) completed to depth 1
+   — pool arcs now contribute their vertex-pool inserts, R0044 being
+   inc-8a's FIRST corpus customer. Face 626 tessellates clean; the
+   case advances to the UNMASKED FaceId(627) ring rejection, anchored
+   same session: the corner notch's SurfacePair→HyperbolaArc junction
+   is emitted 0.15 off face 627's own cone and 0.83 past a rim whose
+   ~304° arc covers its azimuth (chart aliasing ⇒ ring
+   self-intersection; a correct loud stop over a yang Stage-4/5
+   emission defect — the next increment). R0044's gate set (FOUR
+   knobs): `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1
+   YANG_453_SPAIR=1 KV2_ARC_CONFORM_CURVES=1`. Also open: the v105
    retry ChordDegradation. R0085 stays walled on operand quality.
    Then inc-3: full-corpus gated measurement, two-proof flip.*
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
