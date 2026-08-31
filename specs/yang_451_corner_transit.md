@@ -1527,7 +1527,13 @@ line (6/20/15/20), and the retry's v105 wall are all byte-identical;
 the FaceId(459) ring wall FALLS (the fold chain is §4.5.3-collapsed
 before topology), and the case stops at the next output-tessellation
 frontier — `FaceId(626): patch triangulation folded (inverted
-triangles)` — a different face and failure mode, unmeasured.** R0011
+triangle)`, measured by `KV2_CHORD_DEPTH_CENSUS`: `kind=dev
+w_facet=325.9 r_unroll=3683.1 n_split=1 max_split_dev=3.60
+max_chord_sag=2.4e-12 min_h2d=1.18 fold=inverted` — the KV9-F2
+inverted arm with dev ≫ sag despite the F2b lift-faithful refinement
+criterion, on a near-sliver 2D height (min_h2d 1.18). The next
+increment's census: face 626's boundary provenance (which repaired
+chains feed it) and why the F2b refinement did not fire.** R0011
 (3/13/11/13) + R0074 (1/4/2/2): byte-identical, both
 SUPPORTED_CORRECT under the arm.
 
