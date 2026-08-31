@@ -1119,6 +1119,65 @@ interleaving). The retry's v105 link-end refusal is the same anatomy.
 **R0011 and R0074 re-measured: byte-identical APPLIED lines, both
 SUPPORTED_CORRECT.**
 
+## 3n. inc-2c-3b-6 — JOINT far regions, the arc-stitch polygon, the
+SEEDED refill, and the wrap-band dispatch (LANDED 2026-08-31, third
+session; FIVE R0044 walls fall in sequence — the case stops typed at
+the removed-membership closure, named inc-2c-3b-7)
+
+The `-joint` census first: the v76+v75 joint region (7 victims, 10
+triangles) decomposes into TWO link runs ([84,78,79] interior chain;
+[77,93] chord) alternating with two boundary gaps whose replacements
+are the corridors' minted paths — the single-fan contract
+(`Closed{fan:10}`) cannot express it, and the polygon is
+runs ⨯ corrected-cycle arcs. Landed:
+
+- **`delete_boundary_fan_runs`** — the multi-run generalization (the
+  single-run fn is now its wrapper, refusal shapes preserved).
+- **`stitch_fan_polygon`** — alternate link runs with corrected-cycle
+  arcs whose INTERIOR is all-New (an Old inside an arc means the
+  selection left the region); every choice must be unique, every
+  failure typed. Replaces the per-corridor path/junction-attachment
+  polygon — the single-corridor case is the one-run instance.
+- **The far arm consumes phantoms GLOBALLY** (far-mates flood into ONE
+  joint delete; a foreign-far phantom in the flood still refuses).
+- **`refill_fan_hole_seeded`** — when the boundary-only fill certifies
+  coarser than the fossil, insert the worst triangle's chart centroid
+  (LIFTED exactly onto the analytic surface) and re-CDT, capped by the
+  fossil's own vertex spend (victims count): like-for-like in DENSITY
+  as well as d(T) — §4.4.1 inserts vertices, it never legalizes a
+  coarser fill. Exhaustion still refuses ChordDegradation (v8's far
+  fill: 532→544 boundary-only, PASSES seeded).
+- **The wrap-band dispatch**: gear bands refuse the WHOLESALE rebuild
+  by its own typed verdicts — ThetaUnwrap (B:154 winds a full period —
+  no disc chart exists), ChordDegradation (B:155 blew up 61×), Cdt
+  (B:359's projected boundary self-crosses, the I6/I13 fold anatomy).
+  On any of the three, the component routes through the SAME fan-local
+  region machinery (per connected removed region: delete + stitch +
+  seeded refill). Wholesale stays the proven default (R0011's B-side
+  path untouched).
+
+**Measured (R0044, both gates): the far arm and every component
+rebuild PASS; the batch-integrity scan refuses typed —
+`removed v107 still referenced by tri [249,107,79] att=(A,3)`.** The
+`-foreign` census names the closure: ten foreign holdings, ALL on
+boundary cycles — (a) **B:0** (the prism base — the corner q=v513's
+THIRD face, holding the twin phantoms v142/v144 + v141 + q itself):
+should have been planned, but `affected_keys` never includes the
+crossed corner's other faces; (b) **A:3** (the operand-A neighbour
+face — v107's fan: the old curve wandered across the A2∩A3 crease);
+(c) **B:370/B:371** (incursion strips — the deep overshoot chain
+v90/91/92 crossed neighbouring bands whose reclaimed territory needs
+a TWO-SIDED conformal update, not independent fan fills). R0011's
+3b-2 premise "absorbed fans live on planned keys only" is R0011-local.
+**inc-2c-3b-7 = the removed-membership closure**: affected comps are
+discovered from the removed set's memberships; phantom/host comps
+plan as today, incursion-strip comps need the two-sided §4.4.1
+machinery. **R0011 and R0074: byte-identical APPLIED lines, both
+SUPPORTED_CORRECT; 797 lib tests green.** (The retry invocation's
+v105 refill stays walled at ChordDegradation 53.9→74.4 — seeding
+worsens it there, a centroid-vs-edge-split question — moot while the
+natural pass is the live path.)
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -1240,10 +1299,16 @@ SUPPORTED_CORRECT.**
   (v141, the between-twin-phantoms remnant), splice-aware
   affected_keys. **R0044 op-1 PLANS COMPLETELY**; the refusal moves to
   the far arm's joint-region flood guard (§3m).
-- inc-2c-3b-6: JOINT far-fan regions — adjacent corridors' removed
-  regions connect on the far patch (v76+v75); flood across corridors,
-  one joint fan delete, polygon = link + the corrected-cycle segment
-  between link ends (§3m).
+- **inc-2c-3b-6** (2026-08-31, third session): JOINT far regions +
+  `stitch_fan_polygon` (link runs ⨯ all-New corrected arcs) +
+  `refill_fan_hole_seeded` (density-capped Steiner refinement) +
+  the wrap-band dispatch (wholesale's own typed verdicts route
+  full-wrap/fold bands through the fan-local machinery). FIVE R0044
+  walls fall; the case stops typed at the batch-integrity scan (§3n).
+- inc-2c-3b-7: the REMOVED-MEMBERSHIP closure — affected comps
+  discovered from the removed set's memberships (the corner's third
+  face B:0, the operand-A neighbour A:3, and the incursion strips
+  B:370/371 needing the two-sided conformal update) (§3n).
 - inc-3: fixed-point integration (multiple sites per case; R0085 has two
   failing ops) + full-corpus gated measurement; flip under the standing
   two-proof protocol. R0085 stays honestly walled on operand quality

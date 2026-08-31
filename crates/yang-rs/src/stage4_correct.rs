@@ -5354,6 +5354,104 @@ fn corner_crossing_fires(
 /// batch. Any refusal rolls back completely (appended mints truncated)
 /// and returns `Ok(false)` — the standing §4-I9 STOP then fires exactly
 /// as today. Never guesses (P10).
+/// inc-2c-3b-6 — stitch a deleted fan region's link RUNS with the
+/// corrected cycle's all-New arcs into one refill polygon (spec §3m). The
+/// region's rim alternates surviving link chains with boundary gaps whose
+/// replacement is the minted path; between consecutive runs exactly ONE
+/// corrected-cycle arc with an all-New interior must connect them (an Old
+/// inside an arc means the selection left the region — refused, typed by
+/// message). `base` maps `CycleRef::New(i)` to mesh id `base + i`.
+fn stitch_fan_polygon(
+    corrected: &[Vec<crate::stage4_corridor::CycleRef>],
+    runs: &[Vec<u32>],
+    base: u32,
+) -> Result<Vec<u32>, String> {
+    use crate::stage4_corridor::CycleRef;
+    let hits: Vec<&Vec<CycleRef>> = corrected
+        .iter()
+        .filter(|cy| cy.contains(&CycleRef::Old(runs[0][0])))
+        .collect();
+    let cyc: Vec<CycleRef> = match hits[..] {
+        [one] => one.clone(),
+        _ => {
+            return Err(format!(
+                "run end v{} on {} corrected cycles",
+                runs[0][0],
+                hits.len()
+            ))
+        }
+    };
+    let arc_from = |v: u32, forward: bool| -> Option<(Vec<u32>, u32)> {
+        let n = cyc.len();
+        let i = cyc.iter().position(|&r| r == CycleRef::Old(v))?;
+        let mut interior = Vec::new();
+        for step in 1..n {
+            let idx = if forward {
+                (i + step) % n
+            } else {
+                (i + n - step) % n
+            };
+            match cyc[idx] {
+                CycleRef::New(m) => interior.push(base + m),
+                CycleRef::Old(o) => return Some((interior, o)),
+            }
+        }
+        None
+    };
+    let mut polygon: Vec<u32> = runs[0].clone();
+    let mut used = vec![false; runs.len()];
+    used[0] = true;
+    let start_v = runs[0][0];
+    loop {
+        let cur = *polygon.last().expect("runs are non-empty");
+        let all_used = used.iter().all(|&u| u);
+        let mut cands: Vec<(Vec<u32>, u32)> = Vec::new();
+        for forward in [true, false] {
+            if let Some((interior, term)) = arc_from(cur, forward) {
+                let wanted = if all_used {
+                    term == start_v
+                } else {
+                    runs.iter()
+                        .enumerate()
+                        .any(|(ri, r)| !used[ri] && (r[0] == term || r.last() == Some(&term)))
+                };
+                if wanted && !cands.iter().any(|(i2, t2)| *t2 == term && *i2 == interior) {
+                    cands.push((interior, term));
+                }
+            }
+        }
+        let (interior, term) = match cands.len() {
+            1 => cands.remove(0),
+            n2 => return Err(format!("{n2} candidate arcs from v{cur}")),
+        };
+        polygon.extend(interior);
+        if all_used {
+            return Ok(polygon); // the arc closed the ring back to start_v
+        }
+        let (ri, rev) = runs
+            .iter()
+            .enumerate()
+            .find_map(|(ri, r)| {
+                if used[ri] {
+                    None
+                } else if r[0] == term {
+                    Some((ri, false))
+                } else if r.last() == Some(&term) {
+                    Some((ri, true))
+                } else {
+                    None
+                }
+            })
+            .expect("wanted implies an unused run with this end");
+        used[ri] = true;
+        if rev {
+            polygon.extend(runs[ri].iter().rev().copied());
+        } else {
+            polygon.extend(runs[ri].iter().copied());
+        }
+    }
+}
+
 fn corner_transit_apply(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
@@ -5875,34 +5973,18 @@ fn corner_transit_apply(
     // the mutation implements the same swap locally.
     let far_keys: std::collections::BTreeSet<(InputId, u32)> =
         corridors.iter().map(|c| c.far).collect();
+    // inc-2c-3b-6 (spec §3m): the far arm consumes phantoms GLOBALLY — a
+    // JOINT region (adjacent corridors' overshoot fans meeting on one far
+    // patch, the measured R0044 v76+v75 anatomy) is deleted once, and its
+    // link RUNS are stitched with the corrected cycle's all-New arcs into
+    // one refill polygon. The single-corridor case is the one-run instance
+    // of the same rule (link + one all-New arc), replacing the former
+    // per-corridor path/junction-attachment construction.
+    let census = std::env::var("YANG_451_HOSTS").as_deref() == Ok("census");
+    let mut far_done: std::collections::BTreeSet<u32> = Default::default();
     for c in corridors.iter() {
-        let path_u: Vec<u32> = {
-            let mut pth = Vec::new();
-            let mut pos = 0usize;
-            // Rebuild the path in mesh ids from the corridor directly (the
-            // planner's interning order is reproduced by re-interning into
-            // the SAME pool — positions already present return their ids).
-            let mut p2 = s4c::MintPool {
-                verts: pool.verts.clone(),
-            };
-            for r in s4c::corridor_path(c, &mut p2) {
-                pth.push(match r {
-                    s4c::CycleRef::Old(v) => v,
-                    s4c::CycleRef::New(i) => base + i,
-                });
-                pos += 1;
-            }
-            let _ = pos;
-            if p2.verts.len() != pool.verts.len() {
-                refuse("path re-interning grew the pool");
-                rollback(mesh);
-                return Ok(false);
-            }
-            pth
-        };
-        let mut consumed_far: std::collections::BTreeSet<u32> = Default::default();
         for &p in &c.phantoms {
-            if consumed_far.contains(&p) {
+            if far_done.contains(&p) {
                 continue;
             }
             let Some((pi, patch)) = raw_patches.iter().enumerate().find(|(_, pt)| {
@@ -5921,12 +6003,9 @@ fn corner_transit_apply(
                 rollback(mesh);
                 return Ok(false);
             };
-            // §3j: the fan's victims are the far plan's removed set
-            // reachable from the phantom through removed vertices — the
-            // PLANNER is the single absorb authority (its generator-A
-            // walk decided which chain-end anchors absorbed); the fan
-            // arm executes its decision. Surviving anchors bound the
-            // flood exactly.
+            // §3j: victims = the far plan's removed set reachable from the
+            // phantom through removed vertices — the PLANNER is the single
+            // absorb authority; the fan arm executes its decision.
             let Some(far_plan) = plans
                 .iter()
                 .find(|pl| pl.key == c.far && pl.comp == pi as u32)
@@ -5946,24 +6025,31 @@ fn corner_transit_apply(
                     }
                 }
             }
-            if victims
-                .iter()
-                .any(|v| fired.contains(v) && !c.phantoms.contains(v))
-            {
-                refuse(&format!(
-                    "far fan of v{p} floods into another corridor's phantom"
-                ));
-                rollback(mesh);
-                return Ok(false);
+            // Joint admission: every fired vertex the flood reaches must be
+            // a FAR-MATE (its corridor shares this far patch) — the joint
+            // region then deletes once. Anything else is a genuine
+            // cross-far entanglement, refused.
+            for &v in &victims {
+                if fired.contains(&v)
+                    && !corridors
+                        .iter()
+                        .any(|c2| c2.far == c.far && c2.phantoms.contains(&v))
+                {
+                    refuse(&format!(
+                        "far fan of v{p} floods into a foreign-far phantom v{v}"
+                    ));
+                    rollback(mesh);
+                    return Ok(false);
+                }
             }
-            consumed_far.extend(victims.iter().copied());
+            far_done.extend(victims.iter().copied().filter(|v| fired.contains(v)));
             let sp = crate::stage4_splice::SplicePatch {
                 cycles: Vec::new(),
                 tris: patch.tri_indices.clone(),
                 surface,
             };
-            let (del, link) =
-                match crate::stage4_construct::delete_boundary_fan_set(mesh, pi, &sp, &victims) {
+            let (del, runs, _fan) =
+                match crate::stage4_construct::delete_boundary_fan_runs(mesh, pi, &sp, &victims) {
                     Ok(r) => r,
                     Err(e) => {
                         refuse(&format!("far fan delete v{p} ({victims:?}): {e:?}"));
@@ -5971,54 +6057,32 @@ fn corner_transit_apply(
                         return Ok(false);
                     }
                 };
-            // The link's open ends are the surviving chain anchors; each
-            // names its END junction by patch membership (the census
-            // rule — post-absorb the ends are chain continuations, no
-            // longer necessarily the phantom's own mesh neighbours).
-            let junc_of = |w: u32| -> Option<usize> {
-                let pw = patches_of(w);
-                let hits: Vec<usize> = c
-                    .junctions
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, jn)| {
-                        pw.contains(&(c.walk_op, jn.faces.0))
-                            || pw.contains(&(c.walk_op, jn.faces.1))
-                    })
-                    .map(|(i, _)| i)
-                    .collect();
-                match hits[..] {
-                    [one] => Some(one),
-                    _ => None,
-                }
-            };
-            let (l0, lk) = (link[0], link[link.len() - 1]);
-            let last = c.junctions.len() - 1;
-            let (ja, jb) = match (junc_of(l0), junc_of(lk)) {
-                (Some(x), Some(y)) if (x == 0 && y == last) || (x == last && y == 0) => (x, y),
-                other => {
-                    refuse(&format!(
-                        "far fan link ends of v{p} do not attach corridor ends: {other:?}"
-                    ));
+            if census {
+                eprintln!("[451-joint] p=v{p} comp={pi} victims={victims:?} runs={runs:?}");
+            }
+            // Stitch: the refill polygon alternates link runs with
+            // corrected-cycle arcs whose INTERIOR is all-New (the minted
+            // path replacing each boundary gap). Every choice must be
+            // unique; every failure is typed (`stitch_fan_polygon`).
+            let polygon = match stitch_fan_polygon(&far_plan.corrected, &runs, base) {
+                Ok(pg) => pg,
+                Err(why) => {
+                    refuse(&format!("far stitch of v{p}: {why}"));
                     rollback(mesh);
                     return Ok(false);
                 }
             };
-            let _ = ja;
-            // polygon = link (l0..lk) + the corridor path from lk's end
-            // back to l0's end.
-            let mut polygon = link.clone();
-            if jb == 0 {
-                polygon.extend(path_u.iter().copied());
-            } else {
-                polygon.extend(path_u.iter().rev().copied());
-            }
-            let new_tris = match crate::stage4_construct::refill_fan_hole(
+            // Seed budget = the fossil's own vertex spend (its victims):
+            // like-for-like in density as well as d(T) (§3m).
+            let seed_base = mesh.verts.len() as u32;
+            let (new_tris, seed_pts) = match crate::stage4_construct::refill_fan_hole_seeded(
                 mesh,
                 pi,
                 &sp,
                 &polygon,
                 &del.old_tris,
+                victims.len(),
+                seed_base,
             ) {
                 Ok(t) => t,
                 Err(e) => {
@@ -6027,6 +6091,13 @@ fn corner_transit_apply(
                     return Ok(false);
                 }
             };
+            if census && !seed_pts.is_empty() {
+                eprintln!(
+                    "[451-joint] p=v{p} refill seeded {} interior verts",
+                    seed_pts.len()
+                );
+            }
+            mesh.verts.extend(seed_pts.iter().copied());
             replaced.extend(del.old_tris.iter().copied());
             removed_all.extend(victims.iter().copied());
             rebuilds.push(crate::stage4_construct::PatchRebuild {
@@ -6077,7 +6148,108 @@ fn corner_transit_apply(
                 replaced.extend(r.old_tris.iter().copied());
                 rebuilds.push(r);
             }
+            Err(
+                crate::stage4_construct::ConstructError::ThetaUnwrap { .. }
+                | crate::stage4_construct::ConstructError::ChordDegradation { .. }
+                | crate::stage4_construct::ConstructError::Cdt { .. },
+            ) => {
+                // inc-2c-3b-6 (§3m): the WHOLESALE tool refuses this band —
+                // either the boundary winds a whole period (ThetaUnwrap —
+                // no disc chart exists; R0044's B:154 cone annulus) or the
+                // whole-patch re-CDT certifies coarser than the fossil
+                // (ChordDegradation — B:155's near-wrap band blew up 61×)
+                // or the projected boundary self-crosses under the disc
+                // chart (Cdt — B:359, the I6/I13 fold anatomy).
+                // Both are the wholesale tool's own typed capability
+                // verdicts, and the transit edit is LOCAL, so the far
+                // arm's region machinery applies verbatim: per connected
+                // removed region, delete the fan, stitch link runs with
+                // the corrected all-New arcs, refill seeded. Every failure
+                // stays typed; nothing is accepted that the local tool's
+                // certificates do not certify.
+                let removed_here: std::collections::BTreeSet<u32> =
+                    pl.removed.iter().copied().collect();
+                let mut remaining = removed_here.clone();
+                while let Some(&seed0) = remaining.iter().next() {
+                    let mut victims = std::collections::BTreeSet::from([seed0]);
+                    let mut stack = vec![seed0];
+                    while let Some(x) = stack.pop() {
+                        for &y in adj.get(&x).into_iter().flatten() {
+                            if removed_here.contains(&y) && victims.insert(y) {
+                                stack.push(y);
+                            }
+                        }
+                    }
+                    remaining.retain(|v| !victims.contains(v));
+                    let (del, runs, _fan) = match crate::stage4_construct::delete_boundary_fan_runs(
+                        mesh,
+                        pl.comp as usize,
+                        &sp,
+                        &victims,
+                    ) {
+                        Ok(r) => r,
+                        Err(e2) => {
+                            refuse(&format!(
+                                "wrap-band fan delete comp={} ({victims:?}): {e2:?}",
+                                pl.comp
+                            ));
+                            rollback(mesh);
+                            return Ok(false);
+                        }
+                    };
+                    let polygon = match stitch_fan_polygon(&pl.corrected, &runs, base) {
+                        Ok(pg) => pg,
+                        Err(why) => {
+                            refuse(&format!("wrap-band stitch comp={}: {why}", pl.comp));
+                            rollback(mesh);
+                            return Ok(false);
+                        }
+                    };
+                    let seed_base = mesh.verts.len() as u32;
+                    let (new_tris, seed_pts) = match crate::stage4_construct::refill_fan_hole_seeded(
+                        mesh,
+                        pl.comp as usize,
+                        &sp,
+                        &polygon,
+                        &del.old_tris,
+                        victims.len(),
+                        seed_base,
+                    ) {
+                        Ok(t) => t,
+                        Err(e2) => {
+                            refuse(&format!("wrap-band refill comp={}: {e2:?}", pl.comp));
+                            rollback(mesh);
+                            return Ok(false);
+                        }
+                    };
+                    mesh.verts.extend(seed_pts.iter().copied());
+                    replaced.extend(del.old_tris.iter().copied());
+                    rebuilds.push(crate::stage4_construct::PatchRebuild {
+                        patch: pl.comp as usize,
+                        old_tris: del.old_tris,
+                        new_tris,
+                        new_verts: Vec::new(),
+                        dropped: victims.clone(),
+                        plan_verts: mesh.verts.len() as u32,
+                        plan_tris: mesh.tris.len() as u32,
+                    });
+                }
+            }
             Err(e) => {
+                if census {
+                    if let Some(ch) = crate::stage4_project::SurfaceChart::new(surface) {
+                        for cy in &sp.cycles {
+                            let th: Vec<String> = cy
+                                .iter()
+                                .map(|&v| {
+                                    let uv = ch.project(mesh.verts[v as usize]);
+                                    format!("v{v}:{:.3}/{:.2}", uv.x(), uv.y())
+                                })
+                                .collect();
+                            eprintln!("[451-rebuild] comp={} cycle: {}", pl.comp, th.join(" "));
+                        }
+                    }
+                }
                 refuse(&format!(
                     "rebuild comp={} key={:?} {e:?} surface={surface:?} cycles={:?}",
                     pl.comp,
@@ -6095,8 +6267,40 @@ fn corner_transit_apply(
         if replaced.contains(&(ti as u32)) {
             continue;
         }
-        if tri.iter().any(|v| removed_all.contains(v)) {
-            refuse(&format!("removed vertex still referenced by tri {ti}"));
+        if let Some(&v) = tri.iter().find(|v| removed_all.contains(v)) {
+            let att = attribution
+                .attributions
+                .get(ti)
+                .and_then(|a| a.as_ref())
+                .map(|a| (a.input, a.face));
+            if census {
+                // Foreign-fan census (§3m): every removed vertex with a
+                // surviving reference — its foreign comps and whether it
+                // sits on their boundary cycles or interiors.
+                for &rv in &removed_all {
+                    for (pi2, pt2) in raw_patches.iter().enumerate() {
+                        let holds = pt2.tri_indices.iter().any(|&t2| {
+                            !replaced.contains(&t2) && mesh.tris[t2 as usize].contains(&rv)
+                        });
+                        if holds {
+                            let on_cycle = crate::stage5_topology::patch_boundary_cycle(
+                                &raw_patches[pi2],
+                                mesh,
+                            )
+                            .ok()
+                            .map(|cys| cys.iter().any(|cy| cy.iter().any(|&(s2, _)| s2 == rv)));
+                            eprintln!(
+                                "[451-foreign] removed v{rv} comp={pi2} \
+                                 key=({:?},{}) on_cycle={on_cycle:?}",
+                                pt2.attribution.input, pt2.attribution.face,
+                            );
+                        }
+                    }
+                }
+            }
+            refuse(&format!(
+                "removed v{v} still referenced by tri {ti} {tri:?} att={att:?}"
+            ));
             rollback(mesh);
             return Ok(false);
         }

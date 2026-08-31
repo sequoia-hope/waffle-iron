@@ -1620,6 +1620,32 @@ pub(crate) fn delete_boundary_fan_set(
     victims: &BTreeSet<u32>,
 ) -> Result<(PatchRebuild, Vec<u32>), ConstructError> {
     let victim = victims.iter().next().copied().unwrap_or(u32::MAX);
+    let (rebuild, mut runs, fan) = delete_boundary_fan_runs(mesh, patch_index, patch, victims)?;
+    if runs.len() != 1 {
+        // The historical single-run contract: a multi-run link keeps the
+        // Closed refusal shape (the walk cannot cover the rim in one run).
+        return Err(ConstructError::FanNotSimple {
+            patch: patch_index,
+            victim,
+            reason: FanReason::Closed { fan },
+        });
+    }
+    Ok((rebuild, runs.remove(0)))
+}
+
+/// §4.5.1 inc-2c-3b-6 — the MULTI-RUN generalization: a JOINT region
+/// (adjacent corridors' overshoot fans meeting on one patch, the measured
+/// R0044 v76+v75 anatomy) touches the patch boundary in several stretches,
+/// so its link decomposes into several open chains. Returns every run (the
+/// caller stitches them with corrected-cycle arcs). A closed link loop
+/// (interior region) or any pinch still refuses typed.
+pub(crate) fn delete_boundary_fan_runs(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    victims: &BTreeSet<u32>,
+) -> Result<(PatchRebuild, Vec<Vec<u32>>, usize), ConstructError> {
+    let victim = victims.iter().next().copied().unwrap_or(u32::MAX);
     let mut old_tris: Vec<u32> = Vec::new();
     let mut directed: BTreeSet<(u32, u32)> = BTreeSet::new();
     for &t in &patch.tris {
@@ -1659,29 +1685,40 @@ pub(crate) fn delete_boundary_fan_set(
         }
         has_pred.insert(y);
     }
-    let Some(start) = next.keys().find(|x| !has_pred.contains(x)).copied() else {
-        // No chain start: the link is closed — an interior vertex.
+    let starts: Vec<u32> = next
+        .keys()
+        .filter(|x| !has_pred.contains(x))
+        .copied()
+        .collect();
+    if starts.is_empty() {
+        // No chain start anywhere: the link is closed — an interior region.
         return Err(ConstructError::FanNotSimple {
             patch: patch_index,
             victim,
             reason: FanReason::Closed { fan },
         });
-    };
-    let mut link: Vec<u32> = vec![start];
-    let mut cur = start;
-    while let Some(&n) = next.get(&cur) {
-        if link.contains(&n) {
-            return Err(ConstructError::FanNotSimple {
-                patch: patch_index,
-                victim,
-                reason: FanReason::Pinch { fan },
-            });
-        }
-        link.push(n);
-        cur = n;
     }
-    if link.len() != next.len() + 1 {
-        // The walk did not cover every link edge in one run.
+    let mut runs: Vec<Vec<u32>> = Vec::new();
+    let mut covered = 0usize;
+    for start in starts {
+        let mut link: Vec<u32> = vec![start];
+        let mut cur = start;
+        while let Some(&n) = next.get(&cur) {
+            if link.contains(&n) {
+                return Err(ConstructError::FanNotSimple {
+                    patch: patch_index,
+                    victim,
+                    reason: FanReason::Pinch { fan },
+                });
+            }
+            link.push(n);
+            cur = n;
+        }
+        covered += link.len() - 1;
+        runs.push(link);
+    }
+    if covered != next.len() {
+        // Leftover edges form a closed loop alongside the open runs.
         return Err(ConstructError::FanNotSimple {
             patch: patch_index,
             victim,
@@ -1698,7 +1735,8 @@ pub(crate) fn delete_boundary_fan_set(
             plan_verts: mesh.verts.len() as u32,
             plan_tris: mesh.tris.len() as u32,
         },
-        link,
+        runs,
+        fan,
     ))
 }
 
@@ -1807,6 +1845,31 @@ pub(crate) fn refill_fan_hole(
     polygon: &[u32],
     reference: &[u32],
 ) -> Result<Vec<[u32; 3]>, ConstructError> {
+    let (tris, seeds) =
+        refill_fan_hole_seeded(mesh, patch_index, patch, polygon, reference, 0, u32::MAX)?;
+    debug_assert!(seeds.is_empty(), "seed budget 0 mints nothing");
+    Ok(tris)
+}
+
+/// inc-2c-3b-6 — the SEEDED refill: when the boundary-only fill certifies
+/// coarser than the fossil (the like-for-like d(T) budget), insert interior
+/// Steiner vertices — the worst triangle's chart centroid, LIFTED exactly
+/// onto the analytic surface — and re-CDT, up to `seed_budget` points. The
+/// budget is the fossil's own interior vertex spend (the caller passes its
+/// victim count): like-for-like in density as well as in d(T) — §4.4.1's
+/// mesh update inserts vertices; it never legalizes a coarser fill. Seed
+/// ids in the returned triangles start at `polygon.len()` and map to the
+/// returned positions in order; exhausting the budget refuses
+/// `ChordDegradation` with the last certified value (loud, as before).
+pub(crate) fn refill_fan_hole_seeded(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    polygon: &[u32],
+    reference: &[u32],
+    seed_budget: usize,
+    seed_id_base: u32,
+) -> Result<(Vec<[u32; 3]>, Vec<Point3>), ConstructError> {
     let chart = SurfaceChart::new_local(patch.surface)
         .ok_or(ConstructError::NonPlanarPatch { patch: patch_index })?;
     if polygon.len() < 3 || reference.is_empty() {
@@ -1868,32 +1931,15 @@ pub(crate) fn refill_fan_hole(
         }
     }
     let boundary: Vec<u32> = (0..polygon.len() as u32).collect();
-    let tris2 =
-        cdt_with_interior_constraints(&pool, &boundary, &[], &[], &[]).map_err(|error| {
-            ConstructError::Cdt {
-                patch: patch_index,
-                error,
-            }
-        })?;
     let old: Vec<[u32; 3]> = reference.iter().map(|&t| mesh.tris[t as usize]).collect();
     let mesh_pos = |v: u32| -> Point3 { mesh.verts[v as usize] };
     let want = crate::stage4_splice::area_vector(&old, &mesh_pos);
-    let pos3 = |i: u32| -> Point3 { mesh.verts[polygon[i as usize] as usize] };
-    let got = crate::stage4_splice::area_vector(&tris2, &pos3);
-    let d = crate::stage4_splice::dot3(want, got);
-    if d == 0.0 || !d.is_finite() {
-        return Err(ConstructError::DegenerateOrientation { patch: patch_index });
-    }
-    let mut tris2 = tris2;
-    if d < 0.0 {
-        for t in &mut tris2 {
-            t.swap(1, 2);
-        }
-    }
     // I2d like-for-like d(T) on curved charts: the fossil fan's own
     // certified bound is the budget — no external constant. Old-triangle
     // vertices (the phantom included) unwrap toward the pool's span mid.
-    if !planar {
+    let budget: Option<f64> = if planar {
+        None
+    } else {
         let (lo, hi) = pool
             .iter()
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
@@ -1921,44 +1967,99 @@ pub(crate) fn refill_fan_hole(
             };
             Ok(Point2::new(uv.x() + k * std::f64::consts::TAU, y))
         };
-        let mut budget = 0.0f64;
+        let mut b = 0.0f64;
         for t in &old {
             let uv = [uv_of(t[0])?, uv_of(t[1])?, uv_of(t[2])?];
-            budget = budget.max(
+            b = b.max(
                 crate::stage4_dt::d_of_t(&patch.surface, uv)
                     .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?,
             );
         }
-        let mut new_max = 0.0f64;
-        for t in &tris2 {
-            let uv = [
-                pool[t[0] as usize],
-                pool[t[1] as usize],
-                pool[t[2] as usize],
-            ];
-            new_max = new_max.max(
-                crate::stage4_dt::d_of_t(&patch.surface, uv)
-                    .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?,
-            );
-        }
-        if new_max > budget {
-            return Err(ConstructError::ChordDegradation {
+        Some(b)
+    };
+    // The seeded fill loop: boundary-only first; on a budget miss, insert
+    // the worst triangle's chart centroid (lifted exactly onto the analytic
+    // surface) and re-CDT, up to `seed_budget` interior points.
+    let mut all: Vec<Point2> = pool.clone();
+    loop {
+        let interior: Vec<u32> = (polygon.len() as u32..all.len() as u32).collect();
+        let tris2 = cdt_with_interior_constraints(&all, &boundary, &[], &interior, &[]).map_err(
+            |error| ConstructError::Cdt {
                 patch: patch_index,
-                old_max: budget,
-                new_max,
-            });
+                error,
+            },
+        )?;
+        let pos3 = |i: u32| -> Point3 {
+            if (i as usize) < polygon.len() {
+                mesh.verts[polygon[i as usize] as usize]
+            } else {
+                chart.lift(all[i as usize])
+            }
+        };
+        let got = crate::stage4_splice::area_vector(&tris2, &pos3);
+        let d = crate::stage4_splice::dot3(want, got);
+        if d == 0.0 || !d.is_finite() {
+            return Err(ConstructError::DegenerateOrientation { patch: patch_index });
         }
+        let mut tris2 = tris2;
+        if d < 0.0 {
+            for t in &mut tris2 {
+                t.swap(1, 2);
+            }
+        }
+        if let Some(budget) = budget {
+            let mut new_max = 0.0f64;
+            let mut worst: Option<[u32; 3]> = None;
+            for t in &tris2 {
+                let uv = [all[t[0] as usize], all[t[1] as usize], all[t[2] as usize]];
+                let dt = crate::stage4_dt::d_of_t(&patch.surface, uv)
+                    .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?;
+                if dt > new_max {
+                    new_max = dt;
+                    worst = Some(*t);
+                }
+            }
+            if new_max > budget {
+                let n_seeds = all.len() - polygon.len();
+                if n_seeds >= seed_budget {
+                    return Err(ConstructError::ChordDegradation {
+                        patch: patch_index,
+                        old_max: budget,
+                        new_max,
+                    });
+                }
+                let w = worst.expect("new_max > 0 implies a worst triangle");
+                let c = [
+                    (all[w[0] as usize].x() + all[w[1] as usize].x() + all[w[2] as usize].x())
+                        / 3.0,
+                    (all[w[0] as usize].y() + all[w[1] as usize].y() + all[w[2] as usize].y())
+                        / 3.0,
+                ];
+                all.push(Point2::new(c[0], c[1]));
+                continue;
+            }
+        }
+        let seeds: Vec<Point3> = all[polygon.len()..]
+            .iter()
+            .map(|&uv| chart.lift(uv))
+            .collect();
+        return Ok((
+            tris2
+                .iter()
+                .map(|t| {
+                    let id = |i: u32| -> u32 {
+                        if (i as usize) < polygon.len() {
+                            polygon[i as usize]
+                        } else {
+                            seed_id_base + (i - polygon.len() as u32)
+                        }
+                    };
+                    [id(t[0]), id(t[1]), id(t[2])]
+                })
+                .collect(),
+            seeds,
+        ));
     }
-    Ok(tris2
-        .iter()
-        .map(|t| {
-            [
-                polygon[t[0] as usize],
-                polygon[t[1] as usize],
-                polygon[t[2] as usize],
-            ]
-        })
-        .collect())
 }
 
 fn fan_rebuild_core(
