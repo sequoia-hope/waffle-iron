@@ -1,17 +1,23 @@
 # §4.5.1 Corner Transit — the §4-I9 corner-crosser repair (I13f rehome kin)
 
-**Status: inc-2a PLANNER + inc-2b CORRIDOR-WALK CENSUS LANDED + MEASURED
-family-wide, 2026-08-30 — `stage4_transit.rs` owns the inc-1 instrument
-(23/23 verdicts: 12 TRANSIT + 5 CLIP + 6 typed declines; mints deduped by
-POSITION identity); the anatomy census REFUTED the "truncate at q" sketch
-— the repair unit is the fan-walking CORRIDOR (§3d), and the walk census
-MEASURED every corridor (§3e): R0011/R0074 fully determined (the v42→v78
-merge bit-equal), R0044 determined up to two named refinements, R0085
-walled on its own operand quality. inc-2c-0/-1 (same day) landed the
-all-roots per-edge solvers + the v2 walk (margin guard, splice
-terminal, torus Newton fallback): v76 resolved, every family corridor
-DETERMINED (§3f/§3g). NEXT = inc-2c-2: the gated APPLY (phantom splits,
-mints, splices, re-fill) against fully-measured corridors.** Epic opened by
+**Status (2026-08-31): the APPLY ARM EXISTS AND REPAIRS LIVE.**
+inc-2a/2b/2c-0/2c-1 (2026-08-30): planner + walk census + all-roots
+solvers — every family corridor DETERMINED (§3c–§3g). inc-2c-2+3a
+(2026-08-30b): corridor ASSEMBLY + cycle-surgery census — repair units
+as typed data; three designs census-corrected (§3h). inc-2c-3b-0: the
+corrected-cycle PLANNER — R0011 plans 18/18 components, 0 declines;
+"q stays" REFUTED (§3i). **inc-2c-3b-1 (2026-08-31): the gated
+mutation (`YANG_451_TRANSIT`, default OFF) — FIRST LIVE APPLY: R0011
+op-1's three corridors repair (13 plans / 11 mints), the §4-I9
+postcondition PASSES, the boolean COMPLETES; the far arm is FAN-LOCAL
+(wholesale refuted live — the I6 lesson). The case moves downstream to
+the FaceId(402) ring, ANCHORED same day (§3j): the spike is the
+chain-end neighbour v26 itself 4.7 past the mint — a NON-corner
+out-of-domain slide; fix shape = §4.4.1 near-curve removal at corridor
+ends (Fig-11 absorb into the mint + connector-direction certificate).
+NEXT = inc-2c-3b-2: measure the absorb band + B-side-fan treatment,
+land the absorb arm; then R0044's curve-aware host search; then inc-3
+(full-corpus gated measurement, two-proof flip).** Epic opened by
 the §4.5.2 adjudication (`specs/yang_452_local_refinement.md`): the recovery
 loop the paper prescribes for this class was measured out (zero conversions at
 2×/4×/8× uniform density), so the class needs the repair the paper does NOT
