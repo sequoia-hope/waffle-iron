@@ -1334,6 +1334,79 @@ and R0074 (`corridors=1 plans=4 mints=2 removed=2`): byte-identical
 APPLIED lines, both SUPPORTED_CORRECT; gates-off R0044 reproduces the
 honest ERROR verbatim; 799 lib tests green.
 
+## 3q. inc-2c-3b-9a — the conformality witness census, the removed-union
+filter (A), and the survivor-testimony orientation certificate (C)
+(LANDED 2026-08-31, fourth session; 16 unpaired edges → 10, all one
+family — the ABSORBED CONTINUATION anatomy, named 3b-9b)
+
+**The `[451-audit-edge]` witness census** (per unpaired edge: the
+incident triangles with post-batch attributions) decomposed the 16
+edges into three sub-defects; two are LANDED:
+
+- **(A) The removed-union filter** (`plan_invocation`, pure,
+  unit-pinned): a vertex removed by ANY plan vanishes from EVERY
+  corrected cycle — generator B's host-edge `to` survivors (v35 on
+  comp 167, v107 on comp 13, v90 on comp 391) were retained while
+  their far plans' absorb floods removed them; each retained
+  reference was an unpaired edge. One pass (dropping an
+  already-removed vertex adds nothing to the union); degenerate
+  cycles stay for the mutation's typed refusals.
+- **(C) The survivor-testimony orientation certificate**
+  (`refill_fan_hole_seeded`, ALWAYS-ON — full-corpus proof): a rim
+  edge shared with a surviving same-patch triangle must be traversed
+  in opposite directions by survivor and refill. The fossil
+  area-vector arm is only a heuristic — the relocation that made the
+  region a defect can FOLD the deleted triangles (comp 398: v142
+  moved 104 across the corner; the folded fossil flipped the sum and
+  ONE inverted refill triangle produced every unpaired edge at that
+  corner). Survivors are healthy by construction; triangles touching
+  the batch's condemned set are excluded from testimony (a
+  neighbouring region's fan is as unreliable as this region's
+  fossil); mixed testimony is a loud DegenerateOrientation; where no
+  survivor touches the rim the area arm stands. Byte-identity
+  argument: testimony acts only on CONFLICT, and a conflicted refill
+  is an inverted refill, which no green case can contain (it would be
+  non-manifold at stage 6).
+
+**Measured: 16 unpaired edges → 10.** The residue is ONE anatomy —
+**the ABSORBED CONTINUATION**: the §3j/§3m absorb consumed carried
+CREASE-CROSSING JUNCTION vertices (3-face memberships) whose true
+refined crossings exist in-domain BEYOND the corridor's terminal
+junction. The connector-dot sign certificate is necessary but not
+sufficient: it proves the chain lies past the junction, NOT that the
+curve ends there. The rim-domain census (`[451-bleg-rim]`, corridor
+#1) is decisive:
+
+- Every band crease near v1188 carries TWO in-arc far roots (54–104
+  near the corner + ~1400 far); **the 371∩372 crease has a true
+  in-domain crossing at d_q = 97.1 that no plan minted** — its
+  carried representative was v90 ({far, 371, 372}), absorbed. v92
+  ({far, 370, 371}) is the carried 370∩371 crossing, likewise
+  absorbed. The corridor's j0 is itself the band-END-edge crossing
+  (edge 2017/821 at 77.6 — the bands end on a serrated seam at the
+  corner, the v513 anatomy again).
+- N1 mirror: v35 = the carried {far, 153∩154} crossing (corridor
+  #2), absorbed; the far boundary now jumps from v34 (band 153)
+  straight to the (154,155) mint with no 153∩154 junction.
+- N2: v107 = the curve crossing OPERAND A's OWN crease — its
+  memberships are {A:2, A:3}: the intersection curve passes from far
+  face A:2 onto A:3, where the healthy carried curve (v248/v249)
+  continues. The far FACE CHANGES mid-curve; the corridor vocabulary
+  assumes one far patch.
+
+**inc-2c-3b-9b = the CONTINUATION arm**: an absorb candidate carrying
+a third-face membership is not absorbable-into-the-mint — it marks
+the curve CONTINUING across further boundary curves. The repair is
+the paper's Fig-12(e) applied at the corridor end: RESUME the walk
+from the terminal junction across the additional creases (the
+all-roots rim solver already exists), mint the true crossings, sample
+the runs, and terminate on the healthy chain — B-side creases first
+(N1/N3); the A-side far-face transition (N2) is its own sub-slice
+(the corridor gains a far-face CHANGE at an {A-crease × B-face}
+junction). Census data for both lives in this section's audit rows.
+R0011 (3/13/11/13) + R0074 (1/4/2/2) byte-identical, both
+SUPPORTED_CORRECT, after (A)+(C); 800 lib tests green.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -1480,13 +1553,20 @@ honest ERROR verbatim; 799 lib tests green.
   Stage-6 NonManifoldOutput (v13998)**; the `[451-audit]` post-batch
   watertightness census names 16 unpaired directed edges in 4 repair
   neighbourhoods. R0011/R0074 byte-identical, gates-off verbatim.
-- inc-2c-3b-9: the batch boundary-conformality closure (§3p) —
-  (A) `removed_all` as a batch-wide authority over every corrected
-  cycle (comp 391 retains far-removed v90 as a host-edge survivor);
-  (B) the §4.4.1 Fig-11(a) neighbour-side edge split for mints on
-  chains shared with un-planned patches (A:3's (79,249) vs mint
-  16360; B:371's (13799,13831) vs band 372's minted chain).
-  Census-first on the 16 measured edges.
+- **inc-2c-3b-9a** (2026-08-31, fourth session): the conformality
+  witness census + (A) the removed-union filter (plan-level; three
+  retained host survivors measured) + (C) the survivor-testimony
+  orientation certificate (ALWAYS-ON: the folded-fossil area vector
+  flipped one refill triangle; full-corpus proof). 16 unpaired edges
+  → 10; the residue is ONE anatomy — the ABSORBED CONTINUATION
+  (§3q).
+- inc-2c-3b-9b: the CONTINUATION arm — a 3-membership absorb
+  candidate marks the curve continuing across further creases;
+  resume the walk from the terminal junction (Fig-12(e)), mint the
+  true crossings (the 371∩372 root at 97.1 etc.), terminate on the
+  healthy chain. B-side creases first (N1/N3); the A-side far-face
+  transition (N2: v107 crosses A2∩A3 — the far face changes) as its
+  own sub-slice (§3q).
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

@@ -1845,8 +1845,16 @@ pub(crate) fn refill_fan_hole(
     polygon: &[u32],
     reference: &[u32],
 ) -> Result<Vec<[u32; 3]>, ConstructError> {
-    let (tris, seeds) =
-        refill_fan_hole_seeded(mesh, patch_index, patch, polygon, reference, 0, u32::MAX)?;
+    let (tris, seeds) = refill_fan_hole_seeded(
+        mesh,
+        patch_index,
+        patch,
+        polygon,
+        reference,
+        0,
+        u32::MAX,
+        &BTreeSet::new(),
+    )?;
     debug_assert!(seeds.is_empty(), "seed budget 0 mints nothing");
     Ok(tris)
 }
@@ -1861,6 +1869,7 @@ pub(crate) fn refill_fan_hole(
 /// ids in the returned triangles start at `polygon.len()` and map to the
 /// returned positions in order; exhausting the budget refuses
 /// `ChordDegradation` with the last certified value (loud, as before).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn refill_fan_hole_seeded(
     mesh: &Mesh,
     patch_index: usize,
@@ -1869,6 +1878,7 @@ pub(crate) fn refill_fan_hole_seeded(
     reference: &[u32],
     seed_budget: usize,
     seed_id_base: u32,
+    condemned: &BTreeSet<u32>,
 ) -> Result<(Vec<[u32; 3]>, Vec<Point3>), ConstructError> {
     let chart = SurfaceChart::new_local(patch.surface)
         .ok_or(ConstructError::NonPlanarPatch { patch: patch_index })?;
@@ -2005,6 +2015,78 @@ pub(crate) fn refill_fan_hole_seeded(
         if d < 0.0 {
             for t in &mut tris2 {
                 t.swap(1, 2);
+            }
+        }
+        // Orientation certificate (spec §3q): a rim edge shared with a
+        // SURVIVING same-patch triangle must be traversed in OPPOSITE
+        // directions by the survivor and the refill. The fossil area
+        // vector above is only a heuristic — the relocation that made the
+        // region a defect can FOLD the deleted triangles (R0044 comp 398:
+        // v142 moved 104 across the corner; the folded fossil flipped the
+        // sum and the refill came out inverted — one flipped triangle
+        // produced every unpaired edge at that corner). Survivors are
+        // healthy by construction; where none touches the rim, the area
+        // arm stands. Mixed survivor testimony is a loud stop.
+        {
+            let deleted: std::collections::BTreeSet<u32> = reference.iter().copied().collect();
+            let mut surv_sense: std::collections::BTreeMap<(u32, u32), (bool, bool)> =
+                std::collections::BTreeMap::new();
+            let n = polygon.len();
+            for i in 0..n {
+                surv_sense.insert(
+                    (
+                        polygon[i].min(polygon[(i + 1) % n]),
+                        polygon[i].max(polygon[(i + 1) % n]),
+                    ),
+                    (false, false),
+                );
+            }
+            for &t in patch.tris.iter().filter(|t| !deleted.contains(t)) {
+                let tri = mesh.tris[t as usize];
+                // Another region's condemned fan can border this rim one
+                // edge away (non-adjacent victim sets) — its winding is as
+                // unreliable as this region's fossil. Only genuinely
+                // surviving triangles testify.
+                if tri.iter().any(|v| condemned.contains(v)) {
+                    continue;
+                }
+                for k in 0..3 {
+                    let (x, y) = (tri[k], tri[(k + 1) % 3]);
+                    if let Some(s) = surv_sense.get_mut(&(x.min(y), x.max(y))) {
+                        if x < y {
+                            s.0 = true;
+                        } else {
+                            s.1 = true;
+                        }
+                    }
+                }
+            }
+            let (mut same, mut opposed) = (0usize, 0usize);
+            for t in &tris2 {
+                for k in 0..3 {
+                    let (i, j) = (t[k] as usize, t[(k + 1) % 3] as usize);
+                    if i >= n || j >= n {
+                        continue;
+                    }
+                    let (x, y) = (polygon[i], polygon[j]);
+                    if let Some(&(fwd, rev)) = surv_sense.get(&(x.min(y), x.max(y))) {
+                        let ours_fwd = x < y;
+                        if (ours_fwd && fwd) || (!ours_fwd && rev) {
+                            same += 1;
+                        }
+                        if (ours_fwd && rev) || (!ours_fwd && fwd) {
+                            opposed += 1;
+                        }
+                    }
+                }
+            }
+            if same > 0 && opposed > 0 {
+                return Err(ConstructError::DegenerateOrientation { patch: patch_index });
+            }
+            if same > 0 {
+                for t in &mut tris2 {
+                    t.swap(1, 2);
+                }
             }
         }
         if let Some(budget) = budget {

@@ -6250,6 +6250,13 @@ fn corner_transit_apply(
         }
     }
     // ---- MUTATION (all-or-nothing) ------------------------------------
+    // The batch-wide removed union (every plan's removed set): the refill
+    // orientation testimony must exclude any triangle touching condemned
+    // territory (spec §3q).
+    let removed_union: std::collections::BTreeSet<u32> = plans
+        .iter()
+        .flat_map(|pl| pl.removed.iter().copied())
+        .collect();
     if std::env::var_os("YANG_451_CHI").is_some() {
         let mut vs: std::collections::BTreeSet<u32> = Default::default();
         let mut es: std::collections::BTreeSet<(u32, u32)> = Default::default();
@@ -6397,6 +6404,7 @@ fn corner_transit_apply(
                 &del.old_tris,
                 victims.len(),
                 seed_base,
+                &removed_union,
             ) {
                 Ok(t) => t,
                 Err(e) => {
@@ -6531,6 +6539,7 @@ fn corner_transit_apply(
                         &del.old_tris,
                         victims.len(),
                         seed_base,
+                        &removed_union,
                     ) {
                         Ok(t) => t,
                         Err(e2) => {
@@ -6788,6 +6797,7 @@ fn corner_transit_apply(
                 &del.old_tris,
                 victims.len(),
                 seed_base,
+                &removed_union,
             ) {
                 Ok(t) => t,
                 Err(e2) => {

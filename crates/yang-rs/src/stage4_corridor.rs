@@ -822,6 +822,39 @@ pub(crate) fn plan_invocation(
             });
         }
     }
+    // inc-2c-3b-9 (A), spec §3q: a vertex removed by ANY plan vanishes from
+    // EVERY corrected cycle — the I13 interference-group rule at the plan
+    // level. Generator B keeps host-edge `to` survivors that the far plan's
+    // absorb flood removes (measured R0044: v35/v107/v90 retained on comps
+    // 167/13/391 while removed on their far comps — every retained-removed
+    // vertex surfaced as an unpaired directed edge in the `[451-audit]`
+    // watertightness census). Dropping an already-removed vertex can add
+    // nothing to the union, so one pass suffices. A cycle degenerating
+    // below 3 refs stays in the plan — the mutation's typed refusals stay
+    // the loud guard on that shape.
+    let removed_union: std::collections::BTreeSet<u32> = plans
+        .iter()
+        .flat_map(|p| p.removed.iter().copied())
+        .collect();
+    for pl in &mut plans {
+        let mut extra: Vec<u32> = Vec::new();
+        for cy in &mut pl.corrected {
+            cy.retain(|r| {
+                if let CycleRef::Old(v) = *r {
+                    if removed_union.contains(&v) {
+                        extra.push(v);
+                        return false;
+                    }
+                }
+                true
+            });
+        }
+        if !extra.is_empty() {
+            pl.removed.extend(extra);
+            pl.removed.sort_unstable();
+            pl.removed.dedup();
+        }
+    }
     (plans, declines)
 }
 
@@ -1182,6 +1215,63 @@ mod tests {
         // The three measured generators still plan; the pocket emits none.
         assert_eq!(plans.len(), 3, "{plans:?}");
         assert!(plans.iter().all(|pl| pl.comp != 9));
+    }
+
+    /// inc-2c-3b-9 (A), spec §3q — the removed-union filter: a vertex one
+    /// plan removes vanishes from every OTHER plan's corrected cycle (the
+    /// R0044 anatomy: generator B keeps a host-edge `to` survivor that the
+    /// far plan's absorb flood removes; the retained reference surfaced as
+    /// an unpaired directed edge in the post-batch audit).
+    #[test]
+    fn plan_invocation_filters_vertices_removed_by_another_plan() {
+        let (corridors, mut comps) = r0011_like_invocation();
+        // A second B-side component whose generator-B splice would keep 71
+        // as the host-edge survivor — while comp 2's generator-C plan
+        // REMOVES 71 (the OUT corner of the run facet).
+        comps.push(ComponentInput {
+            key: (InputId::B, 9),
+            comp: 9,
+            cycles: vec![vec![39, 42, 687, 688, 686, 71, 91]],
+        });
+        let far_value = |_: usize, v: u32| -> Option<f64> {
+            Some(match v {
+                687 | 688 | 686 | 71 => -1.0,
+                42 => 0.0,
+                _ => 1.0,
+            })
+        };
+        let attachments = |_: usize, p: u32| -> Vec<(u32, usize)> {
+            if p == 42 {
+                vec![(39, 0), (43, 1)]
+            } else {
+                vec![]
+            }
+        };
+        let hosts = |_: usize, comp: u32| -> Vec<(usize, (u32, u32))> {
+            match comp {
+                1 => vec![(0, (686, 682))],
+                2 => vec![(0, (70, 71)), (1, (71, 72))],
+                9 => vec![(0, (686, 71))],
+                _ => vec![],
+            }
+        };
+        let band = |_: u32| 1e-9;
+        let ctx = r0011_ctx(&far_value, &attachments, &hosts, &band, &healthy_pos);
+        let mut pool = MintPool::default();
+        let (plans, declines) = plan_invocation(&corridors, &comps, &ctx, &mut pool);
+        assert!(declines.is_empty(), "{declines:?}");
+        let p9 = plans.iter().find(|p| p.comp == 9).expect("comp 9 plans");
+        // The splice kept [39, J0, 71, 91]; the filter then drops 71
+        // (removed by comp 2's plan) and records it.
+        assert_eq!(
+            p9.corrected[0],
+            vec![CycleRef::Old(39), CycleRef::New(0), CycleRef::Old(91)],
+            "{plans:?}"
+        );
+        assert!(p9.removed.contains(&71));
+        // The donor plan is untouched: comp 2 still records the removal.
+        let p2 = plans.iter().find(|p| p.comp == 2).expect("comp 2 plans");
+        assert_eq!(p2.removed, vec![71]);
     }
 
     /// The guard: the same unattached-phantom shape on a component that
