@@ -1746,6 +1746,62 @@ pub(crate) fn s453d_shared_circle_backtrack_reversed() {
     );
 }
 
+/// inc-2c-3b-10 (spec `yang_451_corner_transit` §3r follow-up): the
+/// PROCEDURAL surface-pair arm — the site is tested against the curve's
+/// OWN tangent at `p_r` (T = n_a × n_b, exact from the surface gradients).
+/// A fold (both neighbours on the same tangent side) is a reversal with
+/// the parameter-nearer survivor; monotone progression is healthy however
+/// coarse; parallel surfaces (degenerate tangent) cannot diagnose.
+#[test]
+pub(crate) fn s453e_surface_pair_tangent_backtrack() {
+    let pair = Curve::SurfacePair {
+        a: Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: 0.0,
+        },
+        b: Surface::Plane {
+            normal: Vector3::new(0.0, 1.0, 0.0),
+            d: 0.0,
+        },
+    };
+    let at = |x: f64| p(x, 0.0, 0.0);
+    assert!(
+        !conic_param_reversed(&pair, at(0.0), at(1.0), at(2.0)),
+        "monotone progression along the intersection line is healthy"
+    );
+    assert!(
+        conic_param_reversed(&pair, at(0.0), at(2.0), at(1.0)),
+        "p_r overshot past p_n — a §4.5.3 reversal"
+    );
+    let (d1, d2) = conic_param_deltas(&pair, at(0.0), at(2.0), at(1.0))
+        .expect("tangent defined for crossing planes");
+    assert!(
+        d2.abs() < d1.abs(),
+        "the parameter-nearer neighbour (p_n, overshoot 1) survives (9b): \
+         |d1|={} |d2|={}",
+        d1.abs(),
+        d2.abs()
+    );
+    assert!(
+        conic_param_reversed(&pair, at(1.0), at(-0.5), at(2.0)),
+        "p_r overshot backward past p_b — a reversal with p_b nearer (9a)"
+    );
+    let degenerate = Curve::SurfacePair {
+        a: Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: 0.0,
+        },
+        b: Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: -5.0,
+        },
+    };
+    assert!(
+        conic_param_deltas(&degenerate, at(0.0), at(1.0), at(2.0)).is_none(),
+        "parallel surfaces: zero tangent — branch 11, cannot diagnose"
+    );
+}
+
 /// I2 adversary: a near-tangent plane∩cylinder ellipse (a = 2.4, b = 0.02 —
 /// the R0061 scale) turns nearly 180° in 3D at its major-axis tip even for
 /// a LEGIT monotone traversal. The discriminator must be parameter order,

@@ -1490,6 +1490,61 @@ correction to the non-conic chains (census the sweep's verdicts on
 this loop first; the M5 Option-B procedural surface-pair curve is the
 existing vocabulary).
 
+## 3s. inc-2c-3b-10 — the §4.5.3 SURFACE-PAIR tangent arm (LANDED
+2026-08-31, fourth session; the FaceId(459) ring wall falls — the case
+moves to FaceId(626) "patch triangulation folded")
+
+The `YANG_453_PAIR=census` + `YANG_T145_SWEEP_PROBE` run adjudicated
+the 3b-10 anchor's suspect one layer deeper: the fold sites ARE
+detected by the task-#145 probe — `[t145-sweep] mixed-cycle conic
+U-turn skip … cn=SurfacePair { a: Cylinder(r=2327.8), b: Cone(…) }`,
+890 lines — and the #145 shared-conic parameter arm IS landed, but
+`mixed_cycle_shared_conic` branch-12-skips `Curve::SurfacePair` and
+`conic_param_deltas` has no parameterization for it (branch 11): the
+M5 Option-B procedural curves (the far cylinder × the CONE bands)
+were vocabulary-invisible to the sweep. The bands are cones — one
+half-angle per band — and the fold chain's edges all carry
+SurfacePair curves.
+
+Landed (always-on, the #145 branch table unchanged):
+
+- `mixed_cycle_shared_conic` admits `SurfacePair` — identity = exact
+  surface equality, unordered (storage order is a frame choice).
+- `conic_param_deltas` gains the TANGENT arm: at a SurfacePair site
+  the curve's OWN tangent at `p_r` is exact — T = n_a × n_b from the
+  two surface gradients — and the deltas are the signed tangent
+  projections of the neighbours (lengths, no wrap). This is the
+  paper's "progress along the intersection curve" evaluated
+  analytically AT the site: a coarse-but-monotone chain has its
+  neighbours on OPPOSITE sides of T and reads healthy whatever its
+  turn angle, so the P10-disproven angle-band false-positive class
+  cannot arise. Degenerate/unreadable tangent = branch 11 (cannot
+  diagnose). Victim selection and the 2·d_ε resolution gate are the
+  existing shared path, verbatim.
+
+**Measured (R0044, transit+torus+SPAIR gates): the fires, the APPLIED
+line (6/20/15/20), and the retry's v105 wall are all byte-identical;
+the FaceId(459) ring wall FALLS (the fold chain is §4.5.3-collapsed
+before topology), and the case stops at the next output-tessellation
+frontier — `FaceId(626): patch triangulation folded (inverted
+triangles)` — a different face and failure mode, unmeasured.** R0011
+(3/13/11/13) + R0074 (1/4/2/2): byte-identical, both
+SUPPORTED_CORRECT under the arm.
+
+**GATED `YANG_453_SPAIR` (default OFF) by the always-on corpus run's
+verdict: ONE E→W flip — R0053, the M8 coplanar-graze case.** Its
+fold's ring rejection (`FaceId(474)`) was the loud stop masking the
+coplanar capability gap; with the fold collapsed the case COMPLETES
+at χ=0 against the authored 2 (`mesh_euler_characteristic` — the
+composition oracle keeps it loud as W, but the canonical bar is
+0 WRONG, enforced). The arm itself behaved exactly as designed there
+— the adjudication owed is R0053's: either its χ expectation is
+oracle authoring (the R0011 `euler_target` precedent — true topology
+changed by the graze) or the completion is a genuine M8 silent-wrong
+(then the flip waits on M8 Stage-0). **The flip condition is that
+adjudication — never a narrower band.** Default-off corpus:
+byte-identical canonical 273C/0W/34E/1EE/0T (re-proven).
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -1656,10 +1711,18 @@ existing vocabulary).
   output-tessellation FaceId(459) ring spike (the §3j FaceId(402)
   family) + the v105 retry ChordDegradation. R0011/R0074
   byte-identical; gates-off verbatim.
-- inc-2c-3b-10: the §4.5.3 fold on non-conic carried chains (§3r
-  anchor) — FaceId(459)'s ring = the fold-ordered natural-resolution
-  far∩band chain; the sweep's conic-only eligibility is the prime
-  suspect; census-first.
+- **inc-2c-3b-10** (2026-08-31, fourth session): the §4.5.3
+  SURFACE-PAIR tangent arm (§3s) — `mixed_cycle_shared_conic` admits
+  SurfacePair (unordered exact equality) and `conic_param_deltas`
+  gains the analytic-tangent projection test (T = n_a × n_b at the
+  site; monotone chains healthy at any coarseness). R0044's
+  FaceId(459) ring wall falls → FaceId(626) "triangulation folded"
+  (unmeasured). **GATED `YANG_453_SPAIR` default OFF: the always-on
+  corpus run measured ONE E→W (R0053, M8 coplanar-graze, χ=0 vs 2 —
+  the fold's ring rejection was the loud stop masking the M8 gap);
+  flip condition = R0053's χ adjudication or M8 Stage-0.** R0044's
+  conversion path now reads
+  `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1 YANG_453_SPAIR=1`.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

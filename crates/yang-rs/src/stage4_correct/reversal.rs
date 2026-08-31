@@ -29,6 +29,19 @@ pub(crate) fn sweep_reversed_intersections(
     let pair_arm = std::env::var("YANG_453_PAIR");
     let pair_arm_census = matches!(pair_arm.as_deref(), Ok("census"));
     let pair_arm_act = !pair_arm_census && !matches!(pair_arm.as_deref(), Ok("0") | Ok("off"));
+    // inc-2c-3b-10 (spec `yang_451_corner_transit` §3s): the SURFACE-PAIR
+    // tangent arm, GATED default OFF. The gated corpus run measured ONE
+    // E→W flip — R0053 (the M8 coplanar-graze case): its fold's ring
+    // rejection was the loud stop masking the coplanar capability gap, and
+    // collapsing the fold completes the case with χ=0 against the authored
+    // 2. The flip condition is R0053's χ adjudication (the R0011
+    // euler_target precedent) or the M8 Stage-0 capability — never a
+    // narrower band. `1|on` = act; unset/`0`/`off` = the SurfacePair
+    // admission is inert (byte-identical corpus).
+    let spair_act = matches!(
+        std::env::var("YANG_453_SPAIR").as_deref(),
+        Ok("1") | Ok("on")
+    );
 
     let mut collapsed_any = false;
     // Bound the outer restart loop by the initial triangle count (each pass
@@ -211,6 +224,9 @@ pub(crate) fn sweep_reversed_intersections(
                         let Some(shared) = mixed_cycle_shared_conic(&curves, key_b, key_n) else {
                             continue;
                         };
+                        if matches!(shared, Curve::SurfacePair { .. }) && !spair_act {
+                            continue;
+                        }
                         let Some((d1, d2)) = conic_param_deltas(
                             &shared,
                             mesh.verts[p_b as usize],
@@ -591,6 +607,33 @@ pub(crate) fn conic_param_deltas(
     p_r: Point3,
     p_n: Point3,
 ) -> Option<(f64, f64)> {
+    // inc-2c-3b-10: a PROCEDURAL surface-pair site is tested against the
+    // curve's OWN tangent at `p_r` — T = n_a × n_b, the exact intersection
+    // direction from the two surface gradients (the paper's "progress along
+    // the intersection curve", evaluated analytically at the site; a
+    // coarse-but-monotone chain has its neighbours on OPPOSITE sides of T
+    // and stays healthy whatever its turn angle, so the P10-disproven
+    // angle-band false-positive class cannot arise). Deltas are the signed
+    // tangent projections — lengths, not angles; no wrap. A degenerate or
+    // unreadable tangent is branch 11 (`None`, cannot diagnose).
+    if let Curve::SurfacePair { a, b } = curve {
+        let pr = p_r.as_array();
+        let (_, na) = crate::stage4_relocate::surface_value_and_normal(*a, pr)?;
+        let (_, nb) = crate::stage4_relocate::surface_value_and_normal(*b, pr)?;
+        let t = [
+            na[1] * nb[2] - na[2] * nb[1],
+            na[2] * nb[0] - na[0] * nb[2],
+            na[0] * nb[1] - na[1] * nb[0],
+        ];
+        let t2 = t[0] * t[0] + t[1] * t[1] + t[2] * t[2];
+        if !(t2.is_finite() && t2 > 0.0) {
+            return None;
+        }
+        let (pb, pn) = (p_b.as_array(), p_n.as_array());
+        let d1 = (pr[0] - pb[0]) * t[0] + (pr[1] - pb[1]) * t[1] + (pr[2] - pb[2]) * t[2];
+        let d2 = (pn[0] - pr[0]) * t[0] + (pn[1] - pr[1]) * t[1] + (pn[2] - pr[2]) * t[2];
+        return Some((d1, d2));
+    }
     // I13b: the (−π, π] wrap below is angle-domain math — an open conic's
     // unbounded parameter must not pass through it. Same `None` ("cannot
     // diagnose") the missing parameter produced before the extension.
@@ -627,6 +670,14 @@ pub(crate) fn mixed_cycle_shared_conic(
 ) -> Option<Curve> {
     let cb = curves.get(&key_b)?;
     let cn = curves.get(&key_n)?;
+    // inc-2c-3b-10 (spec `yang_451_corner_transit` §3r follow-up): the
+    // PROCEDURAL surface-pair curve joins the shared-conic vocabulary —
+    // identity is exact surface equality, unordered (the pair's storage
+    // order is a frame choice). Its parameter test lives in
+    // `conic_param_deltas`' tangent arm.
+    if let (Curve::SurfacePair { a: na, b: nb }, Curve::SurfacePair { a: ba, b: bb }) = (cn, cb) {
+        return ((na == ba && nb == bb) || (na == bb && nb == ba)).then_some(*cb);
+    }
     if !matches!(cn, Curve::Circle { .. } | Curve::Ellipse { .. }) {
         return None;
     }
