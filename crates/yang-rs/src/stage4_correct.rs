@@ -5716,6 +5716,374 @@ fn corner_transit_apply(
                     .collect()
             })
     };
+    // inc-2c-3b-9b (spec §3q) — the CONTINUATION arm. A corridor whose
+    // terminal junction meets a carried chain that immediately doubles back
+    // (the §3j connector certificate) has not reached the healthy
+    // resumption. When the defective span carries CREASE-CROSSING vertices
+    // (≥2 walk-operand faces — carried junctions), the curve provably
+    // continues across further boundary curves (their in-domain rim roots
+    // exist — the `[451-bleg-rim]` census), and the corridor EXTENDS:
+    // resume the walk from the terminal junction with the span excluded,
+    // mint the true crossings, and terminate on the healthy anchor's face
+    // (the paper's Fig-12(e): the intersections between the curve and each
+    // boundary curve are solved). The span is recorded as the corridor's
+    // extension-certified `absorbed` set for the planner's removability and
+    // outward anchor resolution. A span WITHOUT crossers is the classic
+    // §3j absorb — untouched. (The report-only `-PLAN3B` census mirror
+    // does not extend; its rows show the unextended corridors.)
+    let mut corridors = corridors;
+    let ext_census = std::env::var("YANG_451_HOSTS").as_deref() == Ok("census");
+    let standing_at = |far: (InputId, u32), walk_op: InputId, v: u32| -> bool {
+        // Two triple shapes (spec §3q): a WALK-OP crease crossing
+        // {far, f1, f2} (one far-op + two walk-op faces), and a FAR-OP
+        // crease crossing {fa1, fa2, wb} (two far-op + one walk-op face —
+        // the intersection curve passing from one far face onto its
+        // neighbour: R0044's v107 on {A2, A3, B1}).
+        let pv = patches_of(v);
+        let far_op = far.0;
+        let wf: Vec<u32> = pv
+            .iter()
+            .filter(|(op, _)| *op == walk_op)
+            .map(|&(_, f)| f)
+            .collect();
+        let ff: Vec<u32> = pv
+            .iter()
+            .filter(|(op, _)| *op == far_op)
+            .map(|&(_, f)| f)
+            .collect();
+        let surfaces: Option<(Surface, Surface, Surface)> = match (ff.as_slice(), wf.as_slice()) {
+            (_, [f1, f2]) => match (
+                faces_of(far.0).get(far.1 as usize).map(|f| f.surface),
+                faces_of(walk_op).get(*f1 as usize).map(|f| f.surface),
+                faces_of(walk_op).get(*f2 as usize).map(|f| f.surface),
+            ) {
+                (Some(x), Some(y), Some(z)) => Some((x, y, z)),
+                _ => None,
+            },
+            ([a1, a2], [w1]) => match (
+                faces_of(far_op).get(*a1 as usize).map(|f| f.surface),
+                faces_of(far_op).get(*a2 as usize).map(|f| f.surface),
+                faces_of(walk_op).get(*w1 as usize).map(|f| f.surface),
+            ) {
+                (Some(x), Some(y), Some(z)) => Some((x, y, z)),
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some((s0, s1, s2)) = surfaces else {
+            return false;
+        };
+        let pos = mesh.verts[v as usize];
+        crate::stage4_relocate::relocate_onto_implicit_triple(pos, s0, s1, s2).is_some_and(|sol| {
+            let pa = pos.as_array();
+            d3(sol.as_array(), pa)
+                <= s4t::contract_band(pa[0].abs().max(pa[1].abs()).max(pa[2].abs()))
+        })
+    };
+    #[allow(clippy::needless_range_loop)]
+    for k in 0..corridors.len() {
+        let c0 = corridors[k].clone();
+        let Some((fpi, _)) = raw_patches.iter().enumerate().find(|(_, pt)| {
+            (pt.attribution.input, pt.attribution.face) == c0.far
+                && pt.tri_indices.iter().any(|&t| {
+                    let tri = mesh.tris[t as usize];
+                    c0.phantoms.iter().any(|&p| tri.contains(&p))
+                })
+        }) else {
+            continue;
+        };
+        let Some(fcycles) = cycles_of(fpi) else {
+            continue;
+        };
+        let standing_v = |_k: usize, v: u32| standing_at(c0.far, c0.walk_op, v);
+        let att_junction = |w: u32| -> Option<usize> {
+            let pw = patches_of(w);
+            let hits: Vec<usize> = c0
+                .junctions
+                .iter()
+                .enumerate()
+                .filter(|(_, j)| {
+                    pw.contains(&(c0.walk_op, j.faces.0)) || pw.contains(&(c0.walk_op, j.faces.1))
+                })
+                .map(|(i, _)| i)
+                .collect();
+            if let [one] = hits.as_slice() {
+                Some(*one)
+            } else {
+                None
+            }
+        };
+        let mut extend_at: Vec<(usize, Vec<u32>, u32)> = Vec::new(); // (end junction idx, span, healthy anchor)
+        for cy in &fcycles {
+            let n = cy.len();
+            let Some(p_i) = cy.iter().position(|v| c0.phantoms.contains(v)) else {
+                continue;
+            };
+            for dir in [-1isize, 1isize] {
+                // The end junction this direction belongs to: the first
+                // non-fired vertex with a UNIQUE attachment under the
+                // PRE-extension corridor.
+                let mut je: Option<usize> = None;
+                let mut kx = p_i as isize;
+                for _ in 0..n {
+                    kx = (kx + dir).rem_euclid(n as isize);
+                    let v = cy[kx as usize];
+                    if fired.contains(&v) {
+                        continue;
+                    }
+                    if let Some(j) = att_junction(v) {
+                        je = Some(j);
+                        break;
+                    }
+                    // Keep scanning: mid-face curve vertices resolve nothing.
+                }
+                let Some(je) = je else { continue };
+                let last = c0.junctions.len() - 1;
+                if je != 0 && je != last {
+                    continue;
+                }
+                // Only a MINT terminal can extend: a Splice end IS an
+                // existing healthy junction — the existing curve owns the
+                // continuation there, and its defects (if any) are not this
+                // corridor's fire (measured: the v513 corridors' splice
+                // ends read their healthy continuations as spans via the
+                // degenerate connect≈0 of the splice vertex itself).
+                if !matches!(c0.junctions[je].disposition, s4t::JunctionDisposition::Mint) {
+                    continue;
+                }
+                let jsol = c0.junctions[je].sol;
+                // The connector walk from the phantom outward, anchored on
+                // the terminal junction: defective while the arrive ring
+                // doubles back toward it. Fired vertices are skipped
+                // (already consumed); the first healthy vertex is the
+                // resumption anchor.
+                let mut span: Vec<u32> = Vec::new();
+                let mut anchor: Option<u32> = None;
+                let mut kx = p_i as isize;
+                for _ in 0..n {
+                    kx = (kx + dir).rem_euclid(n as isize);
+                    let v = cy[kx as usize];
+                    if fired.contains(&v) {
+                        continue;
+                    }
+                    let pv = mesh.verts[v as usize].as_array();
+                    if d3(pv, jsol)
+                        <= s4t::contract_band(pv[0].abs().max(pv[1].abs()).max(pv[2].abs()))
+                    {
+                        // The junction's own carrier — connect ≈ 0 is
+                        // degenerate testimony; skip it.
+                        continue;
+                    }
+                    // A STANDING junction anchors the walk, whatever its
+                    // ring angles read (spec §3q: v157 — corridor #4's
+                    // healthy splice junction — read doubled-back against
+                    // corridor #5's mint 74 away).
+                    if standing_v(k, v) {
+                        anchor = Some(v);
+                        break;
+                    }
+                    let further = cy[(kx + dir).rem_euclid(n as isize) as usize];
+                    let pf = mesh.verts[further as usize].as_array();
+                    let arrive = [pv[0] - pf[0], pv[1] - pf[1], pv[2] - pf[2]];
+                    let connect = [jsol[0] - pv[0], jsol[1] - pv[1], jsol[2] - pv[2]];
+                    let dot =
+                        arrive[0] * connect[0] + arrive[1] * connect[1] + arrive[2] * connect[2];
+                    if dot >= 0.0 {
+                        anchor = Some(v);
+                        break;
+                    }
+                    span.push(v);
+                }
+                let Some(anchor) = anchor else { continue };
+                if span.is_empty() {
+                    continue;
+                }
+                let crossers: Vec<u32> = span
+                    .iter()
+                    .copied()
+                    .filter(|&v| {
+                        patches_of(v)
+                            .iter()
+                            .filter(|(op, _)| *op == c0.walk_op)
+                            .count()
+                            >= 2
+                    })
+                    .collect();
+                if ext_census {
+                    eprintln!(
+                        "[451-ext] #{k} end={je} span={span:?} crossers={crossers:?} \
+                         anchor=v{anchor}"
+                    );
+                }
+                if crossers.is_empty() {
+                    continue; // the classic absorb's territory
+                }
+                // A STANDING anchor (a healthy existing junction) rides
+                // TWO walk-op faces; the walk then terminates on the
+                // junction itself (ReachedExistingJunction) rather than by
+                // crossing into a face — pass the never-matching sentinel.
+                let aface = if standing_v(k, anchor) {
+                    u32::MAX
+                } else {
+                    let afaces: Vec<u32> = patches_of(anchor)
+                        .iter()
+                        .filter(|(op, _)| *op == c0.walk_op)
+                        .map(|&(_, f)| f)
+                        .collect();
+                    let [one] = afaces.as_slice() else {
+                        refuse(&format!(
+                            "continuation anchor v{anchor} of corridor #{k} rides {} \
+                             walk-op faces — no unambiguous termination face",
+                            afaces.len()
+                        ));
+                        return Ok(false);
+                    };
+                    *one
+                };
+                extend_at.push((je, span, aface));
+            }
+        }
+        for (je, span, aface) in extend_at {
+            let c0 = corridors[k].clone();
+            let last = c0.junctions.len() - 1;
+            let je_idx = if je == 0 { 0 } else { c0.junctions.len() - 1 };
+            let je_j = &c0.junctions[je_idx];
+            let f_out = if je_idx == 0 {
+                je_j.faces.0
+            } else {
+                je_j.faces.1
+            };
+            let brep_n = match c0.walk_op {
+                InputId::A => a,
+                InputId::B => b,
+            };
+            let Some(far_surf) = faces_of(c0.far.0).get(c0.far.1 as usize).map(|f| f.surface)
+            else {
+                refuse("continuation: far surface missing");
+                return Ok(false);
+            };
+            let walk_adj = s4t::build_edge_adjacency(brep_n);
+            let excl: std::collections::BTreeSet<u32> =
+                fired.iter().copied().chain(span.iter().copied()).collect();
+            let existing_x = |ff: u32, ft: u32, pos: [f64; 3]| -> Option<(u32, f64)> {
+                let want = [c0.far, (c0.walk_op, ff), (c0.walk_op, ft)];
+                patch_map
+                    .iter()
+                    .filter(|(w, ps)| !excl.contains(w) && want.iter().all(|t| ps.contains(t)))
+                    .map(|(&w, _)| (w, d3(mesh.verts[w as usize].as_array(), pos)))
+                    .min_by(|x, y| x.1.total_cmp(&y.1))
+            };
+            let wctx = s4t::WalkCtx {
+                brep: brep_n,
+                far: far_surf,
+                adj: &walk_adj,
+                existing: &existing_x,
+                splice_band: s4t::WalkBand::Contract,
+            };
+            let (juncs, end) = s4t::walk_corridor(
+                &wctx,
+                s4t::WalkStart {
+                    face: f_out,
+                    entry_key: s4t::edge_key(brep_n, je_j.edge),
+                    entry: je_j.sol,
+                },
+                aface,
+                64,
+            );
+            if ext_census {
+                eprintln!(
+                    "[451-ext] #{k} end={je} walk juncs={:?} end={end:?}",
+                    juncs
+                        .iter()
+                        .map(|j| ((j.face_from, j.face_to), j.sol))
+                        .collect::<Vec<_>>(),
+                );
+            }
+            if !matches!(
+                end,
+                s4t::WalkEnd::ReachedOtherChain | s4t::WalkEnd::ReachedExistingJunction { .. }
+            ) || juncs.is_empty()
+            {
+                refuse(&format!(
+                    "continuation walk of corridor #{k} end {je} failed: {end:?} after {} \
+                     junctions",
+                    juncs.len()
+                ));
+                return Ok(false);
+            }
+            // Build the extension junctions + fresh runs.
+            let dispose = |ff: u32, ft: u32, sol: [f64; 3]| -> s4t::JunctionDisposition {
+                match existing_x(ff, ft, sol) {
+                    Some((v, d))
+                        if d <= s4t::contract_band(
+                            sol[0].abs().max(sol[1].abs()).max(sol[2].abs()),
+                        ) =>
+                    {
+                        s4t::JunctionDisposition::Splice { vertex: v, d }
+                    }
+                    _ => s4t::JunctionDisposition::Mint,
+                }
+            };
+            let mut new_j: Vec<s4t::CorridorJunction> = juncs
+                .iter()
+                .map(|wj| s4t::CorridorJunction {
+                    sol: wj.sol,
+                    faces: (wj.face_from, wj.face_to),
+                    edge: wj.edge,
+                    disposition: dispose(wj.face_from, wj.face_to, wj.sol),
+                })
+                .collect();
+            let source_run = |facet: u32, p0: [f64; 3], p1: [f64; 3]| {
+                let fs = faces_of(c0.walk_op).get(facet as usize).map(|f| f.surface);
+                match fs.and_then(|fs| s4t::sample_run_chord(far_surf, fs, p0, p1, d_eps)) {
+                    Some(s) => Ok(s4t::RunSource::Samples(s)),
+                    None => Err(s4t::RunIssue::SampleFailed),
+                }
+            };
+            let cmut = &mut corridors[k];
+            if je_idx == last && je_idx != 0 {
+                let mut prev = cmut.junctions[cmut.junctions.len() - 1].sol;
+                for nj in new_j {
+                    let facet = nj.faces.0;
+                    cmut.runs.push((facet, source_run(facet, prev, nj.sol)));
+                    prev = nj.sol;
+                    cmut.junctions.push(nj);
+                }
+            } else {
+                // Prepend reversed with the face pairs swapped so the
+                // corridor stays oriented j0 → j_last along the curve.
+                new_j.reverse();
+                for nj in &mut new_j {
+                    nj.faces = (nj.faces.1, nj.faces.0);
+                }
+                let mut add_runs: Vec<(u32, Result<s4t::RunSource, s4t::RunIssue>)> = Vec::new();
+                for w in new_j.windows(2) {
+                    let facet = w[0].faces.1;
+                    add_runs.push((facet, source_run(facet, w[0].sol, w[1].sol)));
+                }
+                let facet = new_j[new_j.len() - 1].faces.1;
+                add_runs.push((
+                    facet,
+                    source_run(facet, new_j[new_j.len() - 1].sol, cmut.junctions[0].sol),
+                ));
+                let mut all_j = new_j;
+                all_j.append(&mut cmut.junctions);
+                cmut.junctions = all_j;
+                add_runs.append(&mut cmut.runs);
+                cmut.runs = add_runs;
+            }
+            cmut.absorbed.extend(span);
+            cmut.absorbed.sort_unstable();
+            cmut.absorbed.dedup();
+        }
+    }
+    // The extension added runs — re-check applyability (a run that cannot
+    // be sourced keeps the standing STOP).
+    if !corridors.iter().all(|c| c.applyable()) {
+        refuse("a continuation-extended corridor is not applyable");
+        return Ok(false);
+    }
+    let corridors = corridors;
     let hosts_on = |k: usize,
                     patch: &crate::stage5_topology::Patch,
                     cycles_v: &[Vec<u32>]|
@@ -5893,8 +6261,23 @@ fn corner_transit_apply(
                 })
                 .map(|(i, _)| i)
                 .collect();
-            if let [one] = hits.as_slice() {
-                out.push((w, *one));
+            // inc-2c-3b-9b: an extended corridor's junctions can SHARE a
+            // face (the extension crosses further creases of the same
+            // band), so face-hits alone stop being unique — the neighbour
+            // attaches to the NEAREST face-matching junction (its curve
+            // continues from exactly one of them; a wrong pick fails the
+            // generators' orientation-unique checks loudly).
+            match hits.as_slice() {
+                [one] => out.push((w, *one)),
+                [] => {}
+                many => {
+                    let pwv = mesh.verts[w as usize].as_array();
+                    if let Some(&best) = many.iter().min_by(|&&x, &&y| {
+                        d3(c.junctions[x].sol, pwv).total_cmp(&d3(c.junctions[y].sol, pwv))
+                    }) {
+                        out.push((w, best));
+                    }
+                }
             }
         }
         out
@@ -5903,12 +6286,21 @@ fn corner_transit_apply(
         host_map.get(&(k, comp)).cloned().unwrap_or_default()
     };
     let vpos = |v: u32| -> Option<[f64; 3]> { mesh.verts.get(v as usize).map(|p| p.as_array()) };
+    // inc-2c-3b-9b (spec §3q): the STANDING-JUNCTION certificate — the
+    // vertex carries exactly two walk-op faces and sits ON the {far, f1,
+    // f2} triple solution within the CONTRACT band. Fig-11(b) made exact:
+    // only what is NOT standing may merge into a corridor junction.
+    let standing = |k: usize, v: u32| -> bool {
+        let c = &corridors[k];
+        standing_at(c.far, c.walk_op, v)
+    };
     let pctx = s4c::PlanCtx {
         far_value: &far_value,
         band: &vband,
         pos: &vpos,
         attachments: &attachments,
         hosts: &hosts,
+        standing: &standing,
     };
     let mut pool = s4c::MintPool::default();
     if std::env::var("YANG_451_HOSTS").as_deref() == Ok("census") {
@@ -8252,12 +8644,17 @@ fn relocation_domain_postcondition(
                         let vpos = |v: u32| -> Option<[f64; 3]> {
                             mesh.verts.get(v as usize).map(|p| p.as_array())
                         };
+                        // Report-only census mirror: corridors here are
+                        // unextended, so the standing certificate never
+                        // fires; keep it inert.
+                        let never_standing = |_: usize, _: u32| -> bool { false };
                         let pctx = s4c::PlanCtx {
                             far_value: &far_value,
                             band: &vband,
                             pos: &vpos,
                             attachments: &attachments,
                             hosts: &hosts,
+                            standing: &never_standing,
                         };
                         let mut pool = s4c::MintPool::default();
                         let (plans, pdeclines) =

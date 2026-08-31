@@ -1199,6 +1199,13 @@ pub(crate) struct CorridorRepair {
     pub corners: Vec<u32>,
     pub junctions: Vec<CorridorJunction>,
     pub runs: Vec<(u32, Result<RunSource, RunIssue>)>,
+    /// inc-2c-3b-9b (spec §3q): extension-certified DEFECTIVE SPAN vertices
+    /// — carried-curve vertices between a pre-extension terminal junction
+    /// and the healthy resumption anchor whose connector rings double back
+    /// (the §3j certificate, measured at extension time). The planner's
+    /// removability honors them as `Absorbed`, and anchor resolution walks
+    /// outward past them. Empty for every unextended corridor.
+    pub absorbed: Vec<u32>,
 }
 
 impl CorridorRepair {
@@ -1539,6 +1546,7 @@ pub(crate) fn assemble_corridors(
             corners,
             junctions,
             runs,
+            absorbed: Vec::new(),
         });
     }
     // Cross-corridor identity check: two corridors may share junction

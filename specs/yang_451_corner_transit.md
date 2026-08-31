@@ -1407,6 +1407,65 @@ junction). Census data for both lives in this section's audit rows.
 R0011 (3/13/11/13) + R0074 (1/4/2/2) byte-identical, both
 SUPPORTED_CORRECT, after (A)+(C); 800 lib tests green.
 
+## 3r. inc-2c-3b-9b — the STANDING-JUNCTION certificate (+ the
+continuation walk as the displaced arm) (LANDED 2026-08-31, fourth
+session; the post-batch audit reads CLEAN — zero unpaired edges — and
+R0044's boolean COMPLETES; the case moves to the output-tessellation
+ring wall)
+
+**The measured pivot: the primary defect was not missing junctions —
+it was the absorb DELETING true ones.** 3b-8's circular-census fact
+(§4.3 relocation places carried crossings exactly onto their triple
+solutions) is load-bearing in reverse: v35 ({far,153∩154}), v90
+({far,371∩372}), v92 ({far,370∩371}), and v107 ({A2,A3,B1} — the
+far-op crease shape) all sit ON their own triples at contract. The
+connector-dot sign read them "doubled back" only because the test was
+anchored on a DIFFERENT junction 20–75 away — necessary, not
+sufficient. **The STANDING-JUNCTION certificate** (Fig-11(b) made
+exact: the vertex carries a 3-face membership and lies within the
+CONTRACT band of its own `relocate_onto_implicit_triple` solution)
+now gates both the absorb (`PlanCtx::standing`; a standing vertex is
+never consumed — it anchors) and the continuation span walk. Both
+triple shapes: {far, two walk-op faces} and {two far-op faces, one
+walk-op face}. With it, the plans RETAIN the carried chains through
+the standing junctions and every conformality cluster dissolves:
+**16 → 10 → 3 → 0 unpaired edges; the natural batch is WATERTIGHT
+(removed = 20), the §4-I9 re-run passes, and the design boolean
+COMPLETES.**
+
+The CONTINUATION arm (the corridor extension) also landed and
+validated live — resumed walks found exactly the census-predicted
+crossings ((372,371)+(371,370) for corridor #1; (154,153) for #2) —
+but with standing in force no R0044 span retains a displaced crosser,
+so no extension currently fires there; it remains the arm for
+genuinely displaced crossings. Its three measured misfire guards:
+(i) extend only past MINT terminals (a Splice end is an existing
+junction — the existing curve owns the continuation; the v513
+corridors' splice ends read healthy continuations as spans through
+the degenerate connect≈0 of the splice vertex); (ii) the span walk
+skips the junction's own carrier; (iii) `attachments` disambiguates
+multi-hits by NEAREST junction (extension junctions share band faces
+and uniqueness dies — a wrong pick still fails the generators'
+orientation-unique checks loudly). Plus the machinery ripple:
+`CorridorRepair::absorbed` (extension-certified spans), outward
+anchor resolution past fired ∪ absorbed in the phantom generators,
+and the (None,None)+hosts fall-through to generator C (the comp-391
+anatomy: corner + phantom + span between two hosted rim chords is a
+host-to-host excision; the hosted-unattached guard now declines
+`HostNotFound` from C's own pair rule instead of
+`AttachmentMismatch`).
+
+**Measured (R0044, both gates): `APPLIED corridors=6 plans=20
+mints=15 removed=20`, `[451-audit]` silent (zero unpaired directed
+edges), the boolean emits its B-Rep, and the case stops at the next
+frontier: output tessellation `TessellationFailed FaceId(459), ring
+rejected by CDT` (the R0011 FaceId(402) ring-spike family, §3j) with
+the §4.5.4 refine retry still walled at v105's ChordDegradation.**
+R0011 (3/13/11/13) + R0074 (1/4/2/2): byte-identical APPLIED, both
+SUPPORTED_CORRECT (standing is inert on their anatomies — v26/v46
+are genuinely displaced, not standing). Gates-off R0044: the honest
+ERROR verbatim. 800 lib tests green.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -1560,13 +1619,19 @@ SUPPORTED_CORRECT, after (A)+(C); 800 lib tests green.
   flipped one refill triangle; full-corpus proof). 16 unpaired edges
   → 10; the residue is ONE anatomy — the ABSORBED CONTINUATION
   (§3q).
-- inc-2c-3b-9b: the CONTINUATION arm — a 3-membership absorb
-  candidate marks the curve continuing across further creases;
-  resume the walk from the terminal junction (Fig-12(e)), mint the
-  true crossings (the 371∩372 root at 97.1 etc.), terminate on the
-  healthy chain. B-side creases first (N1/N3); the A-side far-face
-  transition (N2: v107 crosses A2∩A3 — the far face changes) as its
-  own sub-slice (§3q).
+- **inc-2c-3b-9b** (2026-08-31, fourth session): the
+  STANDING-JUNCTION certificate (§3r) — a 3-membership vertex within
+  CONTRACT of its own triple solution is never absorbed (both triple
+  shapes, incl. the far-op crease v107); the absorb was DELETING true
+  junctions the relocation had already placed. The continuation walk
+  landed + live-validated (found the census-predicted crossings) with
+  its misfire guards (Mint-terminal-only, junction-carrier skip,
+  nearest-junction attachments) but no R0044 span retains a displaced
+  crosser once standing holds. **Audit CLEAN — 0 unpaired edges;
+  R0044's design boolean COMPLETES (removed=20)**; next walls:
+  output-tessellation FaceId(459) ring spike (the §3j FaceId(402)
+  family) + the v105 retry ChordDegradation. R0011/R0074
+  byte-identical; gates-off verbatim.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

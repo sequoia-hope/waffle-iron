@@ -253,6 +253,13 @@ pub(crate) struct PlanCtx<'a> {
     /// edge (x, y)) — the boundary edge whose segment carries the
     /// junction. Vertex pairs, never positions (edits shift positions).
     pub hosts: &'a dyn Fn(usize, u32) -> Vec<HostEdge>,
+    /// (corridor, vertex) → STANDING-JUNCTION certificate (inc-2c-3b-9b,
+    /// spec §3q): the vertex carries a {far, two walk-op faces} triple and
+    /// sits ON its own triple solution within the CONTRACT band — a
+    /// healthy existing junction the curve passes through. The absorb
+    /// never consumes one (Fig-11(b): merge only what is too close); the
+    /// walk anchors on it.
+    pub standing: &'a dyn Fn(usize, u32) -> bool,
 }
 
 /// The affected-key set of one corridor: far ∪ run facets ∪ the two
@@ -302,6 +309,7 @@ fn absorb_anchor(
     dir: isize,
     jp: [f64; 3],
     refpos: &dyn Fn(CycleRef) -> Option<[f64; 3]>,
+    standing: &dyn Fn(u32) -> bool,
 ) -> Result<(u32, usize, Vec<u32>), PlanDecline> {
     let n = cycle.len() as isize;
     let at = |i: isize| cycle[((i % n + n) % n) as usize];
@@ -319,6 +327,14 @@ fn absorb_anchor(
                 verdict: Removability::Ambiguous,
             });
         };
+        // A STANDING junction is never absorbed (spec §3q): the vertex
+        // sits on its own triple at contract — the curve passes THROUGH
+        // it, whatever its ring angles read (measured: corridor #2's v35,
+        // the carried {far,153∩154} crossing relocated exactly onto its
+        // junction, read doubled-back against the corridor-end mint).
+        if standing(w) {
+            return Ok((w, ((i % n + n) % n) as usize, absorbed));
+        }
         let (Some(pw), Some(pu)) = ((refpos)(at(i)), (refpos)(at(i + dir))) else {
             return Err(PlanDecline::NotRemovable {
                 at: w,
@@ -451,6 +467,12 @@ pub(crate) fn plan_invocation(
                 if fired.contains(&v) {
                     return Removability::Phantom;
                 }
+                // inc-2c-3b-9b (spec §3q): extension-certified defective
+                // span vertices — the connector certificate was measured at
+                // extension time against the pre-extension terminal.
+                if c.absorbed.contains(&v) {
+                    return Removability::Absorbed;
+                }
                 match (ctx.far_value)(k, v) {
                     Some(f) if f.abs() > (ctx.band)(v) => {
                         if f.signum() == rsign {
@@ -471,16 +493,45 @@ pub(crate) fn plan_invocation(
                 .filter(|&p| cycles.iter().any(|cy| cy.contains(&CycleRef::Old(p))))
                 .collect();
             let last = c.junctions.len() - 1;
+            let mut want_c = present.is_empty();
             if !present.is_empty() {
                 for &p in &present {
-                    // Cycle neighbours of the phantom.
-                    let mut pred_succ: Option<(usize, usize, u32, u32)> = None;
+                    // Cycle neighbours of the phantom — resolved OUTWARD
+                    // past fired travellers and the corridor's
+                    // extension-certified span (inc-2c-3b-9b, spec §3q: the
+                    // far comp's true anchors sit beyond the absorbed chain;
+                    // the walked-past vertices are certificate-carrying and
+                    // the replace walk consumes them). A New-ref neighbour
+                    // stays the typed decline.
+                    #[allow(clippy::type_complexity)]
+                    let mut pred_succ: Option<(
+                        usize,
+                        usize,
+                        usize,
+                        usize,
+                        u32,
+                        u32,
+                    )> = None;
                     for (ci, cy) in cycles.iter().enumerate() {
                         if let Some(i) = cy.iter().position(|&r| r == CycleRef::Old(p)) {
-                            let n = cy.len();
-                            let (CycleRef::Old(a), CycleRef::Old(b)) =
-                                (cy[(i + n - 1) % n], cy[(i + 1) % n])
-                            else {
+                            let n = cy.len() as isize;
+                            let resolve = |dir: isize| -> Option<(usize, u32)> {
+                                let mut kx = i as isize;
+                                for _ in 0..cy.len() {
+                                    kx = (kx + dir).rem_euclid(n);
+                                    match cy[kx as usize] {
+                                        CycleRef::Old(v)
+                                            if fired.contains(&v) || c.absorbed.contains(&v) =>
+                                        {
+                                            continue
+                                        }
+                                        CycleRef::Old(v) => return Some((kx as usize, v)),
+                                        CycleRef::New(_) => return None,
+                                    }
+                                }
+                                None
+                            };
+                            let (Some((ia, a)), Some((ib, b))) = (resolve(-1), resolve(1)) else {
                                 declines.push((
                                     k,
                                     comp.comp,
@@ -488,10 +539,10 @@ pub(crate) fn plan_invocation(
                                 ));
                                 continue 'comp;
                             };
-                            pred_succ = Some((ci, i, a, b));
+                            pred_succ = Some((ci, i, ia, ib, a, b));
                         }
                     }
-                    let Some((p_ci, p_i, pred, succ)) = pred_succ else {
+                    let Some((p_ci, p_i, pred_i, succ_i, pred, succ)) = pred_succ else {
                         declines.push((
                             k,
                             comp.comp,
@@ -517,13 +568,13 @@ pub(crate) fn plan_invocation(
                             }
                             // §3j: absorb overshot anchors at BOTH ends
                             // before the splice.
-                            let ncy = cycles[p_ci].len();
                             let (from_eff, _, abs_a) = match absorb_anchor(
                                 &cycles[p_ci],
-                                (p_i + ncy - 1) % ncy,
+                                pred_i,
                                 -1,
                                 c.junctions[ja].sol,
                                 &refpos,
+                                &|v| (ctx.standing)(k, v),
                             ) {
                                 Ok(x) => x,
                                 Err(d) => {
@@ -533,10 +584,11 @@ pub(crate) fn plan_invocation(
                             };
                             let (to_eff, _, abs_b) = match absorb_anchor(
                                 &cycles[p_ci],
-                                (p_i + 1) % ncy,
+                                succ_i,
                                 1,
                                 c.junctions[jb].sol,
                                 &refpos,
+                                &|v| (ctx.standing)(k, v),
                             ) {
                                 Ok(x) => x,
                                 Err(d) => {
@@ -581,11 +633,9 @@ pub(crate) fn plan_invocation(
                             // junction's host edge (x, y). Exactly one of
                             // the two orientations must certify.
                             let (anchor_idx, dir, j) = if let Some(j) = one {
-                                let ncy = cycles[p_ci].len();
-                                ((p_i + ncy - 1) % ncy, -1isize, j)
+                                (pred_i, -1isize, j)
                             } else {
-                                let ncy = cycles[p_ci].len();
-                                ((p_i + 1) % ncy, 1isize, other.expect("one side attached"))
+                                (succ_i, 1isize, other.expect("one side attached"))
                             };
                             // §3j: absorb an overshot connector anchor.
                             let (n, _, abs_n) = match absorb_anchor(
@@ -594,6 +644,7 @@ pub(crate) fn plan_invocation(
                                 dir,
                                 c.junctions[j].sol,
                                 &refpos,
+                                &|v| (ctx.standing)(k, v),
                             ) {
                                 Ok(x) => x,
                                 Err(d) => {
@@ -627,6 +678,7 @@ pub(crate) fn plan_invocation(
                                 -dir,
                                 c.junctions[j].sol,
                                 &refpos,
+                                &|v| (ctx.standing)(k, v),
                             )
                             .map(|(_, _, a)| a)
                             .unwrap_or_default();
@@ -711,20 +763,22 @@ pub(crate) fn plan_invocation(
                             // set, and the batch-integrity scan stays the
                             // loud backstop if anything survives. A
                             // component that DOES host this corridor's
-                            // junctions keeps the typed decline.
+                            // junctions falls through to the host-to-host
+                            // excision instead (inc-2c-3b-9b, spec §3q: the
+                            // comp-391 shape — corner + phantom + absorbed
+                            // span between two hosted rim chords is
+                            // generator C's anatomy; C's own typed declines
+                            // keep it loud, and a phantom C fails to consume
+                            // is the batch-integrity scan's loud stop).
                             if hosts.is_empty() {
                                 continue;
                             }
-                            declines.push((
-                                k,
-                                comp.comp,
-                                PlanDecline::AttachmentMismatch { phantom: p },
-                            ));
-                            continue 'comp;
+                            want_c = true;
                         }
                     }
                 }
-            } else if !hosts.is_empty() {
+            }
+            if want_c && !hosts.is_empty() {
                 // Generator C — a run facet: consecutive hosted junctions
                 // (j, j+1); the removed arc runs host-to-host through the
                 // OUT side; via = the path slice between the junctions.
@@ -1003,6 +1057,7 @@ mod tests {
             corners: vec![687],
             junctions: vec![j([0.0, 0.0, 0.0]), j([1.0, 0.0, 0.0])],
             runs: vec![(7, Ok(RunSource::Samples(vec![])))],
+            absorbed: Vec::new(),
         };
         let comps = vec![
             ComponentInput {
@@ -1037,6 +1092,10 @@ mod tests {
         })
     }
 
+    fn never_standing(_k: usize, _v: u32) -> bool {
+        false
+    }
+
     fn r0011_ctx<'a>(
         far_value: &'a dyn Fn(usize, u32) -> Option<f64>,
         attachments: &'a dyn Fn(usize, u32) -> Vec<(u32, usize)>,
@@ -1050,6 +1109,7 @@ mod tests {
             pos,
             attachments,
             hosts,
+            standing: &never_standing,
         }
     }
 
@@ -1275,9 +1335,11 @@ mod tests {
     }
 
     /// The guard: the same unattached-phantom shape on a component that
-    /// DOES host the corridor's junctions keeps the typed decline — a
-    /// hosted component keeps territory, so an unresolvable anchor there
-    /// is a genuine defect, never sweep fodder.
+    /// DOES host the corridor's junctions stays LOUD — since inc-2c-3b-9b
+    /// it falls through to the host-to-host excision (generator C, the
+    /// comp-391 anatomy), whose own typed declines guard it: one unpaired
+    /// host here declines `HostNotFound`. Never sweep fodder, never
+    /// silent.
     #[test]
     fn plan_invocation_still_declines_an_unattached_phantom_on_a_hosted_component() {
         let (corridors, mut comps) = r0011_like_invocation();
@@ -1316,8 +1378,7 @@ mod tests {
         assert!(
             declines
                 .iter()
-                .any(|(_, c, d)| *c == 9
-                    && matches!(d, PlanDecline::AttachmentMismatch { phantom: 42 })),
+                .any(|(_, c, d)| *c == 9 && matches!(d, PlanDecline::HostNotFound { .. })),
             "{declines:?}"
         );
     }
@@ -1614,6 +1675,7 @@ mod tests {
                     }),
                 ),
             ],
+            absorbed: Vec::new(),
         };
         let mut pool = MintPool::default();
         let path = corridor_path(&c, &mut pool);
