@@ -5719,6 +5719,37 @@ fn corner_transit_apply(
                     return Ok(false);
                 };
                 let hosts = hosts_on(k, patch, &cycles_v);
+                if std::env::var("YANG_451_HOSTS").as_deref() == Ok("census") {
+                    eprintln!(
+                        "[451-comp] #{k} comp={pi} key={key:?} phantom={holds_phantom} \
+                         hosts={hosts:?} cycles={:?}",
+                        cycles_v.iter().map(|c| c.len()).collect::<Vec<_>>(),
+                    );
+                    for &p in &c.phantoms {
+                        for cy in &cycles_v {
+                            if let Some(i) = cy.iter().position(|&v| v == p) {
+                                let n = cy.len();
+                                let win: Vec<String> = (0..13)
+                                    .map(|o| {
+                                        let v = cy[(i + n + o - 6) % n];
+                                        let f = faces_of(c.far.0)
+                                            .get(c.far.1 as usize)
+                                            .and_then(|fc| {
+                                                surface_value_and_normal(
+                                                    fc.surface,
+                                                    mesh.verts[v as usize].as_array(),
+                                                )
+                                            })
+                                            .map_or("?".into(), |(x, _)| format!("{x:.2e}"));
+                                        let tag = if v == p { "[P]" } else { "" };
+                                        format!("v{v}{tag}(far={f})")
+                                    })
+                                    .collect();
+                                eprintln!("[451-win] #{k} comp={pi} {}", win.join(" "));
+                            }
+                        }
+                    }
+                }
                 if holds_phantom || !hosts.is_empty() {
                     comp_map.entry(pi as u32).or_insert(s4c::ComponentInput {
                         key,
@@ -5771,6 +5802,27 @@ fn corner_transit_apply(
         hosts: &hosts,
     };
     let mut pool = s4c::MintPool::default();
+    if std::env::var("YANG_451_HOSTS").as_deref() == Ok("census") {
+        for (k, c) in corridors.iter().enumerate() {
+            for &q in &c.corners {
+                eprintln!(
+                    "[451-corner] #{k} q=v{q} far={:?} band={:.3e}",
+                    far_value(k, q),
+                    vband(q),
+                );
+            }
+            for &p in &c.phantoms {
+                eprintln!(
+                    "[451-att] #{k} phantom=v{p} attachments={:?} juncs={:?}",
+                    attachments(k, p),
+                    c.junctions
+                        .iter()
+                        .map(|j| (j.faces, format!("{:?}", j.disposition)))
+                        .collect::<Vec<_>>(),
+                );
+            }
+        }
+    }
     let (plans, pdeclines) = s4c::plan_invocation(&corridors, &comp_vec, &pctx, &mut pool);
     if !pdeclines.is_empty() {
         refuse(&format!("plan declines: {pdeclines:?}"));
@@ -7438,8 +7490,11 @@ fn relocation_domain_postcondition(
                                 }
                             }
                         }
-                        for (k, d) in &pdeclines {
-                            eprintln!("YANG_S4_CARRIER_DOMAIN-PLAN3B DECLINE corridor=#{k} {d:?}");
+                        for (k, comp, d) in &pdeclines {
+                            eprintln!(
+                                "YANG_S4_CARRIER_DOMAIN-PLAN3B DECLINE corridor=#{k} \
+                                 comp={comp} {d:?}"
+                            );
                         }
                         eprintln!(
                             "YANG_S4_CARRIER_DOMAIN-PLAN3B TOTAL plans={} mints={} \

@@ -1060,6 +1060,65 @@ re-measured under the new rule: byte-identical APPLIED lines, both
 still SUPPORTED_CORRECT.** inc-2c-3b-5 = the mirrored-pair corridor
 structure (view dedup / shared-junction splice), census first.
 
+## 3m. inc-2c-3b-5 — the MIRRORED-PAIR planner stage (LANDED
+2026-08-31, third session; R0044 op-1 PLANS COMPLETELY — the refusal
+moves to the far arm's joint-region guard)
+
+Census-first throughout (`-HOSTS` grew `[451-comp]` per-component
+host/phantom rows, `[451-win]` phantom cycle windows with far values,
+`[451-corner]` corner anchors, `[451-att]` attachment resolution).
+Six measured findings, each landing its own mechanism:
+
+1. **The corner-clip C pair.** The mirrored corridors' shared junction
+   (far∩378∩379, the bit-equal mint at q=v513) is a TRIPLE point: the
+   OTHER view's facet component hosts it TWICE (the intersection-curve
+   chord AND the crease chord) with no phantom present. Generator C
+   demanded consecutive pairs (j, j+1) → HostNotFound. Now a
+   same-junction pair of two DISTINCT host edges plans the corner
+   sliver's excision through the single mint (the ja == jb slice); the
+   sign walk certifies every consumed vertex (q reads removed, §3i's
+   refutation), orientation uniqueness as before. Unit fixture.
+2. **View dedup by the shared-mint identity.** The second mirror's
+   clip on the same component is the SAME excision — its minted ref is
+   already spliced into the corrected cycle (MintPool position
+   interning). A corner-clip pair whose New ref is already present
+   SKIPS (idempotence); Old refs never skip.
+3. **Decline tuples carry the component** (`(corridor, comp,
+   decline)`) — the 3b-5 censuses needed the failing component, not
+   just the corridor.
+4. **`absorb_anchor` is cycle-bounded, not cap-4.** Corridor #1
+   (v75) measured a 4-deep doubled-back chain (v102 v90 v91 v92 — all
+   on-curve, far ≈ 4.5e-13) that the cap declined ONE short
+   (`NotRemovable{v92}`). Overshoot depth is a property of the defect,
+   never a tunable; every absorbed vertex carries its own sign
+   certificate, so the walk's only bound is termination (the cycle).
+5. **Generator B absorbs the UNATTACHED flank too (best-effort).**
+   v142's far-comp walk blocked on v141 — an on-curve remnant BETWEEN
+   the twin phantoms, past the mint with a doubled-back ring step —
+   the same §4.4.1 certificate as the connector anchor, on the other
+   side. Best-effort: a flank that does not absorb falls through to
+   the sign walk (which stays loud); never a plan-killer (the first
+   strict version broke the R0011-shape fixture on unreadable flank
+   geometry — measured, reverted to best-effort).
+6. **`affected_keys` is splice-aware.** A Splice-disposition end
+   junction mints nothing — its terminal-outer patch has no work, and
+   expecting a plan there refused the whole invocation ((B,377) /
+   (B,380) for the v142/v144 corridors).
+
+**Measured (R0044, both gates): op-1's plan declines are GONE — the
+invocation reaches the far-arm APPLY and refuses at the joint-region
+flood guard: `far fan of v76 floods into another corridor's phantom`.**
+Corridor #0 (v76+v105 merged) and corridor #1 (v75) are ADJACENT on
+the far patch (v75 is v76's mesh neighbour); their removed regions
+connect, and the per-corridor fan-local far surgery cannot describe
+the joint hole. **inc-2c-3b-6 = JOINT far-fan regions**: flood across
+corridors, one `delete_boundary_fan_set` for the joint victim set,
+polygon = link + the corrected-cycle segment between the link ends
+(read from the far plan — the planner already resolved the
+interleaving). The retry's v105 link-end refusal is the same anatomy.
+**R0011 and R0074 re-measured: byte-identical APPLIED lines, both
+SUPPORTED_CORRECT.**
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -1173,8 +1232,18 @@ structure (view dedup / shared-junction splice), census first.
   mirrored-pair entanglement + v105's far link-end attachment.
   R0011/R0074 byte-identical under the new rule. `-HOSTS` census
   probe kept (§3l).
-- inc-2c-3b-5: the mirrored-pair corridor structure (v142/v144 at
-  q=v513; view dedup / shared-junction splice) — census first.
+- **inc-2c-3b-5** (2026-08-31, third session): the mirrored-pair
+  PLANNER stage LANDED — corner-clip C pairs (same-junction two-edge
+  excision), shared-mint view dedup, component-tagged declines,
+  cycle-bounded absorb (the cap-4 declined a measured 4-deep reversal
+  one short), best-effort unattached-flank absorb in generator B
+  (v141, the between-twin-phantoms remnant), splice-aware
+  affected_keys. **R0044 op-1 PLANS COMPLETELY**; the refusal moves to
+  the far arm's joint-region flood guard (§3m).
+- inc-2c-3b-6: JOINT far-fan regions — adjacent corridors' removed
+  regions connect on the far patch (v76+v75); flood across corridors,
+  one joint fan delete, polygon = link + the corrected-cycle segment
+  between link ends (§3m).
 - inc-3: fixed-point integration (multiple sites per case; R0085 has two
   failing ops) + full-corpus gated measurement; flip under the standing
   two-proof protocol. R0085 stays honestly walled on operand quality

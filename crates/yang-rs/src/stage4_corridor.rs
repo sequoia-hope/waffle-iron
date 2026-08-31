@@ -258,11 +258,22 @@ pub(crate) struct PlanCtx<'a> {
 /// The affected-key set of one corridor: far ∪ run facets ∪ the two
 /// terminal-outer patches (spec §3h-3a).
 pub(crate) fn affected_keys(c: &CorridorRepair) -> Vec<(InputId, u32)> {
-    let mut keys = vec![
-        c.far,
-        (c.walk_op, c.junctions[0].faces.0),
-        (c.walk_op, c.junctions[c.junctions.len() - 1].faces.1),
-    ];
+    let mut keys = vec![c.far];
+    // inc-2c-3b-5: a SPLICE-disposition end junction mints nothing — the
+    // existing curve continues through its vertex, so that end's
+    // terminal-outer patch is untouched (measured: R0044's v142/v144
+    // corridors splice at j0; their (B,377)/(B,380) outers have no work,
+    // and expecting a plan there refused the whole invocation). Mint ends
+    // keep the expectation.
+    if matches!(c.junctions[0].disposition, JunctionDisposition::Mint) {
+        keys.push((c.walk_op, c.junctions[0].faces.0));
+    }
+    if matches!(
+        c.junctions[c.junctions.len() - 1].disposition,
+        JunctionDisposition::Mint
+    ) {
+        keys.push((c.walk_op, c.junctions[c.junctions.len() - 1].faces.1));
+    }
     keys.extend(c.runs.iter().map(|&(f, _)| (c.walk_op, f)));
     keys.sort_unstable();
     keys.dedup();
@@ -296,7 +307,12 @@ fn absorb_anchor(
     let at = |i: isize| cycle[((i % n + n) % n) as usize];
     let mut i = idx as isize;
     let mut absorbed: Vec<u32> = Vec::new();
-    for _ in 0..4 {
+    // The walk bound is the CYCLE, not a constant: every absorbed vertex
+    // carries its own sign certificate, so the only job here is
+    // termination. R0044's corridor #1 measured a 4-deep reversal chain
+    // (v102 v90 v91 v92) that the original cap-4 declined one short —
+    // overshoot depth is a property of the defect, never a tunable.
+    for _ in 0..cycle.len() {
         let CycleRef::Old(w) = at(i) else {
             return Err(PlanDecline::NotRemovable {
                 at: absorbed.last().copied().unwrap_or(u32::MAX),
@@ -342,8 +358,8 @@ pub(crate) fn plan_invocation(
     components: &[ComponentInput],
     ctx: &PlanCtx,
     pool: &mut MintPool,
-) -> (Vec<ComponentPlan>, Vec<(usize, PlanDecline)>) {
-    let mut declines: Vec<(usize, PlanDecline)> = Vec::new();
+) -> (Vec<ComponentPlan>, Vec<(usize, u32, PlanDecline)>) {
+    let mut declines: Vec<(usize, u32, PlanDecline)> = Vec::new();
     // Corridor paths + per-junction path offsets (mints interned ONCE
     // across corridors — the SHARED-MINT contract).
     let mut paths: Vec<Vec<CycleRef>> = Vec::new();
@@ -415,6 +431,7 @@ pub(crate) fn plan_invocation(
             let Some(rsign) = removed_sign(k) else {
                 declines.push((
                     k,
+                    comp.comp,
                     PlanDecline::NotRemovable {
                         at: c.corners.first().copied().unwrap_or(u32::MAX),
                         verdict: Removability::Ambiguous,
@@ -456,14 +473,22 @@ pub(crate) fn plan_invocation(
                             let (CycleRef::Old(a), CycleRef::Old(b)) =
                                 (cy[(i + n - 1) % n], cy[(i + 1) % n])
                             else {
-                                declines.push((k, PlanDecline::AttachmentMismatch { phantom: p }));
+                                declines.push((
+                                    k,
+                                    comp.comp,
+                                    PlanDecline::AttachmentMismatch { phantom: p },
+                                ));
                                 continue 'comp;
                             };
                             pred_succ = Some((ci, i, a, b));
                         }
                     }
                     let Some((p_ci, p_i, pred, succ)) = pred_succ else {
-                        declines.push((k, PlanDecline::AttachmentMismatch { phantom: p }));
+                        declines.push((
+                            k,
+                            comp.comp,
+                            PlanDecline::AttachmentMismatch { phantom: p },
+                        ));
                         continue 'comp;
                     };
                     let att = (ctx.attachments)(k, p);
@@ -475,7 +500,11 @@ pub(crate) fn plan_invocation(
                             // pred-junction first. Attachments must be the
                             // corridor's two ENDS.
                             if !((ja == 0 && jb == last) || (ja == last && jb == 0)) {
-                                declines.push((k, PlanDecline::AttachmentMismatch { phantom: p }));
+                                declines.push((
+                                    k,
+                                    comp.comp,
+                                    PlanDecline::AttachmentMismatch { phantom: p },
+                                ));
                                 continue 'comp;
                             }
                             // §3j: absorb overshot anchors at BOTH ends
@@ -490,7 +519,7 @@ pub(crate) fn plan_invocation(
                             ) {
                                 Ok(x) => x,
                                 Err(d) => {
-                                    declines.push((k, d));
+                                    declines.push((k, comp.comp, d));
                                     continue 'comp;
                                 }
                             };
@@ -503,7 +532,7 @@ pub(crate) fn plan_invocation(
                             ) {
                                 Ok(x) => x,
                                 Err(d) => {
-                                    declines.push((k, d));
+                                    declines.push((k, comp.comp, d));
                                     continue 'comp;
                                 }
                             };
@@ -533,7 +562,7 @@ pub(crate) fn plan_invocation(
                                     removed_all.append(&mut r);
                                 }
                                 Err(d) => {
-                                    declines.push((k, d));
+                                    declines.push((k, comp.comp, d));
                                     continue 'comp;
                                 }
                             }
@@ -560,12 +589,41 @@ pub(crate) fn plan_invocation(
                             ) {
                                 Ok(x) => x,
                                 Err(d) => {
-                                    declines.push((k, d));
+                                    declines.push((k, comp.comp, d));
                                     continue 'comp;
                                 }
                             };
+                            // inc-2c-3b-5: absorb the UNATTACHED flank too —
+                            // measured on R0044's v142 (far comp): v141 is an
+                            // on-curve overshoot remnant between the mirrored
+                            // pair's twin phantoms, past the mint with a
+                            // doubled-back ring step — the same §4.4.1
+                            // certificate as the connector anchor, on the
+                            // other side. Only the absorbed SET is used (the
+                            // host edge, not an anchor, bounds that side).
+                            let ncy2 = cycles[p_ci].len();
+                            let u_idx = if dir < 0 {
+                                (p_i + 1) % ncy2
+                            } else {
+                                (p_i + ncy2 - 1) % ncy2
+                            };
+                            // BEST-EFFORT: the flank absorb only EXTENDS
+                            // the certificate set — a flank that does not
+                            // absorb (dot ≥ 0, unreadable, or a New ref)
+                            // simply falls through to the sign walk, which
+                            // declines loudly if it actually consumes an
+                            // uncertified vertex. Never fail the plan here.
+                            let abs_u = absorb_anchor(
+                                &cycles[p_ci],
+                                u_idx,
+                                -dir,
+                                c.junctions[j].sol,
+                                &refpos,
+                            )
+                            .map(|(_, _, a)| a)
+                            .unwrap_or_default();
                             let absorbed: std::collections::BTreeSet<u32> =
-                                abs_n.into_iter().collect();
+                                abs_n.into_iter().chain(abs_u).collect();
                             let removable_abs = |v: u32| -> Removability {
                                 if absorbed.contains(&v) {
                                     Removability::Absorbed
@@ -579,7 +637,11 @@ pub(crate) fn plan_invocation(
                                 .map(|&(_, e)| e)
                                 .collect();
                             if jhosts.is_empty() {
-                                declines.push((k, PlanDecline::HostNotFound { junction: j }));
+                                declines.push((
+                                    k,
+                                    comp.comp,
+                                    PlanDecline::HostNotFound { junction: j },
+                                ));
                                 continue 'comp;
                             }
                             let jref = ref_of(&c.junctions[j], &paths[k], &jpos[k], j);
@@ -614,13 +676,21 @@ pub(crate) fn plan_invocation(
                                     removed_all.append(&mut r);
                                 }
                                 _ => {
-                                    declines.push((k, PlanDecline::HostMismatch { junction: j }));
+                                    declines.push((
+                                        k,
+                                        comp.comp,
+                                        PlanDecline::HostMismatch { junction: j },
+                                    ));
                                     continue 'comp;
                                 }
                             }
                         }
                         _ => {
-                            declines.push((k, PlanDecline::AttachmentMismatch { phantom: p }));
+                            declines.push((
+                                k,
+                                comp.comp,
+                                PlanDecline::AttachmentMismatch { phantom: p },
+                            ));
                             continue 'comp;
                         }
                     }
@@ -635,11 +705,27 @@ pub(crate) fn plan_invocation(
                 for w in sorted.windows(2) {
                     if w[1].0 == w[0].0 + 1 {
                         pairs.push((w[0], w[1]));
+                    } else if w[1].0 == w[0].0 && w[1].1 != w[0].1 {
+                        // inc-2c-3b-5 — the CORNER-CLIP pair (measured on
+                        // R0044's v142/v144 mirrored corridors): the
+                        // junction is a TRIPLE point whose component
+                        // boundary passes it twice — once on each curve it
+                        // terminates (the intersection-curve chord and the
+                        // crease chord) — with no phantom on the component.
+                        // The corner sliver between the two host edges is
+                        // excised host-to-host through the SAME junction;
+                        // the ja == jb slice below is the single mint. The
+                        // sign walk certifies every consumed vertex (the
+                        // crossed corner q reads removed, §3i's measured
+                        // refutation), and orientation uniqueness holds
+                        // exactly as for consecutive pairs.
+                        pairs.push((w[0], w[1]));
                     }
                 }
                 if pairs.is_empty() {
                     declines.push((
                         k,
+                        comp.comp,
                         PlanDecline::HostNotFound {
                             junction: sorted.first().map(|&(j, _)| j).unwrap_or(usize::MAX),
                         },
@@ -647,6 +733,22 @@ pub(crate) fn plan_invocation(
                     continue 'comp;
                 }
                 for &((ja, (xa, ya)), (jb, (xb, yb))) in &pairs {
+                    // inc-2c-3b-5 view dedup: a corner-clip whose MINTED
+                    // junction is already spliced into this component's
+                    // corrected cycle is the SAME excision seen from the
+                    // mirrored corridor (the shared-mint identity — R0044's
+                    // v142/v144 pair at q=v513); the work is done, and
+                    // re-walking it would consume the splice itself. Old
+                    // (spliced-existing) refs never skip — they pre-exist
+                    // by construction.
+                    if ja == jb {
+                        let jr = ref_of(&c.junctions[ja], &paths[k], &jpos[k], ja);
+                        if matches!(jr, CycleRef::New(_))
+                            && cycles.iter().any(|cy| cy.contains(&jr))
+                        {
+                            continue;
+                        }
+                    }
                     let slice: Vec<CycleRef> = paths[k][jpos[k][ja]..=jpos[k][jb]].to_vec();
                     let rslice: Vec<CycleRef> = slice.iter().rev().copied().collect();
                     let mut try1 = cycles.clone();
@@ -669,7 +771,11 @@ pub(crate) fn plan_invocation(
                             removed_all.append(&mut r);
                         }
                         _ => {
-                            declines.push((k, PlanDecline::HostMismatch { junction: ja }));
+                            declines.push((
+                                k,
+                                comp.comp,
+                                PlanDecline::HostMismatch { junction: ja },
+                            ));
                             continue 'comp;
                         }
                     }
@@ -956,6 +1062,53 @@ mod tests {
         assert_eq!(plans[2].removed, vec![71]);
     }
 
+    /// inc-2c-3b-5 — the CORNER-CLIP pair: a phantom-free component whose
+    /// boundary passes the SAME minted junction twice (the R0044 v142/v144
+    /// mirrored-pair anatomy). The corner sliver between the two host edges
+    /// is excised through the single mint; the kept side refuses the other
+    /// orientation via the sign walk, so exactly one arrangement certifies.
+    #[test]
+    fn plan_invocation_clips_a_corner_hosted_twice_at_one_junction() {
+        let (corridors, _) = r0011_like_invocation();
+        let comps = vec![ComponentInput {
+            key: (InputId::B, 7),
+            comp: 3,
+            cycles: vec![vec![10, 11, 12, 13, 14, 15]],
+        }];
+        let far_value = |_: usize, v: u32| -> Option<f64> {
+            Some(match v {
+                686..=688 => -1.0, // the corners anchor the removed sign
+                11..=13 => -1.0,   // the corner sliver
+                42 => 0.0,
+                _ => 1.0, // the kept side (10, 14, 15) blocks the mirror walk
+            })
+        };
+        let attachments = |_: usize, _: u32| -> Vec<(u32, usize)> { vec![] };
+        let hosts = |_: usize, comp: u32| -> Vec<(usize, (u32, u32))> {
+            if comp == 3 {
+                vec![(0, (10, 11)), (0, (13, 14))]
+            } else {
+                vec![]
+            }
+        };
+        let band = |_: u32| 1e-9;
+        let ctx = r0011_ctx(&far_value, &attachments, &hosts, &band, &healthy_pos);
+        let mut pool = MintPool::default();
+        let (plans, declines) = plan_invocation(&corridors, &comps, &ctx, &mut pool);
+        assert!(declines.is_empty(), "{declines:?}");
+        assert_eq!(plans.len(), 1, "{plans:?}");
+        assert_eq!(
+            plans[0].corrected[0],
+            vec![
+                CycleRef::Old(10),
+                CycleRef::New(0),
+                CycleRef::Old(14),
+                CycleRef::Old(15),
+            ]
+        );
+        assert_eq!(plans[0].removed, vec![11, 12, 13]);
+    }
+
     #[test]
     fn plan_invocation_declines_on_an_ambiguous_corner_anchor() {
         let (corridors, comps) = r0011_like_invocation();
@@ -971,7 +1124,7 @@ mod tests {
         let (plans, declines) = plan_invocation(&corridors, &comps, &ctx, &mut pool);
         assert!(plans.is_empty(), "{plans:?}");
         assert_eq!(declines.len(), 3, "{declines:?}");
-        assert!(declines.iter().all(|(_, d)| matches!(
+        assert!(declines.iter().all(|(_, _, d)| matches!(
             d,
             PlanDecline::NotRemovable {
                 verdict: Removability::Ambiguous,
@@ -1015,7 +1168,7 @@ mod tests {
         assert!(
             declines
                 .iter()
-                .any(|(_, d)| matches!(d, PlanDecline::HostMismatch { junction: 0 })),
+                .any(|(_, _, d)| matches!(d, PlanDecline::HostMismatch { junction: 0 })),
             "{declines:?}"
         );
     }
@@ -1204,7 +1357,7 @@ mod tests {
         let (plans, declines) = plan_invocation(&corridors, &comps, &ctx, &mut pool);
         assert_eq!(plans.len(), 2, "{plans:?}");
         assert!(
-            declines.iter().any(|(_, d)| matches!(
+            declines.iter().any(|(_, _, d)| matches!(
                 d,
                 PlanDecline::NotRemovable {
                     verdict: Removability::Ambiguous,
