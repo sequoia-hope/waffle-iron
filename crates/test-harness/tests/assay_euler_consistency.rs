@@ -236,6 +236,35 @@ fn historical_authoring_fixes_pinned() {
         "compute_euler_target(R0063) changed; revisit the frozen-corpus soundness note"
     );
 
+    // R0011 was hand-corrected 2026-08-31 (corner-transit inc-2c-3b-2, spec
+    // `specs/yang_451_corner_transit.md` §3j): the naive default 2 was
+    // refuted by an independent voxel-CSG derivation from the authored
+    // numbers PLUS the §4.5.2 density ladder. The 14-tooth gear prism
+    // (module 357.4, depth 4998.2 along (0.261, 0.023, −0.965)) grazes the
+    // 295.56° rectangle-revolve band (r ∈ [4708, 6277] about the in-plane
+    // axis) ONLY near its start cap (spine t < 150): the exact involute
+    // polygon (`generate_gear_preview_polyline`) intersected with the band
+    // yields exactly TWO disjoint adjacent-tooth contact patches (k = 2
+    // across tooth phases; root circle r=2055 misses the band entirely, so
+    // contact is strictly tooth-tip territory), and two genus-0 solids
+    // glued along k patches have genus k−1 = 1 ⇒ χ = 0, single shell. The
+    // first completed R0011 result (gated corner-transit repair,
+    // `YANG_451_TRANSIT=1`) measures χ = 0 at 1×/2×/4× chord density —
+    // ladder-stable through three DIFFERENT §4-I9 fire anatomies and
+    // repair paths — with volume, watertightness, and single-shell all
+    // passing. `compute_euler_target` still returns the conservative 2 for
+    // this class BY DESIGN (same divergence-by-design as R0006/R0091).
+    let r0011 = load_meta("R0011");
+    assert_eq!(
+        r0011.oracles.euler_target, 0,
+        "R0011 corrected target regressed (must stay genus-1 χ=0)"
+    );
+    assert_eq!(
+        compute_euler_target(&r0011.operations),
+        2,
+        "compute_euler_target(R0011) changed; revisit the frozen-corpus soundness note"
+    );
+
     // C0075 was hand-corrected 2026-08-19: the gen_complexity `tracker(2, …)`
     // default was refuted by an independent 2D derivation — two identical
     // 12-tooth gears (pitch r 0.48, tip 0.56, root 0.38) at centre distance

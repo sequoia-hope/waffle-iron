@@ -106,6 +106,11 @@ pub(crate) fn corridor_path(c: &CorridorRepair, pool: &mut MintPool) -> Vec<Cycl
 pub(crate) enum Removability {
     /// A fired phantom of this corridor.
     Phantom,
+    /// A chain-end anchor absorbed into its corridor-end junction (spec
+    /// §3j, the paper's §4.4.1 near-curve removal): its ring step into
+    /// the junction doubles back — the vertex slid PAST the junction, a
+    /// non-corner out-of-domain slide §4-I9 cannot fire on.
+    Absorbed,
     /// Strictly on the far surface's REMOVED side (|value| above the
     /// evaluation band, removed sign).
     SignRemoved,
@@ -179,7 +184,9 @@ pub(crate) fn replace_subpath(
                 break;
             }
             CycleRef::Old(v) => match removable(v) {
-                Removability::Phantom | Removability::SignRemoved => removed.push(v),
+                Removability::Phantom | Removability::SignRemoved | Removability::Absorbed => {
+                    removed.push(v)
+                }
                 verdict => return Err(PlanDecline::NotRemovable { at: v, verdict }),
             },
             CycleRef::New(_) => {
@@ -237,6 +244,8 @@ pub(crate) struct PlanCtx<'a> {
     pub far_value: &'a dyn Fn(usize, u32) -> Option<f64>,
     /// Evaluation band at a mesh vertex.
     pub band: &'a dyn Fn(u32) -> f64,
+    /// Mesh vertex position (the §3j absorb certificate reads geometry).
+    pub pos: &'a dyn Fn(u32) -> Option<[f64; 3]>,
     /// (corridor, phantom) → its on-curve neighbours with UNIQUE junction
     /// attachment (neighbour, junction index).
     pub attachments: &'a dyn Fn(usize, u32) -> Vec<(u32, usize)>,
@@ -258,6 +267,69 @@ pub(crate) fn affected_keys(c: &CorridorRepair) -> Vec<(InputId, u32)> {
     keys.sort_unstable();
     keys.dedup();
     keys
+}
+
+/// inc-2c-3b-2 (spec §3j) — the §4.4.1 near-curve ABSORB at a corridor-end
+/// anchor. On cycle `ci` the anchor at `idx` splices against the end
+/// junction at `jp`; its chain continuation sits one step in `dir`
+/// (−1 = the anchor precedes the phantom, +1 = it follows). While the
+/// emitted ring step doubles back at the anchor —
+/// dot(anchor − continuation, junction − anchor) < 0 — the anchor slid
+/// PAST the junction (measured R0011: defects at exactly −1.0000
+/// (v26/v46) vs ≥ +0.456 on every healthy end; d_eps would over-absorb —
+/// healthy ends sit at 0.3–0.5·d_eps, so the certificate is the SIGN,
+/// never a band): absorb it into the junction and step the anchor back.
+/// Unreadable geometry, an absorb landing on a NEW-ref anchor (another
+/// corridor's spliced mint — a genuine cross-corridor entanglement), or
+/// the depth cap decline typed — nothing is guessed. The CONTINUATION may
+/// be a NEW ref (the base curve dips between tooth corridors: a healthy
+/// anchor like R0011's v39 sits between its own end junction and the
+/// neighbouring corridor's already-spliced mint) — `refpos` resolves both.
+fn absorb_anchor(
+    cycle: &[CycleRef],
+    idx: usize,
+    dir: isize,
+    jp: [f64; 3],
+    refpos: &dyn Fn(CycleRef) -> Option<[f64; 3]>,
+) -> Result<(u32, usize, Vec<u32>), PlanDecline> {
+    let n = cycle.len() as isize;
+    let at = |i: isize| cycle[((i % n + n) % n) as usize];
+    let mut i = idx as isize;
+    let mut absorbed: Vec<u32> = Vec::new();
+    for _ in 0..4 {
+        let CycleRef::Old(w) = at(i) else {
+            return Err(PlanDecline::NotRemovable {
+                at: absorbed.last().copied().unwrap_or(u32::MAX),
+                verdict: Removability::Ambiguous,
+            });
+        };
+        let (Some(pw), Some(pu)) = ((refpos)(at(i)), (refpos)(at(i + dir))) else {
+            return Err(PlanDecline::NotRemovable {
+                at: w,
+                verdict: Removability::Ambiguous,
+            });
+        };
+        let arrive = [pw[0] - pu[0], pw[1] - pu[1], pw[2] - pu[2]];
+        let connect = [jp[0] - pw[0], jp[1] - pw[1], jp[2] - pw[2]];
+        let nrm = |x: [f64; 3]| (x[0] * x[0] + x[1] * x[1] + x[2] * x[2]).sqrt();
+        let (na, nc) = (nrm(arrive), nrm(connect));
+        if !(na > 0.0 && nc > 0.0 && na.is_finite() && nc.is_finite()) {
+            return Err(PlanDecline::NotRemovable {
+                at: w,
+                verdict: Removability::Ambiguous,
+            });
+        }
+        let dot = arrive[0] * connect[0] + arrive[1] * connect[1] + arrive[2] * connect[2];
+        if dot >= 0.0 {
+            return Ok((w, ((i % n + n) % n) as usize, absorbed));
+        }
+        absorbed.push(w);
+        i += dir;
+    }
+    Err(PlanDecline::NotRemovable {
+        at: absorbed.last().copied().unwrap_or(u32::MAX),
+        verdict: Removability::Ambiguous,
+    })
 }
 
 /// Plan one invocation's corrected cycles: every corridor's surgeries on
@@ -294,6 +366,16 @@ pub(crate) fn plan_invocation(
         paths.push(path);
         jpos.push(pos);
     }
+    // Every mint is interned by the path building above; the snapshot lets
+    // the §3j absorb certificate read NEW-ref continuations (a healthy
+    // anchor can sit next to a neighbouring corridor's spliced mint).
+    let mints: Vec<[f64; 3]> = pool.verts.clone();
+    let refpos = |r: CycleRef| -> Option<[f64; 3]> {
+        match r {
+            CycleRef::Old(v) => (ctx.pos)(v),
+            CycleRef::New(i) => mints.get(i as usize).copied(),
+        }
+    };
     // Removability per corridor: fired phantoms are removable; other
     // vertices by far-surface SIGN, anchored on the corridor's own crossed
     // CORNER (the corner is definitionally between the wrong and the true
@@ -367,8 +449,8 @@ pub(crate) fn plan_invocation(
             if !present.is_empty() {
                 for &p in &present {
                     // Cycle neighbours of the phantom.
-                    let mut pred_succ: Option<(u32, u32)> = None;
-                    for cy in &cycles {
+                    let mut pred_succ: Option<(usize, usize, u32, u32)> = None;
+                    for (ci, cy) in cycles.iter().enumerate() {
                         if let Some(i) = cy.iter().position(|&r| r == CycleRef::Old(p)) {
                             let n = cy.len();
                             let (CycleRef::Old(a), CycleRef::Old(b)) =
@@ -377,10 +459,10 @@ pub(crate) fn plan_invocation(
                                 declines.push((k, PlanDecline::AttachmentMismatch { phantom: p }));
                                 continue 'comp;
                             };
-                            pred_succ = Some((a, b));
+                            pred_succ = Some((ci, i, a, b));
                         }
                     }
-                    let Some((pred, succ)) = pred_succ else {
+                    let Some((p_ci, p_i, pred, succ)) = pred_succ else {
                         declines.push((k, PlanDecline::AttachmentMismatch { phantom: p }));
                         continue 'comp;
                     };
@@ -396,12 +478,56 @@ pub(crate) fn plan_invocation(
                                 declines.push((k, PlanDecline::AttachmentMismatch { phantom: p }));
                                 continue 'comp;
                             }
+                            // §3j: absorb overshot anchors at BOTH ends
+                            // before the splice.
+                            let ncy = cycles[p_ci].len();
+                            let (from_eff, _, abs_a) = match absorb_anchor(
+                                &cycles[p_ci],
+                                (p_i + ncy - 1) % ncy,
+                                -1,
+                                c.junctions[ja].sol,
+                                &refpos,
+                            ) {
+                                Ok(x) => x,
+                                Err(d) => {
+                                    declines.push((k, d));
+                                    continue 'comp;
+                                }
+                            };
+                            let (to_eff, _, abs_b) = match absorb_anchor(
+                                &cycles[p_ci],
+                                (p_i + 1) % ncy,
+                                1,
+                                c.junctions[jb].sol,
+                                &refpos,
+                            ) {
+                                Ok(x) => x,
+                                Err(d) => {
+                                    declines.push((k, d));
+                                    continue 'comp;
+                                }
+                            };
+                            let absorbed: std::collections::BTreeSet<u32> =
+                                abs_a.into_iter().chain(abs_b).collect();
+                            let removable_abs = |v: u32| -> Removability {
+                                if absorbed.contains(&v) {
+                                    Removability::Absorbed
+                                } else {
+                                    removable(v)
+                                }
+                            };
                             let via: Vec<CycleRef> = if ja == 0 {
                                 paths[k].clone()
                             } else {
                                 paths[k].iter().rev().copied().collect()
                             };
-                            match replace_subpath(&mut cycles, pred, succ, &via, &removable) {
+                            match replace_subpath(
+                                &mut cycles,
+                                from_eff,
+                                to_eff,
+                                &via,
+                                &removable_abs,
+                            ) {
                                 Ok(mut r) => {
                                     edited = true;
                                     removed_all.append(&mut r);
@@ -417,10 +543,35 @@ pub(crate) fn plan_invocation(
                             // neighbour `n`, the walk crosses the attached
                             // junction's host edge (x, y). Exactly one of
                             // the two orientations must certify.
-                            let (n, j) = if let Some(j) = one {
-                                (pred, j)
+                            let (anchor_idx, dir, j) = if let Some(j) = one {
+                                let ncy = cycles[p_ci].len();
+                                ((p_i + ncy - 1) % ncy, -1isize, j)
                             } else {
-                                (succ, other.expect("one side attached"))
+                                let ncy = cycles[p_ci].len();
+                                ((p_i + 1) % ncy, 1isize, other.expect("one side attached"))
+                            };
+                            // §3j: absorb an overshot connector anchor.
+                            let (n, _, abs_n) = match absorb_anchor(
+                                &cycles[p_ci],
+                                anchor_idx,
+                                dir,
+                                c.junctions[j].sol,
+                                &refpos,
+                            ) {
+                                Ok(x) => x,
+                                Err(d) => {
+                                    declines.push((k, d));
+                                    continue 'comp;
+                                }
+                            };
+                            let absorbed: std::collections::BTreeSet<u32> =
+                                abs_n.into_iter().collect();
+                            let removable_abs = |v: u32| -> Removability {
+                                if absorbed.contains(&v) {
+                                    Removability::Absorbed
+                                } else {
+                                    removable(v)
+                                }
                             };
                             let jhosts: Vec<(u32, u32)> = hosts
                                 .iter()
@@ -439,7 +590,7 @@ pub(crate) fn plan_invocation(
                             for &(x, y) in &jhosts {
                                 let mut try1 = cycles.clone();
                                 if let Some(r) =
-                                    replace_subpath(&mut try1, n, y, &[jref], &removable)
+                                    replace_subpath(&mut try1, n, y, &[jref], &removable_abs)
                                         .ok()
                                         .filter(|r| r.last() == Some(&x) && r.contains(&p))
                                 {
@@ -448,7 +599,7 @@ pub(crate) fn plan_invocation(
                                 }
                                 let mut try2 = cycles.clone();
                                 if let Some(r) =
-                                    replace_subpath(&mut try2, x, n, &[jref], &removable)
+                                    replace_subpath(&mut try2, x, n, &[jref], &removable_abs)
                                         .ok()
                                         .filter(|r| r.first() == Some(&y) && r.contains(&p))
                                 {
@@ -705,15 +856,30 @@ mod tests {
         (vec![c], comps)
     }
 
+    /// Healthy fixture geometry: junctions J0 (0,0,0) / J1 (1,0,0); every
+    /// chain anchor sits on the kept side with its continuation further
+    /// out, so no §3j absorb fires (all ring dots positive).
+    fn healthy_pos(v: u32) -> Option<[f64; 3]> {
+        Some(match v {
+            39 => [0.0, -1.0, 0.0],
+            43 => [1.0, -1.0, 0.0],
+            90 => [0.5, -3.0, 0.0],
+            91 => [0.0, -2.0, 0.0],
+            _ => [5.0, 5.0, 5.0],
+        })
+    }
+
     fn r0011_ctx<'a>(
         far_value: &'a dyn Fn(usize, u32) -> Option<f64>,
         attachments: &'a dyn Fn(usize, u32) -> Vec<(u32, usize)>,
         hosts: &'a dyn Fn(usize, u32) -> Vec<(usize, (u32, u32))>,
         band: &'a dyn Fn(u32) -> f64,
+        pos: &'a dyn Fn(u32) -> Option<[f64; 3]>,
     ) -> PlanCtx<'a> {
         PlanCtx {
             far_value,
             band,
+            pos,
             attachments,
             hosts,
         }
@@ -744,7 +910,7 @@ mod tests {
             }
         };
         let band = |_: u32| 1e-9;
-        let ctx = r0011_ctx(&far_value, &attachments, &hosts, &band);
+        let ctx = r0011_ctx(&far_value, &attachments, &hosts, &band, &healthy_pos);
         let mut pool = MintPool::default();
         let (plans, declines) = plan_invocation(&corridors, &comps, &ctx, &mut pool);
         assert!(declines.is_empty(), "{declines:?}");
@@ -800,7 +966,7 @@ mod tests {
         let attachments = |_: usize, _: u32| -> Vec<(u32, usize)> { vec![(39, 0), (43, 1)] };
         let hosts = |_: usize, _: u32| -> Vec<(usize, (u32, u32))> { vec![] };
         let band = |_: u32| 1e-9;
-        let ctx = r0011_ctx(&far_value, &attachments, &hosts, &band);
+        let ctx = r0011_ctx(&far_value, &attachments, &hosts, &band, &healthy_pos);
         let mut pool = MintPool::default();
         let (plans, declines) = plan_invocation(&corridors, &comps, &ctx, &mut pool);
         assert!(plans.is_empty(), "{plans:?}");
@@ -842,7 +1008,7 @@ mod tests {
             }
         };
         let band = |_: u32| 1e-9;
-        let ctx = r0011_ctx(&far_value, &attachments, &hosts, &band);
+        let ctx = r0011_ctx(&far_value, &attachments, &hosts, &band, &healthy_pos);
         let mut pool = MintPool::default();
         let (plans, declines) = plan_invocation(&corridors, &comps, &ctx, &mut pool);
         assert_eq!(plans.len(), 2, "{plans:?}");
@@ -850,6 +1016,201 @@ mod tests {
             declines
                 .iter()
                 .any(|(_, d)| matches!(d, PlanDecline::HostMismatch { junction: 0 })),
+            "{declines:?}"
+        );
+    }
+
+    // §3j — the absorb arm. Fixtures reuse the r0011-like corridor but
+    // enlarge the affected cycles so an absorbed anchor has a healthy
+    // chain continuation to re-anchor on (the measured R0011 shape: v26
+    // absorbs into J0, the splice re-anchors on v25).
+    fn absorb_invocation(
+        far_cycle: Vec<u32>,
+        base_cycle: Vec<u32>,
+    ) -> (
+        Vec<crate::stage4_transit::CorridorRepair>,
+        Vec<ComponentInput>,
+    ) {
+        let (corridors, _) = r0011_like_invocation();
+        let comps = vec![
+            ComponentInput {
+                key: (InputId::A, 2),
+                comp: 0,
+                cycles: vec![far_cycle],
+            },
+            ComponentInput {
+                key: (InputId::B, 1),
+                comp: 1,
+                cycles: vec![base_cycle],
+            },
+            ComponentInput {
+                key: (InputId::B, 7),
+                comp: 2,
+                cycles: vec![vec![70, 71, 72, 73]],
+            },
+        ];
+        (corridors, comps)
+    }
+
+    fn absorb_far_value(_: usize, v: u32) -> Option<f64> {
+        Some(match v {
+            687 | 688 | 686 | 71 => -1.0,
+            42 => 0.0,
+            _ => 1.0,
+        })
+    }
+    fn absorb_attachments(_: usize, p: u32) -> Vec<(u32, usize)> {
+        if p == 42 {
+            vec![(39, 0), (43, 1)]
+        } else {
+            vec![]
+        }
+    }
+    fn absorb_hosts(_: usize, comp: u32) -> Vec<(usize, (u32, u32))> {
+        match comp {
+            1 => vec![(0, (686, 682))],
+            2 => vec![(0, (70, 71)), (1, (71, 72))],
+            _ => vec![],
+        }
+    }
+    fn absorb_band(_: u32) -> f64 {
+        1e-9
+    }
+
+    #[test]
+    fn generator_a_absorbs_an_overshot_pred_anchor() {
+        // 43 slid PAST J1 (its connector doubles back); its continuation
+        // 92 is healthy: the far splice re-anchors from=92 and 43 joins
+        // the removed set. The other end (39) stays healthy.
+        let (corridors, comps) = absorb_invocation(
+            vec![43, 42, 39, 90, 92],
+            vec![39, 42, 687, 688, 686, 682, 91],
+        );
+        let pos = |v: u32| -> Option<[f64; 3]> {
+            Some(match v {
+                43 => [1.0, 0.4, 0.0], // past J1 = (1,0,0)
+                92 => [1.0, -1.0, 0.0],
+                39 => [0.0, -1.0, 0.0],
+                90 => [0.5, -3.0, 0.0],
+                91 => [0.0, -2.0, 0.0],
+                _ => [5.0, 5.0, 5.0],
+            })
+        };
+        let ctx = r0011_ctx(
+            &absorb_far_value,
+            &absorb_attachments,
+            &absorb_hosts,
+            &absorb_band,
+            &pos,
+        );
+        let mut pool = MintPool::default();
+        let (plans, declines) = plan_invocation(&corridors, &comps, &ctx, &mut pool);
+        assert!(declines.is_empty(), "{declines:?}");
+        assert_eq!(plans.len(), 3, "{plans:?}");
+        // Far: pred 43 attaches junction 1 → reversed path, spliced from
+        // the continuation 92.
+        assert_eq!(
+            plans[0].corrected[0],
+            vec![
+                CycleRef::Old(92),
+                CycleRef::New(1),
+                CycleRef::New(0),
+                CycleRef::Old(39),
+                CycleRef::Old(90),
+            ]
+        );
+        assert_eq!(plans[0].removed, vec![42, 43]);
+        // Base unchanged by the far absorb (39 healthy there).
+        assert_eq!(plans[1].removed, vec![42, 686, 687, 688]);
+    }
+
+    #[test]
+    fn generator_b_absorbs_an_overshot_connector_anchor() {
+        // 39 slid past J0: the far splice re-anchors on 93 and the BASE
+        // connector re-anchors on 91 — the same certificate decides both
+        // cycles consistently (the coherence the mutation relies on).
+        let (corridors, comps) = absorb_invocation(
+            vec![43, 42, 39, 93, 90],
+            vec![39, 42, 687, 688, 686, 682, 91],
+        );
+        let pos = |v: u32| -> Option<[f64; 3]> {
+            Some(match v {
+                39 => [0.0, 0.4, 0.0], // past J0 = (0,0,0)
+                93 => [0.0, -1.5, 0.0],
+                43 => [1.0, -1.0, 0.0],
+                90 => [0.5, -3.0, 0.0],
+                91 => [0.0, -2.0, 0.0],
+                682 => [0.0, -3.0, 0.0],
+                _ => [5.0, 5.0, 5.0],
+            })
+        };
+        let ctx = r0011_ctx(
+            &absorb_far_value,
+            &absorb_attachments,
+            &absorb_hosts,
+            &absorb_band,
+            &pos,
+        );
+        let mut pool = MintPool::default();
+        let (plans, declines) = plan_invocation(&corridors, &comps, &ctx, &mut pool);
+        assert!(declines.is_empty(), "{declines:?}");
+        assert_eq!(plans.len(), 3, "{plans:?}");
+        assert_eq!(
+            plans[0].corrected[0],
+            vec![
+                CycleRef::Old(43),
+                CycleRef::New(1),
+                CycleRef::New(0),
+                CycleRef::Old(93),
+                CycleRef::Old(90),
+            ]
+        );
+        assert_eq!(plans[0].removed, vec![39, 42]);
+        assert_eq!(
+            plans[1].corrected[0],
+            vec![CycleRef::Old(91), CycleRef::New(0), CycleRef::Old(682)]
+        );
+        assert_eq!(plans[1].removed, vec![39, 42, 686, 687, 688]);
+    }
+
+    #[test]
+    fn absorb_declines_at_the_depth_cap() {
+        // Four consecutive overshot anchors exhaust the cap: the far
+        // component declines typed instead of draining the chain.
+        let (corridors, comps) = absorb_invocation(
+            vec![46, 45, 44, 43, 42, 39, 90],
+            vec![39, 42, 687, 688, 686, 682, 91],
+        );
+        let pos = |v: u32| -> Option<[f64; 3]> {
+            Some(match v {
+                43 => [1.0, 0.5, 0.0],
+                44 => [1.0, 0.4, 0.0],
+                45 => [1.0, 0.3, 0.0],
+                46 => [1.0, 0.2, 0.0],
+                39 => [0.0, -1.0, 0.0],
+                90 => [0.5, -3.0, 0.0],
+                91 => [0.0, -2.0, 0.0],
+                _ => [5.0, 5.0, 5.0],
+            })
+        };
+        let ctx = r0011_ctx(
+            &absorb_far_value,
+            &absorb_attachments,
+            &absorb_hosts,
+            &absorb_band,
+            &pos,
+        );
+        let mut pool = MintPool::default();
+        let (plans, declines) = plan_invocation(&corridors, &comps, &ctx, &mut pool);
+        assert_eq!(plans.len(), 2, "{plans:?}");
+        assert!(
+            declines.iter().any(|(_, d)| matches!(
+                d,
+                PlanDecline::NotRemovable {
+                    verdict: Removability::Ambiguous,
+                    ..
+                }
+            )),
             "{declines:?}"
         );
     }

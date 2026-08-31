@@ -1598,11 +1598,28 @@ pub(crate) fn delete_boundary_fan(
     patch: &SplicePatch,
     victim: u32,
 ) -> Result<(PatchRebuild, Vec<u32>), ConstructError> {
+    delete_boundary_fan_set(mesh, patch_index, patch, &BTreeSet::from([victim]))
+}
+
+/// §4.5.1 inc-2c-3b-2 (spec `specs/yang_451_corner_transit.md` §3j) — the
+/// set generalization of [`delete_boundary_fan`]: delete the joint fan
+/// REGION of several boundary vertices (a corridor's phantom plus its
+/// absorbed chain-end anchors, which are mesh-adjacent by construction).
+/// The link — the region's boundary edges touching no victim — must chain
+/// as one simple OPEN run; every degeneracy declines typed exactly as the
+/// single-victim form does.
+pub(crate) fn delete_boundary_fan_set(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    victims: &BTreeSet<u32>,
+) -> Result<(PatchRebuild, Vec<u32>), ConstructError> {
+    let victim = victims.iter().next().copied().unwrap_or(u32::MAX);
     let mut old_tris: Vec<u32> = Vec::new();
     let mut directed: BTreeSet<(u32, u32)> = BTreeSet::new();
     for &t in &patch.tris {
         let tri = mesh.tris[t as usize];
-        if !tri.contains(&victim) {
+        if !tri.iter().any(|v| victims.contains(v)) {
             continue;
         }
         old_tris.push(t);
@@ -1621,11 +1638,11 @@ pub(crate) fn delete_boundary_fan(
         return Err(ConstructError::MalformedPatch { patch: patch_index });
     }
     let fan = old_tris.len();
-    // The link: region-boundary edges not touching the victim, chained.
+    // The link: region-boundary edges not touching a victim, chained.
     let mut next: BTreeMap<u32, u32> = BTreeMap::new();
     let mut has_pred: BTreeSet<u32> = BTreeSet::new();
     for &(x, y) in &directed {
-        if directed.contains(&(y, x)) || x == victim || y == victim {
+        if directed.contains(&(y, x)) || victims.contains(&x) || victims.contains(&y) {
             continue;
         }
         if next.insert(x, y).is_some() {
@@ -4485,6 +4502,41 @@ mod tests {
             }) => {}
             other => panic!("interior vertex must decline Closed, got {other:?}"),
         }
+    }
+
+    /// §3j — the set form deletes the JOINT region of two adjacent
+    /// boundary victims (a phantom plus its absorbed chain-end anchor)
+    /// and chains one open link across both fans.
+    #[test]
+    fn delete_boundary_fan_set_joins_adjacent_fans() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),  // 0
+                Point3::new(1.0, 0.0, 0.0),  // 1
+                Point3::new(2.0, 0.05, 0.0), // 2
+                Point3::new(3.0, 0.0, 0.0),  // 3
+                Point3::new(4.0, 0.0, 0.0),  // 4
+                Point3::new(2.0, 1.0, 0.0),  // 5 interior
+                Point3::new(2.0, -0.6, 0.0), // 6 = phantom
+                Point3::new(1.0, -0.5, 0.0), // 7 = absorbed anchor
+            ],
+            tris: vec![
+                [0, 1, 5],
+                [1, 2, 5],
+                [2, 3, 5],
+                [3, 4, 5],
+                [1, 6, 2],
+                [2, 6, 3],
+                [0, 7, 1],
+                [1, 7, 6],
+            ],
+        };
+        let patch = plane_patch(vec![vec![0, 7, 6, 3, 4, 5]], vec![0, 1, 2, 3, 4, 5, 6, 7]);
+        let (r, link) =
+            delete_boundary_fan_set(&mesh, 3, &patch, &BTreeSet::from([6, 7])).expect("set fan");
+        assert_eq!(r.old_tris, vec![4, 5, 6, 7]);
+        assert!(r.new_tris.is_empty() && r.dropped.is_empty());
+        assert_eq!(link, vec![3, 2, 1, 0], "one open chain across both fans");
     }
 
     /// Splitting a true boundary edge yields two winding-preserving

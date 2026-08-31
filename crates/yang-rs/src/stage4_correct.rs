@@ -5370,9 +5370,11 @@ fn corner_transit_apply(
     if fires.is_empty() {
         return Ok(false);
     }
-    let refuse = |why: &str| {
-        eprintln!("[451-transit] REFUSE: {why} — the standing §4-I9 STOP applies");
+    let nv = mesh.verts.len();
+    let refuse = move |why: &str| {
+        eprintln!("[451-transit] REFUSE (verts={nv}): {why} — the standing §4-I9 STOP applies");
     };
+    eprintln!("[451-transit] fires={fires:?} verts={nv}");
     let Some(d_eps) = stage4_chord_band(a, b) else {
         refuse("no chord band");
         return Ok(false);
@@ -5704,16 +5706,18 @@ fn corner_transit_apply(
     let hosts = |k: usize, comp: u32| -> Vec<s4c::HostEdge> {
         host_map.get(&(k, comp)).cloned().unwrap_or_default()
     };
+    let vpos = |v: u32| -> Option<[f64; 3]> { mesh.verts.get(v as usize).map(|p| p.as_array()) };
     let pctx = s4c::PlanCtx {
         far_value: &far_value,
         band: &vband,
+        pos: &vpos,
         attachments: &attachments,
         hosts: &hosts,
     };
     let mut pool = s4c::MintPool::default();
     let (plans, pdeclines) = s4c::plan_invocation(&corridors, &comp_vec, &pctx, &mut pool);
     if !pdeclines.is_empty() {
-        refuse(&format!("plan declines: {}", pdeclines.len()));
+        refuse(&format!("plan declines: {pdeclines:?}"));
         return Ok(false);
     }
     // Every affected patch key of every corridor must be covered by a plan.
@@ -5726,6 +5730,24 @@ fn corner_transit_apply(
         }
     }
     // ---- MUTATION (all-or-nothing) ------------------------------------
+    if std::env::var_os("YANG_451_CHI").is_some() {
+        let mut vs: std::collections::BTreeSet<u32> = Default::default();
+        let mut es: std::collections::BTreeSet<(u32, u32)> = Default::default();
+        for t in &mesh.tris {
+            for k in 0..3 {
+                vs.insert(t[k]);
+                let (x, y) = (t[k], t[(k + 1) % 3]);
+                es.insert((x.min(y), x.max(y)));
+            }
+        }
+        eprintln!(
+            "[451-transit] CHI pre-apply V={} E={} F={} chi={}",
+            vs.len(),
+            es.len(),
+            mesh.tris.len(),
+            vs.len() as i64 - es.len() as i64 + mesh.tris.len() as i64
+        );
+    }
     let base = mesh.verts.len() as u32;
     mesh.verts
         .extend(pool.verts.iter().map(|p| Point3::new(p[0], p[1], p[2])));
@@ -5745,7 +5767,7 @@ fn corner_transit_apply(
     // the mutation implements the same swap locally.
     let far_keys: std::collections::BTreeSet<(InputId, u32)> =
         corridors.iter().map(|c| c.far).collect();
-    for (k, c) in corridors.iter().enumerate() {
+    for c in corridors.iter() {
         let path_u: Vec<u32> = {
             let mut pth = Vec::new();
             let mut pos = 0usize;
@@ -5770,7 +5792,11 @@ fn corner_transit_apply(
             }
             pth
         };
+        let mut consumed_far: std::collections::BTreeSet<u32> = Default::default();
         for &p in &c.phantoms {
+            if consumed_far.contains(&p) {
+                continue;
+            }
             let Some((pi, patch)) = raw_patches.iter().enumerate().find(|(_, pt)| {
                 (pt.attribution.input, pt.attribution.face) == c.far
                     && pt
@@ -5787,26 +5813,80 @@ fn corner_transit_apply(
                 rollback(mesh);
                 return Ok(false);
             };
+            // §3j: the fan's victims are the far plan's removed set
+            // reachable from the phantom through removed vertices — the
+            // PLANNER is the single absorb authority (its generator-A
+            // walk decided which chain-end anchors absorbed); the fan
+            // arm executes its decision. Surviving anchors bound the
+            // flood exactly.
+            let Some(far_plan) = plans
+                .iter()
+                .find(|pl| pl.key == c.far && pl.comp == pi as u32)
+            else {
+                refuse(&format!("far component {pi} of v{p} has no plan"));
+                rollback(mesh);
+                return Ok(false);
+            };
+            let removed_set: std::collections::BTreeSet<u32> =
+                far_plan.removed.iter().copied().collect();
+            let mut victims = std::collections::BTreeSet::from([p]);
+            let mut stack = vec![p];
+            while let Some(x) = stack.pop() {
+                for &y in adj.get(&x).into_iter().flatten() {
+                    if removed_set.contains(&y) && victims.insert(y) {
+                        stack.push(y);
+                    }
+                }
+            }
+            if victims
+                .iter()
+                .any(|v| fired.contains(v) && !c.phantoms.contains(v))
+            {
+                refuse(&format!(
+                    "far fan of v{p} floods into another corridor's phantom"
+                ));
+                rollback(mesh);
+                return Ok(false);
+            }
+            consumed_far.extend(victims.iter().copied());
             let sp = crate::stage4_splice::SplicePatch {
                 cycles: Vec::new(),
                 tris: patch.tri_indices.clone(),
                 surface,
             };
-            let (del, link) = match crate::stage4_construct::delete_boundary_fan(mesh, pi, &sp, p) {
-                Ok(r) => r,
-                Err(e) => {
-                    refuse(&format!("far fan delete v{p}: {e:?}"));
-                    rollback(mesh);
-                    return Ok(false);
+            let (del, link) =
+                match crate::stage4_construct::delete_boundary_fan_set(mesh, pi, &sp, &victims) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        refuse(&format!("far fan delete v{p} ({victims:?}): {e:?}"));
+                        rollback(mesh);
+                        return Ok(false);
+                    }
+                };
+            // The link's open ends are the surviving chain anchors; each
+            // names its END junction by patch membership (the census
+            // rule — post-absorb the ends are chain continuations, no
+            // longer necessarily the phantom's own mesh neighbours).
+            let junc_of = |w: u32| -> Option<usize> {
+                let pw = patches_of(w);
+                let hits: Vec<usize> = c
+                    .junctions
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, jn)| {
+                        pw.contains(&(c.walk_op, jn.faces.0))
+                            || pw.contains(&(c.walk_op, jn.faces.1))
+                    })
+                    .map(|(i, _)| i)
+                    .collect();
+                match hits[..] {
+                    [one] => Some(one),
+                    _ => None,
                 }
             };
-            // The link's open ends are the phantom's two curve neighbours;
-            // each names its END junction (the attachment certificate).
-            let att = attachments(k, p);
-            let att_of = |v: u32| att.iter().find(|&&(n, _)| n == v).map(|&(_, j)| j);
             let (l0, lk) = (link[0], link[link.len() - 1]);
             let last = c.junctions.len() - 1;
-            let (ja, jb) = match (att_of(l0), att_of(lk)) {
+            let (ja, jb) = match (junc_of(l0), junc_of(lk)) {
                 (Some(x), Some(y)) if (x == 0 && y == last) || (x == last && y == 0) => (x, y),
                 other => {
                     refuse(&format!(
@@ -5840,13 +5920,13 @@ fn corner_transit_apply(
                 }
             };
             replaced.extend(del.old_tris.iter().copied());
-            removed_all.insert(p);
+            removed_all.extend(victims.iter().copied());
             rebuilds.push(crate::stage4_construct::PatchRebuild {
                 patch: pi,
                 old_tris: del.old_tris,
                 new_tris,
                 new_verts: Vec::new(),
-                dropped: std::collections::BTreeSet::from([p]),
+                dropped: victims.clone(),
                 plan_verts: mesh.verts.len() as u32,
                 plan_tris: mesh.tris.len() as u32,
             });
@@ -5930,6 +6010,25 @@ fn corner_transit_apply(
         pool.verts.len(),
         removed_all.len(),
     );
+    if std::env::var_os("YANG_451_CHI").is_some() {
+        let chi = |mesh: &Mesh| -> (usize, usize, usize) {
+            let mut vs: std::collections::BTreeSet<u32> = Default::default();
+            let mut es: std::collections::BTreeSet<(u32, u32)> = Default::default();
+            for t in &mesh.tris {
+                for k in 0..3 {
+                    vs.insert(t[k]);
+                    let (a, b) = (t[k], t[(k + 1) % 3]);
+                    es.insert((a.min(b), a.max(b)));
+                }
+            }
+            (vs.len(), es.len(), mesh.tris.len())
+        };
+        let (v, e, f) = chi(mesh);
+        eprintln!(
+            "[451-transit] CHI post-apply V={v} E={e} F={f} chi={}",
+            v as i64 - e as i64 + f as i64
+        );
+    }
     Ok(true)
 }
 
@@ -6834,6 +6933,51 @@ fn relocation_domain_postcondition(
                     // phantom's on-curve mesh neighbours name their
                     // junction by patch membership (§3h) — unique or the
                     // mutation declines.
+                    //
+                    // inc-2c-3b-2 (spec §3j): the ABSORB measurements. The
+                    // FaceId(402) ring spike is the chain-end neighbour
+                    // itself sitting PAST its minted junction with an
+                    // anti-parallel connector — a non-corner out-of-domain
+                    // slide §4-I9 cannot fire on. Before the absorb arm is
+                    // built, measure per chain-end neighbour at an END
+                    // junction: distance to the junction vs d_eps and the
+                    // contract band, the connector-direction dot (arrival
+                    // = prev→w, connector = w→J; negative = the emitted
+                    // ring doubles back at w), signed surface values at w
+                    // and prev against the junction's three surfaces (far
+                    // + the two walk-op faces — which sign names "past the
+                    // crease"), the chain spacing d(prev,w), and the
+                    // corner's far value for the removability-sign
+                    // comparison.
+                    let junc_surfs = |ji: usize| -> [Option<Surface>; 3] {
+                        let j = &c.junctions[ji];
+                        [
+                            face_surface(c.far.0, c.far.1),
+                            face_surface(c.walk_op, j.faces.0),
+                            face_surface(c.walk_op, j.faces.1),
+                        ]
+                    };
+                    let sval = |s: Option<Surface>, pos: [f64; 3]| -> Option<f64> {
+                        s.and_then(|s| surface_value_and_normal(s, pos).map(|(f, _)| f))
+                    };
+                    let fmt3 = |v: [Option<f64>; 3]| -> String {
+                        v.iter()
+                            .map(|x| match x {
+                                Some(f) => format!("{f:+.3e}"),
+                                None => "?".to_string(),
+                            })
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    };
+                    for &q in &c.corners {
+                        let qpos = mesh.verts[q as usize].as_array();
+                        let f_far = sval(face_surface(c.far.0, c.far.1), qpos);
+                        eprintln!(
+                            "YANG_S4_CARRIER_DOMAIN-CYCLES  #{k} ABSORB corner v{q} \
+                             far_q={}",
+                            fmt3([f_far, None, None]),
+                        );
+                    }
                     for &p in &c.phantoms {
                         for &w in adj.get(&p).into_iter().flatten() {
                             if !on_curve(w) {
@@ -6855,6 +6999,69 @@ fn relocation_domain_postcondition(
                                  patches={pw:?} attaches_to_juncs={hits:?}{}",
                                 if hits.len() == 1 { "" } else { " NOT-UNIQUE" },
                             );
+                            let last = c.junctions.len() - 1;
+                            let [ji] = hits.as_slice() else { continue };
+                            if *ji != 0 && *ji != last {
+                                continue;
+                            }
+                            let jpos = c.junctions[*ji].sol;
+                            let wpos = mesh.verts[w as usize].as_array();
+                            let scale = jpos.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
+                            let surfs = junc_surfs(*ji);
+                            let f_w = [
+                                sval(surfs[0], wpos),
+                                sval(surfs[1], wpos),
+                                sval(surfs[2], wpos),
+                            ];
+                            eprintln!(
+                                "YANG_S4_CARRIER_DOMAIN-CYCLES  #{k} ABSORB v{w} junc{ji} \
+                                 d_j={:.3e} d_eps={:.3e} contract={:.3e} \
+                                 f_w(far,f0,f1)=({})",
+                                d3c(wpos, jpos),
+                                d_eps,
+                                crate::stage4_transit::contract_band(scale),
+                                fmt3(f_w),
+                            );
+                            // The chain continuation: w's own on-curve
+                            // neighbours, excluding the corridor's
+                            // phantoms and corners. Uniqueness is itself
+                            // a measurement (the absorb re-splice needs
+                            // exactly one).
+                            for &u in adj.get(&w).into_iter().flatten() {
+                                if !on_curve(u) || c.phantoms.contains(&u) || c.corners.contains(&u)
+                                {
+                                    continue;
+                                }
+                                let upos = mesh.verts[u as usize].as_array();
+                                let arrive =
+                                    [wpos[0] - upos[0], wpos[1] - upos[1], wpos[2] - upos[2]];
+                                let connect =
+                                    [jpos[0] - wpos[0], jpos[1] - wpos[1], jpos[2] - wpos[2]];
+                                let norm =
+                                    |x: [f64; 3]| (x[0] * x[0] + x[1] * x[1] + x[2] * x[2]).sqrt();
+                                let (na, nc) = (norm(arrive), norm(connect));
+                                let dot = if na > 0.0 && nc > 0.0 {
+                                    (arrive[0] * connect[0]
+                                        + arrive[1] * connect[1]
+                                        + arrive[2] * connect[2])
+                                        / (na * nc)
+                                } else {
+                                    f64::NAN
+                                };
+                                let f_u = [
+                                    sval(surfs[0], upos),
+                                    sval(surfs[1], upos),
+                                    sval(surfs[2], upos),
+                                ];
+                                eprintln!(
+                                    "YANG_S4_CARRIER_DOMAIN-CYCLES  #{k} ABSORB v{w} \
+                                     prev v{u} dot={dot:+.4} d_prev_w={:.3e} \
+                                     d_prev_j={:.3e} f_prev(far,f0,f1)=({})",
+                                    na,
+                                    d3c(upos, jpos),
+                                    fmt3(f_u),
+                                );
+                            }
                         }
                     }
                     // Affected patch keys: far ∪ run facets ∪ the two
@@ -7091,9 +7298,13 @@ fn relocation_domain_postcondition(
                         let hosts = |k: usize, comp: u32| -> Vec<s4c::HostEdge> {
                             host_map.get(&(k, comp)).cloned().unwrap_or_default()
                         };
+                        let vpos = |v: u32| -> Option<[f64; 3]> {
+                            mesh.verts.get(v as usize).map(|p| p.as_array())
+                        };
                         let pctx = s4c::PlanCtx {
                             far_value: &far_value,
                             band: &vband,
+                            pos: &vpos,
                             attachments: &attachments,
                             hosts: &hosts,
                         };

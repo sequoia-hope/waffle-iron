@@ -404,6 +404,13 @@ fn replay_case(case: &DiscoveredCase) -> CaseOutcome {
         if !v.passed {
             failures.push(format!("mesh_euler_characteristic: {}", v.detail));
         }
+        if let Ok(dir) = std::env::var("ASSAY_DUMP_STL") {
+            if let Ok(bytes) = test_harness::stl::export_binary_stl(&mesh, &meta.id) {
+                let path = format!("{dir}/{}.stl", meta.id);
+                let _ = std::fs::write(&path, bytes);
+                eprintln!("[assay] dumped final mesh to {path}");
+            }
+        }
         let (bb_min, bb_max) = mesh_bounding_box(&mesh);
         let dx = (bb_max[0] - bb_min[0]) as f64;
         let dy = (bb_max[1] - bb_min[1]) as f64;

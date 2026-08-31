@@ -1,23 +1,27 @@
 # §4.5.1 Corner Transit — the §4-I9 corner-crosser repair (I13f rehome kin)
 
-**Status (2026-08-31): the APPLY ARM EXISTS AND REPAIRS LIVE.**
-inc-2a/2b/2c-0/2c-1 (2026-08-30): planner + walk census + all-roots
-solvers — every family corridor DETERMINED (§3c–§3g). inc-2c-2+3a
-(2026-08-30b): corridor ASSEMBLY + cycle-surgery census — repair units
-as typed data; three designs census-corrected (§3h). inc-2c-3b-0: the
-corrected-cycle PLANNER — R0011 plans 18/18 components, 0 declines;
-"q stays" REFUTED (§3i). **inc-2c-3b-1 (2026-08-31): the gated
-mutation (`YANG_451_TRANSIT`, default OFF) — FIRST LIVE APPLY: R0011
-op-1's three corridors repair (13 plans / 11 mints), the §4-I9
-postcondition PASSES, the boolean COMPLETES; the far arm is FAN-LOCAL
-(wholesale refuted live — the I6 lesson). The case moves downstream to
-the FaceId(402) ring, ANCHORED same day (§3j): the spike is the
-chain-end neighbour v26 itself 4.7 past the mint — a NON-corner
-out-of-domain slide; fix shape = §4.4.1 near-curve removal at corridor
-ends (Fig-11 absorb into the mint + connector-direction certificate).
-NEXT = inc-2c-3b-2: measure the absorb band + B-side-fan treatment,
-land the absorb arm; then R0044's curve-aware host search; then inc-3
-(full-corpus gated measurement, two-proof flip).** Epic opened by
+**Status (2026-08-31b): FIRST CONVERSION — R0011 is SUPPORTED_CORRECT
+under the gate.** inc-2a/2b/2c-0/2c-1 (2026-08-30): planner + walk
+census + all-roots solvers — every family corridor DETERMINED
+(§3c–§3g). inc-2c-2+3a (2026-08-30b): corridor ASSEMBLY +
+cycle-surgery census — repair units as typed data (§3h). inc-2c-3b-0:
+the corrected-cycle PLANNER — R0011 18/18, 0 declines (§3i).
+inc-2c-3b-1 (2026-08-31): the gated mutation (`YANG_451_TRANSIT`,
+default OFF) — first live apply; far arm FAN-LOCAL (§3j).
+**inc-2c-3b-2 (2026-08-31, second session): the §4.4.1 ABSORB arm
+MEASURED + LANDED — certificate = the SIGN of the ring's connector
+dot (defects at exactly −1.0000: v26 AND v46; never a band — d_eps
+would over-absorb healthy ends), absorbed fans live on already-planned
+keys only. R0011 applies removed=13, completes end-to-end, and
+CONVERTS to SUPPORTED_CORRECT (χ=0 adjudicated TRUE genus 1 by
+exact-involute voxel-CSG + 1×/2×/4× ladder; `euler_target` authored 0
++ pinned — the R0091/R0063 protocol). The apply generalizes across
+densities (2×: one corridor; 4×: the §4.5.4 refine-retry repairs after
+an honest natural decline). Flow correction: R0011 runs ONE design
+boolean — the "op-2" invocation everywhere in §3h/§3i is the §4.5.4
+refine RETRY. NEXT = R0044's curve-aware host search (the arc-host
+wall, §3i), R0074/R0085 family measurement, then inc-3 (full-corpus
+gated measurement, two-proof flip).** Epic opened by
 the §4.5.2 adjudication (`specs/yang_452_local_refinement.md`): the recovery
 loop the paper prescribes for this class was measured out (zero conversions at
 2×/4×/8× uniform density), so the class needs the repair the paper does NOT
@@ -861,6 +865,93 @@ chord band d_eps vs a junction-contract multiple — v26 measured at
 fans need the same excision treatment as the corner (its position is
 past the crease, i.e. inside the far operand).
 
+**inc-2c-3b-2 MEASURED + LANDED (2026-08-31) — the §4.4.1 ABSORB arm;
+R0011 CONVERTS to SUPPORTED_CORRECT (the epic's first conversion).**
+
+The ABSORB census (`-CYCLES ABSORB` lines: per chain-end attachment at
+an END junction — d(w, J) vs d_eps and the contract band, the
+connector-direction dot with the chain continuation, signed surface
+values at w and its predecessor against the junction's three surfaces,
+chain spacing, corner far-values) answered both sub-questions:
+
+- **The certificate is the SIGN of the connector dot, never a band.**
+  Defects sit at exactly −1.0000 (v26 at junc0 of v27's corridor,
+  d_j = 4.68; **v46 at junc3 of v37's corridor, d_j = 4.11 — hole[1]'s
+  reversal, named**); every healthy end reads ≥ +0.456. A d_eps band
+  would OVER-absorb (healthy ends sit at d_j = 53.7–99.4 ≈
+  0.3–0.5·d_eps); the contract band (4e-6) catches nothing.
+  Corroborating signature: the overshot vertex's value on the
+  junction's facet-side face FLIPS SIGN vs its chain predecessor
+  (v26: +4.674 vs v25's −59.3; v46: +0.221 vs v45's −4.73) — it is ON
+  far and ON the outer face but PAST the junction.
+- **No separate B-side machinery.** The absorbed vertex's fans live
+  entirely on far + the corridor's own TERMINAL-OUTER patch (v26:
+  {A2, B1}; v46: {A2, B186}) — both already planned keys; the
+  wholesale cycle rebuild absorbs them for free once the corrected
+  cycle splices one vertex earlier. The corner-sign removability test
+  CANNOT certify an absorbed vertex (far(w) ≈ 0 — it is ON the curve);
+  it needs its own verdict (`Removability::Absorbed`).
+
+Landed shape (planner = the single absorb authority):
+
+- `stage4_corridor.rs`: `absorb_anchor` — on the located cycle, walk
+  the anchor back along the chain while dot(anchor − continuation,
+  junction − anchor) < 0, depth-capped 4, typed declines; wired into
+  generator A (both ends) and generator B (the connector anchor);
+  `Removability::Absorbed` accepted by `replace_subpath`; `PlanCtx.pos`
+  + a `refpos` that resolves NEW-ref continuations from the mint pool
+  (live refusal: v39 — the base-curve DIP vertex between two tooth
+  corridors — has the neighbouring corridor's already-spliced mint as
+  its cycle continuation; declining on New refs killed the whole op-1
+  plan. An absorb LANDING on a New anchor still declines: that is a
+  genuine cross-corridor entanglement).
+- Far arm (`corner_transit_apply`): victims = the far plan's `removed`
+  set flooded from the phantom THROUGH removed vertices (surviving
+  anchors bound the flood exactly — one absorb authority, the fan arm
+  executes it); `delete_boundary_fan_set` (stage4_construct) deletes
+  the joint region; link ends re-certified by PATCH-MEMBERSHIP
+  junction resolution (post-absorb they are chain continuations, no
+  longer the phantom's own neighbours); refuses if the flood reaches
+  another corridor's phantom.
+
+**Measured (R0011, gate on): `APPLIED corridors=3 plans=13 mints=11
+removed=13` (11 + v26 + v46), the FaceId(402) ring is CLEAN, the
+boolean AND the output tessellation complete — and the case surfaces
+`SUPPORTED_WRONG mesh_euler_characteristic χ=0 (expected 2)`,
+ADJUDICATED as ORACLE AUTHORING, not a defect:** the union of the
+14-tooth gear prism with the 295.56° revolve band is TRUE genus 1.
+Three independent proofs (the R0091/R0063 protocol):
+(a) exact-involute voxel-CSG from the authored numbers — the prism
+touches the band ONLY near its start cap (spine t < 150; the root
+circle r=2055 misses the band r∈[4708, 6277] entirely), in exactly
+TWO disjoint adjacent-tooth patches ⇒ genus k−1 = 1; (b) the density
+ladder — χ = 0 at 1×/2×/4× through three DIFFERENT fire anatomies
+(3 corridors / 1 corridor / refine-retry apply after a NoRealCandidate
+natural decline: the apply generalizes across densities); (c) volume +
+watertight + single-shell + improper=0 all pass. `euler_target` 2 → 0
+authored in `R0011.meta.json`, pinned in `assay_euler_consistency.rs`.
+Gate off: byte-identical original ERROR.
+
+**Family measurement (gate on, same session): every walled case keeps
+its standing STOP, typed and loud.** R0074: natural stops UPSTREAM of
+§4-I9 (OffCurve v91 — unchanged honest ERROR); the refine-retry's
+apply fires (129,127) and refuses at `far fan refill: NonPlanarPatch`
+— **R0074's far is a TORUS and `SurfaceChart` has no torus chart**
+(the R0074 slice; the splice module's UnsupportedSurface note lists
+Sphere/Cone/Torus). R0044: both invocations refuse on the known
+ARC-HOST wall (10× HostNotFound + one NotRemovable-Ambiguous).
+R0085: op-1 refuses `site v387: NoRealCandidate`, op-2 stays on its
+input-n2m wall — both standing ERRORs unchanged.
+
+**Flow correction (this measurement): R0011 runs ONE design boolean.**
+The second §4-I9 invocation every census saw (v78/v834, 999 verts) is
+the §4.5.4 refine RETRY of the same union at boosted rim density (the
+`boolean()` detect-then-refine second pass), not a second design op —
+"op-2" in §3h/§3i reads correctly as natural-vs-refined of the SAME
+op (the bit-equal junction consistency across the two is the same
+analytic curve at two densities). The 3b-1 "op-2 tessellating the
+repaired output" was the RENDER tessellation of the output body.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -939,6 +1030,24 @@ past the crease, i.e. inside the far operand).
   absorb junction-band/wrong-side chain-end neighbours into the mint
   (Fig-11 merge), connector-direction certificate. Band + B-side-fan
   questions to measure first (§3j).
+- **inc-2c-3b-2 MEASURED + LANDED** (2026-08-31, next session): the
+  ABSORB census answered both sub-questions (certificate = the SIGN of
+  the connector dot, never a band — defects at exactly −1.0000 vs
+  healthy ≥ +0.456, d_eps would over-absorb; absorbed fans live on
+  far + terminal-outer only — already-planned keys), and the absorb
+  arm landed (`absorb_anchor` in generators A/B with
+  `Removability::Absorbed` + mint-pool NEW-ref continuations;
+  far arm = flood the far plan's removed set from the phantom,
+  `delete_boundary_fan_set`, membership-resolved link ends). **R0011
+  APPLIES removed=13, completes end-to-end, and CONVERTS —
+  SUPPORTED_CORRECT** after the χ=0 verdict was adjudicated as ORACLE
+  AUTHORING (true genus 1, proven by exact-involute voxel-CSG + the
+  1×/2×/4× density ladder + volume/watertight/shell; `euler_target`
+  0 authored + pinned). Flow correction: R0011 runs ONE design
+  boolean; the "op-2" §4-I9 invocation is the §4.5.4 refine retry
+  (the apply generalizes: 2× fires one corridor and repairs it; 4×'s
+  natural declines NoRealCandidate and the refine-retry repairs).
+  (§3j.)
 - inc-3: fixed-point integration (multiple sites per case; R0085 has two
   failing ops) + full-corpus gated measurement; flip under the standing
   two-proof protocol.
