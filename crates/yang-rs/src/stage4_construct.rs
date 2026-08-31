@@ -897,6 +897,11 @@ pub(crate) fn rebuild_patch_planar(
             p2.verts.iter().fold(0.0f64, |m, p| m.max(p.y())) * tan_half
         }
         SurfaceChart::Plane { .. } => 0.0,
+        // inc-2c-3b-3: unreachable today — the wholesale path charts via
+        // `SurfaceChart::new`, which never builds a Torus (a whole patch may
+        // wrap a period; only fan-local holders use `new_local`). The value
+        // is the honest θ↔arc reference all the same: the outer equator.
+        SurfaceChart::Torus { major, minor, .. } => major + minor,
     };
     if let Some((theta_min, theta_max)) = theta_span {
         let uv_of = |v: u32| -> Result<Point2, ConstructError> {
@@ -1802,7 +1807,7 @@ pub(crate) fn refill_fan_hole(
     polygon: &[u32],
     reference: &[u32],
 ) -> Result<Vec<[u32; 3]>, ConstructError> {
-    let chart = SurfaceChart::new(patch.surface)
+    let chart = SurfaceChart::new_local(patch.surface)
         .ok_or(ConstructError::NonPlanarPatch { patch: patch_index })?;
     if polygon.len() < 3 || reference.is_empty() {
         return Err(ConstructError::MalformedPatch { patch: patch_index });
@@ -1810,24 +1815,34 @@ pub(crate) fn refill_fan_hole(
     // Chain θ-unwrap: each vertex within a half turn of its predecessor —
     // the polygon is corner-local by construction, so a wrap means the
     // premise failed and the CDT would be fed a self-crossing boundary.
+    // A torus chart (inc-2c-3b-3) is DOUBLY periodic: φ gets the same
+    // predecessor-relative unwrap and the same span guard as θ.
     let planar = matches!(chart, SurfaceChart::Plane { .. });
+    let biperiodic = matches!(chart, SurfaceChart::Torus { .. });
+    let wrap_near = |prev: f64, val: f64| -> f64 {
+        let mut d = val - prev;
+        while d > std::f64::consts::PI {
+            d -= std::f64::consts::TAU;
+        }
+        while d <= -std::f64::consts::PI {
+            d += std::f64::consts::TAU;
+        }
+        prev + d
+    };
     let mut pool: Vec<Point2> = Vec::with_capacity(polygon.len());
     for (i, &v) in polygon.iter().enumerate() {
         let uv = chart.project(mesh.verts[v as usize]);
         let theta = if i == 0 || planar {
             uv.x()
         } else {
-            let prev = pool[i - 1].x();
-            let mut d = uv.x() - prev;
-            while d > std::f64::consts::PI {
-                d -= std::f64::consts::TAU;
-            }
-            while d <= -std::f64::consts::PI {
-                d += std::f64::consts::TAU;
-            }
-            prev + d
+            wrap_near(pool[i - 1].x(), uv.x())
         };
-        pool.push(Point2::new(theta, uv.y()));
+        let vee = if i == 0 || !biperiodic {
+            uv.y()
+        } else {
+            wrap_near(pool[i - 1].y(), uv.y())
+        };
+        pool.push(Point2::new(theta, vee));
     }
     if matches!(chart, SurfaceChart::Cone { .. }) && pool.iter().any(|p| p.y() <= 0.0) {
         return Err(ConstructError::ApexInPatch { patch: patch_index });
@@ -1837,6 +1852,16 @@ pub(crate) fn refill_fan_hole(
             .iter()
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
                 (lo.min(p.x()), hi.max(p.x()))
+            });
+        if !(hi - lo).is_finite() || hi - lo >= std::f64::consts::TAU {
+            return Err(ConstructError::ThetaUnwrap { patch: patch_index });
+        }
+    }
+    if biperiodic {
+        let (lo, hi) = pool
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+                (lo.min(p.y()), hi.max(p.y()))
             });
         if !(hi - lo).is_finite() || hi - lo >= std::f64::consts::TAU {
             return Err(ConstructError::ThetaUnwrap { patch: patch_index });
@@ -1875,10 +1900,26 @@ pub(crate) fn refill_fan_hole(
                 (lo.min(p.x()), hi.max(p.x()))
             });
         let mid = 0.5 * (lo + hi);
+        let ymid = if biperiodic {
+            let (ylo, yhi) = pool
+                .iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+                    (lo.min(p.y()), hi.max(p.y()))
+                });
+            0.5 * (ylo + yhi)
+        } else {
+            0.0
+        };
         let uv_of = |v: u32| -> Result<Point2, ConstructError> {
             let uv = chart.project(mesh.verts[v as usize]);
             let k = ((mid - uv.x()) / std::f64::consts::TAU).round();
-            Ok(Point2::new(uv.x() + k * std::f64::consts::TAU, uv.y()))
+            let y = if biperiodic {
+                let l = ((ymid - uv.y()) / std::f64::consts::TAU).round();
+                uv.y() + l * std::f64::consts::TAU
+            } else {
+                uv.y()
+            };
+            Ok(Point2::new(uv.x() + k * std::f64::consts::TAU, y))
         };
         let mut budget = 0.0f64;
         for t in &old {
@@ -4676,5 +4717,75 @@ mod tests {
             Err(ConstructError::ApexInPatch { .. }) => {}
             other => panic!("apex polygon must refuse, got {other:?}"),
         }
+    }
+
+    /// §4.5.1 inc-2c-3b-3 — the fan-local Torus chart (`YANG_441_TORUS_CHART`,
+    /// default OFF). The window straddles BOTH seams (θ = π azimuth AND φ = π
+    /// tube angle), so raw `atan2` coordinates jump a full turn between chain
+    /// neighbours in each coordinate — the double chain-unwrap is what makes
+    /// the CDT boundary simple. Knob off, the refusal is today's typed
+    /// `NonPlanarPatch` (byte-identical default, the R0074 wall).
+    #[test]
+    fn refill_fan_hole_torus_chart_double_unwraps_across_both_seams() {
+        let (major, minor) = (10.0, 2.0);
+        let chart = crate::stage4_project::SurfaceChart::Torus {
+            center: [0.0, 0.0, 0.0],
+            axis: [0.0, 0.0, 1.0],
+            e1: [1.0, 0.0, 0.0],
+            e2: [0.0, 1.0, 0.0],
+            major,
+            minor,
+        };
+        let on_torus = |theta: f64, phi: f64| chart.lift(cad_primitives::Point2::new(theta, phi));
+        let surface = Surface::Torus {
+            center: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            major_radius: major,
+            minor_radius: minor,
+        };
+        let pi = std::f64::consts::PI;
+        let mesh = Mesh {
+            verts: vec![
+                on_torus(pi - 0.30, pi - 0.25), // 0 link end (θ, φ both below seam)
+                on_torus(pi + 0.25, pi - 0.30), // 1 link (θ crosses the seam)
+                on_torus(pi + 0.30, pi + 0.25), // 2 link (φ crosses the seam too)
+                on_torus(pi - 0.25, pi + 0.30), // 3 link end (θ back across)
+                on_torus(pi - 0.02, pi + 0.02), // 4 = the phantom (victim mid-window)
+                // 5 = the corridor mint replacing it — at the SAME station, so
+                // the fill reproduces the fossil's own granularity exactly and
+                // the like-for-like budget is met with equality (the test pins
+                // the chart/unwrap/budget plumbing; mint placement is the
+                // planner's business).
+                on_torus(pi - 0.02, pi + 0.02),
+            ],
+            tris: vec![[4, 0, 1], [4, 1, 2], [4, 2, 3]],
+        };
+        let patch = SplicePatch {
+            cycles: vec![vec![0, 1, 2, 3, 4]],
+            tris: vec![0, 1, 2],
+            surface,
+        };
+        let (r, link) = delete_boundary_fan(&mesh, 0, &patch, 4).expect("boundary fan");
+        assert_eq!(link, vec![0, 1, 2, 3]);
+        // The far-arm polygon shape (§3j): the link plus the corridor path
+        // closing the hole where the phantom sat — same footprint, same
+        // density, so the like-for-like budget is satisfiable.
+        let polygon = [0u32, 1, 2, 3, 5];
+        // Knob off (the default): the chart does not exist — the holder's
+        // refusal is exactly today's, the measured R0074 wall.
+        match refill_fan_hole(&mesh, 0, &patch, &polygon, &r.old_tris) {
+            Err(ConstructError::NonPlanarPatch { .. }) => {}
+            other => panic!("knob-off torus refill must refuse NonPlanarPatch, got {other:?}"),
+        }
+        std::env::set_var("YANG_441_TORUS_CHART", "1");
+        let fill = refill_fan_hole(&mesh, 0, &patch, &polygon, &r.old_tris).expect("torus fill");
+        assert_eq!(fill.len(), 3, "pentagon fills with three triangles");
+        assert!(
+            fill.iter().any(|t| t.contains(&5)),
+            "the mint must appear in the fill"
+        );
+        let pos = |v: u32| mesh.verts[v as usize];
+        let want = area_vector(&[[4, 0, 1], [4, 1, 2], [4, 2, 3]], &pos);
+        assert!(dot3(want, area_vector(&fill, &pos)) > 0.0);
     }
 }

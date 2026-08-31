@@ -66,6 +66,26 @@ pub(crate) enum SurfaceChart {
         e2: [f64; 3],
         tan_half: f64,
     },
+    /// §4.5.1 inc-2c-3b-3 (spec `specs/yang_451_corner_transit.md`): param =
+    /// `(θ, φ)` — azimuth about the axis and tube angle — the pinned
+    /// `stage4_dt::eval_uv` §2 embedding
+    /// `center + (R + r·cos φ)(cos θ·e1 + sin θ·e2) + r·sin φ·â`, in the same
+    /// `ortho_basis(axis)` frame, RING torus only (`R > r > 0`, the
+    /// `validate_surface` rule — every on-surface point has radial distance
+    /// ≥ R − r > 0, so both angles are defined). DOUBLY periodic: `lift`
+    /// inverts `project` modulo `2π` in BOTH coordinates, so a caller must
+    /// chain-unwrap θ AND φ before CDT. Only [`new_local`](Self::new_local)
+    /// builds this variant — a torus patch may wrap a full period in either
+    /// direction, so wholesale-patch holders (which chart entire boundary
+    /// cycles) keep refusing tori until seam machinery exists.
+    Torus {
+        center: [f64; 3],
+        axis: [f64; 3],
+        e1: [f64; 3],
+        e2: [f64; 3],
+        major: f64,
+        minor: f64,
+    },
 }
 
 /// I13a — the Cone chart (and with it, cone-owner rebuilds in the
@@ -76,6 +96,18 @@ pub(crate) enum SurfaceChart {
 /// `YANG_441_CONE_CHART=0|off` is the dev A/B off-knob.
 pub(crate) fn cone_chart_enabled() -> bool {
     !matches!(std::env::var("YANG_441_CONE_CHART"), Ok(v) if v == "0" || v == "off")
+}
+
+/// §4.5.1 inc-2c-3b-3 — the Torus chart for FAN-LOCAL windows
+/// ([`SurfaceChart::new_local`] holders only). `YANG_441_TORUS_CHART=1|on`
+/// arms it; default OFF — every holder keeps today's typed refusal
+/// (byte-identical). Flip protocol = the I13a cone chart's: gated corpus
+/// measurement first (the R0074 far-fan refill is the naming case).
+pub(crate) fn torus_chart_enabled() -> bool {
+    matches!(
+        std::env::var("YANG_441_TORUS_CHART").as_deref(),
+        Ok("1") | Ok("on")
+    )
 }
 
 impl SurfaceChart {
@@ -128,6 +160,52 @@ impl SurfaceChart {
         }
     }
 
+    /// §4.5.1 inc-2c-3b-3 — the FAN-LOCAL chart: everything [`new`](Self::new)
+    /// charts, plus (under [`torus_chart_enabled`]) a ring Torus. Valid ONLY
+    /// for a simply-connected local window that wraps neither period — a fan
+    /// hole's link polygon, never a whole patch boundary cycle — and the
+    /// caller owns the chain-unwrap of BOTH coordinates (θ and φ are each
+    /// `2π`-periodic). Non-ring tori (horn/spindle, `r ≥ R`) stay `None`:
+    /// they self-intersect and `stage4_dt::validate_surface` refuses them
+    /// anyway, so the holder's existing typed decline is the honest verdict.
+    pub(crate) fn new_local(surface: Surface) -> Option<Self> {
+        if let Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } = surface
+        {
+            if !torus_chart_enabled() {
+                return None;
+            }
+            let finite = center.as_array().iter().all(|c| c.is_finite())
+                && axis_dir.as_array().iter().all(|c| c.is_finite())
+                && major_radius.is_finite()
+                && minor_radius.is_finite();
+            let ring = minor_radius > 0.0 && major_radius > minor_radius;
+            let len2 = {
+                let a = axis_dir.as_array();
+                a[0] * a[0] + a[1] * a[1] + a[2] * a[2]
+            };
+            // `len2` is finite whenever `finite` holds (a sum of squares of
+            // finite components), so `<= 0.0` is exactly "degenerate axis".
+            if !finite || !ring || len2 <= 0.0 {
+                return None;
+            }
+            let (e1v, e2v) = ortho_basis(axis_dir);
+            return Some(SurfaceChart::Torus {
+                center: center.as_array(),
+                axis: normalize3(axis_dir.as_array()),
+                e1: e1v.as_array(),
+                e2: e2v.as_array(),
+                major: major_radius,
+                minor: minor_radius,
+            });
+        }
+        Self::new(surface)
+    }
+
     /// The chartability pre-filter — the ONE capability test every construct /
     /// fold-merge / corner-merge / rim-trim holder gate consults (previously
     /// five hand-copied `matches!(Plane | Cylinder)` sites). `true` exactly
@@ -174,6 +252,26 @@ impl SurfaceChart {
                 let theta = dot(radial, e2).atan2(dot(radial, e1));
                 Point2::new(theta, z)
             }
+            SurfaceChart::Torus {
+                center,
+                axis,
+                e1,
+                e2,
+                major,
+                ..
+            } => {
+                let w = [x[0] - center[0], x[1] - center[1], x[2] - center[2]];
+                let z = dot(w, axis);
+                let radial = [w[0] - z * axis[0], w[1] - z * axis[1], w[2] - z * axis[2]];
+                let theta = dot(radial, e2).atan2(dot(radial, e1));
+                // On-surface: |radial| = R + r·cos φ and z = r·sin φ, so the
+                // tube angle is atan2(z, |radial| − R) — well-defined for the
+                // ring torus (|radial| ≥ R − r > 0).
+                let rho =
+                    (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+                let phi = z.atan2(rho - major);
+                Point2::new(theta, phi)
+            }
         }
     }
 
@@ -218,6 +316,24 @@ impl SurfaceChart {
                     apex[0] + r * (ct * e1[0] + st * e2[0]) + z * axis[0],
                     apex[1] + r * (ct * e1[1] + st * e2[1]) + z * axis[1],
                     apex[2] + r * (ct * e1[2] + st * e2[2]) + z * axis[2],
+                )
+            }
+            SurfaceChart::Torus {
+                center,
+                axis,
+                e1,
+                e2,
+                major,
+                minor,
+            } => {
+                let (theta, phi) = (uv.x(), uv.y());
+                let (ct, st) = (theta.cos(), theta.sin());
+                let rho = major + minor * phi.cos();
+                let z = minor * phi.sin();
+                Point3::new(
+                    center[0] + rho * (ct * e1[0] + st * e2[0]) + z * axis[0],
+                    center[1] + rho * (ct * e1[1] + st * e2[1]) + z * axis[1],
+                    center[2] + rho * (ct * e1[2] + st * e2[2]) + z * axis[2],
                 )
             }
         }
@@ -600,6 +716,53 @@ mod tests {
             minor_radius: 0.5
         })
         .is_none());
+    }
+
+    /// inc-2c-3b-3 — the fan-local Torus chart agrees with the PINNED
+    /// `stage4_dt::eval_uv` §2 embedding (the like-for-like d(T) budget
+    /// projects through the chart and certifies through `d_of_t`, so the two
+    /// conventions must be one), and round-trips on-surface points. Built
+    /// directly (env-free — the `YANG_441_TORUS_CHART` knob gates only
+    /// [`SurfaceChart::new_local`], covered by the construct-side fixture).
+    #[test]
+    fn torus_chart_matches_the_pinned_dt_embedding_and_round_trips() {
+        let axis = Vector3::new(0.3, -0.2, 0.9);
+        let surf = Surface::Torus {
+            center: Point3::new(0.5, -0.25, 1.0),
+            axis_dir: axis,
+            major_radius: 3.0,
+            minor_radius: 0.7,
+        };
+        let (e1v, e2v) = ortho_basis(axis);
+        let chart = SurfaceChart::Torus {
+            center: [0.5, -0.25, 1.0],
+            axis: normalize3(axis.as_array()),
+            e1: e1v.as_array(),
+            e2: e2v.as_array(),
+            major: 3.0,
+            minor: 0.7,
+        };
+        for &(u, v) in &[
+            (0.0, 0.0),
+            (1.0, -2.0),
+            (-2.5, 3.0),
+            (3.1, 3.1),
+            (-3.1, -3.1),
+        ] {
+            let w = chart.lift(Point2::new(u, v));
+            let e = crate::stage4_dt::eval_uv(&surf, Point2::new(u, v)).unwrap();
+            assert!(
+                dist3(w, e) < 1e-12,
+                "chart.lift diverges from eval_uv at ({u},{v}): {w:?} vs {e:?}"
+            );
+            let w2 = chart.lift(chart.project(w));
+            assert!(
+                dist3(w, w2) < 1e-12,
+                "torus lift∘project∘lift drift {w:?} {w2:?}"
+            );
+            let sd = crate::signed_distance_to_surface(surf, w).unwrap();
+            assert!(sd.abs() < 1e-11, "lifted point off torus by {sd}");
+        }
     }
 
     // ---- Integration: chart + frame-agnostic driver on a REAL surface pair. --
