@@ -57,9 +57,10 @@ async function applyExtrudeViaDialog(waffle, { depth = '10', cut = false, flipDi
 		await depthInput.fill(depth);
 	}
 
-	// Toggle cut checkbox
+	// Cut: the legacy checkbox became the combine SELECT in the
+	// optional-booleans overhaul.
 	if (cut) {
-		await waffle.page.locator('[data-testid="extrude-cut"]').check();
+		await waffle.page.locator('[data-testid="extrude-combine"]').selectOption('Cut');
 	}
 
 	// Set second direction if specified
@@ -388,13 +389,16 @@ test.describe('extrude flip direction', () => {
 });
 
 test.describe('extrude cut mode', () => {
-	test('cut checkbox is visible and unchecked by default', async ({ waffle }) => {
+	test('combine select is visible and defaults to Add (not Cut)', async ({ waffle }) => {
+		// The legacy cut checkbox became the combine SELECT in the
+		// optional-booleans overhaul; "not cut by default" now means the
+		// select defaults to Add.
 		await sketchRectangle(waffle);
 		await clickExtrude(waffle.page);
 
-		const cutCheckbox = waffle.page.locator('[data-testid="extrude-cut"]');
-		await expect(cutCheckbox).toBeVisible();
-		await expect(cutCheckbox).not.toBeChecked();
+		const combineSelect = waffle.page.locator('[data-testid="extrude-combine"]');
+		await expect(combineSelect).toBeVisible();
+		await expect(combineSelect).toHaveValue('Add');
 	});
 
 	test('extrude with cut creates feature', async ({ waffle }) => {
@@ -582,12 +586,14 @@ test.describe('extrude combined options', () => {
 
 test.describe('extrude dialog state management', () => {
 	test('dialog resets all fields when reopened', async ({ waffle }) => {
+		// The legacy cut CHECKBOX became the combine SELECT (NewBody/Add/Cut/
+		// Intersect) in the optional-booleans overhaul; assert on that control.
 		await sketchRectangle(waffle);
 
 		// Open, modify fields, cancel
 		await clickExtrude(waffle.page);
 		await waffle.page.locator('[data-testid="extrude-depth"]').fill('99');
-		await waffle.page.locator('[data-testid="extrude-cut"]').check();
+		await waffle.page.locator('[data-testid="extrude-combine"]').selectOption('Cut');
 		await waffle.page.locator('[data-testid="extrude-depth-mode"]').selectOption('ThroughAll');
 		await waffle.page.locator('[data-testid="extrude-flip-direction"]').click();
 		await waffle.page.locator('[data-testid="extrude-cancel"]').click();
@@ -596,7 +602,7 @@ test.describe('extrude dialog state management', () => {
 		await clickExtrude(waffle.page);
 		await expect(waffle.page.locator('[data-testid="extrude-depth-mode"]')).toHaveValue('Blind');
 		await expect(waffle.page.locator('[data-testid="extrude-depth"]')).toBeVisible();
-		await expect(waffle.page.locator('[data-testid="extrude-cut"]')).not.toBeChecked();
+		await expect(waffle.page.locator('[data-testid="extrude-combine"]')).toHaveValue('Add');
 		await expect(waffle.page.locator('[data-testid="extrude-second-dir"]')).toHaveValue('None');
 		await expect(waffle.page.locator('[data-testid="extrude-flip-direction"]')).toHaveText('Normal');
 		await expect(waffle.page.locator('[data-testid="extrude-flip-direction"]')).not.toHaveClass(/flipped/);
