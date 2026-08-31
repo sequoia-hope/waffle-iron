@@ -901,14 +901,25 @@ name, never measured).
    landed the total-excision closure (planner fall-through + sweep
    whole-component/contained-strip arms + batch-carried seeds):
    **R0044's natural invocation now APPLIES (corridors=6 plans=20
-   mints=15 removed=25)** and stops typed at Stage-6
-   NonManifoldOutput — the `[451-audit]` census names 16 unpaired
-   directed edges in 4 repair neighbourhoods = inc-2c-3b-9, the batch
-   boundary-conformality closure (spec §3p: removed_all as a
-   batch-wide authority over corrected cycles; §4.4.1 Fig-11(a)
-   neighbour-side edge splits for mints on shared chains). R0085
-   stays walled on operand quality. Then inc-3: full-corpus gated
-   measurement, two-proof flip.*
+   mints=15 removed=25)**. inc-2c-3b-9a/9b closed the
+   batch boundary-conformality wall (spec §3q/§3r): the removed-union
+   filter, the ALWAYS-ON survivor-testimony refill orientation
+   certificate (full-corpus proven neutral), and the
+   STANDING-JUNCTION certificate (a 3-face vertex within CONTRACT of
+   its own triple solution is never absorbed — the absorb had been
+   DELETING true junctions the relocation had already placed; both
+   triple shapes incl. the far-op crease v107) — **16 → 0 unpaired
+   edges, the batch is watertight, and R0044's design boolean
+   COMPLETES**. inc-2c-3b-10 landed the §4.5.3 SURFACE-PAIR
+   analytic-tangent arm GATED (`YANG_453_SPAIR`, default OFF: the
+   always-on corpus run measured ONE E→W — R0053, M8 coplanar-graze,
+   whose fold's ring rejection was a loud stop MASKING the M8 gap;
+   flip = that χ adjudication or M8 Stage-0): under it R0044's
+   FaceId(459) ring wall falls → FaceId(626) folded-triangulation
+   (unmeasured). R0044's gate set: `YANG_451_TRANSIT=1
+   YANG_441_TORUS_CHART=1 YANG_453_SPAIR=1`. Also open: the v105
+   retry ChordDegradation. R0085 stays walled on operand quality.
+   Then inc-3: full-corpus gated measurement, two-proof flip.*
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the
