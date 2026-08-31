@@ -1212,6 +1212,22 @@ paper's §4.5.5/§4.3 corner vocabulary before building.** R0011/R0074:
 byte-identical APPLIED lines, both SUPPORTED_CORRECT; 797 lib tests
 green.
 
+**3b-8 ANCHOR (same session, the `-base` census —
+`[451-base]` lines, kept):** the crossed corner's THIRD-face
+junctions EXIST — solving {far, B:0, F} seeded at q=v513 converges
+for every junction face: **{far, base, 378} at d_q = 47.8 and
+{far, base, 379} at d_q = 104.2, and the mirrored corridors #4/#5
+share them BIT-EQUAL** (the shared-mint identity extends to the
+base). The far body truly cuts the base creases near the excised
+corner; the removed run on B:0 (far ≈ 0 verts) lay along the
+far∩base curve between these junctions. **The corner-crossing has a
+SECOND LEG on the base**: the repair = two new base junctions + a
+far∩base run (the `sample_run_chord` vocabulary on {far, base}) +
+B:0's cycle surgery, with the far comp's boundary gaining the same
+leg — a corridor-shaped structure the walk never solved because it
+crossed the facet fan, not the base. inc-2c-3b-8 builds the BASE LEG
+(assembly + planning + apply), census-first on the cycle shapes.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file

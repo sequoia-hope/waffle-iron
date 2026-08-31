@@ -5930,6 +5930,52 @@ fn corner_transit_apply(
                         .collect::<Vec<_>>(),
                 );
             }
+            // inc-2c-3b-8 census: the crossed corner's THIRD faces (its
+            // memberships beyond far and the walk's junction faces) — does
+            // a true junction {far, third, junction-face} exist near the
+            // corner (the base-boundary re-closure candidate)?
+            for &q in &c.corners {
+                let pq = patches_of(q);
+                let jfaces: std::collections::BTreeSet<(InputId, u32)> = c
+                    .junctions
+                    .iter()
+                    .flat_map(|j| [(c.walk_op, j.faces.0), (c.walk_op, j.faces.1)])
+                    .collect();
+                let far_s = faces_of(c.far.0).get(c.far.1 as usize).map(|f| f.surface);
+                let qpos = mesh.verts[q as usize];
+                let d3 = |a: Point3, b: [f64; 3]| -> f64 {
+                    ((a.x() - b[0]).powi(2) + (a.y() - b[1]).powi(2) + (a.z() - b[2]).powi(2))
+                        .sqrt()
+                };
+                for &t in pq
+                    .iter()
+                    .filter(|kk| **kk != c.far && !jfaces.contains(*kk))
+                {
+                    let ts = faces_of(t.0).get(t.1 as usize).map(|f| f.surface);
+                    for &(fi, ff) in &jfaces {
+                        let fs = faces_of(fi).get(ff as usize).map(|f| f.surface);
+                        if let (Some(a0), Some(a1), Some(a2)) = (far_s, ts, fs) {
+                            let sol = crate::stage4_relocate::relocate_onto_implicit_triple(
+                                qpos, a0, a1, a2,
+                            );
+                            match sol {
+                                Some(x) => eprintln!(
+                                    "[451-base] #{k} q=v{q} third={t:?} jf=({fi:?},{ff}) \
+                                     sol=({:.3},{:.3},{:.3}) d_q={:.4e}",
+                                    x.x(),
+                                    x.y(),
+                                    x.z(),
+                                    d3(x, qpos.as_array()),
+                                ),
+                                None => eprintln!(
+                                    "[451-base] #{k} q=v{q} third={t:?} \
+                                     jf=({fi:?},{ff}) NO-CONVERGE"
+                                ),
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     let (plans, pdeclines) = s4c::plan_invocation(&corridors, &comp_vec, &pctx, &mut pool);
