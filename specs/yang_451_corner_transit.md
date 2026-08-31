@@ -1178,6 +1178,40 @@ v105 refill stays walled at ChordDegradation 53.9→74.4 — seeding
 worsens it there, a centroid-vs-edge-split question — moot while the
 natural pass is the live path.)
 
+## 3o. inc-2c-3b-7 — the removed-membership closure, PARTIAL (LANDED
+2026-08-31, third session; R0044 stops typed at the base-boundary
+adjudication)
+
+- **Phantom-membership keys**: the driver's pull-in (and the census
+  mirror, lockstep) extends each corridor's key set with its phantoms'
+  patch memberships, and `plan_invocation` treats phantom-presence on
+  a component's cycles as affectedness regardless of the key formula —
+  the phantom must vanish everywhere (the I13 interference-group
+  lesson). R0044's prism base B:0 (the crossed corner q=v513's third
+  face, carrying the twin phantoms + v141 + q) now PLANS.
+- **The closure SWEEP**: a comp holding removed vertices but neither
+  planned nor far-processed gets the same fan-local surgery with a
+  SYNTHESIZED correction (its own cycle minus the removed run — empty
+  stitch arcs; direct reconnection at chord accuracy, the absorb
+  splice seen from the other patch). Conformality stays adjudicated
+  downstream (§4-I9 re-run, stage-5/6 manifoldness, oracle gate) —
+  loud, never silent, and the apply is gated. A 2-vertex hole over one
+  triangle rebuilds EMPTY (the sliver shape, measured on A:3's v107
+  fan — the `fan_rebuild_core` precedent).
+
+**Measured (R0044, both gates): the invocation advances to
+`(4, 11, AttachmentMismatch{phantom: 142})` — B:0's generator cannot
+anchor: the phantom's cycle-neighbours there are v141 (the remnant)
+and q itself, neither resolving to a junction.** The removed run's
+vertices on B:0 read far ≈ 0 — they lie ON far∩base — so whether the
+base re-closes by mint-splice, by direct reconnection, or along a
+far∩base segment is a genuine geometric adjudication (the corner may
+truly be cut by the far body at the base). **inc-2c-3b-8 = the
+base-boundary adjudication: census B:0's corner anatomy against the
+paper's §4.5.5/§4.3 corner vocabulary before building.** R0011/R0074:
+byte-identical APPLIED lines, both SUPPORTED_CORRECT; 797 lib tests
+green.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -1305,10 +1339,17 @@ natural pass is the live path.)
   the wrap-band dispatch (wholesale's own typed verdicts route
   full-wrap/fold bands through the fan-local machinery). FIVE R0044
   walls fall; the case stops typed at the batch-integrity scan (§3n).
-- inc-2c-3b-7: the REMOVED-MEMBERSHIP closure — affected comps
-  discovered from the removed set's memberships (the corner's third
-  face B:0, the operand-A neighbour A:3, and the incursion strips
-  B:370/371 needing the two-sided conformal update) (§3n).
+- **inc-2c-3b-7 PARTIAL** (2026-08-31, third session): phantom-
+  membership keys + planner phantom-presence affectedness (B:0 plans)
+  + the closure SWEEP (synthesized correction, sliver-empty rebuilds).
+  R0044 stops typed at B:0's `AttachmentMismatch{v142}` (§3o).
+- inc-2c-3b-8: the BASE-BOUNDARY adjudication — B:0's corner anatomy
+  (the removed run lies ON far∩base; mint-splice vs reconnection vs a
+  far∩base segment), census + paper first (§3o).
+- Also open: the incursion strips' two-sided conformality (B:370/371,
+  currently behind the closure sweep's downstream adjudication), and
+  the retry-path v105 refill (ChordDegradation under centroid seeding
+  — an edge-split question; moot while the natural pass is live).
 - inc-3: fixed-point integration (multiple sites per case; R0085 has two
   failing ops) + full-corpus gated measurement; flip under the standing
   two-proof protocol. R0085 stays honestly walled on operand quality

@@ -5802,7 +5802,18 @@ fn corner_transit_apply(
     let mut host_map: std::collections::BTreeMap<(usize, u32), Vec<s4c::HostEdge>> =
         Default::default();
     for (k, c) in corridors.iter().enumerate() {
-        for key in s4c::affected_keys(c) {
+        // inc-2c-3b-7 (§3n): the affected set includes every patch a
+        // PHANTOM lives on — the phantom must vanish everywhere (the I13
+        // interference-group lesson; R0044's crossed corner q=v513 puts
+        // the twin phantoms on the prism base B:0, which the key formula
+        // alone never names). Planning there uses the same generators.
+        let mut keys = s4c::affected_keys(c);
+        for &ph in &c.phantoms {
+            keys.extend(patches_of(ph).iter().copied());
+        }
+        keys.sort_unstable();
+        keys.dedup();
+        for key in keys {
             for (pi, patch) in raw_patches
                 .iter()
                 .enumerate()
@@ -6261,6 +6272,153 @@ fn corner_transit_apply(
             }
         }
         removed_all.extend(pl.removed.iter().copied());
+    }
+    // inc-2c-3b-7 (§3n) — the REMOVED-MEMBERSHIP closure sweep: a comp
+    // that holds removed vertices but was neither planned nor far-processed
+    // (the operand-neighbour face, the incursion strips) gets the same
+    // fan-local surgery with a SYNTHESIZED correction — its own boundary
+    // cycle minus the removed run (the stitch arcs are empty: the removed
+    // verts were certified doubled-back/past-the-junction by the planning
+    // comps, so the surviving neighbours reconnect directly, to chord
+    // accuracy — the absorb splice one vertex earlier, seen from the other
+    // patch). Conformality stays adjudicated downstream (the §4-I9 re-run,
+    // stage-5/6 manifoldness, the standing oracle gate) — loud, never
+    // silent, and the whole apply is gated.
+    let handled: std::collections::BTreeSet<usize> = rebuilds.iter().map(|r| r.patch).collect();
+    for (pi, patch) in raw_patches.iter().enumerate() {
+        if handled.contains(&pi) {
+            continue;
+        }
+        let holds: std::collections::BTreeSet<u32> = patch
+            .tri_indices
+            .iter()
+            .flat_map(|&t| mesh.tris[t as usize])
+            .filter(|v| removed_all.contains(v))
+            .collect();
+        if holds.is_empty() {
+            continue;
+        }
+        let surface = match faces_of(patch.attribution.input)
+            .get(patch.attribution.face as usize)
+            .map(|f| f.surface)
+        {
+            Some(sf) => sf,
+            None => {
+                refuse("closure-sweep surface missing");
+                rollback(mesh);
+                return Ok(false);
+            }
+        };
+        let synth: Vec<Vec<s4c::CycleRef>> =
+            match crate::stage5_topology::patch_boundary_cycle(patch, mesh) {
+                Ok(cys) => cys
+                    .iter()
+                    .map(|cy| {
+                        cy.iter()
+                            .map(|&(v, _)| v)
+                            .filter(|v| !removed_all.contains(v))
+                            .map(s4c::CycleRef::Old)
+                            .collect()
+                    })
+                    .collect(),
+                Err(_) => {
+                    refuse(&format!("closure-sweep cycle walk failed comp={pi}"));
+                    rollback(mesh);
+                    return Ok(false);
+                }
+            };
+        let spd = crate::stage4_splice::SplicePatch {
+            cycles: Vec::new(),
+            tris: patch.tri_indices.clone(),
+            surface,
+        };
+        let mut remaining = holds.clone();
+        while let Some(&seed0) = remaining.iter().next() {
+            let mut victims = std::collections::BTreeSet::from([seed0]);
+            let mut stack = vec![seed0];
+            while let Some(x) = stack.pop() {
+                for &y in adj.get(&x).into_iter().flatten() {
+                    if holds.contains(&y) && victims.insert(y) {
+                        stack.push(y);
+                    }
+                }
+            }
+            remaining.retain(|v| !victims.contains(v));
+            let (del, runs, _fan) =
+                match crate::stage4_construct::delete_boundary_fan_runs(mesh, pi, &spd, &victims) {
+                    Ok(r) => r,
+                    Err(e2) => {
+                        refuse(&format!(
+                            "closure-sweep fan delete comp={pi} ({victims:?}): {e2:?}"
+                        ));
+                        rollback(mesh);
+                        return Ok(false);
+                    }
+                };
+            let polygon = match stitch_fan_polygon(&synth, &runs, base) {
+                Ok(pg) => pg,
+                Err(why) => {
+                    refuse(&format!("closure-sweep stitch comp={pi}: {why}"));
+                    rollback(mesh);
+                    return Ok(false);
+                }
+            };
+            if polygon.len() < 3 {
+                // A 2-vertex hole is ONE sliver triangle: the correct
+                // rebuild is EMPTY — the opposite edge becomes the boundary
+                // (the fan_rebuild_core sliver shape, measured on A:3's
+                // v107 fan). More old triangles than that is a geometry
+                // defect, refused.
+                if del.old_tris.len() != 1 {
+                    refuse(&format!(
+                        "closure-sweep comp={pi}: {}-gon hole over {} tris",
+                        polygon.len(),
+                        del.old_tris.len()
+                    ));
+                    rollback(mesh);
+                    return Ok(false);
+                }
+                replaced.extend(del.old_tris.iter().copied());
+                rebuilds.push(crate::stage4_construct::PatchRebuild {
+                    patch: pi,
+                    old_tris: del.old_tris,
+                    new_tris: Vec::new(),
+                    new_verts: Vec::new(),
+                    dropped: victims.clone(),
+                    plan_verts: mesh.verts.len() as u32,
+                    plan_tris: mesh.tris.len() as u32,
+                });
+                continue;
+            }
+            let seed_base = mesh.verts.len() as u32;
+            let (new_tris, seed_pts) = match crate::stage4_construct::refill_fan_hole_seeded(
+                mesh,
+                pi,
+                &spd,
+                &polygon,
+                &del.old_tris,
+                victims.len(),
+                seed_base,
+            ) {
+                Ok(t) => t,
+                Err(e2) => {
+                    refuse(&format!("closure-sweep refill comp={pi}: {e2:?}"));
+                    rollback(mesh);
+                    return Ok(false);
+                }
+            };
+            mesh.verts.extend(seed_pts.iter().copied());
+            replaced.extend(del.old_tris.iter().copied());
+            rebuilds.push(crate::stage4_construct::PatchRebuild {
+                patch: pi,
+                old_tris: del.old_tris,
+                new_tris,
+                new_verts: Vec::new(),
+                dropped: victims.clone(),
+                plan_verts: mesh.verts.len() as u32,
+                plan_tris: mesh.tris.len() as u32,
+            });
+        }
     }
     // The excised vertices must be referenced ONLY by replaced triangles.
     for (ti, tri) in mesh.tris.iter().enumerate() {
@@ -7572,7 +7730,15 @@ fn relocation_domain_postcondition(
                         Default::default();
                     let mut inputs_ok = true;
                     for (k, c) in corridors.iter().enumerate() {
-                        for key in s4c::affected_keys(c) {
+                        // Lockstep with the driver: phantom-membership keys
+                        // join the affected set (inc-2c-3b-7).
+                        let mut keys = s4c::affected_keys(c);
+                        for &ph in &c.phantoms {
+                            keys.extend(patches_of(ph).iter().copied());
+                        }
+                        keys.sort_unstable();
+                        keys.dedup();
+                        for key in keys {
                             for (pi, patch) in raw_patches
                                 .iter()
                                 .enumerate()

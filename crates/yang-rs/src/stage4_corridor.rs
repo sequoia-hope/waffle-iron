@@ -425,7 +425,15 @@ pub(crate) fn plan_invocation(
         let mut removed_all: Vec<u32> = Vec::new();
         let mut edited = false;
         for (k, c) in corridors.iter().enumerate() {
-            if !affected_keys(c).contains(&comp.key) {
+            // inc-2c-3b-7: a component whose cycles carry this corridor's
+            // PHANTOM is affected regardless of the key formula (the
+            // crossed corner's third face — R0044's prism base B:0 holds
+            // the twin phantoms; the phantom must vanish everywhere).
+            let holds_phantom = c
+                .phantoms
+                .iter()
+                .any(|&p| cycles.iter().any(|cy| cy.contains(&CycleRef::Old(p))));
+            if !affected_keys(c).contains(&comp.key) && !holds_phantom {
                 continue;
             }
             let Some(rsign) = removed_sign(k) else {
