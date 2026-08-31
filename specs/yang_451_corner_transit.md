@@ -828,14 +828,32 @@ op-1 output as its input — `TessellationFailed { face: FaceId(402),
 byte-identical original ERROR (re-measured). No oracle complaints on
 the completed op-1 boolean.
 
-**inc-2c-3b-2 (next): the FaceId(402) ring.** The corridor mutation
-is sound at the mesh level (postcondition clean); the new wall is the
-Stage-5/6 EMISSION of the repaired region into the output B-Rep — the
-prime suspect is curve provenance: the corridor's minted junctions
-and run edges exist in no stage-3 `PosKeyedEdgeSet`/curve map, so the
-emitted loops around the repaired area may carry degenerate ring
-geometry. Anchor face 402's emitted ring first (which face, which
-loop, which vertices); do not guess the fix.
+**inc-2c-3b-2: the FaceId(402) ring — ANCHORED (same session, via the
+existing `KV2_RING_REJECT_PROBE`).** Face 402 IS the repaired far
+cylinder face (124-vert outer + 2 holes = the corridor-edited tooth
+crossings). The rejection is NOT curve provenance: hole[0] (v27's
+tooth) reads `… → (1787.733, 498.610, -4368.651) →
+N8(1791.632, 500.944, -4367.541) → N9 → N10 → v20 …` — the vertex
+BEFORE the minted junction is **v26, the chain-end neighbour itself,
+sitting 4.7 PAST the junction with an ANTI-PARALLEL connector step**
+(the 2D chart shows the doubled-back spike; hole[1] carries the same
+~4-unit reversal at its junction). v26 is a healthy-looking relocated
+chain vertex whose own position micro-overshoots the facet boundary —
+a NON-CORNER out-of-domain slide §4-I9 can never fire on (it crossed
+a crease-edge INTERIOR, no still corner vertex). The corridor repair
+correctly ends the curve at J0; the pre-existing neighbour overshoot
+then folds the emitted ring.
+
+Fix shape (the paper's own §4.4.1 sentence): NEAR-CURVE REMOVAL at
+the corridor ends — a chain-end neighbour within band of the minted
+junction (or on the wrong side of it along the curve: the
+connector-direction certificate, dot(chain-arrival, connector) > 0)
+is ABSORBED into the junction (the Fig-11 merge), splicing the chain
+one vertex earlier. Two sub-questions to measure first: the band (the
+chord band d_eps vs a junction-contract multiple — v26 measured at
+4.7 from N8 at scale 7e3), and whether the absorbed vertex's B-side
+fans need the same excision treatment as the corner (its position is
+past the crease, i.e. inside the far operand).
 
 ## 4. Increment ledger
 
@@ -906,9 +924,15 @@ loop, which vertices); do not guess the fix.
   repairs (3 corridors / 13 plans / 11 mints / 11 removed), §4-I9
   passes, the boolean completes; the case moves to the downstream
   FaceId(402) ring-rejection wall** (§3j).
-- inc-2c-3b-2: anchor the FaceId(402) emitted ring (Stage-5/6
-  emission of the repaired region; prime suspect: minted corridor
-  edges carry no stage-3 curve provenance).
+- **inc-2c-3b-2 ANCHOR** (2026-08-31, same session): FaceId(402) = the
+  repaired far cylinder face; the rejected ring's spike is the
+  chain-end neighbour v26 sitting 4.7 PAST the minted junction with an
+  anti-parallel connector (a NON-corner out-of-domain slide §4-I9
+  cannot see; both holes show the same shape; provenance suspicion
+  refuted). Fix shape: §4.4.1 near-curve removal at corridor ends —
+  absorb junction-band/wrong-side chain-end neighbours into the mint
+  (Fig-11 merge), connector-direction certificate. Band + B-side-fan
+  questions to measure first (§3j).
 - inc-3: fixed-point integration (multiple sites per case; R0085 has two
   failing ops) + full-corpus gated measurement; flip under the standing
   two-proof protocol.
