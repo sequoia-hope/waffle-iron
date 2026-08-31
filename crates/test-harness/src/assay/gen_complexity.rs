@@ -261,6 +261,7 @@ impl CCase {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         }
     }
 
@@ -475,6 +476,7 @@ impl CCase {
                     angle,
                     cut,
                     merge: true,
+                    angle_expr: None,
                 },
             },
             suppressed: false,

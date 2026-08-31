@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use feature_engine::types::{FeatureTree, Operation};
+use feature_engine::types::{DesignParameter, FeatureTree, Operation};
 use waffle_types::kernel::{EdgeRenderData, RenderMesh};
 use waffle_types::{
     ClosedProfile, GearParams, GeomRef, PlanetaryParams, PlanetaryResult, ProjectedEntity, Region,
@@ -192,6 +192,20 @@ pub enum UiToEngine {
         unit: String,
     },
 
+    // -- Design parameters (variables) --
+    /// Replace the design-parameter table (the UI always sends the complete
+    /// list) and rebuild. Undoable. Evaluated values/errors come back on the
+    /// `ModelUpdated.feature_tree.parameters`.
+    SetParameters {
+        parameters: Vec<DesignParameter>,
+    },
+    /// Stateless: evaluate one expression against the current parameter
+    /// table's cached values (mm-space result). Used by dialogs and the
+    /// dimension input for live validation/preview.
+    EvaluateExpression {
+        expression: String,
+    },
+
     // -- Gear generation (stateless) --
     /// Generate a gear preview polyline for live rendering.
     GenerateGearPreview {
@@ -287,6 +301,13 @@ pub enum EngineToUi {
 
     /// Minimal closed faces of a sketch, in selection order.
     RegionsComputed { regions: Vec<Region> },
+
+    /// Result of `EvaluateExpression`: exactly one of `value` (mm-space
+    /// number) or `error` (user-facing message) is set.
+    ExpressionEvaluated {
+        value: Option<f64>,
+        error: Option<String>,
+    },
 
     /// Planetary stage generated: positioned gears + derived radii + hints.
     PlanetaryGenerated { result: PlanetaryResult },

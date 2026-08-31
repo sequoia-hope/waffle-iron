@@ -774,6 +774,7 @@ fn test_backward_compat_symmetric_flag() {
             second_direction: None, // old-style: symmetric flag only
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     )
     .unwrap();
@@ -807,6 +808,7 @@ fn test_extrude_advanced_full_params() {
             second_direction: Some(SecondDirection::Blind { depth: 5.0 }),
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     )
     .unwrap();

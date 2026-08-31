@@ -112,6 +112,7 @@ fn make_revolve(
             merge,
             combine,
             targets,
+            angle_expr: None,
         },
     }
 }

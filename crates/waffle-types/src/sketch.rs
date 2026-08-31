@@ -37,6 +37,12 @@ pub(crate) mod u32_key_map {
     }
 }
 
+/// Serde helper: skip serializing default-false booleans (keeps old files and
+/// the JS bridge payloads byte-stable where the flag is unset).
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+
 /// A 2D sketch on a plane. Contains geometric entities and constraints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sketch {
@@ -336,6 +342,17 @@ pub enum SketchConstraint {
         entity_a: u32,
         entity_b: u32,
         value: f64,
+        /// Optional driving expression over the design parameters (see
+        /// `feature_engine` parameters). When present, rebuild re-evaluates it
+        /// and writes the result into `value` (mm-space → meters). `value`
+        /// always holds the last evaluated result so downstream consumers and
+        /// old readers see a plain number.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expression: Option<String>,
+        /// Reference (driven) dimension: displays a measured value and must be
+        /// EXCLUDED from any driving-constraint set handed to the solver.
+        #[serde(default, skip_serializing_if = "is_false")]
+        reference: bool,
     },
     /// Perpendicular distance between a point and a line. Equivalent to a
     /// `Distance` constraint over a (point, line) pair, but emitted directly by
@@ -345,6 +362,12 @@ pub enum SketchConstraint {
         point: u32,
         entity: u32,
         value: f64,
+        /// See `Distance::expression`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expression: Option<String>,
+        /// See `Distance::reference`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        reference: bool,
     },
     /// Horizontal (x-axis) distance between two points: constrains `|Δx|`,
     /// leaving the vertical offset free. Emitted by the dimension tool when the
@@ -353,6 +376,12 @@ pub enum SketchConstraint {
         point_a: u32,
         point_b: u32,
         value: f64,
+        /// See `Distance::expression`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expression: Option<String>,
+        /// See `Distance::reference`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        reference: bool,
     },
     /// Vertical (y-axis) distance between two points: constrains `|Δy|`, leaving
     /// the horizontal offset free. Point-pair analogue of `HDistance`.
@@ -360,19 +389,44 @@ pub enum SketchConstraint {
         point_a: u32,
         point_b: u32,
         value: f64,
+        /// See `Distance::expression`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expression: Option<String>,
+        /// See `Distance::reference`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        reference: bool,
     },
     Angle {
         line_a: u32,
         line_b: u32,
         value_degrees: f64,
+        /// See `Distance::expression`. Evaluates to DEGREES (no unit scaling).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expression: Option<String>,
+        /// See `Distance::reference`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        reference: bool,
     },
     Radius {
         entity: u32,
         value: f64,
+        /// See `Distance::expression`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expression: Option<String>,
+        /// See `Distance::reference`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        reference: bool,
     },
     Diameter {
         entity: u32,
         value: f64,
+        /// See `Distance::expression`. Drives the DIAMETER value (the radius-
+        /// style dimension editors wrap user input as `2*(…)` when storing).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expression: Option<String>,
+        /// See `Distance::reference`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        reference: bool,
     },
     OnEntity {
         point: u32,
@@ -410,6 +464,93 @@ pub enum SketchConstraint {
         entity_a: u32,
         entity_b: u32,
     },
+}
+
+/// How an expression-driven dimension's evaluated number maps onto its stored
+/// value: lengths are mm-space numbers converted to meters, angles are taken
+/// as degrees verbatim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DimensionUnit {
+    /// Expression result is millimeters; stored value is meters.
+    Length,
+    /// Expression result is degrees; stored verbatim.
+    AngleDegrees,
+}
+
+impl SketchConstraint {
+    /// The driving expression, if this is an expression-driven dimension.
+    /// `None` for plain-valued dimensions and all non-dimension constraints.
+    pub fn expression(&self) -> Option<&str> {
+        match self {
+            SketchConstraint::Distance { expression, .. }
+            | SketchConstraint::PointLineDistance { expression, .. }
+            | SketchConstraint::HDistance { expression, .. }
+            | SketchConstraint::VDistance { expression, .. }
+            | SketchConstraint::Angle { expression, .. }
+            | SketchConstraint::Radius { expression, .. }
+            | SketchConstraint::Diameter { expression, .. } => expression.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// True for reference (driven) dimensions, which must be excluded from any
+    /// driving-constraint set handed to the solver.
+    pub fn is_reference(&self) -> bool {
+        match self {
+            SketchConstraint::Distance { reference, .. }
+            | SketchConstraint::PointLineDistance { reference, .. }
+            | SketchConstraint::HDistance { reference, .. }
+            | SketchConstraint::VDistance { reference, .. }
+            | SketchConstraint::Angle { reference, .. }
+            | SketchConstraint::Radius { reference, .. }
+            | SketchConstraint::Diameter { reference, .. } => *reference,
+            _ => false,
+        }
+    }
+
+    /// The unit interpretation of this dimension's value, `None` for
+    /// non-dimension constraints.
+    pub fn dimension_unit(&self) -> Option<DimensionUnit> {
+        match self {
+            SketchConstraint::Distance { .. }
+            | SketchConstraint::PointLineDistance { .. }
+            | SketchConstraint::HDistance { .. }
+            | SketchConstraint::VDistance { .. }
+            | SketchConstraint::Radius { .. }
+            | SketchConstraint::Diameter { .. } => Some(DimensionUnit::Length),
+            SketchConstraint::Angle { .. } => Some(DimensionUnit::AngleDegrees),
+            _ => None,
+        }
+    }
+
+    /// The dimension's stored value (meters for lengths, degrees for Angle).
+    pub fn dimension_value(&self) -> Option<f64> {
+        match self {
+            SketchConstraint::Distance { value, .. }
+            | SketchConstraint::PointLineDistance { value, .. }
+            | SketchConstraint::HDistance { value, .. }
+            | SketchConstraint::VDistance { value, .. }
+            | SketchConstraint::Radius { value, .. }
+            | SketchConstraint::Diameter { value, .. } => Some(*value),
+            SketchConstraint::Angle { value_degrees, .. } => Some(*value_degrees),
+            _ => None,
+        }
+    }
+
+    /// Overwrite the dimension's stored value (meters for lengths, degrees for
+    /// Angle). No-op for non-dimension constraints.
+    pub fn set_dimension_value(&mut self, new_value: f64) {
+        match self {
+            SketchConstraint::Distance { value, .. }
+            | SketchConstraint::PointLineDistance { value, .. }
+            | SketchConstraint::HDistance { value, .. }
+            | SketchConstraint::VDistance { value, .. }
+            | SketchConstraint::Radius { value, .. }
+            | SketchConstraint::Diameter { value, .. } => *value = new_value,
+            SketchConstraint::Angle { value_degrees, .. } => *value_degrees = new_value,
+            _ => {}
+        }
+    }
 }
 
 /// Result of running the constraint solver.
@@ -806,6 +947,8 @@ mod tests {
             entity_a: 1,
             entity_b: 2,
             value: 42.5,
+            expression: None,
+            reference: false,
         };
         let json = serde_json::to_string(&c).unwrap();
         let d: SketchConstraint = serde_json::from_str(&json).unwrap();
@@ -813,6 +956,7 @@ mod tests {
             entity_a,
             entity_b,
             value,
+            ..
         } = d
         {
             assert_eq!(entity_a, 1);
@@ -824,11 +968,133 @@ mod tests {
     }
 
     #[test]
+    fn dimension_expression_and_reference_serde_round_trip() {
+        let c = SketchConstraint::Distance {
+            entity_a: 1,
+            entity_b: 2,
+            value: 0.025,
+            expression: Some("width / 2".to_string()),
+            reference: true,
+        };
+        let json = serde_json::to_string(&c).unwrap();
+        assert!(
+            json.contains("width / 2"),
+            "expression must serialize: {json}"
+        );
+        assert!(
+            json.contains("reference"),
+            "reference must serialize: {json}"
+        );
+        let d: SketchConstraint = serde_json::from_str(&json).unwrap();
+        assert_eq!(d.expression(), Some("width / 2"));
+        assert!(d.is_reference());
+        assert_eq!(d.dimension_value(), Some(0.025));
+    }
+
+    #[test]
+    fn dimension_without_new_fields_still_loads() {
+        // Old files / JS payloads that pre-date expression/reference.
+        let json = r#"{"type":"Distance","entity_a":1,"entity_b":2,"value":42.5}"#;
+        let d: SketchConstraint = serde_json::from_str(json).unwrap();
+        assert_eq!(d.expression(), None);
+        assert!(!d.is_reference());
+        // Unset fields stay off the wire (byte-stable for untouched sketches).
+        let out = serde_json::to_string(&d).unwrap();
+        assert!(
+            !out.contains("expression"),
+            "None expression must not serialize: {out}"
+        );
+        assert!(
+            !out.contains("reference"),
+            "false reference must not serialize: {out}"
+        );
+    }
+
+    #[test]
+    fn dimension_accessors_cover_all_seven_dimension_kinds() {
+        let dims = [
+            SketchConstraint::Distance {
+                entity_a: 1,
+                entity_b: 2,
+                value: 1.0,
+                expression: None,
+                reference: false,
+            },
+            SketchConstraint::PointLineDistance {
+                point: 1,
+                entity: 2,
+                value: 1.0,
+                expression: None,
+                reference: false,
+            },
+            SketchConstraint::HDistance {
+                point_a: 1,
+                point_b: 2,
+                value: 1.0,
+                expression: None,
+                reference: false,
+            },
+            SketchConstraint::VDistance {
+                point_a: 1,
+                point_b: 2,
+                value: 1.0,
+                expression: None,
+                reference: false,
+            },
+            SketchConstraint::Angle {
+                line_a: 1,
+                line_b: 2,
+                value_degrees: 45.0,
+                expression: None,
+                reference: false,
+            },
+            SketchConstraint::Radius {
+                entity: 1,
+                value: 1.0,
+                expression: None,
+                reference: false,
+            },
+            SketchConstraint::Diameter {
+                entity: 1,
+                value: 1.0,
+                expression: None,
+                reference: false,
+            },
+        ];
+        for mut d in dims {
+            assert!(d.dimension_unit().is_some(), "{d:?} must be a dimension");
+            let expected = if matches!(d, SketchConstraint::Angle { .. }) {
+                assert_eq!(d.dimension_unit(), Some(DimensionUnit::AngleDegrees));
+                45.0
+            } else {
+                assert_eq!(d.dimension_unit(), Some(DimensionUnit::Length));
+                1.0
+            };
+            assert_eq!(d.dimension_value(), Some(expected));
+            d.set_dimension_value(7.5);
+            assert_eq!(d.dimension_value(), Some(7.5));
+        }
+        // A non-dimension constraint reports None / false and ignores writes.
+        let mut c = SketchConstraint::Parallel {
+            line_a: 1,
+            line_b: 2,
+        };
+        assert_eq!(c.dimension_unit(), None);
+        assert_eq!(c.dimension_value(), None);
+        assert_eq!(c.expression(), None);
+        assert!(!c.is_reference());
+        c.set_dimension_value(9.9);
+        assert_eq!(c.dimension_value(), None);
+    }
+
+    #[test]
     fn constraint_angle_serde() {
         let c = SketchConstraint::Angle {
             line_a: 5,
             line_b: 6,
             value_degrees: 90.0,
+            expression: None,
+            reference: false,
         };
         let json = serde_json::to_string(&c).unwrap();
         let d: SketchConstraint = serde_json::from_str(&json).unwrap();
@@ -836,6 +1102,7 @@ mod tests {
             line_a,
             line_b,
             value_degrees,
+            ..
         } = d
         {
             assert_eq!(line_a, 5);
@@ -851,10 +1118,14 @@ mod tests {
         let r = SketchConstraint::Radius {
             entity: 1,
             value: 5.0,
+            expression: None,
+            reference: false,
         };
         let d = SketchConstraint::Diameter {
             entity: 1,
             value: 10.0,
+            expression: None,
+            reference: false,
         };
         let jr = serde_json::to_string(&r).unwrap();
         let jd = serde_json::to_string(&d).unwrap();

@@ -26,6 +26,11 @@
 		debounceTimer = setTimeout(() => {
 			const op = structuredClone(feature.operation);
 			setNestedValue(op, paramPath, value);
+			// A plain numeric edit detaches any driving expression — otherwise
+			// the next rebuild would silently re-evaluate the expression over
+			// the typed value (same rule as sketch dimension edits).
+			if (paramPath === 'params.depth' && op.params) op.params.depth_expr = null;
+			if (paramPath === 'params.angle' && op.params) op.params.angle_expr = null;
 			editFeature(feature.id, op);
 		}, 300);
 	}

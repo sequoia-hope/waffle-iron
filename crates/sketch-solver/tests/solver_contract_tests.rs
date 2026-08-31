@@ -114,6 +114,8 @@ fn a_radius_constraint_publishes_the_solved_radius_in_the_radii_map() {
             SketchConstraint::Radius {
                 entity: 30,
                 value: 25.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -155,6 +157,8 @@ fn a_diameter_constraint_resizes_the_standalone_circle_profile() {
             SketchConstraint::Diameter {
                 entity: 30,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -199,6 +203,8 @@ fn equal_circles_publishes_both_solved_radii() {
             SketchConstraint::Radius {
                 entity: 30,
                 value: 12.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Equal {
                 entity_a: 30,
@@ -236,6 +242,8 @@ fn arcs_carry_no_radius_param_and_are_absent_from_the_radii_map() {
         vec![SketchConstraint::Radius {
             entity: 40,
             value: 5.0,
+            expression: None,
+            reference: false,
         }],
     );
     let solved = solve_sketch(&sketch);
@@ -266,6 +274,8 @@ fn a_radius_dimension_on_an_arc_solves_through_the_arc_radius_form() {
             SketchConstraint::Radius {
                 entity: 40,
                 value: 9.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -313,11 +323,15 @@ fn rect_with_dimensions() -> Sketch {
                 entity_a: 1,
                 entity_b: 2,
                 value: 100.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 2,
                 entity_b: 3,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
         ],
     )
@@ -479,6 +493,8 @@ fn dimensioning_a_pinned_circle_reaches_zero_degrees_of_freedom() {
             SketchConstraint::Radius {
                 entity: 30,
                 value: 12.0,
+                expression: None,
+                reference: false,
             },
         ],
     ));
@@ -558,6 +574,8 @@ fn an_angle_dimension_against_a_zero_length_line_stays_finite() {
                 line_a: 10,
                 line_b: 11,
                 value_degrees: 45.0,
+                expression: None,
+                reference: false,
             },
         ],
     ));
@@ -647,10 +665,14 @@ fn conflicting_radius_dimensions_report_in_range_constraint_indices() {
         SketchConstraint::Radius {
             entity: 30,
             value: 10.0,
+            expression: None,
+            reference: false,
         },
         SketchConstraint::Radius {
             entity: 30,
             value: 40.0,
+            expression: None,
+            reference: false,
         },
     ];
     let n = constraints.len();

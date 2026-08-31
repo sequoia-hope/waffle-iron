@@ -125,6 +125,7 @@ fn add_extrude(
                     second_direction: None,
                     region: None,
                     regions: Vec::new(),
+                    depth_expr: None,
                 },
             },
         },

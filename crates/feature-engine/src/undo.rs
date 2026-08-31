@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use crate::types::{BodyNames, Feature, Operation};
+use crate::types::{BodyNames, DesignParameter, Feature, Operation};
 
 /// A reversible command recorded by the engine.
 #[derive(Debug, Clone)]
@@ -41,6 +41,13 @@ pub enum Command {
         /// Previous override (`None` ⇒ the body had no override / used a derived name).
         old_name: Option<String>,
         new_name: Option<String>,
+    },
+    /// Whole-table design-parameter replacement (the UI always sends the full
+    /// list). Undo restores `old`, redo re-applies `new`; both rebuild from 0
+    /// since any feature may consume any parameter.
+    SetParameters {
+        old: Vec<DesignParameter>,
+        new: Vec<DesignParameter>,
     },
 }
 

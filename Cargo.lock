@@ -481,6 +481,7 @@ dependencies = [
  "modeling-ops",
  "serde",
  "serde_json",
+ "sketch-solver",
  "step-import",
  "thiserror 1.0.69",
  "uuid",

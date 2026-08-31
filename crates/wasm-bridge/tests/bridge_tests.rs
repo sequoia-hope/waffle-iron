@@ -88,6 +88,7 @@ fn make_extrude_op(sketch_id: Uuid) -> Operation {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     }
 }
@@ -1019,6 +1020,7 @@ fn dispatch_export_step_with_solid_reaches_kernel() {
                     second_direction: None,
                     region: None,
                     regions: Vec::new(),
+                    depth_expr: None,
                 },
             },
         },
@@ -1143,6 +1145,8 @@ fn serde_roundtrip_add_constraint() {
             entity_a: 1,
             entity_b: 2,
             value: 42.5,
+            expression: None,
+            reference: false,
         },
     };
     let json = serde_json::to_string(&msg).unwrap();
@@ -1684,6 +1688,104 @@ fn finish_sketch_persists_projected_bindings() {
             .expect("sketch feature present");
         assert_eq!(sketch.projected.len(), 1, "projected binding must persist");
         assert_eq!(sketch.projected[0].point_id, 50);
+    } else {
+        panic!("expected ModelUpdated, got {resp:?}");
+    }
+}
+
+// ── Design parameters (variables) ────────────────────────────────────────
+
+#[test]
+fn dispatch_set_parameters_returns_evaluated_table() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let resp = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::SetParameters {
+            parameters: vec![
+                DesignParameter::new("width", "30"),
+                DesignParameter::new("half", "width / 2"),
+            ],
+        },
+        &mut kernel,
+    );
+    if let EngineToUi::ModelUpdated { feature_tree, .. } = &resp {
+        assert_eq!(feature_tree.parameters.len(), 2);
+        assert_eq!(feature_tree.parameters[0].value, 30.0);
+        assert_eq!(feature_tree.parameters[1].value, 15.0);
+        assert!(feature_tree.parameters[0].error.is_none());
+    } else {
+        panic!("expected ModelUpdated, got {resp:?}");
+    }
+}
+
+#[test]
+fn dispatch_evaluate_expression_uses_current_parameters() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::SetParameters {
+            parameters: vec![DesignParameter::new("width", "30")],
+        },
+        &mut kernel,
+    );
+
+    let resp = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::EvaluateExpression {
+            expression: "width * 2 + 1in".to_string(),
+        },
+        &mut kernel,
+    );
+    if let EngineToUi::ExpressionEvaluated { value, error } = &resp {
+        assert_eq!(*error, None);
+        assert!((value.unwrap() - 85.4).abs() < 1e-12);
+    } else {
+        panic!("expected ExpressionEvaluated, got {resp:?}");
+    }
+
+    // Errors come back as messages, not Error responses.
+    let resp = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::EvaluateExpression {
+            expression: "bogus + 1".to_string(),
+        },
+        &mut kernel,
+    );
+    if let EngineToUi::ExpressionEvaluated { value, error } = &resp {
+        assert_eq!(*value, None);
+        assert!(error.as_deref().unwrap().contains("unknown variable"));
+    } else {
+        panic!("expected ExpressionEvaluated, got {resp:?}");
+    }
+}
+
+#[test]
+fn set_parameters_undo_flows_through_bridge() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::SetParameters {
+            parameters: vec![DesignParameter::new("d", "5")],
+        },
+        &mut kernel,
+    );
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::SetParameters {
+            parameters: vec![DesignParameter::new("d", "9")],
+        },
+        &mut kernel,
+    );
+    let resp = wasm_bridge::dispatch(&mut state, UiToEngine::Undo, &mut kernel);
+    if let EngineToUi::ModelUpdated { feature_tree, .. } = &resp {
+        assert_eq!(feature_tree.parameters[0].expression, "5");
+        assert_eq!(feature_tree.parameters[0].value, 5.0);
     } else {
         panic!("expected ModelUpdated, got {resp:?}");
     }

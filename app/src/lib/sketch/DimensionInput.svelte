@@ -4,12 +4,14 @@
 		getDimensionPopup,
 		hideDimensionPopup,
 		applyDimensionFromPopup,
+		evaluateExpression,
 		getSketchMode,
 		getCameraObject,
 		getDocumentDisplayUnit
 	} from '$lib/engine/store.svelte.js';
+	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { buildSketchPlane, sketchToScreen } from './sketchCoords.js';
-	import { formatForInput, parseAndConvert } from '$lib/units.js';
+	import { formatForInput, parseAndConvert, isPlainMeasurement } from '$lib/units.js';
 
 	let popup = $derived(getDimensionPopup());
 	let sm = $derived(getSketchMode());
@@ -44,15 +46,31 @@
 		}
 	});
 
-	function handleKeyDown(e) {
+	async function handleKeyDown(e) {
 		e.stopPropagation();
 		if (e.key === 'Enter') {
-			const internalVal = parseAndConvert(inputValue, displayUnit);
-			if (!isNaN(internalVal) && internalVal > 0) {
-				applyDimensionFromPopup(internalVal);
-			} else {
-				hideDimensionPopup();
+			if (isPlainMeasurement(inputValue)) {
+				const internalVal = parseAndConvert(inputValue, displayUnit);
+				if (!isNaN(internalVal) && internalVal > 0) {
+					applyDimensionFromPopup(internalVal);
+				} else {
+					hideDimensionPopup();
+				}
+				return;
 			}
+			// Not a plain number: try it as an expression over the design
+			// variables (mm-space: bare numbers are mm). The popup's dims are
+			// all lengths (distance/radius), so convert mm -> meters.
+			const typed = inputValue.trim();
+			if (typed) {
+				const { value, error } = await evaluateExpression(typed);
+				if (error == null && value != null && value * 0.001 > 0) {
+					applyDimensionFromPopup(value * 0.001, typed);
+					return;
+				}
+				showToast('error', `Dimension expression: ${error ?? 'must evaluate to a positive value'}`);
+			}
+			hideDimensionPopup();
 		} else if (e.key === 'Escape') {
 			hideDimensionPopup();
 		}

@@ -1,3 +1,5 @@
+pub mod expr;
+pub mod params;
 pub mod preview_mesh;
 pub mod rebuild;
 pub mod resolve;
@@ -312,6 +314,23 @@ impl Engine {
         self.inherited_body_names = inherited;
     }
 
+    /// Replace the design-parameter table and rebuild everything that
+    /// consumes it (undoable). The UI always sends the complete list.
+    pub fn set_parameters(
+        &mut self,
+        parameters: Vec<types::DesignParameter>,
+        kb: &mut dyn KernelBundle,
+    ) {
+        let old = std::mem::replace(&mut self.tree.parameters, parameters);
+        self.undo_stack.push(Command::SetParameters {
+            old,
+            new: self.tree.parameters.clone(),
+        });
+        // Rebuild from 0: any feature may consume any parameter, and the
+        // apply pass inside rebuild() refreshes every expression.
+        self.rebuild(kb, 0);
+    }
+
     /// Set rollback index and rebuild. Not undoable.
     pub fn set_rollback(&mut self, index: Option<usize>, kb: &mut dyn KernelBundle) {
         self.tree.set_rollback(index);
@@ -410,6 +429,10 @@ impl Engine {
                 self.tree.set_body_name(body_id, old_name.clone());
                 0 // No rebuild needed for rename
             }
+            Command::SetParameters { old, .. } => {
+                self.tree.parameters = old.clone();
+                0 // Any feature may consume any parameter.
+            }
         }
     }
 
@@ -476,11 +499,24 @@ impl Engine {
                 self.tree.set_body_name(body_id, new_name.clone());
                 0 // No rebuild needed for rename
             }
+            Command::SetParameters { new, .. } => {
+                self.tree.parameters = new.clone();
+                0 // Any feature may consume any parameter.
+            }
         }
     }
 
     /// Rebuild the feature tree from the given index.
     fn rebuild(&mut self, kb: &mut dyn KernelBundle, from_index: usize) {
+        // Design-parameter pass FIRST: refresh every expression-driven
+        // measurement (and re-solve affected sketches) so the rebuild below
+        // executes against current values. If an expression changed a feature
+        // EARLIER than the requested rebuild point, widen to include it.
+        let param_outcome = params::apply_parameters(&mut self.tree);
+        let from_index = param_outcome
+            .first_changed
+            .map_or(from_index, |c| c.min(from_index));
+
         // Clear results from the rebuild point onward (active features)
         let active = self.tree.active_features();
         for feature in active.iter().skip(from_index) {
@@ -496,7 +532,10 @@ impl Engine {
         let state = rebuild::rebuild(&self.tree, kb, from_index, &self.feature_results);
         self.feature_results.extend(state.feature_results);
         self.warnings = state.warnings;
-        self.errors = state.errors;
+        // Parameter/expression errors surface ahead of rebuild errors — a bad
+        // expression is usually the CAUSE of the downstream failures.
+        self.errors = param_outcome.errors;
+        self.errors.extend(state.errors);
         self.consumed_features = state.consumed_features;
         // KV13 F6: accumulate the pid→feature map. A full rebuild (from 0)
         // re-executes and re-captures every feature, so clear first; an

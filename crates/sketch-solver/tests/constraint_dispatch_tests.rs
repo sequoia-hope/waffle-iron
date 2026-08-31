@@ -245,6 +245,8 @@ fn radius_on_arc_selects_the_radius_arc_arm() {
         &SketchConstraint::Radius {
             entity: 40,
             value: 4.0,
+            expression: None,
+            reference: false,
         },
     );
     assert!(
@@ -261,6 +263,8 @@ fn diameter_on_arc_selects_the_diameter_arc_arm() {
         &SketchConstraint::Diameter {
             entity: 40,
             value: 4.0,
+            expression: None,
+            reference: false,
         },
     );
     assert!(
@@ -279,6 +283,8 @@ fn radius_and_diameter_on_an_arc_differ_by_the_factor_of_two() {
         &SketchConstraint::Radius {
             entity: 40,
             value: 0.0,
+            expression: None,
+            reference: false,
         },
     );
     let dia = residual_at_declared(
@@ -286,6 +292,8 @@ fn radius_and_diameter_on_an_arc_differ_by_the_factor_of_two() {
         &SketchConstraint::Diameter {
             entity: 40,
             value: 0.0,
+            expression: None,
+            reference: false,
         },
     );
     assert!(
@@ -371,6 +379,8 @@ fn distance_point_line_and_line_point_compile_identically() {
             entity_a: 3,
             entity_b: 10,
             value: 0.0,
+            expression: None,
+            reference: false,
         },
     );
     let reversed = residual_at_declared(
@@ -379,6 +389,8 @@ fn distance_point_line_and_line_point_compile_identically() {
             entity_a: 10,
             entity_b: 3,
             value: 0.0,
+            expression: None,
+            reference: false,
         },
     );
     assert!(
@@ -409,6 +421,8 @@ fn point_line_distance_matches_the_distance_point_line_arm() {
             entity_a: 3,
             entity_b: 10,
             value: 2.0,
+            expression: None,
+            reference: false,
         },
     );
     let via_point_line = residual_at_declared(
@@ -417,6 +431,8 @@ fn point_line_distance_matches_the_distance_point_line_arm() {
             point: 3,
             entity: 10,
             value: 2.0,
+            expression: None,
+            reference: false,
         },
     );
     assert!(
@@ -481,6 +497,8 @@ fn distance_between_two_circles_is_rejected() {
             entity_a: 30,
             entity_b: 31,
             value: 5.0,
+            expression: None,
+            reference: false,
         },
     );
     assert!(
@@ -497,6 +515,8 @@ fn radius_on_a_line_is_rejected() {
         &SketchConstraint::Radius {
             entity: 10,
             value: 5.0,
+            expression: None,
+            reference: false,
         },
     );
     assert!(
@@ -513,6 +533,8 @@ fn diameter_on_a_line_is_rejected() {
         &SketchConstraint::Diameter {
             entity: 10,
             value: 5.0,
+            expression: None,
+            reference: false,
         },
     );
     assert!(
@@ -603,6 +625,8 @@ fn constraints_referencing_unknown_ids_are_rejected_not_ignored() {
         &SketchConstraint::Radius {
             entity: 999,
             value: 5.0,
+            expression: None,
+            reference: false,
         },
     );
     assert!(
@@ -646,6 +670,8 @@ fn a_constraint_on_an_unsupported_entity_kind_fails_the_whole_solve_inertly() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 999.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Equal {
                 entity_a: 10,

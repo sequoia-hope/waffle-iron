@@ -6,6 +6,7 @@ license = "MIT"
 
 [dependencies]
 modeling-ops = { path = "../modeling-ops" }
+sketch-solver = { path = "../sketch-solver" }
 step-import = { path = "../step-import" }
 waffle-types = { path = "../waffle-types" }
 uuid = { version = "1", features = ["v4", "serde"] }

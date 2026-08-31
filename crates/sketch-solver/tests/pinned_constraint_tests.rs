@@ -127,6 +127,8 @@ fn pin_wins_tug_of_war_with_drag() {
             entity_a: 1,
             entity_b: 2,
             value: 10.0,
+            expression: None,
+            reference: false,
         },
         SketchConstraint::Dragged { point: 2 }, // pinned at its current (20,0)
     ];

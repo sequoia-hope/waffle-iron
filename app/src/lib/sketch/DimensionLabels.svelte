@@ -8,6 +8,8 @@
 		getSketchEntities,
 		getSketchPositions,
 		updateConstraintValue,
+		updateConstraintExpression,
+		evaluateExpression,
 		toggleConstraintReference,
 		getDocumentDisplayUnit,
 		getSelectedConstraintIndex,
@@ -18,7 +20,8 @@
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
 	import { constraintKey } from './constraintBadges.js';
-	import { internalToDisplay, formatWithUnit, parseAndConvert } from '$lib/units.js';
+	import { internalToDisplay, formatWithUnit, parseAndConvert, isPlainMeasurement } from '$lib/units.js';
+	import { showToast } from '$lib/ui/toast.svelte.js';
 
 	let sm = $derived(getSketchMode());
 	let constraints = $derived(getSketchConstraints());
@@ -113,6 +116,7 @@
 						type: 'Distance',
 						value: c.value,
 						reference: !!c.reference,
+						expression: c.expression ?? null,
 						world: worldWithOffset(c, labelPos.x, labelPos.y),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
@@ -125,6 +129,7 @@
 						type: 'Radius',
 						value: c.value,
 						reference: !!c.reference,
+						expression: c.expression ?? null,
 						world: worldWithOffset(c, labelPos.x, labelPos.y),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
@@ -137,6 +142,7 @@
 						type: 'Diameter',
 						value: c.value,
 						reference: !!c.reference,
+						expression: c.expression ?? null,
 						world: worldWithOffset(c, labelPos.x, labelPos.y),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
@@ -149,6 +155,7 @@
 						type: 'Angle',
 						value: c.value_degrees,
 						reference: !!c.reference,
+						expression: c.expression ?? null,
 						world: worldWithOffset(c, labelPos.x, labelPos.y),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
@@ -161,6 +168,7 @@
 						type: 'HDistance',
 						value: c.value,
 						reference: !!c.reference,
+						expression: c.expression ?? null,
 						world: worldWithOffset(c, labelPos.x, labelPos.y),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
@@ -173,6 +181,7 @@
 						type: 'VDistance',
 						value: c.value,
 						reference: !!c.reference,
+						expression: c.expression ?? null,
 						world: worldWithOffset(c, labelPos.x, labelPos.y),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
@@ -185,6 +194,7 @@
 						type: 'PointLineDistance',
 						value: c.value,
 						reference: !!c.reference,
+						expression: c.expression ?? null,
 						world: worldWithOffset(c, labelPos.x, labelPos.y),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
@@ -291,10 +301,33 @@
 		return { x: mx + 0.0003, y: my + 0.0003, fromX: mx, fromY: my };
 	}
 
+	/** Diameter constraints are edited as radii; a radius expression is stored
+	 *  as diameter = 2*(radius expression). Unwrap for re-editing. */
+	function wrapRadiusExpr(expr) {
+		return `2*(${expr})`;
+	}
+
+	function unwrapRadiusExpr(expr) {
+		if (typeof expr === 'string' && expr.startsWith('2*(') && expr.endsWith(')')) {
+			const inner = expr.slice(3, -1);
+			let depth = 0;
+			for (const ch of inner) {
+				if (ch === '(') depth++;
+				else if (ch === ')') { depth--; if (depth < 0) return null; }
+			}
+			if (depth === 0) return inner;
+		}
+		return null;
+	}
+
 	function startEditing(index, currentValue, labelType) {
 		editingIndex = index;
 		editingType = labelType;
-		if (labelType === 'Angle') {
+		const expr = constraints[index]?.expression;
+		if (expr) {
+			// Expression-driven: edit the expression text itself.
+			editValue = labelType === 'Diameter' ? (unwrapRadiusExpr(expr) ?? expr) : expr;
+		} else if (labelType === 'Angle') {
 			editValue = String(currentValue);
 		} else {
 			// Convert internal (meters) to display units for editing
@@ -308,25 +341,47 @@
 
 	let editingType = null;
 
-	function finishEditing() {
-		if (editingIndex != null) {
-			if (editingType === 'Angle') {
-				const val = parseFloat(editValue);
-				if (!isNaN(val) && val > 0) {
-					updateConstraintValue(editingIndex, val);
-				}
-			} else {
-				const internalVal = parseAndConvert(editValue, displayUnit);
-				if (!isNaN(internalVal) && internalVal > 0) {
-					// Convert radius back to diameter for storage
-					const storeVal = editingType === 'Diameter' ? internalVal * 2 : internalVal;
-					updateConstraintValue(editingIndex, storeVal);
-				}
+	async function finishEditing() {
+		if (editingIndex == null) return;
+		// Capture and close FIRST: Enter triggers blur, and the expression
+		// path awaits the engine — without this the second call re-applies.
+		const index = editingIndex;
+		const labelType = editingType;
+		const typed = editValue.trim();
+		editingIndex = null;
+		editingType = null;
+		editValue = '';
+		if (!typed) return;
+
+		const isAngle = labelType === 'Angle';
+		const numericVal = isAngle ? parseFloat(typed) : parseAndConvert(typed, displayUnit);
+		const isNumeric = isAngle
+			? /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(typed)
+			: isPlainMeasurement(typed);
+
+		if (isNumeric) {
+			// Plain number: today's behavior (also detaches any expression).
+			if (!isNaN(numericVal) && numericVal > 0) {
+				const storeVal = labelType === 'Diameter' ? numericVal * 2 : numericVal;
+				updateConstraintValue(index, isAngle ? numericVal : storeVal);
 			}
-			editingIndex = null;
-			editingType = null;
-			editValue = '';
+			return;
 		}
+
+		// Expression: evaluate against the design variables (mm-space result;
+		// lengths in mm, angles in degrees), then store expression + value.
+		const exprToStore = labelType === 'Diameter' ? wrapRadiusExpr(typed) : typed;
+		const { value, error } = await evaluateExpression(exprToStore);
+		if (error != null || value == null) {
+			showToast('error', `Dimension expression: ${error ?? 'evaluation failed'}`);
+			return;
+		}
+		const internal = isAngle ? value : value * 0.001;
+		if (!(internal > 0)) {
+			showToast('error', 'Dimension expression must evaluate to a positive value');
+			return;
+		}
+		updateConstraintExpression(index, exprToStore, internal);
 	}
 
 	function handleKeyDown(e) {
@@ -340,13 +395,14 @@
 
 	/** Format display value */
 	function formatValue(label) {
+		const fx = label.expression ? '\u0192 ' : '';
 		const suffix = label.reference ? ' (REF)' : '';
-		if (label.type === 'Angle') return `${label.value.toFixed(1)}\u00B0${suffix}`;
-		if (label.type === 'Diameter') return `R ${formatWithUnit(label.value / 2, displayUnit)}${suffix}`;
-		if (label.type === 'Radius') return `R ${formatWithUnit(label.value, displayUnit)}${suffix}`;
-		if (label.type === 'HDistance') return `H: ${formatWithUnit(label.value, displayUnit)}${suffix}`;
-		if (label.type === 'VDistance') return `V: ${formatWithUnit(label.value, displayUnit)}${suffix}`;
-		return `${formatWithUnit(label.value, displayUnit)}${suffix}`;
+		if (label.type === 'Angle') return `${fx}${label.value.toFixed(1)}\u00B0${suffix}`;
+		if (label.type === 'Diameter') return `${fx}R ${formatWithUnit(label.value / 2, displayUnit)}${suffix}`;
+		if (label.type === 'Radius') return `${fx}R ${formatWithUnit(label.value, displayUnit)}${suffix}`;
+		if (label.type === 'HDistance') return `${fx}H: ${formatWithUnit(label.value, displayUnit)}${suffix}`;
+		if (label.type === 'VDistance') return `${fx}V: ${formatWithUnit(label.value, displayUnit)}${suffix}`;
+		return `${fx}${formatWithUnit(label.value, displayUnit)}${suffix}`;
 	}
 </script>
 

@@ -88,6 +88,7 @@ fn make_extrude_op(sketch_id: Uuid) -> Operation {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     }
 }
@@ -330,6 +331,7 @@ fn engine_edit_feature_triggers_rebuild() {
         second_direction: None,
         region: None,
         regions: Vec::new(),
+        depth_expr: None,
     };
     let result = engine.edit_feature(e_id, Operation::Extrude { params: new_params }, &mut kernel);
     assert!(result.is_ok());
@@ -623,6 +625,7 @@ fn rebuild_after_edit_updates_results() {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     engine.edit_feature(e_id, new_op, &mut kernel).unwrap();
@@ -740,6 +743,7 @@ fn undo_edit_feature() {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     engine.edit_feature(e_id, new_op, &mut kernel).unwrap();
@@ -922,6 +926,7 @@ fn make_extrude_op_depth(sketch_id: Uuid, depth: f64) -> Operation {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     }
 }
@@ -1664,6 +1669,7 @@ fn extrude_through_all_without_target_body_uses_fallback() {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e2 = engine
@@ -1714,6 +1720,7 @@ fn extrude_through_all_no_prior_body_uses_large_fallback() {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e1 = engine
@@ -1773,6 +1780,7 @@ fn cut_extrude_produces_boolean_subtract_result() {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e2 = engine
@@ -1820,6 +1828,7 @@ fn cut_extrude_without_base_body_errors() {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e1 = engine
@@ -1871,6 +1880,7 @@ fn symmetric_extrude_produces_solid() {
             second_direction: Some(SecondDirection::Symmetric),
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e1 = engine
@@ -1917,6 +1927,7 @@ fn symmetric_flag_backwards_compat() {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e1 = engine
@@ -1957,6 +1968,7 @@ fn second_direction_blind_produces_solid() {
             second_direction: Some(SecondDirection::Blind { depth: 3.0 }),
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e1 = engine
@@ -2346,6 +2358,7 @@ fn depth_mode_upto_behind_sketch_plane_errors() {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e2 = engine
@@ -2404,6 +2417,7 @@ fn cut_extrude_with_symmetric_second_direction() {
             second_direction: Some(SecondDirection::Symmetric),
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e2 = engine
@@ -2451,6 +2465,7 @@ fn second_direction_through_all_produces_solid() {
             second_direction: Some(SecondDirection::ThroughAll),
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e2 = engine
@@ -3053,6 +3068,7 @@ fn make_revolve_op(sketch_id: Uuid) -> Operation {
             angle: std::f64::consts::PI,
             cut: false,
             merge: false,
+            angle_expr: None,
         },
     }
 }
@@ -3128,6 +3144,7 @@ fn revolve_profile_index_out_of_range_errors() {
             angle: std::f64::consts::PI,
             cut: false,
             merge: false,
+            angle_expr: None,
         },
     };
     let r1 = engine
@@ -3171,6 +3188,7 @@ fn extrude_profile_index_out_of_range_errors() {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e1 = engine
@@ -3232,6 +3250,7 @@ fn extrude_custom_direction() {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e1 = engine
@@ -3295,6 +3314,7 @@ fn depth_mode_upto_success() {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e2 = engine
@@ -3347,6 +3367,7 @@ fn depth_mode_upto_datum_reference() {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e1 = engine
@@ -3414,6 +3435,7 @@ fn second_direction_upto_produces_solid() {
             }),
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e2 = engine
@@ -3462,6 +3484,7 @@ fn cut_extrude_with_blind_second_direction() {
             second_direction: Some(SecondDirection::Blind { depth: 3.0 }),
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e2 = engine
@@ -4300,6 +4323,7 @@ fn cut_extrude_skips_sketch_and_suppressed_in_body_search() {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e3 = engine
@@ -4347,6 +4371,7 @@ fn through_all_with_suppressed_target_still_works() {
             second_direction: None,
             region: None,
             regions: Vec::new(),
+            depth_expr: None,
         },
     };
     let e2 = engine

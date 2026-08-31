@@ -1748,6 +1748,7 @@ fn resolve_plane_definition(
         PlaneDefinition::Offset {
             base_plane_id,
             distance,
+            ..
         } => {
             let (base_origin, base_normal) =
                 find_datum_plane_data(*base_plane_id, tree, feature_results, introspect)?;
@@ -1758,7 +1759,7 @@ fn resolve_plane_definition(
             ];
             Ok((origin, base_normal))
         }
-        PlaneDefinition::OffsetFromFace { base, distance } => {
+        PlaneDefinition::OffsetFromFace { base, distance, .. } => {
             let (base_origin, base_normal) = resolve_face_plane(base, feature_results, introspect)?;
             let origin = [
                 base_origin[0] + base_normal[0] * distance,
@@ -2278,6 +2279,7 @@ mod tests {
         let def = PlaneDefinition::Offset {
             base_plane_id: front_id,
             distance: 10.0,
+            distance_expr: None,
         };
         let feature = make_datum_plane_feature("Offset from Front", def.clone());
         let tree = FeatureTree {
@@ -2430,6 +2432,7 @@ mod tests {
 
         // (a) offset-from-face
         let off_face = PlaneDefinition::OffsetFromFace {
+            distance_expr: None,
             base: face_ref.clone(),
             distance,
         };
@@ -2478,6 +2481,7 @@ mod tests {
 
         // A negative distance flips to the back side (no separate variant).
         let off_back = PlaneDefinition::OffsetFromFace {
+            distance_expr: None,
             base: face_ref,
             distance: -distance,
         };
@@ -2626,6 +2630,7 @@ mod tests {
             PlaneDefinition::Offset {
                 base_plane_id: missing_id,
                 distance: 5.0,
+                distance_expr: None,
             },
         );
         let tree = FeatureTree {
@@ -2704,6 +2709,7 @@ mod tests {
                             sketch_id,
                             profile_index: 0,
                             depth: 0.01,
+                            depth_expr: None,
                             direction: None,
                             symmetric: false,
                             cut: false,
@@ -2907,6 +2913,7 @@ mod tests {
         let second_plane_def = PlaneDefinition::Offset {
             base_plane_id: first_plane.id,
             distance: 7.0,
+            distance_expr: None,
         };
         let second_plane = Feature {
             id: Uuid::new_v4(),

@@ -677,6 +677,9 @@ export async function initEngine() {
 			finishSketch: () => finishSketch(),
 			getFeatureTree: () => featureTree,
 			getSelectedFeatureId: () => selectedFeatureId,
+			getParameters: () => JSON.parse(JSON.stringify(getParameters())),
+			setParameters: (params) => setParameters(params),
+			evaluateExpression: (expr) => evaluateExpression(expr),
 			getMeshes: () => meshes.map(m => ({
 				featureId: m.featureId,
 				vertexCount: m.vertices?.length / 3,
@@ -2282,6 +2285,32 @@ export function updateConstraintValue(index, newValue) {
 	const c = { ...sketchConstraints[index] };
 	if ('value' in c) c.value = newValue;
 	else if ('value_degrees' in c) c.value_degrees = newValue;
+	// A plain numeric edit detaches any driving expression.
+	delete c.expression;
+	sketchConstraints = [
+		...sketchConstraints.slice(0, index),
+		c,
+		...sketchConstraints.slice(index + 1)
+	];
+
+	triggerSolve();
+}
+
+/**
+ * Drive a dimensional constraint with an expression. `internalValue` is the
+ * engine-evaluated result converted to internal units (meters for lengths,
+ * degrees for angles) so the live solver sees the number immediately; the
+ * expression itself persists on the constraint and re-evaluates on rebuild.
+ * @param {number} index - Index into sketchConstraints array
+ * @param {string} expression
+ * @param {number} internalValue
+ */
+export function updateConstraintExpression(index, expression, internalValue) {
+	if (index < 0 || index >= sketchConstraints.length) return;
+	const c = { ...sketchConstraints[index] };
+	if ('value' in c) c.value = internalValue;
+	else if ('value_degrees' in c) c.value_degrees = internalValue;
+	c.expression = expression;
 	sketchConstraints = [
 		...sketchConstraints.slice(0, index),
 		c,
@@ -3826,6 +3855,9 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 		secondDir = 'None',
 		secondDepth = 10,
 		flipDirection = false,
+		// Optional driving expression for the depth (mm-space; see the
+		// engine's design-parameter docs). null = plain numeric depth.
+		depthExpr = null,
 		// New-style optional-boolean combine (N-mb-*). `combine` is one of
 		// 'NewBody' | 'Add' | 'Cut' | 'Intersect' (or null = legacy). `targets` is
 		// an array of body GeomRefs, [] to force a new body, or null = Auto
@@ -3872,6 +3904,7 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 			sketch_id: effectiveSketchId,
 			profile_index: effectiveProfileIndex,
 			depth,
+			depth_expr: depthExpr,
 			direction,
 			symmetric: secondDir === 'Symmetric',
 			cut: effectiveCut,
@@ -3997,7 +4030,7 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex, 
 	// Optional-boolean combine (mirrors extrude). `combine` is a mode string or
 	// null (legacy); `targets` is an array of body GeomRefs, [] for a new body,
 	// or null = Auto (share-a-face).
-	const { combine = null, targets = null } = opts;
+	const { combine = null, targets = null, angleExpr = null } = opts;
 	const combineObj = combine ? { type: combine } : null;
 
 	const operation = {
@@ -4008,6 +4041,7 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex, 
 			axis_origin: axisOrigin,
 			axis_direction: axisDir,
 			angle: angleDeg,
+			angle_expr: angleExpr,
 			combine: combineObj,
 			targets
 		}
@@ -4902,6 +4936,62 @@ export function setSelectOtherState(updates) {
 	selectOtherState = { ...selectOtherState, ...updates };
 }
 
+// -- Design parameters (variables) --
+
+/**
+ * The design-parameter table from the live feature tree.
+ * Each row: { id, name, expression, value, error } — `value` is the engine's
+ * evaluated mm-space number, `error` a user-facing message or absent.
+ * @returns {Array<object>}
+ */
+export function getParameters() {
+	return featureTree?.parameters ?? [];
+}
+
+/**
+ * Replace the design-parameter table (send the COMPLETE list) and rebuild.
+ * Evaluated values/errors come back on the updated feature tree.
+ * @param {Array<{id?: string, name: string, expression: string}>} parameters
+ */
+export async function setParameters(parameters) {
+	if (!bridge || !engineReady) return;
+	log('action', 'Set parameters', { count: parameters.length });
+	const payload = parameters.map((p) => ({
+		id: p.id || crypto.randomUUID(),
+		name: p.name,
+		expression: p.expression,
+		value: typeof p.value === 'number' ? p.value : 0
+	}));
+	try {
+		await sendRebuild({
+			type: 'SetParameters',
+			parameters: JSON.parse(JSON.stringify(payload))
+		});
+	} catch (err) {
+		log('error', `Set parameters failed: ${err.message}`);
+		showToast('error', `Variables update failed: ${err.message}`);
+	}
+}
+
+/**
+ * Evaluate one expression against the current variables (stateless).
+ * Resolves to { value, error }: `value` is an mm-space number (lengths in mm,
+ * angles in degrees) or null; `error` a user-facing message or null.
+ * @param {string} expression
+ */
+export async function evaluateExpression(expression) {
+	if (!bridge || !engineReady) return { value: null, error: 'Engine not ready' };
+	try {
+		const resp = await bridge.send({ type: 'EvaluateExpression', expression });
+		if (resp?.type === 'ExpressionEvaluated') {
+			return { value: resp.value ?? null, error: resp.error ?? null };
+		}
+		return { value: null, error: 'Unexpected engine response' };
+	} catch (err) {
+		return { value: null, error: err.message };
+	}
+}
+
 // -- Dimension popup --
 
 export function getDimensionPopup() { return dimensionPopup; }
@@ -4915,10 +5005,13 @@ export function showDimensionPopup(popup) { dimensionPopup = popup; }
 export function hideDimensionPopup() { dimensionPopup = null; }
 
 /**
- * Apply the dimension value from the popup as a constraint.
+ * Apply the dimension value from the popup as a constraint. When the user
+ * typed an expression, `expression` carries it (already evaluated to `value`
+ * by the engine); it is stored on the constraint so rebuilds re-drive it.
  * @param {number} value
+ * @param {string | null} [expression]
  */
-export function applyDimensionFromPopup(value) {
+export function applyDimensionFromPopup(value, expression = null) {
 	if (!dimensionPopup) return;
 	const p = dimensionPopup;
 
@@ -4929,24 +5022,27 @@ export function applyDimensionFromPopup(value) {
 		return;
 	}
 
+	const withExpr = (c, expr) => (expr ? { ...c, expression: expr } : c);
+
 	if (p.dimType === 'distance') {
 		if (p.entityB != null) {
-			addLocalConstraint({ type: 'Distance', entity_a: p.entityA, entity_b: p.entityB, value });
+			addLocalConstraint(withExpr({ type: 'Distance', entity_a: p.entityA, entity_b: p.entityB, value }, expression));
 		} else {
 			// Single line — distance between endpoints
 			const entity = sketchEntities.find(e => e.id === p.entityA);
 			if (entity && entity.type === 'Line') {
-				addLocalConstraint({ type: 'Distance', entity_a: entity.start_id, entity_b: entity.end_id, value });
+				addLocalConstraint(withExpr({ type: 'Distance', entity_a: entity.start_id, entity_b: entity.end_id, value }, expression));
 			}
 		}
 	} else if (p.dimType === 'pointLineDistance') {
-		addLocalConstraint({ type: 'PointLineDistance', point: p.entityA, entity: p.entityB, value });
+		addLocalConstraint(withExpr({ type: 'PointLineDistance', point: p.entityA, entity: p.entityB, value }, expression));
 	} else if (p.dimType === 'radius') {
-		// Rust solver uses Radius constraint; convert diameter to radius
-		addLocalConstraint({ type: 'Diameter', entity: p.entityA, value: value * 2 });
+		// The popup edits the RADIUS but stores a Diameter constraint, so a
+		// radius expression is wrapped as diameter = 2*(radius expression).
+		addLocalConstraint(withExpr({ type: 'Diameter', entity: p.entityA, value: value * 2 }, expression ? `2*(${expression})` : null));
 	} else if (p.dimType === 'angle') {
 		if (p.entityB != null) {
-			addLocalConstraint({ type: 'Angle', line_a: p.entityA, line_b: p.entityB, value_degrees: value });
+			addLocalConstraint(withExpr({ type: 'Angle', line_a: p.entityA, line_b: p.entityB, value_degrees: value }, expression));
 		}
 	}
 

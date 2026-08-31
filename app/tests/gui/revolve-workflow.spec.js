@@ -93,7 +93,10 @@ test.describe('revolve workflow variations', () => {
         expect(parseFloat(defaultAngle)).toBe(360);
     });
 
-    test('revolve angle input has min 0.1 constraint', async ({ waffle }) => {
+    test('revolve rejects a non-positive angle at apply', async ({ waffle }) => {
+        // The angle input is a text field (it accepts expressions over the
+        // design variables), so the old HTML min/max attributes are gone —
+        // the guard lives in the apply handler instead.
         const page = waffle.page;
 
         await clickSketch(page);
@@ -103,15 +106,19 @@ test.describe('revolve workflow variations', () => {
         await clickFinishSketch(page);
 
         await clickRevolve(page);
+        // Apply is disabled until an axis is set; the guard under test is the
+        // ANGLE validation, so give it a valid axis first.
+        await pickOffsetRevolveAxis(page);
 
         const angleInput = page.locator('#revolve-angle');
-        // Verify the angle input has min constraint
-        const min = await angleInput.getAttribute('min');
-        expect(parseFloat(min)).toBe(0.1);
+        await angleInput.fill('0');
+        await page.locator('[data-testid="revolve-apply"]').click();
+        await page.waitForTimeout(500);
 
-        // Verify max is 360
-        const max = await angleInput.getAttribute('max');
-        expect(parseFloat(max)).toBe(360);
+        // No revolve feature was added; the dialog stays open on the error.
+        const tree = await page.evaluate(() => window.__waffle.getFeatureTree());
+        expect(tree.features.filter((f) => f.operation?.type === 'Revolve').length).toBe(0);
+        await expect(page.locator('[data-testid="revolve-dialog"]')).toBeVisible();
     });
 
     test('extrude then revolve creates two features', async ({ waffle }) => {

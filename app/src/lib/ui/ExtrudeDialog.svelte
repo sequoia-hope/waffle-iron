@@ -16,11 +16,12 @@
 		setExtrudeTargetPickActive,
 		setExtrudeTargetIds,
 		toggleExtrudeTargetId,
-		clearExtrudeTargets
+		clearExtrudeTargets,
+		evaluateExpression
 	} from '$lib/engine/store.svelte.js';
 	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { log } from '$lib/engine/logger.js';
-	import { displayToInternal, internalToDisplay, parseAndConvert, formatForInput, UNITS } from '$lib/units.js';
+	import { displayToInternal, internalToDisplay, parseAndConvert, formatForInput, isPlainMeasurement, UNITS } from '$lib/units.js';
 
 	let dialogState = $derived(getExtrudeDialogState());
 	let displayUnit = $derived(getDocumentDisplayUnit());
@@ -62,7 +63,7 @@
 		if (dialogState) {
 			const ep = dialogState.editParams;
 			if (ep) {
-				depthInput = formatForInput(ep.depth, displayUnit);
+				depthInput = ep.depth_expr ?? formatForInput(ep.depth, displayUnit);
 				// Prefer the explicit combine; else derive from legacy cut/merge.
 				if (ep.combine?.type) combine = ep.combine.type;
 				else if (ep.cut) combine = 'Cut';
@@ -102,8 +103,31 @@
 		}
 	});
 
-	// Compute internal depth from display input for preview and apply
-	let depth = $derived(parseAndConvert(depthInput, displayUnit));
+	// Expression support: when the depth input is not a plain number it is
+	// treated as an expression over the design variables (mm-space: bare
+	// numbers are mm) and evaluated by the engine for the live preview.
+	let depthIsExpr = $derived(depthInput.trim() !== '' && !isPlainMeasurement(depthInput));
+	let depthEval = $state({ value: null, error: null });
+	let depthEvalToken = 0;
+	$effect(() => {
+		const text = depthInput.trim();
+		if (!depthIsExpr) {
+			depthEval = { value: null, error: null };
+			return;
+		}
+		const token = ++depthEvalToken;
+		evaluateExpression(text).then((result) => {
+			if (token === depthEvalToken) depthEval = result;
+		});
+	});
+
+	// Compute internal depth from display input for preview and apply.
+	// Expression inputs use the engine's evaluated mm-space value.
+	let depth = $derived(
+		depthIsExpr
+			? (depthEval.value != null ? depthEval.value * 0.001 : NaN)
+			: parseAndConvert(depthInput, displayUnit)
+	);
 	let secondDepth = $derived(parseAndConvert(secondDepthInput, displayUnit));
 
 	// Drive ghost preview params whenever dialog state changes
@@ -166,13 +190,23 @@
 				.map(bodyToGeomRef);
 		}
 
+		if (showDepthInput && depthIsExpr && (depthEval.error != null || depthEval.value == null)) {
+			showToast('error', `Depth expression: ${depthEval.error ?? 'still evaluating'}`);
+			return;
+		}
+		if (showDepthInput && (isNaN(depth) || depth <= 0)) {
+			showToast('error', 'Depth must be a positive number or expression');
+			return;
+		}
+
 		const opts = {
 			depthMode,
 			secondDir,
 			secondDepth,
 			flipDirection,
 			combine,
-			targets
+			targets,
+			depthExpr: depthIsExpr ? depthInput.trim() : null
 		};
 		applyExtrude(depth, firstRegion.profileIndex ?? 0, cut, opts)
 			.catch(err => log('error', `Extrude dialog apply failed: ${err}`));
@@ -322,10 +356,18 @@
 						id="extrude-depth"
 						data-testid="extrude-depth"
 						type="text"
-						inputmode="decimal"
 						bind:value={depthInput}
 						placeholder={unitLabel}
 					/>
+					{#if depthIsExpr}
+						<div
+							class="expr-hint"
+							class:expr-error={!!depthEval.error}
+							data-testid="extrude-depth-eval"
+						>
+							{depthEval.error ? depthEval.error : depthEval.value != null ? `= ${parseFloat(depthEval.value.toFixed(4))} mm` : '…'}
+						</div>
+					{/if}
 				</div>
 			{/if}
 			<div class="field">
@@ -430,6 +472,17 @@
 {/if}
 
 <style>
+	.expr-hint {
+		margin-top: 2px;
+		font-size: 10px;
+		font-family: ui-monospace, monospace;
+		color: var(--text-secondary, #8a8);
+	}
+
+	.expr-error {
+		color: var(--error-color, #f66);
+	}
+
 	.extrude-panel {
 		position: absolute;
 		top: 12px;

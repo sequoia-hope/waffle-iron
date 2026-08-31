@@ -13,12 +13,35 @@
 		setExtrudeTargetPickActive,
 		setExtrudeTargetIds,
 		toggleExtrudeTargetId,
-		clearExtrudeTargets
+		clearExtrudeTargets,
+		evaluateExpression
 	} from '$lib/engine/store.svelte.js';
+	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { log } from '$lib/engine/logger.js';
 
 	let dialogState = $derived(getRevolveDialogState());
-	let angle = $state(360);
+	// Angle input: a plain number (degrees) or an expression over the design
+	// variables (evaluates to degrees; bare numbers are degrees).
+	let angleInput = $state('360');
+	let angleIsExpr = $derived(
+		angleInput.trim() !== '' && !/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(angleInput.trim())
+	);
+	let angleEval = $state({ value: null, error: null });
+	let angleEvalToken = 0;
+	$effect(() => {
+		const text = angleInput.trim();
+		if (!angleIsExpr) {
+			angleEval = { value: null, error: null };
+			return;
+		}
+		const token = ++angleEvalToken;
+		evaluateExpression(text).then((result) => {
+			if (token === angleEvalToken) angleEval = result;
+		});
+	});
+	let angle = $derived(
+		angleIsExpr ? (angleEval.value != null ? angleEval.value : NaN) : parseFloat(angleInput)
+	);
 	// Optional-boolean combine (mirrors the extrude dialog).
 	let combine = $state('Add');
 	let targetMode = $state('Auto');
@@ -40,7 +63,7 @@
 			// Dialog just opened
 			const ep = dialogState.editParams;
 			if (ep) {
-				angle = ep.angle ?? 360;
+				angleInput = ep.angle_expr ?? String(ep.angle ?? 360);
 				if (ep.combine?.type) combine = ep.combine.type;
 				else if (ep.cut) combine = 'Cut';
 				else if (ep.merge === false) combine = 'NewBody';
@@ -61,7 +84,7 @@
 					clearExtrudeTargets();
 				}
 			} else {
-				angle = 360;
+				angleInput = '360';
 				combine = 'Add';
 				targetMode = 'Auto';
 				clearExtrudeTargets();
@@ -77,7 +100,7 @@
 
 	// Send preview params whenever axis/angle/profile changes
 	$effect(() => {
-		if (dialogState && selectedAxis && selectedProfile) {
+		if (dialogState && selectedAxis && selectedProfile && !isNaN(angle)) {
 			setRevolvePreviewParams({
 				sketchId: selectedProfile.sketchId ?? dialogState.sketchId,
 				profileIndex: selectedProfile.profileIndex ?? 0,
@@ -119,6 +142,14 @@
 
 	function handleApply() {
 		if (!hasAxis || !selectedAxis) return;
+		if (angleIsExpr && (angleEval.error != null || angleEval.value == null)) {
+			showToast('error', `Angle expression: ${angleEval.error ?? 'still evaluating'}`);
+			return;
+		}
+		if (isNaN(angle) || angle <= 0) {
+			showToast('error', 'Angle must be a positive number of degrees or an expression');
+			return;
+		}
 		const profileIndex = selectedProfile?.profileIndex ?? 0;
 		let targets = null;
 		if (combine !== 'NewBody' && targetMode === 'Choose') {
@@ -130,7 +161,8 @@
 		}
 		applyRevolve(angle, [...selectedAxis.origin], [...selectedAxis.direction], profileIndex, {
 			combine,
-			targets
+			targets,
+			angleExpr: angleIsExpr ? angleInput.trim() : null
 		}).catch(err => log('error', `Revolve dialog apply failed: ${err}`));
 	}
 
@@ -183,15 +215,23 @@
 				<span id="revolve-sketch" class="field-value">{dialogState.sketchName}</span>
 			</div>
 			<div class="field">
-				<label for="revolve-angle">Angle</label>
+				<label for="revolve-angle">Angle (°)</label>
 				<input
 					id="revolve-angle"
-					type="number"
-					bind:value={angle}
-					step="15"
-					min="0.1"
-					max="360"
+					data-testid="revolve-angle"
+					type="text"
+					bind:value={angleInput}
+					placeholder="360"
 				/>
+				{#if angleIsExpr}
+					<div
+						class="expr-hint"
+						class:expr-error={!!angleEval.error}
+						data-testid="revolve-angle-eval"
+					>
+						{angleEval.error ? angleEval.error : angleEval.value != null ? `= ${parseFloat(angleEval.value.toFixed(4))}\u00B0` : '\u2026'}
+					</div>
+				{/if}
 			</div>
 			<div
 				class="pick-box"
@@ -288,6 +328,17 @@
 {/if}
 
 <style>
+	.expr-hint {
+		margin-top: 2px;
+		font-size: 10px;
+		font-family: ui-monospace, monospace;
+		color: var(--text-secondary, #8a8);
+	}
+
+	.expr-error {
+		color: var(--error-color, #f66);
+	}
+
 	.revolve-panel {
 		position: absolute;
 		top: 12px;

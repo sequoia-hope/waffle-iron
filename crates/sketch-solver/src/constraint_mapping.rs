@@ -385,7 +385,7 @@ impl CompiledConstraint {
                 }
             }
 
-            SketchConstraint::Distance { entity_a, entity_b, value } => {
+            SketchConstraint::Distance { entity_a, entity_b, value, .. } => {
                 let ka = kind_of(*entity_a)?;
                 let kb = kind_of(*entity_b)?;
                 match (ka, kb) {
@@ -410,7 +410,7 @@ impl CompiledConstraint {
                 }
             }
 
-            SketchConstraint::PointLineDistance { point, entity, value } => {
+            SketchConstraint::PointLineDistance { point, entity, value, .. } => {
                 // Perpendicular point-to-line distance — same residual as the
                 // (Point, Line) arm of `Distance`.
                 let (px, py) = pt(*point)?;
@@ -418,19 +418,19 @@ impl CompiledConstraint {
                 Ok(CompiledConstraint::DistancePL { px, py, ax, ay, bx, by, value: *value })
             }
 
-            SketchConstraint::HDistance { point_a, point_b, value } => {
+            SketchConstraint::HDistance { point_a, point_b, value, .. } => {
                 let (ax, _ay) = pt(*point_a)?;
                 let (bx, _by) = pt(*point_b)?;
                 Ok(CompiledConstraint::HDistance { ax, bx, value: *value })
             }
 
-            SketchConstraint::VDistance { point_a, point_b, value } => {
+            SketchConstraint::VDistance { point_a, point_b, value, .. } => {
                 let (_ax, ay) = pt(*point_a)?;
                 let (_bx, by) = pt(*point_b)?;
                 Ok(CompiledConstraint::VDistance { ay, by, value: *value })
             }
 
-            SketchConstraint::Angle { line_a, line_b, value_degrees } => {
+            SketchConstraint::Angle { line_a, line_b, value_degrees, .. } => {
                 let [ax, ay, bx, by] = line_param_pts(*line_a)?;
                 let [cx, cy, dx, dy] = line_param_pts(*line_b)?;
                 Ok(CompiledConstraint::Angle {
@@ -439,7 +439,7 @@ impl CompiledConstraint {
                 })
             }
 
-            SketchConstraint::Radius { entity, value } => {
+            SketchConstraint::Radius { entity, value, .. } => {
                 let kind = kind_of(*entity)?;
                 match kind {
                     EntityKind::Circle => {
@@ -458,7 +458,7 @@ impl CompiledConstraint {
                 }
             }
 
-            SketchConstraint::Diameter { entity, value } => {
+            SketchConstraint::Diameter { entity, value, .. } => {
                 let kind = kind_of(*entity)?;
                 match kind {
                     EntityKind::Circle => {

@@ -283,16 +283,22 @@ fn failed_solve_returns_input_positions() {
             entity_a: 1,
             entity_b: 2,
             value: 10.0,
+            expression: None,
+            reference: false,
         },
         SketchConstraint::Distance {
             entity_a: 2,
             entity_b: 3,
             value: 2.0,
+            expression: None,
+            reference: false,
         },
         SketchConstraint::Distance {
             entity_a: 1,
             entity_b: 3,
             value: 2.0,
+            expression: None,
+            reference: false,
         },
     ];
     let solved = solve_sketch(&make_sketch(entities, constraints));
@@ -411,11 +417,15 @@ fn conflicts_are_constraint_indices_not_row_indices() {
             entity_a: 1,
             entity_b: 2,
             value: 10.0,
+            expression: None,
+            reference: false,
         }, // [1], row 2
         SketchConstraint::Distance {
             entity_a: 1,
             entity_b: 2,
             value: 20.0,
+            expression: None,
+            reference: false,
         }, // [2], row 3
     ];
     let n_constraints = constraints.len() as u32;

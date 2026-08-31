@@ -81,6 +81,17 @@
 - [x] Rebuild time for 50-feature tree: ~1.3ms
 - [x] All well under interactive thresholds; no hotspots at this scale
 
+### M11: Parameterized Designs (design variables) ✅ (2026-08-31)
+- [x] `DesignParameter` table on `FeatureTree` (name/expression/cached value/error)
+- [x] Expression evaluator `expr.rs` (mm-space; unit suffixes; degrees trig; loud typed errors)
+- [x] Apply pass `params.rs` runs at rebuild start: drives sketch dims (with re-solve via
+      sketch-solver + `recompute_derived`), extrude depth, revolve angle, datum offsets
+- [x] `Engine::set_parameters` + `Command::SetParameters` undo/redo
+- [x] Bridge `SetParameters` / `EvaluateExpression` messages; Variables panel, expression
+      dimension inputs, and dialog expression fields in the app
+- [x] `reference` (driven-dim) flag now persists on dimension constraints (was JS-only, lost on save)
+- Spec: `specs/parameterized_designs.md`; GUI spec `app/tests/gui/parameterized-designs.spec.js`
+
 ## Blockers
 
 - ~~Depends on kernel (Kernel + KernelIntrospect traits, especially MockKernel)~~ Resolved [SUPERSEDED by clean-sheet kernel]

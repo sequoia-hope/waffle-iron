@@ -36,7 +36,9 @@
 		renameBody,
 		exportBodyStl,
 		isBodyVisible,
-		toggleBodyVisibility
+		toggleBodyVisibility,
+		getParameters,
+		setParameters
 	} from '$lib/engine/store.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
 	import { longPressContextMenu } from './longPressContextMenu.js';
@@ -73,6 +75,69 @@
 
 	// Origin section state
 	let originExpanded = $state(true);
+
+	// Variables (design parameters) section state
+	let variablesExpanded = $state(true);
+	let parameters = $derived(getParameters());
+	/** Inline edit state: null | { id: string|null, name: string, expression: string }.
+	 *  id === null means a new row being created. */
+	let editingVariable = $state(/** @type {any} */ (null));
+
+	function startAddVariable(e) {
+		e.stopPropagation();
+		variablesExpanded = true;
+		// Suggest the first free varN name.
+		let n = 1;
+		const names = new Set(parameters.map((p) => p.name));
+		while (names.has(`var${n}`)) n++;
+		editingVariable = { id: null, name: `var${n}`, expression: '10' };
+	}
+
+	function startEditVariable(param) {
+		editingVariable = { id: param.id, name: param.name, expression: param.expression };
+	}
+
+	async function commitVariableEdit() {
+		const edit = editingVariable;
+		if (!edit) return;
+		editingVariable = null;
+		const name = edit.name.trim();
+		const expression = edit.expression.trim();
+		if (!name || !expression) return;
+		const list = parameters.map((p) => ({ ...p }));
+		if (edit.id === null) {
+			list.push({ name, expression });
+		} else {
+			const row = list.find((p) => p.id === edit.id);
+			if (!row) return;
+			row.name = name;
+			row.expression = expression;
+		}
+		await setParameters(list);
+	}
+
+	function cancelVariableEdit() {
+		editingVariable = null;
+	}
+
+	async function deleteVariable(e, param) {
+		e.stopPropagation();
+		await setParameters(parameters.filter((p) => p.id !== param.id).map((p) => ({ ...p })));
+	}
+
+	function handleVariableKeydown(e) {
+		e.stopPropagation();
+		if (e.key === 'Enter') commitVariableEdit();
+		else if (e.key === 'Escape') cancelVariableEdit();
+	}
+
+	/** Compact display of an evaluated value (mm-space number). */
+	function formatVariableValue(param) {
+		if (param.error) return '!';
+		const v = param.value ?? 0;
+		const rounded = Math.abs(v - Math.round(v)) < 1e-9 ? Math.round(v) : parseFloat(v.toFixed(4));
+		return `${rounded}`;
+	}
 
 	// Bodies section state
 	let bodiesExpanded = $state(true);
@@ -371,6 +436,95 @@
 <div class="feature-tree">
 	<div class="panel-header">Features</div>
 	<div class="tree-content" use:longPressContextMenu>
+		<!-- Variables (design parameters) section -->
+		<div class="origin-section" data-testid="variables-section">
+			<div class="origin-header variables-header">
+				<button
+					class="origin-header variables-toggle"
+					onclick={() => variablesExpanded = !variablesExpanded}
+					data-testid="variables-toggle"
+				>
+					<span class="expand-icon">{variablesExpanded ? '▾' : '▸'}</span>
+					<span class="origin-label">Variables</span>
+				</button>
+				<button
+					class="variable-add"
+					title="Add variable (lengths in mm, angles in degrees; expressions may reference other variables, e.g. width / 2)"
+					onclick={startAddVariable}
+					data-testid="variable-add"
+				>+</button>
+			</div>
+			{#if variablesExpanded}
+				{#each parameters as param (param.id)}
+					{#if editingVariable && editingVariable.id === param.id}
+						<div class="variable-row variable-editing" data-testid="variable-edit-row">
+							<!-- svelte-ignore a11y_autofocus -->
+							<input
+								class="variable-input variable-name-input"
+								bind:value={editingVariable.name}
+								onkeydown={handleVariableKeydown}
+								data-testid="variable-name-input"
+								autofocus
+							/>
+							<span class="variable-eq">=</span>
+							<input
+								class="variable-input variable-expr-input"
+								bind:value={editingVariable.expression}
+								onkeydown={handleVariableKeydown}
+								onblur={commitVariableEdit}
+								data-testid="variable-expr-input"
+							/>
+						</div>
+					{:else}
+						<div
+							class="variable-row"
+							class:variable-error={!!param.error}
+							role="treeitem"
+							tabindex="0"
+							title={param.error ? param.error : `${param.name} = ${param.expression} → ${formatVariableValue(param)}`}
+							onclick={() => startEditVariable(param)}
+							onkeydown={(e) => { if (e.key === 'Enter') startEditVariable(param); }}
+							data-testid="variable-row-{param.name}"
+						>
+							<span class="variable-name">{param.name}</span>
+							<span class="variable-eq">=</span>
+							<span class="variable-expr">{param.expression}</span>
+							<span class="variable-value" data-testid="variable-value-{param.name}">{param.error ? '⚠' : formatVariableValue(param)}</span>
+							<button
+								class="variable-delete"
+								title="Delete variable"
+								onclick={(e) => deleteVariable(e, param)}
+								data-testid="variable-delete-{param.name}"
+							>×</button>
+						</div>
+					{/if}
+				{/each}
+				{#if editingVariable && editingVariable.id === null}
+					<div class="variable-row variable-editing" data-testid="variable-edit-row">
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							class="variable-input variable-name-input"
+							bind:value={editingVariable.name}
+							onkeydown={handleVariableKeydown}
+							data-testid="variable-name-input"
+							autofocus
+						/>
+						<span class="variable-eq">=</span>
+						<input
+							class="variable-input variable-expr-input"
+							bind:value={editingVariable.expression}
+							onkeydown={handleVariableKeydown}
+							onblur={commitVariableEdit}
+							data-testid="variable-expr-input"
+						/>
+					</div>
+				{/if}
+				{#if parameters.length === 0 && !editingVariable}
+					<div class="variable-empty">No variables — press + to add</div>
+				{/if}
+			{/if}
+		</div>
+
 		<!-- Origin section -->
 		<div class="origin-section">
 			<button
@@ -378,7 +532,7 @@
 				onclick={() => originExpanded = !originExpanded}
 				data-testid="origin-toggle"
 			>
-				<span class="expand-icon">{originExpanded ? '\u25BE' : '\u25B8'}</span>
+				<span class="expand-icon">{originExpanded ? '▾' : '▸'}</span>
 				<span class="origin-label">Origin</span>
 			</button>
 			{#if originExpanded}
@@ -685,6 +839,125 @@
 
 	.origin-header:hover {
 		background: var(--bg-hover, #333);
+	}
+
+	/* Variables (design parameters) */
+	.variables-header {
+		display: flex;
+		align-items: center;
+		padding: 0;
+	}
+
+	.variables-header .variables-toggle {
+		flex: 1;
+	}
+
+	.variable-add {
+		background: none;
+		border: none;
+		color: var(--text-secondary, #aaa);
+		font-size: 14px;
+		line-height: 1;
+		padding: 2px 8px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.variable-add:hover {
+		color: var(--text-primary, #eee);
+		background: var(--bg-hover, #333);
+	}
+
+	.variable-row {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		padding: 2px 8px 2px 22px;
+		font-size: 11px;
+		font-family: ui-monospace, monospace;
+		cursor: pointer;
+		color: var(--text-primary, #ddd);
+	}
+
+	.variable-row:hover {
+		background: var(--bg-hover, #333);
+	}
+
+	.variable-row:hover .variable-delete {
+		visibility: visible;
+	}
+
+	.variable-name {
+		color: var(--accent-color, #58a6ff);
+		white-space: nowrap;
+	}
+
+	.variable-eq {
+		color: var(--text-secondary, #888);
+	}
+
+	.variable-expr {
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.variable-value {
+		color: var(--text-secondary, #999);
+		white-space: nowrap;
+	}
+
+	.variable-error .variable-value,
+	.variable-error .variable-name {
+		color: var(--error-color, #f66);
+	}
+
+	.variable-delete {
+		visibility: hidden;
+		background: none;
+		border: none;
+		color: var(--text-secondary, #888);
+		font-size: 12px;
+		line-height: 1;
+		padding: 0 2px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.variable-delete:hover {
+		color: var(--error-color, #f66);
+	}
+
+	.variable-editing {
+		cursor: default;
+	}
+
+	.variable-input {
+		background: var(--bg-primary, #222);
+		border: 1px solid var(--accent-color, #58a6ff);
+		border-radius: 2px;
+		color: var(--text-primary, #eee);
+		font-size: 11px;
+		font-family: ui-monospace, monospace;
+		padding: 1px 4px;
+		min-width: 0;
+	}
+
+	.variable-name-input {
+		width: 34%;
+		flex-shrink: 0;
+	}
+
+	.variable-expr-input {
+		flex: 1;
+	}
+
+	.variable-empty {
+		padding: 2px 8px 4px 22px;
+		font-size: 10px;
+		color: var(--text-secondary, #777);
+		font-style: italic;
 	}
 
 	.expand-icon {

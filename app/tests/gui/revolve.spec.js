@@ -153,15 +153,16 @@ test.describe('revolve dialog angle validation', () => {
 		expect(await angleInput.inputValue()).toBe('270');
 	});
 
-	test('angle input has min=0.1 and max=360 attributes', async ({ waffle }) => {
+	test('angle input accepts expressions and shows the evaluated hint', async ({ waffle }) => {
+		// The angle field is a text input (expressions over the design
+		// variables are allowed); non-positive angles are rejected at apply
+		// instead of by HTML min/max attributes.
 		await createFinishedSketch(waffle);
 		await clickRevolve(waffle.page);
 
 		const angleInput = waffle.page.locator('#revolve-angle');
-		const min = await angleInput.getAttribute('min');
-		const max = await angleInput.getAttribute('max');
-		expect(parseFloat(min)).toBeLessThanOrEqual(1);
-		expect(parseFloat(max)).toBe(360);
+		await angleInput.fill('2*45');
+		await expect(waffle.page.locator('[data-testid="revolve-angle-eval"]')).toContainText('= 90');
 	});
 
 	test('Apply disabled when no axis is selected', async ({ waffle }) => {

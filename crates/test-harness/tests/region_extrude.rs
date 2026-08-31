@@ -36,6 +36,7 @@ fn region_params(region: Region, depth: f64) -> ExtrudeParams {
         second_direction: None,
         region: Some(region),
         regions: Vec::new(),
+        depth_expr: None,
     }
 }
 
@@ -188,6 +189,7 @@ fn split_rectangle_multi_region_extrudes_one_merged_body() {
         second_direction: None,
         region: None,
         regions: regions.clone(),
+        depth_expr: None,
     };
 
     let mut m = ModelBuilder::kernel_v2();

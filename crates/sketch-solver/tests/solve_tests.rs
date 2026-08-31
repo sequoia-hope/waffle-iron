@@ -116,11 +116,15 @@ fn rectangle_100x50_fully_constrained() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 100.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 2,
                 entity_b: 3,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Dragged { point: 1 },
         ],
@@ -158,6 +162,8 @@ fn circle_center_and_radius() {
             SketchConstraint::Radius {
                 entity: 10,
                 value: 15.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -217,6 +223,8 @@ fn equilateral_triangle_equal_lengths() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 60.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Equal {
                 entity_a: 10,
@@ -269,6 +277,8 @@ fn two_points_with_distance() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 42.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -384,6 +394,8 @@ fn status_over_constrained() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 10.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Coincident {
                 point_a: 1,
@@ -466,11 +478,15 @@ fn status_rectangle_dof_count() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 80.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 2,
                 entity_b: 3,
                 value: 40.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -551,11 +567,15 @@ fn profile_rectangle_one_outer() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 100.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 2,
                 entity_b: 3,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Dragged { point: 1 },
         ],
@@ -604,6 +624,8 @@ fn profile_circle_one_outer() {
             SketchConstraint::Radius {
                 entity: 10,
                 value: 25.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -682,11 +704,15 @@ fn profile_construction_geometry_excluded() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 100.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 2,
                 entity_b: 3,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Dragged { point: 1 },
         ],
@@ -729,6 +755,8 @@ fn profile_construction_circle_excluded() {
             SketchConstraint::Radius {
                 entity: 10,
                 value: 20.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -822,17 +850,23 @@ fn profile_rect_with_circle_hole() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 100.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 2,
                 entity_b: 3,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Dragged { point: 1 },
             SketchConstraint::Dragged { point: 5 },
             SketchConstraint::Radius {
                 entity: 20,
                 value: 10.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -928,11 +962,15 @@ fn reference_rectangle_analytical() {
                 entity_a: 1,
                 entity_b: 2,
                 value: w,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 2,
                 entity_b: 3,
                 value: h,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Dragged { point: 1 },
         ],
@@ -974,6 +1012,8 @@ fn reference_circle_analytical() {
             SketchConstraint::Radius {
                 entity: 10,
                 value: r,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -1049,6 +1089,8 @@ fn reference_square_with_equal_sides() {
                 entity_a: 1,
                 entity_b: 2,
                 value: s,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Equal {
                 entity_a: 10,
@@ -1114,11 +1156,15 @@ fn reference_perpendicular_lines() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 1,
                 entity_b: 3,
                 value: 30.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -1190,11 +1236,15 @@ fn reference_parallel_lines() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 100.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 3,
                 entity_b: 4,
                 value: 80.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -1248,6 +1298,8 @@ fn reference_midpoint_constraint() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 100.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Midpoint { point: 3, line: 10 },
         ],
@@ -1352,6 +1404,8 @@ fn dragged_moves_under_constrained_point() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -1438,11 +1492,15 @@ fn dragged_respects_existing_constraints() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 60.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 2,
                 entity_b: 3,
                 value: 30.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Dragged { point: 1 },
         ],
@@ -1522,6 +1580,8 @@ fn diameter_constraint_on_circle() {
             SketchConstraint::Diameter {
                 entity: 10,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -1570,6 +1630,8 @@ fn on_entity_point_on_line() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 100.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::OnEntity {
                 point: 3,
@@ -1673,11 +1735,15 @@ fn make_rectangle_chain(n: usize) -> (Vec<SketchEntity>, Vec<SketchConstraint>) 
             entity_a: p1,
             entity_b: p2,
             value: 100.0,
+            expression: None,
+            reference: false,
         });
         constraints.push(SketchConstraint::Distance {
             entity_a: p2,
             entity_b: p3,
             value: 50.0,
+            expression: None,
+            reference: false,
         });
 
         // Pin first rectangle's origin
@@ -1866,16 +1932,22 @@ fn angle_constraint_45_degrees() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 100.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 1,
                 entity_b: 3,
                 value: 100.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Angle {
                 line_a: 10,
                 line_b: 11,
                 value_degrees: 45.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -2033,12 +2105,16 @@ fn distance_point_to_line() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 100.0,
+                expression: None,
+                reference: false,
             },
             // Point-Line distance: point_a=3 (Point), entity_b=10 (Line)
             SketchConstraint::Distance {
                 entity_a: 3,
                 entity_b: 10,
                 value: 25.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -2100,12 +2176,16 @@ fn distance_line_to_point_swap() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 100.0,
+                expression: None,
+                reference: false,
             },
             // Line first, then point — triggers the swap branch
             SketchConstraint::Distance {
                 entity_a: 10,
                 entity_b: 3,
                 value: 30.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -2306,6 +2386,8 @@ fn equal_radius_two_circles() {
             SketchConstraint::Radius {
                 entity: 10,
                 value: 20.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Equal {
                 entity_a: 10,
@@ -2457,6 +2539,8 @@ fn equal_radius_circle_arc() {
             SketchConstraint::Radius {
                 entity: 10,
                 value: 25.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Dragged { point: 2 },
             // Circle-Arc equal radius
@@ -2591,6 +2675,8 @@ fn radius_constraint_on_arc() {
             SketchConstraint::Radius {
                 entity: 10,
                 value: 30.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -2647,6 +2733,8 @@ fn diameter_constraint_on_arc() {
             SketchConstraint::Diameter {
                 entity: 10,
                 value: 40.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -2700,6 +2788,8 @@ fn on_entity_point_on_circle() {
             SketchConstraint::Radius {
                 entity: 10,
                 value: 25.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::OnEntity {
                 point: 2,
@@ -2872,11 +2962,15 @@ fn equal_angle_four_lines() {
                 entity_a: 4,
                 entity_b: 5,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 4,
                 entity_b: 6,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::EqualAngle {
                 line_a: 10,
@@ -2966,6 +3060,8 @@ fn length_ratio_constraint() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 40.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Dragged { point: 3 },
             SketchConstraint::Horizontal { entity: 11 },
@@ -3043,6 +3139,8 @@ fn equal_point_to_line_distance() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 100.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::EqualPointToLine {
                 point_a: 3,
@@ -3312,6 +3410,8 @@ fn multiple_constraints_combined() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Equal {
                 entity_a: 10,
@@ -3597,16 +3697,22 @@ fn angle_constraint_90_degrees() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 1,
                 entity_b: 3,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Angle {
                 line_a: 10,
                 line_b: 11,
                 value_degrees: 90.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -3692,6 +3798,8 @@ fn degenerate_circle_radius_zero() {
             SketchConstraint::Radius {
                 entity: 10,
                 value: 0.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -3729,11 +3837,15 @@ fn degenerate_over_constrained_but_consistent() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 1,
                 entity_b: 2,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -3767,11 +3879,15 @@ fn degenerate_over_constrained_but_consistent() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 1,
                 entity_b: 2,
                 value: 50.0,
+                expression: None,
+                reference: false,
             },
         ],
         ..sketch
@@ -3822,11 +3938,15 @@ fn degenerate_contradictory_distances() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 10.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::Distance {
                 entity_a: 1,
                 entity_b: 2,
                 value: 20.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -4020,11 +4140,15 @@ fn point_line_distance_enforces_perpendicular_gap() {
                 entity_a: 1,
                 entity_b: 2,
                 value: 10.0,
+                expression: None,
+                reference: false,
             },
             SketchConstraint::PointLineDistance {
                 point: 3,
                 entity: 10,
                 value: 7.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -4056,7 +4180,7 @@ fn point_line_distance_deserializes_from_dimension_tool_json() {
     let c: SketchConstraint = serde_json::from_str(json).expect("must parse PointLineDistance");
     assert!(matches!(
         c,
-        SketchConstraint::PointLineDistance { point: 3, entity: 10, value }
+        SketchConstraint::PointLineDistance { point: 3, entity: 10, value, .. }
             if (value - 7.0).abs() < 1e-12
     ));
 }
@@ -4085,6 +4209,8 @@ fn hdistance_enforces_x_gap_only() {
                 point_a: 1,
                 point_b: 2,
                 value: 8.0,
+                expression: None,
+                reference: false,
             },
         ],
     );
@@ -4122,6 +4248,8 @@ fn vdistance_enforces_y_gap_only() {
                 point_a: 1,
                 point_b: 2,
                 value: 12.0,
+                expression: None,
+                reference: false,
             },
         ],
     );

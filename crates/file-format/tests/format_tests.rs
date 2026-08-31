@@ -139,6 +139,7 @@ fn make_extrude_feature(name: &str, sketch_id: Uuid) -> Feature {
                 second_direction: None,
                 region: None,
                 regions: Vec::new(),
+                depth_expr: None,
             },
         },
         suppressed: false,
@@ -296,6 +297,7 @@ fn save_all_operation_types() {
                 second_direction: None,
                 region: None,
                 regions: Vec::new(),
+                depth_expr: None,
             },
         },
         suppressed: false,
@@ -316,6 +318,7 @@ fn save_all_operation_types() {
                 angle: std::f64::consts::PI,
                 cut: false,
                 merge: false,
+                angle_expr: None,
             },
         },
         suppressed: false,
@@ -718,6 +721,7 @@ fn make_rebuild_compatible_tree() -> FeatureTree {
                 second_direction: None,
                 region: None,
                 regions: Vec::new(),
+                depth_expr: None,
             },
         },
         suppressed: false,
@@ -817,6 +821,8 @@ fn round_trip_preserves_all_constraint_types() {
             entity_a: 1,
             entity_b: 2,
             value: 42.5,
+            expression: None,
+            reference: false,
         },
         SketchConstraint::Parallel {
             line_a: 5,
@@ -957,6 +963,7 @@ fn round_trip_preserves_all_constraint_types() {
             entity_a,
             entity_b,
             value,
+            ..
         } => {
             assert_eq!(*entity_a, 1);
             assert_eq!(*entity_b, 2);
@@ -1542,4 +1549,70 @@ fn verified_save_refuses_non_finite_floats() {
         matches!(err, LoadError::ParseError(_)),
         "expected the self-check to surface the parse failure, got {err:?}"
     );
+}
+
+// ── Design parameters (variables) persistence ────────────────────────────
+
+#[test]
+fn parameters_and_dimension_expressions_round_trip() {
+    use feature_engine::types::DesignParameter;
+
+    let mut tree = make_simple_tree();
+    let mut width = DesignParameter::new("width", "30");
+    width.value = 30.0;
+    tree.parameters = vec![width, DesignParameter::new("half", "width / 2")];
+
+    // Attach an expression-driven + reference dimension to the sketch.
+    if let feature_engine::types::Operation::Sketch { sketch } = &mut tree.features[0].operation {
+        sketch.constraints.push(SketchConstraint::Distance {
+            entity_a: 1,
+            entity_b: 2,
+            value: 0.030,
+            expression: Some("width".to_string()),
+            reference: false,
+        });
+        sketch.constraints.push(SketchConstraint::Radius {
+            entity: 3,
+            value: 0.005,
+            expression: None,
+            reference: true,
+        });
+    } else {
+        panic!("first feature should be the sketch");
+    }
+
+    let meta = ProjectMetadata::new("Params Project");
+    let json = save_project(&tree, &meta);
+    let (loaded, _) = load_project(&json).unwrap();
+
+    assert_eq!(loaded.parameters.len(), 2);
+    assert_eq!(loaded.parameters[0].name, "width");
+    assert_eq!(loaded.parameters[0].expression, "30");
+    assert_eq!(loaded.parameters[0].value, 30.0);
+    assert_eq!(loaded.parameters[1].expression, "width / 2");
+
+    if let feature_engine::types::Operation::Sketch { sketch } = &loaded.features[0].operation {
+        let n = sketch.constraints.len();
+        assert_eq!(sketch.constraints[n - 2].expression(), Some("width"));
+        assert!(!sketch.constraints[n - 2].is_reference());
+        assert_eq!(sketch.constraints[n - 1].expression(), None);
+        assert!(sketch.constraints[n - 1].is_reference());
+    } else {
+        panic!("sketch feature lost on round trip");
+    }
+}
+
+#[test]
+fn old_file_without_parameters_loads_with_empty_table() {
+    let tree = make_simple_tree();
+    let meta = ProjectMetadata::new("Old Project");
+    let mut json: serde_json::Value = serde_json::from_str(&save_project(&tree, &meta)).unwrap();
+    // Simulate a pre-parameters file: strip the field wherever it appears.
+    for tab in json["tabs"].as_array_mut().unwrap() {
+        if let Some(obj) = tab["features"].as_object_mut() {
+            obj.remove("parameters");
+        }
+    }
+    let (loaded, _) = load_project(&serde_json::to_string(&json).unwrap()).unwrap();
+    assert!(loaded.parameters.is_empty());
 }

@@ -129,6 +129,22 @@ export function parseValueWithUnit(input) {
 }
 
 /**
+ * True when the WHOLE input is a plain measurement: a number with an optional
+ * known unit suffix ("25", "10mm", "1.5 in"). Anything else — "width / 2",
+ * "2*45", "10mm + 1" — is not, and should be treated as an expression.
+ * (parseAndConvert alone can't tell: it reads the leading number and ignores
+ * an unknown tail, so "2*45" would silently parse as 2.)
+ * @param {string} input
+ * @returns {boolean}
+ */
+export function isPlainMeasurement(input) {
+	const match = input.trim().match(/^([+-]?\d*\.?\d+(?:[eE][+-]?\d+)?)\s*(.*)$/);
+	if (!match) return false;
+	const suffix = match[2].trim().toLowerCase();
+	return !suffix || ALIASES[suffix] != null;
+}
+
+/**
  * Parse user input and convert to internal units (meters).
  * If the input has a unit suffix, that unit is used for conversion.
  * If no suffix, the value is assumed to be in displayUnit.

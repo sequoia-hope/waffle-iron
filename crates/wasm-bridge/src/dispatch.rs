@@ -236,6 +236,26 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
+        // -- Design parameters (variables) --
+        UiToEngine::SetParameters { parameters } => {
+            state.engine.set_parameters(parameters, kb);
+            Ok(model_updated_response(state))
+        }
+
+        UiToEngine::EvaluateExpression { expression } => {
+            let env = feature_engine::params::cached_env(&state.engine.tree.parameters);
+            match feature_engine::expr::evaluate(&expression, &env) {
+                Ok(v) => Ok(EngineToUi::ExpressionEvaluated {
+                    value: Some(v),
+                    error: None,
+                }),
+                Err(e) => Ok(EngineToUi::ExpressionEvaluated {
+                    value: None,
+                    error: Some(e.to_string()),
+                }),
+            }
+        }
+
         UiToEngine::ExportStep => {
             let handle = find_last_solid_handle(state);
             match handle {

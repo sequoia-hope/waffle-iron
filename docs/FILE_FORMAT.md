@@ -24,7 +24,15 @@ The design intent (recipe, not geometry) is mostly upheld, with deliberate and
 accidental exceptions that this spec documents honestly:
 
 - **Stored:** features, operation parameters, sketch entities and constraints,
-  GeomRefs, document/tab structure, body-name overrides, display unit, metadata.
+  GeomRefs, document/tab structure, body-name overrides, display unit, metadata,
+  and (since 2026-08-31) design parameters — the tree-level `parameters` table of
+  named variables plus optional `expression` strings on dimension constraints and
+  on extrude `depth_expr` / revolve `angle_expr` / datum `distance_expr` (all
+  serde-defaulted, purely additive; the driven numeric field always carries the
+  last evaluated value, so pre-parameters readers still see correct geometry).
+  Expressions evaluate in mm-space: bare numbers are millimeters for lengths and
+  degrees for angles, independent of the display unit
+  (`specs/parameterized_designs.md`).
 - **Also stored (derived data — see §10):** sketch `solve_status`,
   `solved_positions`, `solved_profiles`, region boundary tessellations inside
   extrude params, and optional per-tab preview meshes. These are performance/

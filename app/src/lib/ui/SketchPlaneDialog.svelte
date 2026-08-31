@@ -10,10 +10,12 @@
 		getFeatureTree,
 		createDatumPlane,
 		getSketchPlaneDialogStartInOffset,
-		getDocumentDisplayUnit
+		getDocumentDisplayUnit,
+		evaluateExpression
 	} from '$lib/engine/store.svelte.js';
+	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { getAllPlanes, resolvePlane } from '$lib/engine/planes.js';
-	import { parseAndConvert, UNITS } from '$lib/units.js';
+	import { parseAndConvert, isPlainMeasurement, UNITS } from '$lib/units.js';
 
 	// Offset distance is entered in the document display unit (e.g. mm) and
 	// converted to internal meters — like ExtrudeDialog. Without this the raw
@@ -43,6 +45,12 @@
 	// Display-unit string (what the user types); `offsetDistance` is the
 	// converted internal value (meters) sent to the engine.
 	let offsetDistanceInput = $state('10');
+	// Not-a-plain-number inputs are expressions over the design variables
+	// (mm-space) — evaluated by the engine at create time and re-evaluated on
+	// every rebuild via `distance_expr`.
+	let offsetIsExpr = $derived(
+		offsetDistanceInput.trim() !== '' && !isPlainMeasurement(offsetDistanceInput)
+	);
 	let offsetDistance = $derived(parseAndConvert(offsetDistanceInput, displayUnit));
 	let offsetName = $state('Offset Plane');
 	// When set, the offset base is a selected planar FACE (GeomRef) instead of
@@ -106,22 +114,36 @@
 		offsetBaseFace = null;
 	}
 
-	function handleCreateOffset() {
-		if (!Number.isFinite(offsetDistance)) return;
+	async function handleCreateOffset() {
+		let distance = offsetDistance;
+		let distanceExpr = null;
+		if (offsetIsExpr) {
+			const typed = offsetDistanceInput.trim();
+			const { value, error } = await evaluateExpression(typed);
+			if (error != null || value == null) {
+				showToast('error', `Offset expression: ${error ?? 'evaluation failed'}`);
+				return;
+			}
+			distance = value * 0.001; // mm-space -> meters
+			distanceExpr = typed;
+		}
+		if (!Number.isFinite(distance)) return;
 		/** @type {any} */
 		let definition;
 		if (offsetBaseFace) {
 			definition = {
 				method: 'offset-face',
 				base: offsetBaseFace,
-				distance: offsetDistance
+				distance,
+				distance_expr: distanceExpr
 			};
 		} else {
 			if (!offsetBasePlaneId) return;
 			definition = {
 				method: 'offset',
 				basePlaneId: offsetBasePlaneId,
-				distance: offsetDistance
+				distance,
+				distance_expr: distanceExpr
 			};
 		}
 		createDatumPlane(definition, offsetName);

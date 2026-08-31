@@ -10,6 +10,41 @@ use waffle_types::{GeomRef, OutputKey, Sketch};
 /// the document; `#[serde(default)]` keeps older files (no field) loading.
 pub type BodyNames = HashMap<String, String>;
 
+/// A named design variable (parameter) on the feature tree.
+///
+/// `expression` is evaluated in mm-space (see `crate::expr`): bare numeric
+/// literals mean millimeters in length contexts / degrees in angle contexts;
+/// unit suffixes (`in`, `cm`, ...) scale literals; other parameters may be
+/// referenced by name in any order (cycles are a loud per-parameter error).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DesignParameter {
+    /// Stable identity (error routing, undo bookkeeping).
+    pub id: Uuid,
+    /// Identifier used in expressions: `[A-Za-z_][A-Za-z0-9_]*`, not reserved.
+    pub name: String,
+    /// The defining expression, e.g. `"25"`, `"width / 2"`, `"1.5in"`.
+    pub expression: String,
+    /// Cached last-good evaluated value (mm-space), refreshed each rebuild.
+    /// Kept on evaluation failure so dependents hold their last geometry.
+    #[serde(default)]
+    pub value: f64,
+    /// Evaluation error from the last rebuild (`None` = evaluated cleanly).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl DesignParameter {
+    pub fn new(name: impl Into<String>, expression: impl Into<String>) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            expression: expression.into(),
+            value: 0.0,
+            error: None,
+        }
+    }
+}
+
 /// The ordered list of modeling features.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureTree {
@@ -21,6 +56,10 @@ pub struct FeatureTree {
     /// User-assigned body names, independent of feature names.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub body_names: BodyNames,
+    /// Named design variables. Order is display order only; expressions may
+    /// reference any parameter regardless of position.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<DesignParameter>,
 }
 
 impl FeatureTree {
@@ -29,6 +68,7 @@ impl FeatureTree {
             features: Vec::new(),
             active_index: None,
             body_names: HashMap::new(),
+            parameters: Vec::new(),
         }
     }
 
@@ -209,6 +249,12 @@ pub struct ExtrudeParams {
     pub sketch_id: Uuid,
     pub profile_index: usize,
     pub depth: f64,
+    /// Optional driving expression for `depth` (mm-space -> meters). When
+    /// present, rebuild re-evaluates it against the design parameters and
+    /// writes the result into `depth`; `depth` always holds the last
+    /// evaluated value so old readers and the kernel see a plain number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth_expr: Option<String>,
     pub direction: Option<[f64; 3]>,
     pub symmetric: bool,
     pub cut: bool,
@@ -370,6 +416,10 @@ pub struct RevolveParams {
     pub axis_origin: [f64; 3],
     pub axis_direction: [f64; 3],
     pub angle: f64,
+    /// Optional driving expression for `angle` (evaluates to DEGREES).
+    /// See `ExtrudeParams::depth_expr`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub angle_expr: Option<String>,
     /// If true, subtract this revolve from the target body.
     #[serde(default)]
     pub cut: bool,
@@ -429,6 +479,11 @@ pub enum BooleanOp {
 }
 
 /// How a construction plane is defined.
+// large_enum_variant: OffsetFromFace grew past the lint threshold with the
+// `distance_expr` field. Same call as `Operation` above — a serialized
+// feature-tree type constructed per datum plane, not per vertex; boxing would
+// ripple through the file format for no measurable gain.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "method")]
 pub enum PlaneDefinition {
@@ -441,6 +496,10 @@ pub enum PlaneDefinition {
         #[serde(rename = "basePlaneId")]
         base_plane_id: Uuid,
         distance: f64,
+        /// Optional driving expression for `distance` (mm-space -> meters).
+        /// See `ExtrudeParams::depth_expr`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        distance_expr: Option<String>,
     },
     /// Parallel offset from a planar face. The base face's plane (origin +
     /// outward normal) is resolved from the *current* geometry each rebuild,
@@ -452,6 +511,10 @@ pub enum PlaneDefinition {
         /// GeomRef of the planar face that defines the base plane.
         base: GeomRef,
         distance: f64,
+        /// Optional driving expression for `distance` (mm-space -> meters).
+        /// See `ExtrudeParams::depth_expr`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        distance_expr: Option<String>,
     },
 }
 
@@ -553,6 +616,7 @@ mod combine_normalization_tests {
             sketch_id: Uuid::new_v4(),
             profile_index: 0,
             depth: 0.01,
+            depth_expr: None,
             direction: None,
             symmetric: false,
             cut,
