@@ -5287,6 +5287,652 @@ fn strategy_selection_census(
     }
 }
 
+/// inc-2c-3b-1 gate (spec `specs/yang_451_corner_transit.md` §3i):
+/// `YANG_451_TRANSIT=1|on` arms the corner-transit corridor mutation.
+/// Default OFF — the standing §4-I9 STOP is the answer.
+fn transit_apply_enabled() -> bool {
+    matches!(
+        std::env::var("YANG_451_TRANSIT").as_deref(),
+        Ok("1") | Ok("on")
+    )
+}
+
+/// The §4-I9 two-leg detection as a quiet fire list — the SAME rule
+/// [`relocation_domain_postcondition`] STOPs on (a moved vertex crossed a
+/// STILL neighbour that carries a surface the traveller is off), kept in
+/// lockstep with it: any change there must land here too.
+fn corner_crossing_fires(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+    entry: &[[f64; 3]],
+) -> Vec<(u32, u32)> {
+    let n = entry.len().min(mesh.verts.len());
+    let adj = build_live_adjacency(mesh);
+    let mut fires = Vec::new();
+    for (&v, neighbours) in &adj {
+        let i = v as usize;
+        if i >= n {
+            continue;
+        }
+        let (pre, post) = (entry[i], mesh.verts[i].as_array());
+        if pre == post {
+            continue;
+        }
+        for &q in neighbours {
+            let qi = q as usize;
+            if qi >= n || entry[qi] != mesh.verts[qi].as_array() {
+                continue;
+            }
+            let qpos = mesh.verts[qi].as_array();
+            if !crate::stage4_construct::point_on_segment_interior(pre, post, qpos) {
+                continue;
+            }
+            let lost = carried_surfaces(mesh, &attribution.attributions, a, b, q, qpos)
+                .into_iter()
+                .any(|surf| {
+                    !surface_distance_and_normal(surf, post)
+                        .is_some_and(|(f, _)| f.abs() <= junction_certificate_band(post, surf))
+                });
+            if lost {
+                fires.push((v, q));
+            }
+        }
+    }
+    fires
+}
+
+/// inc-2c-3b-1 — the gated corner-transit CORRIDOR MUTATION (spec §3i).
+///
+/// Re-runs the measured pipeline quietly — site planner → contract-band
+/// walks → corridor assembly → corrected-cycle planning — and, only when
+/// EVERY admission certificate holds (every fired site consumed by an
+/// applyable corridor, zero plan declines, every affected patch key
+/// planned), mints the pool and replaces each planned component's
+/// triangles with a wholesale re-CDT from its corrected cycles, as one
+/// batch. Any refusal rolls back completely (appended mints truncated)
+/// and returns `Ok(false)` — the standing §4-I9 STOP then fires exactly
+/// as today. Never guesses (P10).
+fn corner_transit_apply(
+    mesh: &mut Mesh,
+    attribution: &mut TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+    entry: &[[f64; 3]],
+) -> Result<bool, YangError> {
+    use crate::stage4_corridor as s4c;
+    use crate::stage4_transit as s4t;
+    if !transit_apply_enabled() {
+        return Ok(false);
+    }
+    let fires = corner_crossing_fires(mesh, attribution, a, b, entry);
+    if fires.is_empty() {
+        return Ok(false);
+    }
+    let refuse = |why: &str| {
+        eprintln!("[451-transit] REFUSE: {why} — the standing §4-I9 STOP applies");
+    };
+    let Some(d_eps) = stage4_chord_band(a, b) else {
+        refuse("no chord band");
+        return Ok(false);
+    };
+    // Mesh-side lookups (the census constructions, quiet).
+    let mut patch_map: std::collections::BTreeMap<u32, std::collections::BTreeSet<(InputId, u32)>> =
+        std::collections::BTreeMap::new();
+    for (ti, tri) in mesh.tris.iter().enumerate() {
+        if let Some(Some(att)) = attribution.attributions.get(ti) {
+            for &tv in tri {
+                patch_map
+                    .entry(tv)
+                    .or_default()
+                    .insert((att.input, att.face));
+            }
+        }
+    }
+    let empty: std::collections::BTreeSet<(InputId, u32)> = Default::default();
+    let patches_of = |t: u32| -> &std::collections::BTreeSet<(InputId, u32)> {
+        patch_map.get(&t).unwrap_or(&empty)
+    };
+    let adj = build_live_adjacency(mesh);
+    let fired: std::collections::BTreeSet<u32> = fires.iter().map(|&(v, _)| v).collect();
+    let d3 = |x: [f64; 3], y: [f64; 3]| {
+        ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2)).sqrt()
+    };
+    let faces_of = |op: InputId| match op {
+        InputId::A => a.faces(),
+        InputId::B => b.faces(),
+    };
+    // Per-site planning + APPLY-semantics walks.
+    let mut walks: Vec<s4t::SiteWalk> = Vec::new();
+    for &(v, q) in &fires {
+        let (pv, pq) = (patches_of(v), patches_of(q));
+        let qpos = mesh.verts[q as usize].as_array();
+        let site = match s4t::read_site(a, b, pv, pq, qpos) {
+            Ok(s) => s,
+            Err(d) => {
+                refuse(&format!("site v{v}: {d:?}"));
+                return Ok(false);
+            }
+        };
+        if let Err(d) = s4t::classify(&site, qpos) {
+            refuse(&format!("site v{v}: {d:?}"));
+            return Ok(false);
+        }
+        let brep_n = match site.next.0 {
+            InputId::A => a,
+            InputId::B => b,
+        };
+        let Some(far_surf) = faces_of(site.far.0)
+            .get(site.far.1 as usize)
+            .map(|f| f.surface)
+        else {
+            refuse(&format!("site v{v}: far face missing"));
+            return Ok(false);
+        };
+        let walk_adj = s4t::build_edge_adjacency(brep_n);
+        let (far_patch, next_op) = (site.far, site.next.0);
+        let existing = |ff: u32, ft: u32, pos: [f64; 3]| -> Option<(u32, f64)> {
+            let want = [far_patch, (next_op, ff), (next_op, ft)];
+            patch_map
+                .iter()
+                .filter(|(w, ps)| !fired.contains(w) && want.iter().all(|t| ps.contains(t)))
+                .map(|(&w, _)| (w, d3(mesh.verts[w as usize].as_array(), pos)))
+                .min_by(|x, y| x.1.total_cmp(&y.1))
+        };
+        let ctx = s4t::WalkCtx {
+            brep: brep_n,
+            far: far_surf,
+            adj: &walk_adj,
+            existing: &existing,
+            splice_band: s4t::WalkBand::Contract,
+        };
+        for c in &site.cands {
+            if !c.real {
+                continue;
+            }
+            let (Some(sa), Some(er)) = (c.sol, c.edge.as_ref()) else {
+                continue;
+            };
+            let Some(other) = site.cands.iter().find(|o| o.shared != c.shared) else {
+                continue;
+            };
+            if c.shared.0 != site.next.0 || other.shared.0 != site.next.0 {
+                refuse(&format!("site v{v}: cross-operand shape"));
+                return Ok(false);
+            }
+            let (juncs, end) = s4t::walk_corridor(
+                &ctx,
+                s4t::WalkStart {
+                    face: site.next.1,
+                    entry_key: s4t::edge_key(brep_n, er.edge),
+                    entry: sa,
+                },
+                other.shared.1,
+                64,
+            );
+            walks.push(s4t::SiteWalk {
+                site: v,
+                corner: q,
+                far: site.far,
+                far_surf,
+                walk_op: site.next.0,
+                entry: s4t::WalkJunction {
+                    face_from: c.shared.1,
+                    face_to: site.next.1,
+                    edge: er.edge,
+                    sol: sa,
+                    d_on_edge: er.d_on_edge,
+                },
+                juncs,
+                end,
+            });
+        }
+    }
+    // Assembly.
+    let existing_g =
+        |far: (InputId, u32), op: InputId, ff: u32, ft: u32, pos: [f64; 3]| -> Option<(u32, f64)> {
+            let want = [far, (op, ff), (op, ft)];
+            patch_map
+                .iter()
+                .filter(|(w, ps)| !fired.contains(w) && want.iter().all(|t| ps.contains(t)))
+                .map(|(&w, _)| (w, d3(mesh.verts[w as usize].as_array(), pos)))
+                .min_by(|x, y| x.1.total_cmp(&y.1))
+        };
+    let facet_chain = |far: (InputId, u32), op: InputId, f: u32| -> Vec<s4t::FacetChain> {
+        let want = [far, (op, f)];
+        let members: std::collections::BTreeSet<u32> = patch_map
+            .iter()
+            .filter(|(w, ps)| !fired.contains(w) && want.iter().all(|t| ps.contains(t)))
+            .map(|(&w, _)| w)
+            .collect();
+        let ind_nbrs = |x: u32| -> Vec<u32> {
+            adj.get(&x)
+                .into_iter()
+                .flatten()
+                .copied()
+                .filter(|y| members.contains(y))
+                .collect()
+        };
+        let mut seen: std::collections::BTreeSet<u32> = Default::default();
+        let mut comps = Vec::new();
+        for &s in &members {
+            if seen.contains(&s) {
+                continue;
+            }
+            let mut comp = std::collections::BTreeSet::from([s]);
+            let mut stack = vec![s];
+            seen.insert(s);
+            while let Some(x) = stack.pop() {
+                for y in ind_nbrs(x) {
+                    if comp.insert(y) {
+                        seen.insert(y);
+                        stack.push(y);
+                    }
+                }
+            }
+            let degs: Vec<(u32, usize)> = comp
+                .iter()
+                .map(|&x| (x, ind_nbrs(x).iter().filter(|y| comp.contains(y)).count()))
+                .collect();
+            let ends: Vec<u32> = degs
+                .iter()
+                .filter(|&&(_, d)| d <= 1)
+                .map(|&(x, _)| x)
+                .collect();
+            let is_path = degs.iter().all(|&(_, d)| d <= 2) && (comp.len() == 1 || ends.len() == 2);
+            let verts: Vec<(u32, [f64; 3])> = if is_path && comp.len() > 1 {
+                let mut order = vec![*ends.iter().min().expect("two ends")];
+                let mut prev: Option<u32> = None;
+                while order.len() < comp.len() {
+                    let x = *order.last().expect("non-empty");
+                    let nxt = ind_nbrs(x)
+                        .into_iter()
+                        .find(|&y| comp.contains(&y) && Some(y) != prev);
+                    match nxt {
+                        Some(y) => {
+                            prev = Some(x);
+                            order.push(y);
+                        }
+                        None => break,
+                    }
+                }
+                order
+                    .iter()
+                    .map(|&x| (x, mesh.verts[x as usize].as_array()))
+                    .collect()
+            } else {
+                comp.iter()
+                    .map(|&x| (x, mesh.verts[x as usize].as_array()))
+                    .collect()
+            };
+            comps.push(s4t::FacetChain {
+                path: is_path && verts.len() == comp.len(),
+                verts,
+            });
+        }
+        comps
+    };
+    let face_surface = |op: InputId, f: u32| -> Option<Surface> {
+        faces_of(op).get(f as usize).map(|x| x.surface)
+    };
+    let actx = s4t::AssembleCtx {
+        existing: &existing_g,
+        facet_chain: &facet_chain,
+        face_surface: &face_surface,
+        d_eps,
+    };
+    let (corridors, adeclines) = s4t::assemble_corridors(&actx, &walks);
+    if !adeclines.is_empty() {
+        refuse(&format!("assembly declines: {}", adeclines.len()));
+        return Ok(false);
+    }
+    if !(corridors.iter().all(|c| c.applyable()) && !corridors.is_empty()) {
+        refuse("not every corridor is applyable");
+        return Ok(false);
+    }
+    let consumed: std::collections::BTreeSet<u32> = corridors
+        .iter()
+        .flat_map(|c| c.phantoms.iter().copied())
+        .collect();
+    if consumed != fired {
+        refuse("not every fired site is consumed");
+        return Ok(false);
+    }
+    // Components + cycle planning.
+    let adjacency_t = crate::stage5_topology::triangle_adjacency(mesh);
+    let raw_patches = crate::stage5_topology::flood_fill_patches(mesh, attribution, &adjacency_t);
+    let vband = |v: u32| -> f64 {
+        let p = mesh.verts[v as usize].as_array();
+        cad_primitives::TAU_WORK
+            .max(8.0 * f64::EPSILON * p[0].abs().max(p[1].abs()).max(p[2].abs()))
+    };
+    let cycles_of = |pi: usize| -> Option<Vec<Vec<u32>>> {
+        crate::stage5_topology::patch_boundary_cycle(&raw_patches[pi], mesh)
+            .ok()
+            .map(|cy| {
+                cy.iter()
+                    .map(|c| c.iter().map(|&(s, _)| s).collect())
+                    .collect()
+            })
+    };
+    let hosts_on = |k: usize, cycles_v: &[Vec<u32>]| -> Vec<s4c::HostEdge> {
+        let c = &corridors[k];
+        let mut out = Vec::new();
+        for (ji, j) in c.junctions.iter().enumerate() {
+            if !matches!(j.disposition, s4t::JunctionDisposition::Mint) {
+                continue;
+            }
+            let scale = j.sol.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
+            let band = cad_primitives::TAU_WORK.max(8.0 * f64::EPSILON * scale);
+            for cy in cycles_v {
+                let n = cy.len();
+                for i in 0..n {
+                    let (x, y) = (cy[i], cy[(i + 1) % n]);
+                    let d = s4t::dist_point_segment(
+                        j.sol,
+                        mesh.verts[x as usize].as_array(),
+                        mesh.verts[y as usize].as_array(),
+                    );
+                    if d <= band {
+                        out.push((ji, (x, y)));
+                    }
+                }
+            }
+        }
+        out
+    };
+    let mut comp_map: std::collections::BTreeMap<u32, s4c::ComponentInput> = Default::default();
+    let mut host_map: std::collections::BTreeMap<(usize, u32), Vec<s4c::HostEdge>> =
+        Default::default();
+    for (k, c) in corridors.iter().enumerate() {
+        for key in s4c::affected_keys(c) {
+            for (pi, patch) in raw_patches
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| (p.attribution.input, p.attribution.face) == key)
+            {
+                let holds_phantom = patch.tri_indices.iter().any(|&t| {
+                    let tri = mesh.tris[t as usize];
+                    c.phantoms.iter().any(|&p| tri.contains(&p))
+                });
+                let Some(cycles_v) = cycles_of(pi) else {
+                    refuse("component cycle walk failed");
+                    return Ok(false);
+                };
+                let hosts = hosts_on(k, &cycles_v);
+                if holds_phantom || !hosts.is_empty() {
+                    comp_map.entry(pi as u32).or_insert(s4c::ComponentInput {
+                        key,
+                        comp: pi as u32,
+                        cycles: cycles_v,
+                    });
+                    host_map.insert((k, pi as u32), hosts);
+                }
+            }
+        }
+    }
+    let comp_vec: Vec<s4c::ComponentInput> = comp_map.into_values().collect();
+    let far_value = |k: usize, v: u32| -> Option<f64> {
+        let (fi, ff) = corridors[k].far;
+        let s = faces_of(fi).get(ff as usize)?.surface;
+        surface_value_and_normal(s, mesh.verts[v as usize].as_array()).map(|(f, _)| f)
+    };
+    let attachments = |k: usize, p: u32| -> Vec<(u32, usize)> {
+        let c = &corridors[k];
+        let mut out = Vec::new();
+        for &w in adj.get(&p).into_iter().flatten() {
+            if !vertex_on_curve(&patch_map, w) {
+                continue;
+            }
+            let pw = patches_of(w);
+            let hits: Vec<usize> = c
+                .junctions
+                .iter()
+                .enumerate()
+                .filter(|(_, j)| {
+                    pw.contains(&(c.walk_op, j.faces.0)) || pw.contains(&(c.walk_op, j.faces.1))
+                })
+                .map(|(i, _)| i)
+                .collect();
+            if let [one] = hits.as_slice() {
+                out.push((w, *one));
+            }
+        }
+        out
+    };
+    let hosts = |k: usize, comp: u32| -> Vec<s4c::HostEdge> {
+        host_map.get(&(k, comp)).cloned().unwrap_or_default()
+    };
+    let pctx = s4c::PlanCtx {
+        far_value: &far_value,
+        band: &vband,
+        attachments: &attachments,
+        hosts: &hosts,
+    };
+    let mut pool = s4c::MintPool::default();
+    let (plans, pdeclines) = s4c::plan_invocation(&corridors, &comp_vec, &pctx, &mut pool);
+    if !pdeclines.is_empty() {
+        refuse(&format!("plan declines: {}", pdeclines.len()));
+        return Ok(false);
+    }
+    // Every affected patch key of every corridor must be covered by a plan.
+    for c in &corridors {
+        for key in s4c::affected_keys(c) {
+            if !plans.iter().any(|pl| pl.key == key) {
+                refuse(&format!("affected patch {key:?} has no plan"));
+                return Ok(false);
+            }
+        }
+    }
+    // ---- MUTATION (all-or-nothing) ------------------------------------
+    let base = mesh.verts.len() as u32;
+    mesh.verts
+        .extend(pool.verts.iter().map(|p| Point3::new(p[0], p[1], p[2])));
+    let rollback = |mesh: &mut Mesh| {
+        mesh.verts.truncate(base as usize);
+    };
+    let mut rebuilds: Vec<crate::stage4_construct::PatchRebuild> = Vec::new();
+    let mut replaced: std::collections::BTreeSet<u32> = Default::default();
+    let mut removed_all: std::collections::BTreeSet<u32> = Default::default();
+    // FAR patches get FAN-LOCAL surgery (delete the phantom's fan, refill
+    // the link + corridor-chain polygon in a local chart window) — the
+    // measured I6/I13 lesson: a wholesale re-CDT of a big curved lateral
+    // fails on pre-existing boundary folds elsewhere on the patch and
+    // certifies coarser chords (measured live: R0011's far is a
+    // radius-6277 cylinder — TriangulationFailed / ChordDegradation).
+    // The generator-A ComponentPlan remains the coherence certificate;
+    // the mutation implements the same swap locally.
+    let far_keys: std::collections::BTreeSet<(InputId, u32)> =
+        corridors.iter().map(|c| c.far).collect();
+    for (k, c) in corridors.iter().enumerate() {
+        let path_u: Vec<u32> = {
+            let mut pth = Vec::new();
+            let mut pos = 0usize;
+            // Rebuild the path in mesh ids from the corridor directly (the
+            // planner's interning order is reproduced by re-interning into
+            // the SAME pool — positions already present return their ids).
+            let mut p2 = s4c::MintPool {
+                verts: pool.verts.clone(),
+            };
+            for r in s4c::corridor_path(c, &mut p2) {
+                pth.push(match r {
+                    s4c::CycleRef::Old(v) => v,
+                    s4c::CycleRef::New(i) => base + i,
+                });
+                pos += 1;
+            }
+            let _ = pos;
+            if p2.verts.len() != pool.verts.len() {
+                refuse("path re-interning grew the pool");
+                rollback(mesh);
+                return Ok(false);
+            }
+            pth
+        };
+        for &p in &c.phantoms {
+            let Some((pi, patch)) = raw_patches.iter().enumerate().find(|(_, pt)| {
+                (pt.attribution.input, pt.attribution.face) == c.far
+                    && pt
+                        .tri_indices
+                        .iter()
+                        .any(|&t| mesh.tris[t as usize].contains(&p))
+            }) else {
+                refuse(&format!("far fan of v{p} not found"));
+                rollback(mesh);
+                return Ok(false);
+            };
+            let Some(surface) = faces_of(c.far.0).get(c.far.1 as usize).map(|f| f.surface) else {
+                refuse("far surface missing");
+                rollback(mesh);
+                return Ok(false);
+            };
+            let sp = crate::stage4_splice::SplicePatch {
+                cycles: Vec::new(),
+                tris: patch.tri_indices.clone(),
+                surface,
+            };
+            let (del, link) = match crate::stage4_construct::delete_boundary_fan(mesh, pi, &sp, p) {
+                Ok(r) => r,
+                Err(e) => {
+                    refuse(&format!("far fan delete v{p}: {e:?}"));
+                    rollback(mesh);
+                    return Ok(false);
+                }
+            };
+            // The link's open ends are the phantom's two curve neighbours;
+            // each names its END junction (the attachment certificate).
+            let att = attachments(k, p);
+            let att_of = |v: u32| att.iter().find(|&&(n, _)| n == v).map(|&(_, j)| j);
+            let (l0, lk) = (link[0], link[link.len() - 1]);
+            let last = c.junctions.len() - 1;
+            let (ja, jb) = match (att_of(l0), att_of(lk)) {
+                (Some(x), Some(y)) if (x == 0 && y == last) || (x == last && y == 0) => (x, y),
+                other => {
+                    refuse(&format!(
+                        "far fan link ends of v{p} do not attach corridor ends: {other:?}"
+                    ));
+                    rollback(mesh);
+                    return Ok(false);
+                }
+            };
+            let _ = ja;
+            // polygon = link (l0..lk) + the corridor path from lk's end
+            // back to l0's end.
+            let mut polygon = link.clone();
+            if jb == 0 {
+                polygon.extend(path_u.iter().copied());
+            } else {
+                polygon.extend(path_u.iter().rev().copied());
+            }
+            let new_tris = match crate::stage4_construct::refill_fan_hole(
+                mesh,
+                pi,
+                &sp,
+                &polygon,
+                &del.old_tris,
+            ) {
+                Ok(t) => t,
+                Err(e) => {
+                    refuse(&format!("far fan refill v{p}: {e:?}"));
+                    rollback(mesh);
+                    return Ok(false);
+                }
+            };
+            replaced.extend(del.old_tris.iter().copied());
+            removed_all.insert(p);
+            rebuilds.push(crate::stage4_construct::PatchRebuild {
+                patch: pi,
+                old_tris: del.old_tris,
+                new_tris,
+                new_verts: Vec::new(),
+                dropped: std::collections::BTreeSet::from([p]),
+                plan_verts: mesh.verts.len() as u32,
+                plan_tris: mesh.tris.len() as u32,
+            });
+        }
+    }
+    // Non-far components: wholesale rebuild from the corrected cycles.
+    for pl in &plans {
+        if far_keys.contains(&pl.key) {
+            removed_all.extend(pl.removed.iter().copied());
+            continue;
+        }
+        let cycles_u: Vec<Vec<u32>> = pl
+            .corrected
+            .iter()
+            .map(|cy| {
+                cy.iter()
+                    .map(|r| match *r {
+                        s4c::CycleRef::Old(v) => v,
+                        s4c::CycleRef::New(i) => base + i,
+                    })
+                    .collect()
+            })
+            .collect();
+        let patch = &raw_patches[pl.comp as usize];
+        let Some(surface) = faces_of(patch.attribution.input)
+            .get(patch.attribution.face as usize)
+            .map(|f| f.surface)
+        else {
+            refuse("component surface missing");
+            rollback(mesh);
+            return Ok(false);
+        };
+        let sp = crate::stage4_splice::SplicePatch {
+            cycles: cycles_u,
+            tris: patch.tri_indices.clone(),
+            surface,
+        };
+        match crate::stage4_construct::rebuild_patch_planar(mesh, pl.comp as usize, &sp) {
+            Ok(r) => {
+                replaced.extend(r.old_tris.iter().copied());
+                rebuilds.push(r);
+            }
+            Err(e) => {
+                refuse(&format!(
+                    "rebuild comp={} key={:?} {e:?} surface={surface:?} cycles={:?}",
+                    pl.comp,
+                    pl.key,
+                    pl.corrected.iter().map(|c| c.len()).collect::<Vec<_>>(),
+                ));
+                rollback(mesh);
+                return Ok(false);
+            }
+        }
+        removed_all.extend(pl.removed.iter().copied());
+    }
+    // The excised vertices must be referenced ONLY by replaced triangles.
+    for (ti, tri) in mesh.tris.iter().enumerate() {
+        if replaced.contains(&(ti as u32)) {
+            continue;
+        }
+        if tri.iter().any(|v| removed_all.contains(v)) {
+            refuse(&format!("removed vertex still referenced by tri {ti}"));
+            rollback(mesh);
+            return Ok(false);
+        }
+    }
+    if let Err(e) = crate::stage4_construct::apply_rebuild_batch(
+        mesh,
+        attribution,
+        &rebuilds,
+        &std::collections::BTreeMap::new(),
+    ) {
+        refuse(&format!("batch: {e:?}"));
+        rollback(mesh);
+        return Ok(false);
+    }
+    eprintln!(
+        "[451-transit] APPLIED corridors={} plans={} mints={} removed={}",
+        corridors.len(),
+        plans.len(),
+        pool.verts.len(),
+        removed_all.len(),
+    );
+    Ok(true)
+}
+
 fn relocation_domain_postcondition(
     mesh: &Mesh,
     attribution: &TriangleAttributionMap,
@@ -11043,6 +11689,11 @@ fn stage4_relocate_and_correct_inner(
         }
     }
 
+    // inc-2c-3b-1 (spec `specs/yang_451_corner_transit.md` §3i): the gated
+    // corner-transit corridor mutation — repairs the §4-I9 corner-crosser
+    // fires when every certificate holds; any refusal leaves the mesh
+    // untouched and the postcondition STOP below fires exactly as today.
+    corner_transit_apply(mesh, attribution, brep_a, brep_b, &s4_entry_pos)?;
     // After a collapse the vertex set may have lost some relocated verts; keep
     // only relocations whose vertex still carries a conic output edge. The
     // caller resolves the output-edge index; relocations referencing a

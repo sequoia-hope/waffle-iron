@@ -783,6 +783,60 @@ components' triangles in one `apply_rebuild_batch`-style transaction
 re-run the §4-I9 postcondition + the standing oracle gate — all behind
 `YANG_451_TRANSIT`.
 
+## 3j. inc-2c-3b-1 — the gated CORRIDOR MUTATION (LANDED 2026-08-31;
+FIRST LIVE APPLY on R0011 op-1: §4-I9 fires REPAIRED, the case moves
+to a new downstream wall)
+
+`corner_transit_apply` in `stage4_correct.rs`, called immediately
+before the §4-I9 postcondition, gated `YANG_451_TRANSIT=1|on`
+(default OFF, byte-identical; `corner_crossing_fires` is the
+postcondition's two-leg detection as a quiet fire list, kept in
+lockstep). The driver re-runs the measured pipeline quietly (site
+planner → contract-band walks → corridor assembly → corrected-cycle
+planning — all the landed library pieces with mirrored closures), and
+mutates ONLY when every admission certificate holds: zero assembly
+declines, every corridor applyable, every fired site consumed, zero
+plan declines, every affected patch key planned. Every refusal prints
+`[451-transit] REFUSE: …`, rolls back completely (appended mints
+truncated), and leaves the standing STOP to fire exactly as today
+(P10).
+
+**Two refusals measured live before the first apply, each naming its
+fix:**
+1. The far patch is a CYLINDER (radius 6277 — the revolve lateral;
+   the "R0011 far is a plane" assumption was wrong), and a WHOLESALE
+   far-patch re-CDT fails exactly as the I6/I13 lesson on
+   `rebuild_merge_fan` records: `TriangulationFailed` (pre-existing
+   folds elsewhere on the big lateral's boundary) on op-1 and
+   `ChordDegradation` 705→5393 (the §4.4.1 like-for-like d(T) gate)
+   on op-2. **The far arm is therefore FAN-LOCAL**: delete the
+   phantom's far fan (`delete_boundary_fan`; the link's open ends ARE
+   the two attachment neighbours), refill the link + corridor-chain
+   polygon in a local chart window (`refill_fan_hole` — the f2c
+   vocabulary, local θ-unwrap, local like-for-like budget). The
+   generator-A ComponentPlan stays as the coherence certificate.
+2. B-side components (teeth facets, the base plane) rebuild WHOLESALE
+   from their corrected cycles (`rebuild_patch_planar`) — measured
+   fine at their sizes (2–5 tris; the 396-tri planar base).
+
+**Measured (R0011, gate on): `APPLIED corridors=3 plans=13 mints=11
+removed=11` — op-1's three corridors repair, the §4-I9 postcondition
+PASSES, op-1's boolean COMPLETES, and the case's failure moves
+DOWNSTREAM:** op-2's auto-union now fails tessellating the REPAIRED
+op-1 output as its input — `TessellationFailed { face: FaceId(402),
+"ring rejected by CDT (degenerate/self-intersecting)" }`. Gate off:
+byte-identical original ERROR (re-measured). No oracle complaints on
+the completed op-1 boolean.
+
+**inc-2c-3b-2 (next): the FaceId(402) ring.** The corridor mutation
+is sound at the mesh level (postcondition clean); the new wall is the
+Stage-5/6 EMISSION of the repaired region into the output B-Rep — the
+prime suspect is curve provenance: the corridor's minted junctions
+and run edges exist in no stage-3 `PosKeyedEdgeSet`/curve map, so the
+emitted loops around the repaired area may carry degenerate ring
+geometry. Anchor face 402's emitted ring first (which face, which
+loop, which vertices); do not guess the fix.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -843,11 +897,18 @@ re-run the §4-I9 postcondition + the standing oracle gate — all behind
   component plans across both invocations, 0 declines, every §3h-3a
   prediction reproduced; §3d's "q stays" REFUTED (crossed corners are
   excised everywhere, soundly — §3i).
-- inc-2c-3b-1: the gated mutation (`YANG_451_TRANSIT`) — mint the
-  pool, re-CDT each planned component from its corrected cycles
-  (Plane charts first), one batch transaction, §4-I9 re-check +
-  oracle gate; admission = every fired site consumed & every affected
-  component planned.
+- **inc-2c-3b-1** (2026-08-31): the gated mutation LANDED
+  (`corner_transit_apply`, `YANG_451_TRANSIT`, default OFF) — full
+  admission-certified pipeline + fan-local far arm (the wholesale
+  far rebuild REFUTED live: cylinder lateral, TriangulationFailed /
+  ChordDegradation — the I6 lesson) + wholesale B-side rebuilds +
+  all-or-nothing batch with rollback. **FIRST LIVE APPLY: R0011 op-1
+  repairs (3 corridors / 13 plans / 11 mints / 11 removed), §4-I9
+  passes, the boolean completes; the case moves to the downstream
+  FaceId(402) ring-rejection wall** (§3j).
+- inc-2c-3b-2: anchor the FaceId(402) emitted ring (Stage-5/6
+  emission of the repaired region; prime suspect: minted corridor
+  edges carry no stage-3 curve provenance).
 - inc-3: fixed-point integration (multiple sites per case; R0085 has two
   failing ops) + full-corpus gated measurement; flip under the standing
   two-proof protocol.
