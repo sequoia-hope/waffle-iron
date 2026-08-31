@@ -1,7 +1,8 @@
 # §4.5.1 Corner Transit — the §4-I9 corner-crosser repair (I13f rehome kin)
 
-**Status (2026-08-31b): FIRST CONVERSION — R0011 is SUPPORTED_CORRECT
-under the gate.** inc-2a/2b/2c-0/2c-1 (2026-08-30): planner + walk
+**Status (2026-08-31c): TWO CONVERSIONS — R0011 AND R0074 are
+SUPPORTED_CORRECT under the gates (`YANG_451_TRANSIT`, R0074 also
+`YANG_441_TORUS_CHART`).** inc-2a/2b/2c-0/2c-1 (2026-08-30): planner + walk
 census + all-roots solvers — every family corridor DETERMINED
 (§3c–§3g). inc-2c-2+3a (2026-08-30b): corridor ASSEMBLY +
 cycle-surgery census — repair units as typed data (§3h). inc-2c-3b-0:
@@ -19,9 +20,15 @@ exact-involute voxel-CSG + 1×/2×/4× ladder; `euler_target` authored 0
 densities (2×: one corridor; 4×: the §4.5.4 refine-retry repairs after
 an honest natural decline). Flow correction: R0011 runs ONE design
 boolean — the "op-2" invocation everywhere in §3h/§3i is the §4.5.4
-refine RETRY. NEXT = R0044's curve-aware host search (the arc-host
-wall, §3i), R0074/R0085 family measurement, then inc-3 (full-corpus
-gated measurement, two-proof flip).** Epic opened by
+refine RETRY. **inc-2c-3b-3 (2026-08-31, third session): the
+fan-local TORUS chart (`YANG_441_TORUS_CHART`, default OFF) —
+R0074 CONVERTS to SUPPORTED_CORRECT (the SECOND conversion, §3k).**
+**inc-2c-3b-4 (same session): curve-aware host admission
+(`arc_host_admit`) — the arc-host wall FALLS; R0044 op-1 declines
+11 → 3 (§3l).** NEXT = inc-2c-3b-5, the v142/v144 mirrored-pair
+corridor structure (census first, §3l), then inc-3 (full-corpus
+gated measurement, two-proof flip; R0085 stays walled on operand
+quality).** Epic opened by
 the §4.5.2 adjudication (`specs/yang_452_local_refinement.md`): the recovery
 loop the paper prescribes for this class was measured out (zero conversions at
 2×/4×/8× uniform density), so the class needs the repair the paper does NOT
@@ -952,6 +959,107 @@ op (the bit-equal junction consistency across the two is the same
 analytic curve at two densities). The 3b-1 "op-2 tessellating the
 repaired output" was the RENDER tessellation of the output body.
 
+## 3k. inc-2c-3b-3 — the fan-local TORUS chart (LANDED 2026-08-31,
+third session; R0074 CONVERTS — the epic's SECOND conversion)
+
+The R0074 wall typed by 3b-2's measurement: the refine-retry
+invocation fires (129, 127), the corridor plans cleanly (4 plans,
+2 mints, zero declines), and the apply refuses at
+`far fan refill v129: NonPlanarPatch{592}` — R0074's far is a TORUS
+(revolve(circle)) and `refill_fan_hole`'s `SurfaceChart` had no torus
+chart.
+
+Landed shape (`stage4_project.rs` + `stage4_construct.rs`):
+
+- **`SurfaceChart::Torus`** with the PINNED `stage4_dt::eval_uv` §2
+  embedding — param `(θ, φ)` = azimuth about the axis + tube angle,
+  `center + (R + r·cos φ)(cos θ·e1 + sin θ·e2) + r·sin φ·â`, the same
+  `ortho_basis(axis)` frame — so the like-for-like d(T) budget
+  (which projects through the chart and certifies through `d_of_t`)
+  speaks one convention. Ring torus only (`R > r > 0`, the
+  `validate_surface` rule). A unit test pins chart.lift ≡ eval_uv and
+  the on-surface round-trip.
+- **`SurfaceChart::new_local`**, the FAN-LOCAL constructor: everything
+  `new` charts, plus the Torus under `YANG_441_TORUS_CHART=1|on`
+  (default OFF — byte-identical everywhere by construction).
+  `new`/`supports` are UNCHANGED: a torus is doubly periodic and a
+  whole patch may wrap a full period in either direction, so
+  wholesale-patch holders (construct / splice / stage-5 holder gates,
+  which chart entire boundary cycles) keep today's typed refusals
+  until seam machinery exists. Only `refill_fan_hole` consumes
+  `new_local` — a fan hole's link polygon is corner-local, where
+  chain-unwrap is sound.
+- **Double-periodic handling in `refill_fan_hole`**: the predecessor-
+  relative chain-unwrap and the `< 2π` span guard now apply to φ
+  exactly as to θ (torus only; cylinder/cone byte-identical), and the
+  budget's old-fan unwrap re-centres both coordinates toward the
+  window mid. Unit fixture: a fan window straddling BOTH seams
+  (θ = π AND φ = π) fills with the far-arm polygon shape (link +
+  corridor mint) and refuses `NonPlanarPatch` with the knob off. The
+  first fixture attempt dropped a corner from the polygon and the
+  like-for-like budget honestly refused it (ChordDegradation 1.13 vs
+  0.61) — the budget arm works on tori; the far-arm polygon (same
+  footprint, corridor mints closing the hole) is the satisfiable
+  shape, exactly why §3j's far arm passes the whole link + path.
+
+**Measured (R0074, `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1`):
+`APPLIED corridors=1 plans=4 mints=2 removed=2`, the §4.5.4
+refine-retry invocation completes (the natural pass still stops at
+OffCurve v91 and the retry repairs at 2733 verts), and the case is
+`SUPPORTED_CORRECT — all checks passed` (10.4s), with the STANDING
+authored expectations — no oracle adjudication needed.** Proofs:
+gates off → byte-identical honest ERROR (OffCurve v91); transit-only
+(torus knob off) → the fire + `REFUSE far fan refill v129:
+NonPlanarPatch{592}` reproduced verbatim, ERROR unchanged (the torus
+knob IS the delta); R0011 converts identically under transit-only and
+transit+torus (the knob is inert for its cylinder far).
+
+## 3l. inc-2c-3b-4 — the CURVE-AWARE host admission (LANDED 2026-08-31,
+third session; the arc-host wall falls — R0044 advances to the
+mirrored-pair sub-walls)
+
+The `-HOSTS` census (`YANG_451_HOSTS=census`, kept, default off: per
+candidate within `max(eval, d_eps)` — distance, unclamped chord
+projection `t`, and the junction's residual on the surfaces the edge
+separates, against the CONTRACT band) measured the discrimination
+structure before anything was built:
+
+- **True hosts carry a curve certificate.** The junction's residual on
+  BOTH surfaces the chord separates reads ≤ 5e-13 (contract band
+  3.5e-6, ten ORDERS of separation): the chord is a chord of the
+  junction's OWN curve. Same-curve non-hosting neighbours separate by
+  the projection param (hosting t ∈ [0.01, 0.82]; non-hosting
+  t ∈ {−1.56…−1.17} ∪ {+1.02…+4.2} — clean gap).
+- **A blunt `max(eval, d_eps)` distance band alone POISONS healthy
+  components** (measured live first): on comp B:1 the junction sits
+  45.8 OFF the surface (own = −4.58e1) yet its cycle edges admitted at
+  d = 45.8 ≤ d_eps — the spurious hosts turned every HostNotFound into
+  a HostMismatch and killed whole plans. The distance band identifies
+  WHERE along a curve; only the residual certificate identifies WHICH
+  curve.
+
+Landed rule (`s4t::arc_host_admit`, one function, both `hosts_on`
+closures — driver AND the §4-I9 census mirror — in lockstep):
+today's eval arm VERBATIM (junction on the chord: the R0011-proven
+straight-crease population, `on_curve` never consulted), else the
+CERTIFIED ARC arm — `d ≤ max(eval, d_eps)` (the sag the tessellation
+certifies) AND unclamped `t ∈ [0, 1]` AND the junction on the chord's
+own curve (both separated surfaces at contract). Unit-pinned on the
+measured shapes.
+
+**Measured (R0044, both gates): op-1's declines collapse 11 → 3** —
+`(1, NotRemovable{v92, Ambiguous})` (the pre-existing removability
+sub-wall) + corridors #4/#5 `HostNotFound{junction: 1}`: the
+v142/v144 MIRRORED PAIR at shared corner q=v513 — junc1 is genuinely
+absent from the failing components' curves (own = −16.5 on B:377);
+this is the §I13(f)-style view-entanglement anatomy inc-1 named, not
+a band problem. The retry invocation's v105 corridor now PLANS and
+advances to the far arm, refusing at link-end attachment
+`(Some(0), None)` — the next measured sub-wall. **R0011 and R0074
+re-measured under the new rule: byte-identical APPLIED lines, both
+still SUPPORTED_CORRECT.** inc-2c-3b-5 = the mirrored-pair corridor
+structure (view dedup / shared-junction splice), census first.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -1048,6 +1156,26 @@ repaired output" was the RENDER tessellation of the output body.
   (the apply generalizes: 2× fires one corridor and repairs it; 4×'s
   natural declines NoRealCandidate and the refine-retry repairs).
   (§3j.)
+- **inc-2c-3b-3** (2026-08-31, third session): the fan-local TORUS
+  chart LANDED (`SurfaceChart::Torus` on the pinned dt embedding;
+  `new_local`, `YANG_441_TORUS_CHART` default OFF; `refill_fan_hole`
+  double-periodic unwrap+guards; `new`/`supports` untouched — the
+  wholesale torus-seam question stays a named future slice). **R0074
+  CONVERTS — SUPPORTED_CORRECT, all standing checks, the epic's
+  SECOND conversion**; torus-knob-off reproduces the NonPlanarPatch
+  refusal verbatim; gates-off byte-identical; R0011 knob-inert (§3k).
+- **inc-2c-3b-4** (2026-08-31, third session): curve-aware host
+  admission LANDED (`arc_host_admit`: eval arm verbatim + certified
+  arc arm — `t ∈ [0,1]` + junction-on-the-chord's-own-curve at the
+  CONTRACT band; the blunt d_eps band alone measured as POISON —
+  HostMismatch killed whole plans). R0044 op-1 declines 11 → 3; the
+  arc-host wall falls; remaining: NotRemovable{v92} + the v142/v144
+  mirrored-pair entanglement + v105's far link-end attachment.
+  R0011/R0074 byte-identical under the new rule. `-HOSTS` census
+  probe kept (§3l).
+- inc-2c-3b-5: the mirrored-pair corridor structure (v142/v144 at
+  q=v513; view dedup / shared-junction splice) — census first.
 - inc-3: fixed-point integration (multiple sites per case; R0085 has two
   failing ops) + full-corpus gated measurement; flip under the standing
-  two-proof protocol.
+  two-proof protocol. R0085 stays honestly walled on operand quality
+  (op-2 input-n2m).
