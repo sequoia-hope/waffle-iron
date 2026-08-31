@@ -40,6 +40,7 @@ mod s188_envelope;
 mod s194_edge_collapse;
 mod s195_rim_plane_graze;
 mod s434_output_restore;
+mod s451_crease_domain;
 mod s4_boundary_curve;
 mod stage0_rim_projection;
 mod stage1_cdt_flap;

@@ -1664,6 +1664,144 @@ changed by the graze) or the completion is a genuine M8 silent-wrong
 adjudication — never a narrower band.** Default-off corpus:
 byte-identical canonical 273C/0W/34E/1EE/0T (re-proven).
 
+## 3t. inc-2c-3b-12 — the relocation DOMAIN certificate (LANDED, GATED)
+
+**The defect, anchored empirically** (`YANG_TRIPLE_WATCH` backtrace on
+the exact solution): R0044's out-of-domain junction X is minted by
+`stage4_relocate_and_correct_inner`'s **triple-junction relocation
+arm** — `relocate_onto_implicit_triple(seed, Cylinder, Plane, Cone627)`
+on mesh vertex **v47**, travel 18.07. The arm's only acceptance gate is
+the displacement corridor `tangent_plane_corridor(d_eps, sin θ)`, which
+passes it easily: across the case's 306 triple relocations the
+displacement distribution is p25 3.4 / p50 6.1 / p75 13.9 / max 182.8,
+so 18.07 sits near p80 and is in no way anomalous. **The arm has no
+domain postcondition at all** — it accepts any exact solution of the
+three EXTENDED implicits.
+
+**Why the check must be ANALYTIC, not mesh-derived.** v47's seed lies
+17.98 from the cylinder, 10.53 from the crease circle, and 5.09 from
+its own cone; all four exact candidate features (X, the true junction
+J, and the two crease crossings P_lat/P_cap) sit 16.6–18.4 away, i.e.
+inside ONE mesh chord. A mesh-based containment test cannot separate a
+0.827 overrun from a legitimate landing at that resolution. The crease
+is analytic, so the certificate is too.
+
+**The paper is explicit here, and this is its stated trigger** —
+§4.5.1, `refs/text/yang2025_hybrid_boolean.txt:672-690`: *"Instead of
+taking a full step length that takes the point to a position `p1`
+**outside the surface `S2`** where the point is initially located, we
+truncate the step so that the point moves to `p` on the boundary curve
+`C_b` between `S2` and the neighboring surface `S1`. In the next
+iteration, the optimization step of `p` is computed using the
+parameterization of `S1` … After obtaining the correct position of
+`p`, we first solve the intersection points `q1` and `q2` on `C_b`."*
+That is, in order: the domain test, the truncation, the transit, and
+the q-points — P_lat and P_cap being exactly the q-points here.
+`stage4_truncate`'s own header predicted this join: it records that its
+mechanism and §4.5.1's stated trigger "can be joined without borrowing"
+for the class that converges exactly *as equations* but not *within its
+domain*. v47 is precisely that class.
+
+**Built (detection half only), gated `YANG_451_TRIPLE_DOMAIN`**
+(unset/`0`/`off` = OFF and byte-identical, `census` = report and
+continue, `1`/`on` = typed STOP `RelocationCrossedCrease`):
+
+1. **`crease_circle_from_pair`** (`stage4_boundary_curve.rs`) — the
+   analytic boundary curve `C_b`, generalizing `rim_circle_from_pair`
+   past Cylinder×Plane to **Cone×Cone** (coaxial, distinct openings:
+   `h·tanα₀ = (h+δ)·tanα₁`), **Cone×Plane** (⊥ axis) and
+   **Cylinder×Cone** (coaxial). Only configurations whose intersection
+   is exactly a CIRCLE are answered; everything else declines rather
+   than approximating (a near-coaxial pair meets in a quartic).
+2. **`creases_by_surface` / `creases_for_surfaces`** — the crease index
+   keyed BY SURFACE, built once per stage. Sourcing this from edges at
+   the moving vertex was measured WRONG and fixed: v47 sits 10.5 from
+   the crease it overruns, so a vertex-incident sourcing sees nothing.
+   The domain a relocation must not leave belongs to the FACE.
+3. **`crease_crossed_by_step`** — the certificate. A step violates its
+   domain when the pre- and post-positions lie on strictly OPPOSITE
+   sides of a crease plane bounding one of the vertex's own surfaces.
+   Two exemptions, both membership statements rather than thresholds:
+   a vertex that lies ON the crease (`on_crease`: satisfies BOTH
+   forming surfaces within their own `junction_certificate_band`) may
+   glide along it; and the residual band is **PROPAGATED** — the crease
+   plane is DERIVED, so its band is its own plus both parents'. The
+   plane's band alone understates the construction badly (its reference
+   magnitude omits the crease radius entirely, and for a
+   near-cylindrical cone omits an apex magnitude four orders larger
+   than the geometry it describes).
+
+**Measured on R0044** (`census`): **8 fires, 5 noise fires eliminated by
+the propagated band.** The two populations separate by TEN orders —
+material overruns 0.309 … 40.08 against bands of order 1e-11:
+
+| v | ρ | d_pre | d_post |
+|---|---|---|---|
+| 47 | 18.07 | −0.194 | +0.827 |
+| 75 | 84.95 | +6.054 | −30.653 |
+| 76 | 60.43 | +16.200 | −31.727 |
+| 89 | 58.60 | +40.078 | −12.133 |
+| 38 | 7.60 | +4.989 | −0.309 |
+| 39 | 7.56 | +0.984 | −4.197 |
+| 59 | 9.76 | +1.129 | −4.983 |
+| 105 | 5.62 | +2.452 | −2.584 |
+
+The five exempted rode a crease with residuals of 1.6e-11 … 1.4e-10 at
+both ends, sign meaningless. **v105 is a cross-confirmation**: the
+independent §4-I9 carrier-domain check (`YANG_S4_CARRIER_DOMAIN`) fires
+on that same vertex by a different mechanism, and v105 is also the
+§4.5.4 retry's own `ChordDegradation` wall — three unrelated
+instruments naming one site.
+
+7 unit tests (`tests_unit/s451_crease_domain.rs`) pin the crease
+geometry (both directions, including the declines), the material-overrun
+fire, the noise exemption at R0044's own magnitudes, the on-crease
+exemption, and the by-surface sourcing.
+
+**FULL-CORPUS CENSUS (312 cases, `census` mode).** Categorized score is
+the canonical **273C/0W/34E/1EE/0T** — census mode is behaviour-neutral
+corpus-wide, as built. The certificate fires in **exactly TWO cases**:
+
+| case | verdict | fires | overrun range |
+|---|---|---|---|
+| R0044 | ERROR | 8 | 0.309 … 40.08 |
+| R0003 | **SUPPORTED_CORRECT** | 6 | 0.00078 … 0.265 |
+
+R0003's six (v1983, v7611, v8658, v8809, v9336, v11356; ρ 0.0043 …
+0.459) are the increment's most consequential measurement: **a
+SUPPORTED_CORRECT case carries genuine out-of-domain triple relocations
+and still produces correct output.** So the condition is real but not
+always fatal — it is fatal in R0044 (where the overrun self-intersects
+face 627's output ring) and silent in R0003. The same shape as the F2a
+chord census, where "folding is the sliver lottery on a UBIQUITOUS
+depth defect": the defect is the overrun, and whether it kills the case
+is downstream luck.
+
+**Consequence, and it is binding: the STOP must never be armed
+always-on as it stands** — it would convert R0003 from CORRECT to
+ERROR, breaking the 0W/273C bar for a defect that case survives. The
+certificate's role is diagnosis and the repair's precondition, not a
+wall.
+
+**A discriminator deliberately NOT taken.** R0003's largest overrun
+(0.265) and R0044's smallest (0.309) happen not to overlap. That gap is
+1.2×, sits on six and eight samples, and separates nothing structural —
+using it would be exactly the band-tuning P10 forbids, and it would
+"squeak a case through" while leaving the defect in place. The two
+populations are the same defect at different magnitudes; only the
+repair distinguishes them, by fixing both.
+
+**Not built here — the repair (3b-12b).** Detection only. The paper's
+remaining three steps are: truncate the step to `C_b`, transit onto the
+neighbouring surface (which for v47 yields J, the true junction, on
+cone 626 at station 2307.654 INSIDE 626's band), and solve the
+q-points P_lat/P_cap on `C_b`, splitting the crease there so face 627's
+two chains terminate on it and face 626 receives the notch it currently
+lacks. The gate stays OFF until that arm exists: today the certificate
+would only convert one confusing downstream stop (a rejected output
+ring on a different face) into a precise local one, which is worth
+having but is not a conversion.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -1869,6 +2007,36 @@ byte-identical canonical 273C/0W/34E/1EE/0T (re-proven).
   inside 626's band) and both crease crossings exist on the shared rim
   (P_lat, P_cap). inc-2c-3b-12 = split the crease at P_lat/P_cap,
   re-terminate 627's chains there, build the 626-side notch through J.
+- **inc-2c-3b-12** (2026-08-31, fifth session): the relocation DOMAIN
+  certificate LANDED, GATED `YANG_451_TRIPLE_DOMAIN` (§3t). Anchor
+  confirmed empirically by backtrace: R0044's out-of-domain junction is
+  minted by the TRIPLE-JUNCTION relocation arm, whose only acceptance
+  gate is a displacement corridor the 18.07 travel passes at p80 of the
+  case's own 306-relocation distribution — the arm has NO domain
+  postcondition. Yang §4.5.1 states this trigger verbatim ("a full step
+  … outside the surface S2 where the point is initially located") and
+  prescribes truncate → transit → q-points; `stage4_truncate`'s header
+  had already predicted this exact join. Built: `crease_circle_from_pair`
+  (Cone×Cone coaxial, Cone×Plane ⊥, Cylinder×Cone — circles only, every
+  other configuration declines), the BY-SURFACE crease index (sourcing
+  from the vertex's own edges measured wrong — v47 sits 10.5 from the
+  crease it overruns), and `crease_crossed_by_step` with two membership
+  exemptions rather than thresholds (on-crease gliding; a PROPAGATED
+  band, since a derived plane cannot be certified more tightly than its
+  parents). R0044: 8 material fires (0.309 … 40.08) against a ~5e-11
+  band — ten orders of separation — with five crease-riding noise fires
+  correctly exempted. v105 is named independently by §4-I9 and by the
+  §4.5.4 retry. 7 unit tests; default path byte-identical.
+  **Full-corpus census: canonical 273C/0W/34E/1EE/0T (census mode is
+  behaviour-neutral), firing in exactly TWO cases — R0044 (ERROR, 8
+  fires, 0.309…40.08) and R0003 (SUPPORTED_CORRECT, 6 fires,
+  0.00078…0.265). A CORRECT case carries genuine out-of-domain
+  relocations and survives them, so the STOP must NEVER be armed as it
+  stands; the 1.2× gap between the two cases' overrun ranges is
+  explicitly REFUSED as a discriminator (six and eight samples, nothing
+  structural — the band-tuning P10 forbids).** Detection only; the
+  repair (truncate → transit → q-points, splitting the crease so 626
+  receives its notch) is 3b-12b.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

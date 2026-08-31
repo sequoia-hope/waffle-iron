@@ -167,6 +167,22 @@ pub enum Stage4InvalidReason {
     /// stage where it happens rather than surfacing three stages later as a
     /// folded output loop.
     RelocationCrossedCarrierVertex,
+    /// §4.5.1 inc-2c-3b-12: a TRIPLE-JUNCTION relocation left the trimmed
+    /// domain of the face it started on by crossing that operand's own CREASE
+    /// (the analytic rim circle shared by two of its surfaces). The three-
+    /// surface Newton converged exactly — as equations, on the EXTENDED
+    /// surfaces — but the solution sits past the rim that bounds the face, so
+    /// it is an IDENTIFICATION, not a junction of this B-Rep.
+    ///
+    /// Sibling of [`Self::RelocationCrossedCarrierVertex`]: same defect class
+    /// (an exact solution off the bounded face), detected on the junction arm
+    /// rather than the carrier-travel one. Yang §4.5.1's own trigger and
+    /// prescription — truncate the step to `C_b`, transit onto the neighbouring
+    /// surface, then solve the `q` points on `C_b`; until that repair lands,
+    /// this is the loud stop naming the site, instead of an out-of-domain
+    /// junction surfacing three stages later as a rejected output ring on a
+    /// different face.
+    RelocationCrossedCrease,
 }
 
 /// PR-YR9 (P3): why Stage-3 SSI refinement of an intersection edge failed.

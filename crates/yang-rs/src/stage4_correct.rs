@@ -10235,6 +10235,14 @@ fn stage4_relocate_and_correct_inner(
         {
             cand.insert(*v);
         }
+        // §4.5.1 inc-2c-3b-12: the crease index, built ONCE (O(edges)); the
+        // per-vertex certificate only looks up its own surfaces' creases.
+        let dom_mode = std::env::var("YANG_451_TRIPLE_DOMAIN").unwrap_or_default();
+        let creases_by_surf = if dom_mode.is_empty() || dom_mode == "0" || dom_mode == "off" {
+            Vec::new()
+        } else {
+            crate::stage4_boundary_curve::creases_by_surface(&inc0)
+        };
         for v in cand {
             let n_maps = [
                 vert_circle.contains_key(&v),
@@ -10299,6 +10307,77 @@ fn stage4_relocate_and_correct_inner(
                     return Err(e);
                 }
                 continue;
+            }
+            // §4.5.1 inc-2c-3b-12 (spec `specs/yang_451_corner_transit.md`):
+            // the relocation DOMAIN certificate. The triple Newton solves the
+            // three EXTENDED implicit surfaces; a solution is only a B-Rep
+            // junction if it also lies within the TRIMMED domain of the faces
+            // that claimed it. Crossing one of the operand's own creases is
+            // the paper's own words for the defect — "a full step length that
+            // takes the point to a position p1 outside the surface S2 where
+            // the point is initially located" — and its prescription is to
+            // truncate the step to the crease and transit onto the neighbour
+            // (§4.5.1 Fig. 12 c/d/e, the q-points on C_b). This increment
+            // lands the DETECTION half only; the repair is 3b-12b.
+            //
+            // Off by default (byte-identical), `census` reports and continues,
+            // `1`/`on` STOPs typed at the site instead of letting an
+            // out-of-domain junction surface three stages later as a rejected
+            // output ring on a different face.
+            if dom_mode == "census" || dom_mode == "1" || dom_mode == "on" {
+                let creases =
+                    crate::stage4_boundary_curve::creases_for_surfaces(&creases_by_surf, surfs);
+                if let Some((ci, fp, fq)) =
+                    crate::stage4_boundary_curve::crease_crossed_by_step(p, proj, &creases)
+                {
+                    // Census diagnostics: how far the PRE position sits from
+                    // the two surfaces forming the crossed crease, each against
+                    // its own certificate band — the discriminator between a
+                    // vertex that RIDES the crease (residual sign is noise) and
+                    // one that starts materially inside its face.
+                    let (cs0, cs1) = (creases[ci].1, creases[ci].2);
+                    let dsurf = |sf: Surface| -> (f64, f64) {
+                        (
+                            crate::stage4_boundary_curve::surface_distance_pub(sf, p)
+                                .unwrap_or(f64::NAN),
+                            crate::stage4_relocate::junction_certificate_band(p.as_array(), sf),
+                        )
+                    };
+                    let (d0, b0) = dsurf(cs0);
+                    let (d1, b1) = dsurf(cs1);
+                    let line = format!(
+                        "[s451-triple-domain] case={} v={v} rho={rho:.4e} crease={ci}/{} \
+                         d_pre={fp:.6e} d_post={fq:.6e} pre_off_own={d0:.6e}/{b0:.3e} \
+                         pre_off_other={d1:.6e}/{b1:.3e} pre={:?} post={:?} crease_curve={:?}",
+                        std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into()),
+                        creases.len(),
+                        p.as_array(),
+                        proj.as_array(),
+                        creases[ci].0
+                    );
+                    eprintln!("{line}");
+                    // The categorized corpus runner nulls each child's stderr
+                    // (`assay_kv2.rs` header), so a whole-corpus census needs a
+                    // sink that survives it. Append-only, one short line per
+                    // fire — atomic under O_APPEND at this size, so parallel
+                    // children interleave cleanly.
+                    if let Ok(path) = std::env::var("YANG_451_DOMAIN_LOG") {
+                        use std::io::Write as _;
+                        if let Ok(mut f) = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(&path)
+                        {
+                            let _ = writeln!(f, "{line}");
+                        }
+                    }
+                    if dom_mode != "census" {
+                        return Err(YangError::stage4_region_invalid(
+                            v,
+                            Stage4InvalidReason::RelocationCrossedCrease,
+                        ));
+                    }
+                }
             }
             if std::env::var_os("YANG_RIM_JUNCTION_PROBE").is_some() {
                 eprintln!(

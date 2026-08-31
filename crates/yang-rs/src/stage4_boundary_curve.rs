@@ -682,3 +682,361 @@ pub(crate) fn plan_triple_point_reseats(
     }
     moves.into_iter().collect()
 }
+
+// ---------------------------------------------------------------------------
+// §4.5.1 inc-2c-3b-12 — CREASE circles and the relocation domain certificate
+// ---------------------------------------------------------------------------
+
+/// The CREASE circle where two surfaces of ONE operand meet — the analytic
+/// boundary curve `C_b` of Yang §4.5.1
+/// (`refs/text/yang2025_hybrid_boolean.txt:672-690`), generalized past
+/// [`rim_circle_from_pair`]'s Cylinder×Plane case.
+///
+/// Only configurations whose intersection is exactly a CIRCLE are answered;
+/// everything else returns `None` ("no certificate available here"), never an
+/// approximation. Coaxiality is required for the quadric pairs — two
+/// non-coaxial quadrics meet in a quartic, not a circle.
+///
+/// * `Cylinder × Plane` — delegated to [`rim_circle_from_pair`].
+/// * `Cone × Plane` — plane ⊥ the axis: the circle at the plane's own station.
+/// * `Cone × Cone` — coaxial, distinct half-angles: `h·tanα₀ = (h+δ)·tanα₁`
+///   with `δ` the apex offset along the axis.
+/// * `Cylinder × Cone` — coaxial: the station where the cone's radius equals
+///   the cylinder's.
+pub(crate) fn crease_circle_from_pair(surf0: Surface, surf1: Surface) -> Option<Curve> {
+    if let Some(c) = rim_circle_from_pair(surf0, surf1) {
+        return Some(c);
+    }
+    let unit = |v: [f64; 3]| -> Option<[f64; 3]> {
+        let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        (l.is_finite() && l > 0.0).then(|| [v[0] / l, v[1] / l, v[2] / l])
+    };
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    // Perpendicular component of `v` against the unit axis — the coaxiality
+    // and perpendicularity witness.
+    let perp = |v: [f64; 3], a: [f64; 3]| -> f64 {
+        let h = dot(v, a);
+        let r = [v[0] - h * a[0], v[1] - h * a[1], v[2] - h * a[2]];
+        (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt()
+    };
+    // Scale-relative axis-alignment witness: a direction is "along the axis"
+    // when its perpendicular part is below the same evaluation-precision band
+    // the junction certificates use (unit vectors ⇒ L = 2).
+    let dir_eps = TAU_WORK.max(16.0 * f64::EPSILON);
+    let circle = |center: [f64; 3], axis: [f64; 3], radius: f64| -> Option<Curve> {
+        (radius.is_finite() && radius > 0.0).then_some(Curve::Circle {
+            center: Point3::new(center[0], center[1], center[2]),
+            normal: cad_primitives::Vector3::new(axis[0], axis[1], axis[2]),
+            radius,
+        })
+    };
+    match (surf0, surf1) {
+        (Surface::Cone { .. }, Surface::Plane { .. })
+        | (Surface::Plane { .. }, Surface::Cone { .. }) => {
+            let (cone, plane) = match surf0 {
+                Surface::Cone { .. } => (surf0, surf1),
+                _ => (surf1, surf0),
+            };
+            let (
+                Surface::Cone {
+                    apex,
+                    axis_dir,
+                    half_angle,
+                },
+                Surface::Plane { normal, d },
+            ) = (cone, plane)
+            else {
+                return None;
+            };
+            let a = unit(axis_dir.as_array())?;
+            let n = unit(normal.as_array())?;
+            // Plane ⊥ axis ONLY: an oblique plane cuts a conic, not a circle.
+            if perp(n, a) > dir_eps {
+                return None;
+            }
+            let tan_a = half_angle.tan();
+            if !tan_a.is_finite() || tan_a <= 0.0 {
+                return None;
+            }
+            // Station of the plane along the axis, measured from the apex.
+            let nl = (normal.as_array()[0].powi(2)
+                + normal.as_array()[1].powi(2)
+                + normal.as_array()[2].powi(2))
+            .sqrt();
+            let ap = apex.as_array();
+            let cos = dot(n, a);
+            if cos == 0.0 {
+                return None;
+            }
+            let h = -((dot(n, ap)) + d / nl) / cos;
+            circle(
+                [ap[0] + h * a[0], ap[1] + h * a[1], ap[2] + h * a[2]],
+                a,
+                h * tan_a,
+            )
+        }
+        (
+            Surface::Cone {
+                apex: a0,
+                axis_dir: d0,
+                half_angle: g0,
+            },
+            Surface::Cone {
+                apex: a1,
+                axis_dir: d1,
+                half_angle: g1,
+            },
+        ) => {
+            let a = unit(d0.as_array())?;
+            let b = unit(d1.as_array())?;
+            // Coaxial: parallel axes (either orientation) through one line.
+            if perp(b, a) > dir_eps {
+                return None;
+            }
+            let (p0, p1) = (a0.as_array(), a1.as_array());
+            let off = [p0[0] - p1[0], p0[1] - p1[1], p0[2] - p1[2]];
+            if perp(off, a) > dir_eps * (1.0 + off[0].abs().max(off[1].abs()).max(off[2].abs())) {
+                return None;
+            }
+            let (t0, t1) = (g0.tan(), g1.tan());
+            if !t0.is_finite() || !t1.is_finite() || t0 <= 0.0 || t1 <= 0.0 {
+                return None;
+            }
+            let denom = t0 - t1;
+            if denom == 0.0 {
+                return None; // same opening ⇒ nested or identical, no circle
+            }
+            // h measured from cone 0's apex: h·t0 = (h + δ)·t1, δ = (a0−a1)·â.
+            let delta = dot(off, a);
+            let h = delta * t1 / denom;
+            circle(
+                [p0[0] + h * a[0], p0[1] + h * a[1], p0[2] + h * a[2]],
+                a,
+                h * t0,
+            )
+        }
+        (Surface::Cylinder { .. }, Surface::Cone { .. })
+        | (Surface::Cone { .. }, Surface::Cylinder { .. }) => {
+            let (cyl, cone) = match surf0 {
+                Surface::Cylinder { .. } => (surf0, surf1),
+                _ => (surf1, surf0),
+            };
+            let (
+                Surface::Cylinder {
+                    axis_point,
+                    axis_dir,
+                    radius,
+                },
+                Surface::Cone {
+                    apex,
+                    axis_dir: cone_dir,
+                    half_angle,
+                },
+            ) = (cyl, cone)
+            else {
+                return None;
+            };
+            let a = unit(axis_dir.as_array())?;
+            let b = unit(cone_dir.as_array())?;
+            if perp(b, a) > dir_eps {
+                return None;
+            }
+            let (cp, ap) = (axis_point.as_array(), apex.as_array());
+            let off = [cp[0] - ap[0], cp[1] - ap[1], cp[2] - ap[2]];
+            if perp(off, a) > dir_eps * (1.0 + off[0].abs().max(off[1].abs()).max(off[2].abs())) {
+                return None;
+            }
+            let tan_a = half_angle.tan();
+            if !tan_a.is_finite() || tan_a <= 0.0 || !radius.is_finite() || radius <= 0.0 {
+                return None;
+            }
+            // Station from the CONE's apex where the cone radius equals r.
+            let h = radius / tan_a;
+            circle(
+                [ap[0] + h * a[0], ap[1] + h * a[1], ap[2] + h * a[2]],
+                a,
+                radius,
+            )
+        }
+        _ => None,
+    }
+}
+
+/// The plane of a crease `Curve::Circle`, as a `Surface::Plane` — the object
+/// the domain certificate takes signed distances against. `None` for a
+/// non-circle or a degenerate normal.
+pub(crate) fn crease_plane(curve: &Curve) -> Option<Surface> {
+    let Curve::Circle { center, normal, .. } = *curve else {
+        return None;
+    };
+    let n = normal.as_array();
+    let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    if !nl.is_finite() || nl <= 0.0 {
+        return None;
+    }
+    let nu = [n[0] / nl, n[1] / nl, n[2] / nl];
+    let c = center.as_array();
+    Some(Surface::Plane {
+        normal: cad_primitives::Vector3::new(nu[0], nu[1], nu[2]),
+        d: -(nu[0] * c[0] + nu[1] * c[1] + nu[2] * c[2]),
+    })
+}
+
+/// §4.5.1's stated trigger, as a CERTIFICATE: did the relocation step
+/// `p → q` leave the domain of the face it started on by CROSSING one of the
+/// operand's own creases?
+///
+/// The paper describes the defect in exactly these words — *"a full step
+/// length that takes the point to a position `p1` **outside the surface `S2`**
+/// where the point is initially located"* — and prescribes truncating the step
+/// to `C_b`. This answers only the detection half: **which crease was
+/// crossed**, or `None` for a step that stays home.
+///
+/// The predicate is a SIGN comparison, not a distance band: `p` and `q` must
+/// lie on strictly opposite sides of the crease plane, each farther from it
+/// than its own [`junction_certificate_band`] — the codebase's existing notion
+/// of "exactly on this surface". That band is what separates the two
+/// populations this certificate must never confuse:
+///
+/// * A junction legitimately lying ON a patch boundary (every triple point
+///   involving a patch's own rim) evaluates to ~1e-13 on BOTH ends — inside
+///   the band, so it is "on the crease", never "across" it. Measured on
+///   R0044's own cylinder cap: both ends 0 to f64.
+/// * A junction solved on the EXTENDED surface past the rim evaluates to a
+///   material overrun of opposite sign. Measured on R0044 v47: the seed sits
+///   −0.194 from the cone×cone crease and the exact triple solution +0.827,
+///   ~5 orders outside the band.
+///
+/// Being mesh-independent is the point: the mesh chord scale in that
+/// neighbourhood is ~18, so no mesh-derived domain test could separate a
+/// 0.827 overrun from a legitimate landing. The crease is analytic, so the
+/// certificate is too.
+pub(crate) fn crease_crossed_by_step(
+    p: Point3,
+    q: Point3,
+    creases: &[(Curve, Surface, Surface)],
+) -> Option<(usize, f64, f64)> {
+    for (i, &(c, s_own, s_other)) in creases.iter().enumerate() {
+        // A vertex ON the crease belongs to both faces meeting there and may
+        // glide along it; the sign of its residual is evaluation noise.
+        if on_crease(p, s_own, s_other) {
+            continue;
+        }
+        let Some(plane) = crease_plane(&c) else {
+            continue;
+        };
+        let (Some(fp), Some(fq)) = (surface_distance(plane, p), surface_distance(plane, q)) else {
+            continue;
+        };
+        // PROPAGATED evaluation-precision band. The crease plane is not an
+        // input: it is DERIVED from two surfaces, so its coefficients already
+        // carry both parents' rounding, and a residual against it cannot be
+        // certified more tightly than that. Its own band alone understates the
+        // construction's scale badly — the plane's reference magnitude is
+        // `|n·center|`, which omits the crease RADIUS entirely and, for a
+        // near-cylindrical cone, omits an apex magnitude four orders larger
+        // than the geometry it describes.
+        //
+        // Measured on R0044: with the plane's own band, five crease-RIDING
+        // relocations whose residuals are pure noise (1.6e-11 … 1.4e-10, both
+        // ends, sign meaningless) read as crossings. With the parents' bands
+        // added, all five fall inside and every MATERIAL crossing still fires
+        // with ten orders to spare (smallest overrun 3.1e-1, against bands of
+        // order 1e-11 at that coordinate magnitude).
+        // This is error propagation through the construction, not a threshold
+        // chosen to separate the populations.
+        let band = |x: Point3| -> f64 {
+            crate::stage4_relocate::junction_certificate_band(x.as_array(), plane)
+                + crate::stage4_relocate::junction_certificate_band(x.as_array(), s_own)
+                + crate::stage4_relocate::junction_certificate_band(x.as_array(), s_other)
+        };
+        if fp.abs() > band(p) && fq.abs() > band(q) && (fp < 0.0) != (fq < 0.0) {
+            return Some((i, fp, fq));
+        }
+    }
+    None
+}
+
+/// Crease circles indexed BY SURFACE: for each surface, every crease its own
+/// operand carries on it.
+///
+/// The domain a relocation must not leave is the FACE's, and a face is bounded
+/// by the creases of ITS OWN surface — not by creases the moving vertex happens
+/// to sit on. (Measured on R0044 v47: the vertex lies 10.5 from the crease its
+/// solution overruns, so a vertex-incident sourcing sees nothing.) An incidence
+/// edge whose two entries are the SAME operand on DIFFERENT surfaces is that
+/// operand's own rim — the [`collect_rim_curves`] rule — and the crease is the
+/// analytic circle those two surfaces share; it is registered under BOTH.
+pub(crate) fn creases_by_surface(
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+) -> Vec<(Surface, Vec<(Curve, Surface)>)> {
+    let mut out: Vec<(Surface, Vec<(Curve, Surface)>)> = Vec::new();
+    let mut push = |key: Surface, c: Curve, other: Surface| {
+        let slot = match out.iter_mut().find(|(k, _)| *k == key) {
+            Some(s) => s,
+            None => {
+                out.push((key, Vec::new()));
+                out.last_mut().expect("just pushed")
+            }
+        };
+        // Dedup by value: one crease is carried by many edges.
+        if !slot.1.iter().any(|(o, _)| *o == c) {
+            slot.1.push((c, other));
+        }
+    };
+    for entries in incidence.values() {
+        if entries.len() != 2 {
+            continue;
+        }
+        let (i0, s0) = entries[0];
+        let (i1, s1) = entries[1];
+        if i0 != i1 || s0 == s1 {
+            continue;
+        }
+        if let Some(c) = crease_circle_from_pair(s0, s1) {
+            push(s0, c, s1);
+            push(s1, c, s0);
+        }
+    }
+    out
+}
+
+/// The creases bounding the faces a vertex's own `surfs` live on.
+pub(crate) fn creases_for_surfaces(
+    by_surface: &[(Surface, Vec<(Curve, Surface)>)],
+    surfs: &[Surface],
+) -> Vec<(Curve, Surface, Surface)> {
+    let mut out: Vec<(Curve, Surface, Surface)> = Vec::new();
+    for &s in surfs {
+        let Some((_, list)) = by_surface.iter().find(|(k, _)| *k == s) else {
+            continue;
+        };
+        for &(c, other) in list {
+            if !out.iter().any(|(o, _, _)| *o == c) {
+                out.push((c, s, other));
+            }
+        }
+    }
+    out
+}
+
+/// [`surface_distance`] for callers outside this module (census diagnostics).
+pub(crate) fn surface_distance_pub(s: Surface, x: Point3) -> Option<f64> {
+    surface_distance(s, x)
+}
+
+/// Does `p` lie ON the crease itself — i.e. on BOTH surfaces that form it,
+/// each within its own [`junction_certificate_band`]?
+///
+/// Such a vertex belongs to the crease and to both faces meeting there; a
+/// relocation may legitimately glide it ALONG the crease, and the sign of its
+/// residual against the crease plane is then pure evaluation noise. Exempting
+/// it is a MEMBERSHIP statement (the codebase's existing exactness certificate),
+/// not a distance threshold.
+pub(crate) fn on_crease(p: Point3, s0: Surface, s1: Surface) -> bool {
+    [s0, s1].iter().all(|&s| {
+        surface_distance(s, p).is_some_and(|f| {
+            f.abs() <= crate::stage4_relocate::junction_certificate_band(p.as_array(), s)
+        })
+    })
+}

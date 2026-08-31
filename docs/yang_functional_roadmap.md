@@ -939,7 +939,32 @@ name, never measured).
    on the shared rim. inc-2c-3b-12 is a DETERMINED build: split the
    crease, re-terminate 627's two chains on it, construct the 626-side
    notch through J, and certify chain terminals against their own
-   face's DOMAIN (not merely its surface). R0044's gate set (FOUR
+   face's DOMAIN (not merely its surface). Its DETECTION half LANDED
+   the same session, gated `YANG_451_TRIPLE_DOMAIN` (default OFF,
+   byte-identical): the anchor is confirmed by backtrace as the
+   TRIPLE-JUNCTION relocation arm, whose only acceptance gate is a
+   displacement corridor R0044's 18.07 travel passes at p80 of the
+   case's own 306-relocation distribution — the arm has NO domain
+   postcondition, accepting any exact solution of the three EXTENDED
+   implicits, which is Yang §4.5.1's stated trigger verbatim. Built:
+   `crease_circle_from_pair` (Cone×Cone coaxial, Cone×Plane ⊥,
+   Cylinder×Cone — circles only, everything else declines), a
+   BY-SURFACE crease index (the domain belongs to the FACE, not to
+   edges at the moving vertex — v47 sits 10.5 from the crease it
+   overruns), and `crease_crossed_by_step` with membership exemptions
+   rather than thresholds (on-crease gliding; a PROPAGATED band, since
+   a derived plane is no more certifiable than its parents). R0044:
+   8 material fires (0.309 … 40.08) against bands of order 1e-11 — ten
+   of separation — with five crease-riding noise fires exempted; v105
+   is named independently by §4-I9 and by the §4.5.4 retry. Full-corpus
+   census: canonical 273C/0W/34E/1EE/0T (census mode is
+   behaviour-neutral), firing in exactly TWO cases — R0044 (ERROR) and
+   **R0003 (SUPPORTED_CORRECT, 6 fires, overruns 0.00078…0.265)**. A
+   correct case therefore carries genuine out-of-domain relocations and
+   survives them, so the STOP must never be armed as it stands, and the
+   1.2× gap between the two cases' overrun ranges is refused as a
+   discriminator. The repair (truncate → transit → q-points) is
+   3b-12b. R0044's gate set (FOUR
    knobs): `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1
    YANG_453_SPAIR=1 KV2_ARC_CONFORM_CURVES=1`. Also open: the v105
    retry ChordDegradation. R0085 stays walled on operand quality.
