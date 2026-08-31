@@ -1466,6 +1466,30 @@ SUPPORTED_CORRECT (standing is inert on their anatomies — v26/v46
 are genuinely displaced, not standing). Gates-off R0044: the honest
 ERROR verbatim. 800 lib tests green.
 
+**3b-10 ANCHOR (same session, `[451-farcyc]` census + the
+`KV2_RING_REJECT_PROBE` ring dump):** FaceId(459)'s rejected ring
+reproduces the far plan's corrected cycle VERBATIM — and the zigzag
+is the ORIGINAL pre-repair carried chain (natural-resolution far∩
+bands-370..372, verts v90…v116): a FOLD-ORDERED sequence alternating
+between two tracks ~40–60 apart (the band width), dozens of cos≈+1.0
+reversal spikes, 16 self-intersections in the chart. The retry-density
+(2×) carried chain in the same region is monotone. **This is the
+paper's §4.5.3 reversed-intersection anatomy** ("the surface
+intersection may exhibit a reverse sequence of points after
+convergence") — an UNMASKED LATENT: the fold predates every repair;
+the case simply never reached output tessellation before the boolean
+completed. The landed §4.5.3 sweep (`sweep_reversed_intersections`)
+did not act on it — prime suspect (verify first in 3b-10): its
+ELIGIBILITY gate scans only cycles whose intersection edges carry
+CONIC curves (Circle/Ellipse/LineSegment); the far-cylinder × band
+curves here are the degree-4/procedural family (M5 territory), so the
+chain was never swept. The standing-junction chain [v90 v91 v92] is
+PART of the fold — its vertices sit on true junctions while the
+SEQUENCE through them reverses. inc-2c-3b-10 = extend the §4.5.3
+correction to the non-conic chains (census the sweep's verdicts on
+this loop first; the M5 Option-B procedural surface-pair curve is the
+existing vocabulary).
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -1632,6 +1656,10 @@ ERROR verbatim. 800 lib tests green.
   output-tessellation FaceId(459) ring spike (the §3j FaceId(402)
   family) + the v105 retry ChordDegradation. R0011/R0074
   byte-identical; gates-off verbatim.
+- inc-2c-3b-10: the §4.5.3 fold on non-conic carried chains (§3r
+  anchor) — FaceId(459)'s ring = the fold-ordered natural-resolution
+  far∩band chain; the sweep's conic-only eligibility is the prime
+  suspect; census-first.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

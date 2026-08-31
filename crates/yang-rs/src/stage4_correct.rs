@@ -6641,6 +6641,37 @@ fn corner_transit_apply(
             }
         }
     }
+    if std::env::var("YANG_451_HOSTS").as_deref() == Ok("census") {
+        // §3r follow-up census: the far plans' corrected cycles WITH
+        // positions — the output-boundary provenance for the FaceId ring
+        // walls (compare against KV2_RING_REJECT_PROBE dumps).
+        for pl in &plans {
+            if !corridors.iter().any(|c| c.far == pl.key) {
+                continue;
+            }
+            for (ci, cy) in pl.corrected.iter().enumerate() {
+                let row: Vec<String> = cy
+                    .iter()
+                    .map(|r| match *r {
+                        s4c::CycleRef::Old(v) => {
+                            let p = mesh.verts[v as usize].as_array();
+                            format!("v{v}@({:.1},{:.1},{:.1})", p[0], p[1], p[2])
+                        }
+                        s4c::CycleRef::New(i) => {
+                            let p = pool.verts[i as usize];
+                            format!("N{i}@({:.1},{:.1},{:.1})", p[0], p[1], p[2])
+                        }
+                    })
+                    .collect();
+                eprintln!(
+                    "[451-farcyc] key={:?} comp={} cyc={ci}: {}",
+                    pl.key,
+                    pl.comp,
+                    row.join(" ")
+                );
+            }
+        }
+    }
     // ---- MUTATION (all-or-nothing) ------------------------------------
     // The batch-wide removed union (every plan's removed set): the refill
     // orientation testimony must exclude any triangle touching condemned
