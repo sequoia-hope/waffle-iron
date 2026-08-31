@@ -882,8 +882,21 @@ name, never measured).
    ALL-CONSUMED admission rule. The mutation's surgery is measured to
    the vertex (A2 hole-cycle swap; junctions host on crease mesh
    edges; base excision turning at J0; run facets cut with far-sign
-   side selection). Next: inc-2c-3b, the gated mutation
-   (`YANG_451_TRANSIT`) per spec §3h/§3h-3a.*
+   side selection). inc-2c-3b-0…3b-2 (2026-08-30/31) landed the
+   corrected-cycle planner, the gated mutation (`YANG_451_TRANSIT`,
+   default OFF), and the §4.4.1 ABSORB arm — **R0011 CONVERTS to
+   SUPPORTED_CORRECT under the gate (the epic's FIRST conversion;
+   χ=0 adjudicated TRUE genus 1, `euler_target` authored + pinned)**.
+   inc-2c-3b-3…3b-7 (2026-08-31, third session) landed the fan-local
+   TORUS chart (`YANG_441_TORUS_CHART`, default OFF) — **R0074
+   CONVERTS (the SECOND conversion, standing oracles)** — plus the
+   curve-aware host admission, the mirrored-pair planner stage, JOINT
+   far regions with the arc-stitch polygon + density-capped seeded
+   refill + wrap-band dispatch, and the removed-membership closure:
+   R0044 advances through eleven typed walls to the B:0 base-boundary
+   adjudication (spec §3o, inc-2c-3b-8 — census + paper first).
+   R0085 stays walled on operand quality. Then inc-3: full-corpus
+   gated measurement, two-proof flip.*
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the
