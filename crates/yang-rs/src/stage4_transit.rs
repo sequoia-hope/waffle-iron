@@ -1597,6 +1597,50 @@ pub(crate) fn dist_point_segment(p: [f64; 3], a: [f64; 3], b: [f64; 3]) -> f64 {
     d3(p, [a[0] + t * ab[0], a[1] + t * ab[1], a[2] + t * ab[2]])
 }
 
+/// §4.5.1 inc-2c-3b-4 (spec §3i's arc-host wall) — host-edge admission for a
+/// MINT junction against one boundary-cycle chord `a`→`b`:
+///
+/// * `d ≤ eval_band` — today's arm, verbatim: the junction sits ON the chord
+///   (straight creases, the R0011-proven population).
+/// * Otherwise the CERTIFIED ARC arm: the chord may be a chord of a curved
+///   crease whose sag the tessellation bounds by `d_eps` (the Stage-1 chord
+///   band; refine densities only shrink it), so admit when `d ≤ max(eval_band,
+///   d_eps)` AND the junction's UNCLAMPED chord projection is interior
+///   (`t ∈ [0, 1]` — measured on R0044: hosting chords read t ∈ [0.01, 0.82],
+///   same-curve non-hosting neighbours read t ∈ {−1.56 … −1.17} ∪ {+1.02 …
+///   +4.2}) AND `on_curve()` certifies the junction lies on the chord's OWN
+///   curve — both surfaces the edge separates, at the junction, within the
+///   CONTRACT band (measured: true hosts ≤ 5e-13 vs poisoned components at
+///   1e-1 … 9e1; the blunt `d_eps` band alone admitted those and their
+///   HostMismatch declines killed whole plans).
+///
+/// `on_curve` is `FnOnce` and evaluated LAST — the caller's residual lookup
+/// may scan the mesh.
+pub(crate) fn arc_host_admit(
+    p: [f64; 3],
+    a: [f64; 3],
+    b: [f64; 3],
+    eval_band: f64,
+    d_eps: f64,
+    on_curve: impl FnOnce() -> bool,
+) -> bool {
+    let d = dist_point_segment(p, a, b);
+    if d <= eval_band {
+        return true;
+    }
+    if d > eval_band.max(d_eps) {
+        return false;
+    }
+    let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+    let l2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+    if l2 == 0.0 {
+        return false;
+    }
+    let t = (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / l2;
+    (0.0..=1.0).contains(&t) && on_curve()
+}
+
 /// The corner-incident-edge rule's site classification: 1-real → transit,
 /// 2-real → corner clip, else a typed decline.
 pub(crate) fn classify(site: &SiteRead, qpos: [f64; 3]) -> Result<TransitClass, TransitDecline> {
@@ -2455,5 +2499,45 @@ mod tests {
             None,
             "an unreachable band hits the depth cap loud"
         );
+    }
+
+    /// inc-2c-3b-4 — the arc-host admission rule, on the measured R0044
+    /// shapes: the eval arm short-circuits (on_curve never runs), the
+    /// certified arm needs interior projection AND the on-curve
+    /// certificate, and everything beyond max(eval, d_eps) is out.
+    #[test]
+    fn arc_host_admit_composes_the_eval_and_certified_arms() {
+        let a = [0.0, 0.0, 0.0];
+        let b = [10.0, 0.0, 0.0];
+        // ON the chord: today's arm, certificate not consulted.
+        assert!(arc_host_admit(
+            [5.0, 1e-12, 0.0],
+            a,
+            b,
+            1e-9,
+            50.0,
+            || unreachable!("eval arm must not consult on_curve")
+        ));
+        // Sag range, interior projection, certificate holds → admitted
+        // (the R0044 true-host shape: d ≈ sag ≪ d_eps, t interior).
+        assert!(arc_host_admit([5.0, 45.0, 0.0], a, b, 1e-9, 50.0, || true));
+        // Certificate refused → out (the poisoned-component shape).
+        assert!(!arc_host_admit([5.0, 45.0, 0.0], a, b, 1e-9, 50.0, || {
+            false
+        }));
+        // Exterior projection → out, certificate never consulted (the
+        // same-curve non-hosting neighbour shape, t = −1.17 measured).
+        assert!(!arc_host_admit(
+            [-12.0, 1.0, 0.0],
+            a,
+            b,
+            1e-9,
+            50.0,
+            || unreachable!("exterior projection must not consult on_curve")
+        ));
+        // Beyond max(eval, d_eps) → out.
+        assert!(!arc_host_admit([5.0, 60.0, 0.0], a, b, 1e-9, 50.0, || true));
+        // Degenerate chord → only the eval arm can admit.
+        assert!(!arc_host_admit([1.0, 0.0, 0.0], a, a, 1e-9, 50.0, || true));
     }
 }

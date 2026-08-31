@@ -5618,25 +5618,81 @@ fn corner_transit_apply(
                     .collect()
             })
     };
-    let hosts_on = |k: usize, cycles_v: &[Vec<u32>]| -> Vec<s4c::HostEdge> {
+    let hosts_on = |k: usize,
+                    patch: &crate::stage5_topology::Patch,
+                    cycles_v: &[Vec<u32>]|
+     -> Vec<s4c::HostEdge> {
         let c = &corridors[k];
+        let census = std::env::var("YANG_451_HOSTS").as_deref() == Ok("census");
         let mut out = Vec::new();
         for (ji, j) in c.junctions.iter().enumerate() {
             if !matches!(j.disposition, s4t::JunctionDisposition::Mint) {
                 continue;
             }
             let scale = j.sol.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
-            let band = cad_primitives::TAU_WORK.max(8.0 * f64::EPSILON * scale);
+            let eval = cad_primitives::TAU_WORK.max(8.0 * f64::EPSILON * scale);
+            let contract = s4t::contract_band(scale);
+            // §3i's arc-host wall (inc-2c-3b-4): today's eval arm verbatim,
+            // plus the CERTIFIED ARC arm — d ≤ max(eval, d_eps) (the chord
+            // sag the tessellation certifies), interior chord projection,
+            // and the junction ON the chord's own curve: both surfaces the
+            // edge separates, at the junction, within the CONTRACT band
+            // (the splice-identity yardstick). Measured on R0044: true
+            // hosts ≤ 5e-13 vs off-curve components at 1e-1…9e1 — the
+            // blunt d_eps band alone admitted those and their HostMismatch
+            // declines killed whole plans. Rule: `s4t::arc_host_admit`.
+            let val_at = |inp: InputId, f: u32| -> Option<f64> {
+                let s = faces_of(inp).get(f as usize)?.surface;
+                surface_value_and_normal(s, j.sol).map(|(v, _)| v)
+            };
+            let on_curve = |x: u32, y: u32| -> bool {
+                val_at(patch.attribution.input, patch.attribution.face)
+                    .is_some_and(|v| v.abs() <= contract)
+                    && mesh.tris.iter().enumerate().any(|(ti, tri)| {
+                        tri.contains(&x)
+                            && tri.contains(&y)
+                            && !patch.tri_indices.contains(&(ti as u32))
+                            && attribution
+                                .attributions
+                                .get(ti)
+                                .and_then(|a| a.as_ref())
+                                .and_then(|att| val_at(att.input, att.face))
+                                .is_some_and(|v| v.abs() <= contract)
+                    })
+            };
             for cy in cycles_v {
                 let n = cy.len();
                 for i in 0..n {
                     let (x, y) = (cy[i], cy[(i + 1) % n]);
-                    let d = s4t::dist_point_segment(
-                        j.sol,
+                    let (px, py) = (
                         mesh.verts[x as usize].as_array(),
                         mesh.verts[y as usize].as_array(),
                     );
-                    if d <= band {
+                    let admit = s4t::arc_host_admit(j.sol, px, py, eval, d_eps, || on_curve(x, y));
+                    if census {
+                        // inc-2c-3b-4 census probe (`YANG_451_HOSTS=census`,
+                        // default off): every candidate within the wide band,
+                        // with the discriminator data and the verdict.
+                        let d = s4t::dist_point_segment(j.sol, px, py);
+                        if d <= eval.max(d_eps) {
+                            let e = [py[0] - px[0], py[1] - px[1], py[2] - px[2]];
+                            let w = [j.sol[0] - px[0], j.sol[1] - px[1], j.sol[2] - px[2]];
+                            let len2 = e[0] * e[0] + e[1] * e[1] + e[2] * e[2];
+                            let t = (w[0] * e[0] + w[1] * e[1] + w[2] * e[2]) / len2.max(1e-300);
+                            let own = val_at(patch.attribution.input, patch.attribution.face)
+                                .map_or("None".into(), |v| format!("{v:.3e}"));
+                            eprintln!(
+                                "[451-hosts] #{k} junc{ji} faces=({},{}) comp=({:?}:{}) \
+                                 cand=({x},{y}) d={d:.4e} t={t:+.3} own={own} \
+                                 contract={contract:.3e} admit={admit}",
+                                j.faces.0,
+                                j.faces.1,
+                                patch.attribution.input,
+                                patch.attribution.face,
+                            );
+                        }
+                    }
+                    if admit {
                         out.push((ji, (x, y)));
                     }
                 }
@@ -5662,7 +5718,7 @@ fn corner_transit_apply(
                     refuse("component cycle walk failed");
                     return Ok(false);
                 };
-                let hosts = hosts_on(k, &cycles_v);
+                let hosts = hosts_on(k, patch, &cycles_v);
                 if holds_phantom || !hosts.is_empty() {
                     comp_map.entry(pi as u32).or_insert(s4c::ComponentInput {
                         key,
@@ -7195,7 +7251,15 @@ fn relocation_domain_postcondition(
                                     .collect()
                             })
                     };
-                    let hosts_on = |k: usize, cycles_v: &[Vec<u32>]| -> Vec<s4c::HostEdge> {
+                    // Kept in LOCKSTEP with `corner_transit_apply`'s
+                    // `hosts_on` — the inc-2c-3b-4 arc-host admission
+                    // (`arc_host_admit`: eval arm verbatim + the certified
+                    // arc arm, junction-on-the-chord's-own-curve at the
+                    // contract band).
+                    let hosts_on = |k: usize,
+                                    patch: &crate::stage5_topology::Patch,
+                                    cycles_v: &[Vec<u32>]|
+                     -> Vec<s4c::HostEdge> {
                         let c = &corridors[k];
                         let mut out = Vec::new();
                         for (ji, j) in c.junctions.iter().enumerate() {
@@ -7206,17 +7270,39 @@ fn relocation_domain_postcondition(
                                 continue;
                             }
                             let scale = j.sol.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
-                            let band = cad_primitives::TAU_WORK.max(8.0 * f64::EPSILON * scale);
+                            let eval = cad_primitives::TAU_WORK.max(8.0 * f64::EPSILON * scale);
+                            let contract = crate::stage4_transit::contract_band(scale);
+                            let val_at = |inp: InputId, f: u32| -> Option<f64> {
+                                let s = face_surface(inp, f)?;
+                                surface_value_and_normal(s, j.sol).map(|(v, _)| v)
+                            };
+                            let on_curve = |x: u32, y: u32| -> bool {
+                                val_at(patch.attribution.input, patch.attribution.face)
+                                    .is_some_and(|v| v.abs() <= contract)
+                                    && mesh.tris.iter().enumerate().any(|(ti, tri)| {
+                                        tri.contains(&x)
+                                            && tri.contains(&y)
+                                            && !patch.tri_indices.contains(&(ti as u32))
+                                            && attribution
+                                                .attributions
+                                                .get(ti)
+                                                .and_then(|a| a.as_ref())
+                                                .and_then(|att| val_at(att.input, att.face))
+                                                .is_some_and(|v| v.abs() <= contract)
+                                    })
+                            };
                             for cy in cycles_v {
                                 let n = cy.len();
                                 for i in 0..n {
                                     let (x, y) = (cy[i], cy[(i + 1) % n]);
-                                    let d = crate::stage4_transit::dist_point_segment(
+                                    if crate::stage4_transit::arc_host_admit(
                                         j.sol,
                                         mesh.verts[x as usize].as_array(),
                                         mesh.verts[y as usize].as_array(),
-                                    );
-                                    if d <= band {
+                                        eval,
+                                        d_eps,
+                                        || on_curve(x, y),
+                                    ) {
                                         out.push((ji, (x, y)));
                                     }
                                 }
@@ -7244,7 +7330,7 @@ fn relocation_domain_postcondition(
                                     inputs_ok = false;
                                     continue;
                                 };
-                                let hosts = hosts_on(k, &cycles_v);
+                                let hosts = hosts_on(k, patch, &cycles_v);
                                 if holds_phantom || !hosts.is_empty() {
                                     comp_map.entry(pi as u32).or_insert(s4c::ComponentInput {
                                         key,
