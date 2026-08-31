@@ -6301,9 +6301,8 @@ fn relocation_domain_postcondition(
                                         let n = cy.len();
                                         let w = 9.min(n);
                                         let start = if n <= 9 { 0 } else { (ei + n - 4) % n };
-                                        let s: Vec<String> = (0..w)
-                                            .map(|o| tag(cy[(start + o) % n].0))
-                                            .collect();
+                                        let s: Vec<String> =
+                                            (0..w).map(|o| tag(cy[(start + o) % n].0)).collect();
                                         windows.push((ci, ei, s.join(" ")));
                                     }
                                 }
@@ -6315,6 +6314,202 @@ fn relocation_domain_postcondition(
                                 );
                             }
                         }
+                    }
+                }
+                // inc-2c-3b-0 (`-PLAN3B`): the corrected-cycle PLANNER —
+                // compute, per affected component, the exact boundary the
+                // gated mutation will re-CDT from. Runs only under the
+                // admission rule (every fired site consumed by an
+                // applyable corridor); report-only.
+                if unconsumed.is_empty()
+                    && !corridors.is_empty()
+                    && corridors.iter().all(|c| c.applyable())
+                {
+                    use crate::stage4_corridor as s4c;
+                    // Selected components (marks: holds a phantom, or
+                    // hosts a junction of some affecting corridor).
+                    let vband = |v: u32| -> f64 {
+                        let p = mesh.verts[v as usize].as_array();
+                        cad_primitives::TAU_WORK
+                            .max(8.0 * f64::EPSILON * p[0].abs().max(p[1].abs()).max(p[2].abs()))
+                    };
+                    let cycles_of = |pi: usize| -> Option<Vec<Vec<u32>>> {
+                        crate::stage5_topology::patch_boundary_cycle(&raw_patches[pi], mesh)
+                            .ok()
+                            .map(|cy| {
+                                cy.iter()
+                                    .map(|c| c.iter().map(|&(s, _)| s).collect())
+                                    .collect()
+                            })
+                    };
+                    let hosts_on = |k: usize, cycles_v: &[Vec<u32>]| -> Vec<s4c::HostEdge> {
+                        let c = &corridors[k];
+                        let mut out = Vec::new();
+                        for (ji, j) in c.junctions.iter().enumerate() {
+                            if !matches!(
+                                j.disposition,
+                                crate::stage4_transit::JunctionDisposition::Mint
+                            ) {
+                                continue;
+                            }
+                            let scale = j.sol.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
+                            let band = cad_primitives::TAU_WORK.max(8.0 * f64::EPSILON * scale);
+                            for cy in cycles_v {
+                                let n = cy.len();
+                                for i in 0..n {
+                                    let (x, y) = (cy[i], cy[(i + 1) % n]);
+                                    let d = crate::stage4_transit::dist_point_segment(
+                                        j.sol,
+                                        mesh.verts[x as usize].as_array(),
+                                        mesh.verts[y as usize].as_array(),
+                                    );
+                                    if d <= band {
+                                        out.push((ji, (x, y)));
+                                    }
+                                }
+                            }
+                        }
+                        out
+                    };
+                    let mut comp_map: std::collections::BTreeMap<u32, s4c::ComponentInput> =
+                        Default::default();
+                    let mut host_map: std::collections::BTreeMap<(usize, u32), Vec<s4c::HostEdge>> =
+                        Default::default();
+                    let mut inputs_ok = true;
+                    for (k, c) in corridors.iter().enumerate() {
+                        for key in s4c::affected_keys(c) {
+                            for (pi, patch) in raw_patches
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, p)| (p.attribution.input, p.attribution.face) == key)
+                            {
+                                let holds_phantom = patch.tri_indices.iter().any(|&t| {
+                                    let tri = mesh.tris[t as usize];
+                                    c.phantoms.iter().any(|&p| tri.contains(&p))
+                                });
+                                let Some(cycles_v) = cycles_of(pi) else {
+                                    inputs_ok = false;
+                                    continue;
+                                };
+                                let hosts = hosts_on(k, &cycles_v);
+                                if holds_phantom || !hosts.is_empty() {
+                                    comp_map.entry(pi as u32).or_insert(s4c::ComponentInput {
+                                        key,
+                                        comp: pi as u32,
+                                        cycles: cycles_v,
+                                    });
+                                    host_map.insert((k, pi as u32), hosts);
+                                }
+                            }
+                        }
+                    }
+                    if inputs_ok {
+                        let comp_vec: Vec<s4c::ComponentInput> = comp_map.into_values().collect();
+                        let far_value = |k: usize, v: u32| -> Option<f64> {
+                            let (fi, ff) = corridors[k].far;
+                            let faces = match fi {
+                                InputId::A => a.faces(),
+                                InputId::B => b.faces(),
+                            };
+                            let s = faces.get(ff as usize)?.surface;
+                            crate::stage4_relocate::surface_value_and_normal(
+                                s,
+                                mesh.verts[v as usize].as_array(),
+                            )
+                            .map(|(f, _)| f)
+                        };
+                        let attachments = |k: usize, p: u32| -> Vec<(u32, usize)> {
+                            let c = &corridors[k];
+                            let mut out = Vec::new();
+                            for &w in adj.get(&p).into_iter().flatten() {
+                                if !on_curve(w) {
+                                    continue;
+                                }
+                                let pw = patches_of(w);
+                                let hits: Vec<usize> = c
+                                    .junctions
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(_, j)| {
+                                        pw.contains(&(c.walk_op, j.faces.0))
+                                            || pw.contains(&(c.walk_op, j.faces.1))
+                                    })
+                                    .map(|(i, _)| i)
+                                    .collect();
+                                if let [one] = hits.as_slice() {
+                                    out.push((w, *one));
+                                }
+                            }
+                            out
+                        };
+                        let hosts = |k: usize, comp: u32| -> Vec<s4c::HostEdge> {
+                            host_map.get(&(k, comp)).cloned().unwrap_or_default()
+                        };
+                        let pctx = s4c::PlanCtx {
+                            far_value: &far_value,
+                            band: &vband,
+                            attachments: &attachments,
+                            hosts: &hosts,
+                        };
+                        let mut pool = s4c::MintPool::default();
+                        let (plans, pdeclines) =
+                            s4c::plan_invocation(&corridors, &comp_vec, &pctx, &mut pool);
+                        let fmt = |r: &s4c::CycleRef| match *r {
+                            s4c::CycleRef::Old(v) => format!("v{v}"),
+                            s4c::CycleRef::New(i) => format!("N{i}"),
+                        };
+                        for pl in &plans {
+                            eprintln!(
+                                "YANG_S4_CARRIER_DOMAIN-PLAN3B comp={} key={:?} \
+                                 cycles={:?} removed={:?}",
+                                pl.comp,
+                                pl.key,
+                                pl.corrected.iter().map(|c| c.len()).collect::<Vec<_>>(),
+                                pl.removed,
+                            );
+                            for (ci, cy) in pl.corrected.iter().enumerate() {
+                                if cy.len() <= 40 {
+                                    let s: Vec<String> = cy.iter().map(fmt).collect();
+                                    eprintln!(
+                                        "YANG_S4_CARRIER_DOMAIN-PLAN3B   comp={} \
+                                         cycle{ci}: {}",
+                                        pl.comp,
+                                        s.join(" ")
+                                    );
+                                } else {
+                                    // Windows of ±4 around each NEW vertex.
+                                    let n = cy.len();
+                                    for (i, r) in cy.iter().enumerate() {
+                                        if matches!(r, s4c::CycleRef::New(_)) {
+                                            let s: Vec<String> = (0..9)
+                                                .map(|o| fmt(&cy[(i + n + o - 4) % n]))
+                                                .collect();
+                                            eprintln!(
+                                                "YANG_S4_CARRIER_DOMAIN-PLAN3B   comp={} \
+                                                 cycle{ci} at={i}: {}",
+                                                pl.comp,
+                                                s.join(" ")
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        for (k, d) in &pdeclines {
+                            eprintln!("YANG_S4_CARRIER_DOMAIN-PLAN3B DECLINE corridor=#{k} {d:?}");
+                        }
+                        eprintln!(
+                            "YANG_S4_CARRIER_DOMAIN-PLAN3B TOTAL plans={} mints={} \
+                             declines={}",
+                            plans.len(),
+                            pool.verts.len(),
+                            pdeclines.len(),
+                        );
+                    } else {
+                        eprintln!(
+                            "YANG_S4_CARRIER_DOMAIN-PLAN3B input-collection failed \
+                             (cycle walk) — no plans"
+                        );
                     }
                 }
             }

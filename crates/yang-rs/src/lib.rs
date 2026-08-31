@@ -145,6 +145,10 @@ mod stage4_slit;
 // corner-crosser sites. Census-wired report-only from the §4-I9 branch;
 // the gated apply arm is inc-2b+.
 mod stage4_transit;
+// §4.5.1 corner-transit APPLY planner (spec §3h, inc-2c-3b-0): the pure
+// corrected-cycle machinery (mint pool, corridor path, directed sub-path
+// replacement). Census-wired report-only; the gated mutation is 3b-1.
+mod stage4_corridor;
 // N2-3a (Yang §4.4.1): the fold-risk planner — decides WHICH relocations need
 // the Fig-11 mesh update. Pure decision function, NOT wired into
 // `stage4_relocate_and_correct`; wiring the merge arm onto its plan is N2-3b.

@@ -716,6 +716,73 @@ component (splice chains/samples in, excise phantom-side sub-paths,
 split host edges at mints), wholesale re-CDT per component, mint-once
 registry, apply as one batch, §4-I9 re-check + full oracle gate.
 
+## 3i. inc-2c-3b-0 — the CORRECTED-CYCLE planner (LANDED 2026-08-30,
+same session; measured on R0011: 18 plans, 0 declines)
+
+`stage4_corridor.rs`: the §3h-3a surgeries as ONE uniform primitive —
+`replace_subpath(cycles, from, to, via, removable)`: walk the directed
+boundary cycle forward from a surviving vertex, consume certified
+removable interior, stop at a surviving vertex, splice the corridor
+path in. `MintPool` interns junction mints + fresh run samples by
+position at the contract band (the SHARED-MINT registry);
+`corridor_path` linearizes a corridor end-to-end (mint refs, splice
+refs, run chains). `plan_invocation` runs three edit GENERATORS per
+affected component, each certificate-gated, each orientation resolved
+by clone-try (exactly one certifying arrangement or a typed decline):
+- **A (far patch)**: phantom flanked by two attachment neighbours →
+  swap in the whole path, oriented pred-attachment-first (attachments
+  must be the corridor's ends).
+- **B (B-side patch with the phantom)**: one attachment neighbour +
+  the attached junction's HOST edge → connector, turn at the mint,
+  excision through the host edge (both orientations tried across all
+  host edges; exactly one certifies).
+- **C (run facet)**: consecutive hosted junctions → host-to-host
+  excision through the OUT side, run path spliced between.
+
+Removability is anchored on the corridor's own crossed CORNER: the
+§4-I9 fire means the traveller crossed q, so q lies between the wrong
+and the true curve — the REMOVED side's sign is sign(far(q)),
+certificate-guarded (|far(q)| above band, all corners agreeing).
+9 unit fixtures (all three generators on the measured shapes, the
+ambiguous-anchor decline, the kept-interior refusal).
+
+**Measured on R0011 (`-PLAN3B`): op-1 13 component plans + op-2 5,
+11+2 mints, ZERO declines. R0074: 4 plans, 2 mints, ZERO declines**
+(the swapped-operand torus-far clip plans cleanly — base A0, facets
+A162/A163, the B2 torus patch's boundary re-routed through the two
+mints). **R0044: the ARC-HOST wall, typed** — 3+2 plans (the far/base
+components) + 11 `HostNotFound` declines: the gear creases are CIRCLE
+arcs and the host search measures junction-to-CHORD distance, which is
+the chord sag (≫ eval band) — the chord-vs-arc lesson a third time
+(inc-1b's curve-aware ranking kin). The R0044 slice of 3b-1 needs a
+curve-aware host search (band = max(eval, d_eps) on the crease's own
+curve); until then the admission rule refuses R0044 wholesale (partial
+plans never apply). Every §3h-3a prediction reproduced: the
+A2 hole cycle carries all three corridor swaps ([v43 N7 N6 N5 N4 v39
+N0 N1 N2 N3 v46 …] — v42's and v37's paths meeting at v39); the base
+curve dips between tooth corridors through the single healthy vertex
+v39 ([… v679 N0 v39 N4 v682 …]); B180's corrected pentagon [v682 N4 N5
+v273 v271] exactly as predicted; the crease between teeth 212/213
+re-terminates at the minted junction ([N10 v308] on both patches).
+
+**Measured REFUTATION of §3d's "q stays a patch vertex": the crossed
+corners are excised from EVERY patch** (q687, q663, q685, q834 all in
+the removed ledgers) — a crossed corner lies between the wrong and the
+true curve, i.e. strictly inside the far operand, so it is not in the
+result at all. The sign anchor makes this sound by construction: if a
+corner were genuinely kept, the anchor certificate itself
+(|far(q)| > band with a consistent sign) plus the walks' NotRemovable
+refusals would decline the plan loudly. The creases the corner
+terminated re-terminate at the corridor's minted junctions.
+
+**inc-2c-3b-1 (the mutation, next)**: append `MintPool` verts, re-CDT
+each planned component from its corrected cycles (Plane charts first —
+R0011's class; Cylinder next; cone bands decline typed), replace the
+components' triangles in one `apply_rebuild_batch`-style transaction
+(dropped = the removed ledgers, foreign-reference-scanned), then
+re-run the §4-I9 postcondition + the standing oracle gate — all behind
+`YANG_451_TRANSIT`.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -769,11 +836,18 @@ registry, apply as one batch, §4-I9 re-check + full oracle gate.
   endpoint-shared corridors; distant-chain locality). R0011 4/4 +
   R0074 1/1 + R0044 7/7 applyable & fully consumed; R0085 walled with
   the all-consumed admission rule named (§3h-3a).
-- inc-2c-3b: the gated mutation (`YANG_451_TRANSIT`) — corrected
-  cycles per affected component (splice chains in, excise phantom-side
-  sub-paths, split host edges at mints), wholesale re-CDT per
-  component, mint-once registry, one batch, §4-I9 re-check + oracle
-  gate; admission = every fired site consumed.
+- **inc-2c-3b-0** (2026-08-30, same session): the corrected-cycle
+  PLANNER landed (`stage4_corridor.rs`: `replace_subpath` + three
+  certificate-gated generators + the corner-anchored removability
+  sign + `MintPool`/`corridor_path`) and MEASURED on R0011 — 18
+  component plans across both invocations, 0 declines, every §3h-3a
+  prediction reproduced; §3d's "q stays" REFUTED (crossed corners are
+  excised everywhere, soundly — §3i).
+- inc-2c-3b-1: the gated mutation (`YANG_451_TRANSIT`) — mint the
+  pool, re-CDT each planned component from its corrected cycles
+  (Plane charts first), one batch transaction, §4-I9 re-check +
+  oracle gate; admission = every fired site consumed & every affected
+  component planned.
 - inc-3: fixed-point integration (multiple sites per case; R0085 has two
   failing ops) + full-corpus gated measurement; flip under the standing
   two-proof protocol.
