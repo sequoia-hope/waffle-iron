@@ -1576,20 +1576,40 @@ ANCHORED same session (`KV2_RING_REJECT_PROBE` +
 SurfacePair → 2×HyperbolaArc (per-mesh-piece, n_interior=0) → arc
 chains. The junction vertex X=(−1813.598774,−2388.465072,
 −6104.296761) between the SurfacePair edge and the first
-HyperbolaArc sits **0.15 OFF face 627's own cone** (ρ=3682.56 vs
-cone 3682.71 at its station — ~250× the eval band) and 0.83 PAST the
-r=3681.154 rim's station, while that rim arc's ~304° span covers X's
-azimuth; the developable chart collapses radial deviation, so X's
-descending hyperbola edge aliases into a ring self-intersection
-(crossing the rim polyline's constant-v run at u≈65.7) and the CDT
-rejects — a CORRECT loud stop over a defective yang-side emission.
-The crossing exists with or without inc-8b's inserts. Next
-increment's anchor (yang Stage-4/5, this epic's own §4.5 corner
-region): why is the SurfacePair→HyperbolaArc junction emitted
-off-surface and past the rim — a relocation identification-vs-domain
-defect, an unrelocated far-chord vertex, or a TRUE crossing whose
-transit into the 626 strip band was never built (626 carries no
-notch).**
+HyperbolaArc is **ON face 627's own cone** (7.7e-6 — the uniform
+rim-derived fit residual EVERY ring point shares, not a per-point
+defect) but sits **0.827 PAST the station of the r=3681.154 rim that
+BOUNDS the face** (h=2124.192 vs the rim's 2123.365). X is on the
+EXTENDED surface, in the parametric band belonging to the NEIGHBOUR
+face 626: in 626's own frame X lands at h=2307.550, INSIDE 626's
+[2306.722, 2307.916] band (0.827 past the shared rail of a 1.194-wide
+strip), 0.060 off 626's cone — the crease departure between two cones
+(tan α 1.7336 vs 1.5958). **This is the 3b-8
+identification-vs-domain shape at the EMISSION layer**: a point valid
+on the extended surface, OUT OF DOMAIN for the face's actual B-Rep
+boundary. In the chart the ring therefore pokes above its own top
+edge and self-intersects the rim run TWICE — the incoming SurfacePair
+edge at u=63.446 (against the negative-going run) and the outgoing
+hyperbola edge at u=65.738 (against the positive-going run) — so the
+CDT rejects CORRECTLY, over a yang-side emission defect. The rim node
+at X's exact azimuth (Δu=7e-13) is X's OWN always-on mechanism-2
+vertex insert on 627's chain, so the crossing exists with or without
+inc-8b. Face 626 carries NO notch (a clean 8-edge loop: 6 arcs + 2
+line segments), so the crossing's transit into the 626 band was never
+built — now the MEASURED leading reading of the three this anchor
+opened. Next increment (yang Stage-4/5, this epic's own corner
+region): adjudicate whether X is a TRUE crossing owed a transit into
+626 (then build it, splitting the shared rim at X's azimuth) or an
+over-shot relocation onto the extended 627 surface that should have
+terminated ON the rim.**
+
+*Correction, same session:* an earlier draft of this block recorded X
+as "0.15 off face 627's own cone", an UNMEASURED figure. The measured
+values are above: X is on 627's cone and out of 627's DOMAIN. The
+error inverted the diagnosis (an off-surface emission would be a
+geometry defect; an out-of-domain terminal is a topology/transit one)
+— the 3b-8 lesson, incurred again by asserting a distance without
+computing it.
 
 **GATED `YANG_453_SPAIR` (default OFF) by the always-on corpus run's
 verdict: ONE E→W flip — R0053, the M8 coplanar-graze case.** Its
@@ -1798,10 +1818,12 @@ byte-identical canonical 273C/0W/34E/1EE/0T (re-proven).
   conversion path is now FOUR knobs (`… KV2_ARC_CONFORM_CURVES=1`);
   face 626 tessellates clean and the case advances to the UNMASKED
   `FaceId(627)` ring rejection, anchored same session: the notch
-  chain's SurfacePair→HyperbolaArc junction X is emitted 0.15 off
-  face 627's own cone and 0.83 past the rim station whose ~304° arc
-  covers its azimuth — chart aliasing self-intersects the ring; the
-  defect is yang-side Stage-4/5 emission, the next increment.
+  chain's SurfacePair→HyperbolaArc junction X sits ON face 627's cone
+  but 0.827 PAST the station of the rim that BOUNDS it, landing inside
+  the neighbour band (face 626, which carries no notch) — the 3b-8
+  identification-vs-domain shape at the emission layer; the ring
+  self-intersects its own rim run twice and the CDT rejects correctly.
+  Yang-side Stage-4/5, the next increment.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

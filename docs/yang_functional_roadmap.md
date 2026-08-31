@@ -927,10 +927,12 @@ name, never measured).
    inc-8a's FIRST corpus customer. Face 626 tessellates clean; the
    case advances to the UNMASKED FaceId(627) ring rejection, anchored
    same session: the corner notch's SurfacePair→HyperbolaArc junction
-   is emitted 0.15 off face 627's own cone and 0.83 past a rim whose
-   ~304° arc covers its azimuth (chart aliasing ⇒ ring
-   self-intersection; a correct loud stop over a yang Stage-4/5
-   emission defect — the next increment). R0044's gate set (FOUR
+   sits ON face 627's cone but 0.827 PAST the station of the rim that
+   BOUNDS the face, landing inside the neighbour band (face 626, which
+   carries no notch) — the 3b-8 identification-vs-domain shape at the
+   emission layer; the chart ring self-intersects its own rim run
+   twice and the CDT rejects correctly (a yang Stage-4/5 defect — the
+   next increment). R0044's gate set (FOUR
    knobs): `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1
    YANG_453_SPAIR=1 KV2_ARC_CONFORM_CURVES=1`. Also open: the v105
    retry ChordDegradation. R0085 stays walled on operand quality.

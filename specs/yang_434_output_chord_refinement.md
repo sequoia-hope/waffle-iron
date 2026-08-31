@@ -379,8 +379,9 @@ rejected.
   off arm when the mechanism flips always-on). Measured: face 626
   converts (`n_split=0 fold=0`), R0044 advances to the unmasked
   FaceId(627) ring rejection (yang-side emission defect — a
-  SurfacePair→HyperbolaArc junction 0.15 off the face's cone; owned by
-  the corner-transit epic, not this spec). Gate stays DEFAULT OFF —
+  SurfacePair→HyperbolaArc junction ON the face's cone but 0.827 past
+  the rim that bounds it, out of domain; owned by the corner-transit
+  epic, not this spec). Gate stays DEFAULT OFF —
   the flip is its own decision with a full-corpus W-scan (the R0053
   mask lesson); today it is the fourth knob of R0044's conversion path.
   Measured: R0003 f577 SKINS (ellipse gets 7 sag-bound samples); the case
