@@ -1597,11 +1597,50 @@ vertex insert on 627's chain, so the crossing exists with or without
 inc-8b. Face 626 carries NO notch (a clean 8-edge loop: 6 arcs + 2
 line segments), so the crossing's transit into the 626 band was never
 built — now the MEASURED leading reading of the three this anchor
-opened. Next increment (yang Stage-4/5, this epic's own corner
-region): adjudicate whether X is a TRUE crossing owed a transit into
-626 (then build it, splitting the shared rim at X's azimuth) or an
-over-shot relocation onto the extended 627 surface that should have
-terminated ON the rim.**
+opened.**
+
+**ADJUDICATED same session — the transit reading WINS, exactly
+(`[chain-probe]` SurfacePair/HyperbolaArc parameter dump + closed-form
+root solve).** The three surfaces meeting at X are named: the
+SurfacePair is **far Cylinder** (r=2327.818) **× cone 627**, and the
+HyperbolaArc's normal is exactly −(cylinder axis), so it is the
+cylinder's **CAP PLANE × cone 627**. X is therefore the
+cylinder-end-circle ∩ cone triple point — and it is EXACT: plane
+residual −2.0e-13, cylinder 4.5e-13, cone 4.5e-13, and the
+closed-form solve for that circle × cone 627 returns X itself to
+**8.2e-13**. **X is not a stray or mis-relocated vertex; it is the
+correctly-computed triple point of the EXTENDED cone 627, placed
+0.827 outside 627's own domain.** The identification is right and the
+domain check is missing — the 3b-8 lesson, verbatim, at the emission
+layer.
+
+The true corner topology, all of it measured:
+- **The real junction J EXISTS on face 626**: the same cylinder end
+  circle × **cone 626** has a root at station h=2307.654 — INSIDE
+  626's [2306.722, 2307.916] band (0.932 past the shared rail, 0.262
+  short of the far rail), 0.138 from X. J is where the junction
+  belongs.
+- **Both crease crossings EXIST on the shared rim** (r=3681.154):
+  the rim meets the cylinder LATERAL at
+  P_lat=(−1814.091366,−2390.548529,−6103.426403) (2.311 from X) and
+  the CAP PLANE at
+  P_cap=(−1813.637849,−2388.505205,−6102.509823) (1.788 from X).
+- So the correct emission is: 627's SurfacePair chain terminates at
+  P_lat and its hyperbola chain at P_cap (both ON the crease); the
+  shared rim splits at both; and **face 626 gains the notch** —
+  lateral∩cone626 from P_lat to J, cap∩cone626 from J to P_cap. Today
+  626 carries NO notch (a clean 8-edge loop: 6 arcs + 2 line
+  segments) and 627 carries the whole excursion on its extended
+  surface. The excursion is small but real: chart width 2.29, height
+  0.827.
+
+**inc-2c-3b-12 is therefore a DETERMINED build, not an
+investigation**: split the crease at P_lat/P_cap, re-terminate 627's
+two chains there, and construct the 626-side notch through J. The
+domain postcondition it needs is the §4-I9 shape already in the
+stack — a chain terminal must be certified against its OWN face's
+bounding-rim domain, not merely against its surface (the
+identification-vs-domain rule, now with a second measured customer).**
 
 *Correction, same session:* an earlier draft of this block recorded X
 as "0.15 off face 627's own cone", an UNMEASURED figure. The measured
@@ -1823,7 +1862,13 @@ byte-identical canonical 273C/0W/34E/1EE/0T (re-proven).
   the neighbour band (face 626, which carries no notch) — the 3b-8
   identification-vs-domain shape at the emission layer; the ring
   self-intersects its own rim run twice and the CDT rejects correctly.
-  Yang-side Stage-4/5, the next increment.
+  ADJUDICATED same session: X is the EXACT cylinder-end-circle ∩ cone
+  triple point (three residuals ~1e-13, closed-form solve returns it to
+  8.2e-13) — correctly computed on the EXTENDED cone, 0.827 outside its
+  domain. The true junction J exists on cone 626 (station 2307.654,
+  inside 626's band) and both crease crossings exist on the shared rim
+  (P_lat, P_cap). inc-2c-3b-12 = split the crease at P_lat/P_cap,
+  re-terminate 627's chains there, build the 626-side notch through J.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

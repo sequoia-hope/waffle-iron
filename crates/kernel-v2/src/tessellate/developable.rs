@@ -394,6 +394,13 @@ fn tessellate_developable_patch(
                     q.y(),
                     q.z()
                 );
+                if let Curve::SurfacePair { a, b } = &he.curve {
+                    eprintln!("[chain-probe]   spair a={a:?}");
+                    eprintln!("[chain-probe]   spair b={b:?}");
+                }
+                if let Curve::HyperbolaArc { .. } = &he.curve {
+                    eprintln!("[chain-probe]   hyp {:?}", he.curve);
+                }
                 if let Curve::Arc {
                     center,
                     normal,

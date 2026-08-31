@@ -931,8 +931,15 @@ name, never measured).
    BOUNDS the face, landing inside the neighbour band (face 626, which
    carries no notch) — the 3b-8 identification-vs-domain shape at the
    emission layer; the chart ring self-intersects its own rim run
-   twice and the CDT rejects correctly (a yang Stage-4/5 defect — the
-   next increment). R0044's gate set (FOUR
+   twice and the CDT rejects correctly. ADJUDICATED same session by
+   closed-form solve: X is the EXACT cylinder-end-circle ∩ cone triple
+   point (residuals ~1e-13) — correctly computed on the EXTENDED cone
+   627, 0.827 outside its domain; the true junction J lies on cone 626
+   (station 2307.654, inside its band) and both crease crossings exist
+   on the shared rim. inc-2c-3b-12 is a DETERMINED build: split the
+   crease, re-terminate 627's two chains on it, construct the 626-side
+   notch through J, and certify chain terminals against their own
+   face's DOMAIN (not merely its surface). R0044's gate set (FOUR
    knobs): `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1
    YANG_453_SPAIR=1 KV2_ARC_CONFORM_CURVES=1`. Also open: the v105
    retry ChordDegradation. R0085 stays walled on operand quality.
