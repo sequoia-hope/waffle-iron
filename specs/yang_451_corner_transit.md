@@ -2300,6 +2300,106 @@ exact q-points (chain side), split or create the crease chain at the same points
 (crease side), and — at the three `AtEnd` sites — no insert at all, only the
 removal of the doubled cover.
 
+## 3y. inc-2c-3b-12b-4 — the EMISSION EDIT LIST: what the mesh must DO
+(LANDED, pure; census-only)
+
+§3x said what each site must ACQUIRE. This says what has to be touched to give
+it that, and — the reason the increment exists — how far outside the fan the
+touching reaches. `transit_emission_edits` turns a determined plan into the
+mints and the triangle sets, still as a pure function returning measurements,
+under the same `YANG_451_TRIPLE_DOMAIN` + `YANG_451_TRANSIT_ANATOMY` gates.
+
+**Reading 1 — the edit list is determined at exactly ONE site in the corpus,
+and it is the face-627 site.** Of the seven sites §3x left with a determined
+plan, six decline STRUCTURALLY and one yields edits:
+
+| case | v | verdict |
+|---|---|---|
+| R0044 | **47** | **OK** — 2 mints, host `(981, 6911)`, 7 triangles touched |
+| R0044 | 38 | `ChainAbsent` |
+| R0003 | 1983 | `AlreadyCarried { overlap_deg: 0.09148757941292729 }` |
+| R0003 | 8658 | `AlreadyCarried { overlap_deg: 0.03091792306808472 }` |
+| R0003 | 11356 | `AlreadyCarried { overlap_deg: 0.030917923068077613 }` |
+| R0003 | 7611 | `ChainAbsent` |
+| R0003 | 8809 | `ChainAbsent` |
+
+The `AlreadyCarried` declines carry the plan's own measured overlap rather than
+re-deriving one, so a caller that has to choose an instrument gets the reason
+and its magnitude together.
+
+**Reading 2 — and this is the increment's binding result — R0003 yields NO
+edits at any of the five sites where §3x gave it a determined plan.** The
+SUPPORTED_CORRECT case is untouchable by this repair as scoped, not because a
+magnitude band excludes it but because its crease side is `AtEnd` or `NoChain`
+at every site. §3t refused
+the 1.2× overrun gap between the two cases as a discriminator and required the
+populations be separated by FIXING both; the emission half separates them one
+better — the insertion repair has no work to do on R0003 at all, so arming it
+cannot regress the case. That is a structural safety property of the mutation,
+established before the mutation exists.
+
+**Reading 3 — the repair's reach outside the fan is exactly ONE triangle, and
+it belongs to the neighbour.** At v47:
+
+| quantity | value |
+|---|---|
+| crease host | `(981, 6911)` |
+| triangles carrying it | `13112` (in fan) + `13037` (**not** in fan) |
+| their input faces | `(B, 168)` and `(B, 167)` |
+| chain edges | `(47, 280)` and `(47, 45)`, 2 fan triangles each |
+| touched | `41, 279, 13037, 13110, 13111, 13112, 13113` — 7 |
+| outside the fan | `13037` — 1 |
+| relabelled wholesale | `13112` |
+
+So the crease chord is genuinely SHARED between two input faces of operand B,
+and refining it is not a fan-local act: the neighbour's triangle must receive
+the same two vertices or the mesh T-junctions along the very curve the repair
+exists to make conformal. That is the 3b-11 one-sided-insert lesson, one layer
+down in the working mesh rather than in the output tessellation — and here it
+is measured in advance instead of being discovered as a fold. The attribution
+reading also confirms the destination directly: the notch passes from `(B, 168)`
+to `(B, 167)` because that is who owns the far side of the chord, rather than
+by an assumption about which face "should" receive it.
+
+**Reading 4 — the wholesale relabel and the chord split are the SAME
+triangle.** `relabel` is `[13112]` and `crease_tris` is `[13037, 13112]`, so the
+own-patch triangle that changes face wholesale is also one of the two carrying
+the chord the mints go into. The two edits are therefore not independent: the
+mutation cannot relabel first and split afterwards (the split would re-derive
+attribution from a triangle that has already moved) nor split first and relabel
+by id (the id no longer names one triangle). It has to re-triangulate `13112`
+and attribute the children — the notch's to `(B, 167)`, the rest to `(B, 168)`
+— in one act. Worth stating because the natural implementation order is the
+broken one.
+
+**Reading 5 — the insert order follows the CHORD, not the solver's q
+numbering.** Both mints go into one chord, so the refined chain must connect
+them in the order they occur along it. At v47 the chord runs `981 → 6911` and
+`q2` (t = 0.42395608063854284) precedes `q1` (t = 0.4280468276336979) — the
+solver's numbering is the other way round. Ordering by q index would invert the
+notch. `inserts` is therefore sorted along the chord and `chain_tris` is
+permuted with it, so slot `i`'s triangles carry slot `i`'s edge. A unit test
+names the same fixture chord from both ends and asserts the order reverses and
+every parameter complements; without the sort it fails.
+
+**What is NOT determined, and typed rather than guessed.** `AlreadyCarried`
+(the re-ordering §3x identified — the mesh has the corner twice and needs no
+mint), `ChainAbsent` (no local crease chain to refine; it must be CREATED,
+which needs the neighbour patch's mesh too), plus `CreaseHostsDiffer`,
+`ChainAlreadyCarried`, `HostNotManifold`, `CornerNotClear` and `SiteAmbiguous`
+for shapes the corpus does not currently exhibit. The site itself is DERIVED
+from the fan (the intersection of its triangles' vertex sets) rather than
+passed — §3w is what passing a redundant `v` costs.
+
+5 new unit tests on the §3u fixture, including one that adds the neighbour's
+triangle across the chord so the fixture carries the same two-sided reach the
+corpus does, and one that pins the boundary case (a chord no neighbour carries
+has an empty reach — measured, not assumed).
+
+**Not built here.** The mutation. It now has, for the one site that needs it, a
+closed edit: mint `q2` and `q1` at their exact positions, re-triangulate the six
+fan triangles and the neighbour's one, relabel `13112` to `(B, 167)`.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -2642,6 +2742,37 @@ removal of the doubled cover.
   and demanded an insert on an edge that already ends at it; the rule is
   IDENTITY from the cut's own termination. 4 unit tests, all closed-form, one
   of them pinning that fix at 5× the band.
+- **inc-2c-3b-12b-4** (2026-09-01, same session): the EMISSION EDIT LIST
+  landed pure + census-only (`transit_emission_edits`, same gates) and
+  MEASURED on all 7 determined sites (§3y). It turns §3x's acquisition into
+  mints and triangle sets, and measures the one thing the plan could not: how
+  far outside the fan the edit reaches. **The edit list is determined at
+  exactly ONE site in the corpus — R0044 v47, the face-627 site** — and the
+  other six decline structurally (3 `AlreadyCarried`, each carrying the plan's
+  own measured overlap, and 3 `ChainAbsent`).
+  **BINDING: R0003 yields NO edits at any of the five sites where §3x gave it
+  a determined plan**, so
+  the SUPPORTED_CORRECT case is untouchable by this repair as scoped — a
+  structural safety property established BEFORE the mutation exists, and the
+  form §3t's "separate the populations by fixing both, never by a magnitude
+  band" takes at the emission layer. **The reach outside the fan is exactly one
+  triangle and it belongs to the neighbour**: the crease chord `(981, 6911)` is
+  carried by `13112` (in fan, input face `(B, 168)`) and `13037` (outside,
+  `(B, 167)`), 7 triangles touched in total — so refining a crease chord is not
+  a fan-local act, the 3b-11 one-sided-insert lesson one layer down in the
+  working mesh, measured in advance rather than discovered as a fold. The
+  attribution reading also names the notch's destination directly rather than
+  assuming it. Fourth: **the wholesale relabel and the chord split are the
+  SAME triangle** (`relabel = [13112]` ⊂ `crease_tris`), so the two edits
+  cannot be sequenced — `13112` must be re-triangulated and its children
+  attributed in one act, and the natural implementation order is the broken
+  one. Fifth: **the insert order follows the CHORD, not the solver's q
+  numbering** — at v47 `q2` (t = 0.42396) precedes `q1` (t = 0.42805), so
+  ordering by q index would invert the notch; `inserts` is sorted along the
+  chord and `chain_tris` permuted with it. The site is DERIVED from the fan
+  rather than passed (§3w's lesson). 5 unit tests, one adding the
+  neighbour's triangle so the fixture carries the corpus's two-sided reach, one
+  pinning the chord-order fix by naming the same chord from both ends.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

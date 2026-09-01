@@ -2187,3 +2187,277 @@ pub(crate) fn transit_emission_plan(
         arc_sag: radius * (1.0 - (corner_deg.to_radians() / 2.0).cos()),
     })
 }
+
+// ---------------------------------------------------------------------------
+// §4.5.2 inc-2c-3b-12b-4 — the EMISSION EDIT LIST: what the mesh must DO
+// ---------------------------------------------------------------------------
+
+/// Why a determined emission PLAN yields no determined EDIT LIST.
+///
+/// Every variant is a STRUCTURAL statement about the site, never a threshold.
+/// The 3/1/3 partition §3x measured is exactly what the first three variants
+/// make operational: only the `Interior` shape is an insertion, and the other
+/// two are different operations that this function refuses to guess at.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum EmissionEditFailure {
+    /// The crease side is `AtEnd`: the mesh already carries both q-points on
+    /// its own crease chain and — measured at all three such sites — covers
+    /// the corner TWICE with them. The repair there is a RE-ORDERING of edges
+    /// that already exist, not an insertion. A different operation, and not
+    /// determined here.
+    AlreadyCarried { overlap_deg: Option<f64> },
+    /// The fan carries no crease edge at all, so there is no local chain to
+    /// refine: it has to be CREATED, which needs the neighbour patch's mesh
+    /// as well as this fan's.
+    ChainAbsent,
+    /// The two q-points refine DIFFERENT crease chords, so the corner is not
+    /// one refinement of one segment and the along-chord order below does not
+    /// define the refined chain.
+    CreaseHostsDiffer { a: (u32, u32), b: (u32, u32) },
+    /// A q-point the crease side wants to insert is already a mesh vertex on
+    /// the chain side. Then the edit is a re-connection of an existing vertex,
+    /// not a mint, and the two sides disagree about what the mesh has.
+    ChainAlreadyCarried { q: usize, u: u32 },
+    /// A host edge is carried by no triangle, or by more than two: the
+    /// conforming re-triangulation is not defined on it.
+    HostNotManifold { edge: (u32, u32), incident: usize },
+    /// The corner is not clear — an existing crease vertex lies strictly
+    /// inside it — so the notch would swallow a vertex and the edit is not a
+    /// two-point refinement of one chord.
+    CornerNotClear,
+    /// The fan's triangles do not share exactly one vertex, so the site the
+    /// edits are relative to is not identified.
+    SiteAmbiguous { found: usize },
+}
+
+/// One vertex the repair must MINT, with every mesh edge it becomes incident
+/// to.
+///
+/// The two edges are the point's two roles: it TERMINATES the chain that runs
+/// out of the site, and it REFINES the crease's own chord. Both must gain it,
+/// or the mesh T-junctions.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct QInsert {
+    /// Which q-point this is (`0`/`1`), as the solver numbered them.
+    pub(crate) q: usize,
+    /// The exact analytic position — on the crease circle and on its own
+    /// surface, from [`solve_crease_transit`]. Never a chord crossing.
+    pub(crate) at: Point3,
+    /// The chain edge it terminates, `(site, u)`.
+    pub(crate) chain: (u32, u32),
+    /// How far that chord's OWN crease crossing sits from `at` — the deviation
+    /// the insert removes, not an error in `at`.
+    pub(crate) chain_lift: f64,
+    /// The crease chord it refines.
+    pub(crate) crease: (u32, u32),
+    /// Its parameter along `crease.0 → crease.1`.
+    pub(crate) crease_t: f64,
+    /// How far `at` sits off that chord — the chain sag the refinement removes.
+    pub(crate) crease_off: f64,
+}
+
+/// The mesh EDITS one determined site needs.
+///
+/// §3x said what the mesh must ACQUIRE; this says what has to be touched to
+/// give it that, and — the reason the increment exists — how far outside the
+/// fan the touching reaches. A crease chord is shared with the patch on the
+/// far side of the crease, so refining it is not a fan-local act: the
+/// neighbour's triangle must receive the same two vertices or the mesh
+/// T-junctions along the very curve the repair is trying to make conformal.
+/// That is the 3b-11 one-sided-insert lesson, one layer down in the working
+/// mesh rather than in the output tessellation.
+///
+/// Pure. Nothing here mutates; every field is a triangle id, a vertex id, or a
+/// measured distance.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TransitEmissionEdits {
+    /// The site the edits are relative to, derived from the fan rather than
+    /// passed — the fan's triangles share exactly one vertex.
+    pub(crate) site: u32,
+    /// The two mints, in the order they occur ALONG the crease chord from its
+    /// first endpoint. That is the order the refined chain must connect them
+    /// in; taking it from the q numbering instead would invert the notch
+    /// wherever the solver happened to number them the other way.
+    pub(crate) inserts: [QInsert; 2],
+    /// The crease chord both q-points refine.
+    pub(crate) crease_host: (u32, u32),
+    /// Every triangle carrying that chord.
+    pub(crate) crease_tris: Vec<u32>,
+    /// Every triangle carrying each chain edge, in `inserts` order.
+    pub(crate) chain_tris: [Vec<u32>; 2],
+    /// Every triangle the repair re-triangulates: the host edges' triangles
+    /// together with the own-patch triangles the cut already crosses.
+    /// Deduplicated, sorted.
+    pub(crate) touched: Vec<u32>,
+    /// Of those, the ones NOT incident to the site — the repair's reach
+    /// OUTSIDE the fan it was planned in.
+    pub(crate) outside_fan: Vec<u32>,
+    /// Triangles that change attribution wholesale to the neighbour face,
+    /// carried through from the cut.
+    pub(crate) relabel: Vec<u32>,
+}
+
+/// Turn a determined emission PLAN into the determined mesh EDITS.
+///
+/// Composed from the measurements that precede it rather than re-deriving any
+/// of them: the positions come from `t` (exact, on the crease circle), the
+/// per-side acquisition from `plan`, the re-triangulated own-patch triangles
+/// and the wholesale relabels from `cut`, and the fan from `an`. The only
+/// thing computed here is edge incidence — which triangles carry each host
+/// edge — because that is what says how far the edit reaches.
+///
+/// Pure; every non-answer is a typed structural decline.
+pub(crate) fn transit_emission_edits(
+    mesh: &Mesh,
+    an: &TransitSiteAnatomy,
+    cut: &TransitCutPath,
+    plan: &TransitEmissionPlan,
+    t: &CreaseTransit,
+) -> Result<TransitEmissionEdits, EmissionEditFailure> {
+    // The corner must be a two-point refinement of one chord; a swallowed
+    // vertex is a different edit.
+    if !plan.corner_clear {
+        return Err(EmissionEditFailure::CornerNotClear);
+    }
+
+    // --- the site, derived from the fan ------------------------------------
+    // Every fan triangle contains it, so it is the intersection of their
+    // vertex sets. Derived rather than passed: the caller's `v` and the
+    // anatomy could disagree, and §3w is what that costs.
+    let site = {
+        let mut common: Vec<u32> = mesh.tris[an.fan[0].tri as usize].to_vec();
+        for ft in &an.fan[1..] {
+            let tri = mesh.tris[ft.tri as usize];
+            common.retain(|x| tri.contains(x));
+        }
+        match common[..] {
+            [s] => s,
+            _ => {
+                return Err(EmissionEditFailure::SiteAmbiguous {
+                    found: common.len(),
+                })
+            }
+        }
+    };
+
+    // --- both sides must be the INSERTION shape ----------------------------
+    let mut crease: [(u32, u32, f64, f64); 2] = [(0, 0, 0.0, 0.0); 2];
+    for (slot, acq) in crease.iter_mut().zip(plan.crease_acquire.iter()) {
+        match *acq {
+            CreaseAcquire::AtEnd { .. } => {
+                return Err(EmissionEditFailure::AlreadyCarried {
+                    overlap_deg: plan.chain_overlap.map(|o| o.deg),
+                })
+            }
+            CreaseAcquire::NoChain => return Err(EmissionEditFailure::ChainAbsent),
+            CreaseAcquire::Interior {
+                a,
+                b,
+                t: tt,
+                off_chord,
+                ..
+            } => *slot = (a, b, tt, off_chord),
+        }
+    }
+    // One chord, or the along-chord order below is meaningless.
+    let (ha, hb) = (crease[0].0, crease[0].1);
+    if (crease[1].0, crease[1].1) != (ha, hb) && (crease[1].1, crease[1].0) != (ha, hb) {
+        return Err(EmissionEditFailure::CreaseHostsDiffer {
+            a: (crease[0].0, crease[0].1),
+            b: (crease[1].0, crease[1].1),
+        });
+    }
+    // `crease[1]`'s parameter is along its OWN orientation; re-read it against
+    // the host's if the plan named the chord the other way round.
+    let t1 = if (crease[1].0, crease[1].1) == (ha, hb) {
+        crease[1].2
+    } else {
+        1.0 - crease[1].2
+    };
+
+    let mut chain: [(u32, f64); 2] = [(0, 0.0); 2];
+    for (q, (slot, acq)) in chain.iter_mut().zip(plan.q_acquire.iter()).enumerate() {
+        match *acq {
+            QAcquire::SplitChain { u, lift } => *slot = (u, lift),
+            QAcquire::AtVertex { u, .. } => {
+                return Err(EmissionEditFailure::ChainAlreadyCarried { q, u })
+            }
+        }
+    }
+
+    // --- edge incidence, one scan for all three host edges ------------------
+    let carries = |tri: [u32; 3], a: u32, b: u32| tri.contains(&a) && tri.contains(&b);
+    let mut crease_tris: Vec<u32> = Vec::new();
+    let mut chain_tris: [Vec<u32>; 2] = [Vec::new(), Vec::new()];
+    for (ti, tri) in mesh.tris.iter().enumerate() {
+        if carries(*tri, ha, hb) {
+            crease_tris.push(ti as u32);
+        }
+        for (slot, c) in chain_tris.iter_mut().zip(chain.iter()) {
+            if carries(*tri, site, c.0) {
+                slot.push(ti as u32);
+            }
+        }
+    }
+    for (edge, tris) in [
+        ((ha, hb), &crease_tris),
+        ((site, chain[0].0), &chain_tris[0]),
+        ((site, chain[1].0), &chain_tris[1]),
+    ] {
+        if tris.is_empty() || tris.len() > 2 {
+            return Err(EmissionEditFailure::HostNotManifold {
+                edge,
+                incident: tris.len(),
+            });
+        }
+    }
+
+    // --- the mints, ordered ALONG the chord --------------------------------
+    let qs = [t.q1, t.q2];
+    let mk = |i: usize, tt: f64| QInsert {
+        q: i,
+        at: qs[i],
+        chain: (site, chain[i].0),
+        chain_lift: chain[i].1,
+        crease: (ha, hb),
+        crease_t: tt,
+        crease_off: crease[i].3,
+    };
+    let (i0, i1) = (mk(0, crease[0].2), mk(1, t1));
+    let inserts = if i0.crease_t <= i1.crease_t {
+        [i0, i1]
+    } else {
+        [i1, i0]
+    };
+    let chain_tris = if i0.crease_t <= i1.crease_t {
+        chain_tris
+    } else {
+        let [a, b] = chain_tris;
+        [b, a]
+    };
+
+    // --- what gets re-triangulated, and how far out it reaches --------------
+    let mut touched: Vec<u32> = crease_tris.clone();
+    touched.extend_from_slice(&chain_tris[0]);
+    touched.extend_from_slice(&chain_tris[1]);
+    touched.extend_from_slice(&cut.split_tris);
+    touched.sort_unstable();
+    touched.dedup();
+    let in_fan: std::collections::BTreeSet<u32> = an.fan.iter().map(|f| f.tri).collect();
+    let outside_fan: Vec<u32> = touched
+        .iter()
+        .copied()
+        .filter(|x| !in_fan.contains(x))
+        .collect();
+
+    Ok(TransitEmissionEdits {
+        site,
+        inserts,
+        crease_host: (ha, hb),
+        crease_tris,
+        chain_tris,
+        touched,
+        outside_fan,
+        relabel: cut.past_tris.clone(),
+    })
+}

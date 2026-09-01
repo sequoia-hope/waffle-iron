@@ -1068,6 +1068,36 @@ name, never measured).
    point against a ~1.1e-12 contract band, so the band disowned a q-point the
    mesh demonstrably carries; the rule is IDENTITY from the termination the
    cut already resolved.*
+   **inc-2c-3b-12b-4** (2026-09-01, same session) turned that plan into the
+   EDIT LIST (`transit_emission_edits`, spec §3y) — the mints and the triangle
+   sets — still pure and census-only, and measured the one quantity the plan
+   could not: how far outside the fan the edit reaches. **The edit list is
+   determined at exactly ONE site in the corpus, R0044 v47 — the face-627
+   site** — while the other six decline structurally (3 `AlreadyCarried`,
+   each carrying the plan's own measured overlap, and 3 `ChainAbsent`).
+   **BINDING: R0003 yields NO edits at any of the five sites where §3x gave it
+   a determined plan**, so the SUPPORTED_CORRECT case is untouchable by this
+   repair as scoped — a structural safety property established before
+   the mutation exists, and what §3t's "separate the populations by fixing
+   both, never by a magnitude band" becomes at the emission layer. **The reach
+   outside the fan is exactly one triangle and it belongs to the neighbour**:
+   the crease chord `(981, 6911)` is carried by `13112` (in fan, input face
+   `(B, 168)`) and `13037` (outside, `(B, 167)`); 7 triangles are touched in
+   all. So refining a crease chord is not a fan-local act — the 3b-11
+   one-sided-insert lesson one layer down in the working mesh, measured in
+   advance rather than discovered as a fold — and the attribution names the
+   notch's destination directly instead of assuming it. Fourth reading: **the
+   insert order follows the CHORD, not the solver's q numbering** (at v47 `q2`
+   at t = 0.42396 precedes `q1` at t = 0.42805), so ordering by q index would
+   invert the notch; `inserts` is sorted along the chord and `chain_tris`
+   permuted with it. Also measured: the wholesale relabel and the chord split
+   are the SAME triangle (`relabel = [13112]` ⊂ `crease_tris`), so the two
+   edits cannot be sequenced — `13112` must be re-triangulated and its
+   children attributed in one act. The site is DERIVED from the fan rather
+   than passed.
+   5 unit tests, one adding the neighbour's triangle so the fixture carries
+   the corpus's two-sided reach, one pinning the chord-order fix by naming the
+   same chord from both ends.
    R0044's gate set (FOUR knobs): `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1
    YANG_453_SPAIR=1 KV2_ARC_CONFORM_CURVES=1`. Also open: the v105
    retry ChordDegradation. R0085 stays walled on operand quality.

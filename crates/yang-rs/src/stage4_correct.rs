@@ -10392,6 +10392,8 @@ fn stage4_relocate_and_correct_inner(
                             // hosts each q-point. Measured BEFORE any of the
                             // re-termination is designed.
                             if std::env::var_os("YANG_451_TRANSIT_ANATOMY").is_some() {
+                                let case =
+                                    || std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into());
                                 match crate::stage4_boundary_curve::transit_site_anatomy(
                                     mesh,
                                     attribution,
@@ -10494,25 +10496,92 @@ fn stage4_relocate_and_correct_inner(
                                                         &t,
                                                         &creases[ci],
                                                     ) {
-                                                    Ok(pl) => eprintln!(
-                                                        "[s451-emit] case={} v={v} OK \
-                                                         corner_deg={:.17e} \
-                                                         fan_span_deg={:.6e} \
-                                                         clear={} arc_sag={:.6e} \
-                                                         overlap={:?} edges={:?} \
-                                                         q_acquire={:?} \
-                                                         crease_acquire={:?}",
-                                                        std::env::var("ASSAY_CASE")
-                                                            .unwrap_or_else(|_| "-".into()),
-                                                        pl.corner_deg,
-                                                        pl.fan_span_deg,
-                                                        pl.corner_clear,
-                                                        pl.arc_sag,
-                                                        pl.chain_overlap,
-                                                        pl.fan_crease_edges,
-                                                        pl.q_acquire,
-                                                        pl.crease_acquire
-                                                    ),
+                                                    Ok(pl) => {
+                                                        eprintln!(
+                                                            "[s451-emit] case={} v={v} OK \
+                                                             corner_deg={:.17e} \
+                                                             fan_span_deg={:.6e} \
+                                                             clear={} arc_sag={:.6e} \
+                                                             overlap={:?} edges={:?} \
+                                                             q_acquire={:?} \
+                                                             crease_acquire={:?}",
+                                                            std::env::var("ASSAY_CASE")
+                                                                .unwrap_or_else(|_| "-".into()),
+                                                            pl.corner_deg,
+                                                            pl.fan_span_deg,
+                                                            pl.corner_clear,
+                                                            pl.arc_sag,
+                                                            pl.chain_overlap,
+                                                            pl.fan_crease_edges,
+                                                            pl.q_acquire,
+                                                            pl.crease_acquire
+                                                        );
+                                                        // inc-2c-3b-12b-4: the
+                                                        // EDIT LIST — the same
+                                                        // acquisition expressed
+                                                        // as vertices to mint
+                                                        // and triangles to
+                                                        // re-triangulate, with
+                                                        // the reach OUTSIDE the
+                                                        // fan measured. Still
+                                                        // pure; nothing mutates.
+                                                        match crate::stage4_boundary_curve::
+                                                            transit_emission_edits(
+                                                                mesh, &an, &cut, &pl, &t,
+                                                            ) {
+                                                            Ok(ed) => {
+                                                                eprintln!(
+                                                                    "[s451-edits] case={} \
+                                                                     v={v} OK site={} \
+                                                                     host={:?} \
+                                                                     crease_tris={:?} \
+                                                                     chain_tris={:?} \
+                                                                     touched={:?} \
+                                                                     outside_fan={:?} \
+                                                                     relabel={:?} \
+                                                                     inserts={:?}",
+                                                                    case(),
+                                                                    ed.site,
+                                                                    ed.crease_host,
+                                                                    ed.crease_tris,
+                                                                    ed.chain_tris,
+                                                                    ed.touched,
+                                                                    ed.outside_fan,
+                                                                    ed.relabel,
+                                                                    ed.inserts
+                                                                );
+                                                                // Which face
+                                                                // the reach
+                                                                // lands in: the
+                                                                // notch goes to
+                                                                // the patch on
+                                                                // the far side
+                                                                // of the shared
+                                                                // chord, so its
+                                                                // identity IS
+                                                                // the repair's
+                                                                // destination.
+                                                                for x in ed
+                                                                    .outside_fan
+                                                                    .iter()
+                                                                    .chain(ed.relabel.iter())
+                                                                {
+                                                                    eprintln!(
+                                                                        "[s451-edits]   \
+                                                                         tri={x} face={:?}",
+                                                                        attribution.lookup(*x).map(
+                                                                            |a| (a.input, a.face)
+                                                                        )
+                                                                    );
+                                                                }
+                                                            }
+                                                            Err(e) => eprintln!(
+                                                                "[s451-edits] case={} v={v} \
+                                                                 DECLINE {e:?}",
+                                                                case()
+                                                            ),
+                                                        }
+                                                    }
                                                     Err(e) => eprintln!(
                                                         "[s451-emit] case={} v={v} \
                                                          DECLINE {e:?}",

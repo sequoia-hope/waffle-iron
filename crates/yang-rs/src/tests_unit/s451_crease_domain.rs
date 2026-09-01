@@ -1336,3 +1336,293 @@ fn a_q_vertex_outside_the_band_is_still_the_q_point() {
     assert!(pl.corner_clear, "q1 is not a vertex INSIDE the corner");
     let _ = c_b;
 }
+
+// ---------------------------------------------------------------------------
+// inc-2c-3b-12b-4 — the EMISSION EDIT LIST
+// ---------------------------------------------------------------------------
+
+/// Run one fixture mesh through anatomy → cut → plan → EDITS.
+///
+/// Mirrors [`emission_of`] one stage further, and returns the `Result` so the
+/// structural declines can be asserted as themselves rather than unwrapped.
+fn edits_of(
+    mesh: &crate::Mesh,
+    attribution: &crate::brep::TriangleAttributionMap,
+) -> Result<
+    crate::stage4_boundary_curve::TransitEmissionEdits,
+    crate::stage4_boundary_curve::EmissionEditFailure,
+> {
+    use crate::stage4_boundary_curve::{
+        surface_distance_pub, transit_cut_path, transit_emission_edits, transit_emission_plan,
+        transit_site_anatomy,
+    };
+    let (t, c_b, cone_a, cone_b) = cut_fixture_transit();
+    let plane = crease_plane(&c_b).expect("a circle has a plane");
+    let an = transit_site_anatomy(
+        mesh,
+        attribution,
+        0,
+        &(c_b, cone_a, cone_b),
+        surface_distance_pub(plane, mesh.verts[0]).expect("plane evaluates"),
+        [t.q1, t.q2],
+    )
+    .expect("the site has a fan");
+    let cut = transit_cut_path(
+        mesh,
+        &an,
+        mesh.verts[0],
+        &(c_b, cone_a, cone_b),
+        &t,
+        &cut_fixture_surfaces,
+    )
+    .expect("the fixture corner is the supported anatomy");
+    let pl = transit_emission_plan(mesh, &an, &cut, &t, &(c_b, cone_a, cone_b))
+        .expect("the fixture cut yields a plan");
+    transit_emission_edits(mesh, &an, &cut, &pl, &t)
+}
+
+/// R0044 v47's shape: both q-points interior to ONE crease chord, and both
+/// chain ends crossed chords rather than existing vertices.
+///
+/// `across` adds the triangle on the FAR side of that chord — the neighbouring
+/// patch's — so the fixture carries the reach the repair actually has. Without
+/// it the chord is a mesh boundary and the reach is empty, which is a
+/// different (and easier) mesh than the corpus one.
+fn interior_insert_fixture(
+    across: bool,
+    reversed: bool,
+) -> (crate::Mesh, crate::brep::TriangleAttributionMap) {
+    let on = |deg: f64| {
+        let r: f64 = f64::to_radians(deg);
+        Point3::new(100.0 * r.cos(), 100.0 * r.sin(), 100.0)
+    };
+    let home = |deg: f64| {
+        let r: f64 = f64::to_radians(deg);
+        Point3::new(95.0 * r.cos(), 95.0 * r.sin(), 95.0)
+    };
+    let (mut mesh, mut attribution) = cut_fixture();
+    // 70° and 40° bracket both q-points (48.7° and 61.7° in the xy frame);
+    // `reversed` names the SAME chord from the other end.
+    let (lo, hi) = if reversed { (40.0, 70.0) } else { (70.0, 40.0) };
+    mesh.verts[2] = on(lo);
+    mesh.verts[3] = on(hi);
+    // Ring 5 sits exactly ON q2 in the base fixture. Pull it back to the home
+    // side, along its own ray, so the plane_y chain is a CROSSED chord at both
+    // ends — R0044 v47's `Split`/`Split` chain side.
+    mesh.verts[5] = home(f64::atan2(88.0, 2256.0_f64.sqrt()).to_degrees());
+    if across {
+        // A vertex past the crease, and the neighbouring patch's triangle on
+        // the shared chord. It touches no fan triangle, so anatomy, cut and
+        // plan are all unchanged — only the reach is.
+        mesh.verts.push(Point3::new(0.0, 0.0, 130.0));
+        let w = (mesh.verts.len() - 1) as u32;
+        mesh.tris.push([2, w, 3]);
+        attribution
+            .attributions
+            .push(Some(crate::brep::TriangleAttribution {
+                input: InputId::B,
+                face: 8,
+            }));
+    }
+    (mesh, attribution)
+}
+
+/// The determined shape yields a determined EDIT LIST: two mints, one shared
+/// chord, and a reach that leaves the fan.
+///
+/// The measured corpus instance is R0044 v47 — host `(981, 6911)` carried by
+/// tris `13112` (own patch, input face `(B, 168)`) and `13037` (the
+/// neighbour's, `(B, 167)`), 7 triangles touched of which exactly one lies
+/// outside the fan. That single outside triangle is the whole point: a crease
+/// chord is shared, so refining it is not a fan-local act.
+#[test]
+fn the_edit_list_names_two_mints_one_chord_and_the_reach_outside_the_fan() {
+    let (mesh, attribution) = interior_insert_fixture(true, false);
+    let ed = edits_of(&mesh, &attribution).expect("the bracketed corner is an insertion");
+
+    // The site is DERIVED from the fan, never passed.
+    assert_eq!(ed.site, 0);
+    // One chord, carried by the own patch's triangle and the neighbour's.
+    assert_eq!(ed.crease_host, (2, 3));
+    assert_eq!(
+        ed.crease_tris,
+        vec![1, 6],
+        "tri 1 = [0,2,3], tri 6 = [2,w,3]"
+    );
+    // Both chain edges are interior to the fan: two triangles each, both
+    // incident to the site.
+    for (i, tris) in ed.chain_tris.iter().enumerate() {
+        assert_eq!(tris.len(), 2, "chain {i} is interior: {tris:?}");
+        for &x in tris {
+            assert!(
+                mesh.tris[x as usize].contains(&0),
+                "chain triangle {x} should be in the fan"
+            );
+        }
+    }
+    // THE measurement: the reach outside the fan is exactly the neighbour's
+    // triangle on the shared chord.
+    assert_eq!(ed.outside_fan, vec![6]);
+    assert!(
+        ed.touched.contains(&6) && ed.touched.contains(&1),
+        "both sides of the chord are re-triangulated: {:?}",
+        ed.touched
+    );
+    // Every touched triangle is a real one, listed once, in order.
+    assert!(ed.touched.windows(2).all(|w| w[0] < w[1]));
+    assert!(ed.touched.iter().all(|&x| (x as usize) < mesh.tris.len()));
+
+    // The mints are the EXACT q-points, and each carries both its roles.
+    let (t, _, _, _) = cut_fixture_transit();
+    let qs = [t.q1, t.q2];
+    for ins in &ed.inserts {
+        assert!(
+            d3(ins.at, qs[ins.q]) == 0.0,
+            "the mint IS the solved q-point"
+        );
+        assert_eq!(ins.crease, (2, 3));
+        assert_eq!(ins.chain.0, 0, "the chain edge leaves the site");
+        assert!(
+            ins.chain_lift > 0.0,
+            "the chord's own crossing is not the q-point"
+        );
+        assert!(ins.crease_off > 0.0, "the chord sags off the exact q");
+    }
+    // q1 is on plane_x (x = 66) and q2 on plane_y (y = 88), so their chains
+    // are the fixture's two non-carrier chain edges.
+    let by_q = |q: usize| ed.inserts.iter().find(|i| i.q == q).expect("both q's");
+    assert_eq!(by_q(0).chain, (0, 1));
+    assert_eq!(by_q(1).chain, (0, 5));
+}
+
+/// The insert order follows the CHORD, not the solver's q numbering.
+///
+/// Both mints go into one chord, so the refined chain has to connect them in
+/// the order they occur along it; taking the q numbering instead would invert
+/// the notch wherever the solver happened to number them the other way. It
+/// does: at R0044 v47 the chord runs `981 → 6911` and `q2` (t = 0.42396)
+/// precedes `q1` (t = 0.42805). Naming the SAME chord from its other end must
+/// reverse the order and complement every parameter.
+#[test]
+fn the_insert_order_follows_the_chord_not_the_q_numbering() {
+    let (mesh, attribution) = interior_insert_fixture(true, false);
+    let fwd = edits_of(&mesh, &attribution).expect("insertion");
+    let (rmesh, rattribution) = interior_insert_fixture(true, true);
+    let rev = edits_of(&rmesh, &rattribution).expect("insertion");
+    // Ordered along the chord in both, and the parameters increase.
+    for ed in [&fwd, &rev] {
+        assert!(
+            ed.inserts[0].crease_t <= ed.inserts[1].crease_t,
+            "inserts run along the chord: {:?}",
+            ed.inserts.map(|i| i.crease_t)
+        );
+    }
+    // The chord's two namings put the q's in OPPOSITE orders …
+    assert_eq!(
+        (fwd.inserts[0].q, fwd.inserts[1].q),
+        (rev.inserts[1].q, rev.inserts[0].q),
+        "reversing the chord reverses the insert order"
+    );
+    // … and this fixture is one where they differ from the q numbering, so the
+    // distinction is actually exercised.
+    assert_eq!((fwd.inserts[0].q, fwd.inserts[1].q), (1, 0));
+    // Same points, complementary parameters.
+    for ins in &fwd.inserts {
+        let other = rev.inserts.iter().find(|i| i.q == ins.q).expect("same q's");
+        assert!(
+            (ins.crease_t + other.crease_t - 1.0).abs() < 1e-12,
+            "q{} at {} and {} should complement",
+            ins.q,
+            ins.crease_t,
+            other.crease_t
+        );
+        assert!(
+            (ins.crease_off - other.crease_off).abs() < 1e-9,
+            "the off-chord distance does not depend on the chord's naming"
+        );
+    }
+    // The per-q chain edge travels with the q, not with the slot.
+    let fq0 = fwd.inserts.iter().find(|i| i.q == 0).expect("q0");
+    let rq0 = rev.inserts.iter().find(|i| i.q == 0).expect("q0");
+    assert_eq!(fq0.chain, rq0.chain);
+    // The chain TRIANGLES are ordered with the inserts, so slot i's triangles
+    // carry slot i's edge — the pairing the mutation indexes by.
+    for (ed, m) in [(&fwd, &mesh), (&rev, &rmesh)] {
+        for (i, tris) in ed.chain_tris.iter().enumerate() {
+            let (a, b) = ed.inserts[i].chain;
+            for &x in tris {
+                let tri = m.tris[x as usize];
+                assert!(
+                    tri.contains(&a) && tri.contains(&b),
+                    "chain_tris[{i}] must carry inserts[{i}].chain"
+                );
+            }
+        }
+    }
+}
+
+/// Without the neighbour's triangle the chord is a mesh BOUNDARY, and the
+/// reach is empty — measured, not assumed. The edit list still stands: a
+/// one-sided chord is a legitimate mesh, and it is the two-sided one that
+/// costs the extra split.
+#[test]
+fn a_chord_no_neighbour_carries_has_no_reach_outside_the_fan() {
+    let (mesh, attribution) = interior_insert_fixture(false, false);
+    let ed = edits_of(&mesh, &attribution).expect("insertion");
+    assert_eq!(ed.crease_tris, vec![1], "only the own patch carries it");
+    assert!(ed.outside_fan.is_empty());
+    assert!(ed
+        .touched
+        .iter()
+        .all(|&x| mesh.tris[x as usize].contains(&0)));
+}
+
+/// The three `AtEnd` sites are a RE-ORDERING, and the edit list says so rather
+/// than manufacturing inserts for a corner the mesh already carries.
+///
+/// The decline carries the doubled cover's own sweep, which §3x measured to be
+/// exactly the corner — so the caller gets the reason and its magnitude, not a
+/// bare refusal.
+#[test]
+fn a_chain_that_already_carries_the_corner_declines_as_a_reordering() {
+    use crate::stage4_boundary_curve::EmissionEditFailure;
+    let on = |deg: f64| {
+        let r: f64 = f64::to_radians(deg);
+        Point3::new(100.0 * r.cos(), 100.0 * r.sin(), 100.0)
+    };
+    let home = |deg: f64| {
+        let r: f64 = f64::to_radians(deg);
+        Point3::new(95.0 * r.cos(), 95.0 * r.sin(), 95.0)
+    };
+    let (t, _, _, _) = cut_fixture_transit();
+    let (mut mesh, attribution) = cut_fixture();
+    mesh.verts[1] = t.q1;
+    mesh.verts[2] = on(70.0);
+    mesh.verts[3] = home(64.0);
+    mesh.verts[4] = on(40.0);
+    let pl = emission_of(&mesh, &attribution);
+    match edits_of(&mesh, &attribution) {
+        Err(EmissionEditFailure::AlreadyCarried { overlap_deg }) => {
+            let ov = overlap_deg.expect("the doubled cover is measured");
+            assert!(
+                (ov - pl.corner_deg).abs() < 1e-9,
+                "the decline carries the doubled cover {ov}, which IS the corner {}",
+                pl.corner_deg
+            );
+        }
+        other => panic!("expected a re-ordering decline, got {other:?}"),
+    }
+}
+
+/// A fan with no crease chain at all has nothing to refine: the chain must be
+/// CREATED, which needs the neighbour patch's mesh too. The majority shape —
+/// R0044 v38 and R0003 v7611 / v8809 — and a decline, not a guess.
+#[test]
+fn a_fan_with_no_crease_chain_has_nothing_to_refine() {
+    use crate::stage4_boundary_curve::EmissionEditFailure;
+    let (mesh, attribution) = cut_fixture();
+    assert_eq!(
+        edits_of(&mesh, &attribution),
+        Err(EmissionEditFailure::ChainAbsent)
+    );
+}
