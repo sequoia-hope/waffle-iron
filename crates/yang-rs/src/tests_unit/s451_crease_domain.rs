@@ -795,3 +795,248 @@ fn a_vertex_with_no_incident_triangles_has_no_anatomy() {
     )
     .is_none());
 }
+
+// ---------------------------------------------------------------------------
+// inc-2c-3b-12b-2 — the CUT PATH across the own patch
+// ---------------------------------------------------------------------------
+
+/// The measured corner, built exactly: a site across the crease whose fan
+/// straddles THREE input faces, laid out with the same shape the census found
+/// at R0044's v47 — two `On` interior ring vertices, one `Home` interior one,
+/// and one chain end of each kind.
+///
+/// Ring, in the fan's own cycle order and decreasing azimuth about the crease
+/// circle (`z = 100`, `r = 100`):
+///
+/// | ring | position | side | role |
+/// |---|---|---|---|
+/// | `1` | 70°, `z = 95` | Home | chain end → `q1` (the `plane_x` chain) |
+/// | `2` | 68° | On | interior |
+/// | `3` | 66° | On | interior |
+/// | `4` | 64°, `z = 95` | Home | interior → the one `Refined` crossing |
+/// | `5` | `q2` itself | On | chain end → `q2` (the `plane_y` chain) |
+/// | `6` | deep inside | Home | the CARRIER's ring vertex |
+///
+/// Vertex `1` is placed DELIBERATELY ADVERSARIALLY: its edge's crease-plane
+/// crossing is much nearer `q2` than `q1` (3.9 against 26.2), so a
+/// nearest-q-point rule would assign it wrongly. Its face across is the
+/// `plane_x` one, so surface IDENTITY assigns it to `q1`. That is not a
+/// contrived worry — the corpus census measured a NEGATIVE margin, i.e.
+/// proximity picking the wrong q, at every site where both chains were
+/// crossed edges (R0044 v47 −1.85, v38 −0.052; R0003 v7611 −0.36, v8809
+/// −0.78).
+fn cut_fixture() -> (crate::Mesh, crate::brep::TriangleAttributionMap) {
+    let on = |deg: f64| {
+        let r = deg.to_radians();
+        Point3::new(100.0 * r.cos(), 100.0 * r.sin(), 100.0)
+    };
+    let home = |deg: f64| {
+        let r = deg.to_radians();
+        Point3::new(95.0 * r.cos(), 95.0 * r.sin(), 95.0)
+    };
+    let mesh = crate::Mesh::new(
+        vec![
+            Point3::new(66.0, 88.0, 110.0),              // 0: the site
+            home(70.0),                                  // 1: chain end (Home)
+            on(68.0),                                    // 2: interior, On
+            on(66.0),                                    // 3: interior, On
+            home(64.0),                                  // 4: interior, Home
+            Point3::new(2256.0_f64.sqrt(), 88.0, 100.0), // 5: chain end = q2
+            Point3::new(18.0, 24.0, 30.0),               // 6: the carrier's
+        ],
+        vec![
+            [0, 1, 2],
+            [0, 2, 3],
+            [0, 3, 4],
+            [0, 4, 5],
+            [0, 5, 6],
+            [0, 6, 1],
+        ],
+    );
+    let f = |input, face| Some(crate::brep::TriangleAttribution { input, face });
+    let attribution = crate::brep::TriangleAttributionMap {
+        attributions: vec![
+            f(InputId::B, 7), // the own patch (cone A) …
+            f(InputId::B, 7),
+            f(InputId::B, 7),
+            f(InputId::B, 7),
+            f(InputId::A, 3), // … then plane_y …
+            f(InputId::A, 2), // … then plane_x, with the carrier edge between
+        ],
+    };
+    (mesh, attribution)
+}
+
+/// Resolve the fixture's attributions to their surfaces, the way the census
+/// resolves them against the input BReps.
+fn cut_fixture_surfaces(i: InputId, face: u32) -> Option<Surface> {
+    let (cone_a, _, plane_x, plane_y) = transit_fixture();
+    match (i, face) {
+        (InputId::B, 7) => Some(cone_a),
+        (InputId::A, 2) => Some(plane_x),
+        (InputId::A, 3) => Some(plane_y),
+        _ => None,
+    }
+}
+
+fn cut_fixture_transit() -> (
+    crate::stage4_boundary_curve::CreaseTransit,
+    Curve,
+    Surface,
+    Surface,
+) {
+    let (cone_a, cone_b, plane_x, plane_y) = transit_fixture();
+    let c_b = crease_circle_from_pair(cone_a, cone_b).expect("coaxial cones share a circle");
+    let t = crate::stage4_boundary_curve::solve_crease_transit(
+        Point3::new(60.0, 80.0, 99.0),
+        Point3::new(66.0, 88.0, 110.0),
+        &[plane_x, plane_y, cone_a],
+        &(c_b, cone_a, cone_b),
+        &[],
+    )
+    .expect("the fixture step transits");
+    (t, c_b, cone_a, cone_b)
+}
+
+/// The cut is an ARC across the own patch from one q-termination to the other,
+/// and the three chains do not play the same role: two terminate at q-points,
+/// the third is the CARRIER the site glides along.
+#[test]
+fn the_cut_runs_q_to_q_across_the_own_patch_and_names_the_carrier() {
+    use crate::stage4_boundary_curve::{
+        surface_distance_pub, transit_cut_path, transit_site_anatomy, CutCrossing,
+    };
+    let (t, c_b, cone_a, cone_b) = cut_fixture_transit();
+    let plane = crease_plane(&c_b).expect("a circle has a plane");
+    let (mesh, attribution) = cut_fixture();
+    let an = transit_site_anatomy(
+        &mesh,
+        &attribution,
+        0,
+        &(c_b, cone_a, cone_b),
+        surface_distance_pub(plane, mesh.verts[0]).expect("plane evaluates"),
+        [t.q1, t.q2],
+    )
+    .expect("the site has a fan");
+
+    let cut = transit_cut_path(
+        &mesh,
+        &an,
+        0,
+        &(c_b, cone_a, cone_b),
+        &t,
+        &cut_fixture_surfaces,
+    )
+    .expect("the fixture corner is the supported anatomy");
+
+    // The carrier is the edge between the two OTHER surfaces — never split,
+    // never re-terminated; `X → J` is a step along it.
+    assert_eq!(cut.carrier, 6);
+    // The triangle whose two other corners are both ON the crease crosses
+    // wholesale; the rest of the run is split.
+    assert_eq!(cut.past_tris, vec![1]);
+    assert_eq!(cut.split_tris, vec![0, 2, 3]);
+
+    assert_eq!(cut.nodes.len(), 5);
+    // Chain end 1: assigned to q1 by SURFACE, against a proximity answer that
+    // would have said q2 — the margin is negative and the test pins that.
+    match cut.nodes[0] {
+        CutCrossing::QPoint { u, q, margin, .. } => {
+            assert_eq!((u, q), (1, 0));
+            assert!(
+                margin < 0.0,
+                "the fixture is adversarial: proximity prefers the OTHER q \
+                 (margin {margin})"
+            );
+        }
+        other => panic!("expected a crossed chain end, got {other:?}"),
+    }
+    assert_eq!(cut.nodes[1], CutCrossing::Vertex(2));
+    assert_eq!(cut.nodes[2], CutCrossing::Vertex(3));
+    match cut.nodes[3] {
+        CutCrossing::Refined { u, point, lift } => {
+            assert_eq!(u, 4);
+            // A refinement crossing is ON the crease circle by construction.
+            let a = point.as_array();
+            assert!((a[2] - 100.0).abs() < 1e-9);
+            assert!(((a[0] * a[0] + a[1] * a[1]).sqrt() - 100.0).abs() < 1e-9);
+            assert!(lift > 0.0, "the chord crossing is off the circle");
+        }
+        other => panic!("expected a refinement, got {other:?}"),
+    }
+    // Chain end 5 IS q2 already — the mesh carries this q-point as a vertex,
+    // the shape R0003's v1983 / v8658 / v11356 are measured in.
+    match cut.nodes[4] {
+        CutCrossing::QVertex { u, q, dist } => {
+            assert_eq!((u, q), (5, 1));
+            assert!(dist < 1e-9, "the ring vertex IS q2 (dist {dist})");
+        }
+        other => panic!("expected an existing q-vertex, got {other:?}"),
+    }
+}
+
+/// A one-ring neighbour already across the crease is a typed DECLINE: the cut
+/// would leave the fan through an edge not incident to the site. Measured as
+/// R0044's v38/v39/v59 cluster and R0003's v9336 — 4 of the 11 sites.
+#[test]
+fn a_neighbour_already_across_the_crease_is_declined() {
+    use crate::stage4_boundary_curve::{
+        surface_distance_pub, transit_cut_path, transit_site_anatomy, CutPathFailure,
+    };
+    let (t, c_b, cone_a, cone_b) = cut_fixture_transit();
+    let plane = crease_plane(&c_b).expect("a circle has a plane");
+    let (mut mesh, attribution) = cut_fixture();
+    // Push ring vertex 4 across the crease, on cone A: r = z = 120.
+    mesh.verts[4] = Point3::new(72.0, 96.0, 120.0);
+    let an = transit_site_anatomy(
+        &mesh,
+        &attribution,
+        0,
+        &(c_b, cone_a, cone_b),
+        surface_distance_pub(plane, mesh.verts[0]).expect("plane evaluates"),
+        [t.q1, t.q2],
+    )
+    .expect("the site has a fan");
+    assert_eq!(
+        transit_cut_path(
+            &mesh,
+            &an,
+            0,
+            &(c_b, cone_a, cone_b),
+            &t,
+            &cut_fixture_surfaces
+        ),
+        Err(CutPathFailure::PastNeighbour { u: 4 })
+    );
+}
+
+/// If a chain's other face is not one of the site's two OTHER surfaces, WHICH
+/// q-point it terminates at is not identified — and the answer is a decline,
+/// not the nearest one.
+#[test]
+fn a_chain_whose_surface_is_unknown_is_declined_not_guessed() {
+    use crate::stage4_boundary_curve::{
+        surface_distance_pub, transit_cut_path, transit_site_anatomy, CutPathFailure,
+    };
+    let (t, c_b, cone_a, cone_b) = cut_fixture_transit();
+    let plane = crease_plane(&c_b).expect("a circle has a plane");
+    let (mesh, attribution) = cut_fixture();
+    let an = transit_site_anatomy(
+        &mesh,
+        &attribution,
+        0,
+        &(c_b, cone_a, cone_b),
+        surface_distance_pub(plane, mesh.verts[0]).expect("plane evaluates"),
+        [t.q1, t.q2],
+    )
+    .expect("the site has a fan");
+    // The `plane_x` face no longer resolves: its chain end has no identified q.
+    let blind = |i: InputId, f: u32| match (i, f) {
+        (InputId::A, 2) => None,
+        _ => cut_fixture_surfaces(i, f),
+    };
+    assert_eq!(
+        transit_cut_path(&mesh, &an, 0, &(c_b, cone_a, cone_b), &t, &blind),
+        Err(CutPathFailure::QSurfaceUnmatched { u: 1 })
+    );
+}

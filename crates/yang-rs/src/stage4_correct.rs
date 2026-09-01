@@ -10429,6 +10429,45 @@ fn stage4_relocate_and_correct_inner(
                                                 ft.d_other[1]
                                             );
                                         }
+                                        // inc-2c-3b-12b-2: the CUT the crease
+                                        // makes through this fan — which edges
+                                        // it crosses, which two of those are
+                                        // the CHAIN edges carrying the
+                                        // q-points, and which crossings are
+                                        // refinements of the crease's own mesh
+                                        // chain. The edit the emission half
+                                        // would make, before any of it mutates.
+                                        let face_surface = |i: crate::InputId, f: u32| {
+                                            let br = match i {
+                                                crate::InputId::A => brep_a,
+                                                crate::InputId::B => brep_b,
+                                            };
+                                            br.faces().get(f as usize).map(|x| x.surface)
+                                        };
+                                        match crate::stage4_boundary_curve::transit_cut_path(
+                                            mesh,
+                                            &an,
+                                            v,
+                                            &creases[ci],
+                                            &t,
+                                            &face_surface,
+                                        ) {
+                                            Ok(cut) => eprintln!(
+                                                "[s451-cut] case={} v={v} OK carrier={} \
+                                                 past_tris={:?} split_tris={:?} nodes={:?}",
+                                                std::env::var("ASSAY_CASE")
+                                                    .unwrap_or_else(|_| "-".into()),
+                                                cut.carrier,
+                                                cut.past_tris,
+                                                cut.split_tris,
+                                                cut.nodes
+                                            ),
+                                            Err(e) => eprintln!(
+                                                "[s451-cut] case={} v={v} DECLINE {e:?}",
+                                                std::env::var("ASSAY_CASE")
+                                                    .unwrap_or_else(|_| "-".into())
+                                            ),
+                                        }
                                     }
                                     None => eprintln!(
                                         "[s451-anatomy] case={} v={v} UNAVAILABLE",

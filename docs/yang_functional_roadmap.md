@@ -1013,8 +1013,26 @@ name, never measured).
    window — reproducing §3s's independently measured 2.29 — so the
    corrected emission CUTS the 304.56° sector in two rather than
    denting it, and that split falls out of `flood_fill_patches` once
-   the mesh is re-attributed rather than being constructed. R0044's
-   gate set (FOUR knobs): `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1
+   the mesh is re-attributed rather than being constructed.
+   **inc-2c-3b-12b-2** (2026-09-01, same session) then turned that into the
+   EDIT, still pure (`transit_cut_path`, spec §3w): the cut the crease makes
+   ACROSS the site's own patch, from one chain termination to the other. Its
+   first model required two chains and declined at all 11 sites — the corner
+   has THREE, and they differ in role: two involve the own surface and
+   terminate at the q-points, the third joins the two OTHER surfaces and is
+   the CARRIER the site glides along (for v47 it is the cylinder's own end
+   circle, of which `X` and `J` are the cone-627 and cone-626 intersections).
+   With the corrected model **7 of 11 sites yield a determined cut** and the
+   remaining 4 are exactly the `Past`-neighbour cluster sites — a clean
+   partition with no third failure mode. Two measurements came out of it:
+   assigning a chain to its q-point by PROXIMITY is wrong at every site where
+   both chains are crossed edges (margins −1.855, −0.0525, −0.361, −0.775,
+   because both chain edges leave the same site), so the rule is surface
+   IDENTITY with a typed decline when a face does not resolve; and the cut
+   has ONE shape everywhere — `q → (Vertex|Refined)* → q` with EXACTLY ONE
+   refinement crossing, whose lift reproduces §3v's independent chain-sag
+   reading (10.181 at v47 against 10.39/10.36 for the same rim chord).
+   R0044's gate set (FOUR knobs): `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1
    YANG_453_SPAIR=1 KV2_ARC_CONFORM_CURVES=1`. Also open: the v105
    retry ChordDegradation. R0085 stays walled on operand quality.
    Then inc-3: full-corpus gated measurement, two-proof flip.*

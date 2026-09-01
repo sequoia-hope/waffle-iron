@@ -1102,6 +1102,11 @@ pub(crate) struct CreaseTransit {
     /// root on `C_b`. A small margin means the root selection was not
     /// unambiguous, and the census must show it rather than hide it.
     pub(crate) q_margin: [f64; 2],
+    /// The site's two OTHER surfaces, in the same order as `q1`/`q2`: `q[i]`
+    /// is where `others[i]` meets the crease. Carried rather than re-derived,
+    /// so a consumer can match a chain to its q-point by surface IDENTITY
+    /// instead of by proximity.
+    pub(crate) others: [Surface; 2],
 }
 
 /// Solve the §4.5.1 repair for a step `p → q_full` that
@@ -1256,6 +1261,7 @@ pub(crate) fn solve_crease_transit(
             ((a[0] - qa[0]).powi(2) + (a[1] - qa[1]).powi(2) + (a[2] - qa[2]).powi(2)).sqrt()
         },
         q_margin: margins,
+        others: [others[0], others[1]],
     })
 }
 
@@ -1479,4 +1485,333 @@ pub(crate) fn transit_site_anatomy(
         fan_faces: counts,
         q_hosts,
     })
+}
+
+// ---------------------------------------------------------------------------
+// §4.5.1 inc-2c-3b-12b-2 — the CUT PATH through the fan (pure; census-only)
+// ---------------------------------------------------------------------------
+
+/// Why a site's cut through its own fan is not determined. Every variant is a
+/// STRUCTURAL statement about the neighbourhood, never a threshold.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum CutPathFailure {
+    /// A one-ring neighbour is itself already across the crease, so the cut
+    /// leaves the fan through an edge NOT incident to the site. Measured on
+    /// R0044's v38/v39/v59 cluster: the `Past` neighbours are siblings the
+    /// loop has already relocated, so their repair unit is the cluster.
+    PastNeighbour { u: u32 },
+    /// The incident triangles do not form one closed cycle around the site
+    /// (a boundary fan, or a non-manifold vertex).
+    FanNotClosed,
+    /// No fan triangle carries the surface the crease bounds, or more than one
+    /// input face does — the own patch is not identified, so there is no
+    /// "across" to cut toward.
+    OwnFaceAmbiguous { found: usize },
+    /// The own patch's triangles are not contiguous around the site: the fan
+    /// enters and leaves it more than once, which is not the measured corner.
+    OwnRunSplit,
+    /// Other than exactly two chain edges bound the own run, or their two
+    /// q-points are not distinct. Two chains terminate at two q-points; one
+    /// point for both would be a pinch, not a corner.
+    QTermination { found: usize },
+    /// A chain edge's other face is not one of the site's two OTHER surfaces,
+    /// so which q-point it terminates at is not IDENTIFIED. Declined rather
+    /// than resolved by proximity: the mesh edge is a chord, and its
+    /// crease-plane crossing is only an approximation of the chain curve's.
+    QSurfaceUnmatched { u: u32 },
+    /// Other than exactly one CARRIER edge inside the non-own run — the edge
+    /// between the two OTHER surfaces, the curve the site glides along.
+    CarrierCount { found: usize },
+}
+
+/// One crossing of the crease along the cut the repair makes across the site's
+/// OWN patch, in the fan's own order.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum CutCrossing {
+    /// The chain terminates AT a ring vertex the mesh already has on the
+    /// crease — this q-point needs no insertion. `dist` is from that vertex to
+    /// the repair's own q-point (measured, not assumed to be zero).
+    QVertex { u: u32, q: usize, dist: f64 },
+    /// The chain edge `site → u` is crossed, and the crossing is the repair's
+    /// q-point `q`. `dist` is from the edge's own crease-plane crossing to
+    /// that q-point; `margin` how much nearer it is than the other q.
+    QPoint {
+        u: u32,
+        q: usize,
+        dist: f64,
+        margin: f64,
+    },
+    /// An INTERIOR ring vertex already on the crease — the cut passes through
+    /// it, nothing is split.
+    Vertex(u32),
+    /// The cut crosses an edge interior to the own patch. Such a crossing has
+    /// no analytic name: it is the segment's crease-plane crossing PROJECTED
+    /// onto the crease circle, and `lift` is how far that projection moved it
+    /// — the refinement of the crease's own mesh chain this crossing implies.
+    Refined { u: u32, point: Point3, lift: f64 },
+}
+
+/// The cut the crease makes across one site's own patch.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TransitCutPath {
+    /// The crossings in order, from one q-termination to the other.
+    pub(crate) nodes: Vec<CutCrossing>,
+    /// Own-patch triangles lying wholly across the crease — they change face
+    /// wholesale, no split.
+    pub(crate) past_tris: Vec<u32>,
+    /// Own-patch triangles the cut splits.
+    pub(crate) split_tris: Vec<u32>,
+    /// The ring vertex of the CARRIER edge: the chain between the site's two
+    /// OTHER surfaces. The correction `X → J` is a step ALONG that curve, so
+    /// this edge is neither split nor re-terminated — it is what the site
+    /// glides on.
+    pub(crate) carrier: u32,
+}
+
+/// Walk the incident triangles of a site into one cyclic order.
+///
+/// [`FanTri::other`] is stored in the triangle's own winding (`k+1`, `k+2`
+/// from the site), so the fan closes by chaining `other[1] → other[0]`.
+fn fan_cycle(fan: &[FanTri]) -> Option<Vec<usize>> {
+    // In a manifold fan each ring vertex starts exactly one triangle.
+    let mut by_start: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
+    for (i, t) in fan.iter().enumerate() {
+        if by_start.insert(t.other[0], i).is_some() {
+            return None;
+        }
+    }
+    let mut order = Vec::with_capacity(fan.len());
+    let mut seen = vec![false; fan.len()];
+    let mut cur = 0usize;
+    for _ in 0..fan.len() {
+        if seen[cur] {
+            return None;
+        }
+        seen[cur] = true;
+        order.push(cur);
+        cur = *by_start.get(&fan[cur].other[1])?;
+    }
+    // Closed exactly when the walk returns to where it started.
+    (cur == 0).then_some(order)
+}
+
+/// Where the crease cuts across the site's OWN patch — the edit the emission
+/// half would make, expressed as crossings rather than as mesh mutations.
+///
+/// The measured corner anatomy is one shape (§3v): the fan straddles exactly
+/// three input faces, so the site carries THREE chains, and they do not play
+/// the same role.
+///
+/// * Two chains involve the own surface (own × other). They cross the crease,
+///   and their crossings are precisely the repair's q-points — which is what
+///   makes those points the re-termination targets.
+/// * The third joins the two OTHER surfaces and does NOT involve the own face
+///   at all, so it never meets the crease as a termination. It is the CARRIER:
+///   the correction `X → J` is a step along that very curve. (Measured on
+///   R0044 v47: the carrier is the cylinder's own end circle, and `X` and `J`
+///   are its intersections with cone 627 and cone 626 respectively.)
+///
+/// So the cut is not a loop around the site but an ARC across the own patch,
+/// from one q-termination to the other, and everything between it and the site
+/// belongs to the neighbouring face.
+///
+/// `face_surface` resolves an attribution `(input, face)` to that input face's
+/// surface — the exact identification of which patch is the own one. Pure; no
+/// mutation. Every non-answer is a typed structural decline.
+pub(crate) fn transit_cut_path(
+    mesh: &Mesh,
+    an: &TransitSiteAnatomy,
+    v: u32,
+    crease: &(Curve, Surface, Surface),
+    t: &CreaseTransit,
+    face_surface: &dyn Fn(InputId, u32) -> Option<Surface>,
+) -> Result<TransitCutPath, CutPathFailure> {
+    let qs = [t.q1, t.q2];
+    if let Some((u, _, _)) = an.ring.iter().find(|(_, _, s)| *s == CreaseSide::Past) {
+        return Err(CutPathFailure::PastNeighbour { u: *u });
+    }
+    let order = fan_cycle(&an.fan).ok_or(CutPathFailure::FanNotClosed)?;
+    let (c_b, s_own, _) = *crease;
+    let plane = crease_plane(&c_b).ok_or(CutPathFailure::FanNotClosed)?;
+
+    // --- which fan face IS the own patch ----------------------------------
+    let is_own = |f: Option<(InputId, u32)>| -> bool {
+        f.and_then(|(i, x)| face_surface(i, x)) == Some(s_own)
+    };
+    let own_faces: Vec<Option<(InputId, u32)>> = an
+        .fan_faces
+        .iter()
+        .map(|(f, _)| *f)
+        .filter(|f| is_own(*f))
+        .collect();
+    if own_faces.len() != 1 {
+        return Err(CutPathFailure::OwnFaceAmbiguous {
+            found: own_faces.len(),
+        });
+    }
+    let own = own_faces[0];
+
+    // --- the own patch's run must be ONE contiguous arc of the fan ---------
+    let owned: Vec<bool> = order.iter().map(|&i| an.fan[i].face == own).collect();
+    let n = order.len();
+    let starts: Vec<usize> = (0..n)
+        .filter(|&i| owned[i] && !owned[(i + n - 1) % n])
+        .collect();
+    if starts.len() != 1 || owned.iter().all(|b| *b) {
+        return Err(CutPathFailure::OwnRunSplit);
+    }
+    let run: Vec<usize> = {
+        let mut r = Vec::new();
+        let mut i = starts[0];
+        while owned[i] {
+            r.push(order[i]);
+            i = (i + 1) % n;
+        }
+        r
+    };
+
+    // --- exactly one CARRIER edge inside the non-own run -------------------
+    let carriers: Vec<u32> = (0..n)
+        .filter(|&i| !owned[i] && !owned[(i + n - 1) % n])
+        .filter(|&i| an.fan[order[i]].face != an.fan[order[(i + n - 1) % n]].face)
+        .map(|i| an.fan[order[i]].other[0])
+        .collect();
+    if carriers.len() != 1 {
+        return Err(CutPathFailure::CarrierCount {
+            found: carriers.len(),
+        });
+    }
+
+    // --- walk the run, emitting one crossing per ring vertex ---------------
+    let side = |u: u32| an.ring.iter().find(|(x, _, _)| *x == u).map(|(_, _, s)| *s);
+    let d_of = |u: u32| surface_distance(plane, mesh.verts[u as usize]);
+    let d_site = d_of(v).ok_or(CutPathFailure::FanNotClosed)?;
+    // The run's ring vertices in order: the first triangle's `other[0]`, then
+    // every triangle's `other[1]`. The two ends are the chain edges.
+    let mut ring_seq: Vec<u32> = vec![an.fan[run[0]].other[0]];
+    ring_seq.extend(run.iter().map(|&i| an.fan[i].other[1]));
+
+    // The two chain edges bounding the run, named by the face ACROSS each:
+    // the run's first ring edge is shared with the triangle before the run,
+    // its last with the triangle after.
+    let pos_first = starts[0];
+    let pos_last = (pos_first + run.len() - 1) % n;
+    let end_other = [
+        an.fan[order[(pos_first + n - 1) % n]].face,
+        an.fan[order[(pos_last + 1) % n]].face,
+    ];
+    // Which q-point each chain terminates at, by SURFACE identity: `q[i]` is
+    // where `others[i]` meets the crease, so the chain whose other face IS
+    // `others[i]` is the one that terminates there. Never by proximity — the
+    // mesh edge is a chord and its crease crossing only approximates the
+    // chain curve's.
+    let q_of_face = |f: Option<(InputId, u32)>, u: u32| -> Result<usize, CutPathFailure> {
+        let sf = f
+            .and_then(|(i, x)| face_surface(i, x))
+            .ok_or(CutPathFailure::QSurfaceUnmatched { u })?;
+        match (sf == t.others[0], sf == t.others[1]) {
+            (true, false) => Ok(0),
+            (false, true) => Ok(1),
+            _ => Err(CutPathFailure::QSurfaceUnmatched { u }),
+        }
+    };
+
+    let mut nodes: Vec<CutCrossing> = Vec::new();
+    let mut q_taken: Vec<usize> = Vec::new();
+    let last = ring_seq.len() - 1;
+    for (k, &u) in ring_seq.iter().enumerate() {
+        let is_chain_end = k == 0 || k == last;
+        let on = side(u).ok_or(CutPathFailure::FanNotClosed)? == CreaseSide::On;
+        match (is_chain_end, on) {
+            (true, true) => {
+                // The mesh already carries this q-point as a vertex.
+                let q = q_of_face(end_other[usize::from(k != 0)], u)?;
+                q_taken.push(q);
+                nodes.push(CutCrossing::QVertex {
+                    u,
+                    q,
+                    dist: dist3(mesh.verts[u as usize], qs[q]),
+                });
+            }
+            (true, false) => {
+                let cross = crease_crossing_on_edge(mesh, v, u, d_site, d_of(u))?;
+                let q = q_of_face(end_other[usize::from(k != 0)], u)?;
+                q_taken.push(q);
+                nodes.push(CutCrossing::QPoint {
+                    u,
+                    q,
+                    dist: dist3(cross, qs[q]),
+                    margin: dist3(cross, qs[1 - q]) - dist3(cross, qs[q]),
+                });
+            }
+            (false, true) => nodes.push(CutCrossing::Vertex(u)),
+            (false, false) => {
+                let cross = crease_crossing_on_edge(mesh, v, u, d_site, d_of(u))?;
+                let p = project_onto_curve(cross, &c_b).ok_or(CutPathFailure::FanNotClosed)?;
+                nodes.push(CutCrossing::Refined {
+                    u,
+                    point: p,
+                    lift: dist3(cross, p),
+                });
+            }
+        }
+    }
+    if q_taken.len() != 2 || q_taken[0] == q_taken[1] {
+        return Err(CutPathFailure::QTermination {
+            found: q_taken.len(),
+        });
+    }
+
+    // --- which own triangles are split, and which cross wholesale ----------
+    let (mut past_tris, mut split_tris) = (Vec::new(), Vec::new());
+    for &i in &run {
+        let t = an.fan[i];
+        if [t.other[0], t.other[1]]
+            .iter()
+            .all(|&x| side(x) == Some(CreaseSide::On))
+        {
+            past_tris.push(t.tri);
+        } else {
+            split_tris.push(t.tri);
+        }
+    }
+    past_tris.sort_unstable();
+    split_tris.sort_unstable();
+    Ok(TransitCutPath {
+        nodes,
+        past_tris,
+        split_tris,
+        carrier: carriers[0],
+    })
+}
+
+/// The crease-plane crossing of the segment `site → u`. Signed distance to a
+/// plane is affine along a segment, so the parameter is exact in one division.
+fn crease_crossing_on_edge(
+    mesh: &Mesh,
+    v: u32,
+    u: u32,
+    d_site: f64,
+    d_u: Option<f64>,
+) -> Result<Point3, CutPathFailure> {
+    let du = d_u.ok_or(CutPathFailure::FanNotClosed)?;
+    let denom = d_site - du;
+    if denom == 0.0 || !denom.is_finite() {
+        return Err(CutPathFailure::FanNotClosed);
+    }
+    let s = d_site / denom;
+    let (a, b) = (
+        mesh.verts[v as usize].as_array(),
+        mesh.verts[u as usize].as_array(),
+    );
+    Ok(Point3::new(
+        a[0] + s * (b[0] - a[0]),
+        a[1] + s * (b[1] - a[1]),
+        a[2] + s * (b[2] - a[2]),
+    ))
+}
+
+fn dist3(p: Point3, q: Point3) -> f64 {
+    let (a, b) = (p.as_array(), q.as_array());
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
 }

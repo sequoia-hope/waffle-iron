@@ -2036,6 +2036,102 @@ converts nothing on its own and is the honest place to prove the machinery.
 Situation 2 (v47, the case that actually fails) needs the rim chain refined at
 two analytically determined points before the corner is representable at all.
 
+## 3w. inc-2c-3b-12b-2 — the CUT PATH across the own patch (LANDED, pure;
+census-only)
+
+§3v measured what the mesh has at a site. This turns that into the EDIT, still
+as a pure function returning crossings rather than mutations:
+`transit_cut_path` walks the fan, identifies the site's own patch by SURFACE
+(resolving each triangle's `(input, face)` attribution against the input
+BRep), and returns the arc the crease cuts across it — from one chain
+termination to the other — plus which own triangles that arc splits and which
+cross wholesale. Gated with §3v under `YANG_451_TRANSIT_ANATOMY`.
+
+**Reading 1 — the corner has THREE chains, and they do not play the same
+role.** The first model of this function required two and declined at every
+one of the 11 sites (`ChainCount { found: 3 }` at R0044 v47/v38 and R0003
+v7611/v8809; `found: 1` at R0003 v1983/v8658/v11356). The census was right and
+the model was wrong:
+
+* two chains involve the OWN surface (own × other). They cross the crease, and
+  their crossings ARE the repair's q-points — which is what makes those points
+  the re-termination targets;
+* the third joins the two OTHER surfaces, never involves the own face, and so
+  never meets the crease as a termination. It is the **CARRIER**: the
+  correction `X → J` is a step ALONG that curve.
+
+For R0044's v47 the carrier is the edge `v47–44`, the cylinder's own END
+CIRCLE — and `X` and `J` are exactly its intersections with cone 627 and cone
+626 (§3s). So the 0.138 correction is a glide along the carrier, not a jump
+across open space, and the emission half must not split that edge.
+
+With the three-chain model, **7 of the 11 sites yield a determined cut**; the
+other 4 are exactly the sites with a `Past` neighbour.
+
+| case | v | verdict | carrier | past tris | split tris | `Refined` lift | q terminations |
+|---|---|---|---|---|---|---|---|
+| R0044 | 47 | OK | 44 | 1 | 3 | **10.181** | crossed: 18.457 / 16.269 |
+| R0044 | 38 | OK | 8182 | 0 | 3 | 4.138 | crossed: 8.575 / 7.714 |
+| R0044 | 89 | `PastNeighbour{1192}` | | | | | |
+| R0044 | 39 | `PastNeighbour{38}` | | | | | |
+| R0044 | 105 | `PastNeighbour{130}` | | | | | |
+| R0003 | 1983 | OK | 2134 | 2 | 2 | 0.534 | **at vertices**: 1.7e-12 / 2.5e-13 |
+| R0003 | 7611 | OK | 7549 | 0 | 4 | 0.398 | crossed: 0.451 / 0.802 |
+| R0003 | 8658 | OK | 8809 | 2 | 2 | 0.564 | **at vertices**: 9.5e-14 / 4.2e-14 |
+| R0003 | 8809 | OK | 8658 | 0 | 4 | 0.516 | crossed: 0.553 / 1.305 |
+| R0003 | 9336 | `PastNeighbour{8959}` | | | | | |
+| R0003 | 11356 | OK | 11610 | 2 | 2 | 0.047 | **at vertices**: 6.2e-14 / 7.7e-14 |
+
+**Reading 2 — matching a chain to its q-point by PROXIMITY is wrong, and the
+census measures it wrong at every site where it was used.** At all four sites
+whose two chains are crossed edges, the nearest-q-point answer disagrees with
+the surface answer for one of the two, i.e. the recorded margin is NEGATIVE:
+R0044 v47 −1.855, v38 −0.0525; R0003 v7611 −0.361, v8809 −0.775. The reason is
+structural rather than accidental — both chain edges emanate from the SAME
+site, so both their chord crossings cluster near it and both land nearest
+whichever q-point is nearer the site.
+
+The rule that works is IDENTITY: `q[i]` is where the site's `others[i]` meets
+the crease, so the chain whose other face IS `others[i]` is the one that
+terminates there. `CreaseTransit` now carries `others` alongside `q1`/`q2` so
+that correspondence is transported rather than re-derived, and a chain whose
+face does not resolve to one of them is a typed `QSurfaceUnmatched` decline —
+never resolved by distance. (This is the same membership-over-band discipline
+as §3t's `on_crease` exemption and 3b-4's curve-aware host admission; the
+census is what shows it was not optional here.)
+
+**Reading 3 — the cut has ONE shape at all 7 determined sites.** Every one is
+
+```
+q-termination → (Vertex | Refined)* → q-termination
+```
+
+with **exactly one `Refined` crossing**. So the emission half needs, per site:
+two q-terminations — already present as mesh vertices at 3 sites, to
+4.2e-14 … 1.7e-12 — and exactly ONE new refinement vertex on the crease
+circle. Its `lift` is the local sag of the crease's own mesh chain, and it
+reproduces §3v's independent reading of that chain: **10.181 at R0044 v47,
+against the 10.39/10.36 the anatomy measured for the same rim chord**, 4.138
+at v38, and 0.047 … 0.564 across R0003. R0044's corner needs a ten-unit chain
+refinement; R0003's needs a sub-unit one.
+
+**Reading 4 — the declines are a clean structural partition.** All four are
+`PastNeighbour`, i.e. exactly the sites §3v identified as having an
+already-relocated sibling in their one ring. There is no third failure mode
+among the 11: the population is 7 v-local corners and 4 cluster corners.
+
+**A cross-check that fell out**, designed for nothing: R0003's v8658 and v8809
+are each other's CARRIER ring vertex. They are the two ends of one carrier
+chain, both firing, and each appears in the other's one ring (at 17.099 and
+17.118 against their own creases).
+
+**Not built here.** The mutation. What remains for it is now enumerated rather
+than described: relocate the site along its carrier to `J`; insert the two
+q-points (skipping those the mesh already has); insert the single refinement
+vertex on the crease circle; split the named triangles; and re-attribute the
+own-patch triangles between the cut and the site to the neighbouring face —
+after which the face split §3v derived falls out of `flood_fill_patches`.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -2325,6 +2421,31 @@ two analytically determined points before the corner is representable at all.
   emission CUTS the 304.56° sector in two rather than denting it, a split
   that falls out of `flood_fill_patches` once the mesh is re-attributed
   rather than being constructed. 3 new unit tests on the §3u fixture.
+- **inc-2c-3b-12b-2** (2026-09-01, same session): the CUT PATH across the
+  own patch landed pure + census-only (`transit_cut_path`, same gate) and
+  MEASURED (§3w). The corner has THREE chains, not two — the first model
+  required two and declined at all 11 sites — and they differ in role: two
+  involve the own surface and terminate at the q-points, the third joins
+  the two OTHER surfaces and is the CARRIER the site glides along (for v47
+  it is the cylinder's own END circle, of which `X` and `J` are the cone-627
+  and cone-626 intersections, so the 0.138 correction is a step along it).
+  With that model **7 of 11 sites yield a determined cut**; the other 4 are
+  exactly the `Past`-neighbour cluster sites, so the population partitions
+  cleanly with no third failure mode. Two further measurements. (a)
+  Assigning a chain to its q-point by PROXIMITY is wrong at EVERY site
+  where both chains are crossed edges — margins −1.855, −0.0525, −0.361,
+  −0.775 — because both chain edges leave the same site, so both chord
+  crossings cluster near it; the rule that works is surface IDENTITY, and
+  `CreaseTransit` now carries `others` so the q↔surface correspondence is
+  transported rather than re-derived (a chain that does not resolve is a
+  typed `QSurfaceUnmatched` decline, never a nearest guess). (b) The cut has
+  ONE shape at all 7: `q → (Vertex|Refined)* → q` with EXACTLY ONE
+  refinement crossing, whose `lift` reproduces §3v's independent chain-sag
+  reading (10.181 at v47 against the anatomy's 10.39/10.36 for the same rim
+  chord; 4.138 at v38; 0.047 … 0.564 across R0003). Unplanned
+  cross-check: R0003's v8658 and v8809 are each other's carrier vertex.
+  3 new unit tests, including a deliberately adversarial fixture where
+  proximity picks the wrong q.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,
