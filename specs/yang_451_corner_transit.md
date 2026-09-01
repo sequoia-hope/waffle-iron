@@ -1964,9 +1964,12 @@ situations, and only the first is a pure relocation:
 1. **The mesh already carries the corner** (R0003 v1983, v8658, v11356): both
    q-points ARE existing one-ring vertices of the site, agreeing to
    **7.6e-15 … 1.7e-12** (host parameter `t = 1`, i.e. the edge's far
-   endpoint, and every one of them classified `On`). The repair is the
-   relocation to `J` and nothing else — no split, no new vertex, no
-   re-triangulation.
+   endpoint, and every one of them classified `On`). The q-points there need
+   no insertion. *(This block originally read "the repair is the relocation
+   and nothing else". §3w Reading 5 supersedes that: the q-points need no
+   insertion, but the site's FAN still reaches crease-chain vertices 5.5°
+   outside the corner, so the cut is non-monotone at these sites too and the
+   fan needs refining.)*
 2. **The crease is carried but too coarsely** (R0044 v47): the host edge is in
    the fan and on the crease, but it is a **558.53-long rim chord with the
    q-points 10.39 / 10.36 off it**, at `t ≈ 0.428` — mid-chord, where the sag
@@ -2068,37 +2071,43 @@ across open space, and the emission half must not split that edge.
 With the three-chain model, **7 of the 11 sites yield a determined cut**; the
 other 4 are exactly the sites with a `Past` neighbour.
 
-| case | v | verdict | carrier | past tris | split tris | `Refined` lift | q terminations |
-|---|---|---|---|---|---|---|---|
-| R0044 | 47 | OK | 44 | 1 | 3 | **10.181** | crossed: 18.457 / 16.269 |
-| R0044 | 38 | OK | 8182 | 0 | 3 | 4.138 | crossed: 8.575 / 7.714 |
-| R0044 | 89 | `PastNeighbour{1192}` | | | | | |
-| R0044 | 39 | `PastNeighbour{38}` | | | | | |
-| R0044 | 105 | `PastNeighbour{130}` | | | | | |
-| R0003 | 1983 | OK | 2134 | 2 | 2 | 0.534 | **at vertices**: 1.7e-12 / 2.5e-13 |
-| R0003 | 7611 | OK | 7549 | 0 | 4 | 0.398 | crossed: 0.451 / 0.802 |
-| R0003 | 8658 | OK | 8809 | 2 | 2 | 0.564 | **at vertices**: 9.5e-14 / 4.2e-14 |
-| R0003 | 8809 | OK | 8658 | 0 | 4 | 0.516 | crossed: 0.553 / 1.305 |
-| R0003 | 9336 | `PastNeighbour{8959}` | | | | | |
-| R0003 | 11356 | OK | 11610 | 2 | 2 | 0.047 | **at vertices**: 6.2e-14 / 7.7e-14 |
+| case | v | verdict | carrier | past | split | `Refined` lift | q dist (q0/q1) | cut span | q gap |
+|---|---|---|---|---|---|---|---|---|---|
+| R0044 | 47 | OK | 44 | 1 | 3 | 0.1435 | 0.786 / 0.447 | 1115.17 | 2.285 |
+| R0044 | 38 | OK | 8182 | 0 | 3 | 0.9795 | 0.799 / 0.393 | 184.55 | 0.0600 |
+| R0044 | 89 | `PastNeighbour{1192}` | | | | | | | |
+| R0044 | 39 | `PastNeighbour{38}` | | | | | | | |
+| R0044 | 105 | `PastNeighbour{130}` | | | | | | | |
+| R0003 | 1983 | OK | 2134 | 2 | 2 | 1.53e-2 | **at vertices**: 1.7e-12 / 2.5e-13 | 58.84 | 0.3104 |
+| R0003 | 7611 | OK | 7549 | 0 | 4 | 1.40e-3 | 0.451 / 0.802 | 49.20 | 0.4866 |
+| R0003 | 8658 | OK | 8809 | 2 | 2 | 4.99e-3 | **at vertices**: 9.5e-14 / 4.2e-14 | 60.35 | 0.1080 |
+| R0003 | 8809 | OK | 8658 | 0 | 4 | 5.70e-2 | 0.553 / 1.305 | 61.25 | 1.3390 |
+| R0003 | 9336 | `PastNeighbour{8959}` | | | | | | | |
+| R0003 | 11356 | OK | 11610 | 2 | 2 | 3.98e-5 | **at vertices**: 6.2e-14 / 7.7e-14 | 40.26 | 0.1080 |
 
-**Reading 2 — matching a chain to its q-point by PROXIMITY is wrong, and the
-census measures it wrong at every site where it was used.** At all four sites
-whose two chains are crossed edges, the nearest-q-point answer disagrees with
-the surface answer for one of the two, i.e. the recorded margin is NEGATIVE:
-R0044 v47 −1.855, v38 −0.0525; R0003 v7611 −0.361, v8809 −0.775. The reason is
-structural rather than accidental — both chain edges emanate from the SAME
-site, so both their chord crossings cluster near it and both land nearest
-whichever q-point is nearer the site.
+*The site's out-of-domain position is passed to the cut EXPLICITLY rather than
+read from the mesh. The caller detects the defect before committing the
+relocation, so the mesh still holds the seed, on the HOME side of the crease —
+and a crossing computed from there is an extrapolation behind the site rather
+than a crease crossing. A first version of this table was computed that way;
+its `dist` and `lift` columns were wrong by the whole relocation (e.g. v47's
+lift read 10.18 rather than 0.1435), and the "the lift reproduces §3v's
+rim-chord sag" cross-validation it appeared to show was an artifact of that
+error, now RETRACTED. The structural columns — verdict, carrier, past/split —
+are position-independent and are unchanged.*
 
-The rule that works is IDENTITY: `q[i]` is where the site's `others[i]` meets
-the crease, so the chain whose other face IS `others[i]` is the one that
-terminates there. `CreaseTransit` now carries `others` alongside `q1`/`q2` so
-that correspondence is transported rather than re-derived, and a chain whose
-face does not resolve to one of them is a typed `QSurfaceUnmatched` decline —
-never resolved by distance. (This is the same membership-over-band discipline
-as §3t's `on_crease` exemption and 3b-4's curve-aware host admission; the
-census is what shows it was not optional here.)
+**Reading 2 — matching a chain to its q-point by PROXIMITY is wrong at three
+of the four sites where both chains are crossed edges**: the recorded margin
+is NEGATIVE for one of the two chains at R0044 v38 (−0.0526), R0003 v7611
+(−0.361) and v8809 (−0.775). (At v47 both margins are positive, so proximity
+happens to agree there.) The rule that works is IDENTITY: `q[i]` is where the
+site's `others[i]` meets the crease, so the chain whose other face IS
+`others[i]` is the one that terminates there. `CreaseTransit` now carries
+`others` alongside `q1`/`q2` so that correspondence is transported rather than
+re-derived, and a chain whose face does not resolve to one of them is a typed
+`QSurfaceUnmatched` decline — never resolved by distance. Same
+membership-over-band discipline as §3t's `on_crease` exemption and 3b-4's
+curve-aware host admission.
 
 **Reading 3 — the cut has ONE shape at all 7 determined sites.** Every one is
 
@@ -2106,31 +2115,77 @@ census is what shows it was not optional here.)
 q-termination → (Vertex | Refined)* → q-termination
 ```
 
-with **exactly one `Refined` crossing**. So the emission half needs, per site:
-two q-terminations — already present as mesh vertices at 3 sites, to
-4.2e-14 … 1.7e-12 — and exactly ONE new refinement vertex on the crease
-circle. Its `lift` is the local sag of the crease's own mesh chain, and it
-reproduces §3v's independent reading of that chain: **10.181 at R0044 v47,
-against the 10.39/10.36 the anatomy measured for the same rim chord**, 4.138
-at v38, and 0.047 … 0.564 across R0003. R0044's corner needs a ten-unit chain
-refinement; R0003's needs a sub-unit one.
+with **exactly one `Refined` crossing**. So the edit per site is: two
+q-terminations — already present as mesh vertices at 3 sites, to
+4.2e-14 … 1.7e-12 — and exactly ONE new vertex on the crease circle, whose
+`lift` off the chord is 4e-5 … 0.98.
 
 **Reading 4 — the declines are a clean structural partition.** All four are
 `PastNeighbour`, i.e. exactly the sites §3v identified as having an
 already-relocated sibling in their one ring. There is no third failure mode
 among the 11: the population is 7 v-local corners and 4 cluster corners.
 
-**A cross-check that fell out**, designed for nothing: R0003's v8658 and v8809
-are each other's CARRIER ring vertex. They are the two ends of one carrier
-chain, both firing, and each appears in the other's one ring (at 17.099 and
-17.118 against their own creases).
+**Reading 5 — and this is the increment's binding result — EVERY cut is
+NON-MONOTONE along the crease.** Each node lies on the crease circle by
+construction, so its angle there is well defined, and the sequence in cut
+order is:
 
-**Not built here.** The mutation. What remains for it is now enumerated rather
-than described: relocate the site along its carrier to `J`; insert the two
-q-points (skipping those the mesh already has); insert the single refinement
-vertex on the crease circle; split the named triangles; and re-attribute the
-own-patch triangles between the cut and the site to the neighbouring face —
-after which the face split §3v derived falls out of `flood_fill_patches`.
+| case | v | node angles along the crease (degrees, cut order) | q gap |
+|---|---|---|---|
+| R0044 | 47 | −63.395, **−59.705**, **−68.407**, −63.457, −63.431 | 0.036° |
+| R0044 | 38 | 154.670, **152.442**, 154.713, 154.669 | 0.0015° |
+| R0003 | 1983 | −10.447, **−4.190**, −10.603, **−12.819**, −10.356 | 0.091° |
+| R0003 | 7611 | −15.465, **−21.448**, −15.442, **−12.819**, −15.637 | 0.17° |
+| R0003 | 8658 | −9.687, **−4.190**, −9.713, **−12.819**, −9.656 | 0.031° |
+| R0003 | 8809 | 9.786, **12.819**, 10.762, **4.190**, 10.171 | 0.39° |
+| R0003 | 11356 | −9.687, **−4.190**, −9.665, −9.943, −9.656 | 0.031° |
+
+The TRUE cut is the crease arc BETWEEN the two q-points — a sweep of 0.0015°
+to 0.39°. Every measured cut instead leaves that interval by 0.04° to 6.3° and
+comes back, because the site's one ring reaches crease-chain vertices well
+outside the corner. The `span` column says the same in length: 40 … 1115 of
+cut against q gaps of 0.06 … 2.3.
+
+**The reason, measured**: the gap between a site's two `On` interior
+neighbours — i.e. the crease chain's own step there — is
+
+| site | chain step |
+|---|---|
+| R0044 v47 | 8.70164° |
+| R0003 v1983 / v7611 / v8658 / v8809 | 8.62890 / 8.62891 / 8.62890 / 8.62890° |
+| R0003 v11356 | 5.75260° = exactly ⅔ of 8.62890° |
+
+against corners of 0.0015° … 0.39°. **The crease chain is two to three orders
+COARSER than the corner it has to carry**, uniformly, in both cases.
+
+*(A genuine consistency check, replacing the retracted one: R0044 v47's chain
+step derived from the ANGLES is 8.701640°, and derived from §3v's independently
+recorded chord LENGTH of that same edge — 558.5283 on a crease radius of
+3681.15411531651 — it is 8.701643°. Agreement to 3.0e-6°, which is what
+confirms both chain endpoints lie on the analytic crease circle rather than
+merely near it.)*
+
+So the emission half is **not** a re-attribution of existing triangles at any
+of the 11 sites, including the three where the q-points already exist as
+vertices. Those three have their q-points adjacent on the chain (v11356's are
+0.031° apart) but their FANS still reach 5.5° away, so the boundary the
+re-attribution would hand Stage 5 doubles back along the arc it is supposed to
+represent. This supersedes §3v's reading that situation 1 needs "no mesh
+surgery at all": the q-points need none, but the fan does.
+
+**Not built here.** The mutation — and Reading 5 changes what it has to be.
+The enumerated edit (relocate the site along its carrier to `J`; insert the
+two q-points, skipping those the mesh already has; insert the single
+refinement vertex on the crease circle; split the named triangles;
+re-attribute the own-patch triangles between the cut and the site, after which
+the face split §3v derived falls out of `flood_fill_patches`) is necessary but
+NOT sufficient: it re-attributes the fan's past side, whose boundary is the
+non-monotone cut above. The missing precondition is a LOCAL REFINEMENT of the
+site's own fan so that its one ring brackets the corner instead of straddling
+it — which is Yang §4.5.2's local refinement, applied at an analytically
+determined place rather than as a density ladder. (The 2026-08-29 census
+adjudicated the *global* ladder out precisely because it refines everywhere
+and resolves nothing; this is the opposite instrument.)
 
 ## 4. Increment ledger
 

@@ -1566,6 +1566,17 @@ pub(crate) struct TransitCutPath {
     /// this edge is neither split nor re-terminated — it is what the site
     /// glides on.
     pub(crate) carrier: u32,
+    /// The cut polyline's own length, q-termination to q-termination.
+    pub(crate) span: f64,
+    /// Each node's ANGLE along the crease circle, in degrees, in cut order.
+    ///
+    /// This is the decisive reading of whether the mesh can express the corner
+    /// at all. The TRUE cut is the crease arc from `q1` to `q2`, so a cut that
+    /// can bound a region must sweep MONOTONICALLY between them. A sequence
+    /// that runs out past one q-point and back is a polyline that overlaps its
+    /// own arc: the mesh's crease chain near the site is coarser than the
+    /// corner, and no re-attribution of existing triangles can express it.
+    pub(crate) thetas: Vec<f64>,
 }
 
 /// Walk the incident triangles of a site into one cyclic order.
@@ -1615,13 +1626,19 @@ fn fan_cycle(fan: &[FanTri]) -> Option<Vec<usize>> {
 /// from one q-termination to the other, and everything between it and the site
 /// belongs to the neighbouring face.
 ///
+/// `site_pos` is the site's OUT-OF-DOMAIN position — the exact triple solution
+/// the relocation would land on. It is passed rather than read from the mesh
+/// on purpose: the caller detects the defect BEFORE committing the relocation,
+/// so `mesh` still holds the seed, on the home side of the crease, and every
+/// crossing computed from there would be an extrapolation behind the site.
+///
 /// `face_surface` resolves an attribution `(input, face)` to that input face's
 /// surface — the exact identification of which patch is the own one. Pure; no
 /// mutation. Every non-answer is a typed structural decline.
 pub(crate) fn transit_cut_path(
     mesh: &Mesh,
     an: &TransitSiteAnatomy,
-    v: u32,
+    site_pos: Point3,
     crease: &(Curve, Surface, Surface),
     t: &CreaseTransit,
     face_surface: &dyn Fn(InputId, u32) -> Option<Surface>,
@@ -1685,7 +1702,12 @@ pub(crate) fn transit_cut_path(
     // --- walk the run, emitting one crossing per ring vertex ---------------
     let side = |u: u32| an.ring.iter().find(|(x, _, _)| *x == u).map(|(_, _, s)| *s);
     let d_of = |u: u32| surface_distance(plane, mesh.verts[u as usize]);
-    let d_site = d_of(v).ok_or(CutPathFailure::FanNotClosed)?;
+    // The site's OUT-OF-DOMAIN position, which is what the cut is around. It
+    // is NOT `mesh.verts[v]`: the caller detects the defect before committing
+    // the relocation, so the mesh still holds the seed, on the HOME side —
+    // and a crossing computed from there is an extrapolation BEHIND the site,
+    // not a crease crossing at all.
+    let d_site = surface_distance(plane, site_pos).ok_or(CutPathFailure::FanNotClosed)?;
     // The run's ring vertices in order: the first triangle's `other[0]`, then
     // every triangle's `other[1]`. The two ends are the chain edges.
     let mut ring_seq: Vec<u32> = vec![an.fan[run[0]].other[0]];
@@ -1734,7 +1756,7 @@ pub(crate) fn transit_cut_path(
                 });
             }
             (true, false) => {
-                let cross = crease_crossing_on_edge(mesh, v, u, d_site, d_of(u))?;
+                let cross = crease_crossing_on_edge(mesh, site_pos, u, d_site, d_of(u))?;
                 let q = q_of_face(end_other[usize::from(k != 0)], u)?;
                 q_taken.push(q);
                 nodes.push(CutCrossing::QPoint {
@@ -1746,7 +1768,7 @@ pub(crate) fn transit_cut_path(
             }
             (false, true) => nodes.push(CutCrossing::Vertex(u)),
             (false, false) => {
-                let cross = crease_crossing_on_edge(mesh, v, u, d_site, d_of(u))?;
+                let cross = crease_crossing_on_edge(mesh, site_pos, u, d_site, d_of(u))?;
                 let p = project_onto_curve(cross, &c_b).ok_or(CutPathFailure::FanNotClosed)?;
                 nodes.push(CutCrossing::Refined {
                     u,
@@ -1777,19 +1799,53 @@ pub(crate) fn transit_cut_path(
     }
     past_tris.sort_unstable();
     split_tris.sort_unstable();
+    // The cut's own length, walked through its nodes in order.
+    let at = |c: &CutCrossing| -> Point3 {
+        match *c {
+            CutCrossing::QVertex { u, .. } | CutCrossing::Vertex(u) => mesh.verts[u as usize],
+            CutCrossing::QPoint { q, .. } => qs[q],
+            CutCrossing::Refined { point, .. } => point,
+        }
+    };
+    let span = nodes
+        .windows(2)
+        .map(|w| dist3(at(&w[0]), at(&w[1])))
+        .sum::<f64>();
+    // Each node's angle along the crease circle. Every node lies on it by
+    // construction (`On` vertices by membership, q-points and refinements by
+    // solve/projection), so the angle is well defined without a further test.
+    let Curve::Circle { center, normal, .. } = c_b else {
+        return Err(CutPathFailure::FanNotClosed);
+    };
+    let (ub, vb) = crate::stage1_tessellate::ortho_basis(normal);
+    let (e1, e2, c0) = (ub.as_array(), vb.as_array(), center.as_array());
+    let thetas = nodes
+        .iter()
+        .map(|nd| {
+            let x = at(nd).as_array();
+            let r = [x[0] - c0[0], x[1] - c0[1], x[2] - c0[2]];
+            let dot = |a: [f64; 3]| r[0] * a[0] + r[1] * a[1] + r[2] * a[2];
+            dot(e2).atan2(dot(e1)).to_degrees()
+        })
+        .collect();
     Ok(TransitCutPath {
         nodes,
         past_tris,
         split_tris,
         carrier: carriers[0],
+        span,
+        thetas,
     })
 }
 
 /// The crease-plane crossing of the segment `site → u`. Signed distance to a
 /// plane is affine along a segment, so the parameter is exact in one division.
+///
+/// The segment starts at the site's OUT-OF-DOMAIN position, not at whatever
+/// the mesh currently holds for it — those differ by the whole relocation.
 fn crease_crossing_on_edge(
     mesh: &Mesh,
-    v: u32,
+    site_pos: Point3,
     u: u32,
     d_site: f64,
     d_u: Option<f64>,
@@ -1800,10 +1856,7 @@ fn crease_crossing_on_edge(
         return Err(CutPathFailure::FanNotClosed);
     }
     let s = d_site / denom;
-    let (a, b) = (
-        mesh.verts[v as usize].as_array(),
-        mesh.verts[u as usize].as_array(),
-    );
+    let (a, b) = (site_pos.as_array(), mesh.verts[u as usize].as_array());
     Ok(Point3::new(
         a[0] + s * (b[0] - a[0]),
         a[1] + s * (b[1] - a[1]),

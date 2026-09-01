@@ -922,7 +922,7 @@ fn the_cut_runs_q_to_q_across_the_own_patch_and_names_the_carrier() {
     let cut = transit_cut_path(
         &mesh,
         &an,
-        0,
+        mesh.verts[0],
         &(c_b, cone_a, cone_b),
         &t,
         &cut_fixture_surfaces,
@@ -973,6 +973,18 @@ fn the_cut_runs_q_to_q_across_the_own_patch_and_names_the_carrier() {
         }
         other => panic!("expected an existing q-vertex, got {other:?}"),
     }
+
+    // The node angles are along the crease circle, one per node. The two
+    // interior `On` vertices are laid out 2° apart by construction, and the
+    // difference is independent of which orthonormal basis the circle picks —
+    // which is what makes it a pin rather than a transcription.
+    assert_eq!(cut.thetas.len(), cut.nodes.len());
+    assert!(
+        ((cut.thetas[1] - cut.thetas[2]).abs() - 2.0).abs() < 1e-9,
+        "ring 2 and 3 are 68° and 66° on the crease: {:?}",
+        cut.thetas
+    );
+    assert!(cut.span > 0.0 && cut.span.is_finite());
 }
 
 /// A one-ring neighbour already across the crease is a typed DECLINE: the cut
@@ -1001,7 +1013,7 @@ fn a_neighbour_already_across_the_crease_is_declined() {
         transit_cut_path(
             &mesh,
             &an,
-            0,
+            mesh.verts[0],
             &(c_b, cone_a, cone_b),
             &t,
             &cut_fixture_surfaces
@@ -1036,7 +1048,14 @@ fn a_chain_whose_surface_is_unknown_is_declined_not_guessed() {
         _ => cut_fixture_surfaces(i, f),
     };
     assert_eq!(
-        transit_cut_path(&mesh, &an, 0, &(c_b, cone_a, cone_b), &t, &blind),
+        transit_cut_path(
+            &mesh,
+            &an,
+            mesh.verts[0],
+            &(c_b, cone_a, cone_b),
+            &t,
+            &blind
+        ),
         Err(CutPathFailure::QSurfaceUnmatched { u: 1 })
     );
 }

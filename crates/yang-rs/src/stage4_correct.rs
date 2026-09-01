@@ -10447,17 +10447,31 @@ fn stage4_relocate_and_correct_inner(
                                         match crate::stage4_boundary_curve::transit_cut_path(
                                             mesh,
                                             &an,
-                                            v,
+                                            proj,
                                             &creases[ci],
                                             &t,
                                             &face_surface,
                                         ) {
                                             Ok(cut) => eprintln!(
                                                 "[s451-cut] case={} v={v} OK carrier={} \
+                                                 span={:.6e} q_gap={:.6e} \
+                                                 thetas={:?} \
                                                  past_tris={:?} split_tris={:?} nodes={:?}",
                                                 std::env::var("ASSAY_CASE")
                                                     .unwrap_or_else(|_| "-".into()),
                                                 cut.carrier,
+                                                cut.span,
+                                                {
+                                                    let (x, y) = (t.q1.as_array(), t.q2.as_array());
+                                                    ((x[0] - y[0]).powi(2)
+                                                        + (x[1] - y[1]).powi(2)
+                                                        + (x[2] - y[2]).powi(2))
+                                                    .sqrt()
+                                                },
+                                                cut.thetas
+                                                    .iter()
+                                                    .map(|x| format!("{x:.5}"))
+                                                    .collect::<Vec<_>>(),
                                                 cut.past_tris,
                                                 cut.split_tris,
                                                 cut.nodes

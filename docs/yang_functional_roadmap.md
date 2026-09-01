@@ -1024,14 +1024,26 @@ name, never measured).
    circle, of which `X` and `J` are the cone-627 and cone-626 intersections).
    With the corrected model **7 of 11 sites yield a determined cut** and the
    remaining 4 are exactly the `Past`-neighbour cluster sites — a clean
-   partition with no third failure mode. Two measurements came out of it:
-   assigning a chain to its q-point by PROXIMITY is wrong at every site where
-   both chains are crossed edges (margins −1.855, −0.0525, −0.361, −0.775,
-   because both chain edges leave the same site), so the rule is surface
-   IDENTITY with a typed decline when a face does not resolve; and the cut
-   has ONE shape everywhere — `q → (Vertex|Refined)* → q` with EXACTLY ONE
-   refinement crossing, whose lift reproduces §3v's independent chain-sag
-   reading (10.181 at v47 against 10.39/10.36 for the same rim chord).
+   partition with no third failure mode. Three measurements came out of it.
+   Assigning a chain to its q-point by PROXIMITY is wrong at three of the four
+   sites where both chains are crossed edges (margins −0.0526, −0.361,
+   −0.775), because both chain edges leave the same site; the rule is surface
+   IDENTITY, with a typed decline when a face does not resolve. The cut has
+   ONE shape everywhere — `q → (Vertex|Refined)* → q` with EXACTLY ONE
+   refinement crossing (lift 4e-5 … 0.98). And, bindingly, **every cut is
+   NON-MONOTONE along the crease**: each leaves the q-to-q interval
+   (0.0015°…0.39°) by 0.04°…6.3° and returns, because the site's one ring
+   reaches crease-chain vertices far outside the corner — the recurring
+   ±4.190°/±12.819° at four R0003 sites are shared nodes of one chain
+   tessellated at ≈8.6° per segment, against corners two to three orders
+   finer. So the emission half is NOT a re-attribution of existing triangles
+   at any site; it needs §4.5.2 LOCAL refinement of the fan first, at an
+   analytically determined place — the opposite instrument to the global
+   density ladder adjudicated out on 2026-08-29. *Correction landed in the
+   same increment: a first census read the site's position from the MESH,
+   where it is still the seed on the home side, so its distance and lift
+   columns were wrong by the whole relocation, and an apparent
+   cross-validation against the rim-chord sag is retracted.*
    R0044's gate set (FOUR knobs): `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1
    YANG_453_SPAIR=1 KV2_ARC_CONFORM_CURVES=1`. Also open: the v105
    retry ChordDegradation. R0085 stays walled on operand quality.
