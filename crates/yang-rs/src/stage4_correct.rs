@@ -10356,6 +10356,38 @@ fn stage4_relocate_and_correct_inner(
                         creases[ci].0
                     );
                     eprintln!("{line}");
+                    // inc-2c-3b-12b: the REPAIR solve, reported alongside the
+                    // fire so the census shows whether each out-of-domain site
+                    // has a DETERMINED transit (and at what correction) before
+                    // any of it is wired to mutate.
+                    let nbr_creases = crate::stage4_boundary_curve::creases_for_surfaces(
+                        &creases_by_surf,
+                        &[creases[ci].2],
+                    );
+                    match crate::stage4_boundary_curve::solve_crease_transit(
+                        p,
+                        proj,
+                        surfs,
+                        &creases[ci],
+                        &nbr_creases,
+                    ) {
+                        Ok(t) => eprintln!(
+                            "[s451-transit-solve] case={} v={v} OK correction={:.6e} \
+                             s_nbr={:?} j={:?} p_trunc={:?} q1={:?} q2={:?} q_margin={:?}",
+                            std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into()),
+                            t.correction,
+                            t.s_nbr,
+                            t.j.as_array(),
+                            t.p_trunc.as_array(),
+                            t.q1.as_array(),
+                            t.q2.as_array(),
+                            t.q_margin
+                        ),
+                        Err(e) => eprintln!(
+                            "[s451-transit-solve] case={} v={v} DECLINE {e:?}",
+                            std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
+                        ),
+                    }
                     // The categorized corpus runner nulls each child's stderr
                     // (`assay_kv2.rs` header), so a whole-corpus census needs a
                     // sink that survives it. Append-only, one short line per

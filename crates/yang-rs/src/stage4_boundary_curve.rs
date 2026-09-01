@@ -1040,3 +1040,221 @@ pub(crate) fn on_crease(p: Point3, s0: Surface, s1: Surface) -> bool {
         })
     })
 }
+
+// ---------------------------------------------------------------------------
+// §4.5.1 inc-2c-3b-12b — the REPAIR: truncate → transit → q-points
+// ---------------------------------------------------------------------------
+
+/// Why a crossed-crease site has no DETERMINED repair. Every variant leaves the
+/// standing behaviour untouched (P9/P10: no partial move, no guess); the site
+/// keeps whatever loud stop it has today.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum CreaseTransitFailure {
+    /// The vertex's incidence is not the measured anatomy: `s_own` is not one
+    /// of its three surfaces, or the neighbour is already among them (that is
+    /// the `on_crease` population, exempted upstream).
+    AnatomyMismatch,
+    /// The crease is not a circle, or the step does not actually cross its
+    /// plane transversally (a caller that did not come from
+    /// [`crease_crossed_by_step`]).
+    NoTruncation,
+    /// The truncation point falls on the crease's axis, where the nearest
+    /// circle point is not unique.
+    TruncationDegenerate,
+    /// The transited Newton did not converge, or converged to a point that is
+    /// not on all three of its surfaces.
+    TransitDiverged,
+    /// The transited junction leaves the NEIGHBOUR's domain in turn — the
+    /// defect would only move one face over. A multi-crease transit is a
+    /// different (unmeasured) class, declined rather than iterated. Carries
+    /// the second crossing's own residuals so a census reports the overrun
+    /// it declined on rather than merely naming it.
+    TransitLeavesNeighbour { d_pre: f64, d_post: f64 },
+    /// One of the two other surfaces does not meet `C_b` (no real root), or is
+    /// a surface `circle_surface_roots` has no quadric form for (torus).
+    NoQPoint { which: usize },
+}
+
+/// The determined §4.5.1 repair of one out-of-domain triple relocation.
+///
+/// Field names follow the paper (§4.5.1,
+/// `refs/text/yang2025_hybrid_boolean.txt:672-690`): the step is truncated to
+/// `p` on the boundary curve `C_b`, re-optimized using the parameterization of
+/// the neighbouring surface `S1`, and the intersection points `q1`/`q2` are
+/// then solved ON `C_b`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CreaseTransit {
+    /// The paper's `p`: the step truncated to `C_b`.
+    pub(crate) p_trunc: Point3,
+    /// The paper's `S1`: the neighbouring surface across `C_b`.
+    pub(crate) s_nbr: Surface,
+    /// The corrected junction, re-solved on `S1` — the position the relocation
+    /// should have produced.
+    pub(crate) j: Point3,
+    /// `q1` on `C_b`: where the first other surface crosses the crease.
+    pub(crate) q1: Point3,
+    /// `q2` on `C_b`: where the second other surface crosses the crease.
+    pub(crate) q2: Point3,
+    /// Distance from the discarded out-of-domain solution to the corrected
+    /// junction — the size of the correction.
+    pub(crate) correction: f64,
+    /// For each q-point, the gap between the chosen root and the next-nearest
+    /// root on `C_b`. A small margin means the root selection was not
+    /// unambiguous, and the census must show it rather than hide it.
+    pub(crate) q_margin: [f64; 2],
+}
+
+/// Solve the §4.5.1 repair for a step `p → q_full` that
+/// [`crease_crossed_by_step`] has already certified as leaving its domain.
+///
+/// `surfs` are the vertex's own three surfaces (the triple the relocation
+/// solved); `crease` is the crossed entry `(C_b, s_own, s_nbr)` from that
+/// certificate; `nbr_creases` are the creases bounding `s_nbr`, used for the
+/// postcondition.
+///
+/// In the paper's order:
+///
+/// 1. **Truncate** the step to `C_b` — the segment meets the crease plane at
+///    an affine parameter, and the nearest point of the crease circle to that
+///    crossing is the paper's `p`.
+/// 2. **Transit**: re-solve the triple with `s_own` replaced by the
+///    neighbouring surface `S1`, seeded at `p`. This is "the optimization step
+///    of `p` is computed using the parameterization of `S1`".
+/// 3. **Certify**: the result must satisfy all three of its own surfaces, and
+///    must not itself leave `S1`'s domain (else the defect merely moved).
+/// 4. **q-points**: solve each other surface against `C_b` exactly
+///    ([`crate::stage4_transit::circle_surface_roots`], all roots), taking the
+///    root nearest the corrected junction and recording the selection margin.
+///
+/// Pure and deterministic; no mesh mutation, no topology side effects. Every
+/// non-answer is typed.
+pub(crate) fn solve_crease_transit(
+    p: Point3,
+    q_full: Point3,
+    surfs: &[Surface],
+    crease: &(Curve, Surface, Surface),
+    nbr_creases: &[(Curve, Surface, Surface)],
+) -> Result<CreaseTransit, CreaseTransitFailure> {
+    let (c_b, s_own, s_nbr) = *crease;
+    // --- anatomy -----------------------------------------------------------
+    if surfs.len() != 3 || !surfs.contains(&s_own) || surfs.contains(&s_nbr) {
+        return Err(CreaseTransitFailure::AnatomyMismatch);
+    }
+    let others: Vec<Surface> = surfs.iter().copied().filter(|&s| s != s_own).collect();
+    if others.len() != 2 {
+        return Err(CreaseTransitFailure::AnatomyMismatch);
+    }
+
+    // --- 1. truncate to C_b ------------------------------------------------
+    // The signed distance to a PLANE is affine along a segment, so the
+    // crossing parameter is exact in one division — no search.
+    let plane = crease_plane(&c_b).ok_or(CreaseTransitFailure::NoTruncation)?;
+    let (fp, fq) = (
+        surface_distance(plane, p).ok_or(CreaseTransitFailure::NoTruncation)?,
+        surface_distance(plane, q_full).ok_or(CreaseTransitFailure::NoTruncation)?,
+    );
+    let denom = fp - fq;
+    if !denom.is_finite() || denom == 0.0 || (fp < 0.0) == (fq < 0.0) {
+        return Err(CreaseTransitFailure::NoTruncation);
+    }
+    let t = fp / denom;
+    if !t.is_finite() || !(0.0..=1.0).contains(&t) {
+        return Err(CreaseTransitFailure::NoTruncation);
+    }
+    let (pa, qa) = (p.as_array(), q_full.as_array());
+    let x_cross = Point3::new(
+        pa[0] + t * (qa[0] - pa[0]),
+        pa[1] + t * (qa[1] - pa[1]),
+        pa[2] + t * (qa[2] - pa[2]),
+    );
+    // `project_onto_curve` is the exact closest point on the circle, and
+    // returns `None` exactly on the axis — the one place it is not unique.
+    let p_trunc =
+        project_onto_curve(x_cross, &c_b).ok_or(CreaseTransitFailure::TruncationDegenerate)?;
+
+    // --- 2. transit onto S1 ------------------------------------------------
+    let j =
+        crate::stage4_relocate::relocate_onto_implicit_triple(p_trunc, others[0], others[1], s_nbr)
+            .ok_or(CreaseTransitFailure::TransitDiverged)?;
+    // --- 3. certify --------------------------------------------------------
+    if !satisfies_all_surfaces(j, &[others[0], others[1], s_nbr]) {
+        return Err(CreaseTransitFailure::TransitDiverged);
+    }
+    // The postcondition that keeps the repair honest: the corrected junction
+    // must lie inside the NEIGHBOUR's own domain. Without it a transit could
+    // simply carry the overrun one face further along.
+    if let Some((_, d_pre, d_post)) = crease_crossed_by_step(p_trunc, j, nbr_creases) {
+        return Err(CreaseTransitFailure::TransitLeavesNeighbour { d_pre, d_post });
+    }
+
+    // --- 4. the q-points on C_b -------------------------------------------
+    let Curve::Circle {
+        center,
+        normal,
+        radius,
+    } = c_b
+    else {
+        return Err(CreaseTransitFailure::NoTruncation);
+    };
+    let (ub, vb) = crate::stage1_tessellate::ortho_basis(normal);
+    let (e1, e2) = (ub.as_array(), vb.as_array());
+    let c0 = center.as_array();
+    let at = |theta: f64| -> Point3 {
+        let (ct, st) = (theta.cos(), theta.sin());
+        Point3::new(
+            c0[0] + radius * (ct * e1[0] + st * e2[0]),
+            c0[1] + radius * (ct * e1[1] + st * e2[1]),
+            c0[2] + radius * (ct * e1[2] + st * e2[2]),
+        )
+    };
+    let ja = j.as_array();
+    let d2j = |x: Point3| {
+        let a = x.as_array();
+        (a[0] - ja[0]).powi(2) + (a[1] - ja[1]).powi(2) + (a[2] - ja[2]).powi(2)
+    };
+    let mut qs: [Point3; 2] = [j, j];
+    let mut margins = [f64::INFINITY; 2];
+    for (i, &s) in others.iter().enumerate() {
+        let roots = crate::stage4_transit::circle_surface_roots(c0, e1, e2, radius, s)
+            .ok_or(CreaseTransitFailure::NoQPoint { which: i })?;
+        let mut pts: Vec<(f64, Point3)> = roots
+            .into_iter()
+            .map(|th| {
+                let x = at(th);
+                (d2j(x), x)
+            })
+            .collect();
+        if pts.is_empty() {
+            return Err(CreaseTransitFailure::NoQPoint { which: i });
+        }
+        // Deterministic: sort by distance to the corrected junction, then by
+        // coordinates so equal distances cannot depend on root order.
+        pts.sort_by(|a, b| {
+            a.0.partial_cmp(&b.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    a.1.as_array()
+                        .partial_cmp(&b.1.as_array())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+        });
+        qs[i] = pts[0].1;
+        margins[i] = match pts.get(1) {
+            Some(second) => second.0.sqrt() - pts[0].0.sqrt(),
+            None => f64::INFINITY,
+        };
+    }
+
+    Ok(CreaseTransit {
+        p_trunc,
+        s_nbr,
+        j,
+        q1: qs[0],
+        q2: qs[1],
+        correction: {
+            let a = j.as_array();
+            ((a[0] - qa[0]).powi(2) + (a[1] - qa[1]).powi(2) + (a[2] - qa[2]).powi(2)).sqrt()
+        },
+        q_margin: margins,
+    })
+}

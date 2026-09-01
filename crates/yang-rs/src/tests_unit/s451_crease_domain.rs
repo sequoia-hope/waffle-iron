@@ -334,3 +334,250 @@ pub(crate) fn creases_are_sourced_by_surface_not_by_incidence_at_the_vertex() {
         "a surface carrying no operand-own rim has no crease domain bound"
     );
 }
+
+// ---------------------------------------------------------------------------
+// inc-2c-3b-12b — the REPAIR: truncate → transit → q-points
+// ---------------------------------------------------------------------------
+
+/// R0044's anatomy, built EXACTLY rather than transcribed (the fixture note on
+/// [`r0044_cones`] records why a rounded transcription is worse than useless
+/// here: it destroys the coaxiality the crease construction depends on).
+///
+/// Two coaxial cones about `+z` sharing a crease circle, plus the two other
+/// surfaces of the relocated vertex's triple, chosen as axis-parallel planes so
+/// every quantity in the test has a closed form:
+///
+/// * cone A (`s_own`), apex at the origin, `tan α₀ = 1` — its face is the band
+///   `z < 100`, bounded by the crease;
+/// * cone B (`s_nbr`), apex at `z = 50`, `tan α₁ = 2`;
+/// * their crease: `z·tanα₀ = (z−δ)·tanα₁` ⇒ `z_c = 2δ = 100`, `r = 100`;
+/// * the other two surfaces: `x = 66` and `y = 88`, so `ρ = 110` EXACTLY
+///   (66² + 88² = 110²).
+///
+/// The triple therefore has a closed-form solution on each cone:
+/// `X = (66, 88, 110)` on cone A — 10 PAST its own crease, the defect — and
+/// `J = (66, 88, 105)` on cone B, in the neighbour's band. That 3-4-5 scaling
+/// is what makes every expected value below exact instead of a transcription.
+fn transit_fixture() -> (Surface, Surface, Surface, Surface) {
+    let z = Vector3::new(0.0, 0.0, 1.0);
+    let cone_a = Surface::Cone {
+        apex: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: z,
+        half_angle: 1.0_f64.atan(),
+    };
+    let cone_b = Surface::Cone {
+        apex: Point3::new(0.0, 0.0, 50.0),
+        axis_dir: z,
+        half_angle: 2.0_f64.atan(),
+    };
+    let plane_x = Surface::Plane {
+        normal: Vector3::new(1.0, 0.0, 0.0),
+        d: -66.0,
+    };
+    let plane_y = Surface::Plane {
+        normal: Vector3::new(0.0, 1.0, 0.0),
+        d: -88.0,
+    };
+    (cone_a, cone_b, plane_x, plane_y)
+}
+
+/// THE REPAIR, end to end: a step that overruns its own crease is truncated to
+/// `C_b`, re-solved on the neighbouring surface, and the two `q`-points are
+/// solved on `C_b` — Yang §4.5.1's four steps, in its order.
+#[test]
+fn an_out_of_domain_step_transits_onto_the_neighbour() {
+    let (cone_a, cone_b, plane_x, plane_y) = transit_fixture();
+    let c_b = crease_circle_from_pair(cone_a, cone_b).expect("coaxial cones share a circle");
+    // The defect: the exact triple solution on cone A's EXTENDED surface.
+    let x_bad = Point3::new(66.0, 88.0, 110.0);
+    // The seed, inside cone A's own band (z < 100).
+    let seed = Point3::new(60.0, 80.0, 99.0);
+
+    let t = crate::stage4_boundary_curve::solve_crease_transit(
+        seed,
+        x_bad,
+        &[plane_x, plane_y, cone_a],
+        &(c_b, cone_a, cone_b),
+        &[],
+    )
+    .expect("a determined transit");
+
+    // The corrected junction is the closed-form root on the NEIGHBOUR.
+    let j = t.j.as_array();
+    for (got, want, name) in [(j[0], 66.0, "x"), (j[1], 88.0, "y"), (j[2], 105.0, "z")] {
+        assert!(
+            (got - want).abs() < 1e-9,
+            "corrected junction {name}: got {got}, want {want}"
+        );
+    }
+    // …and it is a real correction, not a no-op: |X − J| = 5 exactly.
+    assert!(
+        (t.correction - 5.0).abs() < 1e-9,
+        "correction should be 5.0, got {}",
+        t.correction
+    );
+    // The truncation lands ON the crease circle.
+    let pt = t.p_trunc.as_array();
+    assert!((pt[2] - 100.0).abs() < 1e-9, "p_trunc off the crease plane");
+    assert!(
+        ((pt[0] * pt[0] + pt[1] * pt[1]).sqrt() - 100.0).abs() < 1e-9,
+        "p_trunc off the crease circle"
+    );
+}
+
+/// The `q`-points are the paper's `q1`/`q2`: they lie ON `C_b` AND on their own
+/// surface. In this fixture both are closed-form — `x = 66` meets the crease at
+/// `y = ±√5644`, `y = 88` meets it at `x = ±√2256` — so the test pins the
+/// values, not merely the membership.
+#[test]
+fn the_q_points_lie_on_the_crease_and_on_their_own_surface() {
+    let (cone_a, cone_b, plane_x, plane_y) = transit_fixture();
+    let c_b = crease_circle_from_pair(cone_a, cone_b).expect("circle");
+    let t = crate::stage4_boundary_curve::solve_crease_transit(
+        Point3::new(60.0, 80.0, 99.0),
+        Point3::new(66.0, 88.0, 110.0),
+        &[plane_x, plane_y, cone_a],
+        &(c_b, cone_a, cone_b),
+        &[],
+    )
+    .expect("a determined transit");
+
+    let (q1, q2) = (t.q1.as_array(), t.q2.as_array());
+    // Both on the crease circle.
+    for (q, name) in [(q1, "q1"), (q2, "q2")] {
+        assert!((q[2] - 100.0).abs() < 1e-9, "{name} off the crease plane");
+        assert!(
+            ((q[0] * q[0] + q[1] * q[1]).sqrt() - 100.0).abs() < 1e-9,
+            "{name} off the crease circle"
+        );
+    }
+    // Each on its OWN surface, and the root NEAREST the junction: the junction
+    // sits at y = 88 > 0 and x = 66 > 0, so both positive branches win.
+    assert!(
+        (q1[0] - 66.0).abs() < 1e-9,
+        "q1 must lie on the plane x = 66"
+    );
+    assert!(
+        (q1[1] - 5644.0_f64.sqrt()).abs() < 1e-9,
+        "q1 y: got {}, want +√5644",
+        q1[1]
+    );
+    assert!(
+        (q2[1] - 88.0).abs() < 1e-9,
+        "q2 must lie on the plane y = 88"
+    );
+    assert!(
+        (q2[0] - 2256.0_f64.sqrt()).abs() < 1e-9,
+        "q2 x: got {}, want +√2256",
+        q2[0]
+    );
+    // The margin is how much CLOSER the winner is — the measure of whether the
+    // choice was a coin flip — not the chord between the roots: two equidistant
+    // roots are ambiguous however far apart they sit. Here the rejected root is
+    // the mirrored branch `y = −√5644`, so with `J = (66, 88, 105)` the margin
+    // has the closed form below (≈ 149.4, against a 5-unit correction).
+    let sq = 5644.0_f64.sqrt();
+    let near = ((88.0 - sq).powi(2) + 25.0_f64).sqrt();
+    let far = ((88.0 + sq).powi(2) + 25.0_f64).sqrt();
+    assert!(
+        (t.q_margin[0] - (far - near)).abs() < 1e-6,
+        "q1 margin: got {}, want {}",
+        t.q_margin[0],
+        far - near
+    );
+}
+
+/// The postcondition that keeps the repair honest: if the corrected junction
+/// leaves the NEIGHBOUR's domain in turn, the site is declined — a transit that
+/// merely carries the overrun one face further is not a repair. Cone C is
+/// constructed so its crease with cone B falls at `z = 102`, between the
+/// truncation (`z = 100`) and the junction (`z = 105`).
+#[test]
+fn a_transit_that_leaves_the_neighbour_in_turn_is_declined() {
+    let (cone_a, cone_b, plane_x, plane_y) = transit_fixture();
+    let c_b = crease_circle_from_pair(cone_a, cone_b).expect("circle");
+    // (102 − 50)·tanα₁ = (102 − z_C)·tanα_C with tanα_C = 4 ⇒ z_C = 76.
+    let cone_c = Surface::Cone {
+        apex: Point3::new(0.0, 0.0, 76.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        half_angle: 4.0_f64.atan(),
+    };
+    let c_second = crease_circle_from_pair(cone_b, cone_c).expect("circle");
+    if let Curve::Circle { center, .. } = c_second {
+        assert!(
+            (center.as_array()[2] - 102.0).abs() < 1e-9,
+            "fixture: the second crease must sit between 100 and 105"
+        );
+    }
+
+    let got = crate::stage4_boundary_curve::solve_crease_transit(
+        Point3::new(60.0, 80.0, 99.0),
+        Point3::new(66.0, 88.0, 110.0),
+        &[plane_x, plane_y, cone_a],
+        &(c_b, cone_a, cone_b),
+        &[(c_second, cone_b, cone_c)],
+    );
+    match got {
+        Err(crate::stage4_boundary_curve::CreaseTransitFailure::TransitLeavesNeighbour {
+            d_pre,
+            d_post,
+        }) => {
+            // The decline REPORTS its overrun rather than merely naming itself.
+            assert!(
+                (d_pre < 0.0) != (d_post < 0.0),
+                "the declined crossing must be a sign change, got {d_pre} / {d_post}"
+            );
+            assert!(
+                d_pre.abs() > 1.0 && d_post.abs() > 1.0,
+                "both residuals should be material, got {d_pre} / {d_post}"
+            );
+        }
+        other => panic!("expected TransitLeavesNeighbour, got {other:?}"),
+    }
+}
+
+/// A vertex already incident to the neighbour is the `on_crease` population,
+/// which is exempted upstream; the solver must not silently treat it as a
+/// transit.
+#[test]
+fn a_vertex_already_on_the_neighbour_is_an_anatomy_mismatch() {
+    let (cone_a, cone_b, plane_x, _) = transit_fixture();
+    let c_b = crease_circle_from_pair(cone_a, cone_b).expect("circle");
+    let got = crate::stage4_boundary_curve::solve_crease_transit(
+        Point3::new(60.0, 80.0, 99.0),
+        Point3::new(66.0, 88.0, 110.0),
+        &[plane_x, cone_b, cone_a],
+        &(c_b, cone_a, cone_b),
+        &[],
+    );
+    assert!(
+        matches!(
+            got,
+            Err(crate::stage4_boundary_curve::CreaseTransitFailure::AnatomyMismatch)
+        ),
+        "expected AnatomyMismatch, got {got:?}"
+    );
+}
+
+/// A step that never reaches the crease has nothing to truncate — the solver is
+/// only ever called behind [`crease_crossed_by_step`], and says so rather than
+/// inventing a landing.
+#[test]
+fn a_step_that_does_not_cross_has_no_truncation() {
+    let (cone_a, cone_b, plane_x, plane_y) = transit_fixture();
+    let c_b = crease_circle_from_pair(cone_a, cone_b).expect("circle");
+    let got = crate::stage4_boundary_curve::solve_crease_transit(
+        Point3::new(60.0, 80.0, 90.0),
+        Point3::new(66.0, 88.0, 99.0), // still inside z < 100
+        &[plane_x, plane_y, cone_a],
+        &(c_b, cone_a, cone_b),
+        &[],
+    );
+    assert!(
+        matches!(
+            got,
+            Err(crate::stage4_boundary_curve::CreaseTransitFailure::NoTruncation)
+        ),
+        "expected NoTruncation, got {got:?}"
+    );
+}

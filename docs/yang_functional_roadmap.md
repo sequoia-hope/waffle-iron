@@ -963,8 +963,31 @@ name, never measured).
    correct case therefore carries genuine out-of-domain relocations and
    survives them, so the STOP must never be armed as it stands, and the
    1.2× gap between the two cases' overrun ranges is refused as a
-   discriminator. The repair (truncate → transit → q-points) is
-   3b-12b. R0044's gate set (FOUR
+   discriminator. **inc-2c-3b-12b-0** (2026-09-01) then landed the
+   REPAIR itself as a PURE solve (spec §3u): `solve_crease_transit`
+   runs the paper's four steps in its order — truncate to `C_b`,
+   transit onto the neighbouring surface `S1`, certify, and solve the
+   q-points on `C_b` — composing four primitives that already existed,
+   with an honesty postcondition that re-applies the §3t certificate to
+   the corrected step (a transit leaving the NEIGHBOUR's domain in turn
+   is a typed decline carrying its measured residuals, never an
+   iteration). It reproduces §3s's independently-derived numbers — the
+   0.138 correction and both q-points to their last recorded digit —
+   and two unplanned cross-validations fell out: v38's q-point and
+   v47's junction agree to 6.4e-13 inside a ~1.1e-11 evaluation band
+   (one physical point by two unrelated paths), and R0003's v8658 /
+   v11356 to 2.8e-14. **Census: 11 of the 14 sites are DETERMINED —
+   R0044 5/8 (0.138 … 8.72, three honest declines on 17–30-unit second
+   overruns) and R0003 6/6 (1.48e-3 … 3.82e-2).** That last row is what
+   §3t's binding constraint asked for: the repair is determined on the
+   SUPPORTED_CORRECT case too, so the two populations separate by
+   fixing both rather than by a magnitude band. Census-only; default
+   path untouched. The EMISSION half is 3b-12b-1, and the census makes
+   it precise that it cannot be a relocation — `J` lies on cone 626 by
+   construction, so it is no more inside 627's domain than `X` was; the
+   repair is a RE-TERMINATION of 627's chains at the q-points (which
+   are ON the crease bounding 627), a crease split there, and 626's
+   notch through `J`. R0044's gate set (FOUR
    knobs): `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1
    YANG_453_SPAIR=1 KV2_ARC_CONFORM_CURVES=1`. Also open: the v105
    retry ChordDegradation. R0085 stays walled on operand quality.

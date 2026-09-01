@@ -1802,6 +1802,101 @@ would only convert one confusing downstream stop (a rejected output
 ring on a different face) into a precise local one, which is worth
 having but is not a conversion.
 
+## 3u. inc-2c-3b-12b-0 — the REPAIR SOLVER (LANDED, pure; census-only)
+
+The §3t certificate answers *which* crease a relocation crossed. This
+increment answers what the paper prescribes next, as a PURE solve:
+`solve_crease_transit` (`stage4_boundary_curve.rs`) executes §4.5.1's
+four steps in the paper's own order, and nothing else — no mesh
+mutation, no topology side effect, no wiring into the default path.
+
+1. **Truncate to `C_b`.** The signed distance to a plane is affine along
+   a segment, so the crossing parameter is exact in one division; the
+   paper's `p` is then the nearest point of the crease CIRCLE to that
+   crossing (`project_onto_curve`, which returns `None` exactly on the
+   axis — the one place it is not unique).
+2. **Transit onto `S1`.** Re-solve the triple with `s_own` replaced by
+   the neighbouring surface, seeded at `p`. This is the paper's *"the
+   optimization step of `p` is computed using the parameterization of
+   `S1`"*. The neighbour needs no new machinery: the §3t crease index
+   already carries it as the pair's other surface.
+3. **Certify.** The result must satisfy all three of its own surfaces
+   (`satisfies_all_surfaces`) AND must not itself leave `S1`'s domain —
+   the same certificate re-applied to the corrected step. Without that
+   postcondition a "repair" could simply carry the overrun one face
+   further; with it, a multi-crease transit is a typed DECLINE rather
+   than an iteration into unmeasured territory.
+4. **The `q`-points on `C_b`.** Each of the two other surfaces is solved
+   against the crease circle exactly (`circle_surface_roots`, ALL roots,
+   already built for the inc-2c-0 step solver), taking the root nearest
+   the corrected junction. The selection MARGIN — how much closer the
+   winner is — is carried on the result, so a near-tie is reported
+   rather than hidden.
+
+Every non-answer is typed (`CreaseTransitFailure`), and the declines
+carry their own measured residuals rather than merely naming themselves.
+
+**VALIDATION — the solver reproduces §3s's independently measured
+values.** Those numbers were derived in the previous increment by a
+different route (a closed-form circle x cone solve and a by-hand station
+comparison), before this code existed:
+
+| quantity | §3s recorded | 3b-12b-0 solver |
+|---|---|---|
+| correction \|X − J\| | 0.138 | `1.387470e-1` |
+| `q1` = P_lat | (−1814.091366, −2390.548529, −6103.426403) | agrees to **1.4e-6** — its last recorded digit |
+| `q2` = P_cap | (−1813.637849, −2388.505205, −6102.509823) | agrees to **1.1e-6** — its last recorded digit |
+
+**Two independent cross-validations fell out of the census**, neither
+designed for:
+
+* v38's `q2` and v47's `j` agree to **6.4e-13**, against an evaluation
+  band of ~1.1e-11 at that coordinate magnitude — the SAME physical
+  point reached by two unrelated paths. It must be: v47's corrected
+  junction lies on the cylinder end circle (cylinder ∩ cap plane), which
+  is exactly the crease v38 crosses, so v47's `j` is v38's cone-626
+  `q`-point. (They are not bit-identical, and the record says 6.4e-13
+  rather than "identical".)
+* R0003's v8658 and v11356 — two mesh vertices at one junction — return
+  junctions agreeing to **2.8e-14**.
+
+**CENSUS (both firing cases). 11 of the 14 out-of-domain sites have a
+DETERMINED repair.**
+
+| case | verdict | fires | determined | corrections |
+|---|---|---|---|---|
+| R0044 | ERROR | 8 | **5** (v47, v89, v38, v39, v105) | 0.138, 0.747, 0.642, 8.72, 0.157 |
+| R0003 | SUPPORTED_CORRECT | 6 | **6** (all) | 1.48e-3 … 3.82e-2 |
+
+The three R0044 declines are all `TransitLeavesNeighbour`, each with a
+material second crossing — v75 (+11.17 → −17.25), v76 (+1.83 → −30.46),
+v59 (+3.86 → −0.307). They are honest declines, not solver artifacts:
+those steps overrun 17–30 units past a second crease, so a single
+transit does not reach their true junction.
+
+**What this measures for the eventual flip.** §3t's binding constraint
+was that the STOP can never be armed, because R0003 carries the same
+defect and survives it. The repair does not inherit that constraint: it
+is DETERMINED on all six of R0003's sites, at corrections of 1e-3 …
+4e-2 — sub-chord nudges toward positions that are, by construction,
+exactly on all three of their surfaces and inside their face's domain.
+That is the shape §3t asked for — *"only the repair distinguishes them,
+by fixing both"* — rather than a magnitude discriminator between them.
+
+**NOT built here: the emission half (3b-12b-1).** Moving v47 to `J`
+alone does NOT fix R0044's `FaceId(627)`, and the census makes the
+reason precise: `J` lies on cone 626 BY CONSTRUCTION, so it is no more
+inside 627's domain than `X` was (both sit past 627's bounding rim; §3s
+measured `X` at 627-station 2124.192 against a rim at 2123.365). The
+repair is not a relocation but a RE-TERMINATION: face 627's two chains
+must end at `q1`/`q2`, which are ON the crease that bounds 627, the
+crease must split there, and the span beyond belongs to face 626 as the
+notch it currently lacks (through `J`). That is topology construction
+across two faces, and it is the next increment. This one exists to make
+that build determined rather than exploratory — and to establish, before
+any of it is wired, that the analytic half reproduces values measured
+independently of it.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -2037,6 +2132,34 @@ having but is not a conversion.
   structural — the band-tuning P10 forbids).** Detection only; the
   repair (truncate → transit → q-points, splitting the crease so 626
   receives its notch) is 3b-12b.
+- **inc-2c-3b-12b-0** (2026-09-01): the §4.5.1 REPAIR SOLVER landed as
+  a pure function (§3u) — `solve_crease_transit` executes the paper's
+  four steps in its order (truncate to `C_b` → transit onto `S1` →
+  certify → solve `q1`/`q2` on `C_b`), composing four primitives that
+  already existed (`project_onto_curve`, `crease_circle_from_pair`,
+  `relocate_onto_implicit_triple`, `circle_surface_roots`). Its honesty
+  postcondition re-applies the §3t certificate to the corrected step, so
+  a transit that leaves the NEIGHBOUR's domain in turn is a typed
+  decline carrying its own measured residuals, never an iteration.
+  **Validated against §3s's independently-derived values**: the
+  correction reproduces 0.138 and both q-points agree to their last
+  recorded digit (1.4e-6 / 1.1e-6) — and two unplanned cross-validations
+  fell out, v38's `q2` ≡ v47's `j` to 6.4e-13 (inside the ~1.1e-11
+  evaluation band; the same physical point by two unrelated paths) and
+  R0003's v8658/v11356 to 2.8e-14. **Census: 11 of 14 sites DETERMINED —
+  R0044 5/8 (corrections 0.138 … 8.72; three honest
+  `TransitLeavesNeighbour` declines at 17–30-unit second overruns) and
+  R0003 6/6 (1.48e-3 … 3.82e-2).** That R0003 row is what §3t's binding
+  constraint asked for: the repair is determined on the SUPPORTED_CORRECT
+  case too, so the two populations are separated by fixing both rather
+  than by a magnitude band. 5 new unit tests on an exactly-constructed
+  fixture (66² + 88² = 110², so every expected value is closed-form
+  rather than transcribed). Census-only: reachable solely under
+  `YANG_451_TRIPLE_DOMAIN`, default path untouched. The emission half —
+  re-terminating 627's chains at the q-points, splitting the crease and
+  building 626's notch through `J` — is 3b-12b-1, and the census
+  establishes WHY it cannot be a relocation: `J` is on cone 626 by
+  construction, so it is no more inside 627's domain than `X` was.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,
