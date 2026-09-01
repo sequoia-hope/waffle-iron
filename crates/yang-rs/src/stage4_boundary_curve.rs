@@ -1258,3 +1258,225 @@ pub(crate) fn solve_crease_transit(
         q_margin: margins,
     })
 }
+
+// ---------------------------------------------------------------------------
+// §4.5.1 inc-2c-3b-12b-1 — the EMISSION-half site anatomy (pure; census-only)
+// ---------------------------------------------------------------------------
+
+/// One incident triangle of an out-of-domain site, as the emission half must
+/// see it: which input face it descends from, and where its two other corners
+/// sit relative to the crossed crease.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct FanTri {
+    pub(crate) tri: u32,
+    /// The triangle's input-face attribution, or `None` when no 2-of-3
+    /// majority claimed it (a triangle built entirely from new intersection
+    /// vertices).
+    pub(crate) face: Option<(InputId, u32)>,
+    /// The two corners other than the site vertex.
+    pub(crate) other: [u32; 2],
+    /// Their signed crease-plane distances, same order.
+    pub(crate) d_other: [f64; 2],
+}
+
+/// Which side of the crease a one-ring neighbour sits on, judged the same way
+/// the trigger judges the step: a MEMBERSHIP test first (a vertex on both
+/// forming surfaces within their own bands is ON the crease and belongs to
+/// both faces), then the sign.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CreaseSide {
+    /// Same side as the site's PRE position — inside the face that owns it.
+    Home,
+    /// On the crease itself; belongs to both faces.
+    On,
+    /// Same side as the out-of-domain solution — already across.
+    Past,
+}
+
+/// The local mesh anatomy of one out-of-domain relocation site.
+///
+/// The analytic half ([`solve_crease_transit`]) answers WHERE the corner
+/// belongs; this answers WHAT the mesh currently has there, which is what the
+/// emission half must edit. It is a measurement, not a plan: every field is a
+/// count or a distance the census can print, and nothing here mutates.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TransitSiteAnatomy {
+    /// The site's incident triangles.
+    pub(crate) fan: Vec<FanTri>,
+    /// One-ring neighbours with their crease-plane distance and side.
+    pub(crate) ring: Vec<(u32, f64, CreaseSide)>,
+    /// Neighbour counts by side, in `Home`/`On`/`Past` order.
+    pub(crate) sides: [usize; 3],
+    /// Distinct input faces in the fan, with how many triangles each claims,
+    /// in descending count order (ties by face id) — the census reading of
+    /// "which face owns this corner today".
+    pub(crate) fan_faces: Vec<(Option<(InputId, u32)>, usize)>,
+    /// For `q1`/`q2`: the mesh edge lying ON the crease that hosts it.
+    /// `None` when the local mesh carries no crease edge at all.
+    pub(crate) q_hosts: [Option<QHost>; 2],
+}
+
+/// The mesh edge ON the crease that is nearest one q-point — the segment the
+/// emission half would have to split, measured rather than assumed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct QHost {
+    pub(crate) a: u32,
+    pub(crate) b: u32,
+    /// Parameter of the closest point along `a → b`, clamped to `[0, 1]`.
+    pub(crate) t: f64,
+    /// Distance from the q-point to that segment. The q-point is EXACT on the
+    /// crease circle, so this is the chord's own sag, not an error in `q`.
+    pub(crate) dist: f64,
+    /// The segment's length — the local resolution of the crease chain.
+    pub(crate) len: f64,
+    /// Whether the segment is incident to the site's own fan, i.e. whether the
+    /// split the repair needs is inside the region it is editing.
+    pub(crate) in_fan: bool,
+}
+
+/// Measure the local mesh anatomy of a site `crease_crossed_by_step` fired on.
+///
+/// `v` is the site vertex, still at its PRE position in `mesh` (the caller
+/// probes before committing the relocation); `crease` is the crossed entry;
+/// `d_post` is the out-of-domain solution's signed crease-plane distance,
+/// whose SIGN defines the `Past` side. `qs` are the repair's two q-points.
+///
+/// O(triangles) — one scan for the fan and one for the crease edges. Pure.
+pub(crate) fn transit_site_anatomy(
+    mesh: &Mesh,
+    attribution: &crate::brep::TriangleAttributionMap,
+    v: u32,
+    crease: &(Curve, Surface, Surface),
+    d_post: f64,
+    qs: [Point3; 2],
+) -> Option<TransitSiteAnatomy> {
+    let (c_b, s_own, s_nbr) = *crease;
+    let plane = crease_plane(&c_b)?;
+    let past_is_neg = d_post < 0.0;
+
+    let dist = |u: u32| surface_distance(plane, mesh.verts[u as usize]).unwrap_or(f64::NAN);
+    let side = |u: u32, d: f64| -> CreaseSide {
+        if on_crease(mesh.verts[u as usize], s_own, s_nbr) {
+            CreaseSide::On
+        } else if (d < 0.0) == past_is_neg {
+            CreaseSide::Past
+        } else {
+            CreaseSide::Home
+        }
+    };
+
+    // --- the fan and its one ring ------------------------------------------
+    let mut fan: Vec<FanTri> = Vec::new();
+    let mut ring_ids: Vec<u32> = Vec::new();
+    for (ti, t) in mesh.tris.iter().enumerate() {
+        let Some(k) = t.iter().position(|&x| x == v) else {
+            continue;
+        };
+        let other = [t[(k + 1) % 3], t[(k + 2) % 3]];
+        fan.push(FanTri {
+            tri: ti as u32,
+            face: attribution.lookup(ti as u32).map(|a| (a.input, a.face)),
+            other,
+            d_other: [dist(other[0]), dist(other[1])],
+        });
+        ring_ids.extend_from_slice(&other);
+    }
+    if fan.is_empty() {
+        return None;
+    }
+    ring_ids.sort_unstable();
+    ring_ids.dedup();
+
+    let mut sides = [0usize; 3];
+    let ring: Vec<(u32, f64, CreaseSide)> = ring_ids
+        .iter()
+        .map(|&u| {
+            let d = dist(u);
+            let s = side(u, d);
+            sides[match s {
+                CreaseSide::Home => 0,
+                CreaseSide::On => 1,
+                CreaseSide::Past => 2,
+            }] += 1;
+            (u, d, s)
+        })
+        .collect();
+
+    // --- which face owns the fan today -------------------------------------
+    let mut counts: Vec<(Option<(InputId, u32)>, usize)> = Vec::new();
+    for f in fan.iter().map(|t| t.face) {
+        match counts.iter_mut().find(|(k, _)| *k == f) {
+            Some(slot) => slot.1 += 1,
+            None => counts.push((f, 1)),
+        }
+    }
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    // --- the crease's own mesh edges, and which hosts each q-point ---------
+    // An edge lies ON the crease when BOTH endpoints do (the same membership
+    // test the trigger exempts on) — that is the rim chain the repair must
+    // split at `q1`/`q2`.
+    let fan_verts: std::collections::BTreeSet<u32> = fan
+        .iter()
+        .flat_map(|t| [v, t.other[0], t.other[1]])
+        .collect();
+    let mut q_hosts: [Option<QHost>; 2] = [None, None];
+    let mut on_c: std::collections::BTreeMap<u32, bool> = std::collections::BTreeMap::new();
+    let mut is_on = |u: u32| -> bool {
+        *on_c
+            .entry(u)
+            .or_insert_with(|| on_crease(mesh.verts[u as usize], s_own, s_nbr))
+    };
+    let mut edges: Vec<(u32, u32)> = Vec::new();
+    for t in &mesh.tris {
+        for (i, &x) in t.iter().enumerate() {
+            let y = t[(i + 1) % 3];
+            let (lo, hi) = if x < y { (x, y) } else { (y, x) };
+            if is_on(lo) && is_on(hi) {
+                edges.push((lo, hi));
+            }
+        }
+    }
+    edges.sort_unstable();
+    edges.dedup();
+    for (qi, q) in qs.iter().enumerate() {
+        let mut best: Option<QHost> = None;
+        for &(x, y) in &edges {
+            let (a, b) = (
+                mesh.verts[x as usize].as_array(),
+                mesh.verts[y as usize].as_array(),
+            );
+            let qa = q.as_array();
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let len2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+            if len2 <= 0.0 {
+                continue;
+            }
+            let aq = [qa[0] - a[0], qa[1] - a[1], qa[2] - a[2]];
+            let t = ((aq[0] * ab[0] + aq[1] * ab[1] + aq[2] * ab[2]) / len2).clamp(0.0, 1.0);
+            let d = ((aq[0] - t * ab[0]).powi(2)
+                + (aq[1] - t * ab[1]).powi(2)
+                + (aq[2] - t * ab[2]).powi(2))
+            .sqrt();
+            if best.is_none_or(|h| d < h.dist) {
+                best = Some(QHost {
+                    a: x,
+                    b: y,
+                    t,
+                    dist: d,
+                    len: len2.sqrt(),
+                    in_fan: fan_verts.contains(&x) && fan_verts.contains(&y),
+                });
+            }
+        }
+        q_hosts[qi] = best;
+    }
+
+    Some(TransitSiteAnatomy {
+        fan,
+        ring,
+        sides,
+        fan_faces: counts,
+        q_hosts,
+    })
+}

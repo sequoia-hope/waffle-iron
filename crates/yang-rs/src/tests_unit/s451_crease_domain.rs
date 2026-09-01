@@ -581,3 +581,217 @@ fn a_step_that_does_not_cross_has_no_truncation() {
         "expected NoTruncation, got {got:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// inc-2c-3b-12b-1 — the EMISSION-half site anatomy
+// ---------------------------------------------------------------------------
+
+/// The mesh the emission half would have to edit, built on the SAME exact
+/// fixture as the repair solver so the two halves are pinned against one
+/// geometry rather than two.
+///
+/// The site vertex is the defect `X = (66, 88, 110)` — 10 past cone A's own
+/// crease (the circle `z = 100`, `r = 100`). Its one ring is deliberately
+/// mixed, one vertex of each class the classifier has to separate:
+///
+/// * `v1 = (100, 0, 100)` and `v2 = (0, 100, 100)` — ON the crease (on both
+///   cones exactly), and their shared mesh edge IS the crease chain locally;
+/// * `v3 = (30, 40, 50)` and `v4 = (45, 60, 75)` — on cone A inside its own
+///   band, i.e. HOME;
+/// * `v5 = (72, 96, 120)` — on cone A but PAST the crease, the shape a
+///   neighbouring site that has already been relocated leaves behind
+///   (measured on R0044: v39's ring carries v38 at its recorded `d_post`).
+///
+/// Every vertex is exactly on its cone by construction (`3-4-5` triples
+/// scaled), so no coordinate here is a transcription.
+fn anatomy_fixture() -> (crate::Mesh, crate::brep::TriangleAttributionMap) {
+    let mesh = crate::Mesh::new(
+        vec![
+            Point3::new(66.0, 88.0, 110.0), // 0: the site, past the crease
+            Point3::new(100.0, 0.0, 100.0), // 1: on the crease
+            Point3::new(0.0, 100.0, 100.0), // 2: on the crease
+            Point3::new(30.0, 40.0, 50.0),  // 3: home
+            Point3::new(45.0, 60.0, 75.0),  // 4: home
+            Point3::new(72.0, 96.0, 120.0), // 5: past
+        ],
+        vec![[0, 1, 2], [0, 2, 3], [0, 3, 4], [0, 4, 5], [0, 5, 1]],
+    );
+    let attribution = crate::brep::TriangleAttributionMap {
+        attributions: vec![
+            Some(crate::brep::TriangleAttribution {
+                input: InputId::B,
+                face: 7,
+            }),
+            Some(crate::brep::TriangleAttribution {
+                input: InputId::B,
+                face: 7,
+            }),
+            Some(crate::brep::TriangleAttribution {
+                input: InputId::A,
+                face: 2,
+            }),
+            None,
+            Some(crate::brep::TriangleAttribution {
+                input: InputId::B,
+                face: 7,
+            }),
+        ],
+    };
+    (mesh, attribution)
+}
+
+/// The anatomy separates the one ring into the three classes the repair has to
+/// treat differently — HOME stays, ON is the crease chain to split, PAST is
+/// already across — and names the face that owns the fan today.
+#[test]
+fn the_site_anatomy_classifies_its_one_ring_and_names_the_owning_face() {
+    use crate::stage4_boundary_curve::{surface_distance_pub, transit_site_anatomy, CreaseSide};
+    let (cone_a, cone_b, _, _) = transit_fixture();
+    let c_b = crease_circle_from_pair(cone_a, cone_b).expect("coaxial cones share a circle");
+    let plane = crease_plane(&c_b).expect("a circle has a plane");
+    let (mesh, attribution) = anatomy_fixture();
+    // Taken from the fixture rather than assumed, so the test does not depend
+    // on which way the derived crease circle's normal happens to point.
+    let d_post = surface_distance_pub(plane, mesh.verts[0]).expect("plane evaluates");
+
+    let an = transit_site_anatomy(
+        &mesh,
+        &attribution,
+        0,
+        &(c_b, cone_a, cone_b),
+        d_post,
+        [mesh.verts[0], mesh.verts[0]],
+    )
+    .expect("the site has a fan");
+
+    assert_eq!(an.fan.len(), 5, "every incident triangle is in the fan");
+    assert_eq!(an.ring.len(), 5, "the one ring is v1..v5");
+    // 2 home (v3, v4), 2 on the crease (v1, v2), 1 already past (v5).
+    assert_eq!(an.sides, [2, 2, 1]);
+    let class = |u: u32| an.ring.iter().find(|(x, _, _)| *x == u).expect("in ring").2;
+    assert_eq!(class(1), CreaseSide::On);
+    assert_eq!(class(2), CreaseSide::On);
+    assert_eq!(class(3), CreaseSide::Home);
+    assert_eq!(class(4), CreaseSide::Home);
+    assert_eq!(class(5), CreaseSide::Past);
+
+    // Descending count, ties by key — and `None` sorts before `Some` (a
+    // triangle no attribution claimed is a distinct answer, not a missing one).
+    assert_eq!(
+        an.fan_faces,
+        vec![
+            (Some((InputId::B, 7)), 3),
+            (None, 1),
+            (Some((InputId::A, 2)), 1),
+        ]
+    );
+}
+
+/// The q-points' host is the mesh edge lying ON the crease, and the anatomy
+/// carries that edge's own length and sag — the measurement that says whether
+/// the repair can split what the mesh already has (R0003) or must refine it
+/// first (R0044: a 558-long rim chord with the q-points 10.4 off it).
+#[test]
+fn the_q_host_is_the_crease_edge_and_carries_its_own_sag() {
+    use crate::stage4_boundary_curve::{
+        solve_crease_transit, surface_distance_pub, transit_site_anatomy,
+    };
+    let (cone_a, cone_b, plane_x, plane_y) = transit_fixture();
+    let c_b = crease_circle_from_pair(cone_a, cone_b).expect("coaxial cones share a circle");
+    let plane = crease_plane(&c_b).expect("a circle has a plane");
+    let (mesh, attribution) = anatomy_fixture();
+    let x_bad = mesh.verts[0];
+
+    // The repair's own q-points, not transcribed ones: the two halves are
+    // pinned against one geometry.
+    let t = solve_crease_transit(
+        Point3::new(60.0, 80.0, 99.0),
+        x_bad,
+        &[plane_x, plane_y, cone_a],
+        &(c_b, cone_a, cone_b),
+        &[],
+    )
+    .expect("the fixture step transits");
+
+    let an = transit_site_anatomy(
+        &mesh,
+        &attribution,
+        0,
+        &(c_b, cone_a, cone_b),
+        surface_distance_pub(plane, x_bad).expect("plane evaluates"),
+        [t.q1, t.q2],
+    )
+    .expect("the site has a fan");
+
+    let sub = |p: Point3, q: Point3| {
+        let (a, b) = (p.as_array(), q.as_array());
+        [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+    };
+    let ab = sub(mesh.verts[2], mesh.verts[1]);
+    let ab_len = (ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2]).sqrt();
+
+    for (i, q) in [t.q1, t.q2].iter().enumerate() {
+        let h = an.q_hosts[i].expect("the crease edge hosts both q-points");
+        // v1-v2 is the ONLY edge with both ends on the crease; both q-points
+        // must find it, and it is inside the fan being edited.
+        assert_eq!((h.a, h.b), (1, 2));
+        assert!(h.in_fan);
+        assert!(
+            (h.len - ab_len).abs() < 1e-9,
+            "host length is the edge's own"
+        );
+        // `dist` checked by a DIFFERENT route than the code's projection: the
+        // cross-product distance from the point to the segment's line, which
+        // agrees exactly when (and only when) the foot is interior.
+        let aq = sub(*q, mesh.verts[1]);
+        let cross = [
+            aq[1] * ab[2] - aq[2] * ab[1],
+            aq[2] * ab[0] - aq[0] * ab[2],
+            aq[0] * ab[1] - aq[1] * ab[0],
+        ];
+        let d_line =
+            (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt() / ab_len;
+        assert!(
+            (h.dist - d_line).abs() < 1e-9,
+            "q{} sag {} vs cross-product {d_line}",
+            i + 1,
+            h.dist
+        );
+        // And `t` is the foot's parameter: the residual is perpendicular to
+        // the edge. (Independent of the projection formula that produced it.)
+        let foot = [
+            mesh.verts[1].as_array()[0] + h.t * ab[0],
+            mesh.verts[1].as_array()[1] + h.t * ab[1],
+            mesh.verts[1].as_array()[2] + h.t * ab[2],
+        ];
+        let qa = q.as_array();
+        let resid = [qa[0] - foot[0], qa[1] - foot[1], qa[2] - foot[2]];
+        let dot = resid[0] * ab[0] + resid[1] * ab[1] + resid[2] * ab[2];
+        assert!(
+            dot.abs() < 1e-9,
+            "foot is the perpendicular one (dot {dot})"
+        );
+        assert!(h.t > 0.0 && h.t < 1.0, "the foot is interior to the edge");
+    }
+}
+
+/// A vertex no triangle uses has no anatomy — reported as absent, never as an
+/// empty fan the caller could mistake for "measured, nothing there".
+#[test]
+fn a_vertex_with_no_incident_triangles_has_no_anatomy() {
+    use crate::stage4_boundary_curve::transit_site_anatomy;
+    let (cone_a, cone_b, _, _) = transit_fixture();
+    let c_b = crease_circle_from_pair(cone_a, cone_b).expect("coaxial cones share a circle");
+    let (mut mesh, attribution) = anatomy_fixture();
+    mesh.verts.push(Point3::new(1.0, 2.0, 3.0));
+    let orphan = (mesh.verts.len() - 1) as u32;
+    assert!(transit_site_anatomy(
+        &mesh,
+        &attribution,
+        orphan,
+        &(c_b, cone_a, cone_b),
+        10.0,
+        [Point3::new(0.0, 0.0, 0.0); 2],
+    )
+    .is_none());
+}

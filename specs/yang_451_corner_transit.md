@@ -1897,6 +1897,145 @@ that build determined rather than exploratory — and to establish, before
 any of it is wired, that the analytic half reproduces values measured
 independently of it.
 
+## 3v. inc-2c-3b-12b-1 — the EMISSION-half site ANATOMY (LANDED, pure;
+census-only)
+
+§3u's solver answers WHERE the corner belongs. This answers WHAT the mesh has
+there today — the thing the emission half must edit — and it is a measurement,
+not a plan. `transit_site_anatomy` (`stage4_boundary_curve.rs`) is pure and
+returns only counts and distances:
+
+* the site's incident fan, each triangle with its input-face attribution and
+  its two other corners' crease-plane distances;
+* the one ring, each neighbour classified `Home` / `On` / `Past` — membership
+  first (`on_crease`, the trigger's own exemption), then sign;
+* the distinct input faces in the fan with their counts, descending;
+* for each q-point, the mesh edge lying ON the crease that is nearest it, with
+  that edge's `len`, the q-point's `dist` from it, and whether it is IN the
+  fan. The q-point is exact on the crease circle, so `dist` is the mesh
+  chain's own sag, never an error in `q`.
+
+Reachable only under `YANG_451_TRANSIT_ANATOMY` inside the existing
+`YANG_451_TRIPLE_DOMAIN=census` block; the default path is untouched.
+
+**CENSUS — all 11 determined sites, both firing cases.**
+
+| case | v | fan | home/on/past | fan faces | q-host edge | len | q sag |
+|---|---|---|---|---|---|---|---|
+| R0044 | 47 | 6 | 4/2/0 | (B,168)×4, (A,2), (A,3) | 981–6911 **in fan** | 558.53 | 10.389 / 10.363 |
+| R0044 | 89 | 5 | 3/1/1 | (A,2)×2, (B,1)×2, (B,381) | 1194–14132 | 141.01 | 1.348 / 4.8e-12 |
+| R0044 | 38 | 5 | 4/1/0 | (A,2)×3, (B,166), (B,167) | 9–11 | 294.44 | **497.87 / 497.81** |
+| R0044 | 39 | 5 | 2/1/2 | (A,2)×3, (B,165), (B,166) | 9–11 | 294.44 | **497.87 / 498.95** |
+| R0044 | 105 | 7 | 4/1/2 | (A,2)×5, (B,1), (B,360) | 1339–16095 | 184.43 | 0.217 / 6.1e-12 |
+| R0003 | 1983 | 6 | 2/4/0 | (A,8)×4, (B,0), (B,4) | 1963–1967 / 1965–1968 **in fan** | 21.22 / 8.36 | 1.7e-12 / 2.5e-13 |
+| R0003 | 7611 | 6 | 4/2/0 | (A,324)×4, (B,0), (B,3) | 7608–7609 | 24.34 | 7.470 / 7.956 |
+| R0003 | 8658 | 9 | 5/4/0 | (A,376)×4, (B,4)×3, (B,0)×2 | 8638–8642 / 8640–8643 **in fan** | 19.18 / 11.04 | 2.6e-14 / 2.2e-14 |
+| R0003 | 8809 | 6 | 4/2/0 | (A,386)×4, (B,0), (B,4) | 8811–8813 | 29.94 | 10.532 / 9.194 |
+| R0003 | 9336 | 7 | 1/2/4 | (A,419)×4, (B,0)×2, (B,4) | 9338–9340 | 29.49 | 9.121 / 7.969 |
+| R0003 | 11356 | 6 | 4/2/0 | (A,376)×4, (B,0), (B,4) | 11328–11332 / 11330–11333 **in fan** | 19.18 / 1.00 | 7.6e-15 / 6.5e-14 |
+
+**Reading 1 — the anatomy is ONE shape, eleven times.** Every site's fan
+straddles EXACTLY three input faces: one dominant patch (4–5 triangles) and
+two others. That is the corner itself — two chains leaving the vertex,
+separating three patches — and it is the same object in the ERROR case and in
+the SUPPORTED_CORRECT one. So the repair's edit unit is that three-face fan,
+and it is not R0044-shaped.
+
+For v47 the three are named exactly: `(B,168)` is the cone patch (4
+triangles), `(A,2)` the cylinder lateral and `(A,3)` the cylinder cap, ONE
+triangle each. The fan cycle is `45 → 44 → 280 → 981 → 6911 → 6945 → 45`, so
+edge `v47–45` separates lateral from cone (the SurfacePair chain) and
+`v47–280` separates cap from cone (the hyperbola chain) — the two chains the
+emission half has to re-terminate, identified from the attribution rather than
+from the curve labels.
+
+**Reading 2 — the `Past` neighbours are already-relocated SIBLINGS, not
+independent defects.** R0044's v39 ring carries v38 at `−3.092587e-1`, which
+is v38's own `d_post` from §3t's table against the SAME crease (`1/5`), bit
+for bit: the loop relocates v38 before it examines v39. So R0044's v38 / v39 /
+v59 are one adjacent cluster, and a per-site repair would edit a fan whose
+neighbour has already moved. The repair unit for that cluster is the cluster —
+the same lesson §3d reached for the corridor, now at the emission layer.
+
+**Reading 3 — and this is the consequential one — the q-points'
+REPRESENTABILITY splits the population, structurally.** Three distinct
+situations, and only the first is a pure relocation:
+
+1. **The mesh already carries the corner** (R0003 v1983, v8658, v11356): both
+   q-points ARE existing one-ring vertices of the site, agreeing to
+   **7.6e-15 … 1.7e-12** (host parameter `t = 1`, i.e. the edge's far
+   endpoint, and every one of them classified `On`). The repair is the
+   relocation to `J` and nothing else — no split, no new vertex, no
+   re-triangulation.
+2. **The crease is carried but too coarsely** (R0044 v47): the host edge is in
+   the fan and on the crease, but it is a **558.53-long rim chord with the
+   q-points 10.39 / 10.36 off it**, at `t ≈ 0.428` — mid-chord, where the sag
+   is largest. The two q-points are 2.285 apart on a chord 558 long. Splitting
+   this is a REFINEMENT of the rim chain against its analytic circle, not an
+   insertion into it.
+3. **The crease is not carried at all near the site** (the remaining 7). For
+   R0044 v38/v39 the nearest crease-carrying edge in the whole mesh is
+   **497.9 away** and is 294.4 long, while their own q-points sit ~7 from the
+   site: the crease they overrun (`1/5`, the cylinder's own end circle) has no
+   local mesh representation whatsoever.
+
+This is the discriminator §3t went looking for and correctly refused to find
+in a magnitude band. The two populations are not separated by how far they
+overrun; they are separated by **whether the mesh carries the crease at the
+resolution the corner needs**. R0003 survives its out-of-domain relocations
+with the corner already present in the mesh; R0044 does not.
+
+**The corrected topology of `FaceId(627)`, from the emitted loop's own
+coordinates.** Charting all 13 half-edges into face 627's cone frame (station
+`h`, radius, azimuth about the shared axis):
+
+| node | h | radius | azimuth |
+|---|---|---|---|
+| B (notch start) | 2047.1031 | 3548.9438 | −65.705° |
+| A (SurfacePair) | 2090.5715 | 3624.3025 | −64.418° |
+| **X (notch tip)** | **2124.1922** | 3682.5887 | −63.406° |
+| C (hyperbola) | 2080.7189 | 3607.2216 | −62.840° |
+| D (notch end) | 2047.1031 | 3548.9438 | −62.382° |
+| E1 → E2 (generator) | 2047.1031 → 2123.3647 | | −59.705° |
+| H → I (generator) | 2123.3647 → 2047.1031 | | −4.263° |
+| q1 = P_lat | 2123.3647 | 3681.1541 | −63.4308° |
+| q2 = P_cap | 2123.3647 | 3681.1541 | −63.3952° |
+
+The band is `h ∈ [2047.1031, 2123.3647]` and the face is a **304.56° sector**
+of it, closed by the two generators. Three facts follow, all computed:
+
+* the notch spans the FULL band height — both its ends, B and D, are exactly
+  on the LOWER rim (2047.1031 / 3548.9438), not merely near it;
+* its tip exceeds the TOP rim by **0.827** (2124.1922 − 2123.3647);
+* the exit window on the top rim is **0.0356° = 2.285 of arc**, which is §3s's
+  independently measured "chart width 2.29", now reproduced from the loop's
+  own coordinates; and the loop's own top-rim run (E2 at −59.705° sweeping to
+  H at −4.263°) covers the notch's azimuth, which is exactly why the ring
+  self-intersects it twice.
+
+Because the notch already reaches the bottom rim, the corrected emission does
+not merely DENT face 627's top edge — it **cuts the sector in two**: a small
+piece spanning azimuth [−63.395°, −59.705°] (hyperbola leg, bottom rim D→E1,
+generator, top rim back to q2) and the rest [−63.431° → the long way →
+−4.263°]. Face 626 is dented only, as §3s measured (`J` is 0.932 past the
+shared rail of a 1.194-wide strip and 0.262 short of the far one), and its
+loop is confirmed here to be the clean 8-edge one — 6 arcs + 2 line segments,
+sharing 627's top-rim nodes H/G/F/E2 in reverse.
+
+**That face split is not something the repair constructs.** It falls out of
+`flood_fill_patches` once the mesh past the crease is re-attributed: the
+patch simply has two components. Which is the argument for doing the emission
+half in the MESH and letting Stage 5 emit what it finds, rather than editing
+loops — and it is why the anatomy above (fan, attribution, crease chain) is
+the right thing to have measured first.
+
+**Not built here.** The mesh edit. The census says it is three builds, not
+one, and names the cheapest: situation 1 is a relocation with no surgery, and
+it covers 3 of the 11 sites — all in the case that is already CORRECT, so it
+converts nothing on its own and is the honest place to prove the machinery.
+Situation 2 (v47, the case that actually fails) needs the rim chain refined at
+two analytically determined points before the corner is representable at all.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -2160,6 +2299,32 @@ independently of it.
   building 626's notch through `J` — is 3b-12b-1, and the census
   establishes WHY it cannot be a relocation: `J` is on cone 626 by
   construction, so it is no more inside 627's domain than `X` was.
+- **inc-2c-3b-12b-1** (2026-09-01, same session): the EMISSION-half site
+  ANATOMY landed pure + census-only (`transit_site_anatomy`, gated
+  `YANG_451_TRANSIT_ANATOMY`), and MEASURED on all 11 determined sites
+  (§3v). Three readings. (a) The anatomy is ONE shape eleven times: every
+  fan straddles exactly THREE input faces, and for v47 the attribution
+  names the two chains directly (`v47–45` lateral/cone = the SurfacePair,
+  `v47–280` cap/cone = the hyperbola). (b) The `Past` one-ring
+  neighbours are already-relocated SIBLINGS — R0044's v39 ring carries
+  v38 at its own recorded `d_post` (−3.092587e-1, same crease) — so
+  v38/v39/v59 are one cluster and the repair unit is the cluster.
+  (c) **The q-points' REPRESENTABILITY splits the population
+  structurally**, which is the discriminator §3t refused to take as a
+  magnitude band: in 3 sites (R0003 v1983/v8658/v11356) both q-points ARE
+  existing one-ring vertices to 7.6e-15 … 1.7e-12, so the repair is the
+  relocation and nothing else; in R0044 v47 the crease is carried but as
+  a 558.53-long rim chord with the q-points 10.39/10.36 off it at
+  mid-chord, so the corner is not representable without refining the
+  chain; and in the remaining 7 the crease has no local mesh chain at all
+  (v38/v39: nearest is 497.9 away). Also charted `FaceId(627)`'s emitted
+  loop in its own cone frame: the notch spans the FULL band height (both
+  ends exactly on the lower rim), exceeds the top rim by 0.827, and exits
+  through a 2.285-arc window — reproducing §3s's independently measured
+  2.29 chart width from the loop's own coordinates — so the corrected
+  emission CUTS the 304.56° sector in two rather than denting it, a split
+  that falls out of `flood_fill_patches` once the mesh is re-attributed
+  rather than being constructed. 3 new unit tests on the §3u fixture.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

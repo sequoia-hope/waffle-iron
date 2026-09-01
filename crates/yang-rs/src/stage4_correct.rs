@@ -10371,18 +10371,72 @@ fn stage4_relocate_and_correct_inner(
                         &creases[ci],
                         &nbr_creases,
                     ) {
-                        Ok(t) => eprintln!(
-                            "[s451-transit-solve] case={} v={v} OK correction={:.6e} \
-                             s_nbr={:?} j={:?} p_trunc={:?} q1={:?} q2={:?} q_margin={:?}",
-                            std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into()),
-                            t.correction,
-                            t.s_nbr,
-                            t.j.as_array(),
-                            t.p_trunc.as_array(),
-                            t.q1.as_array(),
-                            t.q2.as_array(),
-                            t.q_margin
-                        ),
+                        Ok(t) => {
+                            eprintln!(
+                                "[s451-transit-solve] case={} v={v} OK correction={:.6e} \
+                                 s_nbr={:?} j={:?} p_trunc={:?} q1={:?} q2={:?} q_margin={:?}",
+                                std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into()),
+                                t.correction,
+                                t.s_nbr,
+                                t.j.as_array(),
+                                t.p_trunc.as_array(),
+                                t.q1.as_array(),
+                                t.q2.as_array(),
+                                t.q_margin
+                            );
+                            // inc-2c-3b-12b-1: the EMISSION-half anatomy. The
+                            // solver says where the corner belongs; this says
+                            // what the mesh has there today — the fan, its
+                            // face attribution, which one-ring neighbours are
+                            // already across the crease, and which crease edge
+                            // hosts each q-point. Measured BEFORE any of the
+                            // re-termination is designed.
+                            if std::env::var_os("YANG_451_TRANSIT_ANATOMY").is_some() {
+                                match crate::stage4_boundary_curve::transit_site_anatomy(
+                                    mesh,
+                                    attribution,
+                                    v,
+                                    &creases[ci],
+                                    fq,
+                                    [t.q1, t.q2],
+                                ) {
+                                    Some(an) => {
+                                        eprintln!(
+                                            "[s451-anatomy] case={} v={v} fan={} ring={} \
+                                             sides(home/on/past)={:?} fan_faces={:?} \
+                                             q_hosts={:?}",
+                                            std::env::var("ASSAY_CASE")
+                                                .unwrap_or_else(|_| "-".into()),
+                                            an.fan.len(),
+                                            an.ring.len(),
+                                            an.sides,
+                                            an.fan_faces,
+                                            an.q_hosts
+                                        );
+                                        for (u, d, sd) in &an.ring {
+                                            eprintln!(
+                                                "[s451-anatomy]   ring v={u} d={d:.6e} {sd:?}"
+                                            );
+                                        }
+                                        for ft in &an.fan {
+                                            eprintln!(
+                                                "[s451-anatomy]   tri={} face={:?} other={:?} \
+                                                 d_other=[{:.6e},{:.6e}]",
+                                                ft.tri,
+                                                ft.face,
+                                                ft.other,
+                                                ft.d_other[0],
+                                                ft.d_other[1]
+                                            );
+                                        }
+                                    }
+                                    None => eprintln!(
+                                        "[s451-anatomy] case={} v={v} UNAVAILABLE",
+                                        std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
+                                    ),
+                                }
+                            }
+                        }
                         Err(e) => eprintln!(
                             "[s451-transit-solve] case={} v={v} DECLINE {e:?}",
                             std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())

@@ -987,8 +987,34 @@ name, never measured).
    construction, so it is no more inside 627's domain than `X` was; the
    repair is a RE-TERMINATION of 627's chains at the q-points (which
    are ON the crease bounding 627), a crease split there, and 626's
-   notch through `J`. R0044's gate set (FOUR
-   knobs): `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1
+   notch through `J`. **inc-2c-3b-12b-1** (2026-09-01, same session)
+   then MEASURED what the mesh actually has at those sites, pure and
+   census-only (`transit_site_anatomy`, `YANG_451_TRANSIT_ANATOMY`;
+   spec §3v): the fan with per-triangle input-face attribution, the one
+   ring classified Home/On/Past, and for each q-point the crease-carrying
+   mesh edge nearest it with that edge's length and the q-point's sag
+   off it. Three readings across all 11 determined sites. (a) The
+   anatomy is ONE shape eleven times — every fan straddles EXACTLY
+   three input faces, and for v47 the attribution names the two chains
+   directly. (b) The `Past` one-ring neighbours are already-relocated
+   SIBLINGS (v39's ring carries v38 at its own recorded `d_post`), so
+   R0044's v38/v39/v59 is a cluster and the repair unit is the cluster.
+   (c) **The q-points' REPRESENTABILITY splits the population
+   structurally** — the discriminator §3t rightly refused to take as a
+   magnitude band. In 3 sites (R0003 v1983/v8658/v11356) both q-points
+   ARE existing one-ring vertices to 7.6e-15 … 1.7e-12, so the repair
+   is the relocation and nothing else; in R0044 v47 the crease is
+   carried but as a 558.53-long rim chord with the q-points 10.39/10.36
+   off it at mid-chord; in the remaining 7 the crease has no local mesh
+   chain at all (v38/v39: nearest 497.9 away). So the emission half is
+   THREE builds, not one. Charting `FaceId(627)`'s emitted loop in its
+   own cone frame also showed the notch spans the FULL band height
+   (both ends exactly on the lower rim) and exits through a 2.285-arc
+   window — reproducing §3s's independently measured 2.29 — so the
+   corrected emission CUTS the 304.56° sector in two rather than
+   denting it, and that split falls out of `flood_fill_patches` once
+   the mesh is re-attributed rather than being constructed. R0044's
+   gate set (FOUR knobs): `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1
    YANG_453_SPAIR=1 KV2_ARC_CONFORM_CURVES=1`. Also open: the v105
    retry ChordDegradation. R0085 stays walled on operand quality.
    Then inc-3: full-corpus gated measurement, two-proof flip.*
