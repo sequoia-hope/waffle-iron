@@ -1044,6 +1044,30 @@ name, never measured).
    where it is still the seed on the home side, so its distance and lift
    columns were wrong by the whole relocation, and an apparent
    cross-validation against the rim-chord sag is retracted.*
+   **inc-2c-3b-12b-3** (2026-09-01, same session) measured what that
+   refinement IS (`transit_emission_plan`, spec §3x), still pure and
+   census-only. It reports the acquisition as TWO independent sides — the
+   chain that terminates at a q-point, and the crease's own mesh chain —
+   because a site can already carry one and not the other. The crease side
+   partitions the 7 determined sites **3/1/3, structurally**: three already
+   have both q-points as crease vertices, R0044 v47 has the crease as one
+   558.5283 chord the corner falls inside (t = 0.4280/0.4240, off_chord
+   10.38885/10.36319, reproducing the independently measured 10.39/10.36),
+   and three carry no crease edge in the fan at all. **The binding result is
+   that at the three first sites the chain COVERS THE CORNER TWICE and the
+   doubled cover IS the corner** — two fan crease edges each running from one
+   q-point past the other, overlapping by exactly `corner_deg` with residuals
+   (−2.8e-14 … 4.7e-13 degrees) that decompose into the two q-vertices' own
+   offsets from the analytic points. Those three need no new vertex anywhere:
+   their repair is a RE-ORDERING, and §4.5.2 refinement is the wrong
+   instrument for them. The corner arc's own sagitta is 1.9e-7 … 1.1e-3
+   everywhere, so the arc is ONE edge and every insert sits AT a q-point; the
+   fan's angular over-reach — what a re-attribution would have claimed — is
+   22× … 1508×. *A band test in the first version of this function was wrong
+   and the census caught it: v1983's q1 vertex sits 1.7364e-12 from the solved
+   point against a ~1.1e-12 contract band, so the band disowned a q-point the
+   mesh demonstrably carries; the rule is IDENTITY from the termination the
+   cut already resolved.*
    R0044's gate set (FOUR knobs): `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1
    YANG_453_SPAIR=1 KV2_ARC_CONFORM_CURVES=1`. Also open: the v105
    retry ChordDegradation. R0085 stays walled on operand quality.

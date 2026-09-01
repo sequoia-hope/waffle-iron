@@ -10452,30 +10452,75 @@ fn stage4_relocate_and_correct_inner(
                                             &t,
                                             &face_surface,
                                         ) {
-                                            Ok(cut) => eprintln!(
-                                                "[s451-cut] case={} v={v} OK carrier={} \
+                                            Ok(cut) => {
+                                                eprintln!(
+                                                    "[s451-cut] case={} v={v} OK carrier={} \
                                                  span={:.6e} q_gap={:.6e} \
                                                  thetas={:?} \
                                                  past_tris={:?} split_tris={:?} nodes={:?}",
-                                                std::env::var("ASSAY_CASE")
-                                                    .unwrap_or_else(|_| "-".into()),
-                                                cut.carrier,
-                                                cut.span,
-                                                {
-                                                    let (x, y) = (t.q1.as_array(), t.q2.as_array());
-                                                    ((x[0] - y[0]).powi(2)
-                                                        + (x[1] - y[1]).powi(2)
-                                                        + (x[2] - y[2]).powi(2))
-                                                    .sqrt()
-                                                },
-                                                cut.thetas
-                                                    .iter()
-                                                    .map(|x| format!("{x:.5}"))
-                                                    .collect::<Vec<_>>(),
-                                                cut.past_tris,
-                                                cut.split_tris,
-                                                cut.nodes
-                                            ),
+                                                    std::env::var("ASSAY_CASE")
+                                                        .unwrap_or_else(|_| "-".into()),
+                                                    cut.carrier,
+                                                    cut.span,
+                                                    {
+                                                        let (x, y) =
+                                                            (t.q1.as_array(), t.q2.as_array());
+                                                        ((x[0] - y[0]).powi(2)
+                                                            + (x[1] - y[1]).powi(2)
+                                                            + (x[2] - y[2]).powi(2))
+                                                        .sqrt()
+                                                    },
+                                                    cut.thetas
+                                                        .iter()
+                                                        .map(|x| format!("{x:.5}"))
+                                                        .collect::<Vec<_>>(),
+                                                    cut.past_tris,
+                                                    cut.split_tris,
+                                                    cut.nodes
+                                                );
+                                                // inc-2c-3b-12b-3: what the
+                                                // mesh must ACQUIRE for the
+                                                // corner to be representable
+                                                // — the §4.5.2 refinement, at
+                                                // the analytically determined
+                                                // place rather than as a
+                                                // density ladder. Measurement
+                                                // only; nothing mutates.
+                                                match crate::stage4_boundary_curve::
+                                                    transit_emission_plan(
+                                                        mesh,
+                                                        &an,
+                                                        &cut,
+                                                        &t,
+                                                        &creases[ci],
+                                                    ) {
+                                                    Ok(pl) => eprintln!(
+                                                        "[s451-emit] case={} v={v} OK \
+                                                         corner_deg={:.17e} \
+                                                         fan_span_deg={:.6e} \
+                                                         clear={} arc_sag={:.6e} \
+                                                         overlap={:?} edges={:?} \
+                                                         q_acquire={:?} \
+                                                         crease_acquire={:?}",
+                                                        std::env::var("ASSAY_CASE")
+                                                            .unwrap_or_else(|_| "-".into()),
+                                                        pl.corner_deg,
+                                                        pl.fan_span_deg,
+                                                        pl.corner_clear,
+                                                        pl.arc_sag,
+                                                        pl.chain_overlap,
+                                                        pl.fan_crease_edges,
+                                                        pl.q_acquire,
+                                                        pl.crease_acquire
+                                                    ),
+                                                    Err(e) => eprintln!(
+                                                        "[s451-emit] case={} v={v} \
+                                                         DECLINE {e:?}",
+                                                        std::env::var("ASSAY_CASE")
+                                                            .unwrap_or_else(|_| "-".into())
+                                                    ),
+                                                }
+                                            }
                                             Err(e) => eprintln!(
                                                 "[s451-cut] case={} v={v} DECLINE {e:?}",
                                                 std::env::var("ASSAY_CASE")

@@ -2187,6 +2187,119 @@ determined place rather than as a density ladder. (The 2026-08-29 census
 adjudicated the *global* ladder out precisely because it refines everywhere
 and resolves nothing; this is the opposite instrument.)
 
+## 3x. inc-2c-3b-12b-3 — the EMISSION PLAN: what the mesh must ACQUIRE
+(LANDED, pure; census-only)
+
+§3w closed by naming the missing precondition: the cut across the existing fan
+is non-monotone at every determined site, so the emission half needs Yang
+§4.5.2's LOCAL REFINEMENT — *"we increase the mesh resolution of the parametric
+surfaces associated with the erroneous regions"*
+(`refs/text/yang2025_hybrid_boolean.txt:659-676`) — applied at an analytically
+determined place rather than as a density ladder. This measures what that
+refinement IS, per site, still as a pure function returning measurements:
+`transit_emission_plan` says which edges must be split, where along them, how
+far off-chord, and whether the corner arc is clear. Gated with §3v/§3w under
+`YANG_451_TRANSIT_ANATOMY`.
+
+**The acquisition has TWO independent sides.** A q-point is where a chain meets
+the crease, so it must become a vertex of BOTH: of the chain that terminates
+there (`QAcquire`) and of the crease's own mesh chain (`CreaseAcquire`). The
+census measured a site that already carries one and not the other (the fixture's
+base shape, and R0003 v7611/v8809 on the corpus), which is why the plan reports
+them separately rather than as one verdict.
+
+| case | v | corner° | fan span° | over-reach | chain side | crease side | arc sag |
+|---|---|---|---|---|---|---|---|
+| R0003 | 1983 | 9.14876e-2 | 8.62890 | 94× | AtVertex ×2 | **AtEnd ×2** | 6.20e-5 |
+| R0003 | 8658 | 3.09179e-2 | 8.62890 | 279× | AtVertex ×2 | **AtEnd ×2** | 7.28e-6 |
+| R0003 | 11356 | 3.09179e-2 | 5.75260 | 186× | AtVertex ×2 | **AtEnd ×2** | 7.28e-6 |
+| R0044 | 47 | 3.55643e-2 | 8.70164 | 245× | Split (0.786/0.447) | **Interior ×2** | 1.77e-4 |
+| R0003 | 7611 | 1.72339e-1 | 8.62890 | 50× | Split (0.451/0.802) | **NoChain ×2** | 1.83e-4 |
+| R0003 | 8809 | 3.85568e-1 | 8.62890 | 22× | Split (0.553/1.305) | **NoChain ×2** | 1.13e-3 |
+| R0044 | 38 | 1.47720e-3 | 2.22776 | 1508× | Split (0.799/0.393) | **NoChain ×2** | 1.93e-7 |
+
+**Reading 1 — the crease side partitions the 7 determined sites 3/1/3, and the
+partition is structural, not a magnitude band.** Three sites already carry both
+q-points as crease vertices (`AtEnd`); one carries the crease but as a single
+chord the corner falls *inside* (`Interior`); three carry no crease edge in the
+fan at all (`NoChain`). That is the same three-way split §3v read off the
+q-point representability, now derived from the fan's own edges rather than from
+a nearest-edge search, and it agrees site for site.
+
+**Reading 2 — and this is the increment's binding result — at the three
+`AtEnd` sites the mesh's crease chain COVERS THE CORNER TWICE, and the doubled
+cover IS the corner.** Two of the fan's crease edges each run from one q-point
+PAST the other, so their angular intervals overlap, and the overlap equals
+`corner_deg`:
+
+| case | v | edges | overlap° | corner° | residual° |
+|---|---|---|---|---|---|
+| R0003 | 1983 | (1967,1963) ∩ (1965,1968) | 0.09148757941292729 | 0.09148757941339447 | 4.67e-13 |
+| R0003 | 8658 | (8642,8638) ∩ (8640,8643) | 0.03091792306808472 | 0.03091792306804919 | −3.55e-14 |
+| R0003 | 11356 | (11332,11328) ∩ (11330,11333) | 0.03091792306807761 | 0.03091792306804919 | −2.84e-14 |
+
+Each residual decomposes EXACTLY into the two q-vertices' own angular offsets
+from the analytic q-points (v1983: 4.494e-13 at `q1` plus 1.78e-14 at `q2` =
+4.67e-13, the printed difference). So the identity is derived, not fitted: each
+edge starts at one q-point and ends beyond the other, hence their intersection
+is `[q1, q2]` by construction.
+
+**What that changes.** At those three sites the defect is NOT insufficient
+resolution. The mesh has both q-points, has both chain edges, and needs no new
+vertex anywhere — its chain is simply covering one arc twice because the site's
+out-of-domain position dragged the boundary back across itself. The repair there
+is a RE-ORDERING (run the chain `q1 → q2` once, hand the notch to the
+neighbour), and §4.5.2 refinement is the wrong instrument for them. §3w's
+conclusion that the emission half needs local refinement stands for the other
+four sites and is narrowed here for these three.
+
+**Reading 3 — the corner arc itself needs no refinement at any site.** Its
+sagitta off a single straight chord between the two q-points is 1.9e-7 …
+1.1e-3 across the population. So the corner is ONE edge, and every insert the
+plan asks for is at a q-point — never in between. That closes the question
+§3w's `Refined` node left open (whether the arc would need its own samples).
+
+**Reading 4 — the over-reach is 22× to 1508×.** `fan_span_deg` is the fan's own
+angular footprint on the crease, i.e. what a re-attribution of the existing
+triangles would have handed the neighbour, against `corner_deg`, which is what
+the corner actually is. The ratio is the quantitative form of §3w's
+non-monotonicity, and it is why the plan is expressed as inserts rather than as
+a re-labelling.
+
+**Reading 5 — R0044 v47's interior insert reproduces §3v's independent
+reading.** The plan puts both q-points inside the crease edge `981–6911` at
+`t = 0.4280` / `0.4240`, `off_chord = 10.38885` / `10.36319` on a 558.5283-long
+edge — against §3v's separately measured 10.39 / 10.36 for that same rim chord.
+That edge is shared with the neighbouring face, so the split has to be
+conforming on BOTH sides: the 3b-11 one-sided-insert lesson, one layer down in
+the working mesh rather than in the output tessellation.
+
+**A band test in this function was wrong, and the census caught it.** The first
+version asked "is a crease-edge endpoint within the contract band of this
+q-point?" and answered NO at R0003 v1983, whose `q1` vertex sits 1.7364e-12
+from the solved point against a ~1.1e-12 band. It therefore reported the corner
+as unclear and demanded an interior insert on a chain edge that already ends at
+the point. The rule that works is the one this epic keeps arriving at:
+IDENTITY, from the termination the cut already resolved — `AtEnd` iff the
+vertex the cut named as the q-termination is an endpoint of a fan crease edge.
+Same discipline as §3w's surface-identity q matching and §3t's `on_crease`
+exemption. Pinned by a unit test whose fixture pushes the offset to 5× the band
+along the crease and toward `q2`, so the vertex also lands strictly inside its
+own corner interval; without the identity rule that test reports
+`Interior { t: 0.401, off_chord: 1.71 }` for a point the mesh carries as a
+vertex.
+
+4 new unit tests on the §3u fixture (all closed-form: the corner sweep is
+derived from `x = 66` and `y = 88` meeting the `r = 100` circle, never
+transcribed). Census-only: reachable solely under `YANG_451_TRIPLE_DOMAIN` +
+`YANG_451_TRANSIT_ANATOMY`, default path untouched.
+
+**Not built here.** The mutation. What it now has, per site, is a determined
+insert list rather than a re-attribution: split the named chain edges at the
+exact q-points (chain side), split or create the crease chain at the same points
+(crease side), and — at the three `AtEnd` sites — no insert at all, only the
+removal of the doubled cover.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -2501,6 +2614,34 @@ and resolves nothing; this is the opposite instrument.)
   cross-check: R0003's v8658 and v8809 are each other's carrier vertex.
   3 new unit tests, including a deliberately adversarial fixture where
   proximity picks the wrong q.
+- **inc-2c-3b-12b-3** (2026-09-01, same session): the EMISSION PLAN landed
+  pure + census-only (`transit_emission_plan`, same gate) and MEASURED on all
+  7 determined sites (§3x). It reports the acquisition as TWO independent
+  sides — the chain that terminates at a q-point and the crease's own mesh
+  chain — because a site can already carry one and not the other. **The crease
+  side partitions the population 3/1/3 structurally**: three sites already have
+  both q-points as crease vertices (`AtEnd`), R0044 v47 has the crease as a
+  single 558.5283 chord the corner falls inside (`Interior`, t = 0.4280/0.4240,
+  off_chord 10.38885/10.36319 — reproducing §3v's independently measured
+  10.39/10.36), and three carry no crease edge in the fan at all (`NoChain`).
+  **BINDING: at the three `AtEnd` sites the chain COVERS THE CORNER TWICE and
+  the doubled cover IS the corner** — two fan crease edges each running from
+  one q-point past the other, overlapping by 0.0309179230680… / 0.0914875794…°
+  against corners of the same value, each residual (−2.8e-14 … 4.7e-13)
+  decomposing exactly into the two q-vertices' own angular offsets. So at those
+  three the defect is not resolution at all: the mesh needs no new vertex, only
+  the removal of a doubled cover the site's out-of-domain position dragged into
+  it, and the repair is a RE-ORDERING. §3w's "the emission half needs §4.5.2
+  local refinement" stands for the other four and is narrowed for these three.
+  Also measured: the corner arc's own sagitta is 1.9e-7 … 1.1e-3, so the arc is
+  ONE edge and every insert is AT a q-point, never between them; and the fan's
+  angular over-reach — what a re-attribution would have claimed — is 22× …
+  1508× the corner. **A band test in the first version was WRONG and the census
+  caught it**: v1983's q1 vertex sits 1.7364e-12 from the solved point against
+  a ~1.1e-12 band, so the band disowned a q-point the mesh demonstrably carries
+  and demanded an insert on an edge that already ends at it; the rule is
+  IDENTITY from the cut's own termination. 4 unit tests, all closed-form, one
+  of them pinning that fix at 5× the band.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

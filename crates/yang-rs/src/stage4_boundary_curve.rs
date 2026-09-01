@@ -1814,20 +1814,8 @@ pub(crate) fn transit_cut_path(
     // Each node's angle along the crease circle. Every node lies on it by
     // construction (`On` vertices by membership, q-points and refinements by
     // solve/projection), so the angle is well defined without a further test.
-    let Curve::Circle { center, normal, .. } = c_b else {
-        return Err(CutPathFailure::FanNotClosed);
-    };
-    let (ub, vb) = crate::stage1_tessellate::ortho_basis(normal);
-    let (e1, e2, c0) = (ub.as_array(), vb.as_array(), center.as_array());
-    let thetas = nodes
-        .iter()
-        .map(|nd| {
-            let x = at(nd).as_array();
-            let r = [x[0] - c0[0], x[1] - c0[1], x[2] - c0[2]];
-            let dot = |a: [f64; 3]| r[0] * a[0] + r[1] * a[1] + r[2] * a[2];
-            dot(e2).atan2(dot(e1)).to_degrees()
-        })
-        .collect();
+    let theta = crease_theta_deg(&c_b).ok_or(CutPathFailure::FanNotClosed)?;
+    let thetas = nodes.iter().map(|nd| theta(at(nd))).collect();
     Ok(TransitCutPath {
         nodes,
         past_tris,
@@ -1867,4 +1855,335 @@ fn crease_crossing_on_edge(
 fn dist3(p: Point3, q: Point3) -> f64 {
     let (a, b) = (p.as_array(), q.as_array());
     ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+}
+
+/// The angle-along-the-crease reading, as one closure so every consumer shares
+/// a single orthonormal basis.
+///
+/// Two measurements of the same corner are only comparable if they are taken
+/// in the same frame; the cut path's node angles and the emission plan's
+/// interval arithmetic are compared directly, so they must not each pick their
+/// own basis. `None` for a crease that is not a circle.
+fn crease_theta_deg(c_b: &Curve) -> Option<impl Fn(Point3) -> f64> {
+    let Curve::Circle { center, normal, .. } = *c_b else {
+        return None;
+    };
+    let (ub, vb) = crate::stage1_tessellate::ortho_basis(normal);
+    let (e1, e2, c0) = (ub.as_array(), vb.as_array(), center.as_array());
+    Some(move |p: Point3| {
+        let x = p.as_array();
+        let r = [x[0] - c0[0], x[1] - c0[1], x[2] - c0[2]];
+        let dot = |a: [f64; 3]| r[0] * a[0] + r[1] * a[1] + r[2] * a[2];
+        dot(e2).atan2(dot(e1)).to_degrees()
+    })
+}
+
+/// Fold an angular difference in degrees into `(-180, 180]`.
+fn wrap_deg(d: f64) -> f64 {
+    let mut x = d % 360.0;
+    if x > 180.0 {
+        x -= 360.0;
+    } else if x <= -180.0 {
+        x += 360.0;
+    }
+    x
+}
+
+// ---------------------------------------------------------------------------
+// §4.5.2 inc-2c-3b-12b-3 — the EMISSION PLAN: what the mesh must ACQUIRE
+// ---------------------------------------------------------------------------
+
+/// Why a determined cut has no determined emission plan.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum EmissionPlanFailure {
+    /// A cut node names a ring vertex the anatomy does not carry — the two
+    /// measurements were taken of different sites.
+    RingMismatch { u: u32 },
+    /// The crease is not a circle, so an arc of it has no angle.
+    NoCreaseCircle,
+    /// The cut does not carry exactly one termination for each q-point.
+    QTerminations { found: usize },
+    /// The two q-points coincide to within the crease's own evaluation band:
+    /// a pinch, not a corner, and nothing to insert between.
+    CornerDegenerate { gap: f64 },
+}
+
+/// How the mesh must acquire one q-point on the CHAIN that terminates there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum QAcquire {
+    /// A ring vertex already IS this q-point: the chain needs no insert.
+    AtVertex { u: u32, dist: f64 },
+    /// The chain edge `site → u` must be SPLIT and the new vertex placed at
+    /// the exact q. `lift` is how far the edge's own crease crossing lies from
+    /// that q — the chord deviation the insert removes, not an error in `q`.
+    SplitChain { u: u32, lift: f64 },
+}
+
+/// How the CREASE's own mesh chain must acquire the same point.
+///
+/// The two are independent: a q-point is where the chain meets the crease, so
+/// it has to become a vertex of BOTH. A site can already carry it on one and
+/// not the other.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum CreaseAcquire {
+    /// A crease edge of the fan already ENDS at this q-point.
+    AtEnd { u: u32, dist: f64 },
+    /// The q lies inside the fan's crease edge `a → b`, at parameter `t`, and
+    /// `off_chord` away from it. That edge is shared with the neighbouring
+    /// face, so the split has to be conforming on BOTH sides — the 3b-11
+    /// one-sided-insert lesson, one layer down in the working mesh.
+    Interior {
+        a: u32,
+        b: u32,
+        t: f64,
+        off_chord: f64,
+        len: f64,
+    },
+    /// The fan carries no crease edge at all, so there is no chain here to
+    /// split: it has to be CREATED. Measured shape, not a decline.
+    NoChain,
+}
+
+/// Two crease edges of one fan covering the same arc of it.
+///
+/// Not a resolution shortfall: two edges of a single chain over the same sweep
+/// is an inconsistency the site's out-of-domain position has already put in the
+/// mesh, and `deg` is exactly the corner (up to each q-vertex's own offset from
+/// the analytic q-point) because each edge runs from one q-point past the
+/// other.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ChainOverlap {
+    pub(crate) a: (u32, u32),
+    pub(crate) b: (u32, u32),
+    /// The doubly covered sweep, in degrees.
+    pub(crate) deg: f64,
+}
+
+/// What one site's mesh must ACQUIRE for the corner to be representable.
+///
+/// [`transit_cut_path`] measured that the cut the crease makes across the
+/// existing fan is NON-MONOTONE at every determined site: the site's one ring
+/// reaches crease-chain vertices two to three orders of magnitude further
+/// along the crease than the corner itself is wide. So the emission half is
+/// not a re-attribution of existing triangles, and the precondition is Yang
+/// §4.5.2's local refinement — applied at an ANALYTICALLY determined place
+/// (the q-points), not as a density ladder.
+///
+/// This says what that refinement is, per site, as measurements only: which
+/// edges must be split, where along them, how far off-chord, and whether the
+/// corner arc is clear of the chain vertices that would otherwise fall inside
+/// it. Nothing here mutates.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TransitEmissionPlan {
+    /// Per q-point, in `q1`/`q2` order: the chain-side insert.
+    pub(crate) q_acquire: [QAcquire; 2],
+    /// Per q-point: the crease-side insert.
+    pub(crate) crease_acquire: [CreaseAcquire; 2],
+    /// The fan's own crease edges — consecutive run neighbours BOTH on the
+    /// crease — with each one's angular interval in degrees, relative to
+    /// `q1`. The chain the refinement acts on, named rather than assumed.
+    pub(crate) fan_crease_edges: Vec<(u32, u32, f64, f64)>,
+    /// Two fan crease edges covering the same arc, if any.
+    pub(crate) chain_overlap: Option<ChainOverlap>,
+    /// The corner's own sweep along the crease, `q1` to `q2`, in degrees.
+    pub(crate) corner_deg: f64,
+    /// The angular footprint of the whole fan on the crease, in degrees — the
+    /// span the re-attribution would have claimed. Its ratio to `corner_deg`
+    /// is how far the existing mesh over-reaches.
+    pub(crate) fan_span_deg: f64,
+    /// Whether the corner arc is CLEAR: no other crease vertex of the fan lies
+    /// strictly inside it. False would mean the notch swallows an existing
+    /// chain vertex, so the corner is not a simple two-point cut.
+    pub(crate) corner_clear: bool,
+    /// The corner arc's sagitta off its own chord — how much geometry a single
+    /// straight edge between the two q-points would lose.
+    pub(crate) arc_sag: f64,
+}
+
+/// Turn a determined cut into the determined ACQUISITION: the inserts the mesh
+/// needs before the corner can be emitted.
+///
+/// Composed from the two measurements that precede it rather than re-deriving
+/// either: the q-terminations come from `cut`'s own nodes (which already
+/// resolved chain-to-q by surface IDENTITY, never by proximity), and the
+/// on-crease membership from `an`'s ring. Pure; every non-answer is typed.
+pub(crate) fn transit_emission_plan(
+    mesh: &Mesh,
+    an: &TransitSiteAnatomy,
+    cut: &TransitCutPath,
+    t: &CreaseTransit,
+    crease: &(Curve, Surface, Surface),
+) -> Result<TransitEmissionPlan, EmissionPlanFailure> {
+    let (c_b, s_own, _) = *crease;
+    let theta = crease_theta_deg(&c_b).ok_or(EmissionPlanFailure::NoCreaseCircle)?;
+    let Curve::Circle { radius, .. } = c_b else {
+        return Err(EmissionPlanFailure::NoCreaseCircle);
+    };
+
+    // Angles are taken relative to `q1` so the interval arithmetic below never
+    // has to straddle the branch cut. Every span at these sites is degrees, so
+    // one wrap is enough.
+    let th0 = theta(t.q1);
+    let rel = |p: Point3| wrap_deg(theta(p) - th0);
+    let qs = [t.q1, t.q2];
+    let q_theta = [0.0, rel(t.q2)];
+
+    let gap = dist3(t.q1, t.q2);
+    let band = crate::stage4_relocate::junction_certificate_band(t.q1.as_array(), s_own);
+    if gap <= band {
+        return Err(EmissionPlanFailure::CornerDegenerate { gap });
+    }
+
+    // --- the run's ring vertices, in cut order, with their on-crease flag ---
+    let side = |u: u32| {
+        an.ring
+            .iter()
+            .find(|(x, _, _)| *x == u)
+            .map(|(_, _, s)| *s)
+            .ok_or(EmissionPlanFailure::RingMismatch { u })
+    };
+    let node_vert = |c: &CutCrossing| match *c {
+        CutCrossing::QVertex { u, .. }
+        | CutCrossing::QPoint { u, .. }
+        | CutCrossing::Vertex(u)
+        | CutCrossing::Refined { u, .. } => u,
+    };
+    let mut seq: Vec<(u32, bool)> = Vec::with_capacity(cut.nodes.len());
+    for nd in &cut.nodes {
+        let u = node_vert(nd);
+        seq.push((u, side(u)? == CreaseSide::On));
+    }
+
+    // --- the chain-side insert, read off the cut's own terminations --------
+    let mut q_acquire: [Option<QAcquire>; 2] = [None, None];
+    for nd in &cut.nodes {
+        let (q, acq) = match *nd {
+            CutCrossing::QVertex { u, q, dist } => (q, QAcquire::AtVertex { u, dist }),
+            CutCrossing::QPoint { u, q, dist, .. } => (q, QAcquire::SplitChain { u, lift: dist }),
+            _ => continue,
+        };
+        if let Some(slot) = q_acquire.get_mut(q) {
+            slot.get_or_insert(acq);
+        }
+    }
+    let found = q_acquire.iter().filter(|x| x.is_some()).count();
+    if found != 2 {
+        return Err(EmissionPlanFailure::QTerminations { found });
+    }
+    let q_acquire = [q_acquire[0].unwrap(), q_acquire[1].unwrap()];
+    let is_q_vertex = |u: u32| {
+        q_acquire
+            .iter()
+            .any(|a| matches!(*a, QAcquire::AtVertex { u: x, .. } if x == u))
+    };
+
+    // --- the fan's own crease edges ---------------------------------------
+    // Two consecutive run neighbours BOTH on the crease share an edge that
+    // lies on it. That is the chain the refinement has to act on — and where
+    // there is none, the site has no local chain at all.
+    let mut fan_crease_edges: Vec<(u32, u32, f64, f64)> = Vec::new();
+    for w in seq.windows(2) {
+        let ((a, on_a), (b, on_b)) = (w[0], w[1]);
+        if on_a && on_b {
+            let (ta, tb) = (rel(mesh.verts[a as usize]), rel(mesh.verts[b as usize]));
+            fan_crease_edges.push((a, b, ta.min(tb), ta.max(tb)));
+        }
+    }
+
+    // --- do two of them cover the same arc? --------------------------------
+    let mut chain_overlap = None;
+    'outer: for (i, e) in fan_crease_edges.iter().enumerate() {
+        for f in &fan_crease_edges[i + 1..] {
+            let ov = e.3.min(f.3) - e.2.max(f.2);
+            if ov > 0.0 {
+                chain_overlap = Some(ChainOverlap {
+                    a: (e.0, e.1),
+                    b: (f.0, f.1),
+                    deg: ov,
+                });
+                break 'outer;
+            }
+        }
+    }
+
+    // --- the crease-side insert, per q ------------------------------------
+    let crease_acquire = std::array::from_fn(|i| {
+        let q = qs[i];
+        // Whether a crease edge already ENDS at this q-point is answered by
+        // IDENTITY, from the vertex the cut already resolved as the
+        // termination — never by re-measuring a distance against a band. The
+        // two readings of one point differ in their last digits (R0003 v1983:
+        // 1.7e-12 against a ~1.1e-12 contract band), and a band test there
+        // disowns a q-point the mesh demonstrably carries. Same rule as
+        // 3b-12b-2's surface-identity q matching and §3t's `on_crease`
+        // exemption.
+        if let QAcquire::AtVertex { u, dist } = q_acquire[i] {
+            if fan_crease_edges
+                .iter()
+                .any(|&(a, b, _, _)| a == u || b == u)
+            {
+                return CreaseAcquire::AtEnd { u, dist };
+            }
+        }
+        // Otherwise the edge whose angular interval contains it.
+        let inside = fan_crease_edges
+            .iter()
+            .find(|&&(_, _, lo, hi)| q_theta[i] > lo && q_theta[i] < hi);
+        match inside {
+            Some(&(a, b, _, _)) => {
+                let (pa, pb) = (mesh.verts[a as usize], mesh.verts[b as usize]);
+                let (u, v, w) = (pa.as_array(), pb.as_array(), q.as_array());
+                let d = [v[0] - u[0], v[1] - u[1], v[2] - u[2]];
+                let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                let tt = if len2 > 0.0 {
+                    ((w[0] - u[0]) * d[0] + (w[1] - u[1]) * d[1] + (w[2] - u[2]) * d[2]) / len2
+                } else {
+                    0.0
+                };
+                let foot = Point3::new(u[0] + tt * d[0], u[1] + tt * d[1], u[2] + tt * d[2]);
+                CreaseAcquire::Interior {
+                    a,
+                    b,
+                    t: tt,
+                    off_chord: dist3(q, foot),
+                    len: len2.sqrt(),
+                }
+            }
+            None => CreaseAcquire::NoChain,
+        }
+    });
+
+    // --- the corner against the fan's footprint ---------------------------
+    let (lo_q, hi_q) = (q_theta[0].min(q_theta[1]), q_theta[0].max(q_theta[1]));
+    let mut lo = lo_q;
+    let mut hi = hi_q;
+    let mut corner_clear = true;
+    for &(u, on) in &seq {
+        if !on {
+            continue;
+        }
+        let a = rel(mesh.verts[u as usize]);
+        lo = lo.min(a);
+        hi = hi.max(a);
+        // A crease vertex strictly inside the corner would be swallowed by
+        // the notch. The q-points themselves are excluded by IDENTITY — the
+        // vertices the cut already named as terminations — because at these
+        // spans a q-vertex's own angle lands marginally inside its own
+        // interval, and a band test on the distance disowns it.
+        if a > lo_q && a < hi_q && !is_q_vertex(u) {
+            corner_clear = false;
+        }
+    }
+
+    let corner_deg = hi_q - lo_q;
+    Ok(TransitEmissionPlan {
+        q_acquire,
+        crease_acquire,
+        fan_crease_edges,
+        chain_overlap,
+        corner_deg,
+        fan_span_deg: hi - lo,
+        corner_clear,
+        arc_sag: radius * (1.0 - (corner_deg.to_radians() / 2.0).cos()),
+    })
 }

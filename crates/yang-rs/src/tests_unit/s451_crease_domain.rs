@@ -1059,3 +1059,280 @@ fn a_chain_whose_surface_is_unknown_is_declined_not_guessed() {
         Err(CutPathFailure::QSurfaceUnmatched { u: 1 })
     );
 }
+
+// ---------------------------------------------------------------------------
+// inc-2c-3b-12b-3 — the EMISSION PLAN: what the mesh must ACQUIRE
+// ---------------------------------------------------------------------------
+
+fn d3(p: Point3, q: Point3) -> f64 {
+    let (a, b) = (p.as_array(), q.as_array());
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+}
+
+/// Run one fixture mesh through anatomy → cut → emission plan.
+fn emission_of(
+    mesh: &crate::Mesh,
+    attribution: &crate::brep::TriangleAttributionMap,
+) -> crate::stage4_boundary_curve::TransitEmissionPlan {
+    use crate::stage4_boundary_curve::{
+        surface_distance_pub, transit_cut_path, transit_emission_plan, transit_site_anatomy,
+    };
+    let (t, c_b, cone_a, cone_b) = cut_fixture_transit();
+    let plane = crease_plane(&c_b).expect("a circle has a plane");
+    let an = transit_site_anatomy(
+        mesh,
+        attribution,
+        0,
+        &(c_b, cone_a, cone_b),
+        surface_distance_pub(plane, mesh.verts[0]).expect("plane evaluates"),
+        [t.q1, t.q2],
+    )
+    .expect("the site has a fan");
+    let cut = transit_cut_path(
+        mesh,
+        &an,
+        mesh.verts[0],
+        &(c_b, cone_a, cone_b),
+        &t,
+        &cut_fixture_surfaces,
+    )
+    .expect("the fixture corner is the supported anatomy");
+    transit_emission_plan(mesh, &an, &cut, &t, &(c_b, cone_a, cone_b))
+        .expect("the fixture cut yields a plan")
+}
+
+/// The corner's own sweep in the fixture, in degrees, from the two q-points'
+/// CLOSED FORMS — `x = 66` and `y = 88` meet the `r = 100` crease circle at
+/// `(66, √5644)` and `(√2256, 88)`. Derived here rather than transcribed, so
+/// the assertions below compare against geometry and not against a previous
+/// run's output.
+fn fixture_corner_deg() -> f64 {
+    let dot = 66.0 * 2256.0_f64.sqrt() + 88.0 * 5644.0_f64.sqrt();
+    (dot / 10_000.0).acos().to_degrees()
+}
+
+/// The two acquisitions are INDEPENDENT: the base fixture already carries `q2`
+/// as a chain vertex, yet its crease has no local mesh chain reaching either
+/// q-point, so the chain side is satisfied and the crease side is not.
+///
+/// This is the measured majority shape — R0044 v38 and R0003 v7611/v8809 are
+/// `NoChain` on both sides.
+#[test]
+fn a_q_point_on_the_chain_can_still_be_absent_from_the_crease() {
+    use crate::stage4_boundary_curve::{CreaseAcquire, QAcquire};
+    let (mesh, attribution) = cut_fixture();
+    let pl = emission_of(&mesh, &attribution);
+
+    // Chain side: ring 1 is a crossed chain end, ring 5 IS q2 already.
+    match pl.q_acquire[0] {
+        QAcquire::SplitChain { u, lift } => {
+            assert_eq!(u, 1);
+            assert!(lift > 0.0, "the chord crossing is not the q-point");
+        }
+        other => panic!("expected a chain split for q1, got {other:?}"),
+    }
+    match pl.q_acquire[1] {
+        QAcquire::AtVertex { u, dist } => {
+            assert_eq!(u, 5);
+            assert!(dist < 1e-9, "ring 5 IS q2 (dist {dist})");
+        }
+        other => panic!("expected an existing q-vertex for q2, got {other:?}"),
+    }
+    // Crease side: the fan's one crease edge spans 66°–68°, nowhere near the
+    // corner, so NEITHER q-point can be acquired by splitting it.
+    assert_eq!(
+        pl.crease_acquire,
+        [CreaseAcquire::NoChain, CreaseAcquire::NoChain]
+    );
+    assert_eq!(pl.fan_crease_edges.len(), 1);
+    assert_eq!((pl.fan_crease_edges[0].0, pl.fan_crease_edges[0].1), (2, 3));
+    assert!(
+        (pl.fan_crease_edges[0].3 - pl.fan_crease_edges[0].2 - 2.0).abs() < 1e-9,
+        "the crease edge spans the fixture's 68°–66°: {:?}",
+        pl.fan_crease_edges
+    );
+    assert_eq!(pl.chain_overlap, None);
+    assert!(pl.corner_clear);
+
+    // The corner and the arc's sagitta are closed-form on this circle.
+    let corner = fixture_corner_deg();
+    assert!(
+        (pl.corner_deg - corner).abs() < 1e-9,
+        "corner {} vs closed form {corner}",
+        pl.corner_deg
+    );
+    let sag = 100.0 * (1.0 - (corner.to_radians() / 2.0).cos());
+    assert!(
+        (pl.arc_sag - sag).abs() < 1e-9,
+        "sag {} vs {sag}",
+        pl.arc_sag
+    );
+    // The fan reaches well past the corner it has to carry — the over-reach
+    // the census measures as 22× … 1508× on the corpus.
+    assert!(pl.fan_span_deg > pl.corner_deg);
+}
+
+/// Move the fan's two on-crease ring vertices so their shared edge BRACKETS the
+/// corner: both q-points then have to be inserted INTO that edge, which is
+/// shared with the neighbouring face. R0044's v47 shape — both q's interior to
+/// one 558.5-long rim chord, 10.39 and 10.36 off it.
+#[test]
+fn a_crease_edge_that_brackets_the_corner_takes_an_interior_insert() {
+    use crate::stage4_boundary_curve::CreaseAcquire;
+    let on = |deg: f64| {
+        let r: f64 = f64::to_radians(deg);
+        Point3::new(100.0 * r.cos(), 100.0 * r.sin(), 100.0)
+    };
+    let (mut mesh, attribution) = cut_fixture();
+    // 70° and 40° bracket both q-points (48.7° and 61.7° in the xy frame).
+    mesh.verts[2] = on(70.0);
+    mesh.verts[3] = on(40.0);
+    let pl = emission_of(&mesh, &attribution);
+
+    assert_eq!(pl.fan_crease_edges.len(), 1);
+    for (i, acq) in pl.crease_acquire.iter().enumerate() {
+        match *acq {
+            CreaseAcquire::Interior {
+                a,
+                b,
+                t,
+                off_chord,
+                len,
+            } => {
+                assert_eq!((a, b), (2, 3));
+                assert!((0.0..=1.0).contains(&t), "q{i} parameter {t} off the edge");
+                // The q-point is EXACT on the circle and the edge is a chord,
+                // so the displacement is the chord's own sag — bounded by the
+                // sagitta of its 30° span and strictly positive.
+                let chord_sag = 100.0 * (1.0 - f64::to_radians(15.0).cos());
+                assert!(
+                    off_chord > 0.0 && off_chord < chord_sag,
+                    "q{i} off_chord {off_chord} outside (0, {chord_sag})"
+                );
+                let want = d3(mesh.verts[2], mesh.verts[3]);
+                assert!((len - want).abs() < 1e-9, "edge length {len} vs {want}");
+            }
+            other => panic!("q{i} should need an interior insert, got {other:?}"),
+        }
+    }
+    assert_eq!(pl.chain_overlap, None);
+    assert!(pl.corner_clear);
+}
+
+/// The measured shape at R0003's v1983 / v8658 / v11356: the mesh already has
+/// BOTH q-points as crease vertices, and two of the fan's crease edges each
+/// run from one of them PAST the other — so the chain covers the corner arc
+/// TWICE.
+///
+/// That is not a resolution shortfall. The overlap of the two edges is exactly
+/// the corner (up to each q-vertex's own offset from the analytic q-point),
+/// which is what makes the repair there a re-ordering rather than a
+/// refinement. This test pins that identity on a fixture where both q-points
+/// are placed at their closed-form positions.
+#[test]
+fn two_crease_edges_covering_the_corner_twice_are_the_corner() {
+    use crate::stage4_boundary_curve::{CreaseAcquire, QAcquire};
+    let on = |deg: f64| {
+        let r: f64 = f64::to_radians(deg);
+        Point3::new(100.0 * r.cos(), 100.0 * r.sin(), 100.0)
+    };
+    let home = |deg: f64| {
+        let r: f64 = f64::to_radians(deg);
+        Point3::new(95.0 * r.cos(), 95.0 * r.sin(), 95.0)
+    };
+    let (t, _, _, _) = cut_fixture_transit();
+    let (mut mesh, attribution) = cut_fixture();
+    // Ring 1 becomes q1 itself; ring 2 runs PAST q2, ring 4 PAST q1, so the
+    // two crease edges (1,2) and (4,5) overlap over exactly [q1, q2].
+    mesh.verts[1] = t.q1;
+    mesh.verts[2] = on(70.0);
+    mesh.verts[3] = home(64.0);
+    mesh.verts[4] = on(40.0);
+    let pl = emission_of(&mesh, &attribution);
+
+    assert!(matches!(pl.q_acquire[0], QAcquire::AtVertex { u: 1, .. }));
+    assert!(matches!(pl.q_acquire[1], QAcquire::AtVertex { u: 5, .. }));
+    assert_eq!(
+        pl.crease_acquire,
+        [
+            CreaseAcquire::AtEnd { u: 1, dist: 0.0 },
+            CreaseAcquire::AtEnd {
+                u: 5,
+                dist: match pl.q_acquire[1] {
+                    QAcquire::AtVertex { dist, .. } => dist,
+                    _ => unreachable!(),
+                }
+            }
+        ]
+    );
+
+    // THE identity: the doubled cover IS the corner.
+    match pl.chain_overlap {
+        Some(ov) => {
+            assert_eq!((ov.a, ov.b), ((1, 2), (4, 5)));
+            assert!(
+                (ov.deg - pl.corner_deg).abs() < 1e-9,
+                "overlap {} should be the corner {}",
+                ov.deg,
+                pl.corner_deg
+            );
+        }
+        None => panic!("the two crease edges cover the corner twice"),
+    }
+    assert!(
+        pl.corner_clear,
+        "the doubled cover is not a swallowed vertex"
+    );
+}
+
+/// A q-vertex whose distance to the analytic q-point EXCEEDS the contract band
+/// is still the q-point: identity comes from the termination the cut already
+/// resolved, never from re-measuring a distance.
+///
+/// Measured: R0003 v1983's `q1` vertex sits 1.7e-12 from the solved point
+/// against a ~1.1e-12 band. A band test there reported the corner as unclear
+/// and demanded an interior insert on a chain edge that already ended at the
+/// point — for a vertex the mesh demonstrably carries. Here the offset is
+/// pushed to 5e-12, five times the band, ALONG the crease and toward `q2`, so
+/// the vertex also lands strictly inside its own corner interval.
+#[test]
+fn a_q_vertex_outside_the_band_is_still_the_q_point() {
+    use crate::stage4_boundary_curve::{CreaseAcquire, QAcquire};
+    let on = |deg: f64| {
+        let r: f64 = f64::to_radians(deg);
+        Point3::new(100.0 * r.cos(), 100.0 * r.sin(), 100.0)
+    };
+    let home = |deg: f64| {
+        let r: f64 = f64::to_radians(deg);
+        Point3::new(95.0 * r.cos(), 95.0 * r.sin(), 95.0)
+    };
+    let (t, c_b, cone_a, _) = cut_fixture_transit();
+    let band = crate::stage4_relocate::junction_certificate_band(t.q1.as_array(), cone_a);
+    let (mut mesh, attribution) = cut_fixture();
+    // Slide q1 along the crease tangent, toward q2, by 5× the contract band.
+    let a = t.q1.as_array();
+    let step = 5.0 * band;
+    let nudged = Point3::new(a[0] - step * a[1] / 100.0, a[1] + step * a[0] / 100.0, a[2]);
+    let moved = d3(nudged, t.q1);
+    assert!(
+        moved > band,
+        "the fixture must place the vertex OUTSIDE the band ({moved} vs {band})"
+    );
+    mesh.verts[1] = nudged;
+    mesh.verts[2] = on(70.0);
+    mesh.verts[3] = home(64.0);
+    mesh.verts[4] = on(40.0);
+    let pl = emission_of(&mesh, &attribution);
+
+    // The chain side names it, so the crease side must agree — not re-derive.
+    assert!(matches!(pl.q_acquire[0], QAcquire::AtVertex { u: 1, .. }));
+    assert!(
+        matches!(pl.crease_acquire[0], CreaseAcquire::AtEnd { u: 1, .. }),
+        "a band test would demand an insert here: {:?}",
+        pl.crease_acquire[0]
+    );
+    // …and the vertex does not count as a chain vertex swallowed by its own
+    // corner, even though its angle now lies strictly inside it.
+    assert!(pl.corner_clear, "q1 is not a vertex INSIDE the corner");
+    let _ = c_b;
+}
