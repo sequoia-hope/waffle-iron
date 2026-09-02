@@ -1102,6 +1102,50 @@ name, never measured).
    YANG_453_SPAIR=1 KV2_ARC_CONFORM_CURVES=1`. Also open: the v105
    retry ChordDegradation. R0085 stays walled on operand quality.
    Then inc-3: full-corpus gated measurement, two-proof flip.*
+   **inc-2c-3b-12b-5 → -10** (2026-09-02, one session; spec §3z–§3ae) took
+   the edit list to a WRITTEN mesh at the corpus site. §3z (`-5`): the edits
+   land in a topological DISK with the site on its boundary, but CANNOT be
+   applied edge by edge — the chord's own-patch carrier is apexed at the
+   site, so the chord split re-creates the site–mint edges the chain split
+   made (three edges at FOUR incidences). §3aa (`-6`): the fill's unit is the
+   face-PART; the own patch is cut in two until `13110` rejoins it, and
+   inserting the mints PINCHES its boundary into three loops, the middle one
+   `[16356, 47, 16355]` the corner (non-interleaved spans as a typed
+   precondition). §3ab (`-7`): `transit_emission_fill` — each loop CDT'd in
+   its own face's chart, wound by the LOOP (no area heuristic), and the
+   RESULT certified against the whole mesh: incidence, survivor winding, a
+   like-for-like `d(T)` (both cones FINER). §3ac (`-8`): the gated WRITE arm
+   (`YANG_451_TRANSIT_EMIT`, slot-stable) and the LIFT certificate — per
+   face, triangles along/against the surface gradient, the fold a
+   directed-edge check cannot see — which REFUSED: `(B, 167)` is a conical
+   BAND 1.194 wide, the corner lies 0.2457 BEYOND the host carrier inside
+   `13038`, and the "notch" is A's material wedge — a BITE cut into the
+   neighbour, not a triangle handed to it. §3ad (`-9`): the bite —
+   `transit_bite_region` (corner-containing + stub-crossed survivors,
+   seam-safe), the neighbour polygon detoured through the corner, the notch
+   loop dropped, survivors as the lift reference — flips 3 → 1, the one left
+   `[994, 6877, 47]` spanning the far-crease chord (558.8, sagitta 10.61).
+   §3ae (`-10`): Yang §4.5.2 refinement, certificate-driven and
+   constant-free. Mints generalized to a hosted list (every carrier of a host
+   on both faces joins the fill). Halving alone DIVERGED (129 halvings, flips
+   1 → 128: the next band's fan from its far vertex folds at every chord
+   length — the APEX's crease was coarse); the MATCHED-split rule (apex on
+   the face's other crease ⇒ split that crease at the base midpoint's
+   azimuth) CONVERGES in 7 rounds, cascading through bands 166 → 162 until
+   161 certifies: 37 triangles on 10 faces, zero flips, every `d(T)` no
+   coarser (`(B, 167)` 22.2 → 7.8). With the gate armed the write LANDED —
+   `WRITTEN { minted: 9, removed: 19, added: 37 }`, the first emission at the
+   corpus site — and R0044 proceeds to its standing v8
+   `RelocationCrossedCarrierVertex` wall (seven other fires still carry their
+   defects); R0003 untouched throughout. Method lessons of the session: a
+   topological fixture meets each new geometric certificate as a fresh defect
+   (§3ab bow-tie, §3ac folded fossil, §3ad folded survivors) — measure the
+   fixture first; a census printer that cannot count reads as a TIMEOUT.
+   Also this session: CI `Rust tests` had been red since 2026-08-25 on a
+   stale `assay_kv2` smoke pin (C0105 converted by `c02aeb33`), fixed, and
+   the job cap raised 60 → 120 min for the honest run; green again.
+   Next: the other seven R0044 fires (`ChainAbsent`, `AlreadyCarried`,
+   `TransitLeavesNeighbour`) and the v8 wall; the write arm stays gated.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the
