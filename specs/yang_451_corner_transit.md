@@ -2475,6 +2475,93 @@ decomposition: fill the octagon `44 → 280 → 981 → 994 → 6911 → 47 → 
 with `16355` and `16356` interior, in ONE act, attributing the notch to
 `(B, 167)` and the rest to `(B, 168)`.
 
+## 3aa. inc-2c-3b-12b-6 — the FACE PARTITION and the boundary PINCH: the
+fill's unit, and the NOTCH it cuts (LANDED, pure; census-only)
+
+§3z gave the mutation a determined region and refuted its decomposition along
+the edges. This finds the unit that does work. `transit_emission_parts` splits
+the region by input face and closes each part at the site;
+`transit_boundary_pinch` inserts the mints a part's boundary carries and splits
+the cycle where it repeats. Both pure, same gates.
+
+**Reading 1 — the region is not the fill's unit, and the own patch is CUT IN
+TWO until one triangle rejoins it.** The region spans both operands, so it has
+no single chart. Partitioned by face at R0044 v47:
+
+| face | tris | components | closure | closed boundary |
+|---|---|---|---|---|
+| `(A, 2)` | `[41]` | 1 | — | `[44, 47, 45]` |
+| `(A, 3)` | `[279]` | 1 | — | `[44, 280, 47]` |
+| `(B, 167)` | `[13037]` | 1 | — | `[981, 994, 6911]` |
+| `(B, 168)` | `[13111, 13112, 13113]` | **2** | `[13110]` | `[45, 47, 280, 981, 6911, 6945]` |
+
+The own patch's three triangles touch only at the site — `13112` and `13113`
+share no edge — and the single triangle that reconnects them is `13110`: the
+same one §3z found leaving the site on the region's boundary. Excluding it both
+opened the region and cut the own patch in half, because it is the one fan
+triangle carrying no host edge. Closed, every part is a disk.
+
+**Reading 2 — and this is the increment's binding result — the doubling §3z
+refuted on the EDGES is, on the BOUNDARY, the corner itself.** The own patch
+carries all three host edges, so each mint lands on its boundary twice:
+
+```
+[45, 16356, 47, 16355, 280, 981, 16355, 16356, 6911, 6945]
+```
+
+A cycle that repeats a vertex pinches there, and the two pinches partition it:
+
+| loop | is |
+|---|---|
+| `[16355, 280, 981]` | keeps `(B, 168)` |
+| `[16356, 47, 16355]` | **THE NOTCH** — goes to `(B, 167)` |
+| `[45, 16356, 6911, 6945]` | keeps `(B, 168)` |
+
+The notch is a single triangle: the site and both mints, bounded by the two
+chain stubs and the corner edge. That is §3x's 0.0356° corner against the
+fan's 8.70° footprint — the 245× over-reach expressed as a decomposition
+rather than a ratio. No other part pinches: each carries a host edge in one
+role only, so `(A, 2)` and `(A, 3)` become quads and `(B, 167)` a pentagon,
+every one of them receiving on its own boundary exactly the mints that lie on
+it. That is the conformality §3y demanded, obtained by construction instead of
+by a second pass.
+
+So the same measurement that killed the per-edge form supplies the correct one.
+The per-edge split emitted each mint once per host and collided; the per-part
+fill inserts each mint once per host edge THE PART CARRIES, and the collision
+becomes the cut.
+
+**Reading 3 — the clean cut has a precondition, and the fixture reaches both
+sides of it.** Two pinch points decompose a cycle into a corner and its
+remainders only when their repeat spans nest or stay disjoint. INTERLEAVED,
+they do not: the site's loop swells to most of the patch and there is no corner
+to hand over. R0044 v47 is not interleaved; naming the fixture's chord from its
+other end reaches the shape that is, and there the pinch reports `interleaved`
+and declines to name a notch rather than handing back a loop that is not one.
+This is the same order-dependence §3z measured for the coincident fin, now
+carrying a consequence — so it is typed, not narrated.
+
+**Orientation comes for free.** Every loop edge is a directed consecutive step
+of the inserted boundary, including the one closing back to the pinch point, so
+the loops inherit the part's winding and the fill does not have to re-derive an
+orientation. Pinned by a test rather than assumed, because the §3n far-region
+work is what it costs to get that wrong.
+
+A mint visited more than twice on one boundary would mean the cycle is not the
+polygon this assumes; it is a structural decline, not a fallback.
+
+2 new unit tests, each run in BOTH fixture orientations: the partition (exact,
+the own patch's two components, the single-triangle closure, every closed part
+a disk) and the pinch (one insert per host edge carried, only the own patch
+pinches, the notch is the corner triangle bounded by both mints, the pinch
+partitions the cycle, and the interleaved arrangement yields no notch).
+
+**Not built here.** The mutation. Its plan is now closed end to end: close the
+own patch with `13110`, insert `16355`/`16356` on the four part boundaries that
+carry them, fill each polygon in its own chart — `(A, 2)` and `(A, 3)` quads,
+`(B, 167)` a pentagon, `(B, 168)` a triangle plus a quad plus the notch — and
+attribute the notch to `(B, 167)`.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -2875,6 +2962,32 @@ with `16355` and `16356` interior, in ONE act, attributing the notch to
   `BoundaryPinched` typed, none exhibited. 5 unit tests; corpus
   273C/0W/34E/1EE/0T with `results.json` byte-identical; rewrite tier green
   (173 binaries, 2783 tests, 1228s).
+- **inc-2c-3b-12b-6** (2026-09-02, same session): the FACE PARTITION and
+  the boundary PINCH landed (`transit_emission_parts`,
+  `transit_boundary_pinch`, pure, same gates; §3aa). First: **the region is
+  not the fill's unit** — it spans both operands, and its own-patch part
+  `[13111, 13112, 13113]` is in TWO edge-connected components, rejoined by
+  exactly `[13110]`: the same triangle §3z found leaving the site on the
+  region's boundary, because it is the one fan triangle carrying no host
+  edge. Closed, all four parts are disks. Second, and BINDING: **the
+  doubling §3z refuted on the EDGES is, on the BOUNDARY, the corner
+  itself.** The own patch carries all three hosts, so its boundary reads
+  `[45, 16356, 47, 16355, 280, 981, 16355, 16356, 6911, 6945]` and pinches
+  at both repeats into `[16355, 280, 981]`, **`[16356, 47, 16355]` (THE
+  NOTCH — the site and both mints, one triangle)** and
+  `[45, 16356, 6911, 6945]`. §3x's 0.0356° corner against the fan's 8.70°
+  footprint, expressed as a decomposition instead of a 245× ratio. No other
+  part pinches: `(A, 2)` and `(A, 3)` become quads, `(B, 167)` a pentagon,
+  each receiving exactly the mints on its own boundary — §3y's conformality
+  by construction rather than by a second pass. So the measurement that
+  killed the per-edge form supplies the correct one. Third: **the clean cut
+  has a precondition** — the mints' repeat spans must not INTERLEAVE, or the
+  site's loop swells to most of the patch; v47 does not interleave, the
+  fixture's other chord naming does, and there the pinch declines to name a
+  notch. Orientation comes free: every loop edge is a directed consecutive
+  step of the inserted boundary, pinned by test. 2 unit tests, each run in
+  both fixture orientations; corpus 273C/0W/34E/1EE/0T with `results.json`
+  byte-identical; rewrite tier green (173 binaries, 2785 tests, 1241s).
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

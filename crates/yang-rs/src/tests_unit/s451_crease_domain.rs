@@ -1835,3 +1835,177 @@ fn a_triangle_in_two_host_roles_is_refused() {
         Err(EmissionRegionFailure::TriangleInBothRoles { tri: dup })
     );
 }
+
+// ---------------------------------------------------------------------------
+// inc-2c-3b-12b-6 — the FACE PARTITION and the boundary PINCH
+// ---------------------------------------------------------------------------
+
+/// The region is not the fill's unit: it spans both operands, and its own-patch
+/// part is DISCONNECTED until the one triangle carrying no host edge rejoins it.
+///
+/// The corpus measurement is R0044 v47 — four parts, of which `(B, 168)` holds
+/// `[13111, 13112, 13113]` in TWO edge-connected components, reconnected by
+/// exactly `[13110]`. That is the same triangle §3z found leaving the site on
+/// the region's boundary: excluding it both opened the region and cut the own
+/// patch in half. Every part is a disk once closed.
+#[test]
+fn the_region_partitions_into_face_parts_and_the_own_patch_needs_closing() {
+    use crate::stage4_boundary_curve::transit_emission_parts;
+    for reversed in [false, true] {
+        let (mesh, attribution) = interior_insert_fixture(true, reversed);
+        let ed = edits_of(&mesh, &attribution).expect("insertion");
+        let rg = region_of(&mesh, &attribution);
+        let parts = transit_emission_parts(&mesh, &attribution, &rg, ed.site);
+
+        // Every region triangle lands in exactly one part.
+        let total: usize = parts.iter().map(|p| p.tris.len()).sum();
+        assert_eq!(total, rg.tris.len(), "the partition is exact");
+        assert!(parts.len() > 1, "the region spans more than one face");
+
+        // The own patch — the part carrying the crease chord AND the site — is
+        // the one that is cut in two, and its closure is a single triangle.
+        let (ha, hb) = ed.crease_host;
+        let own = parts
+            .iter()
+            .find(|p| {
+                p.tris.iter().any(|&t| {
+                    let tri = mesh.tris[t as usize];
+                    tri.contains(&ha) && tri.contains(&hb) && tri.contains(&ed.site)
+                })
+            })
+            .expect("some part carries the chord at the site");
+        assert_eq!(own.components, 2, "the own patch is cut in two");
+        assert_eq!(own.closure.len(), 1, "one triangle rejoins it");
+        assert!(
+            !rg.tris.contains(&own.closure[0]),
+            "the closure is outside the region — that is why it was cut"
+        );
+
+        // Closed, every part is a disk: one component, one simple boundary.
+        for p in &parts {
+            assert_eq!(p.components_closed, 1, "part {:?} is connected", p.face);
+            let b = p
+                .boundary_closed
+                .as_ref()
+                .unwrap_or_else(|| panic!("part {:?} bounds one cycle", p.face));
+            let mut seen = b.clone();
+            seen.sort_unstable();
+            seen.dedup();
+            assert_eq!(seen.len(), b.len(), "part {:?} self-touches", p.face);
+        }
+    }
+}
+
+/// THE fill plan: inserting the mints pinches the own patch, and the loop
+/// holding the site is the NOTCH.
+///
+/// The own patch carries all three host edges, so each mint lands on its
+/// boundary TWICE. §3z measured that doubling as a per-edge split's
+/// non-manifold residue; taken on the BOUNDARY instead of on the edges it is
+/// not a pathology at all — a cycle that repeats a vertex pinches there, and
+/// two pinches cut the own patch into a corner and its remainders. At R0044
+/// v47 the loops are `[16355, 280, 981]`, `[16356, 47, 16355]` (the notch) and
+/// `[45, 16356, 6911, 6945]`, and no other part pinches: each of those carries
+/// a host edge in one role only, so each is an ordinary polygon fill that
+/// receives the mints conformally.
+///
+/// But the clean cut has a PRECONDITION, and the fixture reaches both sides of
+/// it: the two mints' repeat spans must not CROSS. Interleaved, the loops that
+/// come out are not a corner and its remainders — the site's loop swells to
+/// most of the patch — so there is no notch to hand over and the fill declines.
+/// R0044 v47 is not interleaved; naming the fixture's chord from its other end
+/// is what reaches the shape that is.
+#[test]
+fn inserting_the_mints_pinches_the_own_patch_into_the_notch() {
+    use crate::stage4_boundary_curve::{transit_boundary_pinch, transit_emission_parts};
+    // `reversed` names the same chord from its other end; only one of the two
+    // arrangements gives a clean corner, and the corpus site is that one.
+    for (reversed, want_interleaved) in [(true, false), (false, true)] {
+        let (mesh, attribution) = interior_insert_fixture(true, reversed);
+        let ed = edits_of(&mesh, &attribution).expect("insertion");
+        let rg = region_of(&mesh, &attribution);
+        let parts = transit_emission_parts(&mesh, &attribution, &rg, ed.site);
+
+        let mut pinched = 0;
+        for p in &parts {
+            let b = p.boundary_closed.as_ref().expect("a disk");
+            let pin = transit_boundary_pinch(&ed, rg.mints, b, ed.site).expect("a start vertex");
+
+            // Every mint on this part's boundary is inserted once per host
+            // edge the part carries — the conforming half of the fill.
+            let norm = |a: u32, b: u32| (a.min(b), a.max(b));
+            for (mi, m) in rg.mints.iter().enumerate() {
+                let hosts = (0..b.len())
+                    .filter(|&k| {
+                        let e = norm(b[k], b[(k + 1) % b.len()]);
+                        e == norm(ed.crease_host.0, ed.crease_host.1)
+                            || e == norm(ed.inserts[mi].chain.0, ed.inserts[mi].chain.1)
+                    })
+                    .count();
+                assert_eq!(
+                    pin.inserted.iter().filter(|x| *x == m).count(),
+                    hosts,
+                    "mint {m} on part {:?}: one insert per host edge carried",
+                    p.face
+                );
+            }
+
+            if pin.loops.len() == 1 {
+                assert!(pin.notch.is_none(), "an unpinched part has no notch");
+                continue;
+            }
+            pinched += 1;
+            assert_eq!(
+                pin.interleaved, want_interleaved,
+                "part {:?}, reversed={reversed}",
+                p.face
+            );
+            if want_interleaved {
+                // The crossed arrangement yields no corner, and says so rather
+                // than handing over a loop that is not one.
+                assert!(pin.notch.is_none(), "an interleaved pinch has no notch");
+                continue;
+            }
+            // The clean cut: three loops, and the site's is the corner.
+            assert_eq!(pin.loops.len(), 3, "two pinches, three loops");
+            let n = pin.notch.expect("a clean pinch has a notch");
+            let notch = &pin.loops[n];
+            assert_eq!(notch.len(), 3, "the notch is the corner triangle");
+            assert!(notch.contains(&ed.site));
+            assert!(
+                rg.mints.iter().all(|m| notch.contains(m)),
+                "the notch is bounded by both mints: {notch:?}"
+            );
+            for (i, l) in pin.loops.iter().enumerate() {
+                if i != n {
+                    assert!(!l.contains(&ed.site), "only the notch holds the site");
+                    assert!(l.len() >= 3, "a loop is a polygon");
+                }
+            }
+            // Every loop's vertices come from the inserted boundary, and
+            // together they use each of its entries once — the pinch
+            // PARTITIONS the cycle rather than duplicating any of it.
+            let used: usize = pin.loops.iter().map(|l| l.len()).sum();
+            assert_eq!(used, pin.inserted.len(), "the pinch partitions the cycle");
+            // And every loop EDGE is a directed consecutive pair of the
+            // boundary — including the one closing back to the pinch point.
+            // So the loops inherit the part's winding, which is what lets the
+            // fill emit them without re-deriving an orientation.
+            let n_ins = pin.inserted.len();
+            let consecutive: std::collections::BTreeSet<(u32, u32)> = (0..n_ins)
+                .map(|k| (pin.inserted[k], pin.inserted[(k + 1) % n_ins]))
+                .collect();
+            for l in &pin.loops {
+                for k in 0..l.len() {
+                    let e = (l[k], l[(k + 1) % l.len()]);
+                    assert!(
+                        consecutive.contains(&e),
+                        "loop edge {e:?} is not a directed boundary step: {:?}",
+                        pin.inserted
+                    );
+                }
+            }
+        }
+        assert_eq!(pinched, 1, "only the own patch pinches");
+    }
+}

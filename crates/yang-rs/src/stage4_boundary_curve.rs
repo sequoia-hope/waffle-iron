@@ -2744,3 +2744,254 @@ pub(crate) fn transit_emission_region(
         overfull,
     })
 }
+
+// ---------------------------------------------------------------------------
+// §4.5.2 inc-2c-3b-12b-6 — the region's FACE PARTITION: the fill's own unit
+// ---------------------------------------------------------------------------
+
+/// One face-homogeneous part of the emission region.
+///
+/// The region spans both operands and several input faces, so it has no single
+/// chart and cannot be filled as one polygon. The fill's unit is therefore the
+/// part — and a part is only fillable if it is an edge-connected disk in its
+/// own face's chart, which is what this measures rather than assumes.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RegionPart {
+    /// The input face every triangle of the part carries, `None` for triangles
+    /// the attribution does not name.
+    pub(crate) face: Option<(crate::brep::InputId, u32)>,
+    /// The part's triangles, from the region alone.
+    pub(crate) tris: Vec<u32>,
+    /// Its edge-connected component count. More than one means the region cut
+    /// the face into pieces that touch only at the site.
+    pub(crate) components: usize,
+    /// Same-face triangles incident to the SITE that the region left out —
+    /// what re-connecting the part would have to take in.
+    pub(crate) closure: Vec<u32>,
+    /// The component count after that closure.
+    pub(crate) components_closed: usize,
+    /// The closed part's boundary as one ordered cycle, or `None` if its
+    /// boundary is not one simple cycle. This is the polygon a chart-local
+    /// fill would stitch, so the mints that lie on it have to be found here.
+    pub(crate) boundary_closed: Option<Vec<u32>>,
+}
+
+/// Partition the emission region by input face, and measure whether each part
+/// is a unit a chart-local fill is defined on.
+///
+/// Pure. Composed from the region and the attribution; nothing is re-derived
+/// and nothing mutates.
+pub(crate) fn transit_emission_parts(
+    mesh: &Mesh,
+    attribution: &crate::brep::TriangleAttributionMap,
+    region: &TransitEmissionRegion,
+    site: u32,
+) -> Vec<RegionPart> {
+    let face_of = |t: u32| attribution.lookup(t).map(|a| (a.input, a.face));
+
+    // Edge-adjacency inside a triangle set: two triangles are adjacent when
+    // they share two vertices. Vertex-only contact is NOT adjacency — that is
+    // exactly the distinction the site makes here.
+    let components = |set: &[u32]| -> usize {
+        let mut seen = vec![false; set.len()];
+        let mut n = 0;
+        for i in 0..set.len() {
+            if seen[i] {
+                continue;
+            }
+            n += 1;
+            let mut stack = vec![i];
+            seen[i] = true;
+            while let Some(k) = stack.pop() {
+                let a = mesh.tris[set[k] as usize];
+                for (j, &t) in set.iter().enumerate() {
+                    if seen[j] {
+                        continue;
+                    }
+                    let b = mesh.tris[t as usize];
+                    if a.iter().filter(|x| b.contains(x)).count() == 2 {
+                        seen[j] = true;
+                        stack.push(j);
+                    }
+                }
+            }
+        }
+        n
+    };
+
+    let mut faces: Vec<Option<(crate::brep::InputId, u32)>> =
+        region.tris.iter().map(|&t| face_of(t)).collect();
+    faces.sort_unstable();
+    faces.dedup();
+
+    faces
+        .into_iter()
+        .map(|face| {
+            let tris: Vec<u32> = region
+                .tris
+                .iter()
+                .copied()
+                .filter(|&t| face_of(t) == face)
+                .collect();
+            // Everything of this face at the site that the region left out.
+            let mut closure: Vec<u32> = (0..mesh.tris.len() as u32)
+                .filter(|&t| {
+                    mesh.tris[t as usize].contains(&site)
+                        && face_of(t) == face
+                        && !tris.contains(&t)
+                })
+                .collect();
+            closure.sort_unstable();
+            let mut closed = tris.clone();
+            closed.extend_from_slice(&closure);
+            closed.sort_unstable();
+            let components_closed = components(&closed);
+            // The closed part's boundary, by the same rule the region uses.
+            let mut dirs: std::collections::BTreeSet<(u32, u32)> =
+                std::collections::BTreeSet::new();
+            for &t in &closed {
+                let tri = mesh.tris[t as usize];
+                for k in 0..3 {
+                    dirs.insert((tri[k], tri[(k + 1) % 3]));
+                }
+            }
+            let unpaired: Vec<(u32, u32)> = dirs
+                .iter()
+                .copied()
+                .filter(|&(a, b)| !dirs.contains(&(b, a)))
+                .collect();
+            let boundary_closed = boundary_cycle(&unpaired).ok();
+            RegionPart {
+                face,
+                components: components(&tris),
+                tris,
+                closure,
+                components_closed,
+                boundary_closed,
+            }
+        })
+        .collect()
+}
+
+/// One part's boundary once the mints that lie on it are inserted, split at
+/// the vertices it repeats.
+///
+/// A mint sits on a HOST EDGE, and the own patch carries all three hosts — the
+/// crease chord and both chain edges — so each mint lands on that part's
+/// boundary TWICE. The doubled visit is not a pathology: it is the corner. A
+/// cycle that repeats a vertex pinches there, and the pinch cuts the own patch
+/// into the notch (the piece holding the site) and the pieces that keep their
+/// face.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct BoundaryPinch {
+    /// The part's boundary with every mint on it inserted, in the order it
+    /// occurs along each edge.
+    pub(crate) inserted: Vec<u32>,
+    /// The loops it separates into at its repeated vertices. One loop means
+    /// the part does not pinch and is a simple polygon fill.
+    pub(crate) loops: Vec<Vec<u32>>,
+    /// Whether the mints' two repeat intervals CROSS on the cycle.
+    ///
+    /// Two pinch points decompose a cycle cleanly only when the spans between
+    /// their repeats nest or stay disjoint. Interleaved, the loops that come
+    /// out are not a corner and its remainders — the site's loop swells to
+    /// most of the patch — so the fill has no notch to hand over. R0044 v47 is
+    /// NOT interleaved; the fixture reaches the interleaved shape when the
+    /// same chord is named from its other end, which is what pins the
+    /// distinction as measured rather than assumed.
+    pub(crate) interleaved: bool,
+    /// Which loop is THE NOTCH: the piece holding the site, on a part that
+    /// pinched cleanly. A part yielding one loop has no notch — its site, if
+    /// it has one, is just a corner of an ordinary polygon — and neither does
+    /// an interleaved one, so this is `None` in both cases rather than
+    /// trivially `0`.
+    pub(crate) notch: Option<usize>,
+}
+
+/// Insert the mints a boundary carries and split it where it repeats.
+///
+/// Pure. The along-edge order comes from `edits` (§3y sorted `inserts` along
+/// the chord), never from the mint numbering.
+pub(crate) fn transit_boundary_pinch(
+    edits: &TransitEmissionEdits,
+    mints: [u32; 2],
+    boundary: &[u32],
+    site: u32,
+) -> Option<BoundaryPinch> {
+    // The mints on directed edge `a → b`, in the order they occur along it.
+    let on_edge = |a: u32, b: u32| -> Vec<u32> {
+        let (ha, hb) = edits.crease_host;
+        if (a, b) == (ha, hb) {
+            return mints.to_vec();
+        }
+        if (a, b) == (hb, ha) {
+            return vec![mints[1], mints[0]];
+        }
+        for (i, ins) in edits.inserts.iter().enumerate() {
+            if (a, b) == ins.chain || (b, a) == ins.chain {
+                return vec![mints[i]];
+            }
+        }
+        Vec::new()
+    };
+
+    let mut inserted: Vec<u32> = Vec::with_capacity(boundary.len() + 4);
+    for k in 0..boundary.len() {
+        let (a, b) = (boundary[k], boundary[(k + 1) % boundary.len()]);
+        inserted.push(a);
+        inserted.extend(on_edge(a, b));
+    }
+
+    // Start the walk at a vertex the cycle visits ONCE, so the first and last
+    // loops are not an artifact of where it began.
+    let start = (0..inserted.len())
+        .find(|&i| inserted.iter().filter(|x| **x == inserted[i]).count() == 1)?;
+    inserted.rotate_left(start);
+
+    let mut path: Vec<u32> = Vec::new();
+    let mut loops: Vec<Vec<u32>> = Vec::new();
+    for &v in &inserted {
+        match path.iter().position(|x| *x == v) {
+            Some(k) => {
+                loops.push(path[k..].to_vec());
+                path.truncate(k + 1);
+            }
+            None => path.push(v),
+        }
+    }
+    if path.len() >= 3 {
+        loops.push(path);
+    }
+
+    // Do the two mints' repeat spans cross? Nested or disjoint spans cut the
+    // cycle into a corner and its remainders; crossed ones do not.
+    // A mint has exactly two host edges, so a simple boundary can visit it at
+    // most twice; a third visit means the cycle is not the polygon this
+    // assumes, and the pinch is not defined on it.
+    let span = |m: u32| -> Result<Option<(usize, usize)>, ()> {
+        let mut it = inserted.iter().enumerate().filter(|(_, x)| **x == m);
+        match (it.next(), it.next(), it.next()) {
+            (Some((i, _)), Some((j, _)), None) => Ok(Some((i, j))),
+            (_, None, _) => Ok(None),
+            _ => Err(()),
+        }
+    };
+    let interleaved = match (span(mints[0]).ok()?, span(mints[1]).ok()?) {
+        (Some((i1, j1)), Some((i2, j2))) => {
+            (i1 < i2 && i2 < j1 && j1 < j2) || (i2 < i1 && i1 < j2 && j2 < j1)
+        }
+        _ => false,
+    };
+
+    let notch = if loops.len() > 1 && !interleaved {
+        loops.iter().position(|l| l.contains(&site))
+    } else {
+        None
+    };
+    Some(BoundaryPinch {
+        inserted,
+        loops,
+        interleaved,
+        notch,
+    })
+}

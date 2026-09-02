@@ -10584,7 +10584,8 @@ fn stage4_relocate_and_correct_inner(
                                                                     transit_emission_region(
                                                                         mesh, &ed,
                                                                     ) {
-                                                                    Ok(rg) => eprintln!(
+                                                                    Ok(rg) => {
+                                                                        eprintln!(
                                                                         "[s451-region] case={} \
                                                                          v={v} OK tris={:?} \
                                                                          boundary={:?} \
@@ -10601,7 +10602,41 @@ fn stage4_relocate_and_correct_inner(
                                                                         rg.naive_children.len(),
                                                                         rg.coincident,
                                                                         rg.overfull
-                                                                    ),
+                                                                        );
+                                                                        // inc-2c-3b-12b-6: the
+                                                                        // region spans both
+                                                                        // operands, so the fill's
+                                                                        // unit is the face-part —
+                                                                        // if each part is a disk.
+                                                                        for pt in crate::
+                                                                            stage4_boundary_curve::
+                                                                            transit_emission_parts(
+                                                                                mesh,
+                                                                                attribution,
+                                                                                &rg,
+                                                                                ed.site,
+                                                                            )
+                                                                        {
+                                                                            let pinch = pt
+                                                                                .boundary_closed
+                                                                                .as_ref()
+                                                                                .and_then(|b| {
+                                                                                crate::
+                                                                                stage4_boundary_curve::
+                                                                                transit_boundary_pinch(
+                                                                                    &ed,
+                                                                                    rg.mints,
+                                                                                    b,
+                                                                                    ed.site,
+                                                                                )
+                                                                            });
+                                                                            eprintln!(
+                                                                                "[s451-parts]   \
+                                                                                 {:?} pinch={:?}",
+                                                                                pt, pinch
+                                                                            );
+                                                                        }
+                                                                    }
                                                                     Err(e) => eprintln!(
                                                                         "[s451-region] case={} \
                                                                          v={v} DECLINE {e:?}",
