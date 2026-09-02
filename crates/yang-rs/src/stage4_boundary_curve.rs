@@ -3022,12 +3022,26 @@ pub(crate) enum EmissionFillFailure {
     /// A part other than the own patch pinched. Every other part carries a
     /// host edge in one role only, so this is not the measured anatomy.
     UnexpectedPinch { face: Option<(InputId, u32)> },
-    /// No crease-chord carrier lies outside the own face, so the notch has no
-    /// face to go to — §3y's empty reach, a chord no neighbour carries.
+    /// No crease-chord carrier lies outside the own face, so the corner has
+    /// no face to bite into — §3y's empty reach, a chord no neighbour
+    /// carries.
     NotchDestinationUnknown,
     /// The crease-chord carriers outside the own face name more than one
     /// face between them.
     NotchDestinationAmbiguous,
+    /// The neighbour face has no part in the region, though its carrier is
+    /// a region triangle — the partition and the carriers disagree.
+    NeighbourPartMissing,
+    /// The neighbour part, enlarged by the triangles the corner lands in,
+    /// does not bound one simple cycle.
+    BiteNotADisk,
+    /// The neighbour boundary, mints inserted, does not carry the corner
+    /// segment as one step — so there is no step to detour through the
+    /// corner.
+    CornerStepMissing,
+    /// The corner lies within the feature floor of an existing vertex of the
+    /// bite polygon: inserting it would mint a duplicate, not a corner.
+    CornerCoincident { v: u32, dist: f64 },
     /// A polygon's face is unattributed, has no surface, or its surface has
     /// no local chart.
     NoChart { face: Option<(InputId, u32)> },
@@ -3048,15 +3062,16 @@ pub(crate) enum EmissionFillFailure {
 /// One polygon of the fill, in its own face's chart.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct FillPolygon {
-    /// The face the fill's triangles are attributed to. For the notch this is
-    /// the NEIGHBOUR across the crease, not the part it was cut from.
+    /// The face the fill's triangles are attributed to.
     pub(crate) face: (InputId, u32),
-    /// The loop, in the part's winding, as mesh ids (mints included).
+    /// The loop, in the part's winding, as mesh ids (mints and, for the
+    /// bite, the corner included).
     pub(crate) polygon: Vec<u32>,
     /// Its triangulation, wound with the loop.
     pub(crate) tris: Vec<[u32; 3]>,
-    /// Whether this is the notch.
-    pub(crate) notch: bool,
+    /// Whether this is the neighbour's BITE polygon: the one whose boundary
+    /// detours through the corner instead of running along the crease.
+    pub(crate) bite: bool,
     /// Per triangle, whether its 3D normal lies ALONG its face surface's
     /// gradient at the centroid (`None` = not evaluable). Filled in by the
     /// lift certificate; the per-face [`LiftSense`] counts are its sums.
@@ -3090,13 +3105,15 @@ pub(crate) struct ChordBudget {
 }
 
 /// One face's chart→3D lift orientation: how many of its removed (old
-/// positions) and added (new positions) triangles have their 3D normal
-/// along, and against, the face surface's gradient at their centroid.
+/// positions), added (new positions) and SURVIVING triangles have their 3D
+/// normal along, and against, the face surface's gradient at their centroid.
 ///
 /// A directed-edge check certifies WINDING; it cannot see a triangle that
 /// pairs consistently along every edge yet lifts folded onto the surface
 /// (the KV9-F2b lesson: the chart→3D lift must be orientation-faithful). The
-/// removed triangles supply the sense the fill must keep.
+/// face's survivors supply the sense the fill must keep — the whole face's
+/// testimony, not the fossil's, because the fossil is the very thing the
+/// defect may have folded (§3ac: the fixture's own fossil is 2 / 2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct LiftSense {
     pub(crate) face: (InputId, u32),
@@ -3104,22 +3121,48 @@ pub(crate) struct LiftSense {
     pub(crate) old_against: usize,
     pub(crate) new_along: usize,
     pub(crate) new_against: usize,
+    pub(crate) survivors_along: usize,
+    pub(crate) survivors_against: usize,
     /// Triangles whose surface normal could not be evaluated at the
     /// centroid (a surface kind without a gradient here, or a degenerate
     /// triangle). Uncertified, not certified.
     pub(crate) uncertified: usize,
 }
 
+/// Where the corner LANDS on the neighbour face: the surviving triangles of
+/// that face whose chart footprint contains the corrected junction, and the
+/// ones the two chain stubs cross on their way from the mints to it.
+///
+/// §3ac measured the reason this exists: the neighbour's host carrier is a
+/// full-width sliver of a 1.194-wide band and the corner sits 0.2457 BEYOND
+/// its far edge, inside the next triangle. The region the edits land in is
+/// therefore not the host carriers alone on the neighbour side; it is the
+/// host carriers plus these.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct BiteRegion {
+    pub(crate) face: (InputId, u32),
+    /// Survivors of `face` whose chart footprint contains the corner. Sorted.
+    pub(crate) contains_corner: Vec<u32>,
+    /// Survivors of `face` a stub crosses, not already above. Sorted.
+    pub(crate) crossed: Vec<u32>,
+    /// The corner's chart position on the face.
+    pub(crate) corner_uv: (f64, f64),
+}
+
 /// The emission mutation, planned but not written.
 ///
-/// §3aa closed the plan: close the own patch, insert the mints on the four
-/// part boundaries that carry them, fill each polygon in its own chart, and
-/// attribute the notch to the neighbour. This composes exactly that — the
-/// pinched loops become chart fills, wound by their loops — and then certifies
-/// the RESULT against the whole mesh before anything is written: every edge
+/// §3aa closed the plan; §3ac corrected what its notch loop IS. Composed
+/// here: the own patch is pinched and its notch loop — the flap of its fan
+/// that overran the crease, A's material wedge on the own surface's
+/// extension — is DROPPED; the neighbour part is enlarged by the triangles
+/// the corner lands in ([`BiteRegion`]) and its boundary, mints inserted,
+/// DETOURS through the corner instead of running along the corner segment;
+/// every other part is filled as an ordinary polygon. Then the RESULT is
+/// certified against the whole mesh before anything is written: every edge
 /// the edit touches has the incidence a manifold requires, every fill edge
-/// shared with a survivor is traversed the opposite way, and no face's fill is
-/// coarser than what it replaces.
+/// shared with a survivor is traversed the opposite way, no face's fill is
+/// coarser than what it replaces, and every fill triangle lifts onto its
+/// surface the way the face's survivors do.
 ///
 /// Pure. `mints` carry the ids the mints WOULD get (`region.mints`) and their
 /// exact positions; `site_at` is where the site will stand (the transit's
@@ -3130,19 +3173,25 @@ pub(crate) struct TransitEmissionFill {
     pub(crate) site: u32,
     pub(crate) site_at: Point3,
     pub(crate) mints: [(u32, Point3); 2],
-    /// Every triangle the edit removes: the region and the parts' closures.
-    /// Sorted.
+    /// Every triangle the edit removes: the region, the parts' closures and
+    /// the bite. Sorted.
     pub(crate) removed: Vec<u32>,
     /// Symmetric difference between `removed` and §3y's `touched` — the two
-    /// were derived by different routes, so their agreement is measured.
+    /// were derived by different routes; the bite is what the corner adds
+    /// beyond the host carriers.
     pub(crate) touched_delta: Vec<u32>,
     pub(crate) own_face: (InputId, u32),
-    /// Who owns the far side of the crease chord — the notch's destination.
+    /// Who owns the far side of the crease chord — the face the corner bites
+    /// into.
     pub(crate) notch_face: (InputId, u32),
     /// Whether that face's surface IS the transit's `s_nbr`: the mesh-derived
     /// destination against the analytic one. `None` if the face has no
     /// surface.
     pub(crate) notch_surface_agrees: Option<bool>,
+    /// Where the corner lands on the neighbour face.
+    pub(crate) bite: BiteRegion,
+    /// The own patch's notch loop, dropped: the site and the two mints.
+    pub(crate) dropped: Vec<u32>,
     pub(crate) polygons: Vec<FillPolygon>,
     /// Edges whose incidence after the edit is wrong. Empty is the manifold
     /// certificate.
@@ -3155,24 +3204,172 @@ pub(crate) struct TransitEmissionFill {
     /// inside the fill.
     pub(crate) added_folds: usize,
     pub(crate) chord: Vec<ChordBudget>,
-    /// Per face, the lift sense of what goes and what comes.
+    /// Per face, the lift sense of what goes, what comes and what stays.
     pub(crate) lift: Vec<LiftSense>,
-    /// Added triangles whose lift sense is against their face's removed
-    /// majority (or, where the removed triangles disagree among themselves,
-    /// the added minority). Zero is the lift certificate.
+    /// Added triangles whose lift sense is against their face's reference —
+    /// the survivors' majority, or the fossil's where the face has no
+    /// survivor, or the added minority where neither decides. Zero is the
+    /// lift certificate.
     pub(crate) lift_flips: usize,
     /// Added or removed triangles the lift could not be evaluated on.
     pub(crate) lift_uncertified: usize,
+}
+
+/// A part's boundary as one ordered cycle, by the region's own rule: the
+/// directed edges its triangles leave unpaired, chained.
+fn part_boundary(mesh: &Mesh, tris: &[u32]) -> Result<Vec<u32>, EmissionRegionFailure> {
+    let mut dirs: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
+    for &t in tris {
+        let tri = mesh.tris[t as usize];
+        for k in 0..3 {
+            dirs.insert((tri[k], tri[(k + 1) % 3]));
+        }
+    }
+    let unpaired: Vec<(u32, u32)> = dirs
+        .iter()
+        .copied()
+        .filter(|&(a, b)| !dirs.contains(&(b, a)))
+        .collect();
+    boundary_cycle(&unpaired)
+}
+
+/// Where the corner lands on `face`: the survivors of that face (triangles
+/// attributed to it and not in `excluded`) whose chart footprint contains
+/// `corner`, and the ones either stub `mint → corner` crosses.
+///
+/// Periodic charts are handled per triangle: each triangle's corners are
+/// chain-unwrapped about its first corner, then the whole triangle is
+/// shifted by whole periods to sit nearest the corner's azimuth, so a
+/// triangle straddling the seam far from the corner cannot be unwrapped
+/// into a false hit. Pure.
+pub(crate) fn transit_bite_region(
+    mesh: &Mesh,
+    attribution: &crate::brep::TriangleAttributionMap,
+    excluded: &[u32],
+    face: (InputId, u32),
+    corner: Point3,
+    mints: [Point3; 2],
+    face_surface: &dyn Fn(InputId, u32) -> Option<Surface>,
+) -> Result<BiteRegion, EmissionFillFailure> {
+    use crate::stage4_project::SurfaceChart;
+    use EmissionFillFailure as F;
+    let surface = face_surface(face.0, face.1).ok_or(F::NoChart { face: Some(face) })?;
+    let chart = SurfaceChart::new_local(surface).ok_or(F::NoChart { face: Some(face) })?;
+    let planar = matches!(chart, SurfaceChart::Plane { .. });
+    let biperiodic = matches!(chart, SurfaceChart::Torus { .. });
+    let near = |prev: f64, val: f64| -> f64 {
+        let mut d = val - prev;
+        while d > std::f64::consts::PI {
+            d -= std::f64::consts::TAU;
+        }
+        while d <= -std::f64::consts::PI {
+            d += std::f64::consts::TAU;
+        }
+        prev + d
+    };
+    let cj = chart.project(corner);
+    let cj = (cj.x(), cj.y());
+    let stubs: [(f64, f64); 2] = [0, 1].map(|i| {
+        let m = chart.project(mints[i]);
+        let x = if planar { m.x() } else { near(cj.0, m.x()) };
+        let y = if biperiodic { near(cj.1, m.y()) } else { m.y() };
+        (x, y)
+    });
+    let orient = |a: (f64, f64), b: (f64, f64), p: (f64, f64)| -> f64 {
+        (b.0 - a.0) * (p.1 - a.1) - (b.1 - a.1) * (p.0 - a.0)
+    };
+    let inside = |c: &[(f64, f64); 3], p: (f64, f64)| -> bool {
+        let total = orient(c[0], c[1], c[2]);
+        if total == 0.0 {
+            return false;
+        }
+        let s = total.signum();
+        orient(c[0], c[1], p) * s >= 0.0
+            && orient(c[1], c[2], p) * s >= 0.0
+            && orient(c[2], c[0], p) * s >= 0.0
+    };
+    let segments_cross = |a: (f64, f64), b: (f64, f64), c: (f64, f64), d: (f64, f64)| -> bool {
+        let (o1, o2) = (orient(a, b, c), orient(a, b, d));
+        let (o3, o4) = (orient(c, d, a), orient(c, d, b));
+        (o1 * o2 < 0.0 && o3 * o4 < 0.0)
+            || (o1 == 0.0 && inside_box(a, b, c))
+            || (o2 == 0.0 && inside_box(a, b, d))
+            || (o3 == 0.0 && inside_box(c, d, a))
+            || (o4 == 0.0 && inside_box(c, d, b))
+    };
+    let mut contains_corner = Vec::new();
+    let mut crossed = Vec::new();
+    for (ti, tri) in mesh.tris.iter().enumerate() {
+        let ti = ti as u32;
+        if excluded.binary_search(&ti).is_ok()
+            || attribution.lookup(ti).map(|a| (a.input, a.face)) != Some(face)
+        {
+            continue;
+        }
+        let raw: Vec<(f64, f64)> = tri
+            .iter()
+            .map(|&v| {
+                let w = chart.project(mesh.verts[v as usize]);
+                (w.x(), w.y())
+            })
+            .collect();
+        // Chain-unwrap about the first corner, then shift the whole triangle
+        // to the period nearest the corner's azimuth.
+        let mut c = [raw[0], raw[1], raw[2]];
+        if !planar {
+            for k in 1..3 {
+                c[k].0 = near(c[0].0, c[k].0);
+            }
+            let mid = (c[0].0 + c[1].0 + c[2].0) / 3.0;
+            let shift = ((cj.0 - mid) / std::f64::consts::TAU).round() * std::f64::consts::TAU;
+            for corner in c.iter_mut() {
+                corner.0 += shift;
+            }
+        }
+        if biperiodic {
+            for k in 1..3 {
+                c[k].1 = near(c[0].1, c[k].1);
+            }
+            let mid = (c[0].1 + c[1].1 + c[2].1) / 3.0;
+            let shift = ((cj.1 - mid) / std::f64::consts::TAU).round() * std::f64::consts::TAU;
+            for corner in c.iter_mut() {
+                corner.1 += shift;
+            }
+        }
+        if inside(&c, cj) {
+            contains_corner.push(ti);
+            continue;
+        }
+        let hit = stubs
+            .iter()
+            .any(|&m| inside(&c, m) || (0..3).any(|k| segments_cross(m, cj, c[k], c[(k + 1) % 3])));
+        if hit {
+            crossed.push(ti);
+        }
+    }
+    Ok(BiteRegion {
+        face,
+        contains_corner,
+        crossed,
+        corner_uv: cj,
+    })
+}
+
+/// Whether `p` lies within the bounding box of segment `a b` (used only when
+/// `p` is collinear with it).
+fn inside_box(a: (f64, f64), b: (f64, f64), p: (f64, f64)) -> bool {
+    p.0 >= a.0.min(b.0) && p.0 <= a.0.max(b.0) && p.1 >= a.1.min(b.1) && p.1 <= a.1.max(b.1)
 }
 
 /// Plan the emission fill from the pinched parts.
 ///
 /// Composed from every measurement that precedes it: the mints and hosts
 /// from `edits`, the mint ids from `region`, the parts and their closures from
-/// `parts`, the loops from [`transit_boundary_pinch`], the site's corrected
-/// position and the neighbour's surface from `t`. Nothing is re-derived;
-/// the only things computed here are the chart CDT of each loop and the
-/// certificates on the result. Every non-answer is typed.
+/// `parts`, the loops from [`transit_boundary_pinch`], the corner's landing
+/// from [`transit_bite_region`], the site's corrected position and the
+/// neighbour's surface from `t`. Nothing is re-derived; the only things
+/// computed here are the chart CDT of each polygon and the certificates on
+/// the result. Every non-answer is typed.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn transit_emission_fill(
     mesh: &Mesh,
@@ -3216,7 +3413,7 @@ pub(crate) fn transit_emission_fill(
         .ok_or(F::OwnPartMissing)?;
     let own_face = parts[own_idx].face.ok_or(F::NoChart { face: None })?;
 
-    // The notch's destination: who owns the far side of the chord.
+    // The corner's destination: who owns the far side of the chord.
     let mut dests: Vec<(InputId, u32)> = edits
         .crease_tris
         .iter()
@@ -3231,11 +3428,28 @@ pub(crate) fn transit_emission_fill(
         _ => return Err(F::NotchDestinationAmbiguous),
     };
     let notch_surface_agrees = face_surface(notch_face.0, notch_face.1).map(|s| s == t.s_nbr);
+    let nbr_idx = parts
+        .iter()
+        .position(|p| p.face == Some(notch_face))
+        .ok_or(F::NeighbourPartMissing)?;
 
+    // What the parts alone remove; then where the corner lands beyond them.
     let mut removed: Vec<u32> = parts
         .iter()
         .flat_map(|p| p.tris.iter().chain(p.closure.iter()).copied())
         .collect();
+    removed.sort_unstable();
+    removed.dedup();
+    let bite = transit_bite_region(
+        mesh,
+        attribution,
+        &removed,
+        notch_face,
+        t.j,
+        [edits.inserts[0].at, edits.inserts[1].at],
+        face_surface,
+    )?;
+    removed.extend(bite.contains_corner.iter().chain(bite.crossed.iter()));
     removed.sort_unstable();
     removed.dedup();
     let touched_delta: Vec<u32> = removed
@@ -3251,7 +3465,7 @@ pub(crate) fn transit_emission_fill(
         .collect();
 
     // One loop → one chart fill, wound by the loop.
-    let fill_loop = |l: &[u32], face: (InputId, u32), notch: bool| -> Result<FillPolygon, F> {
+    let fill_loop = |l: &[u32], face: (InputId, u32), bite: bool| -> Result<FillPolygon, F> {
         if l.len() < 3 {
             return Err(F::PinchUndefined { face: Some(face) });
         }
@@ -3260,7 +3474,7 @@ pub(crate) fn transit_emission_fill(
                 face,
                 polygon: l.to_vec(),
                 tris: vec![[l[0], l[1], l[2]]],
-                notch,
+                bite,
                 lift: Vec::new(),
             });
         }
@@ -3361,7 +3575,7 @@ pub(crate) fn transit_emission_fill(
             face,
             polygon: l.to_vec(),
             tris,
-            notch,
+            bite,
             lift: Vec::new(),
         })
     };
@@ -3370,7 +3584,41 @@ pub(crate) fn transit_emission_fill(
     // before any polygon is projected, so a structural decline is reported as
     // such and never masked by a chart failure on an earlier part.
     let mut loops: Vec<(Vec<u32>, (InputId, u32), bool)> = Vec::new();
+    let mut dropped: Vec<u32> = Vec::new();
     for (pi, p) in parts.iter().enumerate() {
+        if pi == nbr_idx {
+            // The neighbour: enlarged by the bite, its boundary re-derived,
+            // the mints inserted, the corner step detoured through the site.
+            let mut tris: Vec<u32> = p.tris.iter().chain(p.closure.iter()).copied().collect();
+            tris.extend(bite.contains_corner.iter().chain(bite.crossed.iter()));
+            tris.sort_unstable();
+            tris.dedup();
+            let b = part_boundary(mesh, &tris).map_err(|_| F::BiteNotADisk)?;
+            let pin = transit_boundary_pinch(edits, mints, &b, site)
+                .ok_or(F::PinchUndefined { face: p.face })?;
+            if pin.loops.len() != 1 {
+                return Err(F::UnexpectedPinch { face: p.face });
+            }
+            let l = &pin.loops[0];
+            let n = l.len();
+            let k = (0..n)
+                .find(|&k| {
+                    let (a, b) = (l[k], l[(k + 1) % n]);
+                    (a == mints[0] && b == mints[1]) || (a == mints[1] && b == mints[0])
+                })
+                .ok_or(F::CornerStepMissing)?;
+            let floor = cad_primitives::MIN_FEATURE_SIZE;
+            for &v in l {
+                let d = dist3(pos(v), t.j);
+                if d < floor {
+                    return Err(F::CornerCoincident { v, dist: d });
+                }
+            }
+            let mut detoured = l.clone();
+            detoured.insert(k + 1, site);
+            loops.push((detoured, notch_face, true));
+            continue;
+        }
         let b = p
             .boundary_closed
             .as_ref()
@@ -3383,9 +3631,11 @@ pub(crate) fn transit_emission_fill(
             }
             let notch = pin.notch.ok_or(F::NoNotch)?;
             for (li, l) in pin.loops.iter().enumerate() {
-                let is_notch = li == notch;
-                let face = if is_notch { notch_face } else { own_face };
-                loops.push((l.clone(), face, is_notch));
+                if li == notch {
+                    dropped = l.clone();
+                } else {
+                    loops.push((l.clone(), own_face, false));
+                }
             }
         } else {
             if pin.loops.len() != 1 {
@@ -3396,8 +3646,8 @@ pub(crate) fn transit_emission_fill(
         }
     }
     let mut polygons: Vec<FillPolygon> = Vec::with_capacity(loops.len());
-    for (l, face, is_notch) in &loops {
-        polygons.push(fill_loop(l, *face, *is_notch)?);
+    for (l, face, is_bite) in &loops {
+        polygons.push(fill_loop(l, *face, *is_bite)?);
     }
 
     // --- Certificates on the result, against the WHOLE mesh. ---
@@ -3556,7 +3806,8 @@ pub(crate) fn transit_emission_fill(
 
     // The lift sense per face: the 3D normal of each triangle against the
     // face surface's gradient at its centroid — removed triangles at their
-    // old positions, added ones at the planned positions.
+    // old positions, added ones at the planned positions, survivors as they
+    // stand. The survivors are the reference.
     let sense = |surface: Surface, tri: [u32; 3], at: &dyn Fn(u32) -> Point3| -> Option<bool> {
         let (a, b, c) = (
             at(tri[0]).as_array(),
@@ -3592,6 +3843,8 @@ pub(crate) fn transit_emission_fill(
             old_against: 0,
             new_along: 0,
             new_against: 0,
+            survivors_along: 0,
+            survivors_against: 0,
             uncertified: 0,
         };
         if let Some(surface) = face_surface(face.0, face.1) {
@@ -3600,6 +3853,17 @@ pub(crate) fn transit_emission_fill(
                     Some(true) => ls.old_along += 1,
                     Some(false) => ls.old_against += 1,
                     None => ls.uncertified += 1,
+                }
+            }
+            for (ti, tri) in mesh.tris.iter().enumerate() {
+                let ti = ti as u32;
+                if removed.binary_search(&ti).is_ok() || face_of(ti) != Some(face) {
+                    continue;
+                }
+                match sense(surface, *tri, &|v| mesh.verts[v as usize]) {
+                    Some(true) => ls.survivors_along += 1,
+                    Some(false) => ls.survivors_against += 1,
+                    None => {}
                 }
             }
             for poly in polygons.iter_mut().filter(|p| p.face == face) {
@@ -3623,7 +3887,12 @@ pub(crate) fn transit_emission_fill(
                 .count()
                 + added.iter().filter(|(_, f)| *f == face).count();
         }
-        lift_flips += match ls.old_along.cmp(&ls.old_against) {
+        let reference = if ls.survivors_along + ls.survivors_against > 0 {
+            ls.survivors_along.cmp(&ls.survivors_against)
+        } else {
+            ls.old_along.cmp(&ls.old_against)
+        };
+        lift_flips += match reference {
             std::cmp::Ordering::Greater => ls.new_against,
             std::cmp::Ordering::Less => ls.new_along,
             std::cmp::Ordering::Equal => ls.new_along.min(ls.new_against),
@@ -3644,6 +3913,8 @@ pub(crate) fn transit_emission_fill(
         own_face,
         notch_face,
         notch_surface_agrees,
+        bite,
+        dropped,
         polygons,
         edge_defects,
         opposed,

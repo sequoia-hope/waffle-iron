@@ -2049,16 +2049,29 @@ fn fill_fixture(reversed: bool) -> (crate::Mesh, crate::brep::TriangleAttributio
     let (mut mesh, mut attribution) = interior_insert_fixture(true, reversed);
     mesh.verts[1] = Point3::new(66.0, 60.0, (66.0f64 * 66.0 + 60.0 * 60.0).sqrt());
     mesh.verts[5] = Point3::new(40.0, 88.0, (40.0f64 * 40.0 + 88.0 * 88.0).sqrt());
+    // Each survivor's third vertex lies ACROSS its shared edge from the
+    // site, so the survivor is geometrically beside the fan and not folded
+    // over it: `s8` at azimuth 30° sits past edge `1–2` (azimuths 42° and
+    // 40°) on the side away from the site (53°); `s9 = (66, 20, 80)` sits
+    // past edge `1–6` in plane_x's `(y, z)` chart on the side away from
+    // `0 = (88, 110)`. (A first draft put both on the site's side; the lift
+    // certificate, taking the survivors as its reference, reported the
+    // fill folded against them — the fixture was the fold.)
     let home = |deg: f64| {
         let r: f64 = f64::to_radians(deg);
         Point3::new(90.0 * r.cos(), 90.0 * r.sin(), 90.0)
     };
     let s8 = mesh.verts.len() as u32;
-    mesh.verts.push(home(72.0));
+    mesh.verts.push(home(30.0));
     let s9 = mesh.verts.len() as u32;
-    mesh.verts.push(Point3::new(66.0, 60.0, 70.0));
+    mesh.verts.push(Point3::new(66.0, 20.0, 80.0));
     mesh.tris.push([2, 1, s8]);
     mesh.tris.push([1, 6, s9]);
+    // The neighbour's apex `w` (vertex 7) was placed on cone B's axis, where
+    // it has no azimuth; the bite polygon is projected into cone B's chart,
+    // so it moves onto the cone at station 80, azimuth 55°.
+    let r55: f64 = f64::to_radians(55.0);
+    mesh.verts[7] = Point3::new(160.0 * r55.cos(), 160.0 * r55.sin(), 130.0);
     let f = |input, face| Some(crate::brep::TriangleAttribution { input, face });
     attribution.attributions.push(f(InputId::B, 7));
     attribution.attributions.push(f(InputId::A, 2));
@@ -2116,25 +2129,54 @@ fn the_fill_is_manifold_conformal_and_wound_by_its_loops() {
     let n = mesh.tris.len() as u32;
     assert!(!fill.removed.contains(&(n - 1)) && !fill.removed.contains(&(n - 2)));
 
-    // What comes: one polygon per part, plus the own patch's two extra loops.
-    assert_eq!(fill.polygons.len(), parts.len() + 2);
-    let notches: Vec<_> = fill.polygons.iter().filter(|p| p.notch).collect();
-    assert_eq!(notches.len(), 1, "exactly one notch");
-    let notch = notches[0];
-    assert_eq!(notch.polygon.len(), 3, "the notch is the corner triangle");
-    assert!(notch.polygon.contains(&ed.site));
-    assert!(rg.mints.iter().all(|m| notch.polygon.contains(m)));
+    // What comes: one polygon per part, plus one — the own patch splits in
+    // two and its NOTCH loop is dropped (it is A's wedge on the own surface's
+    // extension, §3ac), while the neighbour's polygon BITES: its boundary
+    // detours through the corner.
+    assert_eq!(fill.polygons.len(), parts.len() + 1);
+    assert!(
+        !fill
+            .polygons
+            .iter()
+            .any(|p| p.polygon.len() == 3 && p.polygon.contains(&ed.site)),
+        "no notch triangle is emitted"
+    );
+    assert_eq!(
+        fill.dropped.len(),
+        3,
+        "the dropped loop is the corner triangle"
+    );
+    assert!(fill.dropped.contains(&ed.site));
+    assert!(rg.mints.iter().all(|m| fill.dropped.contains(m)));
+    let bites: Vec<_> = fill.polygons.iter().filter(|p| p.bite).collect();
+    assert_eq!(bites.len(), 1, "exactly one bite");
+    let bite = bites[0];
     assert_eq!(fill.own_face, (InputId::B, 7));
     assert_eq!(
         fill.notch_face,
         (InputId::B, 8),
         "the far side of the chord"
     );
-    assert_eq!(
-        notch.face, fill.notch_face,
-        "the notch is attributed to the neighbour"
-    );
+    assert_eq!(bite.face, fill.notch_face, "the bite is the neighbour's");
     assert_eq!(fill.notch_surface_agrees, Some(true));
+    assert!(
+        bite.polygon.contains(&ed.site),
+        "the corner is on the bite's boundary"
+    );
+    assert!(rg.mints.iter().all(|m| bite.polygon.contains(m)));
+    // The detour: the corner sits between the two mints on the bite's
+    // boundary, and the corner segment is no step of it.
+    let n = bite.polygon.len();
+    let k = bite.polygon.iter().position(|&v| v == ed.site).unwrap();
+    let (prev, next) = (bite.polygon[(k + n - 1) % n], bite.polygon[(k + 1) % n]);
+    assert!(rg.mints.contains(&prev) && rg.mints.contains(&next) && prev != next);
+    assert!(!(0..n).any(|i| {
+        let e = (bite.polygon[i], bite.polygon[(i + 1) % n]);
+        rg.mints.contains(&e.0) && rg.mints.contains(&e.1)
+    }));
+    // On this fixture the corner lands inside the neighbour's own host
+    // carrier, so the bite enlarges nothing.
+    assert!(fill.bite.contains_corner.is_empty() && fill.bite.crossed.is_empty());
     assert_eq!(
         fill.polygons
             .iter()
@@ -2188,10 +2230,11 @@ fn the_fill_is_manifold_conformal_and_wound_by_its_loops() {
             ls.new_along == 0 || ls.new_against == 0,
             "fill folded: {ls:?}"
         );
-        if ls.old_against == 0 {
-            assert_eq!(ls.new_against, 0, "{ls:?}");
-        }
-        if ls.old_along == 0 {
+        // Wherever the face has survivors they are the reference; the
+        // fossil is only consulted where it has none.
+        if ls.survivors_along > 0 {
+            assert_eq!((ls.survivors_against, ls.new_against), (0, 0), "{ls:?}");
+        } else if ls.survivors_against > 0 {
             assert_eq!(ls.new_along, 0, "{ls:?}");
         }
     }
@@ -2209,12 +2252,13 @@ fn the_fill_is_manifold_conformal_and_wound_by_its_loops() {
         fill.opposed, 2,
         "each survivor shares exactly one edge with the fill, traversed the other way"
     );
-    // Each mint carries the four edges its two roles demand — the stub to the
-    // site and the stub to its chain end (the chain, split), the half-chord to
-    // its chord end and the corner edge to the other mint (the chord, split)
-    // — and every one of them is interior to the fill, carried by exactly two
-    // fill triangles. (How many FURTHER edges a mint gets is the CDT's
-    // diagonal choice, not an invariant.)
+    // Each mint carries the three edges its roles demand — the stub to the
+    // site and the stub to its chain end (the chain, split), and the
+    // half-chord to its chord end (the chord, split) — each interior to the
+    // fill, carried by exactly two fill triangles. The CORNER SEGMENT between
+    // the mints is carried by nothing: it lies under A's face (§3ac). (How
+    // many FURTHER edges a mint gets is the CDT's diagonal choice, not an
+    // invariant.)
     let carried = |x: u32, y: u32| {
         fill.polygons
             .iter()
@@ -2235,10 +2279,14 @@ fn the_fill_is_manifold_conformal_and_wound_by_its_loops() {
             ("site stub", ed.site),
             ("chain end", chain_end),
             ("chord end", chord_end),
-            ("corner edge", other),
         ] {
             assert_eq!(carried(*m, y), 2, "mint {m}: {name} ({m}, {y})");
         }
+        assert_eq!(
+            carried(*m, other),
+            0,
+            "mint {m}: the corner segment is nobody's"
+        );
     }
 }
 
@@ -2283,6 +2331,117 @@ fn a_folded_survivor_is_reported_not_absorbed() {
         fill.edge_defects.is_empty(),
         "a fold is not an incidence defect"
     );
+    // The flipped survivor is the face's only one, so it is also the lift's
+    // reference for that face — and the fill, lifting the way the face
+    // really lies, is reported against it. Two certificates, one fold.
+    let a2 = fill
+        .lift
+        .iter()
+        .find(|l| l.face == (InputId::A, 2))
+        .expect("plane_x is certified");
+    assert_eq!(a2.survivors_along + a2.survivors_against, 1, "{a2:?}");
+    assert_eq!(
+        fill.lift_flips,
+        a2.new_along + a2.new_against,
+        "every plane_x fill triangle is against the flipped reference: {a2:?}"
+    );
+    assert!(fill.lift_flips > 0);
+}
+
+/// The neighbour as a thin BAND, the corpus shape (§3ac): the host carrier
+/// is a full-width sliver `[2, w3, 3]` whose apex sits on a second crease
+/// above `3`, and the corner lands BEYOND its far edge, inside the band's
+/// other triangle `[2, w2, w3]`. The bite must pull that triangle in.
+///
+/// Cone B's station is `z − 50` and its radius `2·(z − 50)`; the crease with
+/// cone A is at station 50 (`z = 100`, `r = 100`), the band's far crease at
+/// station 60 (`z = 110`, `r = 120`). The corner `J = (66, 88, 105)` is at
+/// station 55 — inside the band — and at azimuth 53.1°, where the sliver's
+/// far edge `2 → w3` (from 40° at station 50 to 70° at station 60) is at
+/// station 54.4: `J` is 0.6 beyond it. `reversed = true` is the clean
+/// corner.
+fn bite_fixture() -> (crate::Mesh, crate::brep::TriangleAttributionMap) {
+    let (mut mesh, mut attribution) = fill_fixture(true);
+    let far = |deg: f64| {
+        let r: f64 = f64::to_radians(deg);
+        Point3::new(120.0 * r.cos(), 120.0 * r.sin(), 110.0)
+    };
+    // `w` (vertex 7) becomes `w3`, above chord end 3 (70°); `w2` above 2.
+    mesh.verts[7] = far(70.0);
+    let w2 = mesh.verts.len() as u32;
+    mesh.verts.push(far(40.0));
+    // Triangle 6 is the across triangle `[2, w, 3]`; it keeps its winding
+    // (`3 → 2` on the chord). The band's second triangle shares `2 → w3`
+    // and so traverses it `w3 → 2`.
+    assert_eq!(mesh.tris[6], [2, 7, 3]);
+    mesh.tris.push([2, w2, 7]);
+    attribution
+        .attributions
+        .push(Some(crate::brep::TriangleAttribution {
+            input: InputId::B,
+            face: 8,
+        }));
+    (mesh, attribution)
+}
+
+/// The BITE on the band fixture: the corner lands in the band's second
+/// triangle, the bite pulls it in, and the fill certifies exactly as on the
+/// wide-neighbour fixture — the corner segment carried by nothing, every
+/// mint edge by two, no fold, no coarsening.
+#[test]
+fn the_bite_pulls_in_the_triangle_the_corner_lands_in() {
+    use crate::stage4_boundary_curve::transit_emission_parts;
+    let (mesh, attribution) = bite_fixture();
+    let ed = edits_of(&mesh, &attribution).expect("insertion");
+    let rg = region_of(&mesh, &attribution);
+    let parts = transit_emission_parts(&mesh, &attribution, &rg, ed.site);
+    let fill = fill_of(&mesh, &attribution, &fill_fixture_surfaces).expect("fill");
+
+    let second = (mesh.tris.len() - 1) as u32;
+    let w2 = mesh.tris[second as usize][1];
+    assert_eq!(fill.bite.face, (InputId::B, 8));
+    assert_eq!(fill.bite.contains_corner, vec![second], "{:?}", fill.bite);
+    assert!(fill.bite.crossed.is_empty(), "{:?}", fill.bite);
+    assert!(fill.removed.contains(&second));
+    assert_eq!(
+        fill.touched_delta,
+        vec![second],
+        "the bite is exactly what the corner adds beyond the host carriers"
+    );
+    let bite = fill.polygons.iter().find(|p| p.bite).expect("a bite");
+    for v in [2u32, 7, 3, w2, ed.site] {
+        assert!(
+            bite.polygon.contains(&v),
+            "bite polygon {:?} lacks {v}",
+            bite.polygon
+        );
+    }
+    assert_eq!(fill.polygons.len(), parts.len() + 1);
+    assert!(fill.edge_defects.is_empty(), "{:?}", fill.edge_defects);
+    assert_eq!((fill.folded, fill.added_folds), (0, 0));
+    assert_eq!(
+        (fill.lift_flips, fill.lift_uncertified),
+        (0, 0),
+        "{:?}",
+        fill.lift
+    );
+    let carried = |x: u32, y: u32| {
+        fill.polygons
+            .iter()
+            .flat_map(|p| p.tris.iter())
+            .filter(|tri| tri.contains(&x) && tri.contains(&y))
+            .count()
+    };
+    assert_eq!(
+        carried(rg.mints[0], rg.mints[1]),
+        0,
+        "the corner segment is nobody's"
+    );
+    for m in rg.mints {
+        assert_eq!(carried(m, ed.site), 2, "stub of {m}");
+    }
+    // The band's far crease edge is the fixture's open rim: carried once.
+    assert_eq!(carried(w2, 7), 1);
 }
 
 /// The interleaved arrangement — the same chord named from its other end —

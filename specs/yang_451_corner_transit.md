@@ -2827,6 +2827,109 @@ refinement: split the band's crease chains to sag ≪ width, conforming across
 168 / 167 / 166. The lift certificate is the acceptance test for both; the
 write arm stays gated until it passes at the corpus site.
 
+## 3ad. inc-2c-3b-12b-9 — the BITE: the corner as a detour of the
+neighbour's boundary, and the ONE triangle the band still cannot lift
+(LANDED, pure; the write stays gated and REFUSES — measured)
+
+§3ac read the corner's landing: 0.2457 beyond the neighbour's host carrier,
+inside the next triangle of a 1.194-wide band, and the pinch's notch loop
+not a triangle 626 gains but the region it loses. This builds that reading.
+
+**What changed.** `transit_bite_region` finds, on the neighbour face, the
+surviving triangles whose chart footprint contains the corner and the ones
+the two chain stubs cross on their way from the mints to it — per triangle,
+chain-unwrapped about its first corner and shifted whole periods to sit
+nearest the corner's azimuth, so a seam-straddling triangle far away cannot
+be unwrapped into a false hit (the §3ac probe's own artefact, fixed at the
+source). `transit_emission_fill` then: enlarges the neighbour part by those
+triangles and re-derives its boundary (`BiteNotADisk` if it is not one
+cycle); inserts the mints; finds the corner STEP between them
+(`CornerStepMissing` otherwise) and DETOURS it through the site; refuses a
+corner within the feature floor of a polygon vertex (`CornerCoincident`);
+DROPS the own patch's notch loop (`dropped`, for the census); and fills as
+before. The lift certificate's reference is now the face's SURVIVORS — the
+whole face's testimony — and the fossil only where the face has none,
+because the fossil is the very thing the defect may have folded.
+
+**Reading 1 — at R0044 v47 the bite is exactly §3ac's prediction.**
+`contains_corner = [13038]`, `crossed = []`, `dropped = [16356, 47, 16355]`;
+`removed` grows to eight, `touched_delta = [13038]` — the bite is precisely
+what the corner adds beyond the host carriers. The neighbour polygon is
+`[981, 994, 6877, 6911, 16356, 47, 16355]` and the fill is five triangles
+fanned from the corner:
+
+| triangle | cos(n, ∇) | area | centroid below the cone |
+|---|---|---|---|
+| `[981, 994, 47]` | +1.0000 | 267 | 1.705 |
+| `[981, 47, 16355]` | +1.0000 | 206 | 1.700 |
+| **`[994, 6877, 47]`** | **−0.8331** | 2783 | 7.129 |
+| `[6877, 6911, 47]` | +1.0000 | 361 | 3.119 |
+| `[6911, 16356, 47]` | +0.9997 | 270 | 3.101 |
+
+Certified otherwise clean: `edge_defects = []`, opposed 8 / folded 0 /
+added_folds 0, `(B, 167)` `d(T)` 22.216 → **12.595** (finer than §3ab's
+14.119), `(B, 168)` 140.573 → 75.525, planes unchanged. `lift_flips` **3 →
+1**. The write still refuses, on that one triangle, and R0003 stays
+SUPPORTED_CORRECT with zero apply activity.
+
+**Reading 2 — and this is the increment's binding result — the one flip is
+the band's far-crease chord, named in advance.** `[994, 6877, 47]` spans the
+167|166 crease from azimuth −149.705457° to −158.407100° — a chord of
+558.817 on a circle of radius 3683.060, sagitta **10.614** — with its apex
+the corner, **0.2619** in-surface from that crease. Its plane follows the
+chord's dip (centroid 7.129 below the cone) rather than the surface; the
+other four, whose bases are a generator edge, a 236-chord or a 320-chord
+with the corner 0.9 away, lift at +1.000. This is §3ac Reading 5 reduced to
+one triangle: the corner is now placed correctly, and what remains is
+purely that the band's crease chains are an order of magnitude too coarse
+for its width. Yang §4.5.2 — *"increase the mesh resolution of the
+parametric surfaces associated with the erroneous regions"* — with the
+region now a single named chord.
+
+**Reading 3 — the survivors are the reference, and the fixture said so
+first.** With survivors as the lift's reference, the fixture's two
+survivors — placed a session ago for the orientation certificate — came out
+FOLDED: both third vertices sat on the site's side of their shared edge,
+consistent by directed edges, inverted in the chart; and the wide
+neighbour's apex sat on cone B's axis, where it has no azimuth, so the bite
+polygon's CDT produced a fill lifting both ways. Same class as §3ab's
+bow-tie: a topological fixture meeting a geometric certificate. Both
+survivors moved across their edges and the apex onto the cone; the fold
+test now pins the double report (a flipped survivor is a fold AND the lift
+reference for its face). The fixture's own fossil stays 2 / 2 — measured,
+asserted, not hidden.
+
+**Reading 4 — a band fixture reproduces the corpus shape.** `bite_fixture`
+makes the neighbour a band between stations 50 and 60 on cone B: a
+full-width sliver `[2, w3, 3]` with its apex above chord end `3`, and a
+second triangle `[2, w2, w3]`. At the corner's azimuth (53.1°) the sliver's
+far edge is at station 54.4 and the corner at 55: 0.6 beyond, inside the
+second triangle — which the bite pulls in (`contains_corner = [it]`,
+`touched_delta = [it]`) and the fill certifies clean: no incidence defect,
+no fold, no flip, the corner segment carried by nothing, each stub by two,
+the band's open rim by one.
+
+Typed additions: `NeighbourPartMissing`, `BiteNotADisk`,
+`CornerStepMissing`, `CornerCoincident { v, dist }`. Tests corrected to the
+bite semantics (no notch triangle; one bite polygon; the corner between the
+mints on its boundary; the corner segment nobody's) plus the band fixture:
+44 in `s451_crease_domain`.
+
+**Verification.** Rewrite tier GREEN — 173 binaries, 2795 tests, 0 failures,
+1216s. Full corpus 273C/0W/34E/1EE/0T, canonical, `results.json`
+byte-identical with the gate off, F0085 honest SUPPORTED_CORRECT at 299.7s.
+Gate on: R0044 REFUSE `lift_flips` (1), verdict unchanged; R0003
+SUPPORTED_CORRECT, no apply lines. Clippy `--all-targets` clean. WASM
+rebuilt in the same commit.
+
+**Not built here.** 3b-12b-10 — §4.5.2 refinement of the band: split the
+far-crease chord `994–6877` (and, by the same rule, any band chord whose
+sag exceeds a fraction of the band's width) with exact crease-circle
+vertices, conforming on `(B, 166)` across it — the 3b-11 one-sided-insert
+lesson once more — and re-fill. The lift certificate at `[994, 6877, 47]`
+is the acceptance test; when it passes, the write arm's first real
+measurement is what the R0044 run past v47 becomes.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -3290,6 +3393,20 @@ write arm stays gated until it passes at the corpus site.
   the band lifts faithfully at this resolution: Yang §4.5.2 refinement, ~10
   segments per chord on both creases, conforming across three faces.
   R0003 untouched (no apply activity). 2 unit tests.
+- **inc-2c-3b-12b-9** (2026-09-02, same session): the BITE LANDED, pure
+  (§3ad). `transit_bite_region` (corner-containing + stub-crossed survivors
+  of the neighbour face, seam-safe per-triangle unwrap) and the fill's
+  correction: neighbour part enlarged, boundary detoured through the
+  corner, the own patch's notch loop DROPPED, survivors as the lift's
+  reference. R0044 v47: `contains_corner = [13038]`, `touched_delta =
+  [13038]`, 5-triangle fan from the corner, `edge_defects = []`, opposed 8,
+  `(B, 167)` d(T) 22.2 → 12.6, lift_flips **3 → 1**. BINDING: the one flip
+  is `[994, 6877, 47]` — the far-crease chord (558.8, R 3683, sagitta
+  10.61) with the corner 0.26 from that crease — §3ac Reading 5 reduced to
+  a single named chord; §4.5.2 refinement of it is 3b-12b-10. The fixture's
+  survivors were themselves folded (moved across their edges) and its
+  apex was on the axis (moved onto the cone); a band fixture reproduces
+  the corpus shape and certifies clean. 44 tests; R0003 untouched.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,
