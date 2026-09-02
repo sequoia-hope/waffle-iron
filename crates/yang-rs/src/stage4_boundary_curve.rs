@@ -2995,3 +2995,547 @@ pub(crate) fn transit_boundary_pinch(
         notch,
     })
 }
+
+// ---------------------------------------------------------------------------
+// §4.5.2 inc-2c-3b-12b-7 — the EMISSION FILL: the mutation as a pure plan
+// ---------------------------------------------------------------------------
+
+/// Why the fill could not be planned. Every variant is structural; none is a
+/// magnitude band.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum EmissionFillFailure {
+    /// No part carries the crease chord AT the site, so the own patch — the
+    /// one part the pinch is defined on — is not identified.
+    OwnPartMissing,
+    /// A part's closed boundary is not one simple cycle (§3aa's
+    /// `boundary_closed` is `None`), so there is no polygon to fill.
+    PartNotADisk { face: Option<(InputId, u32)> },
+    /// The pinch is not defined on the part's boundary: no vertex it visits
+    /// once, a mint visited more than twice, or a loop shorter than a
+    /// triangle.
+    PinchUndefined { face: Option<(InputId, u32)> },
+    /// The own patch's two pinch spans cross, so its loops are not a corner
+    /// and its remainders (§3aa Reading 3). No notch to hand over.
+    Interleaved,
+    /// The own patch did not pinch into a notch at all.
+    NoNotch,
+    /// A part other than the own patch pinched. Every other part carries a
+    /// host edge in one role only, so this is not the measured anatomy.
+    UnexpectedPinch { face: Option<(InputId, u32)> },
+    /// No crease-chord carrier lies outside the own face, so the notch has no
+    /// face to go to — §3y's empty reach, a chord no neighbour carries.
+    NotchDestinationUnknown,
+    /// The crease-chord carriers outside the own face name more than one
+    /// face between them.
+    NotchDestinationAmbiguous,
+    /// A polygon's face is unattributed, has no surface, or its surface has
+    /// no local chart.
+    NoChart { face: Option<(InputId, u32)> },
+    /// The cone apex lies in a polygon's chart footprint.
+    ApexInPolygon { face: (InputId, u32) },
+    /// The polygon wraps a full period of a periodic chart.
+    ThetaUnwrap { face: (InputId, u32) },
+    /// The chart CDT refused the polygon.
+    Cdt {
+        face: (InputId, u32),
+        error: cherchi_rs::CdtError,
+    },
+    /// The fill's triangles do not agree with the loop about the winding:
+    /// none of them carries a loop edge, or they carry loop edges both ways.
+    OrientationUndefined { face: (InputId, u32) },
+}
+
+/// One polygon of the fill, in its own face's chart.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct FillPolygon {
+    /// The face the fill's triangles are attributed to. For the notch this is
+    /// the NEIGHBOUR across the crease, not the part it was cut from.
+    pub(crate) face: (InputId, u32),
+    /// The loop, in the part's winding, as mesh ids (mints included).
+    pub(crate) polygon: Vec<u32>,
+    /// Its triangulation, wound with the loop.
+    pub(crate) tris: Vec<[u32; 3]>,
+    /// Whether this is the notch.
+    pub(crate) notch: bool,
+}
+
+/// One edge whose incidence after the edit is not what a manifold requires.
+///
+/// `expected` is the count the edit must leave: the edge's own count before
+/// the edit when it re-creates an existing edge (2 in a closed mesh, 1 on a
+/// fixture's open rim), 2 for an edge it creates, 0 for an edge it consumes
+/// without re-creating. Anything else is a hole, a fin or a dangling
+/// survivor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EdgeIncidence {
+    pub(crate) edge: (u32, u32),
+    pub(crate) before: usize,
+    pub(crate) after: usize,
+    pub(crate) expected: usize,
+}
+
+/// The like-for-like chord bound of one face's fill (Yang §4.1.2 `d(T)`):
+/// the removed triangles' certified maximum against the added ones'. Planes
+/// certify at exactly 0 both ways; `None` means a triangle could not be
+/// certified in the chart.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ChordBudget {
+    pub(crate) face: (InputId, u32),
+    pub(crate) old_max: Option<f64>,
+    pub(crate) new_max: Option<f64>,
+}
+
+/// The emission mutation, planned but not written.
+///
+/// §3aa closed the plan: close the own patch, insert the mints on the four
+/// part boundaries that carry them, fill each polygon in its own chart, and
+/// attribute the notch to the neighbour. This composes exactly that — the
+/// pinched loops become chart fills, wound by their loops — and then certifies
+/// the RESULT against the whole mesh before anything is written: every edge
+/// the edit touches has the incidence a manifold requires, every fill edge
+/// shared with a survivor is traversed the opposite way, and no face's fill is
+/// coarser than what it replaces.
+///
+/// Pure. `mints` carry the ids the mints WOULD get (`region.mints`) and their
+/// exact positions; `site_at` is where the site will stand (the transit's
+/// corrected junction), which is the position every chart projection here
+/// uses for it.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TransitEmissionFill {
+    pub(crate) site: u32,
+    pub(crate) site_at: Point3,
+    pub(crate) mints: [(u32, Point3); 2],
+    /// Every triangle the edit removes: the region and the parts' closures.
+    /// Sorted.
+    pub(crate) removed: Vec<u32>,
+    /// Symmetric difference between `removed` and §3y's `touched` — the two
+    /// were derived by different routes, so their agreement is measured.
+    pub(crate) touched_delta: Vec<u32>,
+    pub(crate) own_face: (InputId, u32),
+    /// Who owns the far side of the crease chord — the notch's destination.
+    pub(crate) notch_face: (InputId, u32),
+    /// Whether that face's surface IS the transit's `s_nbr`: the mesh-derived
+    /// destination against the analytic one. `None` if the face has no
+    /// surface.
+    pub(crate) notch_surface_agrees: Option<bool>,
+    pub(crate) polygons: Vec<FillPolygon>,
+    /// Edges whose incidence after the edit is wrong. Empty is the manifold
+    /// certificate.
+    pub(crate) edge_defects: Vec<EdgeIncidence>,
+    /// Fill edges shared with a SURVIVING triangle, traversed the opposite
+    /// way (healthy) and the same way (a fold).
+    pub(crate) opposed: usize,
+    pub(crate) folded: usize,
+    /// Directed edges the fill's own triangles carry more than once — a fold
+    /// inside the fill.
+    pub(crate) added_folds: usize,
+    pub(crate) chord: Vec<ChordBudget>,
+}
+
+/// Plan the emission fill from the pinched parts.
+///
+/// Composed from every measurement that precedes it: the mints and hosts
+/// from `edits`, the mint ids from `region`, the parts and their closures from
+/// `parts`, the loops from [`transit_boundary_pinch`], the site's corrected
+/// position and the neighbour's surface from `t`. Nothing is re-derived;
+/// the only things computed here are the chart CDT of each loop and the
+/// certificates on the result. Every non-answer is typed.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn transit_emission_fill(
+    mesh: &Mesh,
+    attribution: &crate::brep::TriangleAttributionMap,
+    edits: &TransitEmissionEdits,
+    region: &TransitEmissionRegion,
+    parts: &[RegionPart],
+    t: &CreaseTransit,
+    face_surface: &dyn Fn(InputId, u32) -> Option<Surface>,
+) -> Result<TransitEmissionFill, EmissionFillFailure> {
+    use crate::stage4_project::SurfaceChart;
+    use cad_primitives::Point2;
+    use std::collections::BTreeMap;
+    use EmissionFillFailure as F;
+
+    let site = edits.site;
+    let mints = region.mints;
+    let face_of = |tr: u32| attribution.lookup(tr).map(|a| (a.input, a.face));
+    let pos = |v: u32| -> Point3 {
+        if v == mints[0] {
+            edits.inserts[0].at
+        } else if v == mints[1] {
+            edits.inserts[1].at
+        } else if v == site {
+            t.j
+        } else {
+            mesh.verts[v as usize]
+        }
+    };
+
+    // The own patch: the part carrying the crease chord AT the site.
+    let (ha, hb) = edits.crease_host;
+    let own_idx = parts
+        .iter()
+        .position(|p| {
+            p.tris.iter().any(|&tr| {
+                let x = mesh.tris[tr as usize];
+                x.contains(&ha) && x.contains(&hb) && x.contains(&site)
+            })
+        })
+        .ok_or(F::OwnPartMissing)?;
+    let own_face = parts[own_idx].face.ok_or(F::NoChart { face: None })?;
+
+    // The notch's destination: who owns the far side of the chord.
+    let mut dests: Vec<(InputId, u32)> = edits
+        .crease_tris
+        .iter()
+        .filter_map(|&tr| face_of(tr))
+        .filter(|f| *f != own_face)
+        .collect();
+    dests.sort_unstable();
+    dests.dedup();
+    let notch_face = match dests[..] {
+        [] => return Err(F::NotchDestinationUnknown),
+        [one] => one,
+        _ => return Err(F::NotchDestinationAmbiguous),
+    };
+    let notch_surface_agrees = face_surface(notch_face.0, notch_face.1).map(|s| s == t.s_nbr);
+
+    let mut removed: Vec<u32> = parts
+        .iter()
+        .flat_map(|p| p.tris.iter().chain(p.closure.iter()).copied())
+        .collect();
+    removed.sort_unstable();
+    removed.dedup();
+    let touched_delta: Vec<u32> = removed
+        .iter()
+        .filter(|x| edits.touched.binary_search(x).is_err())
+        .chain(
+            edits
+                .touched
+                .iter()
+                .filter(|x| removed.binary_search(x).is_err()),
+        )
+        .copied()
+        .collect();
+
+    // One loop → one chart fill, wound by the loop.
+    let fill_loop = |l: &[u32], face: (InputId, u32), notch: bool| -> Result<FillPolygon, F> {
+        if l.len() < 3 {
+            return Err(F::PinchUndefined { face: Some(face) });
+        }
+        if l.len() == 3 {
+            return Ok(FillPolygon {
+                face,
+                polygon: l.to_vec(),
+                tris: vec![[l[0], l[1], l[2]]],
+                notch,
+            });
+        }
+        let surface = face_surface(face.0, face.1).ok_or(F::NoChart { face: Some(face) })?;
+        let chart = SurfaceChart::new_local(surface).ok_or(F::NoChart { face: Some(face) })?;
+        // Chain unwrap of every periodic coordinate, as the fan refill does:
+        // the polygon is corner-local, so a wrap means the premise failed.
+        let planar = matches!(chart, SurfaceChart::Plane { .. });
+        let biperiodic = matches!(chart, SurfaceChart::Torus { .. });
+        let wrap_near = |prev: f64, val: f64| -> f64 {
+            let mut d = val - prev;
+            while d > std::f64::consts::PI {
+                d -= std::f64::consts::TAU;
+            }
+            while d <= -std::f64::consts::PI {
+                d += std::f64::consts::TAU;
+            }
+            prev + d
+        };
+        let mut pool: Vec<Point2> = Vec::with_capacity(l.len());
+        for (i, &v) in l.iter().enumerate() {
+            let uv = chart.project(pos(v));
+            let x = if i == 0 || planar {
+                uv.x()
+            } else {
+                wrap_near(pool[i - 1].x(), uv.x())
+            };
+            let y = if i == 0 || !biperiodic {
+                uv.y()
+            } else {
+                wrap_near(pool[i - 1].y(), uv.y())
+            };
+            pool.push(Point2::new(x, y));
+        }
+        if matches!(chart, SurfaceChart::Cone { .. }) && pool.iter().any(|p| p.y() <= 0.0) {
+            return Err(F::ApexInPolygon { face });
+        }
+        let span = |sel: &dyn Fn(&Point2) -> f64| -> f64 {
+            let (lo, hi) = pool
+                .iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+                    (lo.min(sel(p)), hi.max(sel(p)))
+                });
+            hi - lo
+        };
+        if !planar {
+            let s = span(&|p| p.x());
+            if !s.is_finite() || s >= std::f64::consts::TAU {
+                return Err(F::ThetaUnwrap { face });
+            }
+        }
+        if biperiodic {
+            let s = span(&|p| p.y());
+            if !s.is_finite() || s >= std::f64::consts::TAU {
+                return Err(F::ThetaUnwrap { face });
+            }
+        }
+        let boundary: Vec<u32> = (0..l.len() as u32).collect();
+        let local = cherchi_rs::cdt_with_interior_constraints(&pool, &boundary, &[], &[], &[])
+            .map_err(|error| F::Cdt { face, error })?;
+        // Wind by the loop, not by an area heuristic: a fill triangle that
+        // carries a loop step must traverse it the way the loop does — that
+        // is what pairs it with the neighbour across the step.
+        let n = l.len();
+        let step = |i: u32, j: u32| -> Option<bool> {
+            let (i, j) = (i as usize, j as usize);
+            if j == (i + 1) % n {
+                Some(true)
+            } else if i == (j + 1) % n {
+                Some(false)
+            } else {
+                None
+            }
+        };
+        let (mut fwd, mut rev) = (0usize, 0usize);
+        for tri in &local {
+            for k in 0..3 {
+                match step(tri[k], tri[(k + 1) % 3]) {
+                    Some(true) => fwd += 1,
+                    Some(false) => rev += 1,
+                    None => {}
+                }
+            }
+        }
+        if (fwd == 0) == (rev == 0) {
+            return Err(F::OrientationUndefined { face });
+        }
+        let mut tris: Vec<[u32; 3]> = local
+            .iter()
+            .map(|tri| [l[tri[0] as usize], l[tri[1] as usize], l[tri[2] as usize]])
+            .collect();
+        if rev > 0 {
+            for tri in &mut tris {
+                tri.swap(1, 2);
+            }
+        }
+        Ok(FillPolygon {
+            face,
+            polygon: l.to_vec(),
+            tris,
+            notch,
+        })
+    };
+
+    // Structure first, charts second: every part is pinched and checked
+    // before any polygon is projected, so a structural decline is reported as
+    // such and never masked by a chart failure on an earlier part.
+    let mut loops: Vec<(Vec<u32>, (InputId, u32), bool)> = Vec::new();
+    for (pi, p) in parts.iter().enumerate() {
+        let b = p
+            .boundary_closed
+            .as_ref()
+            .ok_or(F::PartNotADisk { face: p.face })?;
+        let pin = transit_boundary_pinch(edits, mints, b, site)
+            .ok_or(F::PinchUndefined { face: p.face })?;
+        if pi == own_idx {
+            if pin.interleaved {
+                return Err(F::Interleaved);
+            }
+            let notch = pin.notch.ok_or(F::NoNotch)?;
+            for (li, l) in pin.loops.iter().enumerate() {
+                let is_notch = li == notch;
+                let face = if is_notch { notch_face } else { own_face };
+                loops.push((l.clone(), face, is_notch));
+            }
+        } else {
+            if pin.loops.len() != 1 {
+                return Err(F::UnexpectedPinch { face: p.face });
+            }
+            let face = p.face.ok_or(F::NoChart { face: None })?;
+            loops.push((pin.loops[0].clone(), face, false));
+        }
+    }
+    let mut polygons: Vec<FillPolygon> = Vec::with_capacity(loops.len());
+    for (l, face, is_notch) in &loops {
+        polygons.push(fill_loop(l, *face, *is_notch)?);
+    }
+
+    // --- Certificates on the result, against the WHOLE mesh. ---
+    let added: Vec<([u32; 3], (InputId, u32))> = polygons
+        .iter()
+        .flat_map(|p| p.tris.iter().map(move |tri| (*tri, p.face)))
+        .collect();
+    let key = |a: u32, b: u32| (a.min(b), a.max(b));
+
+    // Undirected incidence: before, and the edit's removed/added deltas.
+    let mut before: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+    for tri in &mesh.tris {
+        for k in 0..3 {
+            *before.entry(key(tri[k], tri[(k + 1) % 3])).or_default() += 1;
+        }
+    }
+    let mut delta: BTreeMap<(u32, u32), (usize, usize)> = BTreeMap::new();
+    for &tr in &removed {
+        let tri = mesh.tris[tr as usize];
+        for k in 0..3 {
+            delta.entry(key(tri[k], tri[(k + 1) % 3])).or_default().0 += 1;
+        }
+    }
+    for (tri, _) in &added {
+        for k in 0..3 {
+            delta.entry(key(tri[k], tri[(k + 1) % 3])).or_default().1 += 1;
+        }
+    }
+    let mut edge_defects = Vec::new();
+    for (&e, &(rem, add)) in &delta {
+        let b = before.get(&e).copied().unwrap_or(0);
+        let after = b - rem + add;
+        let expected = match (add > 0, b > 0) {
+            (true, true) => b,
+            (true, false) => 2,
+            (false, _) => 0,
+        };
+        if after != expected {
+            edge_defects.push(EdgeIncidence {
+                edge: e,
+                before: b,
+                after,
+                expected,
+            });
+        }
+    }
+
+    // Directed incidence among SURVIVORS: a fill edge they share must be
+    // traversed the opposite way.
+    let mut directed: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+    for tri in &mesh.tris {
+        for k in 0..3 {
+            *directed.entry((tri[k], tri[(k + 1) % 3])).or_default() += 1;
+        }
+    }
+    for &tr in &removed {
+        let tri = mesh.tris[tr as usize];
+        for k in 0..3 {
+            *directed.entry((tri[k], tri[(k + 1) % 3])).or_default() -= 1;
+        }
+    }
+    let (mut opposed, mut folded) = (0usize, 0usize);
+    let mut added_dirs: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+    for (tri, _) in &added {
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            if directed.get(&(y, x)).copied().unwrap_or(0) > 0 {
+                opposed += 1;
+            }
+            if directed.get(&(x, y)).copied().unwrap_or(0) > 0 {
+                folded += 1;
+            }
+            *added_dirs.entry((x, y)).or_default() += 1;
+        }
+    }
+    let added_folds = added_dirs.values().filter(|c| **c > 1).count();
+
+    // Like-for-like d(T) per face: what each face gives up against what it
+    // receives, each triangle unwrapped about its own first corner.
+    let mut faces: Vec<(InputId, u32)> = added.iter().map(|(_, f)| *f).collect();
+    faces.extend(removed.iter().filter_map(|&tr| face_of(tr)));
+    faces.sort_unstable();
+    faces.dedup();
+    let certify = |chart: &SurfaceChart,
+                   surface: &Surface,
+                   tris: &[[u32; 3]],
+                   at: &dyn Fn(u32) -> Point3|
+     -> Option<f64> {
+        let biperiodic = matches!(chart, SurfaceChart::Torus { .. });
+        let planar = matches!(chart, SurfaceChart::Plane { .. });
+        let mut worst = 0.0f64;
+        for tri in tris {
+            let raw = [
+                chart.project(at(tri[0])),
+                chart.project(at(tri[1])),
+                chart.project(at(tri[2])),
+            ];
+            let near = |prev: f64, val: f64| -> f64 {
+                let mut d = val - prev;
+                while d > std::f64::consts::PI {
+                    d -= std::f64::consts::TAU;
+                }
+                while d <= -std::f64::consts::PI {
+                    d += std::f64::consts::TAU;
+                }
+                prev + d
+            };
+            let mut uv = raw;
+            for c in uv.iter_mut().skip(1) {
+                let x = if planar {
+                    c.x()
+                } else {
+                    near(raw[0].x(), c.x())
+                };
+                let y = if biperiodic {
+                    near(raw[0].y(), c.y())
+                } else {
+                    c.y()
+                };
+                *c = Point2::new(x, y);
+            }
+            worst = worst.max(crate::stage4_dt::d_of_t(surface, uv).ok()?);
+        }
+        Some(worst)
+    };
+    let chord: Vec<ChordBudget> = faces
+        .iter()
+        .map(|&face| {
+            let chart = face_surface(face.0, face.1)
+                .map(|s| (s, SurfaceChart::new_local(s)))
+                .and_then(|(s, c)| c.map(|c| (s, c)));
+            let Some((surface, chart)) = chart else {
+                return ChordBudget {
+                    face,
+                    old_max: None,
+                    new_max: None,
+                };
+            };
+            let old: Vec<[u32; 3]> = removed
+                .iter()
+                .filter(|&&tr| face_of(tr) == Some(face))
+                .map(|&tr| mesh.tris[tr as usize])
+                .collect();
+            let new: Vec<[u32; 3]> = added
+                .iter()
+                .filter(|(_, f)| *f == face)
+                .map(|(tri, _)| *tri)
+                .collect();
+            ChordBudget {
+                face,
+                old_max: certify(&chart, &surface, &old, &|v| mesh.verts[v as usize]),
+                new_max: certify(&chart, &surface, &new, &pos),
+            }
+        })
+        .collect();
+
+    Ok(TransitEmissionFill {
+        site,
+        site_at: t.j,
+        mints: [
+            (mints[0], edits.inserts[0].at),
+            (mints[1], edits.inserts[1].at),
+        ],
+        removed,
+        touched_delta,
+        own_face,
+        notch_face,
+        notch_surface_agrees,
+        polygons,
+        edge_defects,
+        opposed,
+        folded,
+        added_folds,
+        chord,
+    })
+}

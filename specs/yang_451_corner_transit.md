@@ -2562,6 +2562,145 @@ carry them, fill each polygon in its own chart — `(A, 2)` and `(A, 3)` quads,
 `(B, 167)` a pentagon, `(B, 168)` a triangle plus a quad plus the notch — and
 attribute the notch to `(B, 167)`.
 
+## 3ab. inc-2c-3b-12b-7 — the EMISSION FILL: the mutation planned end to
+end and CERTIFIED (LANDED, pure; census-only)
+
+§3aa closed the plan. This composes it — `transit_emission_fill` — as a pure
+function that returns the mutation as DATA (what goes, what comes, where every
+vertex stands) together with certificates on the RESULT, computed against the
+whole mesh before anything is written. Same gates as §3v–§3aa.
+
+**What it does.** Every part is pinched (§3aa) and the structure checked
+first — the own patch must pinch cleanly into a notch, no other part may pinch
+at all — and only then is each loop filled in its OWN face's chart: a 3-loop
+is one triangle; a longer loop is chart-projected (chain θ-unwrap and the
+apex / period guards the fan refill uses) and CDT'd boundary-only, so every
+polygon comes out as exactly `n − 2` triangles on its own vertices, no Steiner
+points. The site is projected at the CORRECTED junction `J`, the mints at their
+exact q-points. Structural declines are established on every part BEFORE any
+chart projection, so a structural verdict is never masked by a chart failure
+on an earlier part — the interleaved fixture reported `Cdt` before that
+ordering existed, which is why the order is a design decision and not an
+accident.
+
+**Reading 1 — orientation is taken from the LOOP, not from an area
+heuristic.** §3aa proved every loop edge is a directed consecutive step of
+the part's inserted boundary, so a fill triangle that carries a loop step must
+traverse it the way the loop does — that is exactly what pairs it with
+whatever lies across the step. The fill reads the direction its CDT triangles
+carry loop steps: all forward, keep; all reversed, flip; none or both,
+`OrientationUndefined`. The §3q lesson (a folded fossil corrupts the area
+vector) cannot arise, because no fossil is consulted.
+
+**Reading 2 — the notch's destination is derived from the mesh and checked
+against the analysis.** The destination is the face of the crease-chord
+carrier outside the own face — §3y's "who owns the far side of the chord" —
+and its surface is compared with the transit's `s_nbr`. At R0044 v47 the two
+routes agree, bit-identically: `(B, 167)`, `notch_surface_agrees = Some(true)`.
+
+**Reading 3 — and this is the increment's binding result — the fill at R0044
+v47 is CERTIFIED against the whole mesh:**
+
+| certificate | value |
+|---|---|
+| removed | `[41, 279, 13037, 13110, 13111, 13112, 13113]` — 7; `touched_delta = []` (≡ §3y's `touched`, derived by a different route) |
+| polygons / triangles | 6 / 11 |
+| edge incidence defects | **none** — every edge the edit touches has the incidence a manifold requires: re-created edges keep their count, created edges are carried twice, consumed edges vanish with no dangling survivor |
+| survivor orientation | opposed 7, folded 0, folds inside the fill 0 |
+| notch | `[16356, 47, 16355]` → `(B, 167)` |
+
+The polygons are exactly §3aa's prediction, now triangulated:
+
+| face | polygon | triangles |
+|---|---|---|
+| `(A, 2)` | `[44, 47, 16356, 45]` | `[44, 47, 16356]`, `[44, 16356, 45]` |
+| `(A, 3)` | `[44, 280, 16355, 47]` | `[44, 280, 16355]`, `[44, 16355, 47]` |
+| `(B, 167)` | `[981, 994, 6911, 16356, 16355]` | `[981, 994, 16355]`, `[994, 6911, 16356]`, `[994, 16356, 16355]` |
+| `(B, 168)` | `[16355, 280, 981]` | itself |
+| `(B, 168)` | `[45, 16356, 6911, 6945]` | `[45, 16356, 6911]`, `[45, 6911, 6945]` |
+| **notch → `(B, 167)`** | `[16356, 47, 16355]` | itself |
+
+The seven opposed edges are the closed region's outer boundary — the octagon
+with `13110` folded in reduces `(6911, 47), (47, 6945)` to `(6911, 6945)`, seven
+edges, each shared with one survivor and traversed the other way.
+
+**Reading 4 — the like-for-like chord bound: no face receives a fill coarser
+than what it gave up, and both cones get FINER.** Yang §4.1.2's `d(T)`, the
+removed triangles of each face against the added ones, in that face's chart:
+
+| face | old max `d(T)` | new max `d(T)` |
+|---|---|---|
+| `(A, 2)` | 39.93967926994923 | 39.93967926994923 |
+| `(A, 3)` | 0 (plane) | 0 |
+| `(B, 167)` | 22.216300502868222 | **14.119462702848725** |
+| `(B, 168)` | 140.5730166901681 | **75.52504192842936** |
+
+`(A, 2)` is not a plane — the equality holds to the last digit because the
+worst control point's distance is realised on the edge `(44, 45)`, which the
+old triangle and the new `[44, 16356, 45]` share. The two cones halve: the
+mints ARE §4.5.2's local refinement, placed at an analytically determined
+point rather than by a density ladder, and the bound says so in the paper's
+own metric.
+
+**Positions.** `site_at = J = (−1813.5112911476508, −2388.375219816396,
+−6104.356125165558)`; mint `16355` at `q2 = P_cap`, `16356` at `q1 = P_lat`
+— §3u's independently recorded values, to their last digits.
+
+**Reading 5 — the fixture had to become geometrically faithful, and the CDT
+is what said so.** The first run declined `Cdt { face: (A, 2),
+TriangulationFailed }`. The fixture's plane_x chain end `v1` had been placed
+by crease ANGLE (`home(70°)`) for the topological increments and does not lie
+on plane_x; in the `x = 66` chart the exact q-point lands 13 units outside its
+chord's projection and the quad `[0, 6, 1, m1]` is a bow-tie (edges `0 → 6`
+and `1 → m1` cross between `y = 76` and `y = 80` — checked arithmetically
+before anything was changed). The corpus chain edges DO lie on their planes.
+The fill fixture therefore puts both chain ends on their planes and on cone
+A's home side — `v1 = (66, 60, √(66² + 60²))`, `v5 = (40, 88, √(40² + 88²))`
+— with topology, sides and attributions unchanged, so anatomy through parts
+are exactly the §3y–§3aa fixture's. First increment of the epic whose fixture
+geometry, and not only its topology, is load-bearing.
+
+**Also caught, first by the fixture and then confirmed by the corpus:** the
+first test asserted each mint ends on exactly FOUR fill triangles. The fixture
+gave 5, and so does the corpus — `16355` is on five, because the pentagon fans
+from `994`. The count is the CDT's diagonal choice, not an invariant. The
+invariant is the four REQUIRED edges per mint — the stub to the site, the stub
+to its chain end, the half-chord to its chord end, the corner edge to the
+other mint — each carried by exactly two fill triangles. Pinned that way.
+
+**Typed declines.** `OwnPartMissing`, `PartNotADisk`, `PinchUndefined`,
+`Interleaved`, `NoNotch`, `UnexpectedPinch`, `NotchDestinationUnknown`,
+`NotchDestinationAmbiguous`, `NoChart`, `ApexInPolygon`, `ThetaUnwrap`, `Cdt`,
+`OrientationUndefined`. `notch_surface_agrees` is a measured field rather than
+a decline, so a disagreement would be reported alongside the rest of the
+certificate instead of hiding it; the apply arm will treat `false` as a
+refusal.
+
+7 new unit tests: the fill (manifold, conformal, wound by its loops; one
+notch, attributed to the neighbour; `n − 2` triangles per polygon; the four
+required edges per mint), exact positions (mints on the crease circle, site at
+`J`), a folded survivor REPORTED (opposed 1 / folded 1 — the certificate is
+not vacuous), the interleaved arrangement declines, a chord no neighbour
+carries has no destination, the destination checked against `s_nbr`
+(`Some(false)` with the wrong surface, `NoChart` with none), and the chord
+budget (planes 0 / 0, cones finite and no coarser).
+
+**Verification.** Rewrite tier GREEN — 173 binaries, 2792 tests, 0 failures,
+1206s (the first run in this fresh container failed 7 cherchi-rs binaries
+with "FFI shim not linked" / "mesh_booleans binary not found": the parity
+sidecar was absent, `scripts/build_sidecars.sh` rebuilt it, and the re-run
+was green — environmental, and the loud non-skip refusal is what made it
+visible). Full corpus 273C/0W/34E/1EE/0T, canonical, `results.json`
+byte-identical, F0085 honest SUPPORTED_CORRECT at 301.4s. Clippy
+`--all-targets` clean. WASM rebuilt in the same commit.
+
+**Not built here.** WRITING it: append the two mints, move the site to `J`,
+overwrite the seven removed slots and append the remaining four with their
+attribution, then the relocation bookkeeping for a site whose incidence is
+now `(A, 2)`, `(A, 3)`, `(B, 167)` — the corrected junction's own three
+faces. That is 3b-12b-8, the apply arm: gated, measured on R0044 for what
+the standing wall past v47 becomes.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -2988,6 +3127,25 @@ attribute the notch to `(B, 167)`.
   step of the inserted boundary, pinned by test. 2 unit tests, each run in
   both fixture orientations; corpus 273C/0W/34E/1EE/0T with `results.json`
   byte-identical; rewrite tier green (173 binaries, 2785 tests, 1241s).
+- **inc-2c-3b-12b-7** (2026-09-02, same session): the EMISSION FILL
+  LANDED, pure and census-only (§3ab). `transit_emission_fill` composes
+  §3aa's plan into chart fills — structure checked on every part before
+  any projection, each loop filled in its OWN face's chart with no Steiner
+  points, wound by the LOOP rather than by an area heuristic, the notch
+  attributed to the crease chord's far-side owner and that face's surface
+  checked against the transit's `s_nbr` — and certifies the RESULT against
+  the whole mesh. BINDING: at R0044 v47 the fill is CERTIFIED — 7 triangles
+  out, 11 in, `touched_delta = []`, ZERO edge-incidence defects, 7 opposed /
+  0 folded, `notch_surface_agrees = Some(true)` bit-identical, and both
+  cones get FINER in Yang's own `d(T)` (`(B, 168)` 140.57 → 75.53,
+  `(B, 167)` 22.22 → 14.12; planes 0; `(A, 2)` equal to the last digit
+  because the worst control point sits on a shared edge). The polygons are
+  exactly §3aa's prediction, triangulated. The fixture had to become
+  GEOMETRICALLY faithful (a chain end placed by crease angle made the
+  plane_x quad a bow-tie — the CDT refused it; verified arithmetically
+  before the fix), and a "four triangles per mint" assertion was refuted
+  by fixture and corpus alike (the count is the CDT's diagonal choice; the
+  invariant is the four required edges, each carried twice). 7 unit tests.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

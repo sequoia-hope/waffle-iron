@@ -2009,3 +2009,316 @@ fn inserting_the_mints_pinches_the_own_patch_into_the_notch() {
         assert_eq!(pinched, 1, "only the own patch pinches");
     }
 }
+
+// ---------------------------------------------------------------------------
+// §4.5.2 inc-2c-3b-12b-7 — the EMISSION FILL, planned but not written
+// ---------------------------------------------------------------------------
+
+/// The fixture's surfaces, with the neighbour across the chord — `(B, 8)`,
+/// cone B — added, the way the census resolves every face against its BRep.
+fn fill_fixture_surfaces(i: InputId, face: u32) -> Option<Surface> {
+    let (_, cone_b, _, _) = transit_fixture();
+    match (i, face) {
+        (InputId::B, 8) => Some(cone_b),
+        _ => cut_fixture_surfaces(i, face),
+    }
+}
+
+/// The interior-insert fixture, made geometrically faithful where the fill
+/// needs it, plus two SURVIVORS.
+///
+/// The fill is the first increment that projects the fan into its faces'
+/// charts, and a chart sees what the topological increments did not: the
+/// chain end `v1` was placed by crease ANGLE and does not lie on plane_x, so
+/// the exact q-point lands 13 units outside its chord's projection and the
+/// plane_x quad is a bow-tie (the CDT refuses it — measured first, then
+/// fixed here). Both chain ends are therefore put ON their planes and on cone
+/// A's home side, as the corpus chain edges are: `v1 = (66, 60, √(66²+60²))`
+/// for plane_x, `v5 = (40, 88, √(40²+88²))` for plane_y. Their sides,
+/// attributions and fan order are unchanged.
+///
+/// The survivors are triangles outside the region sharing an edge with it, so
+/// the orientation certificate has testimony to check against: `[2, 1, s8]`
+/// continues the own patch past the chain end and `[1, 6, s9]` continues
+/// plane_x past the carrier; both are wound consistently with the fan
+/// triangles they border (`[0, 1, 2]` traverses `1 → 2`, `[0, 6, 1]`
+/// traverses `6 → 1`). Neither touches the site, a host edge or a q-point, so
+/// anatomy, cut, plan, edits, region and parts are exactly the §3y–§3aa
+/// fixture's.
+fn fill_fixture(reversed: bool) -> (crate::Mesh, crate::brep::TriangleAttributionMap) {
+    let (mut mesh, mut attribution) = interior_insert_fixture(true, reversed);
+    mesh.verts[1] = Point3::new(66.0, 60.0, (66.0f64 * 66.0 + 60.0 * 60.0).sqrt());
+    mesh.verts[5] = Point3::new(40.0, 88.0, (40.0f64 * 40.0 + 88.0 * 88.0).sqrt());
+    let home = |deg: f64| {
+        let r: f64 = f64::to_radians(deg);
+        Point3::new(90.0 * r.cos(), 90.0 * r.sin(), 90.0)
+    };
+    let s8 = mesh.verts.len() as u32;
+    mesh.verts.push(home(72.0));
+    let s9 = mesh.verts.len() as u32;
+    mesh.verts.push(Point3::new(66.0, 60.0, 70.0));
+    mesh.tris.push([2, 1, s8]);
+    mesh.tris.push([1, 6, s9]);
+    let f = |input, face| Some(crate::brep::TriangleAttribution { input, face });
+    attribution.attributions.push(f(InputId::B, 7));
+    attribution.attributions.push(f(InputId::A, 2));
+    (mesh, attribution)
+}
+
+fn fill_of(
+    mesh: &crate::Mesh,
+    attribution: &crate::brep::TriangleAttributionMap,
+    surfaces: &dyn Fn(InputId, u32) -> Option<Surface>,
+) -> Result<
+    crate::stage4_boundary_curve::TransitEmissionFill,
+    crate::stage4_boundary_curve::EmissionFillFailure,
+> {
+    use crate::stage4_boundary_curve::{transit_emission_fill, transit_emission_parts};
+    let ed = edits_of(mesh, attribution).expect("insertion");
+    let rg = region_of(mesh, attribution);
+    let parts = transit_emission_parts(mesh, attribution, &rg, ed.site);
+    let (t, ..) = cut_fixture_transit();
+    transit_emission_fill(mesh, attribution, &ed, &rg, &parts, &t, surfaces)
+}
+
+/// THE FILL: the pinched loops become chart fills, the notch goes to the
+/// neighbour, and the result is a manifold, conformal, consistently wound
+/// mesh — certified against the WHOLE mesh, not the region in isolation.
+///
+/// The measured corpus instance is R0044 v47: 7 triangles out, 11 in — `(A, 2)`
+/// and `(A, 3)` quads, the `(B, 167)` pentagon, and the own patch's triangle,
+/// quad and notch — every mint edge carried exactly twice, the notch
+/// `[16356, 47, 16355]` attributed to `(B, 167)`.
+#[test]
+fn the_fill_is_manifold_conformal_and_wound_by_its_loops() {
+    use crate::stage4_boundary_curve::transit_emission_parts;
+    let (mesh, attribution) = fill_fixture(true);
+    let ed = edits_of(&mesh, &attribution).expect("insertion");
+    let rg = region_of(&mesh, &attribution);
+    let parts = transit_emission_parts(&mesh, &attribution, &rg, ed.site);
+    let fill = fill_of(&mesh, &attribution, &fill_fixture_surfaces).expect("a determined fill");
+
+    // What goes: the region and every closure, and nothing §3y did not
+    // already name as touched.
+    let mut want_removed: Vec<u32> = parts
+        .iter()
+        .flat_map(|p| p.tris.iter().chain(p.closure.iter()).copied())
+        .collect();
+    want_removed.sort_unstable();
+    want_removed.dedup();
+    assert_eq!(fill.removed, want_removed);
+    assert!(
+        fill.touched_delta.is_empty(),
+        "removed and touched were derived by different routes and must agree: {:?}",
+        fill.touched_delta
+    );
+    // The survivors are not touched.
+    let n = mesh.tris.len() as u32;
+    assert!(!fill.removed.contains(&(n - 1)) && !fill.removed.contains(&(n - 2)));
+
+    // What comes: one polygon per part, plus the own patch's two extra loops.
+    assert_eq!(fill.polygons.len(), parts.len() + 2);
+    let notches: Vec<_> = fill.polygons.iter().filter(|p| p.notch).collect();
+    assert_eq!(notches.len(), 1, "exactly one notch");
+    let notch = notches[0];
+    assert_eq!(notch.polygon.len(), 3, "the notch is the corner triangle");
+    assert!(notch.polygon.contains(&ed.site));
+    assert!(rg.mints.iter().all(|m| notch.polygon.contains(m)));
+    assert_eq!(fill.own_face, (InputId::B, 7));
+    assert_eq!(
+        fill.notch_face,
+        (InputId::B, 8),
+        "the far side of the chord"
+    );
+    assert_eq!(
+        notch.face, fill.notch_face,
+        "the notch is attributed to the neighbour"
+    );
+    assert_eq!(fill.notch_surface_agrees, Some(true));
+    assert_eq!(
+        fill.polygons
+            .iter()
+            .filter(|p| p.face == fill.own_face)
+            .count(),
+        2,
+        "the own patch keeps its triangle and its quad"
+    );
+    // Every polygon is triangulated without Steiner points: n − 2 triangles,
+    // on exactly its own vertices.
+    for p in &fill.polygons {
+        assert_eq!(p.tris.len(), p.polygon.len() - 2, "{:?}", p.polygon);
+        for tri in &p.tris {
+            assert!(tri.iter().all(|v| p.polygon.contains(v)));
+        }
+    }
+
+    // The certificates: manifold, conformal, consistently wound.
+    assert!(
+        fill.edge_defects.is_empty(),
+        "every touched edge has the incidence a manifold requires: {:?}",
+        fill.edge_defects
+    );
+    assert_eq!(fill.folded, 0, "no fill edge folds onto a survivor");
+    assert_eq!(fill.added_folds, 0, "no fold inside the fill");
+    assert_eq!(
+        fill.opposed, 2,
+        "each survivor shares exactly one edge with the fill, traversed the other way"
+    );
+    // Each mint carries the four edges its two roles demand — the stub to the
+    // site and the stub to its chain end (the chain, split), the half-chord to
+    // its chord end and the corner edge to the other mint (the chord, split)
+    // — and every one of them is interior to the fill, carried by exactly two
+    // fill triangles. (How many FURTHER edges a mint gets is the CDT's
+    // diagonal choice, not an invariant.)
+    let carried = |x: u32, y: u32| {
+        fill.polygons
+            .iter()
+            .flat_map(|p| p.tris.iter())
+            .filter(|tri| tri.contains(&x) && tri.contains(&y))
+            .count()
+    };
+    let (ha, hb) = ed.crease_host;
+    for (i, m) in rg.mints.iter().enumerate() {
+        let chain_end = if ed.inserts[i].chain.0 == ed.site {
+            ed.inserts[i].chain.1
+        } else {
+            ed.inserts[i].chain.0
+        };
+        let chord_end = if i == 0 { ha } else { hb };
+        let other = rg.mints[1 - i];
+        for (name, y) in [
+            ("site stub", ed.site),
+            ("chain end", chain_end),
+            ("chord end", chord_end),
+            ("corner edge", other),
+        ] {
+            assert_eq!(carried(*m, y), 2, "mint {m}: {name} ({m}, {y})");
+        }
+    }
+}
+
+/// The fill's positions are the exact analytic ones: the mints at the solved
+/// q-points ON the crease circle, the site at the corrected junction — never a
+/// chord crossing, never the out-of-domain solution.
+#[test]
+fn the_fill_places_the_mints_at_the_q_points_and_the_site_at_the_junction() {
+    let (mesh, attribution) = fill_fixture(true);
+    let ed = edits_of(&mesh, &attribution).expect("insertion");
+    let fill = fill_of(&mesh, &attribution, &fill_fixture_surfaces).expect("fill");
+    let (t, ..) = cut_fixture_transit();
+    assert_eq!(fill.mints[0].0, mesh.verts.len() as u32);
+    assert_eq!(fill.mints[1].0, mesh.verts.len() as u32 + 1);
+    for (i, (_, at)) in fill.mints.iter().enumerate() {
+        assert_eq!(*at, ed.inserts[i].at);
+        let a = at.as_array();
+        assert!((a[2] - 100.0).abs() < 1e-9, "mint {i} off the crease plane");
+        assert!(
+            ((a[0] * a[0] + a[1] * a[1]).sqrt() - 100.0).abs() < 1e-9,
+            "mint {i} off the crease circle"
+        );
+    }
+    assert_eq!(fill.site_at, t.j);
+    let j = fill.site_at.as_array();
+    assert!(
+        (j[0] - 66.0).abs() < 1e-9 && (j[1] - 88.0).abs() < 1e-9 && (j[2] - 105.0).abs() < 1e-9
+    );
+}
+
+/// The orientation certificate is not vacuous: wind one survivor the wrong
+/// way and the fill reports the fold instead of hiding it in an area sum.
+#[test]
+fn a_folded_survivor_is_reported_not_absorbed() {
+    let (mut mesh, attribution) = fill_fixture(true);
+    let last = mesh.tris.len() - 1;
+    mesh.tris[last].swap(1, 2);
+    let fill = fill_of(&mesh, &attribution, &fill_fixture_surfaces).expect("fill");
+    assert_eq!(fill.folded, 1);
+    assert_eq!(fill.opposed, 1);
+    assert!(
+        fill.edge_defects.is_empty(),
+        "a fold is not an incidence defect"
+    );
+}
+
+/// The interleaved arrangement — the same chord named from its other end —
+/// has no notch, and the fill declines rather than filling loops that are
+/// not a corner and its remainders.
+#[test]
+fn the_interleaved_arrangement_has_no_fill() {
+    use crate::stage4_boundary_curve::EmissionFillFailure;
+    let (mesh, attribution) = fill_fixture(false);
+    assert_eq!(
+        fill_of(&mesh, &attribution, &fill_fixture_surfaces),
+        Err(EmissionFillFailure::Interleaved)
+    );
+}
+
+/// A chord no neighbour carries gives the notch nowhere to go: §3y's empty
+/// reach becomes a typed decline here, not a guess at a face.
+#[test]
+fn a_chord_no_neighbour_carries_gives_the_notch_no_destination() {
+    use crate::stage4_boundary_curve::EmissionFillFailure;
+    let (mesh, attribution) = interior_insert_fixture(false, true);
+    assert_eq!(
+        fill_of(&mesh, &attribution, &fill_fixture_surfaces),
+        Err(EmissionFillFailure::NotchDestinationUnknown)
+    );
+}
+
+/// The mesh-derived destination is checked against the analytic one: a face
+/// whose surface is not the transit's neighbour is reported as a
+/// disagreement, and a face without a chart is a typed decline.
+#[test]
+fn the_notch_destination_is_checked_against_the_transit_neighbour() {
+    use crate::stage4_boundary_curve::EmissionFillFailure;
+    let (mesh, attribution) = fill_fixture(true);
+    // The neighbour's face resolves to the OWN cone: same chart, wrong
+    // surface identity.
+    let wrong = |i: InputId, face: u32| -> Option<Surface> {
+        let (cone_a, ..) = transit_fixture();
+        match (i, face) {
+            (InputId::B, 8) => Some(cone_a),
+            _ => cut_fixture_surfaces(i, face),
+        }
+    };
+    let fill = fill_of(&mesh, &attribution, &wrong).expect("fill");
+    assert_eq!(fill.notch_surface_agrees, Some(false));
+    // No surface for the neighbour: the pentagon has no chart.
+    assert_eq!(
+        fill_of(&mesh, &attribution, &cut_fixture_surfaces),
+        Err(EmissionFillFailure::NoChart {
+            face: Some((InputId::B, 8))
+        })
+    );
+}
+
+/// The like-for-like chord bound: planes certify at exactly zero both ways,
+/// the cones certify finitely, and no face receives a fill coarser than what
+/// it gave up.
+#[test]
+fn the_fill_is_no_coarser_than_what_it_replaces() {
+    let (mesh, attribution) = fill_fixture(true);
+    let fill = fill_of(&mesh, &attribution, &fill_fixture_surfaces).expect("fill");
+    let by_face = |f: (InputId, u32)| {
+        fill.chord
+            .iter()
+            .find(|c| c.face == f)
+            .unwrap_or_else(|| panic!("a budget for {f:?}"))
+    };
+    for f in [(InputId::A, 2), (InputId::A, 3)] {
+        let c = by_face(f);
+        assert_eq!((c.old_max, c.new_max), (Some(0.0), Some(0.0)), "{f:?}");
+    }
+    for f in [(InputId::B, 7), (InputId::B, 8)] {
+        let c = by_face(f);
+        let (old, new) = (c.old_max.expect("certified"), c.new_max.expect("certified"));
+        assert!(
+            old.is_finite() && new.is_finite() && old > 0.0,
+            "{f:?}: {old} / {new}"
+        );
+        assert!(
+            new <= old,
+            "{f:?}: the fill ({new}) is coarser than the fossil ({old})"
+        );
+    }
+}

@@ -10608,15 +10608,15 @@ fn stage4_relocate_and_correct_inner(
                                                                         // operands, so the fill's
                                                                         // unit is the face-part —
                                                                         // if each part is a disk.
-                                                                        for pt in crate::
+                                                                        let parts = crate::
                                                                             stage4_boundary_curve::
                                                                             transit_emission_parts(
                                                                                 mesh,
                                                                                 attribution,
                                                                                 &rg,
                                                                                 ed.site,
-                                                                            )
-                                                                        {
+                                                                            );
+                                                                        for pt in &parts {
                                                                             let pinch = pt
                                                                                 .boundary_closed
                                                                                 .as_ref()
@@ -10635,6 +10635,69 @@ fn stage4_relocate_and_correct_inner(
                                                                                  {:?} pinch={:?}",
                                                                                 pt, pinch
                                                                             );
+                                                                        }
+                                                                        // inc-2c-3b-12b-7: the
+                                                                        // FILL — the mutation
+                                                                        // planned end to end and
+                                                                        // certified against the
+                                                                        // whole mesh, still not
+                                                                        // written.
+                                                                        match crate::
+                                                                            stage4_boundary_curve::
+                                                                            transit_emission_fill(
+                                                                                mesh,
+                                                                                attribution,
+                                                                                &ed,
+                                                                                &rg,
+                                                                                &parts,
+                                                                                &t,
+                                                                                &face_surface,
+                                                                            ) {
+                                                                            Ok(fl) => {
+                                                                                eprintln!(
+                                                                                    "[s451-fill] case={} v={v} OK \
+                                                                                     removed={:?} touched_delta={:?} \
+                                                                                     own={:?} notch_face={:?} \
+                                                                                     notch_surface_agrees={:?} \
+                                                                                     polygons={} tris={} \
+                                                                                     edge_defects={:?} opposed={} \
+                                                                                     folded={} added_folds={} \
+                                                                                     chord={:?} site_at={:?} \
+                                                                                     mints={:?}",
+                                                                                    case(),
+                                                                                    fl.removed,
+                                                                                    fl.touched_delta,
+                                                                                    fl.own_face,
+                                                                                    fl.notch_face,
+                                                                                    fl.notch_surface_agrees,
+                                                                                    fl.polygons.len(),
+                                                                                    fl.polygons
+                                                                                        .iter()
+                                                                                        .map(|p| p.tris.len())
+                                                                                        .sum::<usize>(),
+                                                                                    fl.edge_defects,
+                                                                                    fl.opposed,
+                                                                                    fl.folded,
+                                                                                    fl.added_folds,
+                                                                                    fl.chord,
+                                                                                    fl.site_at.as_array(),
+                                                                                    fl.mints
+                                                                                        .iter()
+                                                                                        .map(|(m, p)| (*m, p.as_array()))
+                                                                                        .collect::<Vec<_>>()
+                                                                                );
+                                                                                for p in &fl.polygons {
+                                                                                    eprintln!(
+                                                                                        "[s451-fill]   face={:?} notch={} \
+                                                                                         polygon={:?} tris={:?}",
+                                                                                        p.face, p.notch, p.polygon, p.tris
+                                                                                    );
+                                                                                }
+                                                                            }
+                                                                            Err(e) => eprintln!(
+                                                                                "[s451-fill] case={} v={v} DECLINE {e:?}",
+                                                                                case()
+                                                                            ),
                                                                         }
                                                                     }
                                                                     Err(e) => eprintln!(
