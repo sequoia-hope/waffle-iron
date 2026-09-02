@@ -54,7 +54,16 @@ jobs:
     # The parity suites alone run ~37 min, which left only 8 min of headroom
     # under the previous 45. Raising it rather than letting the added crates
     # turn a slow run into a spurious timeout — still a real runaway bound.
-    timeout-minutes: 60
+    #
+    # 2026-09-02: 60 → 120. Measured on the runner: the shipping-crate step is
+    # 38–46 min depending on runner load, and the categorized-assay smoke gate
+    # — which for eight days aborted at its stale C0105 pin five minutes in —
+    # now runs all thirteen boundary cases to completion in debug (C0116 alone
+    # is ~220s CPU unoptimized, per the test's own budget note). The 60-minute
+    # cap cancelled the first honest run at 1h00m20s with the gate mid-flight
+    # (run 33591279238). A timeout is a runaway bound, not a budget: raise it
+    # to what the job actually costs plus headroom.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
