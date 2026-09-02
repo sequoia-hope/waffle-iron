@@ -2701,6 +2701,132 @@ now `(A, 2)`, `(A, 3)`, `(B, 167)` — the corrected junction's own three
 faces. That is 3b-12b-8, the apply arm: gated, measured on R0044 for what
 the standing wall past v47 becomes.
 
+## 3ac. inc-2c-3b-12b-8 — WRITING the fill: the gated apply arm, the LIFT
+certificate, and what it caught (LANDED, gated; REFUSES at the corpus site —
+measured)
+
+§3ab certified the fill's incidence, winding and chord bound against the whole
+mesh. This builds the write — `transit_emission_write`, slot-stable: the mints
+appended at exactly the ids the plan named, the site moved to `J`, the removed
+slots overwritten in place and the surplus appended, attribution parallel,
+refusing on any unclean certificate and leaving the mesh untouched when it
+does — gated by `YANG_451_TRANSIT_EMIT=1|on` inside the §3v–§3ab chain. On a
+write the relocation loop takes `J` as the site's position and the
+`RelocationCrossedCrease` STOP does not fire; otherwise the standing STOP
+applies exactly as before. And it adds the certificate the write demanded
+before it could be trusted: the LIFT sense. A directed-edge check certifies
+WINDING; it cannot see a triangle that pairs consistently along every edge
+yet lifts folded onto its surface (the KV9-F2b lesson). Per face,
+`LiftSense` counts removed (old positions) and added (planned positions)
+triangles whose 3D normal lies along / against the face surface's gradient at
+their centroid; `lift_flips` are added triangles against the fossil's
+majority (or the added minority where the fossil disagrees with itself);
+`FillPolygon.lift` carries it per triangle.
+
+**Reading 1 — the write REFUSES at R0044 v47, on the lift certificate, and
+R0003 stays SUPPORTED_CORRECT untouched** (no apply activity at all — every
+R0003 site declines at §3y, as designed).
+
+| face | fossil along/against | fill along/against |
+|---|---|---|
+| `(A, 2)` | 1 / 0 | 2 / 0 |
+| `(A, 3)` | 1 / 0 | 2 / 0 |
+| `(B, 168)` | 4 / 0 | 3 / 0 |
+| `(B, 167)` | 1 / 0 | **1 / 3** |
+
+Per triangle on `(B, 167)`, the cosine of the triangle normal with the cone
+gradient at its centroid: `[981, 994, 16355]` +1.0000; `[994, 6911, 16356]`
+**−0.8062**; `[994, 16356, 16355]` **−0.7230**; the notch `[16356, 47, 16355]`
+**−1.0000**.
+
+**Reading 2 — the survivors decide which way is outward.** Over the whole
+mesh, `(B, 167)`'s 69 surviving triangles ALL lift along (0 against);
+`(B, 168)` 71 / 0; `(A, 3)` 67 / 0; `(A, 2)` 194 / 13 (thirteen against on
+the cylinder — a pre-existing population, recorded here and not chased). So
+on cone 626 outward IS along, and the notch — a 2-unit triangle of three
+exact cone-626 points (residuals ≤ 4.5e-13) on a surface of radius 3681,
+whose lift is faithful by construction — is INVERTED. Its consistent edge
+pairing with the A-quads and the pentagon (§3ab's opposed 7 / folded 0) is a
+fold, not a proof.
+
+**Reading 3 — and this is the increment's binding result — the neighbour face
+is a BAND, and the corner does not lie inside its host carrier.** `(B, 167)`
+is a conical band between two creases — 168|167 at station 2306.7221 and
+167|166 at 2307.9162 — of width **1.194**. `994` is ON the far crease (its
+azimuth is `981`'s to the last digit, −149.705457°), so `13037 =
+[981, 994, 6911]` is the band's full-width sliver. `J` is at station
+2307.6544, **0.932** into the band; at its azimuth (−153.4045°) the sliver's
+far edge `994 → 6911` is at station 2307.4086, so `J` lies **0.2457 BEYOND**
+the host carrier, inside `13038 = [6911, 994, 6877]` (barycentric
+0.219 / 0.575 / 0.206). Both stub midpoints land inside `13037`, so the
+stubs cross the edge `994–6911`. §3z's region — the host carriers — is
+INCOMPLETE on the neighbour side, and §3aa's "hand the notch to `(B, 167)`"
+as a triangle DOUBLE-COVERS cone 626: `13038` already covers where `J` is.
+
+**Reading 4 — what the corner IS: a BITE, not a triangle.** Walk the fan at a
+mint, say `16355`: `(B, 168)` keeps the sector from its chain end `280` round
+to the crease vertex `981`; `(B, 167)` keeps the sector from `981` round to
+`J`; and A's quad `[44, 280, 16355, 47]` spans the remaining sector from `J`
+back to `280` — ACROSS the corner direction. The corner segment
+`16355–16356` lies under A's face, inside A's material wedge, and is an edge
+of NOTHING that is kept. The pinch's notch loop is the flap of 627's fan that
+overran the crease — the A-wedge on 627's extension — and it is DROPPED; on
+626 the corner enters as a reflex detour of the neighbour polygon's boundary,
+`6911 → 16356 → J → 16355 → 981`: the neighbour part is `13037 ∪ 13038 =
+[981, 994, 6877, 6911]` with the mints inserted and the corner segment
+replaced by the stub path through `J`. No interior point, no constraint
+edge — a plain polygon, whose region is enlarged by the triangles containing
+`J` and crossed by the stubs. §3aa's decomposition stands (the pinch
+correctly isolates the corner loop); what it is FOR was mis-read — it names
+the region 626 loses, not a triangle it gains.
+
+**Reading 5 — the band is under-resolved along its creases by four times its
+own width, so no fill of it can lift faithfully at this resolution.** The
+crease chord `981–6911` (558.528) on a circle of radius 3681.154 has sagitta
+10.608; its midpoint lies 5.633 below the cone along the normal, and its
+surface foot is **4.773** station units from the crease — 4× the band's
+1.194. Any triangle with a full chord and a vertex on the arc or in the band
+has its plane rotated far from the tangent plane: those are the −0.81 and
+−0.72 cosines. The fossil `13037` lifts along (+0.9999) only because its
+short edge runs along the generator; its `d(T) = 22.2` (§3ab) was saying the
+same thing. This is Yang §4.5.2's local refinement in its literal form —
+*"increase the mesh resolution of the parametric surfaces associated with the
+erroneous regions"* — with the region now NAMED: sag ≤ 0.1 (a tenth of the
+width) needs chords ≤ 54.3, about ten segments per current chord, on BOTH
+creases of the band, with conforming splits on `(B, 168)` and `(B, 166)`
+across them. §3x's Reading 3 ("the corner arc needs no refinement", sag
+1.8e-4) was right about the corner and silent about the band, whose width
+nobody had measured.
+
+**Reading 6 — the fixture's own fossil is folded two against two.** Its fan
+is topological, not angularly monotone; the certificate measured it rather
+than assuming it away, and the fill's three replacements agree with each
+other (0 / 3). The write test pins the site's post-transit incidence to
+exactly the corrected junction's three faces, `(A, 2)`, `(A, 3)`, `(B, 8)`.
+
+Typed: `EmissionWriteFailure::{CertificateFailed { what }, MintIdsStale,
+AttributionLength, FewerAddedThanRemoved}` (a fill smaller than what it
+removes would need slot deletion and an index shift — not built, refused).
+2 new unit tests: the write lands slot-stably (survivors keep slot, triangle
+and attribution; every fill triangle present with its face; whole-mesh
+incidence 1 or 2 with pre-existing edges at their old count and every mint
+edge at two; no directed edge twice; the site's incidence), and every
+refusal leaves the mesh untouched.
+
+**Verification.** Rewrite tier GREEN — 173 binaries, 2794 tests, 0 failures,
+1217s. Full corpus 273C/0W/34E/1EE/0T, canonical, `results.json`
+byte-identical (gate off), F0085 honest SUPPORTED_CORRECT at 298.8s. Gate
+on: R0044 `[s451-apply] REFUSE CertificateFailed { what: "lift_flips" }`,
+verdict unchanged; R0003 SUPPORTED_CORRECT with zero apply lines. Clippy
+`--all-targets` clean. WASM rebuilt in the same commit.
+
+**Not built here.** 3b-12b-9 — the BITE: enlarge the neighbour part by the
+triangles containing `J` and crossed by the stubs, drop the notch loop,
+detour the neighbour polygon through `J`. 3b-12b-10 — §4.5.2 band
+refinement: split the band's crease chains to sag ≪ width, conforming across
+168 / 167 / 166. The lift certificate is the acceptance test for both; the
+write arm stays gated until it passes at the corpus site.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -3146,6 +3272,24 @@ the standing wall past v47 becomes.
   before the fix), and a "four triangles per mint" assertion was refuted
   by fixture and corpus alike (the count is the CDT's diagonal choice; the
   invariant is the four required edges, each carried twice). 7 unit tests.
+- **inc-2c-3b-12b-8** (2026-09-02, same session): the gated WRITE arm +
+  the LIFT certificate LANDED (§3ac). `transit_emission_write` is
+  slot-stable and refuses on any unclean certificate;
+  `YANG_451_TRANSIT_EMIT` arms it inside the §3v–§3ab chain, default OFF.
+  The lift certificate (per-face along/against the surface gradient, the
+  fold a directed-edge check cannot see) REFUSES the write at R0044 v47:
+  `(B, 167)` receives 1 / 3, the notch at cos −1.0000 while all 69
+  survivors of the face lift along. BINDING: `(B, 167)` is a conical BAND
+  1.194 wide between two creases; `J` is 0.932 in, 0.2457 BEYOND the host
+  carrier `13037`'s far edge, inside `13038` — §3z's region is incomplete
+  on the neighbour side and §3aa's notch-as-triangle double-covers cone
+  626. The corner is a BITE: the notch loop is A's wedge (dropped), and the
+  neighbour polygon detours `6911 → 16356 → J → 16355 → 981` over
+  `13037 ∪ 13038`. And the band's crease chords (558.5, sagitta 10.608)
+  sag 4.773 station units in-surface — 4× the band width — so no fill of
+  the band lifts faithfully at this resolution: Yang §4.5.2 refinement, ~10
+  segments per chord on both creases, conforming across three faces.
+  R0003 untouched (no apply activity). 2 unit tests.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

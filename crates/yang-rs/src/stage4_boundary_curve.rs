@@ -3057,6 +3057,10 @@ pub(crate) struct FillPolygon {
     pub(crate) tris: Vec<[u32; 3]>,
     /// Whether this is the notch.
     pub(crate) notch: bool,
+    /// Per triangle, whether its 3D normal lies ALONG its face surface's
+    /// gradient at the centroid (`None` = not evaluable). Filled in by the
+    /// lift certificate; the per-face [`LiftSense`] counts are its sums.
+    pub(crate) lift: Vec<Option<bool>>,
 }
 
 /// One edge whose incidence after the edit is not what a manifold requires.
@@ -3083,6 +3087,27 @@ pub(crate) struct ChordBudget {
     pub(crate) face: (InputId, u32),
     pub(crate) old_max: Option<f64>,
     pub(crate) new_max: Option<f64>,
+}
+
+/// One face's chart→3D lift orientation: how many of its removed (old
+/// positions) and added (new positions) triangles have their 3D normal
+/// along, and against, the face surface's gradient at their centroid.
+///
+/// A directed-edge check certifies WINDING; it cannot see a triangle that
+/// pairs consistently along every edge yet lifts folded onto the surface
+/// (the KV9-F2b lesson: the chart→3D lift must be orientation-faithful). The
+/// removed triangles supply the sense the fill must keep.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LiftSense {
+    pub(crate) face: (InputId, u32),
+    pub(crate) old_along: usize,
+    pub(crate) old_against: usize,
+    pub(crate) new_along: usize,
+    pub(crate) new_against: usize,
+    /// Triangles whose surface normal could not be evaluated at the
+    /// centroid (a surface kind without a gradient here, or a degenerate
+    /// triangle). Uncertified, not certified.
+    pub(crate) uncertified: usize,
 }
 
 /// The emission mutation, planned but not written.
@@ -3130,6 +3155,14 @@ pub(crate) struct TransitEmissionFill {
     /// inside the fill.
     pub(crate) added_folds: usize,
     pub(crate) chord: Vec<ChordBudget>,
+    /// Per face, the lift sense of what goes and what comes.
+    pub(crate) lift: Vec<LiftSense>,
+    /// Added triangles whose lift sense is against their face's removed
+    /// majority (or, where the removed triangles disagree among themselves,
+    /// the added minority). Zero is the lift certificate.
+    pub(crate) lift_flips: usize,
+    /// Added or removed triangles the lift could not be evaluated on.
+    pub(crate) lift_uncertified: usize,
 }
 
 /// Plan the emission fill from the pinched parts.
@@ -3228,6 +3261,7 @@ pub(crate) fn transit_emission_fill(
                 polygon: l.to_vec(),
                 tris: vec![[l[0], l[1], l[2]]],
                 notch,
+                lift: Vec::new(),
             });
         }
         let surface = face_surface(face.0, face.1).ok_or(F::NoChart { face: Some(face) })?;
@@ -3328,6 +3362,7 @@ pub(crate) fn transit_emission_fill(
             polygon: l.to_vec(),
             tris,
             notch,
+            lift: Vec::new(),
         })
     };
 
@@ -3519,6 +3554,84 @@ pub(crate) fn transit_emission_fill(
         })
         .collect();
 
+    // The lift sense per face: the 3D normal of each triangle against the
+    // face surface's gradient at its centroid — removed triangles at their
+    // old positions, added ones at the planned positions.
+    let sense = |surface: Surface, tri: [u32; 3], at: &dyn Fn(u32) -> Point3| -> Option<bool> {
+        let (a, b, c) = (
+            at(tri[0]).as_array(),
+            at(tri[1]).as_array(),
+            at(tri[2]).as_array(),
+        );
+        let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [
+            u[1] * w[2] - u[2] * w[1],
+            u[2] * w[0] - u[0] * w[2],
+            u[0] * w[1] - u[1] * w[0],
+        ];
+        let centroid = [
+            (a[0] + b[0] + c[0]) / 3.0,
+            (a[1] + b[1] + c[1]) / 3.0,
+            (a[2] + b[2] + c[2]) / 3.0,
+        ];
+        let (_, g) = crate::stage4_relocate::surface_value_and_normal(surface, centroid)?;
+        let d = n[0] * g[0] + n[1] * g[1] + n[2] * g[2];
+        if d == 0.0 || !d.is_finite() {
+            None
+        } else {
+            Some(d > 0.0)
+        }
+    };
+    let mut lift: Vec<LiftSense> = Vec::with_capacity(faces.len());
+    let (mut lift_flips, mut lift_uncertified) = (0usize, 0usize);
+    for &face in &faces {
+        let mut ls = LiftSense {
+            face,
+            old_along: 0,
+            old_against: 0,
+            new_along: 0,
+            new_against: 0,
+            uncertified: 0,
+        };
+        if let Some(surface) = face_surface(face.0, face.1) {
+            for &tr in removed.iter().filter(|&&tr| face_of(tr) == Some(face)) {
+                match sense(surface, mesh.tris[tr as usize], &|v| mesh.verts[v as usize]) {
+                    Some(true) => ls.old_along += 1,
+                    Some(false) => ls.old_against += 1,
+                    None => ls.uncertified += 1,
+                }
+            }
+            for poly in polygons.iter_mut().filter(|p| p.face == face) {
+                poly.lift = poly
+                    .tris
+                    .iter()
+                    .map(|tri| sense(surface, *tri, &pos))
+                    .collect();
+                for l in &poly.lift {
+                    match l {
+                        Some(true) => ls.new_along += 1,
+                        Some(false) => ls.new_against += 1,
+                        None => ls.uncertified += 1,
+                    }
+                }
+            }
+        } else {
+            ls.uncertified = removed
+                .iter()
+                .filter(|&&tr| face_of(tr) == Some(face))
+                .count()
+                + added.iter().filter(|(_, f)| *f == face).count();
+        }
+        lift_flips += match ls.old_along.cmp(&ls.old_against) {
+            std::cmp::Ordering::Greater => ls.new_against,
+            std::cmp::Ordering::Less => ls.new_along,
+            std::cmp::Ordering::Equal => ls.new_along.min(ls.new_against),
+        };
+        lift_uncertified += ls.uncertified;
+        lift.push(ls);
+    }
+
     Ok(TransitEmissionFill {
         site,
         site_at: t.j,
@@ -3537,5 +3650,145 @@ pub(crate) fn transit_emission_fill(
         folded,
         added_folds,
         chord,
+        lift,
+        lift_flips,
+        lift_uncertified,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// §4.5.2 inc-2c-3b-12b-8 — WRITING the certified fill (the gated apply arm)
+// ---------------------------------------------------------------------------
+
+/// Why a certified-looking fill was not written. Every variant is a refusal
+/// the caller must treat as "the standing STOP applies"; none is recoverable
+/// by retrying.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum EmissionWriteFailure {
+    /// A certificate on the plan is not clean. The write is only defined on a
+    /// fill whose result is manifold, consistently wound, attributed to the
+    /// surface the analysis named, and no coarser than what it replaces.
+    CertificateFailed { what: &'static str },
+    /// The mint ids the plan was built with are not the next two vertex ids:
+    /// the mesh changed between planning and writing.
+    MintIdsStale { planned: [u32; 2], next: u32 },
+    /// The attribution map is not parallel to the triangle list.
+    AttributionLength { tris: usize, attributions: usize },
+    /// The fill has fewer triangles than it removes, so some removed slot
+    /// would have to be deleted and every later triangle index shifted. Not
+    /// built (no corpus site needs it); refused rather than shuffled.
+    FewerAddedThanRemoved { added: usize, removed: usize },
+}
+
+/// What the write did, as counts the census can print.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EmissionWriteReport {
+    pub(crate) site: u32,
+    pub(crate) mints: [u32; 2],
+    pub(crate) removed: usize,
+    pub(crate) added: usize,
+    /// Removed slots overwritten in place (so no triangle index shifts).
+    pub(crate) overwritten: usize,
+    /// Fill triangles appended past the old end.
+    pub(crate) appended: usize,
+}
+
+/// Write a certified [`TransitEmissionFill`] to the mesh.
+///
+/// Slot-stable: the fill's triangles overwrite the removed slots in place and
+/// the surplus is appended, so every triangle index outside the region keeps
+/// its meaning; the attribution map is updated in the same slots. The two
+/// mints are appended at exactly the ids the plan named, and the site moves
+/// to the corrected junction the plan projected it at. Refuses — leaving the
+/// mesh untouched — on any unclean certificate.
+pub(crate) fn transit_emission_write(
+    mesh: &mut Mesh,
+    attribution: &mut crate::brep::TriangleAttributionMap,
+    fill: &TransitEmissionFill,
+) -> Result<EmissionWriteReport, EmissionWriteFailure> {
+    use EmissionWriteFailure as F;
+    if !fill.edge_defects.is_empty() {
+        return Err(F::CertificateFailed {
+            what: "edge_defects",
+        });
+    }
+    if fill.folded > 0 {
+        return Err(F::CertificateFailed { what: "folded" });
+    }
+    if fill.added_folds > 0 {
+        return Err(F::CertificateFailed {
+            what: "added_folds",
+        });
+    }
+    if fill.notch_surface_agrees != Some(true) {
+        return Err(F::CertificateFailed {
+            what: "notch_surface_agrees",
+        });
+    }
+    for c in &fill.chord {
+        match (c.old_max, c.new_max) {
+            (Some(old), Some(new)) if new <= old => {}
+            _ => return Err(F::CertificateFailed { what: "chord" }),
+        }
+    }
+    if fill.lift_flips > 0 {
+        return Err(F::CertificateFailed { what: "lift_flips" });
+    }
+    if fill.lift_uncertified > 0 {
+        return Err(F::CertificateFailed {
+            what: "lift_uncertified",
+        });
+    }
+    if attribution.attributions.len() != mesh.tris.len() {
+        return Err(F::AttributionLength {
+            tris: mesh.tris.len(),
+            attributions: attribution.attributions.len(),
+        });
+    }
+    let next = mesh.verts.len() as u32;
+    let planned = [fill.mints[0].0, fill.mints[1].0];
+    if planned != [next, next + 1] {
+        return Err(F::MintIdsStale { planned, next });
+    }
+    let added: Vec<([u32; 3], (InputId, u32))> = fill
+        .polygons
+        .iter()
+        .flat_map(|p| p.tris.iter().map(move |tri| (*tri, p.face)))
+        .collect();
+    if added.len() < fill.removed.len() {
+        return Err(F::FewerAddedThanRemoved {
+            added: added.len(),
+            removed: fill.removed.len(),
+        });
+    }
+
+    mesh.verts.push(fill.mints[0].1);
+    mesh.verts.push(fill.mints[1].1);
+    mesh.verts[fill.site as usize] = fill.site_at;
+    let mut overwritten = 0usize;
+    let mut appended = 0usize;
+    for (i, (tri, face)) in added.iter().enumerate() {
+        let att = Some(crate::brep::TriangleAttribution {
+            input: face.0,
+            face: face.1,
+        });
+        if i < fill.removed.len() {
+            let slot = fill.removed[i] as usize;
+            mesh.tris[slot] = *tri;
+            attribution.attributions[slot] = att;
+            overwritten += 1;
+        } else {
+            mesh.tris.push(*tri);
+            attribution.attributions.push(att);
+            appended += 1;
+        }
+    }
+    Ok(EmissionWriteReport {
+        site: fill.site,
+        mints: planned,
+        removed: fill.removed.len(),
+        added: added.len(),
+        overwritten,
+        appended,
     })
 }

@@ -2160,6 +2160,51 @@ fn the_fill_is_manifold_conformal_and_wound_by_its_loops() {
     );
     assert_eq!(fill.folded, 0, "no fill edge folds onto a survivor");
     assert_eq!(fill.added_folds, 0, "no fold inside the fill");
+    // The chart→3D lift: every face's fill lies ONE way on its surface, it
+    // lies the way the fossil did wherever the fossil was unanimous, and
+    // every triangle was certifiable. (The fixture's own-patch fossil is NOT
+    // unanimous — its fan is topological, not angularly monotone, and two of
+    // its four triangles lift against the cone — which is exactly the folded
+    // fossil §3q warned about, measured here rather than assumed away; the
+    // fill's three replacements agree with each other.)
+    assert_eq!(
+        (fill.lift_flips, fill.lift_uncertified),
+        (0, 0),
+        "{:?}",
+        fill.lift
+    );
+    for ls in &fill.lift {
+        assert!(
+            ls.old_along + ls.old_against > 0,
+            "{:?} gave up nothing",
+            ls.face
+        );
+        assert!(
+            ls.new_along + ls.new_against > 0,
+            "{:?} receives nothing",
+            ls.face
+        );
+        assert!(
+            ls.new_along == 0 || ls.new_against == 0,
+            "fill folded: {ls:?}"
+        );
+        if ls.old_against == 0 {
+            assert_eq!(ls.new_against, 0, "{ls:?}");
+        }
+        if ls.old_along == 0 {
+            assert_eq!(ls.new_along, 0, "{ls:?}");
+        }
+    }
+    let own_lift = fill
+        .lift
+        .iter()
+        .find(|l| l.face == fill.own_face)
+        .expect("the own patch is certified");
+    assert_eq!(
+        (own_lift.old_along, own_lift.old_against),
+        (2, 2),
+        "the fixture's own fossil is folded two against two"
+    );
     assert_eq!(
         fill.opposed, 2,
         "each survivor shares exactly one edge with the fill, traversed the other way"
@@ -2321,4 +2366,198 @@ fn the_fill_is_no_coarser_than_what_it_replaces() {
             "{f:?}: the fill ({new}) is coarser than the fossil ({old})"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// §4.5.2 inc-2c-3b-12b-8 — WRITING the certified fill
+// ---------------------------------------------------------------------------
+
+/// Undirected edge → incidence count over a whole mesh.
+fn edge_counts(mesh: &crate::Mesh) -> std::collections::BTreeMap<(u32, u32), usize> {
+    let mut m = std::collections::BTreeMap::new();
+    for tri in &mesh.tris {
+        for k in 0..3 {
+            let (a, b) = (tri[k], tri[(k + 1) % 3]);
+            *m.entry((a.min(b), a.max(b))).or_default() += 1;
+        }
+    }
+    m
+}
+
+/// THE WRITE: the certified fill lands in the mesh slot-stably — the removed
+/// slots are overwritten, the surplus appended, the mints take exactly the ids
+/// the plan named, the site moves to `J` — and the whole mesh comes out with
+/// the incidence and winding the certificate promised.
+#[test]
+fn the_write_lands_the_fill_slot_stably_and_the_mesh_is_manifold() {
+    use crate::stage4_boundary_curve::transit_emission_write;
+    let (mut mesh, mut attribution) = fill_fixture(true);
+    let fill = fill_of(&mesh, &attribution, &fill_fixture_surfaces).expect("fill");
+    let before = mesh.clone();
+    let before_counts = edge_counts(&before);
+    let (nv, nt) = (mesh.verts.len(), mesh.tris.len());
+
+    let report = transit_emission_write(&mut mesh, &mut attribution, &fill).expect("written");
+
+    // Counts: two mints, |added| − |removed| more triangles, attribution
+    // parallel, the removed slots overwritten and the rest appended.
+    assert_eq!(mesh.verts.len(), nv + 2);
+    assert_eq!(report.mints, [nv as u32, nv as u32 + 1]);
+    assert_eq!(mesh.verts[nv], fill.mints[0].1);
+    assert_eq!(mesh.verts[nv + 1], fill.mints[1].1);
+    assert_eq!(mesh.verts[fill.site as usize], fill.site_at);
+    let added: usize = fill.polygons.iter().map(|p| p.tris.len()).sum();
+    assert_eq!(mesh.tris.len(), nt + added - fill.removed.len());
+    assert_eq!(attribution.attributions.len(), mesh.tris.len());
+    assert_eq!(report.overwritten, fill.removed.len());
+    assert_eq!(report.appended, added - fill.removed.len());
+    assert_eq!((report.removed, report.added), (fill.removed.len(), added));
+
+    // Every survivor keeps its slot, its triangle and its attribution.
+    for t in 0..nt as u32 {
+        if fill.removed.contains(&t) {
+            continue;
+        }
+        assert_eq!(mesh.tris[t as usize], before.tris[t as usize], "slot {t}");
+        assert_eq!(
+            attribution.attributions[t as usize],
+            attribution.lookup(t),
+            "slot {t}"
+        );
+    }
+    // Every fill triangle is in the mesh with its face, and no removed
+    // triangle's vertex set survives.
+    for p in &fill.polygons {
+        for tri in &p.tris {
+            let slot = mesh
+                .tris
+                .iter()
+                .position(|x| x == tri)
+                .unwrap_or_else(|| panic!("fill triangle {tri:?} missing"));
+            assert_eq!(
+                attribution.lookup(slot as u32).map(|a| (a.input, a.face)),
+                Some(p.face)
+            );
+        }
+    }
+    // (A removed triangle's vertex SET may legitimately reappear: with the
+    // site at `J` the plane_x quad is convex and its Delaunay diagonal is the
+    // old chain chord `(0, 1)`, so `{0, 1, 6}` comes back as a fill triangle
+    // — the chord survives only as an interior diagonal of one face, no
+    // longer as a face boundary. What matters is the incidence below.)
+
+    // The whole mesh: every edge carried once (the fixture's open rim) or
+    // twice, every pre-existing edge at its old count, every mint edge at
+    // two, and no directed edge carried twice (consistent winding).
+    let after = edge_counts(&mesh);
+    for (&e, &c) in &after {
+        let expected = match before_counts.get(&e) {
+            Some(&b) => b,
+            None => 2,
+        };
+        assert_eq!(c, expected, "edge {e:?}");
+        assert!(c == 1 || c == 2, "edge {e:?} carried {c} times");
+    }
+    let mut directed = std::collections::BTreeSet::new();
+    for tri in &mesh.tris {
+        for k in 0..3 {
+            assert!(
+                directed.insert((tri[k], tri[(k + 1) % 3])),
+                "directed edge {:?} carried twice",
+                (tri[k], tri[(k + 1) % 3])
+            );
+        }
+    }
+    // The site's fan after the write is exactly the corrected junction's
+    // three faces: the two planes and the NEIGHBOUR cone — never the own
+    // patch it transited out of.
+    let mut faces: Vec<_> = mesh
+        .tris
+        .iter()
+        .enumerate()
+        .filter(|(_, tri)| tri.contains(&fill.site))
+        .filter_map(|(t, _)| attribution.lookup(t as u32).map(|a| (a.input, a.face)))
+        .collect();
+    faces.sort_unstable();
+    faces.dedup();
+    assert_eq!(
+        faces,
+        vec![(InputId::A, 2), (InputId::A, 3), (InputId::B, 8)],
+        "the site's incidence after the transit"
+    );
+}
+
+/// The write refuses — leaving the mesh untouched — on any unclean
+/// certificate, on stale mint ids, and on a fill smaller than what it removes.
+#[test]
+fn the_write_refuses_an_uncertified_fill_and_leaves_the_mesh_untouched() {
+    use crate::stage4_boundary_curve::{
+        transit_emission_write, EdgeIncidence, EmissionWriteFailure,
+    };
+    let (mut mesh, mut attribution) = fill_fixture(true);
+    let fill = fill_of(&mesh, &attribution, &fill_fixture_surfaces).expect("fill");
+    let before = (mesh.clone(), attribution.clone());
+
+    let mut bad = fill.clone();
+    bad.edge_defects.push(EdgeIncidence {
+        edge: (0, 1),
+        before: 2,
+        after: 3,
+        expected: 2,
+    });
+    assert_eq!(
+        transit_emission_write(&mut mesh, &mut attribution, &bad),
+        Err(EmissionWriteFailure::CertificateFailed {
+            what: "edge_defects"
+        })
+    );
+    let mut bad = fill.clone();
+    bad.folded = 1;
+    assert_eq!(
+        transit_emission_write(&mut mesh, &mut attribution, &bad),
+        Err(EmissionWriteFailure::CertificateFailed { what: "folded" })
+    );
+    let mut bad = fill.clone();
+    bad.notch_surface_agrees = Some(false);
+    assert_eq!(
+        transit_emission_write(&mut mesh, &mut attribution, &bad),
+        Err(EmissionWriteFailure::CertificateFailed {
+            what: "notch_surface_agrees"
+        })
+    );
+    let mut bad = fill.clone();
+    bad.chord[0].new_max = Some(f64::INFINITY);
+    assert_eq!(
+        transit_emission_write(&mut mesh, &mut attribution, &bad),
+        Err(EmissionWriteFailure::CertificateFailed { what: "chord" })
+    );
+    let mut bad = fill.clone();
+    bad.lift_flips = 1;
+    assert_eq!(
+        transit_emission_write(&mut mesh, &mut attribution, &bad),
+        Err(EmissionWriteFailure::CertificateFailed { what: "lift_flips" })
+    );
+    let mut bad = fill.clone();
+    bad.polygons.truncate(1);
+    assert_eq!(
+        transit_emission_write(&mut mesh, &mut attribution, &bad),
+        Err(EmissionWriteFailure::FewerAddedThanRemoved {
+            added: bad.polygons[0].tris.len(),
+            removed: fill.removed.len(),
+        })
+    );
+    assert_eq!((mesh.clone(), attribution.clone()), before, "untouched");
+
+    // A vertex appended after planning makes the mint ids stale.
+    mesh.verts.push(Point3::new(0.0, 0.0, 0.0));
+    let next = mesh.verts.len() as u32;
+    assert_eq!(
+        transit_emission_write(&mut mesh, &mut attribution, &fill),
+        Err(EmissionWriteFailure::MintIdsStale {
+            planned: [fill.mints[0].0, fill.mints[1].0],
+            next,
+        })
+    );
+    assert_eq!(mesh.verts.len(), next as usize, "untouched");
+    assert_eq!(mesh.tris, before.0.tris);
 }

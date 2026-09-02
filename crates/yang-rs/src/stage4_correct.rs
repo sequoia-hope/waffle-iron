@@ -5290,6 +5290,19 @@ fn strategy_selection_census(
 /// inc-2c-3b-1 gate (spec `specs/yang_451_corner_transit.md` §3i):
 /// `YANG_451_TRANSIT=1|on` arms the corner-transit corridor mutation.
 /// Default OFF — the standing §4-I9 STOP is the answer.
+/// §4.5.1 inc-2c-3b-12b-8 — the EMISSION apply arm: write the certified
+/// [`crate::stage4_boundary_curve::TransitEmissionFill`] at a determined
+/// out-of-domain relocation site and move the site to its corrected
+/// junction, instead of writing the out-of-domain solution. Reachable only
+/// inside the `YANG_451_TRIPLE_DOMAIN` + `YANG_451_TRANSIT_ANATOMY` chain;
+/// `YANG_451_TRANSIT_EMIT=1|on` arms it, default OFF (byte-identical).
+fn transit_emit_enabled() -> bool {
+    matches!(
+        std::env::var("YANG_451_TRANSIT_EMIT").as_deref(),
+        Ok("1") | Ok("on")
+    )
+}
+
 fn transit_apply_enabled() -> bool {
     matches!(
         std::env::var("YANG_451_TRANSIT").as_deref(),
@@ -10276,7 +10289,8 @@ fn stage4_relocate_and_correct_inner(
                 continue; // 2 / ≥4 surfaces keep the loud audits (I2)
             }
             let p = mesh.verts[v as usize];
-            let Some(proj) = relocate_onto_implicit_triple(p, surfs[0], surfs[1], surfs[2]) else {
+            let Some(mut proj) = relocate_onto_implicit_triple(p, surfs[0], surfs[1], surfs[2])
+            else {
                 if probe_v {
                     eprintln!("[triple-bail] v={v} newton diverged");
                 }
@@ -10327,6 +10341,10 @@ fn stage4_relocate_and_correct_inner(
             if dom_mode == "census" || dom_mode == "1" || dom_mode == "on" {
                 let creases =
                     crate::stage4_boundary_curve::creases_for_surfaces(&creases_by_surf, surfs);
+                // inc-2c-3b-12b-8: set when the emission fill was WRITTEN at
+                // this site; then `proj` is the corrected junction and the
+                // STOP below does not apply.
+                let mut repaired = false;
                 if let Some((ci, fp, fq)) =
                     crate::stage4_boundary_curve::crease_crossed_by_step(p, proj, &creases)
                 {
@@ -10686,12 +10704,238 @@ fn stage4_relocate_and_correct_inner(
                                                                                         .map(|(m, p)| (*m, p.as_array()))
                                                                                         .collect::<Vec<_>>()
                                                                                 );
+                                                                                eprintln!(
+                                                                                    "[s451-fill]   lift_flips={} \
+                                                                                     lift_uncertified={} lift={:?}",
+                                                                                    fl.lift_flips,
+                                                                                    fl.lift_uncertified,
+                                                                                    fl.lift
+                                                                                );
+                                                                                // The faces' SURVIVING triangles' lift
+                                                                                // sense over the whole mesh — the
+                                                                                // witness for which way each face's
+                                                                                // outward normal actually lies.
+                                                                                for ls in &fl.lift {
+                                                                                    let Some(surface) =
+                                                                                        face_surface(ls.face.0, ls.face.1)
+                                                                                    else {
+                                                                                        continue;
+                                                                                    };
+                                                                                    let (mut along, mut against, mut none) =
+                                                                                        (0usize, 0usize, 0usize);
+                                                                                    for (ti, tri) in mesh.tris.iter().enumerate() {
+                                                                                        if fl.removed.binary_search(&(ti as u32)).is_ok()
+                                                                                            || attribution
+                                                                                                .lookup(ti as u32)
+                                                                                                .map(|a| (a.input, a.face))
+                                                                                                != Some(ls.face)
+                                                                                        {
+                                                                                            continue;
+                                                                                        }
+                                                                                        let a = mesh.verts[tri[0] as usize].as_array();
+                                                                                        let b = mesh.verts[tri[1] as usize].as_array();
+                                                                                        let c = mesh.verts[tri[2] as usize].as_array();
+                                                                                        let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                                                                                        let w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+                                                                                        let n = [
+                                                                                            u[1] * w[2] - u[2] * w[1],
+                                                                                            u[2] * w[0] - u[0] * w[2],
+                                                                                            u[0] * w[1] - u[1] * w[0],
+                                                                                        ];
+                                                                                        let cen = [
+                                                                                            (a[0] + b[0] + c[0]) / 3.0,
+                                                                                            (a[1] + b[1] + c[1]) / 3.0,
+                                                                                            (a[2] + b[2] + c[2]) / 3.0,
+                                                                                        ];
+                                                                                        match crate::stage4_relocate::surface_value_and_normal(
+                                                                                            surface, cen,
+                                                                                        ) {
+                                                                                            Some((_, g)) => {
+                                                                                                let d = n[0] * g[0] + n[1] * g[1] + n[2] * g[2];
+                                                                                                if d > 0.0 {
+                                                                                                    along += 1
+                                                                                                } else if d < 0.0 {
+                                                                                                    against += 1
+                                                                                                } else {
+                                                                                                    none += 1
+                                                                                                }
+                                                                                            }
+                                                                                            None => none += 1,
+                                                                                        }
+                                                                                    }
+                                                                                    eprintln!(
+                                                                                        "[s451-fill]   survivors face={:?} \
+                                                                                         along={along} against={against} none={none}",
+                                                                                        ls.face
+                                                                                    );
+                                                                                }
+                                                                                // Where the corner actually LANDS on
+                                                                                // the neighbour face: the surviving
+                                                                                // triangles of that face whose chart
+                                                                                // footprint contains J, and the
+                                                                                // midpoints of its two chain stubs.
+                                                                                if let Some(surface) =
+                                                                                    face_surface(fl.notch_face.0, fl.notch_face.1)
+                                                                                {
+                                                                                    if let Some(chart) =
+                                                                                        crate::stage4_project::SurfaceChart::new_local(surface)
+                                                                                    {
+                                                                                        let j = fl.site_at;
+                                                                                        let mid = |m: Point3| -> Point3 {
+                                                                                            let (a, b) = (j.as_array(), m.as_array());
+                                                                                            Point3::new(
+                                                                                                0.5 * (a[0] + b[0]),
+                                                                                                0.5 * (a[1] + b[1]),
+                                                                                                0.5 * (a[2] + b[2]),
+                                                                                            )
+                                                                                        };
+                                                                                        let probes = [
+                                                                                            ("J", j),
+                                                                                            ("mid(J,m0)", mid(fl.mints[0].1)),
+                                                                                            ("mid(J,m1)", mid(fl.mints[1].1)),
+                                                                                        ];
+                                                                                        for (name, q) in probes {
+                                                                                            let uv = chart.project(q);
+                                                                                            let near = |x: f64| -> f64 {
+                                                                                                let mut d = x - uv.x();
+                                                                                                while d > std::f64::consts::PI {
+                                                                                                    d -= std::f64::consts::TAU;
+                                                                                                }
+                                                                                                while d <= -std::f64::consts::PI {
+                                                                                                    d += std::f64::consts::TAU;
+                                                                                                }
+                                                                                                uv.x() + d
+                                                                                            };
+                                                                                            let mut hits: Vec<(u32, [u32; 3], [f64; 3])> = Vec::new();
+                                                                                            for (ti, tri) in mesh.tris.iter().enumerate() {
+                                                                                                if fl.removed.binary_search(&(ti as u32)).is_ok()
+                                                                                                    || attribution
+                                                                                                        .lookup(ti as u32)
+                                                                                                        .map(|a| (a.input, a.face))
+                                                                                                        != Some(fl.notch_face)
+                                                                                                {
+                                                                                                    continue;
+                                                                                                }
+                                                                                                let c: Vec<(f64, f64)> = tri
+                                                                                                    .iter()
+                                                                                                    .map(|&v| {
+                                                                                                        let w = chart.project(mesh.verts[v as usize]);
+                                                                                                        (near(w.x()), w.y())
+                                                                                                    })
+                                                                                                    .collect();
+                                                                                                let area = |a: (f64, f64), b: (f64, f64), p: (f64, f64)| {
+                                                                                                    (b.0 - a.0) * (p.1 - a.1) - (b.1 - a.1) * (p.0 - a.0)
+                                                                                                };
+                                                                                                let q2 = (uv.x(), uv.y());
+                                                                                                let (a0, a1, a2) = (
+                                                                                                    area(c[0], c[1], q2),
+                                                                                                    area(c[1], c[2], q2),
+                                                                                                    area(c[2], c[0], q2),
+                                                                                                );
+                                                                                                let total = area(c[0], c[1], c[2]);
+                                                                                                if total != 0.0
+                                                                                                    && (a0 / total >= 0.0)
+                                                                                                    && (a1 / total >= 0.0)
+                                                                                                    && (a2 / total >= 0.0)
+                                                                                                {
+                                                                                                    hits.push((
+                                                                                                        ti as u32,
+                                                                                                        *tri,
+                                                                                                        [a1 / total, a2 / total, a0 / total],
+                                                                                                    ));
+                                                                                                }
+                                                                                            }
+                                                                                            eprintln!(
+                                                                                                "[s451-fill]   lands {name} uv=({:.6},{:.4}) in {:?}",
+                                                                                                uv.x(),
+                                                                                                uv.y(),
+                                                                                                hits
+                                                                                            );
+                                                                                            for (ti, tri, _) in &hits {
+                                                                                                for &v in tri {
+                                                                                                    let w = chart.project(mesh.verts[v as usize]);
+                                                                                                    eprintln!(
+                                                                                                        "[s451-fill]     tri {ti} v{v} uv=({:.6},{:.4}) \
+                                                                                                         faces={:?}",
+                                                                                                        near(w.x()),
+                                                                                                        w.y(),
+                                                                                                        {
+                                                                                                            let mut f: Vec<_> = mesh
+                                                                                                                .tris
+                                                                                                                .iter()
+                                                                                                                .enumerate()
+                                                                                                                .filter(|(_, t)| t.contains(&v))
+                                                                                                                .filter_map(|(k, _)| {
+                                                                                                                    attribution
+                                                                                                                        .lookup(k as u32)
+                                                                                                                        .map(|a| (a.input, a.face))
+                                                                                                                })
+                                                                                                                .collect();
+                                                                                                            f.sort_unstable();
+                                                                                                            f.dedup();
+                                                                                                            f
+                                                                                                        }
+                                                                                                    );
+                                                                                                }
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }
                                                                                 for p in &fl.polygons {
                                                                                     eprintln!(
                                                                                         "[s451-fill]   face={:?} notch={} \
-                                                                                         polygon={:?} tris={:?}",
-                                                                                        p.face, p.notch, p.polygon, p.tris
+                                                                                         polygon={:?} tris={:?} lift={:?} \
+                                                                                         surface={:?}",
+                                                                                        p.face, p.notch, p.polygon, p.tris, p.lift,
+                                                                                        face_surface(p.face.0, p.face.1)
                                                                                     );
+                                                                                    let at = |u: u32| -> [f64; 3] {
+                                                                                        if u == fl.mints[0].0 {
+                                                                                            fl.mints[0].1.as_array()
+                                                                                        } else if u == fl.mints[1].0 {
+                                                                                            fl.mints[1].1.as_array()
+                                                                                        } else if u == fl.site {
+                                                                                            fl.site_at.as_array()
+                                                                                        } else {
+                                                                                            mesh.verts[u as usize].as_array()
+                                                                                        }
+                                                                                    };
+                                                                                    for tri in &p.tris {
+                                                                                        eprintln!(
+                                                                                            "[s451-fill]     tri={:?} pos={:?}",
+                                                                                            tri,
+                                                                                            [at(tri[0]), at(tri[1]), at(tri[2])]
+                                                                                        );
+                                                                                    }
+                                                                                }
+                                                                                // inc-2c-3b-12b-8: WRITE it. The
+                                                                                // write refuses on any unclean
+                                                                                // certificate and leaves the mesh
+                                                                                // untouched; then the standing STOP
+                                                                                // applies exactly as today.
+                                                                                if transit_emit_enabled() {
+                                                                                    match crate::stage4_boundary_curve::
+                                                                                        transit_emission_write(
+                                                                                            mesh,
+                                                                                            attribution,
+                                                                                            &fl,
+                                                                                        ) {
+                                                                                        Ok(rep) => {
+                                                                                            eprintln!(
+                                                                                                "[s451-apply] case={} v={v} \
+                                                                                                 WRITTEN {rep:?}",
+                                                                                                case()
+                                                                                            );
+                                                                                            proj = fl.site_at;
+                                                                                            repaired = true;
+                                                                                        }
+                                                                                        Err(e) => eprintln!(
+                                                                                            "[s451-apply] case={} v={v} \
+                                                                                             REFUSE {e:?} — the standing \
+                                                                                             STOP applies",
+                                                                                            case()
+                                                                                        ),
+                                                                                    }
                                                                                 }
                                                                             }
                                                                             Err(e) => eprintln!(
@@ -10756,7 +11000,7 @@ fn stage4_relocate_and_correct_inner(
                             let _ = writeln!(f, "{line}");
                         }
                     }
-                    if dom_mode != "census" {
+                    if dom_mode != "census" && !repaired {
                         return Err(YangError::stage4_region_invalid(
                             v,
                             Stage4InvalidReason::RelocationCrossedCrease,
