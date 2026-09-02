@@ -1364,7 +1364,22 @@ fn smoke_corpus_boundary_categories() {
         // the boolean_subtract now rejects at the boundary. The #177
         // residual is the WATERTIGHT half (how 51 unpaired edges evaded a
         // gate); the case itself is loud now.
-        ("C0105", Category::Error),
+        // CONVERTED 2026-08-25 (`c02aeb33`, the §4.4.2 carried-edge
+        // restoration flip; C0105's ROOT was its fix #3, kernel-v2's
+        // barrel-arm hole WINDOWING: a slot window a wrap-span image away
+        // lay outside the seam-cut outer polygon, the flood-fill CDT ignored
+        // it and tessellated the corridor as solid wall — the very
+        // self-intersection the selfx gate caught. `blocked()` now tests
+        // each un-pinned hole at its image inside the candidate window.)
+        // The case completes through every oracle — watertight, χ, volume
+        // and the render-level selfx gate — as that commit's own corpus
+        // line and the committed categorized results have recorded since.
+        // This pin was not moved with it, and CI's `Rust tests` job was red
+        // on exactly this assertion for eight days: the kernel-stack inner
+        // loop (`test.sh rewrite`) does not run this smoke test, so a corpus
+        // conversion must be checked against THIS table as well as
+        // `results.json`. A regression back to ERROR is loud here again.
+        ("C0105", Category::SupportedCorrect),
         ("C0107", Category::Error), // 7b point-tangent sphere⊕cyl: loud non-2-manifold
         ("C0110", Category::SupportedCorrect), // 7b line-tangent box⊕cyl union
         // FINDING C0111/C0113-F1 (2026-07-17): sliver walls at 1e-8 m (below
