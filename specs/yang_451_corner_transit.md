@@ -2930,6 +2930,144 @@ lesson once more — and re-fill. The lift certificate at `[994, 6877, 47]`
 is the acceptance test; when it passes, the write arm's first real
 measurement is what the R0044 run past v47 becomes.
 
+## 3ae. inc-2c-3b-12b-10 — §4.5.2 REFINEMENT until the lift is faithful:
+the cascade through the bands, and the FIRST WRITE at the corpus site
+(LANDED, gated; measured)
+
+§3ad left one flipped triangle: `[994, 6877, 47]`, spanning the neighbour
+band's far-crease chord. This builds Yang §4.5.2 as the certificate demands
+it — *"increase the mesh resolution of the parametric surfaces associated
+with the erroneous regions"* — with the erroneous region named by the lift
+certificate and the resolution increased by exact crease-circle vertices,
+constant-free, until every fill triangle lifts the way its face's survivors
+do.
+
+**What changed.** The two hard-wired mints became a LIST: `HostMints` keys
+every mint by the undirected mesh edge that hosts it, at its parameter from
+the lower-id end, so a mint is inserted once per host edge each part
+carries, in along-edge order, whichever way the part traverses it
+(`transit_boundary_pinch` is now `insert_mints` + `pinch_cycle`, unchanged
+in behaviour). `ExtraMint { at, host, t }` is a refinement mint; the fill
+takes a list of them, and every triangle carrying an extra's host — on BOTH
+faces across it, the 3b-11 one-sided-insert lesson built in — joins the
+work list, a face the parts did not name getting a part of its own. The
+write mints the whole list. `transit_emission_refine` is the loop: plan the
+fill; while any triangle lifts against its face's reference, act on each
+such triangle; plan again; `cap` iterations, then a loud `CapReached` that
+carries the halvings and the last fill.
+
+**Reading 1 — halving alone DIVERGES, and the census said why.** The first
+loop halved the flipped triangle's crease chord at the exact arc midpoint.
+At R0044 v47 it hit the cap with 129 halvings and the flips risen from 1 to
+**128**: every halving on the neighbour's far chord `994–6877` put a mint
+the face beyond, `(B, 166)`, had to receive, and `(B, 166)`'s fan from its
+far vertex `993` over the sub-chords lifted against the cone at EVERY chord
+length — 279, 140, 70, 35, 17 — while its fossil `[993, 6877, 994]` and all
+69 of its survivors lift along. A band's strip triangulation is faithful
+only because each apex sits above its base's END; a fan from one far vertex
+over refined sub-chords has its apex five degrees off along the crease,
+and its long edges dip below the surface by more than the band is wide. No
+halving of the base can restore that. The fold was the APEX's crease being
+coarse, not the base's.
+
+**Reading 2 — the rule that converges: MATCHED splits.** For a flipped
+triangle whose base is a crease chord on `C`: if its apex lies on ANOTHER
+crease `C'` of the face (`on_crease` — the triangle is a band's), split
+`C'` at the azimuth of the base's midpoint (`project_onto_curve` of the
+midpoint onto `C'`), on the apex's own crease edge that brackets the point
+(`MatchBeyondNeighbours` otherwise) — the matched vertex the strip needs;
+else (the apex is interior, as the corner is) halve the base. A matched
+split's host lies on the next crease, so the next face joins; the cascade
+runs outward through the bands until a face certifies. Typed:
+`RefineKind::{Halve, Matched}`, `MatchBeyondNeighbours`,
+`ReferenceUndecided`, `HostAmbiguous`, `MidpointDegenerate`,
+`FlipWithoutCreaseChord`, `CapReached`.
+
+**Reading 3 — and this is the increment's binding result — at R0044 v47 the
+refinement CONVERGES in seven rounds, cascading through five bands, and the
+write LANDS.**
+
+| round | face | kind | flipped triangle | step acted on | host split | len | dist |
+|---|---|---|---|---|---|---|---|
+| 1 | `(B, 167)` | Halve | `[994, 6877, 47]` | `(994, 6877)` | `(994, 6877)` | 558.82 | sag 10.61 |
+| 2 | `(B, 167)` | Halve | `[994, 16357, 47]` | `(994, 16357)` | `(994, 6877)` | 279.61 | sag 2.65 |
+| 3 | `(B, 166)` | Matched | `[993, 6877, 16357]` | `(6877, 16357)` | `(993, 6843)` | 279.61 | 9.05 |
+| 4 | `(B, 165)` | Matched | `[983, 6843, 16359]` | `(6843, 16359)` | `(983, 6809)` | 140.04 | 11.77 |
+| 5 | `(B, 164)` | Matched | `[982, 6809, 16360]` | `(6809, 16360)` | `(982, 6775)` | 70.19 | 15.87 |
+| 6 | `(B, 163)` | Matched | `[985, 6775, 16361]` | `(6775, 16361)` | `(985, 6741)` | 35.21 | 20.27 |
+| 7 | `(B, 162)` | Matched | `[984, 6741, 16362]` | `(6741, 16362)` | `(984, 6707)` | 17.67 | 24.74 |
+
+(`dist` for a matched round is the base midpoint's distance to the matched
+point — the band's width at that azimuth: 167 is 1.19 wide, then 9.05,
+11.77, 15.87, 20.27, 24.74; `(B, 161)` certified without a split.) Each
+matched vertex lands at the previous base's midpoint, so the next band's
+end triangle keeps a long diagonal of ever-shorter base and ever-wider
+band, until the band is wider than the diagonal's dip. The certificate
+decided where that was; no constant did.
+
+The converged fill: **11 polygons, 37 triangles, on 10 faces**, every one
+lifting along (`lift_flips = 0`, `lift_uncertified = 0`); `removed` 19 (the
+§3ad eight plus a strip pair from each of five bands and one from 161),
+`touched_delta` = those twelve; `edge_defects = []`, opposed 19 / folded 0
+/ added_folds 0; 9 mints. And in Yang's own `d(T)`, every face no coarser
+and the bands far finer:
+
+| face | old max | new max |
+|---|---|---|
+| `(B, 168)` | 140.573 | 75.525 |
+| `(B, 167)` | 22.216 | **7.778** |
+| `(B, 166)` | 24.128 | **11.971** |
+| `(B, 165)` | 25.995 | 16.787 |
+| `(B, 164)` | 27.815 | 22.903 |
+| `(B, 163)` | 29.586 | 27.065 |
+| `(B, 162)` | 31.303 | 30.034 |
+| `(B, 161)` | 32.964 | 32.848 |
+| `(A, 2)` / `(A, 3)` | 39.940 / 0 | 39.940 / 0 |
+
+The neighbour's bite polygon is now `[981, 994, 16358, 16357, 6877, 6911,
+16356, 47, 16355]` — seven triangles, all along. With the gate armed the
+write LANDED: `WRITTEN { site: 47, mints: [16355, 16356], minted: 9,
+removed: 19, added: 37, overwritten: 19, appended: 18 }` — the first
+emission at the corpus site — and the run proceeds past v47 to the standing
+wall it has always had, `RelocationCrossedCarrierVertex` at vertex 8 (in
+census mode the seven other R0044 fires still carry their defects, six of
+them undetermined at §3y). R0003 stays SUPPORTED_CORRECT with zero apply
+activity.
+
+**Reading 4 — a first refinement census panicked in the PRINTER, not the
+write.** With nine mints the census's per-triangle position printer still
+knew only two; `index out of bounds: the len is 16355 but the index is
+16358`, and the harness reported a worker death as `TIMEOUT (11.5s)`. The
+fill and the write were fine. Recorded because a census probe that cannot
+count is a census probe that can hide a write.
+
+**Fixtures.** `narrow_band_fixture` — the band's far crease at station 56 so
+the corner sits 1 from it while the far chord dips 3.4 in-surface — flips on
+the far chord and is fixed by halving (mints exact on the far crease circle,
+the face beyond receiving every one, every sub-chord carried twice, the
+unsplit chord gone). `cascade_fixture` — a second band 0.2 wide beyond it,
+then a wide planar face — reproduces the corpus cascade: the first band's
+far chord halved, the thin band refined by MATCHED splits (mints exact on
+its crease circles, its far crease among them), the wide face joining, the
+whole fill lying one way. A cap of zero is a loud `CapReached` carrying the
+last fill. 4 new tests; 48 in `s451_crease_domain`.
+
+**Verification.** Rewrite tier GREEN — 173 binaries, 2799 tests, 0 failures,
+1228s. Full corpus 273C/0W/34E/1EE/0T, canonical, `results.json`
+byte-identical with the gate off, F0085 honest SUPPORTED_CORRECT at 311.1s
+(the run preceded a no-op type alias and a test-only assertion edit). Gate
+on: R0044 WRITTEN at v47, verdict unchanged at the v8 wall; R0003
+SUPPORTED_CORRECT, no apply lines. Clippy `--all-targets` clean. WASM
+rebuilt in the same commit.
+
+**Not built here.** The write arm stays GATED. What the corpus run past v47
+needs next is the other seven R0044 fires — v38's `ChainAbsent`, the
+`AlreadyCarried` re-ordering shape, the `TransitLeavesNeighbour` sites —
+and the v8 `RelocationCrossedCarrierVertex` wall; and the write's
+downstream bookkeeping (the nine mints as exact junction/crease vertices
+for the standing-junction certificate and the Stage-5 ring walk) is
+unmeasured until a case reaches them.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -3407,6 +3545,23 @@ measurement is what the R0044 run past v47 becomes.
   survivors were themselves folded (moved across their edges) and its
   apex was on the axis (moved onto the cone); a band fixture reproduces
   the corpus shape and certifies clean. 44 tests; R0003 untouched.
+- **inc-2c-3b-12b-10** (2026-09-02, same session): §4.5.2 REFINEMENT
+  LANDED, gated (§3ae). Mints generalized to a hosted LIST (`HostMints`,
+  `ExtraMint`; every carrier of a host on both faces joins the fill);
+  `transit_emission_refine` = plan → act on each flipped triangle → plan
+  again, capped loudly. Halving alone DIVERGED at R0044 v47 (129 halvings,
+  flips 1 → 128): a band's fan from one far vertex over refined sub-chords
+  folds at every chord length — the APEX's crease was coarse. BINDING: the
+  MATCHED-split rule (apex on the face's other crease ⇒ split that crease
+  at the base midpoint's azimuth) CONVERGES in 7 rounds, cascading through
+  bands 166 → 162 (widths 9.05 … 24.74), 11 polygons / 37 triangles on 10
+  faces, zero flips, zero incidence defects, every d(T) no coarser
+  ((B,167) 22.2 → 7.8). With the gate armed the write LANDED — the FIRST
+  emission at the corpus site (9 minted, 19 out, 37 in) — and the run
+  proceeds to the standing v8 wall; R0003 untouched. A first census
+  panicked in the PRINTER (two-mint assumption), reported as TIMEOUT —
+  fixed. 4 new tests (narrow band halving; the cascade fixture's matched
+  splits; the cap).
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

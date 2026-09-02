@@ -2912,36 +2912,74 @@ pub(crate) struct BoundaryPinch {
 ///
 /// Pure. The along-edge order comes from `edits` (§3y sorted `inserts` along
 /// the chord), never from the mint numbering.
-pub(crate) fn transit_boundary_pinch(
-    edits: &TransitEmissionEdits,
-    mints: [u32; 2],
-    boundary: &[u32],
-    site: u32,
-) -> Option<BoundaryPinch> {
-    // The mints on directed edge `a → b`, in the order they occur along it.
-    let on_edge = |a: u32, b: u32| -> Vec<u32> {
-        let (ha, hb) = edits.crease_host;
-        if (a, b) == (ha, hb) {
-            return mints.to_vec();
-        }
-        if (a, b) == (hb, ha) {
-            return vec![mints[1], mints[0]];
-        }
-        for (i, ins) in edits.inserts.iter().enumerate() {
-            if (a, b) == ins.chain || (b, a) == ins.chain {
-                return vec![mints[i]];
-            }
-        }
-        Vec::new()
-    };
+/// Every mint a boundary step can carry, keyed by the UNDIRECTED mesh edge
+/// that hosts it, each with its parameter along the edge measured from the
+/// lower-id endpoint.
+///
+/// Built once per fill from the two q-mints (§3y's hosts: the crease chord
+/// at each one's measured parameter, and its chain edge) and from any
+/// refinement mints (§3ae), and consulted by every part's boundary
+/// insertion — so a mint is inserted once per host edge each part carries,
+/// in along-edge order, whichever way the part traverses the edge.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct HostMints {
+    pub(crate) by_edge: std::collections::BTreeMap<(u32, u32), Vec<(f64, u32)>>,
+}
 
-    let mut inserted: Vec<u32> = Vec::with_capacity(boundary.len() + 4);
+impl HostMints {
+    fn key(a: u32, b: u32) -> (u32, u32) {
+        (a.min(b), a.max(b))
+    }
+
+    /// Register mint `id` on edge `(a, b)` at parameter `t` measured from `a`.
+    pub(crate) fn add(&mut self, a: u32, b: u32, t: f64, id: u32) {
+        let t = if a < b { t } else { 1.0 - t };
+        let v = self.by_edge.entry(Self::key(a, b)).or_default();
+        v.push((t, id));
+        v.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(std::cmp::Ordering::Equal));
+    }
+
+    /// The mints on directed step `a → b`, in the order they occur along it.
+    pub(crate) fn on_step(&self, a: u32, b: u32) -> Vec<u32> {
+        match self.by_edge.get(&Self::key(a, b)) {
+            None => Vec::new(),
+            Some(v) if a < b => v.iter().map(|x| x.1).collect(),
+            Some(v) => v.iter().rev().map(|x| x.1).collect(),
+        }
+    }
+
+    /// The q-mints' hosts from an edit list.
+    pub(crate) fn from_edits(edits: &TransitEmissionEdits, mints: [u32; 2]) -> Self {
+        let mut h = Self::default();
+        for (i, ins) in edits.inserts.iter().enumerate() {
+            h.add(ins.crease.0, ins.crease.1, ins.crease_t, mints[i]);
+            h.add(ins.chain.0, ins.chain.1, 0.5, mints[i]);
+        }
+        h
+    }
+}
+
+/// Insert every mint the boundary's steps carry, in step order.
+pub(crate) fn insert_mints(boundary: &[u32], hosts: &HostMints) -> Vec<u32> {
+    let mut inserted = Vec::with_capacity(boundary.len() + 4);
     for k in 0..boundary.len() {
         let (a, b) = (boundary[k], boundary[(k + 1) % boundary.len()]);
         inserted.push(a);
-        inserted.extend(on_edge(a, b));
+        inserted.extend(hosts.on_step(a, b));
     }
+    inserted
+}
 
+/// Split an inserted cycle at its repeated vertices (§3aa Reading 2).
+///
+/// `mints` are the two q-mints, whose repeat spans decide interleaving;
+/// `site` names the notch. Returns `None` when no vertex is visited exactly
+/// once (nowhere to start) or a q-mint is visited more than twice.
+pub(crate) fn pinch_cycle(
+    mut inserted: Vec<u32>,
+    mints: [u32; 2],
+    site: u32,
+) -> Option<BoundaryPinch> {
     // Start the walk at a vertex the cycle visits ONCE, so the first and last
     // loops are not an artifact of where it began.
     let start = (0..inserted.len())
@@ -2994,6 +3032,20 @@ pub(crate) fn transit_boundary_pinch(
         interleaved,
         notch,
     })
+}
+
+/// Insert the q-mints a boundary carries and split it where it repeats.
+///
+/// Pure. The along-edge order comes from `edits` (§3y sorted `inserts` along
+/// the chord), never from the mint numbering.
+pub(crate) fn transit_boundary_pinch(
+    edits: &TransitEmissionEdits,
+    mints: [u32; 2],
+    boundary: &[u32],
+    site: u32,
+) -> Option<BoundaryPinch> {
+    let hosts = HostMints::from_edits(edits, mints);
+    pinch_cycle(insert_mints(boundary, &hosts), mints, site)
 }
 
 // ---------------------------------------------------------------------------
@@ -3149,6 +3201,18 @@ pub(crate) struct BiteRegion {
     pub(crate) corner_uv: (f64, f64),
 }
 
+/// A refinement mint (Yang §4.5.2): an exact crease-circle vertex to insert
+/// on an existing mesh edge `host`, at parameter `t` along it from
+/// `host.0`. Every triangle carrying `host` — on both faces across it — is
+/// re-triangulated with the mint on its boundary: the 3b-11 one-sided-insert
+/// lesson, built in rather than learned again.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ExtraMint {
+    pub(crate) at: Point3,
+    pub(crate) host: (u32, u32),
+    pub(crate) t: f64,
+}
+
 /// The emission mutation, planned but not written.
 ///
 /// §3aa closed the plan; §3ac corrected what its notch loop IS. Composed
@@ -3172,9 +3236,12 @@ pub(crate) struct BiteRegion {
 pub(crate) struct TransitEmissionFill {
     pub(crate) site: u32,
     pub(crate) site_at: Point3,
-    pub(crate) mints: [(u32, Point3); 2],
-    /// Every triangle the edit removes: the region, the parts' closures and
-    /// the bite. Sorted.
+    /// Every vertex the edit mints, with its exact position: the two
+    /// q-mints first (the ids `region.mints` named), then the refinement
+    /// mints in order. Ids are consecutive from the first.
+    pub(crate) mints: Vec<(u32, Point3)>,
+    /// Every triangle the edit removes: the region, the parts' closures, the
+    /// bite and the carriers of every refinement host. Sorted.
     pub(crate) removed: Vec<u32>,
     /// Symmetric difference between `removed` and §3y's `touched` — the two
     /// were derived by different routes; the bite is what the corner adds
@@ -3379,6 +3446,7 @@ pub(crate) fn transit_emission_fill(
     parts: &[RegionPart],
     t: &CreaseTransit,
     face_surface: &dyn Fn(InputId, u32) -> Option<Surface>,
+    extra: &[ExtraMint],
 ) -> Result<TransitEmissionFill, EmissionFillFailure> {
     use crate::stage4_project::SurfaceChart;
     use cad_primitives::Point2;
@@ -3387,12 +3455,28 @@ pub(crate) fn transit_emission_fill(
 
     let site = edits.site;
     let mints = region.mints;
+    // Every minted vertex with its position: the q-mints, then the extras at
+    // the ids that follow.
+    let all_mints: Vec<(u32, Point3)> = [
+        (mints[0], edits.inserts[0].at),
+        (mints[1], edits.inserts[1].at),
+    ]
+    .into_iter()
+    .chain(
+        extra
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (mints[1] + 1 + i as u32, e.at)),
+    )
+    .collect();
+    let mut hosts = HostMints::from_edits(edits, mints);
+    for (i, e) in extra.iter().enumerate() {
+        hosts.add(e.host.0, e.host.1, e.t, mints[1] + 1 + i as u32);
+    }
     let face_of = |tr: u32| attribution.lookup(tr).map(|a| (a.input, a.face));
     let pos = |v: u32| -> Point3 {
-        if v == mints[0] {
-            edits.inserts[0].at
-        } else if v == mints[1] {
-            edits.inserts[1].at
+        if let Some((_, p)) = all_mints.iter().find(|(m, _)| *m == v) {
+            *p
         } else if v == site {
             t.j
         } else {
@@ -3452,6 +3536,44 @@ pub(crate) fn transit_emission_fill(
     removed.extend(bite.contains_corner.iter().chain(bite.crossed.iter()));
     removed.sort_unstable();
     removed.dedup();
+    // The work list, by face: the parts (closed), the neighbour enlarged by
+    // the bite, and every carrier of a refinement host on whichever face it
+    // lies — a face the parts did not name gets a part of its own.
+    type WorkPart = (Option<(InputId, u32)>, Vec<u32>);
+    let mut work: Vec<WorkPart> = parts
+        .iter()
+        .map(|p| {
+            (
+                p.face,
+                p.tris.iter().chain(p.closure.iter()).copied().collect(),
+            )
+        })
+        .collect();
+    work[nbr_idx]
+        .1
+        .extend(bite.contains_corner.iter().chain(bite.crossed.iter()));
+    for e in extra {
+        for (ti, tri) in mesh.tris.iter().enumerate() {
+            let ti = ti as u32;
+            if !(tri.contains(&e.host.0) && tri.contains(&e.host.1)) {
+                continue;
+            }
+            if removed.binary_search(&ti).is_ok() {
+                continue;
+            }
+            let face = face_of(ti);
+            match work.iter_mut().find(|(f, _)| *f == face) {
+                Some((_, tris)) => tris.push(ti),
+                None => work.push((face, vec![ti])),
+            }
+            removed.push(ti);
+            removed.sort_unstable();
+        }
+    }
+    for (_, tris) in work.iter_mut() {
+        tris.sort_unstable();
+        tris.dedup();
+    }
     let touched_delta: Vec<u32> = removed
         .iter()
         .filter(|x| edits.touched.binary_search(x).is_err())
@@ -3585,20 +3707,37 @@ pub(crate) fn transit_emission_fill(
     // such and never masked by a chart failure on an earlier part.
     let mut loops: Vec<(Vec<u32>, (InputId, u32), bool)> = Vec::new();
     let mut dropped: Vec<u32> = Vec::new();
-    for (pi, p) in parts.iter().enumerate() {
-        if pi == nbr_idx {
-            // The neighbour: enlarged by the bite, its boundary re-derived,
-            // the mints inserted, the corner step detoured through the site.
-            let mut tris: Vec<u32> = p.tris.iter().chain(p.closure.iter()).copied().collect();
-            tris.extend(bite.contains_corner.iter().chain(bite.crossed.iter()));
-            tris.sort_unstable();
-            tris.dedup();
-            let b = part_boundary(mesh, &tris).map_err(|_| F::BiteNotADisk)?;
-            let pin = transit_boundary_pinch(edits, mints, &b, site)
-                .ok_or(F::PinchUndefined { face: p.face })?;
-            if pin.loops.len() != 1 {
-                return Err(F::UnexpectedPinch { face: p.face });
+    for (pi, (pface, tris)) in work.iter().enumerate() {
+        let b = part_boundary(mesh, tris).map_err(|_| {
+            if pi == nbr_idx {
+                F::BiteNotADisk
+            } else {
+                F::PartNotADisk { face: *pface }
             }
+        })?;
+        let pin = pinch_cycle(insert_mints(&b, &hosts), mints, site)
+            .ok_or(F::PinchUndefined { face: *pface })?;
+        if pi == own_idx {
+            if pin.interleaved {
+                return Err(F::Interleaved);
+            }
+            let notch = pin.notch.ok_or(F::NoNotch)?;
+            for (li, l) in pin.loops.iter().enumerate() {
+                if li == notch {
+                    dropped = l.clone();
+                } else {
+                    loops.push((l.clone(), own_face, false));
+                }
+            }
+            continue;
+        }
+        if pin.loops.len() != 1 {
+            return Err(F::UnexpectedPinch { face: *pface });
+        }
+        let face = pface.ok_or(F::NoChart { face: None })?;
+        if pi == nbr_idx {
+            // The neighbour: the corner step between the mints is detoured
+            // through the site.
             let l = &pin.loops[0];
             let n = l.len();
             let k = (0..n)
@@ -3617,31 +3756,7 @@ pub(crate) fn transit_emission_fill(
             let mut detoured = l.clone();
             detoured.insert(k + 1, site);
             loops.push((detoured, notch_face, true));
-            continue;
-        }
-        let b = p
-            .boundary_closed
-            .as_ref()
-            .ok_or(F::PartNotADisk { face: p.face })?;
-        let pin = transit_boundary_pinch(edits, mints, b, site)
-            .ok_or(F::PinchUndefined { face: p.face })?;
-        if pi == own_idx {
-            if pin.interleaved {
-                return Err(F::Interleaved);
-            }
-            let notch = pin.notch.ok_or(F::NoNotch)?;
-            for (li, l) in pin.loops.iter().enumerate() {
-                if li == notch {
-                    dropped = l.clone();
-                } else {
-                    loops.push((l.clone(), own_face, false));
-                }
-            }
         } else {
-            if pin.loops.len() != 1 {
-                return Err(F::UnexpectedPinch { face: p.face });
-            }
-            let face = p.face.ok_or(F::NoChart { face: None })?;
             loops.push((pin.loops[0].clone(), face, false));
         }
     }
@@ -3904,10 +4019,7 @@ pub(crate) fn transit_emission_fill(
     Ok(TransitEmissionFill {
         site,
         site_at: t.j,
-        mints: [
-            (mints[0], edits.inserts[0].at),
-            (mints[1], edits.inserts[1].at),
-        ],
+        mints: all_mints,
         removed,
         touched_delta,
         own_face,
@@ -3925,6 +4037,343 @@ pub(crate) fn transit_emission_fill(
         lift_flips,
         lift_uncertified,
     })
+}
+
+// ---------------------------------------------------------------------------
+// §4.5.2 inc-2c-3b-12b-10 — REFINEMENT until the lift is faithful
+// ---------------------------------------------------------------------------
+
+/// How one refinement mint was chosen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RefineKind {
+    /// The flipped triangle's crease chord, halved at its exact arc
+    /// midpoint: its apex lies in the face's interior, so the chord's own
+    /// dip is what folds it.
+    Halve,
+    /// The flipped triangle's apex lies on the face's OTHER crease: the
+    /// face is a band, its fossils lift faithfully only because the strip
+    /// triangulation keeps every apex above its base's end, and no halving
+    /// of the base can restore that. The other crease is split at the
+    /// azimuth of the base's midpoint instead — the matched vertex the
+    /// strip needs — which pulls the face beyond it into the fill.
+    Matched,
+}
+
+/// One round of Yang §4.5.2 refinement at one flipped fill triangle.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RefineRound {
+    pub(crate) face: (InputId, u32),
+    pub(crate) tri: [u32; 3],
+    pub(crate) kind: RefineKind,
+    /// The crease-chord step of the triangle the round acted on (its ends
+    /// may be mints): halved, or matched on the other crease.
+    pub(crate) chord: (u32, u32),
+    /// The original mesh edge the mint is inserted on — the refinement host.
+    pub(crate) host: (u32, u32),
+    pub(crate) mint: Point3,
+    pub(crate) chord_len: f64,
+    /// The chord midpoint's distance to its arc — what a halving removes.
+    pub(crate) sagitta: f64,
+}
+
+/// Why refinement could not reach a faithful lift.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum EmissionRefineFailure {
+    Fill(EmissionFillFailure),
+    /// A face's reference sense is undecided (no survivor and a fossil that
+    /// disagrees with itself), so its flips cannot be named.
+    ReferenceUndecided {
+        face: (InputId, u32),
+    },
+    /// A flipped triangle has no polygon step lying on a crease of its
+    /// face, so there is no chord to split.
+    FlipWithoutCreaseChord {
+        face: (InputId, u32),
+        tri: [u32; 3],
+    },
+    /// The step's ends do not share one original host edge.
+    HostAmbiguous {
+        chord: (u32, u32),
+    },
+    /// A matched split's point on the other crease lies beyond every crease
+    /// edge of the apex, so no host edge carries it.
+    MatchBeyondNeighbours {
+        apex: u32,
+        chord: (u32, u32),
+    },
+    /// The chord midpoint has no unique projection onto the crease circle.
+    MidpointDegenerate {
+        chord: (u32, u32),
+    },
+    /// The iteration cap was reached with flips remaining — loud, not a
+    /// fallback. Carries the halvings made and the last fill, so a census
+    /// can see WHERE refinement stalled.
+    CapReached {
+        iterations: usize,
+        lift_flips: usize,
+        rounds: Vec<RefineRound>,
+        last: Box<TransitEmissionFill>,
+    },
+}
+
+/// A fill refined until every triangle lifts the way its face's survivors
+/// do.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TransitEmissionRefined {
+    pub(crate) fill: TransitEmissionFill,
+    pub(crate) extra: Vec<ExtraMint>,
+    pub(crate) rounds: Vec<RefineRound>,
+}
+
+/// Yang §4.5.2, certificate-driven and constant-free: plan the fill; while
+/// any triangle lifts against its face's reference, split the longest
+/// crease chord of each such triangle at the exact arc midpoint (a mint
+/// every carrier of that chord receives, on both faces), and plan again.
+/// Halving is the only step; `cap` bounds the rounds and is a loud STOP.
+///
+/// `face_creases` names a face's own creases as `(C_b, s_face, s_other)`
+/// triples; a polygon step is a crease chord when both its ends lie on one
+/// of them ([`on_crease`], the membership test the trigger uses).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn transit_emission_refine(
+    mesh: &Mesh,
+    attribution: &crate::brep::TriangleAttributionMap,
+    edits: &TransitEmissionEdits,
+    region: &TransitEmissionRegion,
+    parts: &[RegionPart],
+    t: &CreaseTransit,
+    face_surface: &dyn Fn(InputId, u32) -> Option<Surface>,
+    face_creases: &dyn Fn((InputId, u32)) -> Vec<(Curve, Surface, Surface)>,
+    cap: usize,
+) -> Result<TransitEmissionRefined, EmissionRefineFailure> {
+    use EmissionRefineFailure as R;
+    let mut extra: Vec<ExtraMint> = Vec::new();
+    let mut rounds: Vec<RefineRound> = Vec::new();
+    let mut iterations = 0usize;
+    loop {
+        let fill = transit_emission_fill(
+            mesh,
+            attribution,
+            edits,
+            region,
+            parts,
+            t,
+            face_surface,
+            &extra,
+        )
+        .map_err(R::Fill)?;
+        if fill.lift_flips == 0 {
+            return Ok(TransitEmissionRefined {
+                fill,
+                extra,
+                rounds,
+            });
+        }
+        if iterations >= cap {
+            return Err(R::CapReached {
+                iterations,
+                lift_flips: fill.lift_flips,
+                rounds,
+                last: Box::new(fill),
+            });
+        }
+        iterations += 1;
+        let pos = |v: u32| -> Point3 {
+            if let Some((_, p)) = fill.mints.iter().find(|(m, _)| *m == v) {
+                *p
+            } else if v == fill.site {
+                fill.site_at
+            } else {
+                mesh.verts[v as usize]
+            }
+        };
+        // The original mesh edge under a step: the step itself when both
+        // ends are mesh vertices; a mint's host when one end is a mint; the
+        // shared host when both are.
+        let host_of = |v: u32| -> Option<(u32, u32)> {
+            if v == region.mints[0] || v == region.mints[1] {
+                return Some(edits.crease_host);
+            }
+            let k = fill.mints.iter().position(|(m, _)| *m == v)?;
+            extra.get(k.checked_sub(2)?).map(|e| e.host)
+        };
+        let is_mint = |v: u32| fill.mints.iter().any(|(m, _)| *m == v);
+        let mut new_extra: Vec<ExtraMint> = Vec::new();
+        let mut new_rounds: Vec<RefineRound> = Vec::new();
+        for poly in &fill.polygons {
+            let ls = fill
+                .lift
+                .iter()
+                .find(|l| l.face == poly.face)
+                .expect("every polygon face is certified");
+            let reference = if ls.survivors_along + ls.survivors_against > 0 {
+                ls.survivors_along.cmp(&ls.survivors_against)
+            } else {
+                ls.old_along.cmp(&ls.old_against)
+            };
+            let reference = match reference {
+                std::cmp::Ordering::Greater => true,
+                std::cmp::Ordering::Less => false,
+                std::cmp::Ordering::Equal => {
+                    if poly.lift.iter().any(|l| l.is_some()) {
+                        return Err(R::ReferenceUndecided { face: poly.face });
+                    }
+                    continue;
+                }
+            };
+            let creases = face_creases(poly.face);
+            let n = poly.polygon.len();
+            let is_step = |x: u32, y: u32| {
+                (0..n).any(|i| {
+                    let s = (poly.polygon[i], poly.polygon[(i + 1) % n]);
+                    s == (x, y) || s == (y, x)
+                })
+            };
+            for (k, tri) in poly.tris.iter().enumerate() {
+                if poly.lift.get(k).copied().flatten() != Some(!reference) {
+                    continue;
+                }
+                let mut best: Option<(f64, (u32, u32), Curve)> = None;
+                for e in 0..3 {
+                    let (x, y) = (tri[e], tri[(e + 1) % 3]);
+                    if !is_step(x, y) {
+                        continue;
+                    }
+                    for (c, s0, s1) in &creases {
+                        if on_crease(pos(x), *s0, *s1) && on_crease(pos(y), *s0, *s1) {
+                            let len = dist3(pos(x), pos(y));
+                            if best.as_ref().is_none_or(|b| len > b.0) {
+                                best = Some((len, (x, y), *c));
+                            }
+                        }
+                    }
+                }
+                let Some((chord_len, (x, y), curve)) = best else {
+                    return Err(R::FlipWithoutCreaseChord {
+                        face: poly.face,
+                        tri: *tri,
+                    });
+                };
+                if new_rounds
+                    .iter()
+                    .any(|r| r.chord == (x, y) || r.chord == (y, x))
+                {
+                    continue;
+                }
+                let (px, py) = (pos(x).as_array(), pos(y).as_array());
+                let mid = Point3::new(
+                    0.5 * (px[0] + py[0]),
+                    0.5 * (px[1] + py[1]),
+                    0.5 * (px[2] + py[2]),
+                );
+                let apex = *tri
+                    .iter()
+                    .find(|v| **v != x && **v != y)
+                    .expect("a triangle");
+                // Is the apex on ANOTHER crease of this face? Then the
+                // triangle is a band's, and the other crease is what to
+                // split — at the matched azimuth, not at its own midpoint.
+                let other = creases
+                    .iter()
+                    .find(|(c, s0, s1)| *c != curve && on_crease(pos(apex), *s0, *s1));
+                let (kind, host, mint) = match other {
+                    Some((c2, s0, s1)) => {
+                        let m = project_onto_curve(mid, c2)
+                            .ok_or(R::MidpointDegenerate { chord: (x, y) })?;
+                        // The host on the other crease: the apex's own crease
+                        // edge (or, for a minted apex, its host) whose chord
+                        // brackets the matched point.
+                        let along = |a: Point3, b: Point3, q: Point3| -> f64 {
+                            let (a, b, q) = (a.as_array(), b.as_array(), q.as_array());
+                            let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                            ((q[0] - a[0]) * d[0] + (q[1] - a[1]) * d[1] + (q[2] - a[2]) * d[2])
+                                / (d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
+                        };
+                        let host = if is_mint(apex) {
+                            host_of(apex).ok_or(R::HostAmbiguous { chord: (x, y) })?
+                        } else {
+                            let mut found: Option<(u32, u32)> = None;
+                            for tri2 in mesh.tris.iter().filter(|t2| t2.contains(&apex)) {
+                                for &u in tri2.iter().filter(|u| **u != apex) {
+                                    if !on_crease(mesh.verts[u as usize], *s0, *s1) {
+                                        continue;
+                                    }
+                                    let tt = along(pos(apex), mesh.verts[u as usize], m);
+                                    if tt > 0.0 && tt < 1.0 {
+                                        found = Some((apex, u));
+                                    }
+                                }
+                            }
+                            found.ok_or(R::MatchBeyondNeighbours {
+                                apex,
+                                chord: (x, y),
+                            })?
+                        };
+                        (RefineKind::Matched, host, m)
+                    }
+                    None => {
+                        let host = match (is_mint(x), is_mint(y)) {
+                            (false, false) => (x, y),
+                            (true, false) => {
+                                host_of(x).ok_or(R::HostAmbiguous { chord: (x, y) })?
+                            }
+                            (false, true) => {
+                                host_of(y).ok_or(R::HostAmbiguous { chord: (x, y) })?
+                            }
+                            (true, true) => match (host_of(x), host_of(y)) {
+                                (Some(hx), Some(hy)) if hx == hy => hx,
+                                _ => return Err(R::HostAmbiguous { chord: (x, y) }),
+                            },
+                        };
+                        let m = project_onto_curve(mid, &curve)
+                            .ok_or(R::MidpointDegenerate { chord: (x, y) })?;
+                        (RefineKind::Halve, host, m)
+                    }
+                };
+                // A mint already at this point (the other face across the
+                // same chord asks for the same split) is not minted twice.
+                let floor = cad_primitives::MIN_FEATURE_SIZE;
+                if fill.mints.iter().any(|(_, q)| dist3(*q, mint) < floor)
+                    || new_extra.iter().any(|e| dist3(e.at, mint) < floor)
+                {
+                    continue;
+                }
+                let (h0, h1) = (
+                    mesh.verts[host.0 as usize].as_array(),
+                    mesh.verts[host.1 as usize].as_array(),
+                );
+                let d = [h1[0] - h0[0], h1[1] - h0[1], h1[2] - h0[2]];
+                let mm = mint.as_array();
+                let tt = ((mm[0] - h0[0]) * d[0] + (mm[1] - h0[1]) * d[1] + (mm[2] - h0[2]) * d[2])
+                    / (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                new_extra.push(ExtraMint {
+                    at: mint,
+                    host,
+                    t: tt,
+                });
+                new_rounds.push(RefineRound {
+                    face: poly.face,
+                    tri: *tri,
+                    kind,
+                    chord: (x, y),
+                    host,
+                    mint,
+                    chord_len,
+                    sagitta: dist3(mid, mint),
+                });
+            }
+        }
+        if new_extra.is_empty() {
+            return Err(R::CapReached {
+                iterations,
+                lift_flips: fill.lift_flips,
+                rounds,
+                last: Box::new(fill),
+            });
+        }
+        extra.extend(new_extra);
+        rounds.extend(new_rounds);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3955,7 +4404,10 @@ pub(crate) enum EmissionWriteFailure {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct EmissionWriteReport {
     pub(crate) site: u32,
+    /// The two q-mints' ids.
     pub(crate) mints: [u32; 2],
+    /// Every vertex minted, q-mints included.
+    pub(crate) minted: usize,
     pub(crate) removed: usize,
     pub(crate) added: usize,
     /// Removed slots overwritten in place (so no triangle index shifts).
@@ -4018,7 +4470,12 @@ pub(crate) fn transit_emission_write(
     }
     let next = mesh.verts.len() as u32;
     let planned = [fill.mints[0].0, fill.mints[1].0];
-    if planned != [next, next + 1] {
+    if fill
+        .mints
+        .iter()
+        .enumerate()
+        .any(|(i, (m, _))| *m != next + i as u32)
+    {
         return Err(F::MintIdsStale { planned, next });
     }
     let added: Vec<([u32; 3], (InputId, u32))> = fill
@@ -4033,8 +4490,9 @@ pub(crate) fn transit_emission_write(
         });
     }
 
-    mesh.verts.push(fill.mints[0].1);
-    mesh.verts.push(fill.mints[1].1);
+    for (_, at) in &fill.mints {
+        mesh.verts.push(*at);
+    }
     mesh.verts[fill.site as usize] = fill.site_at;
     let mut overwritten = 0usize;
     let mut appended = 0usize;
@@ -4057,6 +4515,7 @@ pub(crate) fn transit_emission_write(
     Ok(EmissionWriteReport {
         site: fill.site,
         mints: planned,
+        minted: fill.mints.len(),
         removed: fill.removed.len(),
         added: added.len(),
         overwritten,

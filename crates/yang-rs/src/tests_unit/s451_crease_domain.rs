@@ -2091,7 +2091,7 @@ fn fill_of(
     let rg = region_of(mesh, attribution);
     let parts = transit_emission_parts(mesh, attribution, &rg, ed.site);
     let (t, ..) = cut_fixture_transit();
-    transit_emission_fill(mesh, attribution, &ed, &rg, &parts, &t, surfaces)
+    transit_emission_fill(mesh, attribution, &ed, &rg, &parts, &t, surfaces, &[])
 }
 
 /// THE FILL: the pinched loops become chart fills, the notch goes to the
@@ -2719,4 +2719,423 @@ fn the_write_refuses_an_uncertified_fill_and_leaves_the_mesh_untouched() {
     );
     assert_eq!(mesh.verts.len(), next as usize, "untouched");
     assert_eq!(mesh.tris, before.0.tris);
+}
+
+// ---------------------------------------------------------------------------
+// §4.5.2 inc-2c-3b-12b-10 — REFINEMENT until the lift is faithful
+// ---------------------------------------------------------------------------
+
+/// The fixture's creases per face, the way the census resolves them from the
+/// crease index: cone B's creases are its circle with cone A (the transit
+/// crease, station 50) and — for the band fixtures — its circle with the
+/// face beyond the band, modelled as the plane `z = z_far`.
+fn fixture_face_creases(z_far: f64) -> impl Fn((InputId, u32)) -> Vec<(Curve, Surface, Surface)> {
+    move |face| {
+        let (cone_a, cone_b, _, _) = transit_fixture();
+        let far_plane = Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: -z_far,
+        };
+        match face {
+            (InputId::B, 8) => {
+                let mut v = Vec::new();
+                if let Some(c) = crease_circle_from_pair(cone_b, cone_a) {
+                    v.push((c, cone_b, cone_a));
+                }
+                if let Some(c) = crease_circle_from_pair(cone_b, far_plane) {
+                    v.push((c, cone_b, far_plane));
+                }
+                v
+            }
+            (InputId::B, 7) => crease_circle_from_pair(cone_a, cone_b)
+                .map(|c| vec![(c, cone_a, cone_b)])
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+}
+
+fn refine_of(
+    mesh: &crate::Mesh,
+    attribution: &crate::brep::TriangleAttributionMap,
+    surfaces: &dyn Fn(InputId, u32) -> Option<Surface>,
+    z_far: f64,
+) -> Result<
+    crate::stage4_boundary_curve::TransitEmissionRefined,
+    crate::stage4_boundary_curve::EmissionRefineFailure,
+> {
+    use crate::stage4_boundary_curve::{transit_emission_parts, transit_emission_refine};
+    let ed = edits_of(mesh, attribution).expect("insertion");
+    let rg = region_of(mesh, attribution);
+    let parts = transit_emission_parts(mesh, attribution, &rg, ed.site);
+    let (t, ..) = cut_fixture_transit();
+    let creases = fixture_face_creases(z_far);
+    transit_emission_refine(
+        mesh,
+        attribution,
+        &ed,
+        &rg,
+        &parts,
+        &t,
+        surfaces,
+        &creases,
+        8,
+    )
+}
+
+/// A fill that already lifts faithfully needs no refinement: zero rounds,
+/// zero extra mints, and the refined fill IS the plain fill.
+#[test]
+fn a_faithful_fill_is_not_refined() {
+    let (mesh, attribution) = bite_fixture();
+    let plain = fill_of(&mesh, &attribution, &fill_fixture_surfaces).expect("fill");
+    let rf = refine_of(&mesh, &attribution, &fill_fixture_surfaces, 110.0).expect("refined");
+    assert!(rf.rounds.is_empty() && rf.extra.is_empty());
+    assert_eq!(rf.fill, plain);
+}
+
+/// The corpus shape of §3ad, made to flip on the fixture: the band's far
+/// crease at station 56 (`z = 106`, `r = 112`), so the corner at station 55
+/// sits 1 from it while the far chord (40° → 70°, sagitta 3.8) dips 3.4
+/// in-surface — the chord's foot passes the corner and the triangle spanning
+/// it lifts against the cone. A triangle of the face beyond the band,
+/// `(B, 9)`, carries the far chord too, so the split must reach across.
+fn narrow_band_fixture() -> (crate::Mesh, crate::brep::TriangleAttributionMap) {
+    let (mut mesh, mut attribution) = fill_fixture(true);
+    let far = |deg: f64| {
+        let r: f64 = f64::to_radians(deg);
+        Point3::new(112.0 * r.cos(), 112.0 * r.sin(), 106.0)
+    };
+    mesh.verts[7] = far(70.0);
+    let w2 = mesh.verts.len() as u32;
+    mesh.verts.push(far(40.0));
+    assert_eq!(mesh.tris[6], [2, 7, 3]);
+    mesh.tris.push([2, w2, 7]);
+    attribution
+        .attributions
+        .push(Some(crate::brep::TriangleAttribution {
+            input: InputId::B,
+            face: 8,
+        }));
+    // Across the far crease: the face beyond the band, wound to pair with
+    // `[2, w2, w3]`'s `w2 → w3`.
+    let x = mesh.verts.len() as u32;
+    let r55: f64 = f64::to_radians(55.0);
+    mesh.verts
+        .push(Point3::new(130.0 * r55.cos(), 130.0 * r55.sin(), 106.0));
+    mesh.tris.push([7, w2, x]);
+    attribution
+        .attributions
+        .push(Some(crate::brep::TriangleAttribution {
+            input: InputId::B,
+            face: 9,
+        }));
+    (mesh, attribution)
+}
+
+fn narrow_band_surfaces(i: InputId, face: u32) -> Option<Surface> {
+    match (i, face) {
+        (InputId::B, 9) => Some(Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: -106.0,
+        }),
+        _ => fill_fixture_surfaces(i, face),
+    }
+}
+
+/// THE REFINEMENT: the plain fill of the narrow band flips on the triangle
+/// spanning the far chord; the loop halves that chord at exact crease-circle
+/// points — on both faces across it — until every triangle lifts the way its
+/// face does, and the result certifies clean.
+#[test]
+fn refinement_halves_the_flipped_crease_chord_until_the_lift_is_faithful() {
+    let (mesh, attribution) = narrow_band_fixture();
+    let plain = fill_of(&mesh, &attribution, &narrow_band_surfaces).expect("fill");
+    assert!(
+        plain.lift_flips > 0,
+        "the narrow band flips: {:?}",
+        plain.lift
+    );
+    let w2 = mesh.tris[mesh.tris.len() - 2][1];
+    // The face's reference sense, as the certificate defines it: the
+    // survivors' majority, else the fossil's. (On this fixture B's winding
+    // lifts AGAINST cone B's gradient throughout — the reference is a
+    // convention of the mesh, not of the surface.)
+    let ls = plain
+        .lift
+        .iter()
+        .find(|l| l.face == (InputId::B, 8))
+        .expect("certified");
+    let reference = if ls.survivors_along + ls.survivors_against > 0 {
+        ls.survivors_along > ls.survivors_against
+    } else {
+        ls.old_along > ls.old_against
+    };
+    let flipped: Vec<_> = plain
+        .polygons
+        .iter()
+        .filter(|p| p.face == (InputId::B, 8))
+        .flat_map(|p| p.tris.iter().zip(p.lift.iter()))
+        .filter(|(_, l)| **l == Some(!reference))
+        .map(|(t, _)| *t)
+        .collect();
+    assert!(
+        !flipped.is_empty() && flipped.iter().all(|t| t.contains(&7) && t.contains(&w2)),
+        "the flips span the far chord: {flipped:?}"
+    );
+
+    let rf = refine_of(&mesh, &attribution, &narrow_band_surfaces, 106.0).expect("refined");
+    assert!(!rf.rounds.is_empty(), "at least one halving");
+    assert_eq!(rf.fill.lift_flips, 0, "{:?}", rf.fill.lift);
+    // Every refinement mint is an exact point of the far crease circle,
+    // hosted by the far chord.
+    for (r, e) in rf.rounds.iter().zip(rf.extra.iter()) {
+        let a = e.at.as_array();
+        assert!((a[2] - 106.0).abs() < 1e-9, "mint off the far crease plane");
+        assert!(
+            ((a[0] * a[0] + a[1] * a[1]).sqrt() - 112.0).abs() < 1e-9,
+            "mint off the far crease circle"
+        );
+        assert_eq!(r.host, (w2, 7));
+        assert!(r.sagitta > 0.0 && r.chord_len > 0.0);
+        assert!(e.t > 0.0 && e.t < 1.0, "{e:?}");
+    }
+    // The face beyond the band received every mint: its triangle is removed
+    // and re-filled with each far-chord mint on its boundary, so every
+    // sub-chord is carried by exactly two triangles.
+    let across = (mesh.tris.len() - 1) as u32;
+    assert!(rf.fill.removed.contains(&across));
+    assert!(rf
+        .fill
+        .polygons
+        .iter()
+        .any(|p| p.face == (InputId::B, 9) && p.tris.len() == p.polygon.len() - 2));
+    assert!(
+        rf.fill.edge_defects.is_empty(),
+        "{:?}",
+        rf.fill.edge_defects
+    );
+    assert_eq!((rf.fill.folded, rf.fill.added_folds), (0, 0));
+    let carried = |x: u32, y: u32| {
+        rf.fill
+            .polygons
+            .iter()
+            .flat_map(|p| p.tris.iter())
+            .filter(|tri| tri.contains(&x) && tri.contains(&y))
+            .count()
+    };
+    let mut on_chord: Vec<(f64, u32)> = rf
+        .extra
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (e.t, rf.fill.mints[2 + i].0))
+        .collect();
+    on_chord.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    let mut chain: Vec<u32> = vec![w2];
+    chain.extend(on_chord.iter().map(|x| x.1));
+    chain.push(7);
+    for w in chain.windows(2) {
+        assert_eq!(carried(w[0], w[1]), 2, "sub-chord {w:?}");
+    }
+    assert_eq!(carried(w2, 7), 0, "the unsplit far chord is gone");
+    assert_eq!(rf.fill.site_at, plain.site_at);
+}
+
+/// The loop is bounded: with a cap of zero iterations a flipping fill is a
+/// loud `CapReached` carrying the last fill, never a silently coarser one.
+#[test]
+fn refinement_stops_loudly_at_its_cap() {
+    use crate::stage4_boundary_curve::{
+        transit_emission_parts, transit_emission_refine, EmissionRefineFailure,
+    };
+    let (mesh, attribution) = narrow_band_fixture();
+    let ed = edits_of(&mesh, &attribution).expect("insertion");
+    let rg = region_of(&mesh, &attribution);
+    let parts = transit_emission_parts(&mesh, &attribution, &rg, ed.site);
+    let (t, ..) = cut_fixture_transit();
+    let creases = fixture_face_creases(106.0);
+    let r = transit_emission_refine(
+        &mesh,
+        &attribution,
+        &ed,
+        &rg,
+        &parts,
+        &t,
+        &narrow_band_surfaces,
+        &creases,
+        0,
+    );
+    match r {
+        Err(EmissionRefineFailure::CapReached {
+            iterations: 0,
+            lift_flips,
+            rounds,
+            last,
+        }) => {
+            assert!(lift_flips > 0 && rounds.is_empty());
+            assert_eq!(last.lift_flips, lift_flips);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The corpus CASCADE (§3ae): beyond the band `(B, 8)` lies a second band
+/// `(B, 9)` only 0.2 wide (stations 56 → 56.2 on cone B), then a wide planar
+/// face `(B, 10)`. Halving `(B, 8)`'s far chord pulls `(B, 9)`'s strip
+/// triangles in; their fill, fanning from `(B, 9)`'s far vertices over the
+/// sub-chords, lifts against the cone — a band's strip needs matched
+/// vertices, and no halving of the base supplies them — so the loop splits
+/// `(B, 9)`'s far crease at the matched azimuths, which pulls `(B, 10)` in,
+/// where it certifies.
+fn cascade_fixture() -> (crate::Mesh, crate::brep::TriangleAttributionMap) {
+    let (mut mesh, mut attribution) = narrow_band_fixture();
+    // Replace the planar `(B, 9)` triangle `[7, w2, x]` with the thin band.
+    let w2 = mesh.tris[mesh.tris.len() - 2][1];
+    let last = mesh.tris.len() - 1;
+    assert_eq!(mesh.tris[last][0..2], [7, w2]);
+    let x = mesh.tris[last][2];
+    let far = |deg: f64| {
+        let r: f64 = f64::to_radians(deg);
+        Point3::new(112.4 * r.cos(), 112.4 * r.sin(), 106.2)
+    };
+    let y2 = mesh.verts.len() as u32;
+    mesh.verts.push(far(40.0));
+    let y3 = mesh.verts.len() as u32;
+    mesh.verts.push(far(70.0));
+    mesh.tris[last] = [7, w2, y2];
+    mesh.tris.push([7, y2, y3]);
+    attribution
+        .attributions
+        .push(Some(crate::brep::TriangleAttribution {
+            input: InputId::B,
+            face: 9,
+        }));
+    // The wide face beyond, in the plane z = 106.2; `x` moves onto it.
+    mesh.verts[x as usize] = Point3::new(
+        mesh.verts[x as usize].as_array()[0],
+        mesh.verts[x as usize].as_array()[1],
+        106.2,
+    );
+    mesh.tris.push([y3, y2, x]);
+    attribution
+        .attributions
+        .push(Some(crate::brep::TriangleAttribution {
+            input: InputId::B,
+            face: 10,
+        }));
+    (mesh, attribution)
+}
+
+fn cascade_surfaces(i: InputId, face: u32) -> Option<Surface> {
+    let (_, cone_b, _, _) = transit_fixture();
+    match (i, face) {
+        (InputId::B, 9) => Some(cone_b),
+        (InputId::B, 10) => Some(Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: -106.2,
+        }),
+        _ => fill_fixture_surfaces(i, face),
+    }
+}
+
+fn cascade_face_creases() -> impl Fn((InputId, u32)) -> Vec<(Curve, Surface, Surface)> {
+    move |face| {
+        let (cone_a, cone_b, _, _) = transit_fixture();
+        let plane = |z: f64| Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: -z,
+        };
+        let circle = |s: Surface| crease_circle_from_pair(cone_b, s).map(|c| (c, cone_b, s));
+        match face {
+            (InputId::B, 8) => [circle(cone_a), circle(plane(106.0))]
+                .into_iter()
+                .flatten()
+                .collect(),
+            (InputId::B, 9) => [circle(plane(106.0)), circle(plane(106.2))]
+                .into_iter()
+                .flatten()
+                .collect(),
+            (InputId::B, 7) => crease_circle_from_pair(cone_a, cone_b)
+                .map(|c| vec![(c, cone_a, cone_b)])
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+}
+
+#[test]
+fn refinement_propagates_through_a_thin_band_by_matched_splits() {
+    use crate::stage4_boundary_curve::{
+        transit_emission_parts, transit_emission_refine, RefineKind,
+    };
+    let (mesh, attribution) = cascade_fixture();
+    let ed = edits_of(&mesh, &attribution).expect("insertion");
+    let rg = region_of(&mesh, &attribution);
+    let parts = transit_emission_parts(&mesh, &attribution, &rg, ed.site);
+    let (t, ..) = cut_fixture_transit();
+    let creases = cascade_face_creases();
+    let rf = transit_emission_refine(
+        &mesh,
+        &attribution,
+        &ed,
+        &rg,
+        &parts,
+        &t,
+        &cascade_surfaces,
+        &creases,
+        16,
+    )
+    .expect("the cascade converges");
+    assert_eq!(rf.fill.lift_flips, 0, "{:?}", rf.fill.lift);
+    assert!(
+        rf.rounds
+            .iter()
+            .any(|r| r.kind == RefineKind::Halve && r.face == (InputId::B, 8)),
+        "the far chord of the first band is halved: {:?}",
+        rf.rounds
+    );
+    let matched: Vec<_> = rf
+        .rounds
+        .iter()
+        .filter(|r| r.kind == RefineKind::Matched)
+        .collect();
+    assert!(
+        !matched.is_empty() && matched.iter().all(|r| r.face == (InputId::B, 9)),
+        "the thin band is refined by MATCHED splits of its far crease: {:?}",
+        rf.rounds
+    );
+    // Every matched mint is an exact point of one of the thin band's two
+    // crease circles (a band triangle's apex may sit on either), the far
+    // crease among them — that is the propagation — and the wide face
+    // beyond received it.
+    let on_circle = |a: [f64; 3], z: f64, r: f64| {
+        (a[2] - z).abs() < 1e-9 && ((a[0] * a[0] + a[1] * a[1]).sqrt() - r).abs() < 1e-9
+    };
+    for r in &matched {
+        let a = r.mint.as_array();
+        assert!(
+            on_circle(a, 106.0, 112.0) || on_circle(a, 106.2, 112.4),
+            "matched mint off both crease circles: {r:?}"
+        );
+    }
+    assert!(
+        matched
+            .iter()
+            .any(|r| on_circle(r.mint.as_array(), 106.2, 112.4)),
+        "the thin band's far crease is split: {matched:?}"
+    );
+    assert!(
+        rf.fill.polygons.iter().any(|p| p.face == (InputId::B, 10)),
+        "the face beyond the thin band joins the fill"
+    );
+    assert!(
+        rf.fill.edge_defects.is_empty(),
+        "{:?}",
+        rf.fill.edge_defects
+    );
+    assert_eq!((rf.fill.folded, rf.fill.added_folds), (0, 0));
+    // Every face's fill lies one way.
+    for ls in &rf.fill.lift {
+        assert!(ls.new_along == 0 || ls.new_against == 0, "{ls:?}");
+    }
 }

@@ -10660,9 +10660,19 @@ fn stage4_relocate_and_correct_inner(
                                                                         // certified against the
                                                                         // whole mesh, still not
                                                                         // written.
+                                                                        let face_creases = |f: (crate::InputId, u32)| {
+                                                                            face_surface(f.0, f.1)
+                                                                                .map(|sf| {
+                                                                                    crate::stage4_boundary_curve::creases_for_surfaces(
+                                                                                        &creases_by_surf,
+                                                                                        &[sf],
+                                                                                    )
+                                                                                })
+                                                                                .unwrap_or_default()
+                                                                        };
                                                                         match crate::
                                                                             stage4_boundary_curve::
-                                                                            transit_emission_fill(
+                                                                            transit_emission_refine(
                                                                                 mesh,
                                                                                 attribution,
                                                                                 &ed,
@@ -10670,8 +10680,21 @@ fn stage4_relocate_and_correct_inner(
                                                                                 &parts,
                                                                                 &t,
                                                                                 &face_surface,
+                                                                                &face_creases,
+                                                                                16,
                                                                             ) {
-                                                                            Ok(fl) => {
+                                                                            Ok(rf) => {
+                                                                                let fl = &rf.fill;
+                                                                                eprintln!(
+                                                                                    "[s451-refine] case={} v={v} rounds={} \
+                                                                                     extra={}",
+                                                                                    case(),
+                                                                                    rf.rounds.len(),
+                                                                                    rf.extra.len()
+                                                                                );
+                                                                                for r in &rf.rounds {
+                                                                                    eprintln!("[s451-refine]   {r:?}");
+                                                                                }
                                                                                 eprintln!(
                                                                                     "[s451-fill] case={} v={v} OK \
                                                                                      removed={:?} touched_delta={:?} \
@@ -10722,10 +10745,10 @@ fn stage4_relocate_and_correct_inner(
                                                                                         p.face, p.bite, p.polygon, p.tris, p.lift
                                                                                     );
                                                                                     let at = |u: u32| -> [f64; 3] {
-                                                                                        if u == fl.mints[0].0 {
-                                                                                            fl.mints[0].1.as_array()
-                                                                                        } else if u == fl.mints[1].0 {
-                                                                                            fl.mints[1].1.as_array()
+                                                                                        if let Some((_, q)) =
+                                                                                            fl.mints.iter().find(|(m, _)| *m == u)
+                                                                                        {
+                                                                                            q.as_array()
                                                                                         } else if u == fl.site {
                                                                                             fl.site_at.as_array()
                                                                                         } else {
@@ -10750,7 +10773,7 @@ fn stage4_relocate_and_correct_inner(
                                                                                         transit_emission_write(
                                                                                             mesh,
                                                                                             attribution,
-                                                                                            &fl,
+                                                                                            fl,
                                                                                         ) {
                                                                                         Ok(rep) => {
                                                                                             eprintln!(
@@ -10768,6 +10791,33 @@ fn stage4_relocate_and_correct_inner(
                                                                                             case()
                                                                                         ),
                                                                                     }
+                                                                                }
+                                                                            }
+                                                                            Err(crate::stage4_boundary_curve::EmissionRefineFailure::CapReached {
+                                                                                iterations,
+                                                                                lift_flips,
+                                                                                rounds,
+                                                                                last,
+                                                                            }) => {
+                                                                                eprintln!(
+                                                                                    "[s451-refine] case={} v={v} CAP iterations={iterations} \
+                                                                                     lift_flips={lift_flips} halvings={}",
+                                                                                    case(),
+                                                                                    rounds.len()
+                                                                                );
+                                                                                for r in &rounds {
+                                                                                    eprintln!("[s451-refine]   {r:?}");
+                                                                                }
+                                                                                eprintln!(
+                                                                                    "[s451-refine]   last lift={:?}",
+                                                                                    last.lift
+                                                                                );
+                                                                                for p in &last.polygons {
+                                                                                    eprintln!(
+                                                                                        "[s451-refine]   face={:?} bite={} \
+                                                                                         polygon={:?} tris={:?} lift={:?}",
+                                                                                        p.face, p.bite, p.polygon, p.tris, p.lift
+                                                                                    );
                                                                                 }
                                                                             }
                                                                             Err(e) => eprintln!(
