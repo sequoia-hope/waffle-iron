@@ -1626,3 +1626,212 @@ fn a_fan_with_no_crease_chain_has_nothing_to_refine() {
         Err(EmissionEditFailure::ChainAbsent)
     );
 }
+
+// ---------------------------------------------------------------------------
+// inc-2c-3b-12b-5 — the EMISSION REGION
+// ---------------------------------------------------------------------------
+
+/// Run one fixture mesh through anatomy → cut → plan → edits → REGION.
+fn region_of(
+    mesh: &crate::Mesh,
+    attribution: &crate::brep::TriangleAttributionMap,
+) -> crate::stage4_boundary_curve::TransitEmissionRegion {
+    let ed = edits_of(mesh, attribution).expect("the bracketed corner is an insertion");
+    crate::stage4_boundary_curve::transit_emission_region(mesh, &ed)
+        .expect("the fixture's host carriers bound a disk")
+}
+
+/// The region the mints land in is a topological DISK, and the site is on its
+/// boundary.
+///
+/// That is the precondition the mutation needs: a single boundary cycle is a
+/// polygon a re-triangulation is defined on, and a site left INTERIOR to it
+/// would mean re-connecting the whole fan rather than filling a polygon. The
+/// measured corpus instance is R0044 v47 — 6 triangles bounded by the octagon
+/// `44 → 280 → 981 → 994 → 6911 → 47 → 6945 → 45`, with the site between the
+/// chord's far end and the one fan triangle that carries no host edge.
+#[test]
+fn the_emission_region_is_a_disk_with_the_site_on_its_boundary() {
+    for reversed in [false, true] {
+        let (mesh, attribution) = interior_insert_fixture(true, reversed);
+        let ed = edits_of(&mesh, &attribution).expect("insertion");
+        let rg = region_of(&mesh, &attribution);
+
+        // Every host carrier, and nothing else.
+        let mut want: Vec<u32> = ed.crease_tris.clone();
+        want.extend_from_slice(&ed.chain_tris[0]);
+        want.extend_from_slice(&ed.chain_tris[1]);
+        want.sort_unstable();
+        want.dedup();
+        assert_eq!(rg.tris, want, "reversed={reversed}");
+        assert_eq!(rg.tris.len(), 6, "5 fan triangles + the neighbour's");
+
+        // ONE cycle, each vertex visited once — a simple polygon.
+        let mut seen = rg.boundary.clone();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), rg.boundary.len(), "the boundary self-touches");
+        assert_eq!(rg.boundary.len(), 8, "an octagon: {:?}", rg.boundary);
+        assert!(rg.site_on_boundary, "the site must stay on the boundary");
+
+        // The mints land strictly INSIDE it: every host edge is interior to
+        // the region, so neither mint is a boundary vertex.
+        for (a, b) in [ed.crease_host, ed.inserts[0].chain, ed.inserts[1].chain] {
+            let carriers = rg
+                .tris
+                .iter()
+                .filter(|&&t| {
+                    let tri = mesh.tris[t as usize];
+                    tri.contains(&a) && tri.contains(&b)
+                })
+                .count();
+            assert_eq!(carriers, 2, "host ({a},{b}) is interior to the region");
+        }
+    }
+}
+
+/// THE binding measurement: an edit list stated per-edge cannot be APPLIED
+/// per-edge, and the reason is structural rather than incidental.
+///
+/// Each mint has two host edges — the chain it terminates and the crease chord
+/// it refines — and the chord's own-patch carrier is the triangle apexed at
+/// the SITE (§3y Reading 4: it is also the wholesale relabel). So splitting
+/// that chord fans a new edge from the site to each mint, which is the very
+/// edge the chain split already created. Every `(site, mint)` edge therefore
+/// ends up carried by four triangles, in BOTH fan orders and with or without
+/// the neighbour across the chord — the interference is forced by the
+/// anatomy, not by a particular arrangement.
+///
+/// The corpus agrees: at R0044 v47 the per-edge split leaves `(47, 16355)` and
+/// `(47, 16356)` at four incidences each.
+#[test]
+fn the_per_edge_split_doubles_every_site_to_mint_edge() {
+    for across in [false, true] {
+        for reversed in [false, true] {
+            let (mesh, attribution) = interior_insert_fixture(across, reversed);
+            let ed = edits_of(&mesh, &attribution).expect("insertion");
+            let rg = region_of(&mesh, &attribution);
+
+            // The chord's own-patch carrier IS apexed at the site — the
+            // premise the doubling follows from.
+            let (ha, hb) = ed.crease_host;
+            assert!(
+                ed.crease_tris.iter().any(|&t| {
+                    let tri = mesh.tris[t as usize];
+                    tri.contains(&ed.site) && tri.contains(&ha) && tri.contains(&hb)
+                }),
+                "the relabel triangle carries the chord and the site"
+            );
+
+            for m in rg.mints {
+                let e = (ed.site.min(m), ed.site.max(m));
+                let found = rg.overfull.iter().find(|o| o.edge == e).unwrap_or_else(|| {
+                    panic!(
+                        "({}, {m}) should be over-carried \
+                             (across={across} reversed={reversed}): {:?}",
+                        ed.site, rg.overfull
+                    )
+                });
+                assert_eq!(found.incident, 4, "two hosts, two carriers each");
+            }
+        }
+    }
+}
+
+/// The coincident FIN, by contrast, is order-dependent — so a fixture in one
+/// orientation is not evidence about the other.
+///
+/// A mint's chain edge and the chord end it is nearest can be paired by the
+/// fan's cyclic order or crossed by it. Paired, the chain split and the chord
+/// split emit the same triangle twice in opposite windings: a zero-area fin.
+/// R0044 v47 has the PAIRED arrangement (`[47, 981, 16355]`), and naming the
+/// fixture's chord from its other end is what selects it — which is why the
+/// over-carried edges above, not the fin, are the general statement.
+#[test]
+fn the_coincident_fin_depends_on_the_fan_order() {
+    let (fmesh, fattr) = interior_insert_fixture(true, false);
+    let (rmesh, rattr) = interior_insert_fixture(true, true);
+    let (fwd, rev) = (region_of(&fmesh, &fattr), region_of(&rmesh, &rattr));
+
+    assert!(
+        fwd.coincident.is_empty(),
+        "crossed by the fan order: {:?}",
+        fwd.coincident
+    );
+    assert_eq!(rev.coincident.len(), 1, "paired: one fin");
+
+    // The fin is the site, the chord end the mint is nearest, and the mint.
+    let ed = edits_of(&rmesh, &rattr).expect("insertion");
+    let fin = rev.coincident[0].verts;
+    assert!(fin.contains(&ed.site), "the fin is apexed at the site");
+    assert!(
+        fin.contains(&rev.mints[0]),
+        "the mint nearest the chord's first end: {fin:?}"
+    );
+    assert!(
+        fin.contains(&ed.crease_host.0),
+        "and that same first end: {fin:?}"
+    );
+    // Both parents are real children, and they wind oppositely — the pair
+    // encloses no volume.
+    let (i, j) = rev.coincident[0].parents;
+    let (a, b) = (
+        rev.naive_children[i as usize],
+        rev.naive_children[j as usize],
+    );
+    let cyc = |t: [u32; 3], x: u32| (0..3).find(|&k| t[k] == x).expect("member");
+    let step = |t: [u32; 3], x: u32| t[(cyc(t, x) + 1) % 3];
+    assert_ne!(
+        step(a, fin[0]),
+        step(b, fin[0]),
+        "the fin's two faces must wind oppositely: {a:?} {b:?}"
+    );
+}
+
+/// Every over-carried edge touches a mint, and the region's own boundary is
+/// left alone.
+///
+/// The interference is LOCAL: the split cannot damage the polygon it has to
+/// stitch back into, or the mutation would reach further than §3y measured.
+#[test]
+fn the_interference_is_local_to_the_mints() {
+    for reversed in [false, true] {
+        let (mesh, attribution) = interior_insert_fixture(true, reversed);
+        let rg = region_of(&mesh, &attribution);
+        for o in &rg.overfull {
+            assert!(
+                rg.mints.contains(&o.edge.0) || rg.mints.contains(&o.edge.1),
+                "over-carried edge {:?} touches no mint",
+                o.edge
+            );
+        }
+        // Every boundary edge of the region is still carried exactly twice —
+        // once by a child, once by the triangle outside.
+        for w in rg.boundary.windows(2) {
+            let e = (w[0].min(w[1]), w[0].max(w[1]));
+            assert!(
+                !rg.overfull.iter().any(|o| o.edge == e),
+                "the region's own boundary edge {e:?} must be untouched"
+            );
+        }
+    }
+}
+
+/// A triangle carrying a host edge in two roles is REFUSED, not guessed at.
+///
+/// Its children are not defined by a single split, and the corpus does not
+/// exhibit it — so the region declines structurally rather than picking a
+/// host. Built by hand because no fixture produces the shape.
+#[test]
+fn a_triangle_in_two_host_roles_is_refused() {
+    use crate::stage4_boundary_curve::{transit_emission_region, EmissionRegionFailure};
+    let (mesh, attribution) = interior_insert_fixture(true, false);
+    let mut ed = edits_of(&mesh, &attribution).expect("insertion");
+    // Hand the chord's own-patch carrier to a chain slot as well.
+    let dup = ed.crease_tris[0];
+    ed.chain_tris[0].push(dup);
+    assert_eq!(
+        transit_emission_region(&mesh, &ed),
+        Err(EmissionRegionFailure::TriangleInBothRoles { tri: dup })
+    );
+}

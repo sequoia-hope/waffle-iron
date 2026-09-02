@@ -10574,6 +10574,40 @@ fn stage4_relocate_and_correct_inner(
                                                                         )
                                                                     );
                                                                 }
+                                                                // inc-2c-3b-12b-5: the REGION the
+                                                                // edits land in, and whether
+                                                                // applying them edge by edge —
+                                                                // the natural implementation of
+                                                                // an edit list stated per-edge —
+                                                                // composes. Still pure.
+                                                                match crate::stage4_boundary_curve::
+                                                                    transit_emission_region(
+                                                                        mesh, &ed,
+                                                                    ) {
+                                                                    Ok(rg) => eprintln!(
+                                                                        "[s451-region] case={} \
+                                                                         v={v} OK tris={:?} \
+                                                                         boundary={:?} \
+                                                                         site_on_boundary={} \
+                                                                         mints={:?} \
+                                                                         children={} \
+                                                                         coincident={:?} \
+                                                                         overfull={:?}",
+                                                                        case(),
+                                                                        rg.tris,
+                                                                        rg.boundary,
+                                                                        rg.site_on_boundary,
+                                                                        rg.mints,
+                                                                        rg.naive_children.len(),
+                                                                        rg.coincident,
+                                                                        rg.overfull
+                                                                    ),
+                                                                    Err(e) => eprintln!(
+                                                                        "[s451-region] case={} \
+                                                                         v={v} DECLINE {e:?}",
+                                                                        case()
+                                                                    ),
+                                                                }
                                                             }
                                                             Err(e) => eprintln!(
                                                                 "[s451-edits] case={} v={v} \

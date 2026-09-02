@@ -2400,6 +2400,81 @@ has an empty reach — measured, not assumed).
 closed edit: mint `q2` and `q1` at their exact positions, re-triangulate the six
 fan triangles and the neighbour's one, relabel `13112` to `(B, 167)`.
 
+## 3z. inc-2c-3b-12b-5 — the EMISSION REGION: where the edits can be
+APPLIED (LANDED, pure; census-only)
+
+§3y closed the edit list — two mints, one crease chord, four chain-carrier
+triangles, one wholesale relabel. This asks the question that has to be
+answered before any of it is written to a mesh: whether those edits COMPOSE.
+They are stated per-edge, and a per-edge split is the natural implementation of
+a per-edge list. `transit_emission_region` derives the neighbourhood the edits
+land in and measures what that implementation would actually produce, still as
+a pure function, under the same `YANG_451_TRIPLE_DOMAIN` +
+`YANG_451_TRANSIT_ANATOMY` gates.
+
+**Reading 1 — the region is a topological DISK, and the site is on its
+boundary.** At R0044 v47 the six host-carrier triangles
+`[41, 279, 13037, 13111, 13112, 13113]` are bounded by exactly one cycle, the
+octagon `44 → 280 → 981 → 994 → 6911 → 47 → 6945 → 45`. Note what is NOT in
+it: `13110` — the one fan triangle carrying no host edge — which is why the
+site appears on the boundary rather than interior to it. Both mints land
+strictly inside (all three host edges are carried by two region triangles
+each). So the mutation is well-posed as a polygon fill: remove six triangles,
+re-triangulate an octagon with two interior points, ten triangles out.
+
+**Reading 2 — and this is the increment's binding result — the edit list
+cannot be applied edge by edge, and the reason is structural rather than
+incidental.** Each mint has two host edges: the chain it terminates and the
+crease chord it refines. The chord's own-patch carrier is `13112`, which is the
+triangle apexed at the SITE — §3y Reading 4 already named it, as the wholesale
+relabel. So splitting that chord fans a new edge from the site to each mint,
+which is the very edge the chain split has already created. Both `(site, mint)`
+edges come out carried by FOUR triangles:
+
+| edge | incident |
+|---|---|
+| `(47, 16355)` | 4 |
+| `(47, 16356)` | 4 |
+| `(981, 16355)` | 4 |
+
+The mesh is non-manifold along the three edges the repair exists to make
+conformal. The fixture reproduces it in every orientation — with and without
+the neighbour across the chord, and in both fan orders — because the premise
+(the chord carrier is apexed at the site) is the anatomy, not an arrangement.
+
+**Reading 3 — the coincident FIN, by contrast, is order-dependent, so one
+orientation is not evidence about the other.** A mint's chain edge and the
+chord end it is nearest can be PAIRED by the fan's cyclic order or CROSSED by
+it. Paired, the chain split and the chord split emit the same triangle twice in
+opposite windings — a zero-area fin. R0044 v47 is paired: `[47, 981, 16355]`,
+and the third over-carried edge above is its residue. The fixture is crossed in
+its forward orientation and paired when the same chord is named from the other
+end — measured both ways, which is what stops the fin from being reported as
+the general statement when the over-carried edges are.
+
+This is the 3b-11 one-sided-insert lesson arriving a third time, and the
+sharpest form of it yet: §3y measured that the repair REACHES outside the fan,
+and this measures that it cannot be DECOMPOSED along the edges it reaches
+through. An edit list stated per-edge is not an edit list applied per-edge.
+
+**What is typed rather than guessed.** `TriangleInBothRoles` (a triangle
+carrying a host edge in two roles — its children are not defined by a single
+split), `NotADisk` and `BoundaryPinched` (the region's boundary does not chain
+into one simple cycle, so there is no polygon to fill). None occur in the
+corpus.
+
+5 new unit tests on the §3u fixture: the disk and the site's place on its
+boundary, the doubling in all four fixture configurations, the fin's
+order-dependence in both (asserting it ABSENT in one and present in the other,
+so the detector cannot be vacuous), the interference's locality — every
+over-carried edge touches a mint and no boundary edge is disturbed — and the
+hand-built two-role decline.
+
+**Not built here.** The mutation. It now has a determined region and a refuted
+decomposition: fill the octagon `44 → 280 → 981 → 994 → 6911 → 47 → 6945 → 45`
+with `16355` and `16356` interior, in ONE act, attributing the notch to
+`(B, 167)` and the rest to `(B, 168)`.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -2773,6 +2848,33 @@ fan triangles and the neighbour's one, relabel `13112` to `(B, 167)`.
   rather than passed (§3w's lesson). 5 unit tests, one adding the
   neighbour's triangle so the fixture carries the corpus's two-sided reach, one
   pinning the chord-order fix by naming the same chord from both ends.
+- **inc-2c-3b-12b-5** (2026-09-02): the EMISSION REGION landed
+  (`transit_emission_region`, pure, same gates; §3z). First: **the region
+  is a topological DISK with the site on its boundary** — R0044 v47's six
+  host-carrier triangles `[41, 279, 13037, 13111, 13112, 13113]` bounded by
+  one cycle, the octagon `44 → 280 → 981 → 994 → 6911 → 47 → 6945 → 45`,
+  both mints strictly interior; the one fan triangle carrying no host edge
+  (`13110`) is what leaves the site ON the boundary. So the mutation is
+  well-posed as a polygon fill. Second, and BINDING: **the edit list cannot
+  be applied edge by edge, and the reason is structural.** Each mint has two
+  host edges, and the chord's own-patch carrier is `13112` — the triangle
+  apexed at the SITE, which §3y already named as the wholesale relabel — so
+  the chord split fans an edge from the site to each mint that the chain
+  split has already created. Both `(site, mint)` edges come out at FOUR
+  incidences (`(47, 16355)`, `(47, 16356)`, plus `(981, 16355)`): the mesh
+  is non-manifold along the very edges the repair exists to make conformal.
+  Reproduced in all four fixture configurations, because the premise is the
+  anatomy and not an arrangement. Third: **the coincident FIN is
+  order-dependent** — a mint's chain edge and its nearest chord end can be
+  paired by the fan's cyclic order or crossed by it; paired, both splits emit
+  the same triangle in opposite windings (v47 is paired: `[47, 981, 16355]`).
+  Measured in BOTH fixture orientations, so the order-dependent symptom is not
+  mistaken for the general statement. The 3b-11 one-sided-insert lesson a
+  third time and its sharpest form: an edit list stated per-edge is not an
+  edit list applied per-edge. `TriangleInBothRoles` / `NotADisk` /
+  `BoundaryPinched` typed, none exhibited. 5 unit tests; corpus
+  273C/0W/34E/1EE/0T with `results.json` byte-identical; rewrite tier green
+  (173 binaries, 2783 tests, 1228s).
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

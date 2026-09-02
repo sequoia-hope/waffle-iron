@@ -2461,3 +2461,286 @@ pub(crate) fn transit_emission_edits(
         relabel: cut.past_tris.clone(),
     })
 }
+
+// ---------------------------------------------------------------------------
+// §4.5.2 inc-2c-3b-12b-5 — the EMISSION REGION: where the edits can be APPLIED
+// ---------------------------------------------------------------------------
+
+/// Why a determined edit list yields no determined REGION.
+///
+/// Structural, never a threshold: each variant says the neighbourhood the
+/// edits name is not a patch a re-triangulation is defined on.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum EmissionRegionFailure {
+    /// The region's boundary edges do not chain into exactly one cycle, so it
+    /// is not a topological disk and there is no polygon to re-triangulate.
+    NotADisk {
+        boundary_edges: usize,
+        cycles: usize,
+    },
+    /// A boundary vertex has more than one outgoing boundary edge: the region
+    /// pinches there, and the "polygon" would visit the vertex twice.
+    BoundaryPinched { v: u32 },
+    /// A triangle carries a host edge in two different roles at once. Then its
+    /// children are not defined by a single split and the corpus does not
+    /// currently exhibit it, so it is refused rather than guessed at.
+    TriangleInBothRoles { tri: u32 },
+}
+
+/// Two children of the INDEPENDENT per-edge split that share a vertex set.
+///
+/// A mint has two host edges — the chain it terminates and the crease chord it
+/// refines — and when those hosts are carried by triangles that already share
+/// an edge, splitting each host on its own emits the same triangle twice, in
+/// opposite windings. That is a zero-area fin, and the edge between the mint
+/// and the shared vertex ends up carried by three faces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SplitCoincidence {
+    /// The vertex set both parents produce.
+    pub(crate) verts: [u32; 3],
+    /// The two parents that produce it.
+    pub(crate) parents: (u32, u32),
+}
+
+/// An edge that the independent per-edge split would leave carried by more
+/// than two triangles — the non-manifold residue of the same interference.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct OverfullEdge {
+    pub(crate) edge: (u32, u32),
+    pub(crate) incident: usize,
+}
+
+/// The neighbourhood the emission edits must be applied INSIDE, and the
+/// measured verdict on applying them edge by edge.
+///
+/// §3y closed the edit list: two mints, one crease chord, four chain-carrier
+/// triangles. This asks the question that has to be answered before any of it
+/// is written to a mesh — whether those edits compose. They are stated
+/// per-edge, and a per-edge split is the natural implementation; this measures
+/// what that implementation would actually produce.
+///
+/// Pure. Nothing here mutates; the mint ids are the ones the mints WOULD get
+/// (`mesh.verts.len()` onward, in `inserts` order), used only to name the
+/// prospective children.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TransitEmissionRegion {
+    /// Every triangle carrying a host edge, sorted — the region the mints land
+    /// in.
+    pub(crate) tris: Vec<u32>,
+    /// Its boundary as one ordered vertex cycle, in the region's own winding.
+    pub(crate) boundary: Vec<u32>,
+    /// Whether the site is ON that boundary. It is a vertex of every fan
+    /// triangle, so a region that leaves it interior would have to re-connect
+    /// the whole fan rather than a polygon.
+    pub(crate) site_on_boundary: bool,
+    /// The prospective mint ids, in `inserts` (along-chord) order.
+    pub(crate) mints: [u32; 2],
+    /// What an independent per-edge split of every host would emit.
+    pub(crate) naive_children: Vec<[u32; 3]>,
+    /// Children of that split sharing a vertex set — each one a zero-area fin.
+    pub(crate) coincident: Vec<SplitCoincidence>,
+    /// Edges the same split would leave carried by more than two triangles,
+    /// counted against the WHOLE mesh (the region's children plus every
+    /// triangle outside it), so the verdict is about the mesh and not about
+    /// the region in isolation.
+    pub(crate) overfull: Vec<OverfullEdge>,
+}
+
+/// Chain a set of directed boundary edges into one cycle.
+///
+/// Returns the vertex cycle, or the structural reason there is not exactly
+/// one. `succ` is built from the directed edges the region's own winding
+/// leaves unpaired, so the cycle comes out consistently oriented.
+fn boundary_cycle(dirs: &[(u32, u32)]) -> Result<Vec<u32>, EmissionRegionFailure> {
+    let mut succ: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
+    for &(a, b) in dirs {
+        if succ.insert(a, b).is_some() {
+            return Err(EmissionRegionFailure::BoundaryPinched { v: a });
+        }
+    }
+    let Some((&start, _)) = succ.iter().next() else {
+        return Err(EmissionRegionFailure::NotADisk {
+            boundary_edges: 0,
+            cycles: 0,
+        });
+    };
+    let mut cycle = Vec::with_capacity(succ.len());
+    let mut cur = start;
+    for _ in 0..succ.len() {
+        cycle.push(cur);
+        cur = succ[&cur];
+        if cur == start {
+            break;
+        }
+    }
+    if cycle.len() != succ.len() {
+        // More than one cycle: the walk closed early, so the remainder is a
+        // separate component.
+        return Err(EmissionRegionFailure::NotADisk {
+            boundary_edges: dirs.len(),
+            cycles: 2,
+        });
+    }
+    Ok(cycle)
+}
+
+/// Derive the region the emission edits act in, and measure whether applying
+/// them edge by edge is sound.
+///
+/// Composed from [`TransitEmissionEdits`] rather than re-deriving any of it:
+/// the hosts, their carriers and the along-chord order all come from there.
+/// What is computed here is the region's boundary — which says whether there
+/// is a polygon to re-triangulate at all — and the child set an independent
+/// split would emit, which says whether it may be done that way.
+///
+/// Pure; every non-answer is a typed structural decline.
+pub(crate) fn transit_emission_region(
+    mesh: &Mesh,
+    edits: &TransitEmissionEdits,
+) -> Result<TransitEmissionRegion, EmissionRegionFailure> {
+    // --- the region: every triangle carrying a host edge -------------------
+    let mut tris: Vec<u32> = edits.crease_tris.clone();
+    tris.extend_from_slice(&edits.chain_tris[0]);
+    tris.extend_from_slice(&edits.chain_tris[1]);
+    tris.sort_unstable();
+    let dup = tris.windows(2).any(|w| w[0] == w[1]);
+    tris.dedup();
+    if dup {
+        // A triangle in two roles: which host does its split follow?
+        let mut seen = std::collections::BTreeSet::new();
+        for t in edits
+            .crease_tris
+            .iter()
+            .chain(edits.chain_tris[0].iter())
+            .chain(edits.chain_tris[1].iter())
+        {
+            if !seen.insert(*t) {
+                return Err(EmissionRegionFailure::TriangleInBothRoles { tri: *t });
+            }
+        }
+    }
+
+    // --- its boundary, from the directed edges its winding leaves unpaired --
+    let member: std::collections::BTreeSet<u32> = tris.iter().copied().collect();
+    let mut dirs: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
+    for &t in &tris {
+        let tri = mesh.tris[t as usize];
+        for k in 0..3 {
+            dirs.insert((tri[k], tri[(k + 1) % 3]));
+        }
+    }
+    let unpaired: Vec<(u32, u32)> = dirs
+        .iter()
+        .copied()
+        .filter(|&(a, b)| !dirs.contains(&(b, a)))
+        .collect();
+    let boundary = boundary_cycle(&unpaired)?;
+    let site_on_boundary = boundary.contains(&edits.site);
+
+    // --- what an independent per-edge split would emit ----------------------
+    // Mint ids are the ones the mints would actually receive, so the children
+    // below are the triangles that would really be written.
+    let n = mesh.verts.len() as u32;
+    let mints = [n, n + 1];
+
+    // Split one triangle's edge `(a, b)` at `ms`, in the triangle's own
+    // winding, so the children inherit its orientation.
+    let split = |tri: [u32; 3], a: u32, b: u32, ms: &[u32]| -> Vec<[u32; 3]> {
+        let Some(k) = (0..3).find(|&k| {
+            (tri[k] == a && tri[(k + 1) % 3] == b) || (tri[k] == b && tri[(k + 1) % 3] == a)
+        }) else {
+            return vec![tri];
+        };
+        let (p, q, apex) = (tri[k], tri[(k + 1) % 3], tri[(k + 2) % 3]);
+        // Walk the inserts from `p` to `q`: reverse them when the triangle
+        // names the edge against the order they were given in.
+        let mut chain: Vec<u32> = vec![p];
+        if p == a {
+            chain.extend_from_slice(ms);
+        } else {
+            chain.extend(ms.iter().rev().copied());
+        }
+        chain.push(q);
+        chain
+            .windows(2)
+            .map(|w| [w[0], w[1], apex])
+            .collect::<Vec<_>>()
+    };
+
+    let (ha, hb) = edits.crease_host;
+    let mut naive_children: Vec<[u32; 3]> = Vec::new();
+    for &t in &edits.crease_tris {
+        naive_children.extend(split(mesh.tris[t as usize], ha, hb, &mints));
+    }
+    // `chain_tris` is permuted into `inserts` order by §3y, so slot `i`
+    // carries slot `i`'s edge and therefore slot `i`'s mint.
+    for (i, (slot, ins)) in edits
+        .chain_tris
+        .iter()
+        .zip(edits.inserts.iter())
+        .enumerate()
+    {
+        for &t in slot {
+            naive_children.extend(split(
+                mesh.tris[t as usize],
+                ins.chain.0,
+                ins.chain.1,
+                &[mints[i]],
+            ));
+        }
+    }
+
+    // --- the two ways that split can be unsound ----------------------------
+    let key = |t: [u32; 3]| {
+        let mut k = t;
+        k.sort_unstable();
+        k
+    };
+    let mut by_key: std::collections::BTreeMap<[u32; 3], Vec<usize>> =
+        std::collections::BTreeMap::new();
+    for (i, c) in naive_children.iter().enumerate() {
+        by_key.entry(key(*c)).or_default().push(i);
+    }
+    let mut coincident: Vec<SplitCoincidence> = Vec::new();
+    for (k, idx) in &by_key {
+        if idx.len() > 1 {
+            coincident.push(SplitCoincidence {
+                verts: *k,
+                parents: (idx[0] as u32, idx[1] as u32),
+            });
+        }
+    }
+
+    // Edge incidence over the WHOLE mesh after the split: the children, plus
+    // every triangle the region does not contain.
+    let mut inc: std::collections::BTreeMap<(u32, u32), usize> = std::collections::BTreeMap::new();
+    let mut bump = |t: [u32; 3]| {
+        for k in 0..3 {
+            let (a, b) = (t[k], t[(k + 1) % 3]);
+            *inc.entry((a.min(b), a.max(b))).or_default() += 1;
+        }
+    };
+    for c in &naive_children {
+        bump(*c);
+    }
+    for (i, t) in mesh.tris.iter().enumerate() {
+        if !member.contains(&(i as u32)) {
+            bump(*t);
+        }
+    }
+    let overfull: Vec<OverfullEdge> = inc
+        .into_iter()
+        .filter(|&(_, n)| n > 2)
+        .map(|(edge, incident)| OverfullEdge { edge, incident })
+        .collect();
+
+    Ok(TransitEmissionRegion {
+        tris,
+        boundary,
+        site_on_boundary,
+        mints,
+        naive_children,
+        coincident,
+        overfull,
+    })
+}
