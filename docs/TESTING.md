@@ -423,6 +423,31 @@ inside the exact solid beyond the root arc's chord band; the meta's
 `euler_target` was corrected 2 → 0 and pinned
 (`assay_euler_consistency::historical_authoring_fixes_pinned`).
 
+The general, document-driven form of the same instrument
+(`test_harness::assay::exact_membership`, landed the same day) parses any
+corpus `.waffle` into closed-form predicates (polygon / circle / involute
+gear profiles; extrude and revolve with the feature engine's semantics;
+bosses union, cuts subtract) and lays its lattice in the document's sketch
+frame. Its scope and the sweep's findings are in
+`docs/audits/exact_membership_sweep_2026_09_03.md` (read the scope first —
+tapered features and sub-cell gaps are outside it; the volume converges
+long before the topology):
+
+```bash
+# Pinned adjudications (F0001, R0053, R0011, R0099, R0091's volume, C0075) — seconds:
+cargo test -p test-harness --release --test assay_exact_membership
+# One case on a ladder; EXACT_PREFIX=k reads the first k ops, EXACT_ONLY=k one operand as a boss
+ASSAY_CASE=R0045 EXACT_CELLS=128,256,512 EXACT_PHASE=0.5,0.25 EXACT_KERNEL=1 \
+  cargo test -p test-harness --release --test assay_exact_membership -- --ignored --nocapture one_case_ladder
+# The whole corpus: exact χ / components / volume vs the authored oracles; EXACT_KERNEL=1 adds the
+# kernel's tessellated result volume per case (runs the kernel in-process; ~hours with the 20-op stacks)
+EXACT_CELLS=64,128,256 EXACT_KERNEL=1 \
+  cargo test -p test-harness --release --test assay_exact_membership -- --ignored --nocapture corpus_sweep
+# The kernel's result (or a chain prefix / one operand as a boss) to OBJ, for face-by-face comparison:
+ASSAY_CASE=R0091 S453_KEEP_OPS=2 cargo test -p test-harness --release --test s453_r0053_output_obj -- --ignored --nocapture
+ASSAY_CASE=R0045 S453_ONLY_OP=1 cargo test -p test-harness --release --test s453_r0053_output_obj -- --ignored --nocapture
+```
+
 ## Assay UI snapshot (`results.json`) — a committed file served on GitHub Pages
 
 The in-app **AssayBrowser** shows per-case pass/fail/error status by fetching

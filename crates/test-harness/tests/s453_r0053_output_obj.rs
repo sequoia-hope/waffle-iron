@@ -4,7 +4,7 @@
 //! spec `yang_451_corner_transit.md` §3ah).
 //!
 //! ```text
-//! S453_OBJ_OUT=/path/out.obj cargo test -p test-harness --release \
+//! ASSAY_CASE=R0053 S453_KEEP_OPS=k S453_OBJ_OUT=/path/out.obj cargo test -p test-harness --release \
 //!   --test s453_r0053_output_obj -- --ignored --nocapture
 //! ```
 //! Sets `YANG_453_SPAIR=1` process-wide unless `S453_PROBE_GATES=off`.
@@ -28,16 +28,58 @@ fn r0053_output_to_obj() {
     if std::env::var("S453_PROBE_GATES").as_deref() != Ok("off") {
         std::env::set_var("YANG_453_SPAIR", "1");
     }
+    let id = std::env::var("ASSAY_CASE").unwrap_or_else(|_| "R0053".into());
     let out = std::env::var("S453_OBJ_OUT").unwrap_or_else(|_| {
         Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/topo_sidecar/R0053/kernel_spair.obj")
+            .join(format!("../../target/topo_sidecar/{id}/kernel.obj"))
             .to_string_lossy()
             .into_owned()
     });
     let d = corpus_dir();
-    let waffle = fs::read_to_string(d.join("R0053.waffle")).unwrap();
+    let mut waffle = fs::read_to_string(d.join(format!("{id}.waffle"))).unwrap();
+    // `S453_ONLY_OP=k`: every sketch, but only solid-bearing operation `k`,
+    // built as a BOSS (a cut's tool on its own).
+    if let Some(k) = std::env::var("S453_ONLY_OP")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+    {
+        let mut v: serde_json::Value = serde_json::from_str(&waffle).unwrap();
+        let feats = v["tabs"][0]["kind"]["features"]["features"]
+            .as_array_mut()
+            .expect("features");
+        let mut op_index = 0usize;
+        let mut kept = Vec::new();
+        for f in feats.drain(..) {
+            let ty = f["operation"]["type"].as_str().unwrap_or("").to_string();
+            if ty == "Sketch" {
+                kept.push(f);
+            } else {
+                if op_index == k {
+                    let mut f = f;
+                    f["operation"]["params"]["cut"] = serde_json::json!(false);
+                    f["operation"]["params"]["merge"] = serde_json::json!(true);
+                    kept.push(f);
+                }
+                op_index += 1;
+            }
+        }
+        *feats = kept;
+        waffle = serde_json::to_string(&v).unwrap();
+        println!("[s453] {id}: only operation {k}, as a boss");
+    }
+    if let Some(k) = std::env::var("S453_KEEP_OPS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+    {
+        let v: serde_json::Value = serde_json::from_str(&waffle).unwrap();
+        let t = test_harness::assay::volume_oracle_doc::truncate_ops(&v, k)
+            .expect("corpus document shape");
+        waffle = serde_json::to_string(&t).unwrap();
+        println!("[s453] {id}: truncated to the first {k} op(s)");
+    }
     let meta: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(d.join("R0053.meta.json")).unwrap()).unwrap();
+        serde_json::from_str(&fs::read_to_string(d.join(format!("{id}.meta.json"))).unwrap())
+            .unwrap();
     let scale = meta["scale"].as_f64().unwrap();
     let tol = oracle_tol(scale);
     let mut b = ModelBuilder::kernel_v2();
@@ -49,7 +91,7 @@ fn r0053_output_to_obj() {
         .cloned()
         .collect();
     println!(
-        "[s453] R0053 errors={:?} union_failures={failures:?}",
+        "[s453] {id} errors={:?} union_failures={failures:?}",
         b.engine_errors()
     );
     let mesh = b.tessellate_last_with_tol(tol).expect("tessellate");

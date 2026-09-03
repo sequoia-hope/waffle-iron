@@ -3394,11 +3394,18 @@ predicates, the ladder, the ring-vs-teeth census — R0053's authored numbers
 inline, so the probe reads the same document the corpus does without a
 kernel in the loop) and `tests/s453_r0053_output_obj.rs` (the kernel's
 R0053 output to OBJ for the face classifier). The classifier itself ran
-as a scratch script this session; generalising the exact predicates into
-`assay::topology_oracle` (an analytic-membership route for all-boss
-extrude/revolve chains — polygon, circle and gear profiles) would make
-this adjudication an instrument rather than a hand build, and is the next
-oracle increment.
+as a scratch script this session. The generalisation landed the same day:
+`assay::exact_membership` parses any corpus document into closed-form
+predicates (polygon / circle / involute-gear profiles, extrude and revolve
+with the feature engine's own semantics, cuts included) and lays its
+lattice in the document's sketch frame — a lattice OBLIQUE to the model's
+planes perforates frame-aligned thin features at every cell size (R0053
+in the world frame: χ_solid +3 / −3 / −6 / −8 at h = 1.04 / 0.75 / 0.52 /
+0.37 (phase ¼); in the sketch frame 0 at every rung from 2 to 0.3 on two
+phases). The pinned adjudications (F0001, R0053, R0011, R0099, C0075,
+R0091's volume, R0063 as a heavy pin) are its tests; the corpus sweep
+found three kernel silent-wrong classes the mesh-borne oracles cannot see
+(`docs/audits/exact_membership_sweep_2026_09_03.md`).
 
 ## 4. Increment ledger
 

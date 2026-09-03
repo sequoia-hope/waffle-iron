@@ -17,6 +17,9 @@ pub mod catalog;
 pub mod corpus;
 pub mod coverage;
 pub mod determinism;
+/// EXACT analytic membership of a corpus document — the composed solid as a
+/// closed-form point predicate, no tessellation and no kernel anywhere.
+pub mod exact_membership;
 pub mod gen;
 pub mod gen_complexity;
 pub mod properties;

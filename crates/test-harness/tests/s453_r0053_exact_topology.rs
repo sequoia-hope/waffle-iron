@@ -412,3 +412,53 @@ fn r0053_ring_vs_teeth() {
         println!("tooth {:>2} @ {:>6.2}°: ring {tooth}; {groove}", k, deg);
     }
 }
+
+/// The inline predicates above and the document-driven ones
+/// (`assay::exact_membership`) must agree everywhere: a deterministic
+/// million-point comparison over the joint bounding box.
+#[test]
+fn inline_and_document_predicates_agree() {
+    use test_harness::assay::exact_membership::ExactChain;
+    let frame = Frame::new();
+    let s = Solids::new(&frame);
+    let waffle: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../app/tests/cases/assay/R0053.waffle"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let chain = ExactChain::from_waffle(&waffle).unwrap();
+    let (lo, hi) = chain.bbox().unwrap();
+    // LCG — no randomness in the test's outcome.
+    let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mut next = || {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (state >> 11) as f64 / (1u64 << 53) as f64
+    };
+    let mut disagree = 0usize;
+    let mut inside = 0usize;
+    let n = 1_000_000;
+    for _ in 0..n {
+        let p = [
+            lo[0] + (hi[0] - lo[0]) * next(),
+            lo[1] + (hi[1] - lo[1]) * next(),
+            lo[2] + (hi[2] - lo[2]) * next(),
+        ];
+        let a = chain.contains(p);
+        let local = frame.local(p);
+        let b = s.member(&["ring", "box", "gear"], local);
+        inside += usize::from(a);
+        if a != b {
+            disagree += 1;
+            if disagree <= 5 {
+                println!("disagree at {p:?} (local {local:?}): document {a} inline {b}");
+            }
+        }
+    }
+    println!("{n} points, {inside} inside, {disagree} disagreements");
+    assert_eq!(disagree, 0);
+}

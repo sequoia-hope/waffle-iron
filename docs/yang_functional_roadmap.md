@@ -1235,12 +1235,37 @@ name, never measured).
    mesh's χ is a verdict only once the mesh is certified — closed,
    manifold, AND no face inside the operands' exact union; the lattice's
    instability on the tessellated operands was the tessellations' slivers,
-   not a graze. Next: generalise the exact predicates into
-   `assay::topology_oracle` (an analytic-membership route for all-boss
-   extrude/revolve chains — polygon, circle, gear profiles) so this
-   adjudication is an instrument; the emission arm's flip (R0044's
-   minimal set is now the emission chain alone); the Stage-1 partial-patch
-   re-entry behind it.
+   not a graze.
+   **The exact-membership oracle** (same session, later):
+   `assay::exact_membership` generalises the predicates to any corpus
+   document (polygon / circle / involute-gear profiles; extrude and
+   revolve with the feature engine's direction, symmetric / second-depth,
+   through-all and cut auto-reversal semantics; bosses union, cuts
+   subtract) and reads χ, components and VOLUME on a lattice laid in the
+   document's sketch frame. Validated on the pinned adjudications
+   (F0001, R0053, R0011, R0099, C0075, R0063; R0091's volume) — and the
+   first corpus sweep against the kernel's own result volumes found
+   three silent-wrong classes that NO mesh-borne oracle can see, all
+   SUPPORTED_CORRECT today (`docs/audits/exact_membership_sweep_2026_09_
+   03.md`): **(A)** a boolean-output torus BAND spanning > 180° is
+   tessellated as its complementary wedge (R0091's untouched 219.4°
+   revolve comes back as the 140.6° gap after the cut; anchored at
+   yang-rs `tessellate_torus_patch`'s band case — the principal-branch
+   longitude interval instead of the orientation-dictated side);
+   **(B)** revolve ∖ revolve subtracts keep/drop the wrong patches when
+   the operands barely or never meet (R0045: disjoint operands, 7 % of
+   the boss kept at a third location; R0096); **(C)** a cut whose tool
+   contains the whole body removes nothing (R0034: yang-rs runs the
+   subtract on the un-reversed cylinder and returns the box intact;
+   R0007, R0027, R0088 read EMPTY exactly). The categorized runner never
+   calls `check_volume_monotonicity` and skips the composition oracle on
+   cut chains, which is how all of these passed. Lattice scope
+   (tapered features, sub-cell gaps, frame alignment) is in the audit.
+   Next: fix class A (orientation-dictated band side; the anchor is
+   named); anchor classes B and C with per-patch classification censuses
+   (a synthetic box-inside-cylinder subtract for C); add the exact volume
+   to the categorized runner for cut chains; then the emission arm's flip
+   and the Stage-1 partial-patch re-entry.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the

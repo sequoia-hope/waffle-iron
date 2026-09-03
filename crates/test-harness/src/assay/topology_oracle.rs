@@ -172,6 +172,50 @@ impl VoxelGrid {
         comps
     }
 
+    /// Cube counts of the face-connected components, largest first — dust
+    /// (a handful of cubes) tells a lattice sliver from a genuine body.
+    pub fn component_sizes(&self) -> Vec<usize> {
+        let mut seen = vec![false; self.occ.len()];
+        let mut sizes = Vec::new();
+        let mut stack: Vec<(usize, usize, usize)> = Vec::new();
+        for k in 0..self.n[2] {
+            for j in 0..self.n[1] {
+                for i in 0..self.n[0] {
+                    let id = self.idx(i, j, k);
+                    if !self.occ[id] || seen[id] {
+                        continue;
+                    }
+                    let mut size = 0usize;
+                    seen[id] = true;
+                    stack.push((i, j, k));
+                    while let Some((a, b, c)) = stack.pop() {
+                        size += 1;
+                        let nbrs = [
+                            (a.wrapping_sub(1), b, c),
+                            (a + 1, b, c),
+                            (a, b.wrapping_sub(1), c),
+                            (a, b + 1, c),
+                            (a, b, c.wrapping_sub(1)),
+                            (a, b, c + 1),
+                        ];
+                        for (x, y, z) in nbrs {
+                            if self.occupied(x, y, z) {
+                                let q = self.idx(x, y, z);
+                                if !seen[q] {
+                                    seen[q] = true;
+                                    stack.push((x, y, z));
+                                }
+                            }
+                        }
+                    }
+                    sizes.push(size);
+                }
+            }
+        }
+        sizes.sort_unstable_by(|a, b| b.cmp(a));
+        sizes
+    }
+
     /// The readout of this in-memory grid.
     pub fn readout(&self) -> TopologyReadout {
         TopologyReadout {
