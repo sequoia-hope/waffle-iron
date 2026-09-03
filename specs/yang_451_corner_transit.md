@@ -3213,6 +3213,32 @@ the `UNSUPPORTED(curved-profile)` family); the emission arm's own flip
 (zero corpus deltas without `TRANSIT`+`SPAIR`, so its two proofs are
 byte-identity plus the R0044 probe); the seven other R0044 fires.
 
+**Addendum (same session) — WHERE R0053 loses the fourteen handles: at
+Stage 0–2, not at the surface-pair arm.** `YANG_CHI_AUDIT=1` on R0053, with
+and without `YANG_453_SPAIR`, reads identically through Stage 2: op-1
+(rect revolve ∪ box) inputs χ = 2 / 2 → `stage2-kept-submesh V(70) − E(210)
++ F(140) = 0` (genus 1, the box bridging the C-ring — the reference agrees);
+op-2 (∪ gear revolve) inputs χ = 0 / 2 → **`stage2-kept-submesh V(15931) −
+E(47793) + F(31862) = 0`** — genus 1 already, every edge 2-used, zero
+pinches, before any Stage-4 arm runs. The `SPAIR` arm changes nothing
+topological (post-construct 15504 / 46512 / 31008 = 0 with it, 15538 /
+46614 / 31076 = 0 without). So the arm is exonerated as designed; the
+handles are absent from the exact arrangement's kept set. Stage 0 IS active
+on both booleans (`stage0: true`, one opposite-facing coplanar pair each —
+the box's base flush with the revolves' θ = 0 caps), and Stage 1 tessellates
+the gear at 16128 raw / 17369 overlaid vertices against the harness's
+27776. A like-for-like reference on yang's OWN Stage-2 inputs
+(`YANG_STAGE0_DUMP_DIR`, then the sidecar) is INCONCLUSIVE: on the overlaid
+meshes the sidecar returns non-manifold results (op-1: 4 non-manifold
+edges, χ = 1; op-2: 264 boundary + 578 non-manifold edges, χ = 0) — its
+documented limitation on fully implicit coplanar patches — so the reference
+verdict stands only on the independently tessellated operands (genus 15,
+closed, manifold). Whether the tunnels are analytic truth (the gear tips
+penetrate the ring; yang's coarser tips fall short — a §4.5.2 resolution
+question) or a tessellation-side artefact of a tangent graze is exactly the
+M8 coplanar-graze adjudication R0053 has always owed, now with its stage
+named: the classification/overlay at Stage 0–2, not Stage 4.
+
 ## 3ag. inc-3a — the CORRIDOR arm and the TORUS chart FLIPPED always-on
 (LANDED 2026-09-03; the epic's first two conversions enter the canonical
 score: 273C → 275C)
