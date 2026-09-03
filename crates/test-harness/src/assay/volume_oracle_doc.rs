@@ -240,3 +240,51 @@ pub fn evaluate_composition(
         CompositionVerdict::Flag { rel, band }
     }
 }
+
+/// The document with every feature from the `keep_ops`-th operation on
+/// removed — the sketches that only the dropped ops referenced go with them,
+/// and the rollback index is cleared. `None` when the document shape is not
+/// the corpus's.
+///
+/// For probing a PREFIX of a chain in isolation: R0044's union completes
+/// under the corner-transit gate set and the case then stops at its cut's
+/// typed NotSupported, so the categorized runner never validates the union
+/// (spec `yang_451_corner_transit.md`, inc-2c-3b-12b-11).
+pub fn truncate_ops(waffle: &serde_json::Value, keep_ops: usize) -> Option<serde_json::Value> {
+    let mut doc = waffle.clone();
+    let list = doc
+        .pointer_mut("/tabs/0/kind/features/features")?
+        .as_array_mut()?;
+    let is_sketch = |f: &serde_json::Value| f.pointer("/operation/type") == Some(&"Sketch".into());
+    let mut kept: Vec<serde_json::Value> = Vec::new();
+    let mut ops_seen = 0usize;
+    for f in list.iter() {
+        if !is_sketch(f) {
+            if ops_seen == keep_ops {
+                break;
+            }
+            ops_seen += 1;
+        }
+        kept.push(f.clone());
+    }
+    // Drop sketches no kept op references.
+    let referenced: Vec<String> = kept
+        .iter()
+        .filter_map(|f| {
+            f.pointer("/operation/params/sketch_id")?
+                .as_str()
+                .map(str::to_string)
+        })
+        .collect();
+    kept.retain(|f| {
+        !is_sketch(f)
+            || f.pointer("/operation/sketch/id")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|id| referenced.iter().any(|r| r == id))
+    });
+    *list = kept;
+    if let Some(ai) = doc.pointer_mut("/tabs/0/kind/features/active_index") {
+        *ai = serde_json::Value::Null;
+    }
+    Some(doc)
+}

@@ -375,6 +375,31 @@ true verdict with `single_case` before comparing.
 > `git checkout app/tests/cases/assay/results.json` before committing — don't
 > commit artifact timeouts as if they were true verdicts.
 
+## Topology adjudication — the independent topology oracle
+
+The corpus's `oracles.euler_target` is AUTHORED (genus 0 assumed), not
+measured. When the kernel's output contradicts it, adjudicate before touching
+either (R0011 precedent: genus 1 was TRUE and the meta was corrected):
+
+```bash
+# Lattice ladder over the SET UNION of the isolated operand solids (cheap first look;
+# an UNSTABLE ladder across resolutions/phases means the operands GRAZE):
+ASSAY_CASE=R0053 TOPO_GRIDS=256,1024 TOPO_PHASE=0.25,0.5,0.75 \
+  cargo test -p test-harness --test assay_topology_oracle --release -- --ignored --nocapture adjudicate_case
+# The REFERENCE: the Cherchi 2022 sidecar unions the operand tessellations (chained
+# pairwise, the kernel's own order) and V − E + F / shells are read off its result;
+# the kernel's output is read by the runner's Euler oracle alongside:
+ASSAY_CASE=R0053 TOPO_GRIDS=16 TOPO_SIDECAR=1 \
+  cargo test -p test-harness --test assay_topology_oracle --release -- --ignored --nocapture adjudicate_case
+```
+
+`TOPO_KEEP_OPS=k` truncates the document to its first `k` ops (a chain
+prefix); gate env vars apply to the kernel side. Needs the sidecar
+(`scripts/build_sidecars.sh`). Cut chains are not covered (the tool is not
+re-authored). Measured 2026-09-03: R0044's union reads genus 1 by reference
+= the kernel's; R0053 reads genus 15 by reference vs the kernel's 1 under
+`YANG_453_SPAIR` (spec `yang_451_corner_transit.md` §3af).
+
 ## Assay UI snapshot (`results.json`) — a committed file served on GitHub Pages
 
 The in-app **AssayBrowser** shows per-case pass/fail/error status by fetching

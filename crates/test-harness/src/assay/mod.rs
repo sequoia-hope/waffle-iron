@@ -27,6 +27,8 @@ pub mod runner;
 pub mod scoring;
 pub mod strategies;
 pub mod strategies_v2;
+/// Independent topology oracle — genus of the composed operand solids.
+pub mod topology_oracle;
 /// Independent geometric oracle (spec `specs/assay_independent_volume_oracle.md`).
 pub mod volume_oracle;
 pub mod volume_oracle_doc;

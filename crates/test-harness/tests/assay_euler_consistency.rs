@@ -12,7 +12,13 @@
 //!
 //! **What it can and cannot do — read before extending.** The strongest guard
 //! (derive χ = V−E+F independently from a reference mesh and diff it against
-//! `euler_target`) is NOT implementable here: no reference mesh or measured
+//! `euler_target`) is NOT implementable HERE (mesh-free, always-on): no
+//! reference mesh or measured V/E/F is checked in. It IS available as a
+//! manual instrument since 2026-09-03 — `assay_topology_oracle` with
+//! `TOPO_SIDECAR=1` unions the isolated operand tessellations through the
+//! Cherchi sidecar and reads χ and the shell count off the result (see
+//! `docs/TESTING.md` § "Topology adjudication"). Original note: no reference
+//! mesh or measured
 //! V/E/F is checked into the repo (`.meta.json` carries only scalar oracle
 //! targets), and the only artifact with a measured result
 //! (`target/assay_kv2_report.json`) stores a pass/fail *category* string, not

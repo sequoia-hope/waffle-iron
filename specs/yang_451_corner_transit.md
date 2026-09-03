@@ -3068,6 +3068,151 @@ downstream bookkeeping (the nine mints as exact junction/crease vertices
 for the standing-junction certificate and the Stage-5 ring walk) is
 unmeasured until a case reaches them.
 
+## 3af. inc-2c-3b-12b-11 — the CORPUS under the gate set, the union CERTIFIED,
+and the TOPOLOGY reference (LANDED, instruments only; no kernel change)
+
+§3ae landed the write and left the run at "the standing v8 wall" — measured
+with the emission's own gates alone. The v8 wall is the CORRIDOR family's
+(`YANG_451_TRANSIT`, §3j), not the emission's; the two arms had never been
+run together. This increment runs them together, corpus-wide, attributes
+every delta to its knob, and — because the categorized runner never sees a
+union whose case then stops at a later op — validates R0044's union on its
+own, against every oracle the runner has and against the reference.
+
+**Reading 1 — with the four-knob set (§3s) AND the emission, R0044's union
+COMPLETES and the case moves to a typed boundary.** Same binary, single case:
+
+| gates | outcome |
+|---|---|
+| none | ERROR — `RelocationCrossedCarrierVertex` at v8 (canonical) |
+| emission chain only (`TRIPLE_DOMAIN=census`+`ANATOMY`+`EMIT`) | WRITTEN at v47, then the v8 wall (§3ae's reading) |
+| four knobs, no emission | ERROR — `FaceId(627)` ring rejected (§3s's standing wall) |
+| four knobs + emission | **`UNSUPPORTED(curved-profile)`** — the union completes; the circle CUT refuses at Stage 1: `curved partial-patch operand face FaceId(458) [curved lateral degree-4 boundary (surface-pair edge)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)` |
+
+Ablating one knob at a time with the emission on: without `YANG_453_SPAIR`
+the union stops at `FaceId(459)` (§3s's fold); without `YANG_451_TRANSIT` at
+v8; without `YANG_441_TORUS_CHART` it converts; without
+`KV2_ARC_CONFORM_CURVES` it converts. **R0044's minimal converting set is
+therefore `YANG_451_TRANSIT=1 YANG_453_SPAIR=1` plus the emission** — the
+§3ae refinement put exact crease vertices on face 626's rails, so inc-8b's
+pool-arc inserts (§3s) are no longer needed at this site. The census chain
+past v47 is unchanged: v75/v76/v59 `TransitLeavesNeighbour`, v89/v39/v105
+`PastNeighbour`, v38 `ChainAbsent`; op-2's v105 retry `ChordDegradation`
+wall stands.
+
+**Reading 2 — the corpus under the full set is fully attributed, and the one
+WRONG is the surface-pair arm's known R0053, not the emission's.** Full
+corpus, release, 8 jobs, 360 s CPU budget, wall 581.5 s, F0085 309.3 s,
+under `YANG_451_TRANSIT=1 YANG_441_TORUS_CHART=1 YANG_453_SPAIR=1
+KV2_ARC_CONFORM_CURVES=1 YANG_451_TRIPLE_DOMAIN=census
+YANG_451_TRANSIT_ANATOMY=1 YANG_451_TRANSIT_EMIT=1`:
+**275C / 1W / 30E / 1EE / 0T (+5 UNSUPPORTED)** against the canonical
+273C / 0W / 34E / 1EE / 0T (+4). Exactly four cases move:
+
+| case | canonical | gated | knob |
+|---|---|---|---|
+| R0011 | ERROR (v27 crossed carrier) | SUPPORTED_CORRECT | `YANG_451_TRANSIT` (§3j) |
+| R0074 | ERROR (v91 off-curve) | SUPPORTED_CORRECT | `YANG_441_TORUS_CHART` (§3k) |
+| R0044 | ERROR (v8) | UNSUPPORTED(curved-profile) | `TRANSIT` + `SPAIR` + emission |
+| R0053 | ERROR (`FaceId(474)` ring) | **SUPPORTED_WRONG** χ = 0 vs 2 | `YANG_453_SPAIR` alone |
+
+R0053 single-knob runs: gates off, `TRANSIT`, `TORUS_CHART`, `ARC_CONFORM`
+each keep the `FaceId(474)` ERROR; `SPAIR` alone completes at
+`V(28014) − E(84040) + F(56026) = 0`; all four at `28016 / 84046 / 56030 = 0`.
+The emission arm has no work anywhere but R0044 v47 (§3y: R0003 yields no
+edits), and the corpus confirms it: zero deltas beyond the four.
+
+**Reading 3 — R0044's union passes every oracle the runner has, and the one
+it "fails" is an authored expectation the reference overturns.** A gated
+probe (`tests/s451_r0044_union_probe.rs`) truncates the document to the two
+revolves and runs the runner's full validation on the union (gates off it
+reports the v8 wall — the control):
+
+| oracle | reading |
+|---|---|
+| watertight | all residue edges paired (86046 exact-closed, 6 residue, T-junction-subdivided) |
+| consistent / outward / unit normals | 57367 / 57367; 100 % outward; 58241 unit |
+| degenerate / indices / face ranges | none / all valid / 469 ranges, no gaps |
+| self-intersection | none (109746 face pairs) |
+| signed volume | 1.017912e11 (magnitude in band) |
+| volume composition (§oracle, grid 64) | **Agree** rel 4.661e−5 ≤ band 2.696e−4 |
+| Euler | `V(28685) − E(86052) + F(57367) = 0`, 1 shell — genus 1 |
+
+The corpus meta's `euler_target = 2` names the three-op result and assumes
+genus 0 throughout; for this prefix the expectation had to be ADJUDICATED,
+not assumed (the R0011 precedent, `euler_target = 0`).
+
+**Reading 4 — a lattice cannot adjudicate a grazing union; the reference
+can.** A new independent TOPOLOGY oracle (`assay::topology_oracle`) voxelises
+the SET UNION of the isolated operand solids — the volume oracle's own
+trusted route — and reads the cubical complex's `V − E + F − C`, streaming
+two layers at a time (1536³ in 36 s; 4096³ in 8.6 min), with a lattice-phase
+control. Every synthetic shape reads exactly (ball 1, torus 0, genus-2 −1,
+two balls 2, cavity 2; streamed ≡ in-memory, phase-invariant — 12 unit
+tests). On the corpus it does NOT converge:
+
+| case | n (phase ½) | χ |
+|---|---|---|
+| R0053 composed | 64 / 128 / 256 / 384 / 512 / 768 / 1024 / 1536 / 2048 / 3072 | −2 / 0 / 0 / 5 / 8 / −1 / 0 / 0 / 26 / 1 |
+| R0053 composed, phase ¼ / ¾ | 1024; 1536 | −13 / 12; 19 / −20 |
+| R0044 union composed | 128 / 256 / 512 / 1024 / 2048 / 4096 | 0 / 0 / 1 / 0 / 0 / −2 |
+| R0044 union, phase ¼ / ¾ | 1024 | 1 / −1 |
+
+(one face-connected component throughout; the KERNEL outputs voxelise
+IDENTICALLY to the composed operands at every rung tried — cube counts
+within 0.004 % — so at the lattice's resolution the kernel result is
+set-equal to the true union in both cases.) The swings are the lattice
+aliasing features that are thin at EVERY scale — the signature of operands
+that GRAZE — so the instrument reports UNSTABLE and decides nothing. The
+reference does: the Cherchi 2022 sidecar (roadmap §6) unions the operand
+tessellations exactly, chained pairwise in operation order (its N-way form
+refuses R0053 with *"a fully implicit patch that requires exact rationals"*
+— the coplanar-graze signature), and `V − E + F` is read off its result
+(`cherchi_sidecar::surface_topology`, exact-welded, shells and edge
+manifoldness counted):
+
+| case | reference union | kernel |
+|---|---|---|
+| R0044 revolve ∪ revolve | `V 28111 − E 84333 + F 56222 = 0`, 1 closed manifold shell — **genus 1** | χ = 0, 1 shell — **agrees** |
+| R0053 ops 0..1 (rect revolve ∪ box) | χ = 0 — genus 1 (the box bridges the C-ring) | — |
+| R0053 ops 0..2 (∪ gear revolve) | `V 26031 − E 78177 + F 52118 = −28`, 1 closed manifold shell — **genus 15** | χ = 0 under `SPAIR` — **14 handles short** |
+
+Both gears carry 16 teeth; the fourteen extra handles are the gear's grooves
+tunnelling under the ring at the graze. (The operand tessellations are
+resolution-fixed — 55548 triangles for the gear revolve at either scale,
+unchanged under `ORACLE_TOL_SCALE` 0.3 / 1 / 3 because the oracle tolerance
+clamps at 1e−3 — so tessellation-invariance of the reference genus is NOT
+measured here; recorded, not assumed.)
+
+**What this decides.**
+
+1. **The epic's target conversion is real.** R0044's union — the standing
+   `FaceId(627)` / v8 walls — completes under `TRANSIT + SPAIR + emission`
+   and is CORRECT by every runner oracle and by reference topology. The
+   case's next wall is a different capability: the cut's operand is a
+   curved boolean result whose surface-pair-bounded lateral cannot re-enter
+   Stage 1 (partial-patch tessellation; the existing `UNSUPPORTED(curved-
+   profile)` boundary, now with a third customer).
+2. **§3s's flip condition is adjudicated, on its second branch.** R0053's
+   completion under `YANG_453_SPAIR` is a genuine silent-wrong: the loud
+   `FaceId(474)` stop was masking an M8 coplanar-graze defect the arm has
+   nothing to do with, and the authored χ = 2 catching it is luck (the
+   reference says −28; neither 2 nor 0 is the truth). `SPAIR` stays gated;
+   its flip waits on M8 Stage-0 making the graze LOUD at R0053 — the P10
+   route — never on a band. Because R0044's minimal set needs `SPAIR`,
+   R0044's conversion is queued behind that.
+3. **An authored `euler_target` can now be adjudicated by instrument** —
+   `assay_topology_oracle` (`TOPO_SIDECAR=1`) — instead of by hand; the
+   lattice ladder is the cheap first look, and its instability is itself
+   a graze detector.
+
+**Not built here.** No kernel code changed — the canonical corpus is
+byte-identical by construction. Open: M8 Stage-0 at R0053 (the `SPAIR`
+flip condition); the Stage-1 partial-patch re-entry (R0044's new wall and
+the `UNSUPPORTED(curved-profile)` family); the emission arm's own flip
+(zero corpus deltas without `TRANSIT`+`SPAIR`, so its two proofs are
+byte-identity plus the R0044 probe); the seven other R0044 fires.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -3562,6 +3707,25 @@ unmeasured until a case reaches them.
   panicked in the PRINTER (two-mint assumption), reported as TIMEOUT —
   fixed. 4 new tests (narrow band halving; the cascade fixture's matched
   splits; the cap).
+- **inc-2c-3b-12b-11** (2026-09-03): the CORPUS under the gate set, the
+  union CERTIFIED, the TOPOLOGY reference (§3af; instruments only, no
+  kernel change). Four-knob set + emission: R0044's union COMPLETES and the
+  case moves to `UNSUPPORTED(curved-profile)` (the cut's partial-patch
+  Stage-1 re-entry); minimal converting set `TRANSIT + SPAIR + emission`
+  (torus chart and arc-conform no longer needed at this site). Full corpus
+  gated 275C/1W/30E/1EE/0T (+5 UNSUPPORTED) vs canonical 273C/0W/34E/1EE/0T
+  (+4): R0011 (`TRANSIT`), R0074 (`TORUS_CHART`), R0044, and R0053 E→W by
+  `SPAIR` alone (single-knob attributed). Union-only probe
+  (`s451_r0044_union_probe`): every runner oracle passes, composition Agree
+  rel 4.66e−5, Euler 0 with 1 shell. New independent topology oracle
+  (`assay::topology_oracle`, streaming cubical χ, phase control): exact on
+  synthetic shapes, UNSTABLE on both grazing unions (χ swings −20…+26 across
+  phase/resolution); the Cherchi sidecar reference (chained pairwise;
+  `cherchi_sidecar::surface_topology`) reads R0044's union genus 1 = the
+  kernel's, and R0053's genus 15 vs the kernel's 1 under `SPAIR` ⇒ §3s's
+  flip condition adjudicated as a genuine M8 silent-wrong; `SPAIR` stays
+  gated pending M8 Stage-0 at R0053, and R0044's conversion queues behind
+  it. 16 new unit tests; clippy clean.
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

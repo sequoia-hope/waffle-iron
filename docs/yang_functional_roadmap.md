@@ -1146,6 +1146,41 @@ name, never measured).
    the job cap raised 60 → 120 min for the honest run; green again.
    Next: the other seven R0044 fires (`ChainAbsent`, `AlreadyCarried`,
    `TransitLeavesNeighbour`) and the v8 wall; the write arm stays gated.
+   **inc-2c-3b-12b-11** (2026-09-03; spec §3af; instruments only, no kernel
+   change) ran the emission TOGETHER with the corridor set for the first
+   time. Four knobs + emission: **R0044's union COMPLETES** — the standing
+   `FaceId(627)` / v8 walls fall — and the case moves to
+   `UNSUPPORTED(curved-profile)`, the circle cut refusing at Stage 1 because
+   its operand is a curved boolean result with a surface-pair-bounded
+   lateral (no partial-patch tessellation yet). Ablation: the minimal set is
+   `YANG_451_TRANSIT=1 YANG_453_SPAIR=1` + the emission (the §4.5.2 crease
+   refinement made inc-8b's pool inserts unnecessary at this site). Full
+   corpus under the whole set: 275C/1W/30E/1EE/0T (+5 UNSUPPORTED) against
+   canonical 273C/0W/34E/1EE/0T (+4), every delta attributed by single-knob
+   runs — R0011 (`TRANSIT`), R0074 (`TORUS_CHART`), R0044, and the ONE
+   WRONG, R0053, by `YANG_453_SPAIR` alone (known from §3s). A union-only
+   probe (`tests/s451_r0044_union_probe.rs`) runs the runner's full oracle
+   set on R0044's union: watertight, normals, no self-intersection, volume
+   composition Agree (rel 4.66e−5), Euler χ = 0 with one shell. Whether
+   that genus is right was ADJUDICATED by two new instruments: an
+   independent voxel topology oracle (`assay::topology_oracle`, streaming
+   cubical χ to 4096³, lattice-phase control; exact on synthetic shapes) is
+   UNSTABLE on both grazing unions and so decides nothing; the Cherchi
+   sidecar reference (chained pairwise; `cherchi_sidecar::surface_topology`)
+   reads R0044's union as one closed shell of **genus 1 — the kernel's
+   reading**, and R0053's union as **genus 15** where the kernel under
+   `SPAIR` reads 1 (fourteen gear-groove tunnels at the coplanar graze; the
+   sidecar's N-way form refuses R0053 with "a fully implicit patch that
+   requires exact rationals"). So the epic's target conversion is real and
+   certified, and §3s's `SPAIR` flip condition is adjudicated on its
+   second branch: a genuine M8 silent-wrong that the loud `FaceId(474)`
+   stop had been masking. `SPAIR` stays gated pending M8 Stage-0 making the
+   graze loud at R0053; R0044's conversion queues behind it. Also: an
+   authored `euler_target` can now be adjudicated by instrument
+   (`assay_topology_oracle`, `TOPO_SIDECAR=1`).
+   Next: M8 Stage-0 at R0053 (the `SPAIR` flip condition); the Stage-1
+   partial-patch re-entry (R0044's new wall, the `UNSUPPORTED(curved-
+   profile)` family); the emission arm's own flip.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the
