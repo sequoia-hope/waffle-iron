@@ -30,17 +30,20 @@ pub(crate) fn sweep_reversed_intersections(
     let pair_arm_census = matches!(pair_arm.as_deref(), Ok("census"));
     let pair_arm_act = !pair_arm_census && !matches!(pair_arm.as_deref(), Ok("0") | Ok("off"));
     // inc-2c-3b-10 (spec `yang_451_corner_transit` §3s): the SURFACE-PAIR
-    // tangent arm, GATED default OFF. The gated corpus run measured ONE
-    // E→W flip — R0053 (the M8 coplanar-graze case): its fold's ring
-    // rejection was the loud stop masking the coplanar capability gap, and
-    // collapsing the fold completes the case with χ=0 against the authored
-    // 2. The flip condition is R0053's χ adjudication (the R0011
-    // euler_target precedent) or the M8 Stage-0 capability — never a
-    // narrower band. `1|on` = act; unset/`0`/`off` = the SurfacePair
-    // admission is inert (byte-identical corpus).
-    let spair_act = matches!(
+    // tangent arm. Gated default-OFF from 2026-08-31 because the gated
+    // corpus run measured ONE E→W flip — R0053, whose completion read χ=0
+    // against the authored 2; the flip condition was R0053's χ
+    // adjudication (the R0011 `euler_target` precedent). FLIPPED ALWAYS-ON
+    // 2026-09-03 (spec §3ah): the union is genus 1 by EXACT analytic
+    // membership on a stable resolution ladder (χ=0 at h = 2…0.4, two
+    // lattice phases), the authored 2 was the authoring default, the meta
+    // is corrected and pinned, and the sidecar's contrary "genus 15" was a
+    // mesh with 606 faces inside the true solid. Household pattern:
+    // unset/other = act; `0`/`off` = the dev A/B off-knob (the SurfacePair
+    // admission inert — the pre-flip corpus, byte-identical).
+    let spair_act = !matches!(
         std::env::var("YANG_453_SPAIR").as_deref(),
-        Ok("1") | Ok("on")
+        Ok("0") | Ok("off")
     );
 
     let mut collapsed_any = false;

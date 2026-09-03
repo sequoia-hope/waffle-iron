@@ -3213,6 +3213,13 @@ the `UNSUPPORTED(curved-profile)` family); the emission arm's own flip
 (zero corpus deltas without `TRANSIT`+`SPAIR`, so its two proofs are
 byte-identity plus the R0044 probe); the seven other R0044 fires.
 
+> **SUPERSEDED (§3ah, 2026-09-03).** Readings 4's R0053 verdict and the
+> addendum below are RETRACTED: by exact analytic membership on a stable
+> ladder the union is genus 1 — the kernel's reading — and the sidecar's
+> genus-15 mesh has 606 faces strictly inside the true solid. There are no
+> fourteen handles; §3s's flip condition is met on its first branch. The
+> text is kept as the record of how a mesh-borne reference misadjudicated.
+
 **Addendum (same session) — WHERE R0053 loses the fourteen handles: at
 Stage 0–2, not at the surface-pair arm.** `YANG_CHI_AUDIT=1` on R0053, with
 and without `YANG_453_SPAIR`, reads identically through Stage 2: op-1
@@ -3265,6 +3272,133 @@ failed; the torus-chart knob test now sets `0` explicitly for its off-arm.
 (§3af: `SPAIR` waits on M8 at R0053; the other two convert nothing on their
 own). **New canonical: 275C / 0W / 32E / 1EE / 0T.** R0044 now walls
 canonically at `FaceId(459)` — the §3s surface-pair fold — instead of v8.
+
+## 3ah. inc-3b — R0053 ADJUDICATED by exact membership: genus 1, the
+authored χ was the default, the sidecar reference was a mesh inside the
+solid; `YANG_453_SPAIR` FLIPPED always-on (LANDED 2026-09-03)
+
+§3af closed on two readings of R0053's union that both went through a
+mesh: the lattice ladder over the operand TESSELLATIONS (unstable) and the
+Cherchi sidecar's union of those same tessellations (χ = −28, "genus 15",
+attributed to "fourteen gear-groove tunnels at the graze" — an inference,
+never located). Its addendum then found the exact arrangement's kept
+submesh already at genus 1 and named "the overlay/classification at Stage
+0–2" as where the fourteen handles were lost. This increment removes the
+mesh from the question and finds there were never fourteen handles to
+lose.
+
+**The configuration, measured from the authored numbers.** All three
+sketches share one plane; the sketch x axis is the revolve axis direction
+(`SketchPlaneBasis` puts `x̂ = −â` exactly). In the sketch frame `(u, v, w)`
+(`w` = the plane normal, the extrude's direction): the ring is the
+rectangle `|u| ≤ 20.814, |v| ≤ 44.556` revolved 287.61° about the line
+`v = −62.443` (radial band 17.89…107.00), the box is `|u| ≤ 41.494,
+|v| ≤ 52.075, w ∈ [0, 100.27]`, and the gear (16 teeth, module 7.455:
+root 50.323, base 56.046, addendum 67.098; half-tooth 6.479° at the base,
+2.119° at the tip) is revolved 301.92° about the PARALLEL line
+`v = −89.464`, 27.021 further out. Both revolves sweep toward `−w` first
+(`m̂ = â × ŵ = −n̂`), so their gaps lie on the box's side and the box
+bridges the C-ring (§3af's op-1 reading, confirmed). The ring's
+cross-section lives entirely inside the gear's axial band `|u| ≤ 20.814`,
+so it can meet only the teeth whose flanks reach that band: a census of
+the ring solid against the gear's meridian disc
+(`s453_r0053_exact_topology::r0053_ring_vs_teeth`) finds ring material in
+exactly THREE teeth — 247.5°, 270°, 292.5° — and in their two grooves from
+the root radius up to the addendum, i.e. the ring FILLS those grooves
+from the root side and embeds the teeth; it never covers a groove with an
+open floor. Thirteen teeth never touch the ring at all.
+
+**The exact-membership ladder** (`s453_r0053_exact_topology::
+r0053_exact_ladder`): each operand is a closed-form point predicate — the
+revolves through `(ρ, θ, v_unrotated)` with kernel-v2's sign conventions,
+the gear disc through the involute half-width `π/(2N) + inv(α) − inv(t)`,
+`t = √((r/r_b)² − 1)` — and the cubical `V − E + F − C` of the SET UNION is
+read on the in-memory grid (`VoxelGrid::from_fn`) over the joint bounding
+box at cell size `h`:
+
+| set | h = 2 | 1 | 0.7 | 0.5 | 0.4 | phase ¼ at 0.7 / 0.5 / 0.4 |
+|---|---|---|---|---|---|---|
+| ring / box / gear alone | 1 / 1 / 1 | 1 / 1 / 1 | | | | |
+| ring ∪ box | 0 | 0 | | | | |
+| ring ∪ gear | | | 1 | 1 | 1 | 1 / 1 / 1 |
+| **ring ∪ box ∪ gear** | **0** | **0** | **0** | **0** | **0** | **0 / 0 / 0** |
+
+One face-connected component throughout; the finest rung is 94.7 M cubes
+(`n = [346, 793, 793]`, 7.9 s). A predicate cannot alias a coplanar
+overlap (the union is solid across the shared plane) and cannot mint a
+sliver, so the ladder has nothing to be unstable about — and it is not.
+**R0053's union is genus 1** (χ_solid 0, boundary χ 0, one shell): the box
+bridges the C-ring, and the gear adds no handle. Volume 6.062e6 ± 0.1 %
+across rungs.
+
+**The kernel is right; the reference was never the union's boundary.**
+Face-by-face classification against the exact predicate (probe each
+centroid ± δ along its normal, δ = 0.05…2.0; a boundary face has inside
+on one side and outside on the other at the smallest δ that clears the
+chord band):
+
+| mesh | faces | strictly INSIDE the exact solid | strictly outside | where |
+|---|---|---|---|---|
+| kernel-v2 operand tessellations (controls) | 468 / 12 / 55548 | 0 | 0 | — (every face within 0.5 of the exact surface: the predicates match the kernel's gear) |
+| sidecar ring ∪ box | 552 | 9 (area ≈ 4011) | 0 | the ring's θ = 0 cap region, solid on both sides |
+| **sidecar ring ∪ box ∪ gear (χ = −28)** | 52118 | **606 in 65 clusters** (largest 85 faces, area 1552, the gear-cap ∩ box-base overlap at `w = 0`; then 59 / 59 / 45 / 28 / 14 / 13 / 11 more coplanar membranes) | 5 | membranes at the shared plane, and sliver strips of area 0.06–0.5 at `u = ±20.814` along the ring-end / tooth-flank crossings (φ ≈ 251° and 289°, r ≈ 64.4–65.4; eleven such strips among the twenty largest clusters, at θ₂ = 43°…286°) |
+| **kernel-v2 R0053 under `SPAIR`** | 56026 | **38** (4 × 9 micro-faces of area 0.011 at the box-edge / root-arc crossings, 2 faces of area 0.35 on the root arc) | 1 (area 0) | all at `w = 0` inside the root arc's chord band — tessellation-band residue, not geometry |
+
+The sidecar meshes are closed 2-manifolds (0 boundary, 0 non-manifold
+edges); dropping their inside faces leaves 13 / 670 boundary edges, so
+the false walls are WOVEN INTO the surface — the closed surface runs
+through the solid. Its `V − E + F` is therefore not the union's; "genus
+15" was the pairwise sidecar's coplanar handling on this input (the same
+limitation whose N-way form refuses the case outright), and the fourteen
+"tunnels" were its sliver strips. The kernel's output reads χ = 0 with one
+shell by the runner's Euler oracle (`V(28014) − E(84040) + F(56026)`),
+signed volume 6.048e6 (the tessellated operands' inscribed deficit; the
+sidecar's 6.0479e6 sits at the same value), and carries no face inside the
+exact solid beyond the root arc's chord band.
+
+**What this decides.**
+
+1. **§3s's flip condition is met on its FIRST branch**: R0053's authored
+   `euler_target = 2` was the generator's genus-0 default, refuted by an
+   exact derivation from the authored numbers (the R0011 protocol,
+   `historical_authoring_fixes_pinned`). The meta is corrected to 0 and
+   pinned; the completion under the surface-pair arm is CORRECT.
+2. **§3af's second-branch adjudication is RETRACTED**, and with it the
+   addendum's "handles lost at Stage 0–2" and the M8 silent-wrong at
+   R0053: there is no coplanar-graze defect here for Stage 0 to make loud.
+   Stage 0 handles the flush caps correctly. The lesson is the reference
+   oracle's own (`feedback_reference_oracle_invalidates_in_both_
+   directions`): a reference whose output was not checked against the
+   input's own membership adjudicated a kernel result WRONG that was
+   right. A reference mesh must be certified — closed, manifold, AND no
+   face inside the exact solid — before its χ is a verdict.
+3. **`YANG_453_SPAIR` flips always-on** (household pattern, `0|off` = dev
+   A/B). Two-proof corpus (release, 8 jobs, 360 s CPU budget), with the
+   corrected meta in place for every run:
+
+| run | score (+4 UNSUPPORTED) | `results.json` | wall |
+|---|---|---|---|
+| pre-flip, `YANG_453_SPAIR=1` | 276C / 0W / 31E / 1EE / 0T | vs canonical 275C: exactly TWO moves — R0053 ERROR → SUPPORTED_CORRECT ("all checks passed"); R0044's ERROR detail `FaceId(459)` ring rejected → `FaceId(626)` patch triangulation folded (§3s's reading, the §4.5.3 fold collapsed); nothing else | 557.6 s (F0085 298.8 s) |
+| **post-flip default** | **276C / 0W / 31E / 1EE / 0T** | **BYTE-IDENTICAL to the pre-flip proof** | 571.2 s (F0085 311.6 s, F0065 171.7 s honest) |
+| post-flip `YANG_453_SPAIR=0` | 275C / 0W / 32E / 1EE / 0T | **BYTE-IDENTICAL to the committed canonical** | 532.5 s (F0085 301.6 s) |
+
+The committed `results.json` moves with the conversion (the UI snapshot);
+no smoke-table pin names R0053. **New canonical: 276C / 0W / 31E / 1EE /
+0T.** R0044 now walls canonically at `FaceId(626)` — the KV9-F2 fold on
+the cone face the emission arm (§3ac–§3ae, still gated) repairs — and its
+minimal converting set is now the emission chain alone on top of the
+defaults.
+
+**Instruments landed.** `tests/s453_r0053_exact_topology.rs` (the exact
+predicates, the ladder, the ring-vs-teeth census — R0053's authored numbers
+inline, so the probe reads the same document the corpus does without a
+kernel in the loop) and `tests/s453_r0053_output_obj.rs` (the kernel's
+R0053 output to OBJ for the face classifier). The classifier itself ran
+as a scratch script this session; generalising the exact predicates into
+`assay::topology_oracle` (an analytic-membership route for all-boss
+extrude/revolve chains — polygon, circle and gear profiles) would make
+this adjudication an instrument rather than a hand build, and is the next
+oracle increment.
 
 ## 4. Increment ledger
 
@@ -3786,6 +3920,28 @@ canonically at `FaceId(459)` — the §3s surface-pair fold — instead of v8.
   to the pre-flip two-knob proof — R0011 and R0074 CORRECT, R0044's ERROR
   detail moves v8 → `FaceId(459)`, zero other moves. yang-rs 1276/0;
   `results.json` moved; WASM rebuilt. **New canonical 275C/0W/32E/1EE/0T.**
+- **inc-3b** (2026-09-03, later session; §3ah): R0053 ADJUDICATED by EXACT
+  analytic membership — no mesh anywhere. Closed-form predicates for the
+  three authored operands (`tests/s453_r0053_exact_topology.rs`); the set
+  union's cubical χ = 0 with one component at h = 2 / 1 / 0.7 / 0.5 / 0.4
+  and two lattice phases (94.7 M cubes at the finest) ⇒ **genus 1**, the
+  kernel's reading under `SPAIR`. The ring meets only three teeth
+  (247.5°–292.5°) and fills their grooves from the root side — there were
+  never fourteen handles. Face classification against the predicates: the
+  sidecar's "genus-15" union has 606 faces strictly INSIDE the true solid
+  (coplanar membranes at the shared plane, sliver strips at the ring-end
+  / flank crossings) woven into a closed manifold — not the union's
+  boundary; the kernel's output has 38, all root-arc chord-band residue
+  at `w = 0`. §3af's second-branch verdict and its "lost at Stage 0–2"
+  addendum RETRACTED; the meta's `euler_target` corrected 2 → 0 and
+  pinned (`historical_authoring_fixes_pinned`). **`YANG_453_SPAIR`
+  FLIPPED ALWAYS-ON** (household pattern). Two-proof corpus: pre-flip
+  `SPAIR=1` 276C/0W/31E/1EE/0T (R0053 E→C, R0044's detail
+  `FaceId(459)` → `FaceId(626)`, nothing else); post-flip default
+  BYTE-IDENTICAL to it; post-flip `SPAIR=0` 275C/0W/32E/1EE/0T
+  BYTE-IDENTICAL to the committed canonical. yang-rs suite green; clippy
+  clean; `results.json` moved; WASM rebuilt. **New canonical
+  276C/0W/31E/1EE/0T.**
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

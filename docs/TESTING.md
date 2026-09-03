@@ -397,8 +397,31 @@ ASSAY_CASE=R0053 TOPO_GRIDS=16 TOPO_SIDECAR=1 \
 prefix); gate env vars apply to the kernel side. Needs the sidecar
 (`scripts/build_sidecars.sh`). Cut chains are not covered (the tool is not
 re-authored). Measured 2026-09-03: R0044's union reads genus 1 by reference
-= the kernel's; R0053 reads genus 15 by reference vs the kernel's 1 under
-`YANG_453_SPAIR` (spec `yang_451_corner_transit.md` §3af).
+= the kernel's; R0053 read "genus 15" by reference vs the kernel's 1 under
+`YANG_453_SPAIR` (spec `yang_451_corner_transit.md` §3af) — and that
+reference reading was WRONG (§3ah): the sidecar's mesh was a closed
+manifold with 606 faces strictly inside the true solid. **A reference
+mesh's χ is a verdict only once the mesh itself is certified** — closed,
+manifold, and with no face inside the operands' exact union. The strongest
+adjudication is therefore the one with no mesh in it:
+
+```bash
+# EXACT analytic membership (no tessellation anywhere): closed-form point
+# predicates for the authored operands, cubical χ of their set union on a
+# cell-size ladder with lattice-phase control. R0053's predicates are inline
+# (`s453_r0053_exact_topology.rs`); a general analytic route for all-boss
+# extrude/revolve chains is the next oracle increment.
+EXACT_H=2,1,0.7,0.5,0.4 EXACT_PHASE=0.5,0.25 EXACT_SETS="ring,gear;ring,box,gear" \
+  cargo test -p test-harness --release --test s453_r0053_exact_topology -- --ignored --nocapture r0053_exact_ladder
+# The kernel's R0053 output to OBJ (for face-by-face classification against the predicates):
+cargo test -p test-harness --release --test s453_r0053_output_obj -- --ignored --nocapture
+```
+
+Measured 2026-09-03 (§3ah): R0053's union is genus 1 at every rung and
+phase (94.7 M cubes at the finest); the kernel's output carries no face
+inside the exact solid beyond the root arc's chord band; the meta's
+`euler_target` was corrected 2 → 0 and pinned
+(`assay_euler_consistency::historical_authoring_fixes_pinned`).
 
 ## Assay UI snapshot (`results.json`) — a committed file served on GitHub Pages
 

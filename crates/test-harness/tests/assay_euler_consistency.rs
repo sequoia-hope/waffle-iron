@@ -271,6 +271,40 @@ fn historical_authoring_fixes_pinned() {
         "compute_euler_target(R0011) changed; revisit the frozen-corpus soundness note"
     );
 
+    // R0053 was hand-corrected 2026-09-03 (corner-transit inc-3b, spec
+    // `specs/yang_451_corner_transit.md` §3ah): the naive 3-op default 2
+    // was refuted by EXACT analytic membership — no tessellation anywhere.
+    // The 287.6° rectangle revolve (half-extents 20.81 axial × 44.56
+    // radial, axis 62.44 from the sketch origin), the 100.27-deep box
+    // (41.49 × 52.07) on the same plane, and the 301.9° revolve of the
+    // 16-tooth involute gear (module 7.455; root 50.32, addendum 67.10)
+    // about a parallel axis 27.02 further out are each a closed-form
+    // point predicate (`tests/s453_r0053_exact_topology.rs`); the cubical
+    // χ of their set union reads 0 with one component at cell sizes
+    // 2, 1, 0.7, 0.5 and 0.4 on two lattice phases — ladder-stable, genus
+    // 1: the box bridges the C-ring's gap (the two-op prefix already reads
+    // 0) and the gear adds no handle (ring ∪ gear alone reads 1; the ring
+    // reaches only three teeth, 247.5°–292.5°, and fills their grooves
+    // from the root side). The kernel's completed result under the §4.5.3
+    // surface-pair arm reads χ = 0, one shell, and its output mesh carries
+    // no face inside the exact union beyond the root arc's chord band.
+    // The Cherchi sidecar's contrary reading (χ = −28, "genus 15") was a
+    // closed manifold with 606 faces strictly INSIDE the true solid —
+    // coplanar membranes at the shared plane and sliver strips along the
+    // ring-end/tooth-flank crossings — so it was never the union's
+    // boundary. `compute_euler_target` still returns the conservative 2
+    // for this class BY DESIGN (same divergence-by-design as R0011).
+    let r0053 = load_meta("R0053");
+    assert_eq!(
+        r0053.oracles.euler_target, 0,
+        "R0053 corrected target regressed (must stay genus-1 χ=0)"
+    );
+    assert_eq!(
+        compute_euler_target(&r0053.operations),
+        2,
+        "compute_euler_target(R0053) changed; revisit the frozen-corpus soundness note"
+    );
+
     // C0075 was hand-corrected 2026-08-19: the gen_complexity `tracker(2, …)`
     // default was refuted by an independent 2D derivation — two identical
     // 12-tooth gears (pitch r 0.48, tip 0.56, root 0.38) at centre distance
@@ -314,7 +348,7 @@ fn historical_authoring_fixes_pinned() {
         "R0003 adjudicated shell count regressed (3 shells, main genus 2)"
     );
 
-    eprintln!("historical_authoring_fixes_pinned: R0099, R0006, R0091, R0063, C0075 & R0003 held");
+    eprintln!("historical_authoring_fixes_pinned: R0099, R0006, R0091, R0063, R0011, R0053, C0075 & R0003 held");
 }
 
 /// Check 4 — the randomized generator must only ever emit even targets.

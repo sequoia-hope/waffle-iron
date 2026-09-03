@@ -1174,7 +1174,10 @@ name, never measured).
    requires exact rationals"). So the epic's target conversion is real and
    certified, and §3s's `SPAIR` flip condition is adjudicated on its
    second branch: a genuine M8 silent-wrong that the loud `FaceId(474)`
-   stop had been masking. `SPAIR` stays gated pending M8 Stage-0 making the
+   stop had been masking. [**RETRACTED by inc-3b below**: the sidecar's
+   genus-15 mesh has 606 faces inside the true solid; by exact membership
+   the union is genus 1 = the kernel's, and the flip condition is met on
+   its first branch.] `SPAIR` stays gated pending M8 Stage-0 making the
    graze loud at R0053; R0044's conversion queues behind it. Also: an
    authored `euler_target` can now be adjudicated by instrument
    (`assay_topology_oracle`, `TOPO_SIDECAR=1`). Addendum: `YANG_CHI_AUDIT`
@@ -1197,6 +1200,47 @@ name, never measured).
    F0085 307.2 s honest. The epic's first two conversions are in the
    canonical score. Still gated: `YANG_453_SPAIR` (M8 at R0053),
    `KV2_ARC_CONFORM_CURVES`, the emission arm.
+   **inc-3b** (2026-09-03, later session; spec §3ah): R0053 ADJUDICATED
+   WITHOUT A MESH, and 12b-11's verdict on it RETRACTED. The three
+   authored operands are closed-form point predicates (the two revolves
+   through `(ρ, θ, v_unrotated)` with kernel-v2's sign conventions, the
+   16-tooth involute disc through its half-width in closed form;
+   `tests/s453_r0053_exact_topology.rs`), and the cubical χ of their SET
+   UNION reads 0 with one component at cell sizes 2, 1, 0.7, 0.5 and 0.4
+   on two lattice phases — ladder-STABLE, **genus 1, the kernel's reading**
+   under the §4.5.3 surface-pair arm. The ring's cross-section lies inside
+   the gear's axial band and meets only three teeth (247.5°–292.5°),
+   filling their grooves from the root side: there were never fourteen
+   handles. Classifying every face of the sidecar's "genus-15" union
+   against the predicates finds **606 faces strictly inside the true
+   solid** (a 1552-unit² membrane at the gear-cap ∩ box-base overlap,
+   seven more coplanar membranes, and sliver strips along the ring-end /
+   tooth-flank crossings) woven into a closed manifold — the reference
+   mesh was never the union's boundary, and its `V − E + F = −28` was the
+   pairwise sidecar's coplanar handling, not topology. The kernel's own
+   R0053 output has 38 such faces, all root-arc chord-band residue at the
+   shared plane. So §3s's flip condition is met on its FIRST branch (the
+   R0011 protocol): `euler_target` corrected 2 → 0 and pinned
+   (`assay_euler_consistency`), and there is no M8 coplanar-graze defect
+   at R0053 for Stage 0 to make loud — Stage 0 handles the flush caps
+   correctly. **`YANG_453_SPAIR` FLIPPED ALWAYS-ON** (household pattern,
+   `0|off` = dev A/B). Two-proof corpus (release, 8 jobs, 360 s): pre-flip
+   `SPAIR=1` 276C/0W/31E/1EE/0T — exactly two moves against canonical,
+   R0053 ERROR → CORRECT and R0044's ERROR detail `FaceId(459)` →
+   `FaceId(626)` (the KV9-F2 fold the emission arm repairs); post-flip
+   default BYTE-IDENTICAL to it (F0085 311.6 s honest); post-flip
+   `SPAIR=0` 275C/0W/32E/1EE/0T BYTE-IDENTICAL to the committed
+   canonical. **New canonical 276C/0W/31E/1EE/0T.**
+   Method lesson (the reference-oracle rule, both directions): a reference
+   mesh's χ is a verdict only once the mesh is certified — closed,
+   manifold, AND no face inside the operands' exact union; the lattice's
+   instability on the tessellated operands was the tessellations' slivers,
+   not a graze. Next: generalise the exact predicates into
+   `assay::topology_oracle` (an analytic-membership route for all-boss
+   extrude/revolve chains — polygon, circle, gear profiles) so this
+   adjudication is an instrument; the emission arm's flip (R0044's
+   minimal set is now the emission chain alone); the Stage-1 partial-patch
+   re-entry behind it.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the
