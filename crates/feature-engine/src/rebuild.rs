@@ -375,6 +375,7 @@ fn execute_feature(
                         feature,
                         feature_results,
                         tree,
+                        already_consumed,
                         &mut combine_warnings,
                     )?,
                 },
@@ -389,6 +390,7 @@ fn execute_feature(
                 feature,
                 feature_results,
                 tree,
+                already_consumed,
                 kb,
             )?;
 
@@ -413,6 +415,7 @@ fn execute_feature(
                         feature,
                         feature_results,
                         tree,
+                        already_consumed,
                         kb,
                     )?)
                 }
@@ -428,6 +431,7 @@ fn execute_feature(
                         feature,
                         feature_results,
                         tree,
+                        already_consumed,
                         kb,
                     )?)
                 }
@@ -470,14 +474,28 @@ fn execute_feature(
                             proj_max = proj_max.max(proj);
                         }
                     }
-                    if proj_min.is_finite() && proj_max.is_finite() {
+                    let decision = if proj_min.is_finite() && proj_max.is_finite() {
                         let body_mid = (proj_min + proj_max) * 0.5;
                         // Reverse only when body midpoint is behind sketch plane
                         body_mid < sketch_proj
                     } else {
                         true // fallback: legacy reverse behavior
+                    };
+                    if std::env::var_os("FE_CUT_TRACE").is_some() {
+                        eprintln!(
+                            "[fe-cut] {}: target verts={} proj=[{proj_min:.6e}, {proj_max:.6e}] sketch_proj={sketch_proj:.6e} reverse={decision}",
+                            feature.name,
+                            verts.len()
+                        );
                     }
+                    decision
                 } else {
+                    if std::env::var_os("FE_CUT_TRACE").is_some() {
+                        eprintln!(
+                            "[fe-cut] {}: NO combine target — legacy reverse",
+                            feature.name
+                        );
+                    }
                     true // no target body: legacy reverse behavior
                 }
             } else {
@@ -695,6 +713,7 @@ fn execute_feature(
                         feature,
                         feature_results,
                         tree,
+                        already_consumed,
                         &mut combine_warnings,
                     )?,
                 },
@@ -792,6 +811,7 @@ fn resolve_depth(
     feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
+    already_consumed: &std::collections::HashSet<Uuid>,
     kb: &mut dyn KernelBundle,
 ) -> Result<f64, EngineError> {
     match mode {
@@ -799,7 +819,7 @@ fn resolve_depth(
 
         DepthMode::ThroughAll => {
             // Find the target body to measure extent against
-            let target = find_most_recent_solid(feature, feature_results, tree);
+            let target = find_most_recent_solid(feature, feature_results, tree, already_consumed);
             match target {
                 Some(handle) => {
                     let extent =
@@ -989,9 +1009,12 @@ pub(crate) fn find_consumed_feature_ids(
                 CombineMode::NewBody => vec![],
                 CombineMode::Add | CombineMode::Cut | CombineMode::Intersect => {
                     match &eff.targets {
-                        TargetStrategy::MostRecentLegacy => {
-                            find_most_recent_consumed(feature, feature_results, tree)
-                        }
+                        TargetStrategy::MostRecentLegacy => find_most_recent_consumed(
+                            feature,
+                            feature_results,
+                            tree,
+                            already_consumed,
+                        ),
                         // Only targets that actually RESOLVE are consumed. A
                         // dropped (deleted/suppressed) BestEffort target is not
                         // combined, so it must not be marked consumed (which
@@ -1034,9 +1057,12 @@ pub(crate) fn find_consumed_feature_ids(
                 CombineMode::NewBody => vec![],
                 CombineMode::Add | CombineMode::Cut | CombineMode::Intersect => {
                     match &eff.targets {
-                        TargetStrategy::MostRecentLegacy => {
-                            find_most_recent_consumed(feature, feature_results, tree)
-                        }
+                        TargetStrategy::MostRecentLegacy => find_most_recent_consumed(
+                            feature,
+                            feature_results,
+                            tree,
+                            already_consumed,
+                        ),
                         TargetStrategy::Explicit(list) => list
                             .iter()
                             .filter(|gr| find_solid_handle(gr, feature_results).is_ok())
@@ -1098,6 +1124,7 @@ fn find_most_recent_solid_outputs(
     current_feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
+    already_consumed: &std::collections::HashSet<Uuid>,
 ) -> Vec<(Uuid, waffle_types::kernel::KernelSolidHandle)> {
     let active = tree.active_features();
     // Walk backwards through features BEFORE the current one
@@ -1106,7 +1133,13 @@ fn find_most_recent_solid_outputs(
         .position(|f| f.id == current_feature.id)
         .unwrap_or(active.len());
     for feature in active[..current_idx].iter().rev() {
-        if feature.suppressed {
+        // Spec `cut_consumes_body` I1: a body a later combine CONSUMED (a cut
+        // that removed all its material, or a merge that absorbed it) is not
+        // live — the walk must not resurrect it. Measured 2026-09-03 by the
+        // exact-membership oracle (audit class C): R0034's gear revolve
+        // auto-unioned with the box its cut had consumed, R0007's second cut
+        // re-cut the consumed cylinder.
+        if feature.suppressed || already_consumed.contains(&feature.id) {
             continue;
         }
         // Skip sketch and datum plane features (they produce no solid)
@@ -1137,8 +1170,9 @@ fn find_most_recent_solid(
     current_feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
+    already_consumed: &std::collections::HashSet<Uuid>,
 ) -> Option<waffle_types::kernel::KernelSolidHandle> {
-    find_most_recent_solid_outputs(current_feature, feature_results, tree)
+    find_most_recent_solid_outputs(current_feature, feature_results, tree, already_consumed)
         .into_iter()
         .next()
         .map(|(_, handle)| handle)
@@ -1151,6 +1185,7 @@ fn find_most_recent_consumed(
     feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
+    already_consumed: &std::collections::HashSet<Uuid>,
 ) -> Vec<Uuid> {
     let active = tree.active_features();
     let current_idx = active
@@ -1158,7 +1193,9 @@ fn find_most_recent_consumed(
         .position(|f| f.id == feature.id)
         .unwrap_or(active.len());
     for f in active[..current_idx].iter().rev() {
-        if f.suppressed {
+        // I1 (see `find_most_recent_solid_outputs`): a consumed body is not
+        // a target, so it is not consumed again.
+        if f.suppressed || already_consumed.contains(&f.id) {
             continue;
         }
         if matches!(
@@ -1666,6 +1703,7 @@ fn resolve_combine_targets(
     feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
+    already_consumed: &std::collections::HashSet<Uuid>,
     warnings: &mut Vec<String>,
 ) -> Result<Vec<(Uuid, waffle_types::kernel::KernelSolidHandle)>, EngineError> {
     match targets {
@@ -1685,6 +1723,7 @@ fn resolve_combine_targets(
                 feature,
                 feature_results,
                 tree,
+                already_consumed,
             ))
         }
         TargetStrategy::Explicit(list) => {

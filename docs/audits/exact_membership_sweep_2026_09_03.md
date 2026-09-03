@@ -111,8 +111,23 @@ includes the sausage; it is the anchored class-A case.)
   the empty set as its answer. So the defect is yang-rs's / the labeling
   stage's treatment of an arrangement with NO intersection curves (the
   in/out classification of A's single patch against B, Cherchi 2022 §5).
-  Next: a synthetic box-inside-cylinder subtract through kernel-v2 with a
-  per-patch classification census.
+  **RESOLVED the same evening — and NOT a kernel defect.** The synthetic
+  box-inside-cylinder (and box-inside-box) subtract through kernel-v2
+  returns `EmptyBooleanResult` correctly (`crates/kernel-v2/tests/
+  containment_subtract.rs`, four pins). modeling-ops turns that into
+  "cut consumed the entire target body" with zero outputs (spec
+  `cut_consumes_body` §3), and the FEATURE ENGINE's most-recent-body walk
+  (`find_most_recent_solid_outputs`) then stepped past the consuming
+  feature to the consumed body's own feature and RESURRECTED it: R0034's
+  gear revolve auto-unioned with the pre-cut box, R0007's second cut
+  re-cut the cylinder, R0058's third boss merged with the consumed gear.
+  Fixed by threading `already_consumed` into the walks (spec
+  `cut_consumes_body.md` §7). Post-fix: R0034 4.126e7 vs exact 4.152e7,
+  R0058 −0.2 %, R0023 −1.1 %; R0007 / R0027 / R0088 error loudly (no
+  body left to cut) and their `expect_rebuild_error` is corrected to
+  `true` (adjudicated by the exact chain reading EMPTY after the
+  consuming cut). Corpus: 276C/0W/31E/1EE/0T → **273C/0W/31E/4EE/0T**,
+  exactly those three cases moving.
 
 ## Topology rows (exact-only sweep, 64 / 128 / 256 cells, sketch frame)
 

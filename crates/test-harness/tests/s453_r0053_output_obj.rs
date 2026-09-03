@@ -94,6 +94,9 @@ fn r0053_output_to_obj() {
         "[s453] {id} errors={:?} union_failures={failures:?}",
         b.engine_errors()
     );
+    for w in b.engine_warnings() {
+        println!("[s453] {id} warning: {w}");
+    }
     let mesh = b.tessellate_last_with_tol(tol).expect("tessellate");
     let verts: Vec<[f64; 3]> = mesh
         .vertices

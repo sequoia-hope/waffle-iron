@@ -67,6 +67,16 @@ fn engulfing_cut_consumes_body_then_boss_rebuilds() {
         1,
         "the follow-up boss is the single live body"
     );
+    // I1, sharpened (2026-09-03, the exact-membership oracle's class C): the
+    // follow-up boss must be its OWN body — 1 × 1 × 0.5 — not a union with
+    // the consumed box resurrected through the most-recent-body walk (which
+    // would read 1.0 here and still count as one live body).
+    let mesh = b.tessellate_last().expect("follow-up boss tessellates");
+    let vol = test_harness::helpers::mesh_volume(&mesh);
+    assert!(
+        (vol - 0.5).abs() < 1e-9,
+        "the follow-up boss alone has volume 0.5; got {vol} (0.5 + 0.5 would be the consumed box resurrected)"
+    );
 }
 
 /// Spec §3 branch 3 (adversary): an INTERSECT whose operands' bboxes overlap
@@ -186,4 +196,26 @@ fn r0058_engulfing_cut_not_an_error() {
 #[test]
 fn r0088_engulfing_cut_not_an_error() {
     assert_no_empty_result_error("R0088");
+}
+
+/// Corpus adjudication 2026-09-03 (spec §7): in R0007, R0027 and R0088 the
+/// second operation's cut CONSUMES the only body (the exact-membership chain
+/// reads EMPTY after it — `assay_exact_membership`), so the third operation,
+/// a cut, has no material to cut and the engine's typed "requires an
+/// existing body" error is the truthful outcome. Their authored
+/// `expect_rebuild_error` was the generator's default `false`; corrected to
+/// `true` and pinned here so the corrected expectation cannot regress.
+#[test]
+fn consumed_then_cut_chains_expect_a_rebuild_error() {
+    for id in ["R0007", "R0027", "R0088"] {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("../../app/tests/cases/assay/{id}.meta.json"));
+        let meta: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("meta readable")).unwrap();
+        assert_eq!(
+            meta["oracles"]["expect_rebuild_error"],
+            serde_json::json!(true),
+            "{id}: a cut after the body was consumed must be expected to error"
+        );
+    }
 }

@@ -1276,12 +1276,37 @@ name, never measured).
    yang-rs and kernel-v2 suites green (three band tests and the Stage-1
    poloidal-band test had their rims wound the other way round and are
    re-wound to the loop convention, with a new > 180° pin). Corpus proof
-   in the commit message. Next: class C (a cut whose tool contains the
-   body removes nothing — anchor in yang-rs's classification of an
-   arrangement without intersection curves), the C-series volume rows
-   the audit leaves open, the exact volume in the categorized runner for
-   cut chains; then the emission arm's flip and the Stage-1 partial-patch
-   re-entry.
+   in the commit message.
+   **Class C FIXED the same night — in the FEATURE ENGINE, not the
+   kernel** (spec `specs/cut_consumes_body.md` §7): kernel-v2 returns
+   `EmptyBooleanResult` correctly for a body inside a tool (four new pins
+   in `crates/kernel-v2/tests/containment_subtract.rs`, planar and
+   curved, with the cavity and intersection controls); modeling-ops turns
+   it into the consumed-body warning with zero outputs, as the policy
+   says; and then the engine's most-recent-body walk stepped past the
+   consuming feature to the consumed body's own feature and RESURRECTED
+   it — R0034's gear revolve auto-unioned with its consumed box, R0007's
+   second cut re-cut the consumed cylinder, R0058's third boss merged
+   with the consumed gear. Invariant I1 ("later features neither resolve
+   nor auto-union with it") was honoured only by the share-a-face
+   strategy; the legacy strategy (the corpus's default) and the
+   through-all depth never consulted `already_consumed`. Fixed by
+   threading the set into both walks; the §5 fixture now asserts the
+   follow-up boss's OWN volume (one live body either way was why the
+   count never caught it). Post-fix exact-oracle readings: R0034 4.126e7
+   vs 4.152e7 exact (was +36 %), R0058 −0.2 % (was +6.3 %), R0023 −1.1 %;
+   R0007 / R0027 / R0088 now error loudly (a cut with no body left to
+   cut) — their authored `expect_rebuild_error` was the generator's
+   default and is corrected to `true` and pinned
+   (`cut_consumes_body_campaign::consumed_then_cut_chains_expect_a_
+   rebuild_error`). Corpus (release, 8 jobs, 360 s): exactly those three
+   move, SUPPORTED_CORRECT → EXPECTED_ERROR; R0034 / R0058 / R0023 stay
+   CORRECT with corrected geometry. **New canonical 273C / 0W / 31E /
+   4EE / 0T** — three fewer CORRECT because three silent-wrongs are now
+   honest. Next: the C-series volume rows the
+   audit leaves open (C0074 / C0081 −80 %, C0091, C0040, C0092, C0095,
+   C0096), the exact volume in the categorized runner for cut chains;
+   then the emission arm's flip and the Stage-1 partial-patch re-entry.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the

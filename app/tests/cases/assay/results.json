@@ -2,7 +2,7 @@
   "errored": 31,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 276,
+  "passed": 273,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -41,10 +41,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "EXPECTED_ERROR",
+      "detail": "expected rebuild error: e37f2bcc-225b-4613-b693-d37261699f51: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
       "id": "R0007",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -161,10 +161,10 @@
       "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "EXPECTED_ERROR",
+      "detail": "expected rebuild error: ee06ff04-16c2-4c2f-9202-1443c15f41ab: GeomRef resolution failed: Cut revolve requires an existing body to subtract from",
       "id": "R0027",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -527,10 +527,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "EXPECTED_ERROR",
+      "detail": "expected rebuild error: f2076600-1597-4345-98d9-a609f15f25cf: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
       "id": "R0088",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",

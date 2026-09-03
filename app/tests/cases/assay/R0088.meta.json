@@ -48,7 +48,7 @@
       "decrease",
       "decrease"
     ],
-    "expect_rebuild_error": false
+    "expect_rebuild_error": true
   },
   "generator_version": 4,
   "featured": false

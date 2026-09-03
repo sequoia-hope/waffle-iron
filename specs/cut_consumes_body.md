@@ -76,3 +76,40 @@ discriminate without string matching.
 
 Not an SSI operation; no surface-pair analysis. The boolean itself already
 ran to a (correct, empty) conclusion.
+
+## 7. Addendum 2026-09-03 — I1 was violated by the most-recent-body walk (FIXED)
+
+The exact-membership oracle (`docs/audits/exact_membership_sweep_2026_09_
+03.md`, class C) found the consumed body coming BACK: R0034's gear revolve
+(`merge: true`, `MostRecentLegacy`) auto-unioned with the box its cut had
+just consumed (kernel volume +36 % over the exact chain, the engine warning
+"cut consumed the entire target body" present all along); R0007's and
+R0088's second cuts re-cut the consumed cylinder; R0058's third boss merged
+with the consumed gear (+6.3 %). All four were SUPPORTED_CORRECT — the
+categorized runner checks neither monotonicity nor the volume of a cut
+chain.
+
+Anchor: `find_most_recent_solid_outputs` / `find_most_recent_consumed`
+(`rebuild.rs`) walk back to the first feature whose result carries outputs
+and never consult `already_consumed`; a feature that consumed its target
+carries NO outputs, so the walk steps past it to the consumed body's own
+feature — which still holds the pre-cut handle — and returns it as the
+"most recent" body. `resolve_share_a_face` did honour the set; the legacy
+strategy, the corpus's default, did not. The through-all depth
+(`resolve_depth`) measured the same resurrected body.
+
+Fix: the set is threaded into both walks, `resolve_combine_targets` and
+`resolve_depth`; a consumed feature is skipped like a suppressed one. After
+a consumption the walk finds nothing: a boss creates its own body (I3), a
+cut has no target and keeps its typed `ResolutionFailed` (§6) — the model
+has no material to cut, and saying so is the honest answer.
+
+Oracles: the §5 engine fixture now also asserts the follow-up boss's volume
+is its OWN (0.5, not 0.5 + the resurrected 0.5 — one live body either way,
+which is why I3's count alone never caught it). Kernel-v2 pins the empty
+result itself for a body inside a planar and a curved tool
+(`crates/kernel-v2/tests/containment_subtract.rs`: `EmptyBooleanResult`,
+with the contained-tool cavity and the intersection as controls).
+Post-fix exact-oracle readings: R0034 4.126e7 vs 4.152e7 exact (was
++36 %), R0058 −0.2 % (was +6.3 %), R0023 −1.1 %, R0007 a loud engine error
+(the exact chain is empty). Corpus impact in the roadmap entry.
