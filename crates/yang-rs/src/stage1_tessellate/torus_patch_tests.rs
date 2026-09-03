@@ -56,8 +56,9 @@ fn torus_patch_roundtrip_on_surface_watertight() {
     }
 
     let n = boundary.len();
-    let (verts, tris) = tessellate_torus_patch(center, axis, major, minor, &boundary, &[], 0.05)
-        .expect("patch tessellation");
+    let (verts, tris) =
+        tessellate_torus_patch(center, axis, major, minor, &boundary, &[], 0.05, false)
+            .expect("patch tessellation");
 
     // Interior Steiner points were added (refinement actually fired).
     assert!(verts.len() > n, "no Steiner points: {} verts", verts.len());
@@ -131,7 +132,7 @@ fn torus_patch_rejects_degenerate() {
     let center = Point3::new(0.0, 0.0, 0.0);
     let axis = Vector3::new(0.0, 0.0, 1.0);
     let too_few = [Point3::new(4.0, 0.0, 0.0), Point3::new(3.0, 0.0, 1.0)];
-    assert!(tessellate_torus_patch(center, axis, 3.0, 1.0, &too_few, &[], 0.05).is_none());
+    assert!(tessellate_torus_patch(center, axis, 3.0, 1.0, &too_few, &[], 0.05, false).is_none());
 }
 
 /// Seam-wrapping (cylindrical) BAND render: a longitude slice v ∈ [v0, v1] of
@@ -156,10 +157,14 @@ fn torus_band_seam_wrapping_render() {
     let mut c1: Vec<Point3> = Vec::new();
     for k in 0..nu {
         let u = std::f64::consts::TAU * (k as f64) / (nu as f64);
-        c0.push(eval(center, ax, e1a, e2a, major, minor, u, v0));
-        c1.push(eval(center, ax, e1a, e2a, major, minor, -u, v1));
+        // Wound as a real B-Rep band's loops are (material-CCW about the
+        // outward normal): the rim at the LARGER longitude wraps +u, the one
+        // at the smaller wraps −u — the band lies at decreasing v from the +1
+        // wrap (2026-09-03 class-A fix; see `tessellate_torus_patch`).
+        c0.push(eval(center, ax, e1a, e2a, major, minor, -u, v0));
+        c1.push(eval(center, ax, e1a, e2a, major, minor, u, v1));
     }
-    let (verts, tris) = tessellate_torus_patch(center, axis, major, minor, &c0, &[c1], 0.05)
+    let (verts, tris) = tessellate_torus_patch(center, axis, major, minor, &c0, &[c1], 0.05, false)
         .expect("band tessellation");
     assert!(!tris.is_empty(), "non-empty band mesh");
 
@@ -247,8 +252,12 @@ fn torus_band_with_window_hole_render() {
     let mut c1: Vec<Point3> = Vec::new();
     for k in 0..nu {
         let u = std::f64::consts::TAU * (k as f64) / (nu as f64);
-        c0.push(eval(center, ax, e1a, e2a, major, minor, u, v0));
-        c1.push(eval(center, ax, e1a, e2a, major, minor, -u, v1));
+        // Wound as a real B-Rep band's loops are (material-CCW about the
+        // outward normal): the rim at the LARGER longitude wraps +u, the one
+        // at the smaller wraps −u — the band lies at decreasing v from the +1
+        // wrap (2026-09-03 class-A fix; see `tessellate_torus_patch`).
+        c0.push(eval(center, ax, e1a, e2a, major, minor, -u, v0));
+        c1.push(eval(center, ax, e1a, e2a, major, minor, u, v1));
     }
     // A small non-wrapping window inside the band: u ∈ [1.0, 2.0],
     // v ∈ [0.4, 1.0] (both well inside the band's ranges, non-wrapping).
@@ -270,8 +279,9 @@ fn torus_band_with_window_hole_render() {
     }
     let win_edges = win.len();
 
-    let (verts, tris) = tessellate_torus_patch(center, axis, major, minor, &c0, &[c1, win], 0.05)
-        .expect("holed band tessellation");
+    let (verts, tris) =
+        tessellate_torus_patch(center, axis, major, minor, &c0, &[c1, win], 0.05, false)
+            .expect("holed band tessellation");
     assert!(!tris.is_empty(), "non-empty holed band mesh");
 
     // Every vertex on the tube.
@@ -356,8 +366,12 @@ fn torus_band_window_on_seam_render() {
     let mut c1: Vec<Point3> = Vec::new();
     for k in 0..nu {
         let u = std::f64::consts::TAU * (k as f64) / (nu as f64);
-        c0.push(eval(center, ax, e1a, e2a, major, minor, u, v0));
-        c1.push(eval(center, ax, e1a, e2a, major, minor, -u, v1));
+        // Wound as a real B-Rep band's loops are (material-CCW about the
+        // outward normal): the rim at the LARGER longitude wraps +u, the one
+        // at the smaller wraps −u — the band lies at decreasing v from the +1
+        // wrap (2026-09-03 class-A fix; see `tessellate_torus_patch`).
+        c0.push(eval(center, ax, e1a, e2a, major, minor, -u, v0));
+        c1.push(eval(center, ax, e1a, e2a, major, minor, u, v1));
     }
     // Window centred ON the u=0 seam: u ∈ [−0.3, 0.3], v ∈ [0.4, 1.0].
     let (wu0, wu1, wv0, wv1) = (-0.3_f64, 0.3_f64, 0.4_f64, 1.0_f64);
@@ -378,8 +392,9 @@ fn torus_band_window_on_seam_render() {
     }
     let win_edges = win.len();
 
-    let (verts, tris) = tessellate_torus_patch(center, axis, major, minor, &c0, &[c1, win], 0.05)
-        .expect("seam-straddling window band tessellates (seam avoided)");
+    let (verts, tris) =
+        tessellate_torus_patch(center, axis, major, minor, &c0, &[c1, win], 0.05, false)
+            .expect("seam-straddling window band tessellates (seam avoided)");
 
     // Every vertex on the tube.
     let surf = torus(major, minor);
@@ -566,4 +581,104 @@ fn newton_stops_when_there_is_no_intersection() {
         relocate_onto_implicit_pair(seed, t, far).is_none(),
         "no intersection ⇒ STOP, not a guessed relocation"
     );
+}
+
+/// The exact-membership oracle's class-A finding (2026-09-03, R0091 / R0045 /
+/// R0096): a band spanning MORE than 180° of longitude must be laid on the
+/// side its loops' orientation dictates, not on the shorter arc. Two rims at
+/// v = 0 and v = 220°, wound material-CCW about the outward normal (the
+/// +1 meridian wrap at the larger longitude): the band is [0°, 220°] — area
+/// r·Δv·2πR with Δv = 220°, every triangle centroid inside it. With
+/// `reversed` (a bore, outward = −n̂_torus) the same loops bound the
+/// complementary 140° band.
+#[test]
+fn torus_band_beyond_180_degrees_lies_on_the_oriented_side() {
+    let center = Point3::new(0.0, 0.0, 0.0);
+    let axis = Vector3::new(0.0, 0.0, 1.0);
+    let (major, minor) = (3.0_f64, 1.0_f64);
+    let ax = normalize3(axis.as_array());
+    let (e1, e2) = ortho_basis(axis);
+    let (e1a, e2a) = (e1.as_array(), e2.as_array());
+    let (v0, v1) = (0.0_f64, 220.0_f64.to_radians());
+    let nu = 24;
+    let mut c0: Vec<Point3> = Vec::new();
+    let mut c1: Vec<Point3> = Vec::new();
+    for k in 0..nu {
+        let u = std::f64::consts::TAU * (k as f64) / (nu as f64);
+        c0.push(eval(center, ax, e1a, e2a, major, minor, -u, v0));
+        c1.push(eval(center, ax, e1a, e2a, major, minor, u, v1));
+    }
+    let longitude = |p: Point3| -> f64 {
+        let a = p.as_array();
+        let wx = a[0] * e1a[0] + a[1] * e1a[1] + a[2] * e1a[2];
+        let wy = a[0] * e2a[0] + a[1] * e2a[1] + a[2] * e2a[2];
+        wy.atan2(wx).rem_euclid(std::f64::consts::TAU)
+    };
+    let area_of = |verts: &[Point3], tris: &[[u32; 3]]| -> f64 {
+        let mut area = 0.0;
+        for t in tris {
+            let a = verts[t[0] as usize].as_array();
+            let b = verts[t[1] as usize].as_array();
+            let c = verts[t[2] as usize].as_array();
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let cr = [
+                ab[1] * ac[2] - ab[2] * ac[1],
+                ab[2] * ac[0] - ab[0] * ac[2],
+                ab[0] * ac[1] - ab[1] * ac[0],
+            ];
+            area += 0.5 * (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
+        }
+        area
+    };
+    let centroid_longitudes = |verts: &[Point3], tris: &[[u32; 3]]| -> Vec<f64> {
+        tris.iter()
+            .map(|t| {
+                let a = verts[t[0] as usize].as_array();
+                let b = verts[t[1] as usize].as_array();
+                let c = verts[t[2] as usize].as_array();
+                longitude(Point3::new(
+                    (a[0] + b[0] + c[0]) / 3.0,
+                    (a[1] + b[1] + c[1]) / 3.0,
+                    (a[2] + b[2] + c[2]) / 3.0,
+                ))
+            })
+            .collect()
+    };
+
+    // Outward-facing band: [0°, 220°].
+    let (verts, tris) =
+        tessellate_torus_patch(center, axis, major, minor, &c0, &[c1.clone()], 0.05, false)
+            .expect("band tessellation");
+    let analytic = minor * (v1 - v0) * std::f64::consts::TAU * major;
+    let area = area_of(&verts, &tris);
+    assert!(
+        area <= analytic * (1.0 + 1e-6) && area >= analytic * 0.97,
+        "220° band area {area} vs analytic {analytic} (the complement would be {})",
+        minor * (std::f64::consts::TAU - (v1 - v0)) * std::f64::consts::TAU * major
+    );
+    for (i, lon) in centroid_longitudes(&verts, &tris).into_iter().enumerate() {
+        assert!(
+            lon <= v1 + 1e-9,
+            "triangle {i} centroid at longitude {:.3}° is outside the [0°, 220°] band",
+            lon.to_degrees()
+        );
+    }
+
+    // The same loops on a REVERSED face bound the complementary 140° band.
+    let (verts, tris) = tessellate_torus_patch(center, axis, major, minor, &c0, &[c1], 0.05, true)
+        .expect("reversed band tessellation");
+    let complement = minor * (std::f64::consts::TAU - (v1 - v0)) * std::f64::consts::TAU * major;
+    let area = area_of(&verts, &tris);
+    assert!(
+        area <= complement * (1.0 + 1e-6) && area >= complement * 0.97,
+        "reversed band area {area} vs analytic complement {complement}"
+    );
+    for (i, lon) in centroid_longitudes(&verts, &tris).into_iter().enumerate() {
+        assert!(
+            lon >= v1 - 1e-9 || lon <= 1e-9,
+            "reversed: triangle {i} centroid at longitude {:.3}° is inside the [0°, 220°] band",
+            lon.to_degrees()
+        );
+    }
 }

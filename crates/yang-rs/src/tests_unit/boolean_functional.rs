@@ -1299,12 +1299,17 @@ pub(crate) fn torus_poloidal_band_two_encircling_profiles() {
         }
         (0..ring.len() as u32).map(|k| base + k).collect()
     };
-    // Outer winds +φ; the inner (a hole boundary) winds −φ — opposite
-    // poloidal wrap, as a real face's outer/inner loops are oriented (the
-    // band seam bridge requires the two profiles wrap oppositely).
-    let ring1_rev: Vec<u32> = ring1.iter().rev().copied().collect();
-    let outer = loop_of(&ring0, &mut edges);
-    let inner = loop_of(&ring1_rev, &mut edges);
+    // The two profiles wrap the meridian OPPOSITELY (the band seam bridge
+    // requires it), and they wind as a real face's loops do — CCW viewed from
+    // outside along the outward normal (`BRepFace::outer_loop`): at the
+    // outer equator of the θ = 0.2 ring the outward normal is radial and the
+    // band lies toward +θ, so that ring must be walked −φ (material on the
+    // left); the θ = 1.4 ring walks +φ. Before the 2026-09-03 class-A fix the
+    // consumer laid the band on the SHORTER arc regardless of winding, and
+    // this test had the windings the other way round.
+    let ring0_rev: Vec<u32> = ring0.iter().rev().copied().collect();
+    let outer = loop_of(&ring0_rev, &mut edges);
+    let inner = loop_of(&ring1, &mut edges);
     let faces = vec![BRepFace {
         surface: Surface::Torus {
             center: Point3::new(0.0, 0.0, 0.0),
@@ -3029,7 +3034,7 @@ fn torus_patch_edges_meet_chord_band() {
         boundary.push(on(0.0, v1 * (nv - j) as f64 / nv as f64));
     }
     let (verts, tris) =
-        crate::tessellate_torus_patch(center, axis, major, minor, &boundary, &[], s * s)
+        crate::tessellate_torus_patch(center, axis, major, minor, &boundary, &[], s * s, false)
             .expect("torus patch tessellation");
     // Sag of an edge midpoint: distance to the torus surface.
     let sag_of = |p: Point3| -> f64 {

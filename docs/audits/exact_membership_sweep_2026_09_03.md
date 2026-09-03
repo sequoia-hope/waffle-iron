@@ -44,11 +44,25 @@ exact predicate sees both.
 
 ## Kernel volume against the exact volume (`EXACT_KERNEL=1`, 256 cells)
 
-Filled from `scratchpad/exact_sweep_kernel.log` when the sweep completes
-(the kernel runs every case in-process; the 20-op stacks take minutes).
-Rows with |rel| below ≈ 2 % are within the lattice's own volume error on
-thin-toothed profiles at 256 cells and are not findings without a finer
-rung.
+The full sweep (32 min, 229 cases with a completed kernel result; 36 had
+none — the ERROR cases). Rows with |rel| below ≈ 2 % are within the
+lattice's own volume error on thin-toothed profiles at 256 cells and are
+not findings without a finer rung. Worst 25 by |rel|, classified:
+
+| rel | cases | reading |
+|---|---|---|
+| +∞ | R0027, R0088 | exact EMPTY (class C: the cut tool contains the body); the kernel keeps material |
+| +2.6e304 | C0117 | a 1e-4 curved tube wall: the exact solid is below the 256-cell lattice (lattice-limited, not a finding) |
+| −0.87 / −0.65 | R0045, R0096 | class A (the > 180° band's complement), see the classes below |
+| −0.80 / −0.80 | C0074, C0081 | open — C-series complexity cases; adjudicate per case (cut semantics vs my bbox mid-extent rule, or thin features) |
+| −0.54 / −0.46 / −0.20 | C0098, C0099, C0097 | my parser read the first of two crossing/concentric loops; these are REGION extrudes — now typed NotCovered (multi-profile sketches) |
+| +0.36 | R0034 | class C |
+| −0.25 / −0.15 / −0.12 / −0.12 / −0.09 | C0091, C0040, C0092, C0095, C0096 | open — C-series; per-case |
+| +0.063 | R0058 | open — gear teeth at 256 cells; needs a finer rung |
+| ≤ 0.017 | C0035, C0039, F0042, C0023, F0089, C0077, F0002, C0024, C0075 … | within the lattice band |
+
+(R0091's −0.67 sits just outside the top 25 because its exact volume
+includes the sausage; it is the anchored class-A case.)
 
 | case | kernel / exact − 1 | chain | status |
 |---|---|---|---|
@@ -79,13 +93,15 @@ rung.
   a material-CCW loop appears CW in the chart and the band lies at
   DECREASING v from the +1-wrapping rim (mirrored for `reversed`). The
   fix is to unwrap `mc`'s longitude onto that side of `pc` before the seam
-  bridge. Not yet fixed.
-- **B — revolve ∖ revolve subtract mis-keeps / mis-drops patches when the
-  operands barely or never meet.** R0045 (disjoint → 7 % kept), R0096
-  (18 % overlap → 71 % removed). Not anchored: the operand meshes are
-  right, so the defect is in Stage 2–5 classification/reassembly for
-  these torus-segment pairs. Next: `YANG_RUN_PROBE` + a per-patch
-  classification census on R0045.
+  bridge. **FIXED the same day** (`specs/yang_torus_band_side.md`): the
+  consumer takes `reversed`, shifts `mc` by whole periods onto the
+  orientation-dictated side; R0091's revolve reads 0° → 219.4° again and
+  the three-op volume moves 1.957e-12 → 4.219e-12 (exact 4.262e-12).
+- **B — (collapsed into A)** R0045's and R0096's outputs occupy the
+  angular stations 280° → 360° and the tail of 281° → 360° about their
+  boss axes: the boss's > 180° torus band rendered as its complement,
+  exactly class A — the subtract itself was not at fault. Re-measured
+  after the fix in the roadmap entry.
 - **C — a cut whose tool contains the whole body removes nothing.** R0034
   anchored at the engine+kernel level (result = the intact box); R0007,
   R0027, R0088 by the exact chain reading EMPTY. Localised past the feature

@@ -714,6 +714,10 @@ pub(crate) fn band_seam_bridge<F: Fn(f64, f64) -> Point3>(
     fallback.map(|(xi, yi, dpr)| build_ring(xi, yi, dpr))
 }
 
+/// `reversed`: the face's outward normal is the torus's INWARD normal (a
+/// bore). It decides which side of a BAND's `+1`-meridian-wrapping rim the
+/// band lies on (see the band case below); it has no effect on a bounded
+/// (non-wrapping) patch, whose loop fixes its own region.
 #[allow(clippy::too_many_arguments)]
 pub fn tessellate_torus_patch(
     center: Point3,
@@ -723,6 +727,7 @@ pub fn tessellate_torus_patch(
     boundary: &[Point3],
     holes: &[Vec<Point3>],
     max_3d_area: f64,
+    reversed: bool,
 ) -> Option<(Vec<Point3>, Vec<[u32; 3]>)> {
     // Env-gated decline probe (zero-cost off): the torus patch waller names
     // its site — a `None` here surfaces downstream as one shared wall string
@@ -894,6 +899,56 @@ pub fn tessellate_torus_patch(
                     );
                 }
                 return None;
+            }
+            // WHICH SIDE of `pc` the band lies on (2026-09-03, the exact-
+            // membership oracle's class-A finding — R0091 / R0045 / R0096:
+            // a band spanning more than 180° came back as its COMPLEMENT).
+            // Each rim's longitude is a principal `atan2` value in (−π, π];
+            // the two rims bound TWO candidate bands, and laying the ribbon
+            // between the values as they come picks the shorter arc — right
+            // below 180°, wrong above it, ambiguous at it. The side is fixed
+            // by ORIENTATION, not span: the loops wind material-CCW about
+            // the face's OUTWARD normal, and in this chart
+            // `∂P/∂u × ∂P/∂v = −(R + r·cos u)·r·n̂_out` (with `(e1, e2, axis)`
+            // right-handed), so a material-CCW loop runs CW in (u, v) and
+            // the material sits on the traversal's RIGHT: for `pc` (u
+            // increasing) that is DECREASING v. A `reversed` face (outward
+            // = −n̂_torus) mirrors it. Shift `mc` by WHOLE periods onto that
+            // side — a band already on it is untouched bit-for-bit.
+            let mean = |a: &[f64]| a.iter().sum::<f64>() / a.len() as f64;
+            let (v_pc, v_mc) = (mean(&pc.sv), mean(&mc.sv));
+            let t = (v_pc - v_mc) / span_v;
+            if (t - t.round()).abs() < 1e-9 {
+                if probe {
+                    eprintln!("[torus-patch] DECLINE band rims coincide in longitude");
+                }
+                return None;
+            }
+            let k = if reversed {
+                t.floor() + 1.0
+            } else {
+                t.ceil() - 1.0
+            };
+            let shifted;
+            let mc: &PLoop = if k == 0.0 {
+                mc
+            } else {
+                shifted = PLoop {
+                    su: mc.su.clone(),
+                    sv: mc.sv.iter().map(|v| v + k * span_v).collect(),
+                    pts: mc.pts.clone(),
+                    wu: mc.wu,
+                };
+                &shifted
+            };
+            if probe {
+                eprintln!(
+                    "[torus-patch] band side: reversed={reversed} v_pc={:.6}° v_mc={:.6}° → shifted by {k} period(s) to {:.6}° (span {:.3}°)",
+                    (v_pc / major).to_degrees(),
+                    (v_mc / major).to_degrees(),
+                    (mean(&mc.sv) / major).to_degrees(),
+                    ((mean(&mc.sv) - v_pc) / major).to_degrees()
+                );
             }
             // Window u-intervals (the non-wrapping loops) so the seam bridge can
             // place its cut where it splits no window (Slice F-2).
@@ -1429,9 +1484,9 @@ pub(crate) fn tessellate_torus_band(
     let seg = 2.0 * std::f64::consts::PI * minor / f64::from(n_seg);
     let max_area = seg * seg;
 
-    let Some((verts, tris)) =
-        tessellate_torus_patch(center, axis_dir, major, minor, &boundary, &holes, max_area)
-    else {
+    let Some((verts, tris)) = tessellate_torus_patch(
+        center, axis_dir, major, minor, &boundary, &holes, max_area, f.reversed,
+    ) else {
         return Err(YangError::MalformedTopology(format!(
             "face {f_idx}: torus band UV-CDT unsupported (seam-crossing / \
              longitude-wrapping patch — KV14 Slice F later sub-slice)"

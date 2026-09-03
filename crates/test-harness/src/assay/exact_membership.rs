@@ -875,6 +875,16 @@ impl ParsedSketch {
             }
             return Ok(Profile2::Gear(g));
         }
+        if self.profiles.len() > 1 {
+            // The engine builds faces from ALL of a sketch's profiles (holes,
+            // sub-regions of crossing loops — the C0097–C0099 lens / crescent
+            // / annulus cases); selecting one loop here would read the wrong
+            // solid. Typed out until region semantics are modelled.
+            return Err(format!(
+                "sketch with {} solved profiles (region semantics not modelled)",
+                self.profiles.len()
+            ));
+        }
         let prof = self
             .profiles
             .get(index)
@@ -1242,6 +1252,18 @@ mod tests {
         let err = ExactChain::from_waffle(&doc).unwrap_err();
         assert!(
             matches!(err, NotCovered::Feature { ref why, .. } if why.contains("BooleanCombine")),
+            "{err}"
+        );
+        // A sketch carrying two solved profiles (an annulus, a lens) is region
+        // territory: typed out rather than read as its first loop.
+        let mut doc = unit_box_doc(None, false);
+        let profiles = &mut doc["tabs"][0]["kind"]["features"]["features"][0]["operation"]
+            ["sketch"]["solved_profiles"];
+        let first = profiles[0].clone();
+        profiles.as_array_mut().unwrap().push(first);
+        let err = ExactChain::from_waffle(&doc).unwrap_err();
+        assert!(
+            matches!(err, NotCovered::Feature { ref why, .. } if why.contains("solved profiles")),
             "{err}"
         );
     }

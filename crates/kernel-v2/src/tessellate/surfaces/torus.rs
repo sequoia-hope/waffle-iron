@@ -322,9 +322,9 @@ pub(crate) fn tessellate_torus_patch(
     }
 
     let axis_v = Vector3::new(ax[0], ax[1], ax[2]);
-    let Some((verts, tris)) =
-        yang_rs::tessellate_torus_patch(center, axis_v, r_maj, r_min, &boundary, &holes, max_area)
-    else {
+    let Some((verts, tris)) = yang_rs::tessellate_torus_patch(
+        center, axis_v, r_maj, r_min, &boundary, &holes, max_area, reversed,
+    ) else {
         return Err(fail(
             "torus patch UV-CDT failed (self-intersecting projection / seam-crossing patch)",
         ));

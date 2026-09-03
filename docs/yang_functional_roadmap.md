@@ -1261,11 +1261,27 @@ name, never measured).
    calls `check_volume_monotonicity` and skips the composition oracle on
    cut chains, which is how all of these passed. Lattice scope
    (tapered features, sub-cell gaps, frame alignment) is in the audit.
-   Next: fix class A (orientation-dictated band side; the anchor is
-   named); anchor classes B and C with per-patch classification censuses
-   (a synthetic box-inside-cylinder subtract for C); add the exact volume
-   to the categorized runner for cut chains; then the emission arm's flip
-   and the Stage-1 partial-patch re-entry.
+   **Class A FIXED the same evening** (spec `specs/yang_torus_band_side.md`):
+   `tessellate_torus_patch` takes the face's `reversed` flag and lays a
+   band on the side its loops' orientation dictates — material-CCW loops
+   run CW in the (meridian, longitude) chart because
+   `∂u × ∂v = −(R + r cos u) r n̂_out`, so the band lies at decreasing
+   longitude from the +1-meridian-wrapping rim (mirrored for a bore) —
+   shifting the other rim by whole periods, which leaves every sub-180°
+   band bit-identical. Class B collapsed into A (R0045's and R0096's
+   outputs occupied 280° → 360° about their boss axes — the complement
+   again). Post-fix kernel volume against the exact predicate: R0091
+   4.219e-12 vs 4.261e-12 (was 1.957e-12), R0045 2.5535e-8 vs 2.5601e-8
+   (was −87 %), R0096 2.5765e-7 vs 2.5790e-7 (was −65 %), R0094 −0.65 %;
+   yang-rs and kernel-v2 suites green (three band tests and the Stage-1
+   poloidal-band test had their rims wound the other way round and are
+   re-wound to the loop convention, with a new > 180° pin). Corpus proof
+   in the commit message. Next: class C (a cut whose tool contains the
+   body removes nothing — anchor in yang-rs's classification of an
+   arrangement without intersection curves), the C-series volume rows
+   the audit leaves open, the exact volume in the categorized runner for
+   cut chains; then the emission arm's flip and the Stage-1 partial-patch
+   re-entry.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the
