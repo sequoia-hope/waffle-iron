@@ -1177,7 +1177,13 @@ name, never measured).
    stop had been masking. `SPAIR` stays gated pending M8 Stage-0 making the
    graze loud at R0053; R0044's conversion queues behind it. Also: an
    authored `euler_target` can now be adjudicated by instrument
-   (`assay_topology_oracle`, `TOPO_SIDECAR=1`).
+   (`assay_topology_oracle`, `TOPO_SIDECAR=1`). Addendum: `YANG_CHI_AUDIT`
+   locates R0053's loss at Stage 0–2 — the exact arrangement's kept submesh
+   already reads χ = 0 (genus 1) with or without `SPAIR`, so the arm is
+   exonerated and the M8 adjudication owed is at the overlay/classification
+   (yang tessellates the gear at 17369 vertices vs the harness's 27776; the
+   sidecar is non-manifold on the overlaid inputs, so like-for-like parity
+   there is inconclusive).
    Next: M8 Stage-0 at R0053 (the `SPAIR` flip condition); the Stage-1
    partial-patch re-entry (R0044's new wall, the `UNSUPPORTED(curved-
    profile)` family); the emission arm's own flip.
