@@ -4954,12 +4954,15 @@ mod tests {
         // closing the hole where the phantom sat — same footprint, same
         // density, so the like-for-like budget is satisfiable.
         let polygon = [0u32, 1, 2, 3, 5];
-        // Knob off (the default): the chart does not exist — the holder's
-        // refusal is exactly today's, the measured R0074 wall.
+        // Knob off (the dev A/B off-knob since the inc-3a flip): the chart
+        // does not exist — the holder's refusal is exactly the pre-flip
+        // R0074 wall.
+        std::env::set_var("YANG_441_TORUS_CHART", "0");
         match refill_fan_hole(&mesh, 0, &patch, &polygon, &r.old_tris) {
             Err(ConstructError::NonPlanarPatch { .. }) => {}
             other => panic!("knob-off torus refill must refuse NonPlanarPatch, got {other:?}"),
         }
+        // Knob on (the default).
         std::env::set_var("YANG_441_TORUS_CHART", "1");
         let fill = refill_fan_hole(&mesh, 0, &patch, &polygon, &r.old_tris).expect("torus fill");
         assert_eq!(fill.len(), 3, "pentagon fills with three triangles");

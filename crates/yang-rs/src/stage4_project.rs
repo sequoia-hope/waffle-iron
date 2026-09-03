@@ -99,14 +99,16 @@ pub(crate) fn cone_chart_enabled() -> bool {
 }
 
 /// §4.5.1 inc-2c-3b-3 — the Torus chart for FAN-LOCAL windows
-/// ([`SurfaceChart::new_local`] holders only). `YANG_441_TORUS_CHART=1|on`
-/// arms it; default OFF — every holder keeps today's typed refusal
-/// (byte-identical). Flip protocol = the I13a cone chart's: gated corpus
-/// measurement first (the R0074 far-fan refill is the naming case).
+/// ([`SurfaceChart::new_local`] holders only). FLIPPED ALWAYS-ON (inc-3a,
+/// 2026-09-03) under the household pattern, exactly like the I13a cone
+/// chart: unset/other = ON, `YANG_441_TORUS_CHART=0|off` = the dev A/B
+/// off-knob (every holder then keeps the pre-flip typed refusal). The
+/// R0074 far-fan refill is the naming case; the knob is inert without the
+/// corridor arm (`YANG_451_TRANSIT`).
 pub(crate) fn torus_chart_enabled() -> bool {
-    matches!(
+    !matches!(
         std::env::var("YANG_441_TORUS_CHART").as_deref(),
-        Ok("1") | Ok("on")
+        Ok("0") | Ok("off")
     )
 }
 

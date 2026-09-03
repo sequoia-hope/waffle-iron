@@ -1181,6 +1181,16 @@ name, never measured).
    Next: M8 Stage-0 at R0053 (the `SPAIR` flip condition); the Stage-1
    partial-patch re-entry (R0044's new wall, the `UNSUPPORTED(curved-
    profile)` family); the emission arm's own flip.
+   **inc-3a** (2026-09-03, same session; spec §3ag): `YANG_451_TRANSIT` and
+   `YANG_441_TORUS_CHART` FLIPPED ALWAYS-ON under the household pattern
+   (`0|off` = the dev A/B knob). Two-proof corpus: off-knob byte-identical
+   to the committed canonical 273C/0W/34E/1EE/0T; the new default
+   **275C/0W/32E/1EE/0T**, byte-identical to the pre-flip two-knob proof —
+   R0011 and R0074 SUPPORTED_CORRECT, R0044's canonical wall moves from v8
+   to `FaceId(459)` (the §3s fold), zero other category or detail moves;
+   F0085 307.2 s honest. The epic's first two conversions are in the
+   canonical score. Still gated: `YANG_453_SPAIR` (M8 at R0053),
+   `KV2_ARC_CONFORM_CURVES`, the emission arm.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the

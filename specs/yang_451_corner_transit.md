@@ -3213,6 +3213,33 @@ the `UNSUPPORTED(curved-profile)` family); the emission arm's own flip
 (zero corpus deltas without `TRANSIT`+`SPAIR`, so its two proofs are
 byte-identity plus the R0044 probe); the seven other R0044 fires.
 
+## 3ag. inc-3a — the CORRIDOR arm and the TORUS chart FLIPPED always-on
+(LANDED 2026-09-03; the epic's first two conversions enter the canonical
+score: 273C → 275C)
+
+§3af measured the corridor family in combination and attributed every
+delta to its knob. The two knobs whose conversions carry no regression and
+need nothing else — `YANG_451_TRANSIT` (§3j, R0011) and
+`YANG_441_TORUS_CHART` (§3k, R0074; inert without the corridor arm) — flip
+here under the household pattern the I13a cone chart and the f4 rehome
+flip set: unset/other = ON, `0|off` = the dev A/B off-knob. Two-proof
+corpus protocol, release, 8 jobs, 360 s CPU budget:
+
+| run | score (+4 UNSUPPORTED) | `results.json` | wall |
+|---|---|---|---|
+| pre-flip, `YANG_451_TRANSIT=1` only | 274C / 0W / 33E / 1EE / 0T | R0011 E→C; R0044 ERROR detail advances past v8; zero other category OR detail moves | 531.1 s |
+| pre-flip, `TRANSIT=1 TORUS_CHART=1` | 275C / 0W / 32E / 1EE / 0T | + R0074 E→C; R0044's detail = `FaceId(459)` (§3s's fold); nothing else | 534.6 s |
+| **post-flip default** | **275C / 0W / 32E / 1EE / 0T** | **BYTE-IDENTICAL to the pre-flip two-knob run** (F0085 307.2 s, F0065 170.2 s honest) | 538.2 s |
+| post-flip `TRANSIT=0 TORUS_CHART=0` | 273C / 0W / 34E / 1EE / 0T | **BYTE-IDENTICAL to the committed canonical** | 541.8 s |
+
+The committed `results.json` moves with the conversions (the UI snapshot);
+no smoke-table pin names R0011 or R0074. yang-rs unit suite 1276 / 0
+failed; the torus-chart knob test now sets `0` explicitly for its off-arm.
+`YANG_453_SPAIR`, `KV2_ARC_CONFORM_CURVES` and the emission arm stay gated
+(§3af: `SPAIR` waits on M8 at R0053; the other two convert nothing on their
+own). **New canonical: 275C / 0W / 32E / 1EE / 0T.** R0044 now walls
+canonically at `FaceId(459)` — the §3s surface-pair fold — instead of v8.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -3726,6 +3753,13 @@ byte-identity plus the R0044 probe); the seven other R0044 fires.
   flip condition adjudicated as a genuine M8 silent-wrong; `SPAIR` stays
   gated pending M8 Stage-0 at R0053, and R0044's conversion queues behind
   it. 16 new unit tests; clippy clean.
+- **inc-3a** (2026-09-03, same session): `YANG_451_TRANSIT` and
+  `YANG_441_TORUS_CHART` FLIPPED ALWAYS-ON (§3ag; household pattern,
+  `0|off` = dev A/B). Two-proof corpus: off byte-identical to the committed
+  canonical 273C/0W/34E/1EE/0T; default 275C/0W/32E/1EE/0T byte-identical
+  to the pre-flip two-knob proof — R0011 and R0074 CORRECT, R0044's ERROR
+  detail moves v8 → `FaceId(459)`, zero other moves. yang-rs 1276/0;
+  `results.json` moved; WASM rebuilt. **New canonical 275C/0W/32E/1EE/0T.**
 - Also open: the retry-path v105 refill (ChordDegradation under
   centroid seeding — an edge-split question; NO LONGER moot: the
   §4.5.4 refine retry fires whenever the natural output is broken,

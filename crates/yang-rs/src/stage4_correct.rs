@@ -5287,9 +5287,13 @@ fn strategy_selection_census(
     }
 }
 
-/// inc-2c-3b-1 gate (spec `specs/yang_451_corner_transit.md` §3i):
-/// `YANG_451_TRANSIT=1|on` arms the corner-transit corridor mutation.
-/// Default OFF — the standing §4-I9 STOP is the answer.
+/// inc-2c-3b-1 gate (spec `specs/yang_451_corner_transit.md` §3j):
+/// the corner-transit corridor mutation. FLIPPED ALWAYS-ON (inc-3a,
+/// 2026-09-03) under the household pattern — unset/other = ON,
+/// `YANG_451_TRANSIT=0|off` = the dev A/B off-knob (the standing §4-I9 STOP
+/// is then the answer). Two-proof corpus: off byte-identical to the
+/// pre-flip canonical; on = R0011 and (with the torus chart) R0074 convert,
+/// zero other category or detail moves.
 /// §4.5.1 inc-2c-3b-12b-8 — the EMISSION apply arm: write the certified
 /// [`crate::stage4_boundary_curve::TransitEmissionFill`] at a determined
 /// out-of-domain relocation site and move the site to its corrected
@@ -5304,9 +5308,9 @@ fn transit_emit_enabled() -> bool {
 }
 
 fn transit_apply_enabled() -> bool {
-    matches!(
+    !matches!(
         std::env::var("YANG_451_TRANSIT").as_deref(),
-        Ok("1") | Ok("on")
+        Ok("0") | Ok("off")
     )
 }
 
