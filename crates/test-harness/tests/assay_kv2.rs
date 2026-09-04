@@ -461,6 +461,54 @@ fn replay_case(case: &DiscoveredCase) -> CaseOutcome {
         }
     }
 
+    // Exact-membership volume (the analytic oracle, in-line, 2026-09-04):
+    // the kernel's result volume against the document's closed-form solid
+    // on a lattice (`assay::exact_membership`) — no mesh on the reference
+    // side, so it sees what no mesh-borne oracle can: a cut that removes
+    // nothing, a wedge tessellated as its complement (the 2026-09-03
+    // sweep's classes A–C, all SUPPORTED_CORRECT until then). Cut chains
+    // are covered here, unlike the composition oracle. The kernel side is
+    // tessellated at the volume oracle's own tolerance (`oracle_tol`, the
+    // sweep's), the band is the lattice's own convergence plus a
+    // tessellation floor, and an unconverged lattice or an uncovered
+    // document is NotCovered, never a verdict. `ASSAY_EXACT_VOLUME=0|off`
+    // is the dev A/B knob.
+    let exact_on = !matches!(
+        std::env::var("ASSAY_EXACT_VOLUME").as_deref(),
+        Ok("0") | Ok("off")
+    );
+    if exact_on {
+        if let Ok(doc) = serde_json::from_str::<serde_json::Value>(&waffle_json) {
+            if let Ok(chain) = test_harness::assay::exact_membership::ExactChain::from_waffle(&doc)
+            {
+                let vol_tol = volume_oracle_doc::oracle_tol(meta.scale);
+                let kernel_vol = builder
+                    .tessellate_live_with_tol(vol_tol)
+                    .map(|meshes| {
+                        meshes
+                            .iter()
+                            .map(test_harness::helpers::mesh_signed_volume)
+                            .sum::<f64>()
+                    })
+                    .unwrap_or_else(|_| test_harness::helpers::mesh_signed_volume(&mesh));
+                use test_harness::assay::exact_membership::ExactVolumeVerdict;
+                match test_harness::assay::exact_membership::exact_volume_verdict(
+                    &chain, kernel_vol,
+                ) {
+                    ExactVolumeVerdict::Flag {
+                        rel,
+                        band,
+                        exact,
+                        kernel,
+                    } => failures.push(format!(
+                        "exact_volume: kernel {kernel:.6e} vs exact {exact:.6e} (rel {rel:+.3e} outside band {band:.3e})"
+                    )),
+                    ExactVolumeVerdict::Agree { .. } | ExactVolumeVerdict::NotCovered(_) => {}
+                }
+            }
+        }
+    }
+
     if failures.is_empty() {
         CaseOutcome {
             id: case.id.clone(),

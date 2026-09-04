@@ -1327,9 +1327,35 @@ name, never measured).
    C-series case (C0079–C0083, C0094) reads within 0.7 % of the kernel per
    body. Engine observation recorded, not changed: a legacy cut after a
    disjoint merge takes its direction from the merge's tool body. NO
-   kernel change; no corpus category moves. Next: the exact volume in the
-   categorized runner for cut chains; then the emission arm's flip and
-   the Stage-1 partial-patch re-entry.
+   kernel change; no corpus category moves.
+   **The exact-volume oracle is IN-LINE in the categorized runner**
+   (2026-09-04, same session; `assay_kv2` after the composition block, every
+   covered case, cut chains included): the kernel's result volume (signed
+   volume of the tessellated live bodies at `oracle_tol`, summed) against
+   the document's closed-form solid at 256 cells. The band is the
+   reading's OWN uncertainty — the volume of its surface cubes — plus a
+   0.5 % tessellation floor; too-coarse readings (surface cubes above a
+   quarter of the volume: C0040, C0117, the 1e-3-wall C-series), an
+   indeterminate cut direction (the sketch plane at the target's
+   mid-extent: C0086, F0058, F0060, R0003, R0020, R0070) and uncovered
+   documents are NotCovered, never a verdict. Two band designs were
+   refuted on the corpus before this one: a rung-to-rung (128 → 256)
+   convergence step flagged 14 cases at 0.8–2 % because thin features
+   quantise with the lattice PHASE (R0031 moves 2.1 % between phases at
+   one rung) and a thin slab rounds to the same layer count at every rung
+   and phase (C0039's 0.1-thick slab reads 26 layers, +1.56 %, at 128 and
+   256 on both phases); the surface-cube volume covers both. Region
+   extrudes (`params.region`, C0097–C0099) are modelled from the region's
+   own polygons (the annulus reads genus 1, kernel within 0.3 %).
+   Adjudicated on finer ladders, none a finding: R0009 (fragmented
+   sub-lattice solid, ±10 % across rungs), R0055 (converges to 0.7 % of
+   the kernel), R0099 (−0.35 % at 1024), R0078 (a 13 % remainder: the
+   inscribed-polygon tool is 1 % of it). PROOF: the full corpus under the
+   oracle (release, 8 jobs, 360 s; F0085 304 s honest) is BYTE-IDENTICAL
+   to canonical 273C/0W/31E/4EE/0T. The 2026-09-03 sweep's silent-wrong
+   classes (7 %–∞) can no longer pass as CORRECT. `ASSAY_EXACT_VOLUME=0`
+   is the dev A/B knob. Next: the emission arm's flip and the Stage-1
+   partial-patch re-entry (R0044's `UNSUPPORTED(curved-profile)` wall).
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the

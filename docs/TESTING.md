@@ -265,6 +265,26 @@ ASSAY_JOBS=8 ASSAY_CASE_TIMEOUT_SECS=360 \
   -- --ignored --nocapture
 ```
 
+**The exact-volume oracle runs in-line (since 2026-09-04).** Every covered
+case's result volume — the signed volume of its tessellated live bodies at the
+volume oracle's tolerance, summed — is checked against the document's
+closed-form solid on a 256-cell lattice (`assay::exact_membership`, the
+per-body model described under "Topology adjudication" below). No mesh sits
+on the reference side, so it sees what the composition oracle (all-boss chains
+only) and the Euler oracle cannot: a cut that removes nothing, a wedge
+tessellated as its complement (the 2026-09-03 sweep's classes, all
+SUPPORTED_CORRECT until then). The band is the reading's own uncertainty — the
+volume of the lattice's surface cubes, measured to cover both phase-dependent
+quantisation and a thin slab's fixed layer rounding — plus a 0.5 % tessellation
+floor; a document the lattice cannot resolve (surface cubes above a quarter of
+the volume), one whose cut direction the document leaves indeterminate (a
+sketch plane at the target's mid-extent), or one the parser types out is
+NotCovered, never a verdict. A `Flag` reads
+`exact_volume: kernel … vs exact … (rel … outside band …)` in the WRONG detail.
+`ASSAY_EXACT_VOLUME=0|off` is the dev A/B knob. Proof of zero false flags:
+the full corpus under the oracle is byte-identical to canonical (commit
+message of the landing commit).
+
 **The assay runs with `kernel-v2/strict-validation` ON** (declared in
 `crates/test-harness/Cargo.toml`). kernel-v2's *geometric* tripwires — every
 loop vertex on its face's analytic surface, at the scale-relative

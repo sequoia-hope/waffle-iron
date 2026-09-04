@@ -471,6 +471,11 @@ pub struct ExactChain {
     pub ops: Vec<ExactOp>,
     /// Notes on judgment calls made while parsing (cut auto-reversal etc.).
     pub notes: Vec<String>,
+    /// Decisions the DOCUMENT does not determine — a cut auto-reversal on
+    /// a floating-point-noise margin (the sketch plane at the body's
+    /// mid-extent), where the engine's choice is arithmetic luck. The
+    /// verdict declines such a chain rather than guess.
+    pub indeterminate: Vec<String>,
     /// The first sketch's frame — the lattice is laid in it (see
     /// [`readout_exact`]): a lattice OBLIQUE to the model's planes
     /// perforates frame-aligned thin features at every cell size (measured
@@ -741,6 +746,7 @@ impl ExactChain {
         ExactChain {
             ops: vec![op],
             notes: self.notes.clone(),
+            indeterminate: Vec::new(),
             frame: self.frame,
         }
     }
@@ -762,6 +768,7 @@ impl ExactChain {
         let mut chain = ExactChain {
             ops: Vec::new(),
             notes: Vec::new(),
+            indeterminate: Vec::new(),
             frame: Basis::from_origin_normal([0.0; 3], [0.0, 0.0, 1.0]).unwrap(),
         };
         let mut frame_set = false;
@@ -807,7 +814,14 @@ impl ExactChain {
                         return Err(nc(index, &name, "region extrude (params.regions)"));
                     }
                     let sk = sketch_for(&sketches, params).map_err(|w| nc(index, &name, &w))?;
-                    let profile = sk.profile(params).map_err(|w| nc(index, &name, &w))?;
+                    // A region extrude (`params.region`) carries its own
+                    // footprint — the engine extrudes exactly that polygon
+                    // with its holes (`profile_footprint_2d`), in sketch
+                    // coordinates.
+                    let profile = match params.get("region").filter(|r| r.is_object()) {
+                        Some(region) => region_profile(region).map_err(|w| nc(index, &name, &w))?,
+                        None => sk.profile(params).map_err(|w| nc(index, &name, &w))?,
+                    };
                     let (combine, targets) =
                         parse_combine(params).map_err(|w| nc(index, &name, &w))?;
                     let is_cut = combine == Combine::Cut;
@@ -906,6 +920,12 @@ impl ExactChain {
                                 if margin < 1e-3 * span {
                                     chain.notes.push(format!(
                                         "{name}: cut auto-reversal decided on a {:.3e}-relative margin (bbox mid vs plane) — the engine measures B-Rep vertices; verify",
+                                        margin / span
+                                    ));
+                                }
+                                if margin < 1e-9 * span {
+                                    chain.indeterminate.push(format!(
+                                        "{name}: the sketch plane sits at the target's mid-extent ({:.1e} relative) — the cut's auto-reversal is not determined by the document",
                                         margin / span
                                     ));
                                 }
@@ -1142,6 +1162,45 @@ fn parse_combine(params: &Value) -> Result<(Combine, Targets), String> {
             Ok((mode, targets))
         }
     }
+}
+
+/// A `waffle_types::Region` (`outer` + `holes`, sketch coordinates) as a
+/// profile.
+fn region_profile(region: &Value) -> Result<Profile2, String> {
+    fn poly(v: &Value) -> Result<Vec<(f64, f64)>, String> {
+        let pts = v
+            .as_array()
+            .ok_or("region loop is not an array")?
+            .iter()
+            .map(|p| {
+                let a = p.as_array().ok_or("region point")?;
+                Ok((
+                    a.first().and_then(Value::as_f64).ok_or("region point u")?,
+                    a.get(1).and_then(Value::as_f64).ok_or("region point v")?,
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        if pts.len() < 3 {
+            return Err("region loop with fewer than 3 points".into());
+        }
+        Ok(pts)
+    }
+    let outer = Profile2::Polygon(poly(region.get("outer").ok_or("region without outer")?)?);
+    let holes = match region.get("holes") {
+        Some(Value::Array(hs)) => hs
+            .iter()
+            .map(|h| poly(h).map(Profile2::Polygon))
+            .collect::<Result<Vec<_>, _>>()?,
+        _ => Vec::new(),
+    };
+    Ok(if holes.is_empty() {
+        outer
+    } else {
+        Profile2::Region {
+            outer: Box::new(outer),
+            holes,
+        }
+    })
 }
 
 fn vec3(v: &Value) -> Option<[f64; 3]> {
@@ -1398,6 +1457,10 @@ pub struct ExactReadout {
     /// body's own cube volume in that order.
     pub bodies: usize,
     pub body_volumes: Vec<f64>,
+    /// Occupied cubes with an empty face neighbour, over all bodies — the
+    /// cubes the boundary decided; `surface_cubes · h³` bounds the
+    /// reading's volume error.
+    pub surface_cubes: usize,
 }
 
 impl ExactReadout {
@@ -1461,6 +1524,7 @@ pub fn readout_exact(
     };
     let mut component_sizes = Vec::new();
     let mut body_volumes = Vec::with_capacity(bodies.len());
+    let mut surface_cubes = 0usize;
     let mut acc = [0.0f64; 3];
     let mut count = 0usize;
     for body in &bodies {
@@ -1482,6 +1546,7 @@ pub fn readout_exact(
         readout.chi += r.chi;
         readout.components += r.components;
         body_volumes.push(r.cubes as f64 * h * h * h);
+        surface_cubes += grid.surface_cubes();
         component_sizes.extend(grid.component_sizes());
         // Centroid of the occupied cubes, in world coordinates.
         for k in 0..n[2] {
@@ -1521,7 +1586,82 @@ pub fn readout_exact(
         centroid,
         bodies: bodies.len(),
         body_volumes,
+        surface_cubes,
     })
+}
+
+/// The exact-volume oracle's verdict for one case (the categorized runner's
+/// in-line check, `assay_kv2`): the kernel's result volume — the signed
+/// volume of its tessellated live bodies, summed — against the exact chain's
+/// lattice volume at 256 cells.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExactVolumeVerdict {
+    /// Within the lattice's own convergence band.
+    Agree { rel: f64, band: f64 },
+    /// Outside it: the kernel's result is not the document's solid.
+    Flag {
+        rel: f64,
+        band: f64,
+        exact: f64,
+        kernel: f64,
+    },
+    /// No honest expectation: the lattice has not converged on this
+    /// document (thin features below the cell size) or reads empty.
+    NotCovered(String),
+}
+
+/// Relative floor under the band: the kernel side is a tessellation at the
+/// oracle tolerance (`oracle_tol`, chord sagitta ≈ scale · 1e-4), whose
+/// signed volume differs from the curved solid's by a few 1e-3 at most.
+pub const EXACT_VOLUME_FLOOR_REL: f64 = 5e-3;
+/// A reading whose surface cubes exceed this fraction of its volume is too
+/// coarse to author an expectation (a sub-cell wall, a lattice-thin slab).
+pub const EXACT_VOLUME_TOO_COARSE_REL: f64 = 0.25;
+/// Cells along the longest axis for the verdict's reading.
+pub const EXACT_VOLUME_CELLS: usize = 256;
+
+/// Read the chain at [`EXACT_VOLUME_CELLS`]; the band is the reading's own
+/// uncertainty — the volume of the cubes the boundary decided
+/// (`surface_cubes · h³`, measured 2026-09-04 to cover both the
+/// phase-dependent quantisation of thin features and the fixed layer
+/// rounding of a thin slab, which a rung-to-rung step cannot see) — plus
+/// the tessellation floor. A band converts a silent-wrong into a loud
+/// verdict and nothing else: the classes this oracle exists for (a cut
+/// that removes nothing, a complementary wedge) sit at 7–90 %. A chain the
+/// document leaves indeterminate (a mid-extent cut) is declined.
+pub fn exact_volume_verdict(chain: &ExactChain, kernel_volume: f64) -> ExactVolumeVerdict {
+    if let Some(why) = chain.indeterminate.first() {
+        return ExactVolumeVerdict::NotCovered(why.clone());
+    }
+    let Some(r) = readout_exact(chain, chain.ops.len(), EXACT_VOLUME_CELLS, 0.5) else {
+        return ExactVolumeVerdict::NotCovered("no bounding box (no live body)".into());
+    };
+    let exact = r.volume;
+    if exact <= 0.0 {
+        return ExactVolumeVerdict::NotCovered(format!(
+            "exact reads empty at {EXACT_VOLUME_CELLS} cells — sub-lattice or empty (kernel {kernel_volume:.6e})"
+        ));
+    }
+    let surface = r.surface_cubes as f64 * r.h * r.h * r.h / exact;
+    if surface > EXACT_VOLUME_TOO_COARSE_REL {
+        return ExactVolumeVerdict::NotCovered(format!(
+            "lattice too coarse: surface cubes are {:.0} % of the volume at {EXACT_VOLUME_CELLS} cells (h = {:.3e})",
+            surface * 100.0,
+            r.h
+        ));
+    }
+    let band = surface + EXACT_VOLUME_FLOOR_REL;
+    let rel = (kernel_volume - exact) / exact;
+    if rel.abs() <= band {
+        ExactVolumeVerdict::Agree { rel, band }
+    } else {
+        ExactVolumeVerdict::Flag {
+            rel,
+            band,
+            exact,
+            kernel: kernel_volume,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2035,5 +2175,43 @@ mod tests {
             "{:?}",
             r.body_volumes
         );
+    }
+
+    /// The runner's verdict: a unit cube with a quarter-radius through-hole
+    /// agrees with its own volume and with a 0.3 % perturbation, and flags a
+    /// kernel that kept the hole's material (+ 20 %); a chain the lattice
+    /// cannot resolve is NotCovered, not a verdict.
+    #[test]
+    fn exact_volume_verdict_agrees_flags_and_declines() {
+        let chain = ExactChain::from_waffle(&unit_box_doc(None, true)).unwrap();
+        let exact = readout_exact(&chain, 2, 256, 0.5).unwrap().volume;
+        let hole = std::f64::consts::PI * 0.25 * 0.25;
+        assert!((exact - (1.0 - hole)).abs() < 0.01, "{exact}");
+        assert!(matches!(
+            exact_volume_verdict(&chain, exact),
+            ExactVolumeVerdict::Agree { .. }
+        ));
+        assert!(matches!(
+            exact_volume_verdict(&chain, exact * 1.003),
+            ExactVolumeVerdict::Agree { .. }
+        ));
+        match exact_volume_verdict(&chain, 1.0) {
+            ExactVolumeVerdict::Flag { rel, band, .. } => {
+                assert!(rel > 0.2 && rel < 0.3, "{rel}");
+                // Six faces plus the bore at 256 cells: a few per cent.
+                assert!(band > 0.02 && band < 0.06, "{band}");
+            }
+            other => panic!("{other:?}"),
+        }
+        // A 1e-4-thick slab across a unit footprint reads as one cell layer
+        // — every cube is a surface cube: too coarse, typed out.
+        let mut thin = unit_box_doc(None, false);
+        thin["tabs"][0]["kind"]["features"]["features"][1]["operation"]["params"]["depth"] =
+            serde_json::json!(1e-4);
+        let thin = ExactChain::from_waffle(&thin).unwrap();
+        assert!(matches!(
+            exact_volume_verdict(&thin, 1e-4),
+            ExactVolumeVerdict::NotCovered(_)
+        ));
     }
 }

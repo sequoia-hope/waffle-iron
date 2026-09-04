@@ -365,9 +365,10 @@ fn corpus_sweep() {
         };
         let kcol = match kernel {
             Some(Ok(v)) => format!(
-                " kernel_vol={:.6e} rel={:+.3e}",
+                " kernel_vol={:.6e} rel={:+.3e} verdict={:?}",
                 v,
-                (v - last.volume) / last.volume.abs().max(f64::MIN_POSITIVE)
+                (v - last.volume) / last.volume.abs().max(f64::MIN_POSITIVE),
+                test_harness::assay::exact_membership::exact_volume_verdict(&c, v)
             ),
             Some(Err(ref e)) => format!(" kernel: {e}"),
             None => String::new(),

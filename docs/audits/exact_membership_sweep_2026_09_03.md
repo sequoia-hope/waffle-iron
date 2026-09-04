@@ -253,3 +253,60 @@ component-count rows disagree with the authored oracles — the (i) disjoint
 bodies (the runner's +2-per-shell rule), (ii) the sub-rung C-series and
 (iii) the R0007 / R0027 / R0088 / C0035 empties, as before. The
 kernel-vs-exact table is re-run below.
+
+### The oracle in the categorized runner (2026-09-04, later the same session)
+
+`assay_kv2::categorize` now runs `exact_volume_verdict` on every covered
+case: the kernel's result volume (signed volume of the tessellated live
+bodies at `oracle_tol`, summed) against the exact chain at 256 cells.
+Cut chains are covered, unlike the composition oracle.
+
+**The band is the reading's own uncertainty.** Two designs were refuted on
+the corpus first. (1) A 128 → 256 rung step (Richardson, ×2) plus a 0.5 %
+floor flagged 14 CORRECT cases at 0.8–2.0 % (R0020, R0031, R0071, R0072,
+R0092, F0010, F0090, C0023, C0035, C0039, C0075 and the three region
+cases): thin features quantise with the lattice PHASE, not only its pitch
+— R0031 reads 2.8810e-5 at phase ½ and 2.8204e-5 at phase ¼ on the same
+256 rung (2.1 %) while its rung step is 0.02 %; and a thin slab rounds
+to the same layer count at every rung and phase — C0039's 0.1-thick slab
+on a 1-unit footprint is 12.8 / 25.6 cells and reads 13 / 26 layers,
++1.56 %, at 128 and 256 on both phases (the kernel's 0.1000004 is exact).
+(2) Adding the phase difference to the step would have left C0039 flagged.
+What covers both is the volume of the lattice's SURFACE cubes (occupied
+cubes with an empty face neighbour — the cubes the boundary decided):
+`band = surface_cubes · h³ / V + 5e-3`. A reading whose surface cubes
+exceed a quarter of its volume is too coarse to author an expectation
+(C0040's 1 mm hole in a 100-unit slab, C0117's 1e-4 tube wall, the
+1e-3-wall C-series); a chain whose cut auto-reversal the document leaves
+indeterminate (the sketch plane at the target's mid-extent, margin below
+1e-9 relative: C0086, F0058, F0060, R0003, R0020, R0070) is declined; so
+is anything the parser types out.
+
+**Region extrudes** (`params.region` — the singular field; C0097–C0099)
+are the engine's own footprint polygon with its holes
+(`profile_footprint_2d`), now read from the region: C0097's annulus
+1.2505 vs kernel 1.2513 (genus 1 = authored), C0098 0.3691 vs 0.3703,
+C0099 0.4329 vs 0.4330.
+
+**Adjudicated on finer ladders, none a finding:**
+
+| case | kernel | exact | reading |
+|---|---|---|---|
+| R0009 | 1.9600e-16 | 1.77 / 1.96 / 2.06 e-16 at 256 / 512 / 1024 (φ ½), 1.82 / 2.16 / 1.97 (φ ¼) | a fragmented sub-lattice solid (4–6 components, scale 1e-4); the kernel sits inside the spread; both reversals match the engine (`target verts=2/4`, both `reverse=true`) |
+| R0055 | 2.1955e3 | 2.117 / 2.204 / 2.174 e3 (φ ½), 2.232 / 2.173 / 2.181 (φ ¼) | converging to ≈ 2.18e3, kernel +0.7 % |
+| R0078 | 2.0841e-5 | 2.0469e-5 and 2.0462e-5 at 1024 on both phases | the remainder is 13 % of the box; the kernel's inscribed 140-gon tool (1.7367e-4 vs π r² d = 1.7387e-4, −0.12 %) leaves 2.1e-7 more material = +1.0 % of the remainder; the rest is the strips' quantisation (1.2e-3 wide, 9 cells at 1024) |
+| R0099 | 2.9004e1 | 2.9104e1 / 2.9106e1 at 1024 on both phases | −0.35 % |
+
+**Proof of zero false flags:** the full categorized corpus under the
+oracle (release, 8 jobs, 360 s; F0065 172 s, F0085 304 s honest) is
+BYTE-IDENTICAL to the canonical 273C / 0W / 31E / 4EE / 0T. The oracle's
+cost is negligible against the kernel's (F0090: 132 s with and without
+it). The sweep's silent-wrong classes (7 %–∞) can no longer pass as
+CORRECT; a defect below the lattice's band (C0065's 0.5 % slivers) is the
+topology oracle's to catch, with the corrected `euler_target`s.
+
+*Open observation (not adjudicated):* the OBJ probe's tessellation at the
+oracle tolerance shows boundary edges on three canonical-CORRECT curved
+cases (R0091: 30, R0009: 160, R0099: 11) where the runner's coarser
+`tess_tol` mesh is watertight. Whether that is a tolerance-dependent
+tessellation defect is a question for a later session.

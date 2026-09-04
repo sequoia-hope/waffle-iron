@@ -76,6 +76,32 @@ impl VoxelGrid {
         i < self.n[0] && j < self.n[1] && k < self.n[2] && self.occ[self.idx(i, j, k)]
     }
 
+    /// Occupied cubes with at least one empty (or out-of-grid) face
+    /// neighbour — the cubes whose membership the boundary decided. Their
+    /// volume bounds the reading's volume error.
+    pub fn surface_cubes(&self) -> usize {
+        let mut count = 0usize;
+        for k in 0..self.n[2] {
+            for j in 0..self.n[1] {
+                for i in 0..self.n[0] {
+                    if !self.occ[self.idx(i, j, k)] {
+                        continue;
+                    }
+                    let exposed = (i == 0 || !self.occ[self.idx(i - 1, j, k)])
+                        || (i + 1 == self.n[0] || !self.occ[self.idx(i + 1, j, k)])
+                        || (j == 0 || !self.occ[self.idx(i, j - 1, k)])
+                        || (j + 1 == self.n[1] || !self.occ[self.idx(i, j + 1, k)])
+                        || (k == 0 || !self.occ[self.idx(i, j, k - 1)])
+                        || (k + 1 == self.n[2] || !self.occ[self.idx(i, j, k + 1)]);
+                    if exposed {
+                        count += 1;
+                    }
+                }
+            }
+        }
+        count
+    }
+
     /// Number of occupied cubes.
     pub fn count(&self) -> usize {
         self.occ.iter().filter(|&&b| b).count()
