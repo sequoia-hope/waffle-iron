@@ -1,6 +1,6 @@
 {
   "id": "C0063",
-  "description": "2 ops, scale=1.00e0, revolve(polygon,boss)+extrude(rectangle,cut) — revolve composition: full cone + oblique slab cut (conic-bounded patch) [KV6c-oblique]",
+  "description": "2 ops, scale=1.00e0, revolve(polygon,boss)+extrude(rectangle,cut) — revolve composition: full cone + oblique slab cut (conic-bounded patch) [KV6c-oblique] — re-authored 2026-09-04: the slab plane now passes THROUGH the cone (n·p = 0.7, between the base rim at ±0.24 and the apex at 1.145); under the engine's first-vertex reversal rule the slab removes the base side and keeps the TIP, an oblique cone over the elliptical section. The original plane (n·p = 1.199) lay beyond the apex, so the reversed slab consumed the whole cone.",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 1.0,
@@ -40,9 +40,9 @@
       "depth_or_angle": 1.5,
       "is_cut": true,
       "plane_origin": [
-        0.5,
         0.0,
-        1.1
+        0.0,
+        0.7337993857053428
       ],
       "plane_normal": [
         0.3,

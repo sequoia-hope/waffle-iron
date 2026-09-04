@@ -45,7 +45,10 @@ pub fn to_yang_brep_indexed(
         if let Some(&id) = vid_map.get(&v) {
             return Ok(id);
         }
-        let id = vid_map.len() as u32;
+        // The id is the yang vertex-pool index (NOT the map's length): the
+        // apex-cone operand arm below mints an edge-less apex vertex that has
+        // no arena counterpart, so the two counts can differ.
+        let id = yverts.len() as u32;
         vid_map.insert(v, id);
         yverts.push(yang_rs::BRepVertex {
             point: arena.vertex(v)?.point,
@@ -539,6 +542,63 @@ pub fn to_yang_brep_indexed(
                                 )
                             ))
                     };
+                    // KV14 apex-cone OPERAND (C0063): a solid cone from an
+                    // on-axis apex-triangle revolve has ONE lateral loop — the
+                    // closed base rim, twinned to the disc cap — and its apex is
+                    // a singular SURFACE point, not an arena vertex
+                    // (`kv6a_revolve::on_axis_triangle_full_turn_builds_solid_cone`:
+                    // 1 vertex, 1 edge, 2 faces). yang's structured cone arm
+                    // (PR-YR16, the `[rim_e]` apex FAN) wants exactly this
+                    // shape — one shared rim edge — plus the apex as a
+                    // PRE-SEEDED B-Rep vertex it locates by position (Stage 1
+                    // seeds every vertex 1:1 into the mesh; the fan reuses it,
+                    // so the cone stays watertight with no duplicate apex).
+                    // Mint that vertex here (edge-less, deduplicated by
+                    // position) and share the rim through the same converter
+                    // the structured 4-edge path uses (cap-outward normal).
+                    if face.inner_loops.is_empty() && outer_hes.len() == 1 {
+                        if let (
+                            Some(Surface::Cone {
+                                apex,
+                                axis_dir,
+                                half_angle,
+                                ..
+                            }),
+                            Curve::Circle { .. },
+                        ) = (face.surface, arena.half_edge(outer_hes[0])?.curve)
+                        {
+                            let rim = convert_lateral_edge(
+                                outer_hes[0],
+                                arena,
+                                &mut vid_map,
+                                &mut yverts,
+                                &mut yedges,
+                                &mut shared_edges,
+                            )?;
+                            let ap = apex.as_array();
+                            let seeded = yverts.iter().any(|v| {
+                                let q = v.point.as_array();
+                                let d = [q[0] - ap[0], q[1] - ap[1], q[2] - ap[2]];
+                                (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+                                    <= cad_primitives::TAU_MODEL
+                            });
+                            if !seeded {
+                                yverts.push(yang_rs::BRepVertex { point: apex });
+                            }
+                            face_ids.push(f);
+                            yfaces.push(yang_rs::BRepFace {
+                                surface: yang_rs::Surface::Cone {
+                                    apex,
+                                    axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
+                                    half_angle,
+                                },
+                                outer_loop: vec![rim],
+                                inner_loops: Vec::new(),
+                                reversed,
+                            });
+                            continue;
+                        }
+                    }
                     if !face.inner_loops.is_empty() || outer_hes.len() != 4 || !four_edge_structured
                     {
                         // A CONE re-enters via the CDT path only when its

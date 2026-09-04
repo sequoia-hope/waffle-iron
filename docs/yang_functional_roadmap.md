@@ -1408,6 +1408,24 @@ name, never measured).
    surfaces on the torus; v67 `triple_newton_none` recorded first)** — the
    corner-junction family. Class census now R0044 (M5 K11) + C0063
    (apex-cone operand).
+   **Apex-cone OPERAND LANDED (2026-09-04, same day; spec "Apex-cone
+   operand")**: kernel-v2 converts a one-rim cone lateral to yang's PR-YR16
+   fan shape (shared rim + a minted edge-less apex vertex the fan locates by
+   position), and the tip such a cut leaves — an APEX CAP, one wrapping loop
+   with the apex inside — validates (the `1`-wrapping arm: the band whose
+   lower loop collapsed onto the apex, so the survivor winds −1) and renders
+   (a fan from the apex over the sampled loop, certified star-shaped by a
+   monotone azimuth walk; exact along both rulings). Three end-to-end tests
+   (tip kept, tip removed, a tilted conical POCKET = the reversed cap).
+   C0063 re-authored (its slab plane lay beyond the apex; it now passes
+   through the cone and keeps the tip) → SUPPORTED_CORRECT. The
+   `UNSUPPORTED(curved-profile)` class is now R0044 alone (M5 K11).
+   **New canonical 274C / 0W / 31E / 4EE / 0T** (release, 8 jobs, 360 s;
+   F0085 314.5 s): exactly ONE row moved against the F-3 canonical, C0063.
+   (A first version of the apex-cap certificate REFUSED surface-pair
+   boundary edges typed and moved three more rows — R0044 and two CORRECT
+   M5 cases — through the render path; the certificate now samples them
+   and falls through for every face that is not a clean apex cap.)
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the

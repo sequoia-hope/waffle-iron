@@ -1370,13 +1370,17 @@ fn smoke_corpus_boundary_categories() {
         ("C0052", Category::SupportedCorrect), // [M5] unequal-R perpendicular CUT
         ("C0058", Category::Error),            // [M5] equal-R 30° oblique union (tangency neck)
         // KV6 on-axis slice 2 increment B (task #66): the apex triangle now
-        // BUILDS the solid cone; the case's real boundary is the OBLIQUE
-        // slab cut (conic-bounded cone patch), which lands on the typed
-        // curved re-entry wall instead of a revolve ERROR.
-        (
-            "C0063",
-            Category::Unsupported(UnsupportedReason::CurvedProfile),
-        ), // [KV6c] oblique cone cut
+        // BUILDS the solid cone; the case's real boundary was the OBLIQUE
+        // slab cut (conic-bounded cone patch) on the typed curved re-entry
+        // wall. 2026-09-04 (KV14 apex-cone OPERAND): the solid cone enters
+        // yang as a boolean operand (shared rim + a minted apex vertex for
+        // the PR-YR16 fan) and the tip it leaves — an APEX CAP, one
+        // wrapping ellipse loop with the apex inside — validates and
+        // renders (fan from the apex). The document was re-authored the
+        // same day: its slab plane lay beyond the apex, so the engine's
+        // first-vertex reversal consumed the whole cone; it now passes
+        // through the cone and keeps the tip.
+        ("C0063", Category::SupportedCorrect), // [KV6c] oblique cone cut → apex cap
         // C0065 PIN MOVED at KV6d (2026-07-11, ada0dc42, task #136): the
         // full-turn circle-revolve wall was RETIRED (the closed torus now
         // BUILDS); the case's boundary moved downstream to the boolean's

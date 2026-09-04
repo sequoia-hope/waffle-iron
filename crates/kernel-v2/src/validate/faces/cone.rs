@@ -427,6 +427,34 @@ fn validate_cone_patch(
                 }
             }
         }
+        1 => {
+            // APEX CAP (KV14 apex-cone operand, output side): the tip an
+            // oblique slab leaves of a solid cone — or, `reversed`, the
+            // conical pocket it leaves in a body. ONE loop wraps the axis
+            // and the apex is a singular interior point of the face. It is
+            // the band whose lower (+1) loop collapsed onto the apex, so the
+            // survivor is the UPPER loop: it winds −1 (material toward the
+            // apex, τ → 0) and lies strictly ahead of the apex; windows
+            // wind CW exactly as in a band.
+            let w = wrapping[0];
+            if w.wrap != -1 {
+                return Err(mismatch(
+                    "apex-cap cone loop winds away from the apex (material must lie \
+                     between the loop and the apex)",
+                ));
+            }
+            if !(w.mean_h.is_finite() && w.mean_h > 0.0) {
+                return Err(mismatch("apex-cap cone loop lies at or behind the apex"));
+            }
+            for mm in &measures {
+                if mm.wrap == 0 && mm.area2 >= 0.0 {
+                    return Err(KernelV2Error::RingWindingMismatch {
+                        face: f,
+                        ring: mm.loop_id,
+                    });
+                }
+            }
+        }
         _ => {
             return Err(mismatch(
                 "cone patch must have exactly 0 or 2 axis-wrapping loops",

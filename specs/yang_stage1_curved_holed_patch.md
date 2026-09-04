@@ -345,7 +345,7 @@ class holds exactly three cases, and they are three DIFFERENT walls:
 |---|---|---|---|
 | R0044 | `FaceId(458)`, op `boolean_subtract` (the circle cut on the design result) | a CYLINDER lateral (r = 2327.8), no inner loop, a 5-edge outer loop `[Arc, SurfacePair, SurfacePair, SurfacePair, SurfacePair]` — every `SurfacePair` is this cylinder × a CONE (three distinct cones, half-angles 1.011 / 1.048 / 0.440: the revolve's conical flanks) | **M5 K11**: no yang INPUT vocabulary for a degree-4 surface-pair edge. The re-entry needs the procedural (Option B) cylinder∩cone curve sampled onto the cylinder's (θ, z) chart as a shared boundary chain (twin-identical, conformal to the neighbouring cone's own chain), then the Slice-D CDT; downstream, the chain is a CARRIED input curve for §4.4.2 restoration / §4.5.1 relocation onto the procedural curve. A multi-session capability (roadmap M5), not a slice of this spec. |
 | R0032 | `FaceId(593)`, op `boolean_union` | a TORUS lateral (R = 45.6, r = 30.4), no inner loop, a 57-edge outer loop of `Line` segments — the previous boolean's torus∩(other) intersection left as its chord polyline (no analytic curve type for a degree-8 curve) — every edge twinned to the neighbouring result faces | **Slice F-3, a torus DISK patch**: one non-wrapping loop. The Slice-F band path needs a second wrapping profile; a single loop needs the double-periodic chart's branch cuts placed away from the loop (the loop's (u, v) image must not straddle either cut), then the existing torus UV-CDT with an empty hole set and the band's lift. Tractable — the next slice of THIS spec. **DONE 2026-09-04** (Slice F-3 above): the Stage-1 wall falls; R0032 now STOPs in Stage-4 torus junction relocation (`gt2_partners` v7). |
-| C0063 | `FaceId(1)`, op `boolean_subtract` — the FIRST boolean's operand, not a re-entry | an apex CONE lateral (apex (0, 0, 1.2), half-angle 0.588), no inner loop, a ONE-edge outer loop: the full base rim `Circle(r = 0.8)` twinned to the base cap `FaceId(0)`; the apex is a surface point, not a vertex | **an apex cone as a boolean OPERAND**: the 1-edge loop is routed to the CDT block (`outer_hes.len() != 4`) where a full rim on a cone is the typed wall; the "apex-fan (1 rim)" vocabulary the comment names is not built. Also an AUTHORING defect, see below. |
+| C0063 | `FaceId(1)`, op `boolean_subtract` — the FIRST boolean's operand, not a re-entry | an apex CONE lateral (apex (0, 0, 1.2), half-angle 0.588), no inner loop, a ONE-edge outer loop: the full base rim `Circle(r = 0.8)` twinned to the base cap `FaceId(0)`; the apex is a surface point, not a vertex | **an apex cone as a boolean OPERAND**: the 1-edge loop is routed to the CDT block (`outer_hes.len() != 4`) where a full rim on a cone is the typed wall; the "apex-fan (1 rim)" vocabulary the comment names is not built. Also an AUTHORING defect, see below. **DONE 2026-09-04** ("Apex-cone operand" below): operand arm + apex-cap output vocabulary; document re-authored; C0063 → SUPPORTED_CORRECT. |
 
 **C0063 is also mis-authored.** By exact membership the chain reads EMPTY at
 128 and 256 cells on two phases (the cone alone reads 0.8045 = π·0.8²·1.2/3):
@@ -360,3 +360,53 @@ Once the apex-cone operand wall falls the runner will see an all-consumed
 model; the meta must be re-authored then (a slab that bites the cone, or an
 `expect_rebuild_error` per the `cut_consumes_body` precedent) — recorded, not
 changed here.
+
+## Apex-cone OPERAND — ✅ DONE (2026-09-04; C0063)
+
+Two sides, both needed:
+
+- **Input (kernel-v2 `to_yang_brep`).** A cone face with ONE closed-`Circle`
+  loop and no inner loop (the on-axis apex-triangle full-turn revolve:
+  `kv6a_revolve::on_axis_triangle_full_turn_builds_solid_cone` — 1 vertex,
+  1 edge, 2 faces) converts to yang's PR-YR16 fixture shape: the rim shared
+  with the disc cap through `convert_lateral_edge` (cap-outward normal), plus
+  a MINTED edge-less apex `BRepVertex` (position-deduplicated), because
+  yang's `[rim_e]` apex-FAN arm locates the apex by position among the
+  pre-seeded vertices. `map_vertex` now takes its id from the yang vertex
+  pool's length (the map's length no longer equals it).
+- **Output (kernel-v2 validate + render).** The tip an oblique slab leaves is
+  an **APEX CAP**: a cone face bounded by ONE loop that wraps the axis, the
+  apex a singular interior point (its cavity twin is a conical pocket,
+  `reversed`). `validate/faces/cone.rs` gains the `1`-wrapping-loop arm: the
+  band whose lower (+1) loop collapsed onto the apex, so the survivor winds
+  −1 (material toward the apex), lies strictly ahead of it (mean τ > 0), and
+  windows wind CW. `tessellate_cone_patch` first asks `apex_cap_polyline`
+  for the certificate — net winding ±1 with a MONOTONE azimuth walk (every
+  generator through the apex crosses a planar section exactly once, so the
+  face is star-shaped from the apex in its development) — and fans the
+  sampled boundary from the apex (`tessellate_cone_apex_cap`): exact along
+  both rulings, its only deviation the boundary chord's own sagitta, the
+  bound the structured apex form's fan carries. Surface-pair boundary
+  pieces sample through `surface_pair_edge_samples` like every other
+  patch. Anything that is not a clean certificate — no wrap, more than one,
+  a once-wrapping loop that doubles back in azimuth (a non-planar bite), a
+  vertex on the axis — falls through to the developable path, which keeps
+  its own verdict (byte-identical to before; the corpus proved a first
+  version that REFUSED surface-pair edges typed had moved three cases:
+  R0044, C0052-class CORRECT cases — the certificate must never fail a face
+  the developable path handled).
+- **Tests** (`boolean_chains.rs`): `apex_cone_operand_oblique_slab_keeps_tip`
+  (0.050412 vs quadrature 0.050448), `…_removes_tip` (0.753198 vs 0.753799;
+  the truncated body's cone BAND between the rim and the ellipse),
+  `apex_cone_cavity_tilted_pocket` (box − a 20°-tilted cone with its apex
+  inside: 3.923247 vs 3.923206 — the reversed apex cap).
+- **C0063 re-authored.** Its slab plane (n·p = 1.199) lay beyond the apex
+  (1.145), so the engine's first-vertex reversal laid the slab back through
+  the whole cone (exact chain EMPTY). The plane now passes through the cone
+  (origin (0, 0, 0.7338), n·p = 0.7, between the rim at ±0.24 and the apex);
+  the rim seam vertex is the body's only B-Rep vertex and lies below the
+  plane, so the reversal removes the BASE side and keeps the tip — an
+  oblique cone over the elliptical section, the conic-bounded patch the
+  case was designed for. `single_case`: SUPPORTED_CORRECT (0.4 s).
+- **Corpus (release, 8 jobs, 360 s): 274C / 0W / 31E / 4EE / 0T** — one row
+  moved, C0063; `UNSUPPORTED(curved-profile)` = R0044 alone (M5 K11).

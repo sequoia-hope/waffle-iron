@@ -2,7 +2,7 @@
   "errored": 31,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 273,
+  "passed": 274,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1541,10 +1541,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 5042d61b-a8b6-4ce3-9963-0caf870bc313: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(1) [curved lateral is an apex/frustum cone (full-circle rim; no CDT re-entry)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0063",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

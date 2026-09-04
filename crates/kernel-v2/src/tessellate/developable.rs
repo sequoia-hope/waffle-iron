@@ -164,6 +164,15 @@ pub(crate) fn tessellate_cone_patch(
             reason: "cone patch has no off-axis boundary vertex",
         });
     }
+    // KV14 apex-cone operand, output side: a hole-free face whose single
+    // loop wraps the axis once is an APEX CAP (the apex a singular interior
+    // point) — the developable unroll has no chart for it (the apex is the
+    // whole v = 0 line), so it is fanned from the apex instead.
+    if face.inner_loops.is_empty() {
+        if let Some(polyline) = apex_cap_polyline(arena, fid, n_seg, ap, a)? {
+            return tessellate_cone_apex_cap(fid, out, ap, a, half_angle, reversed, &polyline);
+        }
+    }
     tessellate_developable_patch(
         arena,
         fid,
@@ -177,6 +186,200 @@ pub(crate) fn tessellate_cone_patch(
             tan_half_angle: half_angle.tan(),
         },
     )
+}
+
+/// The outer loop of a cone face as a sampled 3D polyline (vertices + each
+/// curved half-edge's twin-canonical interior samples, in walk order) IF the
+/// loop wraps the axis exactly once with a MONOTONE azimuth walk — the
+/// star-shaped-from-the-apex certificate of an apex cap. `None` for
+/// everything else — a loop that does not wrap (a bounded patch), wraps more
+/// than once, doubles back in azimuth (a generator crossing it twice, a
+/// non-planar bite — a later slice would need the development CDT with the
+/// apex on its pole line), or touches the axis — so the developable path
+/// keeps its own verdict on every face that is not a clean apex cap
+/// (byte-identical to before this certificate existed).
+fn apex_cap_polyline(
+    arena: &BrepArena,
+    fid: FaceId,
+    n_seg: u32,
+    ap: [f64; 3],
+    a: [f64; 3],
+) -> Result<Option<Vec<Point3>>, KernelV2Error> {
+    use std::f64::consts::PI;
+    let face = arena.face(fid)?;
+    let hes = arena.loop_half_edges(face.outer_loop)?;
+    let mut pts: Vec<Point3> = Vec::with_capacity(hes.len() * 4);
+    for &h in &hes {
+        let he = arena.half_edge(h)?;
+        pts.push(arena.vertex(he.origin)?.point);
+        match he.curve {
+            Curve::LineSegment => {}
+            Curve::Arc { .. } | Curve::Circle { .. } => {
+                pts.extend(super::arc_interior_samples(arena, h, n_seg)?);
+            }
+            Curve::EllipseArc { .. } => {
+                pts.extend(super::ellipse_interior_samples(arena, h, n_seg)?);
+            }
+            Curve::HyperbolaArc { .. } => {
+                pts.extend(super::hyperbola_interior_samples(arena, h, n_seg)?);
+            }
+            Curve::SurfacePair { .. } => {
+                pts.extend(super::surface_pair_edge_samples(arena, h, n_seg)?);
+            }
+        }
+    }
+    if pts.len() < 3 {
+        return Ok(None);
+    }
+    // Azimuth walk about the axis, anchored at the first point's radial.
+    let radial = |p: Point3| -> Option<[f64; 3]> {
+        let d = [p.x() - ap[0], p.y() - ap[1], p.z() - ap[2]];
+        let t = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+        let r = [d[0] - t * a[0], d[1] - t * a[1], d[2] - t * a[2]];
+        let rl = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+        if !(rl.is_finite() && rl > 0.0) {
+            return None;
+        }
+        Some([r[0] / rl, r[1] / rl, r[2] / rl])
+    };
+    let Some(e1) = radial(pts[0]) else {
+        return Ok(None);
+    };
+    let e2 = [
+        a[1] * e1[2] - a[2] * e1[1],
+        a[2] * e1[0] - a[0] * e1[2],
+        a[0] * e1[1] - a[1] * e1[0],
+    ];
+    let theta = |p: Point3| -> Option<f64> {
+        let r = radial(p)?;
+        let x = r[0] * e1[0] + r[1] * e1[1] + r[2] * e1[2];
+        let y = r[0] * e2[0] + r[1] * e2[1] + r[2] * e2[2];
+        Some(y.atan2(x))
+    };
+    let m = pts.len();
+    let mut total = 0.0f64;
+    let (mut pos, mut neg) = (0usize, 0usize);
+    let Some(mut prev) = theta(pts[0]) else {
+        return Ok(None);
+    };
+    for k in 1..=m {
+        let Some(cur) = theta(pts[k % m]) else {
+            return Ok(None);
+        };
+        let d = crate::geom::wrap_to_pi(cur - prev);
+        if d > 0.0 {
+            pos += 1;
+        } else if d < 0.0 {
+            neg += 1;
+        }
+        total += d;
+        prev = cur;
+    }
+    let wraps = (total / (2.0 * PI)).round();
+    if (total / (2.0 * PI) - wraps).abs() > 1e-3 || wraps.abs() != 1.0 || (pos > 0 && neg > 0) {
+        return Ok(None);
+    }
+    Ok(Some(pts))
+}
+
+/// KV14 apex-cone operand, output side: render an APEX CAP — a cone face
+/// bounded by ONE loop that wraps the axis once, the apex a singular interior
+/// point (the tip an oblique slab leaves of a solid cone; `reversed`, the
+/// conical pocket it leaves in a body). Every generator through the apex
+/// meets a planar section exactly once, so the face is star-shaped from the
+/// apex and the fan (P_k, P_{k+1}, apex) over the sampled boundary polyline
+/// lies ON the cone along both rulings; its only deviation is the boundary
+/// chord's own sagitta — the bound the structured apex form's fan
+/// (`tessellate_cone_lateral`) carries too. Per-triangle apex copies carry
+/// the triangle's own azimuth normal (the apex normal is undefined), as the
+/// structured fan does; positions are bit-identical so the fan is watertight.
+fn tessellate_cone_apex_cap(
+    fid: FaceId,
+    out: &mut RenderMesh,
+    ap: [f64; 3],
+    a: [f64; 3],
+    half_angle: f64,
+    reversed: bool,
+    polyline: &[Point3],
+) -> Result<(), KernelV2Error> {
+    let (sa, ca) = half_angle.sin_cos();
+    let sense = if reversed { -1.0 } else { 1.0 };
+    let normal_at = |p: Point3| -> Option<[f64; 3]> {
+        let d = [p.x() - ap[0], p.y() - ap[1], p.z() - ap[2]];
+        let t = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+        let r = [d[0] - t * a[0], d[1] - t * a[1], d[2] - t * a[2]];
+        let rl = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+        if !(rl.is_finite() && rl > 0.0) {
+            return None;
+        }
+        Some([
+            sense * (ca * r[0] / rl - sa * a[0]),
+            sense * (ca * r[1] / rl - sa * a[1]),
+            sense * (ca * r[2] / rl - sa * a[2]),
+        ])
+    };
+    let range_start = out.indices.len() as u32;
+    let base = out.num_vertices() as u32;
+    let m = polyline.len();
+    let mut normals: Vec<[f64; 3]> = Vec::with_capacity(m);
+    for &p in polyline {
+        let Some(n) = normal_at(p) else {
+            return Err(KernelV2Error::TessellationFailed {
+                face: fid,
+                reason: "apex-cap cone loop vertex lies on the axis",
+            });
+        };
+        out.positions.extend_from_slice(&[p.x(), p.y(), p.z()]);
+        out.normals.extend_from_slice(&n);
+        normals.push(n);
+    }
+    // One apex copy per fan triangle, carrying the mean of its two boundary
+    // normals; a triangle whose two boundary points share a generator is
+    // degenerate (zero area on the ruling) and is skipped.
+    for k in 0..m {
+        let j = (k + 1) % m;
+        let (p, q) = (polyline[k], polyline[j]);
+        let e1 = [q.x() - p.x(), q.y() - p.y(), q.z() - p.z()];
+        let e2 = [ap[0] - p.x(), ap[1] - p.y(), ap[2] - p.z()];
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        if !(nl.is_finite() && nl > 0.0) {
+            continue;
+        }
+        let (nk, nj) = (normals[k], normals[j]);
+        let mut an = [nk[0] + nj[0], nk[1] + nj[1], nk[2] + nj[2]];
+        let al = (an[0] * an[0] + an[1] * an[1] + an[2] * an[2])
+            .sqrt()
+            .max(1e-300);
+        an = [an[0] / al, an[1] / al, an[2] / al];
+        let apex_idx = out.num_vertices() as u32;
+        out.positions.extend_from_slice(&ap);
+        out.normals.extend_from_slice(&an);
+        // Wind with the analytic outward normal of the boundary point.
+        let dot = n[0] * nk[0] + n[1] * nk[1] + n[2] * nk[2];
+        let (i0, i1) = if dot >= 0.0 {
+            (base + k as u32, base + j as u32)
+        } else {
+            (base + j as u32, base + k as u32)
+        };
+        out.indices.extend_from_slice(&[i0, i1, apex_idx]);
+    }
+    if out.indices.len() as u32 == range_start {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "apex-cap cone fan produced no triangle",
+        });
+    }
+    out.face_ranges.push(FaceRange {
+        face: fid,
+        start: range_start,
+        count: out.indices.len() as u32 - range_start,
+    });
+    Ok(())
 }
 
 /// The shared developable-patch engine: unroll the boundary loops into the

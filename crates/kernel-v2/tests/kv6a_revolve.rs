@@ -1113,14 +1113,27 @@ fn on_axis_bicone_triangle_stays_rejected() {
     assert_eq!(arena, BrepArena::new(), "arena untouched");
 }
 
-/// Slice 2 I7: an apex-cone boolean OPERAND stays on the typed boundary —
-/// the 1-half-edge lateral loop fails to_yang's 4-edge pattern loudly
-/// (UnsupportedCurvedBoolean), never a silent wrong answer.
+/// Slice 2 I7 → KV14 apex-cone OPERAND (2026-09-04): the solid cone ENTERS
+/// yang as a boolean operand (the 1-half-edge lateral loop converts to the
+/// PR-YR16 fan shape: shared base rim + a minted apex vertex). Until then
+/// this pin asserted the typed `UnsupportedCurvedBoolean` wall; the wall
+/// fell, so the pin is now the positive one. A slab x ∈ [1, 2] across the
+/// axis removes the cone's middle and leaves TWO bodies — the base frustum
+/// x ∈ [0, 1] (radii R2 → R2·(1 − 1/H)) and the tip x ∈ [2, 3] (an apex
+/// cone with a CIRCULAR rim, the structured apex form) — with exact volume
+/// π/3·(R0² + R0·R1 + R1²)·1 + π·r_tip²·1/3 = 80π/27 for H = 3, R2 = 2.
 #[test]
-fn apex_cone_boolean_operand_stays_walled_typed() {
+fn apex_cone_boolean_operand_enters_yang() {
     let mut arena = BrepArena::new();
     let profile = on_axis_triangle_profile();
     let r = revolve(&mut arena, &profile, AXIS_O, AXIS_D, 2.0 * PI).expect("apex cone");
+    let v_cone = mesh_signed_volume(&tessellate(&arena, r.solid).expect("cone tessellates"));
+    let exact_cone = PI * R2 * R2 * H / 3.0;
+    let chord_deficit = exact_cone - v_cone;
+    assert!(
+        chord_deficit >= 0.0 && chord_deficit < 0.01 * exact_cone,
+        "cone volume {v_cone} vs exact {exact_cone}"
+    );
     let slab_profile = Profile::new(
         Point3::new(1.0, 0.0, 0.0),
         Vector3::new(0.0, 1.0, 0.0),
@@ -1135,11 +1148,22 @@ fn apex_cone_boolean_operand_stays_walled_typed() {
     )
     .expect("slab profile");
     let slab = extrude(&mut arena, &slab_profile, Vector3::new(1.0, 0.0, 0.0), 1.0).expect("slab");
-    let err = boolean_op(&mut arena, r.solid, slab.solid, BoolOp::Subtract)
-        .expect_err("apex-cone operand is walled (KV6c apex vocabulary has no yang re-entry)");
+    let out = boolean_op(&mut arena, r.solid, slab.solid, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("apex-cone operand must enter yang (KV14): {e:?}"));
+    validate_solid(&arena, out).expect("cone − mid slab validates");
+    let v = mesh_signed_volume(&tessellate(&arena, out).expect("result tessellates"));
+    let r_mid = R2 * (1.0 - 1.0 / H); // radius at x = 1
+    let r_tip = R2 * (1.0 - 2.0 / H); // radius at x = 2
+    let exact = PI / 3.0 * (R2 * R2 + R2 * r_mid + r_mid * r_mid) + PI * r_tip * r_tip / 3.0;
     assert!(
-        matches!(err, KernelV2Error::UnsupportedCurvedBoolean { .. }),
-        "typed re-entry wall, got {err:?}"
+        (exact - 80.0 * PI / 27.0).abs() < 1e-12,
+        "oracle arithmetic: {exact} vs 80π/27"
+    );
+    // Both survivors' curved faces are inscribed: at or below exact, by at
+    // most the whole cone's chord deficit.
+    assert!(
+        v <= exact + 1e-9 && v >= exact - chord_deficit.max(1e-9),
+        "cone − mid slab volume {v} vs exact {exact} (chord deficit {chord_deficit})"
     );
 }
 

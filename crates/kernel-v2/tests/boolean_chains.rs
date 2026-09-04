@@ -550,3 +550,197 @@ fn torus_disk_patch_reentry() {
         v1 - v2
     );
 }
+
+/// KV14 apex-cone OPERAND (C0063's wall): the solid cone from an on-axis
+/// apex-triangle full-turn revolve — ONE lateral loop (the base rim), the apex
+/// a singular surface point — must enter yang as a boolean operand. The two
+/// fixtures are the two sides of one oblique slab, plane `n·p = 0.7` with
+/// `n = (0.3, 0, 0.954)` (17.5° off the axis, inside the 33.7° half-angle, so
+/// the section is an ELLIPSE): keep the TIP (an oblique cone over the
+/// ellipse, `V = A·h⊥/3`) or keep the BASE (a frustum-like body: disc cap,
+/// cone band between the rim and the ellipse, elliptical cap). Exact volumes
+/// by 2-D quadrature over the base disc: `z_top = H(1 − r/R)`, the plane
+/// `z = (0.7 − 0.3x)/0.954`.
+fn apex_cone(a: &mut BrepArena) -> kernel_v2::SolidId {
+    use std::f64::consts::PI;
+    // Profile in the y = 0 plane (x radial, sketch-y = world z): axis foot,
+    // rim point (R = 0.8), apex (H = 1.2) — the C0063 primary.
+    let profile = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(0.8, 0.0),
+            Point2::new(0.0, 1.2),
+        ],
+        vec![],
+    )
+    .unwrap();
+    revolve(
+        a,
+        &profile,
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        2.0 * PI,
+    )
+    .expect("full-turn apex cone")
+    .solid
+}
+
+const SLAB_N: [f64; 3] = [0.3, 0.0, 0.9539392014169457];
+const SLAB_C: f64 = 0.7;
+
+/// The oblique slab on one side of the plane `n·p = SLAB_C`: `base_side`
+/// covers `n·p ∈ [c − 1.5, c]`, otherwise `[c, c + 1.5]`. Footprint ±1 in
+/// the plane (the cone's section and base project well inside).
+fn oblique_slab(a: &mut BrepArena, base_side: bool) -> kernel_v2::SolidId {
+    let n = SLAB_N;
+    let origin = Point3::new(0.0, 0.0, SLAB_C / n[2]); // n·origin = SLAB_C
+                                                       // In-plane basis (u, v) with u × v = the extrusion direction.
+    let y = Vector3::new(0.0, 1.0, 0.0);
+    let w = Vector3::new(-n[2], 0.0, n[0]); // n × ŷ … rotated: ŷ × w = n
+    let (xd, yd, dir) = if base_side {
+        (w, y, Vector3::new(-n[0], -n[1], -n[2])) // w × ŷ = −n
+    } else {
+        (y, w, Vector3::new(n[0], n[1], n[2])) // ŷ × w = +n
+    };
+    let p = Profile::new(
+        origin,
+        xd,
+        yd,
+        vec![
+            Point2::new(-1.0, -1.0),
+            Point2::new(1.0, -1.0),
+            Point2::new(1.0, 1.0),
+            Point2::new(-1.0, 1.0),
+        ],
+        vec![],
+    )
+    .unwrap();
+    extrude(a, &p, dir, 1.5).unwrap().solid
+}
+
+/// Exact tip volume (the cone above the oblique plane) by midpoint quadrature.
+fn apex_cone_tip_volume() -> f64 {
+    cone_volume_above_plane(SLAB_N, SLAB_C)
+}
+
+/// Volume of the R = 0.8, H = 1.2 cone (base disc at z' = 0, apex at z' = H,
+/// in its own frame) on the side `n·p ≥ c` of a plane, by midpoint quadrature
+/// over the base disc (`n_z > 0`).
+fn cone_volume_above_plane(n: [f64; 3], c: f64) -> f64 {
+    let (r_base, h) = (0.8_f64, 1.2_f64);
+    let m = 1600usize;
+    let mut acc = 0.0;
+    for i in 0..m {
+        let x = -r_base + (i as f64 + 0.5) / m as f64 * 2.0 * r_base;
+        for j in 0..m {
+            let y = -r_base + (j as f64 + 0.5) / m as f64 * 2.0 * r_base;
+            let r = (x * x + y * y).sqrt();
+            if r >= r_base {
+                continue;
+            }
+            let z_top = h * (1.0 - r / r_base);
+            let z_min = ((c - n[0] * x - n[1] * y) / n[2]).max(0.0);
+            if z_top > z_min {
+                acc += z_top - z_min;
+            }
+        }
+    }
+    acc * (2.0 * r_base / m as f64).powi(2)
+}
+
+#[test]
+fn apex_cone_operand_oblique_slab_keeps_tip() {
+    let mut a = BrepArena::new();
+    let cone = apex_cone(&mut a);
+    let v_cone = volume_of(&a, cone);
+    let exact_cone = std::f64::consts::PI * 0.8 * 0.8 * 1.2 / 3.0;
+    // The render fan is inscribed; its deficit bounds the curved-face chord
+    // error for the bands below.
+    let chord_deficit = exact_cone - v_cone;
+    assert!(
+        chord_deficit >= 0.0 && chord_deficit < 0.01 * exact_cone,
+        "cone volume {v_cone} vs exact {exact_cone}"
+    );
+    let slab = oblique_slab(&mut a, true);
+    let tip = boolean_op(&mut a, cone, slab, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("apex cone − base-side slab (KV14 apex operand): {e:?}"));
+    validate_solid(&a, tip).expect("tip validates");
+    let v_tip = volume_of(&a, tip);
+    let exact_tip = apex_cone_tip_volume();
+    eprintln!("[apex-cone] v_cone={v_cone:.9} exact_cone={exact_cone:.9} v_tip={v_tip:.9} exact_tip={exact_tip:.9}");
+    assert!(
+        v_tip <= exact_tip * (1.0 + 1e-6) && v_tip >= exact_tip - chord_deficit.max(1e-9),
+        "tip volume {v_tip} vs exact {exact_tip} (cone chord deficit {chord_deficit})"
+    );
+}
+
+#[test]
+fn apex_cone_operand_oblique_slab_removes_tip() {
+    let mut a = BrepArena::new();
+    let cone = apex_cone(&mut a);
+    let v_cone = volume_of(&a, cone);
+    let exact_cone = std::f64::consts::PI * 0.8 * 0.8 * 1.2 / 3.0;
+    let chord_deficit = exact_cone - v_cone;
+    let slab = oblique_slab(&mut a, false);
+    let body = boolean_op(&mut a, cone, slab, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("apex cone − apex-side slab (KV14 apex operand): {e:?}"));
+    validate_solid(&a, body).expect("truncated cone validates");
+    let v_body = volume_of(&a, body);
+    let exact_body = exact_cone - apex_cone_tip_volume();
+    eprintln!("[apex-cone] v_cone={v_cone:.9} v_body={v_body:.9} exact_body={exact_body:.9}");
+    assert!(
+        v_body <= exact_body * (1.0 + 1e-6) && v_body >= exact_body - chord_deficit.max(1e-9),
+        "truncated volume {v_body} vs exact {exact_body} (cone chord deficit {chord_deficit})"
+    );
+}
+
+/// The cavity twin of the apex cap: a box minus a TILTED solid cone whose apex
+/// sits inside the box and whose base lies below it. The box's bottom face
+/// cuts the cone in an ellipse (axis 20° off the face normal, inside the
+/// 33.7° half-angle), so the pocket's cone face is a `reversed` apex cap —
+/// one wrapping loop, the apex inside. Removed volume = the cone part above
+/// z = 0, by the same quadrature in the cone's own frame (world z = O_z −
+/// x'·sin β + z'·cos β).
+#[test]
+fn apex_cone_cavity_tilted_pocket() {
+    use std::f64::consts::PI;
+    let beta = 20.0_f64.to_radians();
+    let (sb, cb) = beta.sin_cos();
+    let axis = Vector3::new(sb, 0.0, cb);
+    // Apex at (0, 0, 0.5) inside the box: base centre O = apex − H·â.
+    let o = Point3::new(-1.2 * sb, 0.0, 0.5 - 1.2 * cb);
+    let mut a = BrepArena::new();
+    let profile = Profile::new(
+        o,
+        Vector3::new(cb, 0.0, -sb), // radial, ⊥ the axis in the xz-plane
+        axis,
+        vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(0.8, 0.0),
+            Point2::new(0.0, 1.2),
+        ],
+        vec![],
+    )
+    .unwrap();
+    let cone = revolve(&mut a, &profile, o, axis, 2.0 * PI)
+        .expect("tilted apex cone")
+        .solid;
+    let bx = boxx(&mut a, (-1.0, 1.0), (-1.0, 1.0), (0.0, 1.0));
+    let body = boolean_op(&mut a, bx, cone, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("box − tilted apex cone (KV14 apex operand, cavity): {e:?}"));
+    validate_solid(&a, body).expect("pocketed box validates");
+    let v = volume_of(&a, body);
+    // Cone frame: x' along (cb, 0, −sb), z' along the axis ⇒ z_world = O_z − x'·sb + z'·cb.
+    let removed = cone_volume_above_plane([-sb, 0.0, cb], -o.z());
+    let exact = 4.0 - removed;
+    eprintln!("[apex-cone] cavity v={v:.9} exact={exact:.9} removed={removed:.9}");
+    // The pocket's inscribed fan makes the CAVITY smaller, so the body reads
+    // at or above exact, by at most the removed cone's chord deficit.
+    assert!(
+        v >= exact - 1e-9 && v <= exact + 0.01 * removed,
+        "pocketed volume {v} vs exact {exact} (removed {removed})"
+    );
+}
