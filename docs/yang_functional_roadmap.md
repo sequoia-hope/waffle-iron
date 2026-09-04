@@ -1354,8 +1354,24 @@ name, never measured).
    oracle (release, 8 jobs, 360 s; F0085 304 s honest) is BYTE-IDENTICAL
    to canonical 273C/0W/31E/4EE/0T. The 2026-09-03 sweep's silent-wrong
    classes (7 %–∞) can no longer pass as CORRECT. `ASSAY_EXACT_VOLUME=0`
-   is the dev A/B knob. Next: the emission arm's flip and the Stage-1
-   partial-patch re-entry (R0044's `UNSUPPORTED(curved-profile)` wall).
+   is the dev A/B knob.
+   **inc-3c** (2026-09-04, same session; spec §3ai): the corner-transit
+   EMISSION chain FLIPPED always-on — `YANG_451_TRIPLE_DOMAIN` (unset =
+   detect + repair + continue quietly; `census` reports; `1`/`on` STOPs
+   on an unrepaired site; `0`/`off` = pre-flip), `YANG_451_TRANSIT_ANATOMY`
+   (unset = on; set = report), `YANG_451_TRANSIT_EMIT` (unset = write).
+   Every census print goes through a report-gated `say!`. Three proofs
+   (release, 8 jobs, 360 s): pre-flip knobs-on moves exactly ONE case
+   against canonical — **R0044 ERROR `FaceId(626)` →
+   `UNSUPPORTED(curved-profile)`** (the design boolean completes; the
+   circle cut refuses at Stage 1 on a surface-pair-bounded lateral, §3af);
+   post-flip default BYTE-IDENTICAL to it (F0085 311.2 s); post-flip
+   `TRIPLE_DOMAIN=0` BYTE-IDENTICAL to canonical (302.4 s). yang-rs 850
+   tests green. **New canonical 273C / 0W / 30E / 4EE / 0T** (+3
+   UNSUPPORTED(curved-profile), +2 UNSUPPORTED(coplanar-boolean)). Next:
+   the Stage-1 partial-patch re-entry — tessellating a boolean result's
+   surface-pair-bounded lateral as an operand (R0044's wall and the
+   `UNSUPPORTED(curved-profile)` family).
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the

@@ -3407,6 +3407,49 @@ R0091's volume, R0063 as a heavy pin) are its tests; the corpus sweep
 found three kernel silent-wrong classes the mesh-borne oracles cannot see
 (`docs/audits/exact_membership_sweep_2026_09_03.md`).
 
+## 3ai. inc-3c — the EMISSION chain FLIPPED always-on (LANDED 2026-09-04)
+
+**What flipped.** The §4.5.1 out-of-domain detection (§3t) and the
+emission half's whole chain — solve (§3u), anatomy (§3v), cut path (§3w),
+plan (§3x), edit list (§3y), region (§3z), partition + pinch (§3aa), fill
+(§3ab), §4.5.2 refinement (§3ae), the bite (§3ad) and the WRITE (§3ac) —
+now run on every triple-junction relocation that crosses a crease, under
+the household pattern:
+
+| knob | pre-flip | now |
+|---|---|---|
+| `YANG_451_TRIPLE_DOMAIN` | unset = off; `census` = detect + report + continue; `1`/`on` = detect + STOP | unset = detect + repair + continue, QUIET; `census` = the same, every stage reported; `1`/`on` = STOP typed on a site the emission could not repair; `0`/`off` = the pre-flip path (dev A/B) |
+| `YANG_451_TRANSIT_ANATOMY` | set = arm the anatomy → emission sub-chain | unset = on; `0`/`off` = off; SET = also report (the old recipes keep working) |
+| `YANG_451_TRANSIT_EMIT` | `1`/`on` = write the certified fill | unset = write; `0`/`off` = census only |
+
+The STOP stays unarmed by default: the detection fires on R0003 too
+(CORRECT — §3t's 1.2× gap was refused as a discriminator), and the
+emission at R0003 declines at the edit list (§3y: no edits), so the run
+continues exactly as before there. Every census `eprintln!` in the chain
+goes through a `say!` macro gated on the report modes — the default run
+is silent.
+
+**The three proofs** (release, 8 jobs, 360 s):
+
+1. pre-flip, the three knobs on (`census` + `ANATOMY=1` + `EMIT=1`):
+   exactly ONE move against canonical 273C / 0W / 31E / 4EE / 0T —
+   **R0044 ERROR `FaceId(626)` → `UNSUPPORTED(curved-profile)`**, the
+   circle cut refusing at Stage 1 on a curved boolean result with a
+   surface-pair-bounded lateral (§3af's reading); F0085 314.7 s honest;
+2. post-flip default: BYTE-IDENTICAL to proof 1 (F0085 311.2 s);
+3. post-flip `YANG_451_TRIPLE_DOMAIN=0`: BYTE-IDENTICAL to canonical
+   (F0085 302.4 s).
+
+yang-rs 850 unit tests green; the flip is a gating change only.
+
+**New canonical 273C / 0W / 30E / 4EE / 0T (+3 UNSUPPORTED(curved-profile),
++2 UNSUPPORTED(coplanar-boolean)).** R0044's design boolean now completes
+in the canonical run; its wall is the Stage-1 partial-patch re-entry, the
+`UNSUPPORTED(curved-profile)` family's structural capability — the next
+increment of the epic. Also carried, unchanged: the seven other R0044 fires
+(`ChainAbsent`, `AlreadyCarried`, `TransitLeavesNeighbour`) are
+declines the chain reports in `census` mode, not STOPs.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file
@@ -3959,3 +4002,9 @@ found three kernel silent-wrong classes the mesh-borne oracles cannot see
   failing ops) + full-corpus gated measurement; flip under the standing
   two-proof protocol. R0085 stays honestly walled on operand quality
   (op-2 input-n2m).
+- **inc-3c LANDED** (2026-09-04): the emission chain FLIPPED always-on
+  (household pattern on all three knobs; `say!`-gated census; STOP only
+  under `1`/`on`). Three proofs: knobs-on pre-flip = ONE move, R0044
+  ERROR → `UNSUPPORTED(curved-profile)`; post-flip default byte-identical
+  to it; `TRIPLE_DOMAIN=0` byte-identical to canonical. New canonical
+  273C/0W/30E/4EE/0T. Next: the Stage-1 partial-patch re-entry (§3ai).

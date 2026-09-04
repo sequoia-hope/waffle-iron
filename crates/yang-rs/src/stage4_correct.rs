@@ -5298,12 +5298,16 @@ fn strategy_selection_census(
 /// [`crate::stage4_boundary_curve::TransitEmissionFill`] at a determined
 /// out-of-domain relocation site and move the site to its corrected
 /// junction, instead of writing the out-of-domain solution. Reachable only
-/// inside the `YANG_451_TRIPLE_DOMAIN` + `YANG_451_TRANSIT_ANATOMY` chain;
-/// `YANG_451_TRANSIT_EMIT=1|on` arms it, default OFF (byte-identical).
+/// inside the `YANG_451_TRIPLE_DOMAIN` + `YANG_451_TRANSIT_ANATOMY` chain.
+/// ALWAYS-ON since inc-3c (2026-09-04) under the household pattern:
+/// `YANG_451_TRANSIT_EMIT=0|off` is the dev A/B knob (census only, no
+/// write). Flip proof: with the whole chain on, the corpus moves exactly
+/// one case — R0044, ERROR `FaceId(626)` → `UNSUPPORTED(curved-profile)`,
+/// the honest Stage-1 partial-patch wall — and nothing else.
 fn transit_emit_enabled() -> bool {
-    matches!(
+    !matches!(
         std::env::var("YANG_451_TRANSIT_EMIT").as_deref(),
-        Ok("1") | Ok("on")
+        Ok("0") | Ok("off")
     )
 }
 
@@ -10254,8 +10258,27 @@ fn stage4_relocate_and_correct_inner(
         }
         // §4.5.1 inc-2c-3b-12: the crease index, built ONCE (O(edges)); the
         // per-vertex certificate only looks up its own surfaces' creases.
+        // inc-3c (2026-09-04): the domain check + the emission chain are
+        // ALWAYS-ON under the household pattern — unset = act quietly,
+        // `census` = act and report every stage to stderr, `1`/`on` = act
+        // and STOP typed on a site the emission could not repair, `0`/`off`
+        // = the pre-flip path (dev A/B, byte-identical to the old default).
         let dom_mode = std::env::var("YANG_451_TRIPLE_DOMAIN").unwrap_or_default();
-        let creases_by_surf = if dom_mode.is_empty() || dom_mode == "0" || dom_mode == "off" {
+        let dom_on = !(dom_mode == "0" || dom_mode == "off");
+        let dom_stop = dom_mode == "1" || dom_mode == "on";
+        // The anatomy → emission sub-chain: on unless `0`/`off`; the knob's
+        // pre-flip role (any value = arm) survives as "set = report".
+        let anatomy_knob = std::env::var("YANG_451_TRANSIT_ANATOMY").ok();
+        let anatomy_on = !matches!(anatomy_knob.as_deref(), Some("0") | Some("off"));
+        let trace = dom_mode == "census" || (anatomy_on && anatomy_knob.is_some());
+        macro_rules! say {
+            ($($t:tt)*) => {
+                if trace {
+                    eprintln!($($t)*);
+                }
+            };
+        }
+        let creases_by_surf = if !dom_on {
             Vec::new()
         } else {
             crate::stage4_boundary_curve::creases_by_surface(&inc0)
@@ -10338,11 +10361,12 @@ fn stage4_relocate_and_correct_inner(
             // (§4.5.1 Fig. 12 c/d/e, the q-points on C_b). This increment
             // lands the DETECTION half only; the repair is 3b-12b.
             //
-            // Off by default (byte-identical), `census` reports and continues,
-            // `1`/`on` STOPs typed at the site instead of letting an
-            // out-of-domain junction surface three stages later as a rejected
-            // output ring on a different face.
-            if dom_mode == "census" || dom_mode == "1" || dom_mode == "on" {
+            // Always-on since inc-3c: the emission repairs what it can certify
+            // and the run continues either way (the pre-flip `census`
+            // semantics, quiet); `1`/`on` STOPs typed at an unrepaired site
+            // instead of letting an out-of-domain junction surface three
+            // stages later as a rejected output ring on a different face.
+            if dom_on {
                 let creases =
                     crate::stage4_boundary_curve::creases_for_surfaces(&creases_by_surf, surfs);
                 // inc-2c-3b-12b-8: set when the emission fill was WRITTEN at
@@ -10377,7 +10401,7 @@ fn stage4_relocate_and_correct_inner(
                         proj.as_array(),
                         creases[ci].0
                     );
-                    eprintln!("{line}");
+                    say!("{line}");
                     // inc-2c-3b-12b: the REPAIR solve, reported alongside the
                     // fire so the census shows whether each out-of-domain site
                     // has a DETERMINED transit (and at what correction) before
@@ -10394,7 +10418,7 @@ fn stage4_relocate_and_correct_inner(
                         &nbr_creases,
                     ) {
                         Ok(t) => {
-                            eprintln!(
+                            say!(
                                 "[s451-transit-solve] case={} v={v} OK correction={:.6e} \
                                  s_nbr={:?} j={:?} p_trunc={:?} q1={:?} q2={:?} q_margin={:?}",
                                 std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into()),
@@ -10413,7 +10437,7 @@ fn stage4_relocate_and_correct_inner(
                             // already across the crease, and which crease edge
                             // hosts each q-point. Measured BEFORE any of the
                             // re-termination is designed.
-                            if std::env::var_os("YANG_451_TRANSIT_ANATOMY").is_some() {
+                            if anatomy_on {
                                 let case =
                                     || std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into());
                                 match crate::stage4_boundary_curve::transit_site_anatomy(
@@ -10425,7 +10449,7 @@ fn stage4_relocate_and_correct_inner(
                                     [t.q1, t.q2],
                                 ) {
                                     Some(an) => {
-                                        eprintln!(
+                                        say!(
                                             "[s451-anatomy] case={} v={v} fan={} ring={} \
                                              sides(home/on/past)={:?} fan_faces={:?} \
                                              q_hosts={:?}",
@@ -10438,12 +10462,10 @@ fn stage4_relocate_and_correct_inner(
                                             an.q_hosts
                                         );
                                         for (u, d, sd) in &an.ring {
-                                            eprintln!(
-                                                "[s451-anatomy]   ring v={u} d={d:.6e} {sd:?}"
-                                            );
+                                            say!("[s451-anatomy]   ring v={u} d={d:.6e} {sd:?}");
                                         }
                                         for ft in &an.fan {
-                                            eprintln!(
+                                            say!(
                                                 "[s451-anatomy]   tri={} face={:?} other={:?} \
                                                  d_other=[{:.6e},{:.6e}]",
                                                 ft.tri,
@@ -10477,7 +10499,7 @@ fn stage4_relocate_and_correct_inner(
                                             &face_surface,
                                         ) {
                                             Ok(cut) => {
-                                                eprintln!(
+                                                say!(
                                                     "[s451-cut] case={} v={v} OK carrier={} \
                                                  span={:.6e} q_gap={:.6e} \
                                                  thetas={:?} \
@@ -10519,7 +10541,7 @@ fn stage4_relocate_and_correct_inner(
                                                         &creases[ci],
                                                     ) {
                                                     Ok(pl) => {
-                                                        eprintln!(
+                                                        say!(
                                                             "[s451-emit] case={} v={v} OK \
                                                              corner_deg={:.17e} \
                                                              fan_span_deg={:.6e} \
@@ -10552,7 +10574,7 @@ fn stage4_relocate_and_correct_inner(
                                                                 mesh, &an, &cut, &pl, &t,
                                                             ) {
                                                             Ok(ed) => {
-                                                                eprintln!(
+                                                                say!(
                                                                     "[s451-edits] case={} \
                                                                      v={v} OK site={} \
                                                                      host={:?} \
@@ -10588,7 +10610,7 @@ fn stage4_relocate_and_correct_inner(
                                                                     .iter()
                                                                     .chain(ed.relabel.iter())
                                                                 {
-                                                                    eprintln!(
+                                                                    say!(
                                                                         "[s451-edits]   \
                                                                          tri={x} face={:?}",
                                                                         attribution.lookup(*x).map(
@@ -10607,7 +10629,7 @@ fn stage4_relocate_and_correct_inner(
                                                                         mesh, &ed,
                                                                     ) {
                                                                     Ok(rg) => {
-                                                                        eprintln!(
+                                                                        say!(
                                                                         "[s451-region] case={} \
                                                                          v={v} OK tris={:?} \
                                                                          boundary={:?} \
@@ -10652,7 +10674,7 @@ fn stage4_relocate_and_correct_inner(
                                                                                     ed.site,
                                                                                 )
                                                                             });
-                                                                            eprintln!(
+                                                                            say!(
                                                                                 "[s451-parts]   \
                                                                                  {:?} pinch={:?}",
                                                                                 pt, pinch
@@ -10689,7 +10711,7 @@ fn stage4_relocate_and_correct_inner(
                                                                             ) {
                                                                             Ok(rf) => {
                                                                                 let fl = &rf.fill;
-                                                                                eprintln!(
+                                                                                say!(
                                                                                     "[s451-refine] case={} v={v} rounds={} \
                                                                                      extra={}",
                                                                                     case(),
@@ -10697,9 +10719,9 @@ fn stage4_relocate_and_correct_inner(
                                                                                     rf.extra.len()
                                                                                 );
                                                                                 for r in &rf.rounds {
-                                                                                    eprintln!("[s451-refine]   {r:?}");
+                                                                                    say!("[s451-refine]   {r:?}");
                                                                                 }
-                                                                                eprintln!(
+                                                                                say!(
                                                                                     "[s451-fill] case={} v={v} OK \
                                                                                      removed={:?} touched_delta={:?} \
                                                                                      own={:?} notch_face={:?} \
@@ -10731,19 +10753,19 @@ fn stage4_relocate_and_correct_inner(
                                                                                         .map(|(m, p)| (*m, p.as_array()))
                                                                                         .collect::<Vec<_>>()
                                                                                 );
-                                                                                eprintln!(
+                                                                                say!(
                                                                                     "[s451-fill]   lift_flips={} \
                                                                                      lift_uncertified={} lift={:?}",
                                                                                     fl.lift_flips,
                                                                                     fl.lift_uncertified,
                                                                                     fl.lift
                                                                                 );
-                                                                                eprintln!(
+                                                                                say!(
                                                                                     "[s451-fill]   bite={:?} dropped={:?}",
                                                                                     fl.bite, fl.dropped
                                                                                 );
                                                                                 for p in &fl.polygons {
-                                                                                    eprintln!(
+                                                                                    say!(
                                                                                         "[s451-fill]   face={:?} bite={} \
                                                                                          polygon={:?} tris={:?} lift={:?}",
                                                                                         p.face, p.bite, p.polygon, p.tris, p.lift
@@ -10760,7 +10782,7 @@ fn stage4_relocate_and_correct_inner(
                                                                                         }
                                                                                     };
                                                                                     for tri in &p.tris {
-                                                                                        eprintln!(
+                                                                                        say!(
                                                                                             "[s451-fill]     tri={:?} pos={:?}",
                                                                                             tri,
                                                                                             [at(tri[0]), at(tri[1]), at(tri[2])]
@@ -10780,7 +10802,7 @@ fn stage4_relocate_and_correct_inner(
                                                                                             fl,
                                                                                         ) {
                                                                                         Ok(rep) => {
-                                                                                            eprintln!(
+                                                                                            say!(
                                                                                                 "[s451-apply] case={} v={v} \
                                                                                                  WRITTEN {rep:?}",
                                                                                                 case()
@@ -10788,7 +10810,7 @@ fn stage4_relocate_and_correct_inner(
                                                                                             proj = fl.site_at;
                                                                                             repaired = true;
                                                                                         }
-                                                                                        Err(e) => eprintln!(
+                                                                                        Err(e) => say!(
                                                                                             "[s451-apply] case={} v={v} \
                                                                                              REFUSE {e:?} — the standing \
                                                                                              STOP applies",
@@ -10803,48 +10825,48 @@ fn stage4_relocate_and_correct_inner(
                                                                                 rounds,
                                                                                 last,
                                                                             }) => {
-                                                                                eprintln!(
+                                                                                say!(
                                                                                     "[s451-refine] case={} v={v} CAP iterations={iterations} \
                                                                                      lift_flips={lift_flips} halvings={}",
                                                                                     case(),
                                                                                     rounds.len()
                                                                                 );
                                                                                 for r in &rounds {
-                                                                                    eprintln!("[s451-refine]   {r:?}");
+                                                                                    say!("[s451-refine]   {r:?}");
                                                                                 }
-                                                                                eprintln!(
+                                                                                say!(
                                                                                     "[s451-refine]   last lift={:?}",
                                                                                     last.lift
                                                                                 );
                                                                                 for p in &last.polygons {
-                                                                                    eprintln!(
+                                                                                    say!(
                                                                                         "[s451-refine]   face={:?} bite={} \
                                                                                          polygon={:?} tris={:?} lift={:?}",
                                                                                         p.face, p.bite, p.polygon, p.tris, p.lift
                                                                                     );
                                                                                 }
                                                                             }
-                                                                            Err(e) => eprintln!(
+                                                                            Err(e) => say!(
                                                                                 "[s451-fill] case={} v={v} DECLINE {e:?}",
                                                                                 case()
                                                                             ),
                                                                         }
                                                                     }
-                                                                    Err(e) => eprintln!(
+                                                                    Err(e) => say!(
                                                                         "[s451-region] case={} \
                                                                          v={v} DECLINE {e:?}",
                                                                         case()
                                                                     ),
                                                                 }
                                                             }
-                                                            Err(e) => eprintln!(
+                                                            Err(e) => say!(
                                                                 "[s451-edits] case={} v={v} \
                                                                  DECLINE {e:?}",
                                                                 case()
                                                             ),
                                                         }
                                                     }
-                                                    Err(e) => eprintln!(
+                                                    Err(e) => say!(
                                                         "[s451-emit] case={} v={v} \
                                                          DECLINE {e:?}",
                                                         std::env::var("ASSAY_CASE")
@@ -10852,21 +10874,21 @@ fn stage4_relocate_and_correct_inner(
                                                     ),
                                                 }
                                             }
-                                            Err(e) => eprintln!(
+                                            Err(e) => say!(
                                                 "[s451-cut] case={} v={v} DECLINE {e:?}",
                                                 std::env::var("ASSAY_CASE")
                                                     .unwrap_or_else(|_| "-".into())
                                             ),
                                         }
                                     }
-                                    None => eprintln!(
+                                    None => say!(
                                         "[s451-anatomy] case={} v={v} UNAVAILABLE",
                                         std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
                                     ),
                                 }
                             }
                         }
-                        Err(e) => eprintln!(
+                        Err(e) => say!(
                             "[s451-transit-solve] case={} v={v} DECLINE {e:?}",
                             std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
                         ),
@@ -10886,7 +10908,7 @@ fn stage4_relocate_and_correct_inner(
                             let _ = writeln!(f, "{line}");
                         }
                     }
-                    if dom_mode != "census" && !repaired {
+                    if dom_stop && !repaired {
                         return Err(YangError::stage4_region_invalid(
                             v,
                             Stage4InvalidReason::RelocationCrossedCrease,
