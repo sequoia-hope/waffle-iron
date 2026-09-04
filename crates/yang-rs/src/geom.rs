@@ -140,7 +140,9 @@ pub enum Curve {
     /// projection onto BOTH surfaces (`relocate_onto_implicit_pair`); the
     /// operands are carried in ssi-call argument order. There is no closed-form
     /// parameterization — endpoints come from the mesh edge, interior samples
-    /// from downstream (kernel-v2) projection.
+    /// from downstream (kernel-v2) projection. As a Stage-1 INPUT edge (M5
+    /// K11 re-entry, a quartic-bounded body re-entering a chained boolean)
+    /// the same projection builds its shared boundary sample chain.
     SurfacePair { a: Surface, b: Surface },
 }
 

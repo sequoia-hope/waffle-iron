@@ -89,7 +89,7 @@ simply never matches it (no intersection mesh edges exist for that pair).
 | K8 | `validate_solid` planar-face loop | SurfacePair edge on a `Plane` face → invalid (a transversal quadric-pair curve is never planar; degenerate configs produce conics upstream) |
 | K9 | tessellate: edge samples | `surface_pair_interior_samples`: recursive chord midpoint → Newton projection onto both surfaces (Gauss-Newton, [#24] §4.3), split while sag > chord bound, depth-capped; non-convergence → typed error (loud, no chord fallback) |
 | K10 | tessellate: cylinder patch boundary | SurfacePair boundary edges enter the unroll via their K9 samples (same role as `arc_interior_samples`) |
-| K11 | re-entry `to_yang_brep` | any SurfacePair edge → `UnsupportedCurvedBoolean { face }` (typed re-entry wall, same as EllipseArc — chained booleans on quartic-bounded bodies are a later milestone) |
+| K11 | re-entry `to_yang_brep` | ~~any SurfacePair edge → `UnsupportedCurvedBoolean { face }`~~ **inc-1 LANDED 2026-09-04** (section "K11 re-entry" below): a curved-lateral SurfacePair edge converts to ONE shared yang input `Curve::SurfacePair` (operands verbatim, endpoint-determined); yang Stage 1 builds its Newton-certified chain. A SurfacePair on a PLANE loop stays typed (K8: never a valid solid) |
 
 ## Invariants
 
@@ -123,7 +123,7 @@ simply never matches it (no intersection mesh edges exist for that pair).
 | tangent pair (parallel normals at contact) | Stage-4 relocation `None` → existing loud `SsiRefinementFailed`; K9 sampling non-convergence → typed tessellation error |
 | non-Cylinder operand reaching K1 | typed `UnsupportedBooleanOutputCurve` |
 | closed single-edge quartic loop | K2/K6 typed rejection (no producer constructs them) |
-| chained boolean on quartic-bounded body | K11 `UnsupportedCurvedBoolean` (typed wall, roadmap item) |
+| chained boolean on quartic-bounded body | K11 inc-1: RE-ENTERS Stage 1 (2026-09-04). A chained cut that CROSSES a pair chain STOPs at Stage-4 `LocalRefinementRequired` on the chord-crossing vertex (inc-2, measured) |
 | near-half ambiguity | N/A — no minor-arc derivation exists for SurfacePair (no normal to flip); traversal is endpoint-determined |
 
 ## Research basis
@@ -240,3 +240,83 @@ conic-loop `sweep_reversed_intersections` does not cover; the next
 increment for this case, not a K9 sampling defect); R0020 → KV9-F2 `patch
 triangulation folded` (the unrolled patch CDT). None is a §4.5.2 demand.
 Corpus census: see the roadmap §0 record for this date.
+
+## K11 re-entry — inc-1 LANDED 2026-09-04 (the last `UNSUPPORTED(curved-profile)` wall)
+
+**Anchor.** R0044 (`revolve(rectangle) ∪ revolve(gear) − extrude(circle)`,
+scale 4e3): after the corner-transit inc-3c flip its design boolean
+completes and the circle cut refuses at `FaceId(458)` — a cylinder lateral
+(r = 2327.8) whose 5-edge outer loop is `[Arc, SurfacePair ×4]`, every pair
+this cylinder × one of three cones (the gear revolve's conical flanks). The
+census (`yang_stage1_curved_holed_patch.md` "Re-census 2026-09-04") named
+it M5 K11: no yang INPUT vocabulary for a degree-4 surface-pair edge.
+
+**The paper's mechanism.** [#24] §4.1 samples every input edge into a shared
+boundary chain that both incident faces splice (the bijective Stage-1
+map); §4.3 refines any point of a quadric-pair curve by Newton projection
+onto BOTH surfaces. A surface-pair input edge therefore needs no new
+representation — its Stage-1 chain is the same recursive chord bisection
+the hyperbola chain uses, with the closed-form evaluation replaced by the
+projection Stage 4 already relocates with (`relocate_onto_implicit_pair`)
+and kernel-v2 already renders with (`surface_pair_interior_samples`).
+
+**Design (two sides, the KV14/KV16 pattern).**
+
+| # | site | behaviour |
+|---|---|---|
+| R1 | kernel-v2 `to_yang.rs` `convert_lateral_edge` | `Curve::SurfacePair { a, b }` → ONE shared yang `BRepEdge { curve: Curve::SurfacePair { a, b } }` per twin pair (key `min(h, twin)`), endpoints from the first-encountered half-edge; operands map field-for-field (`pair_surface_to_yang`, the exact inverse of K1's `yang_surface_to_pair_surface`; Cylinder / Cone / Sphere). The M5 endpoint-determined convention: no directional normal, twins bit-identical, either side denotes the same point set. Reached by every KV14 patch-path lateral (holed, non-4-edge, 4-edge non-structured) on cylinder, cone and torus surfaces |
+| R2 | kernel-v2 planar `convert_loop` | SurfacePair stays the typed `UnsupportedCurvedBoolean` (K8: a transversal quadric-pair curve is never planar; `validate_solid` rejects the solid first) |
+| R3 | yang Stage-1 chain pre-pass (`stage1_tessellate.rs`, after the Hyperbola block) | per `Curve::SurfacePair` edge: `start == end` loud (no producer; K2/K6); each endpoint on BOTH surfaces at the K3/K7 band `1e-9·(1 + max(coord, local radius))` via `surface_distance_and_normal` (true distances, the cone's `·cos α`); chain = recursive chord-midpoint bisection, midpoint → `relocate_onto_implicit_pair`, split while the projection's sag > `d_ε`, depth cap 12; a projection that leaves the chord's neighbourhood (`sag ≥ chord`, a basin escape) or returns `None` (tangency / an axis / non-convergence) is loud — never a chord fallback (P9). Steiner vertices: `TessellationSource::BRepEdge { edge, t }`, `t` the bisection's ORDINAL parameter in (0, 1); `eval_source` documents that it cannot reproduce them (its only production caller is the sphere seam column). Shared chain in `rim_rings` |
+| R4 | `d_ε` single source (`normals_chord_bounds.rs`) | `surface_pair_chain_bound(a, b, p0, p1) = chord_rel() × min local radius` over both operands at both endpoints (`surface_pair_local_scale`: cylinder / sphere radius, cone `|h|·tan α`) — the kernel-v2 render rule's scale under the ONE `chord_rel()` (A14.3, the `YANG_CHORD_REFINE` census knob covers it). `None` at a cone apex (degenerate) or for a non-pair operand — loud at R3 |
+| R5 | `loop_polyline_attributed` | SurfacePair splices its chain exactly like an open conic arc |
+| R6 | CDT admit lists | the cylinder holed-CDT gate and the cone Slice-E gate admit SurfacePair (torus dispatch has no curve gate) |
+| R7 | Stage-3 owner band (`chord_tol_for_curved_owner`) | `None` fallback chain gains `surface_pair_chord_bound(owner)` — an owner bounded by pair edges ALONE (the vesica prism) carries the pair chains' own bound, not a producer-fault STOP |
+| R8 | Stage-4 `input_curved_chord_bound` | folds in `surface_pair_chord_bound(brep)` (the max over pair edges) — the Slice F-3 lesson: a band must cover every chain the tessellation carries |
+
+**Oracles (all green).**
+
+- yang `tests_unit/m5_k11_pair_chain.rs`: a cylinder-A tube (r = 1) with a
+  window of FOUR pair edges (A × cylinder-B, axis x, r = ½ — the closed
+  saddle `sin²θ + z² = ¼` split at its two turning points and two poles so
+  no chord midpoint sits on B's axis) re-enters Stage 1: every vertex on A,
+  every pair-chain Steiner vertex ALSO on B (radial ½ ± 1e-9), ≥ 4 Steiner
+  samples, ordinal `t ∈ (0, 1)`, the count-1 boundary = the two rims + the
+  window (every window chord on B), wall area `4π − ∫ 2√(¼ − sin²θ) dθ`
+  within 3 %. Chain bound = `chord_rel() × min local radius` (cone apex →
+  `None`, plane operand → `None`; B-Rep-level max; `None` for a pair-free
+  B-Rep). Loud: a closed pair edge; an endpoint off B; a chord whose
+  midpoint lies on B's axis (`did not converge`).
+- kernel-v2 `m5_surface_pair_curve.rs::surface_pair_reentry_enters_yang`
+  (was `surface_pair_reentry_rejected`): the vesica prism converts (2 shared
+  yang pair edges, operands verbatim) and a pocket in its top cap removes
+  exactly 0.4 × 0.4 × 0.3 = 0.048 (within 1e-3).
+- kernel-v2 `kv9_cyl_cyl_special.rs::unequal_perpendicular_union_reenters_
+  with_far_pocket`: the unequal perpendicular cyl×cyl union (carries ≥ 2
+  SurfacePair half-edges — the vocabulary pin) re-enters; a pocket in c1's
+  top cap clear of the saddle (|z| ≤ 0.18) removes exactly 0.3 × 0.3 × 0.2 =
+  0.018 (within 1e-3).
+
+**Measured next wall (inc-2, quarantined probe
+`unequal_perpendicular_union_reenters_with_crossing_cut`).** A chained cut
+whose plane CROSSES the saddle (x = 0.27; the saddle spans x ∈ [0.24, 0.3])
+STOPs at Stage-4 `LocalRefinementRequired` around the arrangement vertex the
+plane mints on a pair CHORD (v28): the `pair curve ∩ plane` junction — a
+three-surface point `{cyl_A, cyl_B, plane}` — has no relocation arm (the
+crossing vertex enters `endpoints` through the plane × cylinder conic and
+`vert_surface_pair` never sees it, since the pair curve is an INPUT edge,
+not an intersection edge). inc-2 = the input-pair-chain junction: either a
+Stage-1 override channel for pair owners (the P3a `rim_overrides` pattern,
+mint = the triple Newton `relocate_onto_implicit_triple`) or the Stage-4
+carried-crease transit (§4.5.1 inc-3c) recognising a pair crease. A plane
+at x = 0.1 (missing the saddle) stops EARLIER at Stage-3 `AmbiguousCurve
+{ candidates: 2, matched: 0 }` on a plane × c1 ruling edge (tol 1.5e-2) — a
+separate, pre-existing Stage-3 class (R0026 / C0043 / C0056 / C0109), noted
+for that family's census, not chased here.
+
+**Corpus (release, 8 jobs, 360 s; F0085 313.6 s honest CORRECT):**
+274C / 0W / 32E / 4EE / 0T — exactly ONE row moved against the apex-cone
+canonical 274C/0W/31E/4EE/0T: R0044 `UNSUPPORTED(curved-profile)` → ERROR
+at `face 166: holed lateral CDT failed` (the thin conical band above; see
+`yang_stage1_curved_holed_patch.md`'s census row). The
+`UNSUPPORTED(curved-profile)` class is EMPTY; the only UNSUPPORTED rows
+left are the two M8 coplanar cases (F0064, F0072).

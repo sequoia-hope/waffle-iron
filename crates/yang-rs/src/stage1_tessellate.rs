@@ -1064,6 +1064,149 @@ pub(crate) fn stage1_tessellate_inner_overrides(
             rim_rings.insert(e_idx as u32, chain);
         }
 
+        // ---- Surface-pair chain pre-pass (M5 K11 re-entry, spec
+        // `m5_surface_pair_curve` "K11 re-entry"). A `Curve::SurfacePair`
+        // boundary edge — the procedural degree-4 quadric-pair curve a prior
+        // boolean left on a re-entering body (R0044's cylinder × cone tooth
+        // flanks) — builds a shared OPEN sample chain `[start, Steiner…, end]`
+        // in `rim_rings`, mirroring the Hyperbola block above. The curve has
+        // no closed form: interior samples are recursive chord-midpoint
+        // bisection, each midpoint Newton-projected onto BOTH surfaces
+        // (`relocate_onto_implicit_pair`, [#24] §4.3 — the same operator
+        // Stage 4 relocates with and kernel-v2 renders with), split while the
+        // projection's sag exceeds the pair's own chain bound
+        // (`surface_pair_chain_bound`: `chord_rel()` × the smallest local
+        // radius at the endpoints). A projection that leaves the chord's
+        // neighbourhood (sag ≥ chord — a basin escape toward another branch)
+        // or does not converge (tangency, an axis) is loud, never a chord
+        // fallback (P9). Steiner sources are `BRepEdge { edge, t }` with `t`
+        // the bisection's ORDINAL parameter in (0, 1) — the curve carries no
+        // parameterization, so `eval_source` cannot reproduce them (no
+        // consumer needs it; the positions themselves are the certified
+        // samples). A closed (`start == end`) pair edge has no producer
+        // (kernel-v2 K2/K6 reject it) and is loud here too.
+        for (e_idx, e) in edges.iter().enumerate() {
+            let Curve::SurfacePair { a, b } = e.curve else {
+                continue;
+            };
+            if e.start == e.end {
+                return Err(YangError::MalformedTopology(format!(
+                    "surface-pair edge {e_idx}: a closed single-edge surface-pair loop has no \
+                     producer (kernel-v2 K2/K6 reject it)"
+                )));
+            }
+            let endpoint = |v: u32| -> Result<Point3, YangError> {
+                let p = verts.get(v as usize).map(|vv| vv.point).ok_or_else(|| {
+                    YangError::MalformedTopology(format!(
+                        "surface-pair edge {e_idx}: vertex {v} out of range"
+                    ))
+                })?;
+                // The kernel-v2 K3/K7 import band: on BOTH surfaces to
+                // 1e-9·(1 + max(coordinate, local radius) magnitude).
+                let pa = p.as_array();
+                let coord = pa[0].abs().max(pa[1].abs()).max(pa[2].abs());
+                for s in [a, b] {
+                    let scale = surface_pair_local_scale(s, p).ok_or_else(|| {
+                        YangError::MalformedTopology(format!(
+                            "surface-pair edge {e_idx}: operand {s:?} is not a pair surface"
+                        ))
+                    })?;
+                    let band = 1e-9 * (1.0 + coord.max(scale));
+                    let Some((dist, _)) = surface_distance_and_normal(s, pa) else {
+                        return Err(YangError::MalformedTopology(format!(
+                            "surface-pair edge {e_idx}: endpoint vertex {v} sits on an axis of \
+                             {s:?} (residual undefined)"
+                        )));
+                    };
+                    if dist.abs() > band || dist.is_nan() {
+                        return Err(YangError::MalformedTopology(format!(
+                            "surface-pair edge {e_idx}: endpoint vertex {v} is not on {s:?} \
+                             (deviation {dist})"
+                        )));
+                    }
+                }
+                Ok(p)
+            };
+            let p0 = endpoint(e.start)?;
+            let p1 = endpoint(e.end)?;
+            let d_eps = surface_pair_chain_bound(a, b, p0, p1).ok_or_else(|| {
+                YangError::MalformedTopology(format!(
+                    "surface-pair edge {e_idx}: no positive chain bound (an endpoint at a cone \
+                     apex, or a non-pair operand) — the pair curve is degenerate there"
+                ))
+            })?;
+            // Recursive chord-sag bisection (endpoints excluded, in
+            // start → end order). Depth 12 ⇒ ≤ 4096 sub-chords, the same cap
+            // as the hyperbola chain and kernel-v2's render sampler.
+            #[allow(clippy::too_many_arguments)]
+            fn refine(
+                e_idx: usize,
+                a: Surface,
+                b: Surface,
+                seg: (f64, Point3, f64, Point3),
+                d_eps: f64,
+                depth: u32,
+                out: &mut Vec<(f64, Point3)>,
+            ) -> Result<(), YangError> {
+                let (ta, pa, tb, pb) = seg;
+                let (paa, pba) = (pa.as_array(), pb.as_array());
+                let mid = Point3::new(
+                    0.5 * (paa[0] + pba[0]),
+                    0.5 * (paa[1] + pba[1]),
+                    0.5 * (paa[2] + pba[2]),
+                );
+                let pm = relocate_onto_implicit_pair(mid, a, b).ok_or_else(|| {
+                    YangError::MalformedTopology(format!(
+                        "surface-pair edge {e_idx}: chain sample projection did not converge \
+                         (tangent pair, an axis, or non-convergence) near {mid:?}"
+                    ))
+                })?;
+                let (pma, mida) = (pm.as_array(), mid.as_array());
+                let sag = ((pma[0] - mida[0]).powi(2)
+                    + (pma[1] - mida[1]).powi(2)
+                    + (pma[2] - mida[2]).powi(2))
+                .sqrt();
+                if sag <= d_eps {
+                    return Ok(());
+                }
+                let chord = ((pba[0] - paa[0]).powi(2)
+                    + (pba[1] - paa[1]).powi(2)
+                    + (pba[2] - paa[2]).powi(2))
+                .sqrt();
+                // NaN-safe: a NaN sag / chord must fail, not recurse.
+                if sag >= chord || sag.is_nan() || chord.is_nan() {
+                    return Err(YangError::MalformedTopology(format!(
+                        "surface-pair edge {e_idx}: chain sample projection left the chord's \
+                         neighbourhood (sag {sag} ≥ chord {chord}) near {mid:?}"
+                    )));
+                }
+                if depth == 0 {
+                    return Err(YangError::MalformedTopology(format!(
+                        "surface-pair edge {e_idx}: chain refinement depth cap exceeded"
+                    )));
+                }
+                let tm = 0.5 * (ta + tb);
+                refine(e_idx, a, b, (ta, pa, tm, pm), d_eps, depth - 1, out)?;
+                out.push((tm, pm));
+                refine(e_idx, a, b, (tm, pm, tb, pb), d_eps, depth - 1, out)
+            }
+            let mut steiner: Vec<(f64, Point3)> = Vec::new();
+            refine(e_idx, a, b, (0.0, p0, 1.0, p1), d_eps, 12, &mut steiner)?;
+            let mut chain: Vec<u32> = Vec::with_capacity(steiner.len() + 2);
+            chain.push(e.start);
+            for (t, p) in steiner {
+                let vi = out_verts.len() as u32;
+                out_verts.push(p);
+                sources.push(TessellationSource::BRepEdge {
+                    edge: e_idx as u32,
+                    t,
+                });
+                chain.push(vi);
+            }
+            chain.push(e.end);
+            rim_rings.insert(e_idx as u32, chain);
+        }
+
         // ---- LineSegment junction-override chain pre-pass (P3a #146
         // increment 1b, spec `yang_146_conformal_junction_sampling.md` §3.3).
         //
@@ -2092,7 +2235,7 @@ pub(crate) fn tessellate_cap_face(
 /// when [`tessellate_lateral_holed_cdt`] maps triangles back to 3D: a cylinder
 /// has a constant radius, a cone's radius grows linearly with the axial
 /// distance from its apex (`r = |v|·tan α`), so its u-scale is per-vertex.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum LateralKind {
     Cylinder { radius: f64 },
     Cone { half_angle: f64 },
@@ -2169,7 +2312,10 @@ pub(crate) fn tessellate_lateral_holed_cdt(
                 (e, format!("{:?}", ed.curve), ed.start, ed.end)
             })
             .collect();
-        eprintln!("[t145] face {f_idx} loop edges: {kinds:?}");
+        eprintln!(
+            "[t145] face {f_idx} surface {:?} kind {kind:?} loop edges: {kinds:?}",
+            f.surface
+        );
     }
     let mut inner_polys: Vec<Vec<u32>> = Vec::with_capacity(f.inner_loops.len());
     for inner in &f.inner_loops {
@@ -2930,6 +3076,7 @@ pub(crate) fn tessellate_lateral_face(
                     | Curve::LineSegment
                     | Curve::Ellipse { .. }
                     | Curve::Hyperbola { .. }
+                    | Curve::SurfacePair { .. }
             )
         })
     {

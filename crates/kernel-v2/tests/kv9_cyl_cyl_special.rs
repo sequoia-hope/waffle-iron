@@ -345,3 +345,151 @@ fn cyl_cyl_special_deterministic() {
     assert_eq!(a1, a2);
     assert_eq!(m1, m2);
 }
+
+/// A box `[x0,x1]×[y0,y1]×[z0,z1]` (the boolean_chains helper, local copy).
+fn boxx(a: &mut BrepArena, x: (f64, f64), y: (f64, f64), z: (f64, f64)) -> kernel_v2::SolidId {
+    let p = Profile::new(
+        Point3::new(0.0, 0.0, z.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(x.0, y.0),
+            Point2::new(x.1, y.0),
+            Point2::new(x.1, y.1),
+            Point2::new(x.0, y.1),
+        ],
+        vec![],
+    )
+    .unwrap();
+    extrude(a, &p, Vector3::new(0.0, 0.0, 1.0), z.1 - z.0)
+        .unwrap()
+        .solid
+}
+
+/// The unequal perpendicular union of `unequal_perpendicular_now_supported`
+/// (c1: axis z, r 0.3, z ∈ [−0.5, 0.5]; c2: axis x, r 0.18, x ∈ [−0.5, 0.5])
+/// plus the count of surface-pair half-edges its output carries.
+fn unequal_perpendicular_union(a: &mut BrepArena) -> (kernel_v2::SolidId, usize) {
+    let c1 = cyl(
+        a,
+        [0.0, 0.0, -0.5],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        (0.0, 0.0),
+        0.3,
+        1.0,
+    );
+    let c2 = cyl(
+        a,
+        [-0.5, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        [1.0, 0.0, 0.0],
+        (0.0, 0.0),
+        0.18,
+        1.0,
+    );
+    let out = boolean_op(a, c1, c2, BoolOp::Union).expect("unequal perpendicular union");
+    kernel_v2::validate_solid(a, out).expect("union output validates");
+    let pair_half_edges = a
+        .half_edges
+        .iter()
+        .flatten()
+        .filter(|h| matches!(h.curve, kernel_v2::Curve::SurfacePair { .. }))
+        .count();
+    (out, pair_half_edges)
+}
+
+/// M5 K11 re-entry (2026-09-04, spec `m5_surface_pair_curve` "K11
+/// re-entry"): the quartic-bounded union RE-ENTERS a chained boolean. The
+/// output's cylinder laterals are bounded by the saddle's procedural
+/// surface-pair edges (the former typed `UnsupportedCurvedBoolean` re-entry
+/// wall); yang's Stage-1 pre-pass now samples them by Newton projection onto
+/// both cylinders. The second boolean is a planar pocket in c1's top cap,
+/// clear of every pair curve (the saddle lies within |z| ≤ 0.18; the pocket
+/// starts at z = 0.3; its footprint radius 0.21 < 0.3 keeps it off the
+/// lateral), so the decrement is the exact box 0.3 × 0.3 × 0.2 = 0.018.
+#[test]
+fn unequal_perpendicular_union_reenters_with_far_pocket() {
+    let mut a = BrepArena::new();
+    let (out, pair_half_edges) = unequal_perpendicular_union(&mut a);
+    assert!(
+        pair_half_edges >= 2,
+        "the union must CARRY surface-pair edges for this test to pin re-entry \
+         (found {pair_half_edges} half-edges)"
+    );
+    let v1 = mesh_signed_volume(&tessellate(&a, out).expect("union tessellates"));
+
+    let pocket = boxx(&mut a, (-0.15, 0.15), (-0.15, 0.15), (0.3, 0.7));
+    let cut = boolean_op(&mut a, out, pocket, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("re-enter the quartic-bounded union: {e:?}"));
+    kernel_v2::validate_solid(&a, cut).expect("re-entered result validates");
+    let v2 = mesh_signed_volume(&tessellate(&a, cut).expect("result tessellates"));
+    assert!(
+        (v1 - v2 - 0.018).abs() < 1e-3,
+        "pocket decrement {} must be ≈0.018: v1={v1} v2={v2}",
+        v1 - v2
+    );
+}
+
+/// M5 K11 inc-2 probe (the R0044 shape): a chained cut whose planes CROSS
+/// the surface-pair chains — the arrangement mints vertices on the pair
+/// chords and Stage 4 must land them on `pair curve ∩ plane` (a three-surface
+/// junction). Cuts the +x end of the union away at x = 0.27 — the saddle on
+/// c1 spans x ∈ [0.24, 0.3] (|sin θ| ≤ 0.6), so the plane crosses BOTH pair
+/// curves — and removes the exact slab volume by Simpson over x-sections:
+/// c1's chord strip `2·√(0.09 − x²)` plus c2's disk `π·0.18²` minus their
+/// overlap (the disk clipped to the strip), then c2's stub alone to x = 0.5.
+/// Quarantined until inc-2 lands. MEASURED 2026-09-04 (the day inc-1 landed):
+/// the arrangement mints the crossing on a pair CHORD and Stage 4 STOPs at
+/// `LocalRefinementRequired` around that vertex (v28) — the pair-curve ∩
+/// plane junction has no relocation arm yet. (A plane at x = 0.1, which
+/// misses the saddle entirely, stops earlier at Stage-3 `AmbiguousCurve
+/// { candidates: 2, matched: 0 }` on a plane × c1 ruling edge, tol 1.5e-2 —
+/// a separate, pre-existing Stage-3 class.)
+#[test]
+#[ignore = "M5 K11 inc-2: pair-curve ∩ plane junctions — Stage-4 LocalRefinementRequired at the chord crossing (measured 2026-09-04)"]
+fn unequal_perpendicular_union_reenters_with_crossing_cut() {
+    let mut a = BrepArena::new();
+    let (out, _) = unequal_perpendicular_union(&mut a);
+    let v1 = mesh_signed_volume(&tessellate(&a, out).expect("union tessellates"));
+    let tool = boxx(&mut a, (0.27, 1.0), (-1.0, 1.0), (-1.0, 1.0));
+    let cut = boolean_op(&mut a, out, tool, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("crossing cut on the quartic-bounded union: {e:?}"));
+    kernel_v2::validate_solid(&a, cut).expect("crossing-cut result validates");
+    let v2 = mesh_signed_volume(&tessellate(&a, cut).expect("result tessellates"));
+    // Removed = |union ∩ {x ≥ 0.1}|. Slice by x: A(x) = π·0.18² (c2 disk,
+    // x ∈ [0.1, 0.5]) + c1 chord strip 2·√(0.09 − x²)·1 (x ∈ [0.1, 0.3]) −
+    // overlap(x) = area of {y² + z² ≤ 0.18², |y| ≤ √(0.09 − x²)} (x ∈ [0.1, 0.3]).
+    let overlap_at = |x: f64| -> f64 {
+        let r = 0.18_f64;
+        let w = (0.09 - x * x).max(0.0).sqrt();
+        if w >= r {
+            return std::f64::consts::PI * r * r;
+        }
+        // Disk of radius r clipped to |y| ≤ w: 2·(r²·asin(w/r) + w·√(r² − w²)).
+        2.0 * (r * r * (w / r).asin() + w * (r * r - w * w).sqrt())
+    };
+    let n = 4000usize;
+    let (x0, x1) = (0.27_f64, 0.5_f64);
+    let h = (x1 - x0) / n as f64;
+    let f = |x: f64| -> f64 {
+        let c2 = std::f64::consts::PI * 0.18 * 0.18;
+        if x <= 0.3 {
+            c2 + 2.0 * (0.09 - x * x).max(0.0).sqrt() - overlap_at(x)
+        } else {
+            c2
+        }
+    };
+    let mut s = f(x0) + f(x1);
+    for k in 1..n {
+        s += if k % 2 == 1 { 4.0 } else { 2.0 } * f(x0 + h * k as f64);
+    }
+    let removed = s * h / 3.0;
+    assert!(
+        (v1 - v2 - removed).abs() < 0.02 * removed,
+        "crossing-cut decrement {} vs analytic {removed}: v1={v1} v2={v2}",
+        v1 - v2
+    );
+}

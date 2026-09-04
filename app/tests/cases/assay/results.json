@@ -1,5 +1,5 @@
 {
-  "errored": 31,
+  "errored": 32,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
   "passed": 274,
@@ -263,10 +263,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: b488b5aa-45ac-4df0-9c53-8513ae4cfe01: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(458) [curved lateral degree-4 boundary (surface-pair edge)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): b488b5aa-45ac-4df0-9c53-8513ae4cfe01: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 166: holed lateral CDT failed: CDT backend failed to triangulate\")",
       "id": "R0044",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",

@@ -813,11 +813,16 @@ impl BRep {
                         )
                     }
                     // M5: a procedural surface-pair curve has no closed-form
-                    // parameterization, so its endpoints are `BRepVertex`
-                    // sources, never `BRepEdge { edge, t }` — this arm should
-                    // not be reached. Fall back to the endpoint lerp (identical
-                    // to `LineSegment`) rather than panic (P9 defensive; no
-                    // plausible-wrong analytic point).
+                    // parameterization. Its Stage-4 endpoints are `BRepVertex`
+                    // sources; its Stage-1 INPUT chain Steiner samples (M5 K11
+                    // re-entry) carry `BRepEdge { edge, t }` with an ORDINAL
+                    // bisection `t` that no evaluator can turn back into the
+                    // certified position (the vertex position IS the sample).
+                    // Fall back to the endpoint lerp (identical to
+                    // `LineSegment`) rather than panic (P9 defensive; no
+                    // plausible-wrong analytic point; no production consumer
+                    // evaluates this arm — the sphere seam column is the only
+                    // `eval_source` caller).
                     Curve::SurfacePair { .. } => {
                         let s = match self.vertices.get(e.start as usize) {
                             Some(v) => v.point.as_array(),

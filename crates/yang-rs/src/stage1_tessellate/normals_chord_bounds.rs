@@ -328,3 +328,72 @@ pub(crate) fn cone_band_chord_bound(
     }
     max_h.map(|h| cone_chord_bound(h, half_angle))
 }
+
+/// M5 K11 (spec `m5_surface_pair_curve.md` "K11 re-entry"): the LOCAL radius
+/// of a surface-pair operand at `p` — the scale the pair's chain density is
+/// measured against. A cylinder's / sphere's radius; a cone's local radius
+/// `|h|·tanα` at `p`'s axial height (zero AT the apex — a pair curve through
+/// the apex is degenerate and the caller declines it). `None` for a surface
+/// that no producer emits as a pair operand (plane, torus).
+pub(crate) fn surface_pair_local_scale(s: Surface, p: Point3) -> Option<f64> {
+    match s {
+        Surface::Cylinder { radius, .. } | Surface::Sphere { radius, .. } => Some(radius),
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => {
+            let au = normalize3(axis_dir.as_array());
+            let (pa, aa) = (p.as_array(), apex.as_array());
+            let h = (pa[0] - aa[0]) * au[0] + (pa[1] - aa[1]) * au[1] + (pa[2] - aa[2]) * au[2];
+            Some(h.abs() * half_angle.tan())
+        }
+        Surface::Plane { .. } | Surface::Torus { .. } => None,
+    }
+}
+
+/// M5 K11: the Stage-1 chain chord bound of ONE procedural surface-pair
+/// input edge — `chord_rel()` × the pair's SMALLEST local radius over its two
+/// endpoints on both surfaces (the kernel-v2 render rule's scale,
+/// `pair_surface_local_scale`; the same relative sag the ellipse / hyperbola
+/// chains use at the conic's own scale — A14.3, one `chord_rel()` source).
+/// `None` when an operand is not a pair surface or the scale is not a
+/// positive finite length (an endpoint at a cone apex).
+pub(crate) fn surface_pair_chain_bound(
+    a: Surface,
+    b: Surface,
+    p0: Point3,
+    p1: Point3,
+) -> Option<f64> {
+    let mut scale = f64::INFINITY;
+    for s in [a, b] {
+        for p in [p0, p1] {
+            scale = scale.min(surface_pair_local_scale(s, p)?);
+        }
+    }
+    (scale.is_finite() && scale > 0.0).then(|| chord_rel() * scale)
+}
+
+/// M5 K11: the LARGEST surface-pair chain bound over a B-Rep's input edges —
+/// the sag its Stage-1 pair chains actually carry. Folded into the Stage-3
+/// owner band and the Stage-4 `input_curved_chord_bound` (the Slice F-3
+/// `torus_chord_bound` precedent: a chord band must cover every chain the
+/// tessellation carries, or Stage 4 STOPs at `chord_band_none` on a body
+/// bounded by pair edges alone). `None` when the B-Rep carries no
+/// surface-pair edge (byte-identical elsewhere).
+pub(crate) fn surface_pair_chord_bound(brep: &BRep) -> Option<f64> {
+    let verts = brep.vertices();
+    brep.edges()
+        .iter()
+        .filter_map(|e| match e.curve {
+            Curve::SurfacePair { a, b } => {
+                let p0 = verts.get(e.start as usize)?.point;
+                let p1 = verts.get(e.end as usize)?.point;
+                surface_pair_chain_bound(a, b, p0, p1)
+            }
+            _ => None,
+        })
+        .fold(None, |acc: Option<f64>, d| {
+            Some(acc.map_or(d, |x| x.max(d)))
+        })
+}

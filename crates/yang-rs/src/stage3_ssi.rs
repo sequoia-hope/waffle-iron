@@ -442,7 +442,12 @@ pub(crate) fn chord_tol_for_curved_owner(
         // rim but ellipse rims (obliquely-trimmed cylinder re-entering from a
         // prior boolean, KV14 vocabulary) gets the Stage-1 ellipse-chain
         // bound — the guarantee its samples actually carry, not a widening.
-        None => match ellipse_rim_chord_bound(owner.edges()) {
+        // M5 K11: an owner bounded by procedural surface-pair edges alone (a
+        // quartic-bounded body re-entering, the vesica-prism shape) carries
+        // the pair chains' own bound — again the guarantee its samples carry.
+        None => match ellipse_rim_chord_bound(owner.edges())
+            .or_else(|| surface_pair_chord_bound(owner))
+        {
             Some(t) => Ok(t),
             None => {
                 // Stage-3 diagnosis probe (read-only, env-gated): the producer-

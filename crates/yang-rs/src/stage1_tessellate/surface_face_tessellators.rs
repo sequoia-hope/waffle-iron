@@ -345,8 +345,8 @@ pub(crate) fn tessellate_cone_face(
     // [L,A,A,L,A,A]). Route it through the shared unroll + CDT path with an empty
     // hole set; the 0-encircling branch lays the single outer loop flat in cone
     // param space. Ellipse edges (oblique-section boundaries, KV14 ellipse-arc
-    // re-entry) sample into chains like arcs; surface-pair (true degree-4)
-    // edges are rejected loudly by `loop_polyline` inside.
+    // re-entry) and procedural surface-pair edges (M5 K11 re-entry) sample
+    // into chains like arcs.
     if circle_edges.is_empty()
         && !f.outer_loop.is_empty()
         && f.outer_loop.iter().all(|&e| {
@@ -356,6 +356,7 @@ pub(crate) fn tessellate_cone_face(
                     | Curve::LineSegment
                     | Curve::Ellipse { .. }
                     | Curve::Hyperbola { .. }
+                    | Curve::SurfacePair { .. }
             )
         })
     {

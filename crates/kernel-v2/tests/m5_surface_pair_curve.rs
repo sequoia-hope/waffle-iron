@@ -566,14 +566,62 @@ fn surface_pair_sampler_tangent_pair_fails_loud() {
 // Oracle group 3 — boolean re-entry wall (K11)
 // ---------------------------------------------------------------------------
 
-/// K11: a solid carrying surface-pair edges cannot re-enter yang Stage 1 —
-/// typed `UnsupportedCurvedBoolean`, same wall as EllipseArc.
+/// K11 re-entry (2026-09-04, spec "K11 re-entry"): a solid carrying
+/// surface-pair edges RE-ENTERS yang Stage 1 — each twin pair converts to ONE
+/// shared yang `Curve::SurfacePair` input edge carrying both operands
+/// operand-for-operand, and a chained boolean on the quartic-bounded body
+/// succeeds with an exact planar decrement (a pocket in the top cap, clear of
+/// the lateral walls: |x|, |y| ≤ 0.2 lies inside the lens, whose boundary at
+/// |x| ≤ 0.2 is at |y| ≥ 0.4). Was `surface_pair_reentry_rejected`, the
+/// typed K11 wall.
 #[test]
-fn surface_pair_reentry_rejected() {
-    let (arena, solid) = vesica_prism_with_surface_pair_tips();
-    let err = to_yang_brep(&arena, solid).expect_err("re-entry is a typed wall");
+fn surface_pair_reentry_enters_yang() {
+    let (mut arena, solid) = vesica_prism_with_surface_pair_tips();
+    let yb = to_yang_brep(&arena, solid).expect("surface-pair edges convert to yang input");
+    let pair_edges = yb
+        .edges()
+        .iter()
+        .filter(|e| matches!(e.curve, yang_rs::Curve::SurfacePair { .. }))
+        .count();
+    assert_eq!(
+        pair_edges, 2,
+        "the two tip edges (four half-edges) must convert to two SHARED yang edges"
+    );
+    for e in yb.edges() {
+        if let yang_rs::Curve::SurfacePair { a, b } = e.curve {
+            assert!(
+                matches!(a, yang_rs::Surface::Cylinder { radius, .. } if (radius - 2.0_f64.sqrt()).abs() < 1e-15)
+                    && matches!(b, yang_rs::Surface::Cylinder { radius, .. } if (radius - 2.0_f64.sqrt()).abs() < 1e-15),
+                "operands carried verbatim: {a:?} / {b:?}"
+            );
+        }
+    }
+
+    let v1 = mesh_signed_volume(&tessellate(&arena, solid).expect("prism tessellates"));
+    let pocket = Profile::new(
+        Point3::new(0.0, 0.0, H - 0.3),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(-0.2, -0.2),
+            Point2::new(0.2, -0.2),
+            Point2::new(0.2, 0.2),
+            Point2::new(-0.2, 0.2),
+        ],
+        vec![],
+    )
+    .unwrap();
+    let tool = extrude(&mut arena, &pocket, Vector3::new(0.0, 0.0, 1.0), 0.6)
+        .unwrap()
+        .solid;
+    let out = kernel_v2::boolean_op(&mut arena, solid, tool, cad_primitives::BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("re-enter the quartic-bounded prism: {e:?}"));
+    validate_solid(&arena, out).expect("re-entered result validates");
+    let v2 = mesh_signed_volume(&tessellate(&arena, out).expect("result tessellates"));
+    // 0.4 × 0.4 × 0.3 = 0.048 removed from the planar top cap.
     assert!(
-        matches!(err, KernelV2Error::UnsupportedCurvedBoolean { .. }),
-        "expected UnsupportedCurvedBoolean, got {err:?}"
+        (v1 - v2 - 0.048).abs() < 1e-3,
+        "pocket decrement {} must be ≈0.048: v1={v1} v2={v2}",
+        v1 - v2
     );
 }

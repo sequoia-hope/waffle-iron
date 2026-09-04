@@ -1409,7 +1409,10 @@ pub(crate) fn input_curved_chord_bound(brep: &BRep) -> Option<f64> {
         .fold(None, |acc: Option<f64>, b| {
             Some(acc.map_or(b, |a| a.max(b)))
         });
-    [rim, sphere, torus]
+    // M5 K11: the Stage-1 surface-pair chains' own bound (the Slice F-3 torus
+    // precedent — a band must cover every chain the tessellation carries).
+    let pair = surface_pair_chord_bound(brep);
+    [rim, sphere, torus, pair]
         .into_iter()
         .flatten()
         .fold(None, |acc: Option<f64>, b| {

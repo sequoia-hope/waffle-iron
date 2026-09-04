@@ -1426,6 +1426,47 @@ name, never measured).
    boundary edges typed and moved three more rows — R0044 and two CORRECT
    M5 cases — through the render path; the certificate now samples them
    and falls through for every face that is not a clean apex cap.)
+   **M5 K11 inc-1 LANDED (2026-09-04, same day; spec
+   `m5_surface_pair_curve.md` "K11 re-entry")**: a procedural surface-pair
+   edge RE-ENTERS yang Stage 1. kernel-v2 `convert_lateral_edge` converts
+   `Curve::SurfacePair { a, b }` to ONE shared yang input
+   `Curve::SurfacePair` per twin pair (`pair_surface_to_yang`, the inverse
+   of K1; operands verbatim; the M5 endpoint-determined convention), and
+   yang's Stage-1 pre-pass builds its chain the way the paper refines any
+   quadric-pair point (§4.3): chord-midpoint bisection, each midpoint
+   Newton-projected onto BOTH surfaces (`relocate_onto_implicit_pair` — the
+   operator Stage 4 relocates with and kernel-v2 renders with), split while
+   the sag exceeds `chord_rel() × the pair's smallest local radius`
+   (`surface_pair_chain_bound`, one `chord_rel()` source); a basin escape,
+   a non-convergence or a cone-apex endpoint is loud (P9). `loop_polyline`
+   splices it like an open conic; the cylinder holed-CDT and cone Slice-E
+   gates admit it; the Stage-3 owner band and Stage-4
+   `input_curved_chord_bound` fold in `surface_pair_chord_bound` (the Slice
+   F-3 `chord_band_none` lesson applied before it bit). Proof: yang
+   `m5_k11_pair_chain` (an A-tube with a four-pair-edge saddle window —
+   every Steiner on both cylinders, area within 3 %, loud closed /
+   off-surface / axis-midpoint); kernel-v2 `surface_pair_reentry_enters_
+   yang` (the former `_rejected` pin: the vesica prism converts and a
+   top-cap pocket removes 0.048 exact) and `unequal_perpendicular_union_
+   reenters_with_far_pocket` (the cyl×cyl union, ≥ 2 pair half-edges
+   pinned, a pocket clear of the saddle removes 0.018 exact). **R0044
+   moves `UNSUPPORTED(curved-profile)` → ERROR at its next wall** — NOT the
+   pair edge: `face 166: holed lateral CDT failed`, a CONE face of the gear
+   revolve that is a THIN BAND (rims at radii 3681.15 / 3683.06, ~2 units
+   apart at scale 4e3, closed by a hyperbola and one pair edge) whose
+   rim-arc chains, sampled at the 1e-2 bound (sag ≈ 10.6 ≫ the width),
+   interleave and cross in the cone chart (20 arc × arc crossings; probes
+   `YANG_T145_PROBE` + `YANG_T133_PROBE`) — the thin-band chord-density
+   class (R0095's sub-wall). **The `UNSUPPORTED(curved-profile)` class is
+   EMPTY.** Measured inc-2 wall (quarantined probe
+   `unequal_perpendicular_union_reenters_with_crossing_cut`): a plane
+   through the saddle STOPs at Stage-4 `LocalRefinementRequired` on the
+   vertex the arrangement mints on a pair CHORD — `pair curve ∩ plane` is a
+   3-surface junction with no relocation arm (the pair curve is an INPUT
+   edge; `vert_surface_pair` only sees intersection edges). Corpus (release, 8 jobs, 360 s; F0085
+   313.6 s honest): **new canonical 274C / 0W / 32E / 4EE / 0T** — exactly
+   ONE row moved against the apex-cone canonical, R0044; UNSUPPORTED = the
+   two M8 coplanar cases alone.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the

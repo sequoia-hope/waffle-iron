@@ -292,7 +292,13 @@ pub(crate) fn loop_polyline_attributed(
                     Ok(vec![if forward { e.start } else { e.end }])
                 }
             }
-            Curve::Circle { .. } | Curve::Ellipse { .. } | Curve::Hyperbola { .. } => {
+            // M5 K11: a procedural surface-pair edge splices its Stage-1 chain
+            // exactly like an open conic arc (the pre-pass built it, always
+            // open — a closed pair edge has no producer and is loud there).
+            Curve::Circle { .. }
+            | Curve::Ellipse { .. }
+            | Curve::Hyperbola { .. }
+            | Curve::SurfacePair { .. } => {
                 let chain = chains
                     .get(&e_idx)
                     .ok_or_else(|| malformed(format!("chain for edge {e_idx} not built")))?;

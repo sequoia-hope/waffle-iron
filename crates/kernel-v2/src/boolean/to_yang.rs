@@ -12,9 +12,11 @@ use super::*;
 /// - Canonical cylinder solids (PR-KV5b) convert to the yang M5 fixture
 ///   shape with SHARED rim/seam edges — see the module docs for why
 ///   sharing is load-bearing.
-/// - Partial curved faces (arc edges, non-canonical laterals,
-///   `reversed` cylinder surfaces) cannot re-enter yang Stage 1 and are
-///   the typed [`KernelV2Error::UnsupportedCurvedBoolean`].
+/// - Partial curved faces re-enter through the KV14 patch path (holed /
+///   non-structured laterals; ellipse, hyperbola and — M5 K11 — procedural
+///   surface-pair boundary edges convert to their yang input curves); the
+///   remaining shapes are the typed
+///   [`KernelV2Error::UnsupportedCurvedBoolean`].
 pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, KernelV2Error> {
     Ok(to_yang_brep_indexed(arena, solid)?.0)
 }
@@ -86,11 +88,14 @@ pub fn to_yang_brep_indexed(
                         for &h in &hes {
                             let he = arena.half_edge(h)?;
                             match he.curve {
-                                // M5 K11: surface-pair (true degree-4)
-                                // boundaries have no yang Stage-1 INPUT
-                                // tessellation — boolean outputs carrying
-                                // them are terminal for chaining (typed
-                                // wall; a later milestone).
+                                // M5 K8: a transversal quadric-pair curve is
+                                // never planar, so a surface-pair edge on a
+                                // PLANE face is an invalid solid
+                                // (`validate_solid` rejects it) — no yang
+                                // planar vocabulary; typed here as well in
+                                // case an unvalidated arena reaches
+                                // conversion. (Curved laterals convert it,
+                                // M5 K11 re-entry, in `convert_lateral_edge`.)
                                 Curve::SurfacePair { .. } => {
                                     return Err(KernelV2Error::UnsupportedCurvedBoolean {
                                         face: f,
@@ -336,12 +341,30 @@ pub fn to_yang_brep_indexed(
                         }
                         let idx = yedges.len() as u32;
                         match he.curve {
-                            // M5 K11: no yang INPUT vocabulary for
-                            // surface-pair (true degree-4) edges.
-                            Curve::SurfacePair { .. } => {
-                                return Err(KernelV2Error::UnsupportedCurvedBoolean {
-                                    face: f,
-                                    reason: "curved lateral degree-4 boundary (surface-pair edge)",
+                            // M5 K11 re-entry (spec `m5_surface_pair_curve`
+                            // "K11 re-entry"): a procedural surface-pair
+                            // edge maps operand-for-operand to yang's input
+                            // `Curve::SurfacePair` (the M5 endpoint-
+                            // determined convention: no directional normal,
+                            // twins carry bit-identical operands, either
+                            // side's descriptor denotes the same point set).
+                            // One SHARED yang edge per twin pair — yang's
+                            // Stage-1 pre-pass builds the Newton-certified
+                            // sample chain ONCE and both incident faces
+                            // (R0044: the cylinder and its cone neighbour)
+                            // splice it, so the chain is conformal by
+                            // identity.
+                            Curve::SurfacePair { a, b } => {
+                                let start = map_vertex(he.origin, vid_map, yverts, arena)?;
+                                let dest = arena.half_edge(he.next)?.origin;
+                                let end = map_vertex(dest, vid_map, yverts, arena)?;
+                                yedges.push(yang_rs::BRepEdge {
+                                    start,
+                                    end,
+                                    curve: yang_rs::Curve::SurfacePair {
+                                        a: pair_surface_to_yang(a),
+                                        b: pair_surface_to_yang(b),
+                                    },
                                 });
                             }
                             // KV14 ellipse-arc re-entry: shared directional
@@ -978,4 +1001,32 @@ pub fn to_yang_brep_indexed(
         KernelV2Error::BooleanFailed(format!("yang-rs rejected the converted input B-Rep: {e}"))
     })?;
     Ok((brep, face_ids))
+}
+
+/// M5 K11 re-entry: a kernel-v2 [`PairSurface`] operand as the yang input
+/// `Surface` it came from — the exact inverse of
+/// `from_yang::classify::yang_surface_to_pair_surface` (K1), field-for-field
+/// (the unit axis widens to a `Vector3`; yang normalizes on use).
+fn pair_surface_to_yang(s: PairSurface) -> yang_rs::Surface {
+    match s {
+        PairSurface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => yang_rs::Surface::Cylinder {
+            axis_point,
+            axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
+            radius,
+        },
+        PairSurface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => yang_rs::Surface::Cone {
+            apex,
+            axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
+            half_angle,
+        },
+        PairSurface::Sphere { center, radius } => yang_rs::Surface::Sphere { center, radius },
+    }
 }
