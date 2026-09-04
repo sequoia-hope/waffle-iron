@@ -6,6 +6,34 @@
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 
+/// KV14 Slice F / F-3: does this torus lateral tessellate through the UV-CDT
+/// PATCH path (`tessellate_torus_band` → `tessellate_torus_patch`) rather than
+/// the structured (θ × φ) grid? Yes when it carries inner loops (a poloidal
+/// band, Slice F/F-2) or when its outer loop has none of the structured
+/// vocabulary — no closed profile circle (radius ≈ minor) and no closed outer
+/// equator (radius ≈ major + minor) — a DISK bounded by chords / open arcs
+/// (Slice F-3). SINGLE SOURCE of the dispatch: `tessellate_torus_face` routes
+/// on it and `input_curved_chord_bound` folds `torus_chord_bound` in for
+/// exactly these faces (a structured lateral samples at its rims' density and
+/// is covered by the rim band).
+pub(crate) fn torus_face_takes_patch_path(
+    f: &BRepFace,
+    edges: &[BRepEdge],
+    major: f64,
+    minor: f64,
+) -> bool {
+    if !f.inner_loops.is_empty() {
+        return true;
+    }
+    let band = 1e-9 * (1.0 + major + minor);
+    !f.outer_loop.iter().any(|&e| {
+        let ed = &edges[e as usize];
+        matches!(ed.curve, Curve::Circle { radius, .. }
+            if ed.start == ed.end
+                && ((radius - minor).abs() <= band || (radius - (major + minor)).abs() <= band))
+    })
+}
+
 /// KV6d 4b: tessellate a partial-torus `Surface::Torus` face — a bent tube —
 /// as a watertight (θ × φ) bijective grid. Rows are meridians (constant sweep
 /// angle θ), columns are longitudes (constant profile angle φ). The two θ-end
@@ -39,7 +67,17 @@ pub(crate) fn tessellate_torus_face(
     // so it needs interior toroidal rings sampled onto the surface — a STRUCTURED
     // (θ × φ) grid, not a flat unroll+CDT (which would chord the sweep). The
     // hole-free structured (2 profiles + seam) arm below is left untouched.
-    if !f.inner_loops.is_empty() {
+    //
+    // KV14 Slice F-3 (R0032): a torus lateral with NO inner loop whose outer
+    // loop carries none of the structured vocabulary — no full profile circle,
+    // no closed equator — is a DISK patch: one non-wrapping loop of
+    // `LineSegment` chords / open arcs (R0032: the previous boolean's 57-chord
+    // torus∩cone polyline, a degree-8 curve with no analytic curve type). It
+    // re-enters through the same UV-CDT consumer, whose 0-wrapping branch fills
+    // the loop's interior on the (u, v) chart (the unwrap keeps the branch cuts
+    // away from the loop); a wrapping loop, or one bounding the torus's
+    // complement, declines there — typed, not guessed.
+    if torus_face_takes_patch_path(f, edges, major, minor) {
         return tessellate_torus_band(
             f_idx, f, edges, rim_rings, center, axis_dir, major, minor, out_verts, sources,
             out_tris,
@@ -855,6 +893,34 @@ pub fn tessellate_torus_patch(
             // DISK: boundary is the outer loop; holes are the rest, each shifted
             // by whole periods so it sits in the outer's period (a hole atan2
             // placed on the opposite branch would project outside the outer).
+            //
+            // WHICH REGION (KV14 Slice F-3 — the band's side rule applied to a
+            // bounded loop): the CDT fills the polygon's INTERIOR, which is
+            // the face only when the loop bounds it with the material on its
+            // left about the face's outward normal. In this chart
+            // `∂P/∂u × ∂P/∂v = −(R + r·cos u)·r·n̂_out` (`(e1, e2, axis)` is
+            // right-handed), so a material-left loop of an OUTWARD face runs
+            // CW in (u, v) and one of a `reversed` face runs CCW. A loop in
+            // the other sense bounds the COMPLEMENT (the torus minus this
+            // disk); filling the interior would emit the wrong region
+            // silently — decline instead (typed at the caller).
+            let disk = &ploops[0];
+            let m = disk.su.len();
+            let area2: f64 = (0..m)
+                .map(|k| {
+                    let j = (k + 1) % m;
+                    disk.su[k] * disk.sv[j] - disk.su[j] * disk.sv[k]
+                })
+                .sum();
+            if area2 == 0.0 || (area2 < 0.0) == reversed {
+                if probe {
+                    eprintln!(
+                        "[torus-patch] DECLINE disk loop bounds the complement \
+                         (signed area2={area2:.6e}, reversed={reversed})"
+                    );
+                }
+                return None;
+            }
             let (u_ref, v_ref) = (umean(&ploops[0]), vmean(&ploops[0]));
             let mut o = Vec::with_capacity(ploops[0].su.len());
             for k in 0..ploops[0].su.len() {
@@ -1431,6 +1497,11 @@ pub fn tessellate_sphere_patch(
 /// band watertight). A holed band (a window in the tube, Slice F-2) carves each
 /// non-wrapping window as a CDT hole; only seam-crossing / longitude-wrapping
 /// patches return `None` from the patch tessellator → a typed wall.
+///
+/// KV14 Slice F-3: a hole-free lateral whose loop carries none of the
+/// structured vocabulary (R0032's lone 57-chord torus∩cone polyline) is a
+/// DISK patch — the same consumer's 0-wrapping branch fills the loop's
+/// interior; a loop bounding the complement declines there (typed).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn tessellate_torus_band(
     f_idx: usize,
@@ -1475,10 +1546,11 @@ pub(crate) fn tessellate_torus_band(
         pos_to_global.entry(key(out_verts[g as usize])).or_insert(g);
     }
 
-    // Triangle-area budget in arc-length² — a 1% chord tolerance on the tube
-    // sets the meridian spacing; the patch scales (u,v) to arc-length so this is
-    // a true area cap.
-    let d_eps = 1e-2 * (major + minor);
+    // Triangle-area budget in arc-length² — the torus patch's own chord
+    // budget (`torus_chord_bound`, the single source Stage 4's relocation
+    // band reads back) sets the meridian spacing; the patch scales (u,v) to
+    // arc-length so this is a true area cap.
+    let d_eps = torus_chord_bound(major, minor);
     let dphi = (8.0 * d_eps / minor).sqrt().min(0.5);
     let n_seg = ((2.0 * std::f64::consts::PI / dphi).ceil() as u32).max(12);
     let seg = 2.0 * std::f64::consts::PI * minor / f64::from(n_seg);
@@ -1488,8 +1560,9 @@ pub(crate) fn tessellate_torus_band(
         center, axis_dir, major, minor, &boundary, &holes, max_area, f.reversed,
     ) else {
         return Err(YangError::MalformedTopology(format!(
-            "face {f_idx}: torus band UV-CDT unsupported (seam-crossing / \
-             longitude-wrapping patch — KV14 Slice F later sub-slice)"
+            "face {f_idx}: torus patch UV-CDT declined (a seam-crossing / \
+             longitude-wrapping loop, or a lone loop bounding the torus's \
+             complement — KV14 Slice F later sub-slice)"
         )));
     };
 

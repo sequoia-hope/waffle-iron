@@ -54,6 +54,12 @@ fn torus_patch_roundtrip_on_surface_watertight() {
         let t = k as f64 / ns as f64;
         push(u0, v1 - (v1 - v0) * t);
     }
+    // The consumer fills the loop's INTERIOR only for a loop that bounds it
+    // with the material on its left about the outward normal — CW in this
+    // (u, v) chart (`∂u × ∂v = −(R + r cos u)·r·n̂_out`). The rectangle above
+    // is walked CCW, so reverse it (KV14 Slice F-3; before that slice the disk
+    // branch filled the interior regardless of the loop's sense).
+    boundary.reverse();
 
     let n = boundary.len();
     let (verts, tris) =

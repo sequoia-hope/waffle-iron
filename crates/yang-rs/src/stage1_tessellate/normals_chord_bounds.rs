@@ -241,6 +241,23 @@ pub(crate) fn sphere_chord_bound(radius: f64) -> f64 {
     chord_rel() * 2.0 * radius * 3f64.sqrt()
 }
 
+/// KV14 Slice F-3: the Stage-1 chord bound of a `Surface::Torus` PATCH
+/// tessellation — `d_ε = 1e-2 · (R + r)`, the budget `tessellate_torus_band`
+/// hands the UV-CDT (its meridian step is `√(8·d_ε/r)`, capped at 0.5 rad, so
+/// the tube chords sag ≤ d_ε; the toroidal step at the structured spacing
+/// sags ≤ d_ε·r/(R + r)). SINGLE SOURCE (A14.3): the band/disk tessellator
+/// derives its density from this, and `input_curved_chord_bound` folds it in
+/// for an input whose torus faces re-enter through the PATCH path — a lone-loop
+/// torus disk (a torus∩cone chord polyline) carries no `Curve::Circle` rim at
+/// all, so without its own bound such an input reports NO chord band and
+/// Stage 4 refuses to relocate onto its conic edges (`chord_band_none`).
+/// STRUCTURED torus laterals (profile circles + seam arc) sample at the rim
+/// density and are covered by the rim band; they do not fold this in. This
+/// is A14.3/A15, not tolerance widening.
+pub(crate) fn torus_chord_bound(major: f64, minor: f64) -> f64 {
+    chord_rel() * (major + minor)
+}
+
 /// PR-YR16 (spec §3): the Stage-1 chord bound for a `Surface::Cone`
 /// tessellation, `d_ε = 1e-2 · √((2R)² + h²)` with `R = height·tan(half_angle)`.
 /// SINGLE SOURCE OF TRUTH (A14.3) of the cone's `1e-2` literal: both the

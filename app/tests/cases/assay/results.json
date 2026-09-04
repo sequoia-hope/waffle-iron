@@ -191,10 +191,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: ab4df593-6e6f-47f8-aeca-66f2bf645d12: operation error: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(593) [curved lateral is a torus with a non-structured outer loop and no inner loop (Slice-F CDT re-entry needs a wrapping inner profile)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): ab4df593-6e6f-47f8-aeca-66f2bf645d12: operation error: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 7 is invalid: LocalRefinementRequired\")",
       "id": "R0032",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -263,10 +263,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(626), reason: \"patch triangulation folded (inverted triangle) — KV9-F2: the                          unrolled ear-clip/refinement produced inward-facing geometry;                          loud instead of silently-wrong render output\" }. Body created as standalone.",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: b488b5aa-45ac-4df0-9c53-8513ae4cfe01: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(458) [curved lateral degree-4 boundary (surface-pair edge)] (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0044",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "SUPPORTED_CORRECT",

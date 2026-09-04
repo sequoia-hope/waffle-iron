@@ -42,6 +42,10 @@ fn boolean_output_torus_patch_tessellates_watertight_and_on_surface() {
         let t = k as f64 / ns as f64;
         push(u0, v1 - (v1 - v0) * t);
     }
+    // A B-Rep loop puts the material on its LEFT about the face's outward
+    // normal, which is CW in the consumer's (u, v) chart; the rectangle above
+    // is walked CCW — reverse it (KV14 Slice F-3's region check).
+    bpts.reverse();
     let n = bpts.len();
 
     // Minimal arena: one torus face bounded by a single LineSegment loop.

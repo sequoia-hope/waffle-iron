@@ -1387,6 +1387,27 @@ name, never measured).
    `reverse=true`), so the answer is the empty solid, not a conic-bounded
    patch. Next, in order: Slice F-3 (R0032), the apex-cone operand
    (C0063, with its meta re-authored), then M5 K11 for R0044.
+   **Slice F-3 LANDED (2026-09-04, spec "Slice F-3")**: the torus DISK
+   re-entry is the EXISTING UV-CDT's 0-wrapping branch behind a single-
+   source dispatch (`torus_face_takes_patch_path`: inner loops, or an outer
+   loop with no closed profile / equator circle), kernel-v2 routing a
+   hole-free non-structured torus lateral through (`!curved_full_rim`), a
+   P10 REGION check in the disk branch (a material-left loop runs CW in the
+   chart, `∂u × ∂v = −(R + r cos u)·r·n̂_out`; the complement sense declines
+   typed — three synthetic CCW fixtures corrected, every real arena loop
+   passes), and the missing CHORD BAND: a disk operand has no `Circle` rim,
+   so `input_curved_chord_bound` was `None` and Stage 4 STOPped at
+   `chord_band_none`; new single source `torus_chord_bound(R, r) =
+   chord_rel()·(R + r)` (the budget the band tessellator already used,
+   byte-identical) folds in for patch-path torus faces only. yang 854
+   green; kernel-v2 end-to-end `torus_disk_patch_reentry` (sliver volume
+   −0.60 % of quadrature, inscribed; a pocket crossing the disk removes
+   0.170196 to 2.5e-4). **R0032 moves `UNSUPPORTED(curved-profile)` →
+   ERROR at its next real wall, Stage-4 torus JUNCTION relocation
+   (`gt2_partners` v7: an arrangement vertex with more than two partner
+   surfaces on the torus; v67 `triple_newton_none` recorded first)** — the
+   corner-junction family. Class census now R0044 (M5 K11) + C0063
+   (apex-cone operand).
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the

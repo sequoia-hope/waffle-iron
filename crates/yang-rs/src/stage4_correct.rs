@@ -1369,6 +1369,14 @@ pub(crate) fn merge_same_plane_patches(
 /// all-planar input (zero chord error). This is the SINGLE source consulted by
 /// both `build_intersection_curves` (selection tol) and `stage4_chord_band`
 /// (relocation budget); it is NOT tolerance widening.
+///
+/// KV14 Slice F-3: a `Surface::Torus` face that tessellates through the PATCH
+/// path (`torus_face_takes_patch_path`: a band, or a lone-loop DISK of chords)
+/// folds in its own `torus_chord_bound(R, r)` — the budget the UV-CDT was
+/// given. A re-entering torus disk bounded by a torus∩cone chord polyline has
+/// no `Curve::Circle` rim anywhere, so without this arm the input reported NO
+/// band and Stage 4 refused its conic edges as a producer fault. Structured
+/// torus laterals sample at their rims' density and keep the rim band.
 pub(crate) fn input_curved_chord_bound(brep: &BRep) -> Option<f64> {
     // Spec `yang_s3_ellipse_rim_chord_bound` amendment 1: an ellipse-rim-only
     // input (obliquely-trimmed cylinder re-entering from a prior boolean)
@@ -1385,11 +1393,28 @@ pub(crate) fn input_curved_chord_bound(brep: &BRep) -> Option<f64> {
         .fold(None, |acc: Option<f64>, b| {
             Some(acc.map_or(b, |a| a.max(b)))
         });
-    match (rim, sphere) {
-        (Some(r), Some(s)) => Some(r.max(s)),
-        (Some(r), None) => Some(r),
-        (None, s) => s,
-    }
+    let torus = brep
+        .faces()
+        .iter()
+        .filter_map(|f| match f.surface {
+            Surface::Torus {
+                major_radius,
+                minor_radius,
+                ..
+            } if torus_face_takes_patch_path(f, brep.edges(), major_radius, minor_radius) => {
+                Some(torus_chord_bound(major_radius, minor_radius))
+            }
+            _ => None,
+        })
+        .fold(None, |acc: Option<f64>, b| {
+            Some(acc.map_or(b, |a| a.max(b)))
+        });
+    [rim, sphere, torus]
+        .into_iter()
+        .flatten()
+        .fold(None, |acc: Option<f64>, b| {
+            Some(acc.map_or(b, |a| a.max(b)))
+        })
 }
 
 /// PR-YR10 helper: the Stage-4 chord-band relocation budget `d_ε` — the

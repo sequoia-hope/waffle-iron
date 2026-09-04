@@ -1372,6 +1372,270 @@ pub(crate) fn torus_poloidal_band_two_encircling_profiles() {
     }
 }
 
+/// KV14 Slice F-3 fixture: a torus DISK face — one non-wrapping loop of 48
+/// `LineSegment` chords (a (u, v) rectangle on the tube, 12 samples a side),
+/// no inner loop — the census shape of R0032's re-entry wall (a torus∩cone
+/// chord polyline, no analytic curve type). The loop's sense is decided by a
+/// 3D WITNESS, not by the chart handedness the consumer asserts: the B-Rep
+/// convention puts the material on the loop's LEFT about the face's outward
+/// normal, so `n̂ × t̂` of the first chord must point toward an interior point
+/// of the rectangle. `material_left = false` walks it the other way (the
+/// complement's sense). Returns the B-Rep and the exact developable area of
+/// the rectangle, r·Δv·[R·Δu + r·(sin u1 − sin u0)].
+fn torus_disk_fixture(
+    reversed: bool,
+    material_left: bool,
+) -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>, f64) {
+    let (major, minor) = (3.0_f64, 1.0_f64);
+    let on = |u: f64, v: f64| {
+        let rad = major + minor * u.cos();
+        Point3::new(rad * v.cos(), rad * v.sin(), minor * u.sin())
+    };
+    let (u0, u1, v0, v1) = (0.2_f64, 1.2_f64, 0.5_f64, 1.8_f64);
+    let ns = 12usize;
+    let mut pts: Vec<Point3> = Vec::with_capacity(4 * ns);
+    for k in 0..ns {
+        let t = k as f64 / ns as f64;
+        pts.push(on(u0 + (u1 - u0) * t, v0));
+    }
+    for k in 0..ns {
+        let t = k as f64 / ns as f64;
+        pts.push(on(u1, v0 + (v1 - v0) * t));
+    }
+    for k in 0..ns {
+        let t = k as f64 / ns as f64;
+        pts.push(on(u1 - (u1 - u0) * t, v1));
+    }
+    for k in 0..ns {
+        let t = k as f64 / ns as f64;
+        pts.push(on(u0, v1 - (v1 - v0) * t));
+    }
+    // Witness: the torus's outward normal at the first vertex, the first
+    // chord's direction, and an interior point of the rectangle.
+    let (p0, p1) = (pts[0].as_array(), pts[1].as_array());
+    let rho = (p0[0] * p0[0] + p0[1] * p0[1]).sqrt();
+    let n = [
+        p0[0] - major * p0[0] / rho,
+        p0[1] - major * p0[1] / rho,
+        p0[2],
+    ];
+    let t = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    let left = [
+        n[1] * t[2] - n[2] * t[1],
+        n[2] * t[0] - n[0] * t[2],
+        n[0] * t[1] - n[1] * t[0],
+    ];
+    let q = on(0.5 * (u0 + u1), 0.5 * (v0 + v1)).as_array();
+    let w = [q[0] - p0[0], q[1] - p0[1], q[2] - p0[2]];
+    let walk_is_left_about_torus_outward = w[0] * left[0] + w[1] * left[1] + w[2] * left[2] > 0.0;
+    // The face's outward normal is the torus's, or its negation when
+    // `reversed`; the loop must be material-left about THAT one.
+    let this_walk_is_material_left = walk_is_left_about_torus_outward != reversed;
+    if this_walk_is_material_left != material_left {
+        pts.reverse();
+    }
+    let verts: Vec<BRepVertex> = pts.iter().map(|&p| BRepVertex { point: p }).collect();
+    let n_v = verts.len() as u32;
+    let edges: Vec<BRepEdge> = (0..n_v)
+        .map(|k| BRepEdge {
+            start: k,
+            end: (k + 1) % n_v,
+            curve: Curve::LineSegment,
+        })
+        .collect();
+    let faces = vec![BRepFace {
+        surface: Surface::Torus {
+            center: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            major_radius: major,
+            minor_radius: minor,
+        },
+        outer_loop: (0..n_v).collect(),
+        inner_loops: vec![],
+        reversed,
+    }];
+    let area = minor * (v1 - v0) * (major * (u1 - u0) + minor * (u1.sin() - u0.sin()));
+    (verts, edges, faces, area)
+}
+
+/// Oracles shared by the torus-disk tests: exact developable area (inscribed
+/// chords fall just below it, never above), the 48 boundary chords are the
+/// ONLY single-count edges and each joins consecutive loop vertices (no slit,
+/// no crack), Steiner vertices were minted and every vertex lies on the tube,
+/// and every triangle faces the torus's outward normal (inward for a
+/// `reversed` cavity wall).
+fn check_torus_disk_mesh(t: &Stage1Tess, n_boundary: usize, exact_area: f64, reversed: bool) {
+    let (major, minor) = (3.0_f64, 1.0_f64);
+    assert!(
+        t.verts.len() > n_boundary,
+        "no Steiner vertices minted ({} verts)",
+        t.verts.len()
+    );
+    for (i, p) in t.verts.iter().enumerate() {
+        let a = p.as_array();
+        let rho = (a[0] * a[0] + a[1] * a[1]).sqrt();
+        let d = ((rho - major).powi(2) + a[2] * a[2]).sqrt() - minor;
+        assert!(d.abs() < 1e-9, "vertex {i} off the torus by {d:.3e}");
+    }
+    let outward_at = |c: [f64; 3]| -> [f64; 3] {
+        let rho = (c[0] * c[0] + c[1] * c[1]).sqrt().max(1e-300);
+        [c[0] - major * c[0] / rho, c[1] - major * c[1] / rho, c[2]]
+    };
+    let mut area = 0.0;
+    for tri in &t.tris {
+        let a = t.verts[tri[0] as usize].as_array();
+        let b = t.verts[tri[1] as usize].as_array();
+        let c = t.verts[tri[2] as usize].as_array();
+        let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        area += 0.5 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        let cen = [
+            (a[0] + b[0] + c[0]) / 3.0,
+            (a[1] + b[1] + c[1]) / 3.0,
+            (a[2] + b[2] + c[2]) / 3.0,
+        ];
+        let o = outward_at(cen);
+        let dot = n[0] * o[0] + n[1] * o[1] + n[2] * o[2];
+        assert!(
+            (dot > 0.0) != reversed,
+            "triangle {tri:?} faces the wrong way (dot={dot:.3e}, reversed={reversed})"
+        );
+    }
+    assert!(
+        area >= 0.985 * exact_area && area <= exact_area * (1.0 + 1e-6),
+        "disk area {area} vs exact {exact_area} (inscribed band 0.985…1)"
+    );
+    let mut undirected: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+    for tri in &t.tris {
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            *undirected.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+        }
+    }
+    let nb = n_boundary as u32;
+    let mut single = 0usize;
+    for (&(x, y), &c) in &undirected {
+        assert!(c <= 2, "edge ({x},{y}) covered {c} times (fold)");
+        if c == 1 {
+            single += 1;
+            let consecutive = x < nb && y < nb && ((x + 1) % nb == y || (y + 1) % nb == x);
+            assert!(
+                consecutive,
+                "single-count edge ({x},{y}) is not a boundary chord — a crack or slit"
+            );
+        }
+    }
+    assert_eq!(single, n_boundary, "boundary chord count");
+}
+
+/// KV14 Slice F-3 (R0032): a hole-free torus lateral bounded by ONE
+/// non-wrapping loop of `LineSegment` chords — none of the structured torus
+/// vocabulary — re-enters Stage 1 as a DISK patch through
+/// `tessellate_torus_face` → `tessellate_torus_band` → the UV-CDT's
+/// 0-wrapping branch.
+#[test]
+pub(crate) fn torus_disk_patch_lone_chord_loop() {
+    let (verts, edges, faces, exact) = torus_disk_fixture(false, true);
+    let t = stage1_tessellate(&verts, &edges, &faces).expect("torus disk tessellation");
+    check_torus_disk_mesh(&t, verts.len(), exact, false);
+}
+
+/// The `reversed` disk (a cavity wall: the face's outward normal is the
+/// torus's inward normal, the loop walked accordingly) tessellates the same
+/// region with every triangle pointing INTO the tube.
+#[test]
+pub(crate) fn torus_disk_patch_reversed_face_points_inward() {
+    let (verts, edges, faces, exact) = torus_disk_fixture(true, true);
+    let t = stage1_tessellate(&verts, &edges, &faces).expect("reversed torus disk tessellation");
+    check_torus_disk_mesh(&t, verts.len(), exact, true);
+}
+
+/// P10 region check: the same loop walked in the COMPLEMENT's sense (material
+/// on the right) bounds the torus minus the disk; filling the (u, v) polygon
+/// interior would silently emit the wrong region, so the consumer must
+/// decline — a typed `MalformedTopology`, not a mesh.
+#[test]
+pub(crate) fn torus_disk_patch_complement_sense_declines_typed() {
+    let (verts, edges, faces, _) = torus_disk_fixture(false, false);
+    match stage1_tessellate(&verts, &edges, &faces) {
+        Err(YangError::MalformedTopology(msg)) => assert!(
+            msg.contains("torus patch UV-CDT declined"),
+            "unexpected wall text: {msg}"
+        ),
+        Err(e) => panic!("expected the typed torus-patch decline, got {e:?}"),
+        Ok(t) => panic!(
+            "complement-sense loop must not tessellate (got {} tris)",
+            t.tris.len()
+        ),
+    }
+}
+
+/// KV14 Slice F-3 chord band: an input whose only curved face is a torus DISK
+/// of chords has NO `Curve::Circle` rim, so the rim-derived bound is `None` —
+/// yet its Stage-1 mesh sags by the patch tessellator's own budget. The input
+/// bound must fold `torus_chord_bound(R, r)` in for exactly the PATCH-path
+/// faces (`torus_face_takes_patch_path`), and Stage 4's relocation budget
+/// must then be `Some` against a planar partner (the `chord_band_none`
+/// producer-fault STOP no longer fires). A STRUCTURED torus lateral (closed
+/// profile circles + seam) is not a patch-path face.
+#[test]
+pub(crate) fn torus_patch_faces_carry_their_own_chord_band() {
+    let (verts, edges, faces, _) = torus_disk_fixture(false, true);
+    let (major, minor) = (3.0_f64, 1.0_f64);
+    assert!(
+        torus_face_takes_patch_path(&faces[0], &edges, major, minor),
+        "a lone chord loop is a patch-path (disk) face"
+    );
+    assert_eq!(
+        curved_chord_bound(&edges),
+        None,
+        "the disk carries no Circle rim (the case this arm exists for)"
+    );
+    let disk = BRep::new(verts, edges, faces).expect("disk brep");
+    let expect = torus_chord_bound(major, minor);
+    assert_eq!(
+        input_curved_chord_bound(&disk),
+        Some(expect),
+        "the torus disk input reports the patch tessellator's own budget"
+    );
+    // Against an all-planar partner the relocation budget is the disk's.
+    let slab = crate::tests_unit::n2_junction::rj_box([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]);
+    assert_eq!(input_curved_chord_bound(&slab), None);
+    assert_eq!(stage4_chord_band(&disk, &slab), Some(expect));
+
+    // A structured lateral: one closed profile circle in its outer loop keeps
+    // it on the (θ × φ) grid — no torus bound folded in.
+    let structured = BRepFace {
+        surface: Surface::Torus {
+            center: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            major_radius: major,
+            minor_radius: minor,
+        },
+        outer_loop: vec![0],
+        inner_loops: vec![],
+        reversed: false,
+    };
+    let prof = vec![BRepEdge {
+        start: 0,
+        end: 0,
+        curve: Curve::Circle {
+            center: Point3::new(major, 0.0, 0.0),
+            normal: Vector3::new(0.0, 1.0, 0.0),
+            radius: minor,
+        },
+    }];
+    assert!(
+        !torus_face_takes_patch_path(&structured, &prof, major, minor),
+        "a closed profile circle marks the structured grid path"
+    );
+}
+
 /// KV6d closed torus (spec `kv6d_closed_torus_revolve.md`): the CLOSED
 /// `Surface::Torus` face — 1 seam anchor vertex, 2 closed seam circles
 /// (poloidal profile radius r + toroidal outer equator radius R+r), outer
@@ -3033,6 +3297,9 @@ fn torus_patch_edges_meet_chord_band() {
     for j in 0..nv {
         boundary.push(on(0.0, v1 * (nv - j) as f64 / nv as f64));
     }
+    // Material-left about the outward normal is CW in this chart (KV14 Slice
+    // F-3's region check); the rectangle above is walked CCW — reverse it.
+    boundary.reverse();
     let (verts, tris) =
         crate::tessellate_torus_patch(center, axis, major, minor, &boundary, &[], s * s, false)
             .expect("torus patch tessellation");

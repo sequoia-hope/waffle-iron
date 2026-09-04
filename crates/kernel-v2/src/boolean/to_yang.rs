@@ -593,23 +593,25 @@ pub fn to_yang_brep_indexed(
                             // Slice F-2 additionally carves any REMAINING inner
                             // loops as non-wrapping window holes in the tube wall,
                             // so a band with ≥2 inner loops (other profile +
-                            // window(s)) now routes too. A full-circle rim
-                            // (`Curve::Circle`) is still the canonical structured
-                            // torus (no CDT re-entry) → stays the typed wall.
+                            // window(s)) now routes too. Slice F-3: a HOLE-FREE
+                            // lateral with a non-structured outer loop (R0032's
+                            // lone 57-chord torus∩cone polyline) routes as a DISK
+                            // patch — the same consumer's 0-wrapping branch. A
+                            // full-circle rim (`Curve::Circle`) is still the
+                            // canonical structured torus (no CDT re-entry) →
+                            // stays the typed wall.
                             Some(Surface::Torus {
                                 center,
                                 axis_dir,
                                 major_radius,
                                 minor_radius,
                                 ..
-                            }) if !curved_full_rim && !face.inner_loops.is_empty() => {
-                                yang_rs::Surface::Torus {
-                                    center,
-                                    axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
-                                    major_radius,
-                                    minor_radius,
-                                }
-                            }
+                            }) if !curved_full_rim => yang_rs::Surface::Torus {
+                                center,
+                                axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
+                                major_radius,
+                                minor_radius,
+                            },
                             _ => {
                                 let reason = if matches!(face.surface, Some(Surface::Cone { .. })) {
                                     "curved lateral is an apex/frustum cone (full-circle rim; \
@@ -619,10 +621,6 @@ pub fn to_yang_brep_indexed(
                                 {
                                     "curved lateral is a canonical full-rim torus (full-circle \
                                      rim; no CDT re-entry)"
-                                } else if matches!(face.surface, Some(Surface::Torus { .. })) {
-                                    "curved lateral is a torus with a non-structured outer loop \
-                                     and no inner loop (Slice-F CDT re-entry needs a wrapping \
-                                     inner profile)"
                                 } else if face.inner_loops.is_empty() && outer_hes.len() == 4 {
                                     "curved lateral 4-edge non-structured outer loop (no CDT \
                                      re-entry for this surface)"

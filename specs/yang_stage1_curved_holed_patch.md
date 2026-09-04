@@ -242,6 +242,62 @@ normal, matching `tessellate_lateral_face`'s `orient_target`.
 - **Slice F-2 (later) — HOLED torus band** (a window bitten into the tube:
   R0028) needs the patch tessellator's band branch generalized to accept holes,
   and the **cone 2-encircling periodic frustum band** (Slice E sub-slice).
+- **Slice F-3 — torus DISK patch. ✅ DONE (2026-09-04).** R0032's
+  `FaceId(593)`: a torus lateral bounded by ONE 57-chord `Line` polyline (the
+  previous boolean's torus∩cone curve, degree 8 — no analytic curve type), no
+  inner loop. Three pieces, no new tessellation machinery:
+  1. **Dispatch.** yang `torus_face_takes_patch_path` (single source): inner
+     loops (a band) OR an outer loop with no closed profile circle and no
+     closed equator (a disk) → `tessellate_torus_band` →
+     `tessellate_torus_patch`'s EXISTING 0-wrapping DISK branch (the unwrap
+     keeps both branch cuts away from the loop; the same quantized map-back).
+     kernel-v2 `to_yang_brep` routes a torus lateral through iff
+     `!curved_full_rim` (the "needs a wrapping inner profile" requirement and
+     its reason string are gone).
+  2. **Region check (P10).** The DISK branch fills the (u, v) polygon's
+     INTERIOR, which is the face only when the loop is material-left about
+     the face's outward normal — CW in this chart
+     (`∂P/∂u × ∂P/∂v = −(R + r·cos u)·r·n̂_out`, the band's 2026-09-03 side
+     rule), CCW for a `reversed` face. The other sense bounds the torus's
+     COMPLEMENT: a typed decline (`MalformedTopology` "torus patch UV-CDT
+     declined"), not a silently wrong region. Three synthetic fixtures (the
+     yang roundtrip and chord-band tests, the kernel-v2 arena test) walked
+     their rectangles CCW and were corrected; every KV6d render of a real
+     arena loop passes the check unchanged.
+  3. **Chord band.** A disk operand carries NO `Curve::Circle` rim, so
+     `input_curved_chord_bound` was `None` and Stage 4 STOPped at
+     `chord_band_none` ("a conic edge implies a circle-bearing input" — F-3
+     broke that premise). New single source
+     `torus_chord_bound(R, r) = chord_rel()·(R + r)` — the budget
+     `tessellate_torus_band` already handed the UV-CDT (now derived from the
+     same function, byte-identical) — folded into the input bound for
+     PATCH-path torus faces only (a structured lateral samples at its rims'
+     density and keeps the rim band). The sphere / cone precedent
+     (I-sphere-band, PR-YR16), not tolerance widening.
+
+  Tests — yang: `torus_disk_patch_lone_chord_loop` (a 48-chord (u, v)
+  rectangle whose loop sense comes from a 3D WITNESS — `n̂ × t̂` of the first
+  chord toward an interior point — not from the chart; oracles: exact
+  developable area `r·Δv·[R·Δu + r·(sin u1 − sin u0)]` inscribed within
+  1.5 %, the 48 chords are the only single-count edges, every vertex on the
+  tube, every triangle outward), `torus_disk_patch_reversed_face_points_inward`,
+  `torus_disk_patch_complement_sense_declines_typed`,
+  `torus_patch_faces_carry_their_own_chord_band`. kernel-v2 end-to-end
+  `torus_disk_patch_reentry` (`boolean_chains.rs`): a 270° torus (axis +x,
+  R = 3, r = 1) minus a box leaves the sliver y ≤ −3.5 — ONE torus face, a
+  lone chord loop, no inner loop; volume 1.422026 vs the 2-D quadrature
+  1.430552 (−0.60 %, inscribed); then a 0.8 × 0.8 pocket into the disk's
+  apex removes 0.170196 by quadrature, measured decrement error 2.5e-4 — the
+  pocket's planes cross the disk mesh and Stage 4 relocates onto the
+  torus∩plane curves through the disk's own chord band.
+
+  **Assay: R0032 moves `UNSUPPORTED(curved-profile)` → its next real wall,
+  Stage-4 torus JUNCTION relocation** (`YANG_LRR_PROBE`: v67
+  `triple_newton_none` recorded first, then v7 `gt2_partners` aborts — a
+  vertex of the union's arrangement with MORE than two partner surfaces on
+  the torus, the `stage4_correct.rs` torus block) — the corner-junction
+  family, outside this spec. Class delta: `UNSUPPORTED(curved-profile)`
+  3 → 2 (R0044 M5 K11, C0063 apex-cone operand remain).
 
 Land each slice as its own commit. Do NOT bank unwired: Slice A/B may be
 internal, but Slice C must WIRE and prove end-to-end before Slice A/B are
@@ -288,7 +344,7 @@ class holds exactly three cases, and they are three DIFFERENT walls:
 | case | refusing face | what the B-Rep carries | the wall |
 |---|---|---|---|
 | R0044 | `FaceId(458)`, op `boolean_subtract` (the circle cut on the design result) | a CYLINDER lateral (r = 2327.8), no inner loop, a 5-edge outer loop `[Arc, SurfacePair, SurfacePair, SurfacePair, SurfacePair]` — every `SurfacePair` is this cylinder × a CONE (three distinct cones, half-angles 1.011 / 1.048 / 0.440: the revolve's conical flanks) | **M5 K11**: no yang INPUT vocabulary for a degree-4 surface-pair edge. The re-entry needs the procedural (Option B) cylinder∩cone curve sampled onto the cylinder's (θ, z) chart as a shared boundary chain (twin-identical, conformal to the neighbouring cone's own chain), then the Slice-D CDT; downstream, the chain is a CARRIED input curve for §4.4.2 restoration / §4.5.1 relocation onto the procedural curve. A multi-session capability (roadmap M5), not a slice of this spec. |
-| R0032 | `FaceId(593)`, op `boolean_union` | a TORUS lateral (R = 45.6, r = 30.4), no inner loop, a 57-edge outer loop of `Line` segments — the previous boolean's torus∩(other) intersection left as its chord polyline (no analytic curve type for a degree-8 curve) — every edge twinned to the neighbouring result faces | **Slice F-3, a torus DISK patch**: one non-wrapping loop. The Slice-F band path needs a second wrapping profile; a single loop needs the double-periodic chart's branch cuts placed away from the loop (the loop's (u, v) image must not straddle either cut), then the existing torus UV-CDT with an empty hole set and the band's lift. Tractable — the next slice of THIS spec. |
+| R0032 | `FaceId(593)`, op `boolean_union` | a TORUS lateral (R = 45.6, r = 30.4), no inner loop, a 57-edge outer loop of `Line` segments — the previous boolean's torus∩(other) intersection left as its chord polyline (no analytic curve type for a degree-8 curve) — every edge twinned to the neighbouring result faces | **Slice F-3, a torus DISK patch**: one non-wrapping loop. The Slice-F band path needs a second wrapping profile; a single loop needs the double-periodic chart's branch cuts placed away from the loop (the loop's (u, v) image must not straddle either cut), then the existing torus UV-CDT with an empty hole set and the band's lift. Tractable — the next slice of THIS spec. **DONE 2026-09-04** (Slice F-3 above): the Stage-1 wall falls; R0032 now STOPs in Stage-4 torus junction relocation (`gt2_partners` v7). |
 | C0063 | `FaceId(1)`, op `boolean_subtract` — the FIRST boolean's operand, not a re-entry | an apex CONE lateral (apex (0, 0, 1.2), half-angle 0.588), no inner loop, a ONE-edge outer loop: the full base rim `Circle(r = 0.8)` twinned to the base cap `FaceId(0)`; the apex is a surface point, not a vertex | **an apex cone as a boolean OPERAND**: the 1-edge loop is routed to the CDT block (`outer_hes.len() != 4`) where a full rim on a cone is the typed wall; the "apex-fan (1 rim)" vocabulary the comment names is not built. Also an AUTHORING defect, see below. |
 
 **C0063 is also mis-authored.** By exact membership the chain reads EMPTY at

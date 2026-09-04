@@ -13,7 +13,9 @@
 //!   (the former `UnsupportedCurvedBoolean` re-entry wall).
 
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
-use kernel_v2::{boolean_op, extrude, tessellate, validate_solid, BrepArena, Profile, RenderMesh};
+use kernel_v2::{
+    boolean_op, extrude, revolve, tessellate, validate_solid, BrepArena, Profile, RenderMesh,
+};
 
 fn boxx(a: &mut BrepArena, x: (f64, f64), y: (f64, f64), z: (f64, f64)) -> kernel_v2::SolidId {
     let p = Profile::new(
@@ -400,6 +402,151 @@ fn ellipse_bounded_tunnel_reentry() {
     assert!(
         (v1 - v2 - 0.18).abs() < 0.01,
         "notch decrement {} must be ≈0.18: v1={v1} v2={v2}",
+        v1 - v2
+    );
+}
+
+/// KV14 Slice F-3 (R0032's wall) end-to-end: a torus lateral that survives a
+/// boolean as a DISK — ONE non-wrapping loop of intersection chords, no inner
+/// loop, none of the structured torus vocabulary — must RE-ENTER a second
+/// boolean (kernel-v2 routes it to yang's torus UV-CDT disk branch).
+///
+/// Op 1: a 270° torus (axis +x, R = 3, r = 1) minus a box covering all of it
+/// but the sliver y ≤ −3.5 (θ = 180°: 90° from either cap, clear of the seam
+/// ring at ρ = 3, and the plane is nowhere tangent to the tube). The sliver's
+/// faces are the torus disk and the planar cut; its volume is the quadrature
+/// ∫∫ s·(R + s·cos u)·2·acos(3.5/(R + s·cos u)) du ds (exact in the sweep
+/// angle). Op 2 re-enters it: a square pocket (|x|, |z| ≤ 0.4, y ≤ −3.7)
+/// bites the disk's apex, removing ∫∫ (√((R + √(1 − x²))² − z²) − 3.7) dx dz
+/// — its top face lies inside the sliver (the tube's far side is at
+/// y ≤ −3.896 over the footprint), so the bite is bounded by five planes and
+/// the torus disk itself.
+#[test]
+fn torus_disk_patch_reentry() {
+    use std::f64::consts::PI;
+    let (rr, r) = (3.0_f64, 1.0_f64);
+    let mut a = BrepArena::new();
+    let profile = Profile::circle(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        Point2::new(0.0, rr),
+        r,
+    )
+    .unwrap();
+    let torus = revolve(
+        &mut a,
+        &profile,
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        1.5 * PI,
+    )
+    .expect("270° torus")
+    .solid;
+    let y_cut = 3.5_f64; // the sliver is y ≤ −y_cut
+    let rest = boxx(&mut a, (-2.0, 2.0), (-y_cut, 5.0), (-5.0, 5.0));
+    let sliver = boolean_op(&mut a, torus, rest, BoolOp::Subtract).expect("torus − rest");
+    validate_solid(&a, sliver).expect("sliver validates");
+
+    // Census: the surviving torus face is the lone-loop DISK this slice is
+    // for — no inner loop, a chord polyline, no full-circle edge (the
+    // `KV14_REENTRY_CENSUS` shape of R0032's FaceId(593)).
+    let mut torus_faces = 0usize;
+    for &sid in &a.solid(sliver).unwrap().shells {
+        for &fid in &a.shell(sid).unwrap().faces {
+            let f = a.face(fid).unwrap();
+            if !matches!(f.surface, Some(kernel_v2::Surface::Torus { .. })) {
+                continue;
+            }
+            torus_faces += 1;
+            assert!(
+                f.inner_loops.is_empty(),
+                "torus disk {fid:?} must carry no inner loop"
+            );
+            let hes = a.loop_half_edges(f.outer_loop).unwrap();
+            assert!(
+                hes.len() > 4,
+                "torus disk {fid:?} loop has {} edges (expected a chord polyline)",
+                hes.len()
+            );
+            for &h in &hes {
+                assert!(
+                    !matches!(
+                        a.half_edge(h).unwrap().curve,
+                        kernel_v2::Curve::Circle { .. }
+                    ),
+                    "torus disk {fid:?} carries a full-circle edge"
+                );
+            }
+        }
+    }
+    assert_eq!(
+        torus_faces, 1,
+        "the sliver has exactly one torus face (the disk)"
+    );
+
+    let v1 = volume_of(&a, sliver);
+    eprintln!("[torus-disk-reentry] sliver v1={v1:.9}");
+    // Midpoint quadrature in tube coordinates (s radial fraction, u meridian),
+    // exact in the sweep angle: for a fixed (s, u) the kept sweep is
+    // |v − π| ≤ acos(y_cut / (R + s·cos u)) wherever R + s·cos u > y_cut.
+    let expect_v1 = {
+        let n = 1500usize;
+        let u_max = ((y_cut - rr) / r).acos();
+        let mut acc = 0.0;
+        for i in 0..n {
+            let s = (i as f64 + 0.5) / n as f64;
+            for j in 0..n {
+                let u = -u_max + (j as f64 + 0.5) / n as f64 * 2.0 * u_max;
+                let rad = rr + s * u.cos();
+                if rad > y_cut {
+                    acc += s * rad * 2.0 * (y_cut / rad).acos();
+                }
+            }
+        }
+        acc * (1.0 / n as f64) * (2.0 * u_max / n as f64)
+    };
+    assert!(
+        v1 <= expect_v1 * (1.0 + 1e-6) && v1 >= expect_v1 * 0.99,
+        "sliver volume {v1} vs quadrature {expect_v1} (inscribed torus disk)"
+    );
+
+    // Second boolean RE-ENTERS the sliver (its torus disk now converts via the
+    // Slice F-3 route): the apex pocket.
+    let (h, y_pocket) = (0.4_f64, 3.7_f64);
+    let pocket = boxx(&mut a, (-h, h), (-5.0, -y_pocket), (-h, h));
+    let out = boolean_op(&mut a, sliver, pocket, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("re-enter the torus disk sliver (KV14 Slice F-3): {e:?}"));
+    validate_solid(&a, out).expect("re-entered result validates");
+    let v2 = volume_of(&a, out);
+    let removed = {
+        let m = 800usize;
+        let mut acc = 0.0;
+        for i in 0..m {
+            let x = -h + (i as f64 + 0.5) / m as f64 * 2.0 * h;
+            for j in 0..m {
+                let z = -h + (j as f64 + 0.5) / m as f64 * 2.0 * h;
+                let y_far = ((rr + (1.0 - x * x).sqrt()).powi(2) - z * z).sqrt();
+                acc += y_far - y_pocket;
+            }
+        }
+        acc * (2.0 * h / m as f64).powi(2)
+    };
+    assert!(
+        v2 <= (expect_v1 - removed) * (1.0 + 1e-6) && v2 >= (expect_v1 - removed) * 0.99,
+        "re-entered volume {v2} vs quadrature {} (sliver − pocket)",
+        expect_v1 - removed
+    );
+    eprintln!(
+        "[torus-disk-reentry] expect_v1={expect_v1:.9} v2={v2:.9} removed={removed:.9} \
+         decrement_err={:.3e}",
+        v1 - v2 - removed
+    );
+    // The decrement is the pocket, up to the disk's re-facet drift (a whole
+    // extra/missing pocket would blow this by ~0.17, a gross-error tripwire).
+    assert!(
+        (v1 - v2 - removed).abs() < 0.01,
+        "pocket decrement {} must be ≈{removed}: v1={v1} v2={v2}",
         v1 - v2
     );
 }
