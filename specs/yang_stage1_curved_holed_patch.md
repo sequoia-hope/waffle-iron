@@ -275,3 +275,32 @@ low-confidence — see memory `n2_stage4_mesh_updating`).
 - Degree-4 (`EllipseArc`/`SurfacePair`) curved boundaries — separate milestone.
 - Multi-shell operands — separate `UnsupportedMultiShellBoolean` wall.
 - Coplanar Stage-0 — separate M8 milestone.
+
+
+## Re-census 2026-09-04 — the three remaining `UNSUPPORTED(curved-profile)` walls
+
+Instrument: `KV14_REENTRY_CENSUS=1` (kernel-v2 `adapter.rs`, the
+`UnsupportedCurvedBoolean` wrapper) prints the refusing face's surface, every
+loop's half-edge curve pattern with endpoints, and each edge's twin face.
+After the corner-transit inc-3c flip (R0044's design boolean completes) the
+class holds exactly three cases, and they are three DIFFERENT walls:
+
+| case | refusing face | what the B-Rep carries | the wall |
+|---|---|---|---|
+| R0044 | `FaceId(458)`, op `boolean_subtract` (the circle cut on the design result) | a CYLINDER lateral (r = 2327.8), no inner loop, a 5-edge outer loop `[Arc, SurfacePair, SurfacePair, SurfacePair, SurfacePair]` — every `SurfacePair` is this cylinder × a CONE (three distinct cones, half-angles 1.011 / 1.048 / 0.440: the revolve's conical flanks) | **M5 K11**: no yang INPUT vocabulary for a degree-4 surface-pair edge. The re-entry needs the procedural (Option B) cylinder∩cone curve sampled onto the cylinder's (θ, z) chart as a shared boundary chain (twin-identical, conformal to the neighbouring cone's own chain), then the Slice-D CDT; downstream, the chain is a CARRIED input curve for §4.4.2 restoration / §4.5.1 relocation onto the procedural curve. A multi-session capability (roadmap M5), not a slice of this spec. |
+| R0032 | `FaceId(593)`, op `boolean_union` | a TORUS lateral (R = 45.6, r = 30.4), no inner loop, a 57-edge outer loop of `Line` segments — the previous boolean's torus∩(other) intersection left as its chord polyline (no analytic curve type for a degree-8 curve) — every edge twinned to the neighbouring result faces | **Slice F-3, a torus DISK patch**: one non-wrapping loop. The Slice-F band path needs a second wrapping profile; a single loop needs the double-periodic chart's branch cuts placed away from the loop (the loop's (u, v) image must not straddle either cut), then the existing torus UV-CDT with an empty hole set and the band's lift. Tractable — the next slice of THIS spec. |
+| C0063 | `FaceId(1)`, op `boolean_subtract` — the FIRST boolean's operand, not a re-entry | an apex CONE lateral (apex (0, 0, 1.2), half-angle 0.588), no inner loop, a ONE-edge outer loop: the full base rim `Circle(r = 0.8)` twinned to the base cap `FaceId(0)`; the apex is a surface point, not a vertex | **an apex cone as a boolean OPERAND**: the 1-edge loop is routed to the CDT block (`outer_hes.len() != 4`) where a full rim on a cone is the typed wall; the "apex-fan (1 rim)" vocabulary the comment names is not built. Also an AUTHORING defect, see below. |
+
+**C0063 is also mis-authored.** By exact membership the chain reads EMPTY at
+128 and 256 cells on two phases (the cone alone reads 0.8045 = π·0.8²·1.2/3):
+the engine measures the cone's single B-Rep vertex (`FE_CUT_TRACE`: `target
+verts=1 proj=[0.24, 0.24] sketch_proj=1.199 reverse=true`), so the 2 × 2 × 1.5
+oblique slab is laid from its plane back through the whole cone — the cone
+spans 0.24…1.145 along the slab normal, the slab −0.30…1.20, and its 2 × 2
+footprint covers the cone's (−0.62…0.91) × (−0.8…0.8). The authored
+"conic-bounded patch, χ = 2, volume decrease" is not what this document
+computes under the engine's own reversal rule: the answer is the empty solid.
+Once the apex-cone operand wall falls the runner will see an all-consumed
+model; the meta must be re-authored then (a slab that bites the cone, or an
+`expect_rebuild_error` per the `cut_consumes_body` precedent) — recorded, not
+changed here.

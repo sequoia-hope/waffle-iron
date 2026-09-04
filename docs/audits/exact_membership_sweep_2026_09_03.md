@@ -310,3 +310,17 @@ oracle tolerance shows boundary edges on three canonical-CORRECT curved
 cases (R0091: 30, R0009: 160, R0099: 11) where the runner's coarser
 `tess_tol` mesh is watertight. Whether that is a tolerance-dependent
 tessellation defect is a question for a later session.
+
+### C0063 — an authored expectation the document cannot produce (2026-09-04)
+
+Found while re-censusing the `UNSUPPORTED(curved-profile)` walls (spec
+`yang_stage1_curved_holed_patch.md`): C0063 ("full cone + oblique slab cut,
+conic-bounded patch, χ = 2") reads EMPTY by exact membership at 128 and 256
+cells on two phases; the cone alone reads 0.8045 (π·0.8²·1.2/3 = 0.8042).
+The engine decides the cut's auto-reversal on the cone's single B-Rep vertex
+(`FE_CUT_TRACE`: `target verts=1 proj=[0.24, 0.24] sketch_proj=1.199
+reverse=true`), which lays the 2 × 2 × 1.5 slab back through the whole cone
+(0.24…1.145 along the slab normal against the slab's −0.30…1.20; footprint
+covered). The kernel never gets there today — the apex-cone operand refuses
+at Stage 1 — so nothing scores wrong; when that wall falls the meta must be
+re-authored. Recorded, not changed.

@@ -1368,10 +1368,25 @@ name, never measured).
    post-flip default BYTE-IDENTICAL to it (F0085 311.2 s); post-flip
    `TRIPLE_DOMAIN=0` BYTE-IDENTICAL to canonical (302.4 s). yang-rs 850
    tests green. **New canonical 273C / 0W / 30E / 4EE / 0T** (+3
-   UNSUPPORTED(curved-profile), +2 UNSUPPORTED(coplanar-boolean)). Next:
-   the Stage-1 partial-patch re-entry — tessellating a boolean result's
-   surface-pair-bounded lateral as an operand (R0044's wall and the
-   `UNSUPPORTED(curved-profile)` family).
+   UNSUPPORTED(curved-profile), +2 UNSUPPORTED(coplanar-boolean)).
+   **Re-census of the `UNSUPPORTED(curved-profile)` class** (same session;
+   `KV14_REENTRY_CENSUS=1`, spec `yang_stage1_curved_holed_patch.md`
+   "Re-census 2026-09-04"): three cases, three different walls. R0044 —
+   a cylinder lateral whose 5-edge loop is `[Arc, SurfacePair ×4]`, every
+   pair this cylinder × a cone (three cones): **M5 K11**, no yang input
+   vocabulary for a degree-4 surface-pair edge (the procedural curve must
+   become a shared, conformal Stage-1 boundary chain and a carried curve
+   downstream — a multi-session capability). R0032 — a torus lateral
+   bounded by ONE 57-segment chord polyline, no inner loop: **Slice F-3, a
+   torus disk patch** (branch cuts away from the loop, then the existing
+   torus UV-CDT) — tractable, the next slice. C0063 — the FIRST boolean's
+   operand is an apex cone with a one-edge rim loop: an apex-cone OPERAND
+   vocabulary (the "apex fan" is named in a comment, not built); and the
+   document is mis-authored — by exact membership the auto-reversed slab
+   consumes the whole cone (the engine measures the cone's single vertex,
+   `reverse=true`), so the answer is the empty solid, not a conic-bounded
+   patch. Next, in order: Slice F-3 (R0032), the apex-cone operand
+   (C0063, with its meta re-authored), then M5 K11 for R0044.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the

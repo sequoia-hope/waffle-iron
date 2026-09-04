@@ -498,6 +498,17 @@ impl KernelV2Adapter {
             // a previous boolean) cannot re-enter yang-rs Stage 1 — a
             // declared boundary, not a bug (see kernel-v2 boolean.rs docs).
             Err(KernelV2Error::UnsupportedCurvedBoolean { face, reason }) => {
+                // KV14 re-entry census (2026-09-04): `KV14_REENTRY_CENSUS=1`
+                // prints the refusing face's structure — surface, outer loop
+                // curve pattern, inner loops — so the remaining walls can be
+                // designed against what the B-Rep actually carries.
+                if std::env::var_os("KV14_REENTRY_CENSUS").is_some() {
+                    eprintln!(
+                        "[kv14-reentry] case={} op={op_name} face={face:?} reason={reason:?}\n{}",
+                        std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into()),
+                        reentry_census(&self.arena, face)
+                    );
+                }
                 Err(Self::not_supported(&format!(
                     "{op_name}: curved partial-patch operand face {face:?} [{reason}] (a previous \
                      curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch \
@@ -1548,3 +1559,82 @@ impl KernelIntrospect for KernelV2Adapter {
 
 #[cfg(test)]
 mod tests;
+
+/// The KV14 re-entry census line for a face: its surface, every loop's
+/// half-edge curve pattern (with start/end points), for `KV14_REENTRY_CENSUS`.
+fn reentry_census(arena: &crate::BrepArena, face: crate::FaceId) -> String {
+    use crate::arena::{Curve, Surface};
+    let mut out = String::new();
+    let Ok(f) = arena.face(face) else {
+        return "  (face not in arena)".into();
+    };
+    let surf = match f.surface {
+        Some(Surface::Plane(_)) => "Plane".to_string(),
+        Some(Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+            ..
+        }) => format!("Cylinder axis_point={axis_point:?} axis_dir={axis_dir:?} r={radius:.6e}"),
+        Some(Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+            ..
+        }) => format!("Cone apex={apex:?} axis_dir={axis_dir:?} half_angle={half_angle:.6e}"),
+        Some(Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+            ..
+        }) => format!(
+            "Torus center={center:?} axis_dir={axis_dir:?} R={major_radius:.6e} r={minor_radius:.6e}"
+        ),
+        Some(Surface::Sphere { .. }) => "Sphere".to_string(),
+        None => "None".to_string(),
+    };
+    out.push_str(&format!(
+        "  surface={surf} inner_loops={}\n",
+        f.inner_loops.len()
+    ));
+    let curve_name = |c: &Curve| -> String {
+        match c {
+            Curve::LineSegment => "Line".into(),
+            Curve::SurfacePair { a, b } => format!("SurfacePair({a:?}|{b:?})"),
+            Curve::Circle { radius, .. } => format!("Circle(r={radius:.4e})"),
+            Curve::Arc { radius, .. } => format!("Arc(r={radius:.4e})"),
+            Curve::EllipseArc { .. } => "EllipseArc".into(),
+            Curve::HyperbolaArc { .. } => "HyperbolaArc".into(),
+        }
+    };
+    let loops =
+        std::iter::once(("outer", f.outer_loop)).chain(f.inner_loops.iter().map(|&l| ("inner", l)));
+    for (kind, lid) in loops {
+        let Ok(hes) = arena.loop_half_edges(lid) else {
+            continue;
+        };
+        out.push_str(&format!("  {kind} loop {lid:?}: {} edges\n", hes.len()));
+        for h in hes {
+            let Ok(he) = arena.half_edge(h) else {
+                continue;
+            };
+            let p0 = arena.vertex(he.origin).map(|v| v.point).ok();
+            let p1 = arena
+                .half_edge(he.next)
+                .and_then(|n| arena.vertex(n.origin))
+                .map(|v| v.point)
+                .ok();
+            let twin_face = arena
+                .half_edge(he.twin)
+                .and_then(|t| arena.loop_(t.loop_id))
+                .map(|l| l.face)
+                .ok();
+            out.push_str(&format!(
+                "    {h:?} {} from={p0:?} to={p1:?} twin_face={twin_face:?}\n",
+                curve_name(&he.curve)
+            ));
+        }
+    }
+    out
+}
