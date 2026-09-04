@@ -2067,12 +2067,45 @@ fn boolean_once(
                         None => Err(YangError::FaceResolutionFailed { tri: compact_t }),
                     }
                 }
-                // KV6d: a torus face uses the rim chord `band` (the rim AABB
-                // bound covers the outermost latitude radius major+minor).
-                Surface::Torus { .. } => match band {
-                    Some(de) => Ok(de),
-                    None => Err(YangError::FaceResolutionFailed { tri: compact_t }),
-                },
+                // KV6d: a STRUCTURED torus face (profile-circle rims) uses the
+                // rim chord `band` (the rim AABB bound covers the outermost
+                // latitude radius major+minor). KV14 Slice F-3 (code review
+                // 2026-09-04): a PATCH-path torus face — a band with inner
+                // loops, or a lone DISK of chords with no `Curve::Circle`
+                // anywhere on the operand — carries its OWN Stage-1 bound
+                // `torus_chord_bound(R, r)`, the budget the UV-CDT was seeded
+                // with, exactly as Stage 4's `input_curved_chord_bound` folds
+                // it in. Without this arm a Circle-free torus operand had
+                // `band == None` and every one of its triangles was a
+                // `FaceResolutionFailed` on the lineage-less path (the C++
+                // sidecar parity oracle, mock-label fixtures, `from_mesh`);
+                // production inputs resolve by provenance first and never saw
+                // it. `max` with the rim band where both exist: a band must
+                // cover every chain the face carries (the Slice F-3 lesson).
+                Surface::Torus {
+                    major_radius,
+                    minor_radius,
+                    ..
+                } => {
+                    let own = input_brep
+                        .faces()
+                        .get(fi)
+                        .filter(|f| {
+                            torus_face_takes_patch_path(
+                                f,
+                                input_brep.edges(),
+                                major_radius,
+                                minor_radius,
+                            )
+                        })
+                        .map(|_| torus_chord_bound(major_radius, minor_radius));
+                    match (band, own) {
+                        (Some(de), Some(o)) => Ok(de.max(o)),
+                        (Some(de), None) => Ok(de),
+                        (None, Some(o)) => Ok(o),
+                        (None, None) => Err(YangError::FaceResolutionFailed { tri: compact_t }),
+                    }
+                }
             }
         };
 

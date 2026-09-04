@@ -1575,6 +1575,156 @@ pub(crate) fn torus_disk_patch_complement_sense_declines_typed() {
     }
 }
 
+/// Code review 2026-09-04 (apex-cone OPERAND, 84068638): the structured
+/// `[rim_e]` apex-fan arm must honour `reversed` exactly like the frustum-band
+/// and holed-CDT cone arms — kernel-v2 forwards the flag on a one-rim cone
+/// lateral, so an apex CAVITY re-entering a chained boolean would otherwise
+/// enter the Stage-1 mesh with every fan triangle pointing INTO the material
+/// (a silent in/out parity corruption, never a STOP). Fixture: yang's own
+/// PR-YR16 shape — one closed base-rim `Circle` shared with a planar cap and
+/// a pre-seeded edge-less apex vertex. The outward cone normal at a fan
+/// triangle's centroid is `cos α · r̂ − sin α · â`; every fan triangle's
+/// winding normal must agree with it for `reversed == false` and oppose it
+/// for `reversed == true`, on the SAME vertex set.
+fn apex_cone_fixture(reversed: bool) -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>) {
+    let verts = vec![
+        BRepVertex {
+            point: Point3::new(1.0, 0.0, 0.0),
+        },
+        BRepVertex {
+            point: Point3::new(0.0, 0.0, 1.0),
+        },
+    ];
+    let edges = vec![BRepEdge {
+        start: 0,
+        end: 0,
+        curve: Curve::Circle {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, -1.0),
+            radius: 1.0,
+        },
+    }];
+    let faces = vec![
+        BRepFace {
+            surface: Surface::Cone {
+                apex: Point3::new(0.0, 0.0, 1.0),
+                axis_dir: Vector3::new(0.0, 0.0, -1.0),
+                half_angle: std::f64::consts::FRAC_PI_4,
+            },
+            outer_loop: vec![0],
+            inner_loops: Vec::new(),
+            reversed,
+        },
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                d: 0.0,
+            },
+            outer_loop: vec![0],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+    ];
+    (verts, edges, faces)
+}
+
+fn apex_fan_dots(t: &Stage1Tess) -> Vec<f64> {
+    let apex = [0.0, 0.0, 1.0];
+    let (cos_a, sin_a) = (
+        std::f64::consts::FRAC_PI_4.cos(),
+        std::f64::consts::FRAC_PI_4.sin(),
+    );
+    t.tris[t.face_tri_ranges[0].clone()]
+        .iter()
+        .map(|tri| {
+            let a = t.verts[tri[0] as usize].as_array();
+            let b = t.verts[tri[1] as usize].as_array();
+            let c = t.verts[tri[2] as usize].as_array();
+            let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            let cen = [
+                (a[0] + b[0] + c[0]) / 3.0,
+                (a[1] + b[1] + c[1]) / 3.0,
+                (a[2] + b[2] + c[2]) / 3.0,
+            ];
+            let rho = (cen[0] * cen[0] + cen[1] * cen[1]).sqrt().max(1e-300);
+            // outward = cos α · r̂ − sin α · â with â = (0, 0, −1)
+            let o = [cos_a * cen[0] / rho, cos_a * cen[1] / rho, sin_a];
+            assert!(
+                cen[2] < apex[2] && cen[2] > 0.0,
+                "fan centroid {cen:?} is not between the rim and the apex"
+            );
+            n[0] * o[0] + n[1] * o[1] + n[2] * o[2]
+        })
+        .collect()
+}
+
+#[test]
+pub(crate) fn apex_fan_faces_outward_and_reversed_faces_inward() {
+    let (v, e, f) = apex_cone_fixture(false);
+    let out = stage1_tessellate(&v, &e, &f).expect("apex cone tessellates");
+    let dots = apex_fan_dots(&out);
+    assert!(dots.len() >= 3, "apex fan has {} triangles", dots.len());
+    assert!(
+        dots.iter().all(|d| *d > 0.0),
+        "an outward apex fan must face the cone's outward normal: {dots:?}"
+    );
+
+    let (v, e, f) = apex_cone_fixture(true);
+    let cav = stage1_tessellate(&v, &e, &f).expect("reversed apex cone tessellates");
+    assert_eq!(cav.verts, out.verts, "`reversed` must not move a vertex");
+    assert_eq!(cav.tris.len(), out.tris.len());
+    let dots = apex_fan_dots(&cav);
+    assert!(
+        dots.iter().all(|d| *d < 0.0),
+        "a REVERSED apex fan (a conical cavity) must face INTO the cone: {dots:?}"
+    );
+}
+
+/// Code review 2026-09-04 (Slice F-3 follow-through): Stage-6 geometric face
+/// resolution `tol_for` keyed a torus face on the Circle-rim `band` alone, so
+/// a Circle-free torus operand (the R0032 disk) resolved NO triangle on the
+/// LINEAGE-LESS path — every kept triangle was a `FaceResolutionFailed`.
+/// Production inputs never saw it (kernel-v2 lineage resolves first), but the
+/// C++ sidecar parity oracle and the mock-label fixtures do. The arm now folds
+/// in `torus_chord_bound(R, r)` for patch-path faces, as Stage 4 already did.
+/// Pin: the disk's own Stage-1 mesh, labelled on A with NO source lineage,
+/// must not fail at face resolution (whatever a later stage says about an
+/// open sheet).
+#[test]
+pub(crate) fn lineage_less_torus_disk_operand_resolves_its_faces() {
+    let (verts, edges, faces, _) = torus_disk_fixture(false, true);
+    let a = BRep::new(verts, edges, faces).expect("disk brep");
+    // B must OVERLAP A's extent: a disjoint pair takes the early
+    // concatenation path and never resolves a face.
+    let b = cube_brep([1.5, 2.5, 0.0]);
+    let m = a.as_mesh();
+    let n = m.tris.len();
+    assert!(n > 0);
+    let la = LabeledArrangement {
+        mesh: Mesh::new(m.verts.clone(), m.tris.clone()),
+        surface: vec![vec![LaInputId(0)]; n],
+        inside: vec![vec![false, false]; n],
+        patch: vec![0; n],
+        source: Vec::new(),
+        intersection_edges: Default::default(),
+        num_inputs: 2,
+    };
+    let backend = LabelMockBackend::new(la);
+    if let Err(YangError::FaceResolutionFailed { tri }) = boolean(&a, &b, BoolOp::Union, &backend) {
+        panic!(
+            "a lineage-less torus DISK operand must resolve its own triangles geometrically \
+             (tri {tri} failed — the torus arm has no Circle-rim band and must use \
+             torus_chord_bound)"
+        );
+    }
+}
+
 /// KV14 Slice F-3 chord band: an input whose only curved face is a torus DISK
 /// of chords has NO `Curve::Circle` rim, so the rim-derived bound is `None` —
 /// yet its Stage-1 mesh sags by the patch tessellator's own budget. The input

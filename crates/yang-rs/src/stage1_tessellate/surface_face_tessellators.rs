@@ -422,10 +422,20 @@ pub(crate) fn tessellate_cone_face(
                     ))
                 })?;
             // Apex fan: triangle (apex, ring[k], ring[(k+1) % N]); orient each
-            // outward via the tilted cone normal.
+            // via the tilted cone normal — outward, or INWARD for a
+            // `reversed` face (a conical cavity), exactly as the frustum-band
+            // and holed-CDT cone arms do. (Code review 2026-09-04: this arm
+            // ignored `f.reversed` while kernel-v2's apex-cone OPERAND
+            // conversion forwards it, so a re-entering apex cavity would have
+            // entered the Stage-1 mesh with its triangles pointing into the
+            // material and corrupted the arrangement's in/out parity —
+            // silently. Byte-identical for `reversed == false`.)
             for k in 0..nseg {
                 let mut tri = [apex_vi, ring[k], ring[(k + 1) % nseg]];
-                let n = cone_outward_normal(out_verts, &tri, apex, axis_dir, half_angle);
+                let mut n = cone_outward_normal(out_verts, &tri, apex, axis_dir, half_angle);
+                if f.reversed {
+                    n = [-n[0], -n[1], -n[2]];
+                }
                 orient_tri(out_verts, &mut tri, n);
                 out_tris.push(tri);
             }

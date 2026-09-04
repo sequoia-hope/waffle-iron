@@ -412,3 +412,23 @@ Two sides, both needed:
   case was designed for. `single_case`: SUPPORTED_CORRECT (0.4 s).
 - **Corpus (release, 8 jobs, 360 s): 274C / 0W / 31E / 4EE / 0T** — one row
   moved, C0063; `UNSUPPORTED(curved-profile)` = R0044 alone (M5 K11).
+
+**Code-review addendum (2026-09-04, fixed the same day).** yang's structured
+`[rim_e]` apex-fan arm (`surface_face_tessellators.rs`) oriented every fan
+triangle by `cone_outward_normal` alone and never consulted
+`BRepFace::reversed`, while the operand conversion above forwards the flag.
+Every other cone arm (frustum band, holed CDT) negates the normal for a
+`reversed` face, so a conical CAVITY re-entering a chained boolean would have
+entered the Stage-1 mesh with its fan pointing INTO the material — an in/out
+parity corruption the arrangement cannot detect. The arm now negates like the
+rest (byte-identical for `reversed == false`); pin
+`apex_fan_faces_outward_and_reversed_faces_inward` (yang's own PR-YR16 shape,
+same vertex set, every fan triangle flips sign against the outward normal
+`cos α · r̂ − sin α · â`; red on the old arm). Recorded, not chased: the
+kernel-v2 validator's `1`-wrap arm inherits the pre-existing sub-π azimuth
+step assumption for EllipseArc / HyperbolaArc loop edges (an apex-cap loop
+with one section arc spanning more than π in azimuth would fold the step and
+be judged by the bounded-patch rule); the apex position-dedup in `to_yang`
+scans only vertices converted so far (order-dependent, but a second vertex
+within `TAU_MODEL` of the apex needs a non-manifold pinch).
+

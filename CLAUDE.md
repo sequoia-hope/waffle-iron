@@ -109,8 +109,11 @@ Do NOT skip to lower-priority items because they are easier.
    chained-boolean stacks — F0085 ≈ 302s honest CORRECT since the I5-2
    flip (2026-08-19; §4.3.4 seam insert + §4.4.2 seam chain-merge
    always-on; previously an ERROR at ≈242s) and F0065 ≈ 164s — which a
-   300s budget clips to a spurious `TIMEOUT`. See `docs/TESTING.md`
-   §"Handling a budget TIMEOUT".)
+   300s budget clips to a spurious `TIMEOUT`; on a host loaded by other
+   containers (check `uptime`) CPU time inflates — F0085 measured 510s
+   alone at load ≈ 27 on 24 cores on 2026-09-04 — so use ≥600s there and
+   re-run a lone `TIMEOUT` as `single_case` before recording it. See
+   `docs/TESTING.md` §"Running the categorized assay".)
 
    **The paper IS the spec.** Read `refs/yang2025_hybrid_boolean.pdf` before
    each session. Implement what the paper describes.

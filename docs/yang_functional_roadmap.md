@@ -1512,6 +1512,28 @@ name, never measured).
    — exactly ONE row moved (R0004 ERROR → CORRECT). The tail-triage ledger
    was reconciled against the committed `results.json` history in the same
    pass (25 stale ACTIVE rows struck, R0040 added).
+   **Two defects the review found in the day's earlier increments, FIXED
+   (same day):** (i) yang's structured `[rim_e]` apex-fan arm ignored
+   `BRepFace::reversed` while the apex-cone OPERAND conversion forwards it
+   — a conical CAVITY re-entering a chained boolean would have entered the
+   Stage-1 mesh with every fan triangle pointing into the material (a silent
+   in/out-parity corruption; every other cone arm negates for `reversed`).
+   Now negated like the rest; pin `apex_fan_faces_outward_and_reversed_
+   faces_inward` (same vertex set, opposite winding; red on the old arm).
+   (ii) Stage-6 geometric face resolution's `tol_for` Torus arm keyed on the
+   Circle-rim `band` alone — the premise Slice F-3 retired in Stage 4 — so a
+   Circle-free torus operand (the R0032 disk) resolved NO triangle on the
+   LINEAGE-LESS path (the C++ sidecar parity oracle, mock-label fixtures,
+   `from_mesh`); production never saw it (kernel-v2 lineage resolves
+   first). Now folds `torus_chord_bound(R, r)` in for patch-path faces
+   (max with the rim band where both exist); pin `lineage_less_torus_disk_
+   operand_resolves_its_faces` (the disk's own Stage-1 mesh labelled on A
+   with no source lineage; red on the old arm — and note a DISJOINT operand
+   pair takes the concatenation path and never resolves a face, the first
+   draft of the pin measured nothing). Recorded, not chased: the cone
+   validator's `1`-wrap arm inherits the pre-existing sub-π azimuth-step
+   assumption for section arcs; the apex position-dedup in `to_yang` is
+   order-dependent but needs a non-manifold pinch to matter.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the
