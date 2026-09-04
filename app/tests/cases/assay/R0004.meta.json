@@ -1,6 +1,6 @@
 {
   "id": "R0004",
-  "description": "3 ops, scale=1.42e0, revolve(rectangle,boss)+revolve(rectangle,boss)+extrude(gear,cut)",
+  "description": "3 ops, scale=1.42e0, revolve(rectangle,boss)+revolve(rectangle,boss)+extrude(gear,cut) — RE-AUTHORED 2026-09-04: op-1 axis moved from 1.5·w (0.430) to 1.5·bounding-radius (0.725) along the same in-plane perpendicular; the generated 0.287 × 0.924 rectangle crossed its axis by 0.032 (RevolveAxisIntersectsProfile, invalid input)",
   "master_seed": 42,
   "test_seed": 9039304369631583589,
   "scale": 1.4210261006056975,

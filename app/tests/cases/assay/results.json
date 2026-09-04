@@ -1,8 +1,8 @@
 {
-  "errored": 32,
+  "errored": 31,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 274,
+  "passed": 275,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -23,10 +23,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0004",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

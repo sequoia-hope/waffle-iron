@@ -1188,6 +1188,16 @@ fn smoke_corpus_boundary_categories() {
         // fusion removes exactly that T-vertex class, and the case now
         // passes all mesh checks end-to-end (the KV6b-F1 class fix).
         ("R0029", Category::SupportedCorrect),
+        // R0004 RE-AUTHORED (2026-09-04, code review): the generator's
+        // revolve-axis offset was `1.5 · w` against a `w × h` rectangle
+        // whose `h/2` exceeded it, so op-1's profile CROSSED its axis by
+        // 0.032 and the kernel rightly refused it as invalid input
+        // (`RevolveAxisIntersectsProfile`) — an authored-invalid document
+        // graded ERROR. The generator now offsets by `1.5 · bounding
+        // radius` (gen.rs `generated_revolve_axes_clear_their_profiles`);
+        // R0004's op-1 axis moved to that rule and the 3-op chain (two
+        // revolve bosses + a gear cut) passes every check end-to-end.
+        ("R0004", Category::SupportedCorrect),
         // PR-KV10: the F0016-family (3 same-plane oblique bosses) used to
         // stop at the intra-coplanar wall because chained outputs carried
         // femto-distinct same-plane sibling plane bits (canonicalized in

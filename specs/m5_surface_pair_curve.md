@@ -296,6 +296,26 @@ and kernel-v2 already renders with (`surface_pair_interior_samples`).
   top cap clear of the saddle (|z| ≤ 0.18) removes exactly 0.3 × 0.3 × 0.2 =
   0.018 (within 1e-3).
 
+**Producer bound (code review 2026-09-04, measured).** Both samplers of a
+pair edge — kernel-v2's K9 render sampler and yang's K11 Stage-1 chain —
+are recursive chord-midpoint bisections: the chord's midpoint is Newton-
+projected onto both surfaces and accepted when its sag is small, guarded
+only by `sag ≥ chord` (basin escape) and non-convergence. That guard does
+NOT catch a chord spanning more than 180° of turn about an operand: the
+midpoint then projects onto the COMPLEMENTARY arc (a 240° arc's chord
+midpoint lies at half the radius on the far side, sag 0.5 r < chord
+1.73 r), and the chain silently traces the short way round. The
+assumption holds today because the PRODUCER bounds it: kernel-v2 emits
+every surface-pair edge as ONE arrangement chord (Y5, per-mesh-edge; no
+chain merge in `from_yang`), measured on the unequal perpendicular cyl×cyl
+union under four seam placements as ≤ 32° of turn about either operand
+(104–112 pair edges per body). A future chain-merge of pair pieces (the
+§4.4.2 conic seam-merge precedent) must keep each merged edge's turn well
+under 180° about BOTH operands, or the samplers need a branch certificate
+(the sweep cap `open_run_splits_by_sweep_cap` uses for conic runs is the
+model). Not a defect today; recorded so the next producer change does not
+turn it into one.
+
 **Measured next wall (inc-2, quarantined probe
 `unequal_perpendicular_union_reenters_with_crossing_cut`).** A chained cut
 whose plane CROSSES the saddle (x = 0.27; the saddle spans x ∈ [0.24, 0.3])

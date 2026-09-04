@@ -52,16 +52,23 @@ operations it does not implement yet. These surface as error toasts in the app
 and as `#[ignore]`-tagged tests / `test.skip` GUI quarantines in the suites.
 They are ROADMAP ITEMS, not bugs:
 
-- **Revolve** — KV6 milestone (38 corpus cases + 4 quarantined GUI specs)
-- **Coplanar boolean inputs** (flush/stacked faces) — Yang Stage 0, roadmap M8
-- **cyl×cyl lateral∩lateral and other degree-4 SSI** — roadmap M5
-- **Gear / arc-segment profiles** (non-convex CDT) — Phase 2 tail
+- **Coplanar boolean inputs** (flush/stacked faces) — Yang Stage 0, roadmap
+  M8 (the only `NotSupported` boundary left in the corpus: F0064, F0072)
+- **Holed revolve profiles** and **arc/spline profiles without a chord
+  polygon** — typed `NotSupported` at profile staging (no corpus case)
 - **STEP export** — trait-default NotSupported
 - **Fillet / chamfer / shell** — deferred indefinitely (see below)
 
-When one of these milestones lands, un-quarantine its tests in the same PR
-(grep for the milestone tag, e.g. `KV6` or `M8`, in `#[ignore =` and
-`test.skip` annotations).
+Everything else the roadmap once listed here has LANDED and is no longer a
+`NotSupported` boundary — revolve (KV6, incl. cones, tori, spheres, on-axis
+lathe shapes and the apex cone as a boolean operand), cylinder×cylinder and
+other degree-4 SSI (M5 surface-pair curves, re-entering chained booleans
+since K11, 2026-09-04), gear/arc profiles. What remains for those families is
+the loud ERROR tail (typed yang Stage-3/4/5 STOPs on specific geometry —
+`docs/yang_tail_triage.md`), which is kernel capability work, not a
+`NotSupported` marker. A stale `#[ignore = "KV6…"]` or `test.skip` quarantine
+is itself a defect: un-quarantine when the capability lands, in the same PR
+(grep the milestone tag, e.g. `M8`, in `#[ignore =` and `test.skip`).
 
 ## DEFERRED INDEFINITELY: Fillet, Chamfer, Shell
 
@@ -85,9 +92,11 @@ Do NOT skip to lower-priority items because they are easier.
    defines the `LabeledArrangement` interface and milestones M0–M8 (M0, M1,
    M2, M6, M7 and the Phase-6 migration are COMPLETE; the kernel is live in
    the app). The remaining capability gaps, in priority order, are the
-   NotSupported boundaries listed above: **KV6 revolve**, **M8 coplanar
-   Stage 0**, **M5 degree-4 SSI (cyl×cyl)**, and the non-convex CDT profile
-   tail. The correctness oracle is **reference parity against the Cherchi
+   ERROR-tail families of `docs/yang_tail_triage.md` (Stage-4 relocation
+   walls — `LocalRefinementRequired` / `OffCurveBeyondChordBand` —,
+   Stage-5/6 non-2-manifold reassembly, Stage-3 `AmbiguousCurve`, the
+   thin-band chord-density CDT class) and **M8 coplanar Stage 0** (the last
+   `NotSupported` boundary). The correctness oracle is **reference parity against the Cherchi
    C++ sidecar** (roadmap §6) plus the categorized kernel-v2 assay. Run the
    assay in **`--release`** — it is reliable even in a sandbox or under other
    compute load (per-case timeouts are CPU-time-budgeted, so verdicts are
@@ -215,8 +224,8 @@ Run the appropriate test tier for your workflow:
 - `./scripts/test.sh all` — Full Rust + full GUI (pre-merge)
 
 Capability-pending tests are `#[ignore]`-tagged (Rust) or `test.skip`
-quarantined (GUI) with milestone reasons (KV6 / M8 / M5) — un-quarantine them
-when their milestone lands. Anything else red is a real regression.
+quarantined (GUI) with milestone reasons (M8; M5 K11 inc-2) — un-quarantine
+them when their milestone lands. Anything else red is a real regression.
 
 See `docs/TESTING.md` for tier definitions and how to add tests.
 

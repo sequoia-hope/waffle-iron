@@ -466,6 +466,43 @@ pub fn compute_euler_target(ops: &[OpMeta]) -> i64 {
 // ── Case Generation ────────────────────────────────────────────────────────
 
 /// Generate a single test case from a master seed and index.
+/// Radius of the smallest sketch-origin-centred disc containing a generated
+/// profile's material (sketch-local units) — the profile's support in EVERY
+/// in-plane direction. A generated revolve axis sits at an arbitrary in-plane
+/// orientation (its direction comes from the plane normal, not the sketch
+/// axes), so this, not the characteristic size, is what its offset must
+/// clear. Non-construction points (rectangles), circles (centre + radius),
+/// gears (centre + tip radius `pitch + module`; `pitch + 1.25·module` for an
+/// internal gear's outer body).
+fn profile_bounding_radius(entities: &[SketchEntity]) -> f64 {
+    let point = |id: u32| {
+        entities.iter().find_map(|e| match e {
+            SketchEntity::Point { id: pid, x, y, .. } if *pid == id => Some((*x, *y)),
+            _ => None,
+        })
+    };
+    entities.iter().fold(0.0_f64, |r, e| match e {
+        SketchEntity::Point {
+            x,
+            y,
+            construction: false,
+            ..
+        } => r.max(x.hypot(*y)),
+        SketchEntity::Circle {
+            center_id, radius, ..
+        } => {
+            let (cx, cy) = point(*center_id).unwrap_or((0.0, 0.0));
+            r.max(cx.hypot(cy) + radius)
+        }
+        SketchEntity::Gear { params, .. } => {
+            let pitch = f64::from(params.tooth_count) * params.module / 2.0;
+            let tip = if params.internal { 1.25 } else { 1.0 } * params.module;
+            r.max(params.center_x.hypot(params.center_y) + pitch + tip)
+        }
+        _ => r,
+    })
+}
+
 pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
     let test_seed = derive_seed(master_seed, index);
     let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::seed_from_u64(test_seed);
@@ -535,6 +572,7 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
         };
 
         let (entities, positions, profiles) = primitive_data;
+        let bounding_radius = profile_bounding_radius(&entities);
 
         // Create sketch feature
         let sketch_id = Uuid::new_v4();
@@ -629,7 +667,19 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
             } else {
                 perp_in_plane
             };
-            let axis_offset = profile_size * 1.5;
+            // Clearance is measured against the profile's BOUNDING RADIUS
+            // about the sketch origin, not its characteristic size: a
+            // rectangle is `w × h` with `w` and `h` drawn independently and
+            // the axis direction is not aligned with the sketch axes, so the
+            // profile's support along `perp_unit` can reach the
+            // half-diagonal. (Until 2026-09-04 the offset was `1.5 · w`;
+            // R0004's 0.287 × 0.924 rectangle crossed its axis by 0.032 and
+            // the kernel rightly refused it as invalid input,
+            // `RevolveAxisIntersectsProfile` — an authored-invalid document,
+            // re-authored to this rule.) `1.5 · R` leaves ≥ `0.5 · R` of
+            // clearance in every direction; circles are byte-identical to the
+            // old rule (`R` = radius = `profile_size`).
+            let axis_offset = 1.5 * profile_size.max(bounding_radius);
             Feature {
                 id: Uuid::new_v4(),
                 name: format!("Revolve {}", i + 1),
@@ -4673,6 +4723,149 @@ mod tests {
             assert_eq!(meta.operations[1].profile_type, "rectangle");
             assert!(meta.operations[1].is_cut);
         }
+    }
+
+    /// Every generated revolve keeps its profile ENTIRELY on one side of its
+    /// axis with clearance. The kernel's `RevolveAxisIntersectsProfile` is
+    /// INVALID INPUT (a self-intersecting solid of revolution), so a
+    /// generated document must never author it — R0004 (master seed 42,
+    /// index 3) did: its 0.287 × 0.924 rectangle crossed a `1.5 · w` axis
+    /// offset by 0.032. The check mirrors the kernel's: every profile support
+    /// point, mapped to world through the UI's sketch basis, has the SAME
+    /// signed distance sign to the axis line along the in-plane
+    /// perpendicular, and the nearest one clears by ≥ 0.5 · bounding radius
+    /// (the rule's own margin, minus rounding).
+    #[test]
+    fn generated_revolve_axes_clear_their_profiles() {
+        use waffle_types::SketchPlaneBasis;
+        fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+            a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+        }
+        fn unit(v: [f64; 3]) -> [f64; 3] {
+            let m = dot(v, v).sqrt();
+            [v[0] / m, v[1] / m, v[2] / m]
+        }
+        assert_eq!(
+            derive_seed(42, 3),
+            9_039_304_369_631_583_589,
+            "R0004 is master seed 42, index 3 (its meta's test_seed)"
+        );
+        let mut revolves = 0usize;
+        for index in 0..400 {
+            let case = generate_case(42, index);
+            let doc: serde_json::Value = serde_json::from_str(&case.waffle_json).unwrap();
+            let feats = doc["tabs"][0]["kind"]["features"]["features"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{}: no feature list", case.id));
+            let sketch_of = |sid: &str| {
+                feats.iter().find_map(|f| {
+                    let sk = &f["operation"]["sketch"];
+                    (f["operation"]["type"] == "Sketch" && sk["id"] == sid).then_some(sk)
+                })
+            };
+            let v3 = |v: &serde_json::Value| -> [f64; 3] {
+                [
+                    v[0].as_f64().unwrap(),
+                    v[1].as_f64().unwrap(),
+                    v[2].as_f64().unwrap(),
+                ]
+            };
+            for f in feats {
+                if f["operation"]["type"] != "Revolve" {
+                    continue;
+                }
+                let params = &f["operation"]["params"];
+                let sk = sketch_of(params["sketch_id"].as_str().unwrap())
+                    .unwrap_or_else(|| panic!("{}: revolve without its sketch", case.id));
+                let basis = SketchPlaneBasis::from_origin_normal(
+                    v3(&sk["plane_origin"]),
+                    v3(&sk["plane_normal"]),
+                );
+                let entities: Vec<SketchEntity> =
+                    serde_json::from_value(sk["entities"].clone()).unwrap();
+                let radius = profile_bounding_radius(&entities);
+                let axis_origin = v3(&params["axis_origin"]);
+                let ad = unit(v3(&params["axis_direction"]));
+                let n = basis.normal;
+                let perp = unit([
+                    n[1] * ad[2] - n[2] * ad[1],
+                    n[2] * ad[0] - n[0] * ad[2],
+                    n[0] * ad[1] - n[1] * ad[0],
+                ]);
+                // Sketch-local support points of the profile along ±perp.
+                let perp_uv = (dot(perp, basis.x_axis), dot(perp, basis.y_axis));
+                let mut supports: Vec<(f64, f64)> = Vec::new();
+                for e in &entities {
+                    match e {
+                        SketchEntity::Point {
+                            x,
+                            y,
+                            construction: false,
+                            ..
+                        } => supports.push((*x, *y)),
+                        SketchEntity::Circle {
+                            center_id, radius, ..
+                        } => {
+                            let (cx, cy) = entities
+                                .iter()
+                                .find_map(|c| match c {
+                                    SketchEntity::Point { id, x, y, .. } if id == center_id => {
+                                        Some((*x, *y))
+                                    }
+                                    _ => None,
+                                })
+                                .unwrap();
+                            for s in [-1.0, 1.0] {
+                                supports.push((
+                                    cx + s * radius * perp_uv.0,
+                                    cy + s * radius * perp_uv.1,
+                                ));
+                            }
+                        }
+                        SketchEntity::Gear { params: g, .. } => {
+                            let tip = f64::from(g.tooth_count) * g.module / 2.0 + g.module;
+                            for s in [-1.0, 1.0] {
+                                supports.push((
+                                    g.center_x + s * tip * perp_uv.0,
+                                    g.center_y + s * tip * perp_uv.1,
+                                ));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                assert!(
+                    !supports.is_empty(),
+                    "{}: profile has no support points",
+                    case.id
+                );
+                let dists: Vec<f64> = supports
+                    .iter()
+                    .map(|&(u, v)| {
+                        let w = basis.local_to_world(u, v);
+                        dot(
+                            [
+                                w[0] - axis_origin[0],
+                                w[1] - axis_origin[1],
+                                w[2] - axis_origin[2],
+                            ],
+                            perp,
+                        )
+                    })
+                    .collect();
+                let one_side = dists.iter().all(|d| *d > 0.0) || dists.iter().all(|d| *d < 0.0);
+                let nearest = dists.iter().fold(f64::INFINITY, |m, d| m.min(d.abs()));
+                assert!(
+                    one_side && nearest >= 0.5 * radius * (1.0 - 1e-9),
+                    "{} {}: revolve axis does not clear its profile — signed distances {dists:?}, \
+                     bounding radius {radius}",
+                    case.id,
+                    f["name"]
+                );
+                revolves += 1;
+            }
+        }
+        assert!(revolves > 100, "only {revolves} revolves generated");
     }
 
     #[test]

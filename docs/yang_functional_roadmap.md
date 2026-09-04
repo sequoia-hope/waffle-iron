@@ -7,7 +7,35 @@
 > disagree on sequencing, this roadmap wins; when this roadmap and the Yang 2025
 > paper disagree on *algorithm*, the paper wins (see `docs/yang_deviations.md`).
 
-## 0. Honest status (refreshed 2026-06-26)
+## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
+
+> **2026-09-04 refresh (code review).** Canonical corpus **275C / 0W / 31E /
+> 4EE / 0T** (312 cases; release, 8 jobs, 360 s budget; F0085 ≈ 317 s is the
+> honest ceiling). `UNSUPPORTED` is the two M8 coplanar cases alone (F0064,
+> F0072): revolve (KV6, incl. cones / tori / spheres / on-axis lathe shapes /
+> the apex cone as a boolean OPERAND), the M5 degree-4 surface-pair curve
+> (re-entering chained booleans since K11 inc-1), the KV14 curved partial-
+> patch re-entry (ellipse, hyperbola, torus disk) and gear/arc profiles are
+> all LIVE — the "NotSupported" list in the root `CLAUDE.md` was stale and is
+> corrected. The 31 ERRORs are typed STOPs on specific geometry (ledger
+> `docs/yang_tail_triage.md`, reconciled the same day): Stage-4 relocation
+> walls (`LocalRefinementRequired` ×5, `OffCurveBeyondChordBand` ×3,
+> `RelocationCrossedCarrierVertex` ×1), Stage-5/6 non-2-manifold reassembly
+> ×7 (two of them the designed 0-D-contact rejects C0107/C0108), Stage-3
+> `AmbiguousCurve` ×4, the Stage-1 holed-lateral / ring CDT class ×5 (R0044's
+> thin-band chart crossing, R0040, R0070, F0082, R0100), non-2-manifold
+> INPUT after a coplanar overlay ×3 (R0019/R0049/R0081, M8), the three
+> designed sub-resolution features (C0111/C0113/C0118) and C0046 (0-D box
+> contact, rejected by design). Next increments, in order: M5 K11 inc-2 (the
+> `pair curve ∩ plane` junction — a 3-surface relocation arm for INPUT pair
+> chains; quarantined probe `unequal_perpendicular_union_reenters_with_
+> crossing_cut`), the thin-band rim chord bound (R0044 face 166; R0040 to be
+> probed), R0032's Stage-4 torus junction (`gt2_partners` v7). Review
+> finding recorded, not chased: kernel-v2 emits every surface-pair edge as
+> ONE arrangement chord (measured ≤ 32° of turn about either operand), which
+> is what makes the K9/K11 chord-midpoint bisection's basin assumption hold
+> — a pair edge spanning > 180° would silently trace the complementary arc
+> (spec `m5_surface_pair_curve.md`, "Producer bound").
 
 The kernel rewrite is **live in the app**. The legacy `crates/kernel/` is
 DELETED; the app, feature-engine, and all tests run on `kernel-v2` through the
@@ -1467,6 +1495,23 @@ name, never measured).
    313.6 s honest): **new canonical 274C / 0W / 32E / 4EE / 0T** — exactly
    ONE row moved against the apex-cone canonical, R0044; UNSUPPORTED = the
    two M8 coplanar cases alone.
+   **Code-review reconciliation (2026-09-04, later the same day): R0004 was
+   an AUTHORED-INVALID document, not a kernel wall.** The corpus generator
+   offset a revolve axis by `1.5 · w` (the rectangle's width) along the
+   in-plane perpendicular, but the rectangle's `h/2` (0.462) exceeded that
+   offset (0.430), so op-1's profile CROSSED its axis by 0.032 and the
+   kernel refused it as invalid input (`RevolveAxisIntersectsProfile` —
+   correct; a self-intersecting solid of revolution). The rule is fixed at
+   the source (`gen.rs`: `1.5 · profile bounding radius`, ≥ 0.5 R clearance
+   in every in-plane direction; property test
+   `generated_revolve_axes_clear_their_profiles` over 400 generated cases,
+   red on the old rule), R0004's op-1 axis is re-authored to it (minimal
+   text edit; meta description amended), and the 3-op chain (two revolve
+   bosses + a gear cut) passes every check. Corpus (release, 8 jobs, 360 s;
+   wall 577 s, F0085 317.1 s): **new canonical 275C / 0W / 31E / 4EE / 0T**
+   — exactly ONE row moved (R0004 ERROR → CORRECT). The tail-triage ledger
+   was reconciled against the committed `results.json` history in the same
+   pass (25 stale ACTIVE rows struck, R0040 added).
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the
