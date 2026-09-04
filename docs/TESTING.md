@@ -426,15 +426,19 @@ inside the exact solid beyond the root arc's chord band; the meta's
 The general, document-driven form of the same instrument
 (`test_harness::assay::exact_membership`, landed the same day) parses any
 corpus `.waffle` into closed-form predicates (polygon / circle / involute
-gear profiles; extrude and revolve with the feature engine's semantics;
-bosses union, cuts subtract) and lays its lattice in the document's sketch
-frame. Its scope and the sweep's findings are in
+gear profiles, holed regions grouped as the kernel adapter groups them;
+extrude and revolve with the feature engine's semantics) and replays the
+engine's BODY model — legacy `cut`/`merge` and explicit `combine` verbs
+with explicit targets, `NewBody`, the disjoint-merge leftovers, a cut's
+auto-reversal measured on its first target — reading χ, components and
+volume PER BODY and summing (since 2026-09-04). It lays its lattice in the
+document's sketch frame. Its scope and the sweeps' findings are in
 `docs/audits/exact_membership_sweep_2026_09_03.md` (read the scope first —
-tapered features and sub-cell gaps are outside it; the volume converges
-long before the topology):
+tapered features, sub-cell gaps and 0-D contacts are outside it; the volume
+converges long before the topology):
 
 ```bash
-# Pinned adjudications (F0001, R0053, R0011, R0099, R0091's volume, C0075) — seconds:
+# Pinned adjudications (F0001, R0053, R0011, R0099, R0091's volume, C0075, C0065, R0026) — seconds:
 cargo test -p test-harness --release --test assay_exact_membership
 # One case on a ladder; EXACT_PREFIX=k reads the first k ops, EXACT_ONLY=k one operand as a boss
 ASSAY_CASE=R0045 EXACT_CELLS=128,256,512 EXACT_PHASE=0.5,0.25 EXACT_KERNEL=1 \

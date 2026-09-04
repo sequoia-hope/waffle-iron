@@ -189,6 +189,23 @@ fn historical_authoring_fixes_pinned() {
         r0006.oracles.euler_target, 0,
         "R0006 curated target regressed (must stay χ=0)"
     );
+
+    // C0065 and R0026 were corrected 2026-09-04 by the exact-membership
+    // ladder (`assay_exact_membership::c0065_reads_genus_two` /
+    // `r0026_reads_genus_one`): C0065's through-block WINDOWS the torus tube
+    // (radius 0.95…1.45 of a 0.9…1.5 tube) instead of severing it — genus 2,
+    // χ = −2; R0026's three-boss union is genus 1. Both are ERROR cases
+    // today; the corrected targets keep a future conversion honest.
+    let c0065 = load_meta("C0065");
+    assert_eq!(
+        c0065.oracles.euler_target, -2,
+        "C0065 corrected target regressed (must stay genus-2 χ=−2)"
+    );
+    let r0026 = load_meta("R0026");
+    assert_eq!(
+        r0026.oracles.euler_target, 0,
+        "R0026 corrected target regressed (must stay genus-1 χ=0)"
+    );
     // Divergence-by-design: the op-scan conservatively returns 2 for this
     // multi-plane case. If this ever equals 0, the heuristic changed and the
     // "frozen corpus ≠ op-scan" rationale in this file's header must be

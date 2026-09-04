@@ -179,12 +179,21 @@ fn r0063_reads_genus_one_below_its_gap() {
 /// sweep (2.541e-12 instead of 3.966e-12) after the cut — the boolean-output
 /// torus band patch takes the principal-branch longitude interval between
 /// its two rims (yang-rs `tessellate_torus_patch`, band case), which is the
-/// wrong side whenever the band spans more than 180°.
+/// wrong side whenever the band spans more than 180° (FIXED 2026-09-03).
+///
+/// The pinned total was 4.2624e-12 until 2026-09-04: that reading decided
+/// the cut's auto-reversal on the merged (sausage ∪ box) extent, where the
+/// engine decides on its FIRST combine target alone — here the box, since
+/// the merge left the two bodies disjoint (`FE_CUT_TRACE=1`: `target
+/// verts=8 … reverse=true`). Mirroring that rule reads 4.2232e-12 (box
+/// remains 2.586e-13 + sausage 3.9646e-12), 0.1 % from the kernel's
+/// 4.2190e-12.
 #[test]
 fn r0091_exact_volume_is_the_sausage_plus_the_cut_box() {
     let c = chain("R0091");
     let r = readout_exact(&c, 3, 256, 0.5).unwrap();
-    let expected = 4.2624e-12;
+    assert_eq!(r.bodies, 2, "the box and the sausage stay separate bodies");
+    let expected = 4.2232e-12;
     assert!(
         ((r.volume - expected) / expected).abs() < 2e-3,
         "R0091 exact volume {:.6e} vs {expected:.4e}",
@@ -212,6 +221,29 @@ fn c0075_reads_genus_two() {
     assert_stable("C0075", &ladder(&c, &[128, 192, 256], 0.5), -2, 1);
 }
 
+/// C0065 (corrected 2026-09-04, ERROR case): a full torus (R = 1.2,
+/// r = 0.3) with a 0.5-wide through-block centred on the tube — the block
+/// spans radius 0.95…1.45 of a 0.9…1.5 tube, so it WINDOWS the tube and
+/// leaves an inner and an outer bridge: genus 2, boundary χ = −2, one
+/// component (the authoring said "severs the ring", χ = 2). Stable at
+/// 128 / 256 / 512 cells on two lattice phases.
+#[test]
+fn c0065_reads_genus_two() {
+    let c = chain("C0065");
+    assert_stable("C0065", &ladder(&c, &[128, 256, 512], 0.5), -2, 1);
+    assert_stable("C0065 phase ¼", &ladder(&c, &[256], 0.25), -2, 1);
+}
+
+/// R0026 (corrected 2026-09-04, ERROR case): circle boss ∪ circle revolve ∪
+/// box — genus 1, one component, at 128 / 256 / 512 cells on two phases
+/// (the generator's default χ = 2 was never adjudicated).
+#[test]
+fn r0026_reads_genus_one() {
+    let c = chain("R0026");
+    assert_stable("R0026", &ladder(&c, &[128, 256, 512], 0.5), 0, 1);
+    assert_stable("R0026 phase ¼", &ladder(&c, &[256], 0.25), 0, 1);
+}
+
 // ---- instruments -----------------------------------------------------------
 
 /// One case on a ladder (`ASSAY_CASE`, `EXACT_CELLS`, `EXACT_PHASE`,
@@ -237,9 +269,7 @@ fn one_case_ladder() {
         .and_then(|s| s.parse::<usize>().ok())
     {
         Some(k) => {
-            let mut only = c.clone();
-            only.ops = vec![only.ops[k].clone()];
-            only.ops[0].cut = false;
+            let only = c.operand_alone(k);
             eprintln!("[exact] {id}: operand {k} alone ({})", only.ops[0].name);
             only
         }
@@ -265,9 +295,10 @@ fn one_case_ladder() {
         for cells in cells_env(&[64, 128, 256]) {
             let r = readout_exact(&c, prefix, cells, phase).expect("bbox");
             eprintln!(
-                "[exact] {id} ops=0..{prefix} cells={cells} phase={phase} n={:?} h={:.4e} chi_solid={} boundary_chi={} components={} sizes={:?} volume={:.6e} (authored euler_target {:?})",
+                "[exact] {id} ops=0..{prefix} cells={cells} phase={phase} n={:?} h={:.4e} chi_solid={} boundary_chi={} components={} sizes={:?} volume={:.6e} bodies={} body_volumes={:?} (authored euler_target {:?})",
                 r.n, r.h, r.readout.chi, r.boundary_chi(), r.readout.components,
-                r.component_sizes.iter().take(8).collect::<Vec<_>>(), r.volume, target
+                r.component_sizes.iter().take(8).collect::<Vec<_>>(), r.volume,
+                r.bodies, r.body_volumes.iter().map(|v| format!("{v:.4e}")).collect::<Vec<_>>(), target
             );
             eprintln!(
                 "[exact] {id}   centroid=({:.6e}, {:.6e}, {:.6e})",
@@ -342,8 +373,9 @@ fn corpus_sweep() {
             None => String::new(),
         };
         eprintln!(
-            "[exact] {id} ops={} chi_boundary={:?}{} components={:?} volume={:.6e} target={:?} shells={shells}{kcol}{}",
+            "[exact] {id} ops={} bodies={} chi_boundary={:?}{} components={:?} volume={:.6e} target={:?} shells={shells}{kcol}{}",
             c.ops.len(),
+            last.bodies,
             rungs.iter().map(|r| r.boundary_chi()).collect::<Vec<_>>(),
             if stable { "" } else { " UNSTABLE" },
             rungs.iter().map(|r| r.readout.components).collect::<Vec<_>>(),
@@ -442,17 +474,18 @@ fn kernel_volume(
         Ok(m) => m,
         Err(e) => return Some(Err(format!("tessellation: {e}"))),
     };
-    let mut all = match meshes.first() {
-        Some(m) => m.clone(),
-        None => return Some(Err("no mesh".into())),
-    };
-    for m in meshes.iter().skip(1) {
-        let base = (all.vertices.len() / 3) as u32;
-        all.vertices.extend_from_slice(&m.vertices);
-        all.indices.extend(m.indices.iter().map(|i| i + base));
+    // One scan per live body, summed — the exact readout is per body too
+    // (overlapping independent bodies count twice; a soup scan would read
+    // their set union).
+    if meshes.is_empty() {
+        return Some(Err("no mesh".into()));
     }
-    Some(match SolidScan::from_render_mesh(&all) {
-        Some(scan) => Ok(scan_volume(&scan, 256).volume),
-        None => Err("empty scan".into()),
-    })
+    let mut total = 0.0;
+    for m in &meshes {
+        match SolidScan::from_render_mesh(m) {
+            Some(scan) => total += scan_volume(&scan, 256).volume,
+            None => return Some(Err("empty scan".into())),
+        }
+    }
+    Some(Ok(total))
 }

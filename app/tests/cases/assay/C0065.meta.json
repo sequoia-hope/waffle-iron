@@ -1,6 +1,6 @@
 {
   "id": "C0065",
-  "description": "2 ops, scale=1.00e0, revolve(circle,boss)+extrude(rectangle,cut) — revolve composition: full torus + through-notch severs the ring (chi=2) [KV6d torus boolean]",
+  "description": "2 ops, scale=1.00e0, revolve(circle,boss)+extrude(rectangle,cut) — revolve composition: full torus + through-block windows the tube (the 0.5-wide block spans radius 0.95..1.45 of a 0.9..1.5 tube, leaving inner and outer bridges: genus 2, chi=-2; corrected 2026-09-04 by exact membership) [KV6d torus boolean]",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 1.0,
@@ -52,7 +52,7 @@
     }
   ],
   "oracles": {
-    "euler_target": 2,
+    "euler_target": -2,
     "expect_watertight": true,
     "max_bbox_extent": 5.0,
     "expect_positive_volume": true,

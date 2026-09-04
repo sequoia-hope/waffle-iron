@@ -1303,10 +1303,33 @@ name, never measured).
    move, SUPPORTED_CORRECT → EXPECTED_ERROR; R0034 / R0058 / R0023 stay
    CORRECT with corrected geometry. **New canonical 273C / 0W / 31E /
    4EE / 0T** — three fewer CORRECT because three silent-wrongs are now
-   honest. Next: the C-series volume rows the
-   audit leaves open (C0074 / C0081 −80 %, C0091, C0040, C0092, C0095,
-   C0096), the exact volume in the categorized runner for cut chains;
-   then the emission arm's flip and the Stage-1 partial-patch re-entry.
+   honest.
+   **The open rows adjudicated (2026-09-04; audit addendum):** every one
+   was the ORACLE's scope. C0074 / C0081 are combine-mode `Intersect`
+   extrudes the predicate read as unions; C0091 / C0092 / C0095 / C0096
+   are holed profiles read as their outer loop; C0040's 1 mm hole in a
+   100-unit slab is below any cubic lattice. The oracle now replays the
+   feature engine's BODY model — holed regions grouped as the kernel
+   adapter groups them, legacy and explicit combine verbs with explicit
+   targets, `NewBody`, the disjoint-merge leftovers, a per-body readout
+   summed — and, decisively, the engine's FIRST-TARGET rule for a cut's
+   auto-reversal (`combine_targets.first()`): R0075's gear cut follows a
+   disjoint merge, the engine measures the merge's circle body alone and
+   reverses, the reversed tool never reaches the gear boss it overlaps,
+   and the kernel is RIGHT to remove nothing (the oracle's 6.6 % deficit
+   was its merged-extent rule; now +1.3 %, the gear lattice band). R0091's
+   pinned volume moved the same way (4.2624e-12 → 4.2232e-12, 0.1 % from
+   the kernel). Two authored `euler_target`s corrected by ladder and
+   pinned: C0065's through-block WINDOWS the torus tube (radius 0.95…1.45
+   of 0.9…1.5) rather than severing it — genus 2, χ 2 → −2; R0026 genus
+   1, χ 2 → 0 (both ERROR cases today). The R0006 "(i) family" is the
+   runner's own +2-per-extra-shell rule, consistent. Every multi-body
+   C-series case (C0079–C0083, C0094) reads within 0.7 % of the kernel per
+   body. Engine observation recorded, not changed: a legacy cut after a
+   disjoint merge takes its direction from the merge's tool body. NO
+   kernel change; no corpus category moves. Next: the exact volume in the
+   categorized runner for cut chains; then the emission arm's flip and
+   the Stage-1 partial-patch re-entry.
 5. **Oracle increments**: cut-op coverage (138 not-covered cases), then
    promote the oracle into the categorized assay for all-boss cases so the
    deficit class cannot re-hide. Mask retirements (meta monotonicity into the

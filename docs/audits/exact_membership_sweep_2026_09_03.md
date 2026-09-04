@@ -143,3 +143,112 @@ the class-C empties (R0007, R0027, R0088, C0035). Left for adjudication
 with finer rungs: R0006 (exact 2 vs authored 0), C0065 (−2 vs 2), C0074
 (2 vs 4), C0092 (2 vs −4), C0095 (0 vs −2), C0107 / C0108 (2 vs 4),
 R0026 (an ERROR case: exact genus 1 vs authored 0).
+
+
+## Addendum 2026-09-04 — the open rows adjudicated; bodies, holes and combine modes modelled
+
+Every "open" row above was the ORACLE's scope, not the kernel's: the two
+−80 % rows (C0074, C0081) are combine-mode `Intersect` extrudes the
+predicate read as unions, and the −9…−25 % rows (C0091, C0092, C0095,
+C0096) are holed profiles read as their outer loop. The oracle now mirrors
+the engine's body model exactly (`exact_membership.rs`, module docs):
+
+- **Holed regions** as the kernel adapter stages them
+  (`make_faces_from_profiles`, KV14): one face per input profile; an
+  `is_outer` loop takes every inner loop whose centroid it contains and
+  whose area it strictly exceeds (each hole to the SMALLEST such outer); an
+  inner loop's own index stages that loop alone (C0094's second body).
+- **Combine verbs** (`normalize_combine`): legacy `cut` / `merge` /
+  `target_body` → `Cut` / `Add` / `NewBody` on the most recent
+  solid-bearing feature's bodies; explicit `combine` + `targets`
+  (feature-output anchors — a body answers to every feature that produced
+  or last modified it: C0074's `Intersect` targets its own cut).
+  `Add` folds the tool with the targets it touches and re-emits targets
+  whose box misses the tool's as this feature's LEFTOVER bodies (the
+  engine's disjoint-merge rule); `Cut` / `Intersect` act per target;
+  share-a-face auto-targeting (`combine` set, no `targets`) is typed out.
+- **Per-body readout**, summed — the kernel emits one mesh per body and
+  the runner reads their concatenation, so two overlapping `NewBody`
+  bodies count their volume twice (C0083's authored 1.64). The sweep's
+  kernel-side scan does the same now; it used to scan the concatenated
+  soup, which read C0083 as the set union (1.4005).
+- **The first-target rule.** The engine decides a cut's auto-reversal and
+  a through-all depth from the vertices of its FIRST combine target
+  (`rebuild.rs`: `combine_targets.first()`, `find_most_recent_solid`).
+  R0075 showed why this matters: its gear cut follows an `Add` whose circle
+  boss stayed disjoint from the gear boss, so the most recent feature's
+  outputs are `[circle, gear]` and the engine measured the circle alone
+  (`FE_CUT_TRACE=1`: `target verts=2 … reverse=true`); the reversed tool
+  never reaches the gear boss it overlaps and the kernel correctly removes
+  nothing. The oracle had measured the merged extent, did not reverse, and
+  read a 6.6 % deficit (2.5818e6 at 512 / 1024 cells vs the kernel's
+  2.7610e6); with the engine's rule it reads 2.7252e6 at 256 cells, +1.3 %
+  — the gear-teeth lattice band. R0091's pinned volume moved the same way
+  (4.2624e-12 → 4.2232e-12; the engine measures the box, `target
+  verts=8`; the kernel's 4.2190e-12 is 0.1 % from it). When a fold's
+  tool-alone extent would flip the decision, the parse notes it.
+
+  *Engine observation, not a kernel defect:* a legacy cut after a disjoint
+  merge takes its direction from the merge's TOOL body, so it can miss the
+  older body it overlaps (R0075). Whether that is the intended policy is a
+  feature-engine question; recorded here, not changed.
+
+### The rows, re-read (kernel = tessellated output at the oracle tolerance, scanned per body at 256; exact at 256 cells unless noted)
+
+| case | kernel | exact | rel | reading |
+|---|---|---|---|---|
+| C0074 | 2.5158 | 2.5059 (2.5538 / 2.5179 / 2.5059 at 64 / 128 / 256) | +0.4 % | `Intersect` targeting the cut's output; χ = 4 = authored (one component with a cavity) |
+| C0081 | 0.33579 | 0.33600 (all rungs) | −0.06 % | `Intersect`; authored 0.336 |
+| C0091 | 1.5000 | 1.5000 | 0 | annular square, χ = 0 |
+| C0092 | 2.0977 | 2.0988 | −0.05 % | three holes, χ = −4 |
+| C0095 | 3.9245 | 3.9433 | −0.5 % | hole + through-cut, χ = −2 |
+| C0096 | 2.4460 | 2.4364 | +0.4 % | L outer with a hole, χ = 0 |
+| C0040 | 1.0000e4 | lattice-limited | — | a 1-thick slab over 100 units is 3–5 cells thick at every rung (1.56e4 / 7.8e3 / 1.17e4); by hand 1e4 − 1e-6, the 1 mm hole below any cubic lattice — not a finding |
+| C0079 | 2.4980 | 2.5000 | −0.08 % | `Add [A, B]` fold, one body |
+| C0080 | 2.9198 | 2.9061 | +0.5 % | three bodies, explicit `Cut` pockets B only |
+| C0082 | 2.1798 | 2.1763 | +0.2 % | two bodies |
+| C0083 | 1.6400 | 1.6515 | −0.7 % | two overlapping `NewBody` bodies, summed |
+| C0094 | 1.2000 | 1.1976 | +0.2 % | two bodies from one sketch (profile 0 and 1) |
+| R0058 | — | 1.4262e-2 / 1.4183e-2 / 1.4281e-2 at 256 / 512 / 1024 | ±0.7 % per rung | gear-teeth band; the −0.2 % kernel row stands, not a finding |
+| R0075 | 2.7610e6 | 2.7252e6 (first-target rule) | +1.3 % | see above; the exact set has two components, the disjoint circle boss (17 849 of 267 432 cubes) |
+| R0091 | 4.2190e-12 | 4.2232e-12 (box 2.586e-13 + sausage 3.9646e-12) | −0.1 % | pin corrected |
+
+### Topology rows left open above
+
+- **C0065** (an ERROR case: the cut fails at Stage 4,
+  `OffCurveBeyondChordBand`): the authored "through-notch severs the ring,
+  χ = 2" is wrong. The tube spans radius 0.9…1.5 and the 0.5-wide block
+  only 0.95…1.45 (and 0.98…1.47 at its y-edges), so the block WINDOWS the
+  tube and leaves an inner and an outer bridge — genus 2, boundary χ = −2,
+  one component, stable at 128 / 256 / 512 cells on phases ½ and ¼ (volume
+  2.0005; the slivers are the 0.01 the notch cannot take). `euler_target`
+  corrected 2 → −2 and pinned (`assay_exact_membership::
+  c0065_reads_genus_two`, `assay_euler_consistency`) so a future conversion
+  is scored honestly.
+- **R0026** (ERROR): genus 1, one component at 128 / 256 / 512 on two
+  phases (volume 4.998e-4 converged); the generator's default 2 was never
+  adjudicated. Corrected 2 → 0 and pinned.
+- **R0006**: the exact set has two components (the holed box, χ = 0, and
+  the disjoint circle boss, χ = 2 — total 2 against the authored 0). That
+  is the runner's own rule: `check_mesh_euler_characteristic_with_shells`
+  credits every shell beyond the authored count +2, so a disjoint boss
+  never trips it. This explains the whole "(i) disjoint-body chains"
+  family above — consistent, not a finding.
+- **C0107 / C0108** (a sphere point-tangent to a cylinder / two tangent
+  spheres): a 0-D contact bridges the lattice at every cell size (one
+  component, χ = 2 at 128 / 256 / 512); the authored two shells is the
+  B-Rep convention. Outside the lattice's scope.
+- **R0075**'s two components are the disjoint circle boss (above).
+
+### Coverage and the re-sweep
+
+Exact-only sweep (64 / 128 / 256 cells, 116 s): covered 309 / 312; not
+covered, typed: F0074: feature 3 (Revolve Near): revolve axis not in the sketch plane; C0084: feature 4 (Boolean 3): operation BooleanCombine; C0100: feature 1 (Extrude 1): region extrude (params.regions); R0001: exact 4 vs authored 2; R0004: exact 4 vs authored 2; R0006: exact 2 vs authored 0; R0007: exact 0 vs authored 2; R0014: exact 4 vs authored 2; R0027: exact 0 vs authored 2; R0030: exact 6 vs authored 2; R0043: exact 4 vs authored 2; R0055: exact 4 vs authored 2; R0061: exact 4 vs authored 2; R0062: exact 4 vs authored 2; R0066: exact 4 vs authored 2; R0068: exact 4 vs authored 2; R0069: exact 4 vs authored 2; R0074: exact 4 vs authored 2; R0075: exact 4 vs authored 2; R0083: exact 4 vs authored 2; R0084: exact 4 vs authored 2; R0088: exact 0 vs authored 2; F0011: exact 4 vs authored 2; F0012: exact 4 vs authored 2; F0013: exact 4 vs authored 2; F0014: exact 4 vs authored 2; F0058: exact 4 vs authored 2; F0060: exact 8 vs authored 2; F0064: exact 6 vs authored 2; F0065: exact 4 vs authored 2; F0068: exact 6 vs authored 2; F0071: exact 8 vs authored 2; C0029: exact 2 vs authored 0; C0030: exact 2 vs authored 0; C0031: exact 2 vs authored 0; C0033: exact 2 vs authored 0; C0035: exact 0 vs authored 2; C0038: exact 2 vs authored 0; C0040: exact 2 vs authored 0; C0051: exact 4 vs authored 2; C0063: exact 0 vs authored 2; C0080: exact 6 vs authored 2; C0082: exact 4 vs authored 2; C0083: exact 4 vs authored 2; C0094: exact 4 vs authored 2; C0097: exact 2 vs authored 0; C0107: exact 2 vs authored 4; C0108: exact 2 vs authored 4; C0111: exact 2 vs authored 0; C0112: exact 2 vs authored 0; C0113: exact 2 vs authored 0; R0001: exact 2 vs authored 1; R0004: exact 2 vs authored 1; R0006: exact 2 vs authored 1; R0007: exact 0 vs authored 1; R0014: exact 2 vs authored 1; R0027: exact 0 vs authored 1; R0030: exact 3 vs authored 1; R0043: exact 2 vs authored 1; R0055: exact 2 vs authored 1; R0061: exact 2 vs authored 1; R0062: exact 2 vs authored 1; R0066: exact 2 vs authored 1; R0068: exact 2 vs authored 1; R0069: exact 2 vs authored 1; R0074: exact 2 vs authored 1; R0075: exact 2 vs authored 1; R0078: exact 2 vs authored 1; R0083: exact 2 vs authored 1; R0084: exact 2 vs authored 1; R0088: exact 0 vs authored 1; F0011: exact 2 vs authored 1; F0012: exact 2 vs authored 1; F0013: exact 2 vs authored 1; F0014: exact 2 vs authored 1; F0058: exact 2 vs authored 1; F0060: exact 4 vs authored 1; F0064: exact 3 vs authored 1; F0065: exact 2 vs authored 1; F0068: exact 3 vs authored 1; F0071: exact 4 vs authored 1; C0034: exact 0 vs authored 1; C0046: exact 2 vs authored 1; C0051: exact 2 vs authored 1; C0063: exact 0 vs authored 1; C0080: exact 3 vs authored 1; C0082: exact 2 vs authored 1; C0083: exact 2 vs authored 1; C0094: exact 2 vs authored 1; C0110: exact 2 vs authored 1; C0117: exact 0 vs authored 1.
+The multi-body C-series cases (C0079–C0083, C0094) and the holed profiles
+are now in. 57 ladders are unstable at these rungs (the tapered-feature /
+sub-cell-gap / thin-tooth population of the scope note; the finer-rung
+pins above are where a reading is claimed), 48 boundary-χ and 40
+component-count rows disagree with the authored oracles — the (i) disjoint
+bodies (the runner's +2-per-shell rule), (ii) the sub-rung C-series and
+(iii) the R0007 / R0027 / R0088 / C0035 empties, as before. The
+kernel-vs-exact table is re-run below.
