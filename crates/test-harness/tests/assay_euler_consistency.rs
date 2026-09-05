@@ -206,6 +206,16 @@ fn historical_authoring_fixes_pinned() {
         r0026.oracles.euler_target, 0,
         "R0026 corrected target regressed (must stay genus-1 χ=0)"
     );
+    // R0044 was corrected 2026-09-05 by the same ladder
+    // (`assay_exact_membership::r0044_reads_genus_one`): its circle cut bores
+    // through the two-revolve union — genus 1. The kernel's χ = 0 output
+    // surfaced the day the thin-band chart guard let the gear's 70 conical
+    // bands tessellate; the exact solid reads 0 on every rung.
+    let r0044 = load_meta("R0044");
+    assert_eq!(
+        r0044.oracles.euler_target, 0,
+        "R0044 corrected target regressed (must stay genus-1 χ=0)"
+    );
     // Divergence-by-design: the op-scan conservatively returns 2 for this
     // multi-plane case. If this ever equals 0, the heuristic changed and the
     // "frozen corpus ≠ op-scan" rationale in this file's header must be

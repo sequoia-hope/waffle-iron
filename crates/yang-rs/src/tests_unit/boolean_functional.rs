@@ -2770,6 +2770,142 @@ pub(crate) fn lateral_partial_patch_multi_arc_no_holes() {
     }
 }
 
+/// Thin-band chart guard (R0044 face 166, 2026-09-05): a CONE band whose
+/// two rims sit 0.02 apart in height (slant gap 0.0283 at r ≈ 10, α = 45°),
+/// as a bounded half-band (two arcs per rim + two rulings) so it takes the
+/// holed-lateral CDT path whose chart is the cone's isometric development.
+/// At the natural rim density (N ≈ 14, sag 0.25 ≫ 0.028) the two rims'
+/// chords interleave in the chart — RED before the guard, either as a loud
+/// CDT failure or, if the flood-fill CDT paves the crossing (the R0040 pin
+/// showed it can), as the rim-density / area / fold assertions below.
+/// `face_rim_pair_phantom_n` now folds the
+/// band's own demand (N ≥ 84) into the shared rim N: the band tessellates,
+/// its area is the developed annular sector `½·Δθ·sin α·(ℓ₂² − ℓ₁²)` within
+/// the corrugation the sampling allows (see the area assertion), no mesh
+/// edge is covered more than twice, and the rims carry ≥ 60 segments per
+/// turn (the outer rim's sag ≤ 0.0141 ⇒ N ≥ 60).
+#[test]
+pub(crate) fn thin_cone_band_tessellates_at_its_own_rim_density() {
+    use std::f64::consts::PI;
+    let alpha = PI / 4.0;
+    let (h1, h2) = (10.0_f64, 10.02_f64);
+    let (r1, r2) = (h1 * alpha.tan(), h2 * alpha.tan());
+    let on = |r: f64, theta: f64, z: f64| Point3::new(r * theta.cos(), r * theta.sin(), z);
+    // V0 (r1, 0) → V1 (r1, π/2) → V2 (r1, π) → V3 (r2, π) → V4 (r2, π/3) → V5 (r2, 0).
+    // The upper rim splits at π/3, NOT π/2: arc chains sample from their own
+    // start, so the two rims' vertices sit at DIFFERENT azimuths and their
+    // coarse chords interleave in the chart (aligned rims give parallel
+    // chords that never cross — R0044's rims are split at unrelated angles).
+    let verts = [
+        on(r1, 0.0, h1),
+        on(r1, PI / 2.0, h1),
+        on(r1, PI, h1),
+        on(r2, PI, h2),
+        on(r2, PI / 3.0, h2),
+        on(r2, 0.0, h2),
+    ]
+    .into_iter()
+    .map(|point| BRepVertex { point })
+    .collect::<Vec<_>>();
+    let circ = |z: f64, r: f64, sign: f64| Curve::Circle {
+        center: Point3::new(0.0, 0.0, z),
+        normal: Vector3::new(0.0, 0.0, sign),
+        radius: r,
+    };
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 1,
+            curve: circ(h1, r1, 1.0),
+        },
+        BRepEdge {
+            start: 1,
+            end: 2,
+            curve: circ(h1, r1, 1.0),
+        },
+        BRepEdge {
+            start: 2,
+            end: 3,
+            curve: Curve::LineSegment,
+        },
+        BRepEdge {
+            start: 3,
+            end: 4,
+            curve: circ(h2, r2, -1.0),
+        },
+        BRepEdge {
+            start: 4,
+            end: 5,
+            curve: circ(h2, r2, -1.0),
+        },
+        BRepEdge {
+            start: 5,
+            end: 0,
+            curve: Curve::LineSegment,
+        },
+    ];
+    let faces = vec![BRepFace {
+        surface: Surface::Cone {
+            apex: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            half_angle: alpha,
+        },
+        outer_loop: vec![0, 1, 2, 3, 4, 5],
+        inner_loops: vec![],
+        reversed: false,
+    }];
+    let t = stage1_tessellate(&verts, &edges, &faces)
+        .expect("a thin cone band tessellates at its own rim density");
+    // Rim density: the lower rim's half-turn carries ≥ 30 segments (≥ 60/turn).
+    let n_lower = t
+        .verts
+        .iter()
+        .filter(|p| (p.as_array()[2] - h1).abs() < 1e-9)
+        .count();
+    assert!(
+        n_lower >= 31,
+        "lower rim vertices {n_lower} (need ≥ 31 for N ≥ 60)"
+    );
+    // Area: the developed annular half-sector.
+    let (l1, l2) = (h1 / alpha.cos(), h2 / alpha.cos());
+    let expect = 0.5 * PI * alpha.sin() * (l2 * l2 - l1 * l1);
+    let mut area = 0.0;
+    let mut cover: std::collections::BTreeMap<(u32, u32), u32> = Default::default();
+    for tri in &t.tris {
+        let p: Vec<[f64; 3]> = tri
+            .iter()
+            .map(|&i| t.verts[i as usize].as_array())
+            .collect();
+        let e1 = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
+        let e2 = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]];
+        let c = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        area += 0.5 * (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt();
+        for k in 0..3 {
+            let (x, y) = (tri[k], tri[(k + 1) % 3]);
+            *cover.entry((x.min(y), x.max(y))).or_insert(0) += 1;
+        }
+    }
+    // The mesh is a CORRUGATION of the band: with the rims sampled at a sag
+    // about half the band width (0.0137 vs 0.0283 — the guard's own margin),
+    // each flat triangle between an inner chord and an outer vertex tilts
+    // into the cone, so its area exceeds the surface patch it covers while
+    // every vertex stays exactly on the surface (the paper's d_ε contract).
+    // Measured +3.2 % at N = 60 (signed = unsigned area, no fold); pinned at
+    // 5 %. (At N = 84 the excess was < 3 %.)
+    assert!(
+        (area - expect).abs() < 0.05 * expect,
+        "band area {area} vs developed sector {expect}"
+    );
+    assert!(
+        cover.values().all(|&c| c <= 2),
+        "an edge is covered more than twice (fold)"
+    );
+}
+
 /// KV14 Slice E: a non-canonical CONE partial patch (multi-arc, no holes)
 /// re-enters the unroll+CDT path. A cone frustum sector [A,A,A,L,A,A,A,L]
 /// (R0020's vocabulary) with the u-scale varying by axial radius. Oracles:

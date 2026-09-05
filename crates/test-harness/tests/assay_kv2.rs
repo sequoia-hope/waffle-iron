@@ -1208,6 +1208,16 @@ fn smoke_corpus_boundary_categories() {
         // unwrapped azimuth range (spec `yang_stage1_curved_holed_patch`
         // "θ branch-cut") and the 3-op chain passes every check.
         ("R0040", Category::SupportedCorrect),
+        // R0044 FLIPPED (2026-09-05, thin-band chart guard): its gear revolve
+        // carries 70 conical bands ≈ 2 units wide at radii 1024…3870 whose
+        // rim chords (N = 41, sag ≈ 10) interleaved in the cone chart and
+        // failed the holed-lateral CDT loud; `face_rim_pair_phantom_n` now
+        // derives N = 185 from the bands' own slant gaps and the chain
+        // completes. Its χ = 0 output is the TRUE genus 1 (the circle cut
+        // bores through the union — `assay_exact_membership::
+        // r0044_reads_genus_one`); the authored `euler_target: 2` was a
+        // generator guess, corrected the R0011 way.
+        ("R0044", Category::SupportedCorrect),
         // PR-KV10: the F0016-family (3 same-plane oblique bosses) used to
         // stop at the intra-coplanar wall because chained outputs carried
         // femto-distinct same-plane sibling plane bits (canonicalized in

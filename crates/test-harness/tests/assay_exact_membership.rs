@@ -7,7 +7,7 @@
 //!
 //! - **Pinned adjudications** (always on, seconds): every corpus
 //!   `euler_target` that was ever hand-corrected after an adjudication
-//!   (R0099, R0091, R0063, R0011, C0075, R0053 — see
+//!   (R0099, R0091, R0063, R0011, C0075, R0053, R0044 — see
 //!   `assay_euler_consistency::historical_authoring_fixes_pinned`) is
 //!   re-derived here from the authored numbers alone. The instrument is
 //!   validated by the cases that were adjudicated by other means, and each
@@ -149,6 +149,22 @@ fn r0011_reads_genus_one() {
 fn r0011_reads_genus_one_at_1024() {
     let c = chain("R0011");
     assert_stable("R0011", &ladder(&c, &[1024], 0.5), 0, 1);
+}
+
+/// R0044 (corrected 2026-09-05): a 195.8° rectangle revolve ∪ a 304.6° gear
+/// revolve about another axis, then a 695-deep circle cut (r ≈ 451) —
+/// genus 1: the cut bores THROUGH the union. Read 0 / 1 component at 128,
+/// 256 and 512 cells on two lattice phases (cell 107 → 27 units on a
+/// ≈ 8000-unit solid; volume 1.0201e11 ± 0.2 %). The authored
+/// `euler_target: 2` was the generator's guess; the kernel's χ = 0 output
+/// (the day the thin-band chart guard let its 70 conical bands tessellate)
+/// is the true topology, not a WRONG.
+#[test]
+fn r0044_reads_genus_one() {
+    let c = chain("R0044");
+    assert_eq!(c.ops.len(), 3);
+    assert_stable("R0044", &ladder(&c, &[128, 256, 512], 0.5), 0, 1);
+    assert_stable("R0044 phase ¼", &ladder(&c, &[256], 0.25), 0, 1);
 }
 
 /// R0099 (fix 74564242): circle boss + circle through-cut + rectangle

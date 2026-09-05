@@ -198,8 +198,25 @@ pub(crate) fn stage1_tessellate_inner(
     )
 }
 
+/// The bounded §4.5.4 chart-refinement rounds the Stage-1 driver allows
+/// before a self-crossing chart polygon becomes the loud stop it was: each
+/// round raises the shared rim N to the demand the crossing derived, so the
+/// count only bounds a demand that keeps growing (a boundary that no rim
+/// density can make simple).
+const CHART_REFINE_ROUNDS: usize = 4;
+
 /// Inner implementation returning the tessellation AND the set of rim edges
 /// that received inserted crossing points (consumed by the lateral dispatch).
+///
+/// §4.5.4 (2026-09-05): wraps [`stage1_tessellate_once`] in the detect-then-
+/// refine loop — a [`YangError::Stage1ChartCrossing`] carrying a rim demand
+/// ABOVE the N the pass used re-runs the whole tessellation at that N (the
+/// shared-N design: every rim of the solid re-samples together, the way the
+/// paper's uniform 2× refinement does), at most [`CHART_REFINE_ROUNDS`]
+/// times; a crossing with no demand, or one whose demand the pass already
+/// met, is returned as-is (loud). `YANG_S1_CHART_REFINE=0` disables the
+/// retry (dev A/B — the pre-flip behaviour with the typed error in place of
+/// the CDT failure).
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(crate) fn stage1_tessellate_inner_overrides(
     verts: &[BRepVertex],
@@ -209,6 +226,70 @@ pub(crate) fn stage1_tessellate_inner_overrides(
     edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     min_n_seg: Option<usize>,
+) -> Result<(Stage1Tess, std::collections::BTreeSet<u32>), YangError> {
+    let refine_on = !matches!(
+        std::env::var("YANG_S1_CHART_REFINE").as_deref(),
+        Ok("0") | Ok("off")
+    );
+    let mut force = min_n_seg;
+    let mut round = 0usize;
+    loop {
+        let mut n_used: Option<usize> = None;
+        match stage1_tessellate_once(
+            verts,
+            edges,
+            faces,
+            rim_overrides,
+            edge_overrides,
+            face_overrides,
+            force,
+            &mut n_used,
+        ) {
+            Err(YangError::Stage1ChartCrossing {
+                face,
+                crossings,
+                demand_n,
+            }) if refine_on => {
+                let cur = n_used.unwrap_or(0);
+                match demand_n {
+                    Some(n) if n > cur && round < CHART_REFINE_ROUNDS => {
+                        if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                            eprintln!(
+                                "[stage1-chart-refine] round {round}: face {face} crossings={crossings} \
+                                 N {cur} -> {n}"
+                            );
+                        }
+                        force = Some(force.map_or(n, |f| f.max(n)));
+                        round += 1;
+                    }
+                    _ => {
+                        return Err(YangError::Stage1ChartCrossing {
+                            face,
+                            crossings,
+                            demand_n,
+                        });
+                    }
+                }
+            }
+            r => return r,
+        }
+    }
+}
+
+/// ONE Stage-1 pass at the given forced rim N (see
+/// [`stage1_tessellate_inner_overrides`] for the refinement loop around it).
+/// `n_seg_out` receives the shared rim segment count the pass chose (after
+/// every fold), so a chart-crossing demand can be compared against it.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+pub(crate) fn stage1_tessellate_once(
+    verts: &[BRepVertex],
+    edges: &[BRepEdge],
+    faces: &[BRepFace],
+    rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    min_n_seg: Option<usize>,
+    n_seg_out: &mut Option<usize>,
 ) -> Result<(Stage1Tess, std::collections::BTreeSet<u32>), YangError> {
     {
         let mut inserted_rims: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
@@ -351,6 +432,46 @@ pub(crate) fn stage1_tessellate_inner_overrides(
                     }
                 }
             }
+            // Thin-band chart guard (R0044 face 166, 2026-09-05): two rim
+            // circles bounding the SAME face are concentric arcs in that
+            // face's chart (a cone's isometric development, or the plane
+            // itself) and their chords must not interleave — the Case-IV
+            // statement for one face's own rims, `face_rim_pair_phantom_n`
+            // (`sag_a + sag_b ≤ gap/2`, gap = the in-chart separation: a
+            // cone's slant `|Δh|/cos α`, a plane's coplanar circle-pair
+            // gap). R0044's band (rims 2.02 apart at r ≈ 3682, N = 41,
+            // sag 10.8) crossed itself 20× in the cone chart and the holed
+            // CDT failed loud; the rule derives N = 190. Folded here like
+            // the cylinder pairs so every tessellation picks it up; far
+            // pairs derive a tiny N the natural bound absorbs.
+            for f in faces.iter() {
+                let mut rims: Vec<(Point3, f64)> = Vec::new();
+                for &e_idx in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+                    if let Curve::Circle { center, radius, .. } = edges[e_idx as usize].curve {
+                        let same = |&(c, r): &(Point3, f64)| {
+                            c.as_array() == center.as_array() && r == radius
+                        };
+                        if !rims.iter().any(same) {
+                            rims.push((center, radius));
+                        }
+                    }
+                }
+                for i in 0..rims.len() {
+                    for j in (i + 1)..rims.len() {
+                        if let Some(n) = face_rim_pair_phantom_n(f.surface, rims[i], rims[j]) {
+                            if std::env::var_os("YANG_SPLIT_PROBE").is_some() && n > n_seg {
+                                eprintln!(
+                                    "[stage1-thin-band] face {} rims r={}/{} demand N={n} (was {n_seg})",
+                                    faces.iter().position(|g| std::ptr::eq(g, f)).unwrap_or(usize::MAX),
+                                    rims[i].1,
+                                    rims[j].1
+                                );
+                            }
+                            n_seg = n_seg.max(n);
+                        }
+                    }
+                }
+            }
             // Diagnostic experiment knob (M8 increment-8 spec phase, task
             // #62): force a global rim-N floor to measure whether/where the
             // mint-displacement fold class is a pure sampling artifact and
@@ -363,6 +484,7 @@ pub(crate) fn stage1_tessellate_inner_overrides(
             {
                 n_seg = n_seg.max(floor);
             }
+            *n_seg_out = Some(n_seg);
             if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
                 eprintln!(
                     "[stage1-nseg] n_seg={n_seg} d_eps={d_eps:e} max_r={max_r} \
@@ -1836,6 +1958,8 @@ pub(crate) fn stage1_tessellate_inner_overrides(
 
 mod loop_geometry;
 pub(crate) use loop_geometry::*;
+mod chart_crossing;
+pub(crate) use chart_crossing::*;
 
 /// PR-KV6b-1: CDT tessellation of a planar face whose loops mix straight and
 /// `Curve::Circle` edges (annular sectors, holed circle caps, …). The
@@ -2637,6 +2761,63 @@ pub(crate) fn tessellate_lateral_holed_cdt(
         dump("outer", &outer_local);
         for (k, h) in holes_local.iter().enumerate() {
             dump(&format!("hole{k}"), h);
+        }
+    }
+
+    // §4.5.4 chart simplicity (2026-09-05, R0044 face 173): the unrolled
+    // boundary must be a simple polygon before the CDT sees it. A crossing
+    // is a boundary chain sampled too coarsely for the face's own feature
+    // size; when a rim chord is involved the crossed vertex's radial
+    // distance to the rim derives the rim density that clears it and the
+    // typed error carries that demand for the driver's bounded retry. A
+    // crossing with no rim chord is the loud stop it always was — never a
+    // silently paved polygon (the R0040 pin: the flood-fill CDT CAN pave a
+    // self-crossing boundary).
+    {
+        let chart_polys: Vec<Vec<cad_primitives::Point2>> = std::iter::once(&outer_local)
+            .chain(holes_local.iter())
+            .map(|lp| lp.iter().map(|&l| local_verts[l as usize]).collect())
+            .collect();
+        let crossings = chart_polygon_crossings(&chart_polys);
+        if !crossings.is_empty() {
+            // Owner edge of every chart chord: the edge its FIRST vertex was
+            // sampled from (an arc's start vertex attributes to the arc, its
+            // end vertex to the next edge, so an arc's last chord is the
+            // arc's).
+            let mut owner_of: std::collections::HashMap<u32, u32> =
+                std::collections::HashMap::new();
+            for lp in std::iter::once(&f.outer_loop).chain(f.inner_loops.iter()) {
+                if let Ok(attr) = loop_polyline_attributed(f_idx, lp, edges, chains) {
+                    for (g, e) in attr {
+                        owner_of.entry(g).or_insert(e);
+                    }
+                }
+            }
+            let local_polys: Vec<&Vec<u32>> = std::iter::once(&outer_local)
+                .chain(holes_local.iter())
+                .collect();
+            let rim_radius = |(pi, k): ChartSeg| -> Option<f64> {
+                if !matches!(kind, LateralKind::Cone { .. }) {
+                    return None; // a cylinder's rims are straight in its strip
+                }
+                let g = global_of_local[local_polys[pi][k] as usize];
+                match owner_of.get(&g).map(|&e| edges[e as usize].curve) {
+                    Some(Curve::Circle { radius, .. }) => Some(radius),
+                    _ => None,
+                }
+            };
+            let demand_n = cone_chart_rim_demand(&chart_polys, &crossings, rim_radius);
+            if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                eprintln!(
+                    "[stage1-chart-crossing] face {f_idx} crossings={} demand={demand_n:?}",
+                    crossings.len()
+                );
+            }
+            return Err(YangError::Stage1ChartCrossing {
+                face: f_idx,
+                crossings: crossings.len(),
+                demand_n,
+            });
         }
     }
 

@@ -506,6 +506,87 @@ pub(crate) fn stage1_intra_solid_phantom_fold_densifies_rims() {
 
 /// An operand without B-Rep faces (the `from_mesh` chained-output
 /// degenerate) has no cylinder faces to scan — byte-identical path.
+/// Thin-band chart guard (R0044 face 166): two rim circles of ONE cone face
+/// 1.07 apart along the axis at α = 1.011 rad (r ≈ 3682) — the measured
+/// R0044 numbers — demand the N that keeps both rims' chords inside their
+/// own half of the 2.02 slant gap; the same circle twice, a cylinder face,
+/// and a far pair are silent or absorbed.
+#[test]
+pub(crate) fn thin_band_guard_derives_r0044_rim_density() {
+    let alpha = 1.0110256328923286_f64;
+    let cone = Surface::Cone {
+        apex: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        half_angle: alpha,
+    };
+    let h_a = 3681.15 / alpha.tan();
+    let h_b = h_a + 1.07;
+    let rim = |h: f64| (Point3::new(0.0, 0.0, h), h * alpha.tan());
+    let n = face_rim_pair_phantom_n(cone, rim(h_a), rim(h_b)).expect("a thin band demands N");
+    // gap = 1.07 / cos α = 2.02; 2·r·(1 − cos(π/N)) ≤ 1.01 ⇒ N ≥ 190.
+    // gap = 1.07 / cos α = 2.02; the OUTER rim (farther from the apex, r_b)
+    // must keep its chords inside its half: r_b·(1 − cos(π/N)) ≤ 1.01 ⇒ N ≥ 135.
+    let gap = 1.07 / alpha.cos();
+    let sag = |r: f64, n: usize| r * (1.0 - (std::f64::consts::PI / n as f64).cos());
+    assert!(sag(rim(h_b).1, n) <= gap / 2.0, "N={n} satisfies the band");
+    assert!(sag(rim(h_b).1, n - 1) > gap / 2.0, "N={n} is minimal");
+    assert!((130..=140).contains(&n), "R0044 demand ≈ 135, got {n}");
+    // The same circle twice: no band.
+    assert_eq!(face_rim_pair_phantom_n(cone, rim(h_a), rim(h_a)), None);
+    // A cylinder's rims are parallel lines in its strip: silent.
+    let cyl = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    assert_eq!(
+        face_rim_pair_phantom_n(
+            cyl,
+            (Point3::new(0.0, 0.0, 0.0), 1.0),
+            (Point3::new(0.0, 0.0, 0.001), 1.0)
+        ),
+        None
+    );
+    // A far pair (rims 2000 apart) derives a tiny N the natural bound absorbs.
+    let far = face_rim_pair_phantom_n(cone, rim(h_a), rim(h_a + 2000.0)).expect("far pair");
+    assert!(far <= 8, "far pair N={far}");
+    // A planar annulus 0.02 wide at r = 10: nested gap 0.02, the outer
+    // circle's sag ≤ 0.01 ⇒ N ≈ 71.
+    let plane = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: 0.0,
+    };
+    let np = face_rim_pair_phantom_n(
+        plane,
+        (Point3::new(0.0, 0.0, 0.0), 10.0),
+        (Point3::new(0.0, 0.0, 0.0), 10.02),
+    )
+    .expect("thin planar annulus");
+    assert!(
+        sag(10.02, np) <= 0.01 && (65..=78).contains(&np),
+        "annulus N={np}"
+    );
+    // Two EXTERNAL coplanar circles (holes side by side, 0.02 apart): each
+    // circle's chords stay inside its own disk — no demand at any N.
+    assert_eq!(
+        face_rim_pair_phantom_n(
+            plane,
+            (Point3::new(0.0, 0.0, 0.0), 1.0),
+            (Point3::new(2.02, 0.0, 0.0), 1.0)
+        ),
+        None
+    );
+    // Intersecting coplanar circles (a lens) are a real curve, not a band.
+    assert_eq!(
+        face_rim_pair_phantom_n(
+            plane,
+            (Point3::new(0.0, 0.0, 0.0), 10.0),
+            (Point3::new(5.0, 0.0, 0.0), 10.0)
+        ),
+        None
+    );
+}
+
 #[test]
 pub(crate) fn phantom_guard_faceless_operand_is_silent() {
     let plate = guard_cyl(0.0, 0.0, 1.2787008340600021, 0.23);

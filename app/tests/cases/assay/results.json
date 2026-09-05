@@ -1,8 +1,8 @@
 {
-  "errored": 30,
+  "errored": 31,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 276,
+  "passed": 275,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -17,10 +17,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 9bf3f664-2436-4144-9e52-9e07c56f21d4: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(903), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
       "id": "R0003",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -192,7 +192,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): ab4df593-6e6f-47f8-aeca-66f2bf645d12: operation error: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 7 is invalid: LocalRefinementRequired\")",
+      "detail": "1 engine error(s): ab4df593-6e6f-47f8-aeca-66f2bf645d12: operation error: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 3: partial-cone arc chains have mismatched sample counts (4 vs 3)\")",
       "id": "R0032",
       "status": "error"
     },
@@ -263,10 +263,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): b488b5aa-45ac-4df0-9c53-8513ae4cfe01: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 166: holed lateral CDT failed: CDT backend failed to triangulate\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0044",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -317,10 +317,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"). Body created as standalone.",
       "id": "R0053",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",

@@ -10,9 +10,13 @@
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
 > **2026-09-04 refresh (code review; score refreshed 2026-09-05).** Canonical
-> corpus **276C / 0W / 30E / 4EE / 0T** (312 cases; release, 8 jobs, 480 s
-> budget; F0085 ≈ 303–317 s is the honest ceiling) — was 275C/0W/31E/4EE/0T
-> until R0040 flipped on 2026-09-05 (below). `UNSUPPORTED` is the two M8 coplanar cases alone (F0064,
+> corpus **275C / 0W / 31E / 4EE / 0T** (312 cases; release, 8 jobs, 600 s
+> budget; F0085 ≈ 300–317 s and R0044 ≈ 280 s are the honest ceiling) —
+> the day's path: 275C → 276C (R0040 flipped) → 277C under the first-cut
+> thin-band rule → 275C under the exact rule (R0044 flipped; R0003 and
+> R0053 REGRESSED as unmasked density-sensitive latents, ledgered ACTIVE —
+> see `docs/yang_tail_triage.md` "Unmasked 2026-09-05"). Kept per the
+> standing rule: the correct rule is not tuned to dodge a latent. `UNSUPPORTED` is the two M8 coplanar cases alone (F0064,
 > F0072): revolve (KV6, incl. cones / tori / spheres / on-axis lathe shapes /
 > the apex cone as a boolean OPERAND), the M5 degree-4 surface-pair curve
 > (re-entering chained booleans since K11 inc-1), the KV14 curved partial-
@@ -44,11 +48,30 @@
 > outer loop's unwrapped azimuth range (spec `yang_stage1_curved_holed_patch`
 > "θ branch-cut", amended; pin RED under the old rule as a silent-wrong
 > bridging triangle); corpus (release, 8 jobs, 480 s; wall 562.3 s, F0085
-> 303.2 s honest) **276C/0W/30E/4EE/0T**, exactly one row moved. Next
-> increments, in order:
-> the thin-band rim chord bound (R0044 face 166 — measured: two rim circles
-> ≈ 2 apart at slant 4340 sampled with sag ≈ 9–10, 20 chart crossings; a
-> feature-size-aware rim density rule),
+> 303.2 s honest) **276C/0W/30E/4EE/0T**, exactly one row moved. **R0044
+> FLIPPED CORRECT 2026-09-05 (later)**: the thin-band chart guard
+> `face_rim_pair_phantom_n` (spec `yang_stage1_curved_holed_patch` "The
+> thin-band chart guard") — two rim circles bounding ONE face are concentric
+> arcs in its chart and their chords must not interleave (`sag_outer ≤
+> gap/2`, the Case-IV statement for a face's own rims; R0044's gear carries
+> 70 conical bands ≈ 2 wide at radii 1024…3870 ⇒ N = 131, was 41) PLUS the
+> paper's §4.5.4 at Stage-1 altitude — a chart-polygon crossing scan before
+> the holed-lateral CDT whose typed `Stage1ChartCrossing` carries a derived
+> rim demand (the crossed vertex's radial distance halves the allowed
+> sagitta) and the driver retries at that N, bounded (R0044's top band: a
+> rim chord over a junction vertex 0.5 inside the band ⇒ N 131 → 272, one
+> round); the chain then completed at χ = 0, adjudicated the TRUE genus 1 by the
+> exact-membership ladder (the circle cut bores through the union; the
+> authored target was a generator guess — corrected and pinned, the R0011
+> protocol). 268 s. Corpus (release, 8 jobs, 600 s; wall 653 s; total case
+> CPU 3070 → 3833 s — every gear revolve's rims densify): **275C/0W/31E/4EE/
+> 0T**, three rows moved — R0044 ERROR → CORRECT; **R0003 and R0053
+> CORRECT → ERROR**, density-sensitive latents downstream of Stage 1
+> (R0003: the §I13(f) f903 ring fold returns at N = 128 though the case is
+> CORRECT at 41 and ≈ 181; R0053: a chained output re-enters non-manifold
+> at N = 131), both ledgered as PROBE rows. Next increments, in order:
+> R0003's f903 fold and R0053's non-manifold re-entry at their new density
+> (the two regressions — probe first),
 > R0032's Stage-4 torus junction (`gt2_partners` v7), and the OTHER in-plane
 > section-conic junction types a crossing cut can produce (oblique plane ⇒
 > ellipse × ellipse in ONE plane; ellipse × circle; ruling × ellipse —

@@ -43,6 +43,48 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-05 (later) — R0044 flipped (thin-band chart guard + §4.5.4 chart refine; genus adjudicated 1); R0003 / R0053 REGRESSED as unmasked density-sensitive latents; canonical 275C / 0W / 31E / 4EE / 0T
+
+R0044's Stage-1 wall is closed by two layers (spec
+`yang_stage1_curved_holed_patch` "The thin-band chart guard" + "The §4.5.4
+detect-then-refine behind the guard"): `face_rim_pair_phantom_n` (two rim
+circles bounding ONE face keep `sag_outer ≤ gap/2`) and a chart-polygon
+crossing scan before the holed-lateral CDT whose typed `Stage1ChartCrossing`
+carries a derived rim demand the Stage-1 driver retries at (bounded). The
+case then surfaced χ = 0 against an authored `euler_target: 2`; the
+exact-membership ladder adjudicated the composed solid genus 1 (the circle
+cut bores through the two-revolve union), the target is corrected and
+pinned (row below).
+
+The rule raises the shared rim N of every solid with thin bands (all gear
+revolves): total corpus case CPU 3070 s → 3833 s. Two previously-CORRECT
+gear cases REGRESS to typed ERROR at their new N — density-sensitive walls
+downstream of Stage 1 that the old density happened not to reach
+(measured: R0003 passes at N = 41 and at the first-cut sum-of-sags rule's
+≈ 181, fails at 128; R0053 fails at 131). Per the standing rule
+(`feedback_regressions_can_be_unmasked_latents`, `feedback_no_regression_
+chasing`) the correct rule is kept and the two are ledgered as ACTIVE rows
+below. Corpus (release, 8 jobs, 600 s; wall 653 s, F0085 297.6 s honest,
+R0044 279.6 s): **275C / 0W / 31E / 4EE / 0T** — three rows moved (R0044
+ERROR → CORRECT; R0003, R0053 CORRECT → ERROR).
+
+### Unmasked 2026-09-05 by the thin-band rim density (density-sensitive latents)
+
+| Case | Loud error | Root cause | Confidence | Vehicle |
+|---|---|---|---|---|
+| R0003 | kernel-v2 render `TessellationFailed { face: FaceId(903), reason: "ring rejected by CDT (degenerate/self-intersecting)" }` (58 s) | Its gear revolve's thin bands (rims 0.11 apart at r ≈ 192…198) raise the shared rim N 41 → 128; at that density the output ring of FaceId(903) — the §I13(f) INVERTED-JUNCTION-PAIR site the 2026-08-28e rehome arm repaired at N = 41 (`YANG_441_REHOME`, `session_2026_08_28e_i13f_f2c3_bridge_census`) — folds again. The repair's certificate is density-dependent: the case is CORRECT at N = 41 AND at ≈ 181 (the sum-of-sags first cut), ERROR at 128. Probe: `ASSAY_CASE=R0003 YANG_SPLIT_PROBE=1 … single_case` + `KV2_RING_PROVENANCE` on f903 at N = 128 | PROBE (density facts measured; the fold's anatomy at N = 128 unprobed) | §I13(f) rehome census at the new density (the I13 family) |
+| R0053 | `Revolve 3: Auto-union failed: … yang-rs: input B-Rep is not 2-manifold` (44 s) | Op 3's gear revolve carries the thin bands (rims ≈ 0.06 apart at r ≈ 124…145) that raise the shared N to 131; at that density the union OUTPUT of an earlier op re-enters op 3 NON-2-MANIFOLD. CORRECT at the natural N and at the sum-rule N. The exact-membership adjudication (2026-09-03b: union genus 1) stands — the defect is the kernel's density-sensitive output manifoldness | PROBE (which op's output; the non-manifold site) | Stage-5/6 reassembly non-2-manifold family |
+
+
+R0044's Stage-1 wall (a conical band whose rim chords crossed in the cone
+chart) is closed by `face_rim_pair_phantom_n` — the Case-IV rim-density
+statement for two rim circles bounding ONE face (spec
+`yang_stage1_curved_holed_patch` "The thin-band chart guard"). The case
+then surfaced χ = 0 against an authored `euler_target: 2`; the
+exact-membership ladder adjudicated the composed solid genus 1 (the circle
+cut bores through the two-revolve union), the target is corrected and
+pinned (row below). Corpus after this flip: see the roadmap §0 refresh.
+
 ## 2026-09-05 — R0040 flipped (Stage-1 seam rule); canonical 276C / 0W / 30E / 4EE / 0T
 
 R0040's PROBE row confirmed a DIFFERENT class from R0044's thin band: a
@@ -59,7 +101,7 @@ moved. The 30 ERROR rows are the ACTIVE rows below.
 
 | Case | Loud error | Root cause | Confidence | Vehicle |
 |---|---|---|---|---|
-| R0044 | Stage-4 LRR ~~v11~~ v13 | ~~torus×torus (N52)~~ ~~**RE-DIAGNOSED (#172):** the surface-pair endpoint-mix STOP~~ **ENDPOINT-MIX LAYER RESOLVED 2026-07-28 (triple-block wiring):** the mix vertices (v8, v12) have exactly 3 incident surfaces `{cyl_A, plane_B, cone_B}` and relocate through the increment-5 triple block. R0044 now STOPs one layer deeper at `stage4_correct.rs:5646` — v13 is a **pure** surface-pair vertex (`n_maps == 1`, correctly not a triple) whose `relocate_onto_implicit_pair` NEWTON DIVERGES. Same family as the torus `pair_newton_none` cases | CONFIRMED (2026-07-28 `#[track_caller]` LRR-site trace) | M5 surface-pair Newton convergence (with R0025/R0032/R0077) **2026-08-19 (M5 spec §"2026-08-19"): the pair-Newton "divergence" was the cone step overshoot (sec α, KV16 fix missing from the pair solver) → FIXED; then the same-type SurfacePair junction (cyl×cone_B1 ∩ cyl×cone_B2, one-slot map) → FIXED via `same_type_junction`; then kernel-v2 K9 cone sag radius 0 → FIXED (`pair_surface_local_scale`); then the projector's bare 1e-13 tau at |x|≈6e3 → FIXED (8·ε·L floor). NOW: kernel-v2 render `ring rejected by CDT` FaceId(460) — ring-reject family; MEASURED (`KV2_RING_REJECT_PROBE`/`KV2_PATCH_PROV`): face 460 is a curved patch, 184-node ring, with a REVERSAL at idx 176→177→178 in the unrolled frame (177 sits ~3.8 units BEHIND 176 along the 176→178 direction at coordinate scale 3e3; twins 34907/34990/35000 — three different neighbour edges, i.e. the crease-adjacent chain vertices) — a §4.5.3 reversed-intersection on a PROCEDURAL (surface-pair) chain, which the conic-loop sweep does not cover; NOT the K9 samples (n_interior/positions are the ring's own vertices). Vehicle: §4.5.3 sweep over surface-pair chains / junction placement at the crease **2026-08-24: the pair-chain sweep LANDED always-on (N59) but R0044 is census-QUIET — no eligible pair site fires; the case now STOPs at §4-I9 `RelocationCrossedCarrierVertex` v8 (exact collinear crossing — the overshoot class I9's certificate CAN see). The crease reversal is junction-adjacent (the pair changes across the site), outside the arm's same-pair eligibility — junction-site handling is the recorded next increment** |
+| ~~R0044~~ | ~~Stage-4 LRR ~~v11~~ v13~~ | ~~torus×torus (N52)~~ ~~**RE-DIAGNOSED (#172):** the surface-pair endpoint-mix STOP~~ **ENDPOINT-MIX LAYER RESOLVED 2026-07-28 (triple-block wiring):** the mix vertices (v8, v12) have exactly 3 incident surfaces `{cyl_A, plane_B, cone_B}` and relocate through the increment-5 triple block. R0044 now STOPs one layer deeper at `stage4_correct.rs:5646` — v13 is a **pure** surface-pair vertex (`n_maps == 1`, correctly not a triple) whose `relocate_onto_implicit_pair` NEWTON DIVERGES. Same family as the torus `pair_newton_none` cases | CONFIRMED (2026-07-28 `#[track_caller]` LRR-site trace) | M5 surface-pair Newton convergence (with R0025/R0032/R0077) **2026-08-19 (M5 spec §"2026-08-19"): the pair-Newton "divergence" was the cone step overshoot (sec α, KV16 fix missing from the pair solver) → FIXED; then the same-type SurfacePair junction (cyl×cone_B1 ∩ cyl×cone_B2, one-slot map) → FIXED via `same_type_junction`; then kernel-v2 K9 cone sag radius 0 → FIXED (`pair_surface_local_scale`); then the projector's bare 1e-13 tau at |x|≈6e3 → FIXED (8·ε·L floor). NOW: kernel-v2 render `ring rejected by CDT` FaceId(460) — ring-reject family; MEASURED (`KV2_RING_REJECT_PROBE`/`KV2_PATCH_PROV`): face 460 is a curved patch, 184-node ring, with a REVERSAL at idx 176→177→178 in the unrolled frame (177 sits ~3.8 units BEHIND 176 along the 176→178 direction at coordinate scale 3e3; twins 34907/34990/35000 — three different neighbour edges, i.e. the crease-adjacent chain vertices) — a §4.5.3 reversed-intersection on a PROCEDURAL (surface-pair) chain, which the conic-loop sweep does not cover; NOT the K9 samples (n_interior/positions are the ring's own vertices). Vehicle: §4.5.3 sweep over surface-pair chains / junction placement at the crease **2026-08-24: the pair-chain sweep LANDED always-on (N59) but R0044 is census-QUIET — no eligible pair site fires; the case now STOPs at §4-I9 `RelocationCrossedCarrierVertex` v8 (exact collinear crossing — the overshoot class I9's certificate CAN see). The crease reversal is junction-adjacent (the pair changes across the site), outside the arm's same-pair eligibility — junction-site handling is the recorded next increment** **FLIPPED CORRECT 2026-09-05 (thin-band chart guard + genus adjudication):** after K11 inc-1 the case STOPped in Stage 1 at `face 166: holed lateral CDT failed` — a CONE band whose two rim circles sit 1.07 apart along the axis (slant gap 2.02 at r ≈ 3682) sampled at N = 41 (sag 10.8): 20 chart crossings. Probed, the gear revolve carries SEVENTY such bands (rim pairs ≈ 2 apart at radii 1024…3870). `face_rim_pair_phantom_n` (the Case-IV statement for one face's own rims: `sag_outer ≤ gap/2`, gap = the in-chart separation) folds N = 131 into the shared rim N; the top band still crossed itself twice at that N (a 176-unit rim chord over the hyperbola × surface-pair junction vertex 0.5 inside the band — a vertex no rim-pair rule can see), so the §4.5.4 chart scan + bounded retry (`Stage1ChartCrossing`, demand N = 272, one round) lands it and every band tessellates. The chain then completed with χ = 0, which the authored `euler_target: 2` graded WRONG — the exact-membership ladder reads the composed solid at χ = 0 / 1 component on 128, 256 and 512 cells and two phases (the circle cut bores THROUGH the union: genus 1), so the target was the generator's guess (the R0011 protocol: meta corrected to 0, `r0044_reads_genus_one` + `historical_authoring_fixes_pinned`). SUPPORTED_CORRECT, 268 s (was 30 s to the Stage-1 STOP; the time is the re-entering union's boolean, not the rim density — 269 s at N = 185 and 268 s at N = 272) | CONFIRMED (2026-09-05) | DONE |
 | ~~R0096~~ | ~~Stage-4 LRR v7~~ | ~~torus×torus~~ **FLIPPED CORRECT 2026-07-17 (#172):** torus×torus lateral∩lateral + torus×torus×plane junctions now relocate via the implicit-pair/triple Newton (torus-block scope lift) | — | ~~P2-M5~~ DONE |
 | R0038 | Stage-4 LRR (u32::MAX) | plane tangent to cylinder along one generator; degree-2 gate self-validates (`bad_degree=[(18,4),(19,4)]`) — near-tangency pinch, NOT a CDT ring | CONFIRMED (#168 WIP4, 9f4cb604) | P3b-#137 |
 | ~~R0072~~ | ~~Stage-4 LRR (u32::MAX)~~ | ~~real ~1e-7 micro-scale edge (0.4% span); force-merge is the R0091 silent-wrong trap — needs curved re-CDT~~ **FLIPPED CORRECT 2026-07-28 (#195 inc-5):** the §4.5.4 detect-then-refine rim boost + §4.4.1 rim-snap, both now always-on, resolve it WITHOUT a curved re-CDT — the micro-scale edge was an under-sampled rim, not an irreducible feature | — | ~~P3c~~ DONE |

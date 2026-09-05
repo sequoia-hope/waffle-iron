@@ -40,6 +40,7 @@ mod p3b_tube_insertion;
 mod s188_envelope;
 mod s194_edge_collapse;
 mod s195_rim_plane_graze;
+mod s1_chart_crossing;
 mod s434_output_restore;
 mod s451_crease_domain;
 mod s4_boundary_curve;

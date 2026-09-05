@@ -63,6 +63,22 @@ pub enum YangError {
     /// §4.5.2 local-refinement territory, never a silently-emitted inverted
     /// mesh.
     Stage4ReversalUnresolved { edge: (u32, u32), vertex: u32 },
+    /// Stage 1 (§4.5.4, 2026-09-05): the chart polygon of face `face` — the
+    /// unrolled boundary the holed-lateral CDT triangulates — crosses itself
+    /// `crossings` times: a boundary chain sampled too coarsely for the
+    /// face's own feature size (R0044: a rim chord passing over a junction
+    /// vertex 0.5 units inside a 2-unit band). `demand_n` is the rim segment
+    /// count derived from the crossings (the crossed vertex's radial distance
+    /// to the rim halves the allowed sagitta) — the Stage-1 driver retries
+    /// at that density (`stage1_tessellate_inner_overrides`, bounded); `None`
+    /// when no crossing involves a rim chord (nothing to refine) and the
+    /// error is the LOUD stop it was as a CDT failure — never a silently
+    /// paved crossing (the R0040 pin showed the flood-fill CDT can pave one).
+    Stage1ChartCrossing {
+        face: usize,
+        crossings: usize,
+        demand_n: Option<usize>,
+    },
     /// PR-YR10 (Stage 4, §4.4.1 / §4.5): a relocation region around `vertex`
     /// could not be made valid. `reason` names the specific failure. A P9/P10
     /// LOUD stop — never a tolerance widening, silent snap, or fallback path.
@@ -287,6 +303,16 @@ impl fmt::Display for YangError {
                      resolve a reversal at vertex {vertex} on edge {edge:?}"
                 )
             }
+            Self::Stage1ChartCrossing {
+                face,
+                crossings,
+                demand_n,
+            } => write!(
+                f,
+                "yang-rs: Stage-1 chart polygon of face {face} crosses itself {crossings} time(s) \
+                 (rim segment demand {demand_n:?}): boundary sampling coarser than the face's \
+                 feature size"
+            ),
             Self::Stage4RegionInvalid { vertex, reason } => {
                 write!(
                     f,

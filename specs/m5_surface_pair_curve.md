@@ -337,7 +337,8 @@ for that family's census, not chased here.
 274C / 0W / 32E / 4EE / 0T — exactly ONE row moved against the apex-cone
 canonical 274C/0W/31E/4EE/0T: R0044 `UNSUPPORTED(curved-profile)` → ERROR
 at `face 166: holed lateral CDT failed` (the thin conical band above; see
-`yang_stage1_curved_holed_patch.md`'s census row). The
+`yang_stage1_curved_holed_patch.md`'s census row — CLOSED 2026-09-05 by
+the thin-band chart guard; R0044 is CORRECT, genus 1 adjudicated). The
 `UNSUPPORTED(curved-profile)` class is EMPTY; the only UNSUPPORTED rows
 left are the two M8 coplanar cases (F0064, F0072).
 

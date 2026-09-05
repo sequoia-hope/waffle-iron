@@ -390,7 +390,8 @@ the 195-unit closing jump, one on each rim). The seam rule for a
 non-encircling patch is now the outer loop's unwrapped azimuth range (the
 amended "θ branch-cut" §2 above). Not the thin-band class.
 
-**R0044 face 166 (the thin band, measured, NOT fixed).** The same analysis:
+**R0044 face 166 (the thin band — FIXED by the guard below; the case is
+CORRECT, genus 1 adjudicated).** The same analysis:
 a CONE face (half-angle 1.011 rad, apex ≈ (−2421, −4037, −2130)) whose
 isometric development spans u, v ≈ ±4344 (slant ≈ 4340). Loop = one
 Hyperbola, ONE SurfacePair edge, two LineSegments and SEVEN Circle arcs on
@@ -401,8 +402,96 @@ two rims are concentric arcs ≈ 2 apart sampled with chords of 559 / 537
 2 rim 863 × the pair edge, 1 the line 862 × rim 863. The rim sampling
 density of a face must keep each rim chord's sag below the face's own
 boundary-to-boundary distance for the chart polygon to be simple — a
-feature-size-aware density rule (the R0095 detect-then-refine rim boost is
-the precedent vehicle), not a seam defect. Recorded for the next increment.
+feature-size-aware density rule, not a seam defect.
+
+### The thin-band chart guard (2026-09-05) — `face_rim_pair_phantom_n`
+
+The paper discretizes at one global `d_ε` (§4.1) and answers the rare
+self-intersection this produces with §4.5.4 "detect these illegal
+intersections and perform local refinement". This crate already carries the
+a-priori form of that answer for one configuration: the Case-IV guard
+(`cyl_pair_phantom_n`, spec `yang_case_iv_phantom_guard`) derives the rim
+segment count N that keeps two analytically-disjoint cylinders' chord bands
+clear of their gap, folded into Stage 1's single shared N. The thin band is
+the SAME statement for two rim circles that bound ONE face: in that face's
+chart the rims are concentric arcs — the cone's isometric development (a
+rim at axial height `h` from the apex is the arc of radius `h / cos α`), or
+the plane itself — and their chords must not interleave.
+
+| | |
+|---|---|
+| rule | smallest `N` with `sag(r_outer, N) ≤ gap / 2`, `sag(r, N) = r(1 − cos(π/N))` (the Stage-1 sagitta, A14.3 single source). Only the OUTER rim's chords can reach the inner rim — every chord of an arc lies inside that arc's own disk, so the inner rim's chords dip AWAY from the outer rim and the outer rim's chords dip TOWARD it; the outer chord stays outside the inner arc iff `sag_outer < gap`, and the factor-2 margin keeps the outer chord band inside its own half of the band. A finer N is always chord-valid. (The first cut of the rule summed both sags, the `cyl_pair_phantom_n` form — where two surfaces' bands face each other across a gap; here they do not — and demanded √2 more segments for the same guarantee: R0044 N 185 vs 135, corpus wall +180 s.) |
+| `gap`, cone face | the slant separation `\|h_a − h_b\| / cos α` of two coaxial rims; the outer rim is the one farther from the apex |
+| `gap`, planar face | NESTED circles only (a thin annulus, a hole close to a circular rim): `r_large − d − r_small`, the outer rim is the larger circle. EXTERNAL coplanar circles (two holes side by side) keep their chords inside their own disjoint disks — no interleave at any N, `None` |
+| cylinder / torus / sphere face | `None` — a cylinder's rims are parallel lines in its strip; torus and sphere own their charts |
+| `None` | the same circle twice; a non-positive gap (intersecting circles — a real curve); N > 4096 (true near-tangency: the loud CDT stop stays the tripwire, P9) |
+| fold site | the Stage-1 pre-pass, right after the intra-solid cylinder-pair fold: per face, every pair of DISTINCT circle edges (by center / radius bits) across its loops; `n_seg = max(…)` — every tessellation (conversion, Stage-0 rebuilds, the graze boosts) picks it up; far pairs derive a tiny N the natural bound absorbs (self-limiting, no mode branch) |
+| R0044 face 166 | rims 1.07 apart along the axis at α = 1.011 ⇒ gap 2.02 at r ≈ 3682; N = 41 (sag 10.8) ⇒ N = 135 for this band. The gear revolve carries SEVENTY such bands (rim pairs ≈ 2 apart at radii 1024…3870; `YANG_SPLIT_PROBE` prints each fold); the solid's guard N settles at 131. The same face (173 in the re-entering union) then reports 2 chart crossings at the end notch (§4.5.4 below) with demand N = 272 and the ONE refine round lands it. The chain completes in 268 s at χ = 0 — adjudicated the TRUE genus 1 by `assay_exact_membership::r0044_reads_genus_one` (the circle cut bores through the union); the authored `euler_target: 2` was the generator's guess, corrected the R0011 way |
+
+Pins: `thin_band_guard_derives_r0044_rim_density` (the measured R0044
+numbers ⇒ N in 130..=140 and minimal; same circle / cylinder / lens /
+external coplanar pair ⇒ `None`; a far pair ⇒ N ≤ 8; a 0.02-wide planar
+annulus at r = 10 ⇒ N ≈ 71) and `thin_cone_band_tessellates_at_its_own_rim_density` (a bounded
+half-band on a 45° cone, rims 0.02 apart in height, the two rims' arcs
+split at DIFFERENT azimuths so their chords interleave at the natural N —
+RED without the fold — the CDT failure itself; with it the band
+tessellates, area = the developed annular sector `½·Δθ·sin α·(ℓ₂² − ℓ₁²)`
+within 5 % — measured +3.2 %: at a sag about half the band width the flat
+triangles between an inner chord and an outer vertex tilt into the cone (a
+corrugation whose area exceeds the surface's while every vertex is exactly
+on the surface, the paper's d_ε contract; signed = unsigned area, no fold)
+— no edge covered more than twice, ≥ 60 rim segments per turn).
+
+**Global, not local.** The fold raises the ONE shared N of the whole solid
+(the paper's uniform 2× refinement is likewise global per patch — §4.1
+"each iteration of our method increases the mesh density by 2×"). A
+per-edge density channel would be the local form; recorded, not built —
+the rims are shared chains, and the shared-N design is what keeps
+coincident cylinders identically sampled (§4.5.5).
+
+### The §4.5.4 detect-then-refine behind the guard (2026-09-05, same day)
+
+The rim-pair guard is necessary, not sufficient: R0044 face 173 at the
+guard's N = 131 (rims 2.25 apart in slant, sag 1.06) still crossed itself
+TWICE — a 176-unit rim-B chord passing over the hyperbola × surface-pair
+junction vertex that sits 0.5 units inside the band (the band's end notch).
+No rim-pair rule can see a non-circle boundary vertex; the first cut's
+sum-of-sags form (N = 185, dev sag 0.48) cleared that vertex by luck. The
+paper's answer is §4.5.4 — "we detect these illegal intersections and
+perform local refinement" — at Stage-1 altitude:
+
+| | |
+|---|---|
+| detect | `chart_polygon_crossings` (`stage1_tessellate/chart_crossing.rs`): every PROPER crossing between two chords of the face's chart polygons (outer + holes), a sweep-pruned pair scan; chords sharing a vertex never cross; collinear overlaps are not reported. Runs on every holed-lateral face BEFORE its CDT — a simple polygon costs one scan and is byte-identical |
+| derive | `cone_chart_rim_demand`: for each crossing whose chord belongs to a rim circle (owner = the edge the chord's first vertex was sampled from; cone charts only — a cylinder's rims are straight in its strip), the crossed chord's endpoints sit at radial distance `d = min \|‖q‖ − ℓ_rim\|` in the development, and the rim must keep `sag(r, N) ≤ d/2` (3-D sagitta ≥ development sagitta: conservative; the guard's own factor-2 margin). Demand = max over crossings; `None` when no rim chord is involved, `d ≤ 0`, or N > 4096 |
+| report | typed `YangError::Stage1ChartCrossing { face, crossings, demand_n }` — never the CDT's "failed to triangulate", never a paved crossing (the R0040 pin: the flood-fill CDT CAN pave a self-crossing polygon silently) |
+| refine | the Stage-1 driver (`stage1_tessellate_inner_overrides`, wrapping `stage1_tessellate_once`) re-runs the WHOLE pass at `min_n_seg = demand` when the demand exceeds the N the pass used (the shared-N design: every rim re-samples together, as the paper's uniform 2× does), at most `CHART_REFINE_ROUNDS = 4` times; a demand the pass already met, or no demand, returns the typed error (loud). `YANG_S1_CHART_REFINE=0` = the pre-flip path (typed error, no retry) for dev A/B |
+
+Pins (`tests_unit/s1_chart_crossing.rs`): square / touching loops ⇒ none;
+bowtie ⇒ 1; a chord over a two-chord notch ⇒ 2; the demand halves the
+crossed vertex's distance (N ≥ 71 for 0.02 inside a r = 10 rim) and a chord
+sharing a rim vertex derives nothing; the R0044-shaped SPIKE band (the 45°
+band with a two-straight-edge spike from rim A to 0.2·gap below rim B under
+a rim-B chord — a plain vertex the pair guard cannot see): one pass at the
+guard's N = 60 reports the crossing with demand N ≈ 133, and the driver
+tessellates it there (area = band − spike within the corrugation
+allowance, no fold, rim B ≥ 133 segments per turn).
+
+**Corpus (release, 8 jobs, 600 s; wall 653 s, F0085 297.6 s, R0044
+279.6 s): 275C / 0W / 31E / 4EE / 0T, three rows moved.** R0044 ERROR →
+CORRECT. R0003 and R0053 CORRECT → ERROR — both gear revolves whose thin
+bands raise the shared N (R0003 41 → 128, R0053 → 131) onto
+density-sensitive walls downstream of Stage 1 (R0003: the §I13(f) f903
+render ring fold, CORRECT at N = 41 and at the sum-of-sags first cut's
+≈ 181; R0053: a chained output re-enters non-2-manifold). Unmasked latents,
+ledgered ACTIVE (`docs/yang_tail_triage.md` "Unmasked 2026-09-05"), the
+rule kept. Total corpus case CPU 3070 → 3833 s (the sum-of-sags cut was
+4514 s).
+
+**Still recorded, not built.** A crossing with NO rim chord (hyperbola ×
+surface-pair chains) has no density channel — it stays the typed loud stop.
+The planar-CDT path (`tessellate_planar_curved_cdt_face`) has no scan yet
+(no corpus case fails there; census first).
 
 ## Apex-cone OPERAND — ✅ DONE (2026-09-04; C0063)
 

@@ -82,6 +82,95 @@ pub(crate) fn cyl_pair_phantom_n(
     Some(n)
 }
 
+/// Thin-band chart guard (2026-09-05, R0044 face 166; spec
+/// `yang_stage1_curved_holed_patch` "The thin-band chart guard"): the
+/// Case-IV statement for two rim CIRCLES that bound the SAME face. In that
+/// face's chart the two rims are concentric arcs — the isometric development
+/// of a cone, or the plane itself — and their chords must not interleave, or
+/// the chart polygon crosses itself and the CDT either fails loud or (the
+/// R0040 pin) paves the crossing silently.
+///
+/// Only the OUTER rim's chords can reach the inner rim: every chord of an arc
+/// lies inside that arc's own disk, so the inner rim's chords dip AWAY from
+/// the outer rim and the outer rim's chords dip TOWARD it. The outer chord
+/// stays outside the inner arc iff `sag_outer < gap`; the requirement is the
+/// smallest `N` with `sag(r_outer, N) ≤ gap / 2` (`sag(r, N) = r(1 −
+/// cos(π/N))`, the Stage-1 sagitta; the factor-2 margin keeps the outer
+/// chord band inside its own half of the band, and a finer N is always
+/// chord-valid). `gap` is the IN-CHART distance between the circles:
+///
+/// - `Surface::Cone`: both rims are coaxial; `gap = |h_a − h_b| / cos α`,
+///   the slant separation (a rim at axial height `h` from the apex is the
+///   development arc of radius `h / cos α`); the outer rim is the one
+///   farther from the apex. R0044: rims 1.07 apart along the axis at
+///   α = 1.011 ⇒ gap 2.02 at r ≈ 3682, sampled at N = 41 (sag 10.8) ⇒ 17
+///   rim × rim crossings; the rule derives N = 135.
+/// - `Surface::Plane`, NESTED circles (a thin annulus, a hole close to a
+///   circular rim): `gap = r_large − d − r_small`, the outer rim is the
+///   larger circle.
+/// - `Surface::Plane`, EXTERNAL circles (two holes side by side): each
+///   circle's chords stay inside its own disjoint disk — no interleave is
+///   possible at any N: `None`.
+/// - a cylinder's rims are parallel lines in its strip, a torus / sphere
+///   has its own chart: `None`.
+///
+/// `None` also for the same circle twice, a non-positive gap (intersecting
+/// circles — a real curve, not a band), or a true near-tangency whose N
+/// would exceed 4096 (the loud CDT stop remains the tripwire, P9). Far
+/// pairs derive a tiny N the natural Stage-1 `max()` absorbs — self-limiting,
+/// no mode branch (the `cyl_pair_phantom_n` pattern).
+pub(crate) fn face_rim_pair_phantom_n(
+    surface: Surface,
+    (ca, ra): (Point3, f64),
+    (cb, rb): (Point3, f64),
+) -> Option<usize> {
+    let (gap, r_outer) = match surface {
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => {
+            let au = normalize3(axis_dir.as_array());
+            let ap = apex.as_array();
+            let h = |c: Point3| -> f64 {
+                let q = c.as_array();
+                (q[0] - ap[0]) * au[0] + (q[1] - ap[1]) * au[1] + (q[2] - ap[2]) * au[2]
+            };
+            let cos_a = half_angle.cos();
+            if cos_a.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+                return None; // a degenerate (≥ 90°) or NaN half-angle
+            }
+            let (ha, hb) = (h(ca), h(cb));
+            let outer = if ha.abs() >= hb.abs() { ra } else { rb };
+            ((ha - hb).abs() / cos_a, outer)
+        }
+        Surface::Plane { .. } => {
+            let (a, b) = (ca.as_array(), cb.as_array());
+            let d = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+            let nested = ra.max(rb) - d - ra.min(rb);
+            if nested.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+                // External (disjoint disks — no interleave possible) or
+                // intersecting (a real curve) or NaN: nothing to demand.
+                return None;
+            }
+            (nested, ra.max(rb))
+        }
+        _ => return None,
+    };
+    if gap.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+        return None; // the same circle / NaN
+    }
+    let sag = |r: f64, n: usize| r * (1.0 - (std::f64::consts::PI / n as f64).cos());
+    let mut n = 3usize;
+    while sag(r_outer, n) > gap / 2.0 {
+        n += 1;
+        if n > 4096 {
+            return None; // true near-tangency: the loud CDT stop stands
+        }
+    }
+    Some(n)
+}
+
 pub(crate) fn phantom_min_rim_segments(a: &BRep, b: &BRep) -> Option<usize> {
     let cyls = |brep: &BRep| -> Vec<(Point3, Vector3, f64)> {
         brep.faces()

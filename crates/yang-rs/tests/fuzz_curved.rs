@@ -1142,6 +1142,7 @@ fn err_variant_name(e: &YangError) -> &'static str {
         YangError::UnsupportedOp(_) => "UnsupportedOp",
         YangError::CurvedSurfaceNotYetSupported { .. } => "CurvedSurfaceNotYetSupported",
         YangError::Stage4ReversalUnresolved { .. } => "Stage4ReversalUnresolved",
+        YangError::Stage1ChartCrossing { .. } => "Stage1ChartCrossing",
         YangError::CoplanarFacesUnsupported { .. } => "CoplanarFacesUnsupported",
         YangError::SubResolutionCoplanarGap { .. } => "SubResolutionCoplanarGap",
         YangError::SubSagittaGrazeIntersection { .. } => "SubSagittaGrazeIntersection",

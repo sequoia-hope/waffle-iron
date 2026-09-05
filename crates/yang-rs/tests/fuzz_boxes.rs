@@ -391,6 +391,7 @@ fn err_variant_name(e: &YangError) -> &'static str {
         YangError::CurvedSurfaceNotYetSupported { .. } => "CurvedSurfaceNotYetSupported",
         YangError::SsiRefinementFailed { .. } => "SsiRefinementFailed",
         YangError::Stage4ReversalUnresolved { .. } => "Stage4ReversalUnresolved",
+        YangError::Stage1ChartCrossing { .. } => "Stage1ChartCrossing",
         YangError::Stage4RegionInvalid { .. } => "Stage4RegionInvalid",
         YangError::CoplanarFacesUnsupported { .. } => "CoplanarFacesUnsupported",
         YangError::SubResolutionCoplanarGap { .. } => "SubResolutionCoplanarGap",
