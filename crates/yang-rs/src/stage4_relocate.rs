@@ -1269,6 +1269,100 @@ pub(crate) fn pp_line_circle_junction(
     best.map(|(_, j)| j)
 }
 
+/// M5 K11 inc-2 (spec `m5_surface_pair_curve.md` "K11 inc-2"): why a
+/// ruling × section-circle junction whose ruling is PARALLEL to the circle's
+/// plane has no junction.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum CoplanarJunctionDecline {
+    /// The ruling is parallel to the circle's plane but OFFSET from it (or, in
+    /// the plane, misses the circle): the two section curves never meet, the
+    /// arrangement vertex is a chord artefact of two near-missing chains, and
+    /// the loud stop stands. Carries the ulp-order plane band the residual was
+    /// certified against.
+    Miss { plane_band: f64 },
+    /// The ruling is tangent to the circle at the junction: a grazing contact,
+    /// not a transversal junction. Carries `sin θ`.
+    Tangent { sin_theta: f64 },
+}
+
+/// M5 K11 inc-2 (2026-09-05, spec `m5_surface_pair_curve.md` "K11 inc-2"):
+/// the junction of a cylinder RULING with a section CIRCLE when the ruling
+/// lies IN the circle's plane — the `pair curve ∩ plane` junction of an INPUT
+/// surface-pair chain (cyl_A × cyl_A') crossed by a cutting plane B that is
+/// parallel to cyl_A's axis (its section of cyl_A is a ruling) and
+/// perpendicular to cyl_A''s axis (its section of cyl_A' is a circle). Both
+/// section curves lie in B, and their in-plane crossing IS the three-surface
+/// point `{B, cyl_A, cyl_A'}` the pair chain passes through: a point on the
+/// ruling is on B and cyl_A, a point on the circle is on B and cyl_A'. The
+/// exact junction is the in-plane line∩circle — [`pp_line_circle_junction`]
+/// (the Task #146 line∩sphere quadratic + circle-plane residual certificate),
+/// root nearest `current`.
+///
+/// `line` = (point, direction) of the ruling; `circle` = (center, normal,
+/// radius) of the section circle.
+///
+/// Returns `(junction, gate)`: the exact point and the DERIVED displacement
+/// bound the caller gates `|current − junction|` against — the vertex is
+/// within `line_band` of the ruling and within `d_eps` of the circle, both
+/// in-plane, so its displacement to their crossing is at most
+/// `(line_band + d_eps) / sin θ`, θ the angle between the ruling and the
+/// circle's tangent at the junction (the pp-circle arm's Branch-6 crossing
+/// amplification with the ruling's OWN band added, because a ruling vertex —
+/// unlike a pp-line vertex — is not exact in the mesh). Not a widening.
+///
+/// The certificate separating "in the plane" from "parallel but offset" is
+/// the scale-aware junction band of the circle's plane
+/// ([`junction_certificate_band`], ulp-order — the increment-3 exactness
+/// band): the ruling and the circle are both EXACT sections of the same
+/// cutting plane, so a genuine in-plane crossing has ulp residual and an
+/// offset of any modelling size is refused. Never the chord band — that
+/// would accept a non-junction and land the vertex on the line but off the
+/// circle by the offset (P9/P10). A tangent crossing (`sin θ` below
+/// `TAU_MODEL`) declines as a grazing contact.
+pub(crate) fn ruling_circle_coplanar_junction(
+    line: (Point3, Vector3),
+    circle: (Point3, Vector3, f64),
+    current: Point3,
+    line_band: f64,
+    d_eps: f64,
+) -> Result<(Point3, f64), CoplanarJunctionDecline> {
+    let (line_point, line_dir) = line;
+    let (center, normal, radius) = circle;
+    let c = center.as_array();
+    let nr = normal.as_array();
+    let plane_band = junction_certificate_band(
+        line_point.as_array(),
+        Surface::Plane {
+            normal,
+            d: nr[0] * c[0] + nr[1] * c[1] + nr[2] * c[2],
+        },
+    );
+    let Some(j) = pp_line_circle_junction(
+        line_point, line_dir, center, normal, radius, current, plane_band,
+    ) else {
+        return Err(CoplanarJunctionDecline::Miss { plane_band });
+    };
+    let n = normalize3(nr);
+    let d = normalize3(line_dir.as_array());
+    let ja = j.as_array();
+    let rvec = normalize3([ja[0] - c[0], ja[1] - c[1], ja[2] - c[2]]);
+    let tangent = [
+        n[1] * rvec[2] - n[2] * rvec[1],
+        n[2] * rvec[0] - n[0] * rvec[2],
+        n[0] * rvec[1] - n[1] * rvec[0],
+    ];
+    let cross = [
+        d[1] * tangent[2] - d[2] * tangent[1],
+        d[2] * tangent[0] - d[0] * tangent[2],
+        d[0] * tangent[1] - d[1] * tangent[0],
+    ];
+    let sin_theta = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
+    if sin_theta < cad_primitives::TAU_MODEL {
+        return Err(CoplanarJunctionDecline::Tangent { sin_theta });
+    }
+    Ok((j, (line_band + d_eps) / sin_theta))
+}
+
 /// PR-YR21 (spec §3.1/§3.2): per-vertex Ellipse relocation data for a
 /// `cone ∩ plane` oblique section — the cone analog of [`EllipseReloc`]. Carries
 /// the true cone (apex / axis / half-angle), the cutting plane (`plane_n` /

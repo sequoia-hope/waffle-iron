@@ -89,7 +89,7 @@ simply never matches it (no intersection mesh edges exist for that pair).
 | K8 | `validate_solid` planar-face loop | SurfacePair edge on a `Plane` face → invalid (a transversal quadric-pair curve is never planar; degenerate configs produce conics upstream) |
 | K9 | tessellate: edge samples | `surface_pair_interior_samples`: recursive chord midpoint → Newton projection onto both surfaces (Gauss-Newton, [#24] §4.3), split while sag > chord bound, depth-capped; non-convergence → typed error (loud, no chord fallback) |
 | K10 | tessellate: cylinder patch boundary | SurfacePair boundary edges enter the unroll via their K9 samples (same role as `arc_interior_samples`) |
-| K11 | re-entry `to_yang_brep` | ~~any SurfacePair edge → `UnsupportedCurvedBoolean { face }`~~ **inc-1 LANDED 2026-09-04** (section "K11 re-entry" below): a curved-lateral SurfacePair edge converts to ONE shared yang input `Curve::SurfacePair` (operands verbatim, endpoint-determined); yang Stage 1 builds its Newton-certified chain. A SurfacePair on a PLANE loop stays typed (K8: never a valid solid) |
+| K11 | re-entry `to_yang_brep` | ~~any SurfacePair edge → `UnsupportedCurvedBoolean { face }`~~ **inc-1 LANDED 2026-09-04** (section "K11 re-entry" below): a curved-lateral SurfacePair edge converts to ONE shared yang input `Curve::SurfacePair` (operands verbatim, endpoint-determined); yang Stage 1 builds its Newton-certified chain. **inc-2 LANDED 2026-09-05** (section "K11 inc-2" below): a chained cut whose plane CROSSES a pair chain lands the crossing on the exact `pair curve ∩ plane` junction. A SurfacePair on a PLANE loop stays typed (K8: never a valid solid) |
 
 ## Invariants
 
@@ -123,7 +123,7 @@ simply never matches it (no intersection mesh edges exist for that pair).
 | tangent pair (parallel normals at contact) | Stage-4 relocation `None` → existing loud `SsiRefinementFailed`; K9 sampling non-convergence → typed tessellation error |
 | non-Cylinder operand reaching K1 | typed `UnsupportedBooleanOutputCurve` |
 | closed single-edge quartic loop | K2/K6 typed rejection (no producer constructs them) |
-| chained boolean on quartic-bounded body | K11 inc-1: RE-ENTERS Stage 1 (2026-09-04). A chained cut that CROSSES a pair chain STOPs at Stage-4 `LocalRefinementRequired` on the chord-crossing vertex (inc-2, measured) |
+| chained boolean on quartic-bounded body | K11 inc-1: RE-ENTERS Stage 1 (2026-09-04). K11 inc-2 (2026-09-05): a chained cut whose plane crosses a pair chain with a RULING × section-CIRCLE junction (plane ∥ one axis, ⟂ the other) lands the crossing exactly. A crossing whose two sections are OTHER in-plane conic pairs (ellipse × circle, ellipse × ellipse in ONE plane, ruling × ellipse) reaches the per-type junction arms, whose closed forms assume DISTINCT planes — unmeasured; the loud Stage-4 stops stand there |
 | near-half ambiguity | N/A — no minor-arc derivation exists for SurfacePair (no normal to flip); traversal is endpoint-determined |
 
 ## Research basis
@@ -340,3 +340,73 @@ at `face 166: holed lateral CDT failed` (the thin conical band above; see
 `yang_stage1_curved_holed_patch.md`'s census row). The
 `UNSUPPORTED(curved-profile)` class is EMPTY; the only UNSUPPORTED rows
 left are the two M8 coplanar cases (F0064, F0072).
+
+## K11 inc-2 — LANDED 2026-09-05: the `pair curve ∩ plane` junction (ruling × section circle, coplanar)
+
+**Anchor (the quarantined probe, now the pin).** kernel-v2
+`kv9_cyl_cyl_special.rs::unequal_perpendicular_union_reenters_with_crossing_cut`:
+the unequal perpendicular cyl×cyl union (c1 axis z r 0.3, c2 axis x r 0.18)
+re-enters a box cut whose plane x = 0.27 crosses the saddle (x ∈ [0.24, 0.3])
+at four points. Measured 2026-09-04: Stage-4 `LocalRefinementRequired` at
+v28, the first crossing.
+
+**Where the STOP actually was (one layer deeper than the inc-1 note).**
+The inc-1 measurement read the wall as "the pair curve is an INPUT edge, so
+no relocation arm sees the crossing". `YANG_LRR_SITE` localizes it to
+`stage4_correct.rs`'s PR-F3 **line × circle junction arm**: the crossing
+vertex is an endpoint of TWO intersection edges — plane_B × c1, a RULING
+(`LineSegment`, the plane is parallel to c1's axis) and plane_B × c2, a
+section CIRCLE (the plane is perpendicular to c2's axis) — so
+`vert_line` ∩ `vert_circle` demotes it to `vert_junction`, whose closed form
+is `line ∩ plane-of-circle` and requires the line TRANSVERSAL to the circle's
+plane. Here both sections lie IN the cutting plane (`n · d = 0`), and the
+arm STOPped "line parallel to the circle plane: no transversal junction".
+The triple block never saw it either: a junction map counts as zero
+curve-bearing maps (`n_maps`), the same accidental exclusion the KV16
+same-type and R0044-bucket fixes each closed for their own map.
+
+**The mechanism ([#24] §4.3, exact).** A point on the ruling is on B and on
+c1; a point on the circle is on B and on c2; their in-plane crossing IS the
+three-surface point {B, c1, c2} the pair chain passes through. The exact
+junction is the in-plane line∩circle — the Task #146 closed form
+`pp_line_circle_junction` (line∩sphere quadratic + circle-plane residual
+certificate, "valid for the in-plane AND transversal configurations"), which
+the circle × pp-line arm already used and this arm did not.
+
+| # | site | behaviour |
+|---|---|---|
+| J1 | `stage4_relocate::ruling_circle_coplanar_junction` | `(line, circle, current, line_band, d_ε) → Ok((junction, gate)) \| Err(Miss \| Tangent)`. Junction = `pp_line_circle_junction` root nearest the vertex, certified against the circle plane at the scale-aware **`junction_certificate_band`** of that plane (ulp-order, the increment-3 exactness band) — the ruling and the circle are both EXACT sections of the same cutting plane, so a genuine in-plane crossing has ulp residual and a parallel-but-OFFSET ruling of any modelling size is a `Miss` (never the chord band: that would accept a non-junction and land the vertex on the line but off the circle by the offset). Gate = **`(line_band + d_ε) / sin θ`**, θ between the ruling and the circle's tangent at the junction — the pp-circle arm's Branch-6 crossing amplification with the ruling's OWN propagated band added (a ruling vertex, unlike a pp-line vertex, is not exact in the mesh). Derived, not a widening. `sin θ < TAU_MODEL` = a grazing contact → `Tangent` |
+| J2 | `stage4_correct` line × circle arm, the `\|n·d\| < TAU_MODEL` branch | was an unconditional `LocalRefinementRequired`; now J1. `Ok` → the common gate / `project_onto_circle` (frame angle `t`) / retag path the transversal branch uses; `Err` → the loud stop stands (`YANG_LRR_PROBE` prints `site=line_circle_coplanar_decline` with the decline). The transversal branch is byte-identical |
+
+**Oracles (all green).**
+
+- yang `tests_unit/m5_k11_pair_chain.rs` (5 new): the inc-2 frame (plane
+  x = 0.27, ruling y = −√(0.09 − 0.27²), circle r 0.18 about (0.27, 0, 0)):
+  the measured v28 lands on the plane, the ruling AND the circle to 1e-15
+  (⇒ on both cylinders as surfaces), with the derived gate
+  `(band + d_ε)/(|z|/r)`; the root nearest the vertex wins; a ruling in the
+  plane x = 0.2705 (parallel, offset 5e-4 — inside any chord band) is a
+  `Miss` with an ulp-order certificate; a ruling tangent to the circle is a
+  `Tangent`; a ruling in the plane that misses the circle is a `Miss`.
+- kernel-v2 `unequal_perpendicular_union_reenters_with_crossing_cut`
+  un-quarantined: all four crossings land on
+  `(0.27, ±√(0.09 − 0.27²), ±√(0.18² − 0.09 + 0.27²))` (v28/v45/v87/v104,
+  `[k11-inc2-junction]` under `YANG_LRR_PROBE`), the cut validates, and the
+  removed volume matches the Simpson slab to **4.2e-4 relative** (pinned at
+  2e-3).
+
+**Corpus (release, 8 jobs, 420 s; wall 573.5 s, F0085 314.0 s honest
+CORRECT): 275C / 0W / 31E / 4EE / 0T — ZERO rows moved against the
+2026-09-04e canonical.** No corpus case has this junction type as its
+current wall; the increment is pinned by the kernel-v2 probe alone.
+
+**Not covered (recorded, not chased).** The junction's TYPE is set by the
+cutting plane's two sections. Plane ∥ one axis and ⟂ the other gives ruling
+× circle (this increment). An OBLIQUE plane gives ellipse × ellipse in ONE
+plane — `vert_ell_junction`'s closed form is `(plane₁ ∩ plane₂) ∩ cylinder`
+and degenerates when the two planes coincide; ellipse × circle and ruling ×
+ellipse have no junction map at all (the single-map overwrite is the
+`insert_ellipse_or_junction` class). None is measured by a probe yet; each
+is the same shape as this fix (an in-plane conic∩conic closed form, or the
+triple Newton with the junction maps counted as curve-bearing).
+

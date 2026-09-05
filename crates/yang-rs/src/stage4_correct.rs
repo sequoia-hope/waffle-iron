@@ -11927,30 +11927,81 @@ fn stage4_relocate_and_correct_inner(
         let n = normalize3(normal.as_array());
         let d = normalize3(lr.dir.as_array());
         let denom = n[0] * d[0] + n[1] * d[1] + n[2] * d[2];
-        if denom.abs() < cad_primitives::TAU_MODEL {
-            // Line parallel to the circle plane: no transversal junction.
-            return Err(YangError::stage4_region_invalid(
-                v,
-                Stage4InvalidReason::LocalRefinementRequired,
-            ));
-        }
         let pt = lr.point.as_array();
         let c = center.as_array();
-        let s_par = (n[0] * (c[0] - pt[0]) + n[1] * (c[1] - pt[1]) + n[2] * (c[2] - pt[2])) / denom;
-        let j = Point3::new(
-            pt[0] + s_par * d[0],
-            pt[1] + s_par * d[1],
-            pt[2] + s_par * d[2],
-        );
+        let (j, gate) = if denom.abs() < cad_primitives::TAU_MODEL {
+            // M5 K11 inc-2 (2026-09-05, spec `m5_surface_pair_curve.md` "K11
+            // inc-2"): the line is PARALLEL to the circle's plane. Two
+            // configurations share this branch and only one is a junction:
+            //
+            //   (a) the line lies IN the circle's plane — the `pair curve ∩
+            //       plane` junction of an INPUT surface-pair chain crossed by
+            //       a cutting plane parallel to one cylinder's axis (section
+            //       = a ruling) and perpendicular to the other's (section = a
+            //       circle): both section curves lie in the cutting plane and
+            //       their in-plane crossing IS the three-surface point the
+            //       pair chain passes through. Exact closed form + derived
+            //       gate: `ruling_circle_coplanar_junction`. Before this
+            //       branch the arm STOPped here as "no transversal junction"
+            //       (the kernel-v2 pin `unequal_perpendicular_union_reenters_
+            //       with_crossing_cut`, v28, measured 2026-09-04/05);
+            //   (b) the line is parallel but OFFSET from the plane, or
+            //       tangent to the circle — no transversal junction; the
+            //       loud stop stands (local refinement is the honest answer).
+            match ruling_circle_coplanar_junction(
+                (lr.point, lr.dir),
+                (center, normal, radius),
+                p,
+                lr.band_budget,
+                d_eps,
+            ) {
+                Ok((j, gate)) => {
+                    if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                        eprintln!(
+                            "[k11-inc2-junction] v={v} p={:?} j={:?} gate={gate:.6e} \
+                             band={:.3e} d_eps={d_eps:.3e}",
+                            p.as_array(),
+                            j.as_array(),
+                            lr.band_budget
+                        );
+                    }
+                    (j, gate)
+                }
+                Err(decline) => {
+                    if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                        eprintln!(
+                            "YANG_LRR_SITE site=line_circle_coplanar_decline v={v} p={:?} \
+                             line=({pt:?}, {d:?}) circle=(c={c:?} n={n:?} r={radius}) \
+                             decline={decline:?}",
+                            p.as_array()
+                        );
+                    }
+                    return Err(YangError::stage4_region_invalid(
+                        v,
+                        Stage4InvalidReason::LocalRefinementRequired,
+                    ));
+                }
+            }
+        } else {
+            // Transversal: the exact junction is `line ∩ plane-of-circle`.
+            let s_par =
+                (n[0] * (c[0] - pt[0]) + n[1] * (c[1] - pt[1]) + n[2] * (c[2] - pt[2])) / denom;
+            let j = Point3::new(
+                pt[0] + s_par * d[0],
+                pt[1] + s_par * d[1],
+                pt[2] + s_par * d[2],
+            );
+            // PR-F3b: line-band component carries the propagated budget; the
+            // along-line crossing component stays at the raw d_ε.
+            (j, lr.band_budget + d_eps)
+        };
         let pj = [
             p.as_array()[0] - j.as_array()[0],
             p.as_array()[1] - j.as_array()[1],
             p.as_array()[2] - j.as_array()[2],
         ];
         let rho = (pj[0] * pj[0] + pj[1] * pj[1] + pj[2] * pj[2]).sqrt();
-        // PR-F3b: line-band component carries the propagated budget; the
-        // along-line crossing component stays at the raw d_ε.
-        if rho > lr.band_budget + d_eps {
+        if rho > gate {
             if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                 return Err(e);
             }

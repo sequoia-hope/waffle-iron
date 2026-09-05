@@ -433,23 +433,30 @@ fn unequal_perpendicular_union_reenters_with_far_pocket() {
     );
 }
 
-/// M5 K11 inc-2 probe (the R0044 shape): a chained cut whose planes CROSS
-/// the surface-pair chains — the arrangement mints vertices on the pair
-/// chords and Stage 4 must land them on `pair curve ∩ plane` (a three-surface
-/// junction). Cuts the +x end of the union away at x = 0.27 — the saddle on
-/// c1 spans x ∈ [0.24, 0.3] (|sin θ| ≤ 0.6), so the plane crosses BOTH pair
-/// curves — and removes the exact slab volume by Simpson over x-sections:
-/// c1's chord strip `2·√(0.09 − x²)` plus c2's disk `π·0.18²` minus their
-/// overlap (the disk clipped to the strip), then c2's stub alone to x = 0.5.
-/// Quarantined until inc-2 lands. MEASURED 2026-09-04 (the day inc-1 landed):
-/// the arrangement mints the crossing on a pair CHORD and Stage 4 STOPs at
-/// `LocalRefinementRequired` around that vertex (v28) — the pair-curve ∩
-/// plane junction has no relocation arm yet. (A plane at x = 0.1, which
-/// misses the saddle entirely, stops earlier at Stage-3 `AmbiguousCurve
-/// { candidates: 2, matched: 0 }` on a plane × c1 ruling edge, tol 1.5e-2 —
-/// a separate, pre-existing Stage-3 class.)
+/// M5 K11 inc-2 (spec `m5_surface_pair_curve` "K11 inc-2", LANDED
+/// 2026-09-05): a chained cut whose plane CROSSES the surface-pair chains —
+/// the arrangement mints vertices on the pair chords and Stage 4 lands them
+/// on `pair curve ∩ plane`, a three-surface junction {plane, c1, c2}. Cuts
+/// the +x end of the union away at x = 0.27 — the saddle on c1 spans
+/// x ∈ [0.24, 0.3] (|sin θ| ≤ 0.6), so the plane crosses BOTH pair curves at
+/// four points — and removes the exact slab volume by Simpson over
+/// x-sections: c1's chord strip `2·√(0.09 − x²)` plus c2's disk `π·0.18²`
+/// minus their overlap (the disk clipped to the strip), then c2's stub alone
+/// to x = 0.5.
+///
+/// The cutting plane is parallel to c1's axis (its section of c1 is a
+/// RULING) and perpendicular to c2's axis (its section of c2 is a CIRCLE);
+/// both sections lie in the plane, so the junction is an in-plane
+/// ruling∩circle — the configuration the PR-F3 line×circle arm STOPped on as
+/// "no transversal junction" (measured 2026-09-04: `LocalRefinementRequired`
+/// at v28, the first crossing). yang's `ruling_circle_coplanar_junction`
+/// (the Task #146 closed form + the derived `(band + d_ε)/sin θ` gate) now
+/// lands all four crossings on the exact points
+/// `(0.27, ±√(0.09 − 0.27²), ±√(0.18² − 0.09 + 0.27²))`. (A plane at x = 0.1,
+/// which misses the saddle entirely, is a different, pre-existing Stage-3
+/// class — `AmbiguousCurve { candidates: 2, matched: 0 }` on a plane × c1
+/// ruling edge — and is not this pin's subject.)
 #[test]
-#[ignore = "M5 K11 inc-2: pair-curve ∩ plane junctions — Stage-4 LocalRefinementRequired at the chord crossing (measured 2026-09-04)"]
 fn unequal_perpendicular_union_reenters_with_crossing_cut() {
     let mut a = BrepArena::new();
     let (out, _) = unequal_perpendicular_union(&mut a);
@@ -487,8 +494,15 @@ fn unequal_perpendicular_union_reenters_with_crossing_cut() {
         s += if k % 2 == 1 { 4.0 } else { 2.0 } * f(x0 + h * k as f64);
     }
     let removed = s * h / 3.0;
+    eprintln!(
+        "crossing-cut decrement {} vs analytic {removed} (rel err {:.3e})",
+        v1 - v2,
+        (v1 - v2 - removed).abs() / removed
+    );
+    // Measured 2026-09-05 at landing: rel err 4.2e-4 (the tessellation's
+    // own chord error on the curved laterals); pinned at 5× that.
     assert!(
-        (v1 - v2 - removed).abs() < 0.02 * removed,
+        (v1 - v2 - removed).abs() < 2e-3 * removed,
         "crossing-cut decrement {} vs analytic {removed}: v1={v1} v2={v2}",
         v1 - v2
     );

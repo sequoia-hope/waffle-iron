@@ -26,11 +26,21 @@
 > thin-band chart crossing, R0040, R0070, F0082, R0100), non-2-manifold
 > INPUT after a coplanar overlay ×3 (R0019/R0049/R0081, M8), the three
 > designed sub-resolution features (C0111/C0113/C0118) and C0046 (0-D box
-> contact, rejected by design). Next increments, in order: M5 K11 inc-2 (the
-> `pair curve ∩ plane` junction — a 3-surface relocation arm for INPUT pair
-> chains; quarantined probe `unequal_perpendicular_union_reenters_with_
-> crossing_cut`), the thin-band rim chord bound (R0044 face 166; R0040 to be
-> probed), R0032's Stage-4 torus junction (`gt2_partners` v7). Review
+> contact, rejected by design). **M5 K11 inc-2 LANDED 2026-09-05** (spec
+> `m5_surface_pair_curve.md` "K11 inc-2"): the `pair curve ∩ plane` junction
+> of an INPUT pair chain crossed by a cutting plane — the STOP was the PR-F3
+> line × circle junction arm refusing a RULING that lies IN the section
+> circle's plane ("no transversal junction"); the exact in-plane line∩circle
+> closed form (`ruling_circle_coplanar_junction`, the Task #146 solver + a
+> derived `(band + d_ε)/sin θ` gate) lands it; the kernel-v2 probe
+> `unequal_perpendicular_union_reenters_with_crossing_cut` is un-quarantined
+> (four crossings exact, volume 4.2e-4 relative); corpus byte-identical in
+> category, 275C/0W/31E/4EE/0T (F0085 314.0 s). Next increments, in order:
+> the thin-band rim chord bound (R0044 face 166; R0040 to be probed),
+> R0032's Stage-4 torus junction (`gt2_partners` v7), and the OTHER in-plane
+> section-conic junction types a crossing cut can produce (oblique plane ⇒
+> ellipse × ellipse in ONE plane; ellipse × circle; ruling × ellipse —
+> unmeasured, recorded in the spec). Review
 > finding recorded, not chased: kernel-v2 emits every surface-pair edge as
 > ONE arrangement chord (measured ≤ 32° of turn about either operand), which
 > is what makes the K9/K11 chord-midpoint bisection's basin assumption hold

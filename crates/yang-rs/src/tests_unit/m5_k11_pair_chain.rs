@@ -289,3 +289,116 @@ fn pair_chain_projection_failure_is_loud() {
     let msg = format!("{err:?}");
     assert!(msg.contains("did not converge"), "{msg}");
 }
+
+// ── M5 K11 inc-2: the `pair curve ∩ plane` junction (ruling × section circle, coplanar) ──
+
+/// The inc-2 configuration in its own frame: cutting plane x = 0.27 through
+/// the unequal perpendicular union (c1 axis z, r 0.3; c2 axis x, r 0.18). The
+/// plane's section of c1 is the ruling y = −√(0.09 − 0.27²), its section of
+/// c2 is the circle y² + z² = 0.18² centred on (0.27, 0, 0) — both in the
+/// plane. The arrangement vertex sits on the pair CHORD, off both curves by
+/// the chord sag; the junction is the in-plane crossing, exact on both
+/// cylinders and the plane.
+fn inc2_frame() -> (Point3, Vector3, Point3, Vector3, f64) {
+    let y = -(0.09_f64 - 0.27 * 0.27).sqrt();
+    (
+        Point3::new(0.27, y, -1.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        Point3::new(0.27, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        0.18,
+    )
+}
+
+#[test]
+fn coplanar_ruling_circle_junction_lands_on_all_three_surfaces() {
+    let (lp, ld, c, n, r) = inc2_frame();
+    // The measured v28 of the kernel-v2 pin: on the plane, off the ruling by
+    // ~1e-3 and off the circle by ~1e-3 (the pair chord's sag).
+    let current = Point3::new(0.27, -0.12979374035881622, -0.12295904152943612);
+    let (j, gate) =
+        ruling_circle_coplanar_junction((lp, ld), (c, n, r), current, 4.347e-2, 1.536e-2)
+            .expect("in-plane ruling × circle crossing is a junction");
+    let ja = j.as_array();
+    let y = -(0.09_f64 - 0.27 * 0.27).sqrt();
+    let z = -(0.18_f64 * 0.18 - y * y).sqrt();
+    assert!((ja[0] - 0.27).abs() < 1e-15, "on the cutting plane: {ja:?}");
+    assert!((ja[1] - y).abs() < 1e-15, "on the ruling (⇒ on c1): {ja:?}");
+    assert!((ja[2] - z).abs() < 1e-15, "on the circle (⇒ on c2): {ja:?}");
+    // Exact on both cylinders as surfaces, not only on their sections.
+    assert!((ja[0] * ja[0] + ja[1] * ja[1] - 0.09).abs() < 1e-15);
+    assert!((ja[1] * ja[1] + ja[2] * ja[2] - 0.0324).abs() < 1e-15);
+    // The derived gate `(band + d_ε)/sin θ` at this crossing angle: the
+    // ruling (ẑ) against the circle tangent at j, `x̂ × (0, y, z)/r =
+    // (0, −z, y)/r`, so sin θ = |ẑ × tangent| = |z|/r = 0.6872.
+    let sin_theta = z.abs() / r;
+    assert!(
+        ((4.347e-2 + 1.536e-2) / sin_theta - gate).abs() < 1e-12,
+        "gate {gate}"
+    );
+    // The measured vertex is well inside it.
+    let ca = current.as_array();
+    let rho = ((ja[0] - ca[0]).powi(2) + (ja[1] - ca[1]).powi(2) + (ja[2] - ca[2]).powi(2)).sqrt();
+    assert!(rho < gate && rho < 2e-3, "rho {rho} gate {gate}");
+}
+
+#[test]
+fn coplanar_junction_picks_the_root_nearest_the_vertex() {
+    let (lp, ld, c, n, r) = inc2_frame();
+    let y = -(0.09_f64 - 0.27 * 0.27).sqrt();
+    let z = (0.18_f64 * 0.18 - y * y).sqrt();
+    // The ruling crosses the circle twice (z = ±0.1237); a vertex near the
+    // +z crossing must land there, never on the −z root.
+    let current = Point3::new(0.27, y + 1e-3, z - 1e-3);
+    let (j, _) = ruling_circle_coplanar_junction((lp, ld), (c, n, r), current, 1e-2, 1e-2)
+        .expect("junction");
+    assert!((j.as_array()[2] - z).abs() < 1e-15, "{:?}", j.as_array());
+}
+
+#[test]
+fn a_ruling_parallel_but_offset_from_the_circle_plane_declines() {
+    let (_, ld, c, n, r) = inc2_frame();
+    // A ruling of c1 in the plane x = 0.2705 — parallel to the circle's plane
+    // (x = 0.27) and offset by 5e-4, well inside any chord band: the chains
+    // could cross in the MESH, but the curves do not meet. The certificate is
+    // the ulp-order plane band, so this is a decline, never an acceptance
+    // that would land the vertex off the circle by the offset.
+    let y = -(0.09_f64 - 0.2705 * 0.2705).sqrt();
+    let lp = Point3::new(0.2705, y, -1.0);
+    let current = Point3::new(0.2702, y, -0.1237);
+    let got = ruling_circle_coplanar_junction((lp, ld), (c, n, r), current, 1e-2, 1e-2);
+    match got {
+        Err(CoplanarJunctionDecline::Miss { plane_band }) => {
+            assert!(
+                plane_band < 1e-11,
+                "ulp-order certificate, got {plane_band:.3e}"
+            );
+        }
+        other => panic!("expected a Miss decline, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_ruling_tangent_to_the_circle_declines_as_grazing() {
+    let (_, ld, c, n, r) = inc2_frame();
+    // A ruling at y = −r touches the circle at z = 0: a grazing contact.
+    let lp = Point3::new(0.27, -r, -1.0);
+    let current = Point3::new(0.27, -r + 1e-6, 1e-4);
+    let got = ruling_circle_coplanar_junction((lp, ld), (c, n, r), current, 1e-2, 1e-2);
+    assert!(
+        matches!(got, Err(CoplanarJunctionDecline::Tangent { .. })),
+        "expected a Tangent decline, got {got:?}"
+    );
+}
+
+#[test]
+fn a_ruling_in_the_plane_that_misses_the_circle_declines() {
+    let (_, ld, c, n, r) = inc2_frame();
+    let lp = Point3::new(0.27, -0.25, -1.0);
+    let current = Point3::new(0.27, -0.25, 0.0);
+    let got = ruling_circle_coplanar_junction((lp, ld), (c, n, r), current, 1e-2, 1e-2);
+    assert!(
+        matches!(got, Err(CoplanarJunctionDecline::Miss { .. })),
+        "expected a Miss decline, got {got:?}"
+    );
+}
