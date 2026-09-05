@@ -1,8 +1,8 @@
 {
-  "errored": 31,
+  "errored": 30,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 275,
+  "passed": 276,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -239,10 +239,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 5: holed lateral CDT failed: CDT backend failed to triangulate\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0040",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

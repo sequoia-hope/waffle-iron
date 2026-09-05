@@ -9,9 +9,10 @@
 
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
-> **2026-09-04 refresh (code review).** Canonical corpus **275C / 0W / 31E /
-> 4EE / 0T** (312 cases; release, 8 jobs, 360 s budget; F0085 ≈ 317 s is the
-> honest ceiling). `UNSUPPORTED` is the two M8 coplanar cases alone (F0064,
+> **2026-09-04 refresh (code review; score refreshed 2026-09-05).** Canonical
+> corpus **276C / 0W / 30E / 4EE / 0T** (312 cases; release, 8 jobs, 480 s
+> budget; F0085 ≈ 303–317 s is the honest ceiling) — was 275C/0W/31E/4EE/0T
+> until R0040 flipped on 2026-09-05 (below). `UNSUPPORTED` is the two M8 coplanar cases alone (F0064,
 > F0072): revolve (KV6, incl. cones / tori / spheres / on-axis lathe shapes /
 > the apex cone as a boolean OPERAND), the M5 degree-4 surface-pair curve
 > (re-entering chained booleans since K11 inc-1), the KV14 curved partial-
@@ -22,8 +23,8 @@
 > walls (`LocalRefinementRequired` ×5, `OffCurveBeyondChordBand` ×3,
 > `RelocationCrossedCarrierVertex` ×1), Stage-5/6 non-2-manifold reassembly
 > ×7 (two of them the designed 0-D-contact rejects C0107/C0108), Stage-3
-> `AmbiguousCurve` ×4, the Stage-1 holed-lateral / ring CDT class ×5 (R0044's
-> thin-band chart crossing, R0040, R0070, F0082, R0100), non-2-manifold
+> `AmbiguousCurve` ×4, the Stage-1 holed-lateral / ring CDT class ×4 (R0044's
+> thin-band chart crossing, R0070, F0082, R0100; R0040 flipped 2026-09-05), non-2-manifold
 > INPUT after a coplanar overlay ×3 (R0019/R0049/R0081, M8), the three
 > designed sub-resolution features (C0111/C0113/C0118) and C0046 (0-D box
 > contact, rejected by design). **M5 K11 inc-2 LANDED 2026-09-05** (spec
@@ -35,8 +36,19 @@
 > derived `(band + d_ε)/sin θ` gate) lands it; the kernel-v2 probe
 > `unequal_perpendicular_union_reenters_with_crossing_cut` is un-quarantined
 > (four crossings exact, volume 4.2e-4 relative); corpus byte-identical in
-> category, 275C/0W/31E/4EE/0T (F0085 314.0 s). Next increments, in order:
-> the thin-band rim chord bound (R0044 face 166; R0040 to be probed),
+> category, 275C/0W/31E/4EE/0T (F0085 314.0 s). **R0040 FLIPPED CORRECT
+> 2026-09-05**: probed, it was NOT the thin-band class but a Stage-1 SEAM
+> defect — a bounded cylinder patch whose seam wedge (10.8 of 210.5 units)
+> is narrower than its rim chord step (15.36), so the "widest vertex gap"
+> branch-cut scan put the cut inside the face; the cut now comes from the
+> outer loop's unwrapped azimuth range (spec `yang_stage1_curved_holed_patch`
+> "θ branch-cut", amended; pin RED under the old rule as a silent-wrong
+> bridging triangle); corpus (release, 8 jobs, 480 s; wall 562.3 s, F0085
+> 303.2 s honest) **276C/0W/30E/4EE/0T**, exactly one row moved. Next
+> increments, in order:
+> the thin-band rim chord bound (R0044 face 166 — measured: two rim circles
+> ≈ 2 apart at slant 4340 sampled with sag ≈ 9–10, 20 chart crossings; a
+> feature-size-aware rim density rule),
 > R0032's Stage-4 torus junction (`gt2_partners` v7), and the OTHER in-plane
 > section-conic junction types a crossing cut can produce (oblique plane ⇒
 > ellipse × ellipse in ONE plane; ellipse × circle; ruling × ellipse —

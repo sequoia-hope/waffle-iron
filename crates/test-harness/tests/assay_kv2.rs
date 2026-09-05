@@ -1198,6 +1198,16 @@ fn smoke_corpus_boundary_categories() {
         // R0004's op-1 axis moved to that rule and the 3-op chain (two
         // revolve bosses + a gear cut) passes every check end-to-end.
         ("R0004", Category::SupportedCorrect),
+        // R0040 FLIPPED (2026-09-05, Stage-1 seam rule): its revolve
+        // auto-union has a bounded cylinder patch covering 199.7 of 210.5
+        // units of circumference whose seam wedge (10.8, between two
+        // generator lines) is narrower than its rim chord step (15.36);
+        // the old "widest gap between boundary vertices" branch cut landed
+        // inside the face and the unrolled polygon crossed itself ("holed
+        // lateral CDT failed"). The cut now comes from the outer loop's
+        // unwrapped azimuth range (spec `yang_stage1_curved_holed_patch`
+        // "θ branch-cut") and the 3-op chain passes every check.
+        ("R0040", Category::SupportedCorrect),
         // PR-KV10: the F0016-family (3 same-plane oblique bosses) used to
         // stop at the intra-coplanar wall because chained outputs carried
         // femto-distinct same-plane sibling plane bits (canonicalized in

@@ -43,6 +43,16 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-05 — R0040 flipped (Stage-1 seam rule); canonical 276C / 0W / 30E / 4EE / 0T
+
+R0040's PROBE row confirmed a DIFFERENT class from R0044's thin band: a
+bounded cylinder patch whose seam wedge is narrower than its rim chord step
+(row below). The branch-cut rule for non-encircling patches now reads the
+outer loop's unwrapped azimuth range (spec `yang_stage1_curved_holed_patch`
+"θ branch-cut", amended). Corpus (release, 8 jobs, 480 s; wall 562.3 s,
+F0085 303.2 s honest): **276C / 0W / 30E / 4EE / 0T** — exactly one row
+moved. The 30 ERROR rows are the ACTIVE rows below.
+
 ## The ledger (54 actionable cases; F0074 is EXPECTED_ERROR by design)
 
 ### LocalRefinementRequired (18)
@@ -125,7 +135,7 @@ never ONE bucket.** Two facts reorganize it:
 | F0045 | planar | 8 Arc + 5 LineSeg, 8 samples | 4 | 12, 16 | **yes** (seam+1) |
 | R0028 | developable | 25 origin + 121 arc samples | 3 | 0 | **no** (13 away) |
 | R0049 | developable | 214 origin, 0 samples | ~97 | 1, 45, 46 | inconclusive |
-| R0040 | `face 5: holed lateral CDT failed: CDT backend failed to triangulate` (Revolve 3 auto-union) | ADDED 2026-09-04 (reconciliation; never ledgered): ERROR since 2026-08-08 (d07926a6) — the custody fix (`find_most_recent_solid_outputs`, roadmap §0.-1 item 1) made its formerly-dropped revolve union ATTEMPTED, and it STOPs at the Stage-1 holed-lateral CDT with the same text as R0044's face 166 (a thin conical band whose rim chords cross in the chart). Sub-class UNMEASURED — run `YANG_T145_PROBE` + `YANG_T133_PROBE` on it before building against this row | PROBE | thin-band rim chord bound (the R0044 sub-wall) if the probe confirms |
+| ~~R0040~~ | ~~`face 5: holed lateral CDT failed: CDT backend failed to triangulate` (Revolve 3 auto-union)~~ | **FLIPPED CORRECT 2026-09-05 (Slice A seam rule):** PROBED (`YANG_T145_PROBE` + `YANG_T133_PROBE`, offline chart analysis) — NOT the R0044 thin-band class. Face 5 is a bounded cylinder patch (r 33.5; 4 rim arcs per side + 2 generator lines) covering 199.7 of the 210.5-unit circumference; its true seam wedge (10.8, between the two lines) is NARROWER than its rim chord step (15.36), so the "widest gap between boundary vertices" branch-cut scan found every chord gap tied and winning, placed the cut INSIDE the face (v18 at u = 7.7 after its arc's last sample at u = 202.8) and the unrolled polygon crossed itself 6×. Fix: for a non-encircling patch the cut is the middle of the complement wedge read off the outer loop's UNWRAPPED azimuth range (bit-identical to the scan whenever the widest gap IS the wedge); pin `lateral_partial_patch_seam_lands_in_a_wedge_narrower_than_its_rim_chords` (RED under the old rule — as a SILENT-WRONG: the CDT succeeded and a triangle bridged the wedge). R0040 CORRECT end-to-end (1.3 s, all in-line oracles) | CONFIRMED (2026-09-05) | ~~PROBE~~ DONE (Stage-1 seam placement) |
 
 **The three PLANAR cases are one confirmed mechanism** — the output loop joins
 two boundary chains whose parameter ranges OVERLAP, so the ring walks the same

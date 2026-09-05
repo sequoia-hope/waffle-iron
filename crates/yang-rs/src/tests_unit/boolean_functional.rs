@@ -1077,6 +1077,128 @@ pub(crate) fn rim_override_merge_plus_insert_coexist() {
     );
 }
 
+/// KV14 Slice A seam — the R0040 shape (2026-09-05, `docs/yang_tail_triage.md`):
+/// a bounded cylinder patch covering all but a NARROW wedge (here 0.04 rad
+/// about θ = 0; R0040's was 10.8 of 210.5 units), each rim split into two
+/// arcs at θ = π, closed by two rulings. The wedge is narrower than the rim
+/// chord step, so the old "widest gap between boundary vertices" seam rule
+/// could not find it — every chord gap tied and won, the cut landed inside
+/// the face, and the unrolled polygon crossed itself (RED: "holed lateral
+/// CDT failed"). The seam now comes from the outer loop's unwrapped azimuth
+/// range and lands in the true wedge: the patch tessellates, its mapped
+/// area is the developable `r·(2π − 0.04)·h`, and no triangle bridges the
+/// wedge.
+#[test]
+pub(crate) fn lateral_partial_patch_seam_lands_in_a_wedge_narrower_than_its_rim_chords() {
+    use std::f64::consts::PI;
+    let r = 1.0_f64;
+    let h = 0.5_f64;
+    let delta = 0.02_f64;
+    let on = |theta: f64, z: f64| Point3::new(r * theta.cos(), r * theta.sin(), z);
+    // V0 (δ, 0) → V1 (π, 0) → V2 (2π − δ, 0) → V3 (2π − δ, h) → V4 (π, h) → V5 (δ, h)
+    let verts = [
+        on(delta, 0.0),
+        on(PI, 0.0),
+        on(-delta, 0.0),
+        on(-delta, h),
+        on(PI, h),
+        on(delta, h),
+    ]
+    .into_iter()
+    .map(|point| BRepVertex { point })
+    .collect::<Vec<_>>();
+    let circ = |z: f64, sign: f64| Curve::Circle {
+        center: Point3::new(0.0, 0.0, z),
+        normal: Vector3::new(0.0, 0.0, sign),
+        radius: r,
+    };
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 1,
+            curve: circ(0.0, 1.0),
+        }, // bottom δ → π (CCW about +z)
+        BRepEdge {
+            start: 1,
+            end: 2,
+            curve: circ(0.0, 1.0),
+        }, // bottom π → 2π − δ
+        BRepEdge {
+            start: 2,
+            end: 3,
+            curve: Curve::LineSegment,
+        }, // ruling at 2π − δ
+        BRepEdge {
+            start: 3,
+            end: 4,
+            curve: circ(h, -1.0),
+        }, // top 2π − δ → π (CCW about −z)
+        BRepEdge {
+            start: 4,
+            end: 5,
+            curve: circ(h, -1.0),
+        }, // top π → δ
+        BRepEdge {
+            start: 5,
+            end: 0,
+            curve: Curve::LineSegment,
+        }, // ruling at δ
+    ];
+    let faces = vec![BRepFace {
+        surface: Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: r,
+        },
+        outer_loop: vec![0, 1, 2, 3, 4, 5],
+        inner_loops: vec![],
+        reversed: false,
+    }];
+    let t = stage1_tessellate(&verts, &edges, &faces)
+        .expect("a partial patch whose wedge is narrower than its rim chords tessellates");
+    // The rim sampling must indeed be coarser than the wedge for this pin to
+    // exercise the seam rule (otherwise the old gap scan would have found it).
+    let n_rim = t
+        .verts
+        .iter()
+        .filter(|p| p.as_array()[2].abs() < 1e-12)
+        .count();
+    let step = (2.0 * PI - 2.0 * delta) / (n_rim as f64 - 1.0);
+    assert!(
+        step > 2.0 * delta,
+        "fixture: rim step {step:.4} must exceed the wedge {:.4}",
+        2.0 * delta
+    );
+    // Developable area, and no triangle bridging the wedge (every triangle's
+    // vertices lie within a chord step of azimuth, never across θ = 0).
+    let mut area = 0.0;
+    for tri in &t.tris {
+        let p: Vec<[f64; 3]> = tri
+            .iter()
+            .map(|&i| t.verts[i as usize].as_array())
+            .collect();
+        let e1 = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
+        let e2 = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]];
+        let c = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        area += 0.5 * (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt();
+        let th: Vec<f64> = p.iter().map(|q| q[1].atan2(q[0])).collect();
+        let bridges = th.iter().any(|&a| a.abs() <= delta + 1e-9)
+            && th.iter().any(|&a| a > 0.0)
+            && th.iter().any(|&a| a < 0.0)
+            && th.iter().all(|&a| a.abs() < PI / 2.0);
+        assert!(!bridges, "triangle bridges the seam wedge: θ = {th:?}");
+    }
+    let expect = r * (2.0 * PI - 2.0 * delta) * h;
+    assert!(
+        (area - expect).abs() < 0.05 * expect,
+        "mapped area {area} vs developable {expect}"
+    );
+}
+
 /// KV14 Slice A (spec `yang_stage1_curved_holed_patch`): a cylinder lateral
 /// PARTIAL patch (2 sweep arcs + 2 rulings) carrying an interior hole (an
 /// on-surface inner loop) must tessellate via the unroll+CDT path so the

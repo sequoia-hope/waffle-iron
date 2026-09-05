@@ -2359,44 +2359,92 @@ pub(crate) fn tessellate_lateral_holed_cdt(
         }
     }
 
-    // Branch cut: place the seam in the largest angular gap so the unroll is
-    // contiguous AND — for a periodic strip — the seam AVOIDS the interior
-    // windows (a window straddling the cut would split into two u-fragments and
-    // break the CDT). When windows exist inside a wrapping strip, choose the cut
-    // from the WINDOW vertices' angular coverage (the seam lands in the widest
-    // window-free wedge); otherwise (a pure strip, or a Slice A partial patch)
-    // fall back to the full boundary.
-    let mut angles: Vec<f64> = if !windows.is_empty() && !encircling.is_empty() {
-        windows
-            .iter()
-            .flat_map(|w| w.iter())
-            .map(|&g| raw(g).0)
-            .collect()
+    // Branch cut: place the seam so the unroll is contiguous AND — for a
+    // periodic strip — the seam AVOIDS the interior windows (a window
+    // straddling the cut would split into two u-fragments and break the CDT).
+    let cut = if encircling.is_empty() {
+        // Bounded partial patch (Slice A): the face covers ONE contiguous
+        // azimuth interval and the seam belongs in its COMPLEMENT wedge. That
+        // wedge is read off the outer loop's UNWRAPPED azimuth range — walk
+        // the polyline accumulating each step's Δθ wrapped to (−π, π] (the
+        // `winding` convention) and take [lo, hi] — NOT off the gaps between
+        // boundary vertices. R0040 (2026-09-05, `docs/yang_tail_triage.md`):
+        // a 199.7-of-210.5-unit cylinder patch whose true wedge (10.8, between
+        // its two generator lines) is NARROWER than its own rim chord step
+        // (15.36) — every chord gap tied and won, the cut landed INSIDE the
+        // face (v18 at u = 7.7 after its arc's last sample at u = 202.8), and
+        // the ribbon polygon crossed itself ("holed lateral CDT failed").
+        // When the widest vertex gap IS the wedge (every non-straddling
+        // patch: the unwrapped angles equal the raw ones) this is the same
+        // `hi + ½·((lo + 2π) − hi)` the gap scan produced — bit-identical.
+        let n = outer_poly.len();
+        let mut th = raw(outer_poly[0]).0;
+        let (mut lo, mut hi) = (th, th);
+        for i in 1..n {
+            let (t0, _) = raw(outer_poly[i - 1]);
+            let (t1, _) = raw(outer_poly[i]);
+            let mut d = t1 - t0;
+            while d > std::f64::consts::PI {
+                d -= two_pi;
+            }
+            while d < -std::f64::consts::PI {
+                d += two_pi;
+            }
+            th += d;
+            lo = lo.min(th);
+            hi = hi.max(th);
+        }
+        if hi - lo >= two_pi {
+            // A non-encircling loop whose unwrapped range still spans a full
+            // turn (a helical strip of ≥ 1 turn) has no seam wedge: one
+            // sheet of the chart cannot hold it. Loud, typed (P9).
+            return Err(YangError::MalformedTopology(format!(
+                "face {f_idx}: bounded lateral patch spans {:.4} rad of azimuth \
+                 unwrapped (≥ 2π): no seam wedge for a single-sheet unroll",
+                hi - lo
+            )));
+        }
+        let wrap = (lo + two_pi) - hi;
+        hi + 0.5 * wrap // may exceed π; only used mod 2π below
     } else {
-        std::iter::once(&outer_poly)
-            .chain(inner_polys.iter())
-            .flatten()
-            .map(|&g| raw(g).0)
-            .collect()
+        // Periodic strip: any seam opens the ribbon; choose the widest gap
+        // between boundary vertices. When windows exist inside the strip,
+        // choose it from the WINDOW vertices' angular coverage (the seam
+        // lands in the widest window-free wedge); otherwise (a pure strip)
+        // from the full boundary.
+        let mut angles: Vec<f64> = if !windows.is_empty() {
+            windows
+                .iter()
+                .flat_map(|w| w.iter())
+                .map(|&g| raw(g).0)
+                .collect()
+        } else {
+            std::iter::once(&outer_poly)
+                .chain(inner_polys.iter())
+                .flatten()
+                .map(|&g| raw(g).0)
+                .collect()
+        };
+        angles.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mut cut = std::f64::consts::PI; // fallback (no vertices ⇒ unreachable)
+        let mut max_gap = -1.0f64;
+        for w in angles.windows(2) {
+            let gap = w[1] - w[0];
+            if gap > max_gap {
+                max_gap = gap;
+                cut = 0.5 * (w[0] + w[1]);
+            }
+        }
+        if let (Some(&first), Some(&last)) = (angles.first(), angles.last()) {
+            // Wrap-around gap (across ±π): from the largest angle back to the
+            // smallest through the branch of atan2.
+            let wrap = (first + two_pi) - last;
+            if wrap > max_gap {
+                cut = last + 0.5 * wrap; // may exceed π; only used mod 2π below
+            }
+        }
+        cut
     };
-    angles.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let mut cut = std::f64::consts::PI; // fallback (no vertices ⇒ unreachable)
-    let mut max_gap = -1.0f64;
-    for w in angles.windows(2) {
-        let gap = w[1] - w[0];
-        if gap > max_gap {
-            max_gap = gap;
-            cut = 0.5 * (w[0] + w[1]);
-        }
-    }
-    if let (Some(&first), Some(&last)) = (angles.first(), angles.last()) {
-        // Wrap-around gap (across ±π): from the largest angle back to the
-        // smallest through the branch of atan2.
-        let wrap = (first + two_pi) - last;
-        if wrap > max_gap {
-            cut = last + 0.5 * wrap; // may exceed π; only used mod 2π below
-        }
-    }
 
     // Unroll into u = r·θ' where θ' ∈ [0, 2π) measured from the cut, v = axial.
     // Unroll a boundary vertex to 2D parameter space. A CYLINDER develops to a

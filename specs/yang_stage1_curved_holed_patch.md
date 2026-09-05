@@ -81,9 +81,23 @@ by a **surface unroll** to parameter space:
 into two disjoint halves and the CDT is garbage. Robust handling:
 
 1. Collect all boundary vertices' raw angles.
-2. Find the **largest angular gap** in the covered set (sort angles, max
+2. ~~Find the **largest angular gap** in the covered set (sort angles, max
    circular gap between consecutive samples). Place the branch cut in the middle
-   of that gap, so the patch is contiguous in `u` after unrolling.
+   of that gap, so the patch is contiguous in `u` after unrolling.~~
+   **Amended 2026-09-05 (R0040):** for a BOUNDED partial patch (no encircling
+   loop) the seam is the middle of the patch's complement wedge, read off the
+   outer loop's **unwrapped azimuth range** `[lo, hi]` (walk the polyline
+   accumulating Δθ wrapped to (−π, π]; `cut = hi + ½·((lo + 2π) − hi)`). The
+   vertex-gap scan is WRONG whenever the true wedge is narrower than the rim
+   chord step — R0040 face 5: a 199.7-of-210.5-unit patch whose wedge (10.8,
+   between its two generator lines) was narrower than its rim chords (15.36),
+   so every chord gap tied and won, the cut landed inside the face and the
+   unrolled polygon crossed itself (`holed lateral CDT failed`). When the
+   widest vertex gap IS the wedge the two rules are bit-identical. An
+   unwrapped range ≥ 2π (a helical strip of a full turn) is a typed
+   `MalformedTopology` (no single-sheet seam). The gap scan survives only for
+   the periodic strip, where any seam opens the ribbon and the scan's job is
+   to avoid the interior windows.
 3. If the patch covers the full 2π with no gap (a canonical full tube with a
    hole not touching the seam), keep the existing seam edge as the cut — the
    outer loop's ruling segments define it.
@@ -362,6 +376,33 @@ Once the apex-cone operand wall falls the runner will see an all-consumed
 model; the meta must be re-authored then (a slab that bites the cone, or an
 `expect_rebuild_error` per the `cut_consumes_body` precedent) — recorded, not
 changed here.
+
+## Slice A seam — R0040 (2026-09-05) and the thin-band census
+
+**R0040 face 5 (FLIPPED CORRECT).** Probed with `YANG_T145_PROBE` +
+`YANG_T133_PROBE` and an offline chart analysis (segment-pair crossing scan
+of the `[t133]` polygon with `[t145]` edge attribution): a bounded cylinder
+patch (r 33.5) covering 199.7 of 210.5 units of circumference, four rim arcs
+per side (chord step 15.36) closed by two generator lines 10.8 apart. The
+seam wedge was narrower than the chord step, the vertex-gap scan put the cut
+inside the face, and the ribbon polygon crossed itself 6× (five rim chords ×
+the 195-unit closing jump, one on each rim). The seam rule for a
+non-encircling patch is now the outer loop's unwrapped azimuth range (the
+amended "θ branch-cut" §2 above). Not the thin-band class.
+
+**R0044 face 166 (the thin band, measured, NOT fixed).** The same analysis:
+a CONE face (half-angle 1.011 rad, apex ≈ (−2421, −4037, −2130)) whose
+isometric development spans u, v ≈ ±4344 (slant ≈ 4340). Loop = one
+Hyperbola, ONE SurfacePair edge, two LineSegments and SEVEN Circle arcs on
+TWO rim circles whose centers are 1.07 apart along the axis (radii 3681 /
+3683 about the gear axis) — a band ≈ 2 wide at slant 4340. In the chart the
+two rims are concentric arcs ≈ 2 apart sampled with chords of 559 / 537
+(sag ≈ 9–10.6 ≫ 2): 20 crossings, 17 of them rim 863 × rim 869 chord pairs,
+2 rim 863 × the pair edge, 1 the line 862 × rim 863. The rim sampling
+density of a face must keep each rim chord's sag below the face's own
+boundary-to-boundary distance for the chart polygon to be simple — a
+feature-size-aware density rule (the R0095 detect-then-refine rim boost is
+the precedent vehicle), not a seam defect. Recorded for the next increment.
 
 ## Apex-cone OPERAND — ✅ DONE (2026-09-04; C0063)
 
