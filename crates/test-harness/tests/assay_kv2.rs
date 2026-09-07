@@ -1208,16 +1208,21 @@ fn smoke_corpus_boundary_categories() {
         // unwrapped azimuth range (spec `yang_stage1_curved_holed_patch`
         // "θ branch-cut") and the 3-op chain passes every check.
         ("R0040", Category::SupportedCorrect),
-        // R0044 FLIPPED (2026-09-05, thin-band chart guard): its gear revolve
-        // carries 70 conical bands ≈ 2 units wide at radii 1024…3870 whose
-        // rim chords (N = 41, sag ≈ 10) interleaved in the cone chart and
-        // failed the holed-lateral CDT loud; `face_rim_pair_phantom_n` now
-        // derives N = 185 from the bands' own slant gaps and the chain
-        // completes. Its χ = 0 output is the TRUE genus 1 (the circle cut
-        // bores through the union — `assay_exact_membership::
-        // r0044_reads_genus_one`); the authored `euler_target: 2` was a
-        // generator guess, corrected the R0011 way.
-        ("R0044", Category::SupportedCorrect),
+        // R0044 FLIPPED (2026-09-05, thin-band chart guard) is deliberately
+        // NOT pinned here: it costs ≈ 270 s CPU in release — ≈ 1200 s in the
+        // debug build this gate runs under on CI and in `test.sh` — against
+        // the gate's 120 s release-equivalent budget, and the pin added
+        // that day turned the CI "Rust tests" job red at
+        // `R0044: expected SUPPORTED_CORRECT, got TIMEOUT` (run 33950846191,
+        // 2026-09-05; removed 2026-09-06). Its conversion is pinned where a
+        // 270 s case belongs: the committed corpus snapshot
+        // (`app/tests/cases/assay/results.json`, the `full_corpus_categorized`
+        // run) and the exact-membership ladder pin
+        // `assay_exact_membership::r0044_reads_genus_one` (its χ = 0 output
+        // is the TRUE genus 1 — the circle cut bores through the union; the
+        // authored `euler_target: 2` was a generator guess, corrected the
+        // R0011 way). This gate stays a SMOKE gate: cheap boundary cases
+        // only (the heaviest, C0116, is ≈ 50 s release).
         // PR-KV10: the F0016-family (3 same-plane oblique bosses) used to
         // stop at the intra-coplanar wall because chained outputs carried
         // femto-distinct same-plane sibling plane bits (canonicalized in
