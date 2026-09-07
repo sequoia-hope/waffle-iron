@@ -512,6 +512,16 @@ pub(crate) fn collect_edge_splits(
                     [b[0].to_bits(), b[1].to_bits(), b[2].to_bits()] == key
                 });
             if !merged_dup && !entry.iter().any(|(t0, _)| *t0 == t) {
+                if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                    eprintln!(
+                        "[split-probe] f={fi} edge ({lo},{hi}) vert {i} SPLIT t={} pos={:?} \
+                         merged={} n_on_edge={}",
+                        t.to_f64().value(),
+                        resolved[i].as_array(),
+                        merged_pts.contains(&key),
+                        entry.len() + 1
+                    );
+                }
                 entry.push((t, resolved[i]));
             }
         }

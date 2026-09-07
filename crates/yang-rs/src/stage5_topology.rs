@@ -1265,6 +1265,33 @@ fn run_fold_merge_passes(
             }
             Err(e) => {
                 eprintln!("[s4-fold-merge] STOP pass={pass}: WRITE-BACK REFUSED {e:?}");
+                // Print-only: the refused batch's units (patch, old tris,
+                // new tri count) so an `OverlappingBatch` names WHICH two
+                // units claim the shared triangle (measured R0003 at the
+                // thin-band density: the f2c chord split and seam insert
+                // of one fragment).
+                for r in &rebuilds {
+                    eprintln!(
+                        "[s4-fold-merge]   unit patch={} old_tris={:?} new_tris={}",
+                        r.patch,
+                        r.old_tris,
+                        r.new_tris.len()
+                    );
+                    for &t in &r.old_tris {
+                        let tri = mesh.tris[t as usize];
+                        eprintln!(
+                            "[s4-fold-merge]     old t{t} {:?} {:?}",
+                            tri,
+                            tri.map(|v| mesh.verts[v as usize].as_array())
+                        );
+                    }
+                    for nt in &r.new_tris {
+                        eprintln!("[s4-fold-merge]     new {nt:?}");
+                    }
+                }
+                if let Some((rv, rp)) = &rehome_reloc {
+                    eprintln!("[s4-fold-merge]   reloc v{rv} -> {:?}", rp.as_array());
+                }
                 break;
             }
         }
@@ -2950,6 +2977,7 @@ fn rehome_attempt(
             let mut rebuilds = vec![si_fill, chord_split];
             let mut insert_report: Vec<String> = Vec::new();
             // The two seam-inserts (fragment side).
+            let mut needle_corner = false;
             for (v, &(frag_pi, nb)) in [va, vb].into_iter().zip(&insert_targets) {
                 match split_boundary_edge(
                     mesh,
@@ -2960,6 +2988,39 @@ fn rehome_attempt(
                     jc,
                     mint_pt,
                 ) {
+                    // The NEEDLE corner (measured R0003 at the thin-band rim
+                    // density): the dropped view's seam insert and the chord
+                    // split claim the SAME fragment triangle — the corner's
+                    // whole fan. One composite rebuild replaces both (and
+                    // the bite, which is that triangle's own tip).
+                    Ok(r) if v.rim_j == dropped && r.old_tris == rebuilds[1].old_tris => {
+                        match crate::stage4_construct::drop_needle_corner(
+                            mesh,
+                            frag_pi,
+                            &patches[frag_pi],
+                            (dropped, nb, link[1]),
+                            (jc, mint_pt),
+                            kept,
+                        ) {
+                            Ok(c) => {
+                                insert_report.push(format!(
+                                    "patch={frag_pi} needle corner v{dropped} dropped, quad \
+                                     (v{jc},v{nb},v{},v{kept})",
+                                    link[1]
+                                ));
+                                rebuilds[1] = c;
+                                needle_corner = true;
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "[i13f-rehome]   f2c site j_cut=v{jc}: needle corner \
+                                     v{dropped} — {e:?}"
+                                );
+                                decline_site(RehomeDecline::HoleFillUnresolved, rehome_blocked);
+                                continue 'site;
+                            }
+                        }
+                    }
                     Ok(r) => {
                         insert_report.push(format!("patch={frag_pi} edge=(v{},v{nb})", v.rim_j));
                         rebuilds.push(r);
@@ -3038,6 +3099,27 @@ fn rehome_attempt(
                 .iter()
                 .flat_map(|r| r.old_tris.iter().copied())
                 .collect();
+            // Needle-corner certificate: the dropped corner leaves the mesh
+            // only if EVERY triangle referencing it is rebuilt in this
+            // batch (its S_i fossil fan, its plane fan, its needle) — a
+            // surviving reference would be a dangling vertex use.
+            if needle_corner {
+                let foreign: Vec<u32> = mesh
+                    .tris
+                    .iter()
+                    .enumerate()
+                    .filter(|(t, tri)| tri.contains(&dropped) && !planned.contains(&(*t as u32)))
+                    .map(|(t, _)| t as u32)
+                    .collect();
+                if !foreign.is_empty() {
+                    eprintln!(
+                        "[i13f-rehome]   f2c site j_cut=v{jc}: needle corner v{dropped} still \
+                         referenced outside the batch by {foreign:?}"
+                    );
+                    decline_site(RehomeDecline::HoleFillUnresolved, rehome_blocked);
+                    continue 'site;
+                }
+            }
             for (t, tri) in mesh.tris.iter().enumerate() {
                 if planned.contains(&(t as u32)) || !tri.contains(&jc) {
                     continue;

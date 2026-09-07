@@ -43,6 +43,33 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-06 — R0003 flipped back (the §I13(f) NEEDLE corner); canonical 276C / 0W / 30E / 4EE / 0T
+
+R0003's density-sensitive latent is anatomized and closed (spec
+`yang_441_trim_cdt_construction.md` §I13(f) "f2c-2 amendment — the NEEDLE
+corner"). At N = 128 the rehome arm APPLIED at every pass but the batch
+write refused it — `OverlappingBatch { tri: 36843 }` — because the dropped
+corner's whole S_j fragment fan is ONE needle triangle (2.5° tip) holding
+both the link chord and the kept-conic chain edge, so the f2c-2 chord
+split and the seam insert claimed the same triangle; the bite's region is
+that triangle's own tip. `stage4_construct::drop_needle_corner` replaces
+the needle by the quad `[jc, chain_nb, link_nb, kept]` and drops the
+corner (every other user of it — S_i fossil fan, plane fan — is in the
+same batch; certified at the apply site, typed `HoleFillUnresolved`
+otherwise). R0003 SUPPORTED_CORRECT 66.4 s. Corpus (release, 8 jobs, 600 s;
+wall 661.5 s, F0085 305.2 s honest): **276C / 0W / 30E / 4EE / 0T**,
+exactly one row moved (R0003 ERROR → CORRECT), zero detail changes.
+
+R0053 (the other 2026-09-05 regression) is anatomized in the same session:
+NOT a chained-output re-entry — the operand that fails the arrangement's
+I6 backstop is the FRESH gear revolve (input B), whose Stage-0 coplanar
+overlay minted two crossing vertices ~1e-16 apart (an input corner of the
+other side within rounding distance of a cap edge) that both survived the
+rounding gate as `Positive` needles and split the adjacent lateral edge
+one ulp apart in 3D. Vehicle: the overlay's sub-resolution cluster
+contraction (spec `m8_overlay_fused_emission_collapse` §8) — see the row
+below and the entry that follows this one once its corpus run lands.
+
 ## 2026-09-05 (later) — R0044 flipped (thin-band chart guard + §4.5.4 chart refine; genus adjudicated 1); R0003 / R0053 REGRESSED as unmasked density-sensitive latents; canonical 275C / 0W / 31E / 4EE / 0T
 
 R0044's Stage-1 wall is closed by two layers (spec
@@ -72,8 +99,8 @@ ERROR → CORRECT; R0003, R0053 CORRECT → ERROR).
 
 | Case | Loud error | Root cause | Confidence | Vehicle |
 |---|---|---|---|---|
-| R0003 | kernel-v2 render `TessellationFailed { face: FaceId(903), reason: "ring rejected by CDT (degenerate/self-intersecting)" }` (58 s) | Its gear revolve's thin bands (rims 0.11 apart at r ≈ 192…198) raise the shared rim N 41 → 128; at that density the output ring of FaceId(903) — the §I13(f) INVERTED-JUNCTION-PAIR site the 2026-08-28e rehome arm repaired at N = 41 (`YANG_441_REHOME`, `session_2026_08_28e_i13f_f2c3_bridge_census`) — folds again. The repair's certificate is density-dependent: the case is CORRECT at N = 41 AND at ≈ 181 (the sum-of-sags first cut), ERROR at 128. Probe: `ASSAY_CASE=R0003 YANG_SPLIT_PROBE=1 … single_case` + `KV2_RING_PROVENANCE` on f903 at N = 128 | PROBE (density facts measured; the fold's anatomy at N = 128 unprobed) | §I13(f) rehome census at the new density (the I13 family) |
-| R0053 | `Revolve 3: Auto-union failed: … yang-rs: input B-Rep is not 2-manifold` (44 s) | Op 3's gear revolve carries the thin bands (rims ≈ 0.06 apart at r ≈ 124…145) that raise the shared N to 131; at that density the union OUTPUT of an earlier op re-enters op 3 NON-2-MANIFOLD. CORRECT at the natural N and at the sum-rule N. The exact-membership adjudication (2026-09-03b: union genus 1) stands — the defect is the kernel's density-sensitive output manifoldness | PROBE (which op's output; the non-manifold site) | Stage-5/6 reassembly non-2-manifold family |
+| ~~R0003~~ | ~~kernel-v2 render `TessellationFailed { face: FaceId(903), … }` (58 s)~~ **FLIPPED CORRECT 2026-09-06** | Its gear revolve's thin bands raise the shared rim N 41 → 128; at that density the §I13(f) rehome arm's f2c-2 apply hit a NEEDLE corner (the dropped corner's whole fragment fan = one 2.5° triangle holding both the link chord and the chain edge) and the batch write refused the overlapping chord-split + seam-insert pair (`OverlappingBatch`). Closed by `drop_needle_corner` (spec §I13(f) "f2c-2 amendment") | CONFIRMED (anatomy measured from the refused batch's printed units) | ~~§I13(f) rehome census~~ DONE — 276C |
+| R0053 | `Revolve 3: Auto-union failed: … yang-rs: input B-Rep is not 2-manifold` (44 s) | **Re-anatomized 2026-09-06:** the operand failing the I6 backstop is the FRESH gear revolve (input B) — its Stage-0 coplanar overlay (flush cap, B face 0, 448-edge loop) minted two crossing vertices ~1e-16 apart on cap edge (295,296) (overlay verts 298/305, chord parameters 0.6249248295306975 / …73): an input corner of the other side within rounding distance of the edge, whose two incident edges cross it at two exact points, plus the sweep column's foot; all round to DISTINCT f64 points, so the rounding gate keeps them (`Positive`), `collect_edge_splits` splits the adjacent cone lateral (face 155) at both, and the 3D mesh carries a one-ulp needle (verts 49912/49918, both ≥ the Stage-1 count 49728) the arrangement rejects as coincident triangles. The thin-band N merely made the corner land there. Vehicle: sub-resolution cluster contraction at the overlay (spec `m8_overlay_fused_emission_collapse` §8, gate `YANG_S0_SUBRES_FUSE`) | CONFIRMED (site + provenance measured) | Stage-0 overlay vertex identity (`sub_resolution_contract`) |
 
 
 R0044's Stage-1 wall (a conical band whose rim chords crossed in the cone

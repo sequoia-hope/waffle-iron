@@ -1719,6 +1719,37 @@ fn boolean_once(
                              raw_tri {:?} source {:?} surface {:?}",
                             la.mesh.tris[ot], la.source[ot], la.surface[ot]
                         );
+                        // Provenance one layer up: the operand B-Rep FACE
+                        // each source triangle tessellates (Stage-1
+                        // `tri_face`), its surface, and the INPUT mesh
+                        // triangle's own vertex positions — whether the
+                        // collapse is already in the operand mesh or minted
+                        // by the arrangement.
+                        if !la.source.is_empty() {
+                            for &(inp, raw_t) in &la.source[ot] {
+                                let (brep, tri_face, mesh) = if inp == LaInputId(0) {
+                                    (a, tri_face_a, mesh_a)
+                                } else {
+                                    (b, tri_face_b, mesh_b)
+                                };
+                                let fi = tri_face.get(raw_t as usize).copied();
+                                let face = fi.and_then(|f| brep.faces().get(f as usize));
+                                let tri = mesh.tris.get(raw_t as usize).copied();
+                                eprintln!(
+                                    "NONMANIFOLD_SITE_PROBE i6-source: input {inp:?} raw_t {raw_t} \
+                                     face {fi:?} surface {:?} loops(outer={}, inner={}) \
+                                     input_tri {tri:?} coords {:?} mesh_verts {} stage1_verts {} \
+                                     stage0 {}",
+                                    face.map(|f| &f.surface),
+                                    face.map_or(0, |f| f.outer_loop.len()),
+                                    face.map_or(0, |f| f.inner_loops.len()),
+                                    tri.map(|t| t.map(|v| mesh.verts[v as usize])),
+                                    mesh.verts.len(),
+                                    brep.as_mesh().verts.len(),
+                                    stage0.is_some(),
+                                );
+                            }
+                        }
                     }
                     // #146 inc-3 provenance join: for each welded vertex of
                     // the coincident pair, the ORIGINAL arrangement vertex

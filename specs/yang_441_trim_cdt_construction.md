@@ -3200,6 +3200,50 @@ false. Kept for the derivation's frame naming, which stands.]:**
    carriers, so retypes are expected free — verify: one split child
    emitted HypArc but its sibling emitted an untyped Seg in the ON
    run, an asymmetry to chase).
+   **f2c-2 amendment — the NEEDLE corner (2026-09-06; R0003 at the
+   thin-band rim density, N = 128).** The 2026-09-05 thin-band rule
+   (`face_rim_pair_phantom_n`) raised R0003's shared rim N from 41 to 128
+   and the f903 ring fold returned. Probed (`YANG_SPLIT_PROBE` +
+   `KV2_RING_PROVENANCE` + an offline 2D fold scan of the 360-vertex
+   ring): ONE proper crossing, a 177° reversal at the re-homed corner —
+   the ring runs the 17.5-unit W∩K line into the mint, a 0.04 hyperbola
+   sliver to the old rim phantom, and back across the line. The rehome
+   arm APPLIED at every pass, but the batch write refused it:
+   `OverlappingBatch { tri: 36843 }`. Listing the refused batch (print
+   under the refusal) named the pair: the dropped view's CHORD SPLIT
+   (3 new tris, bite included) and its SEAM INSERT (2 new tris) both
+   claim fragment-423 triangle `[19845, 19846, 19850]` — at this density
+   the dropped corner's WHOLE fragment fan is that one triangle, a
+   needle with a 2.5° tip holding both the link chord (to 19846) and the
+   kept-conic chain edge (to 19845); kept (19849) and the mint are each
+   ≈ 0.1 from the corner and 0.04 apart. At N = 41 the corner carried a
+   multi-triangle fan and the bite filled the sector between the two
+   children; here the bite's region IS the triangle's own tip, and the
+   two single-triangle rebuilds cannot compose (a naive union tears
+   `(corner, chain_nb)` and `(corner, link_nb)` and triples
+   `(chain_nb, link_nb)` — the refusal was the P10 net doing its job).
+
+   The mate-exact composite (`stage4_construct::drop_needle_corner`,
+   unit-tested; wired in the f2c apply when the dropped view's insert
+   returns the chord split's triangle): replace the needle by the quad
+   `[jc, chain_nb, link_nb, kept]` (first diagonal whose children keep
+   the parent's sense at the mint) and DROP the corner from the fragment
+   — no bite. Edge mates, hand-verified from the printed units:
+   `(chain_nb, jc)` ↔ the corner's plane patch re-homed to the mint
+   (`rebuild_rehome_fan`); `(jc, kept)` ↔ the kept view's seam-insert
+   child; `(kept, link_nb)` ↔ the S_i hole re-fill's closing chord;
+   `(chain_nb, link_nb)` stays the fragment's interior edge. The corner
+   then has no user left (its S_i fossil fan, its plane fan and its
+   needle are all in the batch) and the post-batch compaction removes
+   it — the same "dropped corner leaves the band-rim chain" deviation
+   the general surgery records, one vertex smaller. Certificate at the
+   apply site: every mesh triangle referencing the corner must be in the
+   batch's planned set, else a typed `HoleFillUnresolved` decline.
+   Acceptance: R0003 SUPPORTED_CORRECT 66.4 s (all checks, the
+   adjudicated genus-2 target); corpus (release, 8 jobs, 600 s; wall
+   661.5 s, F0085 305.2 s honest) **276C/0W/30E/4EE/0T**, exactly one row
+   moved, zero detail changes.
+
 6. **f2c-3 — the junction-layer SLIT**: sever the [B..C] rim
    window where the analytic truth cuts through — delete the bridge
    surface, extend the plane-wall patches to mate the slit's sides,

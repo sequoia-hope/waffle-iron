@@ -1823,6 +1823,107 @@ pub(crate) fn split_boundary_edge(
     })
 }
 
+/// §I13(f) f2c-2 — the NEEDLE-CORNER composite. When the dropped corner's
+/// whole fragment fan is ONE triangle holding both the link chord
+/// `(corner, link_nb)` and the kept-conic chain edge `(corner, chain_nb)`,
+/// the chord split and the seam insert would each claim that triangle
+/// (the batch write refuses it as `OverlappingBatch`), and the bite
+/// `[corner, kept, jc]` is the triangle's own tip. The mate-exact composite
+/// replaces the triangle by the quad `[jc, chain_nb, link_nb, kept]` and
+/// drops the corner from the fragment: `(chain_nb, jc)` mates the corner's
+/// plane patch re-homed to the mint, `(jc, kept)` mates the kept view's
+/// seam-insert child, `(kept, link_nb)` mates the S_i hole re-fill's
+/// closing chord, and `(chain_nb, link_nb)` stays the fragment's interior
+/// edge — the general case's edge mates with the bite's region folded into
+/// the dropped tip (the same "dropped corner leaves the band-rim chain"
+/// deviation the general surgery records). Measured on R0003 at the
+/// thin-band rim density: fragment tri `[19845, 19846, 19850]` with a 2.5°
+/// tip at the corner, kept and the mint both ≈ 0.1 from it.
+///
+/// `corner_edges` = `(corner, chain_nb, link_nb)`; `insert` = `(jc,
+/// mint position)`. The diagonal is the first of the quad's two whose
+/// children both keep the parent's sense at the mint (sign-only, no band);
+/// neither declines `SplitFlip`. The corner must have exactly that one
+/// triangle on the patch and neither inserted vertex may already be on it.
+/// The caller certifies that every OTHER mesh triangle referencing the
+/// corner is rebuilt in the same batch (the `dropped` field names it).
+pub(crate) fn drop_needle_corner(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    corner_edges: (u32, u32, u32),
+    insert: (u32, Point3),
+    kept: u32,
+) -> Result<PatchRebuild, ConstructError> {
+    let (corner, chain_nb, link_nb) = corner_edges;
+    let (insert_v, insert_pos) = insert;
+    let fan: Vec<u32> = patch
+        .tris
+        .iter()
+        .copied()
+        .filter(|&t| mesh.tris[t as usize].contains(&corner))
+        .collect();
+    let decline = |incident: usize| ConstructError::EdgeNotBoundary {
+        patch: patch_index,
+        edge: (corner.min(chain_nb), corner.max(chain_nb)),
+        incident,
+    };
+    let [t] = fan[..] else {
+        return Err(decline(fan.len()));
+    };
+    let tri = mesh.tris[t as usize];
+    let distinct = corner != chain_nb
+        && corner != link_nb
+        && chain_nb != link_nb
+        && ![corner, chain_nb, link_nb].contains(&insert_v)
+        && ![corner, chain_nb, link_nb].contains(&kept)
+        && insert_v != kept;
+    if !distinct || !tri.contains(&chain_nb) || !tri.contains(&link_nb) {
+        return Err(decline(fan.len()));
+    }
+    let k = (0..3)
+        .find(|&k| tri[k] == corner)
+        .expect("the fan triangle contains the corner");
+    // The quad in the parent's cyclic order: the corner's two edges each
+    // take their inserted vertex in place of the corner.
+    let quad: [u32; 4] = if tri[(k + 1) % 3] == chain_nb {
+        [insert_v, chain_nb, link_nb, kept]
+    } else {
+        [kept, link_nb, chain_nb, insert_v]
+    };
+    let at = |v: u32| -> Point3 {
+        if v == insert_v {
+            insert_pos
+        } else {
+            mesh.verts[v as usize]
+        }
+    };
+    let parent_av = crate::stage4_splice::area_vector(&[tri], &|v: u32| at(v));
+    let keeps_sense = |children: &[[u32; 3]; 2]| {
+        children.iter().all(|c| {
+            let av = crate::stage4_splice::area_vector(&[*c], &|v: u32| at(v));
+            let d = crate::stage4_splice::dot3(parent_av, av);
+            d.is_finite() && d > 0.0
+        })
+    };
+    let diagonals = [
+        [[quad[0], quad[1], quad[2]], [quad[0], quad[2], quad[3]]],
+        [[quad[1], quad[2], quad[3]], [quad[1], quad[3], quad[0]]],
+    ];
+    let Some(children) = diagonals.iter().find(|c| keeps_sense(c)) else {
+        return Err(ConstructError::SplitFlip { patch: patch_index });
+    };
+    Ok(PatchRebuild {
+        patch: patch_index,
+        old_tris: vec![t],
+        new_tris: children.to_vec(),
+        new_verts: Vec::new(),
+        dropped: BTreeSet::from([corner]),
+        plan_verts: mesh.verts.len() as u32,
+        plan_tris: mesh.tris.len() as u32,
+    })
+}
+
 /// §I13(f) f2c-2 — the S_i-side HOLE RE-FILL: seedless CDT of the fossil
 /// fan's link polygon MINUS its dropped-end corner, in the patch's chart.
 /// The phantom is NOT on the polygon — the re-homed corner leaves the band
@@ -4801,6 +4902,110 @@ mod tests {
         match split_boundary_edge(&mesh, 2, &patch, 0, 1, 4, Point3::new(1.0, 2.0, 0.0)) {
             Err(ConstructError::SplitFlip { .. }) => {}
             other => panic!("flipping insert must decline, got {other:?}"),
+        }
+    }
+
+    /// The needle corner: the dropped corner 0's whole patch fan is the
+    /// one triangle holding both its chain edge (0,1) and its link chord
+    /// (0,3); the composite replaces it by the quad [jc, 1, 3, kept] with
+    /// the corner dropped, both children keeping the parent's sense. A
+    /// corner with a two-triangle fan, a corner missing one of the edges,
+    /// and an inserted vertex already on the triangle all decline typed;
+    /// a mint across the far edge flips both diagonals and declines.
+    #[test]
+    fn drop_needle_corner_replaces_the_tip_triangle_by_the_quad() {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),   // 0 = corner (needle tip)
+                Point3::new(4.0, -0.1, 0.0),  // 1 = chain_nb
+                Point3::new(6.0, 0.0, 0.0),   // 2 = far interior vertex
+                Point3::new(4.0, 0.1, 0.0),   // 3 = link_nb
+                Point3::new(0.2, 0.005, 0.0), // 4 = kept (on the chord 0→3)
+                Point3::new(9.0, 9.0, 9.0),   // 5 = jc (moved to the mint)
+            ],
+            tris: vec![[0, 1, 3], [1, 2, 3]],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1]);
+        let mint = Point3::new(0.2, -0.005, 0.0);
+        let r = drop_needle_corner(&mesh, 7, &patch, (0, 1, 3), (5, mint), 4)
+            .expect("needle corner composite");
+        assert_eq!(r.old_tris, vec![0]);
+        assert_eq!(r.new_tris.len(), 2);
+        assert_eq!(r.dropped, BTreeSet::from([0]));
+        assert!(r.new_verts.is_empty());
+        // The quad's boundary edges appear exactly once, the corner never.
+        let mut uses: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+        for t in &r.new_tris {
+            assert!(!t.contains(&0), "the corner leaves the fragment");
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                *uses.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+        for e in [(1, 5), (4, 5), (3, 4), (1, 3)] {
+            assert_eq!(uses.get(&e), Some(&1), "quad edge {e:?} once");
+        }
+        let parent =
+            crate::stage4_splice::area_vector(&[[0, 1, 3]], &|v: u32| mesh.verts[v as usize]);
+        for t in &r.new_tris {
+            let at = |v: u32| if v == 5 { mint } else { mesh.verts[v as usize] };
+            let av = crate::stage4_splice::area_vector(&[*t], &at);
+            assert!(
+                crate::stage4_splice::dot3(parent, av) > 0.0,
+                "child keeps sense"
+            );
+        }
+        // Reversed parent winding: the quad follows it.
+        let flipped = Mesh {
+            verts: mesh.verts.clone(),
+            tris: vec![[0, 3, 1], [1, 3, 2]],
+        };
+        let rf = drop_needle_corner(&flipped, 7, &patch, (0, 1, 3), (5, mint), 4)
+            .expect("reversed winding composite");
+        let pf =
+            crate::stage4_splice::area_vector(&[[0, 3, 1]], &|v: u32| flipped.verts[v as usize]);
+        for t in &rf.new_tris {
+            let at = |v: u32| {
+                if v == 5 {
+                    mint
+                } else {
+                    flipped.verts[v as usize]
+                }
+            };
+            let av = crate::stage4_splice::area_vector(&[*t], &at);
+            assert!(crate::stage4_splice::dot3(pf, av) > 0.0);
+        }
+        // A two-triangle fan at the corner is not a needle: declined.
+        let wide = Mesh {
+            verts: mesh.verts.clone(),
+            tris: vec![[0, 1, 2], [0, 2, 3]],
+        };
+        let wide_patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1]);
+        match drop_needle_corner(&wide, 7, &wide_patch, (0, 1, 3), (5, mint), 4) {
+            Err(ConstructError::EdgeNotBoundary { incident: 2, .. }) => {}
+            other => panic!("two-triangle fan must decline, got {other:?}"),
+        }
+        // The chord end is not on the corner's triangle: declined.
+        match drop_needle_corner(&mesh, 7, &patch, (0, 1, 2), (5, mint), 4) {
+            Err(ConstructError::EdgeNotBoundary { incident: 1, .. }) => {}
+            other => panic!("missing edge must decline, got {other:?}"),
+        }
+        // The kept vertex already on the triangle: declined.
+        match drop_needle_corner(&mesh, 7, &patch, (0, 1, 3), (5, mint), 3) {
+            Err(ConstructError::EdgeNotBoundary { .. }) => {}
+            other => panic!("kept on the triangle must decline, got {other:?}"),
+        }
+        // A mint beyond the far edge flips every child: declined.
+        match drop_needle_corner(
+            &mesh,
+            7,
+            &patch,
+            (0, 1, 3),
+            (5, Point3::new(5.0, 0.5, 0.0)),
+            4,
+        ) {
+            Err(ConstructError::SplitFlip { .. }) => {}
+            other => panic!("flipping mint must decline, got {other:?}"),
         }
     }
 

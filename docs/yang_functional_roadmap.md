@@ -69,10 +69,23 @@
 > CORRECT → ERROR**, density-sensitive latents downstream of Stage 1
 > (R0003: the §I13(f) f903 ring fold returns at N = 128 though the case is
 > CORRECT at 41 and ≈ 181; R0053: a chained output re-enters non-manifold
-> at N = 131), both ledgered as PROBE rows. Next increments, in order:
-> R0003's f903 fold and R0053's non-manifold re-entry at their new density
-> (the two regressions — probe first),
-> R0032's Stage-4 torus junction (`gt2_partners` v7), and the OTHER in-plane
+> at N = 131), both ledgered as PROBE rows. **R0003 FLIPPED BACK 2026-09-06**
+> (spec `yang_441_trim_cdt_construction.md` §I13(f) "f2c-2 amendment — the
+> NEEDLE corner"): at N = 128 the rehome arm applied but the batch write
+> refused an overlapping chord-split + seam-insert pair — the dropped
+> corner's whole fragment fan is one 2.5° needle triangle holding both
+> edges; `drop_needle_corner` replaces it by the quad `[jc, chain_nb,
+> link_nb, kept]` and drops the corner (batch-coverage certificate at the
+> apply site). R0003 SUPPORTED_CORRECT 66 s; corpus (release, 8 jobs, 600 s;
+> wall 661.5 s, F0085 305.2 s) **276C/0W/30E/4EE/0T**, exactly one row
+> moved. **R0053 re-anatomized the same day**: not a chained-output
+> re-entry — the fresh gear's Stage-0 overlay minted two crossing vertices
+> ~1e-16 apart (an input corner within rounding distance of a cap edge)
+> that the rounding gate keeps as `Positive` needles; vehicle = the
+> overlay's sub-resolution cluster contraction (spec
+> `m8_overlay_fused_emission_collapse` §8, `YANG_S0_SUBRES_FUSE`), corpus
+> result recorded in the ledger entry of that date. Next increments, in
+> order: R0032's Stage-4 torus junction (`gt2_partners` v7), and the OTHER in-plane
 > section-conic junction types a crossing cut can produce (oblique plane ⇒
 > ellipse × ellipse in ONE plane; ellipse × circle; ruling × ellipse —
 > unmeasured, recorded in the spec). Review
