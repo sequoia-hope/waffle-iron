@@ -216,6 +216,52 @@ pub(crate) fn project_loop_2d(
         .collect()
 }
 
+/// Probe-only (`YANG_SPLIT_PROBE`): one line per outer-loop edge of `f` —
+/// kind, endpoints, endpoint azimuths about `axis_dir` through `axis_point`
+/// in one shared frame, and the built chain length — so a chord-sided band
+/// routed away from the structured strip names WHY (unequal arc sweeps, an
+/// extra chord run, non-ruling sides) without a re-run. Measured first on
+/// R0032 face 3 (2026-09-07).
+pub(crate) fn loop_azimuth_desc(
+    f: &BRepFace,
+    edges: &[BRepEdge],
+    chains: &std::collections::BTreeMap<u32, Vec<u32>>,
+    out_verts: &[Point3],
+    axis_point: Point3,
+    axis_dir: Vector3,
+) -> String {
+    let ap = axis_point.as_array();
+    let (e1, e2) = ortho_basis(axis_dir);
+    let (e1a, e2a) = (e1.as_array(), e2.as_array());
+    let theta = |v: u32| -> f64 {
+        let p = out_verts[v as usize].as_array();
+        let w = [p[0] - ap[0], p[1] - ap[1], p[2] - ap[2]];
+        let x = w[0] * e1a[0] + w[1] * e1a[1] + w[2] * e1a[2];
+        let y = w[0] * e2a[0] + w[1] * e2a[1] + w[2] * e2a[2];
+        y.atan2(x)
+    };
+    f.outer_loop
+        .iter()
+        .map(|&e| {
+            let ed = &edges[e as usize];
+            let kind = match ed.curve {
+                Curve::Circle { radius, .. } => format!("Arc(r={radius:.6})"),
+                Curve::LineSegment => "Line".to_string(),
+                ref other => format!("{other:?}"),
+            };
+            format!(
+                "e{e}:{kind}[{}→{}] θ {:.9}→{:.9} chain={:?}",
+                ed.start,
+                ed.end,
+                theta(ed.start),
+                theta(ed.end),
+                chains.get(&e).map(|c| c.len())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 /// PR-NC1: tessellate a planar, all-LineSegment face that is **non-convex** or
 /// has **inner loops** via a constrained Delaunay triangulation
 /// (`cherchi_rs::cdt_polygon_with_holes`).

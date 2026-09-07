@@ -3232,16 +3232,21 @@ pub(crate) fn tessellate_lateral_face(
         return Ok(());
     }
 
-    if arcs.len() == 2
-        && full_rims.is_empty()
-        && f.outer_loop.iter().all(|&e| {
-            matches!(
-                edges[e as usize].curve,
-                Curve::Circle { .. } | Curve::LineSegment
-            )
-        })
-    {
-        // ===== Partial patch (PR-KV6b-1): 2 sweep arcs + ruling segments =====
+    // ===== Partial patch (PR-KV6b-1): the 4-edge wall [Arc, Line, Arc,
+    // Line] — 2 sweep arcs + 2 RULING segments, whose arc chains pair
+    // index-for-index. 2026-09-07 (spec `yang_stage1_curved_holed_patch`
+    // "The strip arm's dispatch", the cone arm's twin): gated on the PATTERN
+    // — a band whose sides are chord runs from a prior boolean, or a 4-edge
+    // wall whose single-chord sides are not rulings (unpairable chains), is
+    // a bounded bitten patch and takes the Slice D chart CDT below, which
+    // splices every chain and chord vertex; the strip used to pair the arcs
+    // and silently skip the chord-run vertices.
+    let line_edges = f
+        .outer_loop
+        .iter()
+        .filter(|&&e| matches!(edges[e as usize].curve, Curve::LineSegment))
+        .count();
+    if arcs.len() == 2 && full_rims.is_empty() && line_edges == 2 && f.outer_loop.len() == 4 {
         let (mut bottom_e, mut top_e) = (arcs[0], arcs[1]);
         if rim_param(bottom_e) > rim_param(top_e) {
             std::mem::swap(&mut bottom_e, &mut top_e);
@@ -3252,43 +3257,48 @@ pub(crate) fn tessellate_lateral_face(
         let top = rim_rings.get(&top_e).ok_or_else(|| {
             YangError::MalformedTopology(format!("face {f_idx}: arc chain {top_e} not built"))
         })?;
-        if bottom.len() != top.len() || bottom.len() < 2 {
-            return Err(YangError::MalformedTopology(format!(
-                "face {f_idx}: partial-cylinder arc chains have mismatched sample counts                  ({} vs {})",
+        if bottom.len() == top.len() && bottom.len() >= 2 {
+            // Chains are open polylines [start … end]; with agreeing stored
+            // senses they are azimuth-aligned index-for-index, with mirrored
+            // senses index k pairs with (M−k).
+            let m = bottom.len() - 1;
+            let co_rotating = rim_sense(bottom_e) * rim_sense(top_e) > 0.0;
+            let b_index = |k: usize| -> usize {
+                if co_rotating {
+                    k
+                } else {
+                    m - k
+                }
+            };
+            for k in 0..m {
+                let t0 = top[k];
+                let t1 = top[k + 1];
+                let b0 = bottom[b_index(k)];
+                let b1 = bottom[b_index(k + 1)];
+                for mut tri in [[b0, b1, t1], [b0, t1, t0]] {
+                    let n = orient_target(out_verts, &tri);
+                    orient_tri(out_verts, &mut tri, n);
+                    out_tris.push(tri);
+                }
+            }
+            return Ok(());
+        }
+        if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+            eprintln!(
+                "[stage1-strip] face {f_idx}: 4-edge cylinder wall's arc chains ({} vs {}) \
+                 cannot pair — chord-sided, routed to the chart CDT; loop [{}]",
                 bottom.len(),
-                top.len()
-            )));
+                top.len(),
+                loop_azimuth_desc(f, edges, rim_rings, out_verts, axis_point, axis_dir)
+            );
         }
-        // Chains are open polylines [start … end]; with agreeing stored
-        // senses they are azimuth-aligned index-for-index, with mirrored
-        // senses index k pairs with (M−k).
-        let m = bottom.len() - 1;
-        let co_rotating = rim_sense(bottom_e) * rim_sense(top_e) > 0.0;
-        let b_index = |k: usize| -> usize {
-            if co_rotating {
-                k
-            } else {
-                m - k
-            }
-        };
-        for k in 0..m {
-            let t0 = top[k];
-            let t1 = top[k + 1];
-            let b0 = bottom[b_index(k)];
-            let b1 = bottom[b_index(k + 1)];
-            for mut tri in [[b0, b1, t1], [b0, t1, t0]] {
-                let n = orient_target(out_verts, &tri);
-                orient_tri(out_verts, &mut tri, n);
-                out_tris.push(tri);
-            }
-        }
-        return Ok(());
     }
 
     // KV14 Slice D (spec `yang_stage1_curved_holed_patch`): a non-canonical
     // outer loop — no full-circle rims, only Line + Arc edges, but NOT the
     // structured 2-rim / 2-arc pattern (e.g. a partial patch bitten into an
-    // irregular boundary by a prior boolean: R0053 = [L,A,A,A,L,A,A,A]). Route
+    // irregular boundary by a prior boolean: R0053 = [L,A,A,A,L,A,A,A]; a
+    // chord-sided band [A,L,L,L,A,L,L,L] or an unpairable 4-edge wall). Route
     // it through the same general unroll + CDT path as the holed patch, with an
     // empty hole set: `tessellate_lateral_holed_cdt` classifies the single outer
     // loop by axial winding and lays it flat in (u = r·θ, v = axial) param space.

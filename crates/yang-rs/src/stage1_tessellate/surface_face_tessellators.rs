@@ -256,20 +256,33 @@ pub(crate) fn tessellate_cone_face(
             matches!(ed.curve, Curve::Circle { .. }) && ed.start != ed.end
         })
         .collect();
-    // KV6c increment 5 (task #82): the partial cone STRIP — 2 sweep arcs at
-    // the wall's two radii + slant ruling segments, the ruled analog of
-    // `tessellate_lateral_face`'s partial cylinder arm. Arc chains are
-    // sampled by SWEEP fraction of the shared n_seg (radius-independent), so
-    // the two chains of one wall always carry identical counts. NEVER the
-    // frustum-band arm below (whose % nseg wrap assumes closed rings).
-    if arc_edges.len() == 2
-        && circle_edges.is_empty()
-        && f.outer_loop.iter().all(|&e| {
-            matches!(
-                edges[e as usize].curve,
-                Curve::Circle { .. } | Curve::LineSegment
-            )
-        })
+    // KV6c increment 5 (task #82): the partial cone STRIP — the 4-EDGE wall
+    // [Arc, Line, Arc, Line]: 2 sweep arcs at the wall's two radii + 2 slant
+    // RULING segments, the ruled analog of `tessellate_lateral_face`'s
+    // partial cylinder arm. A ruling-sided wall's two arcs sweep the SAME
+    // azimuth range, so chains sampled by SWEEP fraction of the shared n_seg
+    // (radius-independent) carry identical counts and pair index-for-index.
+    // NEVER the frustum-band arm below (whose % nseg wrap assumes closed
+    // rings).
+    //
+    // 2026-09-07 (R0032 face 3; spec `yang_stage1_curved_holed_patch` "The
+    // strip arm's dispatch"): the arm is gated on the PATTERN, not on "two
+    // arcs + any number of lines". A band whose sides are chord RUNS left by
+    // a prior boolean (its torus∩cone polyline crossing the band:
+    // [A,L,L,L,A,L,L,L]) used to reach the strip, which paired the two arcs
+    // and silently dropped every chord-run vertex (cracks along both sides)
+    // while the counts happened to agree at a coarse rim N, and STOPped
+    // `mismatched sample counts` once the thin-band rim density made the
+    // arcs' unequal sweeps visible. Such a loop — and a 4-edge wall whose
+    // single-chord sides are not rulings, so its chains cannot pair — is a
+    // bounded patch bitten by a prior boolean: the Slice E chart CDT below,
+    // which splices every chain and chord vertex exactly.
+    let line_edges = f
+        .outer_loop
+        .iter()
+        .filter(|&&e| matches!(edges[e as usize].curve, Curve::LineSegment))
+        .count();
+    if arc_edges.len() == 2 && circle_edges.is_empty() && line_edges == 2 && f.outer_loop.len() == 4
     {
         let au = normalize3(axis_dir.as_array());
         let ap = apex.as_array();
@@ -302,47 +315,51 @@ pub(crate) fn tessellate_cone_face(
         let top = rim_rings.get(&top_e).ok_or_else(|| {
             YangError::MalformedTopology(format!("face {f_idx}: cone arc chain {top_e} not built"))
         })?;
-        if bottom.len() != top.len() || bottom.len() < 2 {
-            return Err(YangError::MalformedTopology(format!(
-                "face {f_idx}: partial-cone arc chains have mismatched sample counts \
-                 ({} vs {})",
-                bottom.len(),
-                top.len()
-            )));
-        }
-        // Chains are open polylines [start … end]; with agreeing stored
-        // senses they are azimuth-aligned index-for-index, with mirrored
-        // senses index k pairs with (M−k) — the cylinder partial-arm rule.
-        let m = bottom.len() - 1;
-        let co_rotating = rim_sense(bottom_e) * rim_sense(top_e) > 0.0;
-        let b_index = |k: usize| -> usize {
-            if co_rotating {
-                k
-            } else {
-                m - k
-            }
-        };
-        for k in 0..m {
-            let t0 = top[k];
-            let t1 = top[k + 1];
-            let b0 = bottom[b_index(k)];
-            let b1 = bottom[b_index(k + 1)];
-            for mut tri in [[b0, b1, t1], [b0, t1, t0]] {
-                let mut n = cone_outward_normal(out_verts, &tri, apex, axis_dir, half_angle);
-                if f.reversed {
-                    n = [-n[0], -n[1], -n[2]];
+        if bottom.len() == top.len() && bottom.len() >= 2 {
+            // Chains are open polylines [start … end]; with agreeing stored
+            // senses they are azimuth-aligned index-for-index, with mirrored
+            // senses index k pairs with (M−k) — the cylinder partial-arm rule.
+            let m = bottom.len() - 1;
+            let co_rotating = rim_sense(bottom_e) * rim_sense(top_e) > 0.0;
+            let b_index = |k: usize| -> usize {
+                if co_rotating {
+                    k
+                } else {
+                    m - k
                 }
-                orient_tri(out_verts, &mut tri, n);
-                out_tris.push(tri);
+            };
+            for k in 0..m {
+                let t0 = top[k];
+                let t1 = top[k + 1];
+                let b0 = bottom[b_index(k)];
+                let b1 = bottom[b_index(k + 1)];
+                for mut tri in [[b0, b1, t1], [b0, t1, t0]] {
+                    let mut n = cone_outward_normal(out_verts, &tri, apex, axis_dir, half_angle);
+                    if f.reversed {
+                        n = [-n[0], -n[1], -n[2]];
+                    }
+                    orient_tri(out_verts, &mut tri, n);
+                    out_tris.push(tri);
+                }
             }
+            return Ok(());
         }
-        return Ok(());
+        if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+            eprintln!(
+                "[stage1-strip] face {f_idx}: 4-edge cone wall's arc chains ({} vs {}) cannot \
+                 pair — chord-sided, routed to the chart CDT; loop [{}]",
+                bottom.len(),
+                top.len(),
+                loop_azimuth_desc(f, edges, rim_rings, out_verts, apex, axis_dir)
+            );
+        }
     }
     // KV14 Slice E (spec `yang_stage1_curved_holed_patch`): a non-canonical cone
     // outer loop — no full-circle rims, only Line + Arc edges, but NOT the
     // structured 2-arc strip above (e.g. a partial patch bitten into a multi-arc
     // boundary by a prior boolean: R0020 = [L,A,A,A,L,A,A,A], R0093 =
-    // [L,A,A,L,A,A]). Route it through the shared unroll + CDT path with an empty
+    // [L,A,A,L,A,A]; a chord-sided band: R0032 = [A,L,L,L,A,L,L,L]). Route it
+    // through the shared unroll + CDT path with an empty
     // hole set; the 0-encircling branch lays the single outer loop flat in cone
     // param space. Ellipse edges (oblique-section boundaries, KV14 ellipse-arc
     // re-entry) and procedural surface-pair edges (M5 K11 re-entry) sample

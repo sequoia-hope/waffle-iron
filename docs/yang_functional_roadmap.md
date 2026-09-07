@@ -104,6 +104,33 @@
 > is what makes the K9/K11 chord-midpoint bisection's basin assumption hold
 > — a pair edge spanning > 180° would silently trace the complementary arc
 > (spec `m5_surface_pair_curve.md`, "Producer bound").
+>
+> **2026-09-07 — R0032's live wall was NOT the ledgered Stage-4 torus
+> junction.** The 2026-09-05 rim density had moved it (unledgered) to an
+> earlier Stage-1 STOP, `face 3: partial-cone arc chains have mismatched
+> sample counts (4 vs 3)`, which was a SILENT-WRONG tessellation the density
+> made loud: the op-2 output re-enters op 3 with thin cone bands at r ≈ 232
+> whose sides are 3-chord runs of the torus∩cone polyline (an 8-edge loop
+> `[A,L,L,L,A,L,L,L]`, arcs sweeping 6.04° / 5.40°), and the partial-strip
+> arm dispatched on "2 arcs + any lines" — never the branch table's 4-edge
+> pattern — so at the old N = 17 it paired the two 2-sample arcs and dropped
+> the six chord-run vertices (cracks along both sides; the `gt2_partners`
+> wall was measured on that input). Rule (spec
+> `yang_stage1_curved_holed_patch` "The strip arm's dispatch"): the strip is
+> the 4-edge `[Arc, Line, Arc, Line]` wall whose chains pair index-for-index;
+> every other 2-arc loop is a bitten bounded patch → the Slice D/E chart CDT
+> (cone and cylinder arms; six RED→GREEN fixtures with an exact
+> boundary-segment conformality oracle, on-surface + no-fold checks). R0032
+> clears Stage 1 → Stage 6 `reassembled output would be non-2-manifold`
+> (81.5 s; `NONMANIFOLD_SITE_PROBE`: `s4-shell-euler` double-cover edges,
+> two triangle sets over one vertex cluster — the ledger's torus × two-cone
+> corner-junction double cover, the #146 family). Corpus (release, 8 jobs,
+> 600 s; wall 687.8 s, F0085 309.7 s): **277C/0W/29E/4EE/0T
+> category-identical**, two detail moves (R0032's wall advance; R0015 vertex
+> 84 → 82, its band now takes the chart path). Next increments, in order:
+> R0032's Stage-6 corner-junction double cover (the #146 family — probe the
+> two covering face sets first), and the OTHER in-plane section-conic
+> junction types.
 
 The kernel rewrite is **live in the app**. The legacy `crates/kernel/` is
 DELETED; the app, feature-engine, and all tests run on `kernel-v2` through the

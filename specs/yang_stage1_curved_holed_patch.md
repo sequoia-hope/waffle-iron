@@ -117,7 +117,10 @@ normal, matching `tessellate_lateral_face`'s `orient_target`.
 ## Branch table
 
 1. `inner_loops.is_empty()` AND canonical/partial/torus 4-edge pattern → EXISTING
-   structured path (`tessellate_lateral_face`). Unchanged.
+   structured path (`tessellate_lateral_face`). Unchanged. **(2026-09-07: the
+   partial pattern is the 4-EDGE `[Arc, Line, Arc, Line]` wall whose arc chains
+   pair index-for-index; the arms used to dispatch on "2 arcs + any lines" —
+   see "The strip arm's dispatch" below.)**
 2. `inner_loops` non-empty, all boundary edges ∈ {Line, Arc, Circle} → NEW
    unroll+CDT path. (slices A–C below)
 3. outer loop not 4-edge, no holes, all edges ∈ {Line, Arc, Circle} → NEW
@@ -492,6 +495,68 @@ rule kept. Total corpus case CPU 3070 → 3833 s (the sum-of-sags cut was
 surface-pair chains) has no density channel — it stays the typed loud stop.
 The planar-CDT path (`tessellate_planar_curved_cdt_face`) has no scan yet
 (no corpus case fails there; census first).
+
+## The strip arm's dispatch (2026-09-07) — R0032 face 3, the chord-sided band
+
+The 2026-09-05 thin-band rim density moved R0032 off the ledger's Stage-4
+torus junction (`gt2_partners` v7) to an EARLIER, unledgered Stage-1 STOP —
+`face 3: partial-cone arc chains have mismatched sample counts (4 vs 3)` —
+which turned out to be a silent-wrong tessellation the density made loud.
+
+**Anatomy (measured; `YANG_SPLIT_PROBE=1` + the STOP's own loop print).**
+The op-2 output (torus − gear) re-enters op 3 (the extrude union) carrying
+three thin CONE bands at r ≈ 232.2 … 232.9 (rims 0.06, 0.21 and 0.38 apart),
+so `face_rim_pair_phantom_n` raises the shared rim N 17 → 57 → 74 → 127.
+Face 3 is one of them, an 8-edge loop
+`[A(r=232.287, 7→34, θ −0.2597→−0.1543, chain 4), L, L, L,
+A(r=232.498, 10→31, θ −0.2539→−0.1597, chain 3), L, L, L]`:
+two arcs sweeping **6.04° and 5.40°** (different azimuth ranges) whose
+sides are 3-chord runs of the previous boolean's torus∩cone polyline (each
+chord Δθ ≈ 0.0021 … 0.0026 rad — the curve crosses the band obliquely).
+
+**Defect.** `tessellate_cone_face`'s partial-strip arm (and its
+`tessellate_lateral_face` cylinder twin) dispatched on "exactly 2 arcs, no
+full rims, every edge Circle or LineSegment" — never on the edge COUNT the
+branch table's item 1 names ("the 4-edge pattern"). At N = 17 both arcs
+floored to 2 samples, the strip paired them index-for-index and dropped the
+six chord-run vertices: a mesh with cracks along both sides, conformal to
+nothing, that Stage 2 nevertheless carried to Stage 4 (the ledger's
+`gt2_partners` wall was measured on that cracked input). At N = 127 the
+chains carry `ceil(0.1054·127/2π) = 3` vs `ceil(0.0942·127/2π) = 2`
+segments and the arm STOPped.
+
+**Rule.** The structured strip is the **4-edge wall `[Arc, Line, Arc, Line]`
+whose arc chains pair index-for-index** — a ruling-sided wall's two arcs
+sweep the same range, so chains sampled by sweep fraction of the shared N
+carry identical counts. Every other 2-arc loop is a bounded patch bitten by
+a prior boolean and takes the Slice D/E chart CDT (which splices every chain
+and chord vertex exactly): an extra chord run (R0032), and a 4-edge wall
+whose single-chord sides are not rulings — or whose equal sweeps tie at a
+`ceil` boundary — so its chains cannot pair. No band: the pairing predicate
+is exact, and both paths are faithful tessellations of the face (a paired
+strip over slightly shifted arcs is a skewed but bijective, conformal,
+fold-free strip; the CDT is the general path). `loop_azimuth_desc`
+(`YANG_SPLIT_PROBE`) prints the loop's kinds, endpoints and azimuths when a
+4-edge wall is routed away.
+
+**Tests** (`yang-rs/src/tests_unit/kv14_chord_sided_band.rs`, RED → GREEN):
+cone and cylinder 8-edge bands with unequal sweeps (60° / 30°, 3-chord
+sides, N = 36 ⇒ chains 7 vs 4 — the STOP), the same bands with EQUAL sweeps
+(the top shifted 10° — the silent-crack half: chains 7 vs 7, the old strip
+built and skipped six vertices), a 4-edge cone wall with single-chord
+non-ruling sides (unpairable), and the ruling-sided 4-edge control that
+still takes the strip (two triangles per chain step, no interior Steiner
+vertex). Oracles: the mesh's count-1 edge set EQUALS the loop's sampled
+segments (exact conformality — the RED for the silent half), no edge
+covered more than twice, every vertex on the surface (lifted Steiner
+points), no triangle folded in the isometric development, and the flat
+area within 1% of the developed region (a second-order reference: its
+sides are straight in the chart).
+
+**R0032** clears Stage 1 and STOPs at Stage 6 `reassembled output would be
+non-2-manifold` (77 s) — the non-2-manifold reassembly family; the ledger's
+`gt2_partners` row is retired (it was measured on the cracked input).
+Corpus: see the ledger entry of the same date.
 
 ## Apex-cone OPERAND — ✅ DONE (2026-09-04; C0063)
 

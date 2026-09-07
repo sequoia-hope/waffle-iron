@@ -90,7 +90,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 84 is invalid: OffCurveBeyondChordBand\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 82 is invalid: OffCurveBeyondChordBand\"). Body created as standalone.",
       "id": "R0015",
       "status": "error"
     },
@@ -192,7 +192,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): ab4df593-6e6f-47f8-aeca-66f2bf645d12: operation error: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 3: partial-cone arc chains have mismatched sample counts (4 vs 3)\")",
+      "detail": "1 engine error(s): ab4df593-6e6f-47f8-aeca-66f2bf645d12: operation error: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
       "id": "R0032",
       "status": "error"
     },
