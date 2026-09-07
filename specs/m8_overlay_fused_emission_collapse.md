@@ -249,3 +249,80 @@ f64-emission boundary, below representable resolution — it approximates
 nothing an f64 consumer could ever observe as geometry; it removes
 structure that HAS no f64 image. No surface-surface intersection method is
 affected.
+
+
+## 8. Sub-resolution clusters (2026-09-06 amendment — R0053 at the thin-band rim density)
+
+**Measured.** The 2026-09-05 thin-band rim rule raised R0053's gear revolve
+to N = 131 and op 3's auto-union STOPped at the arrangement's I6 backstop
+(`yang-rs: input B-Rep is not 2-manifold`). Probed one layer up
+(`NONMANIFOLD_SITE_PROBE` `i6-source` print, this amendment): the operand
+is the FRESH gear (input B, not the chained output); two of its Stage-0
+mesh vertices (49912, 49918 ≥ the Stage-1 count 49728 — both overlay
+mints) lie one ulp apart and are shared by cap face 0 (plane, 448-edge
+loop) and cone face 155; the cap's edge (295,296) carried two overlay
+vertices 298 and 305 at chord parameters 0.6249248295306975 and
+…6973 (`[split-probe] … SPLIT` print). Anatomy: an input corner of the
+other side within ~1e-16 of that edge; its two incident edges cross the
+edge at two exact points, the sweep adds a third on the corner's own
+column, and every one rounds to a DISTINCT f64 point — the rounded
+disposition sees three `Positive` triangles (§3 step 2 never fires),
+the legacy gate emits all of them, `collect_edge_splits` splits the
+lateral edge at each, and the 3D mesh carries a one-ulp needle the
+arrangement cannot classify.
+
+**Rule.** Vertices whose EXACT separation is within the ROUNDING band —
+the KV10 near-weld band `TAU_WORK·(1 + scale)`, `scale` the overlay's
+largest live coordinate magnitude, capped by §2's ceiling `TAU_MODEL` —
+are ONE point whether or not their rounded images coincide. (An
+ABSOLUTE `TAU_MODEL` band was built first and measured WRONG on the
+micro model R0071 — scale 1.9e-3, tooth features ~1e-6: 941 clusters up
+to 3.5e-7 wide fused real gear geometry and the output lost
+manifoldness, the R0091 lesson one order lower; gate-off the case is
+CORRECT. The rounding band leaves it untouched: at |coord| ≈ 1e-4 the
+band is ≈ 1e-12.) `sub_resolution_contract` runs BEFORE the rounding
+gate: union-find over every in-band pair (f64 pre-filter on a sort by x
+with 4-ulp slack, exact rational confirmation), then each cluster of ≥ 2
+live vertices contracts onto ONE representative — an input-loop vertex
+when the cluster holds one (the smallest index among several), else the
+smallest index; the representative keeps its own exact bits. Contraction
+is ALL-OR-NOTHING per cluster, certified in exact arithmetic: (1) every
+member within the band of the representative (a union-find chain wider
+than the band is real structure), (2) every touched triangle remapped —
+index-degenerate results are absorbed under I5, every other must keep
+strictly positive exact area; a cluster failing either is skipped whole
+and stays as the legacy gate emits it (a stuck sub-resolution needle is
+f64-emittable and never a wall on its own; its downstream consumer's
+loud STOP stands). Clusters commit in ascending representative order;
+every fusion is recorded path-compressed in `fused`. The sliver loop (§3)
+then runs unchanged on what remains. Gate `YANG_S0_SUBRES_FUSE`: unset =
+on; `0|off` = the legacy gate (dev A/B). Census print under
+`YANG_SPLIT_PROBE` (`[subres-contract]`: rep, members, inputs, max
+separation, COMMIT / SKIP(chain) / SKIP(flip)).
+
+**Why a cluster and not another edge candidate.** An edge-at-a-time
+trigger ("any live triangle with a sub-TAU edge joins the worklist") was
+built first and measured on the §6 femto-slab fixtures: it split one
+sub-TAU cluster into two survivor camps (A's corner and B's corner
+2e-16 apart, each collecting its side's mints) and stranded an input
+corner with no triangle and no `fused` record — the I3' fused tiling
+then had no edge to find. A cluster fuses as a unit, so both corners
+land on one representative and the identity is recorded.
+
+**Legacy witness re-scoped.** Same-f64 pairs closer than `TAU_MODEL` now
+contract explicitly (recorded) instead of implicitly at the emission's
+bit-exact weld, so `needle_only_overlay_byte_identical_legacy` pins the
+WELDED canonical form (`welded_canonical_fnv`: vertices identified by
+f64 bits, renumbered by first appearance) — identical under both gates
+(0x1250e905fd46c6c4; the gate-off raw FNV still equals the historical
+0xf7642480300ae850). Structural counts, the vertex pool and the
+21-pair needle footprint are unchanged; every recorded fusion there
+joins a same-f64 pair.
+
+**Oracles.** `corner_within_ulps_of_an_edge_fuses_its_twin_crossings`
+(the R0053 class: the two crossings and the column foot fuse INTO the
+input corner, exactly one on-edge vertex at the site, no emitted edge
+within the rounding band, the tip absorbed, full §5 stack); the §6 fixtures
+unchanged in verdict (C0048, synthetic slab, coexisting hole, survivor
+preference, supra-TAU wall, NaN/degenerate). Corpus: see the ledger
+entry of the same date.

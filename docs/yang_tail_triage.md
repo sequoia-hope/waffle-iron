@@ -60,15 +60,37 @@ otherwise). R0003 SUPPORTED_CORRECT 66.4 s. Corpus (release, 8 jobs, 600 s;
 wall 661.5 s, F0085 305.2 s honest): **276C / 0W / 30E / 4EE / 0T**,
 exactly one row moved (R0003 ERROR → CORRECT), zero detail changes.
 
-R0053 (the other 2026-09-05 regression) is anatomized in the same session:
-NOT a chained-output re-entry — the operand that fails the arrangement's
-I6 backstop is the FRESH gear revolve (input B), whose Stage-0 coplanar
-overlay minted two crossing vertices ~1e-16 apart (an input corner of the
-other side within rounding distance of a cap edge) that both survived the
-rounding gate as `Positive` needles and split the adjacent lateral edge
-one ulp apart in 3D. Vehicle: the overlay's sub-resolution cluster
-contraction (spec `m8_overlay_fused_emission_collapse` §8) — see the row
-below and the entry that follows this one once its corpus run lands.
+## 2026-09-06 (later) — R0053 flipped back (Stage-0 overlay sub-resolution contraction); R0081 advances a wall; canonical 277C / 0W / 29E / 4EE / 0T
+
+R0053 (the other 2026-09-05 regression) was NOT a chained-output re-entry:
+the operand that fails the arrangement's I6 backstop is the FRESH gear
+revolve (input B), whose Stage-0 coplanar overlay minted two crossing
+vertices ~1e-16 apart (an input corner of the other side within rounding
+distance of a cap edge, plus the sweep column's foot) that all survived the
+rounding gate as `Positive` needles (the fused-emission repair's trigger is
+rounded degeneracy only) and split the adjacent cone lateral one ulp apart
+in 3D. Fix: `coplanar_overlay::sub_resolution_contract` (spec
+`m8_overlay_fused_emission_collapse` §8, gate `YANG_S0_SUBRES_FUSE`) —
+union-find over vertex pairs within the KV10 ROUNDING band `TAU_WORK·(1 +
+scale)` (capped by TAU_MODEL), one representative per cluster (input
+vertex wins), all-or-nothing contraction certified exact-positive and
+within the band of the representative, before the rounding gate. Two
+design refutations measured on the way: an EDGE-at-a-time trigger split
+clusters into two survivor camps and stranded an input corner (the I3'
+fused tiling broke on the femto-slab fixtures); an ABSOLUTE `TAU_MODEL`
+band fused real tooth geometry on the micro model R0071 (scale 1.9e-3:
+941 clusters up to 3.5e-7 wide, output non-manifold — the R0091 lesson one
+order lower; the rounding band contracts nothing there and R0071 stays
+CORRECT). R0053 SUPPORTED_CORRECT 173.7 s (72 clusters, max separation
+2.2e-13). Corpus (release, 8 jobs, 600 s; wall 694.7 s, F0085 315.5 s
+honest): **277C / 0W / 29E / 4EE / 0T**, exactly one category move
+(R0053 ERROR → CORRECT); two ERROR rows changed wall: R0050 (same Stage-4
+`LocalRefinementRequired`, vertex 125 → 122 — the overlay's vertex pool
+renumbered) and **R0081** (its `input B-Rep is not 2-manifold` wall — the
+R0053 class — CLEARED by the contraction (260 clusters, max 8e-13); it
+now STOPs at Stage 6 `reassembled output would be non-2-manifold`, 189.5
+s — the non-2-manifold INPUT-after-overlay family is down to R0019/R0049).
+
 
 ## 2026-09-05 (later) — R0044 flipped (thin-band chart guard + §4.5.4 chart refine; genus adjudicated 1); R0003 / R0053 REGRESSED as unmasked density-sensitive latents; canonical 275C / 0W / 31E / 4EE / 0T
 
@@ -100,7 +122,7 @@ ERROR → CORRECT; R0003, R0053 CORRECT → ERROR).
 | Case | Loud error | Root cause | Confidence | Vehicle |
 |---|---|---|---|---|
 | ~~R0003~~ | ~~kernel-v2 render `TessellationFailed { face: FaceId(903), … }` (58 s)~~ **FLIPPED CORRECT 2026-09-06** | Its gear revolve's thin bands raise the shared rim N 41 → 128; at that density the §I13(f) rehome arm's f2c-2 apply hit a NEEDLE corner (the dropped corner's whole fragment fan = one 2.5° triangle holding both the link chord and the chain edge) and the batch write refused the overlapping chord-split + seam-insert pair (`OverlappingBatch`). Closed by `drop_needle_corner` (spec §I13(f) "f2c-2 amendment") | CONFIRMED (anatomy measured from the refused batch's printed units) | ~~§I13(f) rehome census~~ DONE — 276C |
-| R0053 | `Revolve 3: Auto-union failed: … yang-rs: input B-Rep is not 2-manifold` (44 s) | **Re-anatomized 2026-09-06:** the operand failing the I6 backstop is the FRESH gear revolve (input B) — its Stage-0 coplanar overlay (flush cap, B face 0, 448-edge loop) minted two crossing vertices ~1e-16 apart on cap edge (295,296) (overlay verts 298/305, chord parameters 0.6249248295306975 / …73): an input corner of the other side within rounding distance of the edge, whose two incident edges cross it at two exact points, plus the sweep column's foot; all round to DISTINCT f64 points, so the rounding gate keeps them (`Positive`), `collect_edge_splits` splits the adjacent cone lateral (face 155) at both, and the 3D mesh carries a one-ulp needle (verts 49912/49918, both ≥ the Stage-1 count 49728) the arrangement rejects as coincident triangles. The thin-band N merely made the corner land there. Vehicle: sub-resolution cluster contraction at the overlay (spec `m8_overlay_fused_emission_collapse` §8, gate `YANG_S0_SUBRES_FUSE`) | CONFIRMED (site + provenance measured) | Stage-0 overlay vertex identity (`sub_resolution_contract`) |
+| ~~R0053~~ | ~~`Revolve 3: Auto-union failed: … yang-rs: input B-Rep is not 2-manifold` (44 s)~~ **FLIPPED CORRECT 2026-09-06 (later)** | **Re-anatomized 2026-09-06:** the operand failing the I6 backstop is the FRESH gear revolve (input B) — its Stage-0 coplanar overlay (flush cap, B face 0, 448-edge loop) minted two crossing vertices ~1e-16 apart on cap edge (295,296) (overlay verts 298/305, chord parameters 0.6249248295306975 / …73): an input corner of the other side within rounding distance of the edge, whose two incident edges cross it at two exact points, plus the sweep column's foot; all round to DISTINCT f64 points, so the rounding gate keeps them (`Positive`), `collect_edge_splits` splits the adjacent cone lateral (face 155) at both, and the 3D mesh carries a one-ulp needle (verts 49912/49918, both ≥ the Stage-1 count 49728) the arrangement rejects as coincident triangles. The thin-band N merely made the corner land there. Vehicle: sub-resolution cluster contraction at the overlay (spec `m8_overlay_fused_emission_collapse` §8, gate `YANG_S0_SUBRES_FUSE`) | CONFIRMED (site + provenance measured) | ~~Stage-0 overlay vertex identity (`sub_resolution_contract`)~~ DONE — 277C |
 
 
 R0044's Stage-1 wall (a conical band whose rim chords crossed in the cone

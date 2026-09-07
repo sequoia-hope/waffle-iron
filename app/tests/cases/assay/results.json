@@ -1,8 +1,8 @@
 {
-  "errored": 30,
+  "errored": 29,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 276,
+  "passed": 277,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -300,7 +300,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 7dd12f24-2b78-4a8a-a386-70c24e43a7f8: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 125 is invalid: LocalRefinementRequired\")",
+      "detail": "1 engine error(s): 7dd12f24-2b78-4a8a-a386-70c24e43a7f8: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 122 is invalid: LocalRefinementRequired\")",
       "id": "R0050",
       "status": "error"
     },
@@ -317,10 +317,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0053",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -486,7 +486,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Revolve 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
       "id": "R0081",
       "status": "error"
     },

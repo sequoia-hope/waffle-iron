@@ -630,6 +630,40 @@ pub fn coplanar_overlay_multi(
     // §8, P10 abort): the corpus slivers are chord-collinear mint triples and
     // order-inverted twin mints for which no fixed-vertex-set triangulation is
     // positive — the repair removes that fixed-vertex premise.
+    // Survivor preference set — an input-loop vertex outranks a minted
+    // arrangement vertex (fusing a mint INTO existing input geometry
+    // minimises downstream churn, spec §3). Re-derived from this overlay's
+    // own exact inputs.
+    let input_loop_verts: BTreeSet<ExactPoint2> = polys_a
+        .iter()
+        .chain(polys_b.iter())
+        .flat_map(|poly| poly.iter().flatten().cloned())
+        .collect();
+    // Sub-resolution contraction (2026-09-06, R0053 at the thin-band rim
+    // density; spec `m8_overlay_fused_emission_collapse` §8): vertices
+    // within the ROUNDING band of each other — the KV10 near-weld band
+    // `TAU_WORK·(1 + scale)`, capped by the §2 ceiling TAU_MODEL — are ONE
+    // point whether or not their rounded images coincide. The measured
+    // site is an input corner within ~1e-16 of the other side's edge: its
+    // two incident edges cross that edge at two exact points 2e-16 apart
+    // in the chord parameter, the sweep adds a third on the corner's own
+    // column, and every one of them rounds to a DISTINCT f64 point —
+    // invisible to the rounded disposition (the triangles stay
+    // `Positive`), so the legacy gate emitted all of them, Stage 0 split
+    // the adjacent lateral edge at each (one ulp apart in 3D) and the
+    // arrangement rejected the operand as non-manifold. Each cluster
+    // contracts onto one representative (an input-loop vertex, else the
+    // smallest index), all-or-nothing, certified exact-positive and within
+    // the band of the representative; a cluster failing either stays as
+    // the legacy gate emitted it. An ABSOLUTE TAU_MODEL band was measured
+    // WRONG on the micro model R0071 (scale 1.9e-3, tooth features ~1e-6):
+    // 941 clusters up to 3.5e-7 wide fused real geometry and the output
+    // lost manifoldness — the R0091 lesson one order lower.
+    // `YANG_S0_SUBRES_FUSE=0|off` restores the legacy gate.
+    if subres_fuse_enabled() {
+        sub_resolution_contract(&mut overlay, &input_loop_verts)?;
+    }
+
     let any_sliver = overlay.tris.iter().any(|t| {
         rounded_tri_disposition(
             overlay.verts[t[0] as usize],
@@ -639,19 +673,12 @@ pub fn coplanar_overlay_multi(
     });
 
     if any_sliver {
-        // B3: survivor preference set — an input-loop vertex outranks a minted
-        // arrangement vertex (fusing a mint INTO existing input geometry
-        // minimises downstream churn, spec §3). Re-derived from this overlay's
-        // own exact inputs.
-        let input_loop_verts: BTreeSet<ExactPoint2> = polys_a
-            .iter()
-            .chain(polys_b.iter())
-            .flat_map(|poly| poly.iter().flatten().cloned())
-            .collect();
+        // B3: the fused-emission repair (constrained edge collapse).
         fused_emission_repair(&mut overlay, &input_loop_verts, &all_edges)?;
     } else {
         // B2 legacy path — byte-identical (zero-regression requirement). No
         // CollinearSliver exists in this branch, so that arm is unreachable.
+        // (`fused` may already carry the sub-resolution contraction above.)
         let mut kept_tris = Vec::with_capacity(overlay.tris.len());
         let mut kept_class = Vec::with_capacity(overlay.class.len());
         let mut kept_pa = Vec::with_capacity(overlay.poly_a.len());
@@ -681,6 +708,218 @@ pub fn coplanar_overlay_multi(
     }
 
     Ok(overlay)
+}
+
+/// Sub-resolution fusion gate (`YANG_S0_SUBRES_FUSE`): unset = on; `0|off`
+/// = the legacy rounded-degeneracy gate only (dev A/B knob).
+fn subres_fuse_enabled() -> bool {
+    !matches!(
+        std::env::var("YANG_S0_SUBRES_FUSE").as_deref(),
+        Ok("0") | Ok("off")
+    )
+}
+
+/// Sub-resolution cluster contraction (spec `m8_overlay_fused_emission_
+/// collapse` §8, 2026-09-06). Vertices whose EXACT separation is within the
+/// ROUNDING band — the KV10 near-weld band `TAU_WORK·(1 + scale)`, `scale`
+/// the overlay's largest live coordinate magnitude, capped by the spec §2
+/// ceiling `TAU_MODEL` (the R0091 revert proved `MIN_FEATURE_SIZE` fuses
+/// real micro geometry; an absolute `TAU_MODEL` band fused real tooth
+/// geometry on the micro model R0071) — are one point: union-find over
+/// every such pair (f64 pre-filter on a sort by x, exact rational
+/// confirmation), then each cluster of ≥ 2 live vertices contracts onto ONE
+/// representative — an input-loop vertex when the cluster holds one (the
+/// smallest index among several), else the smallest index; the
+/// representative keeps its own exact bits (never an average). Contraction
+/// is ALL-OR-NOTHING per cluster and certified in exact arithmetic: every
+/// member must itself lie within the band of the representative (a
+/// union-find chain wider than the band is not one point), and every
+/// triangle touching the cluster is tentatively remapped — index-degenerate
+/// results are absorbed (their exact area is below band × local extent,
+/// I5), every other must keep strictly positive exact area; a cluster
+/// failing either is skipped whole and its vertices stay exactly as the
+/// legacy gate emits them (a stuck sub-resolution needle is f64-emittable
+/// and never a wall on its own — its downstream consumer's loud STOP
+/// stands). Clusters commit in ascending representative order; every
+/// fusion is recorded path-compressed in `fused` (values are never keys).
+/// Unlike the sliver-triggered edge collapse, a cluster fuses as a unit —
+/// an edge-at-a-time rule measured on the femto-slab fixtures split one
+/// cluster into two survivor camps and stranded an input corner with no
+/// triangle and no record (the I3' fused tiling then had no edge to find).
+fn sub_resolution_contract(
+    overlay: &mut ClassifiedOverlay,
+    input_loop_verts: &BTreeSet<ExactPoint2>,
+) -> Result<(), CoplanarOverlayError> {
+    let n = overlay.verts.len();
+    let is_degenerate = |t: &[u32; 3]| t[0] == t[1] || t[1] == t[2] || t[0] == t[2];
+    let mut live = vec![false; n];
+    for t in overlay.tris.iter().filter(|t| !is_degenerate(t)) {
+        for &v in t {
+            live[v as usize] = true;
+        }
+    }
+    // The rounding band: KV10's `TAU_WORK·(1 + scale)` over the live
+    // coordinate magnitude, capped by the TAU_MODEL ceiling (§2).
+    let scale = overlay
+        .verts
+        .iter()
+        .zip(&live)
+        .filter(|(_, &l)| l)
+        .map(|(p, _)| p.x().abs().max(p.y().abs()))
+        .fold(0.0f64, f64::max);
+    let band_f = (cad_primitives::TAU_WORK * (1.0 + scale)).min(cad_primitives::TAU_MODEL);
+    let band = rat(band_f)
+        .map_err(|_| CoplanarOverlayError::TriangulationFailed("rounding band is not finite"))?;
+    let band2 = &band * &band;
+    // Union-find over in-band pairs. The f64 pre-filter admits every pair
+    // whose exact distance could be within the band (rounding of the
+    // coordinates themselves is ≤ 4 ulps of their magnitude); the exact
+    // test decides.
+    let mut parent: Vec<u32> = (0..n as u32).collect();
+    fn find(parent: &mut [u32], mut x: u32) -> u32 {
+        while parent[x as usize] != x {
+            let p = parent[x as usize];
+            parent[x as usize] = parent[p as usize];
+            x = parent[x as usize];
+        }
+        x
+    }
+    let mut by_x: Vec<u32> = (0..n as u32).filter(|&v| live[v as usize]).collect();
+    by_x.sort_by(|&a, &b| {
+        overlay.verts[a as usize]
+            .x()
+            .total_cmp(&overlay.verts[b as usize].x())
+            .then(a.cmp(&b))
+    });
+    let slack = |a: f64, b: f64| band_f + 4.0 * f64::EPSILON * (a.abs() + b.abs());
+    let mut any = false;
+    for (k, &i) in by_x.iter().enumerate() {
+        let pi = overlay.verts[i as usize];
+        for &j in &by_x[k + 1..] {
+            let pj = overlay.verts[j as usize];
+            if pj.x() - pi.x() > slack(pi.x(), pj.x()) {
+                break;
+            }
+            if (pj.y() - pi.y()).abs() > slack(pi.y(), pj.y()) {
+                continue;
+            }
+            let dx = &overlay.exact_verts[i as usize].x - &overlay.exact_verts[j as usize].x;
+            let dy = &overlay.exact_verts[i as usize].y - &overlay.exact_verts[j as usize].y;
+            if &dx * &dx + &dy * &dy <= band2 {
+                let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                if ri != rj {
+                    parent[ri.max(rj) as usize] = ri.min(rj);
+                    any = true;
+                }
+            }
+        }
+    }
+    if !any {
+        return Ok(());
+    }
+    // Clusters keyed by root (= smallest member index), members ascending.
+    let mut clusters: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    for &v in &by_x {
+        let r = find(&mut parent, v);
+        clusters.entry(r).or_default().push(v);
+    }
+    for (_, members) in clusters.iter_mut().filter(|(_, m)| m.len() >= 2) {
+        members.sort_unstable();
+        let rep = members
+            .iter()
+            .copied()
+            .find(|&v| input_loop_verts.contains(&overlay.exact_verts[v as usize]))
+            .unwrap_or(members[0]);
+        let in_cluster = |v: u32| members.binary_search(&v).is_ok();
+        let remap = |t: &[u32; 3]| -> [u32; 3] { t.map(|v| if in_cluster(v) { rep } else { v }) };
+        // Certificate 1: the cluster IS one point — every member within the
+        // band of the representative (a union-find chain wider than the
+        // band is real structure, never contracted).
+        let compact = members.iter().all(|&v| {
+            let dx = &overlay.exact_verts[v as usize].x - &overlay.exact_verts[rep as usize].x;
+            let dy = &overlay.exact_verts[v as usize].y - &overlay.exact_verts[rep as usize].y;
+            &dx * &dx + &dy * &dy <= band2
+        });
+        // Certificate 2: every remapped survivor keeps strictly positive
+        // exact area (P9 — no silent flip); degenerate results are absorbed.
+        let ok = compact
+            && overlay.tris.iter().all(|t| {
+                if is_degenerate(t) || !t.iter().any(|&v| in_cluster(v)) {
+                    return true;
+                }
+                let r = remap(t);
+                is_degenerate(&r)
+                    || cross_r(
+                        &overlay.exact_verts[r[0] as usize],
+                        &overlay.exact_verts[r[1] as usize],
+                        &overlay.exact_verts[r[2] as usize],
+                    ) > RBig::ZERO
+            });
+        if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+            let far = members
+                .iter()
+                .map(|&v| {
+                    let dx =
+                        &overlay.exact_verts[v as usize].x - &overlay.exact_verts[rep as usize].x;
+                    let dy =
+                        &overlay.exact_verts[v as usize].y - &overlay.exact_verts[rep as usize].y;
+                    (&dx * &dx + &dy * &dy).to_f64().value().sqrt()
+                })
+                .fold(0.0f64, f64::max);
+            let inputs = members
+                .iter()
+                .filter(|&&v| input_loop_verts.contains(&overlay.exact_verts[v as usize]))
+                .count();
+            eprintln!(
+                "[subres-contract] cluster rep={rep} members={members:?} inputs={inputs} \
+                 max_sep={far:e} rep_at=({:e},{:e}) {}",
+                overlay.verts[rep as usize].x(),
+                overlay.verts[rep as usize].y(),
+                if ok {
+                    "COMMIT"
+                } else if compact {
+                    "SKIP(flip)"
+                } else {
+                    "SKIP(chain)"
+                }
+            );
+        }
+        if !ok {
+            continue;
+        }
+        for t in overlay.tris.iter_mut() {
+            *t = remap(t);
+        }
+        for &m in members.iter().filter(|&&m| m != rep) {
+            for v in overlay.fused.values_mut() {
+                if *v == m {
+                    *v = rep;
+                }
+            }
+            overlay.fused.insert(m, rep);
+        }
+    }
+    // Index-degenerate triangles (absorbed) leave the pool here; the
+    // rounding gate below sees only live triangles. Class/poly arrays stay
+    // 1:1 with `tris`.
+    let mut kept_tris = Vec::with_capacity(overlay.tris.len());
+    let mut kept_class = Vec::with_capacity(overlay.class.len());
+    let mut kept_pa = Vec::with_capacity(overlay.poly_a.len());
+    let mut kept_pb = Vec::with_capacity(overlay.poly_b.len());
+    for (i, t) in overlay.tris.iter().enumerate() {
+        if is_degenerate(t) {
+            continue;
+        }
+        kept_tris.push(*t);
+        kept_class.push(overlay.class[i]);
+        kept_pa.push(overlay.poly_a[i]);
+        kept_pb.push(overlay.poly_b[i]);
+    }
+    overlay.tris = kept_tris;
+    overlay.class = kept_class;
+    overlay.poly_a = kept_pa;
+    overlay.poly_b = kept_pb;
+    Ok(())
 }
 
 /// Fused-emission repair at the step-6 rounding gate (spec

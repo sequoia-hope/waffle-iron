@@ -9,9 +9,10 @@
 
 ## 0. Honest status (refreshed 2026-06-26; addendum 2026-09-04 below)
 
-> **2026-09-04 refresh (code review; score refreshed 2026-09-05).** Canonical
-> corpus **275C / 0W / 31E / 4EE / 0T** (312 cases; release, 8 jobs, 600 s
-> budget; F0085 ≈ 300–317 s and R0044 ≈ 280 s are the honest ceiling) —
+> **2026-09-04 refresh (code review; score refreshed 2026-09-06).** Canonical
+> corpus **277C / 0W / 29E / 4EE / 0T** (312 cases; release, 8 jobs, 600 s
+> budget; F0085 ≈ 300–317 s and R0044 ≈ 280 s are the honest ceiling; the
+> 2026-09-05 score 275C and the day's path are kept below for the record) —
 > the day's path: 275C → 276C (R0040 flipped) → 277C under the first-cut
 > thin-band rule → 275C under the exact rule (R0044 flipped; R0003 and
 > R0053 REGRESSED as unmasked density-sensitive latents, ledgered ACTIVE —
@@ -81,11 +82,20 @@
 > moved. **R0053 re-anatomized the same day**: not a chained-output
 > re-entry — the fresh gear's Stage-0 overlay minted two crossing vertices
 > ~1e-16 apart (an input corner within rounding distance of a cap edge)
-> that the rounding gate keeps as `Positive` needles; vehicle = the
-> overlay's sub-resolution cluster contraction (spec
-> `m8_overlay_fused_emission_collapse` §8, `YANG_S0_SUBRES_FUSE`), corpus
-> result recorded in the ledger entry of that date. Next increments, in
-> order: R0032's Stage-4 torus junction (`gt2_partners` v7), and the OTHER in-plane
+> that the rounding gate keeps as `Positive` needles. **R0053 FLIPPED BACK
+> 2026-09-06 (later)** by the overlay's sub-resolution cluster contraction
+> (spec `m8_overlay_fused_emission_collapse` §8, `YANG_S0_SUBRES_FUSE`):
+> vertex pairs within the KV10 ROUNDING band `TAU_WORK·(1 + scale)` (capped
+> by TAU_MODEL) are one point, contracted per cluster onto an input vertex
+> (all-or-nothing, exact-positive, within-band certificates) BEFORE the
+> rounding gate. An edge-at-a-time trigger and an absolute TAU_MODEL band
+> were both built and REFUTED on the way (the latter fused real tooth
+> geometry on the micro model R0071 — the R0091 lesson one order lower).
+> R0053 SUPPORTED_CORRECT 173.7 s; corpus (release, 8 jobs, 600 s; wall
+> 694.7 s, F0085 315.5 s) **277C/0W/29E/4EE/0T**, exactly one category move;
+> R0081's input-side non-manifold wall (the same class) CLEARED and it now
+> STOPs at Stage 6 output non-manifoldness (the input-after-overlay family
+> is R0019/R0049). Next increments, in order: R0032's Stage-4 torus junction (`gt2_partners` v7), and the OTHER in-plane
 > section-conic junction types a crossing cut can produce (oblique plane ⇒
 > ellipse × ellipse in ONE plane; ellipse × circle; ruling × ellipse —
 > unmeasured, recorded in the spec). Review

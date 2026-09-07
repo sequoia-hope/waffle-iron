@@ -319,6 +319,51 @@ fn overlay_fnv(ov: &ClassifiedOverlay) -> u64 {
     h
 }
 
+/// FNV-1a of the overlay in WELDED canonical form: vertices identified by
+/// their f64 bits (the emission's own bit-exact interner) and renumbered by
+/// first appearance over `tris`, so two outputs that differ only in WHICH
+/// index of a same-f64 group survives hash alike. This is the identity the
+/// sub-resolution contraction must preserve on a needle-only overlay: an
+/// explicit fusion of a same-f64 pair is exactly the weld the emission
+/// would have applied.
+fn welded_canonical_fnv(ov: &ClassifiedOverlay) -> u64 {
+    let mut ids: BTreeMap<(u64, u64), u32> = BTreeMap::new();
+    let mut coords: Vec<(u64, u64)> = Vec::new();
+    let mut tris: Vec<[u32; 3]> = Vec::with_capacity(ov.tris.len());
+    for t in &ov.tris {
+        let mut c = [0u32; 3];
+        for (k, &v) in t.iter().enumerate() {
+            let p = ov.verts[v as usize];
+            let key = (p.x().to_bits(), p.y().to_bits());
+            c[k] = *ids.entry(key).or_insert_with(|| {
+                coords.push(key);
+                (coords.len() - 1) as u32
+            });
+        }
+        tris.push(c);
+    }
+    let mut h: u64 = 0xcbf29ce484222325;
+    let mut mix = |bytes: &[u8]| {
+        for &byte in bytes {
+            h ^= byte as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+    };
+    for t in &tris {
+        for v in t {
+            mix(&v.to_le_bytes());
+        }
+    }
+    for c in &ov.class {
+        mix(&[*c as u8]);
+    }
+    for (x, y) in &coords {
+        mix(&x.to_le_bytes());
+        mix(&y.to_le_bytes());
+    }
+    h
+}
+
 /// Count of distinct exact verts that round onto a SHARED f64 point — the
 /// footprint of a benign coincident-needle drop.
 fn coincident_f64_pairs(ov: &ClassifiedOverlay) -> usize {
@@ -490,11 +535,133 @@ fn synthetic_femto_slab_fuses() {
     assert!(b_only < femto, "BOnly must be femto residue, got {b_only}");
 }
 
+/// Sub-resolution trigger (2026-09-06, R0053 at the thin-band rim density):
+/// a corner of A within rounding distance of an edge of B. A's two incident
+/// edges cross B's bottom edge at two exact points ≈ 6e-16 apart that round
+/// to DISTINCT f64 points, so the femto triangle they close with the corner
+/// is f64-positive and the legacy gate emitted all three vertices — Stage 0
+/// then split B's adjacent lateral edge at both crossings, one ulp apart in
+/// 3D, and the arrangement rejected the operand as non-manifold (measured:
+/// B cap face 0 edge (295,296), overlay vertices 298 / 305 at chord
+/// parameters 0.6249248295306975 / …73). Under the model tolerance the
+/// crossings and the corner are ONE point: both fuse into the input corner
+/// (the survivor rule), B's edge carries exactly one on-edge vertex there,
+/// no emitted edge is shorter than TAU_MODEL, and the full oracle stack
+/// holds. Before the trigger this FAILS on the sub-TAU edge count.
+#[test]
+fn corner_within_ulps_of_an_edge_fuses_its_twin_crossings() {
+    let b = PolygonWithHoles {
+        outer: pts(&[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]),
+        holes: vec![],
+    };
+    let eps = 1e-15;
+    let a = PolygonWithHoles {
+        outer: pts(&[(0.2, -1.0), (0.8, -1.0), (0.5, eps)]),
+        holes: vec![],
+    };
+    // The site really is the R0053 class: the two crossings and the corner
+    // are three DISTINCT f64 points (no coincident needle for the legacy
+    // gate to drop).
+    let ov = coplanar_overlay(&a, &b).expect("a corner on an edge must classify");
+    check_repaired(&a, &b, &ov);
+    assert_fused_resolved(&ov);
+    let corner = ExactPoint2 {
+        x: rb(0.5),
+        y: rb(eps),
+    };
+    let corner_ix = ov
+        .exact_verts
+        .iter()
+        .position(|v| *v == corner)
+        .expect("the input corner survives") as u32;
+    // Every vertex the arrangement put on B's bottom edge at the site — the
+    // two crossings and the sweep column's own foot — fuses INTO the input
+    // corner (the survivor rule); the sweep's other column feet (y = ±1)
+    // contract among themselves and never reach the corner.
+    let on_edge_losers: Vec<u32> = ov
+        .fused
+        .keys()
+        .copied()
+        .filter(|&v| ov.exact_verts[v as usize].y == RBig::ZERO)
+        .collect();
+    assert_eq!(
+        on_edge_losers.len(),
+        3,
+        "crossings + column foot: {:?}",
+        ov.fused
+    );
+    for v in &on_edge_losers {
+        assert_eq!(ov.fused[v], corner_ix, "v{v} fuses INTO the input corner");
+    }
+    assert!(
+        !ov.fused.contains_key(&corner_ix),
+        "the input corner is never a loser"
+    );
+    // No emitted edge within the rounding band (KV10: TAU_WORK·(1+scale),
+    // scale = the overlay's largest coordinate magnitude, 1 here).
+    let band = rb(cad_primitives::TAU_WORK * 2.0);
+    let band2 = &band * &band;
+    for e in emitted_edges(&ov) {
+        let (p, q) = (
+            &ov.exact_verts[e[0] as usize],
+            &ov.exact_verts[e[1] as usize],
+        );
+        let dx = &p.x - &q.x;
+        let dy = &p.y - &q.y;
+        assert!(
+            &dx * &dx + &dy * &dy > band2,
+            "emitted edge {e:?} lies within the rounding band"
+        );
+    }
+    // Exactly ONE emitted vertex sits on B's bottom edge strictly between its
+    // corners — the fused corner — where the legacy gate kept two crossings.
+    let on_bottom: Vec<u32> = ov
+        .tris
+        .iter()
+        .flatten()
+        .copied()
+        .collect::<BTreeSet<u32>>()
+        .into_iter()
+        .filter(|&v| {
+            let p = ov.verts[v as usize];
+            p.x() > 0.4 && p.x() < 0.6 && p.y().abs() <= 1e-12
+        })
+        .collect();
+    assert_eq!(
+        on_bottom,
+        vec![corner_ix],
+        "one on-edge vertex: {on_bottom:?}"
+    );
+    // The tip region above the edge is sub-resolution residue, absorbed.
+    assert_eq!(ov.area_exact(RegionClass::Overlap), RBig::ZERO);
+    let a_only = ov.area_exact(RegionClass::AOnly);
+    let three_tenths = RBig::from(3) / RBig::from(10);
+    let mut delta = a_only - three_tenths;
+    if delta < RBig::ZERO {
+        delta = -delta;
+    }
+    assert!(
+        delta < RBig::from(1) / RBig::from(10u64).pow(12),
+        "AOnly ≈ 0.3"
+    );
+}
+
 /// B2 (spec §6) — zero-regression witness. C0048 scaled by 1e10 rounds its
 /// femto slab to benign COINCIDENT NEEDLES only (no `CollinearSliver`), so it
 /// succeeds on the LEGACY path today. After the repair lands it must stay on
 /// the legacy path (spec §3 step 2: no sliver ⇒ byte-identical) — the fusion
 /// record stays empty and every byte of the output is unchanged.
+///
+/// Amended 2026-09-06 (sub-resolution contraction, spec "Sub-resolution
+/// clusters"): same-f64 pairs closer than TAU_MODEL now contract EXPLICITLY
+/// at the overlay (recorded in `fused`) instead of implicitly at the
+/// emission's bit-exact weld, so the raw index stream is no longer the
+/// legacy bytes — the witness is the WELDED canonical form
+/// (`welded_canonical_fnv`, captured from the legacy gate
+/// `YANG_S0_SUBRES_FUSE=0` on 2026-09-06), which must be identical: the
+/// contraction fuses exactly what the weld would have. Structural counts,
+/// the vertex pool and the needle footprint are unchanged; every fusion
+/// recorded here joins two vertices with the SAME rounded image.
 ///
 /// The golden below was captured from the pre-repair code (HEAD). 21 distinct
 /// exact verts round onto shared f64 points here, i.e. the needle-drop path
@@ -542,18 +709,33 @@ fn needle_only_overlay_byte_identical_legacy() {
         "golden: BOnly triangle count"
     );
     assert_eq!(
-        overlay_fnv(&ov),
-        0xf7642480300ae850,
-        "golden: overlay FNV-1a drifted (legacy path is no longer byte-identical)"
+        welded_canonical_fnv(&ov),
+        0x1250e905fd46c6c4,
+        "golden: welded overlay FNV-1a drifted (the needle path is no longer weld-identical)"
     );
     assert_eq!(
         coincident_f64_pairs(&ov),
         21,
         "golden: needle-drop footprint (coincident f64 vert pairs)"
     );
-    assert!(
-        ov.fused.is_empty(),
-        "legacy (no-sliver) path must not fuse anything"
+    for (loser, survivor) in &ov.fused {
+        let (l, s) = (ov.verts[*loser as usize], ov.verts[*survivor as usize]);
+        assert!(
+            l.x() == s.x() && l.y() == s.y(),
+            "needle-only overlay: fusion {loser}->{survivor} must join a same-f64 pair"
+        );
+    }
+    // I6: the raw index stream is bit-identical across runs (the contraction
+    // is deterministic: clusters commit in ascending representative order).
+    let again = coplanar_overlay(&a, &b).expect("second run");
+    assert_eq!(
+        overlay_fnv(&ov),
+        overlay_fnv(&again),
+        "I6: raw FNV differs across runs"
+    );
+    assert_eq!(
+        ov.fused, again.fused,
+        "I6: fusion record differs across runs"
     );
 }
 
