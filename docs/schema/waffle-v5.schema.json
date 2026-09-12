@@ -2150,6 +2150,18 @@
           "format": "double",
           "type": "number"
         },
+        "boundary_entity_ids": {
+          "description": "Identity of this region independent of its coordinates: the sorted,\ndeduplicated ids of every sketch entity whose curve lies on the outer\nor a hole boundary. A feature that stored this region re-resolves it\nagainst the CURRENT sketch by this signature (see\n`feature_engine::rebuild`), so editing the sketch — scaling it, moving\na corner — keeps the extrude on the same region instead of the frozen\npolygon it was picked as. `None` for regions built without provenance\n(unions, hand-built geometry).",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "hole_edges": {
           "description": "Curve-aware hole boundaries (parallel to `holes`).",
           "items": {
