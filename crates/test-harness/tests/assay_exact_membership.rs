@@ -167,6 +167,25 @@ fn r0044_reads_genus_one() {
     assert_stable("R0044 phase ¼", &ladder(&c, &[256], 0.25), 0, 1);
 }
 
+/// R0081 (corrected 2026-09-12, the day its op-3 union first completed):
+/// extrude(gear, 21 teeth, module 0.0112) − a rectangle notch at the rim,
+/// then a 205.46° gear revolve of the SAME profile sketched on the cap —
+/// genus 3, one component. The revolve's start cap roofs the notch over;
+/// the roofed notch opens to the outside through FOUR outline arcs (tooth
+/// gaps), and one cavity with four openings is three handles (the kernel's
+/// output roof: 12 cap-plane triangles, one boundary loop of 14 edges, 8
+/// alternating runs against the notch walls / the revolve's lateral).
+/// Stable at 256 / 512 / 768 cells (h = 4.0e-3 … 1.3e-3 against a tooth
+/// pitch ≈ 3.5e-2) on two lattice phases. The authored 2 was the
+/// generator's guess.
+#[test]
+fn r0081_reads_genus_three() {
+    let c = chain("R0081");
+    assert_eq!(c.ops.len(), 3);
+    assert_stable("R0081", &ladder(&c, &[256, 512], 0.5), -4, 1);
+    assert_stable("R0081 phase ¼", &ladder(&c, &[256], 0.25), -4, 1);
+}
+
 /// R0099 (fix 74564242): circle boss + circle through-cut + rectangle
 /// revolve cut — genus 1.
 #[test]

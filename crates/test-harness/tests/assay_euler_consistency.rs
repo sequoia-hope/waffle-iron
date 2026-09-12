@@ -216,6 +216,19 @@ fn historical_authoring_fixes_pinned() {
         r0044.oracles.euler_target, 0,
         "R0044 corrected target regressed (must stay genus-1 χ=0)"
     );
+    // R0081 was corrected 2026-09-12 by the same ladder
+    // (`assay_exact_membership::r0081_reads_genus_three`): the rectangle
+    // notch at the gear's rim is roofed over by the gear revolve's start
+    // cap and opens to the outside through four tooth gaps — one cavity,
+    // four openings, genus 3. Read −4 / 1 component at 256 / 512 / 768
+    // cells on two phases; the kernel's χ = −4 output (its first completion
+    // of op 3, the day the Stage-0 cluster-band corner weld and the
+    // provenance split identity landed) is the true topology.
+    let r0081 = load_meta("R0081");
+    assert_eq!(
+        r0081.oracles.euler_target, -4,
+        "R0081 corrected target regressed (must stay genus-3 χ=−4)"
+    );
     // Divergence-by-design: the op-scan conservatively returns 2 for this
     // multi-plane case. If this ever equals 0, the heuristic changed and the
     // "frozen corpus ≠ op-scan" rationale in this file's header must be

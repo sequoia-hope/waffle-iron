@@ -43,6 +43,72 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-12 (night, latest) — R0081 CONVERTED: the Stage-0 emission's 2,001 asymmetric edges were the CLUSTERING's decision never written back into the solid (B's 584 gear-profile corners 4e-15 … 4e-14 from A's, identified in 2D, resolved to A's bits on the cap, emitted from B's own bits on the laterals) plus three sub-resolution-contracted rim splits below the relative identity band on 1e-4 edges; the union completes at χ = −4, which the exact-membership ladder confirms as the TRUE genus 3 (the roofed rim notch opens through four tooth gaps) — authored `euler_target: 2` corrected; NEW CANONICAL 287C / 0W / 18E / 4EE / 0T (+3 U)
+
+R0081 (op 3: extrude(gear, 21 teeth) − rectangle notch, then a 205.46° gear
+revolve of the SAME profile sketched on the cap; the 2026-09-07 PROBE row's
+named next step). `YANG_STAGE0_DUMP_DIR` on op 3 + a directed-edge census of
+the dumped operands: B's PRE-Stage-0 mesh is conformal (98,780 tris, 0
+asymmetric edges); the emitted B carries **2,001** asymmetric directed edges
+— 1,002 on cap face 0, one or two on each of ~500 cone/plane laterals —
+and 3,462 of the cap's 3,466 vertices are NEW ids duplicating a B-Rep rim
+vertex at 4e-15 … 4e-14 (bit-identical to an A mesh vertex: 50982 ≡ A 836,
+50986 ≡ A 835 …). No overlay pair dump existed for the n-ary path; a
+resolve-branch census added to `overlay_nary_group` (`YANG_COPLANAR_PROBE`)
+read `corner_a=617 corner_b=4 lift=2988` against 588 B corner keys: B's
+corners hit A's map because the §2b/§2c clustering (band 1e-7) had made
+their keys one point (the snap-phase cross-weld is bit-equal and missed 584
+of them — the fresh revolve's profile corners vs the same profile after one
+boolean), the overlay resolved the shared key to A's bits, and every B
+lateral tessellated from `vb` with the old bits. Same latent in the 1×1
+path. Fix (spec `m8_shared_boundary_identity.md` §2d):
+`stage0::nary::weld_shared_corners` — after the corner-key remap, a B
+corner whose post-cluster key is an A corner key takes A's coordinates in
+`vb` (the clustering's decision carried into the solid; bit-equal corners
+count zero, byte-identical elsewhere). Pins
+`tests_unit::s0_cluster_corner_weld` (frustum-on-box, corners nudged
+4e-15; a box-on-box fixture cannot pin it — its side pairs' snap removes the
+nudge; RED without the weld).
+
+With the weld: 9 asymmetric edges at THREE cap rim edges (110,111)
+(171,172) (223,224), 1.4e-4 … 4.1e-4 long. `YANG_SPLIT_PROBE`: each is a
+`NEAR-MISS boundary=true identity_on=false` at 1.9e-13 … 4.3e-13 — a sweep
+vertex on the edge that the sub-resolution contraction fused into a
+survivor off the line by up to its band (≈ 1.3e-12 at scale 0.3), beyond
+the R0053 relative identity `1e-9 · len` (1.4e-13 … 4.1e-13 on those
+edges). The near-miss population on the boundary: 274 at 1e-17 … 1e-13,
+none between 1e-13 and 8e-8. Fix (same spec section): `collect_edge_splits`
+consults `overlay.fused` — a boundary survivor with a LOSER exactly on the
+edge (exact test on the loser's position, interior parameter) is a split at
+the loser's parameter, resolved at the survivor's position; provenance, no
+band (an off-line vertex without a fusion record stays what it was). Pins
+`edge_split_provenance_tests` (micro square 1.4e-4, survivor 3.5e-13 off:
+split with a record, none without, none for an off-edge loser).
+
+Both emissions conformal (0 asymmetric edges); op 3 completes for the first
+time — `SUPPORTED_WRONG: V − E + F = −4 (expected 2)`. Adjudicated: the
+in-line exact-volume oracle did not flag; the output STL's cap-plane
+triangles are 12 (all facing INTO the notch — the revolve cap roofing the
+rectangle notch at the rim), one boundary loop of 14 edges in 8 alternating
+runs — 4 against the notch walls, 4 against the revolve's lateral = four
+openings through the tooth gaps; one cavity with four openings is three
+handles, χ = −4 exactly. The exact-membership ladder reads boundary χ −4 /
+1 component at 256, 512 and 768 cells on phases ½ and ¼ (35 s). The
+Cherchi sidecar union of the emitted operands read χ = 0 but with 3,400
+edges of usage 3 — uncertified, not a verdict. `R0081.meta.json`
+`euler_target` 2 → −4 (description amended); pins
+`assay_exact_membership::r0081_reads_genus_three`,
+`assay_euler_consistency::historical_authoring_fixes_pinned`. NOT
+smoke-pinned (206 s release — the R0044 rule).
+
+Corpus (release, 8 jobs, 600 s; wall 738.6 s at host load ≈ 1.3 → 4; F0085
+323.5 s, R0044 292.7 s, R0019 318.7 s, R0081 206.3 s): **287C / 0W / 18E /
+4EE / 0T, 3 UNSUPPORTED(coplanar-boolean)** — exactly ONE category move
+(R0081 ERROR → SUPPORTED_CORRECT), ZERO detail moves (per-id category +
+detail diff against the committed results.json). Rewrite tier green.
+Remaining actionable tail: 9 (R0038, R0050, R0100, F0058, F0060, C0058,
+C0065, R0019, R0085); loud by design: 9.
+
 ## 2026-09-12 (late) — C0044 CONVERTED: the flush SAME-RADIUS cylinder stack's two caps are ONE disc, which the disc∩disc builder classified by strict containment (false both ways) and then as a "lens" left to the arrangement — two rims differing by ulps (each cap samples the circle with its own seam phase); a stray cap fan triangle survived into a non-2-manifold reassembly. Stage 0 now emits one shared fan over the MERGED rim ring to both caps and the ring to both laterals (Yang §4.5.5's identical boundary sampling); NEW CANONICAL 286C / 0W / 19E / 4EE / 0T (+3 U)
 
 C0044 (0.2 s; `extrude(circle r=1, h=1)` + the same on its top cap + an
@@ -1598,7 +1664,7 @@ Two dead ends, closed by measurement (do not re-walk them):
 |---|---|---|---|---|
 | ~~F0069~~ | NonPlanarFace FaceId(6227) | **FLIPPED CORRECT 2026-07-22 (4a5f13a2); reconciled 2026-09-04 from the committed results.json history** off-plane planar-face emission 3e-8 @ 2m | CONFIRMED (task #153) | #153 |
 | F0072 | NonPlanarFace FaceId(10329) | same class (also the known assay-timeout artifact case) | CONFIRMED (#153) | #153 |
-| R0081 | ~~NonPlanarFace FaceId(666)~~ non-2-manifold (reassembly) | ~~likely same class~~ **RE-DIAGNOSED 2026-07-28 (cone-generator arm): the #153 vehicle was wrong.** R0081's live failure was a Stage-4 LRR at v590, and `YANG_LRR_SITE site=lineseg_combo` edge (590,592) shows **Plane(A) × Cone(B, half-angle 0.954 rad ≈ 54.7°)** — the R0008 class, a THIRD case this bucket never identified (it was never probed; the row was `SUSPECTED` by proximity). With the arm wired, that layer is gone and R0081 STOPs at Stage-6 `reassembled output would be non-2-manifold` | CONFIRMED (2026-07-28 probe) | P3a-#146 (reassembly non-2-manifold) |
+| ~~R0081~~ | ~~NonPlanarFace FaceId(666)~~ ~~non-2-manifold (reassembly)~~ **FLIPPED CORRECT 2026-09-12 (night, latest): Stage-0 cluster-band corner weld + provenance split identity (spec `m8_shared_boundary_identity.md` §2d); χ = −4 is the true genus 3, authored target corrected — see the section above** | ~~likely same class~~ **RE-DIAGNOSED 2026-07-28 (cone-generator arm): the #153 vehicle was wrong.** R0081's live failure was a Stage-4 LRR at v590, and `YANG_LRR_SITE site=lineseg_combo` edge (590,592) shows **Plane(A) × Cone(B, half-angle 0.954 rad ≈ 54.7°)** — the R0008 class, a THIRD case this bucket never identified (it was never probed; the row was `SUSPECTED` by proximity). With the arm wired, that layer is gone and R0081 STOPs at Stage-6 `reassembled output would be non-2-manifold` | CONFIRMED (2026-07-28 probe) | P3a-#146 (reassembly non-2-manifold) |
 
 ### Misc structural (5)
 

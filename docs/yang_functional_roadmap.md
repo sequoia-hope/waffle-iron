@@ -25,6 +25,18 @@
 > at §4-I9 `RelocationCrossedCarrierVertex` v413, the §4.5.1 corner-transit
 > class (R0085 kin). Exactly one detail move.
 >
+> **2026-09-12 (night, latest) refresh.** Canonical corpus **287C / 0W / 18E / 4EE / 0T + 3 UNSUPPORTED(coplanar-boolean)** (release, 8 jobs, 600 s; wall 738.6 s; F0085 323.5 s, R0044 292.7 s, R0081 206.3 s).
+> **R0081 FLIPPED CORRECT** — two Stage-0 emission defects on the n-ary plane
+> group (spec `m8_shared_boundary_identity.md` §2d): the in-frame clustering
+> identified 584 B corners with A's (4e-15 … 4e-14 apart) but never wrote the
+> decision into B's vertex array, so the cap took A's bits and the laterals
+> B's (2,001 asymmetric edges); and three rim splits fused by the
+> sub-resolution contraction sat beyond the relative identity band on
+> 1e-4 edges (provenance test on `overlay.fused` now). The completed union's
+> χ = −4 is the true genus 3 (exact-membership ladder; the revolve cap roofs
+> the rim notch, which opens through four tooth gaps) — the authored target
+> was corrected. Exactly one category move, zero detail moves.
+>
 > **2026-09-12 (late) refresh.** Canonical corpus **286C / 0W / 19E / 4EE / 0T + 3 UNSUPPORTED(coplanar-boolean)** (release, 8 jobs, 600 s; wall 742.3 s; F0085 327.6 s, R0044 291.0 s).
 > **C0044 FLIPPED CORRECT** — the Stage-0 IDENTICAL disc pair (spec
 > `m8_identical_disc_pair.md`): the flush same-radius cylinder stack's two

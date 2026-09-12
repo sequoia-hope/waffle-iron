@@ -131,6 +131,30 @@ fn any_ring_subdivided(poly: &PolygonWithHoles, overlay: &ClassifiedOverlay) -> 
     })
 }
 
+/// Propagate the in-frame clustering's cross-solid corner identifications
+/// into the B solid: every B corner whose (post-cluster) key is also an A
+/// corner key takes that A vertex's coordinates, so the faces outside the
+/// overlay that share the vertex emit the same bits the overlay resolves the
+/// key to. Returns the number of B vertices rewritten (bit-equal ones are
+/// already welded and count zero). Shared by the 1×1 and n-ary paths.
+pub(crate) fn weld_shared_corners(
+    corners_a: &BTreeMap<ExactPoint2, u32>,
+    corners_b: &BTreeMap<ExactPoint2, u32>,
+    va: &[Point3],
+    vb: &mut [Point3],
+) -> usize {
+    let mut welded = 0;
+    for (k, &bi) in corners_b {
+        if let Some(&ai) = corners_a.get(k) {
+            if vb[bi as usize] != va[ai as usize] {
+                vb[bi as usize] = va[ai as usize];
+                welded += 1;
+            }
+        }
+    }
+    welded
+}
+
 /// Run the n-ary overlay for one multi-pair plane group: snap already done
 /// by the caller (group frame), this emits the group's `PairPlane`s,
 /// per-face override triangulations, boundary-edge splits, and — for rim
@@ -146,7 +170,7 @@ pub(crate) fn overlay_nary_group(
     cross: &[CrossCoplanarPair],
     frame: &Frame,
     va: &[Point3],
-    vb: &[Point3],
+    vb: &mut [Point3],
     pairs: &mut Vec<PairPlane>,
     overrides_a: &mut BTreeMap<usize, Vec<[Point3; 3]>>,
     overrides_b: &mut BTreeMap<usize, Vec<[Point3; 3]>>,
@@ -278,7 +302,7 @@ pub(crate) fn overlay_nary_group(
     };
     for (brep, faces, verts, side, tag) in [
         (a, &group.faces_a, va, &mut side_a, "nary-polygon2d-a"),
-        (b, &group.faces_b, vb, &mut side_b, "nary-polygon2d-b"),
+        (b, &group.faces_b, &*vb, &mut side_b, "nary-polygon2d-b"),
     ] {
         for &fi in faces.iter() {
             let Some((poly, c, rim, mask)) = face_polygon_2d_tessellated(brep, fi, verts, frame)
@@ -369,6 +393,26 @@ pub(crate) fn overlay_nary_group(
         .into_iter()
         .map(|(k, v)| (remap_exact(k), v))
         .collect();
+    // §4.5.5 symbolic reconciliation, cluster-band form (R0081, 2026-09-12;
+    // the 1×1 path carries the same step): the clustering has just decided
+    // that a B corner and an A corner are ONE in-plane point — their keys
+    // now coincide — and the overlay resolves that point to A's 3D bits
+    // (`corners_a` is consulted first). Every B face OUTSIDE the group that
+    // shares the vertex (the laterals around the cap) tessellates from `vb`,
+    // so the solid must carry the same decision: the B vertex takes A's
+    // coordinates, exactly as the bit-equal cross-weld of the snap phase
+    // does. Without it the cap and its laterals disagreed by the pre-cluster
+    // gap (R0081 op 3: a fresh gear revolve's profile corners 4e-15 … 4e-14
+    // from the same profile's corners after one boolean; 584 of 588 corners
+    // missed the bit-equal weld and B's Stage-0 emission carried 2,001
+    // asymmetric directed edges).
+    let cross_welded = weld_shared_corners(&corners_a, &corners_b, va, vb);
+    if cross_welded > 0 {
+        probe(
+            "nary-cluster-corner-weld",
+            &format!("{} welded_b_corners={cross_welded}", group_tag()),
+        );
+    }
     let rims_a: BTreeMap<ExactPoint2, Point3> = std::mem::take(&mut side_a.rims)
         .into_iter()
         .map(|(k, v)| (remap_exact(k), v))
@@ -453,15 +497,22 @@ pub(crate) fn overlay_nary_group(
     let mut coords: Vec<Point3> = Vec::with_capacity(overlay.verts.len());
     let mut minted_mark = vec![false; overlay.verts.len()];
     let mut minted_info: Vec<(usize, usize, bool)> = Vec::new();
+    // Resolution-branch census (probe only): 0 corner_a, 1 corner_b, 2 rim_a,
+    // 3 rim_b, 4 rim-snap, 5 mint, 6 lift.
+    let mut how: Vec<u8> = vec![6; overlay.verts.len()];
     for (i, mark) in minted_mark.iter_mut().enumerate() {
         let exact = &overlay.exact_verts[i];
         let pt = if let Some(&ai) = corners_a.get(exact) {
+            how[i] = 0;
             va[ai as usize]
         } else if let Some(&bi) = corners_b.get(exact) {
+            how[i] = 1;
             vb[bi as usize]
         } else if let Some(&pt) = rims_a.get(exact) {
+            how[i] = 2;
             pt
         } else if let Some(&pt) = rims_b.get(exact) {
+            how[i] = 3;
             pt
         } else {
             let q = overlay.verts[i];
@@ -494,10 +545,64 @@ pub(crate) fn overlay_nary_group(
                     }
                 }
                 *mark = minted.is_some();
+                how[i] = if minted.is_some() { 5 } else { 6 };
                 minted.unwrap_or_else(|| frame.lift(qx, qy))
             }
         };
         coords.push(pt);
+    }
+    if std::env::var_os("YANG_COPLANAR_PROBE").is_some() {
+        let mut counts = [0usize; 7];
+        for &h in &how {
+            counts[h as usize] += 1;
+        }
+        probe(
+            "nary-resolve-census",
+            &format!(
+                "{} verts={} corner_a={} corner_b={} rim_a={} rim_b={} rimsnap={} mint={} lift={} \
+                 keys: corners_a={} corners_b={} rims_a={} rims_b={}",
+                group_tag(),
+                how.len(),
+                counts[0],
+                counts[1],
+                counts[2],
+                counts[3],
+                counts[4],
+                counts[5],
+                counts[6],
+                corners_a.len(),
+                corners_b.len(),
+                rims_a.len(),
+                rims_b.len()
+            ),
+        );
+        let f2 = |ex: &ExactPoint2| (ex.x.to_f64().value(), ex.y.to_f64().value());
+        let mut shown = 0;
+        for (i, &h) in how.iter().enumerate() {
+            if h != 6 || shown >= 8 {
+                continue;
+            }
+            let q = overlay.verts[i];
+            let nearest = |m: &BTreeMap<ExactPoint2, u32>| {
+                m.iter()
+                    .map(|(k, &v)| {
+                        let (u, w) = f2(k);
+                        (((u - q.x()).powi(2) + (w - q.y()).powi(2)).sqrt(), v, u, w)
+                    })
+                    .min_by(|x, y| x.0.total_cmp(&y.0))
+            };
+            let na = nearest(&corners_a);
+            let nb = nearest(&corners_b);
+            probe(
+                "nary-resolve-lift",
+                &format!(
+                    "v={i} uv=({},{}) nearest_a={na:?} nearest_b={nb:?}",
+                    q.x(),
+                    q.y()
+                ),
+            );
+            shown += 1;
+        }
     }
     // Amendment 20: the resolve-step snapshot for the exact position oracle
     // (1×1 path rationale, `stage0/mod.rs`), taken BEFORE the collapse.

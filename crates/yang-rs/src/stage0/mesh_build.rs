@@ -396,6 +396,15 @@ pub(crate) fn collect_edge_splits(
         }
     }
 
+    // Provenance index of the overlay's identification steps (the
+    // sub-resolution contraction and the fused-emission repair record every
+    // fusion as loser → survivor in `overlay.fused`, losers' exact positions
+    // retained): survivor → its losers.
+    let mut losers_of: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    for (&loser, &survivor) in &overlay.fused {
+        losers_of.entry(survivor).or_default().push(loser);
+    }
+
     let f = &brep.faces()[fi];
     for &e_idx in std::iter::once(&f.outer_loop)
         .chain(f.inner_loops.iter())
@@ -451,6 +460,7 @@ pub(crate) fn collect_edge_splits(
             let wy = &q.y - &s2.y;
             // Exact collinearity + strictly-interior parameter.
             let cross = &dx * &wy - &dy * &wx;
+            let mut t_override: Option<RBig> = None;
             if cross != RBig::ZERO {
                 // 2026-08-19 (R0053 anchor): an overlay vertex that the side's
                 // triangulation uses ON ITS REGION BOUNDARY and that is
@@ -487,10 +497,50 @@ pub(crate) fn collect_edge_splits(
                     );
                 }
                 if !identity_on {
-                    continue;
+                    // Provenance identity (R0081, 2026-09-12): the survivor of
+                    // a sub-resolution contraction inherits the edge
+                    // membership of a loser that lay EXACTLY on this edge.
+                    // The contraction displaces the survivor by up to its
+                    // band `TAU_WORK·(1 + scale)` — on a 1e-4 gear-flank
+                    // edge that exceeds the relative identity above (R0081
+                    // op 3: B face 0 edges (110,111) / (171,172) / (223,224),
+                    // misses 1.9e-13 … 4.3e-13 against bands 1.4e-13 …
+                    // 4.1e-13; the overlay triangulated the cap's boundary
+                    // THROUGH each survivor while the cone lateral never saw
+                    // it — three T-junctions, Stage 6 non-2-manifold). The
+                    // test is exact on the loser's own position and carries
+                    // the loser's parameter; no band is involved.
+                    let fused_t = if on_boundary[i] {
+                        losers_of.get(&(i as u32)).and_then(|losers| {
+                            losers.iter().find_map(|&m| {
+                                let qm = &overlay.exact_verts[m as usize];
+                                let mx = &qm.x - &s2.x;
+                                let my = &qm.y - &s2.y;
+                                if &dx * &my - &dy * &mx != RBig::ZERO {
+                                    return None;
+                                }
+                                let tm = (&dx * &mx + &dy * &my) / &len2;
+                                (tm > RBig::ZERO && tm < RBig::ONE).then_some(tm)
+                            })
+                        })
+                    } else {
+                        None
+                    };
+                    let Some(tm) = fused_t else {
+                        continue;
+                    };
+                    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                        eprintln!(
+                            "[split-probe] f={fi} edge ({lo},{hi}) vert {i} FUSED-LOSER on edge \
+                             t={} survivor miss={miss:e}",
+                            tm.to_f64().value()
+                        );
+                    }
+                    t_override = Some(tm);
                 }
             }
-            let t = (&dx * &wx + &dy * &wy) / &len2;
+            let by_provenance = t_override.is_some();
+            let t = t_override.unwrap_or_else(|| (&dx * &wx + &dy * &wy) / &len2);
             if t <= RBig::ZERO || t >= RBig::ONE {
                 if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
                     eprintln!(
@@ -506,7 +556,9 @@ pub(crate) fn collect_edge_splits(
                 let a = resolved[i].as_array();
                 [a[0].to_bits(), a[1].to_bits(), a[2].to_bits()]
             };
-            let merged_dup = merged_pts.contains(&key)
+            // A provenance split dedupes by POSITION as a merge target does:
+            // two losers of one survivor on the same edge are one point.
+            let merged_dup = (merged_pts.contains(&key) || by_provenance)
                 && entry.iter().any(|(_, p0)| {
                     let b = p0.as_array();
                     [b[0].to_bits(), b[1].to_bits(), b[2].to_bits()] == key
@@ -2342,5 +2394,182 @@ mod edge_split_identity_tests {
         let t = on_01[0].0.to_f64().value();
         assert!((t - 0.6).abs() < 1e-9, "split parameter {t} must be the boundary vertex's t≈0.6 (not the interior vertex at 0.3)");
         assert_eq!(splits.len(), 1, "no other edge gains a split: {splits:?}");
+    }
+}
+
+#[cfg(test)]
+mod edge_split_provenance_tests {
+    //! R0081 (2026-09-12): a side-region BOUNDARY vertex that is the SURVIVOR
+    //! of a sub-resolution contraction registers as a split of the edge one
+    //! of its LOSERS lay exactly on — even when the survivor's own miss
+    //! exceeds the relative identity band (a micro edge). Without a fusion
+    //! record the same off-line vertex stays what it was (no split; the
+    //! downstream STOP stands) — provenance, not a wider band.
+    use super::*;
+    use crate::coplanar_overlay::{ClassifiedOverlay, ExactPoint2, RegionClass};
+    use crate::stage0::frame::canonical_frame;
+    use crate::stage4_correct::DEGENERACY_IDENTITY_REL;
+    use crate::{BRep, BRepEdge, BRepFace, BRepVertex, Curve, Surface, Vector3};
+    use cad_primitives::{Point2, Point3};
+
+    /// A square face of side `s` (R0081's gear-flank edges are 1.4e-4 …
+    /// 4.1e-4 long).
+    fn square_face(s: f64) -> BRep {
+        let p = |x: f64, y: f64| BRepVertex {
+            point: Point3::new(x, y, 0.0),
+        };
+        let verts = vec![p(0.0, 0.0), p(s, 0.0), p(s, s), p(0.0, s)];
+        let e = |a: u32, b: u32| BRepEdge {
+            start: a,
+            end: b,
+            curve: Curve::LineSegment,
+        };
+        let edges = vec![e(0, 1), e(1, 2), e(2, 3), e(3, 0)];
+        let faces = vec![BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: 0.0,
+            },
+            outer_loop: vec![0, 1, 2, 3],
+            inner_loops: Vec::new(),
+            reversed: false,
+        }];
+        BRep::new(verts, edges, faces).expect("square face")
+    }
+
+    /// Build the overlay: corners 0..3, survivor 4 on the boundary chain
+    /// 0→4→1 displaced `miss` off edge (0,1) (perpendicular, inward), loser
+    /// 5 EXACTLY on the edge at t = 0.6 (unused by any triangle — fused into
+    /// 4), interior apex 6.
+    fn overlay_with(
+        frame: &Frame,
+        coords: &[Point3],
+        miss: f64,
+        record_fusion: bool,
+    ) -> (ClassifiedOverlay, Vec<Point3>) {
+        let c: Vec<(f64, f64)> = coords.iter().map(|&p| frame.project(p)).collect();
+        let along = |t: f64| {
+            (
+                c[0].0 + t * (c[1].0 - c[0].0),
+                c[0].1 + t * (c[1].1 - c[0].1),
+            )
+        };
+        let (lu, lv) = along(0.6);
+        // Inward unit normal of edge (0,1): toward corner 3.
+        let (nu, nv) = (c[3].0 - c[0].0, c[3].1 - c[0].1);
+        let nl = (nu * nu + nv * nv).sqrt();
+        let survivor = (lu + miss * nu / nl, lv + miss * nv / nl);
+        let apex = along(0.5);
+        let apex = (apex.0 + 0.5 * nu, apex.1 + 0.5 * nv);
+        let all = [c[0], c[1], c[2], c[3], survivor, (lu, lv), apex];
+        let verts: Vec<Point2> = all.iter().map(|&(x, y)| Point2::new(x, y)).collect();
+        let exact_verts: Vec<ExactPoint2> = all
+            .iter()
+            .map(|&(x, y)| ExactPoint2::from_f64(x, y).expect("finite"))
+            .collect();
+        let tris = vec![[0, 4, 6], [4, 1, 6], [1, 2, 6], [2, 3, 6], [3, 0, 6]];
+        let n = tris.len();
+        let mut fused = BTreeMap::new();
+        if record_fusion {
+            fused.insert(5u32, 4u32);
+        }
+        let overlay = ClassifiedOverlay {
+            verts,
+            exact_verts,
+            tris,
+            class: vec![RegionClass::AOnly; n],
+            poly_a: vec![0; n],
+            poly_b: vec![u32::MAX; n],
+            fused,
+        };
+        let resolved: Vec<Point3> = all.iter().map(|&(u, v)| frame.lift(u, v)).collect();
+        (overlay, resolved)
+    }
+
+    fn splits_on_edge_01(
+        brep: &BRep,
+        overlay: &ClassifiedOverlay,
+        resolved: &[Point3],
+    ) -> Vec<(f64, Point3)> {
+        let frame = canonical_frame(brep, 0).expect("frame");
+        let coords: Vec<Point3> = brep.vertices().iter().map(|v| v.point).collect();
+        let mut splits: SplitMap = BTreeMap::new();
+        collect_edge_splits(
+            brep,
+            0,
+            &coords,
+            &frame,
+            &BTreeMap::new(),
+            overlay,
+            [RegionClass::AOnly, RegionClass::Overlap],
+            resolved,
+            &std::collections::BTreeSet::new(),
+            &mut splits,
+        );
+        splits
+            .get(&(0, 1))
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(t, p)| (t.to_f64().value(), p))
+            .collect()
+    }
+
+    /// The measured R0081 shape: edge 1.4e-4 long (identity band 1.4e-13),
+    /// survivor 3.5e-13 off the line (the contraction's displacement).
+    const SIDE: f64 = 1.4e-4;
+    const MISS: f64 = 3.5e-13;
+
+    #[test]
+    fn fused_loser_on_edge_makes_the_survivor_a_split() {
+        let brep = square_face(SIDE);
+        let frame = canonical_frame(&brep, 0).expect("frame");
+        let coords: Vec<Point3> = brep.vertices().iter().map(|v| v.point).collect();
+        let band = DEGENERACY_IDENTITY_REL * std::hint::black_box(SIDE);
+        assert!(
+            MISS > band,
+            "the fixture must sit OUTSIDE the relative identity band ({band:e})"
+        );
+        let (overlay, resolved) = overlay_with(&frame, &coords, MISS, true);
+        let on = splits_on_edge_01(&brep, &overlay, &resolved);
+        assert_eq!(on.len(), 1, "one split from the fused loser; got {on:?}");
+        assert!(
+            (on[0].0 - 0.6).abs() < 1e-12,
+            "the split carries the LOSER's exact parameter, got {}",
+            on[0].0
+        );
+        assert_eq!(on[0].1, resolved[4], "at the survivor's resolved position");
+    }
+
+    #[test]
+    fn same_miss_without_a_fusion_record_is_not_a_split() {
+        let brep = square_face(SIDE);
+        let frame = canonical_frame(&brep, 0).expect("frame");
+        let coords: Vec<Point3> = brep.vertices().iter().map(|v| v.point).collect();
+        let (overlay, resolved) = overlay_with(&frame, &coords, MISS, false);
+        let on = splits_on_edge_01(&brep, &overlay, &resolved);
+        assert!(
+            on.is_empty(),
+            "no provenance ⇒ no split (historical); got {on:?}"
+        );
+    }
+
+    #[test]
+    fn fused_loser_off_the_edge_does_not_qualify() {
+        // The loser itself is displaced off the edge line: provenance says
+        // nothing about this edge.
+        let brep = square_face(SIDE);
+        let frame = canonical_frame(&brep, 0).expect("frame");
+        let coords: Vec<Point3> = brep.vertices().iter().map(|v| v.point).collect();
+        let (mut overlay, resolved) = overlay_with(&frame, &coords, MISS, true);
+        let q = overlay.verts[5];
+        let moved = (q.x() + 2.0 * MISS, q.y() + 2.0 * MISS);
+        overlay.verts[5] = Point2::new(moved.0, moved.1);
+        overlay.exact_verts[5] = ExactPoint2::from_f64(moved.0, moved.1).expect("finite");
+        let on = splits_on_edge_01(&brep, &overlay, &resolved);
+        assert!(
+            on.is_empty(),
+            "an off-edge loser is no evidence; got {on:?}"
+        );
     }
 }

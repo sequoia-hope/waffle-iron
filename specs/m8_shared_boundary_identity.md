@@ -155,6 +155,53 @@ root was localized by reference parity to the cherchi-rs patch-label
 guard — see `specs/cherchi_patch_label_tolerance.md` (the successor
 cycle).
 
+### 2d. Cluster-band corner weld + provenance split identity (2026-09-12, R0081, measured)
+
+The §2b/§2c clustering identifies in-frame coordinates within the pair band
+and rewrites the overlay's 2D domain — but it had NO write-back into the
+solids. When a B corner and an A corner are within the band but not
+bit-equal (R0081 op 3: the fresh gear revolve's 588 profile corners against
+the same profile's corners on the op-2 output, 4e-15 … 4e-14 apart — the
+snap-phase cross-weld is bit-equal and missed 584 of them), the cluster
+makes their keys ONE point, the overlay resolves that point to A's 3D bits
+(`corners_a` is consulted first), and every B face OUTSIDE the overlay that
+shares the vertex — the 588 cone/plane laterals — tessellates from `vb`
+with the OLD bits. Measured: B's Stage-0 emission carried 2,001 asymmetric
+directed edges (1,002 on the cap, one or two per lateral), 3,462 of the
+cap's 3,466 vertices duplicated a B-Rep rim vertex at 4e-15 … 4e-14, and
+Stage 6 reported `reassembled output would be non-2-manifold` (the
+2026-09-07 ledger row "4,004 asymmetric directed edges on B").
+
+**Weld** (`stage0::nary::weld_shared_corners`, both paths): after the
+corner-key remap, every B corner whose post-cluster key is also an A corner
+key takes that A vertex's coordinates in `vb` — the clustering's decision
+carried into the solid, exactly what the bit-equal cross-weld does one
+phase earlier. Bit-equal corners count zero (byte-identical historical
+path). Pins: `tests_unit::s0_cluster_corner_weld` (frustum-on-box, corners
+nudged 4e-15 in-plane; a box-on-box fixture CANNOT pin this — its four
+in-plane-touching side pairs snap the nudge away; RED without the weld:
+8 / 12 asymmetric edges).
+
+**Provenance split** (`mesh_build::collect_edge_splits`): with the weld,
+R0081's emission was down to 9 asymmetric edges at THREE cap rim edges
+1.4e-4 … 4.1e-4 long, where a sweep vertex on the edge had been fused by
+the sub-resolution contraction (§8 of `m8_overlay_fused_emission_collapse`)
+into a survivor 1.9e-13 … 4.3e-13 off the line — beyond the R0053 relative
+identity `1e-9 · len` (1.4e-13 … 4.1e-13 on those edges). The overlay
+triangulated the cap's boundary THROUGH each survivor while the lateral
+never saw it: three T-junctions. The collector now consults the overlay's
+fusion record: a boundary survivor with a LOSER exactly on the edge (exact
+test on the loser's own position, interior parameter) is a split of that
+edge at the loser's parameter, resolved at the survivor's position. No band
+— the loser's edge membership is exact; without a fusion record the same
+off-line vertex is what it always was (the downstream STOP stands). Pins:
+`edge_split_provenance_tests` (micro square 1.4e-4, survivor 3.5e-13 off).
+
+Result: R0081 op 3 completes — first ever — at χ = −4, which the
+exact-membership ladder confirms as the true genus 3 (the roofed rim notch
+opens through four tooth gaps); the authored `euler_target: 2` was corrected
+(`assay_exact_membership::r0081_reads_genus_three`).
+
 ## 3. Branch table
 
 | # | Vertex configuration | Behavior |

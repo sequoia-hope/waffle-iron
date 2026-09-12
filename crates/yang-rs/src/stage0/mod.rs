@@ -459,7 +459,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 &scan.cross,
                 frame,
                 &va,
-                &vb,
+                &mut vb,
                 &mut pairs,
                 &mut overrides_a,
                 &mut overrides_b,
@@ -732,6 +732,21 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     ra.len(),
                     n_rb,
                     rb.len()
+                );
+            }
+            // §4.5.5 symbolic reconciliation, cluster-band form (R0081,
+            // 2026-09-12; rationale at `weld_shared_corners`): a B corner
+            // the clustering identified with an A corner takes A's bits in
+            // the SOLID too, so B's faces outside this pair (its laterals)
+            // emit the vertex the overlay resolves the shared key to.
+            let cross_welded = weld_shared_corners(&ca, &cb, &va, &mut vb);
+            if cross_welded > 0 {
+                probe(
+                    "cluster-corner-weld",
+                    &format!(
+                        "pair=({},{}) welded_b_corners={cross_welded}",
+                        p.face_a, p.face_b
+                    ),
                 );
             }
             // M-A (spec `m8_stage0_inputcheck_clean_emission` §2/E7): the
