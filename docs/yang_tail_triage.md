@@ -43,6 +43,65 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-12 (late) — C0044 CONVERTED: the flush SAME-RADIUS cylinder stack's two caps are ONE disc, which the disc∩disc builder classified by strict containment (false both ways) and then as a "lens" left to the arrangement — two rims differing by ulps (each cap samples the circle with its own seam phase); a stray cap fan triangle survived into a non-2-manifold reassembly. Stage 0 now emits one shared fan over the MERGED rim ring to both caps and the ring to both laterals (Yang §4.5.5's identical boundary sampling); NEW CANONICAL 286C / 0W / 19E / 4EE / 0T (+3 U)
+
+C0044 (0.2 s; `extrude(circle r=1, h=1)` + the same on its top cap + an
+r=0.3 bore through both — the M8-annular tube, χ=0) STOPped at op 2, the
+union of the two stacked cylinders, `reassembled output would be
+non-2-manifold`. `YANG_STAGE0_DUMP_DIR`: Stage 0 saw the pair (`face_a=1
+face_b=0 opposite=true`, `cyl_pairs: 1`) and emitted nothing — both meshes
+byte-identical pre/post. The two caps are the SAME circle (centre (0,0,1),
+r=1, N=13 each) but their Stage-1 rims differ by ulps (A's top rim
+`0.4647231720437686` vs B's bottom rim `0.46472317204376845`; A's own bottom
+rim carries B's bits): Stage 1 samples each cap with its own in-plane basis
+and seam phase (seam at (0,−1,·), φ₀ = −π/2 inexact). `build_disc_disc_
+containment` tests STRICT containment (exact) — false both ways for identical
+rims — then `convex_rings_overlap` (true: ulp-inside vertices) → the
+"crossing rims / lens" `DiscPair::Empty`, whose comment delegated the lens to
+cherchi. `NONMANIFOLD_SITE_PROBE`: `i6-edge-overuse (14,15) fwd=1 rev=0` —
+output tri 13 = A's INPUT tri 13 `[(0,0,1), (0,−1,1), (0.4647,−0.8855,1)]`
+(face 1's first fan triangle), single-labelled, whole; its rim edge carries
+A's lateral and B's lateral correctly; the rim vertex is the weld cluster
+`{14, 15, 18}`. Every other cap triangle was dropped by the sheet rule.
+
+Harness reproduction: the historical `z_cylinder` fixture seams at +x
+(sample angles exact multiples of 2π/N, both caps bit-identical) and PASSED;
+seamed at −y like the corpus it reproduces: union `NonManifoldOutput`,
+subtract `NonManifoldInput`.
+
+Fix (spec `specs/m8_identical_disc_pair.md`, always-on): `stage0::disc_pair::
+build_identical_discs`, tried before the containment tests — circle
+identity within the KV10 rounding band `TAU_WORK·(1+scale)` (centres AND
+radii; never `TAU_MODEL`, the R0053 lesson); the rings merged about A's
+centre (a B sample within the band of its angularly nearest A sample is
+FUSED — A's bits; otherwise INSERTED); one fan over the merged ring emitted
+to BOTH caps (B swapped iff opposite) and the merged ring registered as a rim
+override on BOTH circle edges, so each lateral samples what the fan carries
+(the task-#143 slot merge takes A's bits on B's ulp-twin slots; insertions
+route the azimuth-merge strip, and each inserted sample also gets its
+exact `opposite_rim_image` on the lateral's OTHER rim — the strip pairs a
+lateral's two rims 1:1 and refused `13 vs 26` on the mismatched-seam
+fixture without it); B's rim seam vertex cross-welded onto the A
+sample it fused with (the rim build refuses a seam slot whose bits differ
+from the B-Rep vertex). A B sample beyond the band but inside the rim
+build's absolute `TAU_MODEL` merge ceiling is refused loudly
+(`disc-identical-subres`, the typed residue) — it would be merged away while
+the fan still carried it. Pins: `tests/m8_disc_coplanar.rs` (union −y seams,
+subtract keeps the body, mismatched +x/−y seams = the pure INSERT half; the
+13 historical disc tests byte-identical), kernel-v2
+`m8_identical_disc_stack::flush_same_radius_cylinder_stack_then_bore` (the
+real extrude path, all three ops), test-harness
+`smoke_union_flush_same_radius_cylinder_stack` + the C0044 pin. C0044 solo:
+SUPPORTED_CORRECT 0.9 s.
+
+Corpus (release, 8 jobs, 600 s; wall 742.3 s at load ≈ 4; F0085 327.6 s,
+R0044 291.0 s, R0019 317.8 s, R0081 205.0 s): **286C / 0W / 19E / 4EE / 0T,
+3 UNSUPPORTED(coplanar-boolean)** — exactly ONE category move (C0044
+ERROR → SUPPORTED_CORRECT), ZERO detail moves (per-id category + detail
+diff against the committed results.json). Remaining actionable tail: 10
+(R0038, R0050, R0100, F0058, F0060, C0058, C0065, R0019, R0085, R0081);
+loud by design: 9.
+
 ## 2026-09-12 (night, later) — R0019 advances a wall: the I6 backstop fired on a NEEDLE pleat (a B strip diagonal between two rim-junction mints lying in A's cap plane, sliced by A's cap triangles' slightly different exact planes into opposite-winding slivers 3.9e-4 long and 1.3e-18 high) that the I6.6 bunched-pleat test could not admit; the test is now "no f64 area" (height above the longest edge within the rounding band); R0019 STOPs one crate later at kernel-v2's ring-reject (FaceId 651, 348 s); R0085 op 3 moves the same way (backstop → Stage-6 non-2-manifold); canonical 285C / 0W / 20E / 4EE / 0T (+3 U) category-identical
 
 The other STALE row. `NONMANIFOLD_SITE_PROBE`: three `i6-wedge-dedup:
@@ -1081,7 +1140,7 @@ moved. The 30 ERROR rows are the ACTIVE rows below.
 |---|---|---|---|---|
 | ~~F0082~~ | ~~non-2-manifold~~ ~~input `face 372: CDT triangulation failed`~~ **FLIPPED CORRECT 2026-09-12 (the planar chart scan, section above)** | ~~near-duplicate junction verts v588≈v601 (0.012 apart 3D, ~4e-4 in-plane = off-plane); spurious in-patch overlap triangle; re-CDT REFUTED as tool~~ the live wall (STALE row until 2026-09-12) was op 12's INPUT tessellation: op 11's base cap re-entered with its two plane∩plane∩wall corners 1.457e-3 inside the rim under a 34.5° rim chord at N = 9; the planar CDT path had no §4.5.4 scan. The scan derives N = 38, the driver retries, all 15 ops complete (53.8 s release) | CONFIRMED (2026-09-12 probe, `YANG_CDT_PROBE=372`) | ~~P3a-#146~~ DONE (Stage-1 planar chart scan) |
 | ~~R0095~~ | ~~non-2-manifold~~ | ~~EVERY face has a ~1e-24-area boundary triple — upstream degenerate junction geometry~~ **FLIPPED CORRECT 2026-07-28 (#195 inc-5):** the always-on rim boost + rim-snap remove the degenerate boundary triples at the source | — | ~~P3a-#146~~ DONE |
-| C0044 | non-2-manifold | 3-patch junction fires the Stage-4 gate. **P3a increment-0 probe (2026-07-18): ZERO transversal pierce candidates — the junction is coplanar contact (flush annular stack), NOT the pierce-mint class** | CONFIRMED (#169 Phase 0 + #146 inc-0) | ~~P3a-#146~~ Stage-0/M8 coplanar-seam family |
+| ~~C0044~~ | ~~non-2-manifold~~ | **CONVERTED 2026-09-12 (late): the two flush caps are ONE disc — the Stage-0 identical-disc pair (section above).** 3-patch junction fires the Stage-4 gate. **P3a increment-0 probe (2026-07-18): ZERO transversal pierce candidates — the junction is coplanar contact (flush annular stack), NOT the pierce-mint class** | CONFIRMED (#169 Phase 0 + #146 inc-0) | ~~P3a-#146~~ ~~Stage-0/M8 coplanar-seam family~~ DONE |
 | F0064 | non-2-manifold | wall vert 0.083 off floor plane; minted in Stage-4 mutation window OR inherited via lineage-less chained B (4 hypotheses eliminated, N51 session) | PARTIAL (#146) | P3a-#146 |
 | ~~R0051~~ | ~~non-2-manifold~~ | ~~in the #146 Newell-normal class per task~~ **FLIPPED CORRECT 2026-09-07 (evening): never a junction mint — `remove_doubled_membranes` desynced the attribution vector from `mesh.tris` (one slot), the inner-cylinder triangle took the annulus's face, Stage 6 caught the off-plane vertex; lockstep filter + pin** | ~~SUSPECTED~~ CONFIRMED (attr trace) | ~~P3a-#146~~ DONE |
 | F0058 | non-2-manifold | probe 2026-07-17: `s4-shell-euler` shell root 106 χ=3 (v107 e314 f210) — Stage-4 shell-level Euler defect | CONFIRMED (#171 sweep) | P3a-#146 |
@@ -2361,6 +2420,6 @@ non-2-manifold` cases (the largest remaining ERROR family):
 | C0107 / C0108 | `s6-curved-empty-cycles: face 0` | designed 0D point-tangency (7b); loud reject IS the designed green |
 | C0058 | `s6-curved-degenerate-loop` face 2 cycle len 64, ratio 5.9e-16 | the tangency-neck figure-eight (unchanged; §4.3.3 tangent-point insertion milestone) |
 | **R0047** | `s6-curved-degenerate-loop` face 367 cycle len 4, `\|N\|=4.9e-13` | **ABSOLUTE `MIN_FEATURE_SIZE²` Newell floor at 2.09e-4 scale on a HEALTHY 2.3e-6 × 1.2e-7 quad (ratio 8.6e-2) → FIXED (spec §5c.14, four gates moved to the identity); advanced to kernel-v2 `output ellipse-arc endpoint does not lie on its ellipse` (1.109e-9 vs 1e-9 band = 4.8e-6 RELATIVE off) → ANCHORED + FIXED same day: the Stage-6 KV15b sub-resolution collapse merged a CERTIFIED plane∩cone₁∩cone₂ crease junction (3 surfaces) into its cone₁∩plane neighbour (2 surfaces) at 5.3e-8, and the I1b "adopt the richer endpoint's coordinates" rule counted PLANES only (1–1 tie → survivor kept its own position, off cone₂'s ellipse). Generalized to surface-incidence (`kv15b_mint_site_subresolution_collapse.md` I1b-curved; pin `kv15b_i1b_adopts_surface_incidence_richer_junction_coordinates`, red-verified). Op 2 now emits every conic endpoint on-curve (`YANG_OUT_INCIDENCE_PROBE` 0 hits); then op 3's kernel-v2 `to_yang` wall — a 4-edge CONE lateral `[HyperbolaArc, Line, EllipseArc, Line]` (FaceId 499) fell to the typed pattern wall because the Slice-D/E CDT re-entry routed only non-4-edge/holed laterals — FIXED (routed by PATTERN, `four_edge_structured`; pin `four_edge_non_structured_cone_lateral_reenters`). **R0047 ERROR → SUPPORTED_CORRECT; corpus 262C/0W/46E/1EE/0T NEW CANONICAL.** |
-| C0044 | `i6-edge-overuse` (14,15) fwd=1 rev=0 → `s4-halfedge-pairing` | M8 flush annular stack (Stage-0 coplanar family, unchanged) |
+| ~~C0044~~ | ~~`i6-edge-overuse` (14,15) fwd=1 rev=0 → `s4-halfedge-pairing`~~ | ~~M8 flush annular stack~~ **CONVERTED 2026-09-12 (late): the Stage-0 identical-disc pair** |
 | R0053 | `i6-input-overuse`: input B edge (180,181) fwd=0 rev=1 — the STAGE-0 mesh of B (the FRESH gear revolve, not the chained body) is not conformal | ANCHORED (enriched probe: owning faces via the Stage-0 `tri_face` map): B's planar end cap f0 (448-gon) was overlay-triangulated with its boundary edge (180,181) subdivided at overlay vertex 1469 while the adjacent cone flank f270 kept the whole edge — `collect_edge_splits`' EXACT 2D collinearity test dropped the split at an 8.4e-16 rounding miss (`YANG_SPLIT_PROBE` census: 522 misses ≤1e-13 vs 216 ≥1e-4, nothing between). FIXED: a side-region BOUNDARY vertex collinear to the scale-free identity registers (spec `m8_stage0_inputcheck_clean_emission.md` addendum 2026-08-19; pin red-verified). Advances to kernel-v2 render-CDT `ring rejected` (FaceId 474). Side effect: **C0075 completed for the first time and exposed its authored `euler_target: 2` as wrong — the two interleaved gears enclose TWO pockets (genus 2, χ=−2, independently derived); meta corrected, pinned in `historical_authoring_fixes_pinned`; C0075 ERROR → SUPPORTED_CORRECT.** |
 

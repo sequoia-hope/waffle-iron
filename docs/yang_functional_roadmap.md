@@ -25,6 +25,22 @@
 > at §4-I9 `RelocationCrossedCarrierVertex` v413, the §4.5.1 corner-transit
 > class (R0085 kin). Exactly one detail move.
 >
+> **2026-09-12 (late) refresh.** Canonical corpus **286C / 0W / 19E / 4EE / 0T + 3 UNSUPPORTED(coplanar-boolean)** (release, 8 jobs, 600 s; wall 742.3 s; F0085 327.6 s, R0044 291.0 s).
+> **C0044 FLIPPED CORRECT** — the Stage-0 IDENTICAL disc pair (spec
+> `m8_identical_disc_pair.md`): the flush same-radius cylinder stack's two
+> caps are one disc, which `build_disc_disc_containment` could classify
+> neither by strict containment (false both ways) nor as a lens — it
+> returned `Empty` and the arrangement received two rims differing by ulps
+> (each cap sampled with its own seam phase); one cap fan triangle survived
+> single-labelled and Stage 6 reported a non-2-manifold reassembly. The
+> new branch identifies the circles within the KV10 rounding band, merges
+> the two rings about A's centre (fuse within the band, insert otherwise),
+> emits one fan over the merged ring to both caps and the ring to both
+> laterals as rim overrides (§4.5.5's identical boundary sampling), and
+> cross-welds B's rim seam vertex onto its fused A sample. Exactly one
+> category move, zero detail moves. 10 of the 19 remaining ERROR rows are
+> actionable (9 loud by design).
+>
 > **2026-09-12 refresh.** Canonical corpus **284C / 0W / 21E / 4EE / 0T + 3 UNSUPPORTED(coplanar-boolean)** (release, 8 jobs, 600 s; wall 712 s; F0085 317.6 s, R0044 293.2 s).
 > **C0067 FLIPPED CORRECT** — junction-map triple candidates (spec
 > `yang_stage4_conic_triple_junction.md`, 2026-09-12 amendment): the polar

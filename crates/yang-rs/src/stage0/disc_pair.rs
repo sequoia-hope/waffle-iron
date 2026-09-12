@@ -18,6 +18,30 @@ pub(crate) enum DiscPair {
         tris_a: Vec<[Point3; 3]>,
         tris_b: Vec<[Point3; 3]>,
     },
+    /// Handled as an IDENTICAL pair (§4.5.5 FULL overlap — the flush
+    /// cap-to-cap stack): ONE shared fan over the MERGED rim ring for both
+    /// faces (face B already winding-swapped iff `opposite`), the merged ring
+    /// itself (every face of either solid sharing that circle edge must sample
+    /// it — threaded as rim overrides into both Stage-1 builds, the paper's
+    /// "identical sampling points on their boundaries"), and the cross-weld of
+    /// B's rim seam vertex onto the A sample it fused with (a B-Rep vertex is
+    /// authoritative in the rim build, so the ring may only carry its bits).
+    Identical {
+        tris_a: Vec<[Point3; 3]>,
+        tris_b: Vec<[Point3; 3]>,
+        rim_edge_a: u32,
+        rim_edge_b: u32,
+        shared_rim: Vec<Point3>,
+        /// Exact opposite-rim images of the samples INSERTED into A's rim
+        /// (the B-only ones), keyed by A's lateral's opposite rim edge: a
+        /// cylinder / torus lateral pairs its two rims 1:1 (the azimuth-merge
+        /// strip), so every insertion needs its image there (the crossing
+        /// path's `opposite_rim_image`). `None` when nothing was inserted.
+        opp_a: Option<(u32, Vec<Point3>)>,
+        /// Likewise for B (the A-only samples).
+        opp_b: Option<(u32, Vec<Point3>)>,
+        seam_weld: Option<(u32, Point3)>,
+    },
     /// Coplanar disc pair that is disjoint in-plane — benign, no override.
     Empty,
     /// Outside increment 1's scope — the caller raises the loud residue. The
@@ -230,6 +254,24 @@ pub(crate) fn build_disc_disc_containment(
         return DiscPair::Wall("disc-degenerate");
     };
 
+    // IDENTICAL discs — the SAME circle within rounding (centres and radii
+    // within the KV10 band `TAU_WORK·(1+scale)`): Yang §4.5.5's FULL overlap,
+    // the flush cap-to-cap stack (C0044 op 2: a second cylinder of the same
+    // radius extruded from the first one's top cap). Neither strict
+    // containment nor a crossing classifies it (every rim vertex is ON the
+    // other rim within rounding), and the two Stage-1 rims differ by ulps
+    // (each cap samples the circle with its own in-plane basis and seam
+    // phase), so the no-override lens path below handed the arrangement two
+    // ulp-different N-gons: a stray cap fan triangle survived and the union
+    // reassembled non-2-manifold. The paper's rule is one identical mesh on
+    // the overlap and identical sampling points on its boundary — here the
+    // boundary is BOTH rims, so both laterals sample the merged ring.
+    if let Some(identical) = build_identical_discs(
+        a, b, face_a, face_b, vb, &ring_a, &center_a, &ring_b, &center_b, opposite,
+    ) {
+        return identical;
+    }
+
     // Strict containment (a tangency or crossing falls through, as in the
     // disc∩polygon path).
     let a_in_b = ring_a.iter().all(|v| strictly_inside_convex(&ring_b, &v.e));
@@ -279,6 +321,165 @@ pub(crate) fn build_disc_disc_containment(
         }
     }
     DiscPair::Handled { tris_a, tris_b }
+}
+
+/// The IDENTICAL branch of [`build_disc_disc_containment`]: `None` unless the
+/// two circles are the same circle within rounding. Both rings lie on that one
+/// circle within rounding, so every B sample is either a rounding twin of the
+/// angularly nearest A sample (FUSED — A's bits represent it; the rim
+/// override's slot merge takes those bits on B's edge) or a genuinely distinct
+/// sample (INSERTED into A's rim as well). A B sample closer than the rim
+/// build's `TAU_MODEL` merge ceiling but beyond the rounding band would be
+/// merged away by that build while the shared fan still carried it (a
+/// T-junction) — refused loudly (`disc-identical-subres`); under circle
+/// identity such a sample cannot exist (samples are rounding twins or a full
+/// chord apart).
+#[allow(clippy::too_many_arguments)]
+fn build_identical_discs(
+    a: &BRep,
+    b: &BRep,
+    face_a: usize,
+    face_b: usize,
+    vb: &[Point3],
+    ring_a: &[V2],
+    center_a: &V2,
+    ring_b: &[V2],
+    center_b: &V2,
+    opposite: bool,
+) -> Option<DiscPair> {
+    let (ea, eb) = (disc_circle_edge(a, face_a)?, disc_circle_edge(b, face_b)?);
+    let radius_of = |brep: &BRep, e: u32| match brep.edges()[e as usize].curve {
+        Curve::Circle { radius, .. } => Some(radius),
+        _ => None,
+    };
+    let (ra, rb) = (radius_of(a, ea)?, radius_of(b, eb)?);
+    let ca = center_a.p.as_array();
+    let cb = center_b.p.as_array();
+    let scale = ca
+        .iter()
+        .chain(cb.iter())
+        .fold(ra.max(rb), |m, c| m.max(c.abs()));
+    let band = cad_primitives::TAU_WORK * (1.0 + scale);
+    if dist2(ca, cb).sqrt() > band || (ra - rb).abs() > band {
+        return None;
+    }
+
+    // Angular position about A's centre: on one circle the angularly nearest
+    // A sample is the 3D nearest.
+    let (cu, cv) = (center_a.u, center_a.v);
+    let ang = |v: &V2| (v.v - cv).atan2(v.u - cu);
+    let n = ring_a.len();
+    let mut order_a: Vec<usize> = (0..n).collect();
+    order_a.sort_by(|&i, &j| ang(&ring_a[i]).total_cmp(&ang(&ring_a[j])));
+    let angs_a: Vec<f64> = order_a.iter().map(|&i| ang(&ring_a[i])).collect();
+    let bits = |p: Point3| {
+        let q = p.as_array();
+        [q[0].to_bits(), q[1].to_bits(), q[2].to_bits()]
+    };
+    let seam_b_vi = b.edges()[eb as usize].start;
+    let seam_b_bits = bits(vb[seam_b_vi as usize]);
+    let mut seam_weld: Option<(u32, Point3)> = None;
+    let mut extra: Vec<&V2> = Vec::new();
+    let mut fused_a = vec![false; n];
+    for vb2 in ring_b {
+        let t = ang(vb2);
+        let k = angs_a.partition_point(|&x| x < t);
+        let (best_i, best_d) = [k % n, (k + n - 1) % n]
+            .into_iter()
+            .map(|c| {
+                let i = order_a[c];
+                (i, dist2(ring_a[i].p.as_array(), vb2.p.as_array()).sqrt())
+            })
+            .min_by(|x, y| x.1.total_cmp(&y.1))?;
+        if best_d <= band {
+            fused_a[best_i] = true;
+            if bits(vb2.p) == seam_b_bits {
+                seam_weld = Some((seam_b_vi, ring_a[best_i].p));
+            }
+            continue;
+        }
+        if best_d < cad_primitives::TAU_MODEL {
+            return Some(DiscPair::Wall("disc-identical-subres"));
+        }
+        extra.push(vb2);
+    }
+
+    // Every A sample no B sample fused with is INSERTED into B's rim, every
+    // B-only sample into A's; each lateral pairs its two rims 1:1, so the
+    // insertions need their exact images on the opposite rims.
+    let a_only: Vec<Point3> = (0..n)
+        .filter(|&i| !fused_a[i])
+        .map(|i| ring_a[i].p)
+        .collect();
+    let b_only: Vec<Point3> = extra.iter().map(|v| v.p).collect();
+    let opp_a = match opposite_rim_images(a, ea, &b_only) {
+        Ok(v) => v,
+        Err(tag) => return Some(DiscPair::Wall(tag)),
+    };
+    let opp_b = match opposite_rim_images(b, eb, &a_only) {
+        Ok(v) => v,
+        Err(tag) => return Some(DiscPair::Wall(tag)),
+    };
+
+    // The merged ring, CCW in frame (= face A's outward normal).
+    let mut merged: Vec<&V2> = ring_a.iter().chain(extra).collect();
+    merged.sort_by(|x, y| ang(x).total_cmp(&ang(y)));
+    let m = merged.len();
+    let fan: Vec<[Point3; 3]> = (0..m)
+        .map(|i| [center_a.p, merged[i].p, merged[(i + 1) % m].p])
+        .collect();
+    let tris_a = fan.clone();
+    let mut tris_b = fan;
+    if opposite {
+        for t in &mut tris_b {
+            t.swap(1, 2);
+        }
+    }
+    Some(DiscPair::Identical {
+        tris_a,
+        tris_b,
+        rim_edge_a: ea,
+        rim_edge_b: eb,
+        shared_rim: merged.iter().map(|v| v.p).collect(),
+        opp_a,
+        opp_b,
+        seam_weld,
+    })
+}
+
+/// The exact opposite-rim images of the samples inserted into `cap_edge`'s
+/// rim, on the lateral's other rim (`Ok(None)` when nothing was inserted).
+/// The azimuth-merge strip pairs the two rims 1:1, so the image set must
+/// keep the inserted set's cardinality: a lateral the cap does not have
+/// (`lateral_for_cap`'s tags), an on-axis point, or two insertions with one
+/// image are refused loudly — never a silent count deficit.
+fn opposite_rim_images(
+    brep: &BRep,
+    cap_edge: u32,
+    inserted: &[Point3],
+) -> Result<Option<(u32, Vec<Point3>)>, &'static str> {
+    if inserted.is_empty() {
+        return Ok(None);
+    }
+    let lateral = lateral_for_cap(brep, cap_edge)?;
+    let opp_edge = match &lateral {
+        CapLateral::Cylinder((_, opp_edge, _, _, _)) => *opp_edge,
+        CapLateral::Torus { opp_edge, .. } => *opp_edge,
+    };
+    let Curve::Circle { center, radius, .. } = brep.edges()[opp_edge as usize].curve else {
+        return Err("rim-opp-not-circle");
+    };
+    let mut out: Vec<Point3> = Vec::with_capacity(inserted.len());
+    for &p in inserted {
+        let Some(q) = opposite_rim_image(&lateral, center.as_array(), radius, p)? else {
+            return Err("disc-identical-opp-on-axis");
+        };
+        if out.contains(&q) {
+            return Err("disc-identical-opp-collapse");
+        }
+        out.push(q);
+    }
+    Ok(Some((opp_edge, out)))
 }
 
 /// Lift a 3D point to a `V2` (in-frame 2D + the original 3D point).

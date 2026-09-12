@@ -1055,6 +1055,43 @@ fn smoke_union_face_to_face_stack() {
 }
 
 #[test]
+fn smoke_union_flush_same_radius_cylinder_stack() {
+    // C0044 ops 1–2: an r=1 cylinder, then a SECOND r=1 cylinder sketched on
+    // its top cap — two IDENTICAL coplanar discs (the whole disc is the
+    // §4.5.5 overlap) and two laterals on one cylinder surface. Stage 1
+    // samples each cap with its own seam phase, so the rims differed by ulps
+    // and the union reassembled non-2-manifold; the Stage-0 identical-disc
+    // branch (2026-09-12) emits one shared fan over the merged rim ring.
+    let mut b = ModelBuilder::kernel_v2();
+    b.true_circle_sketch("sa", [0.0; 3], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0)
+        .unwrap();
+    b.extrude("a", "sa", 1.0).unwrap();
+    b.true_circle_sketch("sb", [0.0, 0.0, 1.0], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0)
+        .unwrap();
+    b.extrude("boss", "sb", 1.0).unwrap();
+    assert_scenario_supported_correct("union_flush_same_radius_cylinder_stack", &mut b, None);
+    assert_eq!(
+        b.distinct_solid_count(),
+        1,
+        "flush same-radius stack must merge into one body"
+    );
+    let mesh = b.tessellate_last_with_tol(0.001).unwrap();
+    let (bb_min, bb_max) = mesh_bounding_box(&mesh);
+    assert!(
+        (f64::from(bb_max[2] - bb_min[2]) - 2.0).abs() < 1e-6,
+        "body must be 2 units tall, got {}",
+        bb_max[2] - bb_min[2]
+    );
+    // Within the chord band of the analytic 2π (the render is inscribed).
+    let vol = test_harness::helpers::mesh_signed_volume(&mesh);
+    let analytic = 2.0 * std::f64::consts::PI;
+    assert!(
+        (vol - analytic).abs() / analytic < 0.05,
+        "stack volume {vol} vs analytic {analytic}"
+    );
+}
+
+#[test]
 fn smoke_subtract_offset_boxes() {
     // Blank (0..1)³ minus tool (0.4..1.4)² × z∈[-0.3,0.6] — offset on all
     // axes, no coplanar pairs. Volume 1 − 0.6³ = 0.784.
@@ -1276,6 +1313,16 @@ fn smoke_corpus_boundary_categories() {
         // lookup keyed by its own (face_a, face_b) through `la.source` +
         // the Stage-0 tri→face maps. 2.8 s release.
         ("R0015", Category::SupportedCorrect),
+        // C0044 FLIPPED (2026-09-12, the Stage-0 identical-disc pair): the
+        // flush SAME-RADIUS cylinder stack's two caps are one disc, which
+        // neither strict containment nor a crossing classifies; the lens
+        // path handed the arrangement two rims differing by ulps (each cap
+        // samples the circle with its own seam phase) and a stray cap fan
+        // triangle survived into a non-2-manifold reassembly. Stage 0 now
+        // emits one shared fan over the MERGED rim ring to both caps and the
+        // ring to both laterals (Yang §4.5.5's identical boundary sampling).
+        // 0.9 s release, all three ops (the tube's χ = 0).
+        ("C0044", Category::SupportedCorrect),
         // C0067 FLIPPED (2026-09-12, junction-map triple candidates): the
         // sphere + polar-notch {sphere, wall, wall} corners are junctions of
         // two NON-coplanar sphere-section circles; Stage 4 demoted each into

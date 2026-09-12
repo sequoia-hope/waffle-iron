@@ -104,11 +104,31 @@ fn box_brep(lo: [f64; 3], hi: [f64; 3]) -> BRep {
 /// `height` (extruded toward +z). Two circle rims + one seam segment; the
 /// bottom cap is the disc that goes coplanar with a box top face.
 fn z_cylinder(cx: f64, cy: f64, base_z: f64, radius: f64, height: f64) -> BRep {
+    // Seam at +x.
+    z_cylinder_seam(cx, cy, base_z, radius, height, [1.0, 0.0])
+}
+
+/// [`z_cylinder`] with the seam vertex placed along the unit in-plane direction
+/// `seam` (the kernel-v2 extrude seams a circle sketch at its first sample,
+/// `(0, −1)` for the corpus generator's circles). The seam PHASE decides the
+/// rounding of every rim sample (`θ = φ₀ + k·2π/N`): at +x the phase is exact
+/// and the two caps' samples agree bit-for-bit; at −y they differ by ulps.
+fn z_cylinder_seam(
+    cx: f64,
+    cy: f64,
+    base_z: f64,
+    radius: f64,
+    height: f64,
+    seam: [f64; 2],
+) -> BRep {
     let bottom = [cx, cy, base_z];
     let top = [cx, cy, base_z + height];
-    // Seam at +x.
-    let v0 = p(cx + radius, cy, base_z);
-    let v1 = p(cx + radius, cy, base_z + height);
+    let v0 = p(cx + radius * seam[0], cy + radius * seam[1], base_z);
+    let v1 = p(
+        cx + radius * seam[0],
+        cy + radius * seam[1],
+        base_z + height,
+    );
     let verts = vec![BRepVertex { point: v0 }, BRepVertex { point: v1 }];
     let edges = vec![
         BRepEdge {
@@ -412,6 +432,154 @@ fn bearing_recess_subtract_succeeds() {
     assert!(
         vol < body_vol - recess * 0.5,
         "recess must remove material: vol {vol} vs body {body_vol}"
+    );
+}
+
+/// disc∩disc IDENTICAL, UNION — the flush cap-to-cap stack of two cylinders
+/// of the SAME radius (the C0044 op-2 shape: `extrude(circle)` sketched on the
+/// previous cylinder's top cap). Yang §4.5.5: the overlap is the WHOLE disc,
+/// so both caps must carry ONE identical mesh and both laterals ONE identical
+/// rim ring. The two caps are the SAME circle, but Stage 1 samples each with
+/// its own (opposite-normal) in-plane basis, so the two rims differ by ulps;
+/// handed to the arrangement as two ulp-different N-gons, a stray cap fan
+/// triangle survived and Stage 6 reported `reassembled output would be
+/// non-2-manifold` (C0044, 2026-09-12).
+#[test]
+fn flush_identical_cylinder_stack_union_succeeds() {
+    // Corpus seam (−y): the two caps' rim samples differ by ulps.
+    let lower = z_cylinder_seam(0.0, 0.0, 0.0, 1.0, 1.0, [0.0, -1.0]); // top cap z=1
+    let upper = z_cylinder_seam(0.0, 0.0, 1.0, 1.0, 1.0, [0.0, -1.0]); // bottom cap z=1
+    let out = boolean(&lower, &upper, BoolOp::Union, &nb())
+        .expect("identical disc∩disc union must be handled by Stage 0");
+    let mesh = out.as_mesh();
+    assert!(
+        is_watertight(mesh),
+        "flush-stack union output must be a closed 2-manifold"
+    );
+    assert!(
+        is_outward_solid(mesh),
+        "flush-stack union must be consistently outward-oriented"
+    );
+    // The shared cap plane is INTERIOR to the union: no triangle survives on it.
+    let on_plane = mesh
+        .tris
+        .iter()
+        .filter(|t| {
+            t.iter()
+                .all(|&v| (mesh.verts[v as usize].z() - 1.0).abs() < 1e-9)
+        })
+        .count();
+    assert_eq!(
+        on_plane, 0,
+        "no membrane may survive on the shared cap plane z=1"
+    );
+    let min_z = mesh.verts.iter().map(|p| p.z()).fold(f64::MAX, f64::min);
+    let max_z = mesh.verts.iter().map(|p| p.z()).fold(f64::MIN, f64::max);
+    assert!(
+        min_z.abs() < 1e-9 && (max_z - 2.0).abs() < 1e-9,
+        "union must span z∈[0,2] (got [{min_z},{max_z}])"
+    );
+    let vol = signed_volume(mesh).abs();
+    let analytic = std::f64::consts::PI * 2.0; // r=1, h=2
+    assert!(
+        (vol - analytic).abs() / analytic < 0.06,
+        "union volume {vol} not within chord band of analytic {analytic}"
+    );
+}
+
+/// disc∩disc IDENTICAL, SUBTRACT — the same stack as a cut: the tool touches
+/// the body only along the shared cap, so the body must come back UNCHANGED
+/// (the §4.5.5 sheet rule keeps the shared sheet as the body's cap for a
+/// subtract whose operands lie on opposite sides of the plane).
+#[test]
+fn flush_identical_cylinder_stack_subtract_keeps_the_body() {
+    let body = z_cylinder_seam(0.0, 0.0, 0.0, 1.0, 1.0, [0.0, -1.0]);
+    let tool = z_cylinder_seam(0.0, 0.0, 1.0, 1.0, 1.0, [0.0, -1.0]);
+    let out = boolean(&body, &tool, BoolOp::Subtract, &nb())
+        .expect("identical disc∩disc subtract must be handled by Stage 0");
+    let mesh = out.as_mesh();
+    assert!(
+        is_watertight(mesh),
+        "subtract output must be a closed 2-manifold"
+    );
+    assert!(
+        is_outward_solid(mesh),
+        "subtract output must be outward-oriented"
+    );
+    let min_z = mesh.verts.iter().map(|p| p.z()).fold(f64::MAX, f64::min);
+    let max_z = mesh.verts.iter().map(|p| p.z()).fold(f64::MIN, f64::max);
+    assert!(
+        min_z.abs() < 1e-9 && (max_z - 1.0).abs() < 1e-9,
+        "subtract must leave the body z∈[0,1] (got [{min_z},{max_z}])"
+    );
+    let vol = signed_volume(mesh).abs();
+    let analytic = std::f64::consts::PI; // r=1, h=1
+    assert!(
+        (vol - analytic).abs() / analytic < 0.06,
+        "subtract volume {vol} not within chord band of analytic {analytic}"
+    );
+}
+
+/// disc∩disc IDENTICAL with MISMATCHED seam phases: the lower cylinder seams
+/// at +x, the upper at −y, so NO rim sample of one cap coincides with a sample
+/// of the other (a quarter turn is not a multiple of 2π/N). Every sample is
+/// genuinely distinct and the merged ring carries both sets; both laterals
+/// take the other solid's samples as inserted rim points (the azimuth-merge
+/// strip). Exercises the INSERT half of the rule (no fusion, no seam weld).
+#[test]
+fn flush_identical_stack_with_mismatched_seams_unions() {
+    let lower = z_cylinder_seam(0.0, 0.0, 0.0, 1.0, 1.0, [1.0, 0.0]);
+    let upper = z_cylinder_seam(0.0, 0.0, 1.0, 1.0, 1.0, [0.0, -1.0]);
+    let out = boolean(&lower, &upper, BoolOp::Union, &nb())
+        .expect("identical disc∩disc union with mismatched seams must be handled");
+    let mesh = out.as_mesh();
+    assert!(
+        is_watertight(mesh),
+        "mismatched-seam union must be a closed 2-manifold"
+    );
+    assert!(
+        is_outward_solid(mesh),
+        "mismatched-seam union must be outward-oriented"
+    );
+    let on_plane = mesh
+        .tris
+        .iter()
+        .filter(|t| {
+            t.iter()
+                .all(|&v| (mesh.verts[v as usize].z() - 1.0).abs() < 1e-9)
+        })
+        .count();
+    assert_eq!(
+        on_plane, 0,
+        "no membrane may survive on the shared cap plane"
+    );
+    let min_z = mesh.verts.iter().map(|p| p.z()).fold(f64::MAX, f64::min);
+    let max_z = mesh.verts.iter().map(|p| p.z()).fold(f64::MIN, f64::max);
+    assert!(
+        min_z.abs() < 1e-9 && (max_z - 2.0).abs() < 1e-9,
+        "union must span z∈[0,2] (got [{min_z},{max_z}])"
+    );
+    let vol = signed_volume(mesh).abs();
+    let analytic = std::f64::consts::PI * 2.0;
+    assert!(
+        (vol - analytic).abs() / analytic < 0.06,
+        "union volume {vol} not within chord band of analytic {analytic}"
+    );
+
+    // The same pair as a cut: the body comes back unchanged.
+    let out = boolean(&lower, &upper, BoolOp::Subtract, &nb())
+        .expect("identical disc∩disc subtract with mismatched seams must be handled");
+    let mesh = out.as_mesh();
+    assert!(is_watertight(mesh) && is_outward_solid(mesh));
+    let max_z = mesh.verts.iter().map(|p| p.z()).fold(f64::MIN, f64::max);
+    assert!(
+        (max_z - 1.0).abs() < 1e-9,
+        "subtract must leave the body (max z {max_z})"
+    );
+    let vol = signed_volume(mesh).abs();
+    assert!(
+        (vol - std::f64::consts::PI).abs() / std::f64::consts::PI < 0.06,
+        "subtract volume {vol} not within chord band of π"
     );
 }
 

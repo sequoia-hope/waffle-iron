@@ -41,7 +41,10 @@
 //! ## Scope (unsupported residue keeps the loud YR24 error)
 //!
 //! Handled: A×B pairs of PLANAR faces with all-`LineSegment` loops (plus
-//! the disc/annular/mixed extensions of the 1×1 path). Pairs are processed
+//! the disc/annular/mixed extensions of the 1×1 path, including the
+//! IDENTICAL disc pair of a flush same-radius stack — `disc_pair::
+//! build_identical_discs`: one shared fan over the merged rim ring on both
+//! caps, the ring on both laterals). Pairs are processed
 //! in PLANE GROUPS (spec `m8_plane_group_nary_overlay`, `stage0::nary`): a
 //! face in MULTIPLE pairs joins its partners in one n-ary overlay when
 //! every group face is a pure line-loop polygon with per-side uniform
@@ -490,8 +493,9 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // disc rim and would break conformality with the cylinder lateral
         // that shares it). The disc keeps its exact Stage-1 rim ring; the
         // overlap is a shared rim/boundary triangulation and the remainder an
-        // angular-merge annulus. Crossing / non-convex / disc∩disc stay the
-        // loud residue.
+        // angular-merge annulus. disc∩disc containment and the IDENTICAL
+        // disc pair are built directly too; crossing / non-convex fall to
+        // the general overlay (or stay the loud residue).
         // An ANNULAR face in the pair is NOT eligible for the direct disc-pair
         // builder (it segments a hole-free disc); it must go through the general
         // `PolygonWithHoles` overlay below. So the disc fast-path applies only
@@ -533,6 +537,47 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 DiscPair::Handled { tris_a, tris_b } => {
                     overrides_a.insert(p.face_a, tris_a);
                     overrides_b.insert(p.face_b, tris_b);
+                    continue;
+                }
+                // IDENTICAL discs (§4.5.5 full overlap): the shared fan on both
+                // caps AND the merged rim ring on both circle edges, so each
+                // solid's lateral (and anything else sharing the rim) samples
+                // the ring the fan carries — the override merge takes A's bits
+                // on B's ulp-twin slots and inserts the genuinely distinct
+                // samples on either side. B's seam vertex takes the A sample it
+                // fused with (the rim build refuses a seam slot whose bits
+                // differ from the B-Rep vertex).
+                DiscPair::Identical {
+                    tris_a,
+                    tris_b,
+                    rim_edge_a,
+                    rim_edge_b,
+                    shared_rim,
+                    opp_a,
+                    opp_b,
+                    seam_weld,
+                } => {
+                    overrides_a.insert(p.face_a, tris_a);
+                    overrides_b.insert(p.face_b, tris_b);
+                    rim_overrides_a
+                        .entry(rim_edge_a)
+                        .or_default()
+                        .extend(shared_rim.iter().copied());
+                    rim_overrides_b
+                        .entry(rim_edge_b)
+                        .or_default()
+                        .extend(shared_rim);
+                    // Inserted samples pair 1:1 across each lateral: their
+                    // exact images go onto the opposite rims.
+                    if let Some((e, pts)) = opp_a {
+                        rim_overrides_a.entry(e).or_default().extend(pts);
+                    }
+                    if let Some((e, pts)) = opp_b {
+                        rim_overrides_b.entry(e).or_default().extend(pts);
+                    }
+                    if let Some((bi, pt)) = seam_weld {
+                        vb[bi as usize] = pt;
+                    }
                     continue;
                 }
                 DiscPair::Empty => continue,
