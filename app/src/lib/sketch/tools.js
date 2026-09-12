@@ -190,6 +190,8 @@ let pendingBadge = null;
 let dragBadgeKey = null;
 /** @type {{ x:number, y:number, dx:number, dy:number } | null} Drag-start anchor + original offset */
 let dragBadgeOrig = null;
+/** @type {{ x1:number, y1:number, x2:number, y2:number } | null} Active rubber-band box selection (select tool) */
+let boxSelect = null;
 
 /**
  * Hit-test geometric constraint badges at the given sketch coords.
@@ -295,6 +297,7 @@ export function resetTool() {
 	setSnapIndicator(null);
 	setSnapCandidates([]);
 	isDragging = false;
+	boxSelect = null;
 	pointerDownPos = null;
 	dragPointId = null;
 	dragLineId = null;
@@ -1175,8 +1178,13 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 						return;
 					}
 				}
-				// Not dragging a draggable entity — clear down pos to stop checking
-				selectPointerDownPos = null;
+				// Nothing draggable under the press: rubber-band box select from
+				// empty space. Left→right selects entities fully inside the box,
+				// right→left selects anything the box touches (crossing).
+				boxSelect = { x1: selectPointerDownPos.x, y1: selectPointerDownPos.y, x2: x, y2: y };
+				setPreview({ type: 'box-select', data: { ...boxSelect } });
+				setSketchHover(null);
+				return;
 			}
 		}
 
@@ -1315,6 +1323,19 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 	}
 
 	if (eventType === 'pointerup') {
+		if (boxSelect) {
+			const box = { ...boxSelect, x2: x, y2: y };
+			boxSelect = null;
+			setPreview(null);
+			const picked = entitiesInBox(box);
+			const next = shiftKey ? new Set(getSketchSelection()) : new Set();
+			for (const id of picked) next.add(id);
+			setSketchSelection(next);
+			setSelectedProfileIndex(null);
+			log('sketch', 'Box select', { count: picked.length, crossing: box.x2 < box.x1 });
+			selectPointerDownPos = null;
+			return;
+		}
 		if (dragPointId != null) {
 			finalizeDrag();
 			// If the drag ended on a snap (origin, another point, a midpoint),
@@ -1395,6 +1416,81 @@ function applyDragEndConstraints(pointId, snap) {
  * @param {number} y
  * @returns {number | null}
  */
+/**
+ * Entities selected by a rubber-band box. A left→right box (x2 ≥ x1) selects
+ * entities whose extent lies FULLY inside it; a right→left box selects every
+ * entity whose extent the box touches (crossing select). Curves use their
+ * sampled extent; gears are one compact entity keyed by their outline points.
+ * @param {{ x1:number, y1:number, x2:number, y2:number }} box
+ * @returns {number[]} entity ids
+ */
+function entitiesInBox(box) {
+	const crossing = box.x2 < box.x1;
+	const minX = Math.min(box.x1, box.x2), maxX = Math.max(box.x1, box.x2);
+	const minY = Math.min(box.y1, box.y2), maxY = Math.max(box.y1, box.y2);
+	if (maxX - minX <= 0 && maxY - minY <= 0) return [];
+	const positions = getSketchPositions();
+	const entities = getSketchEntities();
+	const pos = (id) => positions.get(id);
+	const gearDisplay = getGearDisplay();
+	const gearRegistry = getGearRegistry();
+
+	/** Extent of one entity as [ex0, ey0, ex1, ey1], or null when unresolved. */
+	const extentOf = (e) => {
+		/** @type {Array<{x:number,y:number}>} */
+		let pts = [];
+		if (e.type === 'Point') {
+			const p = pos(e.id); if (p) pts = [p];
+		} else if (e.type === 'Line') {
+			const a = pos(e.start_id), b = pos(e.end_id); if (a && b) pts = [a, b];
+		} else if (e.type === 'Circle') {
+			const c = pos(e.center_id);
+			if (c && e.radius > 0) pts = [{ x: c.x - e.radius, y: c.y - e.radius }, { x: c.x + e.radius, y: c.y + e.radius }];
+		} else if (e.type === 'Arc') {
+			const c = pos(e.center_id), a = pos(e.start_id), b = pos(e.end_id);
+			if (c && a && b) {
+				const r = Math.hypot(a.x - c.x, a.y - c.y);
+				const a0 = Math.atan2(a.y - c.y, a.x - c.x);
+				let a1 = Math.atan2(b.y - c.y, b.x - c.x);
+				if (a1 <= a0) a1 += Math.PI * 2;
+				pts = [a, b];
+				for (let i = 1; i < 24; i++) {
+					const t = a0 + (a1 - a0) * (i / 24);
+					pts.push({ x: c.x + r * Math.cos(t), y: c.y + r * Math.sin(t) });
+				}
+			}
+		} else if (e.type === 'Spline') {
+			pts = (e.point_ids ?? []).map(pos).filter(Boolean);
+		} else if (e.type === 'Gear') {
+			// gearDisplay is keyed by gear id; map back through the registry.
+			for (const [gearId, disp] of gearDisplay) {
+				if (gearRegistry.get(gearId)?.entityId !== e.id) continue;
+				if (Array.isArray(disp.outline)) pts = disp.outline.map((p) => (Array.isArray(p) ? { x: p[0], y: p[1] } : p));
+				break;
+			}
+		}
+		if (!pts.length) return null;
+		let ex0 = Infinity, ey0 = Infinity, ex1 = -Infinity, ey1 = -Infinity;
+		for (const p of pts) {
+			if (p.x < ex0) ex0 = p.x; if (p.x > ex1) ex1 = p.x;
+			if (p.y < ey0) ey0 = p.y; if (p.y > ey1) ey1 = p.y;
+		}
+		return [ex0, ey0, ex1, ey1];
+	};
+
+	const out = [];
+	for (const e of entities) {
+		if (e.id == null) continue;
+		const ext = extentOf(e);
+		if (!ext) continue;
+		const [ex0, ey0, ex1, ey1] = ext;
+		const inside = ex0 >= minX && ex1 <= maxX && ey0 >= minY && ey1 <= maxY;
+		const touches = ex1 >= minX && ex0 <= maxX && ey1 >= minY && ey0 <= maxY;
+		if (crossing ? touches : inside) out.push(e.id);
+	}
+	return out;
+}
+
 function hitTestProfile(x, y) {
 	const profiles = getExtractedProfiles();
 	const entities = getSketchEntities();
@@ -1566,12 +1662,17 @@ function finalizeDimensionPlacement(leader) {
 	});
 	if (res) {
 		const { constraint, valueField } = res;
+		const isAngle = valueField === 'value_degrees';
 		showDimensionPopup({
 			entityA: null,
 			entityB: null,
 			sketchX: leader.x,
 			sketchY: leader.y,
 			dimType: 'custom',
+			// Angles are unitless degrees — the input must not run them through
+			// the length-unit conversion.
+			angle: isAngle,
+			prefix: isAngle ? '\u2220' : (res.orientation === 'horizontal' ? 'H' : res.orientation === 'vertical' ? 'V' : ''),
 			defaultValue: res.value,
 			// Reuse the popup's customApply hook: clone the measured constraint
 			// and override its value with the user-entered number.
@@ -1604,13 +1705,17 @@ function showRadiusPopupFor(entity) {
 		}
 	}
 	if (!center) return;
+	// The popup edits the DIAMETER (what the label shows: "⌀ 270.00 mm") and
+	// stores a Diameter constraint; the ⌀ prefix + unit are drawn beside the
+	// input so the user can see what quantity they are typing.
 	showDimensionPopup({
 		entityA: entity.id,
 		entityB: null,
 		sketchX: center.x + (radius || 1) * 0.7,
 		sketchY: center.y + (radius || 1) * 0.7,
-		dimType: 'radius',
-		defaultValue: parseFloat((radius || 1).toFixed(4)),
+		dimType: 'diameter',
+		prefix: '\u2300',
+		defaultValue: (radius || 1) * 2,
 	});
 }
 

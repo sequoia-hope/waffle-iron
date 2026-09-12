@@ -19,28 +19,42 @@
 		getGearRegistry,
 		getConstraintBadgeOffsets,
 		getSelectedConstraintIndex,
-		getSketchPixelSize
+		getSketchPixelSize,
+		getSketchCursorPos,
+		getDocumentDisplayUnit
 	} from '$lib/engine/store.svelte.js';
+	import { formatWithUnit } from '$lib/units.js';
+	import { getColorVersion } from '$lib/ui/settings.svelte.js';
+	import { getTheme } from '$lib/ui/theme.svelte.js';
 	import { getPreview, getSnapIndicator, getSnapCandidates } from './sketchToolState.svelte.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
 	import { computeConstraintBadges } from './constraintBadges.js';
 	import { profileToPolygon } from './profiles.js';
 	import { sampleBSpline } from './bspline.js';
 
-	// Color scheme
+	// Color scheme. The entity colors are CSS tokens (app.css `--sketch-*`),
+	// customizable from Settings → Appearance; they are re-read whenever the
+	// base theme or an override changes (colorVersion / theme are reactive).
 	const COLOR_AXIS_X = 0xcc4444;     // red, sketch X axis
 	const COLOR_AXIS_Y = 0x44aa44;     // green, sketch Y axis
 	const COLOR_ORIGIN = 0xffffff;     // white, origin marker
-	const COLOR_DEFAULT = 0x4488ff;    // blue, under-constrained
-	const COLOR_SELECTED = 0xffdd44;   // yellow, selected
-	const COLOR_HOVERED = 0x88bbff;    // light blue, hovered
-	const COLOR_PREVIEW = 0x6699cc;    // dimmer blue, preview
-	const COLOR_SNAP = 0x44cc44;       // green, snap indicator
-	const COLOR_CONSTRUCTION = 0x6677aa; // dimmer blue, construction
-	const COLOR_PROFILE_HOVER = 0x55cc88;  // green-ish, profile hover
-	const COLOR_PROFILE_SELECT = 0x44ff88; // bright green, profile selected
-	const COLOR_OVERCONSTRAINED = 0xff4444; // red, over-constrained
-	const COLOR_FULLY_CONSTRAINED = 0x44cc88; // green, fully constrained (DOF=0)
+	function tokenColor(id, fallback) {
+		void getColorVersion(); void getTheme();
+		if (typeof document === 'undefined') return fallback;
+		const v = getComputedStyle(document.documentElement).getPropertyValue(id).trim();
+		if (!v) return fallback;
+		try { return new THREE.Color(v).getHex(); } catch { return fallback; }
+	}
+	let COLOR_DEFAULT = $derived(tokenColor('--sketch-default', 0x4488ff));
+	let COLOR_SELECTED = $derived(tokenColor('--sketch-selected', 0xffdd44));
+	let COLOR_HOVERED = $derived(tokenColor('--sketch-hovered', 0x88bbff));
+	let COLOR_PREVIEW = $derived(tokenColor('--sketch-preview', 0x6699cc));
+	let COLOR_SNAP = $derived(tokenColor('--sketch-snap', 0x44cc44));
+	let COLOR_CONSTRUCTION = $derived(tokenColor('--sketch-construction', 0x6677aa));
+	let COLOR_PROFILE_HOVER = $derived(tokenColor('--sketch-profile-hover', 0x55cc88));
+	let COLOR_PROFILE_SELECT = $derived(tokenColor('--sketch-profile-select', 0x44ff88));
+	let COLOR_OVERCONSTRAINED = $derived(tokenColor('--sketch-overconstrained', 0xff4444));
+	let COLOR_FULLY_CONSTRAINED = $derived(tokenColor('--sketch-constrained', 0x44cc88));
 
 	// Cache of glyph textures so the constraint badges actually show their letter
 	// ('H', 'V', 'M', '||', …) instead of a blank square. Keyed by glyph text.
@@ -152,6 +166,22 @@
 		if (isConstruction(entityId)) return COLOR_CONSTRUCTION;
 		if (isFullyConstrained) return COLOR_FULLY_CONSTRAINED;
 		return COLOR_DEFAULT;
+	}
+
+	// Screen-constant point radius (px) — the sphere geometry is 0.00006 sketch
+	// units, so scale = (px * unitsPerPx) / 0.00006. Hovered/selected points are
+	// drawn larger than the rest so hover is visible at any zoom.
+	const POINT_GEOM_RADIUS = 0.00006;
+	const POINT_PX = 3.5;
+	const POINT_PX_HOVER = 6;
+	const POINT_PX_SELECTED = 5;
+	let pointPixelSize = $derived(getSketchPixelSize() || 0);
+	function pointScale(entityId) {
+		if (!(pointPixelSize > 0)) return 1;
+		const px = hoverEntity === entityId ? POINT_PX_HOVER
+			: selection.has(entityId) ? POINT_PX_SELECTED
+			: POINT_PX;
+		return (px * pointPixelSize) / POINT_GEOM_RADIUS;
 	}
 
 	// -- Build geometry for entities --
@@ -333,6 +363,17 @@
 			const pts = (preview.data.points || []).map(([px, py]) => sketchToWorld(px, py, plane));
 			if (pts.length < 2) return null;
 			return { type: 'line', geometry: new THREE.BufferGeometry().setFromPoints(pts) };
+		}
+
+		if (preview.type === 'box-select') {
+			const { x1, y1, x2, y2 } = preview.data;
+			const corners = [
+				sketchToWorld(x1, y1, plane), sketchToWorld(x2, y1, plane),
+				sketchToWorld(x2, y2, plane), sketchToWorld(x1, y2, plane),
+				sketchToWorld(x1, y1, plane)
+			];
+			// Crossing (right→left) boxes are dashed, like most CAD packages.
+			return { type: x2 < x1 ? 'dashed' : 'line', geometry: new THREE.BufferGeometry().setFromPoints(corners) };
 		}
 
 		if (preview.type === 'rectangle') {
@@ -541,6 +582,41 @@
 		return { text, world };
 	});
 
+	// Live drawing readout: the size of the shape being drawn (⌀ for circles,
+	// length + angle for lines, W × H for rectangles, R for arcs, L/W for
+	// slots), in document units, drawn beside the cursor.
+	let drawReadout = $derived.by(() => {
+		const preview = getPreview();
+		const cursor = getSketchCursorPos();
+		if (!preview || !plane || !cursor) return null;
+		const unit = getDocumentDisplayUnit();
+		const fmt = (v) => formatWithUnit(v, unit);
+		const d = preview.data || {};
+		let text = null;
+		if (preview.type === 'circle') {
+			text = `\u2300 ${fmt(d.radius * 2)}`;
+		} else if (preview.type === 'line') {
+			const dx = d.x2 - d.x1, dy = d.y2 - d.y1;
+			const len = Math.hypot(dx, dy);
+			if (len > 0) {
+				let ang = (Math.atan2(dy, dx) * 180) / Math.PI;
+				if (ang < 0) ang += 360;
+				text = `${fmt(len)}  \u2220 ${ang.toFixed(1)}\u00B0`;
+			}
+		} else if (preview.type === 'rectangle') {
+			text = `${fmt(Math.abs(d.x2 - d.x1))} \u00D7 ${fmt(Math.abs(d.y2 - d.y1))}`;
+		} else if (preview.type === 'arc' || preview.type === 'arc-preview-radius') {
+			const r = preview.type === 'arc' ? d.radius : Math.hypot(d.ex - d.cx, d.ey - d.cy);
+			if (r > 0) text = `R ${fmt(r)}`;
+		} else if (preview.type === 'slot') {
+			const len = Math.hypot(d.cx2 - d.cx1, d.cy2 - d.cy1);
+			text = `L ${fmt(len)}  W ${fmt(d.width)}`;
+		}
+		if (!text) return null;
+		const px = getSketchPixelSize() || 0.00001;
+		return { text, world: sketchToWorld(cursor.x + 14 * px, cursor.y - 18 * px, plane) };
+	});
+
 	let failedIndices = $derived(getFailedConstraintIndices());
 
 	// Constraint badge data (shared with the select-tool hit-test so what's
@@ -643,6 +719,12 @@
 
 	// Shared materials
 	const previewMaterial = new THREE.LineBasicMaterial({ color: COLOR_PREVIEW, depthTest: false, transparent: true, opacity: 0.6 });
+	$effect(() => {
+		previewMaterial.color.setHex(COLOR_PREVIEW);
+		previewDashedMaterial.color.setHex(COLOR_PREVIEW);
+		snapDashedMaterial.color.setHex(COLOR_SNAP);
+		snapPointMaterial.color.setHex(COLOR_SNAP);
+	});
 	const trimPreviewMaterial = new THREE.LineBasicMaterial({ color: 0xff6633, depthTest: false, transparent: true, opacity: 0.8 });
 	const previewDashedMaterial = new THREE.LineDashedMaterial({ color: COLOR_PREVIEW, depthTest: false, transparent: true, opacity: 0.6, dashSize: 0.0001, gapSize: 0.00005 });
 	const snapDashedMaterial = new THREE.LineDashedMaterial({ color: COLOR_SNAP, depthTest: false, transparent: true, opacity: 0.8, dashSize: 0.00008, gapSize: 0.00004 });
@@ -735,9 +817,12 @@
 		</T.Mesh>
 	{/each}
 
-	<!-- Entity points -->
+	<!-- Entity points: screen-constant size (scaled by sketch units per pixel),
+	     a hovered/selected point grows so the dimension/select tools give a
+	     visible "you can pick this" cue at any zoom level. -->
 	{#each pointData as pt (pt.id)}
 		<T.Mesh geometry={pointGeometry} position={[pt.world.x, pt.world.y, pt.world.z]} renderOrder={10}
+			scale={pointScale(pt.id)}
 			raycast={() => {}}>
 			<T.MeshBasicMaterial
 				color={entityColor(pt.id)}
@@ -848,6 +933,8 @@
 			<T.LineSegments geometry={previewGeo.geometry} material={previewMaterial} renderOrder={10} />
 		{:else if previewGeo.type === 'trim'}
 			<T.Line geometry={previewGeo.geometry} material={trimPreviewMaterial} renderOrder={11} />
+		{:else if previewGeo.type === 'dashed'}
+			<T.Line geometry={previewGeo.geometry} material={previewDashedMaterial} renderOrder={11} oncreate={computeDashes} />
 		{/if}
 	{/if}
 
@@ -873,6 +960,13 @@
 	{#if snapLabelData}
 		<HTML position={[snapLabelData.world.x, snapLabelData.world.y, snapLabelData.world.z]} center={false} pointerEvents="none" wrapperClass="snap-html-wrapper">
 			<span class="snap-label">{snapLabelData.text}</span>
+		</HTML>
+	{/if}
+
+	<!-- Live size readout while drawing -->
+	{#if drawReadout}
+		<HTML position={[drawReadout.world.x, drawReadout.world.y, drawReadout.world.z]} center={false} pointerEvents="none" wrapperClass="snap-html-wrapper">
+			<span class="draw-readout" data-testid="sketch-draw-readout">{drawReadout.text}</span>
 		</HTML>
 	{/if}
 
@@ -911,6 +1005,18 @@
 	}
 	:global(.snap-html-wrapper *) {
 		pointer-events: none !important;
+	}
+
+	:global(.draw-readout) {
+		display: inline-block;
+		white-space: nowrap;
+		background: rgba(20, 24, 40, 0.85);
+		color: #e8eef8;
+		border: 1px solid rgba(136, 187, 255, 0.6);
+		border-radius: 3px;
+		padding: 2px 6px;
+		font-size: 11px;
+		font-family: var(--font-mono, monospace);
 	}
 
 	:global(.snap-label) {

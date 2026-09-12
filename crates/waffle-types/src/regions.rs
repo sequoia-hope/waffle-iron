@@ -67,6 +67,16 @@ pub struct Region {
     /// Curve-aware hole boundaries (parallel to `holes`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hole_edges: Vec<Vec<RegionEdge>>,
+    /// Identity of this region independent of its coordinates: the sorted,
+    /// deduplicated ids of every sketch entity whose curve lies on the outer
+    /// or a hole boundary. A feature that stored this region re-resolves it
+    /// against the CURRENT sketch by this signature (see
+    /// `feature_engine::rebuild`), so editing the sketch — scaling it, moving
+    /// a corner — keeps the extrude on the same region instead of the frozen
+    /// polygon it was picked as. `None` for regions built without provenance
+    /// (unions, hand-built geometry).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boundary_entity_ids: Option<Vec<u32>>,
 }
 
 /// One boundary edge of a region, in sketch UV coordinates. Mirrors the
@@ -102,8 +112,10 @@ pub fn compute_regions(
     positions: &HashMap<u32, (f64, f64)>,
     chord_tolerance: f64,
 ) -> Vec<Region> {
-    // Tessellate every non-construction curve into a polyline ("string line").
+    // Tessellate every non-construction curve into a polyline ("string line"),
+    // remembering which entity each string came from (boundary provenance).
     let mut strings: Vec<Vec<[f64; 2]>> = Vec::new();
+    let mut string_owner: Vec<u32> = Vec::new();
     for entity in entities {
         if entity.is_construction() {
             continue;
@@ -111,6 +123,7 @@ pub fn compute_regions(
         if let Some(poly) = tessellate_entity(entity, positions, chord_tolerance) {
             if poly.len() >= 2 {
                 strings.push(poly);
+                string_owner.push(entity.id());
             }
         }
     }
@@ -123,6 +136,23 @@ pub fn compute_regions(
     let bbox = match bounding_box(&strings) {
         Some(b) => b,
         None => return Vec::new(),
+    };
+
+    // Provenance tolerance: the slice snaps coordinates onto its float grid,
+    // so boundary vertices sit within a tiny relative distance of a source
+    // polyline. Scale-free: relative to the geometry's extent.
+    let provenance_eps = {
+        let (mut lo, mut hi) = ([f64::MAX; 2], [f64::MIN; 2]);
+        for s in &strings {
+            for p in s {
+                lo[0] = lo[0].min(p[0]);
+                lo[1] = lo[1].min(p[1]);
+                hi[0] = hi[0].max(p[0]);
+                hi[1] = hi[1].max(p[1]);
+            }
+        }
+        let diag = ((hi[0] - lo[0]).powi(2) + (hi[1] - lo[1]).powi(2)).sqrt();
+        (diag * 1e-5).max(1e-12)
     };
 
     let shapes = bbox.slice_by(&strings, FillRule::NonZero);
@@ -208,6 +238,20 @@ pub fn compute_regions(
         let hole_edges: Vec<Vec<RegionEdge>> =
             holes.iter().map(|h| recover_edges(h, &circles)).collect();
 
+        // Boundary provenance: every source entity some boundary segment lies on.
+        let mut ids = boundary_entities(&outer, &strings, &string_owner, provenance_eps);
+        for h in &holes {
+            ids.extend(boundary_entities(
+                h,
+                &strings,
+                &string_owner,
+                provenance_eps,
+            ));
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        let boundary_entity_ids = if ids.is_empty() { None } else { Some(ids) };
+
         regions.push(Region {
             outer,
             holes,
@@ -215,9 +259,98 @@ pub fn compute_regions(
             profile_entity_ids,
             outer_edges,
             hole_edges,
+            boundary_entity_ids,
         });
     }
     regions
+}
+
+/// Ids of the source entities whose polylines carry the segments of `loop_pts`
+/// (a closed boundary): a segment belongs to an entity when its midpoint lies
+/// within `eps` of one of that entity's polyline segments.
+fn boundary_entities(
+    loop_pts: &[(f64, f64)],
+    strings: &[Vec<[f64; 2]>],
+    owners: &[u32],
+    eps: f64,
+) -> Vec<u32> {
+    let n = loop_pts.len();
+    let mut out = Vec::new();
+    if n < 2 {
+        return out;
+    }
+    for i in 0..n {
+        let a = loop_pts[i];
+        let b = loop_pts[(i + 1) % n];
+        let m = [(a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5];
+        let mut best: Option<(f64, u32)> = None;
+        for (s, &owner) in strings.iter().zip(owners) {
+            for w in s.windows(2) {
+                let d = point_segment_distance(m, w[0], w[1]);
+                if best.is_none_or(|(bd, _)| d < bd) {
+                    best = Some((d, owner));
+                }
+            }
+        }
+        if let Some((d, owner)) = best {
+            if d <= eps {
+                out.push(owner);
+            }
+        }
+    }
+    out
+}
+
+/// Distance from `p` to the segment `a → b`.
+fn point_segment_distance(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
+    let dx = b[0] - a[0];
+    let dy = b[1] - a[1];
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 <= 0.0 {
+        0.0
+    } else {
+        (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2).clamp(0.0, 1.0)
+    };
+    let qx = a[0] + t * dx;
+    let qy = a[1] + t * dy;
+    ((p[0] - qx).powi(2) + (p[1] - qy).powi(2)).sqrt()
+}
+
+/// Re-resolve a stored region against the CURRENT sketch by boundary identity.
+///
+/// The stored region's `boundary_entity_ids` names the entities that bound it;
+/// the same signature is looked up among `current` (the regions of the sketch
+/// as it is now). One match ⇒ that region. Several (e.g. two lens regions of
+/// the same circle pair) ⇒ the one whose centroid is nearest the stored
+/// centroid. None, or a stored region without provenance ⇒ `None` (the caller
+/// keeps the stored geometry).
+pub fn resolve_region_by_identity<'a>(
+    stored: &Region,
+    current: &'a [Region],
+) -> Option<&'a Region> {
+    let want = stored.boundary_entity_ids.as_ref()?;
+    let mut matches: Vec<&Region> = current
+        .iter()
+        .filter(|r| r.boundary_entity_ids.as_ref() == Some(want))
+        .collect();
+    match matches.len() {
+        0 => None,
+        1 => matches.pop(),
+        _ => {
+            let c0 = polygon_centroid(&stored.outer);
+            matches.into_iter().min_by(|a, b| {
+                let da = {
+                    let c = polygon_centroid(&a.outer);
+                    (c.0 - c0.0).hypot(c.1 - c0.1)
+                };
+                let db = {
+                    let c = polygon_centroid(&b.outer);
+                    (c.0 - c0.0).hypot(c.1 - c0.1)
+                };
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            })
+        }
+    }
 }
 
 /// Union a set of regions (in sketch UV coordinates) into their merged
@@ -255,6 +388,26 @@ pub fn union_regions(regions: &[Region]) -> Vec<Region> {
 
     let shapes = contours.simplify_shape(FillRule::NonZero);
 
+    // The merged loops are polygon-only, but every input arc came from a source
+    // circle recorded on its RegionEdge::Arc (center + radius). Re-running the
+    // same curve recovery over the merged loops against those circles restores
+    // exact cylinder walls — otherwise a union of a box with a circle on its
+    // corner extrudes a FACETED "cylinder" while the same circle picked alone
+    // extrudes a true one.
+    let circles = circles_from_region_edges(regions);
+
+    // Provenance of the union: every bounding entity of every input.
+    let mut merged_ids: Vec<u32> = regions
+        .iter()
+        .filter_map(|r| r.boundary_entity_ids.as_ref())
+        .flatten()
+        .copied()
+        .collect();
+    merged_ids.sort_unstable();
+    merged_ids.dedup();
+    let all_have_provenance =
+        !regions.is_empty() && regions.iter().all(|r| r.boundary_entity_ids.is_some());
+
     let mut out = Vec::new();
     for shape in &shapes {
         if shape.is_empty() {
@@ -274,14 +427,52 @@ pub fn union_regions(regions: &[Region]) -> Vec<Region> {
         if area <= AREA_EPS {
             continue;
         }
+        let outer_edges = recover_edges(&outer, &circles);
+        let hole_edges: Vec<Vec<RegionEdge>> =
+            holes.iter().map(|h| recover_edges(h, &circles)).collect();
         out.push(Region {
             outer,
             holes,
             area,
             profile_entity_ids: None,
-            outer_edges: Vec::new(),
-            hole_edges: Vec::new(),
+            outer_edges,
+            hole_edges,
+            // A union of several components cannot be told apart by entity
+            // signature alone; only a single merged component keeps it.
+            boundary_entity_ids: if all_have_provenance && shapes.len() == 1 {
+                Some(merged_ids.clone())
+            } else {
+                None
+            },
         });
+    }
+    out
+}
+
+/// Source circles implied by the curve-aware edges of `regions` (deduplicated
+/// by center + radius), so a merged boundary can be re-fitted to them.
+fn circles_from_region_edges(regions: &[Region]) -> Vec<CircleCurve> {
+    let mut out: Vec<CircleCurve> = Vec::new();
+    let mut push = |center: (f64, f64), radius: f64| {
+        if radius <= 0.0 || radius.is_nan() {
+            return;
+        }
+        let tol = radius * 1e-9;
+        let dup = out.iter().any(|c| {
+            (c.radius - radius).abs() <= tol
+                && (c.center.0 - center.0).abs() <= tol
+                && (c.center.1 - center.1).abs() <= tol
+        });
+        if !dup {
+            out.push(CircleCurve { center, radius });
+        }
+    };
+    for r in regions {
+        for e in r.outer_edges.iter().chain(r.hole_edges.iter().flatten()) {
+            if let RegionEdge::Arc { center, radius, .. } = e {
+                push(*center, *radius);
+            }
+        }
     }
     out
 }
@@ -887,6 +1078,41 @@ mod tests {
             .collect();
         assert_eq!(at_origin.len(), 1);
         assert!(at_origin[0].holes.is_empty());
+    }
+
+    #[test]
+    fn boundary_identity_survives_a_uniform_scale() {
+        // Concentric circles: the inner disk is bounded by circle 20 alone, the
+        // annulus by both. Scaling the sketch keeps those signatures, so a
+        // region stored before the edit re-resolves to its scaled twin.
+        let positions = pos(&[(1, 0.0, 0.0), (2, 0.0, 0.0)]);
+        let entities = vec![circle_r(10, 1, 5.0), circle_r(20, 2, 2.0)];
+        let before = compute_regions(&entities, &positions, DEFAULT_CHORD_TOLERANCE);
+        let inner = before.iter().find(|r| r.holes.is_empty()).unwrap();
+        let annulus = before.iter().find(|r| !r.holes.is_empty()).unwrap();
+        assert_eq!(inner.boundary_entity_ids.as_deref(), Some(&[20u32][..]));
+        assert_eq!(
+            annulus.boundary_entity_ids.as_deref(),
+            Some(&[10u32, 20][..])
+        );
+
+        let entities_after = vec![circle_r(10, 1, 2.5), circle_r(20, 2, 1.0)];
+        let after = compute_regions(&entities_after, &positions, DEFAULT_CHORD_TOLERANCE);
+        let inner_now = resolve_region_by_identity(inner, &after).expect("inner re-resolves");
+        assert!(inner_now.holes.is_empty());
+        assert!((inner_now.area - std::f64::consts::PI * 1.0).abs() < 0.05);
+        let annulus_now = resolve_region_by_identity(annulus, &after).expect("annulus re-resolves");
+        assert_eq!(annulus_now.holes.len(), 1);
+        assert!((annulus_now.area - std::f64::consts::PI * (6.25 - 1.0)).abs() < 0.2);
+
+        // A stored region whose bounding entity is gone does NOT resolve.
+        let entities_gone = vec![circle_r(10, 1, 2.5)];
+        let gone = compute_regions(&entities_gone, &positions, DEFAULT_CHORD_TOLERANCE);
+        assert!(resolve_region_by_identity(annulus, &gone).is_none());
+        // ... and a region without provenance never resolves (caller keeps it).
+        let mut bare = inner.clone();
+        bare.boundary_entity_ids = None;
+        assert!(resolve_region_by_identity(&bare, &after).is_none());
     }
 
     #[test]

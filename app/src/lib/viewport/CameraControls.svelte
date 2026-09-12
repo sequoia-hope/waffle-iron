@@ -516,23 +516,48 @@
 	 * Recompute cached scene AABB only when mesh count changes.
 	 * @returns {boolean} Whether the AABB is valid (non-empty).
 	 */
+	const _objBox = new THREE.Box3();
+	/**
+	 * Whether an object contributes to the scene AABB that drives the clipping
+	 * planes: any visible renderable (mesh, line, points) — sketch entities are
+	 * LINES, so a mesh-only census left a finished sketch outside the clip range
+	 * and its wireframe was cut off as soon as the view rotated. Objects opting
+	 * out (`userData.waffleType === 'helper'`) are skipped.
+	 * @param {THREE.Object3D} obj
+	 */
+	function contributesToBounds(obj) {
+		const o = /** @type {any} */ (obj);
+		if (!obj.visible) return false;
+		if (o.userData?.waffleType === 'helper') return false;
+		return !!(o.isMesh || o.isLine || o.isPoints);
+	}
+
 	function refreshSceneAABB() {
-		let meshCount = 0;
+		// Cheap signature: count + a hash of object ids. A geometry change that
+		// keeps the count (a rebuilt sketch, a replaced mesh) still gets picked
+		// up because Threlte remounts objects with fresh ids.
+		let count = 0;
+		let idHash = 0;
 		scene.traverse((obj) => {
-			if (/** @type {any} */ (obj).isMesh && obj.visible) meshCount++;
+			if (contributesToBounds(obj)) { count++; idHash = (idHash * 31 + obj.id) | 0; }
 		});
-		if (meshCount !== cachedMeshCount) {
-			cachedMeshCount = meshCount;
+		const signature = count * 1e9 + idHash;
+		if (signature !== cachedMeshCount) {
+			cachedMeshCount = signature;
 			cachedSceneBox.makeEmpty();
 			scene.traverse((obj) => {
-				if (/** @type {any} */ (obj).isMesh && obj.visible) {
-					cachedSceneBox.expandByObject(obj);
-				}
+				if (!contributesToBounds(obj)) return;
+				// Per-object guard: a degenerate geometry (e.g. a datum plane with a
+				// NaN bounding box) must not poison the whole scene box.
+				_objBox.makeEmpty();
+				_objBox.expandByObject(obj);
+				if (_objBox.isEmpty()) return;
+				if (!Number.isFinite(_objBox.min.x) || !Number.isFinite(_objBox.max.x) ||
+				    !Number.isFinite(_objBox.min.y) || !Number.isFinite(_objBox.max.y) ||
+				    !Number.isFinite(_objBox.min.z) || !Number.isFinite(_objBox.max.z)) return;
+				cachedSceneBox.union(_objBox);
 			});
-			sceneBBoxValid = !cachedSceneBox.isEmpty() &&
-				Number.isFinite(cachedSceneBox.min.x) && Number.isFinite(cachedSceneBox.max.x) &&
-				Number.isFinite(cachedSceneBox.min.y) && Number.isFinite(cachedSceneBox.max.y) &&
-				Number.isFinite(cachedSceneBox.min.z) && Number.isFinite(cachedSceneBox.max.z);
+			sceneBBoxValid = !cachedSceneBox.isEmpty();
 			if (sceneBBoxValid) cachedSceneBox.getBoundingSphere(cachedSceneSphere);
 		}
 		return sceneBBoxValid;
@@ -556,7 +581,17 @@
 			// In sketch mode, skip tight near/far — use the wide template defaults
 			// (-1e7/1e7). Sketch wireframes don't z-fight, and datum plane meshes
 			// can produce NaN AABBs that corrupt the projection matrix.
-			if (sketchActive) return;
+			if (sketchActive) {
+				const cam = /** @type {THREE.OrthographicCamera} */ (cameraRef);
+				if (cam.near !== -1e7 || cam.far !== 1e7) {
+					// Reset the tight planes left over from modeling mode: a sketch
+					// drawn beyond the pre-sketch scene extent was clipped by them.
+					cam.near = -1e7;
+					cam.far = 1e7;
+					cam.updateProjectionMatrix();
+				}
+				return;
+			}
 
 			// Project AABB corners onto camera view direction to find tight near/far
 			const cam = /** @type {THREE.OrthographicCamera} */ (cameraRef);
@@ -581,8 +616,12 @@
 			// Guard against NaN from degenerate AABBs
 			if (!Number.isFinite(minDist) || !Number.isFinite(maxDist) || minDist >= maxDist) return;
 
-			// Add padding and ensure minimum range for numerical stability
-			const padding = Math.max((maxDist - minDist) * 0.1, 0.01);
+			// Generous padding: the range only has to bound the scene, and the
+			// controls' change event lags the damped orbit by a frame, so a tight
+			// 10% band clipped geometry mid-rotation. Half the depth range (or the
+			// scene radius, whichever is larger) keeps everything inside without
+			// costing meaningful ortho depth precision.
+			const padding = Math.max((maxDist - minDist) * 0.5, cachedSceneSphere.radius, 0.01);
 			cam.near = minDist - padding;
 			cam.far = maxDist + padding;
 			cam.updateProjectionMatrix();

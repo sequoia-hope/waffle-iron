@@ -35,7 +35,9 @@
 	// When popup appears, set the default value (converted to display units) and focus
 	$effect(() => {
 		if (popup) {
-			inputValue = formatForInput(popup.defaultValue, displayUnit);
+			inputValue = popup.angle
+				? String(parseFloat(Number(popup.defaultValue).toFixed(4)))
+				: formatForInput(popup.defaultValue, displayUnit);
 			// Focus after DOM update
 			requestAnimationFrame(() => {
 				if (inputEl) {
@@ -49,6 +51,25 @@
 	async function handleKeyDown(e) {
 		e.stopPropagation();
 		if (e.key === 'Enter') {
+			if (popup.angle) {
+				// Degrees: no length-unit conversion. Expressions evaluate in degrees.
+				const deg = parseFloat(inputValue);
+				if (/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(inputValue.trim()) && !isNaN(deg) && deg > 0) {
+					applyDimensionFromPopup(deg);
+					return;
+				}
+				const typedAngle = inputValue.trim();
+				if (typedAngle) {
+					const { value, error } = await evaluateExpression(typedAngle);
+					if (error == null && value != null && value > 0) {
+						applyDimensionFromPopup(value, typedAngle);
+						return;
+					}
+					showToast('error', `Dimension expression: ${error ?? 'must evaluate to a positive angle'}`);
+				}
+				hideDimensionPopup();
+				return;
+			}
 			if (isPlainMeasurement(inputValue)) {
 				const internalVal = parseAndConvert(inputValue, displayUnit);
 				if (!isNaN(internalVal) && internalVal > 0) {
@@ -90,6 +111,9 @@
 		class="dimension-input-overlay"
 		style="left: {Math.max(48 + getSafeInset('--sai-left'), Math.min(screenPos.x, window.innerWidth - 48 - getSafeInset('--sai-right')))}px; top: {Math.max(40, Math.min(screenPos.y, window.innerHeight - 16))}px;"
 	>
+		{#if popup.prefix}
+			<span class="dimension-prefix" data-testid="dimension-input-prefix">{popup.prefix}</span>
+		{/if}
 		<input
 			type="text"
 			inputmode="decimal"
@@ -98,8 +122,9 @@
 			bind:value={inputValue}
 			onkeydown={handleKeyDown}
 			onblur={handleBlur}
-			placeholder={displayUnit}
+			placeholder={popup.angle ? 'deg' : displayUnit}
 		/>
+		<span class="dimension-unit" data-testid="dimension-input-unit">{popup.angle ? '\u00B0' : displayUnit}</span>
 	</div>
 {/if}
 
@@ -109,22 +134,33 @@
 		z-index: 1100;
 		transform: translate(-50%, -100%) translateY(-8px);
 		pointer-events: auto;
-	}
-
-	.dimension-input {
+		display: flex;
+		align-items: center;
+		gap: 4px;
 		background: rgba(30, 30, 50, 0.95);
-		color: #ffffff;
 		border: 1px solid #44cc88;
 		border-radius: 3px;
-		padding: 3px 8px;
+		padding: 2px 6px;
 		font-size: 12px;
 		font-family: monospace;
-		width: 80px;
+		color: #ffffff;
+	}
+	.dimension-prefix { color: #aaddcc; }
+	.dimension-unit { color: #999; }
+
+	.dimension-input {
+		background: transparent;
+		color: #ffffff;
+		border: none;
+		padding: 1px 2px;
+		font-size: 12px;
+		font-family: monospace;
+		width: 72px;
 		outline: none;
 		text-align: center;
 	}
 
-	.dimension-input:focus {
+	.dimension-input-overlay:focus-within {
 		border-color: #66ddaa;
 		box-shadow: 0 0 6px rgba(68, 204, 136, 0.3);
 	}

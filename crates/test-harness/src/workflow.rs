@@ -390,6 +390,19 @@ impl ModelBuilder {
         self
     }
 
+    /// Add one entity to the sketch begun with [`begin_sketch`](Self::begin_sketch).
+    /// The finished sketch then carries its entities (as the app's does), which
+    /// the rebuild needs for anything derived from them — region identity
+    /// re-resolution, projection, gears.
+    pub fn add_sketch_entity(&mut self, entity: waffle_types::SketchEntity) -> &mut Self {
+        wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::AddSketchEntity { entity },
+            self.kernel.as_mut(),
+        );
+        self
+    }
+
     /// Finish the manual sketch with explicit positions and profiles.
     pub fn finish_sketch_manual(
         &mut self,

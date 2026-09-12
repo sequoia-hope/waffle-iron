@@ -103,6 +103,10 @@ async function load(waffle, json) {
 test('X-in-square default extrude is blocked and requires a region pick (no crash)', async ({ waffle }) => {
 	await load(waffle, X_IN_SQUARE);
 
+	// Shipped default: no region auto-selection, the dialog opens empty in pick
+	// mode. (The fixture turns auto-select ON for the legacy specs.)
+	await waffle.page.evaluate(() => window.__waffle.updateSettings({ extrudeAutoSelectRegion: false }));
+
 	// Open the dialog (bare default profileIndex 0) and apply WITHOUT picking.
 	await waffle.page.evaluate(() => window.__waffle.showExtrudeDialog());
 	await waffle.page.evaluate(() => window.__waffle.applyExtrude(0.01, 0, false, {}));
@@ -113,6 +117,24 @@ test('X-in-square default extrude is blocked and requires a region pick (no cras
 		(window.__waffle.getFeatureTree()?.features ?? []).map((f) => f.operation?.type)
 	);
 	expect(featureTypes.filter((t) => t === 'Extrude').length, 'no extrude was created').toBe(0);
+});
+
+test('X-in-square with auto-select ON pre-picks a real region that extrudes', async ({ waffle }) => {
+	await load(waffle, X_IN_SQUARE);
+	await waffle.page.evaluate(() => window.__waffle.updateSettings({ extrudeAutoSelectRegion: true }));
+	await waffle.page.evaluate(() => window.__waffle.showExtrudeDialog());
+	// Auto-select resolves asynchronously against the engine's regions.
+	await waffle.page.waitForFunction(() => window.__waffle.getExtrudeRegions().length === 1, undefined, { timeout: 10000 });
+	const region = (await waffle.page.evaluate(() => window.__waffle.getExtrudeRegions()))[0];
+	expect(region.region, 'auto-selected entry carries engine region geometry').toBeTruthy();
+	await waffle.page.evaluate(() => window.__waffle.applyExtrude(0.01, 0, false, {}));
+	await waffle.page.waitForFunction(
+		() => (window.__waffle.getFeatureTree()?.features ?? []).some((f) => f.operation?.type === 'Extrude'),
+		undefined,
+		{ timeout: 10000 }
+	);
+	const meshes = await waffle.page.evaluate(() => window.__waffle.getMeshes());
+	expect(meshes.some((m) => m.triangleCount > 0), 'the picked triangle extrudes to a solid').toBe(true);
 });
 
 test('plain rectangle default extrude still works (single region auto-resolves)', async ({ waffle }) => {

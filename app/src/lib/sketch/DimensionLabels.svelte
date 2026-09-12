@@ -301,24 +301,6 @@
 		return { x: mx + 0.0003, y: my + 0.0003, fromX: mx, fromY: my };
 	}
 
-	/** Diameter constraints are edited as radii; a radius expression is stored
-	 *  as diameter = 2*(radius expression). Unwrap for re-editing. */
-	function wrapRadiusExpr(expr) {
-		return `2*(${expr})`;
-	}
-
-	function unwrapRadiusExpr(expr) {
-		if (typeof expr === 'string' && expr.startsWith('2*(') && expr.endsWith(')')) {
-			const inner = expr.slice(3, -1);
-			let depth = 0;
-			for (const ch of inner) {
-				if (ch === '(') depth++;
-				else if (ch === ')') { depth--; if (depth < 0) return null; }
-			}
-			if (depth === 0) return inner;
-		}
-		return null;
-	}
 
 	function startEditing(index, currentValue, labelType) {
 		editingIndex = index;
@@ -326,15 +308,12 @@
 		const expr = constraints[index]?.expression;
 		if (expr) {
 			// Expression-driven: edit the expression text itself.
-			editValue = labelType === 'Diameter' ? (unwrapRadiusExpr(expr) ?? expr) : expr;
+			editValue = expr;
 		} else if (labelType === 'Angle') {
 			editValue = String(currentValue);
 		} else {
 			// Convert internal (meters) to display units for editing
-			const displayVal = internalToDisplay(
-				labelType === 'Diameter' ? currentValue / 2 : currentValue,
-				displayUnit
-			);
+			const displayVal = internalToDisplay(currentValue, displayUnit);
 			editValue = String(parseFloat(displayVal.toFixed(4)));
 		}
 	}
@@ -362,15 +341,14 @@
 		if (isNumeric) {
 			// Plain number: today's behavior (also detaches any expression).
 			if (!isNaN(numericVal) && numericVal > 0) {
-				const storeVal = labelType === 'Diameter' ? numericVal * 2 : numericVal;
-				updateConstraintValue(index, isAngle ? numericVal : storeVal);
+				updateConstraintValue(index, numericVal);
 			}
 			return;
 		}
 
 		// Expression: evaluate against the design variables (mm-space result;
 		// lengths in mm, angles in degrees), then store expression + value.
-		const exprToStore = labelType === 'Diameter' ? wrapRadiusExpr(typed) : typed;
+		const exprToStore = typed;
 		const { value, error } = await evaluateExpression(exprToStore);
 		if (error != null || value == null) {
 			showToast('error', `Dimension expression: ${error ?? 'evaluation failed'}`);
@@ -398,7 +376,7 @@
 		const fx = label.expression ? '\u0192 ' : '';
 		const suffix = label.reference ? ' (REF)' : '';
 		if (label.type === 'Angle') return `${fx}${label.value.toFixed(1)}\u00B0${suffix}`;
-		if (label.type === 'Diameter') return `${fx}R ${formatWithUnit(label.value / 2, displayUnit)}${suffix}`;
+		if (label.type === 'Diameter') return `${fx}\u2300 ${formatWithUnit(label.value, displayUnit)}${suffix}`;
 		if (label.type === 'Radius') return `${fx}R ${formatWithUnit(label.value, displayUnit)}${suffix}`;
 		if (label.type === 'HDistance') return `${fx}H: ${formatWithUnit(label.value, displayUnit)}${suffix}`;
 		if (label.type === 'VDistance') return `${fx}V: ${formatWithUnit(label.value, displayUnit)}${suffix}`;

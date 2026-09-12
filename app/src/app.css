@@ -52,6 +52,18 @@
 	--model-color: #8899aa;
 	--font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 	--font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Liberation Mono', Menlo, monospace;
+	/* Sketch entity colors. Read by SketchRenderer.svelte into THREE.Colors
+	   (plain hex only), customizable per-token from Settings → Appearance. */
+	--sketch-default: #4488ff;
+	--sketch-constrained: #44cc88;
+	--sketch-construction: #6677aa;
+	--sketch-selected: #ffdd44;
+	--sketch-hovered: #88bbff;
+	--sketch-preview: #6699cc;
+	--sketch-snap: #44cc44;
+	--sketch-overconstrained: #ff4444;
+	--sketch-profile-hover: #55cc88;
+	--sketch-profile-select: #44ff88;
 }
 
 /*

@@ -56,6 +56,7 @@
 		openConstraintModal
 	} from '$lib/engine/store.svelte.js';
 	import { isModalConstraint } from '$lib/sketch/constraintModalEngine.js';
+	import SettingsModal from './SettingsModal.svelte';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { showToast } from '$lib/ui/toast.svelte.js';
@@ -91,6 +92,7 @@
 	let showModelingTools = $state(false);
 
 	let showDebugMenu = $state(false);
+	let settingsOpen = $state(false);
 
 	// Fixed-position dropdown tracking for mobile (avoids overflow:hidden clipping)
 	let dropdownPos = $state({ top: 0, left: 0, right: null });
@@ -878,6 +880,13 @@
 	{/if}
 
 	<div class="toolbar-spacer"></div>
+	<button
+		class="toolbar-btn settings-btn"
+		title="Settings"
+		aria-label="Settings"
+		data-testid="toolbar-btn-settings"
+		onclick={() => (settingsOpen = true)}
+	>&#x2699;</button>
 	<div class="toolbar-status">
 		{#if ready}
 			<span class="status-dot ready" data-testid="status-dot"></span>
@@ -887,7 +896,17 @@
 	</div>
 </div>
 
+{#if settingsOpen}
+	<SettingsModal onclose={() => (settingsOpen = false)} />
+{/if}
+
 <style>
+	.settings-btn {
+		font-size: 16px;
+		line-height: 1;
+		padding: 0 8px;
+	}
+
 	.toolbar {
 		position: relative;
 		display: flex;

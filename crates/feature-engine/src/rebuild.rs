@@ -390,6 +390,18 @@ fn execute_feature(
             }
             sketch_expanded.recompute_derived();
             let sketch = &sketch_expanded;
+            let mut warnings_regions: Vec<String> = Vec::new();
+
+            // Region identity: a picked region is stored as the polygon it was
+            // at pick time. Re-resolve it against the sketch AS IT IS NOW by its
+            // boundary-entity signature, so a sketch edit (scale, moved corner)
+            // moves the extrude with it instead of leaving a stale footprint.
+            let (resolved_region, resolved_regions) = resolve_extrude_regions(
+                sketch,
+                params.region.as_ref(),
+                &params.regions,
+                &mut warnings_regions,
+            );
 
             let direction = params.direction.unwrap_or(sketch.plane_normal);
 
@@ -405,7 +417,7 @@ fn execute_feature(
             // same set. See specs/optional_booleans_multibody_extrude.md.
             let eff = normalize_extrude_combine(params);
             let is_cut = matches!(eff.mode, CombineMode::Cut);
-            let mut combine_warnings: Vec<String> = Vec::new();
+            let mut combine_warnings: Vec<String> = std::mem::take(&mut warnings_regions);
             let combine_targets = match eff.mode {
                 CombineMode::NewBody => Vec::new(),
                 _ => match &eff.targets {
@@ -414,8 +426,8 @@ fn execute_feature(
                         params.sketch_id,
                         profile_index,
                         None,
-                        params.region.as_ref(),
-                        &params.regions,
+                        resolved_region.as_ref(),
+                        &resolved_regions,
                         feature,
                         feature_results,
                         tree,
@@ -620,8 +632,8 @@ fn execute_feature(
             // union yields one region per connected component; each becomes its own
             // face and the (now provably DISJOINT) component solids are unioned (a
             // disjoint union has no coplanar contact, so it always succeeds).
-            let extrude_result = if params.regions.len() >= 2 {
-                let merged = waffle_types::union_regions(&params.regions);
+            let extrude_result = if resolved_regions.len() >= 2 {
+                let merged = waffle_types::union_regions(&resolved_regions);
                 if merged.is_empty() {
                     return Err(EngineError::ResolutionFailed {
                         reason: "multi-region extrude: 2D union produced no area".into(),
@@ -659,7 +671,7 @@ fn execute_feature(
                 // carries an explicit boundary that no whole-loop profile_index
                 // denotes — build its face directly. Otherwise use the profile list
                 // (the analytical path: Profile::circle / exact loops).
-                let face_id = if let Some(region) = &params.region {
+                let face_id = if let Some(region) = &resolved_region {
                     kb.make_face_from_region(region, face_origin, sketch.plane_normal, x_axis)?
                 } else {
                     let face_ids = kb.make_faces_from_profiles(
@@ -1622,6 +1634,49 @@ pub(crate) fn resolve_profile_index(
 /// already-resolved index and no id set; the consumption pre-pass passes the
 /// raw params (v4 §2.9). A profile the sketch cannot resolve has no footprint
 /// and yields no geometric targets — the execute path reports that error.
+/// Re-resolve an extrude's stored region(s) against the current sketch by
+/// boundary identity ([`waffle_types::resolve_region_by_identity`]). A region
+/// with no provenance, or whose signature no longer exists in the sketch
+/// (an entity was deleted, the loop was broken), keeps its stored geometry and
+/// a warning is pushed so the user learns the extrude is running on a stale
+/// footprint rather than silently building the wrong thing.
+fn resolve_extrude_regions(
+    sketch: &Sketch,
+    region: Option<&waffle_types::Region>,
+    regions: &[waffle_types::Region],
+    warnings: &mut Vec<String>,
+) -> (Option<waffle_types::Region>, Vec<waffle_types::Region>) {
+    let needs = region.is_some_and(|r| r.boundary_entity_ids.is_some())
+        || regions.iter().any(|r| r.boundary_entity_ids.is_some());
+    if !needs {
+        return (region.cloned(), regions.to_vec());
+    }
+    let current = waffle_types::compute_regions(
+        &sketch.entities,
+        &sketch.solved_positions,
+        waffle_types::regions::DEFAULT_CHORD_TOLERANCE,
+    );
+    let resolve_one = |stored: &waffle_types::Region, warnings: &mut Vec<String>| {
+        if stored.boundary_entity_ids.is_none() {
+            return stored.clone();
+        }
+        match waffle_types::resolve_region_by_identity(stored, &current) {
+            Some(r) => r.clone(),
+            None => {
+                warnings.push(
+                    "extrude region no longer matches the sketch (its boundary entities \
+                     changed); using the region as originally picked"
+                        .into(),
+                );
+                stored.clone()
+            }
+        }
+    };
+    let one = region.map(|r| resolve_one(r, warnings));
+    let many = regions.iter().map(|r| resolve_one(r, warnings)).collect();
+    (one, many)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn resolve_share_a_face(
     sketch_id: Uuid,
@@ -1645,6 +1700,13 @@ fn resolve_share_a_face(
     else {
         return Vec::new();
     };
+    // Same region identity as the build pass: the footprint must be the
+    // region as the sketch is NOW (idempotent when already resolved).
+    let mut region_warnings = Vec::new();
+    let (region_now, regions_now) =
+        resolve_extrude_regions(&sketch, region, regions, &mut region_warnings);
+    let region = region_now.as_ref();
+    let regions: &[waffle_types::Region] = &regions_now;
 
     let mut out: Vec<(Uuid, waffle_types::kernel::KernelSolidHandle)> = Vec::new();
     let mut seen: std::collections::HashSet<Uuid> = std::collections::HashSet::new();

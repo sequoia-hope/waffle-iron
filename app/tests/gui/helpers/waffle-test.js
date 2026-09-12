@@ -95,9 +95,25 @@ export class WafflePage {
  * Extended Playwright test fixture that provides a `waffle` WafflePage
  * which auto-navigates and waits for engine readiness.
  */
+/**
+ * Settings the GUI suite runs with. Extrude region auto-select is OFF for
+ * users by default (the dialog opens in pick mode); the legacy specs were
+ * written against auto-selection, so the fixture turns it on. A spec that
+ * wants the shipped default calls
+ * `window.__waffle.updateSettings({ extrudeAutoSelectRegion: false })`.
+ */
+export const TEST_SETTINGS = { extrudeAutoSelectRegion: true };
+
 export const test = base.extend({
 	waffle: async ({ page }, use) => {
 		const waffle = new WafflePage(page);
+		await page.addInitScript((s) => {
+			// Only seed once per browser context: a reload must keep whatever the
+			// test (or the settings UI under test) persisted afterwards.
+			try {
+				if (!localStorage.getItem('waffle:settings')) localStorage.setItem('waffle:settings', JSON.stringify(s));
+			} catch {}
+		}, TEST_SETTINGS);
 		await waffle.goto();
 		await waffle.waitForReady();
 		await use(waffle);

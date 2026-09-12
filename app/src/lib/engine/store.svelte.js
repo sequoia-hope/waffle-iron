@@ -18,6 +18,7 @@ import { buildSketchPlane, sketchToScreen } from '$lib/sketch/sketchCoords.js';
 import { computeConstraintBadges } from '$lib/sketch/constraintBadges.js';
 import { stepConstraintModal, modalInstruction, isModalConstraint } from '$lib/sketch/constraintModalEngine.js';
 import { classifyDimension } from '$lib/sketch/dimensionHeuristic.js';
+import { getSetting, getSettings, updateSettings } from '$lib/ui/settings.svelte.js';
 import { findConnectedChain, orderChain } from '$lib/sketch/chain.js';
 import { resolveChainSegments, offsetChainSegments } from '$lib/sketch/offset.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
@@ -864,6 +865,9 @@ export async function initEngine() {
 			setCameraProjection: (proj) => setCameraProjection(proj),
 			getConstraints: () => [...sketchConstraints],
 			getProjectedBindings: () => JSON.parse(JSON.stringify(projectedBindings)),
+			getSketchSelection: () => [...sketchSelection],
+			getSettings: () => JSON.parse(JSON.stringify(getSettings())),
+			updateSettings: (patch) => updateSettings(patch),
 			projectVertex: (geomRef) => projectVertex(geomRef),
 			projectEdge: (anchor, p0, p1) => projectEdge(anchor, p0, p1),
 			projectFace: (geomRef) => projectFace(geomRef),
@@ -2306,6 +2310,115 @@ function mapConstraintForBridge(c) {
  * Add a constraint locally and send to engine.
  * @param {object} constraint - SketchConstraint object
  */
+/** Constraint types that carry a length (an Angle is not one). */
+const LENGTH_DIMENSION_TYPES = new Set(['Distance', 'HDistance', 'VDistance', 'PointLineDistance', 'Diameter', 'Radius']);
+
+/**
+ * Measure the CURRENT value of a length-dimension constraint against the live
+ * sketch geometry (meters). null when its entities cannot be resolved.
+ * @param {any} c
+ * @returns {number | null}
+ */
+function measureLengthDimension(c) {
+	const pos = (id) => sketchPositions.get(id);
+	const ent = (id) => sketchEntities.find((e) => e.id === id);
+	const circleRadius = (e) => {
+		if (!e) return null;
+		if (e.type === 'Circle') return e.radius ?? null;
+		if (e.type === 'Arc') {
+			const ctr = pos(e.center_id), st = pos(e.start_id);
+			return ctr && st ? Math.hypot(st.x - ctr.x, st.y - ctr.y) : null;
+		}
+		return null;
+	};
+	switch (c.type) {
+		case 'Distance':
+		case 'HDistance':
+		case 'VDistance': {
+			const a = pos(c.entity_a), b = pos(c.entity_b);
+			if (!a || !b) return null;
+			if (c.type === 'HDistance') return Math.abs(b.x - a.x);
+			if (c.type === 'VDistance') return Math.abs(b.y - a.y);
+			return Math.hypot(b.x - a.x, b.y - a.y);
+		}
+		case 'PointLineDistance': {
+			const p = pos(c.point);
+			const line = ent(c.entity);
+			if (!p || !line || line.type !== 'Line') return null;
+			const a = pos(line.start_id), b = pos(line.end_id);
+			if (!a || !b) return null;
+			const dx = b.x - a.x, dy = b.y - a.y;
+			const len = Math.hypot(dx, dy);
+			if (len < 1e-15) return null;
+			return Math.abs((p.x - a.x) * dy - (p.y - a.y) * dx) / len;
+		}
+		case 'Diameter': {
+			const r = circleRadius(ent(c.entity));
+			return r == null ? null : r * 2;
+		}
+		case 'Radius':
+			return circleRadius(ent(c.entity));
+		default:
+			return null;
+	}
+}
+
+/**
+ * If `constraint` is the FIRST driving length dimension on this sketch (and the
+ * setting is on), scale every point and radius about the sketch origin so the
+ * dimension is already satisfied and the sketch keeps its proportions. Returns
+ * the radius changes for the undo record, or null when nothing was scaled.
+ * Skipped for sketches with projected (externally driven) points or gears —
+ * those carry geometry the scale must not touch.
+ * @param {any} constraint
+ * @returns {{ radiiBefore: Array<[number, number]>, radiiAfter: Array<[number, number]> } | null}
+ */
+function maybeScaleSketchToFirstDimension(constraint) {
+	if (!sketchMode.active) return null;
+	if (!getSetting('sketchScaleOnFirstDimension')) return null;
+	if (!LENGTH_DIMENSION_TYPES.has(constraint?.type) || constraint.reference || constraint._isDrag) return null;
+	if (!(constraint.value > 0)) return null;
+	// "First": no other driving length dimension exists yet. The new one was
+	// already appended by the caller as the LAST element (identity checks do
+	// not work — $state wraps it in a proxy), so exclude it by position.
+	const others = sketchConstraints.slice(0, -1).filter((c) => LENGTH_DIMENSION_TYPES.has(c.type) && !c.reference && !c._isDrag);
+	if (others.length > 0) return null;
+	if (projectedBindings.length > 0) return null;
+	if (sketchEntities.some((e) => e.type === 'Gear')) return null;
+
+	const measured = measureLengthDimension(constraint);
+	if (measured == null || !(measured > 1e-12)) return null;
+	const s = constraint.value / measured;
+	if (!Number.isFinite(s) || !(s > 0) || Math.abs(s - 1) < 1e-9) return null;
+
+	const nextPos = new Map();
+	for (const [id, p] of sketchPositions) nextPos.set(id, { x: p.x * s, y: p.y * s });
+	sketchPositions = nextPos;
+
+	/** @type {Array<[number, number]>} */
+	const radiiBefore = [];
+	/** @type {Array<[number, number]>} */
+	const radiiAfter = [];
+	sketchEntities = sketchEntities.map((e) => {
+		if (e.type === 'Circle' && typeof e.radius === 'number') {
+			radiiBefore.push([e.id, e.radius]);
+			radiiAfter.push([e.id, e.radius * s]);
+			return { ...e, radius: e.radius * s };
+		}
+		return e;
+	});
+	log('sketch', 'First dimension scaled the sketch', { type: constraint.type, measured: +measured.toPrecision(6), target: constraint.value, scale: +s.toPrecision(6) });
+	reExtractProfiles();
+	return { radiiBefore, radiiAfter };
+}
+
+/** Apply a list of [entityId, radius] pairs to circle entities. */
+function applyRadii(pairs) {
+	if (!pairs || !pairs.length) return;
+	const m = new Map(pairs);
+	sketchEntities = sketchEntities.map((e) => (m.has(e.id) ? { ...e, radius: m.get(e.id) } : e));
+}
+
 export function addLocalConstraint(constraint) {
 	log('sketch', `Constraint added: ${constraint.type}`, { type: constraint.type });
 	sketchConstraints = [...sketchConstraints, constraint];
@@ -2320,6 +2433,17 @@ export function addLocalConstraint(constraint) {
 		// can revert any point movement the new constraint induces.
 		sketchUndoStack = [...sketchUndoStack, { entities: [], constraints: [cloned], positionsBefore: snapshotPositions(), camera: getCameraState() }];
 		sketchRedoStack = [];
+	}
+
+	// First driving dimension on an undimensioned sketch: scale the whole
+	// sketch proportionally to it (like Onshape), so the rest of the geometry
+	// keeps the shape the user drew instead of the solver dragging one edge.
+	// The undo record above already holds the pre-scale positions; the radii
+	// it changed are attached to it so undo restores them too.
+	const scaled = maybeScaleSketchToFirstDimension(constraint);
+	if (scaled && !pendingSketchAction && sketchMode.active && sketchUndoStack.length) {
+		const last = sketchUndoStack[sketchUndoStack.length - 1];
+		sketchUndoStack = [...sketchUndoStack.slice(0, -1), { ...last, radiiBefore: scaled.radiiBefore, radiiAfter: scaled.radiiAfter, positionsAfter: snapshotPositions() }];
 	}
 
 	if (bridge && engineReady) {
@@ -3662,12 +3786,10 @@ export function showExtrudeDialog() {
 	if (selectedProfileIndex != null && sketchMode.active) {
 		// If a profile is already selected in sketch mode, use it
 		regions = [{ type: 'sketchProfile', sketchId: lastSketch.id, sketchName: lastSketch.name, profileIndex: selectedProfileIndex }];
-	} else {
-		// Default: auto-add profile 0
-		regions = [{ type: 'sketchProfile', sketchId: lastSketch.id, sketchName: lastSketch.name, profileIndex: 0 }];
 	}
 
-	log('ui', 'Show extrude dialog', { sketchId: lastSketch.id, profileCount, regionCount: regions.length });
+	const autoSelect = regions.length === 0 && getSetting('extrudeAutoSelectRegion');
+	log('ui', 'Show extrude dialog', { sketchId: lastSketch.id, profileCount, regionCount: regions.length, autoSelect });
 	extrudeDialogState = {
 		sketchId: lastSketch.id,
 		sketchName: lastSketch.name,
@@ -3675,6 +3797,65 @@ export function showExtrudeDialog() {
 		availableSketches: allSketches,
 		regions
 	};
+	if (regions.length === 0) {
+		if (autoSelect) {
+			// Auto-select resolves against the engine's region arrangement so what
+			// the list shows is exactly what Apply extrudes (a bare "profile 0"
+			// placeholder used to be shown, then rejected at Apply on any sketch
+			// with several regions).
+			autoSelectExtrudeRegion(lastSketch.id, lastSketch.name)
+				.catch((err) => log('error', `Extrude auto-select failed: ${err}`));
+		} else {
+			// Nothing pre-selected: arm region picking so the next click on a
+			// sketch region adds it.
+			setProfilePickMode({ target: 'extrude' });
+		}
+	}
+}
+
+/**
+ * Pick ONE region of `sketchId` for a freshly opened extrude dialog: the only
+ * region when there is one; otherwise the region whose outer boundary is the
+ * sketch's first whole-loop profile (a holed rectangle → the rectangle minus
+ * its holes); otherwise the largest region. Falls back to the legacy whole
+ * profile 0 when the arrangement yields nothing (e.g. an open sketch).
+ * No-op if the dialog closed, switched sketch, or gained a region meanwhile.
+ * @param {string} sketchId
+ * @param {string} sketchName
+ */
+async function autoSelectExtrudeRegion(sketchId, sketchName) {
+	let avail = getSketchRegions(sketchId);
+	if (avail == null) {
+		await computeAllSketchRegions();
+		avail = getSketchRegions(sketchId);
+	}
+	if (!extrudeDialogState || extrudeDialogState.sketchId !== sketchId) return;
+	if ((extrudeDialogState.regions?.length ?? 0) > 0) return;
+
+	const sketch = featureTree?.features?.find((f) => f.id === sketchId)?.operation?.sketch;
+	if (!avail || avail.length === 0) {
+		if ((sketch?.solved_profiles?.length ?? 0) > 0) addExtrudeRegion(sketchId, sketchName, 0, null);
+		return;
+	}
+	let pick = null;
+	if (avail.length === 1) {
+		pick = avail[0];
+	} else {
+		const profPoly = profileOuterPolygon(sketchId, 0);
+		pick = profPoly ? avail.find((r) => outerPolygonMatches(r.outer, profPoly)) ?? null : null;
+		if (!pick) pick = avail.reduce((a, b) => ((b.area ?? 0) > (a.area ?? 0) ? b : a));
+	}
+	// A whole-loop region rides the analytical profile_index path; map its
+	// entity ids to the matching solved profile (0 for genuine sub-regions).
+	let profileIndex = 0;
+	const ids = pick.profile_entity_ids;
+	if (ids && ids.length && Array.isArray(sketch?.solved_profiles)) {
+		const want = [...ids].sort((a, b) => a - b).join(',');
+		const i = sketch.solved_profiles.findIndex((p) => [...(p.entity_ids ?? [])].sort((a, b) => a - b).join(',') === want);
+		if (i >= 0) profileIndex = i;
+	}
+	addExtrudeRegion(sketchId, sketchName, profileIndex, JSON.parse(JSON.stringify(pick)));
+	log('ui', 'Extrude auto-selected region', { sketchId, profileIndex, subRegion: pick.profile_entity_ids == null, candidates: avail.length });
 }
 
 /**
@@ -5160,6 +5341,8 @@ export function applyDimensionFromPopup(value, expression = null) {
 		}
 	} else if (p.dimType === 'pointLineDistance') {
 		addLocalConstraint(withExpr({ type: 'PointLineDistance', point: p.entityA, entity: p.entityB, value }, expression));
+	} else if (p.dimType === 'diameter') {
+		addLocalConstraint(withExpr({ type: 'Diameter', entity: p.entityA, value }, expression));
 	} else if (p.dimType === 'radius') {
 		// The popup edits the RADIUS but stores a Diameter constraint, so a
 		// radius expression is wrapped as diameter = 2*(radius expression).
@@ -6937,6 +7120,7 @@ function undoSketchAction() {
 		if (e.type === 'Point') base.delete(e.id);
 	}
 	sketchPositions = base;
+	applyRadii(action.radiiBefore);
 
 	// Remove action constraints + cascaded constraints
 	const allRemovedJsons = new Set([
@@ -6954,6 +7138,8 @@ function undoSketchAction() {
 		cascadedConstraints,
 		projectedBindings: removedBindings,
 		positionsAfter: action.positionsAfter ?? null,
+		radiiBefore: action.radiiBefore ?? null,
+		radiiAfter: action.radiiAfter ?? null,
 		camera: getCameraState()
 	}];
 
@@ -7010,6 +7196,7 @@ function redoSketchAction() {
 			[...action.positionsAfter].map(([k, v]) => [k, { x: v.x, y: v.y }])
 		);
 	}
+	applyRadii(action.radiiAfter);
 
 	// Push to undo stack (merge cascaded into constraints so undo removes them all)
 	sketchUndoStack = [...sketchUndoStack, {
@@ -7017,6 +7204,8 @@ function redoSketchAction() {
 		constraints: allConstraints,
 		positionsBefore,
 		positionsAfter: action.positionsAfter ?? null,
+		radiiBefore: action.radiiBefore ?? null,
+		radiiAfter: action.radiiAfter ?? null,
 		camera: cameraBefore
 	}];
 
