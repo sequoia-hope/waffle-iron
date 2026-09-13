@@ -52,7 +52,7 @@ on today's tree, no code change.
 |---|---|---|---|
 | **C0058**, **F0058** | cyl×cyl POINT | **NO** — no vertex within 1e-9 at Stage-4 entry; nearest 1.33e-1 / 2.92e-2 | §4.4.1 trim+CDT — the branches must be CUT into the mesh (`specs/yang_433_tangent_point_mesh_update.md`) |
 | **R0038** | plane-tangent-cylinder GENERATOR | n/a — its degenerate caps ARE the conformal seam triangles | §4.4.1 too, and its remedy is already BANKED: `replan_degenerate_cylinder_patches` / `YANG_N2_RECDT_ENABLE` (task #168), which self-rejects at the degree-2 boundary gate (`yang_n2_stage4_cdt_mesh_updating.md` §5c.10) |
-| **F0060** | plane×cyl LINE | **YES** — B's prism ridge lands exactly on the tangent generator | NOT §4.4.1: a WELD + line-pinch representation defect (below) |
+| **F0060** | plane×cyl LINE | **YES** — the generator carries mesh vertices (x = 0, z = −0.3 exactly) and `B#2` triangles lie IN it | NOT §4.4.1: a pinch-EDGE split (below) — and its ULP weld already works |
 | **C0065**, **R0050** | torus | — | §4.5.2 REFUTED for R0050 (exact tangency, `specs/yang_452_local_refinement.md` §6); C0065 is the bounded-face containment class |
 
 **F0060 measured.** A = cylinder r 0.3, caps at z = ±0.3; B = cylinder r 0.3 on
@@ -62,16 +62,55 @@ cusps (`−0.3 < z < −0.3 + x²/0.6`) meeting along it, so the solid is genuin
 LINE-pinched and its manifold B-Rep needs the tangent edge duplicated per
 sheet — the sibling `yang_tangency_pinch_split.md` §0 named and deliberately
 excluded ("an EDGE pinch the vertex-fan split cannot and must not touch").
-Unlike C0058 the mesh DOES resolve the tangency — but at Stage-4 entry the
-generator point (0, 0, −0.3) carries **SIX** coincident vertices
-(v3, v11, v14, v16, v18, v20, pairwise ≤ 3.673940e-17 apart, far below
-`TAU_WORK`), and the final mesh's `s4-shell-euler` double-cover edges along the
-generator each carry 2 REAL cap triangles (off-vertices at x = ±0.15) and 2
-ZERO-AREA triangles whose three corners all lie ON the generator
-(e.g. tri 117 `[78, 0, 3]` = (0, 0.3, −0.3), (0, −0.075, −0.3), (0, 0, −0.3),
-attributed `B face 2 Cylinder`). So F0060's worklist is: weld the ULP-apart
-generator copies, drop the collinear line triangles, then split the pinch EDGE —
-none of which is the §4.4.1 cut C0058 needs.
+Unlike C0058 the mesh DOES resolve the tangency: at Stage-4 entry the generator
+point (0, 0, −0.3) carries **SIX** coincident vertices (v3, v11, v14, v16, v18,
+v20, pairwise ≤ 3.673940e-17 apart, far below `TAU_WORK`) — and, measured
+through the checkpoints, the existing §4.4.1(b) merge WELDS them. What survives
+is the double cover: each `s4-shell-euler` edge along the generator carries 2
+REAL cap triangles (off-vertices at x = ±0.15) and 2 ZERO-AREA triangles whose
+three corners all lie ON the generator (e.g. tri 117 `[78, 0, 3]` =
+(0, 0.3, −0.3), (0, −0.075, −0.3), (0, 0, −0.3), attributed
+`B face 2 Cylinder`). **Full generator strip (`YANG_STAR_PROBE` at (0,0,−0.3), (0,−0.075,−0.3),
+(0,±0.3,−0.3)).** The generator carries the chain v78 (y = 0.3) — v3 (y = 0) —
+v0 (y = −0.075) — v43/v123 (y = −0.3). Three readings:
+
+1. **The six ULP copies ARE welded** — by the existing (3c) §4.4.1(b) merge,
+   which folds v11/v14/v16/v18/v20 into v3 between `before-3c-merge` and
+   `after-3c-merge`. So "weld the copies" is NOT the worklist; that step already
+   works. What survives is v3 with **14** triangles: the bottom cap's complete
+   12-triangle fan (`A#0`, area 2.250e-2 each — correct, since B ∩ {z = −0.3} is
+   the generator LINE, a measure-zero bite that removes nothing from the cap)
+   plus **two ZERO-AREA `B#2` triangles** (tri 117 `[78,0,3]` area 3.840e-18,
+   tri 127 `[43,78,3]` area 1.595e-17) whose three corners all lie on the
+   generator. Those two are what make the cap's own fan spokes 4-valent.
+2. **The zero-area triangles are LOAD-BEARING — do NOT just delete them.**
+   Checked edge by edge: `(0,3)` pairs tri 117 with cap tri 1 `[2,3,0]`,
+   `(123,0)` pairs tri 118 with cap tri 0 `[0,123,2]`, `(3,43)` pairs tri 127
+   with cap tri 12 `[43,3,19]`, while `(78,123)` pairs 118 with B's real tri 119
+   `[78,85,123]` and `(43,78)` pairs 127 with B's real tri 126 `[43,42,78]`
+   (`(78,0)`/`(0,78)` cancel between 117 and 118). They are the degenerate
+   STITCH that folds the surface from the cap plane onto B's lateral — zero-area
+   because the two surfaces meet TANGENTIALLY there. Removing them alone leaves
+   five unpaired directed edges.
+3. **The real defect is that A's cap fans ACROSS the generator.** The cap's
+   apex is v3, which lies ON the generator, so the spokes `(3,78)` and `(3,43)`
+   run ALONG it and are used by cap triangles on BOTH sides (tri 6 `[3,8,78]`
+   and tri 7 `[78,12,3]` for `(3,78)`) — i.e. the generator is an INTERIOR edge
+   of the cap disc, not a constrained boundary. Add the stitches and each such
+   spoke reaches four triangles: the `s4-shell-euler` double cover.
+4. **The pinch-edge duplication is already PARTIAL.** At the generator's
+   y = −0.3 end the cap rim vertex exists TWICE — v43 = (3.956656e-18, −0.3,
+   −0.3) and v123 = (−5.906576e-17, −0.3, −0.3), 6.3e-17 apart — and the cap
+   fan uses v43 on the x > 0 side (tri 12 `[43,3,19]`) and v123 on the x < 0
+   side (tri 0 `[0,123,2]`). So one end of the chain is already split per sheet
+   while v3, v0 and v78 are shared.
+
+F0060's worklist is therefore a **pinch-EDGE split**: constrain the generator in
+A's cap (splitting the disc into two half-discs along it), duplicate the
+generator's shared vertices and edges per sheet — finishing what the y = −0.3
+end already does — and let each half-disc pair with B's lateral on its own side,
+so the tangential stitch stops being a four-triangle edge. None of it is the
+§4.4.1 cut C0058 needs.
 
 ## 2026-09-13 (later) — C0058 and F0058 RE-DIAGNOSED: the cyl×cyl POINT-tangency pair; the meshes never meet at the tangent point, so no relocation can create the crossing the output needs — the owner is §4.4.1 mesh updating (deviation N2), NOT the Stage-6 boundary walk; a LATENT closed on the way (the cyl×cyl relocation arm had no bound on its MOVE and slid a vertex 0.4427); canonical UNCHANGED 287C / 0W / 18E / 4EE / 0T (+3 U), zero category and zero detail moves
 
@@ -85,9 +124,13 @@ plane sections `z = 1 + k±·x`, and that band pinches to a single POINT at the
 tangency; face A therefore splits into two faces meeting at that one vertex.
 
 **What the meshes do (`YANG_STAR_PROBE`, the new position-keyed star dump).**
-They do not meet there at all. A's seam RIDGE stands at the full radius while
-B's facet plane stands a sagitta inside, so A pokes out of B and the mesh-level
-intersection AVOIDS the tangent point. At Stage-4 entry NEITHER case has a
+They do not meet there at all. A's seam RIDGE runs through the tangency
+(v1 = (0, −0.4, 0), v17 = (0, −0.4, 2) at θ = −90°, N = 10) and the whole ridge
+column survives in A's kept region while every nearby mesh crossing sits OFF the
+ridge — so near z = 1 A's ridge is entirely outside B and the mesh-level
+intersection detours around the tangent point (the standoff vertices read
+3.80450e-1 from A's axis and 3.70751e-1 from B's, both inside the exact 0.4:
+the crossing happens at FACET depth). At Stage-4 entry NEITHER case has a
 vertex within 1e-9 of it; C0058's four nearest stand at 1.334403e-1 (×2) and
 1.868510e-1 (×2), F0058's at 2.921888e-2 (×2) and 6.325992e-2 (×2) — the KV9-F1
 standoff QUAD, √(2r·B). Stage 4 relocates the two `vert_ell_junction` vertices

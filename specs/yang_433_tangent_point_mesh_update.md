@@ -36,10 +36,14 @@ faces (above the band, below it) meeting at that one vertex.
 
 ## 2. What the meshes actually do (measured, `YANG_STAR_PROBE`)
 
-The two tessellated prisms do **not** meet at the tangency: A's seam RIDGE at
-θ = −90° stands at the full radius while B's facet plane there stands one
-sagitta inside its own cylinder, so A pokes OUT of B and the mesh-level
-intersection AVOIDS the tangent point. At Stage-4 entry:
+The two tessellated prisms do **not** meet at the tangency. A's seam RIDGE runs
+through it (v1 = (0, −0.4, 0) and v17 = (0, −0.4, 2) are ridge samples at
+θ = −90°, N = 10), and the whole ridge column survives in A's kept region while
+every nearby mesh crossing sits OFF the ridge — so near z = 1 the ridge is
+entirely outside B, and the mesh-level intersection detours around the tangent
+point. The standoff vertices stand at 3.80450e-1 from A's axis and 3.70751e-1
+from B's (both inside the exact radius 0.4), i.e. the crossing happens at
+FACET depth, not at the ridge. At Stage-4 entry:
 
 | case | verts within 1e-9 of the tangency | the four nearest |
 |---|---|---|
