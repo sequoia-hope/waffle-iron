@@ -9221,6 +9221,35 @@ pub(crate) fn stage4_relocate_and_correct(
 ) -> Result<(Vec<(u32, f64)>, bool), YangError> {
     star_probe("s4-entry", mesh, attribution);
     nonmanifold_edge_census("s4-entry", mesh, attribution);
+    // (0) EDGE-PINCH split, at ENTRY (spec `yang_tangency_pinch_split.md` §0a).
+    // A face of one operand TANGENT to a face of the other along a whole LINE
+    // reaches Stage 4 as a chain of 4-triangle edges — the arrangement's honest
+    // boundary for a line-pinched solid, not a Stage-4 artefact (F0060: 14 such
+    // edges here, all on its two tangent lines). It has to be separated per
+    // sheet BEFORE §4.4.1(b), for a reason measured rather than assumed: the
+    // merge legitimately fuses the chain's ULP twins, and in doing so it
+    // collapses a whole chain into ONE edge whose four triangles then all carry
+    // the SAME operand — destroying the 2+2 attribution certificate the split
+    // reads. Run late, only 2 of F0060's 3 survivors are still certifiable, and
+    // a half-certified chain does not separate at all: a chain-interior vertex
+    // needs BOTH of its pinch edges paired before its fan ring falls into two
+    // components. Splitting a 2-valent-only mesh is a no-op, so this call is
+    // inert wherever there is no line pinch.
+    //
+    // GATED OFF (`YANG_EDGE_PINCH_SPLIT=1` arms it) pending the adjudication in
+    // spec §0a: the split does what it claims — F0060 stops being a Stage-4
+    // `NonManifoldOutput` and COMPLETES — but the boundary it then produces
+    // reads χ = 6 over three components against the case's authored χ = 2, and
+    // what `A − B` (four lobes joined along two tangent LINES and at two
+    // tangent POINTS) should be counted as is the open question. No silent
+    // wrong: the gate stays off until that is settled.
+    if crate::stage4_relocate::edge_pinch_split_enabled() {
+        let mut no_relocs: Vec<(u32, f64)> = Vec::new();
+        let splits = split_pinch_vertices(mesh, &mut no_relocs, &attribution.attributions, true);
+        if splits > 0 && std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
+            eprintln!("[edge-pinch] entry split {splits} vertex copies");
+        }
+    }
     let census = std::env::var("YANG_S4_CARRIER_DOMAIN").as_deref() == Ok("census");
     // Taken before the inner call, so it is the mesh exactly as Stage 4 received
     // it — strictly earlier than the inner snapshot and never later.
@@ -14082,7 +14111,12 @@ fn stage4_relocate_and_correct_inner(
     // BEFORE the shell gate reads χ. Splitting appends vertices (a topology
     // change), so it rides the same Phase-A recompute path as a §4.5.3
     // collapse via the returned flag.
-    let pinch_splits = split_pinch_vertices(mesh, &mut relocations);
+    let pinch_splits = split_pinch_vertices(
+        mesh,
+        &mut relocations,
+        &attribution.attributions,
+        crate::stage4_relocate::edge_pinch_split_enabled(),
+    );
     if pinch_splits > 0 {
         collapsed_any = true;
     }

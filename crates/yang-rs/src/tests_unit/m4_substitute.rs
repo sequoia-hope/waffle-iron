@@ -194,7 +194,7 @@ pub(crate) fn split_pinch_vertices_leaves_open_fan_untouched() {
     let before_verts = mesh.verts.len();
     let before_tris = mesh.tris.clone();
     let mut relocations: Vec<(u32, f64)> = Vec::new();
-    let splits = split_pinch_vertices(&mut mesh, &mut relocations);
+    let splits = split_pinch_vertices(&mut mesh, &mut relocations, &[], false);
     assert_eq!(splits, 0, "open-fan vertex must not be split (I1 guard)");
     assert_eq!(
         mesh.verts.len(),
@@ -267,4 +267,200 @@ impl MeshBoolean for MockBackend {
     ) -> Result<Mesh, Box<dyn Error + Send + Sync>> {
         Err(Box::from("mock failure"))
     }
+}
+
+// =========================================================================
+// EDGE-PINCH certificate (spec `yang_tangency_pinch_split.md` §0a, F0060).
+//
+// A face of one operand TANGENT to a face of the other along a whole LINE
+// reaches Stage 4 as a chain of 4-triangle edges. The two sheets have to be
+// told apart before the vertex fans can separate, and the usual discriminator
+// is gone: at a tangency the curved operand's contact triangles are ZERO-AREA
+// (they lie in the other operand's plane), so dihedral sorting is degenerate by
+// construction. `edge_pinch_sheets` replaces it with an exact, tolerance-free
+// certificate — a sheet is `face-of-A ∪ face-of-B`, so it holds exactly one
+// triangle per operand, and a consistently-wound surface gives each sheet one
+// FORWARD and one REVERSE triangle on the shared edge. These pin both the
+// pairing it produces and every shape it must REFUSE.
+// =========================================================================
+
+/// The §0a fixture: edge (0,1) carries four triangles — A forward `[0,1,2]`,
+/// A reverse `[1,0,3]`, B forward `[0,1,4]`, B reverse `[1,0,5]` — and the two
+/// closers `[0,2,5]` / `[0,4,3]` make each sheet a CLOSED fan at vertex 0.
+fn edge_pinch_fixture() -> (Mesh, Vec<u32>, Vec<usize>) {
+    let mesh = Mesh::new(
+        vec![
+            p(0.0, 0.0, 0.0),  // 0 — the pinch edge's low end
+            p(1.0, 0.0, 0.0),  // 1 — the pinch edge's high end
+            p(0.0, 1.0, 0.0),  // 2 — A, +side
+            p(0.0, -1.0, 0.0), // 3 — A, −side
+            p(0.0, 0.0, -1.0), // 4 — B, −side
+            p(0.0, 0.0, 1.0),  // 5 — B, +side
+        ],
+        vec![
+            [0, 1, 2], // 0  A fwd
+            [1, 0, 3], // 1  A rev
+            [0, 1, 4], // 2  B fwd
+            [1, 0, 5], // 3  B rev
+            [0, 2, 5], // 4  closer, sheet 1
+            [0, 4, 3], // 5  closer, sheet 2
+        ],
+    );
+    // Vertex 0's star, in triangle order; the four on edge (0,1) are local
+    // indices 0..4 — the shape `split_pinch_vertices` hands the certificate.
+    let star: Vec<u32> = vec![0, 1, 2, 3, 4, 5];
+    let local_on_edge: Vec<usize> = vec![0, 1, 2, 3];
+    (mesh, star, local_on_edge)
+}
+
+fn attr(input: InputId, face: u32) -> Option<TriangleAttribution> {
+    Some(TriangleAttribution { input, face })
+}
+
+/// The pairing is FORCED: each operand's forward triangle goes with the OTHER
+/// operand's reverse triangle. Nothing here reads a position or an angle.
+#[test]
+pub(crate) fn edge_pinch_sheets_pairs_each_operand_with_the_others_opposite_winding() {
+    let (mesh, star, local) = edge_pinch_fixture();
+    let attribution = vec![
+        attr(InputId::A, 0),
+        attr(InputId::A, 0),
+        attr(InputId::B, 2),
+        attr(InputId::B, 2),
+        attr(InputId::A, 0),
+        attr(InputId::A, 0),
+    ];
+    let sheets =
+        edge_pinch_sheets(&mesh, &attribution, 0, 1, &star, &local).expect("certificate holds");
+    let mut got: Vec<[usize; 2]> = sheets
+        .iter()
+        .map(|&(x, y)| {
+            let mut s = [x, y];
+            s.sort_unstable();
+            s
+        })
+        .collect();
+    got.sort_unstable();
+    // A fwd (local 0) with B rev (local 3); A rev (local 1) with B fwd (local 2).
+    assert_eq!(got, vec![[0, 3], [1, 2]], "forced per-sheet pairing");
+}
+
+/// REFUSED: four triangles from the SAME operand. A solid self-touching along a
+/// line is a different defect and the certificate must not guess at it — this
+/// is F0060's `(48,79)` after §4.4.1(b) collapses a chain into one edge.
+#[test]
+pub(crate) fn edge_pinch_sheets_refuses_a_same_operand_four_valent_edge() {
+    let (mesh, star, local) = edge_pinch_fixture();
+    let attribution = vec![attr(InputId::B, 2); 6];
+    assert!(edge_pinch_sheets(&mesh, &attribution, 0, 1, &star, &local).is_none());
+}
+
+/// REFUSED: an operand contributing TWO forward triangles. The winding split is
+/// half the certificate; without it the pairing is not determined.
+#[test]
+pub(crate) fn edge_pinch_sheets_refuses_two_forward_triangles_from_one_operand() {
+    let (mut mesh, star, local) = edge_pinch_fixture();
+    // Flip A's reverse triangle to forward: [1,0,3] -> [0,1,3].
+    mesh.tris[1] = [0, 1, 3];
+    let attribution = vec![
+        attr(InputId::A, 0),
+        attr(InputId::A, 0),
+        attr(InputId::B, 2),
+        attr(InputId::B, 2),
+        attr(InputId::A, 0),
+        attr(InputId::A, 0),
+    ];
+    assert!(edge_pinch_sheets(&mesh, &attribution, 0, 1, &star, &local).is_none());
+}
+
+/// REFUSED: an unattributed triangle. `None` attribution means no `(input,
+/// face)` won a majority, so the operand split cannot be read — fail closed.
+#[test]
+pub(crate) fn edge_pinch_sheets_refuses_an_unattributed_triangle() {
+    let (mesh, star, local) = edge_pinch_fixture();
+    let attribution = vec![
+        None,
+        attr(InputId::A, 0),
+        attr(InputId::B, 2),
+        attr(InputId::B, 2),
+        attr(InputId::A, 0),
+        attr(InputId::A, 0),
+    ];
+    assert!(edge_pinch_sheets(&mesh, &attribution, 0, 1, &star, &local).is_none());
+}
+
+/// The split itself stays OFF by default: with `YANG_EDGE_PINCH_SPLIT` unset
+/// (the state every other test and the whole corpus runs in) the 4-valent edge
+/// makes `split_pinch_vertices` leave the vertex alone, exactly as before.
+#[test]
+pub(crate) fn split_pinch_vertices_leaves_the_edge_pinch_untouched_by_default() {
+    let (mut mesh, _, _) = edge_pinch_fixture();
+    let attribution = vec![
+        attr(InputId::A, 0),
+        attr(InputId::A, 0),
+        attr(InputId::B, 2),
+        attr(InputId::B, 2),
+        attr(InputId::A, 0),
+        attr(InputId::A, 0),
+    ];
+    let before = mesh.tris.clone();
+    let before_verts = mesh.verts.len();
+    let mut relocations: Vec<(u32, f64)> = Vec::new();
+    let splits = split_pinch_vertices(&mut mesh, &mut relocations, &attribution, false);
+    assert_eq!(splits, 0, "gate OFF: the edge pinch must not be split");
+    assert_eq!(mesh.tris, before);
+    assert_eq!(mesh.verts.len(), before_verts);
+}
+
+/// ARMED: the certified pinch separates. Vertex 0's fan ring is cut at edge
+/// (0,1) into the two closed fans the certificate names, so the vertex splits
+/// into one copy per sheet and the 4-triangle edge becomes two 2-triangle
+/// edges — which is the whole point of the operation.
+#[test]
+pub(crate) fn split_pinch_vertices_separates_a_certified_edge_pinch() {
+    let (mut mesh, _, _) = edge_pinch_fixture();
+    let attribution = vec![
+        attr(InputId::A, 0),
+        attr(InputId::A, 0),
+        attr(InputId::B, 2),
+        attr(InputId::B, 2),
+        attr(InputId::A, 0),
+        attr(InputId::A, 0),
+    ];
+    let before_verts = mesh.verts.len();
+    let mut relocations: Vec<(u32, f64)> = Vec::new();
+    let splits = split_pinch_vertices(&mut mesh, &mut relocations, &attribution, true);
+    assert_eq!(splits, 1, "vertex 0 splits once, into its two sheets");
+    assert_eq!(mesh.verts.len(), before_verts + 1);
+    // The copy carries IDENTICAL position bits (I2).
+    assert_eq!(
+        mesh.verts[before_verts].as_array(),
+        mesh.verts[0].as_array()
+    );
+    // No edge of the result carries more than two triangles any more.
+    let mut inc: std::collections::BTreeMap<(u32, u32), usize> = std::collections::BTreeMap::new();
+    for tri in &mesh.tris {
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (a, b) = (tri[i], tri[j]);
+            let k = if a < b { (a, b) } else { (b, a) };
+            *inc.entry(k).or_insert(0) += 1;
+        }
+    }
+    assert!(
+        inc.values().all(|&n| n <= 2),
+        "the pinch edge must be gone: {inc:?}"
+    );
+    // Each sheet kept one A triangle and one B triangle on its own copy.
+    let low_end = |t: &[u32; 3]| t.contains(&0);
+    let sheet_a: Vec<usize> = (0..4).filter(|&i| low_end(&mesh.tris[i])).collect();
+    assert_eq!(sheet_a.len(), 2, "two of the four keep vertex 0");
+    let inputs: std::collections::BTreeSet<InputId> = sheet_a
+        .iter()
+        .map(|&i| attribution[i].expect("attributed").input)
+        .collect();
+    assert_eq!(
+        inputs.len(),
+        2,
+        "a sheet is one A triangle + one B triangle"
+    );
 }

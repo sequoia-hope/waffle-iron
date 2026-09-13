@@ -1872,6 +1872,74 @@ pub(crate) fn remove_doubled_membranes(
     removed
 }
 
+/// Is the EDGE-pinch extension of [`split_pinch_vertices`] armed?
+/// `YANG_EDGE_PINCH_SPLIT=1` — spec `yang_tangency_pinch_split.md` §0a.
+pub(crate) fn edge_pinch_split_enabled() -> bool {
+    std::env::var("YANG_EDGE_PINCH_SPLIT").as_deref() == Ok("1")
+}
+
+/// EDGE-PINCH per-sheet pairing (spec `yang_tangency_pinch_split.md` §0a).
+///
+/// A face of one operand that is TANGENT to a face of the other along a whole
+/// LINE leaves the exact mesh boolean with edges carrying FOUR triangles — the
+/// honest boundary of a line-pinched solid, present in the arrangement itself
+/// (measured on F0060: 14 such edges already at Stage-4 entry, all on the two
+/// tangent lines). The two sheets have to be told apart before the vertex fans
+/// can be separated, and the usual discriminator is unavailable: at a tangency
+/// the contact triangles of the curved operand are ZERO-AREA (they lie in the
+/// other operand's plane), so first-order dihedral sorting is degenerate by
+/// construction.
+///
+/// The certificate that replaces it is exact and carries no tolerance. A sheet
+/// of a tangential contact is `face-of-A ∪ face-of-B`, so it holds exactly one
+/// triangle from each operand; and a consistently-wound surface gives each
+/// sheet one FORWARD and one REVERSE triangle on the shared edge. Require both
+/// (2 + 2 by `InputId`, one forward and one reverse within each operand) and
+/// the partition is FORCED: each operand's forward triangle pairs with the
+/// other operand's reverse triangle. Returns `None` — leaving the vertex to
+/// today's loud gates — whenever the certificate does not hold, so a
+/// same-operand self-contact or any other 4-valent edge is never guessed at.
+pub(crate) fn edge_pinch_sheets(
+    mesh: &Mesh,
+    attribution: &[Option<TriangleAttribution>],
+    v: u32,
+    u: u32,
+    star: &[u32],
+    local: &[usize],
+) -> Option<[(usize, usize); 2]> {
+    debug_assert_eq!(local.len(), 4);
+    // `(local index, is-forward on v→u, operand)` for each of the four.
+    let mut tagged: Vec<(usize, bool, InputId)> = Vec::with_capacity(4);
+    for &li in local {
+        let ti = star[li] as usize;
+        let tri = mesh.tris[ti];
+        let fwd = (0..3).any(|k| tri[k] == v && tri[(k + 1) % 3] == u);
+        let rev = (0..3).any(|k| tri[k] == u && tri[(k + 1) % 3] == v);
+        if fwd == rev {
+            return None; // degenerate winding — never guess
+        }
+        let input = attribution.get(ti).copied().flatten()?.input;
+        tagged.push((li, fwd, input));
+    }
+    let a_count = tagged.iter().filter(|t| t.2 == InputId::A).count();
+    if a_count != 2 {
+        return None; // not a cross-operand contact
+    }
+    let pick = |input: InputId, fwd: bool| -> Option<usize> {
+        let mut hits = tagged.iter().filter(|t| t.2 == input && t.1 == fwd);
+        let first = hits.next()?;
+        if hits.next().is_some() {
+            return None; // not one-forward-one-reverse within the operand
+        }
+        Some(first.0)
+    };
+    let a_fwd = pick(InputId::A, true)?;
+    let a_rev = pick(InputId::A, false)?;
+    let b_fwd = pick(InputId::B, true)?;
+    let b_rev = pick(InputId::B, false)?;
+    Some([(a_fwd, b_rev), (a_rev, b_fwd)])
+}
+
 /// Tangency PINCH-VERTEX split (spec `yang_tangency_pinch_split.md`, task
 /// #86): a vertex whose triangle star decomposes into ≥ 2 edge-connected
 /// components, EACH a closed fan, is the mesh weld of a tangency pinch —
@@ -1891,7 +1959,12 @@ pub(crate) fn remove_doubled_membranes(
 /// Stage-4 relocation tags (same curve parameter — the copies sit at the
 /// same on-curve point). Deterministic: vertices, triangles, and fan
 /// components in index order (I7).
-pub(crate) fn split_pinch_vertices(mesh: &mut Mesh, relocations: &mut Vec<(u32, f64)>) -> usize {
+pub(crate) fn split_pinch_vertices(
+    mesh: &mut Mesh,
+    relocations: &mut Vec<(u32, f64)>,
+    attribution: &[Option<TriangleAttribution>],
+    edge_pinch: bool,
+) -> usize {
     use std::collections::BTreeMap;
     let n = mesh.verts.len();
     let mut incident: Vec<Vec<u32>> = vec![Vec::new(); n];
@@ -1928,15 +2001,48 @@ pub(crate) fn split_pinch_vertices(mesh: &mut Mesh, relocations: &mut Vec<(u32, 
                 }
             }
         }
-        // Closed-fan precondition over the WHOLE star: every v-incident
-        // edge has exactly 2 star triangles. Anything else (boundary fan,
-        // non-manifold edge) → leave the vertex alone, loud gates unchanged.
-        if by_u.values().any(|l| l.len() != 2) {
+        // Star-edge pairing. A 2-valent v-incident edge pairs its two star
+        // triangles (the original closed-fan rule). A 4-valent one is the EDGE
+        // PINCH (§0a of the spec): it pairs per-sheet IF it carries the tangency
+        // certificate — see `edge_pinch_sheets`. Anything else (boundary fan,
+        // an uncertified non-manifold edge) → leave the vertex alone, loud gates
+        // unchanged.
+        let mut pairs: Vec<(usize, usize)> = Vec::new();
+        let mut bail = false;
+        for (&u, l) in &by_u {
+            match l.len() {
+                2 => pairs.push((l[0], l[1])),
+                4 if edge_pinch => match edge_pinch_sheets(mesh, attribution, v, u, star, l) {
+                    Some([a, b]) => {
+                        if std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
+                            eprintln!("[edge-pinch] v{v} edge ({v},{u}) CERTIFIED");
+                        }
+                        pairs.push(a);
+                        pairs.push(b);
+                    }
+                    None => {
+                        if std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
+                            eprintln!("[edge-pinch] v{v} edge ({v},{u}) REFUSED (4-valent)");
+                        }
+                        bail = true;
+                        break;
+                    }
+                },
+                other => {
+                    if std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() && other != 2 {
+                        eprintln!("[edge-pinch] v{v} edge ({v},{u}) star-valence {other} — bail");
+                    }
+                    bail = true;
+                    break;
+                }
+            }
+        }
+        if bail {
             continue;
         }
         let mut parent: Vec<usize> = (0..star.len()).collect();
-        for l in by_u.values() {
-            let (ra, rb) = (find(&mut parent, l[0]), find(&mut parent, l[1]));
+        for &(x, y) in &pairs {
+            let (ra, rb) = (find(&mut parent, x), find(&mut parent, y));
             if ra != rb {
                 parent[ra] = rb;
             }

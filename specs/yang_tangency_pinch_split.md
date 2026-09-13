@@ -77,9 +77,53 @@ on the line itself.
    v21—v22—v27—v29—v31—v33—v35—v36, seven edges), each running rim to rim.
    Splitting a chain duplicates its INTERIOR vertices (the endpoints are where
    the two sheets genuinely rejoin around B's end cap and must stay shared) and
-   re-points one sheet's triangles to the copies. The nest of zero-area
-   triangles at the cap centre is the part that needs care, and is why this is a
-   slice of its own rather than an extension of the vertex-fan split.
+   re-points one sheet's triangles to the copies.
+
+### 0b. BUILT and GATED OFF (`YANG_EDGE_PINCH_SPLIT=1`), 2026-09-13
+
+The operation turned out to be an extension of the existing vertex-fan split,
+not a separate pass. `split_pinch_vertices` already separates a vertex whose
+star falls into ≥ 2 closed fans; all it lacked was a way to PAIR the triangles
+on a 4-valent star edge, where it previously bailed outright. `edge_pinch_sheets`
+supplies that pairing from the §0a certificate, and the existing union-find then
+separates the chain on its own. Two things had to be right, and both are now
+measured rather than assumed:
+
+- **The certificate.** Four triangles, 2 + 2 by `InputId`, one forward and one
+  reverse within each operand ⇒ pair each operand's forward with the other's
+  reverse. Anything else returns `None` and the vertex is left to today's loud
+  gates. Pinned by four unit tests in `tests_unit::m4_substitute` (the pairing,
+  plus refusal of a same-operand 4-valent edge, of two forward triangles from
+  one operand, and of an unattributed triangle).
+- **The placement.** It must run at Stage-4 ENTRY. Run at the existing (4a2)
+  site it is inert on F0060: the §4.4.1(b) merge has by then collapsed each
+  chain, so only `(3,76)` and `(22,48)` still certify while `(48,79)` is
+  `4 × B#2`, and a HALF-certified chain does not separate at all — a
+  chain-interior vertex's fan ring needs BOTH of its pinch edges paired before
+  it falls into two components. Measured: at (4a2) the certificate fires on the
+  two and refuses the third, and the shell still reads χ = 3 with the same
+  `v=45 e=128 f=86` as the baseline. At entry it splits **18 vertex copies** and
+  F0060 stops being a `NonManifoldOutput` altogether.
+
+**Why the gate is still OFF — the open question, which is about the ANSWER, not
+the mechanism.** With the split armed F0060 COMPLETES but grades
+`SUPPORTED_WRONG`: `V(1438) − E(4292) + F(2860) = 6` over what the kernel groups
+as 2 shells, against the case's authored `euler_target` of 2. That is not
+obviously the split's fault. `A − B` here is **four lobes** — in the y = 0
+section, A's square minus B's inscribed disc — joined in a 4-cycle: L(+,−)–L(−,−)
+and L(+,+)–L(−,+) along the two cap tangent LINES, and L(+,+)–L(+,−) /
+L(−,+)–L(−,−) at the two lateral tangent POINTS (±0.3, 0, 0). Separated per
+sheet at every one of those contacts the boundary would be four spheres, χ = 8;
+shared everywhere it is one pinched surface, χ = 2; the measured 6 is neither,
+i.e. the split is PARTIAL (the line contacts separate, the point contacts do
+not). So the next increment is not more machinery but an adjudication:
+**what is the correct body count and χ for a solid whose lobes meet only at
+tangencies**, and does this corpus case's authored `euler_target = 2` survive it?
+Until that is answered the gate stays off — a `SUPPORTED_WRONG` is strictly worse
+than the honest `ERROR` it replaces (0W is enforced).
+
+The nest of zero-area triangles at the cap centre needed no special handling:
+they are ordinary star triangles, and the certificate never looks at area.
 
 After this slice: a **pinch-vertex split** pass runs on the output mesh
 before the shell gate — every vertex whose star decomposes into ≥ 2

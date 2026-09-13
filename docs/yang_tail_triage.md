@@ -43,6 +43,51 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-13 (night, latest+1) — F0060's EDGE-PINCH split BUILT and GATED OFF: the certificate and the placement are both proven (F0060 stops being a `NonManifoldOutput` and COMPLETES), but the answer it then gives is χ = 6 against an authored χ = 2, so the open question is the ADJUDICATION, not the machinery; default corpus UNCHANGED 289C / 0W / 16E / 4EE / 0T + 3 U, zero moves
+
+Spec `specs/yang_tangency_pinch_split.md` §0b. `YANG_EDGE_PINCH_SPLIT=1` arms it;
+OFF is the default and is byte-identical.
+
+**The operation is an extension of the existing vertex-fan split, not a new
+pass.** `split_pinch_vertices` already separates a vertex whose star falls into
+≥ 2 closed fans; all it lacked was a way to PAIR the triangles on a 4-valent
+star edge, where it bailed outright. `edge_pinch_sheets` supplies that from the
+§0a certificate — four triangles, 2 + 2 by `InputId`, one forward and one
+reverse within each operand ⇒ pair each operand's forward with the OTHER's
+reverse — and the existing union-find separates the chain by itself. It returns
+`None` for anything else, so a same-operand 4-valent edge, an operand with two
+forward triangles, or an unattributed triangle all fall through to today's loud
+gates. Four unit tests pin exactly those refusals; a fifth pins the armed
+separation (the fixture's 4-triangle edge becomes two 2-triangle edges and each
+sheet keeps one A and one B triangle), and a sixth pins the gate-OFF no-op.
+
+**Placement is load-bearing, and measured.** At the existing (4a2) call site the
+split is INERT on F0060: §4.4.1(b) has by then collapsed each chain, so only
+`(3,76)` and `(22,48)` still certify while `(48,79)` is `4 × B#2` — and a
+HALF-certified chain does not separate at all, because a chain-interior vertex's
+fan ring needs BOTH of its pinch edges paired before it falls into two
+components. Measured at (4a2): the certificate fires on two, refuses the third,
+and the shell still reads χ = 3 with the same `v=45 e=128 f=86` as the baseline.
+Moved to Stage-4 ENTRY it splits **18 vertex copies** and F0060 completes.
+
+**Why it stays OFF — the open question is the ANSWER, not the mechanism.**
+Armed, F0060 grades `SUPPORTED_WRONG`: `V(1438) − E(4292) + F(2860) = 6` over
+what the kernel groups as 2 shells, against the case's authored `euler_target`
+of 2. `A − B` here is **four lobes** — in the y = 0 section, A's square minus
+B's inscribed disc — joined in a 4-cycle: two pairs along the cap tangent LINES
+and two pairs at the lateral tangent POINTS (±0.3, 0, 0). Separated per sheet at
+every contact the boundary is four spheres, χ = 8; shared everywhere it is one
+pinched surface, χ = 2; the measured 6 is neither — the split is PARTIAL (the
+line contacts separate, the point contacts do not). So the next increment is an
+adjudication: **what is the correct body count and χ for a solid whose lobes
+meet only at tangencies, and does this case's authored `euler_target = 2`
+survive it?** A `SUPPORTED_WRONG` is strictly worse than the honest `ERROR` it
+replaces (0W is enforced), so the gate does not flip until that is settled.
+
+Corpus gate-OFF (release, 8 jobs, 600 s; wall 752.9 s at host load ≈ 3):
+**289C / 0W / 16E / 4EE / 0T + 3 U**, zero category and zero detail moves,
+`results.json` byte-identical.
+
 ## 2026-09-13 (night, latest) — F0060 RE-LOCATED: its pinch is already in the ARRANGEMENT (14 over-2 edges at `s4-entry`), §4.4.1(b) REDUCES it rather than causing it, and the per-sheet split rule is FORCED by attribution + orientation; new `YANG_NM_EDGE_PROBE` census; corpus untouched
 
 Spec `specs/yang_tangency_pinch_split.md` §0a. No behaviour change: the only
