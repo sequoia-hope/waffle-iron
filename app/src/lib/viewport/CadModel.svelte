@@ -34,6 +34,7 @@
 	import { handleBodyFaceClick } from '$lib/sketch/tools.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
 	import { getTheme } from '$lib/ui/theme.svelte.js';
+	import { getColorVersion } from '$lib/ui/settings.svelte.js';
 
 	/**
 	 * Resolve a CSS custom property on <html> to a THREE.Color. Falls back to
@@ -49,11 +50,13 @@
 		return new THREE.Color(fallbackHex);
 	}
 
-	// Base face color is theme-driven (see --model-color in app.css). Reading
-	// getTheme() makes this recompute on theme change; every material builder
-	// below reads DEFAULT_COLOR, so their reactive derives rebuild too.
+	// Base face color is theme-driven (see --model-color in app.css) and
+	// customizable from Settings -> Appearance. Reading getTheme() and
+	// getColorVersion() makes this recompute on a theme switch or a per-token
+	// override; every material builder below reads DEFAULT_COLOR, so their
+	// reactive derives rebuild too.
 	let DEFAULT_COLOR = $derived.by(() => {
-		getTheme();
+		void getTheme(); void getColorVersion();
 		return cssColor('--model-color', 0x8899aa);
 	});
 	const HOVER_COLOR = new THREE.Color(0xaabbdd);

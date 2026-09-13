@@ -67,6 +67,16 @@
 	/* Base (unselected) color of solid model faces in the 3D viewport. Read by
 	   CadModel.svelte into a THREE.Color — hence a plain hex, no rgb()/alpha. */
 	--model-color: #8899aa;
+	/* Solid-model EDGE color. Judged against the RENDERED face shade, not
+	   --model-color: the viewport lighting darkens the token by roughly a
+	   third, so the dark themes take the bright end of their own ramp (5.6:1
+	   and up against ground and faces both) while the LIGHT themes are capped
+	   at a mid-tone — their part renders as a dark slab on a bright ground, so
+	   near-black vanishes into the faces and white vanishes into the ground.
+	   Measured ratios per theme are recorded in the 'part edge contrast' block
+	   of tests/gui/theme-switcher.spec.js. Read by EdgeOverlay.svelte into a
+	   THREE.Color — plain hex only, no rgb()/alpha. */
+	--model-edge-color: #f4f7fb;
 	--font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 	--font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Liberation Mono', Menlo, monospace;
 	/* Sketch entity colors. Read by SketchRenderer.svelte into THREE.Colors
@@ -111,6 +121,7 @@
 	/* Darker, desaturated green-grey so the model reads as a machined part
 	   against the near-black viewport rather than glowing. */
 	--model-color: #3c4a40;
+	--model-edge-color: #7dff5c; /* the accent-hover phosphor */
 	--font-ui: var(--font-mono);
 }
 
@@ -139,6 +150,7 @@
 	--text-on-accent: #2b2740;
 	--viewport-bg: #3a3550;
 	--model-color: #9a90b4;  /* muted lavender-grey machined part */
+	--model-edge-color: #f8f8f2; /* the theme foreground */
 }
 
 /*
@@ -167,6 +179,7 @@
 	--text-on-accent: #ffffff;
 	--viewport-bg: #eef1f5;
 	--model-color: #7e8c9e;
+	--model-edge-color: #8a94a3; /* mid-tone: see the :root note */
 	/* Sketch colors are drawn ON the light viewport, so the dark theme's
 	   pastels are replaced by mid-to-deep tones. Yellow in particular is
 	   invisible on a light ground — "selected" becomes amber. */
@@ -215,6 +228,7 @@
 	--text-on-accent: #002b36;
 	--viewport-bg: #00212b;
 	--model-color: #7e9294;
+	--model-edge-color: #eee8d5; /* base2 */
 	--sketch-default: #268bd2;
 	--sketch-constrained: #859900;
 	--sketch-construction: #586e75;
@@ -251,6 +265,7 @@
 	--text-on-accent: #002b36;
 	--viewport-bg: #f3ecd9;
 	--model-color: #7a8f90;
+	--model-edge-color: #93a1a1; /* base1, solarized's emphasized-content tone */
 	--sketch-default: #268bd2;
 	--sketch-constrained: #859900;
 	--sketch-construction: #93a1a1;
@@ -288,6 +303,7 @@
 	--text-on-accent: #272822;
 	--viewport-bg: #1e1f1a;
 	--model-color: #8a8a7c;
+	--model-edge-color: #f8f8f2; /* the Monokai foreground */
 	--sketch-default: #66d9ef;
 	--sketch-constrained: #a6e22e;
 	--sketch-construction: #75715e;
@@ -327,6 +343,7 @@
 	--text-on-accent: #f8f8f2;
 	--viewport-bg: #f1f1e6;
 	--model-color: #8f8f80;
+	--model-edge-color: #9d9d8c; /* mid-tone: see the :root note */
 	--sketch-default: #0a7f9c;
 	--sketch-constrained: #4f7a06;
 	--sketch-construction: #a6a390;

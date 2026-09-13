@@ -170,6 +170,11 @@ test.describe('light-mode and editor-scheme themes', () => {
 		// that only restyles the panels leaves a dark hole in the middle.
 		expect(await cssVar(page, '--viewport-bg')).toBe('#eef1f5');
 		expect(await cssVar(page, '--model-color')).toBe('#7e8c9e');
+		// Edges are theme-driven too: near-white on the dark themes, a mid-tone
+		// here (see the 'part edge contrast' block below for why a light theme
+		// cannot use near-black). The old value was a single hard-coded
+		// #222233 for every theme.
+		expect(await cssVar(page, '--model-edge-color')).toBe('#8a94a3');
 		// Sketch ink must be re-darkened for a light ground: the default theme's
 		// #ffdd44 "selected" yellow is invisible on white.
 		expect(await cssVar(page, '--sketch-selected')).toBe('#d98a00');
@@ -267,5 +272,81 @@ test.describe('theme registry', () => {
 		expect(Object.values(report.schemes).filter((s) => s === 'light').length).toBe(
 			NEW_THEMES.filter((t) => t.scheme === 'light').length
 		);
+	});
+});
+
+/**
+ * Part edges are drawn ON the model faces and AGAINST the viewport ground, so
+ * --model-edge-color has to clear both. Before it was a token it was a single
+ * hard-coded #222233 for every theme — a dark-theme value that left silhouettes
+ * at 1.1:1 against the default theme's own viewport ground.
+ *
+ * IMPORTANT: --model-color is NOT what the faces render as. The viewport's
+ * lighting (Lighting.svelte: ambient 0.4 + key 0.8 + fill 0.3 + hemisphere)
+ * darkens it substantially, so contrast has to be judged against the RENDERED
+ * shade, not the token. Measured off a canvas screenshot of an extruded box,
+ * 2026-09-13 — brightest (top) and darkest (left) lit face per theme:
+ *
+ *   default    #8899aa -> #58626e / #414c57      light      #7e8c9e -> #515967 / #3a4450
+ *   sol-dark   #7e9294 -> #515c61 / #3b464a      sol-light  #7a8f90 -> #4e5a5e / #384447
+ *   mk-dark    #8a8a7c -> #595650 / #41413b      mk-light   #8f8f80 -> #5c5953 / #44443d
+ *   retro      #3c4a40 -> #1f2721 / #0f1712      witchhazel #9a90b4 -> #625e74 / #4a485d
+ *
+ * Against those, the shipped edge colors score (worst of ground / both faces):
+ * retro 11.9, monokai-dark 6.9, witchhazel 5.8, default 5.8, solarized-dark 5.6
+ * — then the three LIGHT themes at 2.4, 2.3, 2.3. The light themes are capped
+ * by their own faces: the lighting renders the part as a dark slab on a bright
+ * ground, so a dark edge vanishes into the faces (near-black scores 1.3-1.9)
+ * and a white one vanishes into the ground (1.1). Their mid-tones are the
+ * maximum available, not a preference. Lightening --model-color on those
+ * themes is what would unlock more (measured: 3.63 on `light`), and that is a
+ * face decision, not an edge one.
+ *
+ * This test can only see TOKENS, so it checks the two things a token says:
+ * every theme defines the edge color, and it clears the viewport ground. The
+ * face ratios above came from pixels and live in this comment as the record.
+ */
+test.describe('part edge contrast', () => {
+	test('every theme defines an edge color that clears its viewport ground', async ({ waffle }) => {
+		const { page } = waffle;
+		await page.click(TRIGGER);
+		const ids = await page.$$eval('[data-testid^="theme-option-"]', (els) =>
+			els.map((e) => e.getAttribute('data-testid').replace('theme-option-', ''))
+		);
+
+		/** WCAG relative luminance of a #rrggbb string. */
+		const relLum = (hex) => {
+			const h = hex.replace('#', '');
+			const ch = [0, 2, 4]
+				.map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+				.map((x) => (x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4));
+			return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+		};
+		const ratio = (a, b) => {
+			const [hi, lo] = [relLum(a), relLum(b)].sort((x, y) => y - x);
+			return (hi + 0.05) / (lo + 0.05);
+		};
+
+		const report = {};
+		for (const id of ids) {
+			// Reading the ids above left the menu open, and its backdrop swallows
+			// clicks on the trigger — so re-open only when a selection closed it.
+			if ((await page.getAttribute(TRIGGER, 'aria-expanded')) !== 'true') {
+				await page.click(TRIGGER);
+			}
+			await page.click(`[data-testid="theme-option-${id}"]`);
+			const edge = await cssVar(page, '--model-edge-color');
+			expect(`${id}: ${edge}`).toMatch(/: #[0-9a-f]{6}$/i);
+			report[id] = +ratio(edge, await cssVar(page, '--viewport-bg')).toFixed(2);
+		}
+
+		// 2.2 is the floor the light themes sit just above (2.23-2.42 measured);
+		// the dark themes clear 10. A failure prints the whole table, so the
+		// offending theme and its actual ratio are visible at once.
+		const failures = Object.entries(report).filter(([, r]) => r < 2.2);
+		expect(JSON.stringify({ failures: failures.map(([id]) => id), report }, null, 1)).toBe(
+			JSON.stringify({ failures: [], report }, null, 1)
+		);
+		expect(Object.keys(report).length).toBe(ids.length);
 	});
 });

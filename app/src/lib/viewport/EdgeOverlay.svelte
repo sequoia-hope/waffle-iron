@@ -18,11 +18,35 @@
 		getSketchHover
 	} from '$lib/engine/store.svelte.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
+	import { getTheme } from '$lib/ui/theme.svelte.js';
+	import { getColorVersion } from '$lib/ui/settings.svelte.js';
 	import { worldPerPixel, faceOccludes, OCCLUSION_DEPTH_EPS_PX } from './picking.js';
 
 	const { renderer } = useThrelte();
 
-	const DEFAULT_EDGE_COLOR = new THREE.Color(0x222233);
+	/**
+	 * Resolve a CSS custom property on <html> to a THREE.Color, falling back to
+	 * `fallbackHex` when the var is unset or we're off-DOM (SSR). Mirrors the
+	 * helper in CadModel.svelte.
+	 * @param {string} name
+	 * @param {number} fallbackHex
+	 */
+	function cssColor(name, fallbackHex) {
+		if (typeof document !== 'undefined') {
+			const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+			if (v) return new THREE.Color(v);
+		}
+		return new THREE.Color(fallbackHex);
+	}
+
+	// Unselected edge color is theme-driven (see --model-edge-color in app.css)
+	// and customizable from Settings -> Appearance. Reading getTheme() and
+	// getColorVersion() makes this recompute on a theme switch or a per-token
+	// override; edgeMaterials reads it, so the material arrays rebuild with it.
+	let DEFAULT_EDGE_COLOR = $derived.by(() => {
+		void getTheme(); void getColorVersion();
+		return cssColor('--model-edge-color', 0x222233);
+	});
 	const HOVER_EDGE_COLOR = new THREE.Color(0x66aaff);
 	const SELECTED_EDGE_COLOR = new THREE.Color(0x44aaff);
 
@@ -34,8 +58,11 @@
 		polygonOffsetUnits: -0.5
 	};
 
+	// Shared material for edge data that carries no per-edge ranges. Its color is
+	// kept on the theme by the $effect below (it is mutated, not rebuilt, because
+	// the section-clipping effect holds the same instance).
 	const fallbackMaterial = new THREE.LineBasicMaterial({
-		color: DEFAULT_EDGE_COLOR,
+		color: 0x222233,
 		...baseMaterialProps
 	});
 
@@ -260,6 +287,13 @@
 			}
 		}
 		fallbackMaterial.clippingPlanes = planes;
+		fallbackMaterial.needsUpdate = true;
+	});
+
+	// The ranged materials are rebuilt from DEFAULT_EDGE_COLOR whenever it
+	// changes; the fallback singleton is not, so re-tint it in place.
+	$effect(() => {
+		fallbackMaterial.color.copy(DEFAULT_EDGE_COLOR);
 		fallbackMaterial.needsUpdate = true;
 	});
 
