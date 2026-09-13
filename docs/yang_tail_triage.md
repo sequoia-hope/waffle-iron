@@ -43,6 +43,89 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-13 (night) — C0058 and F0058 CONVERTED by the §4.3.3 tangent-point Stage-1 MINT: the two tessellations never met at the tangent point, so give them the point — one exact vertex, identical bits, in BOTH meshes, and the arrangement resolves the four A,B,A,B sectors itself; NEW CANONICAL 289C / 0W / 16E / 4EE / 0T (+3 U), exactly two category moves and ZERO detail moves
+
+Spec `specs/yang_433_tangent_point_mesh_update.md` §6. The earlier entries today
+established the mechanism: two equal-radius cylinders whose axes cross touch at
+two isolated points, the band between the section curves pinches to ZERO width
+there, and the inscribed prisms therefore do not meet at all — at Stage-4 entry
+NO mesh vertex lies within 1e-9 of the tangent point. Relocation moves geometry,
+not CONNECTIVITY, so A's kept region stayed edge-connected across the band and
+Stage 6 saw a Newell-cancelling 64-edge cycle (C0058) / a four-triangle edge
+(F0058). No mesh resolution resolves a zero-width band, so refinement was never
+the route (and yang2023 §5.4 certifies it does not converge near tangency).
+
+**The fix is Yang's own sentence.** §4.4.1: *"we trim and update the meshes using
+the intersection curves … **Then we set r_A = r_B = r**, so that the two
+polylines in the meshes coincide with the intersection curve"* (`:552-570`), with
+§4.3.3's collinear-normal test making the tangent point first class (`:518-570`).
+The general pre-boolean re-trim is deviation N2's architectural closure and stays
+out of scope — but the half this class needs can be done where the pipeline still
+has freedom, at **Stage 1**: mint the exact tangent point into BOTH operands'
+tessellations, with identical bits. Both inscribed surfaces then fall away from
+that shared apex in the same normal direction with different second-order forms
+(`d_A²/2r` vs `d_B²/2r`), so their intersection near the apex is the four rays
+`|d_A| = |d_B|` — the four alternating A,B,A,B sectors the exact geometry has.
+Nothing downstream needs a special case: A's kept region separates by ordinary
+flood fill and both boundary cycles come out simple.
+
+**`boolean::tangency` (new).** `cyl_cyl_tangent_points` is a closed form: a
+cylinder's normal is radial, hence ⊥ to its axis, so a shared normal must be
+`m = ±(û × v̂)/|û × v̂|`; expanding a candidate in `{û, v̂, m}` anchored at the
+common perpendicular's foot `f_A` kills both axial components and leaves
+`p = f_A + s_A·R_A·m`, admissible **iff** `s_A·R_A − s_B·R_B = δ` with
+`δ = (b − a)·m` the signed axis offset. Equal radii + intersecting axes (δ = 0)
+⇒ the TWO Steinmetz points; `δ = R_A − R_B` ⇒ one; unequal radii + intersecting
+axes ⇒ none; parallel axes ⇒ `None` (generator tangency — the F0060 vehicle).
+The mint uses BOTH Stage-1 channels and both are load-bearing: the face
+interior carries the point, and rim samples carry its AZIMUTH onto the tube's two
+rim rings so the grid has a full RULING through it and the interior splice lands
+ON that ruling (a conforming 2+2 edge split) instead of fanning a mid-quad
+Steiner point into three slivers. Measured face-channel-only: an operand whose
+seam phase puts the tangency mid-quad produced an arrangement edge **1.35e-1 from
+one exact branch and 1.88e-1 from the other** — on neither — and Stage 3 refused
+it loudly (`AmbiguousCurve { candidates: 2, matched: 2 }`, both matching only
+because `cyl_cyl_point_amplification` is unbounded at tangency grade, the same
+weakness the morning's Stage-4 fix closed). `tangent_point_face_overrides` gates
+each pair fail-closed: the canonical-TUBE
+vocabulary `line_edge_cylinder_face_pierce` already uses (hole-free, outer loop
+= exactly two full-circle rims, so axial containment is exact via the rim
+planes); the tangency identity within the **`TAU_WORK·(1+scale)` ROUNDING band**
+— never `TAU_MODEL`, which would fuse a real sub-resolution gap into a tangency
+(R0053); an on-surface postcondition at `TAU_EVAL·(1+scale)`; and strict axial
+containment inside BOTH tubes with the `TAU_MODEL·(1+scale)` rim margin. The
+points ride the EXISTING P3a #146 / P3b inc-2 face-interior channel
+(`junction_stage1_overrides` → `rebuilt_with_all_overrides` →
+`splice_lateral_interior_points`, which consumes each as a 3-fan, a 2+2 edge
+split if it lands on a ruling, or a loud error) and are registered in
+`minted_junction_keys` like every other Stage-1 mint. A tangency is not a pierce
+— no edge crosses a face — so it has no entry in `pierce` and the P3a arms
+cannot see it; it is minted on the SURFACES alone.
+
+Corpus (release, 8 jobs, 600 s; wall 762.0 s at host load ≈ 7): **289C / 0W /
+16E / 4EE / 0T, 3 UNSUPPORTED(coplanar-boolean)** — exactly TWO category moves
+(C0058, F0058, both ERROR → SUPPORTED_CORRECT) and **ZERO detail moves**, so no
+CORRECT case sees a different mesh. Solo: C0058 28.0 s, F0058 0.6 s release.
+ALWAYS-ON; `YANG_433_TANGENT_INSERT=off|0` is the dev A/B disable. Both KV9-F1
+steinmetz E2E oracles un-quarantined — the union's analytic
+`V = 2·πr²h − 16r³/3` is RED gate-OFF (mutation-checked), while its subtract
+twin passes gate-OFF too and is recorded as a STALE quarantine, not a
+conversion. Smoke pin: F0058 (0.6 s); C0058 deliberately NOT pinned (28.0 s
+release — the R0044 / F0082 debug-ratio rule), its conversion carried by the
+committed corpus snapshot and the kv9 union oracle. Pins:
+`tests_unit::s433_tangent_relocation` (10). **One cost, recorded:**
+`tangency_pinch_split.rs`'s 30° symmetric fixture (r 0.4, h 4.0, hand-built
+`cylinder_brep`) is QUARANTINED — the four sheets that now meet at its tangency
+defeat the Stage-6 boundary walk (`s6-wedge-walk-not-outgoing` at vertex 44: one
+wedge with BOTH terminal edges incoming, the legacy fallback also
+`NonManifoldOutput`), the limitation `patch_boundary_cycle` already names as
+awaiting a curvature-aware radial sort, now REACHABLE where the un-resolved
+tangency kept it out of reach. Its C0058-authored twin passes a strictly
+stronger oracle (no coincident-position vertex group at all). Net coverage rises:
+two kernel-v2 E2E oracles un-quarantined against one fixture parked. Remaining
+actionable tail: **7**
+(R0038, R0050, R0100, F0060, C0065, R0019, R0085); loud by design: 9.
+
 ## 2026-09-13 (later, addendum) — the tangency family SPLITS into three owners, not one: the memory note "all six funnel to #169 phase 3" is too coarse
 
 Measured with `YANG_STAR_PROBE` / `NONMANIFOLD_SITE_PROBE` / `YANG_LRR_PROBE`
@@ -1421,7 +1504,7 @@ moved. The 30 ERROR rows are the ACTIVE rows below.
 | ~~R0096~~ | ~~Stage-4 LRR v7~~ | ~~torus×torus~~ **FLIPPED CORRECT 2026-07-17 (#172):** torus×torus lateral∩lateral + torus×torus×plane junctions now relocate via the implicit-pair/triple Newton (torus-block scope lift) | — | ~~P2-M5~~ DONE |
 | R0038 | Stage-4 LRR (u32::MAX) | plane tangent to cylinder along one generator; degree-2 gate self-validates (`bad_degree=[(18,4),(19,4)]`) — near-tangency pinch, NOT a CDT ring | CONFIRMED (#168 WIP4, 9f4cb604) | P3b-#137 |
 | ~~R0072~~ | ~~Stage-4 LRR (u32::MAX)~~ | ~~real ~1e-7 micro-scale edge (0.4% span); force-merge is the R0091 silent-wrong trap — needs curved re-CDT~~ **FLIPPED CORRECT 2026-07-28 (#195 inc-5):** the §4.5.4 detect-then-refine rim boost + §4.4.1 rim-snap, both now always-on, resolve it WITHOUT a curved re-CDT — the micro-scale edge was an under-sampled rim, not an irreducible feature | — | ~~P3c~~ DONE |
-| C0058 | non-2-manifold (reassembly) | probe 2026-07-17: `NONMANIFOLD_SITE s6-curved-degenerate-loop` — Stage-6 curved face 2 emits a 64-vertex loop with \|Newell N\| = 2.3e-16 (degenerate junction loop). **2026-09-13 RE-DIAGNOSED (`specs/yang_433_tangent_point_mesh_update.md`):** the loop is the HONEST boundary of the patch — the wedge orbit pairs it correctly — and A stays one patch because two A-triangles reach across the zero-width band at the seam-coincident tangent point (0, −0.4, 1). The two meshes never meet there (no vertex within 1e-9 at Stage-4 entry; nearest 1.334403e-1 ×2, 1.868510e-1 ×2), so relocation cannot create the crossing; §4.4.1 trim+CDT must CUT the mesh along both branches | CONFIRMED (2026-09-13, `YANG_STAR_PROBE` star anatomy) | ~~P3a-#146~~ **§4.4.1 mesh update (deviation N2) / #169 phase 3** |
+| ~~C0058~~ | **FLIPPED CORRECT 2026-09-13** (§4.3.3 tangent-point Stage-1 mint) — non-2-manifold (reassembly) | probe 2026-07-17: `NONMANIFOLD_SITE s6-curved-degenerate-loop` — Stage-6 curved face 2 emits a 64-vertex loop with \|Newell N\| = 2.3e-16 (degenerate junction loop). **2026-09-13 RE-DIAGNOSED (`specs/yang_433_tangent_point_mesh_update.md`):** the loop is the HONEST boundary of the patch — the wedge orbit pairs it correctly — and A stays one patch because two A-triangles reach across the zero-width band at the seam-coincident tangent point (0, −0.4, 1). The two meshes never meet there (no vertex within 1e-9 at Stage-4 entry; nearest 1.334403e-1 ×2, 1.868510e-1 ×2), so relocation cannot create the crossing; §4.4.1 trim+CDT must CUT the mesh along both branches | CONFIRMED (2026-09-13, `YANG_STAR_PROBE` star anatomy) | ~~P3a-#146~~ **§4.4.1 mesh update (deviation N2) / #169 phase 3** |
 | ~~C0067~~ | ~~Stage-4 LRR v128~~ | **CONVERTED 2026-09-12: the two circles are NOT coplanar — a {sphere, wall, wall} three-surface corner the triple block now admits from the junction map (section above).** probe 2026-07-18 (#171 pass 2): v128 is a **circle×circle junction** (`circle_junction=true`, endpoint) — two sphere-section Circles (both r=0.371, centers [0.15,0,0.5]/[0,0.15,0.5], normals x̂/ŷ) meet at [0.15,0.15,0.83]; junction relocation region invalid. Needs two-curve junction relocation (mint-once contract) | CONFIRMED (#171 pass 2) | P3-junction |
 | ~~R0008~~ | ~~Stage-4 LRR v42~~ | ~~probe 2026-07-18: `YANG_LRR_SITE site=lineseg_combo` edge (42,43) — LineSegment edge whose incidence is **Cone(A, half-angle 1.5525 rad ≈ 88.9°, near-flat) × Plane(B)**; the Stage-4 LineSegment arm has closed forms only for cyl×plane / cyl∥cyl / plane×plane — the **cone-generator line closed form is missing**~~ **FLIPPED CORRECT 2026-07-28 (cone-generator arm):** the closed form was never missing — `ssi_rs::plane_cone` has emitted `SsiCurve::Line` for through-apex cuts all along and Stage 3 already banded them via `cone_chord_tol_for_owner`. TWO wiring gaps, both in Stage 4: (a) the LineSegment pair match classified `Cone` as `other_curved` → STOP before selection; (b) once admitted, the tie-break called the R0072-only `select_disjoint_parallel_line`, whose parallelism precheck rejects the two CROSSING apex generators (`AmbiguousCurve{2,2}`). **#163/N45 was not a "residual theory" — it was CORRECT and already shipped, at Stage 3 only**; the two stages had been running different tie-breaks since 9fca8393 | — | ~~Stage-4 cone-generator LineSegment arm~~ DONE |
 | ~~R0009~~ | ~~Stage-4 LRR (u32::MAX)~~ kernel-v2 `CurvedGeometryMismatch` FaceId(10) (op 2) + Stage-4 shell gate double-cover (op 3) | **FLIPPED CORRECT 2026-08-25 (863df468); reconciled 2026-09-04 from the committed results.json history** ~~probe 2026-07-17: `site=split_max_passes` — the chord-split loop exhausts its pass budget (§4.5.2 refinement demand, non-convergent)~~ **RE-DIAGNOSED + LAYER PEELED 2026-08-19 (spec `yang_n2_stage4_cdt_mesh_updating.md` §5c.13):** NOT a §4.5.2 demand — the §4.4.1(a) unzip loop's degeneracy test was the ABSOLUTE `MIN_FEATURE_SIZE²` area floor, which at this 1.05e-4 model scale flagged HEALTHY triangles (h/l 0.007–0.40) and ping-ponged a 4-action flip cycle to the pass cap. Fixed (scale-free collinearity identity + cycle certificate). Now advances to `s4-shell-euler double-cover edge (32,33) fwd=2 rev=2` — A cyl-2 ×2 + B plane-1/plane-5 ×2 on one intersection edge (the #146 double-cover family), pre-existing (zero unzip actions post-fix; connectivity untouched by Stage 4) | CONFIRMED (2026-08-19 `YANG_LRR_SITE` + shape census) | P3a-#146 double-cover (was P3-§4.5.2) |
@@ -1456,7 +1539,7 @@ moved. The 30 ERROR rows are the ACTIVE rows below.
 | ~~C0044~~ | ~~non-2-manifold~~ | **CONVERTED 2026-09-12 (late): the two flush caps are ONE disc — the Stage-0 identical-disc pair (section above).** 3-patch junction fires the Stage-4 gate. **P3a increment-0 probe (2026-07-18): ZERO transversal pierce candidates — the junction is coplanar contact (flush annular stack), NOT the pierce-mint class** | CONFIRMED (#169 Phase 0 + #146 inc-0) | ~~P3a-#146~~ ~~Stage-0/M8 coplanar-seam family~~ DONE |
 | F0064 | non-2-manifold | wall vert 0.083 off floor plane; minted in Stage-4 mutation window OR inherited via lineage-less chained B (4 hypotheses eliminated, N51 session) | PARTIAL (#146) | P3a-#146 |
 | ~~R0051~~ | ~~non-2-manifold~~ | ~~in the #146 Newell-normal class per task~~ **FLIPPED CORRECT 2026-09-07 (evening): never a junction mint — `remove_doubled_membranes` desynced the attribution vector from `mesh.tris` (one slot), the inner-cylinder triangle took the annulus's face, Stage 6 caught the off-plane vertex; lockstep filter + pin** | ~~SUSPECTED~~ CONFIRMED (attr trace) | ~~P3a-#146~~ DONE |
-| F0058 | non-2-manifold | probe 2026-07-17: `s4-shell-euler` shell root 106 χ=3 (v107 e314 f210) — Stage-4 shell-level Euler defect. **2026-09-13: same class as C0058** — all FOUR of v30's A-triangles (`[29,1,30] [30,1,31] [1,104,30] [1,30,103]`) fan onto the single lower seam vertex v1 = (0, −0.2, −0.3), so edge (1, 30) carries four triangles; at Stage-4 entry no vertex within 1e-9 of the tangency (0, −0.2, 0), nearest 2.921888e-2 ×2 / 6.325992e-2 ×2 | CONFIRMED (2026-09-13, `YANG_STAR_PROBE`) | ~~P3a-#146~~ **§4.4.1 mesh update (deviation N2) / #169 phase 3** |
+| ~~F0058~~ | **FLIPPED CORRECT 2026-09-13** (§4.3.3 tangent-point Stage-1 mint) — non-2-manifold | probe 2026-07-17: `s4-shell-euler` shell root 106 χ=3 (v107 e314 f210) — Stage-4 shell-level Euler defect. **2026-09-13: same class as C0058** — all FOUR of v30's A-triangles (`[29,1,30] [30,1,31] [1,104,30] [1,30,103]`) fan onto the single lower seam vertex v1 = (0, −0.2, −0.3), so edge (1, 30) carries four triangles; at Stage-4 entry no vertex within 1e-9 of the tangency (0, −0.2, 0), nearest 2.921888e-2 ×2 / 6.325992e-2 ×2 | CONFIRMED (2026-09-13, `YANG_STAR_PROBE`) | ~~P3a-#146~~ **§4.4.1 mesh update (deviation N2) / #169 phase 3** |
 | F0060 | non-2-manifold | probe 2026-07-17: `s4-shell-euler` shell root 118 χ=3 (v49 e150 f104) — same class as F0058 | CONFIRMED (#171 sweep) | P3a-#146 |
 | ~~F0085~~ | non-2-manifold | **FLIPPED CORRECT 2026-08-19 (a1adca26); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-17: `s4-halfedge-pairing` edge (5720,5731) fwd=1 rev=0, verts 0.043 apart — the R0038-type unpaired open seam (two-sided conformality) | CONFIRMED (#171 sweep) | P3b-#137 |
 
@@ -2727,11 +2810,11 @@ non-2-manifold` cases (the largest remaining ERROR family):
 
 | Case | site | mechanism |
 |---|---|---|
-| F0058 | `s4-shell-euler` double-cover χ=3, edge (1,30) on A cyl-2, four tris (two per x-side, apexes z=±0.0285) — preceded by `s6-wedge-walk-not-outgoing` at v30 | equal-R perpendicular cyl−cyl CUT: v30 = (0,−0.2,0) is the exact tangency point where A's seam passes; the kept upper/lower sheets both fan onto the LOWER seam segment (1,30) — the vertex-pinch construction defect (`yang_tangency_pinch_split.md` sibling class) |
+| ~~F0058~~ **FLIPPED 2026-09-13** | `s4-shell-euler` double-cover χ=3, edge (1,30) on A cyl-2, four tris (two per x-side, apexes z=±0.0285) — preceded by `s6-wedge-walk-not-outgoing` at v30 | equal-R perpendicular cyl−cyl CUT: v30 = (0,−0.2,0) is the exact tangency point where A's seam passes; the kept upper/lower sheets both fan onto the LOWER seam segment (1,30) — the vertex-pinch construction defect (`yang_tangency_pinch_split.md` sibling class) |
 | F0060 | `s4-shell-euler` double-cover χ=3 on both cap planes (z=±0.3) along the line x=0 | B (r=0.3, axis y through the origin) is TANGENT to both caps of A along a line — a line-pinch solid (two half-wedges per cap touching along the tangent line); not 2-manifold-representable |
 | R0032 | `s4-shell-euler` double-cover χ=3, edges (450,452)/(450,717) torus A ×2 + cones B191/B192 | torus × two-cone junction double cover (#146 family) |
 | C0107 / C0108 | `s6-curved-empty-cycles: face 0` | designed 0D point-tangency (7b); loud reject IS the designed green |
-| C0058 | `s6-curved-degenerate-loop` face 2 cycle len 64, ratio 5.9e-16 | ~~the tangency-neck figure-eight~~ **2026-09-13: NOT a walk defect** — the honest boundary of a patch the mesh never cut at the tangent point; §4.4.1 trim+CDT (`specs/yang_433_tangent_point_mesh_update.md`) |
+| ~~C0058~~ **FLIPPED 2026-09-13** | `s6-curved-degenerate-loop` face 2 cycle len 64, ratio 5.9e-16 | ~~the tangency-neck figure-eight~~ **2026-09-13: NOT a walk defect** — the honest boundary of a patch the mesh never cut at the tangent point; §4.4.1 trim+CDT (`specs/yang_433_tangent_point_mesh_update.md`) |
 | **R0047** | `s6-curved-degenerate-loop` face 367 cycle len 4, `\|N\|=4.9e-13` | **ABSOLUTE `MIN_FEATURE_SIZE²` Newell floor at 2.09e-4 scale on a HEALTHY 2.3e-6 × 1.2e-7 quad (ratio 8.6e-2) → FIXED (spec §5c.14, four gates moved to the identity); advanced to kernel-v2 `output ellipse-arc endpoint does not lie on its ellipse` (1.109e-9 vs 1e-9 band = 4.8e-6 RELATIVE off) → ANCHORED + FIXED same day: the Stage-6 KV15b sub-resolution collapse merged a CERTIFIED plane∩cone₁∩cone₂ crease junction (3 surfaces) into its cone₁∩plane neighbour (2 surfaces) at 5.3e-8, and the I1b "adopt the richer endpoint's coordinates" rule counted PLANES only (1–1 tie → survivor kept its own position, off cone₂'s ellipse). Generalized to surface-incidence (`kv15b_mint_site_subresolution_collapse.md` I1b-curved; pin `kv15b_i1b_adopts_surface_incidence_richer_junction_coordinates`, red-verified). Op 2 now emits every conic endpoint on-curve (`YANG_OUT_INCIDENCE_PROBE` 0 hits); then op 3's kernel-v2 `to_yang` wall — a 4-edge CONE lateral `[HyperbolaArc, Line, EllipseArc, Line]` (FaceId 499) fell to the typed pattern wall because the Slice-D/E CDT re-entry routed only non-4-edge/holed laterals — FIXED (routed by PATTERN, `four_edge_structured`; pin `four_edge_non_structured_cone_lateral_reenters`). **R0047 ERROR → SUPPORTED_CORRECT; corpus 262C/0W/46E/1EE/0T NEW CANONICAL.** |
 | ~~C0044~~ | ~~`i6-edge-overuse` (14,15) fwd=1 rev=0 → `s4-halfedge-pairing`~~ | ~~M8 flush annular stack~~ **CONVERTED 2026-09-12 (late): the Stage-0 identical-disc pair** |
 | R0053 | `i6-input-overuse`: input B edge (180,181) fwd=0 rev=1 — the STAGE-0 mesh of B (the FRESH gear revolve, not the chained body) is not conformal | ANCHORED (enriched probe: owning faces via the Stage-0 `tri_face` map): B's planar end cap f0 (448-gon) was overlay-triangulated with its boundary edge (180,181) subdivided at overlay vertex 1469 while the adjacent cone flank f270 kept the whole edge — `collect_edge_splits`' EXACT 2D collinearity test dropped the split at an 8.4e-16 rounding miss (`YANG_SPLIT_PROBE` census: 522 misses ≤1e-13 vs 216 ≥1e-4, nothing between). FIXED: a side-region BOUNDARY vertex collinear to the scale-free identity registers (spec `m8_stage0_inputcheck_clean_emission.md` addendum 2026-08-19; pin red-verified). Advances to kernel-v2 render-CDT `ring rejected` (FaceId 474). Side effect: **C0075 completed for the first time and exposed its authored `euler_target: 2` as wrong — the two interleaved gears enclose TWO pockets (genus 2, χ=−2, independently derived); meta corrected, pinned in `historical_authoring_fixes_pinned`; C0075 ERROR → SUPPORTED_CORRECT.** |

@@ -1,6 +1,7 @@
 # Yang §4.3.3 + §4.4.1 — the tangent-point MESH UPDATE (C0058 / F0058)
 
-Status: **MEASUREMENT + increment 1 landed** (2026-09-13). Corpus drivers:
+Status: **CLOSED for the cyl×cyl POINT-tangency class** (2026-09-13) — both
+drivers CONVERTED by increment 2 (§6). Corpus drivers:
 **C0058** (equal-R cylinders, coplanar axes at 30°, UNION — `s6-curved-degenerate-loop`)
 and **F0058** (equal-R perpendicular cylinders, CUT — `s4-shell-euler` χ=3 on a
 4-triangle edge). Both are cylinder×cylinder POINT tangency. The LINE-tangency siblings
@@ -137,70 +138,162 @@ dump at six Stage-4 checkpoints (`s4-entry`, `after-reloc`, `before-3c-merge`,
 purpose: the collapse/compact/merge passes RENUMBER vertices between
 checkpoints, so an id-keyed probe cannot follow a site across Stage 4.
 
-## 6. What remains — and why it is §4.4.1, not relocation
+## 6. Increment 2 (LANDED, ALWAYS-ON) — the tangent-point Stage-1 mint
 
-The band between the two branches pinches to zero width at the tangent point.
-**No mesh resolution resolves it**: a triangle of A's lateral adjacent to the
-seam column always straddles the band near the tangency, so A's two sheets are
-always edge-connected there. Relocation cannot fix that — it moves vertices onto
-curves, it does not CUT the mesh along them.
+The band between the two branches pinches to zero width at the tangent point, so
+**no mesh resolution resolves it**: a triangle of A's lateral adjacent to the
+seam column always straddles it, and relocation moves vertices onto curves
+without CUTTING the mesh along them. Yang cuts — §4.4.1: *"we trim and update
+the meshes using the intersection curves … **Then we set r_A = r_B = r**, so that
+the two polylines in the meshes coincide with the intersection curve … Next,
+through CDT we obtain valid discretizations of the trimmed meshes"*
+(`refs/text/yang2025_hybrid_boolean.txt:552-570`), with §4.3.3's collinear-normal
+test making the tangent point first class (`:518-570`).
 
-Yang's pipeline does cut: §4.4.1, *"we trim and update the meshes using the
-intersection curves … Then we set r_A = r_B = r, so that the two polylines in
-the meshes coincide with the intersection curve … Next, through CDT we obtain
-valid discretizations of the trimmed meshes"* (`refs/text/
-yang2025_hybrid_boolean.txt:552-570`), with Fig. 11's split / merge / insert,
-and §4.3.3's collinear-normal test naming the tangent point as first-class
-(`:518-570`). That is open deviation **N2** (`docs/yang_deviations.md`), and
-this is a NEW instance of it: the 2026-08-06d census concluded "the repair
-belongs on the RELOCATION side, and the §4.4.1 mesh update is confirmed to be
-the wrong place" for the F0067 class, whose crossings are MINTED by Stage 4.
-C0058/F0058 are the opposite class — the crossing the output needs was never in
-the mesh to begin with — and for them §4.4.1 is the only place.
+Our pipeline runs the arrangement before the relocation, so the full pre-boolean
+re-trim is deviation **N2**'s architectural closure and out of scope here. But
+the half that matters for this class can be done where the pipeline still has
+freedom — **Stage 1**:
 
-**The next increment, stated concretely.** Insert both exact branches into A's
-(and B's) triangulation across the tangency: split every triangle the branch
-chords cross, merge a split point into a vertex within the Fig-11(b) band, and
-re-CDT the affected fan. For C0058's `[32,33,1]` the `k₋` chord leaves through
-edge (1,33) at θ = −87.645 (z = 0.99560), 0.165° from v33 — i.e. the insert is
-a Fig-11(b) MERGE into v33, not a new vertex. The split pieces' keep/drop labels
-are determined without re-running the classifier (below the lower branch → kept
-for A; between the branches → inside B). Expected structure afterwards: the
-tangency vertex's star becomes the four-sector fan §4 computes, A's patch flood
-fill yields TWO patches, and both boundary cycles are simple.
+> Mint the exact tangent point into BOTH operands' Stage-1 meshes, so the two
+> tessellations MEET there and the exact arrangement resolves the crossing
+> itself.
 
-**P10 stop criterion.** If the insert cannot be made conformal on BOTH operands
-at once (the two meshes must agree on the branch polyline, Yang's
-`r_A = r_B = r`), STOP loudly rather than inserting on one side — a one-sided
-insert is the membrane class that `remove_doubled_membranes` exists to clean up
-after.
+This is literally "we set r_A = r_B = r": one point, identical bits, in both
+meshes. Both inscribed surfaces then fall away from that shared apex in the SAME
+normal direction with different second-order forms (`d_A²/2r` vs `d_B²/2r`), so
+their intersection near the apex is the four rays `|d_A| = |d_B|` — the four
+alternating A,B,A,B sectors the exact geometry has. Nothing downstream needs a
+special case: A's kept region separates into two patches by ordinary flood fill,
+both boundary cycles come out simple, and the Newell guard never sees a
+figure-eight.
 
-## 7. Oracles
+**Implementation.** `boolean::tangency` (new):
 
-- **C0058**: ERROR → `SUPPORTED_CORRECT` against its meta volume 2.0819348684923513.
-- **F0058**: ERROR → `SUPPORTED_CORRECT`; the undirected edge (1, 30) must carry
-  exactly 2 triangles.
-- **yang-rs unit**: `tests/tangency_pinch_split.rs` (3 tests, green today — its
-  `cylinder_brep` operands seam AWAY from the tangency, which is why they pass
-  where the corpus fails; keep them) and
-  `tests_unit::s433_tangent_relocation` (§5).
-- **kernel-v2 E2E**: `kv9_cyl_cyl_special::steinmetz_union_exact_volume` /
-  `..._subtract_...` — un-quarantine in the converting PR; their `#[ignore]`
-  reasons must be re-pointed at this spec, not at §2c.5a.
-- **Non-regression**: full corpus, zero CORRECT lost, 0 WRONG.
+- `cyl_cyl_tangent_points` — the closed form. A cylinder's normal is radial,
+  hence ⊥ to its axis, so a shared normal direction must be
+  `m = ±(û × v̂)/|û × v̂|`. Expanding a candidate in the basis `{û, v̂, m}`
+  anchored at the common perpendicular's foot `f_A` kills both axial
+  components, leaving `p = f_A + s_A·R_A·m` admissible **iff**
+  `s_A·R_A − s_B·R_B = δ`, where `δ = (b − a)·m` is the signed axis offset.
+  Equal radii with intersecting axes (`δ = 0`) give the TWO Steinmetz points;
+  `δ = R_A − R_B` gives one; unequal radii with intersecting axes give none.
+  Parallel axes return `None` — tangency along a GENERATOR is the F0060 line
+  pinch, a different vehicle.
+- `tangent_point_face_overrides` — per cylinder-face pair, with fail-closed
+  gates: the canonical-TUBE vocabulary `line_edge_cylinder_face_pierce` already
+  uses (hole-free, outer loop = exactly two full-circle rims, so axial
+  containment is exact via the rim planes); the tangency identity within the
+  **`TAU_WORK·(1+scale)` ROUNDING band** — never `TAU_MODEL`, which would fuse a
+  real sub-resolution gap into a tangency (the R0053 lesson); an on-surface
+  postcondition at `TAU_EVAL·(1+scale)` against both cylinders (a producer-fault
+  guard on the closed form); and strict axial containment inside BOTH tubes with
+  the `TAU_MODEL·(1+scale)` rim margin — a tangency AT a rim is a corner of
+  higher order.
+- Wiring: merged into `junction_stage1_overrides`'s `face_a`/`face_b` **and**
+  `rim_a`/`rim_b` with the arm's own band dedup, so the points ride the EXISTING
+  P3a #146 / P3b inc-2 channels — `rebuilt_with_all_overrides` →
+  `splice_lateral_interior_points`. They are registered in
+  `minted_junction_keys` like every other Stage-1 mint. A tangency is not a
+  pierce (no edge crosses a face), so it has no entry in `pierce` and the P3a
+  arms above cannot see it; it is minted on the SURFACES alone.
+- **Both channels are load-bearing.** The face interior carries the point; the
+  rim samples carry its AZIMUTH onto the tube's two rim rings so the Stage-1 grid
+  has a full RULING through it, and the interior splice then lands ON that ruling
+  (a conforming 2+2 edge split) instead of fanning a mid-quad Steiner point into
+  three slivers. The rim sample is exact and needs no re-derivation: a tangency's
+  radial direction from either axis IS the shared normal, so the sample is
+  `rim centre + R·m̂`. Where the tangency azimuth already IS the seam's, the
+  sample is SKIPPED — the ruling exists, and pushing a re-derived copy that
+  differs from the authoritative B-Rep vertex in the last bits is refused loudly
+  by the rim build. **Measured, face-channel-only:** on an operand whose seam
+  phase puts the tangency mid-quad (the 30°/`cylinder_brep` fixtures, azimuth
+  3.5 steps off the seam) the 3-fan produced an arrangement edge **1.35e-1 from
+  one exact branch and 1.88e-1 from the other** — on neither, attributable to
+  neither — and Stage 3 refused it loudly (`AmbiguousCurve { candidates: 2,
+  matched: 2 }`, both matching only because `cyl_cyl_point_amplification` is
+  unbounded at tangency grade, the same structural weakness §5 fixed in Stage 4).
+  With the ruling, the mint is conforming on every seam phase.
 
-## 8. Research basis
+**Measurement.** Corpus (release, 8 jobs, 600 s; wall 762.0 s at host load ≈ 7):
+**289C / 0W / 16E / 4EE / 0T, 3 UNSUPPORTED(coplanar-boolean)** — exactly TWO
+category moves, C0058 and F0058 both ERROR → SUPPORTED_CORRECT, and **ZERO
+detail moves**, so no CORRECT case sees a different mesh. Solo: C0058 28.0 s,
+F0058 0.6 s release. ALWAYS-ON; `YANG_433_TANGENT_INSERT=off|0` is the dev A/B
+disable (the `YANG_JUNCTION_SAMPLING_ENABLE` pattern).
+
+Both KV9-F1 steinmetz E2E oracles are **un-quarantined**. The union's is the
+binding check — its analytic `V = 2·πr²h − 16r³/3` is only right if the tangency
+resolved — and the mutation check confirms it: with the gate off it fails with
+the original `reassembled output would be non-2-manifold`. Its subtract twin
+passes gate-OFF too, so that tag was a STALE quarantine, recorded as such rather
+than credited here.
+
+**One fixture goes the other way, and it is recorded as a cost.**
+`tangency_pinch_split.rs`'s two union fixtures pinned the pre-mint
+representation — a pinch-VERTEX split per sheet, which was honest only while the
+tessellations did NOT meet at the tangent point. The C0058-authored one now
+passes a strictly stronger oracle (watertight, edge-manifold, χ = 2, and **no
+coincident-position vertex group at all** — the four sectors form around ONE
+manifold vertex). The 30° symmetric one (r 0.4, h 4.0, hand-built
+`cylinder_brep`) is **QUARANTINED**: the four sheets that now meet at its
+tangency defeat the Stage-6 boundary walk — at vertex 44 the patch presents one
+wedge whose BOTH terminal boundary edges are incoming ((77,44) and (64,44)) and
+another with both outgoing, so the wedge rotation emerges on an incoming edge,
+`s6-wedge-walk-not-outgoing` fires and the legacy consumption fallback also
+returns `NonManifoldOutput`. That is the limitation `patch_boundary_cycle`
+already names in its own comment — four mutually tangent sheets degenerate
+first-order dihedral sorting, awaiting a **curvature-aware radial sort** — now
+REACHABLE where the un-resolved tangency kept it out of reach. Net test coverage
+still rises (two kernel-v2 E2E oracles un-quarantined, one fixture parked), and
+the radial sort is the named next increment.
+
+Not asserted, deliberately: that the tangent point survives as an OUTPUT vertex.
+The mint's job is to make the two Stage-1 meshes MEET so the arrangement resolves
+the four sectors; once Stage 2 has done that, a downstream §4.4.1(b) sub-feature
+collapse may legitimately absorb the vertex. Measured on the C0058-authored pair:
+one tangency survives bit-exactly in the output B-Rep, the other is absorbed into
+a vertex 7.663e-3 away.
+
+## 7. What this does NOT cover
+
+- **Line tangency.** Parallel-axis cylinders and plane×cylinder generators touch
+  along a whole line, and the solid is genuinely LINE-pinched: F0060's `A − B` is
+  two thin cusps (`−0.3 < z < −0.3 + x²/0.6`) joined along the generator. Its
+  manifold B-Rep needs the tangent EDGE duplicated per sheet — see the ledger's
+  2026-09-13 addendum; measured unchanged by this increment.
+- **Torus tangency.** R0050 (exact torus×torus tangency) and C0065 need the same
+  idea with a torus tangent-point solver; measured unchanged.
+- **R0038**, the plane-tangent-cylinder generator, whose §4.4.1 remedy is
+  already banked behind `YANG_N2_RECDT_ENABLE` (task #168); measured unchanged.
+- **Deviation N2 proper.** The general pre-boolean trim + CDT is untouched. This
+  increment closes the ONE case where a tangency is invisible to the
+  tessellations, by giving them the point they were missing.
+
+## 8. Oracles
+
+- **Corpus**: C0058 and F0058 ERROR → `SUPPORTED_CORRECT`; zero CORRECT lost, 0 WRONG.
+- **kernel-v2 E2E**: `kv9_cyl_cyl_special::steinmetz_union_exact_volume` (exact
+  bicylinder volume; RED gate-OFF) and `..._subtract_...`.
+- **yang-rs unit**: `tests_unit::s433_tangent_relocation` — 6 closed-form tests
+  (two-point, one-point, none, near-tangency refused beyond the rounding band,
+  parallel axes) plus the 4 relocation-guard tests of §5.
+- **Smoke pin**: F0058 (0.6 s release). C0058 is NOT smoke-pinned — 28.0 s
+  release is past this gate's debug-ratio budget (the R0044 / F0082 rule).
+
+## 9. Research basis
 
 - [#24 Yang 2025] §4.3.3 (`:518-570`) — method selection; a single surviving
-  point with COLLINEAR normals is a tangent point. §4.3.4 (`:571-605`) —
-  refinement/dedup. §4.4.1 (`:552-570`, `:605-…`) — trim + update + CDT, Fig. 11
-  split/merge/insert.
+  point with COLLINEAR normals is a tangent point. §4.4.1 (`:552-570`) — trim,
+  `r_A = r_B = r`, CDT; Fig. 11 split/merge/insert.
 - [#24] §4.5.2 termination covers TRANSVERSAL intersections only; yang2023 §5.4
-  certifies refinement does not converge near tangency — so mesh refinement is
-  not an alternative route here (the R0050 adjudication,
+  certifies refinement does not converge near tangency — so mesh refinement was
+  never the route here (the R0050 adjudication,
   `specs/yang_452_local_refinement.md` §6).
 - `specs/kv9_f1_tangency_inout_labels.md` — the tangency band and the exact
   junction closed form (still correct; only its §2c.5a "next increment" is
   superseded).
+- `specs/yang_146_conformal_junction_sampling.md`, `specs/yang_169_p3b_curved_partner_pierce.md`
+  — the face-interior mint channel this increment reuses.
 - `specs/yang_tangency_pinch_split.md` — the vertex-fan split; §0's exclusion of
   the perpendicular EDGE pinch is confirmed correct by §2 above.

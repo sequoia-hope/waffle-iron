@@ -11,11 +11,13 @@ mod junction;
 mod predicates;
 mod provenance;
 mod rim_junction;
+mod tangency;
 pub(crate) use coplanar_scan::*;
 pub(crate) use junction::*;
 pub(crate) use predicates::*;
 pub(crate) use provenance::*;
 pub(crate) use rim_junction::*;
+pub(crate) use tangency::*;
 
 // =========================================================================
 // boolean() — PR-YR3 vertex provenance + PR-YR4 triangle attribution

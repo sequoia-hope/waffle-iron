@@ -1351,6 +1351,65 @@ pub(crate) fn junction_stage1_overrides(a: &BRep, b: &BRep) -> JunctionStage1Ove
             edge_map.remove(&opp_edge);
         }
     }
+    // Yang §4.3.3 + §4.4.1 tangent-point insertion (spec
+    // `yang_433_tangent_point_mesh_update.md`): mint every EXACT
+    // cylinder×cylinder surface-tangency point into BOTH operands' Stage-1
+    // meshes through this same face-interior channel, so the two
+    // tessellations MEET there. A tangency is not a pierce — no edge crosses
+    // a face — so it has no entry in `pierce` and the P3a arms above cannot
+    // see it; it is minted here, on the surfaces alone.
+    //
+    // ALWAYS-ON since 2026-09-13 (the flip measurement: corpus 287C → **289C**
+    // / 0W / 16E / 4EE / 0T + 3 U, exactly TWO category moves — C0058 and
+    // F0058, both ERROR → SUPPORTED_CORRECT — and ZERO detail moves, so no
+    // CORRECT case sees a different mesh). `YANG_433_TANGENT_INSERT=off|0` is
+    // the dev A/B disable, the `YANG_JUNCTION_SAMPLING_ENABLE` pattern.
+    if !matches!(
+        std::env::var("YANG_433_TANGENT_INSERT").as_deref(),
+        Ok("off") | Ok("0")
+    ) {
+        let (ta, tb) = crate::boolean::tangent_point_face_overrides(a, b);
+        // Band dedup against everything this builder already minted on the
+        // same face: a tangent point within the model band of an existing
+        // mint is the SAME junction reached two ways — keep the first (fail
+        // closed; a double mint is the sub-weld near-dup class).
+        let merge = |dst: &mut BTreeMap<u32, Vec<Point3>>, src: BTreeMap<u32, Vec<Point3>>| {
+            for (fi, pts) in src {
+                let entry = dst.entry(fi).or_default();
+                for p in pts {
+                    let pa = p.as_array();
+                    let collides = entry.iter().any(|q| {
+                        let qa = q.as_array();
+                        let scale = pa
+                            .iter()
+                            .chain(qa.iter())
+                            .fold(0.0f64, |m, &c| m.max(c.abs()));
+                        let band = cad_primitives::TAU_MODEL * (1.0 + scale);
+                        let d2 = (pa[0] - qa[0]).powi(2)
+                            + (pa[1] - qa[1]).powi(2)
+                            + (pa[2] - qa[2]).powi(2);
+                        d2 < band * band
+                    });
+                    if collides {
+                        if std::env::var_os("YANG_TANGENT_INSERT_PROBE").is_some() {
+                            eprintln!(
+                                "[tangent-insert] face {fi} DROP {pa:?}: within the model band                                  of an existing junction mint"
+                            );
+                        }
+                        continue;
+                    }
+                    entry.push(p);
+                }
+                if dst.get(&fi).is_some_and(Vec::is_empty) {
+                    dst.remove(&fi);
+                }
+            }
+        };
+        merge(&mut out.face_a, ta.face);
+        merge(&mut out.face_b, tb.face);
+        merge(&mut out.rim_a, ta.rim);
+        merge(&mut out.rim_b, tb.rim);
+    }
     out
 }
 

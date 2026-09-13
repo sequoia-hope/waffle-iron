@@ -112,6 +112,27 @@ The live paper-compliance backlog. N2 is the §4.4.1 mesh-updating + §4.5.2 loc
 
 ### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
 
+**Update (2026-09-13) — the FIRST class closed, and it closed at Stage 1, not
+Stage 4.** Spec `specs/yang_433_tangent_point_mesh_update.md`. C0058/F0058 are
+cyl×cyl POINT tangencies where the two TESSELLATIONS never meet at the tangent
+point (at Stage-4 entry no mesh vertex within 1e-9 of it), so no Stage-4
+relocation could create the crossing the output needs — relocation moves
+geometry, not connectivity, and the band between the section curves has ZERO
+width there, so refinement is not a route either (yang2023 §5.4). The fix is the
+literal §4.4.1 sentence *"Then we set r_A = r_B = r"* applied to ONE point: mint
+the exact tangent point (§4.3.3's collinear-normal test, closed form in
+`boolean::tangency`) into BOTH operands' Stage-1 meshes with identical bits,
+through the face-interior override channel P3a #146 / P3b inc-2 already use. The
+two inscribed surfaces then fall away from the shared apex with different
+second-order forms and the exact arrangement produces the four alternating
+A,B,A,B sectors itself — no downstream special case. Corpus 287C → **289C**,
+zero detail moves. This does NOT close N2: the general pre-boolean trim + CDT is
+untouched, and the line-tangency (F0060), torus (R0050/C0065) and
+plane-tangent-cylinder (R0038) arms are unchanged. It does establish that for a
+tangency the pipeline's own missing information is a POINT, and Stage 1 is where
+it can still be supplied.
+
+
 **State:** OPEN — remediation actively tracked; investigation on this component follows the in-entry status.
 **Remit expansion (2026-07-17, user-ratified N6 closure):** N2 also carries
 the **§4.5.4 removal** half transferred from N6 — remove/refine the

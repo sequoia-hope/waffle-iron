@@ -1323,6 +1323,23 @@ fn smoke_corpus_boundary_categories() {
         // ring to both laterals (Yang §4.5.5's identical boundary sampling).
         // 0.9 s release, all three ops (the tube's χ = 0).
         ("C0044", Category::SupportedCorrect),
+        // F0058 FLIPPED (2026-09-13, the §4.3.3 tangent-point mint): equal-R
+        // PERPENDICULAR cylinders touch at (0, −0.2, 0), and the two inscribed
+        // prisms do not meet there — at Stage-4 entry no mesh vertex lies
+        // within 1e-9 of the tangent point. Relocation moved geometry but not
+        // CONNECTIVITY, so all four of the junction vertex's A-triangles fanned
+        // onto one seam vertex and edge (1,30) carried four triangles
+        // (`s4-shell-euler` χ = 3). Yang §4.3.3's tangent point is now minted
+        // into BOTH operands' Stage-1 meshes through the P3a face-interior
+        // channel (§4.4.1's "we set r_A = r_B = r"), so the prisms MEET there.
+        // 0.6 s release. Its corpus twin C0058 (equal-R at 30°, UNION) flipped
+        // in the same increment but is deliberately NOT pinned here — 28.0 s
+        // release is far past this gate's budget once the debug ratio is
+        // applied (the R0044 / F0082 rule); C0058 is pinned by the committed
+        // corpus snapshot and by kernel-v2
+        // `kv9_cyl_cyl_special::steinmetz_union_exact_volume`, whose exact
+        // bicylinder volume oracle is RED without the mint (measured).
+        ("F0058", Category::SupportedCorrect),
         // C0067 FLIPPED (2026-09-12, junction-map triple candidates): the
         // sphere + polar-notch {sphere, wall, wall} corners are junctions of
         // two NON-coplanar sphere-section circles; Stage 4 demoted each into

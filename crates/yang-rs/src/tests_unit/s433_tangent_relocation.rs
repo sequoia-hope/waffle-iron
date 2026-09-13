@@ -1,5 +1,6 @@
-//! Stage-4 cylinder×CYLINDER relocation at TANGENCY grade — the move guard
-//! (spec `specs/yang_433_tangent_point_mesh_update.md` §5).
+//! Yang §4.3.3 tangency: the exact cylinder×cylinder tangent-point closed form
+//! (§6, the Stage-1 mint) and the Stage-4 relocation move guard (§5) — spec
+//! `specs/yang_433_tangent_point_mesh_update.md`.
 //!
 //! Two cylinders of the SAME radius whose axes intersect touch their surfaces
 //! at two isolated points. There the two surface normals are collinear, so
@@ -216,4 +217,109 @@ pub(crate) fn s433_nearest_point_does_not_reach_the_tangent_point() {
         "but it does move TOWARD the tangency ({gap:.3e} < {:.3e})",
         dist(v33(), tangency())
     );
+}
+
+// =========================================================================
+// The §4.3.3 closed form (spec §6): `cyl_cyl_tangent_points`. Two cylinders
+// are tangent where their (radial) normals are collinear, so the shared
+// direction is `m = ±(û × v̂)/|û × v̂|` and the pair is tangent iff
+// `s_A·R_A − s_B·R_B = δ`, the signed axis offset along `m`. Every expectation
+// below is derived from the configuration, not transcribed.
+// =========================================================================
+
+use crate::boolean::cyl_cyl_tangent_points;
+
+fn cyl(p: [f64; 3], d: [f64; 3], r: f64) -> (Point3, Vector3, f64) {
+    (
+        Point3::new(p[0], p[1], p[2]),
+        Vector3::new(d[0], d[1], d[2]),
+        r,
+    )
+}
+
+/// C0058: equal radii, axes crossing at (0,0,1) at 30°. The common normal is
+/// `û × v̂ = ŷ`, so the two tangency points are `(0, ±R, 1)` — measured in the
+/// corpus mesh at exactly those coordinates.
+#[test]
+pub(crate) fn s433_equal_radius_crossing_axes_give_two_tangent_points() {
+    let beta: f64 = std::f64::consts::FRAC_PI_6;
+    let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], R);
+    let b = cyl([0.0, 0.0, 1.0], [beta.sin(), 0.0, beta.cos()], R);
+    let pts = cyl_cyl_tangent_points(a, b).expect("non-parallel axes");
+    assert_eq!(pts.len(), 2, "got {pts:?}");
+    for p in &pts {
+        assert!(p.x().abs() < 1e-15 && (p.z() - 1.0).abs() < 1e-15, "{p:?}");
+    }
+    let mut ys: Vec<f64> = pts.iter().map(Point3::y).collect();
+    ys.sort_by(f64::total_cmp);
+    assert!(
+        (ys[0] + R).abs() < 1e-15 && (ys[1] - R).abs() < 1e-15,
+        "{ys:?}"
+    );
+}
+
+/// F0058's shape: the same configuration at 90°. Still two points, still on the
+/// common normal — the angle between the axes does not move them.
+#[test]
+pub(crate) fn s433_perpendicular_equal_radius_gives_two_tangent_points() {
+    let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.2);
+    let b = cyl([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], 0.2);
+    let pts = cyl_cyl_tangent_points(a, b).expect("non-parallel axes");
+    assert_eq!(pts.len(), 2, "got {pts:?}");
+    for p in &pts {
+        assert!(
+            p.x().abs() < 1e-15 && p.z().abs() < 1e-15 && (p.y().abs() - 0.2).abs() < 1e-15,
+            "{p:?}"
+        );
+    }
+}
+
+/// UNEQUAL radii with INTERSECTING axes are NOT tangent: `δ = 0` needs
+/// `s_A·R_A = s_B·R_B`, impossible for `R_A ≠ R_B`. This is the gate that keeps
+/// the mint off every ordinary crossing-cylinder pair in the corpus.
+#[test]
+pub(crate) fn s433_unequal_radius_crossing_axes_are_not_tangent() {
+    let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.4);
+    let b = cyl([0.0, 0.0, 1.0], [1.0, 0.0, 0.0], 0.25);
+    let pts = cyl_cyl_tangent_points(a, b).expect("non-parallel axes");
+    assert!(pts.is_empty(), "got {pts:?}");
+}
+
+/// Unequal radii DO touch when the perpendicular axis offset equals `R_A − R_B`
+/// exactly (the R0050 certificate's shape, at cylinder grade): one tangency,
+/// on the common normal at the larger radius.
+#[test]
+pub(crate) fn s433_offset_axes_touch_when_offset_equals_the_radius_difference() {
+    let (ra, rb) = (0.4f64, 0.25f64);
+    let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], ra);
+    // û × v̂ = ŷ for v̂ = x̂; offset B's axis along +ŷ by exactly R_A − R_B.
+    let b = cyl([0.0, ra - rb, 1.0], [1.0, 0.0, 0.0], rb);
+    let pts = cyl_cyl_tangent_points(a, b).expect("non-parallel axes");
+    assert_eq!(pts.len(), 1, "got {pts:?}");
+    let p = pts[0];
+    assert!(
+        p.x().abs() < 1e-15 && (p.y() - ra).abs() < 1e-15 && (p.z() - 1.0).abs() < 1e-15,
+        "{p:?}"
+    );
+}
+
+/// A NEAR-tangency is not a tangency: perturbing the offset by 1e-6 — far above
+/// the `TAU_WORK·(1+scale)` rounding band, far below `TAU_MODEL`-scale
+/// features — yields no mint. Fusing this would be the R0053 error.
+#[test]
+pub(crate) fn s433_near_tangency_beyond_the_rounding_band_is_refused() {
+    let (ra, rb) = (0.4f64, 0.25f64);
+    let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], ra);
+    let b = cyl([0.0, ra - rb + 1e-6, 1.0], [1.0, 0.0, 0.0], rb);
+    let pts = cyl_cyl_tangent_points(a, b).expect("non-parallel axes");
+    assert!(pts.is_empty(), "got {pts:?}");
+}
+
+/// PARALLEL axes are tangent along a whole GENERATOR, not at isolated points —
+/// `None`, the F0060 line-pinch vehicle, deliberately out of scope.
+#[test]
+pub(crate) fn s433_parallel_axes_return_none() {
+    let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.3);
+    let b = cyl([0.6, 0.0, 0.0], [0.0, 0.0, 1.0], 0.3);
+    assert!(cyl_cyl_tangent_points(a, b).is_none());
 }

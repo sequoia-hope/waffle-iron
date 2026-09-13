@@ -168,14 +168,16 @@ fn parallel_cyl_union_exact_volume() {
 /// the Steinmetz configuration; UNION. Exact: V = V1 + V2 − 16r³/3
 /// (the bicylinder common volume), with both axes crossing mid-solid.
 #[test]
-#[ignore = "KV9-F1 (spec kv9_f1_tangency_inout_labels): layers 1+2 FIXED (N24 predicate \
-            zero-certification; Increment 0c Stage-4 tangency-junction band). The union \
-            now stops LOUDLY at Stage-6 s6-curved-degenerate-loop. RE-DIAGNOSED 2026-09-13 \
-            (spec yang_433_tangent_point_mesh_update, the C0058 corpus twin): the boundary \
-            walk is CORRECT — its wedge orbit pairs the crossing — and the cycle is the \
-            honest boundary of a patch that stays connected because the MESH was never cut \
-            at the tangent point (no vertex within 1e-9 of it at Stage-4 entry). Owner: \
-            Yang 4.4.1 trim + CDT mesh update (deviation N2), NOT the walk"]
+// UN-QUARANTINED 2026-09-13 (spec `yang_433_tangent_point_mesh_update`, the
+// C0058 corpus twin): the Stage-6 `s6-curved-degenerate-loop` this test was
+// parked on was never a boundary-walk defect — the wedge orbit pairs the
+// crossing correctly, and the cycle was the honest boundary of a patch that
+// stayed connected because the MESH was never cut at the tangent point. Yang
+// §4.3.3's tangent point is now minted into BOTH operands' Stage-1 meshes
+// (§4.4.1's "we set r_A = r_B = r"), so the two prisms MEET there and the
+// union's four A,B,A,B sectors form. The exact-volume oracle below is the
+// binding check: the bicylinder term 16r³/3 is only right if the tangency
+// resolved.
 fn steinmetz_union_exact_volume() {
     let mut a = BrepArena::new();
     let r = 0.3;
@@ -217,13 +219,12 @@ fn steinmetz_union_exact_volume() {
 /// F0058-class: equal-radius perpendicular SUBTRACT — body minus the
 /// crossing rod removes exactly the bicylinder volume.
 #[test]
-#[ignore = "KV9-F1 (spec kv9_f1_tangency_inout_labels): layers 1+2 FIXED (N24 predicate \
-            zero-certification; Increment 0c Stage-4 tangency-junction band). The subtract \
-            now CLEARS yang-rs (exact-volume oracle green in yang-rs \
-            kv9f1_tangency_junction) and walls at kernel-v2 import NonManifoldVertex: four \
-            elliptical arcs sharing BOTH endpoints (two per ellipse) defeat the \
-            vertex-pair edge keying — the same-ellipse-bigon arc-keying increment \
-            (spec §2c.5b, the M8 disc∩disc CurveKey lesson)"]
+// UN-QUARANTINED 2026-09-13 alongside its union twin — but as a STALE
+// quarantine, not a conversion: measured with `YANG_433_TANGENT_INSERT=off`
+// this passes too, so the kernel-v2 import `NonManifoldVertex` it was parked on
+// (four elliptical arcs sharing both endpoints, defeating the vertex-pair edge
+// keying) was already fixed by earlier work and the tag had simply gone
+// unchecked. Recorded honestly rather than credited to the §4.3.3 mint.
 fn steinmetz_subtract_exact_volume() {
     let mut a = BrepArena::new();
     let r = 0.2;
