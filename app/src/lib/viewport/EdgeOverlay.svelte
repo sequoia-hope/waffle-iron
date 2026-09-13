@@ -1,5 +1,5 @@
 <script>
-	import { T, useThrelte } from '@threlte/core';
+	import { T, useThrelte, useTask } from '@threlte/core';
 	import { onMount } from 'svelte';
 	import * as THREE from 'three';
 	import {
@@ -52,19 +52,65 @@
 
 	const baseMaterialProps = {
 		linewidth: 1,
-		depthTest: true,
-		polygonOffset: true,
-		polygonOffsetFactor: -0.5,
-		polygonOffsetUnits: -0.5
+		depthTest: true
 	};
+
+	// Edges lie exactly ON the faces they bound, so an unbiased depth test is a
+	// coin flip per pixel: the line and the triangle interpolate depth
+	// differently, and the edge renders as a dashed line that alternates with the
+	// solid. `polygonOffset` cannot fix it — WebGL applies polygon offset to
+	// filled triangles only, never to GL_LINES. Instead each edge vertex is
+	// pulled toward the camera ALONG ITS VIEW RAY (so its screen position is
+	// unchanged) by a screen-constant EDGE_DEPTH_BIAS_PX. Edges on visible faces
+	// then always win; edges genuinely behind the part are hidden by far more
+	// than a couple of pixels and stay hidden.
+	const EDGE_DEPTH_BIAS_PX = 2;
+	// CSS-pixel height of the canvas, shared by every edge material's shader and
+	// refreshed each frame (the bias is measured in screen pixels).
+	const viewportHeightUniform = { value: 1 };
+
+	/** @param {THREE.LineBasicMaterial} mat */
+	function withEdgeDepthBias(mat) {
+		mat.onBeforeCompile = (shader) => {
+			shader.uniforms.edgeViewportHeight = viewportHeightUniform;
+			shader.vertexShader = shader.vertexShader
+				.replace('void main() {', 'uniform float edgeViewportHeight;\nvoid main() {')
+				.replace(
+					'#include <project_vertex>',
+					`#include <project_vertex>
+					{
+						// World units per pixel at this vertex's depth.
+						float edgeWpp = 2.0 / ( projectionMatrix[ 1 ][ 1 ] * edgeViewportHeight );
+						vec4 edgeMv = mvPosition;
+						// Orthographic iff the projection has no perspective divide
+						// (the built-in isOrthographic uniform is not uploaded for
+						// LineBasicMaterial, so it cannot be trusted here).
+						if ( projectionMatrix[ 3 ][ 3 ] == 1.0 ) {
+							edgeMv.z += ${EDGE_DEPTH_BIAS_PX.toFixed(1)} * edgeWpp;
+						} else {
+							float edgeDist = -mvPosition.z;
+							float edgePull = min( ${EDGE_DEPTH_BIAS_PX.toFixed(1)} * edgeWpp * edgeDist, 0.5 * edgeDist );
+							edgeMv.xyz += normalize( -mvPosition.xyz ) * edgePull;
+						}
+						// mvPosition itself is left untouched so section clipping
+						// (vClipPosition) still cuts at the true edge position.
+						gl_Position = projectionMatrix * edgeMv;
+					}`
+				);
+		};
+		mat.customProgramCacheKey = () => 'waffle-edge-depth-bias';
+		return mat;
+	}
 
 	// Shared material for edge data that carries no per-edge ranges. Its color is
 	// kept on the theme by the $effect below (it is mutated, not rebuilt, because
 	// the section-clipping effect holds the same instance).
-	const fallbackMaterial = new THREE.LineBasicMaterial({
-		color: 0xf4f7fb,
-		...baseMaterialProps
-	});
+	const fallbackMaterial = withEdgeDepthBias(
+		new THREE.LineBasicMaterial({
+			color: 0xf4f7fb,
+			...baseMaterialProps
+		})
+	);
 
 	/** Screen-pixel threshold for edge picking (how close the cursor must be to an
 	 *  edge's projection). Converted to world units per frame — see worldPerPixel. */
@@ -76,20 +122,35 @@
 
 	/**
 	 * Build line segments geometry from edge render data.
-	 * If edge ranges exist, add groups for per-edge material assignment.
+	 *
+	 * Each edge range is a POLYLINE (a straight edge is 2 points, a circle rim
+	 * N+1), but THREE.LineSegments consumes vertices in PAIRS. Drawing the raw
+	 * buffer therefore skipped every other chord of a curved edge — the rim
+	 * rendered as a dashed line. An index buffer expands each polyline into
+	 * consecutive (k, k+1) pairs; positions keep their vertex indices, so edge
+	 * picking (which maps the hit's vertex index to a range) is unchanged.
+	 * Groups, one per edge range for per-edge materials, are in index space.
 	 */
 	function buildEdgeGeometry(edgeData) {
 		if (!edgeData || !edgeData.vertices || edgeData.vertices.length === 0) return null;
 		const geo = new THREE.BufferGeometry();
 		geo.setAttribute('position', new THREE.BufferAttribute(edgeData.vertices, 3));
 
-		if (edgeData.ranges && edgeData.ranges.length > 0) {
-			geo.clearGroups();
-			for (let i = 0; i < edgeData.ranges.length; i++) {
-				const range = edgeData.ranges[i];
-				geo.addGroup(range.start_index, range.end_index - range.start_index, i);
-			}
+		const vertexCount = edgeData.vertices.length / 3;
+		const ranges =
+			edgeData.ranges && edgeData.ranges.length > 0
+				? edgeData.ranges
+				: [{ start_index: 0, end_index: vertexCount }];
+
+		const indices = [];
+		geo.clearGroups();
+		for (let i = 0; i < ranges.length; i++) {
+			const { start_index: si, end_index: ei } = ranges[i];
+			const groupStart = indices.length;
+			for (let k = si; k < ei - 1; k++) indices.push(k, k + 1);
+			geo.addGroup(groupStart, indices.length - groupStart, i);
 		}
+		geo.setIndex(indices);
 
 		return geo;
 	}
@@ -112,10 +173,12 @@
 				color = HOVER_EDGE_COLOR;
 			}
 
-			return new THREE.LineBasicMaterial({
-				color,
-				...baseMaterialProps
-			});
+			return withEdgeDepthBias(
+				new THREE.LineBasicMaterial({
+					color,
+					...baseMaterialProps
+				})
+			);
 		});
 	}
 
@@ -238,6 +301,12 @@
 
 		selectRef(edgeHit.ref, e.shiftKey);
 	}
+
+	// Keep the depth-bias pixel scale in step with the canvas size.
+	useTask(() => {
+		const h = renderer?.domElement?.clientHeight;
+		if (h) viewportHeightUniform.value = h;
+	});
 
 	// Derive edge geometries from mesh state
 	let edgeGeometries = $derived.by(() => {
