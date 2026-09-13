@@ -380,6 +380,45 @@ this adjudication was made with, and as the ladder any future §4.5.2 claim
 must be re-measured against; its adopt arm (`YANG_452_REFINE=1`) is a dev A/B
 knob whose adoption is REFUTED by §6.4–§6.5, not a candidate for a flip.
 
+### 6.8 Where R0050 actually lands (routing, so it is not re-derived)
+
+The Case-IV reading of v413 is exact and matches `stage4_phantom.rs`'s claim
+shape verbatim — a junction vertex carrying {two same-input surfaces, one
+other-input surface} = {A:6, A:9, B:2}, claiming A's edge A6∩A9 pierces B:2
+there. But `stage4_phantom`'s certificate as written ("phantom iff the exact
+line(edge)×surface solve has no root inside the edge's own segment") does NOT
+flag it: the chord v76–v41 DOES have an in-segment root, at t = 0.84306. The
+honest per-CROSSING form is "the exact root nearest THIS mesh crossing lies
+outside the segment, and every in-segment root is farther than the relocation
+budget" — which is precisely what `RelocationCrossedCarrierVertex` plus the
+transit planner's `NoRealCandidate` already certify together.
+
+So R0050 is a Case-IV rule-out customer. `specs/yang_433_case_iv_corner_phantom.md`
+§7 has already adjudicated that route and REFUSED it, in both directions:
+
+* as a Stage-1 density guard — two full gate-on corpus sweeps; the sharper
+  (corner-cluster + inside-only) trigger still boosts 26 cases, converts 2
+  (R0100, R0049) and regresses 8 including R0011 ERROR → **SUPPORTED_WRONG**;
+* as a downstream rule-out — "ruling out the A-side loop leaves the B-side
+  pieces bounded by the phantom vertices; their true boundary routes through
+  geometry that does not exist in the mesh and must be created. That is the
+  phase-3 junction-layer conformal mesh update (epic #169), not an increment
+  of this spec."
+
+**R0050's structural owner is therefore epic #169's phase-3 junction-layer
+conformal mesh update**, reached via §4.3.3 — the same machinery the rest of
+the tangency family needs. It is NOT a quick win, and the §4.3.3 tangent-point
+insertion milestone named in §6.7 is the milestone, not a separate shortcut.
+
+Tail shape after this session (9 actionable): **tangency family 6** — R0038
+(plane tangent to a cylinder along one generator), R0050 (torus∩torus exact
+tangency), F0058 (equal-R perpendicular cyl−cyl, the exact tangency point),
+F0060 (B tangent to both caps along a LINE), C0058 (tangency-neck
+figure-eight), C0065 (torus∩plane grazing loop) — vs **3** on other vehicles
+(R0019 CDT ring-reject / I7 GROSS relocation overrun, R0085 §4-I9 persist +
+Stage-6, R0100 KV9-F2a deep chords). The junction layer is the dominant
+remaining vehicle in the tail, by a factor of two.
+
 **What WOULD reopen §4.5.2:** a §4-I9 fire whose case ladder is MONOTONE — the
 same typed failure weakening and then clearing as `d_ε` shrinks, with no
 oscillation between failure kinds — on a surface pair with no tangency

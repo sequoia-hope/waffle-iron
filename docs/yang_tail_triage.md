@@ -91,7 +91,22 @@ tangency elsewhere on the same surface pair.
 
 **Vehicle moves** from the §4.5.1 corner-transit epic (which correctly refuses
 it) to the **§4.3.3 tangent-point insertion milestone** — the same owner the
-§4.5.2 spec §5 already assigns to the R0015/C0065 torus near-tangency arm.
+§4.5.2 spec §5 already assigns to the R0015/C0065 torus near-tangency arm. And
+§4.3.3's own disposition routes it one step further: v413 matches
+`stage4_phantom.rs`'s Case-IV claim shape verbatim ({two same-input surfaces,
+one other-input surface} = {A:6, A:9, B:2}), but
+`specs/yang_433_case_iv_corner_phantom.md` §7 has ALREADY refused that route in
+both directions — as a Stage-1 density guard (26 cases boosted, 2 converted, 8
+regressed incl. R0011 ERROR → SUPPORTED_WRONG) and as a downstream rule-out
+("ruling out the A-side loop leaves the B-side pieces … routes through geometry
+that does not exist in the mesh and must be created. That is the phase-3
+junction-layer conformal mesh update (epic #169)"). **R0050's structural owner
+is epic #169's phase-3 junction layer**; expect no quick win. Note also that
+`stage4_phantom`'s certificate as written does NOT flag v413 — the chord
+v76–v41 HAS an in-segment root, at t = 0.84306; the honest per-CROSSING form is
+"the exact root nearest THIS crossing is outside the segment and every
+in-segment root is farther than the relocation budget", which
+`RelocationCrossedCarrierVertex` + `NoRealCandidate` already certify together.
 
 **R0085 op 2 re-measured on today's tree: PERSIST class.** Whole-case f=1 →
 two failures (op 2 `CrossedCarrier v386`, op 3 non-2-manifold); f=2 → ONE
