@@ -27,8 +27,22 @@
 	import * as THREE from 'three';
 	import { getMeshes, getSectionState } from '$lib/engine/store.svelte.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
+	import { getTheme } from '$lib/ui/theme.svelte.js';
+	import { getColorVersion } from '$lib/ui/settings.svelte.js';
 
-	const CAP_COLOR = new THREE.Color(0x8899aa);
+	// The cap is the cut face of the part, so it takes the part's own color.
+	// It was a hard-coded copy of the DEFAULT theme's --model-color, which read
+	// as a foreign dark slab once the light themes lightened their part.
+	let CAP_COLOR = $derived.by(() => {
+		void getTheme(); void getColorVersion();
+		if (typeof document !== 'undefined') {
+			const v = getComputedStyle(document.documentElement)
+				.getPropertyValue('--model-color')
+				.trim();
+			if (v) return new THREE.Color(v);
+		}
+		return new THREE.Color(0x8899aa);
+	});
 	/** Half-size of the cap quad (meters). Large enough to cover any model. */
 	const CAP_HALF = 1000;
 

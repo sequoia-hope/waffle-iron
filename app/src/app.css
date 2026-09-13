@@ -67,15 +67,15 @@
 	/* Base (unselected) color of solid model faces in the 3D viewport. Read by
 	   CadModel.svelte into a THREE.Color — hence a plain hex, no rgb()/alpha. */
 	--model-color: #8899aa;
-	/* Solid-model EDGE color. Judged against the RENDERED face shade, not
-	   --model-color: the viewport lighting darkens the token by roughly a
-	   third, so the dark themes take the bright end of their own ramp (5.6:1
-	   and up against ground and faces both) while the LIGHT themes are capped
-	   at a mid-tone — their part renders as a dark slab on a bright ground, so
-	   near-black vanishes into the faces and white vanishes into the ground.
-	   Measured ratios per theme are recorded in the 'part edge contrast' block
-	   of tests/gui/theme-switcher.spec.js. Read by EdgeOverlay.svelte into a
-	   THREE.Color — plain hex only, no rgb()/alpha. */
+	/* Solid-model EDGE color. Judged against the RENDERED face shade, NOT
+	   --model-color: the viewport lighting multiplies the token down to ~0.35x
+	   on the lit face and ~0.22x on the shaded one, and contrast computed from
+	   the token instead of the pixels is wrong by enough to invert the choice.
+	   Dark themes take the bright end of their own ramp; light themes take the
+	   dark end AND lighten --model-color to make room for it (see the note on
+	   the light blocks). Per-theme measured ratios are recorded in the
+	   'part edge contrast' block of tests/gui/theme-switcher.spec.js. Read by
+	   EdgeOverlay.svelte into a THREE.Color — plain hex, no rgb()/alpha. */
 	--model-edge-color: #f4f7fb;
 	--font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 	--font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Liberation Mono', Menlo, monospace;
@@ -178,8 +178,13 @@
 	/* Every fill here is a dark saturated chip, so its text is white. */
 	--text-on-accent: #ffffff;
 	--viewport-bg: #eef1f5;
-	--model-color: #7e8c9e;
-	--model-edge-color: #8a94a3; /* mid-tone: see the :root note */
+	/* A LIGHT theme's part is lightened well past its dark-theme counterpart:
+	   the lighting would otherwise render a mid-tone as a dark slab on a
+	   bright ground, leaving no edge color that reads on both the faces and
+	   the ground. This value and the edge below are the joint optimum of
+	   edge-vs-face and part-vs-ground — see tests/gui/theme-switcher.spec.js. */
+	--model-color: #d2d5da;
+	--model-edge-color: #10151c;
 	/* Sketch colors are drawn ON the light viewport, so the dark theme's
 	   pastels are replaced by mid-to-deep tones. Yellow in particular is
 	   invisible on a light ground — "selected" becomes amber. */
@@ -264,8 +269,13 @@
 	--error: #dc322f;
 	--text-on-accent: #002b36;
 	--viewport-bg: #f3ecd9;
-	--model-color: #7a8f90;
-	--model-edge-color: #93a1a1; /* base1, solarized's emphasized-content tone */
+	/* A LIGHT theme's part is lightened well past its dark-theme counterpart:
+	   the lighting would otherwise render a mid-tone as a dark slab on a
+	   bright ground, leaving no edge color that reads on both the faces and
+	   the ground. This value and the edge below are the joint optimum of
+	   edge-vs-face and part-vs-ground — see tests/gui/theme-switcher.spec.js. */
+	--model-color: #eee8d5; /* base2 */
+	--model-edge-color: #073642; /* base02 */
 	--sketch-default: #268bd2;
 	--sketch-constrained: #859900;
 	--sketch-construction: #93a1a1;
@@ -342,8 +352,13 @@
 	--error: #c8134f;        /* pink   #f92672 */
 	--text-on-accent: #f8f8f2;
 	--viewport-bg: #f1f1e6;
-	--model-color: #8f8f80;
-	--model-edge-color: #9d9d8c; /* mid-tone: see the :root note */
+	/* A LIGHT theme's part is lightened well past its dark-theme counterpart:
+	   the lighting would otherwise render a mid-tone as a dark slab on a
+	   bright ground, leaving no edge color that reads on both the faces and
+	   the ground. This value and the edge below are the joint optimum of
+	   edge-vs-face and part-vs-ground — see tests/gui/theme-switcher.spec.js. */
+	--model-color: #dfdfd8;
+	--model-edge-color: #272822;
 	--sketch-default: #0a7f9c;
 	--sketch-constrained: #4f7a06;
 	--sketch-construction: #a6a390;

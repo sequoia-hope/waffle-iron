@@ -169,12 +169,10 @@ test.describe('light-mode and editor-scheme themes', () => {
 		// The 3D stage and the solid's base color are theme tokens too — a theme
 		// that only restyles the panels leaves a dark hole in the middle.
 		expect(await cssVar(page, '--viewport-bg')).toBe('#eef1f5');
-		expect(await cssVar(page, '--model-color')).toBe('#7e8c9e');
-		// Edges are theme-driven too: near-white on the dark themes, a mid-tone
-		// here (see the 'part edge contrast' block below for why a light theme
-		// cannot use near-black). The old value was a single hard-coded
-		// #222233 for every theme.
-		expect(await cssVar(page, '--model-edge-color')).toBe('#8a94a3');
+		expect(await cssVar(page, '--model-color')).toBe('#d2d5da');
+		// Edges are theme-driven too: near-white on the dark themes, near-black
+		// here. The old value was a single hard-coded #222233 for every theme.
+		expect(await cssVar(page, '--model-edge-color')).toBe('#10151c');
 		// Sketch ink must be re-darkened for a light ground: the default theme's
 		// #ffdd44 "selected" yellow is invisible on white.
 		expect(await cssVar(page, '--sketch-selected')).toBe('#d98a00');
@@ -283,24 +281,35 @@ test.describe('theme registry', () => {
  *
  * IMPORTANT: --model-color is NOT what the faces render as. The viewport's
  * lighting (Lighting.svelte: ambient 0.4 + key 0.8 + fill 0.3 + hemisphere)
- * darkens it substantially, so contrast has to be judged against the RENDERED
- * shade, not the token. Measured off a canvas screenshot of an extruded box,
- * 2026-09-13 — brightest (top) and darkest (left) lit face per theme:
+ * multiplies it down in LINEAR space — measured at ~0.34-0.39x on the lit top
+ * face and ~0.22x on the shaded side, with some highlight compression above
+ * that. Contrast must be judged against the rendered shade; judging it from
+ * the token is wrong by enough to INVERT a decision, and it did: near-black
+ * edges on a light theme score 5.3:1 on the token and 1.3:1 in pixels.
  *
- *   default    #8899aa -> #58626e / #414c57      light      #7e8c9e -> #515967 / #3a4450
- *   sol-dark   #7e9294 -> #515c61 / #3b464a      sol-light  #7a8f90 -> #4e5a5e / #384447
- *   mk-dark    #8a8a7c -> #595650 / #41413b      mk-light   #8f8f80 -> #5c5953 / #44443d
- *   retro      #3c4a40 -> #1f2721 / #0f1712      witchhazel #9a90b4 -> #625e74 / #4a485d
+ * Measured off a canvas screenshot of an extruded box, 2026-09-13. Ratios are
+ * the edge against the viewport ground, the lit top face, and the shaded side:
  *
- * Against those, the shipped edge colors score (worst of ground / both faces):
- * retro 11.9, monokai-dark 6.9, witchhazel 5.8, default 5.8, solarized-dark 5.6
- * — then the three LIGHT themes at 2.4, 2.3, 2.3. The light themes are capped
- * by their own faces: the lighting renders the part as a dark slab on a bright
- * ground, so a dark edge vanishes into the faces (near-black scores 1.3-1.9)
- * and a white one vanishes into the ground (1.1). Their mid-tones are the
- * maximum available, not a preference. Lightening --model-color on those
- * themes is what would unlock more (measured: 3.63 on `light`), and that is a
- * face decision, not an edge one.
+ *   theme             token -> top / shaded      edge      grnd   top  shaded
+ *   default           #8899aa -> #58626e #414c57  #f4f7fb  15.87  5.77  8.16
+ *   solarized-dark    #7e9294 -> #515c61 #3b464a  #eee8d5  13.68  5.61  7.93
+ *   monokai-dark      #8a8a7c -> #595650 #41413b  #f8f8f2  15.56  6.86  9.64
+ *   retro             #3c4a40 -> #1f2721 #0f1712  #7dff5c  15.68 11.92 14.18
+ *   witchhazel        #9a90b4 -> #625e74 #4a485d  #f8f8f2  10.91  5.84  8.29
+ *   light             #d2d5da -> #828287 #696b70  #10151c  16.17  4.79  3.44
+ *   solarized-light   #eee8d5 -> #8f8a85 #76736e  #073642  11.03  3.80  2.75
+ *   monokai-light     #dfdfd8 -> #888686 #706f6f  #272822  13.07  4.11  2.97
+ *
+ * The light themes' --model-color was LIGHTENED to get there. With the old
+ * mid-tone part (#7e8c9e and friends) the lighting rendered it as a dark slab
+ * on a bright ground, so a dark edge vanished into the faces (1.3-1.9:1) and a
+ * white one vanished into the ground (1.1:1); the ceiling was ~2.3:1 either
+ * way. Lightening the part lifts the binding ratio to 2.75-3.44 AND keeps the
+ * part itself clear of the ground (2.79-3.38:1), which is the other constraint
+ * — the values are the joint optimum of the two, not a free choice. Solarized
+ * stays inside its sixteen colors throughout: base2 part, base02 edge on
+ * light; base2 edge on dark, where base3 would score 6.38 instead of 5.61 and
+ * the palette's low-contrast philosophy is what declines the difference.
  *
  * This test can only see TOKENS, so it checks the two things a token says:
  * every theme defines the edge color, and it clears the viewport ground. The
@@ -340,10 +349,11 @@ test.describe('part edge contrast', () => {
 			report[id] = +ratio(edge, await cssVar(page, '--viewport-bg')).toFixed(2);
 		}
 
-		// 2.2 is the floor the light themes sit just above (2.23-2.42 measured);
-		// the dark themes clear 10. A failure prints the whole table, so the
-		// offending theme and its actual ratio are visible at once.
-		const failures = Object.entries(report).filter(([, r]) => r < 2.2);
+		// Every theme clears 10 against its ground now that the light themes use
+		// a near-black edge; 8 leaves room without going vacuous. A failure
+		// prints the whole table, so the offending theme and its actual ratio
+		// are visible at once.
+		const failures = Object.entries(report).filter(([, r]) => r < 8);
 		expect(JSON.stringify({ failures: failures.map(([id]) => id), report }, null, 1)).toBe(
 			JSON.stringify({ failures: [], report }, null, 1)
 		);
