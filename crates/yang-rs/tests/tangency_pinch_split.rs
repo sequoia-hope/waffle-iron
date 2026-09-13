@@ -323,20 +323,25 @@ fn assert_tangency_union(a: &BRep, b: &BRep, sb: &dyn yang_rs::MeshBoolean, what
 
 #[test]
 #[ignore = "QUARANTINED 2026-09-13 by the §4.3.3 tangent-point mint (spec \
-            yang_433_tangent_point_mesh_update §6). Minting the tangency into both \
-            Stage-1 meshes resolves the four A,B,A,B sectors — its C0058-authored twin \
-            below and both corpus drivers now pass — but on THIS operand pair (r 0.4, \
-            h 4.0, 30 deg, hand-built cylinder_brep) the four sheets that then meet at \
-            the tangency defeat the Stage-6 boundary walk: at vertex 44 the patch \
-            presents one wedge whose BOTH terminal boundary edges are incoming \
-            ((77,44) and (64,44)) and another with both outgoing, so the wedge rotation \
-            emerges on an incoming edge and `s6-wedge-walk-not-outgoing` fires; the \
-            legacy consumption fallback then also returns NonManifoldOutput. That is \
-            the limitation `patch_boundary_cycle` already names — the four mutually \
-            tangent sheets degenerate first-order dihedral sorting, awaiting a \
-            curvature-aware radial sort — now reachable where it was not before. Its \
-            pre-mint pass was the un-resolved tangency (an open neck plus a pinch-vertex \
-            split), not a better answer. Un-quarantine with the radial sort."]
+            yang_433_tangent_point_mesh_update §6); its C0058-authored twin below and \
+            both corpus drivers pass. Its pre-mint pass was the UN-resolved tangency \
+            (an open neck plus a pinch-vertex split), not a better answer. \
+            RE-DIAGNOSED 2026-09-13 (later, spec §8) — the first reading of this \
+            quarantine, `patch_boundary_cycle`'s 'four mutually tangent sheets \
+            degenerate first-order dihedral sorting, awaiting a curvature-aware radial \
+            sort', is REFUTED: at `s4-entry` the minted node is a clean 12-triangle \
+            manifold vertex whose link is ONE closed cycle of four alternating A,B,A,B \
+            sectors, which the wedge walk handles. Stage 4 then breaks it. The two \
+            section polylines cross three MORE times near the tangency (the polyhedral \
+            braid of a single exact node), so §4.5.3 relocates three ellipse-ellipse \
+            junction proxies (v34, v36, v49) onto the exact node beside the mint, and \
+            the moved-x-minted weld fuses all four although NONE is adjacent to the \
+            mint. The union of their stars gives edge (43,44) FOUR triangles — a \
+            non-manifold EDGE, which no wedge rotation and no `split_pinch_vertices` \
+            can undo — and `s6-wedge-walk-not-outgoing` fires at vertex 44. The owner \
+            is the §4.4.1 junction mesh update (epic #169 phase 3 / deviation N2): a \
+            braid collapsed onto a minted node must be RE-TRIANGULATED, not relabelled. \
+            Un-quarantine with that, NOT with a radial sort."]
 fn coplanar_30deg_symmetric_union_mints_its_tangent_points() {
     let Some(sb) = yang_rs::native_backend() else {
         eprintln!("[pinch-split] SKIP: native FFI shim not linked (stub build)");

@@ -255,7 +255,85 @@ collapse may legitimately absorb the vertex. Measured on the C0058-authored pair
 one tangency survives bit-exactly in the output B-Rep, the other is absorbed into
 a vertex 7.663e-3 away.
 
-## 7. What this does NOT cover
+## 7. Increment 3 — BUILT, MEASURED, **REFUTED**: the amplified band is not a bound on the MOVE, but the nearest point is not the repair
+
+Two halves. The first is a real, measured defect and stands. The second is the
+obvious repair for it; it was implemented, run against the whole corpus, and
+**rejected**. Both are recorded so the next reader does not re-derive the first
+and re-try the second.
+
+### 7a. The defect (stands): `gate` is vacuous exactly where it is needed
+
+§5 put the R1/R2/R3 move check on the cyl×cyl arm and recorded the latent as
+closed. It is not. The band the check compares against is `gate = amp · budget`
+with `amp = 1/sin α` — and `sin α → 0` IS the tangency. `KV11_PROBE` (extended
+here to print `rho`, `gate`, `az_move` and the section's `plane_n` for every
+ellipse relocation) on the 30° SYMMETRIC Steinmetz pair
+(`crates/yang-rs/tests/tangency_pinch_split.rs`: r = 0.4, h = 4, axes crossing at
+the ORIGIN, tangencies at (0, ±0.4, 0)) reads
+
+| vertex | ρ | gate | azimuth move | nearest move |
+|---|---|---|---|---|
+| v53 | 9.575e-2 | **6.986e-1** (1.7× r) | **3.782e-1** (95 % of r) | 9.765e-2 |
+| v77 | 3.385e-2 | **1.302e0** (3.3× r) | 1.317e-1 | 3.418e-2 |
+
+A band wider than the model is not a band. Under it the azimuth closed form is
+accepted while it carries the vertex from one arm of its section to the
+**OPPOSITE** arm, straight across the tangent point (`e1_arm` sign flip, pinned
+in `tests_unit::s433_tangent_relocation`). The amplified band bounds how far the
+vertex may be *from* the curve; it licenses no slide *along* it.
+
+The mechanism is `project_onto_ellipse_via_cylinder`, which holds ONE owner's
+azimuth fixed and solves for the axial coordinate. That is the natural chart for
+cylinder ∩ **plane** — the plane has no azimuth of its own — but a cylinder ×
+**cylinder** section lies on BOTH cylinders equally, so pinning cylinder-1's
+azimuth is an asymmetry inherited from the reused closed form, and near tangency
+the section plane tilts toward the axis until that asymmetry turns a
+sagitta-scale correction into a macroscopic re-parameterization.
+
+### 7b. The repair that does NOT work: `project_onto_ellipse_nearest` unconditionally
+
+The apparent fix is to take the move-minimizing projection on the cyl×cyl arm:
+symmetric in the two owners, what §4.4.1 relocation means, and monotone by
+construction (`near_move ≤ az_move` always). Implemented and measured:
+
+- **Effective at what it claims.** v53 3.782e-1 → 9.765e-2 and v77
+  1.317e-1 → 3.418e-2, both staying on their own arm.
+- **Corpus-neutral.** Release, 8 jobs, 600 s, wall 745.7 s at host load ≈ 4:
+  289C / 0W / 16E / 4EE / 0T + 3 U, **zero category and zero detail moves**
+  against the committed `results.json` (per-id diff; the file came back
+  byte-identical). All 8 `kv9_cyl_cyl_special` oracles green; C0058 28.8 s and
+  F0058 0.7 s still `SUPPORTED_CORRECT`.
+- **Converts nothing.** The 30° fixture fails identically — same vertex ids,
+  same wedge continuations — because its wall is §8's braid, not the slide.
+- **And it turns a GREEN test RED.** The rewrite tier caught
+  `c0058_authored_geometry_union_mints_its_tangent_points` failing with
+  `NonManifoldOutput` (`s6-wedge-walk-not-outgoing` at v9 = (0, 0.4, 1), the +y
+  tangency, plus an `s4-shell-euler` double-cover edge (9, 58)); A/B-confirmed
+  against `YANG_CYLCYL_AZIMUTH=1`.
+
+**The lesson, which is the point of recording this.** *Moving less is not the
+same as colliding less.* The nearest point on a section near a tangency lies
+TOWARD the node, so minimizing each vertex's move pulls more of them into the
+node's neighbourhood — feeding precisely the braid of junction proxies §8
+describes, which is what the pipeline cannot absorb. A relocation operator
+cannot be judged by its move length alone while the junction layer is missing.
+Reverted; only the `KV11_PROBE` line and the pins survive, so the pipeline is
+byte-identical. The owner is §4.4.1 junction re-triangulation, not the choice of
+projection.
+
+### 7c. Still open on the same line, named and measured, NOT changed
+
+The ρ gate maps `cyl_cyl_point_amplification`'s `None` — its documented
+"tangency-grade: no finite band" signal — to `f64::INFINITY`, i.e. *everything
+matches*. That is the exact opposite of the contract
+`surface_pair_point_amplification`'s own doc states for the same `None` ("the
+caller keeps the flat band and the tangent-direction discriminator decides — the
+SAFE fallback, never a silent everything-matches"). No vertex took that path in
+either fixture (every gate was finite), so it is recorded rather than changed:
+it is a ρ-ACCEPTANCE change and needs its own corpus run.
+
+## 8. What this does NOT cover
 
 - **Line tangency.** Parallel-axis cylinders and plane×cylinder generators touch
   along a whole line, and the solid is genuinely LINE-pinched: F0060's `A − B` is
@@ -269,8 +347,42 @@ a vertex 7.663e-3 away.
 - **Deviation N2 proper.** The general pre-boolean trim + CDT is untouched. This
   increment closes the ONE case where a tangency is invisible to the
   tessellations, by giving them the point they were missing.
+- **The BRAID of junction proxies at a minted node** — the 30° symmetric
+  fixture's remaining wall, and a REPLACEMENT for the diagnosis its 2026-09-13
+  quarantine recorded. That note said the four mutually tangent sheets "defeat
+  the Stage-6 boundary walk … awaiting a curvature-aware radial sort". Measured
+  on today's tree, that is wrong on the decisive point: at `s4-entry` the minted
+  node is **a clean 12-triangle manifold vertex whose link is ONE closed cycle of
+  four alternating A,B,A,B sectors** — precisely what §6 set out to build, and a
+  configuration the wedge walk already handles. Stage 4 then destroys it.
 
-## 8. Oracles
+  What happens instead (`YANG_STAR_PROBE="0,-0.4,0"`, `KV11_PROBE`,
+  `NONMANIFOLD_SITE_PROBE`): the two polyhedral section polylines CROSS each
+  other three more times near the tangency — the polyhedral braid the exact
+  geometry resolves into a single node — so besides the mint there are three
+  ellipse×ellipse JUNCTION vertices (v34, v36, v49), each with one curve
+  neighbour on each branch. §4.5.3's junction relocation correctly sends all
+  three to `(plane₁ ∩ plane₂) ∩ cylinder` = the exact node, so `after-reloc`
+  reads **four** vertices at (0, −0.4, 0) (three of them at z = 4.441e-16). The
+  P3b inc-4a moved×minted weld then fuses them into the mint. But none of the
+  three is ADJACENT to the mint — there is no shared edge, so the fusion is a
+  positional identification with no topological path, and the union of their
+  stars gives edge (43, 44) — A's generator ruling from the bottom rim to the
+  node — **four** incident triangles. A 4-valent edge is not a vertex pinch: no
+  wedge rotation and no `split_pinch_vertices` can undo it, and
+  `s6-wedge-walk-not-outgoing` fires at vertex 44 with a wedge whose BOTH
+  terminal boundary edges are incoming.
+
+  So the owner is the §4.4.1 mesh update again, in its junction form: after
+  collapsing a braid of junction proxies onto a minted node, the merged
+  neighbourhood must be RE-TRIANGULATED (a local CDT constrained by the node's
+  four curve arms), not merely relabelled. That is epic #169's phase-3 junction
+  layer / deviation N2, not a boundary-walk sort. §7b's nearest-point relocation
+  removes the two macroscopic slides that compound it (v53, v77) and leaves the
+  fixture failing byte-for-byte the same — same vertex ids, same wedge
+  continuations — which is how we know the braid, not the slide, is the wall.
+
+## 9. Oracles
 
 - **Corpus**: C0058 and F0058 ERROR → `SUPPORTED_CORRECT`; zero CORRECT lost, 0 WRONG.
 - **kernel-v2 E2E**: `kv9_cyl_cyl_special::steinmetz_union_exact_volume` (exact
@@ -281,7 +393,7 @@ a vertex 7.663e-3 away.
 - **Smoke pin**: F0058 (0.6 s release). C0058 is NOT smoke-pinned — 28.0 s
   release is past this gate's debug-ratio budget (the R0044 / F0082 rule).
 
-## 9. Research basis
+## 10. Research basis
 
 - [#24 Yang 2025] §4.3.3 (`:518-570`) — method selection; a single surviving
   point with COLLINEAR normals is a tangent point. §4.4.1 (`:552-570`) — trim,

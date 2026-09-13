@@ -11775,6 +11775,35 @@ fn stage4_relocate_and_correct_inner(
         // Corpus 2026-09-13: 287C / 0W / 18E / 4EE / 0T (+3 U), ZERO
         // category and ZERO detail moves — this closes a latent, it converts
         // nothing (C0058's own wall is the missing §4.4.1 mesh update, §6).
+        //
+        // 2026-09-13 (later, spec `yang_433_tangent_point_mesh_update.md` §7):
+        // the check above is NOT sufficient on the cyl×cyl arm, and the
+        // obvious repair was BUILT, MEASURED and REFUTED — do not re-try it
+        // without reading §7. The band compared against is `amp · budget` with
+        // `amp = 1/sin α`, and `sin α → 0` IS the tangency: measured on the 30°
+        // symmetric Steinmetz pair (`tangency_pinch_split.rs`, r 0.4) the gate
+        // reaches 6.986e-1 at v53 and 1.302e0 at v77 — 1.7× and 3.3× the
+        // cylinder's own RADIUS — so the azimuth closed form is admitted while
+        // it slides v53 by 3.782e-1 (95 % of r) onto the OPPOSITE arm of its
+        // section, across the tangent point. Taking
+        // `project_onto_ellipse_nearest` unconditionally here cuts that to
+        // 9.765e-2 on the correct arm and is corpus-neutral (289C, zero
+        // category and zero detail moves) — but it converts NOTHING and turns
+        // `c0058_authored_geometry_union_mints_its_tangent_points` RED: pulling
+        // these vertices toward the exact node is what the braid of junction
+        // proxies cannot absorb (§8). Moving LESS is not the same as colliding
+        // less. The owner is the §4.4.1 junction re-triangulation, not the
+        // choice of projection.
+        if std::env::var("KV11_PROBE").is_ok() {
+            eprintln!(
+                "KV11_PROBE ellipse reloc: v={v} rho={rho:.6e} gate={gate:.6e} \
+                 az_move={:.6e} plane_n=({:.6},{:.6},{:.6}) p={p:?} az={proj:?}",
+                move_len(proj),
+                er.plane_n.x(),
+                er.plane_n.y(),
+                er.plane_n.z()
+            );
+        }
         let (proj, t) = if move_len(proj) <= gate {
             // R1: byte-identical closed-form azimuth projection.
             (proj, t)

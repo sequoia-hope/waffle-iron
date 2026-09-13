@@ -323,3 +323,161 @@ pub(crate) fn s433_parallel_axes_return_none() {
     let b = cyl([0.6, 0.0, 0.0], [0.0, 0.0, 1.0], 0.3);
     assert!(cyl_cyl_tangent_points(a, b).is_none());
 }
+
+// =========================================================================
+// §7 (2026-09-13, later): the amplified band is not a bound on the MOVE.
+//
+// The morning's move check compares `az_move` against `gate = amp · budget`,
+// and `amp = 1/sin α` is precisely what diverges at a tangency. On the 30°
+// SYMMETRIC Steinmetz pair (`tests/tangency_pinch_split.rs`: r = 0.4, axes
+// crossing at the ORIGIN, tangencies at (0, ±0.4, 0)) that gate reaches
+// 1.7×–3.3× the cylinder's own radius, so the check passes and the azimuth
+// closed form slides the vertex to the OPPOSITE arm of its section — across
+// the tangent point. These pin both halves: the gate really is vacuous there,
+// and the nearest point really does stay on the vertex's own arm.
+// =========================================================================
+
+/// E1 (the steep section, `z = k₊·x`) for the SYMMETRIC pair — the same closed
+/// form as [`e1_reloc`] with the axis crossing at the origin instead of
+/// (0, 0, 1). Its measured `plane_n` in the pipeline is (−0.9659, 0, 0.2588).
+fn e1_reloc_symmetric() -> EllipseReloc {
+    let mut er = e1_reloc();
+    let beta: f64 = std::f64::consts::FRAC_PI_6;
+    let k = beta.sin() / (1.0 - beta.cos());
+    // Plane `k·x − z = 0` through the origin: same normal, `d = 0`.
+    let n_len = (k * k + 1.0).sqrt();
+    er.plane_n = Vector3::new(k / n_len, 0.0, -1.0 / n_len);
+    er.normal = er.plane_n;
+    er.plane_d = 0.0;
+    er.center = Point3::new(0.0, 0.0, 0.0);
+    let b_dir = b_axis_dir();
+    let (_, _, budget) = er.second_cyl.expect("cyl×cyl fixture");
+    er.second_cyl = Some((
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(b_dir[0], b_dir[1], b_dir[2]),
+        budget,
+    ));
+    er
+}
+
+/// The symmetric pair's −y tangency, and the unit tangent of E1 there. A point
+/// of E1 near the tangency has `(x, z) = s·(1, k₊)`, so the SIGN of `s` names
+/// the arm — the invariant a relocation must not flip.
+fn symmetric_tangency() -> Point3 {
+    Point3::new(0.0, -R, 0.0)
+}
+fn e1_arm(q: Point3) -> f64 {
+    let beta: f64 = std::f64::consts::FRAC_PI_6;
+    let k = beta.sin() / (1.0 - beta.cos());
+    let t = symmetric_tangency().as_array();
+    let d = [q.x() - t[0], q.z() - t[2]];
+    (d[0] + k * d[1]) / (1.0 + k * k).sqrt()
+}
+
+/// The measured pre-relocation position of the 30° fixture's v53 — the worst
+/// slide in the corpus of this class (`KV11_PROBE`, 2026-09-13).
+fn v53() -> Point3 {
+    Point3::new(
+        0.084_390_239_309_566_68,
+        -0.380_738_478_575_368_36,
+        -0.055_003_409_871_931_31,
+    )
+}
+
+/// The fixture is the symmetric configuration, and v53 sits a quarter of a
+/// radius from the tangency with its E1 foot on the NEGATIVE arm.
+#[test]
+pub(crate) fn s433sym_fixture_is_the_30deg_symmetric_tangency() {
+    let er = e1_reloc_symmetric();
+    let t = symmetric_tangency().as_array();
+    let radial = (t[0] * t[0] + t[1] * t[1]).sqrt();
+    assert!((radial - R).abs() < 1e-15, "tangency off A's cylinder");
+    let n = er.plane_n.as_array();
+    let h = n[0] * t[0] + n[1] * t[1] + n[2] * t[2] + er.plane_d;
+    assert!(h.abs() < 1e-15, "tangency off E1's plane: {h:.3e}");
+    // The pipeline's measured plane normal, up to sign.
+    assert!(
+        (n[0].abs() - 0.965_925_8).abs() < 1e-6 && (n[2].abs() - 0.258_819_0).abs() < 1e-6,
+        "plane_n {n:?} is not E1's measured (±0.9659, 0, ∓0.2588)"
+    );
+    assert!(
+        (dist(v53(), symmetric_tangency()) - 0.102_558).abs() < 1e-5,
+        "v53 stands {} from the tangency",
+        dist(v53(), symmetric_tangency())
+    );
+}
+
+/// HALF ONE — the gate is vacuous at THIS vertex, stated WITHOUT a budget. `gate = amp ·
+/// budget`, and the amplification alone is ~7.8 here, so a combined Stage-1
+/// chord budget of barely 4.9e-2 already admits a 3.78e-1 slide — 95 % of the
+/// cylinder's radius. In the pipeline the operands' real budget put the gate at
+/// **6.986e-1** (1.7× the radius) at this very vertex, and 1.302e0 at v77, so
+/// the move check passed and the slide went through. No narrowing of this band
+/// is available, because the band IS `1/sin α` and `sin α → 0` is the tangency
+/// itself — which is why §7's obvious repair (take the nearest point on this arm
+/// unconditionally) is recorded there as BUILT, MEASURED and REFUTED rather than
+/// landed: it is corpus-neutral, converts nothing, and turns
+/// `c0058_authored_geometry_union_mints_its_tangent_points` red.
+#[test]
+pub(crate) fn s433sym_amplification_admits_a_slide_of_a_whole_radius() {
+    let er = e1_reloc_symmetric();
+    let (ap2, ad2, _) = er.second_cyl.expect("cyl×cyl fixture");
+    let amp = cyl_cyl_point_amplification(v53(), (er.axis_point, er.axis_dir), (ap2, ad2))
+        .expect("v53 is near-tangent but not AT the tangency");
+    assert!(
+        (amp - 7.82).abs() < 0.05,
+        "the 1/sin α amplification at v53 is {amp:.4} (≈7.82)"
+    );
+    let (az, _) = project_onto_ellipse_via_cylinder(v53(), &er).expect("azimuth projection");
+    let admitting_budget = dist(v53(), az) / amp;
+    assert!(
+        admitting_budget < 5.0e-2,
+        "a combined chord budget of only {admitting_budget:.3e} already makes \
+         `amp · budget` admit the {:.3e} azimuth slide",
+        dist(v53(), az)
+    );
+}
+
+/// HALF TWO — what the slide actually does. The azimuth projection crosses the
+/// tangent point onto the OPPOSITE arm of E1 and moves ~4× further than the
+/// nearest point, which stays on v53's own arm.
+#[test]
+pub(crate) fn s433sym_azimuth_crosses_the_tangency_and_nearest_does_not() {
+    let er = e1_reloc_symmetric();
+    let (az, _) = project_onto_ellipse_via_cylinder(v53(), &er).expect("azimuth projection");
+    let (near, _) = project_onto_ellipse_nearest(v53(), &er).expect("nearest projection");
+    let (az_move, near_move) = (dist(v53(), az), dist(v53(), near));
+
+    assert!(
+        (az_move - 0.378_178).abs() < 1e-4,
+        "azimuth move {az_move:.6} (measured 3.781780e-1 in the pipeline)"
+    );
+    assert!(
+        (near_move - 0.097_65).abs() < 1e-4,
+        "nearest move {near_move:.6} (measured 9.765e-2 in the pipeline)"
+    );
+    // The arm invariant: v53's own foot is on the NEGATIVE arm; the azimuth
+    // projection lands on the POSITIVE one, i.e. across the tangent point.
+    assert!(
+        e1_arm(near) < 0.0,
+        "the nearest point must stay on v53's own arm, got s = {:.6e}",
+        e1_arm(near)
+    );
+    assert!(
+        e1_arm(az) > 0.0,
+        "the azimuth point must be the one that crosses, got s = {:.6e}",
+        e1_arm(az)
+    );
+    // Both are still exactly ON the section — the choice is WHICH exact point.
+    for (name, q) in [("azimuth", az), ("nearest", near)] {
+        let a = q.as_array();
+        let n = er.plane_n.as_array();
+        let h = n[0] * a[0] + n[1] * a[1] + n[2] * a[2] + er.plane_d;
+        let radial = (a[0] * a[0] + a[1] * a[1]).sqrt();
+        assert!(h.abs() < 1e-12, "{name} off the section plane: {h:.3e}");
+        assert!(
+            (radial - R).abs() < 1e-12,
+            "{name} off A's cylinder: {radial}"
+        );
+    }
+}

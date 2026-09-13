@@ -43,6 +43,88 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-13 (night, later) — the 30° fixture's quarantine diagnosis is REFUTED (it is NOT a boundary-walk sort), and the obvious relocation repair was BUILT, MEASURED and REFUTED too; corpus UNCHANGED at 289C / 0W / 16E / 4EE / 0T + 3 U, pipeline byte-identical
+
+Spec `specs/yang_433_tangent_point_mesh_update.md` §7 (the relocation finding and
+its refuted repair) and §8 (the re-diagnosis). No behaviour change landed: the
+only pipeline edit is a read-only `KV11_PROBE` line.
+
+**1. The quarantine note was wrong about its own cause — this is the load-bearing
+finding.** The 30° symmetric fixture parked last night
+(`tangency_pinch_split.rs`, r 0.4, h 4.0, hand-built `cylinder_brep`) recorded
+"the four mutually tangent sheets degenerate first-order dihedral sorting,
+awaiting a curvature-aware radial sort", and the memory carried that forward as
+the NEXT increment. **It is not.** At `s4-entry`, `YANG_STAR_PROBE="0,-0.4,0"`
+reads the minted node as a clean **12-triangle manifold vertex whose link is ONE
+closed cycle** — 6 A triangles and 6 B triangles in four alternating A,B,A,B runs
+of three, exactly the sector structure §6's mint was built to produce, and a
+configuration `patch_boundary_cycle`'s wedge orbit already handles. The mesh
+Stage 4 RECEIVES is correct; the mesh Stage 4 EMITS is not.
+
+What actually breaks it: the two section polylines cross each other three MORE
+times near the tangency — the polyhedral braid of what the exact geometry
+resolves into a single node — so besides the mint there are three ellipse×ellipse
+JUNCTION vertices (v34, v36, v49), each carrying one curve neighbour on each
+branch. §4.5.3's junction relocation correctly sends all three to
+`(plane₁ ∩ plane₂) ∩ cylinder` = the exact node, and `after-reloc` reads **four**
+vertices at (0, −0.4, 0) (three of them at z = 4.441e-16). The P3b inc-4a
+moved×minted weld then fuses them into the mint — but **none of the three is
+adjacent to it**, so the fusion is a positional identification with no
+topological path, and the union of their stars leaves edge (43, 44) — A's
+generator ruling from the bottom rim to the node — with **four** incident
+triangles. A 4-valent EDGE is not a vertex pinch: neither a wedge rotation nor
+`split_pinch_vertices` can undo it, and `s6-wedge-walk-not-outgoing` fires at
+vertex 44 on a wedge whose BOTH terminal boundary edges are incoming ((77,44) and
+(64,44)). **Owner: the §4.4.1 junction mesh update (epic #169 phase 3 /
+deviation N2)** — a braid collapsed onto a minted node must be RE-TRIANGULATED (a
+local CDT constrained by the node's four curve arms), not relabelled. The test's
+`#[ignore]` reason now carries this reading instead of the radial-sort one.
+
+**2. The relocation band IS vacuous near tangency (defect stands), but the
+obvious repair is REFUTED (not landed).** Last night's §5 guard put the R1/R2/R3
+move check on the cyl×cyl arm and recorded the latent as closed. It is not: the
+band is `gate = amp · budget` with `amp = 1/sin α`, and `sin α → 0` IS the
+tangency. Measured (`KV11_PROBE`, extended here to print `rho`, `gate`,
+`az_move` and the section's `plane_n` for every ellipse relocation): the gate
+reaches **6.986e-1** at v53 and **1.302e0** at v77 — **1.7× and 3.3× the
+cylinder's own radius** — and under it the azimuth closed form is accepted while
+it slides v53 by **3.782e-1** (95 % of r) from one arm of its section to the
+OPPOSITE arm, across the tangent point.
+
+Taking `project_onto_ellipse_nearest` unconditionally on that arm was
+implemented and measured: it does what it claims (v53 3.782e-1 → 9.765e-2, v77
+1.317e-1 → 3.418e-2, both staying on their own arm) and it is **corpus-neutral**
+— release, 8 jobs, 600 s, wall 745.7 s at host load ≈ 4: 289C / 0W / 16E / 4EE /
+0T + 3 U with **zero category and zero detail moves** (`results.json` came back
+byte-identical). But it **converts nothing** (the 30° fixture fails identically,
+same vertex ids, same wedge continuations — its wall is the braid) and the
+rewrite tier caught it turning `c0058_authored_geometry_union_mints_its_tangent_points`
+**RED** (`NonManifoldOutput`; `s6-wedge-walk-not-outgoing` at v9 = (0, 0.4, 1),
+plus an `s4-shell-euler` double-cover edge (9, 58)), A/B-confirmed. So it was
+reverted.
+
+**The lesson worth carrying: moving LESS is not the same as colliding less.** The
+nearest point on a section near a tangency lies TOWARD the node, so minimizing
+each vertex's move pulls more of them into the node's neighbourhood — feeding
+exactly the braid of §1 above. A relocation operator cannot be judged by its move
+length while the junction layer is missing.
+
+Pins kept: `tests_unit::s433_tangent_relocation` (13, three new — the 30°
+fixture's identity, the vacuity of the amplified band stated WITHOUT a budget,
+and the arm-crossing invariant), all of which test the two projections directly
+and so are independent of which one the pipeline picks. Remaining actionable tail
+unchanged at **7** (R0038, R0050, R0100, F0060, C0065, R0019, R0085); loud by
+design: 9.
+
+**Recorded, not changed.** The ρ gate maps `cyl_cyl_point_amplification`'s
+`None` — its documented "tangency-grade: no finite band" — to `f64::INFINITY`,
+i.e. *everything matches*, the exact opposite of the contract
+`surface_pair_point_amplification`'s own doc states for the same `None` ("the
+caller keeps the flat band and the tangent-direction discriminator decides — the
+SAFE fallback, never a silent everything-matches"). No vertex took that path in
+either fixture (every gate was finite), so it is named here rather than changed:
+it is a ρ-ACCEPTANCE change and needs its own corpus run.
+
 ## 2026-09-13 (night) — C0058 and F0058 CONVERTED by the §4.3.3 tangent-point Stage-1 MINT: the two tessellations never met at the tangent point, so give them the point — one exact vertex, identical bits, in BOTH meshes, and the arrangement resolves the four A,B,A,B sectors itself; NEW CANONICAL 289C / 0W / 16E / 4EE / 0T (+3 U), exactly two category moves and ZERO detail moves
 
 Spec `specs/yang_433_tangent_point_mesh_update.md` §6. The earlier entries today
