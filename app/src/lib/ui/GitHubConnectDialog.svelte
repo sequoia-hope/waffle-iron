@@ -293,7 +293,7 @@
 
 	.error {
 		font-size: 12px;
-		color: #f38ba8;
+		color: var(--error);
 		margin: 0;
 	}
 
@@ -328,12 +328,12 @@
 
 	.btn-danger {
 		background: transparent;
-		color: #f38ba8;
-		border-color: #f38ba8;
+		color: var(--error);
+		border-color: var(--error);
 	}
 
 	.btn-danger:hover {
-		background: rgba(243, 139, 168, 0.1);
+		background: color-mix(in srgb, var(--error) 12%, transparent);
 	}
 
 	.btn-copy {

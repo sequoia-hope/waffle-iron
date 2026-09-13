@@ -1208,28 +1208,28 @@
 	}
 
 	.tree-item.selected {
-		background: rgba(0, 120, 212, 0.2);
+		background: color-mix(in srgb, var(--accent) 20%, transparent);
 		border-left: 2px solid var(--accent);
 		padding-left: 10px;
 	}
 
 	.tree-item.selected.sketch-selected {
-		background: rgba(255, 136, 0, 0.15);
-		border-left-color: #ff8800;
+		background: color-mix(in srgb, var(--warning) 18%, transparent);
+		border-left-color: var(--warning);
 	}
 
 	/* Face→feature: the feature that created the currently-picked face. */
 	.tree-item.face-source {
-		background: rgba(68, 204, 136, 0.16);
-		border-left: 2px solid #44cc88;
+		background: color-mix(in srgb, var(--success) 16%, transparent);
+		border-left: 2px solid var(--success);
 		padding-left: 10px;
 	}
 
 	.face-source-badge {
 		margin-left: auto;
 		font-size: 9px;
-		color: #2e9e6a;
-		background: rgba(68, 204, 136, 0.18);
+		color: var(--success);
+		background: color-mix(in srgb, var(--success) 18%, transparent);
 		padding: 0 4px;
 		border-radius: 3px;
 		flex-shrink: 0;
@@ -1305,7 +1305,7 @@
 	.error-indicator {
 		margin-left: auto;
 		font-size: 12px;
-		color: #ff6b6b;
+		color: var(--error);
 		cursor: help;
 		flex-shrink: 0;
 	}
@@ -1313,7 +1313,7 @@
 	.error-indicator-btn {
 		margin-left: auto;
 		font-size: 12px;
-		color: #ff6b6b;
+		color: var(--error);
 		cursor: pointer;
 		flex-shrink: 0;
 		background: none;

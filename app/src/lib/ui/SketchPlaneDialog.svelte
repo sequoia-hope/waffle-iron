@@ -349,13 +349,13 @@
 	}
 
 	.plane-btn.user-plane {
-		border-color: #aa8844;
+		border-color: color-mix(in srgb, var(--warning) 70%, transparent);
 	}
 
 	.plane-btn.user-plane.selected {
-		border-color: #ffcc88;
-		background: rgba(170, 136, 68, 0.2);
-		color: #ffcc88;
+		border-color: var(--warning);
+		background: color-mix(in srgb, var(--warning) 20%, transparent);
+		color: var(--warning);
 	}
 
 	.create-offset-btn {
@@ -402,13 +402,13 @@
 		gap: 8px;
 		padding: 6px 8px;
 		background: var(--bg-primary, #1e1e1e);
-		border: 1px solid #aa8844;
+		border: 1px solid color-mix(in srgb, var(--warning) 70%, transparent);
 		border-radius: 4px;
 	}
 
 	.face-base-label {
 		font-size: 12px;
-		color: #ffcc88;
+		color: var(--warning);
 	}
 
 	.face-base-clear,

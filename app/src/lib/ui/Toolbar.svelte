@@ -991,7 +991,7 @@
 	}
 
 	.toolbar-btn.active {
-		background: rgba(0, 120, 212, 0.2);
+		background: color-mix(in srgb, var(--accent) 20%, transparent);
 		border-color: var(--accent);
 		color: var(--accent);
 	}
@@ -1074,7 +1074,7 @@
 	}
 
 	.rect-menu-item.active {
-		background: rgba(0, 120, 212, 0.2);
+		background: color-mix(in srgb, var(--accent) 20%, transparent);
 		border-color: var(--accent);
 		color: var(--accent);
 	}
@@ -1111,22 +1111,24 @@
 
 	.dof-ok {
 		color: var(--success);
-		background: rgba(78, 201, 176, 0.15);
+		background: color-mix(in srgb, var(--success) 15%, transparent);
 	}
 
 	.dof-under {
-		color: var(--warning, #e8a838);
-		background: rgba(232, 168, 56, 0.15);
+		color: var(--warning);
+		background: color-mix(in srgb, var(--warning) 15%, transparent);
 	}
 
 	.dof-over {
-		color: var(--error, #f44);
-		background: rgba(255, 68, 68, 0.15);
+		color: var(--error);
+		background: color-mix(in srgb, var(--error) 15%, transparent);
 	}
 
+	/* Redundant sits between "under" and "over": the warning hue, but pushed
+	   toward the error one so the two badges stay distinguishable. */
 	.dof-redundant {
-		color: #e89038;
-		background: rgba(232, 144, 56, 0.15);
+		color: color-mix(in srgb, var(--warning) 65%, var(--error));
+		background: color-mix(in srgb, var(--warning) 15%, transparent);
 	}
 
 	.finish-btn {
@@ -1135,7 +1137,7 @@
 	}
 
 	.finish-btn:hover {
-		background: rgba(78, 201, 176, 0.15);
+		background: color-mix(in srgb, var(--success) 15%, transparent);
 		border-color: var(--success);
 	}
 
@@ -1376,8 +1378,8 @@
 	.build-info {
 		padding: 6px 12px;
 		font-size: 11px;
-		color: #8a8f98;
-		border-top: 1px solid rgba(255, 255, 255, 0.08);
+		color: var(--text-muted);
+		border-top: 1px solid var(--border-color);
 		margin-top: 4px;
 		user-select: text;
 	}

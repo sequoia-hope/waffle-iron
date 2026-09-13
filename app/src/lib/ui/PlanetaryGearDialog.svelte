@@ -284,9 +284,9 @@
 		font-size: 11px; padding: 6px 8px; border-radius: 4px;
 		background: rgba(255, 196, 0, 0.1); color: var(--text-secondary, #ccc);
 	}
-	.hints.blocking { background: rgba(220, 64, 64, 0.15); color: #ff9090; }
+	.hints.blocking { background: color-mix(in srgb, var(--error) 15%, transparent); color: var(--error); }
 	.hint { margin: 2px 0; }
-	.hint.info { color: #8fd0ff; }
+	.hint.info { color: var(--accent); }
 	.dialog-footer {
 		display: flex; justify-content: flex-end; gap: 8px;
 		padding: 8px 12px; border-top: 1px solid var(--border-color, #3a3a4e);
@@ -295,6 +295,6 @@
 	.cancel-btn { background: transparent; color: var(--text-secondary, #999); border-color: var(--border-color, #3a3a4e); }
 	.cancel-btn:hover { background: var(--bg-hover, #333); }
 	.apply-btn { background: var(--accent, #0078d4); color: var(--text-on-accent); border: none; }
-	.apply-btn:hover:not(:disabled) { background: #006abc; }
+	.apply-btn:hover:not(:disabled) { background: var(--accent-hover); }
 	.apply-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

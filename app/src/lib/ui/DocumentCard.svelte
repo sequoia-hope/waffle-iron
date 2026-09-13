@@ -241,10 +241,10 @@
 	}
 
 	.ctx-delete {
-		color: #f38ba8;
+		color: var(--error);
 	}
 
 	.ctx-delete:hover {
-		background: rgba(243, 139, 168, 0.1);
+		background: color-mix(in srgb, var(--error) 12%, transparent);
 	}
 </style>

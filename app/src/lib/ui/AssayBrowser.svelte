@@ -172,7 +172,7 @@
 
 <style>
 	.ab-expected-error {
-		color: #e0b34d;
+		color: var(--warning);
 		font-weight: 600;
 	}
 
@@ -215,8 +215,8 @@
 	.ab-score {
 		font-size: 11px;
 		font-weight: 600;
-		color: #4caf50;
-		background: rgba(76, 175, 80, 0.12);
+		color: var(--success);
+		background: color-mix(in srgb, var(--success) 12%, transparent);
 		padding: 1px 6px;
 		border-radius: 8px;
 		font-family: monospace;
@@ -305,24 +305,24 @@
 	}
 
 	.ab-case-item.active {
-		background: rgba(0, 120, 212, 0.15);
+		background: color-mix(in srgb, var(--accent) 15%, transparent);
 		border-left: 2px solid var(--accent);
 	}
 
 	.ab-case-item.status-pass {
-		border-left: 2px solid #4caf50;
+		border-left: 2px solid var(--success);
 	}
 
 	.ab-case-item.status-fail {
-		border-left: 2px solid #f44336;
+		border-left: 2px solid var(--error);
 	}
 
 	.ab-case-item.status-error {
-		border-left: 2px solid #ff9800;
+		border-left: 2px solid var(--warning);
 	}
 
 	.ab-case-item.active.status-pass {
-		background: rgba(76, 175, 80, 0.1);
+		background: color-mix(in srgb, var(--success) 10%, transparent);
 	}
 
 	.ab-case-row {
@@ -344,33 +344,35 @@
 	}
 
 	.ab-status-badge.pass {
-		background: rgba(76, 175, 80, 0.2);
-		color: #4caf50;
+		background: color-mix(in srgb, var(--success) 20%, transparent);
+		color: var(--success);
 	}
 
 	.ab-status-badge.fail {
-		background: rgba(244, 67, 54, 0.15);
-		color: #f44336;
+		background: color-mix(in srgb, var(--error) 15%, transparent);
+		color: var(--error);
 	}
 
 	.ab-status-badge.error {
-		background: rgba(255, 152, 0, 0.15);
-		color: #ff9800;
+		background: color-mix(in srgb, var(--warning) 15%, transparent);
+		color: var(--warning);
 	}
 
+	/* "Featured" is a curation marker, not a severity — it takes the accent
+	   rather than a fifth amber that no theme token defines. */
 	.ab-status-badge.featured {
-		background: rgba(255, 193, 7, 0.2);
-		color: #ffc107;
+		background: color-mix(in srgb, var(--accent) 20%, transparent);
+		color: var(--accent);
 	}
 
 	.ab-case-item.status-featured {
-		border-left: 2px solid #ffc107;
+		border-left: 2px solid var(--accent);
 	}
 
 	.ab-featured-count {
 		font-size: 11px;
-		color: #ffc107;
-		background: rgba(255, 193, 7, 0.12);
+		color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
 		padding: 1px 6px;
 		border-radius: 8px;
 		font-family: monospace;

@@ -139,7 +139,7 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		background: rgba(0, 0, 0, 0.35);
+		background: color-mix(in srgb, var(--bg-primary) 65%, transparent);
 		z-index: 50;
 		pointer-events: none;
 	}
@@ -147,15 +147,15 @@
 	.rebuild-spinner {
 		width: 32px;
 		height: 32px;
-		border: 3px solid rgba(255, 255, 255, 0.2);
-		border-top-color: rgba(255, 255, 255, 0.8);
+		border: 3px solid color-mix(in srgb, var(--text-primary) 20%, transparent);
+		border-top-color: var(--text-primary);
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
 	}
 
 	.rebuild-label {
 		margin-top: 8px;
-		color: rgba(255, 255, 255, 0.7);
+		color: var(--text-secondary);
 		font-size: 12px;
 		font-family: inherit;
 	}

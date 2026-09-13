@@ -355,6 +355,6 @@
 	}
 
 	.apply-btn:hover {
-		background: #006abc;
+		background: var(--accent-hover);
 	}
 </style>

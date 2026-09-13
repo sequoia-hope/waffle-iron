@@ -1010,9 +1010,9 @@
 	:global(.draw-readout) {
 		display: inline-block;
 		white-space: nowrap;
-		background: rgba(20, 24, 40, 0.85);
-		color: #e8eef8;
-		border: 1px solid rgba(136, 187, 255, 0.6);
+		background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+		color: var(--text-primary);
+		border: 1px solid color-mix(in srgb, var(--sketch-hovered) 60%, transparent);
 		border-radius: 3px;
 		padding: 2px 6px;
 		font-size: 11px;
@@ -1020,9 +1020,9 @@
 	}
 
 	:global(.snap-label) {
-		background: rgba(30, 50, 30, 0.85);
-		color: #44cc44;
-		border: 1px solid #44cc44;
+		background: color-mix(in srgb, var(--sketch-snap) 15%, var(--bg-secondary));
+		color: var(--sketch-snap);
+		border: 1px solid var(--sketch-snap);
 		border-radius: 3px;
 		padding: 1px 5px;
 		font-size: 10px;

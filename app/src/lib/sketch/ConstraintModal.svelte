@@ -55,10 +55,10 @@
 		color: var(--text-primary, #cccccc);
 	}
 	.cm-close {
-		background: var(--accent, #44aaff);
+		background: var(--accent);
 		border: none;
 		border-radius: 4px;
-		color: #07121c;
+		color: var(--text-on-accent);
 		font-size: 12px;
 		font-weight: 600;
 		padding: 3px 10px;

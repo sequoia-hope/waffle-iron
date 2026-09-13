@@ -284,14 +284,14 @@
 <style>
 	.box-select-overlay {
 		position: fixed;
-		border: 2px solid #44aaff;
-		background: rgba(68, 170, 255, 0.1);
+		border: 2px solid var(--sketch-hovered);
+		background: color-mix(in srgb, var(--sketch-hovered) 12%, transparent);
 		pointer-events: none;
 		z-index: 1000;
 	}
 	.box-select-overlay.crossing {
 		border-style: dashed;
-		background: rgba(68, 255, 170, 0.1);
-		border-color: #44ffaa;
+		background: color-mix(in srgb, var(--sketch-profile-select) 12%, transparent);
+		border-color: var(--sketch-profile-select);
 	}
 </style>

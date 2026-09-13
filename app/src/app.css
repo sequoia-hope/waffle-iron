@@ -16,6 +16,19 @@
  * color/font tokens, then register it in lib/ui/theme.svelte.js. Layout
  * tokens (panel widths, bar heights, safe-area insets) are theme-independent
  * and stay in :root only.
+ *
+ * Two rules the block must follow, both enforced by tests/gui/theme-switcher.spec.js:
+ *
+ *   1. Declare `color-scheme`. It is what the browser draws NATIVE widgets from
+ *      — checkboxes, <input type=color>, text carets, overlay scrollbars — and
+ *      no token covers them.
+ *
+ *   2. A `color-scheme: light` block must redefine EVERY color token. Omitting
+ *      one is silent: it inherits the `:root` baseline, which is tuned for a
+ *      dark ground, so the theme ends up with (say) #ffdd44 sketch-selected
+ *      yellow on white, or a near-black viewport behind a white panel. A dark
+ *      theme may inherit — retro and Witch Hazel deliberately do for the sketch
+ *      palette.
  */
 :root {
 	/* Layout tokens — theme-independent */
@@ -29,6 +42,10 @@
 	--statusbar-height: 24px;
 
 	/* Default theme — color + typography tokens */
+	/* Tells the browser which way the theme leans, so NATIVE widgets
+	   (checkboxes, <input type=color>, text-field carets, overlay scrollbars)
+	   are drawn to match. Every theme block below sets its own. */
+	color-scheme: dark;
 	--bg-primary: #1e1e1e;
 	--bg-secondary: #252526;
 	--bg-tertiary: #2d2d2d;
@@ -73,6 +90,7 @@
  * to complete the green-screen terminal feel.
  */
 :root[data-theme='retro'] {
+	color-scheme: dark;
 	--bg-primary: #0b0f0b;
 	--bg-secondary: #0f140e;
 	--bg-tertiary: #141a13;
@@ -104,6 +122,7 @@
  * --text-on-accent is a dark violet.
  */
 :root[data-theme='witchhazel'] {
+	color-scheme: dark;
 	--bg-primary: #3b3651;
 	--bg-secondary: #433e56; /* the Witch Hazel editor background */
 	--bg-tertiary: #4c4663;
@@ -120,6 +139,204 @@
 	--text-on-accent: #2b2740;
 	--viewport-bg: #3a3550;
 	--model-color: #9a90b4;  /* muted lavender-grey machined part */
+}
+
+/*
+ * Light — the bright counterpart to the default dark editor theme.
+ * The background ramp runs the other way (primary is the LIGHTEST surface,
+ * hover the darkest), and every saturated token is darkened until it carries
+ * white text as a fill AND reads as text on the page: accent, success,
+ * warning and error all sit at >= 5:1 against both #ffffff and white.
+ */
+:root[data-theme='light'] {
+	color-scheme: light;
+	--bg-primary: #ffffff;
+	--bg-secondary: #f3f3f3;
+	--bg-tertiary: #e9e9ec;
+	--bg-hover: #dcdce1;
+	--text-primary: #1f1f1f;
+	--text-secondary: #5a5a5a;
+	--text-muted: #8a8a8a;
+	--border-color: #d0d0d5;
+	--accent: #0067c0;
+	--accent-hover: #0078d4;
+	--success: #107c41;
+	--warning: #8a6100;
+	--error: #c42b1c;
+	/* Every fill here is a dark saturated chip, so its text is white. */
+	--text-on-accent: #ffffff;
+	--viewport-bg: #eef1f5;
+	--model-color: #7e8c9e;
+	/* Sketch colors are drawn ON the light viewport, so the dark theme's
+	   pastels are replaced by mid-to-deep tones. Yellow in particular is
+	   invisible on a light ground — "selected" becomes amber. */
+	--sketch-default: #2b6cb0;
+	--sketch-constrained: #107a52;
+	--sketch-construction: #8a93b5;
+	--sketch-selected: #d98a00;
+	--sketch-hovered: #0a84ff;
+	--sketch-preview: #5b7fa6;
+	--sketch-snap: #0a8f33;
+	--sketch-overconstrained: #d03028;
+	/* Region highlight doubles as an opaque boundary-line color and a 0.1/0.15
+	   fill, so hover stays a readable mid-tone and select goes deeper (the
+	   dark themes make select BRIGHTER for the same reason). */
+	--sketch-profile-hover: #2e9e6a;
+	--sketch-profile-select: #0b7a4a;
+}
+
+/*
+ * Solarized Dark — Ethan Schoonover's palette (ethanschoonover.com/solarized),
+ * canonical values. base03/base02 are the backgrounds; the UI text ramp uses
+ * base1 (emphasized) > base0 (body) > base01 (comments) so it descends in
+ * prominence. bg-tertiary/hover/border are interpolations of base02 toward
+ * base01 — Solarized defines no UI chrome shades of its own.
+ *
+ * Solarized is a deliberately LOW-CONTRAST scheme: its accents land near
+ * 3:1 on either ground. That is the design, kept here rather than "fixed".
+ */
+:root[data-theme='solarized-dark'] {
+	color-scheme: dark;
+	--bg-primary: #002b36;   /* base03 */
+	--bg-secondary: #073642; /* base02 */
+	--bg-tertiary: #0f3c47;
+	--bg-hover: #17414c;
+	--text-primary: #93a1a1;   /* base1  */
+	--text-secondary: #839496; /* base0  */
+	--text-muted: #586e75;     /* base01 */
+	--border-color: #234a54;
+	--accent: #268bd2;       /* blue   */
+	--accent-hover: #3d9fdd;
+	--success: #859900;      /* green  */
+	--warning: #b58900;      /* yellow */
+	--error: #dc322f;        /* red    */
+	/* blue/green/yellow fills are all mid-to-bright — base03 on them beats
+	   white on three of the four. */
+	--text-on-accent: #002b36;
+	--viewport-bg: #00212b;
+	--model-color: #7e9294;
+	--sketch-default: #268bd2;
+	--sketch-constrained: #859900;
+	--sketch-construction: #586e75;
+	--sketch-selected: #b58900;      /* yellow reads well on base03 */
+	--sketch-hovered: #2aa198;       /* cyan    */
+	--sketch-preview: #6c71c4;       /* violet  */
+	--sketch-snap: #d33682;          /* magenta */
+	--sketch-overconstrained: #dc322f;
+	--sketch-profile-hover: #1f7a72;
+	--sketch-profile-select: #2aa198;
+}
+
+/*
+ * Solarized Light — the same accents on base3/base2, with the text ramp
+ * flipped to base01 (emphasized) > base00 (body) > base1. The one departure
+ * from the dark twin is "selected": Solarized yellow is invisible on base3,
+ * so the sketch selection highlight uses orange.
+ */
+:root[data-theme='solarized-light'] {
+	color-scheme: light;
+	--bg-primary: #fdf6e3;   /* base3 */
+	--bg-secondary: #eee8d5; /* base2 */
+	--bg-tertiary: #e6dfc8;
+	--bg-hover: #dbd3b8;
+	--text-primary: #586e75;   /* base01 */
+	--text-secondary: #657b83; /* base00 */
+	--text-muted: #93a1a1;     /* base1  */
+	--border-color: #ccc4ac;
+	--accent: #268bd2;
+	--accent-hover: #1b7ab8;
+	--success: #859900;
+	--warning: #b58900;
+	--error: #dc322f;
+	--text-on-accent: #002b36;
+	--viewport-bg: #f3ecd9;
+	--model-color: #7a8f90;
+	--sketch-default: #268bd2;
+	--sketch-constrained: #859900;
+	--sketch-construction: #93a1a1;
+	--sketch-selected: #cb4b16;      /* orange, not yellow — see above */
+	--sketch-hovered: #2aa198;
+	--sketch-preview: #6c71c4;
+	--sketch-snap: #d33682;
+	--sketch-overconstrained: #dc322f;
+	--sketch-profile-hover: #2aa198;
+	--sketch-profile-select: #157f78;
+}
+
+/*
+ * Monokai — Wimer Hazenberg's classic palette: #272822 ground, #f8f8f2
+ * foreground, #75715e comments, #49483e line highlight, and the six signature
+ * accents (pink #f92672, orange #fd971f, yellow #e6db74, green #a6e22e,
+ * cyan #66d9ef, purple #ae81ff). Cyan is the UI accent — it is the hue that
+ * reads as "interactive", which leaves green for success and pink for error.
+ */
+:root[data-theme='monokai-dark'] {
+	color-scheme: dark;
+	--bg-primary: #272822;
+	--bg-secondary: #2e2f28;
+	--bg-tertiary: #363730;
+	--bg-hover: #49483e;     /* the classic line highlight */
+	--text-primary: #f8f8f2;
+	--text-secondary: #c4c2b7;
+	--text-muted: #75715e;   /* comment */
+	--border-color: #3e3d32; /* selection */
+	--accent: #66d9ef;       /* cyan   */
+	--accent-hover: #8ee6f5;
+	--success: #a6e22e;      /* green  */
+	--warning: #e6db74;      /* yellow */
+	--error: #f92672;        /* pink   */
+	--text-on-accent: #272822;
+	--viewport-bg: #1e1f1a;
+	--model-color: #8a8a7c;
+	--sketch-default: #66d9ef;
+	--sketch-constrained: #a6e22e;
+	--sketch-construction: #75715e;
+	--sketch-selected: #e6db74;
+	--sketch-hovered: #b3ecf9;
+	--sketch-preview: #ae81ff;       /* purple */
+	--sketch-snap: #fd971f;          /* orange */
+	--sketch-overconstrained: #f92672;
+	--sketch-profile-hover: #6f9c25;
+	--sketch-profile-select: #a6e22e;
+}
+
+/*
+ * Monokai Light — the classic inverted about its own two anchors: Monokai's
+ * FOREGROUND #f8f8f2 becomes the ground and its ground #272822 becomes the
+ * text, so the scheme keeps its warm olive cast instead of turning grey.
+ * The six accents are each darkened along their own hue until they carry
+ * #f8f8f2 as a fill (>= 4.3:1) and read as text on the page; #75715e is the
+ * one canonical value that already works on both grounds, so comments/muted
+ * text are unchanged.
+ */
+:root[data-theme='monokai-light'] {
+	color-scheme: light;
+	--bg-primary: #f8f8f2;   /* Monokai's foreground */
+	--bg-secondary: #eeeee4;
+	--bg-tertiary: #e4e4d7;
+	--bg-hover: #d8d8c8;
+	--text-primary: #272822; /* Monokai's ground */
+	--text-secondary: #4f5046;
+	--text-muted: #75715e;   /* comment — unchanged */
+	--border-color: #cdcdba;
+	--accent: #0a7f9c;       /* cyan   #66d9ef */
+	--accent-hover: #0d93b3;
+	--success: #4f7a06;      /* green  #a6e22e */
+	--warning: #8a6d0f;      /* yellow #e6db74 */
+	--error: #c8134f;        /* pink   #f92672 */
+	--text-on-accent: #f8f8f2;
+	--viewport-bg: #f1f1e6;
+	--model-color: #8f8f80;
+	--sketch-default: #0a7f9c;
+	--sketch-constrained: #4f7a06;
+	--sketch-construction: #a6a390;
+	--sketch-selected: #8a6d0f;
+	--sketch-hovered: #12aacb;
+	--sketch-preview: #7043c9;       /* purple #ae81ff */
+	--sketch-snap: #b05a00;          /* orange #fd971f */
+	--sketch-overconstrained: #c8134f;
+	--sketch-profile-hover: #6f9c25;
+	--sketch-profile-select: #4f7a06;
 }
 
 @media (max-width: 480px) {

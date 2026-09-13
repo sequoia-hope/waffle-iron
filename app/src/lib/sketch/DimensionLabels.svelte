@@ -434,9 +434,9 @@
 	}
 
 	:global(.dim-label) {
-		background: rgba(30, 30, 50, 0.85);
-		color: #aaccff;
-		border: 1px solid #4488ff;
+		background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+		color: var(--sketch-default);
+		border: 1px solid var(--sketch-default);
 		border-radius: 3px;
 		padding: 2px 6px;
 		font-size: 11px;
@@ -448,28 +448,28 @@
 	}
 
 	:global(.dim-label:hover) {
-		background: rgba(40, 40, 80, 0.95);
-		color: #ccddff;
+		background: color-mix(in srgb, var(--bg-hover) 95%, transparent);
+		color: var(--sketch-hovered);
 	}
 
 	:global(.dim-label.dim-selected) {
-		border-color: #ffdd44;
-		background: rgba(70, 60, 20, 0.95);
-		color: #ffeeaa;
-		box-shadow: 0 0 0 1px #ffdd44;
+		border-color: var(--sketch-selected);
+		background: color-mix(in srgb, var(--sketch-selected) 18%, var(--bg-secondary));
+		color: var(--sketch-selected);
+		box-shadow: 0 0 0 1px var(--sketch-selected);
 	}
 
 	:global(.dim-label.dim-reference) {
-		color: #8899bb;
-		border-color: #667799;
+		color: var(--text-secondary);
+		border-color: var(--sketch-construction);
 		font-style: italic;
 		cursor: default;
 	}
 
 	:global(.dim-input) {
-		background: rgba(30, 30, 50, 0.95);
-		color: #ffffff;
-		border: 1px solid #44cc44;
+		background: color-mix(in srgb, var(--bg-secondary) 96%, transparent);
+		color: var(--text-primary);
+		border: 1px solid var(--sketch-snap);
 		border-radius: 3px;
 		padding: 2px 6px;
 		font-size: 11px;

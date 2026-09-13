@@ -178,9 +178,9 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: rgba(45, 45, 55, 0.85);
-		border: 1px solid rgba(100, 100, 120, 0.4);
-		color: rgba(200, 200, 210, 0.9);
+		background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+		border: 1px solid var(--border-color);
+		color: var(--text-secondary);
 		font-size: 8px;
 		font-weight: 700;
 		letter-spacing: 0.5px;
@@ -190,15 +190,17 @@
 		font-family: inherit;
 	}
 
+	/* Opaque on hover: a semi-transparent accent over an arbitrary viewport
+	   background cannot be relied on to carry --text-on-accent. */
 	.face:hover {
-		background: rgba(0, 120, 212, 0.5);
-		color: white;
-		border-color: rgba(0, 120, 212, 0.7);
+		background: var(--accent);
+		color: var(--text-on-accent);
+		border-color: var(--accent);
 	}
 
 	.face.active {
-		color: var(--accent, #4488ff);
-		border-color: rgba(0, 120, 212, 0.5);
+		color: var(--accent);
+		border-color: var(--accent);
 	}
 
 	.front  { transform: rotateY(0deg) translateZ(30px); }
@@ -211,7 +213,7 @@
 	.cube-controls {
 		display: flex;
 		gap: 2px;
-		background: rgba(30, 30, 40, 0.7);
+		background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
 		border-radius: 4px;
 		padding: 2px;
 		backdrop-filter: blur(4px);
@@ -220,7 +222,7 @@
 	.iso-btn {
 		background: transparent;
 		border: none;
-		color: #999;
+		color: var(--text-secondary);
 		font-size: 10px;
 		font-weight: 600;
 		padding: 3px 8px;
@@ -230,18 +232,18 @@
 	}
 
 	.iso-btn:hover {
-		background: rgba(255, 255, 255, 0.1);
-		color: #ccc;
+		background: var(--bg-hover);
+		color: var(--text-primary);
 	}
 
 	.iso-btn.active {
-		color: var(--accent, #4488ff);
+		color: var(--accent);
 	}
 
 	.dropdown-toggle {
 		background: transparent;
 		border: none;
-		color: #777;
+		color: var(--text-muted);
 		font-size: 8px;
 		padding: 3px 6px;
 		cursor: pointer;
@@ -250,13 +252,13 @@
 	}
 
 	.dropdown-toggle:hover {
-		background: rgba(255, 255, 255, 0.1);
-		color: #aaa;
+		background: var(--bg-hover);
+		color: var(--text-secondary);
 	}
 
 	.dropdown-panel {
-		background: rgba(30, 30, 40, 0.9);
-		border: 1px solid rgba(100, 100, 120, 0.3);
+		background: color-mix(in srgb, var(--bg-tertiary) 92%, transparent);
+		border: 1px solid var(--border-color);
 		border-radius: 6px;
 		padding: 4px 0;
 		backdrop-filter: blur(8px);
@@ -269,7 +271,7 @@
 		width: 100%;
 		background: transparent;
 		border: none;
-		color: #ccc;
+		color: var(--text-primary);
 		font-size: 11px;
 		padding: 6px 12px;
 		cursor: pointer;
@@ -278,13 +280,13 @@
 	}
 
 	.dropdown-item:hover {
-		background: rgba(0, 120, 212, 0.3);
-		color: white;
+		background: var(--accent);
+		color: var(--text-on-accent);
 	}
 
 	.dropdown-sep {
 		height: 1px;
-		background: rgba(100, 100, 120, 0.3);
+		background: var(--border-color);
 		margin: 2px 0;
 	}
 
@@ -292,18 +294,18 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		color: #ccc;
+		color: var(--text-primary);
 		font-size: 11px;
 		padding: 6px 12px;
 		cursor: pointer;
 	}
 
 	.dropdown-label:hover {
-		background: rgba(0, 120, 212, 0.3);
-		color: white;
+		background: var(--accent);
+		color: var(--text-on-accent);
 	}
 
 	.dropdown-label input[type="checkbox"] {
-		accent-color: var(--accent, #0078d4);
+		accent-color: var(--accent);
 	}
 </style>

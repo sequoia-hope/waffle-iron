@@ -137,20 +137,20 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
-		background: rgba(30, 30, 50, 0.95);
-		border: 1px solid #44cc88;
+		background: color-mix(in srgb, var(--bg-secondary) 96%, transparent);
+		border: 1px solid var(--sketch-constrained);
 		border-radius: 3px;
 		padding: 2px 6px;
 		font-size: 12px;
 		font-family: monospace;
-		color: #ffffff;
+		color: var(--text-primary);
 	}
-	.dimension-prefix { color: #aaddcc; }
-	.dimension-unit { color: #999; }
+	.dimension-prefix { color: var(--sketch-constrained); }
+	.dimension-unit { color: var(--text-muted); }
 
 	.dimension-input {
 		background: transparent;
-		color: #ffffff;
+		color: var(--text-primary);
 		border: none;
 		padding: 1px 2px;
 		font-size: 12px;
@@ -161,8 +161,8 @@
 	}
 
 	.dimension-input-overlay:focus-within {
-		border-color: #66ddaa;
-		box-shadow: 0 0 6px rgba(68, 204, 136, 0.3);
+		border-color: var(--sketch-snap);
+		box-shadow: 0 0 6px color-mix(in srgb, var(--sketch-snap) 40%, transparent);
 	}
 
 	@media (max-width: 768px) {
