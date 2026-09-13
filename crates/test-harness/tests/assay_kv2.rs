@@ -1333,12 +1333,9 @@ fn smoke_corpus_boundary_categories() {
         // into BOTH operands' Stage-1 meshes through the P3a face-interior
         // channel (§4.4.1's "we set r_A = r_B = r"), so the prisms MEET there.
         // 0.6 s release. Its corpus twin C0058 (equal-R at 30°, UNION) flipped
-        // in the same increment but is deliberately NOT pinned here — 28.0 s
-        // release is far past this gate's budget once the debug ratio is
-        // applied (the R0044 / F0082 rule); C0058 is pinned by the committed
-        // corpus snapshot and by kernel-v2
-        // `kv9_cyl_cyl_special::steinmetz_union_exact_volume`, whose exact
-        // bicylinder volume oracle is RED without the mint (measured).
+        // in the same increment but is NOT pinned here — see the note at its
+        // former entry below; at 28.0 s release it is too heavy for a smoke
+        // gate, and the kv9 exact-volume oracle pins it for 0.15 s instead.
         ("F0058", Category::SupportedCorrect),
         // C0067 FLIPPED (2026-09-12, junction-map triple candidates): the
         // sphere + polar-notch {sphere, wall, wall} corners are junctions of
@@ -1562,7 +1559,18 @@ fn smoke_corpus_boundary_categories() {
         // the procedural surface-pair curve — union then cut passes the
         // exact-volume oracle end-to-end.
         ("C0052", Category::SupportedCorrect), // [M5] unequal-R perpendicular CUT
-        ("C0058", Category::Error),            // [M5] equal-R 30° oblique union (tangency neck)
+        // C0058 FLIPPED (2026-09-13, the §4.3.3 tangent-point mint) and its pin
+        // REMOVED from this gate rather than moved. It was pinned `Error` while
+        // it failed fast; correct, it costs 28.0 s release and measured +467 s
+        // on the whole DEBUG gate run (822 s → 1289 s) — by far the heaviest
+        // entry, against this gate's own rule that it stays a SMOKE gate of
+        // cheap boundary cases (the heaviest, C0116, is ≈ 50 s release). Same
+        // disposition as R0044 and F0082 above. Its conversion is pinned where
+        // a case this size belongs: the committed corpus snapshot
+        // (`app/tests/cases/assay/results.json`) and kernel-v2
+        // `kv9_cyl_cyl_special::steinmetz_union_exact_volume`, whose exact
+        // bicylinder volume oracle is RED without the mint (mutation-checked)
+        // and runs in 0.15 s. Its twin F0058 (0.6 s) IS pinned, above.
         // KV6 on-axis slice 2 increment B (task #66): the apex triangle now
         // BUILDS the solid cone; the case's real boundary was the OBLIQUE
         // slab cut (conic-bounded cone patch) on the typed curved re-entry
