@@ -170,10 +170,12 @@ fn parallel_cyl_union_exact_volume() {
 #[test]
 #[ignore = "KV9-F1 (spec kv9_f1_tangency_inout_labels): layers 1+2 FIXED (N24 predicate \
             zero-certification; Increment 0c Stage-4 tangency-junction band). The union \
-            now stops LOUDLY at Stage-6 s6-curved-degenerate-loop: extract_boundary_cycles \
-            interleaves the top/bottom lens cycles at the 4-valent tangency junction into \
-            a Newell-cancelling figure-eight — junction-aware boundary-walk continuation \
-            is the next increment (spec §2c.5a)"]
+            now stops LOUDLY at Stage-6 s6-curved-degenerate-loop. RE-DIAGNOSED 2026-09-13 \
+            (spec yang_433_tangent_point_mesh_update, the C0058 corpus twin): the boundary \
+            walk is CORRECT — its wedge orbit pairs the crossing — and the cycle is the \
+            honest boundary of a patch that stays connected because the MESH was never cut \
+            at the tangent point (no vertex within 1e-9 of it at Stage-4 entry). Owner: \
+            Yang 4.4.1 trim + CDT mesh update (deviation N2), NOT the walk"]
 fn steinmetz_union_exact_volume() {
     let mut a = BrepArena::new();
     let r = 0.3;

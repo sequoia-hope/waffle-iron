@@ -167,7 +167,19 @@ curve-assignment state is Increment 0c.
    4-valent tangency junction interleaves the top-lens and bottom-lens
    boundary cycles into one 76-edge figure-eight whose Newell vector
    cancels (~2.3e-16); the walk needs junction-aware continuation
-   pairing. (b) The SUBTRACT clears yang-rs and walls at kernel-v2
+   pairing.
+
+   > **SUPERSEDED 2026-09-13 — the walk is NOT the defect.**
+   > `patch_boundary_cycle`'s wedge-consistent successor map (#169 P3b
+   > inc-4a) pairs the crossing correctly and never falls back; measured on
+   > C0058, where the un-merged tangency's two A-fans are paired
+   > (57,50)→(50,51) and (52,50)→(50,58), each inside its own fan. The cycle
+   > it produces is the HONEST boundary of a patch that stays connected
+   > because the MESH was never cut at the tangent point — at Stage-4 entry
+   > no vertex lies within 1e-9 of it (nearest 1.334403e-1). "Junction-aware
+   > continuation pairing" was an inference from the symptom, not a
+   > measurement. The owner is §4.4.1 trim + CDT (deviation N2):
+   > `specs/yang_433_tangent_point_mesh_update.md`. (b) The SUBTRACT clears yang-rs and walls at kernel-v2
    import `NonManifoldVertex(43)` — four elliptical arcs sharing BOTH
    endpoints (two per ellipse) defeat the vertex-pair(+curve) edge
    keying, the same class as the M8 disc∩disc lens BIGON keys. The kv9

@@ -9219,6 +9219,7 @@ pub(crate) fn stage4_relocate_and_correct(
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
     edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
 ) -> Result<(Vec<(u32, f64)>, bool), YangError> {
+    star_probe("s4-entry", mesh, attribution);
     let census = std::env::var("YANG_S4_CARRIER_DOMAIN").as_deref() == Ok("census");
     // Taken before the inner call, so it is the mesh exactly as Stage 4 received
     // it — strictly earlier than the inner snapshot and never later.
@@ -11756,10 +11757,26 @@ fn stage4_relocate_and_correct_inner(
             let pa = p.as_array();
             ((qa[0] - pa[0]).powi(2) + (qa[1] - pa[1]).powi(2) + (qa[2] - pa[2]).powi(2)).sqrt()
         };
-        let (proj, t) = if er.second_cyl.is_some() || move_len(proj) <= gate {
-            // R1 (and the cyl×cyl arm, whose per-point-amplified `gate`
-            // already carries the KV9 gradient machinery): byte-identical
-            // closed-form azimuth projection.
+        //
+        // 2026-09-13 (spec `yang_433_tangent_point_mesh_update.md` §5, C0058):
+        // the cyl×cyl arm used to SKIP this check outright
+        // (`er.second_cyl.is_some() || …`), on the reading that its
+        // per-point-amplified `gate` "already carries the KV9 gradient
+        // machinery". It does not: that gate bounds the RESIDUAL ρ, not the
+        // MOVE, and `cyl_cyl_point_amplification` is `f64::INFINITY` at
+        // tangency grade — so near a surface tangency the azimuth projection
+        // could slide a vertex an unbounded distance ALONG the section.
+        // Measured on C0058 (two equal-R cylinders tangent at (0, ±0.4, 1)):
+        // v33 slid **0.4427** — 22 % of the model's own extent — onto a point
+        // where two other vertices already sat, stacking three vertices on one
+        // position and folding A's lateral. The move check now applies to the
+        // cyl×cyl arm too; v33's move becomes 1.1506e-1 (the in-plane nearest
+        // point, which lands 6.78e-2 from the tangency itself).
+        // Corpus 2026-09-13: 287C / 0W / 18E / 4EE / 0T (+3 U), ZERO
+        // category and ZERO detail moves — this closes a latent, it converts
+        // nothing (C0058's own wall is the missing §4.4.1 mesh update, §6).
+        let (proj, t) = if move_len(proj) <= gate {
+            // R1: byte-identical closed-form azimuth projection.
             (proj, t)
         } else {
             let (near_proj, near_t) = project_onto_ellipse_nearest(p, er)
@@ -12908,6 +12925,7 @@ fn stage4_relocate_and_correct_inner(
         }
     }
 
+    star_probe("after-reloc", mesh, attribution);
     // (3) §4.5.3 reversed-intersection correction sweep.
     // (`collapsed_any` starts true when §4.5.1 repairs collapsed vertices
     // above — the post-collapse Phase-A recompute must run for those too.)
@@ -13140,6 +13158,7 @@ fn stage4_relocate_and_correct_inner(
     let any_collapse = sweep_result?;
     collapsed_any |= any_collapse;
 
+    star_probe("before-3c-merge", mesh, attribution);
     // (3c) §4.4.1(b) sub-feature-size vertex merge (Yang Fig. 11(b): "if an
     // endpoint p of the split edge is too close to q, we merge p with q"). After
     // relocation a degenerate triangle can have two vertices nearer than
@@ -13320,6 +13339,7 @@ fn stage4_relocate_and_correct_inner(
         attribution.attributions = attr_vec;
     }
 
+    star_probe("after-3c-merge", mesh, attribution);
     // (3b′) Coincident RELOCATED-vertex weld (spec `yang_n47_coincident_moved_weld`,
     // deviation N47). Two vertices this pipeline RELOCATED (`moved`: pushed onto an
     // analytic circle/ellipse/line/torus/surface-pair) can converge to within the
@@ -13448,6 +13468,7 @@ fn stage4_relocate_and_correct_inner(
         }
     }
 
+    star_probe("before-3d", mesh, attribution);
     // (3d) §4.4.1(a) edge-split (Yang Fig. 11(a): "locate the constrained edge
     // containing q, split it at q"). A degenerate relocated triangle D=[a,b,c] is
     // collinear: the vertex OFF its longest edge (`b`) lies on that long edge
@@ -13998,6 +14019,7 @@ fn stage4_relocate_and_correct_inner(
         }
     }
 
+    star_probe("before-validate", mesh, attribution);
     // (4) Validate every RELOCATED triangle (one touching a moved vertex) for
     // non-degeneracy (Yang §4.5 step 4). Reversed intersections are handled by
     // the §4.5.3 sweep above; watertightness by the global gate below (§4.4.3).
@@ -14449,6 +14471,85 @@ pub(crate) fn surface_kind_name(s: Surface) -> &'static str {
         Surface::Cone { .. } => "Cone",
         Surface::Sphere { .. } => "Sphere",
         Surface::Torus { .. } => "Torus",
+    }
+}
+
+/// Read-only positional STAR probe (`YANG_STAR_PROBE="x,y,z"`), printed at the
+/// named Stage-4 checkpoints (`s4-entry`, `after-reloc`, `before-3c-merge`,
+/// `after-3c-merge`, `before-3d`, `before-validate`).
+///
+/// For the given model position it reports every mesh vertex within 1e-9 of it,
+/// the six NEAREST vertices with their distances, and — for each hit — the whole
+/// incident triangle star with each triangle's `(input, face)` attribution and
+/// its corner positions.
+///
+/// This is the instrument that read C0058's tangency anatomy (spec
+/// `yang_433_tangent_point_mesh_update.md`): a position-keyed probe survives the
+/// vertex RENUMBERING that the collapse/compact/merge passes do between
+/// checkpoints, which an id-keyed one cannot. Byte-identical when the env is
+/// unset (the function returns before touching anything).
+pub(crate) fn star_probe(tag: &str, mesh: &crate::Mesh, attribution: &TriangleAttributionMap) {
+    let Ok(spec) = std::env::var("YANG_STAR_PROBE") else {
+        return;
+    };
+    let want: Vec<f64> = spec
+        .split(',')
+        .filter_map(|t| t.trim().parse::<f64>().ok())
+        .collect();
+    if want.len() != 3 {
+        return;
+    }
+    let hits: Vec<u32> = mesh
+        .verts
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| {
+            (p.x() - want[0]).abs() < 1e-9
+                && (p.y() - want[1]).abs() < 1e-9
+                && (p.z() - want[2]).abs() < 1e-9
+        })
+        .map(|(i, _)| i as u32)
+        .collect();
+    eprintln!(
+        "[star-probe {tag}] verts at {want:?} = {hits:?} (mesh {} tris)",
+        mesh.tris.len()
+    );
+    let mut near: Vec<(f64, u32)> = mesh
+        .verts
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let d =
+                ((p.x() - want[0]).powi(2) + (p.y() - want[1]).powi(2) + (p.z() - want[2]).powi(2))
+                    .sqrt();
+            (d, i as u32)
+        })
+        .collect();
+    near.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    for &(d, i) in near.iter().take(6) {
+        let q = mesh.verts[i as usize];
+        eprintln!(
+            "[star-probe {tag}]   near v{i} d={d:.6e} ({}, {}, {})",
+            q.x(),
+            q.y(),
+            q.z()
+        );
+    }
+    for &v in &hits {
+        for (ti, tri) in mesh.tris.iter().enumerate() {
+            if tri.contains(&v) {
+                eprintln!(
+                    "[star-probe {tag}]   v{v} tri {ti} = {tri:?} attr={:?} pts={:?}",
+                    attribution.lookup(ti as u32),
+                    tri.iter()
+                        .map(|&u| {
+                            let q = mesh.verts[u as usize];
+                            (u, q.x(), q.y(), q.z())
+                        })
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
     }
 }
 
