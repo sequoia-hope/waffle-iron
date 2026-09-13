@@ -9236,13 +9236,14 @@ pub(crate) fn stage4_relocate_and_correct(
     // components. Splitting a 2-valent-only mesh is a no-op, so this call is
     // inert wherever there is no line pinch.
     //
-    // GATED OFF (`YANG_EDGE_PINCH_SPLIT=1` arms it) pending the adjudication in
-    // spec §0a: the split does what it claims — F0060 stops being a Stage-4
-    // `NonManifoldOutput` and COMPLETES — but the boundary it then produces
-    // reads χ = 6 over three components against the case's authored χ = 2, and
-    // what `A − B` (four lobes joined along two tangent LINES and at two
-    // tangent POINTS) should be counted as is the open question. No silent
-    // wrong: the gate stays off until that is settled.
+    // ALWAYS-ON since 2026-09-13 (`YANG_EDGE_PINCH_SPLIT=0` is the off-switch;
+    // spec §0c). The adjudication that kept it off — "the boundary it produces
+    // reads χ = 6 against the authored χ = 2" — was an ORACLE artefact, not a
+    // property of the output: yang emits F0060's `A − B` as four closed
+    // shells, each χ = 2, with the two tangent points as per-sheet vertex
+    // copies (Mäntylä duplication, identical bits), and the assay's
+    // position-welded shell count fused each pair at that point. Counting
+    // shells by EDGE adjacency reads the honest 4 shells / χ = 8.
     if crate::stage4_relocate::edge_pinch_split_enabled() {
         let mut no_relocs: Vec<(u32, f64)> = Vec::new();
         let splits = split_pinch_vertices(mesh, &mut no_relocs, &attribution.attributions, true);

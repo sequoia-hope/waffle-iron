@@ -43,6 +43,77 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-13 (night, latest+2) — F0060 CONVERTED ⇒ 290C: the χ = 6 was the assay ORACLE welding Mäntylä duplication, not the output; the edge-pinch split is ALWAYS-ON; canonical **290C / 0W / 15E / 4EE / 0T + 3 U**, exactly one move
+
+Canonical after the flip run (release, 8 jobs, 600 s; wall 745.8 s at host load
+< 1; F0085 328.3 s, R0044 294.7 s, F0065 111.2 s): **290C / 0W / 15E / 4EE /
+0T + 3 UNSUPPORTED(coplanar-boolean)**. `git diff` of the committed
+`results.json`: ONE category move (F0060 ERROR → SUPPORTED_CORRECT), ZERO
+detail moves. Spec `yang_tangency_pinch_split.md` §0c has the measurements;
+the short form:
+
+1. **The previous entry's "the split never reached the B-Rep" is REFUTED one
+   layer earlier.** `KV2_RECOVER_PROBE` on the raw yang output: 12 faces in
+   FOUR closed shells (per lobe: cap half-disc, A-lateral triangle, B-lateral
+   triangle), each lobe's tangent line its OWN `LineSegment` edge ending at
+   femto-twin vertices the arrangement minted (6.3e-17 … 1.9e-16 apart), the
+   tangent points (±0.3, 0, 0) as bit-identical per-sheet copies (v33/v86,
+   v64/v87). χ = 2 per shell. `from_yang` pairs by vertex index and
+   `recover_output_curves` fuses nothing (`loop_chains=[None]` ×12): the split
+   reached the B-Rep intact. The "two valence-4 edges" were the previous
+   entry's own 1e-12 weld fusing the femto-twins.
+2. **The "twelve valence-1 edges" are not holes.** New `ASSAY_DUMP_OBJ`
+   (per-face groups, full-precision f32) + an exact-bit census: four
+   zero-width T-junctions, one per lobe corner — the A-lateral's boundary
+   carries the exact chord MIDPOINT p2 of an ellipse chord p1p3 that the
+   B-lateral sharing the arc does not. That is `tessellate/developable.rs`'s
+   designed rule ("Boundary edges split ON their own straight 3D geometry …
+   T-junction"), and `subdivide_t_junctions` in the oracle heals it. Not a
+   defect.
+3. **Where the 6 came from: the χ oracle counted shells as VERTEX-connected
+   components of the welded render.** Bottom-left and top-left lobes share
+   exactly one exact-bit vertex, (−0.3, 0, 0) (faces 340/341/342/345); the
+   right pair likewise. Two spheres identified at a point read as ONE shell
+   of χ = 3 ⇒ 2 shells, χ = 6, expected 4. The render has no vertex ids, so
+   the position weld erases the per-sheet copies a manifold kernel must emit
+   (spec §6, Mäntylä).
+4. **Fix: `test-harness::oracle::shell_decomposition`.** Shells are
+   EDGE-connected triangle components (exact keys where an edge pairs
+   exactly; the T-subdivided cell keys on the residue path, so the walk
+   crosses a one-sided chord split exactly as the pairing does); each welded
+   vertex is counted once per shell it touches (`pinch_extra`). Both χ paths
+   use it; details gain `+N pinch` only when N > 0 (every other detail string
+   byte-identical — the zero detail moves above). It never demotes: for an
+   old-correct verdict the fused-copy count P equals 2 × the extra
+   edge-components Q, which is the new-correct condition. An EDGE shared by
+   two sheets stays one non-manifold component (watertight still fails); a
+   self-pinch inside one shell still reads one χ short. Four unit tests
+   (`euler_characteristic_two_shells_touching_at_a_vertex_are_two_shells`,
+   `…_on_the_hybrid_path`, `…_sharing_an_edge_still_fail`,
+   `…_self_pinched_shell_still_fails`).
+5. **Armed F0060 then grades CORRECT** (4 shells; V 1438 + 2 pinch, E 4292,
+   F 2860, χ = 8 = 2 + 2·3; 2.0 s release) and the gate is flipped
+   (`edge_pinch_split_enabled()` on unless `YANG_EDGE_PINCH_SPLIT=0`). Smoke
+   pin added. The "one body or four?" adjudication: four closed shells of one
+   solid — the only thing a manifold B-Rep can say about a line- and
+   point-pinched point set.
+
+**Named, not fixed:** the lobes' line edges are distinct in the render only
+because their endpoints are arrangement femto-twins; a line pinch with
+bit-identical per-sheet chain endpoints would render as one 4-valent exact
+edge and fail the watertight oracle (no render-side per-sheet EDGE pairing).
+No corpus case exercises it.
+
+**Lesson (the third refutation of this family in one day):** every reading
+that blamed a layer — "Stage 4 breaks it", "the emission loses it", "the
+render loses it" — was made from a WELDED view of that layer's output.
+Instrument at the layer's own identity (mesh vertex ids at Stage 4, B-Rep
+vertex indices at emission, per-face groups + exact bits at the render)
+before naming an owner; a weld is an oracle's model, not the object.
+
+Remaining actionable tail: 15 ERROR (R0038, R0050, R0100, C0065, R0019, R0085
+and the C-series/M8 residue rows below), unchanged but for F0060 struck.
+
 ## 2026-09-13 (night, latest+1) — F0060's EDGE-PINCH split BUILT and GATED OFF: the certificate and the placement are both proven (F0060 stops being a `NonManifoldOutput` and COMPLETES), but the answer it then gives is χ = 6 against an authored χ = 2, so the open question is the ADJUDICATION, not the machinery; default corpus UNCHANGED 289C / 0W / 16E / 4EE / 0T + 3 U, zero moves
 
 Spec `specs/yang_tangency_pinch_split.md` §0b. `YANG_EDGE_PINCH_SPLIT=1` arms it;
@@ -337,7 +408,7 @@ on today's tree, no code change.
 |---|---|---|---|
 | **C0058**, **F0058** | cyl×cyl POINT | **NO** — no vertex within 1e-9 at Stage-4 entry; nearest 1.33e-1 / 2.92e-2 | §4.4.1 trim+CDT — the branches must be CUT into the mesh (`specs/yang_433_tangent_point_mesh_update.md`) |
 | **R0038** | plane-tangent-cylinder GENERATOR | n/a — its degenerate caps ARE the conformal seam triangles | §4.4.1 too, and its remedy is already BANKED: `replan_degenerate_cylinder_patches` / `YANG_N2_RECDT_ENABLE` (task #168), which self-rejects at the degree-2 boundary gate (`yang_n2_stage4_cdt_mesh_updating.md` §5c.10) |
-| **F0060** | plane×cyl LINE | **YES** — the generator carries mesh vertices (x = 0, z = −0.3 exactly) and `B#2` triangles lie IN it | NOT §4.4.1: a pinch-EDGE split (below) — and its ULP weld already works |
+| **F0060** | plane×cyl LINE | **YES** — the generator carries mesh vertices (x = 0, z = −0.3 exactly) and `B#2` triangles lie IN it | NOT §4.4.1: a pinch-EDGE split (below) — and its ULP weld already works  **DONE 2026-09-13 (latest+2): split always-on, F0060 CORRECT** |
 | **C0065**, **R0050** | torus | — | §4.5.2 REFUTED for R0050 (exact tangency, `specs/yang_452_local_refinement.md` §6); C0065 is the bounded-face containment class |
 
 **F0060 measured.** A = cylinder r 0.3, caps at z = ±0.3; B = cylinder r 0.3 on
@@ -1742,7 +1813,7 @@ moved. The 30 ERROR rows are the ACTIVE rows below.
 | F0064 | non-2-manifold | wall vert 0.083 off floor plane; minted in Stage-4 mutation window OR inherited via lineage-less chained B (4 hypotheses eliminated, N51 session) | PARTIAL (#146) | P3a-#146 |
 | ~~R0051~~ | ~~non-2-manifold~~ | ~~in the #146 Newell-normal class per task~~ **FLIPPED CORRECT 2026-09-07 (evening): never a junction mint — `remove_doubled_membranes` desynced the attribution vector from `mesh.tris` (one slot), the inner-cylinder triangle took the annulus's face, Stage 6 caught the off-plane vertex; lockstep filter + pin** | ~~SUSPECTED~~ CONFIRMED (attr trace) | ~~P3a-#146~~ DONE |
 | ~~F0058~~ | **FLIPPED CORRECT 2026-09-13** (§4.3.3 tangent-point Stage-1 mint) — non-2-manifold | probe 2026-07-17: `s4-shell-euler` shell root 106 χ=3 (v107 e314 f210) — Stage-4 shell-level Euler defect. **2026-09-13: same class as C0058** — all FOUR of v30's A-triangles (`[29,1,30] [30,1,31] [1,104,30] [1,30,103]`) fan onto the single lower seam vertex v1 = (0, −0.2, −0.3), so edge (1, 30) carries four triangles; at Stage-4 entry no vertex within 1e-9 of the tangency (0, −0.2, 0), nearest 2.921888e-2 ×2 / 6.325992e-2 ×2 | CONFIRMED (2026-09-13, `YANG_STAR_PROBE`) | ~~P3a-#146~~ **§4.4.1 mesh update (deviation N2) / #169 phase 3** |
-| F0060 | non-2-manifold | probe 2026-07-17: `s4-shell-euler` shell root 118 χ=3 (v49 e150 f104) — same class as F0058 | CONFIRMED (#171 sweep) | P3a-#146 |
+| ~~F0060~~ | ~~non-2-manifold~~ | ~~probe 2026-07-17: `s4-shell-euler` shell root 118 χ=3 (v49 e150 f104) — same class as F0058~~ **FLIPPED CORRECT 2026-09-13 (night, latest+2):** a LINE-pinched `A − B` (B's lateral tangent to both of A's caps along a diameter, plus the two lateral point tangencies); the Stage-4-ENTRY edge-pinch split (attribution + winding certificate, spec `yang_tangency_pinch_split.md` §0a–§0c) separates all four contacts and yang emits FOUR closed shells of χ = 2; the χ = 6 that kept the split gated was the assay oracle counting shells as VERTEX-connected components of the welded render (Mäntylä per-sheet copies fused at the tangent points) — `shell_decomposition` now counts EDGE-connected components with per-shell vertices. 2.0 s | CONFIRMED (2026-09-13) | DONE |
 | ~~F0085~~ | non-2-manifold | **FLIPPED CORRECT 2026-08-19 (a1adca26); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-17: `s4-halfedge-pairing` edge (5720,5731) fwd=1 rev=0, verts 0.043 apart — the R0038-type unpaired open seam (two-sided conformality) | CONFIRMED (#171 sweep) | P3b-#137 |
 
 ### CDT / tessellation failures (8) — mostly chained-input casualties
@@ -3013,7 +3084,7 @@ non-2-manifold` cases (the largest remaining ERROR family):
 | Case | site | mechanism |
 |---|---|---|
 | ~~F0058~~ **FLIPPED 2026-09-13** | `s4-shell-euler` double-cover χ=3, edge (1,30) on A cyl-2, four tris (two per x-side, apexes z=±0.0285) — preceded by `s6-wedge-walk-not-outgoing` at v30 | equal-R perpendicular cyl−cyl CUT: v30 = (0,−0.2,0) is the exact tangency point where A's seam passes; the kept upper/lower sheets both fan onto the LOWER seam segment (1,30) — the vertex-pinch construction defect (`yang_tangency_pinch_split.md` sibling class) |
-| F0060 | `s4-shell-euler` double-cover χ=3 on both cap planes (z=±0.3) along the line x=0 | B (r=0.3, axis y through the origin) is TANGENT to both caps of A along a line — a line-pinch solid (two half-wedges per cap touching along the tangent line); not 2-manifold-representable |
+| F0060 | `s4-shell-euler` double-cover χ=3 on both cap planes (z=±0.3) along the line x=0 | B (r=0.3, axis y through the origin) is TANGENT to both caps of A along a line — a line-pinch solid (two half-wedges per cap touching along the tangent line); not 2-manifold-representable  **FLIPPED CORRECT 2026-09-13 (latest+2):** it IS manifold-representable — by Mäntylä duplication (one vertex/edge per sheet): the Stage-4-entry edge-pinch split emits the four lobes as four closed shells, and the assay χ oracle now counts shells by EDGE adjacency (spec `yang_tangency_pinch_split.md` §0c) |
 | R0032 | `s4-shell-euler` double-cover χ=3, edges (450,452)/(450,717) torus A ×2 + cones B191/B192 | torus × two-cone junction double cover (#146 family) |
 | C0107 / C0108 | `s6-curved-empty-cycles: face 0` | designed 0D point-tangency (7b); loud reject IS the designed green |
 | ~~C0058~~ **FLIPPED 2026-09-13** | `s6-curved-degenerate-loop` face 2 cycle len 64, ratio 5.9e-16 | ~~the tangency-neck figure-eight~~ **2026-09-13: NOT a walk defect** — the honest boundary of a patch the mesh never cut at the tangent point; §4.4.1 trim+CDT (`specs/yang_433_tangent_point_mesh_update.md`) |

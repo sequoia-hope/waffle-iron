@@ -411,6 +411,55 @@ fn replay_case(case: &DiscoveredCase) -> CaseOutcome {
                 eprintln!("[assay] dumped final mesh to {path}");
             }
         }
+        // `ASSAY_DUMP_OBJ=<dir>`: the same final mesh as a Wavefront OBJ with
+        // one `g face_<id>` group per kernel face and the f32 positions
+        // written at full round-trip precision — so a non-manifold residue
+        // can be attributed to the face whose tessellation produced it
+        // (the STL dump carries neither). Read-only, off unless set.
+        if let Ok(dir) = std::env::var("ASSAY_DUMP_OBJ") {
+            use std::fmt::Write as _;
+            let mut obj = String::new();
+            for v in mesh.vertices.chunks_exact(3) {
+                let _ = writeln!(obj, "v {:?} {:?} {:?}", v[0], v[1], v[2]);
+            }
+            let mut ranges: Vec<&waffle_types::kernel::FaceRange> =
+                mesh.face_ranges.iter().collect();
+            ranges.sort_by_key(|r| r.start_index);
+            let mut tri = 0usize;
+            let ntri = mesh.indices.len() / 3;
+            for r in ranges {
+                let _ = writeln!(obj, "g face_{}", r.face_id.0);
+                let end = (r.end_index as usize / 3).min(ntri);
+                while tri < end {
+                    let i = tri * 3;
+                    let _ = writeln!(
+                        obj,
+                        "f {} {} {}",
+                        mesh.indices[i] + 1,
+                        mesh.indices[i + 1] + 1,
+                        mesh.indices[i + 2] + 1
+                    );
+                    tri += 1;
+                }
+            }
+            if tri < ntri {
+                let _ = writeln!(obj, "g face_unranged");
+                while tri < ntri {
+                    let i = tri * 3;
+                    let _ = writeln!(
+                        obj,
+                        "f {} {} {}",
+                        mesh.indices[i] + 1,
+                        mesh.indices[i + 1] + 1,
+                        mesh.indices[i + 2] + 1
+                    );
+                    tri += 1;
+                }
+            }
+            let path = format!("{dir}/{}.obj", meta.id);
+            let _ = std::fs::write(&path, obj);
+            eprintln!("[assay] dumped final mesh to {path}");
+        }
         let (bb_min, bb_max) = mesh_bounding_box(&mesh);
         let dx = (bb_max[0] - bb_min[0]) as f64;
         let dy = (bb_max[1] - bb_min[1]) as f64;
@@ -1337,6 +1386,16 @@ fn smoke_corpus_boundary_categories() {
         // former entry below; at 28.0 s release it is too heavy for a smoke
         // gate, and the kv9 exact-volume oracle pins it for 0.15 s instead.
         ("F0058", Category::SupportedCorrect),
+        // F0060 FLIPPED (2026-09-13, spec `yang_tangency_pinch_split.md`
+        // §0c): the perpendicular equal-radius cylinder cut is LINE-pinched
+        // along both cap diameters and POINT-pinched at (±r, 0, 0); the
+        // Stage-4-entry edge-pinch split (always-on) separates all four
+        // contacts and yang emits `A − B` as four closed shells of χ = 2,
+        // the tangent points as per-sheet vertex copies with identical bits
+        // (Mäntylä duplication). The χ oracle now counts shells by EDGE
+        // adjacency and credits the welded copies back, so the honest
+        // 4 shells / χ = 8 grades CORRECT (2.0 s release).
+        ("F0060", Category::SupportedCorrect),
         // C0067 FLIPPED (2026-09-12, junction-map triple candidates): the
         // sphere + polar-notch {sphere, wall, wall} corners are junctions of
         // two NON-coplanar sphere-section circles; Stage 4 demoted each into

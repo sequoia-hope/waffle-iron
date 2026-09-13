@@ -363,6 +363,15 @@ becomes the effective limit.
   rebuilds re-attempted every pass).
 - `ASSAY_FAST=1` — skip only the un-judgeable (previously timed-out) slow-list
   cases for a quick partial baseline.
+- `ASSAY_DUMP_STL=<dir>` / `ASSAY_DUMP_OBJ=<dir>` — write each case's FINAL
+  render mesh (the one the oracles graded) to `<dir>/<ID>.stl` / `.obj`. The
+  OBJ carries one `g face_<kernel id>` group per kernel face and the f32
+  positions at full round-trip precision, so a non-manifold residue can be
+  attributed to the face whose tessellation produced it and censused at exact
+  bits — the STL has neither. (2026-09-13: this is how F0060's "twelve
+  valence-1 edges" were read as the render's designed zero-width T-junctions
+  and its "χ = 6" as the oracle's vertex-welded shell count; spec
+  `yang_tangency_pinch_split.md` §0c.)
 
 **Handling a budget `TIMEOUT`:** it means "exceeded the CPU budget," not a real
 hang. Re-run that single case serially with a large budget to get its true

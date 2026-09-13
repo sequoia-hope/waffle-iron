@@ -1872,10 +1872,12 @@ pub(crate) fn remove_doubled_membranes(
     removed
 }
 
-/// Is the EDGE-pinch extension of [`split_pinch_vertices`] armed?
-/// `YANG_EDGE_PINCH_SPLIT=1` — spec `yang_tangency_pinch_split.md` §0a.
+/// Is the EDGE-pinch extension of [`split_pinch_vertices`] armed? ON by
+/// default since 2026-09-13 (spec `yang_tangency_pinch_split.md` §0c —
+/// F0060 converts once the assay oracle counts shells by edge adjacency);
+/// `YANG_EDGE_PINCH_SPLIT=0` is the off-switch for A/B measurement.
 pub(crate) fn edge_pinch_split_enabled() -> bool {
-    std::env::var("YANG_EDGE_PINCH_SPLIT").as_deref() == Ok("1")
+    std::env::var("YANG_EDGE_PINCH_SPLIT").as_deref() != Ok("0")
 }
 
 /// EDGE-PINCH per-sheet pairing (spec `yang_tangency_pinch_split.md` §0a).

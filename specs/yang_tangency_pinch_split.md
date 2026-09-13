@@ -1,6 +1,6 @@
 # Yang output — tangency pinch-vertex split at the shell gate
 
-Status: SPEC (2026-07-08, task #86). Corpus driver: C0058 (equal-radius
+Status: SPEC (2026-07-08, task #86); §0c FLIPPED ALWAYS-ON 2026-09-13. Corpus driver: C0058 (equal-radius
 cylinders crossing at 30°, coplanar axes, UNION; exact Steinmetz-family
 volume 2.08191… in its meta) — today `NonManifoldOutput` from the
 `s4-shell-euler` gate with χ=1 (v=90, e=267, f=178). This is the banked
@@ -141,6 +141,100 @@ honest `ERROR` it replaces, and 0W is enforced.)
 
 The nest of zero-area triangles at the cap centre needed no special handling:
 they are ordinary star triangles, and the certificate never looks at area.
+
+### 0c. ADJUDICATED and FLIPPED ALWAYS-ON (2026-09-13, later) — the χ = 6 was the ORACLE's, not the output's
+
+§0b left the split off because the armed output "reads χ = 6 against the
+authored χ = 2" and concluded the per-sheet split "never reached the B-Rep".
+Both readings are REFUTED by measuring one layer earlier and one layer later
+than they did. Every number below comes from a command that ran.
+
+**What yang emits (`KV2_RECOVER_PROBE`, the raw output before curve
+recovery).** With the split armed, F0060's `A − B` leaves yang as **12 faces
+in FOUR closed shells** — per lobe one cap half-disc (plane), one A-lateral
+curvilinear triangle and one B-lateral curvilinear triangle (both cylinder
+patches). Each lobe's tangent LINE is its own `LineSegment` edge (bottom-left
+`e0` v53→v80 / `e4` v80→v53; bottom-right `e1` v22→v48 / `e5` v48→v22); the
+two lobes' copies end at DIFFERENT vertices, femto-twins the arrangement
+minted 6.3e-17 … 1.9e-16 apart (v48/v53, v22/v80, v10/v26, v50/v57) — not
+split copies, ULP luck the ledger had already recorded. The tangent POINTS
+are the split's copies proper: v33/v86 = (0.3, 0, 0) and v64/v87 =
+(−0.3, 0, 0) at distance exactly 0. Per shell V − E + F = 4 − 5 + 3 = 2;
+total 8. kernel-v2's `from_yang` pairs edges by (vertex INDEX pair, curve
+key) and `recover_output_curves` reports `loop_chains=[None]` on all twelve
+faces, so nothing is re-welded (I6 VERIFIED) and the solid assembles as four
+shells.
+
+**What the render carries (new `ASSAY_DUMP_OBJ=<dir>`, one `g face_<id>`
+group per kernel face, f32 positions at full precision; exact-bit census in
+Python).** 2860 triangles, 1438 unique vertices, 4296 edges, **12 valence-1
+edges and nothing above 2**. The twelve are four zero-width T-junctions, one
+at each lobe's corner near its tangent point: e.g. p1 = (−0.2954423,
+−0.052094452, −0.052094452), p3 = (−0.28977776, −0.07764571, −0.07764571) on
+the ellipse, and p2 = (−0.29261005, −0.06487008, −0.06487008), which is
+bit-for-bit the MIDPOINT of p1p3 and lies 2.9e-4 off both cylinders. The
+A-lateral face carries p1–p2–p3, the B-lateral face sharing that ellipse arc
+carries p1–p3. That is the developable patch's DESIGNED boundary rule
+(`tessellate/developable.rs`: "Boundary edges split ON their own straight 3D
+geometry … the neighboring face's unsplit copy of the chord remains
+closure-safe (T-junction)"), and the assay oracle heals exactly this class by
+subdivision (`subdivide_t_junctions`). So §0b's "two valence-4 edges" were
+the 1e-12 weld fusing the femto-twin line endpoints, and its "twelve
+valence-1 edges" are the render's normal T-junctions. Neither is a defect.
+
+**Where the 6 came from.** Under exact-bit keys the render has TWO
+edge-connected pairs: the bottom-left and top-left lobes share exactly one
+vertex, (−0.3, 0, 0) (faces 340, 341, 342, 345 all use it), likewise the
+right pair at (0.3, 0, 0). The χ oracle
+(`check_mesh_euler_characteristic_with_shells`) counted shells as
+VERTEX-connected components of the position-welded complex, so each pair
+read as one shell of χ = 3 (two spheres identified at a point): 2 shells,
+χ = 6, expected 2 + 2·(2 − 1) = 4 ⇒ `SUPPORTED_WRONG`. The position weld is
+erasing Mäntylä duplication — the representation §6 says a manifold kernel
+MUST use — and a render mesh carries no vertex ids with which to keep it.
+
+**The fix is in the oracle (test-harness), and it is a representation
+correction, not a band.** `shell_decomposition`: shells are the
+EDGE-connected components of the triangles (two triangles are in one shell
+iff they share an edge key: the exact key where the edge pairs exactly, its
+T-subdivided cell keys on the residue path — so the walk crosses a
+one-sided chord split the same way the pairing does); each welded vertex is
+counted once PER SHELL it touches (`pinch_extra` = Σ_v (shells at v − 1),
+the copies the weld removed). Both the exact-bits path and the hybrid path
+use it. It never demotes a currently-correct verdict: for genus-g shells,
+old-correct means 2C_new − 2g − P = target + 2(C_old − meta) with
+P = pinch copies and Q = C_new − C_old, i.e. P = 2Q, which is exactly the
+new-correct condition. A pinch INSIDE one shell (two closed fans of the same
+component) still reads one χ short; two sheets sharing an EDGE key stay one
+non-manifold component (and unpaired for the watertight oracle). Pinned by
+four unit tests: two cubes touching at a corner are two shells of χ = 2
+(exact path, and the hybrid path with a one-sided T-vertex), two cubes
+sharing an edge still fail, a corner-touching third cube next to an
+edge-sharing pair credits only the distinct-component corner. Detail strings
+gain `+N pinch` ONLY when N > 0, so every other verdict's detail is
+byte-identical.
+
+**Result.** Armed F0060: 4 shells, V 1438 + 2 pinch, E 4292, F 2860,
+χ = 8 = 2 + 2·(4 − 1) ⇒ **`SUPPORTED_CORRECT` (2.0 s release)**. So the
+answer to §0b's "one body or four?" is: four closed shells of one solid,
+which is what a manifold B-Rep kernel has to say about a line- and
+point-pinched point set, and the corpus oracle now says it too. The gate is
+FLIPPED: `edge_pinch_split_enabled()` is on unless `YANG_EDGE_PINCH_SPLIT=0`.
+Corpus after the flip (release, 8 jobs, 600 s; wall 745.8 s at host load
+< 1; F0085 328.3 s, R0044 294.7 s, F0065 111.2 s): **290C / 0W / 15E / 4EE /
+0T + 3 UNSUPPORTED(coplanar-boolean)** — exactly ONE move (F0060 ERROR →
+SUPPORTED_CORRECT), zero detail moves; the split is inert wherever no edge
+carries the 2 + 2 certificate, and the oracle's shell rule changes no verdict
+without a pinch.
+
+**Known fragility, named and not fixed.** The two lobes' line edges are
+distinct in the render only because their endpoints are femto-twins. A line
+pinch whose chain ENDPOINTS were bit-identical per sheet would render as one
+4-valent exact edge and fail the watertight oracle: the oracle has no
+per-sheet pairing for EDGES (the certificate problem `edge_pinch_sheets`
+solves in the mesh has no render-side counterpart, because a render mesh has
+no attribution). No corpus case exercises it; if one appears, the render-side
+answer is per-shell vertex emission, not a weld band.
 
 After this slice: a **pinch-vertex split** pass runs on the output mesh
 before the shell gate — every vertex whose star decomposes into ≥ 2

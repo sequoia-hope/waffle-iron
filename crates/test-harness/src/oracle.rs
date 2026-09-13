@@ -213,6 +213,8 @@ fn mesh_grid_size(mesh: &RenderMesh) -> f64 {
 /// One vertex's exact f32 bit pattern (x, y, z), the collision-free key of
 /// the PR-KV8c exact pairing path.
 type ExactVertexBits = (u32, u32, u32);
+/// Canonically ordered exact edge (lower key first).
+type ExactEdge = (ExactVertexBits, ExactVertexBits);
 
 /// EXACT (f32-bitwise) edge multiset of the triangle mesh. When every key
 /// appears exactly twice, the mesh is PROVABLY closed — no quantization
@@ -263,8 +265,93 @@ struct HybridComplex {
     residue_sub: HashMap<QEdge, usize>,
     /// Welded vertex count (exact-only vertices + quantized residue cells).
     vertex_count: usize,
-    /// Connected components of the welded complex.
+    /// EDGE-connected triangle components of the welded complex (see
+    /// [`shell_decomposition`] — a shared vertex is not a connection).
     shells: usize,
+    /// Per-sheet vertex copies the position weld removed: Σ over welded
+    /// vertices of (shells touching it − 1). Added back to `vertex_count`
+    /// for the Euler characteristic ([`shell_decomposition`]).
+    pinch_extra: usize,
+}
+
+/// Shell decomposition of a welded triangle complex (spec
+/// `yang_tangency_pinch_split.md` §0c, 2026-09-13).
+///
+/// Shells are the EDGE-connected components of the triangle set: two
+/// triangles lie in one shell iff they share an edge key. A shared VERTEX is
+/// deliberately not a connection. A manifold B-Rep represents a solid whose
+/// boundary touches itself at a point by one vertex PER SHEET (Mäntylä's
+/// topological duplication — the yang pinch-vertex split emits exactly that,
+/// with identical position bits), and a render mesh's position weld cannot
+/// tell the copies apart. Counting vertex-connected components therefore
+/// fused two closed shells that merely touch, and V−E+F over the fused
+/// complex came out one short per touch (F0060: four lobes touching pairwise
+/// at two tangent points read as two shells of χ = 3 each). `pinch_extra` is
+/// the correction the weld owes back: Σ over welded vertices of (number of
+/// shells touching it − 1), i.e. the per-sheet vertex copies the weld
+/// removed. A pinch INSIDE one shell (a self-touching sheet: two closed fans
+/// of the SAME component) contributes nothing and still reads one χ short,
+/// as it must — that is a defect, not a representation. Two sheets sharing
+/// an EDGE key are one component here and stay non-manifold for the
+/// watertight oracle; only the vertex case is a representation question.
+struct ShellDecomposition {
+    shells: usize,
+    pinch_extra: usize,
+}
+
+fn shell_decomposition<K: std::hash::Hash + Eq>(
+    tri_vertex_ids: &[[usize; 3]],
+    tri_edge_keys: &[Vec<K>],
+) -> ShellDecomposition {
+    use std::collections::HashSet;
+    let n = tri_vertex_ids.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(p: &mut [usize], mut x: usize) -> usize {
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        x
+    }
+    // Every triangle sharing an edge key joins the first triangle seen on it.
+    let mut first_on_key: HashMap<&K, usize> = HashMap::new();
+    for (ti, keys) in tri_edge_keys.iter().enumerate() {
+        for k in keys {
+            match first_on_key.get(k) {
+                Some(&tj) => {
+                    let (ra, rb) = (find(&mut parent, ti), find(&mut parent, tj));
+                    if ra != rb {
+                        parent[ra.max(rb)] = ra.min(rb);
+                    }
+                }
+                None => {
+                    first_on_key.insert(k, ti);
+                }
+            }
+        }
+    }
+    let mut roots: HashSet<usize> = HashSet::new();
+    let mut shells_at_vertex: HashMap<usize, HashSet<usize>> = HashMap::new();
+    for (ti, vids) in tri_vertex_ids.iter().enumerate() {
+        let r = find(&mut parent, ti);
+        roots.insert(r);
+        for &v in vids {
+            shells_at_vertex.entry(v).or_default().insert(r);
+        }
+    }
+    let pinch_extra = shells_at_vertex.values().map(|s| s.len() - 1).sum();
+    ShellDecomposition {
+        shells: roots.len().max(1),
+        pinch_extra,
+    }
+}
+
+/// One triangle edge's identity in the hybrid complex: exact bits where the
+/// edge pairs exactly, else the quantized (T-subdivided) residue cell edge.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum HybridEdgeKey {
+    Exact(ExactVertexBits, ExactVertexBits),
+    Quant(QEdge),
 }
 
 fn hybrid_edge_complex(mesh: &RenderMesh, inv_grid: f64) -> HybridComplex {
@@ -315,38 +402,60 @@ fn hybrid_edge_complex(mesh: &RenderMesh, inv_grid: f64) -> HybridComplex {
     }
     let vertex_count = next;
 
-    // Shells: union-find over welded vertex ids, linked by ALL edges.
-    let mut parent: Vec<usize> = (0..next).collect();
-    fn find(p: &mut [usize], mut x: usize) -> usize {
-        while p[x] != x {
-            p[x] = p[p[x]];
-            x = p[x];
-        }
-        x
-    }
+    // Shells: EDGE-connected triangle components ([`shell_decomposition`]).
+    // A triangle edge that pairs exactly keeps its exact key; a residue edge
+    // takes its T-subdivided cell keys, so the walk crosses a one-sided
+    // chord split the same way the pairing does. The candidate T-vertices
+    // are the residue endpoints, exactly as in `subdivide_t_junctions`.
     let vid = |v: XKey, id_of: &HashMap<(bool, XKey), usize>, res: &HashSet<XKey>| -> usize {
         id_of[&(res.contains(&v), v)]
     };
-    for &(a, b) in exact.keys() {
-        let (ra, rb) = (
-            vid(a, &id_of, &residue_verts),
-            vid(b, &id_of, &residue_verts),
-        );
-        let (ra, rb) = (find(&mut parent, ra), find(&mut parent, rb));
-        if ra != rb {
-            parent[ra.max(rb)] = ra.min(rb);
+    let qverts: Vec<QKey> = {
+        let mut s: HashSet<QKey> = HashSet::new();
+        for &(a, b) in residue.keys() {
+            s.insert(a);
+            s.insert(b);
         }
+        s.into_iter().collect()
+    };
+    let xkey = |idx: u32| -> XKey {
+        let i = idx as usize * 3;
+        (
+            mesh.vertices[i].to_bits(),
+            mesh.vertices[i + 1].to_bits(),
+            mesh.vertices[i + 2].to_bits(),
+        )
+    };
+    let mut tri_vids: Vec<[usize; 3]> = Vec::with_capacity(mesh.indices.len() / 3);
+    let mut tri_keys: Vec<Vec<HybridEdgeKey>> = Vec::with_capacity(mesh.indices.len() / 3);
+    for tri in mesh.indices.chunks_exact(3) {
+        let ks = [xkey(tri[0]), xkey(tri[1]), xkey(tri[2])];
+        tri_vids.push([
+            vid(ks[0], &id_of, &residue_verts),
+            vid(ks[1], &id_of, &residue_verts),
+            vid(ks[2], &id_of, &residue_verts),
+        ]);
+        let mut keys: Vec<HybridEdgeKey> = Vec::with_capacity(3);
+        for (a, b) in [(ks[0], ks[1]), (ks[1], ks[2]), (ks[2], ks[0])] {
+            let e = if a <= b { (a, b) } else { (b, a) };
+            if exact.get(&e).copied() == Some(2) {
+                keys.push(HybridEdgeKey::Exact(e.0, e.1));
+            } else {
+                for sub in t_split_chain(qof(a), qof(b), &qverts) {
+                    keys.push(HybridEdgeKey::Quant(sub));
+                }
+            }
+        }
+        tri_keys.push(keys);
     }
-    let mut roots: HashSet<usize> = HashSet::new();
-    for i in 0..next {
-        roots.insert(find(&mut parent, i));
-    }
+    let dec = shell_decomposition(&tri_vids, &tri_keys);
 
     HybridComplex {
         closed_edges,
         residue_sub,
         vertex_count,
-        shells: roots.len().max(1),
+        shells: dec.shells,
+        pinch_extra: dec.pinch_extra,
     }
 }
 
@@ -410,69 +519,81 @@ fn subdivide_t_junctions(raw: &HashMap<QEdge, usize>) -> HashMap<QEdge, usize> {
 
     let mut out: HashMap<QEdge, usize> = HashMap::new();
     for (&(a, b), &count) in raw {
-        let ab = (
-            (b.0 - a.0) as i128,
-            (b.1 - a.1) as i128,
-            (b.2 - a.2) as i128,
-        );
-        let ab_len2 = ab.0 * ab.0 + ab.1 * ab.1 + ab.2 * ab.2;
-        if ab_len2 == 0 {
-            *out.entry((a, b)).or_insert(0) += count;
-            continue;
+        for sub in t_split_chain(a, b, &verts) {
+            *out.entry(sub).or_insert(0) += count;
         }
-        // AABB of the segment, expanded by the split tolerance.
-        let lo = (
-            a.0.min(b.0) - TJUNCTION_SPLIT_MAX_CELLS as i64,
-            a.1.min(b.1) - TJUNCTION_SPLIT_MAX_CELLS as i64,
-            a.2.min(b.2) - TJUNCTION_SPLIT_MAX_CELLS as i64,
-        );
-        let hi = (
-            a.0.max(b.0) + TJUNCTION_SPLIT_MAX_CELLS as i64,
-            a.1.max(b.1) + TJUNCTION_SPLIT_MAX_CELLS as i64,
-            a.2.max(b.2) + TJUNCTION_SPLIT_MAX_CELLS as i64,
-        );
-        // Interior on-segment vertices, keyed by projection parameter.
-        let mut on_seg: Vec<(i128, QKey)> = Vec::new();
-        for &m in &verts {
-            if m == a || m == b {
-                continue;
-            }
-            if m.0 < lo.0 || m.0 > hi.0 || m.1 < lo.1 || m.1 > hi.1 || m.2 < lo.2 || m.2 > hi.2 {
-                continue;
-            }
-            let am = (
-                (m.0 - a.0) as i128,
-                (m.1 - a.1) as i128,
-                (m.2 - a.2) as i128,
-            );
-            // Perpendicular distance² · |ab|² = |ab × am|²
-            let cx = ab.1 * am.2 - ab.2 * am.1;
-            let cy = ab.2 * am.0 - ab.0 * am.2;
-            let cz = ab.0 * am.1 - ab.1 * am.0;
-            let cross_len2 = cx * cx + cy * cy + cz * cz;
-            if cross_len2 > TJUNCTION_SPLIT_MAX_CELLS * TJUNCTION_SPLIT_MAX_CELLS * ab_len2 {
-                continue; // not on the segment's line — never splits
-            }
-            // Strictly interior projection: 0 < t < 1 (t = dot / |ab|²)
-            let t_num = am.0 * ab.0 + am.1 * ab.1 + am.2 * ab.2;
-            if t_num <= 0 || t_num >= ab_len2 {
-                continue;
-            }
-            on_seg.push((t_num, m));
-        }
-        if on_seg.is_empty() {
-            *out.entry((a, b)).or_insert(0) += count;
-            continue;
-        }
-        on_seg.sort_unstable();
-        let mut prev = a;
-        for (_, m) in on_seg {
-            *out.entry(make_qedge(prev, m)).or_insert(0) += count;
-            prev = m;
-        }
-        *out.entry(make_qedge(prev, b)).or_insert(0) += count;
     }
     out
+}
+
+/// The sub-edge chain one quantized edge `[a, b]` splits into at the
+/// quantized `verts` lying strictly inside it (within
+/// [`TJUNCTION_SPLIT_MAX_CELLS`] of its line), in order from `a` to `b` —
+/// `[(a, b)]` when none does. The per-edge half of
+/// [`subdivide_t_junctions`], shared with the shell walk of
+/// [`hybrid_edge_complex`] so both cross a T-junction identically.
+fn t_split_chain(a: QKey, b: QKey, verts: &[QKey]) -> Vec<QEdge> {
+    let ab = (
+        (b.0 - a.0) as i128,
+        (b.1 - a.1) as i128,
+        (b.2 - a.2) as i128,
+    );
+    let ab_len2 = ab.0 * ab.0 + ab.1 * ab.1 + ab.2 * ab.2;
+    if ab_len2 == 0 {
+        return vec![(a, b)];
+    }
+    // AABB of the segment, expanded by the split tolerance.
+    let lo = (
+        a.0.min(b.0) - TJUNCTION_SPLIT_MAX_CELLS as i64,
+        a.1.min(b.1) - TJUNCTION_SPLIT_MAX_CELLS as i64,
+        a.2.min(b.2) - TJUNCTION_SPLIT_MAX_CELLS as i64,
+    );
+    let hi = (
+        a.0.max(b.0) + TJUNCTION_SPLIT_MAX_CELLS as i64,
+        a.1.max(b.1) + TJUNCTION_SPLIT_MAX_CELLS as i64,
+        a.2.max(b.2) + TJUNCTION_SPLIT_MAX_CELLS as i64,
+    );
+    // Interior on-segment vertices, keyed by projection parameter.
+    let mut on_seg: Vec<(i128, QKey)> = Vec::new();
+    for &m in verts {
+        if m == a || m == b {
+            continue;
+        }
+        if m.0 < lo.0 || m.0 > hi.0 || m.1 < lo.1 || m.1 > hi.1 || m.2 < lo.2 || m.2 > hi.2 {
+            continue;
+        }
+        let am = (
+            (m.0 - a.0) as i128,
+            (m.1 - a.1) as i128,
+            (m.2 - a.2) as i128,
+        );
+        // Perpendicular distance² · |ab|² = |ab × am|²
+        let cx = ab.1 * am.2 - ab.2 * am.1;
+        let cy = ab.2 * am.0 - ab.0 * am.2;
+        let cz = ab.0 * am.1 - ab.1 * am.0;
+        let cross_len2 = cx * cx + cy * cy + cz * cz;
+        if cross_len2 > TJUNCTION_SPLIT_MAX_CELLS * TJUNCTION_SPLIT_MAX_CELLS * ab_len2 {
+            continue; // not on the segment's line — never splits
+        }
+        // Strictly interior projection: 0 < t < 1 (t = dot / |ab|²)
+        let t_num = am.0 * ab.0 + am.1 * ab.1 + am.2 * ab.2;
+        if t_num <= 0 || t_num >= ab_len2 {
+            continue;
+        }
+        on_seg.push((t_num, m));
+    }
+    if on_seg.is_empty() {
+        return vec![make_qedge(a, b)];
+    }
+    on_seg.sort_unstable();
+    let mut chain = Vec::with_capacity(on_seg.len() + 1);
+    let mut prev = a;
+    for (_, m) in on_seg {
+        chain.push(make_qedge(prev, m));
+        prev = m;
+    }
+    chain.push(make_qedge(prev, b));
+    chain
 }
 
 /// Check that the mesh is watertight: every triangle edge shared by exactly 2 triangles.
@@ -1525,6 +1646,17 @@ pub fn check_mesh_euler_characteristic(mesh: &RenderMesh, expected_chi: i64) -> 
     check_mesh_euler_characteristic_with_shells(mesh, expected_chi, None)
 }
 
+/// Detail annotation for the per-sheet vertex copies the position weld
+/// fused ([`shell_decomposition`]): empty when there are none, so every
+/// verdict without a pinch keeps its byte-identical detail string.
+fn pinch_note(pinch_extra: usize) -> String {
+    if pinch_extra == 0 {
+        String::new()
+    } else {
+        format!("+{pinch_extra} pinch")
+    }
+}
+
 /// [`check_mesh_euler_characteristic`] with an optional AUTHORED shell
 /// count (`meta.oracles.expected_shell_count`). The legacy path decodes
 /// the meta's shell count from `euler_target` as max(1, ⌊χ/2⌋) and
@@ -1564,31 +1696,36 @@ pub fn check_mesh_euler_characteristic_with_shells(
             unique_verts.insert(a);
             unique_verts.insert(b);
         }
-        // Shell count via union-find over exact vertex keys.
+        // Shells: EDGE-connected triangle components over the exact keys
+        // ([`shell_decomposition`]); a vertex shared by two closed shells is
+        // a per-sheet copy the weld fused, counted back in `pinch_extra`.
         let idx: HashMap<(u32, u32, u32), usize> = unique_verts
             .iter()
             .enumerate()
             .map(|(i, &k)| (k, i))
             .collect();
-        let mut parent: Vec<usize> = (0..idx.len()).collect();
-        fn find(p: &mut [usize], mut x: usize) -> usize {
-            while p[x] != x {
-                p[x] = p[p[x]];
-                x = p[x];
-            }
-            x
+        let xkey = |i: u32| -> (u32, u32, u32) {
+            let i = i as usize * 3;
+            (
+                mesh.vertices[i].to_bits(),
+                mesh.vertices[i + 1].to_bits(),
+                mesh.vertices[i + 2].to_bits(),
+            )
+        };
+        let mut tri_vids: Vec<[usize; 3]> = Vec::with_capacity(mesh.indices.len() / 3);
+        let mut tri_keys: Vec<Vec<ExactEdge>> = Vec::with_capacity(mesh.indices.len() / 3);
+        for tri in mesh.indices.chunks_exact(3) {
+            let ks = [xkey(tri[0]), xkey(tri[1]), xkey(tri[2])];
+            tri_vids.push([idx[&ks[0]], idx[&ks[1]], idx[&ks[2]]]);
+            tri_keys.push(
+                [(ks[0], ks[1]), (ks[1], ks[2]), (ks[2], ks[0])]
+                    .into_iter()
+                    .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
+                    .collect(),
+            );
         }
-        for &(a, b) in exact.keys() {
-            let (ra, rb) = (find(&mut parent, idx[&a]), find(&mut parent, idx[&b]));
-            if ra != rb {
-                parent[ra.max(rb)] = ra.min(rb);
-            }
-        }
-        let mut roots: HashSet<usize> = HashSet::new();
-        for i in 0..idx.len() {
-            roots.insert(find(&mut parent, i));
-        }
-        let shells = roots.len().max(1) as i64;
+        let dec = shell_decomposition(&tri_vids, &tri_keys);
+        let shells = dec.shells as i64;
         if let Some(n) = authored_shells {
             if shells != n as i64 {
                 return OracleVerdict::fail_val(
@@ -1603,13 +1740,19 @@ pub fn check_mesh_euler_characteristic_with_shells(
             None => expected_chi.div_euclid(2).max(1),
         };
         let expected_total = expected_chi + 2 * (shells - meta_shells).max(0);
-        let v = unique_verts.len() as i64;
+        let v = (unique_verts.len() + dec.pinch_extra) as i64;
         let e = exact.len() as i64;
         let f = (mesh.indices.len() / 3) as i64;
         let chi = v - e + f;
         let detail = format!(
-            "V({}) - E({}) + F({}) = {} (expected {} for {} shell(s), exact bits)",
-            v, e, f, chi, expected_total, shells
+            "V({}{}) - E({}) + F({}) = {} (expected {} for {} shell(s), exact bits)",
+            unique_verts.len(),
+            pinch_note(dec.pinch_extra),
+            e,
+            f,
+            chi,
+            expected_total,
+            shells
         );
         return if chi == expected_total {
             OracleVerdict::pass_val("mesh_euler_characteristic", detail, chi as f64)
@@ -1641,14 +1784,20 @@ pub fn check_mesh_euler_characteristic_with_shells(
     };
     let expected_total = expected_chi + 2 * (shells - meta_shells).max(0);
 
-    let v = hybrid.vertex_count as i64;
+    let v = (hybrid.vertex_count + hybrid.pinch_extra) as i64;
     let e = (hybrid.closed_edges + hybrid.residue_sub.len()) as i64;
     let f = (mesh.indices.len() / 3) as i64;
     let chi = v - e + f;
 
     let detail = format!(
-        "V({}) - E({}) + F({}) = {} (expected {} for {} shell(s))",
-        v, e, f, chi, expected_total, shells
+        "V({}{}) - E({}) + F({}) = {} (expected {} for {} shell(s))",
+        hybrid.vertex_count,
+        pinch_note(hybrid.pinch_extra),
+        e,
+        f,
+        chi,
+        expected_total,
+        shells
     );
     if chi == expected_total {
         OracleVerdict::pass_val("mesh_euler_characteristic", detail, chi as f64)
@@ -2916,6 +3065,150 @@ mod tests {
         let v = check_mesh_euler_characteristic_with_shells(&m3, 2, None);
         assert!(v.passed, "legacy telescoped allowance: {}", v.detail);
         assert_eq!(v.value, Some(6.0));
+    }
+
+    /// A unit cube with ONE face fan-triangulated through the midpoint `m` of
+    /// its first edge — the neighbouring face keeps that edge whole, so the
+    /// mesh carries a zero-width T-junction (exact pairing fails on the three
+    /// chords) and every oracle takes the hybrid path. Same closed surface,
+    /// χ = 2: `V 9 − E 20 + F 13`.
+    fn push_cube_with_t_vertex(mesh: &mut RenderMesh, o: [f32; 3]) {
+        let p = |dx: f32, dy: f32, dz: f32| -> [f32; 3] { [o[0] + dx, o[1] + dy, o[2] + dz] };
+        let quads = [
+            [p(0., 0., 1.), p(1., 0., 1.), p(1., 1., 1.), p(0., 1., 1.)],
+            [p(0., 0., 0.), p(0., 0., 1.), p(0., 1., 1.), p(0., 1., 0.)],
+            [p(1., 0., 0.), p(1., 1., 0.), p(1., 1., 1.), p(1., 0., 1.)],
+            [p(0., 0., 0.), p(1., 0., 0.), p(1., 0., 1.), p(0., 0., 1.)],
+            [p(0., 1., 0.), p(0., 1., 1.), p(1., 1., 1.), p(1., 1., 0.)],
+        ];
+        for q in quads {
+            push_tri(mesh, q[0], q[1], q[2]);
+            push_tri(mesh, q[0], q[2], q[3]);
+        }
+        // The z = 0 face: quad (q0, q1, q2, q3) with m on q0–q1, split
+        // one-sidedly — the x = 0 face above still uses q0–q1 whole.
+        let (q0, q1, q2, q3) = (p(0., 0., 0.), p(0., 1., 0.), p(1., 1., 0.), p(1., 0., 0.));
+        let m = p(0., 0.5, 0.);
+        push_tri(mesh, q0, m, q3);
+        push_tri(mesh, m, q1, q2);
+        push_tri(mesh, m, q2, q3);
+    }
+
+    #[test]
+    fn euler_characteristic_two_shells_touching_at_a_vertex_are_two_shells() {
+        // Spec `yang_tangency_pinch_split.md` §0c (F0060): a manifold B-Rep
+        // represents a solid whose boundary touches itself at a point by one
+        // vertex PER SHEET, with identical position bits, and the render
+        // weld cannot tell the copies apart. Two closed cubes sharing exactly
+        // the corner (1,1,1) are TWO shells of χ = 2 each — not one shell of
+        // χ = 3 (the vertex-connected reading, which failed every target).
+        let mut mesh = empty_mesh();
+        push_plain_cube(&mut mesh, [0.0, 0.0, 0.0]);
+        push_plain_cube(&mut mesh, [1.0, 1.0, 1.0]);
+        finish_single_range(&mut mesh);
+        let wt = check_watertight_mesh(&mesh);
+        assert!(
+            wt.passed,
+            "two closed shells touching at a vertex: {}",
+            wt.detail
+        );
+        let verdict = check_mesh_euler_characteristic(&mesh, 2);
+        assert!(
+            verdict.passed,
+            "vertex-touching shells must read χ = 2 per shell: {}",
+            verdict.detail
+        );
+        assert_eq!(verdict.value, Some(4.0));
+        assert!(
+            verdict.detail.contains("+1 pinch") && verdict.detail.contains("2 shell(s)"),
+            "detail names the fused copy and the shell count: {}",
+            verdict.detail
+        );
+        // The authored-count path sees the same two shells.
+        let v = check_mesh_euler_characteristic_with_shells(&mesh, 4, Some(2));
+        assert!(v.passed, "authored 2 shells: {}", v.detail);
+    }
+
+    #[test]
+    fn euler_characteristic_vertex_touching_shells_on_the_hybrid_path() {
+        // The same configuration with a one-sided chord split on one cube,
+        // so exact pairing fails and the HYBRID complex does the counting:
+        // the shell walk must cross the T-junction (the T-subdivided cell
+        // keys) and still keep the two shells apart at the shared corner.
+        let mut mesh = empty_mesh();
+        push_cube_with_t_vertex(&mut mesh, [0.0, 0.0, 0.0]);
+        push_plain_cube(&mut mesh, [1.0, 1.0, 1.0]);
+        finish_single_range(&mut mesh);
+        let wt = check_watertight_mesh(&mesh);
+        assert!(
+            wt.passed,
+            "T-junction heals under subdivision: {}",
+            wt.detail
+        );
+        let verdict = check_mesh_euler_characteristic(&mesh, 2);
+        assert!(
+            verdict.passed,
+            "hybrid path: vertex-touching shells read χ = 2 per shell: {}",
+            verdict.detail
+        );
+        assert_eq!(verdict.value, Some(4.0));
+        assert!(
+            verdict.detail.contains("+1 pinch")
+                && verdict.detail.contains("2 shell(s)")
+                && !verdict.detail.contains("exact bits"),
+            "hybrid-path detail: {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn euler_characteristic_two_shells_sharing_an_edge_still_fail() {
+        // An EDGE shared by two closed sheets is not the vertex
+        // representation question: it stays one non-manifold component
+        // (χ = 3 against 2) for the χ oracle and unpaired (4 uses) for the
+        // watertight oracle. Cubes at the origin and at (1,1,0) share the
+        // edge (1,1,0)–(1,1,1).
+        let mut mesh = empty_mesh();
+        push_plain_cube(&mut mesh, [0.0, 0.0, 0.0]);
+        push_plain_cube(&mut mesh, [1.0, 1.0, 0.0]);
+        finish_single_range(&mut mesh);
+        let wt = check_watertight_mesh(&mesh);
+        assert!(!wt.passed, "a 4-use edge is not watertight: {}", wt.detail);
+        let verdict = check_mesh_euler_characteristic(&mesh, 2);
+        assert!(
+            !verdict.passed,
+            "edge-pinched pair must still fail: {}",
+            verdict.detail
+        );
+        assert!(
+            verdict.detail.contains("1 shell(s)") && !verdict.detail.contains("pinch"),
+            "one component, no vertex credit: {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn euler_characteristic_self_pinched_shell_still_fails() {
+        // A pinch INSIDE one shell earns no credit: two cubes touching at a
+        // corner AND joined through a shared edge elsewhere are ONE
+        // edge-connected component, so the shared corner is a genuine
+        // self-touch and χ reads one short. Cubes at the origin and at
+        // (1,1,0) share an edge; a third cube at (2,2,1) touches the second
+        // at its corner (2,2,1) only — still one component with the
+        // non-manifold edge, so the verdict stays a failure, and the corner
+        // credit applies only across DISTINCT components.
+        let mut mesh = empty_mesh();
+        push_plain_cube(&mut mesh, [0.0, 0.0, 0.0]);
+        push_plain_cube(&mut mesh, [1.0, 1.0, 0.0]);
+        push_plain_cube(&mut mesh, [2.0, 2.0, 1.0]);
+        finish_single_range(&mut mesh);
+        let verdict = check_mesh_euler_characteristic(&mesh, 2);
+        assert!(!verdict.passed, "{}", verdict.detail);
+        assert!(
+            verdict.detail.contains("+1 pinch") && verdict.detail.contains("2 shell(s)"),
+            "the third cube is a distinct shell touching at a corner; the edge pair is one: {}",
+            verdict.detail
+        );
     }
 
     #[test]
