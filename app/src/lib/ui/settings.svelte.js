@@ -53,6 +53,7 @@ export const COLOR_TOKENS = [
 		{ id: '--viewport-bg', label: 'Viewport background' },
 		{ id: '--model-color', label: 'Model faces' },
 		{ id: '--model-edge-color', label: 'Model edges' },
+		{ id: '--model-vertex-color', label: 'Model vertices' },
 	] },
 	{ group: 'Sketch', tokens: [
 		{ id: '--sketch-default', label: 'Entities (under-constrained)' },

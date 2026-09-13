@@ -290,15 +290,22 @@ test.describe('theme registry', () => {
  * Measured off a canvas screenshot of an extruded box, 2026-09-13. Ratios are
  * the edge against the viewport ground, the lit top face, and the shaded side:
  *
- *   theme             token -> top / shaded      edge      grnd   top  shaded
- *   default           #8899aa -> #58626e #414c57  #f4f7fb  15.87  5.77  8.16
- *   solarized-dark    #7e9294 -> #515c61 #3b464a  #eee8d5  13.68  5.61  7.93
- *   monokai-dark      #8a8a7c -> #595650 #41413b  #f8f8f2  15.56  6.86  9.64
- *   retro             #3c4a40 -> #1f2721 #0f1712  #7dff5c  15.68 11.92 14.18
- *   witchhazel        #9a90b4 -> #625e74 #4a485d  #f8f8f2  10.91  5.84  8.29
- *   light             #d2d5da -> #828287 #696b70  #10151c  16.17  4.79  3.44
- *   solarized-light   #eee8d5 -> #8f8a85 #76736e  #073642  11.03  3.80  2.75
- *   monokai-light     #dfdfd8 -> #888686 #706f6f  #272822  13.07  4.11  2.97
+ *   theme             token -> top / shaded      edge    grnd  top shad   vertex   min
+ *   default           #8899aa -> #58626e #414c57  #f4f7fb 15.9  5.8  8.2  #ffffff  6.20
+ *   solarized-dark    #7e9294 -> #515c61 #3b464a  #eee8d5 13.7  5.6  7.9  #fdf6e3  6.38
+ *   monokai-dark      #8a8a7c -> #595650 #41413b  #f8f8f2 15.6  6.9  9.6  #ffffff  7.31
+ *   retro             #3c4a40 -> #1f2721 #0f1712  #7dff5c 15.7 11.9 14.2  #b8ffa8 13.07
+ *   witchhazel        #9a90b4 -> #625e74 #4a485d  #f8f8f2 10.9  5.8  8.3  #ffffff  6.23
+ *   light             #d2d5da -> #828287 #696b70  #10151c 16.2  4.8  3.4  #000000  3.94
+ *   solarized-light   #eee8d5 -> #8f8a85 #76736e  #073642 11.0  3.8  2.8  #002b36  3.18
+ *   monokai-light     #dfdfd8 -> #888686 #706f6f  #272822 13.1  4.1  3.0  #15160f  3.63
+ *
+ * The last column is the VERTEX color's own worst ratio, always above the
+ * edge's: points are 4px and unattenuated, so they get one step further out
+ * the same ramp. That token replaced a hard-coded 0x666688 which the lighting
+ * put at 1.03-1.33:1 of the rendered faces on seven of the eight themes —
+ * corner markers invisible on the very part they mark (retro, at 2.79, was the
+ * only one that worked, and only by accident).
  *
  * The light themes' --model-color was LIGHTENED to get there. With the old
  * mid-tone part (#7e8c9e and friends) the lighting rendered it as a dark slab
@@ -316,7 +323,7 @@ test.describe('theme registry', () => {
  * face ratios above came from pixels and live in this comment as the record.
  */
 test.describe('part edge contrast', () => {
-	test('every theme defines an edge color that clears its viewport ground', async ({ waffle }) => {
+	test('every theme defines edge and vertex colors that clear its viewport ground', async ({ waffle }) => {
 		const { page } = waffle;
 		await page.click(TRIGGER);
 		const ids = await page.$$eval('[data-testid^="theme-option-"]', (els) =>
@@ -344,16 +351,26 @@ test.describe('part edge contrast', () => {
 				await page.click(TRIGGER);
 			}
 			await page.click(`[data-testid="theme-option-${id}"]`);
+			const ground = await cssVar(page, '--viewport-bg');
 			const edge = await cssVar(page, '--model-edge-color');
-			expect(`${id}: ${edge}`).toMatch(/: #[0-9a-f]{6}$/i);
-			report[id] = +ratio(edge, await cssVar(page, '--viewport-bg')).toFixed(2);
+			const vertex = await cssVar(page, '--model-vertex-color');
+			expect(`${id}: ${edge} ${vertex}`).toMatch(/: #[0-9a-f]{6} #[0-9a-f]{6}$/i);
+			// Vertices are 4px points, so they must be at least as visible as the
+			// 1px lines they sit on — each theme puts them one step further out
+			// the same ramp. Same side of the faces, never the other one.
+			report[id] = {
+				edge: +ratio(edge, ground).toFixed(2),
+				vertex: +ratio(vertex, ground).toFixed(2)
+			};
+			expect(`${id}: vertex ${relLum(vertex) >= relLum(edge) ? 'outruns' : 'trails'} edge`).toBe(
+				`${id}: vertex ${relLum(edge) > 0.5 ? 'outruns' : 'trails'} edge`
+			);
 		}
 
-		// Every theme clears 10 against its ground now that the light themes use
-		// a near-black edge; 8 leaves room without going vacuous. A failure
-		// prints the whole table, so the offending theme and its actual ratio
-		// are visible at once.
-		const failures = Object.entries(report).filter(([, r]) => r < 8);
+		// Every theme clears 10 against its ground; 8 leaves room without going
+		// vacuous. A failure prints the whole table, so the offending theme and
+		// its actual ratios are visible at once.
+		const failures = Object.entries(report).filter(([, r]) => r.edge < 8 || r.vertex < 8);
 		expect(JSON.stringify({ failures: failures.map(([id]) => id), report }, null, 1)).toBe(
 			JSON.stringify({ failures: [], report }, null, 1)
 		);

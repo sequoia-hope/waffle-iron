@@ -77,6 +77,12 @@
 	   'part edge contrast' block of tests/gui/theme-switcher.spec.js. Read by
 	   EdgeOverlay.svelte into a THREE.Color — plain hex, no rgb()/alpha. */
 	--model-edge-color: #f4f7fb;
+	/* Solid-model VERTEX color. Points are 4px and unattenuated, so they
+	   need at LEAST the edge's contrast: each theme takes one step further
+	   out the same ramp than its --model-edge-color, which also keeps a
+	   vertex legible as a marker ON the wire rather than a thickening of
+	   it. Read by VertexOverlay.svelte into a THREE.Color — plain hex. */
+	--model-vertex-color: #ffffff;
 	--font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 	--font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Liberation Mono', Menlo, monospace;
 	/* Sketch entity colors. Read by SketchRenderer.svelte into THREE.Colors
@@ -122,6 +128,7 @@
 	   against the near-black viewport rather than glowing. */
 	--model-color: #3c4a40;
 	--model-edge-color: #7dff5c; /* the accent-hover phosphor */
+	--model-vertex-color: #b8ffa8;
 	--font-ui: var(--font-mono);
 }
 
@@ -151,6 +158,7 @@
 	--viewport-bg: #3a3550;
 	--model-color: #9a90b4;  /* muted lavender-grey machined part */
 	--model-edge-color: #f8f8f2; /* the theme foreground */
+	--model-vertex-color: #ffffff;
 }
 
 /*
@@ -185,6 +193,7 @@
 	   edge-vs-face and part-vs-ground — see tests/gui/theme-switcher.spec.js. */
 	--model-color: #d2d5da;
 	--model-edge-color: #10151c;
+	--model-vertex-color: #000000;
 	/* Sketch colors are drawn ON the light viewport, so the dark theme's
 	   pastels are replaced by mid-to-deep tones. Yellow in particular is
 	   invisible on a light ground — "selected" becomes amber. */
@@ -234,6 +243,7 @@
 	--viewport-bg: #00212b;
 	--model-color: #7e9294;
 	--model-edge-color: #eee8d5; /* base2 */
+	--model-vertex-color: #fdf6e3; /* base3 */
 	--sketch-default: #268bd2;
 	--sketch-constrained: #859900;
 	--sketch-construction: #586e75;
@@ -276,6 +286,7 @@
 	   edge-vs-face and part-vs-ground — see tests/gui/theme-switcher.spec.js. */
 	--model-color: #eee8d5; /* base2 */
 	--model-edge-color: #073642; /* base02 */
+	--model-vertex-color: #002b36; /* base03 */
 	--sketch-default: #268bd2;
 	--sketch-constrained: #859900;
 	--sketch-construction: #93a1a1;
@@ -314,6 +325,7 @@
 	--viewport-bg: #1e1f1a;
 	--model-color: #8a8a7c;
 	--model-edge-color: #f8f8f2; /* the Monokai foreground */
+	--model-vertex-color: #ffffff;
 	--sketch-default: #66d9ef;
 	--sketch-constrained: #a6e22e;
 	--sketch-construction: #75715e;
@@ -359,6 +371,7 @@
 	   edge-vs-face and part-vs-ground — see tests/gui/theme-switcher.spec.js. */
 	--model-color: #dfdfd8;
 	--model-edge-color: #272822;
+	--model-vertex-color: #15160f;
 	--sketch-default: #0a7f9c;
 	--sketch-constrained: #4f7a06;
 	--sketch-construction: #a6a390;

@@ -18,10 +18,28 @@
 		getSketchHover
 	} from '$lib/engine/store.svelte.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
+	import { getTheme } from '$lib/ui/theme.svelte.js';
+	import { getColorVersion } from '$lib/ui/settings.svelte.js';
 
 	const { renderer } = useThrelte();
 
-	const DEFAULT_COLOR = new THREE.Color(0x666688);
+	// Unselected vertex color is theme-driven (see --model-vertex-color in
+	// app.css) and customizable from Settings -> Appearance. It was a
+	// hard-coded 0x666688 for every theme, which the viewport lighting put
+	// within 1.03-1.33:1 of the rendered faces on seven of the eight — points
+	// that were, in practice, invisible ON the part they mark. pointsGeometry
+	// bakes this into a color attribute, so reading it there is what rebuilds
+	// the points on a theme switch or a per-token override.
+	let DEFAULT_COLOR = $derived.by(() => {
+		void getTheme(); void getColorVersion();
+		if (typeof document !== 'undefined') {
+			const v = getComputedStyle(document.documentElement)
+				.getPropertyValue('--model-vertex-color')
+				.trim();
+			if (v) return new THREE.Color(v);
+		}
+		return new THREE.Color(0xffffff);
+	});
 	const HOVER_COLOR = new THREE.Color(0x88ccff);
 	const SELECTED_COLOR = new THREE.Color(0x44aaff);
 

@@ -45,7 +45,7 @@
 	// override; edgeMaterials reads it, so the material arrays rebuild with it.
 	let DEFAULT_EDGE_COLOR = $derived.by(() => {
 		void getTheme(); void getColorVersion();
-		return cssColor('--model-edge-color', 0x222233);
+		return cssColor('--model-edge-color', 0xf4f7fb);
 	});
 	const HOVER_EDGE_COLOR = new THREE.Color(0x66aaff);
 	const SELECTED_EDGE_COLOR = new THREE.Color(0x44aaff);
@@ -62,7 +62,7 @@
 	// kept on the theme by the $effect below (it is mutated, not rebuilt, because
 	// the section-clipping effect holds the same instance).
 	const fallbackMaterial = new THREE.LineBasicMaterial({
-		color: 0x222233,
+		color: 0xf4f7fb,
 		...baseMaterialProps
 	});
 
