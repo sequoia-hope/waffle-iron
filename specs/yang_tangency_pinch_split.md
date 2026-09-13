@@ -37,6 +37,50 @@ vertex-fan split cannot and must not touch (§2 row: non-manifold edges
 unchanged). It currently emits Ok with χ=0 + 2 non-manifold edges
 (tolerated by the fwd=rev pairing rule).
 
+### 0a. The EDGE pinch, located and specified (2026-09-13, F0060)
+
+Measured with the new `YANG_NM_EDGE_PROBE` census (the over-2 edge list with
+each incident triangle's `(input, face)`, printed at the six Stage-4
+checkpoints). **F0060 is the corpus driver for this sibling**, and the
+measurement moves the work earlier than the earlier ledger reading assumed.
+
+F0060 is A = cylinder r 0.3 with caps at z = ±0.3, minus B = cylinder r 0.3 on
+the y-axis. B's lateral is tangent to BOTH cap PLANES along a whole diameter
+(x = 0), so `A − B` is genuinely LINE-pinched there: just above a cap the
+removed lens has half-width √(0.6ε), so the two halves of the solid meet only
+on the line itself.
+
+1. **The pinch is already in the ARRANGEMENT.** At `s4-entry` the census reads
+   **0 open edges and 14 over-2 edges** — every one of them on one of the two
+   tangent lines, none anywhere else. So no Stage-4 pass creates it; the exact
+   mesh boolean hands it over, which is the honest output for a line-pinched
+   solid. (The §4.4.1(b) merge then *reduces* the count to 3 — it is not the
+   cause, which corrects the 2026-09-13 addendum's reading.)
+2. **The split rule is FORCED — no radial sort, no dihedral, no tolerance.**
+   Each of the 14 carries exactly four triangles with the signature
+   `2 × (A, cap face) + 2 × (B, lateral)`, and within each operand one is
+   forward and one reverse on the edge. A sheet is `cap ∪ lateral`, so pairing
+   each A triangle with the B triangle of OPPOSITE orientation is the only
+   consistent partition. This matters because the two B triangles are ZERO-AREA
+   (they lie in the cap plane — the surfaces meet tangentially), so first-order
+   dihedral sorting is degenerate here by construction: the attribution +
+   orientation certificate is what replaces it.
+3. **Therefore the split must run at Stage-4 ENTRY, before the §4.4.1(b)
+   merge.** After the merge only 2 of the 3 survivors still carry the
+   discriminator: `(3,76)` is `2×A#0 + 2×B#2` and `(22,48)` is
+   `2×A#1 + 2×B#2`, but `(48,79)` — the whole top diameter, the merge having
+   collapsed that chain into one edge — is `4 × B#2`, with no A/B split left to
+   read. The merge is not wrong to fuse ULP twins; it simply destroys evidence
+   the split needs, so the split has to come first.
+4. **Shape of the operation.** The over-2 edges form two CHAINS along the
+   tangent lines (bottom: v1—v0—v20—v18—v16—v14—v11—v10, seven edges; top:
+   v21—v22—v27—v29—v31—v33—v35—v36, seven edges), each running rim to rim.
+   Splitting a chain duplicates its INTERIOR vertices (the endpoints are where
+   the two sheets genuinely rejoin around B's end cap and must stay shared) and
+   re-points one sheet's triangles to the copies. The nest of zero-area
+   triangles at the cap centre is the part that needs care, and is why this is a
+   slice of its own rather than an extension of the vertex-fan split.
+
 After this slice: a **pinch-vertex split** pass runs on the output mesh
 before the shell gate — every vertex whose star decomposes into ≥ 2
 edge-connected fans, EACH a closed disk, is split into one vertex per fan

@@ -43,6 +43,66 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-13 (night, latest) — F0060 RE-LOCATED: its pinch is already in the ARRANGEMENT (14 over-2 edges at `s4-entry`), §4.4.1(b) REDUCES it rather than causing it, and the per-sheet split rule is FORCED by attribution + orientation; new `YANG_NM_EDGE_PROBE` census; corpus untouched
+
+Spec `specs/yang_tangency_pinch_split.md` §0a. No behaviour change: the only
+edit is a read-only, env-gated probe.
+
+The morning's addendum put F0060's worklist at "A's cap FANS ACROSS the
+generator … constrain the generator in A's cap and duplicate the generator's
+shared vertices per sheet", reading the post-merge mesh. The new census — the
+over-2 edge list with each incident triangle's `(input, face)`, printed at the
+six Stage-4 checkpoints — reads the mesh EARLIER and moves the work:
+
+| checkpoint | tris | open edges | **over-2 edges** |
+|---|---|---|---|
+| `s4-entry` | 272 | 0 | **14** |
+| `after-reloc` | 272 | 0 | 14 |
+| `before-3c-merge` | 272 | 0 | 14 |
+| `after-3c-merge` | 172 | 0 | **3** |
+| `before-validate` | 172 | 0 | 3 |
+
+1. **The pinch is the ARRANGEMENT's output, not a Stage-4 artefact.** All 14
+   over-2 edges are present before any Stage-4 pass, all of them on one of the
+   two tangent lines and none anywhere else. That is the honest mesh for a
+   line-pinched solid: B's lateral is tangent to BOTH of A's cap PLANES along a
+   whole diameter (x = 0), and just above a cap the removed lens has half-width
+   √(0.6ε), so the two halves of `A − B` meet only on the line. **§4.4.1(b)
+   reduces 14 → 3; it is not the cause.** (This also retires the working
+   hypothesis that a link-condition guard on the merge would fix it — built,
+   measured, and it refuses exactly one pair in F0060 while the count still goes
+   14 → 3; dropped unproven.)
+2. **The split rule is FORCED — no radial sort, no dihedral, no tolerance.**
+   Every one of the 14 carries exactly four triangles with the signature
+   `2 × (A, cap face) + 2 × (B, lateral)`, one forward and one reverse per
+   operand. A sheet is `cap ∪ lateral`, so pairing each A triangle with the B
+   triangle of OPPOSITE orientation is the only consistent partition. That
+   certificate is what replaces dihedral sorting, which is degenerate here by
+   construction: the two B triangles are ZERO-AREA, lying in the cap plane,
+   because the surfaces meet tangentially.
+3. **So the split must run at Stage-4 ENTRY, before the §4.4.1(b) merge.**
+   After the merge only two survivors still carry the discriminator —
+   `(3,76) = 2×A#0 + 2×B#2` and `(22,48) = 2×A#1 + 2×B#2` — while `(48,79)`,
+   the whole top diameter after the merge collapsed that chain into one edge,
+   is `4 × B#2` with no A/B split left to read. The merge is not wrong to fuse
+   ULP twins; it destroys evidence the split needs, so the split has to come
+   first.
+4. **Shape of the operation.** The over-2 edges form two CHAINS rim to rim
+   along the tangent lines (bottom v1—v0—v20—v18—v16—v14—v11—v10, top
+   v21—v22—v27—v29—v31—v33—v35—v36, seven edges each). Splitting a chain
+   duplicates its INTERIOR vertices — the endpoints are where the two sheets
+   genuinely rejoin around B's end cap and must stay shared — and re-points one
+   sheet's triangles to the copies. The nest of zero-area triangles at the cap
+   centre is the part that needs care.
+
+**New instrument, kept:** `YANG_NM_EDGE_PROBE=1` prints, at each of the six
+Stage-4 checkpoints, the open-edge and over-2 counts plus every over-2 edge
+with its endpoints, their positions, the incident triangles and each
+triangle's `(input, face)`. Byte-identical when unset. It is the natural
+first question for the whole Stage-5/6 non-2-manifold family — "was the mesh
+already like this when Stage 4 got it?" — which for F0060 it answers in one
+line.
+
 ## 2026-09-13 (night, later) — the 30° fixture's quarantine diagnosis is REFUTED (it is NOT a boundary-walk sort), and the obvious relocation repair was BUILT, MEASURED and REFUTED too; corpus UNCHANGED at 289C / 0W / 16E / 4EE / 0T + 3 U, pipeline byte-identical
 
 Spec `specs/yang_433_tangent_point_mesh_update.md` §7 (the relocation finding and

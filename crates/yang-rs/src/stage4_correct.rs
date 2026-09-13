@@ -9220,6 +9220,7 @@ pub(crate) fn stage4_relocate_and_correct(
     edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
 ) -> Result<(Vec<(u32, f64)>, bool), YangError> {
     star_probe("s4-entry", mesh, attribution);
+    nonmanifold_edge_census("s4-entry", mesh, attribution);
     let census = std::env::var("YANG_S4_CARRIER_DOMAIN").as_deref() == Ok("census");
     // Taken before the inner call, so it is the mesh exactly as Stage 4 received
     // it — strictly earlier than the inner snapshot and never later.
@@ -12955,6 +12956,7 @@ fn stage4_relocate_and_correct_inner(
     }
 
     star_probe("after-reloc", mesh, attribution);
+    nonmanifold_edge_census("after-reloc", mesh, attribution);
     // (3) §4.5.3 reversed-intersection correction sweep.
     // (`collapsed_any` starts true when §4.5.1 repairs collapsed vertices
     // above — the post-collapse Phase-A recompute must run for those too.)
@@ -13188,6 +13190,7 @@ fn stage4_relocate_and_correct_inner(
     collapsed_any |= any_collapse;
 
     star_probe("before-3c-merge", mesh, attribution);
+    nonmanifold_edge_census("before-3c-merge", mesh, attribution);
     // (3c) §4.4.1(b) sub-feature-size vertex merge (Yang Fig. 11(b): "if an
     // endpoint p of the split edge is too close to q, we merge p with q"). After
     // relocation a degenerate triangle can have two vertices nearer than
@@ -13369,6 +13372,7 @@ fn stage4_relocate_and_correct_inner(
     }
 
     star_probe("after-3c-merge", mesh, attribution);
+    nonmanifold_edge_census("after-3c-merge", mesh, attribution);
     // (3b′) Coincident RELOCATED-vertex weld (spec `yang_n47_coincident_moved_weld`,
     // deviation N47). Two vertices this pipeline RELOCATED (`moved`: pushed onto an
     // analytic circle/ellipse/line/torus/surface-pair) can converge to within the
@@ -13498,6 +13502,7 @@ fn stage4_relocate_and_correct_inner(
     }
 
     star_probe("before-3d", mesh, attribution);
+    nonmanifold_edge_census("before-3d", mesh, attribution);
     // (3d) §4.4.1(a) edge-split (Yang Fig. 11(a): "locate the constrained edge
     // containing q, split it at q"). A degenerate relocated triangle D=[a,b,c] is
     // collinear: the vertex OFF its longest edge (`b`) lies on that long edge
@@ -14049,6 +14054,7 @@ fn stage4_relocate_and_correct_inner(
     }
 
     star_probe("before-validate", mesh, attribution);
+    nonmanifold_edge_census("before-validate", mesh, attribution);
     // (4) Validate every RELOCATED triangle (one touching a moved vertex) for
     // non-degeneracy (Yang §4.5 step 4). Reversed intersections are handled by
     // the §4.5.3 sweep above; watertightness by the global gate below (§4.4.3).
@@ -14500,6 +14506,69 @@ pub(crate) fn surface_kind_name(s: Surface) -> &'static str {
         Surface::Cone { .. } => "Cone",
         Surface::Sphere { .. } => "Sphere",
         Surface::Torus { .. } => "Torus",
+    }
+}
+
+/// Read-only NON-MANIFOLD EDGE census (`YANG_NM_EDGE_PROBE=1`), printed at the
+/// same six Stage-4 checkpoints as [`star_probe`]. Reports how many undirected
+/// edges carry fewer than two triangles (an open boundary) and how many carry
+/// more than two (a pinch), then lists every over-2 edge with its endpoints,
+/// their positions, the incident triangles and each triangle's `(input, face)`.
+///
+/// This is the instrument that located F0060's real owner (ledger 2026-09-13
+/// night-latest). The case's cap plane is tangent to the other operand's lateral
+/// along a whole diameter, and the census reads **14 over-2 edges already at
+/// `s4-entry`** — so the pinch comes out of the ARRANGEMENT, not out of any
+/// Stage-4 pass; §4.4.1(b) then reduces them to 3 rather than causing them,
+/// which is the opposite of what the earlier reading assumed. Every one of the
+/// 14 carries exactly four triangles with the signature `2 × (A, cap face) +
+/// 2 × (B, lateral)`, which is what makes the per-sheet pairing FORCED rather
+/// than a radial sort: each operand contributes one forward and one reverse
+/// triangle, so pairing each A triangle with the B triangle of opposite
+/// orientation is the only consistent split.
+///
+/// Byte-identical when the env is unset (the function returns before touching
+/// anything).
+pub(crate) fn nonmanifold_edge_census(
+    tag: &str,
+    mesh: &crate::Mesh,
+    attribution: &TriangleAttributionMap,
+) {
+    if std::env::var_os("YANG_NM_EDGE_PROBE").is_none() {
+        return;
+    }
+    let mut inc: std::collections::BTreeMap<(u32, u32), Vec<u32>> =
+        std::collections::BTreeMap::new();
+    for (ti, tri) in mesh.tris.iter().enumerate() {
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (a, b) = (tri[i], tri[j]);
+            let key = if a < b { (a, b) } else { (b, a) };
+            inc.entry(key).or_default().push(ti as u32);
+        }
+    }
+    let open = inc.values().filter(|v| v.len() < 2).count();
+    let over: Vec<(&(u32, u32), &Vec<u32>)> = inc.iter().filter(|(_, v)| v.len() > 2).collect();
+    eprintln!(
+        "[nm-edge {tag}] {} tris, {open} open edge(s), {} over-2 edge(s)",
+        mesh.tris.len(),
+        over.len()
+    );
+    for (&(u, v), tris) in over {
+        let (pu, pv) = (mesh.verts[u as usize], mesh.verts[v as usize]);
+        eprintln!(
+            "[nm-edge {tag}]   ({u},{v}) n={} u=({:.9},{:.9},{:.9}) v=({:.9},{:.9},{:.9}) \
+             tris={tris:?} attrs={:?}",
+            tris.len(),
+            pu.x(),
+            pu.y(),
+            pu.z(),
+            pv.x(),
+            pv.y(),
+            pv.z(),
+            tris.iter()
+                .map(|&t| attribution.lookup(t).map(|a| (a.input, a.face)))
+                .collect::<Vec<_>>()
+        );
     }
 }
 
