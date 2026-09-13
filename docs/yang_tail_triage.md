@@ -70,19 +70,34 @@ components. Measured at (4a2): the certificate fires on two, refuses the third,
 and the shell still reads χ = 3 with the same `v=45 e=128 f=86` as the baseline.
 Moved to Stage-4 ENTRY it splits **18 vertex copies** and F0060 completes.
 
-**Why it stays OFF — the open question is the ANSWER, not the mechanism.**
-Armed, F0060 grades `SUPPORTED_WRONG`: `V(1438) − E(4292) + F(2860) = 6` over
-what the kernel groups as 2 shells, against the case's authored `euler_target`
-of 2. `A − B` here is **four lobes** — in the y = 0 section, A's square minus
-B's inscribed disc — joined in a 4-cycle: two pairs along the cap tangent LINES
-and two pairs at the lateral tangent POINTS (±0.3, 0, 0). Separated per sheet at
-every contact the boundary is four spheres, χ = 8; shared everywhere it is one
-pinched surface, χ = 2; the measured 6 is neither — the split is PARTIAL (the
-line contacts separate, the point contacts do not). So the next increment is an
-adjudication: **what is the correct body count and χ for a solid whose lobes
-meet only at tangencies, and does this case's authored `euler_target = 2`
-survive it?** A `SUPPORTED_WRONG` is strictly worse than the honest `ERROR` it
-replaces (0W is enforced), so the gate does not flip until that is settled.
+**Why it stays OFF, and WHERE the remaining gap is — measured, and it is
+DOWNSTREAM.** Armed, F0060 grades `SUPPORTED_WRONG`
+(`V(1438) − E(4292) + F(2860) = 6` over what the oracle groups as 2 shells,
+against the authored `euler_target` of 2). The first reading of that number —
+"the split is partial: the line contacts separate, the point contacts do not" —
+is REFUTED by the mesh. `YANG_EDGE_PINCH_PROBE` reads *entry split 18 vertex
+copies* (the two seven-edge line chains) and *4a2 split 2 vertex copies* (the two
+lateral tangent POINTS, which the original vertex-fan rule handles once the
+chains are out of its way): **all four contacts separate.**
+
+The loss is after Stage 4. Dumping the assay's own final mesh
+(`ASSAY_DUMP_STL`) and welding it independently at 1e-12 gives 2860 triangles,
+V = 1434, E = 4294, χ = 0, with **two valence-4 edges and twelve valence-1
+edges**. The two valence-4 edges are the tangent lines AT FULL LENGTH,
+(0, −0.3, ±0.3) → (0, +0.3, ±0.3), each carrying two cap triangles (one per
+side) and two lateral triangles — and the whole bottom tangent line carries
+exactly **two** vertices in the render, its endpoints. kernel-v2's per-face
+re-tessellation rebuilt the cap from its analytic surface and boundary loops as
+geometry sharing ONE edge: the per-sheet split never reached the B-Rep. The
+twelve valence-1 edges are four small triangular holes at the lobe corners by
+the point tangencies — the same story at a vertex.
+
+**So the next increment is Stage-6 EMISSION, not more mesh work**: the split
+sheets must become separate FACES with their own edges and loops, and the point
+split must close the loops it opens. Only then does the χ question (four lobes
+joined at tangencies — one body or four?) even arise. A `SUPPORTED_WRONG` is
+strictly worse than the honest `ERROR` it replaces and 0W is enforced, so the
+gate does not flip before that.
 
 Corpus gate-OFF (release, 8 jobs, 600 s; wall 752.9 s at host load ≈ 3):
 **289C / 0W / 16E / 4EE / 0T + 3 U**, zero category and zero detail moves,

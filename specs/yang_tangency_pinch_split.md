@@ -105,22 +105,39 @@ measured rather than assumed:
   `v=45 e=128 f=86` as the baseline. At entry it splits **18 vertex copies** and
   F0060 stops being a `NonManifoldOutput` altogether.
 
-**Why the gate is still OFF — the open question, which is about the ANSWER, not
-the mechanism.** With the split armed F0060 COMPLETES but grades
-`SUPPORTED_WRONG`: `V(1438) − E(4292) + F(2860) = 6` over what the kernel groups
-as 2 shells, against the case's authored `euler_target` of 2. That is not
-obviously the split's fault. `A − B` here is **four lobes** — in the y = 0
-section, A's square minus B's inscribed disc — joined in a 4-cycle: L(+,−)–L(−,−)
-and L(+,+)–L(−,+) along the two cap tangent LINES, and L(+,+)–L(+,−) /
-L(−,+)–L(−,−) at the two lateral tangent POINTS (±0.3, 0, 0). Separated per
-sheet at every one of those contacts the boundary would be four spheres, χ = 8;
-shared everywhere it is one pinched surface, χ = 2; the measured 6 is neither,
-i.e. the split is PARTIAL (the line contacts separate, the point contacts do
-not). So the next increment is not more machinery but an adjudication:
-**what is the correct body count and χ for a solid whose lobes meet only at
-tangencies**, and does this corpus case's authored `euler_target = 2` survive it?
-Until that is answered the gate stays off — a `SUPPORTED_WRONG` is strictly worse
-than the honest `ERROR` it replaces (0W is enforced).
+**Why the gate is still OFF, measured — the gap is DOWNSTREAM, in the B-Rep
+emission.** With the split armed F0060 COMPLETES but grades `SUPPORTED_WRONG`
+(`V(1438) − E(4292) + F(2860) = 6` over what the oracle groups as 2 shells,
+against the authored `euler_target` of 2). The first reading of that number —
+"the split is partial, the line contacts separate and the point contacts do
+not" — is REFUTED by the mesh itself: the split separates **all four** contacts.
+`YANG_EDGE_PINCH_PROBE` reads *entry split 18 vertex copies* (the two seven-edge
+line chains) and *4a2 split 2 vertex copies* (the two lateral tangent POINTS,
+which the original vertex-fan rule handles once the chains are out of its way).
+
+The loss happens after Stage 4. Dumping the assay's own final mesh
+(`ASSAY_DUMP_STL`) and welding it independently at 1e-12: 2860 triangles,
+V = 1434, E = 4294, χ = 0, with **two valence-4 edges and twelve valence-1
+edges**. The two valence-4 edges are the tangent lines *at full length*,
+(0, −0.3, ±0.3) → (0, +0.3, ±0.3), each carrying two cap triangles (one per
+side) and two lateral triangles — and the whole bottom tangent line carries
+exactly **two** vertices in the render, its endpoints. So kernel-v2's per-face
+re-tessellation rebuilt the cap from its analytic surface and boundary loops as
+geometry sharing ONE edge: the per-sheet split never reached the B-Rep. The
+twelve valence-1 edges are four small triangular holes at the four lobe corners
+by the point tangencies — the same story at a vertex.
+
+**So the next increment is Stage-6 emission, not more mesh work.** The split
+sheets have to become separate FACES with their own edges and loops, and the
+point split has to close the loops it opens; only then does the χ question even
+arise. The mesh-level operation is done and certified, which is why it is banked
+here rather than abandoned.
+
+(The oracle's own hybrid complex reads V = 1438, E = 4292, χ = 6 — a different
+weld granularity from the independent 1e-12 one above. They disagree on details
+and agree on the verdict: the armed output is not yet a clean set of closed
+surfaces, so the gate stays off. A `SUPPORTED_WRONG` is strictly worse than the
+honest `ERROR` it replaces, and 0W is enforced.)
 
 The nest of zero-area triangles at the cap centre needed no special handling:
 they are ordinary star triangles, and the certificate never looks at area.

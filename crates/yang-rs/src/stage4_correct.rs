@@ -14120,6 +14120,10 @@ fn stage4_relocate_and_correct_inner(
     if pinch_splits > 0 {
         collapsed_any = true;
     }
+    if std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
+        eprintln!("[edge-pinch] 4a2 split {pinch_splits} vertex copies");
+        nonmanifold_edge_census("after-4a2", mesh, attribution);
+    }
     // (4b') #169 Phase-0 failure-region probe: before the gate fires, report the
     // non-manifold seam regions + their patch pairs + whether each patch has a
     // SurfaceChart (Plane/Cylinder) — the §4.4.1 mesh-update worklist. Gated on
