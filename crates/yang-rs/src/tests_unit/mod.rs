@@ -50,6 +50,7 @@ mod s1_planar_chart_crossing;
 mod s1_self_contact;
 mod s434_output_restore;
 mod s451_crease_domain;
+mod s452_chord_refine;
 mod s453_line_overtake;
 mod s4_boundary_curve;
 mod s4_circle_pair_corner;

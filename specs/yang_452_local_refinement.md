@@ -182,3 +182,208 @@ open as its own item.
 - Tangent disc∩disc (C0067): §4.3.3 tangent-point insertion milestone.
 - R0050: the upstream producer's refinement-latent non-manifold emission is a
   NEW recorded latent (fires only under the dev knob today).
+
+## 6. Increment 1–2 (2026-09-13) — the `d_ε` rung primitive, the op-level
+## refinement pass, and the SECOND adjudication: R0050's op-3 wall is TANGENCY,
+## not a resolution deficit
+
+**Why re-open.** §5's adjudication measured the family as it stood on
+2026-08-29. R0050's row there was its **op-2** wall (`LRR v125`), and the
+ladder read `input-B-Rep-not-2-manifold` at f=4/f=16 — recorded as
+"upstream producer regresses under refinement; op-2 site unmeasurable
+globally", i.e. NO verdict for R0050. The 2026-09-12 triple-block fix
+(`docs/yang_tail_triage.md`, R0050 op 2 → op 3) retired that wall and exposed
+a NEW one: `RelocationCrossedCarrierVertex v413`. A new member of the §4-I9
+fire list gets its own ladder.
+
+### 6.1 The site, measured (`YANG_S4_CARRIER_DOMAIN=census` + the new
+### `YANG_451_CORNER_PROBE`)
+
+R0050 op 3 = the Revolve-3 auto-union. TWO symmetric fires, `(413, 209)` and
+`(496, 228)`, identical metrics (travel 6.9169e-2, overrun 3.7229e-2). Both
+DECLINE `NoRealCandidate` — the corner-transit planner finds no junction on a
+corner-incident model edge, so the epic's repair has nothing to plan.
+
+The operands (`YANG_451_CORNER_PROBE` prints each face's surface and every
+loop edge with `q`'s own reading against it):
+
+| face | surface |
+|---|---|
+| A:5 | Torus R = 3.9508518457613926, r = 2.6339012305075946, axis (0.8096, 0.5870, 0) |
+| A:6 | Plane n = (−0.8096, −0.5870, 0) — ⊥ the axis (a revolve end cap) |
+| A:9 | Plane n = (0.4651, −0.6415, 0.6101), d = −12.335 — CONTAINS the axis |
+| B:2 | Torus R = 3.7759280618729063, r = 2.517285374581937, SAME axis direction |
+
+`q = v209` is EXACTLY A's B-Rep vertex 76 (nearest-vertex distance **0.0**) —
+a true model corner where A:5, A:6 and A:9 meet. A:9 is the **meridian disc**
+of A's torus (radius r = 2.6339 — its rim circle lies on A:5 to ≤ 8.9e-16)
+with three straight CHORDS bitten out of it by earlier ops: its 6-edge loop is
+v76 –seg– v41 –arc51– v40 –seg– v86 –arc100– v85 –seg– v77 –arc91– v76, the
+three arcs being arcs of ONE circle at θ = [0, 1.9363], [3.1416, 3.3033] and
+[4.9162, 5.0779] (θ measured CCW from v40) and the three segments being chords
+across the gaps.
+
+Both candidate corrected triples converge and BOTH land outside A:9's face:
+
+- `{B:2, A:6, A:5}` → 5.6417e-1 from q, 4.775e-2 off the nearest edge's line:
+  not on a model edge at all.
+- `{B:2, A:9, A:5}` → ON the meridian circle to **1.404e-15**, at θ = 3.0597 —
+  inside the gap (1.9363, 3.1416) that the chord v41–v76 cuts away. The
+  nearest-edge ranking reports it against arc 51 (`d_q_end` 2.986,
+  `not-corner-incident`) because `curve_aware_distance` measures the FULL
+  circle and arcs 51/91 tie at 1.4e-15; read against the corner-incident arc
+  91 instead it is `arc-cw-only`. Either reading refuses, and correctly: the
+  point is outside the face.
+
+**The exact crossings of B:2 with A:9's whole boundary are TWO, both far from
+q** (bisection along every one of the 6 edges): interior to seg v76–v41 at
+t = 0.84306 and interior to seg v40–v86 at t = 0.15694; no arc carries one.
+`d_B2` at the six model vertices is v40 +0.26684, v41 +0.26684, v76 −0.01863,
+v77 −0.05288, v85 −0.05288, v86 −0.01863 — the corner q sits 1.863e-2 INSIDE
+B, and the whole v76/v77/v85/v86 side of the face is inside B. So the mesh
+crossing at v413 (t = +0.0107 on the chord, 3.194e-2 from q) is SPURIOUS: the
+exact torus crosses that chord's LINE 3.7229e-2 PAST q, outside the segment,
+and B's mesh sits 3.4e-2 off its own surface there (within its honest
+`torus_chord_bound(3.7759, 2.5173)` = 6.2932e-2).
+
+### 6.2 Increment 1 — the `d_ε` rung primitive (LANDED, byte-identical)
+
+`chord_rel()` was the paper's `d_ε` base with a DEBUG-ONLY env knob. It is now
+`CHORD_BASE / chord_refine_scale()`, and the scale is a composable,
+panic-safe, thread-local rung set by
+`stage1_tessellate::with_refined_chord(factor, body)` — Yang §4.5.2's
+"increase the mesh resolution of the parametric surfaces" expressed as the ONE
+quantity the paper uses. Refining `d_ε` moves the mesh density AND every
+derived Stage-3/4/6 membership band together, which is what the paper's single
+`d_ε` means and what `fix_all_gates_sharing_a_metric` demands. Factors ≤ 1 are
+clamped (refinement only — coarsening the mesh while loosening every band is
+P9 through the back door); nesting composes; the rung is restored on unwind.
+Pinned by `tests_unit::s452_chord_refine` (5 tests). Production reads the
+natural rung, so the change is byte-identical; the debug `YANG_CHORD_REFINE`
+ladder composes with it unchanged.
+
+`BRep::retessellated_at_current_d_eps()` re-derives a B-Rep's Stage-1
+discretization at the rung in force, topology untouched, preserving any
+phantom-guard `forced_rim_n`.
+
+### 6.3 Increment 2 — the op-level refinement pass under the Q3 guard shell
+### (LANDED, GATED OFF)
+
+`boolean::refine_452` (`YANG_452_REFINE`: unset/other = off, `census` = run
+every rung and report, `1|on` = the dev A/B adopt arm; `YANG_452_ROUNDS=3,6,8`
+overrides the ladder for census; `YANG_452_PROBE` reports on the adopt arm).
+
+- TRIGGER: the paper's own — `Err(Stage4RegionInvalid{..})`, our typed form of
+  "the point pairs that cannot converge to a distance of 0 within their
+  domains" (`refs/text/yang2025_hybrid_boolean.txt:648-651`). §4.5.1 has
+  already refused by then, which is the paper's ordering (`:665-668`).
+- ACTION: re-tessellate BOTH operands at `d_ε/f` and re-run the op. **The
+  operand rebuild is load-bearing**: `boolean_once` consumes `a.as_mesh()`, so
+  wrapping it in the rung alone tightens every band against a mesh that is
+  still as coarse as before and manufactures fresh `OffCurveBeyondChordBand`
+  STOPs — measured on R0050 before the rebuild landed. The mesh and the bands
+  must move together.
+- GUARD SHELL (`docs/yang_junction_research_findings.md` Q3): clause 2, the
+  per-pass strict-decrease monitor on the unpaired-undirected-edge count
+  (Q3 names "unpaired-edge count / |χ−2|"; the unpaired count is the half
+  valid at ANY genus — `|χ−2|` presumes genus 0 and would misjudge every
+  handle-carrying union in the corpus); clause 3, the rung budget; clause 4,
+  output adopted ONLY at functional zero. Clause 1, the transversality entry
+  gate, needs the failing site's geometry, which the typed error does not
+  carry — deferred, and a cost (a bounded futile ladder) rather than a
+  correctness hazard, because of clause 4.
+
+### 6.4 The op-level ladder on R0050 — NO CONVERGENCE
+
+`YANG_452_REFINE=census YANG_452_ROUNDS=1.5,2,3,4,6,8,12,16` (release, 2.9 s):
+
+| rung | operands (tris) | result |
+|---|---|---|
+| d_ε/1.5 | — | `Err RelocationCrossedCarrierVertex v492` |
+| d_ε/2 | a 558→758, b 392→722 | **Ok**, unpaired = 0, **improper = 55** → the kernel-v2 render gate rejects it (`SelfIntersectingBooleanOutput` FaceId 27/38) |
+| d_ε/3 | — | `Err OffCurveBeyondChordBand v324` |
+| d_ε/4 | a 558→1764, b 392→1404 | `Err OffCurveBeyondChordBand v547` |
+| d_ε/6 | — | `Err OffCurveBeyondChordBand v685` |
+| d_ε/8 | — | `Err OffCurveBeyondChordBand v775` |
+| d_ε/12 | — | `Err OffCurveBeyondChordBand v1254` |
+| d_ε/16 | — | `Err OffCurveBeyondChordBand v1197` |
+
+Every rung from d_ε/3 up fails on the SIBLING out-of-domain reason at a
+vertex that moves with the mesh. The one rung that emits a body emits an
+illegally self-intersecting one. The guard shell therefore reports
+`BUDGET EXHAUSTED` and the standing Stage-4 STOP stands — which is the
+designed behaviour, and the honest one.
+
+### 6.5 The WHOLE-CASE ladder OSCILLATES — and the reason is EXACT TANGENCY
+
+The whole-case debug ladder (`YANG_CHORD_REFINE=f`, all three ops refined) is
+not monotone:
+
+| f | 1 | 2 | 3 | 4 | 5 | 6 | 8 |
+|---|---|---|---|---|---|---|---|
+| R0050 | ERROR (CrossedCarrier v413) | ERROR (non-2-manifold) | ERROR (CDT ring reject F34) | **CORRECT** (51.3 s) | ERROR (SelfIntersecting 27/38) | **CORRECT** (57.8 s) | ERROR (CDT ring reject F29) |
+
+Two rungs out of seven pass, with failures of three different kinds between
+them. That is the #137 "χ wanders under refinement" signature, not
+convergence, and Yang's termination guarantee (`:668-670`) does not cover it
+— the guarantee holds for TRANSVERSAL intersections only (Q3; yang2023 §5.4
+certifies refinement does not converge near tangency).
+
+**The certificate: A:5 and B:2 are EXACTLY TANGENT.** Their axes are parallel
+(axis-direction identical; axial offset of the centres 2.8e-16) and offset
+perpendicular by 0.1749237839 — which equals `R_A − R_B = 3.9508518457613926
+− 3.7759280618729063 = 0.1749237839` **exactly**. Minimising |d_B2| over a
+400×400 sample of A's torus and refining the minimum gives **0.0000e+00** at
+(u, v) = (247.51°, 239.40°); the separation over the rest of the surface runs
+up to 0.4663. So the operands touch.
+
+The v413 SITE itself is transversal (|n_B2 × n_A9| = 0.999521, 88.23°;
+|n_B2 × n_A6| = 0.495790, 29.72°; the crease pierces B at 29.7°), so a
+per-site transversality gate would ADMIT it — the non-convergence comes from
+the tangency elsewhere on the same surface pair, which the whole-op
+re-tessellation is subject to.
+
+### 6.6 A REFUTED discriminator, recorded
+
+`YANG_S4_CARRIER_DOMAIN-RESOLUTION` (census) reports, per §4-I9 fire,
+`|d_far(q)|` against the far FACE's own Stage-1 chord bound
+(`stage4_correct::face_chord_bound`), testing "can the far mesh even decide
+which side of itself the corner is on?" It separates R0050 (ratio 2.96e-1)
+from nothing: **R0044**, a CONVERTED corner-transit case, reads
+`UNDER-RESOLVED` at every one of its 6 sites (ratios 1.5e-1 … 6.1e-1),
+because its far face is a Cylinder whose band is the whole-solid circle-rim
+AABB × 1e-2 (72.67) — a per-SOLID quantity that says nothing local. The test
+is NOT a discriminator; the printer is kept as the evidence. The planner's own
+`NoRealCandidate` verdict remains the real separator, and R0085 shows it is
+per-SITE, not per-case: 6 of its 9 op-2 fires decline `NoRealCandidate` while
+3 classify and then decline at the corridor walk (`AmbiguousExit`).
+
+### 6.7 SECOND ADJUDICATION
+
+**§4.5.2-as-recovery still has ZERO customers**, now including the members
+that arrived after 2026-08-29:
+
+- **R0050 (op 3) — TANGENCY, not a resolution deficit.** Re-diagnosed above
+  with an exact certificate. Vehicle moves from the §4.5.1 corner-transit epic
+  (which correctly refuses it: `NoRealCandidate`) to the **§4.3.3
+  tangent-point insertion milestone** — the same owner §5 already assigns to
+  the R0015/C0065 torus near-tangency arm. Adopting either lucky whole-case
+  rung would be a right answer for a wrong reason (P9).
+- **R0085 (op 2) — PERSIST class, confirmed on today's tree.** Whole-case
+  f=1 → two failures (op 2 `CrossedCarrier v386`, op 3 non-2-manifold);
+  f=2 → ONE failure (op 3 clears; op 2 `CrossedCarrier` persists, v386 →
+  v388, the vertex moving with the mesh). Same reason at a moved vertex is
+  §5's persist signature.
+
+The pass therefore stays GATED OFF. It is retained as the census instrument
+this adjudication was made with, and as the ladder any future §4.5.2 claim
+must be re-measured against; its adopt arm (`YANG_452_REFINE=1`) is a dev A/B
+knob whose adoption is REFUTED by §6.4–§6.5, not a candidate for a flip.
+
+**What WOULD reopen §4.5.2:** a §4-I9 fire whose case ladder is MONOTONE — the
+same typed failure weakening and then clearing as `d_ε` shrinks, with no
+oscillation between failure kinds — on a surface pair with no tangency
+anywhere. Yang's Table 3 (`:866-873`: 4 of 400 operations need resolution
+enhancement at `d_ε = 1e-2`, 1 of 400 at `1e-3`, #Fail 0 throughout) says such
+cases exist and that the loop is load-bearing in the paper; none of ours is
+one yet.

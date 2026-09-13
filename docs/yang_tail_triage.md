@@ -43,6 +43,92 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-13 — R0050 op 3 RE-DIAGNOSED: not the §4.5.1 corner-transit class and not a §4.5.2 resolution deficit, but EXACT TANGENCY between the two revolve tori (axis offset 0.1749237839 = R_A − R_B, exactly; min surface separation refines to 0.0); §4.5.2 gets its `d_ε` rung primitive + an op-level refinement pass under the Q3 guard shell, GATED OFF, and a SECOND adjudication (still zero customers); canonical UNCHANGED 287C / 0W / 18E / 4EE / 0T (+3 U), ZERO category and ZERO detail moves
+
+The 2026-09-12 triple-block fix moved R0050 from op 2 to op 3, where it STOPs
+`RelocationCrossedCarrierVertex v413` with `[451-transit] REFUSE
+NoRealCandidate`. Full measurement in `specs/yang_452_local_refinement.md` §6.
+
+**The site.** Two symmetric fires, `(413, 209)` and `(496, 228)`, identical
+metrics (travel 6.9169e-2, overrun 3.7229e-2). `q = v209` is EXACTLY A's B-Rep
+vertex 76 (nearest-vertex distance **0.0**), a true model corner of {A:5
+Torus R=3.9509 r=2.6339, A:6 Plane ⊥ axis, A:9 Plane containing the axis}. A:9
+is A's torus MERIDIAN DISC with three straight chords bitten out of it by
+earlier ops (6-edge loop: three arcs of ONE circle at θ = [0, 1.9363],
+[3.1416, 3.3033], [4.9162, 5.0779] alternating with three chords). Both
+candidate corrected triples converge and both land OUTSIDE A:9's face — the
+`{B:2, A:9, A:5}` one lands ON the meridian circle to 1.404e-15 but at
+θ = 3.0597, inside the gap the chord v41–v76 cuts away. Bisection over all six
+boundary edges finds the exact crossings of B:2 with A:9's boundary: TWO, at
+t = 0.84306 on seg v76–v41 and t = 0.15694 on seg v40–v86, neither near q; the
+corner q sits 1.863e-2 INSIDE B. So the mesh crossing at v413 is SPURIOUS —
+B's mesh is 3.4e-2 off its own surface there, within its honest
+`torus_chord_bound` 6.2932e-2 — and the transit planner is RIGHT to refuse:
+there is no junction to transit to. **New instrument:
+`YANG_451_CORNER_PROBE`** (census) — per §4-I9 fire, the nearest B-Rep vertex
+to q and every loop edge of the far/shared/next faces with q's own reading
+against it (endpoint residual, curve-aware distance, domain verdict); this is
+what read A:9's topology.
+
+**Why it is NOT §4.5.2.** The op-level ladder (`YANG_452_REFINE=census
+YANG_452_ROUNDS=1.5,2,3,4,6,8,12,16`, release 2.9 s) converges at NO rung:
+d_ε/2 emits a watertight body with **55** illegal self-intersections (the
+kernel-v2 render gate rejects it), and d_ε/3 … d_ε/16 all fail on the SIBLING
+reason `OffCurveBeyondChordBand` at a vertex that moves with the mesh. The
+whole-case ladder OSCILLATES — f = 1 ✗, 2 ✗, 3 ✗ (CDT ring reject F34),
+**4 ✓**, 5 ✗ (SelfIntersecting 27/38), **6 ✓**, 8 ✗ (CDT ring reject F29):
+two lucky rungs out of seven with three different failure kinds between them,
+the #137 "χ wanders under refinement" signature. **The certificate:** A:5 and
+B:2 are EXACTLY TANGENT — parallel axes (axial offset 2.8e-16) perpendicularly
+offset by 0.1749237839, which equals `R_A − R_B = 3.9508518457613926 −
+3.7759280618729063` **exactly**; minimising |d_B2| over a 400×400 sample of
+A's torus and refining gives **0.0000e+00** at (u, v) = (247.51°, 239.40°).
+Yang's termination guarantee (`:668-670`) covers transversal intersections
+only, and yang2023 §5.4 certifies refinement does not converge near tangency.
+The v413 site itself IS transversal (88.23° / 29.72°), so a per-site
+transversality gate would admit it — the non-convergence comes from the
+tangency elsewhere on the same surface pair.
+
+**Vehicle moves** from the §4.5.1 corner-transit epic (which correctly refuses
+it) to the **§4.3.3 tangent-point insertion milestone** — the same owner the
+§4.5.2 spec §5 already assigns to the R0015/C0065 torus near-tangency arm.
+
+**R0085 op 2 re-measured on today's tree: PERSIST class.** Whole-case f=1 →
+two failures (op 2 `CrossedCarrier v386`, op 3 non-2-manifold); f=2 → ONE
+failure (op 3 clears, op 2 `CrossedCarrier` persists v386 → v388, the vertex
+moving with the mesh). Its §4-I9 fire list is MIXED per SITE: 6 of 9 decline
+`NoRealCandidate`, 3 classify and then decline at the corridor walk
+(`AmbiguousExit(2)`).
+
+**Landed (production byte-identical).** (1) `chord_rel()` is now
+`CHORD_BASE / chord_refine_scale()` with a composable, panic-safe thread-local
+rung set by `stage1_tessellate::with_refined_chord` — Yang §4.5.2's mesh-
+resolution increase as the ONE quantity the paper uses, moving mesh density and
+every derived Stage-3/4/6 band together; factors ≤ 1 clamped (coarsening while
+loosening bands is P9 through the back door). Pinned by
+`tests_unit::s452_chord_refine` (5 tests). (2)
+`BRep::retessellated_at_current_d_eps()`. (3) `boolean::refine_452`
+(`YANG_452_REFINE` unset = OFF, `census`, `1|on` dev A/B) under the Q3
+guard shell: strict-decrease monitor on the unpaired-undirected-edge count
+(|χ−2| is genus-0-only and would misjudge every handle-carrying union), rung
+budget, output adopted only at functional zero; the transversality entry gate
+is deferred (a bounded cost, not a correctness hazard). **The operand rebuild
+inside the rung is load-bearing:** `boolean_once` consumes `a.as_mesh()`, so
+wrapping it in the rung ALONE tightens every band against an unchanged mesh
+and manufactures fresh `OffCurveBeyondChordBand` STOPs — measured.
+(4) A REFUTED discriminator kept as evidence:
+`YANG_S4_CARRIER_DOMAIN-RESOLUTION` reads `|d_far(q)|` against the far face's
+own chord bound, and R0044 — a CONVERTED transit case — reads
+`UNDER-RESOLVED` at all 6 sites (its far Cylinder's band is the whole-solid
+rim AABB × 1e-2 = 72.67, a per-SOLID quantity that says nothing local).
+
+Corpus (release, 8 jobs, 600 s; wall 749.0 s): **287C / 0W / 18E / 4EE / 0T,
+3 UNSUPPORTED(coplanar-boolean)** — ZERO category moves and ZERO detail moves
+against the committed results.json (per-id diff over all 312). Actionable tail
+still 9, but R0050 now sits with the tangency arm rather than the relocation
+walls: **R0038, R0100, F0058, F0060, C0058, R0019, R0085** (relocation /
+reassembly / CDT) + **R0050, C0065** (§4.3.3 tangency).
+
 ## 2026-09-12 (night, latest) — R0081 CONVERTED: the Stage-0 emission's 2,001 asymmetric edges were the CLUSTERING's decision never written back into the solid (B's 584 gear-profile corners 4e-15 … 4e-14 from A's, identified in 2D, resolved to A's bits on the cap, emitted from B's own bits on the laterals) plus three sub-resolution-contracted rim splits below the relative identity band on 1e-4 edges; the union completes at χ = −4, which the exact-membership ladder confirms as the TRUE genus 3 (the roofed rim notch opens through four tooth gaps) — authored `euler_target: 2` corrected; NEW CANONICAL 287C / 0W / 18E / 4EE / 0T (+3 U)
 
 R0081 (op 3: extrude(gear, 21 teeth) − rectangle notch, then a 205.46° gear
@@ -1184,7 +1270,7 @@ moved. The 30 ERROR rows are the ACTIVE rows below.
 | ~~R0035~~ | ~~Stage-4 LRR v194~~ | ~~v194 is `ellipse=true + surface_pair=true + endpoint` — Ellipse endpoint also on `SurfacePair{Cylinder×Cylinder}` → surface-pair endpoint-mix STOP, R0044 class~~ **FLIPPED CORRECT 2026-07-28 (triple-block wiring):** v194/v195 have exactly 3 incident surfaces `{cyl_A, cyl_B, plane_B}` — the increment-5 conic triple junction, which had simply never counted `vert_surface_pair` as a curve-bearing map | — | ~~P3-junction~~ DONE |
 | ~~R0047~~ | ~~Stage-4 LRR (u32::MAX)~~ reassembled output non-2-manifold (Stage 6) | **FLIPPED CORRECT 2026-08-19 (c10820b8); reconciled 2026-09-04 from the committed results.json history** ~~probe 2026-07-17: `site=split_max_passes` — same class as R0009~~ **RE-DIAGNOSED + LAYER PEELED 2026-08-19:** the R0009 absolute-floor class exactly (2.09e-4 scale; 5168 healthy-triangle unzips in 62 s before the cap). Post-fix zero unzip actions; advances to a Stage-6 reassembly non-2-manifold wall (unprobed) | CONFIRMED (2026-08-19) | Reassembly non-2-manifold family (was P3-§4.5.2) |
 | ~~R0049~~ | ~~non-2-manifold (reassembly)~~ ~~ring rejected by CDT (FaceId 575)~~ **FLIPPED CORRECT 2026-09-07 (night): the live wall was the I6 `NonManifoldInput` backstop on a ROUNDING PLEAT (two sub-band slivers, cone × gear-flank plane, apexes welded bit-identically) — never fragmentation; I6.6 band-scoped membrane cancellation** | (history: ~~probe 2026-07-17: `s6-planar-loop-nonplanar` face 134 vert 337 off-plane 1.449e-6 (band 1.0e-7) — the F0064 class (N51)~~ **DRIFTED 2026-07-29:** now fails as a ring-reject on a **developable** patch (FaceId 575, `tessellate_developable_patch` — not planar). 214 origin nodes, 0 arc samples, folds at idx 1/45/46 (144.2°, 180.0°, 176.6°). **NOT counted as seam-class:** the ring breaks into **~97 adjacency runs**, so ~45% of ring indices are seams and "fold near seam" carries no information. The **fragmentation itself** is the signal — a boundary shattered into ~97 micro-chains against different neighbour faces, which reads as the near-coincident-surface incidence family (R0050/R0053 kin) and is consistent with the old `s6-planar-loop-nonplanar` diagnosis. **CAVEAT: the run-splitting heuristic (twin-id delta > 12 or sign change) is crude and may over-fragment on irregular id allocation — verify the 97 before building on it** | PARTIAL (builder + fragmentation measured 2026-07-29; mint unconfirmed) | Stage-2/3 incidence (near-coincident surfaces) — was P3a-#146) | CONFIRMED (i6-coincident-tris probe) | DONE |
-| R0050 | ~~Stage-4 LRR v58~~ ~~LRR v122 (op 2, torus∩conic endpoint mix)~~ op 3 `RelocationCrossedCarrierVertex` v413 (§4-I9) | **2026-09-12 (later): op 2's wall was the torus block's endpoint-mix STOP on a {cylinder, cap plane, torus} corner — the triple block now admits torus∩conic mixes (section above); op 3 is the §4.5.1 corner-transit class (v413 overruns A's corner v209 by 3.7e-2; `[451-transit] REFUSE NoRealCandidate`), R0085 kin.** probe 2026-07-18: `YANG_TORUS_STOP site=gt2_partners` with **partners=[] (EMPTY)** — v58 (and v362 on the sibling torus) sit on torus intersection edges whose incidence records only ONE distinct surface (the base torus itself); the model has two near-identical revolve tori (R=3.95/r=2.63 vs R=3.78/r=2.52) — a Stage-2/3 **incidence gap between near-coincident revolve surfaces** (no partner to relocate onto). #131/N28 theory refuted | CONFIRMED (#171 pass 2) | P3a-#146 / Stage-2/3 incidence (near-coincident surfaces) |
+| R0050 | ~~Stage-4 LRR v58~~ ~~LRR v122 (op 2, torus∩conic endpoint mix)~~ op 3 `RelocationCrossedCarrierVertex` v413 (§4-I9) | **2026-09-13 RE-DIAGNOSED — EXACT TANGENCY, not a transit and not a resolution deficit.** A:5 (Torus R=3.9509 r=2.6339) and B:2 (Torus R=3.7759 r=2.5173) have parallel axes (axial offset 2.8e-16) offset perpendicularly by 0.1749237839 = `R_A − R_B` EXACTLY; min |d_B2| over A's torus refines to **0.0**. q=v209 is EXACTLY A's B-Rep vertex 76, the {torus, cap plane, meridian-disc plane} corner; the exact crossings of B:2 with A:9's 6-edge boundary are TWO and both far from q (t=0.84306 on seg v76–v41, t=0.15694 on seg v40–v86), so the mesh crossing at v413 is SPURIOUS (B's mesh 3.4e-2 off its own surface, within its honest `torus_chord_bound` 6.2932e-2) and `[451-transit] REFUSE NoRealCandidate` is CORRECT — there is no junction to transit to. Both candidate triples land outside A:9's face (the `{B:2,A:9,A:5}` one ON the meridian circle to 1.404e-15 but inside the chord-bitten gap). §4.5.2 REFUTED: op-level ladder converges at NO rung (d_ε/2 emits 55 illegal self-intersections; d_ε/3…d_ε/16 all `OffCurveBeyondChordBand` at a moving vertex) and the whole-case ladder OSCILLATES (f=3 ✗, 4 ✓, 5 ✗, 6 ✓, 8 ✗). Full measurement: `specs/yang_452_local_refinement.md` §6. ~~2026-09-12 (later): op 2's wall was the torus block's endpoint-mix STOP on a {cylinder, cap plane, torus} corner — the triple block now admits torus∩conic mixes; op 3 is the §4.5.1 corner-transit class, R0085 kin.~~ probe 2026-07-18: `YANG_TORUS_STOP site=gt2_partners` with **partners=[] (EMPTY)** — the model's two near-identical revolve tori, now certified EXACTLY TANGENT. #131/N28 theory refuted | CONFIRMED (2026-09-13, exact-tangency certificate) | ~~P3a-#146 / Stage-2/3 incidence~~ **§4.3.3 tangent-point insertion** (the R0015/C0065 arm) |
 | ~~R0063~~ | Stage-4 LRR (u32::MAX) | **FLIPPED CORRECT 2026-07-30 (1a9cee36); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-17: `site=split_max_passes` — same class as R0009 (the #145 zigzag residual resolves into the split-budget class) | CONFIRMED (#171 sweep) | P3-§4.5.2 |
 | ~~R0077~~ | ~~Stage-4 LRR v3~~ OffCurve v154 (since 2026-07-28) | probe 2026-07-18: `YANG_TORUS_STOP site=pair_newton_none` — torus×plane implicit-pair Newton non-convergence at extreme scale (torus R=2051/r=1367, coords ~2700; the op's other two torus verts converge with rho ≈ 2e-13). Same class as R0025 | CONFIRMED (#171 pass 2) | ~~P3b-#137 (torus∩plane relocation family)~~ **FLIPPED CORRECT 2026-09-11: the pair-Newton wall was closed 2026-07-28 (ulp floor); the live wall was the torus block's `[s1, s2]` arm gating a box-edge × torus pierce (v154 / v161, 17° grazing, moves 259 / 371 along the edge) at the surface-pair corridor (251 / 243) instead of the KV11 LINE corridor (688 / 650) — `junction_line_divergence`, spec `yang_stage4_conic_triple_junction` "Junction-line amendment"; see the 2026-09-11 section** DONE |
 | ~~R0091~~ | Stage-4 LRR (u32::MAX) | **FLIPPED CORRECT 2026-07-21 (92188eaa); reconciled 2026-09-04 from the committed results.json history** probe 2026-07-17: `site=split_max_passes` — same class as R0009; STILL the historical silent-wrong trap: any fix must be re-CDT/refinement, never a merge | CONFIRMED (#171 sweep) | P3-§4.5.2 |

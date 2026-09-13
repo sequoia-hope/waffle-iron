@@ -523,6 +523,197 @@ pub(crate) fn cancel_subresolution_pleats(
     Ok(cancel.len())
 }
 
+/// §4.5.2 LOCAL REFINEMENT gate (spec `specs/yang_452_local_refinement.md`
+/// §6, increment 2). `YANG_452_REFINE=1|on` arms the pass; `census` runs every
+/// rung and reports without adopting anything; unset/other = off (the standing
+/// Stage-4 STOP is the answer). The flip proof is the full-corpus two-run
+/// measurement recorded in the spec.
+fn refine_452_mode() -> Option<bool> {
+    match std::env::var("YANG_452_REFINE").as_deref() {
+        Ok("1") | Ok("on") => Some(true),
+        Ok("census") => Some(false),
+        _ => None,
+    }
+}
+
+/// The §4.5.2 refinement rungs the budget allows: `d_ε / 2` then `d_ε / 4`
+/// (≈ 1.4× and 2× segments per full turn).
+///
+/// The paper's loop is "repeated if optimization failure persists"
+/// (`refs/text/yang2025_hybrid_boolean.txt:665-670`) and terminates because
+/// the mesh intersections converge to the surface intersections under
+/// refinement — but convergence is asymptotic, so the BUDGET is what makes
+/// the loop finite (Q3 guard-shell clause 3,
+/// `docs/yang_junction_research_findings.md`). The budget is load-bearing
+/// rather than arbitrary: measured on R0050, `d_ε/4` resolves the failure
+/// while `d_ε/8` opens a NEW wall on the much denser torus chart, so refining
+/// past the rung that resolves the failure buys nothing and costs
+/// correctness.
+const REFINE_452_ROUNDS: &[f64] = &[2.0, 4.0];
+
+/// The rung ladder in force. Production uses [`REFINE_452_ROUNDS`];
+/// `YANG_452_ROUNDS=3,6,8` overrides it for the census ladder that MEASURES
+/// the budget (spec `specs/yang_452_local_refinement.md` §6).
+fn refine_452_rounds() -> Vec<f64> {
+    std::env::var("YANG_452_ROUNDS")
+        .ok()
+        .map(|s| {
+            s.split(',')
+                .filter_map(|t| t.trim().parse::<f64>().ok())
+                .filter(|f| f.is_finite() && *f > 1.0)
+                .collect::<Vec<f64>>()
+        })
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| REFINE_452_ROUNDS.to_vec())
+}
+
+/// The §4.5.2 topology-error functional: the number of unpaired undirected
+/// edges in an emitted mesh (Q3 guard-shell clause 2 names
+/// "unpaired-edge count / |χ−2|"; the unpaired count is the half that is
+/// valid at ANY genus, so it is the one used — `|χ−2|` presumes genus 0 and
+/// would misjudge every handle-carrying union in the corpus).
+///
+/// Zero ⇔ the mesh is a watertight 2-manifold, the condition
+/// `check_watertight_2manifold` gates on.
+fn refine_452_unpaired(brep: &BRep) -> usize {
+    crate::stage4_project::detect_nonmanifold_seams(&brep.mesh.tris, &|_| None)
+        .iter()
+        .map(|r| r.edges.len())
+        .sum()
+}
+
+/// Yang §4.5.2 local refinement (`refs/text/yang2025_hybrid_boolean.txt:659-670`),
+/// wrapped in the BINDING Q3 guard shell
+/// (`docs/yang_junction_research_findings.md` Q3).
+///
+/// TRIGGER — the paper's own: "we collect the point pairs that cannot
+/// converge to a distance of 0 within their domains" (`:648-651`). Our typed
+/// [`YangError::Stage4RegionInvalid`] IS that collection, in all three of its
+/// reasons: the relocation solved a junction outside the carrier's domain
+/// (`OffCurveBeyondChordBand`, `RelocationCrossedCarrierVertex`) or could not
+/// solve one in-domain at all (`LocalRefinementRequired` — named for this
+/// remedy). §4.5.1 has already had its turn by then: the corner-transit arm
+/// runs inside Stage 4 and this error is what it leaves behind when it
+/// refuses, which is the paper's own ordering ("If such bound cannot be found
+/// or after crossing boundaries the optimization still fails, we increase the
+/// mesh resolution locally and re-optimize as the second strategy").
+///
+/// ACTION — divide `d_ε` and re-run the op. The paper refines only the patches
+/// the failed segment traverses plus a one-ring of neighbours and
+/// re-intersects only there; this increment refines the WHOLE op. That is
+/// strictly MORE refinement than the paper asks for, so the resulting
+/// intersection curves are at least as accurate — locality is the paper's
+/// efficiency measure, not a correctness condition — and it costs a second
+/// full pass, which only an already-FAILED op ever pays.
+///
+/// GUARD SHELL (Q3 clauses 2–4):
+/// * **strict decrease** — rung k is only allowed to continue the ladder when
+///   it strictly lowered the topology-error functional; the first
+///   non-improving rung ends the loop (a refinement that is not converging is
+///   not going to).
+/// * **budget** — [`REFINE_452_ROUNDS`], a fixed ladder with a floor.
+/// * **output gated on the oracle** — a rung's body is ADOPTED only when the
+///   functional reaches ZERO (a watertight 2-manifold mesh). A non-converged
+///   refinement can only STOP, never silently accept: every other rung is
+///   reported and discarded, and the standing Stage-4 STOP stands.
+///
+/// Q3 clause 1 (the transversality entry gate) needs the failing SITE's
+/// geometry, which the typed error does not carry; it is increment 3. Until
+/// then a tangential case pays the (bounded) ladder and keeps its STOP — a
+/// cost, never a correctness hazard, because of the output gate above.
+///
+/// NON-REGRESSING BY CONSTRUCTION: a `Stage4RegionInvalid` op is already a
+/// loud failure, so no passing op enters this path.
+fn refine_452(
+    a: &BRep,
+    b: &BRep,
+    op: BoolOp,
+    backend: &dyn MeshBoolean,
+    natural: &Result<BRep, YangError>,
+) -> Option<BRep> {
+    let adopt = refine_452_mode()?;
+    let Err(YangError::Stage4RegionInvalid { vertex, reason }) = natural else {
+        return None;
+    };
+    let probe = !adopt || std::env::var_os("YANG_452_PROBE").is_some();
+    if probe {
+        eprintln!("[s452] op={op:?} trigger v{vertex} {reason:?} adopt={adopt}");
+    }
+    let mut best: Option<usize> = None;
+    for factor in refine_452_rounds() {
+        // Re-derive BOTH operands' discretizations at the refined `d_ε`
+        // before re-running the op. Refining the bands ALONE would be the
+        // inverse of the paper's remedy: it tightens every Stage-3/4/6
+        // membership test against a mesh that is still as coarse as before,
+        // which manufactures fresh `OffCurveBeyondChordBand` STOPs instead of
+        // resolving anything (measured on R0050 before this rebuild landed).
+        // The mesh and the bands must move together — `d_ε` is ONE quantity.
+        let out = crate::stage1_tessellate::with_refined_chord(factor, || {
+            let ra = a.retessellated_at_current_d_eps()?;
+            let rb = b.retessellated_at_current_d_eps()?;
+            if std::env::var_os("YANG_452_PROBE").is_some() || !adopt {
+                eprintln!(
+                    "[s452]     operands a {} -> {} tris (forced_rim_n={:?}), b {} -> {} tris \
+                     (forced_rim_n={:?})",
+                    a.mesh.tris.len(),
+                    ra.mesh.tris.len(),
+                    a.forced_rim_n,
+                    b.mesh.tris.len(),
+                    rb.mesh.tris.len(),
+                    b.forced_rim_n,
+                );
+            }
+            boolean_once(&ra, &rb, op, backend, false)
+        });
+        let brep = match out {
+            Ok(brep) => brep,
+            Err(e) => {
+                if probe {
+                    eprintln!("[s452]   d_eps/{factor} -> Err({e:?})");
+                }
+                // A rung that cannot emit a body at all has no functional to
+                // compare; the ladder continues to the next rung (the paper's
+                // "repeated if optimization failure persists").
+                continue;
+            }
+        };
+        let unpaired = refine_452_unpaired(&brep);
+        if probe {
+            eprintln!(
+                "[s452]   d_eps/{factor} -> Ok tris={} unpaired={unpaired} improper={}",
+                brep.mesh.tris.len(),
+                output_improper_count(&brep),
+            );
+        }
+        if unpaired == 0 {
+            // Converged: the refinement produced a watertight 2-manifold
+            // output. Every downstream gate still applies unchanged.
+            if adopt {
+                return Some(brep);
+            }
+            continue; // census: measure every rung
+        }
+        // Strict-decrease monitor: abort the ladder on the first rung that did
+        // not improve on the previous one.
+        match best {
+            Some(prev) if unpaired >= prev => {
+                if probe {
+                    eprintln!(
+                        "[s452]   ABORT: unpaired {unpaired} did not improve on {prev} \
+                         (Q3 strict-decrease monitor)"
+                    );
+                }
+                return None;
+            }
+            _ => best = Some(unpaired),
+        }
+    }
+    if probe {
+        eprintln!("[s452]   BUDGET EXHAUSTED: no rung converged — the Stage-4 STOP stands");
+    }
+    None
+}
+
 pub fn boolean(
     a: &BRep,
     b: &BRep,
@@ -531,6 +722,14 @@ pub fn boolean(
 ) -> Result<BRep, YangError> {
     // Detect-then-refine. Pass 1 at natural resolution.
     let natural = boolean_once(a, b, op, backend, false);
+    // §4.5.2 local refinement (Yang :659-670) — an out-of-domain Stage-4
+    // optimization failure is the paper's own refinement trigger, and it must
+    // be consulted BEFORE the §4.5.4 rim×plane graze gate below returns early
+    // on the no-graze path (this class is surface-vs-surface under-resolution,
+    // not a rim under-sampling).
+    if let Some(refined) = refine_452(a, b, op, backend, &natural) {
+        return Ok(refined);
+    }
     let probe = std::env::var_os("YANG_REFINE_PROBE").is_some();
     // CHEAP GATE FIRST: a rim×plane graze the natural resolution
     // under-samples must be present, else no refinement is possible — return

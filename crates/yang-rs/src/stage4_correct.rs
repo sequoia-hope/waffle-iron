@@ -7565,6 +7565,59 @@ fn corner_transit_apply(
     Ok(true)
 }
 
+/// §4.5.2 UNDER-RESOLUTION certificate (census, spec
+/// `specs/yang_452_local_refinement.md`): the Stage-1 chord bound of ONE face —
+/// how far that face's own tessellation may deviate from its exact surface.
+/// A `Plane` is tessellated exactly (0); every curved kind reports its own
+/// Stage-1 budget, the SAME functions Stage 1 sized its density from
+/// (`fix_all_gates_sharing_a_metric`). `None` = no bound derivable (a curved
+/// face whose density came from the solid's rim AABB — the caller falls back
+/// to `input_curved_chord_bound`).
+pub(crate) fn face_chord_bound(f: &BRepFace, edges: &[crate::BRepEdge]) -> Option<f64> {
+    use crate::stage1_tessellate::{
+        cone_chord_bound, curved_chord_bound, sphere_chord_bound, torus_chord_bound,
+    };
+    match f.surface {
+        Surface::Plane { .. } => Some(0.0),
+        Surface::Sphere { radius, .. } => Some(sphere_chord_bound(radius)),
+        Surface::Torus {
+            major_radius,
+            minor_radius,
+            ..
+        } => Some(torus_chord_bound(major_radius, minor_radius)),
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+            ..
+        } => {
+            // The band's own height: the largest axial extent of its rims.
+            let h = f
+                .outer_loop
+                .iter()
+                .chain(f.inner_loops.iter().flatten())
+                .filter_map(|&ei| edges.get(ei as usize))
+                .filter_map(|e| match e.curve {
+                    Curve::Circle { center, .. } => {
+                        let d = [
+                            center.as_array()[0] - apex.as_array()[0],
+                            center.as_array()[1] - apex.as_array()[1],
+                            center.as_array()[2] - apex.as_array()[2],
+                        ];
+                        let a = axis_dir.as_array();
+                        Some((d[0] * a[0] + d[1] * a[1] + d[2] * a[2]).abs())
+                    }
+                    _ => None,
+                })
+                .fold(0.0f64, f64::max);
+            (h > 0.0).then(|| cone_chord_bound(h, half_angle))
+        }
+        // A cylinder lateral samples at the rim density, whose budget is the
+        // solid's circle-rim AABB band — a per-SOLID quantity the caller owns.
+        Surface::Cylinder { .. } => curved_chord_bound(edges),
+    }
+}
+
 fn relocation_domain_postcondition(
     mesh: &Mesh,
     attribution: &TriangleAttributionMap,
@@ -7806,6 +7859,144 @@ fn relocation_domain_postcondition(
                         "YANG_S4_CARRIER_DOMAIN-TRANSIT v{v} q=v{q} far={far:?} \
                          next={next:?} shared={shared:?}"
                     );
+                    // §4.5.2 UNDER-RESOLUTION certificate (census; spec
+                    // `specs/yang_452_local_refinement.md` §6). The §4-I9 fire
+                    // has two mechanisms, and the FAR surface's own Stage-1
+                    // chord bound separates them:
+                    //
+                    //  * REAL TRANSIT (the §4.5.1 corner-transit family): the
+                    //    far surface's zero lies MACROSCOPICALLY past the
+                    //    corner, so `|d_far(q)| >> d_eps(far)`. The mesh knows
+                    //    which side of `far` the corner is on; the crossing is
+                    //    real and must be re-routed onto the next model edge.
+                    //  * UNDER-RESOLUTION (the paper's §4.5.2 customer): the
+                    //    corner sits WITHIN the far face's own chord band,
+                    //    `|d_far(q)| <= d_eps(far)`, so the far mesh CANNOT
+                    //    decide which side of `far` the corner lies on and the
+                    //    discrete crossing may not exist at all. Refinement is
+                    //    the paper's remedy (§4.5.2); no transit exists to
+                    //    plan.
+                    for fp in &far {
+                        let (brep, label) = match fp.0 {
+                            InputId::A => (a, "A"),
+                            InputId::B => (b, "B"),
+                        };
+                        let Some(ff) = brep.faces().get(fp.1 as usize) else {
+                            continue;
+                        };
+                        let de = face_chord_bound(ff, brep.edges())
+                            .or_else(|| input_curved_chord_bound(brep));
+                        let dq =
+                            surface_distance_and_normal(ff.surface, qpos).map(|(f, _)| f.abs());
+                        let verdict = match (dq, de) {
+                            (Some(dq), Some(de)) if dq <= de => "UNDER-RESOLVED(452)",
+                            (Some(_), Some(_)) => "RESOLVED(real-transit)",
+                            _ => "NO-VERDICT",
+                        };
+                        eprintln!(
+                            "YANG_S4_CARRIER_DOMAIN-RESOLUTION v{v} q=v{q} far={label}:{} \
+                             d_far_q={} d_eps_far={} ratio={} {verdict}",
+                            fp.1,
+                            dq.map_or("None".to_string(), |x| format!("{x:.6e}")),
+                            de.map_or("None".to_string(), |x| format!("{x:.6e}")),
+                            match (dq, de) {
+                                (Some(dq), Some(de)) if de > 0.0 => format!("{:.4e}", dq / de),
+                                _ => "inf".to_string(),
+                            },
+                        );
+                    }
+                    // CORNER PROBE (report-only, census): q's own MODEL
+                    // incidence. The corner-incident-edge rule reads
+                    // `d_q_end <= band` on the winning edge; when every
+                    // candidate refuses as `not-corner-incident` the question
+                    // is whether q is a model CORNER at all — so list, per
+                    // operand, the nearest B-Rep vertex to q and every edge of
+                    // the far/shared/next faces' loops with q's own reading
+                    // against it (endpoint residual, curve-aware distance,
+                    // domain verdict of q ITSELF on that edge).
+                    if std::env::var("YANG_451_CORNER_PROBE").is_ok() {
+                        let all: Vec<(InputId, u32)> = pv.union(pq).copied().collect();
+                        for input in [InputId::A, InputId::B] {
+                            let brep = match input {
+                                InputId::A => a,
+                                InputId::B => b,
+                            };
+                            let (verts, edges, faces) =
+                                (brep.vertices(), brep.edges(), brep.faces());
+                            if !all.iter().any(|&(i2, _)| i2 == input) {
+                                continue;
+                            }
+                            let near = verts
+                                .iter()
+                                .enumerate()
+                                .map(|(vi, bv)| {
+                                    let pp = bv.point.as_array();
+                                    (vi, {
+                                        let d = [pp[0] - qpos[0], pp[1] - qpos[1], pp[2] - qpos[2]];
+                                        (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+                                    })
+                                })
+                                .min_by(|x, y| x.1.total_cmp(&y.1));
+                            eprintln!(
+                                "YANG_S4_CARRIER_DOMAIN-CORNER v{v} q=v{q} {input:?} \
+                                 nearest_brep_vertex={near:?} nverts={}",
+                                verts.len()
+                            );
+                            for &(i2, fi) in &all {
+                                if i2 != input {
+                                    continue;
+                                }
+                                if let Some(f) = faces.get(fi as usize) {
+                                    eprintln!(
+                                        "YANG_S4_CARRIER_DOMAIN-CORNER   v{v} SURFACE \
+                                         {input:?}:{fi} nloops={} nedges_outer={} {:?}",
+                                        1 + f.inner_loops.len(),
+                                        f.outer_loop.len(),
+                                        f.surface,
+                                    );
+                                }
+                            }
+                            let mut seen = std::collections::BTreeSet::new();
+                            for &(i2, fi) in &all {
+                                if i2 != input {
+                                    continue;
+                                }
+                                let Some(f) = faces.get(fi as usize) else {
+                                    continue;
+                                };
+                                for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten())
+                                {
+                                    if !seen.insert(ei) {
+                                        continue;
+                                    }
+                                    let e = &edges[ei as usize];
+                                    let er = crate::stage4_transit::edge_domain_of(
+                                        verts, edges, ei, qpos, qpos,
+                                    );
+                                    let ps = verts[e.start as usize].point.as_array();
+                                    let pe = verts[e.end as usize].point.as_array();
+                                    eprintln!(
+                                        "YANG_S4_CARRIER_DOMAIN-CORNER   v{v} {input:?}:{fi} \
+                                         edge={ei} v{}->v{} d_q_end={:.3e} d_q_edge={:.3e} \
+                                         q_domain={:?} start=({:.6},{:.6},{:.6}) \
+                                         end=({:.6},{:.6},{:.6}) curve={:?}",
+                                        e.start,
+                                        e.end,
+                                        er.d_q_end,
+                                        er.d_on_edge,
+                                        er.domain,
+                                        ps[0],
+                                        ps[1],
+                                        ps[2],
+                                        pe[0],
+                                        pe[1],
+                                        pe[2],
+                                        e.curve,
+                                    );
+                                }
+                            }
+                        }
+                    }
                     match crate::stage4_transit::read_site(a, b, pv, pq, qpos) {
                         Err(d) => eprintln!(
                             "YANG_S4_CARRIER_DOMAIN-TRANSIT   PLAN v{v} q=v{q} DECLINE {d:?}"

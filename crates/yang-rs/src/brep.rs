@@ -492,6 +492,25 @@ impl BRep {
     /// `n`. Topology (vertices/edges/faces) is unchanged — only the
     /// tessellation density rises, which is always chord-valid (a finer N
     /// only shrinks the sagitta; governance A14.3).
+    /// §4.5.2 local refinement (spec `specs/yang_452_local_refinement.md`):
+    /// re-derive this B-Rep's Stage-1 discretization at the `d_ε` currently in
+    /// force — i.e. inside [`crate::stage1_tessellate::with_refined_chord`].
+    ///
+    /// TOPOLOGY IS UNTOUCHED: the same vertices, edges and faces, re-meshed at
+    /// the finer tolerance, which is exactly what Yang §4.5.2 asks for
+    /// ("we increase the mesh resolution of the parametric surfaces associated
+    /// with the erroneous regions"). Any phantom-guard rim boost already in
+    /// force (`forced_rim_n`) is preserved, so the two mechanisms compose. At
+    /// the natural rung this returns a byte-identical rebuild.
+    pub(crate) fn retessellated_at_current_d_eps(&self) -> Result<Self, YangError> {
+        Self::from_topology(
+            self.vertices.clone(),
+            self.edges.clone(),
+            self.faces.clone(),
+            self.forced_rim_n,
+        )
+    }
+
     pub(crate) fn rebuilt_with_min_rim_segments(&self, n: usize) -> Result<Self, YangError> {
         Self::from_topology(
             self.vertices.clone(),
