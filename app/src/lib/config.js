@@ -22,6 +22,32 @@ export const CANDIDATE_DEDUP_PX = 4; // preview-candidate dedup radius (was 0.00
 // Viewport geometry
 export const SIDE_FACE_GROUP_THRESHOLD = 8;
 
+// Axis colors — the R/G/B = X/Y/Z convention, shared by every surface that
+// draws or names an axis: the datum triad and its arrowheads (DatumVis), the
+// Origin rows in the feature tree, the sketch's own X/Y reference lines, and
+// mate-connector frames (ConnectorFrames). Four sites had each grown their own
+// triad — the connector frames were drawn in a palette used nowhere else in
+// the app — so an axis was a different red depending on which component
+// happened to draw it.
+//
+// These are deliberately NOT theme tokens. Red-is-X is a convention the user
+// carries between applications, so it must not move with the theme the way
+// --model-color and its family do. What varies per site is OPACITY: the sketch
+// axes are reference lines and draw at 0.4, the datum triad at full strength.
+//
+// CSS hex strings, because `new THREE.Color('#ff4444')` accepts one directly —
+// so the three.js sites and the DOM sites share a single representation rather
+// than a 0x number and a '#' string that can drift apart.
+//
+// The datum PLANE palette in lib/engine/planes.js follows the same convention
+// (Right/X red, Top/Y green, Front/Z blue) but is its own set of four shades
+// per plane for translucent fills, and is not derived from these.
+export const AXIS_COLORS = Object.freeze({
+	x: '#ff4444',
+	y: '#44cc44',
+	z: '#4488ff',
+});
+
 // Toast auto-dismiss durations (ms)
 export const TOAST_DISMISS_MS = {
 	error: 6000,

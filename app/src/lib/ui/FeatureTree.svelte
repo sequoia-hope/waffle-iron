@@ -1,4 +1,5 @@
 <script>
+	import { AXIS_COLORS } from '$lib/config.js';
 	import {
 		getFeatureTree,
 		getSelectedFeatureId,
@@ -66,9 +67,9 @@
 
 	// Built-in axis definitions for the Origin section
 	const ORIGIN_AXES = [
-		{ id: 'x', name: 'X Axis', color: '#ff4444' },
-		{ id: 'y', name: 'Y Axis', color: '#44cc44' },
-		{ id: 'z', name: 'Z Axis', color: '#4488ff' },
+		{ id: 'x', name: 'X Axis', color: AXIS_COLORS.x },
+		{ id: 'y', name: 'Y Axis', color: AXIS_COLORS.y },
+		{ id: 'z', name: 'Z Axis', color: AXIS_COLORS.z },
 	];
 
 	/** @type {{ featureId: string, value: string } | null} */

@@ -14,6 +14,7 @@
 		computeFacePlane
 	} from '$lib/engine/store.svelte.js';
 	import { getAllPlanes, makePlaneRef, resolvePlane, PLANE_HALF_SIZE } from '$lib/engine/planes.js';
+	import { AXIS_COLORS } from '$lib/config.js';
 
 	let inSketchMode = $derived(!!getSketchMode()?.active);
 
@@ -142,16 +143,16 @@
 	const yAxisGeo = buildAxisLine([0, 1, 0], axisLength);
 	const zAxisGeo = buildAxisLine([0, 0, 1], axisLength);
 
-	const xAxisMaterial = new THREE.LineBasicMaterial({ color: 0xff4444 });
-	const yAxisMaterial = new THREE.LineBasicMaterial({ color: 0x44cc44 });
-	const zAxisMaterial = new THREE.LineBasicMaterial({ color: 0x4488ff });
+	const xAxisMaterial = new THREE.LineBasicMaterial({ color: AXIS_COLORS.x });
+	const yAxisMaterial = new THREE.LineBasicMaterial({ color: AXIS_COLORS.y });
+	const zAxisMaterial = new THREE.LineBasicMaterial({ color: AXIS_COLORS.z });
 
 	// Arrowhead cones (scaled proportionally)
 	const coneGeo = new THREE.ConeGeometry(0.0005, 0.0018, 8);
 
-	const xConeMaterial = new THREE.MeshBasicMaterial({ color: 0xff4444 });
-	const yConeMaterial = new THREE.MeshBasicMaterial({ color: 0x44cc44 });
-	const zConeMaterial = new THREE.MeshBasicMaterial({ color: 0x4488ff });
+	const xConeMaterial = new THREE.MeshBasicMaterial({ color: AXIS_COLORS.x });
+	const yConeMaterial = new THREE.MeshBasicMaterial({ color: AXIS_COLORS.y });
+	const zConeMaterial = new THREE.MeshBasicMaterial({ color: AXIS_COLORS.z });
 
 	// Cone rotations to point along each axis
 	const xConeRotation = [0, 0, -Math.PI / 2];

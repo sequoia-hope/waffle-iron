@@ -2,6 +2,7 @@
 	import { T, useThrelte } from '@threlte/core';
 	import { HTML } from '@threlte/extras';
 	import * as THREE from 'three';
+	import { AXIS_COLORS } from '$lib/config.js';
 	import {
 		getSketchMode,
 		getSketchEntities,
@@ -35,8 +36,11 @@
 	// Color scheme. The entity colors are CSS tokens (app.css `--sketch-*`),
 	// customizable from Settings → Appearance; they are re-read whenever the
 	// base theme or an override changes (colorVersion / theme are reactive).
-	const COLOR_AXIS_X = 0xcc4444;     // red, sketch X axis
-	const COLOR_AXIS_Y = 0x44aa44;     // green, sketch Y axis
+	// The sketch's X/Y reference lines take the shared axis triad
+	// ($lib/config.js); what makes them recede is the 0.4 opacity on their
+	// materials below, not a dimmer hex.
+	const COLOR_AXIS_X = AXIS_COLORS.x;
+	const COLOR_AXIS_Y = AXIS_COLORS.y;
 	const COLOR_ORIGIN = 0xffffff;     // white, origin marker
 	function tokenColor(id, fallback) {
 		void getColorVersion(); void getTheme();

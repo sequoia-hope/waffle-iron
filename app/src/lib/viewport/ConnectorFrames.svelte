@@ -15,10 +15,12 @@
 	import { T } from '@threlte/core';
 	import * as THREE from 'three';
 	import { getAssemblyConnectorFrames } from '$lib/engine/store.svelte.js';
+	import { AXIS_COLORS } from '$lib/config.js';
 
 	/** Axis lengths in meters. z is the mate axis, so it reads longest. */
 	const AXIS_LENGTH = { x_axis: 0.004, y_axis: 0.004, z_axis: 0.009 };
-	const AXIS_COLOR = { x_axis: 0xf38ba8, y_axis: 0xa6e3a1, z_axis: 0x89b4fa };
+	/** Keyed by the frame's own axis names; values are the shared triad. */
+	const AXIS_COLOR = { x_axis: AXIS_COLORS.x, y_axis: AXIS_COLORS.y, z_axis: AXIS_COLORS.z };
 	const AXES = ['x_axis', 'y_axis', 'z_axis'];
 
 	let frames = $derived(getAssemblyConnectorFrames());
