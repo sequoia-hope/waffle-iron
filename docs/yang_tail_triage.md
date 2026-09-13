@@ -43,6 +43,36 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-09-13 (later, addendum) — the tangency family SPLITS into three owners, not one: the memory note "all six funnel to #169 phase 3" is too coarse
+
+Measured with `YANG_STAR_PROBE` / `NONMANIFOLD_SITE_PROBE` / `YANG_LRR_PROBE`
+on today's tree, no code change.
+
+| case | tangency | does the MESH meet at it? | owner |
+|---|---|---|---|
+| **C0058**, **F0058** | cyl×cyl POINT | **NO** — no vertex within 1e-9 at Stage-4 entry; nearest 1.33e-1 / 2.92e-2 | §4.4.1 trim+CDT — the branches must be CUT into the mesh (`specs/yang_433_tangent_point_mesh_update.md`) |
+| **R0038** | plane-tangent-cylinder GENERATOR | n/a — its degenerate caps ARE the conformal seam triangles | §4.4.1 too, and its remedy is already BANKED: `replan_degenerate_cylinder_patches` / `YANG_N2_RECDT_ENABLE` (task #168), which self-rejects at the degree-2 boundary gate (`yang_n2_stage4_cdt_mesh_updating.md` §5c.10) |
+| **F0060** | plane×cyl LINE | **YES** — B's prism ridge lands exactly on the tangent generator | NOT §4.4.1: a WELD + line-pinch representation defect (below) |
+| **C0065**, **R0050** | torus | — | §4.5.2 REFUTED for R0050 (exact tangency, `specs/yang_452_local_refinement.md` §6); C0065 is the bounded-face containment class |
+
+**F0060 measured.** A = cylinder r 0.3, caps at z = ±0.3; B = cylinder r 0.3 on
+the y-axis (`axis_point (0, 0.3, 0)`, `axis_dir (0,−1,0)`), CUT. B is tangent to
+BOTH caps along the generators x = 0, z = ±0.3. A−B near a generator is two thin
+cusps (`−0.3 < z < −0.3 + x²/0.6`) meeting along it, so the solid is genuinely
+LINE-pinched and its manifold B-Rep needs the tangent edge duplicated per
+sheet — the sibling `yang_tangency_pinch_split.md` §0 named and deliberately
+excluded ("an EDGE pinch the vertex-fan split cannot and must not touch").
+Unlike C0058 the mesh DOES resolve the tangency — but at Stage-4 entry the
+generator point (0, 0, −0.3) carries **SIX** coincident vertices
+(v3, v11, v14, v16, v18, v20, pairwise ≤ 3.673940e-17 apart, far below
+`TAU_WORK`), and the final mesh's `s4-shell-euler` double-cover edges along the
+generator each carry 2 REAL cap triangles (off-vertices at x = ±0.15) and 2
+ZERO-AREA triangles whose three corners all lie ON the generator
+(e.g. tri 117 `[78, 0, 3]` = (0, 0.3, −0.3), (0, −0.075, −0.3), (0, 0, −0.3),
+attributed `B face 2 Cylinder`). So F0060's worklist is: weld the ULP-apart
+generator copies, drop the collinear line triangles, then split the pinch EDGE —
+none of which is the §4.4.1 cut C0058 needs.
+
 ## 2026-09-13 (later) — C0058 and F0058 RE-DIAGNOSED: the cyl×cyl POINT-tangency pair; the meshes never meet at the tangent point, so no relocation can create the crossing the output needs — the owner is §4.4.1 mesh updating (deviation N2), NOT the Stage-6 boundary walk; a LATENT closed on the way (the cyl×cyl relocation arm had no bound on its MOVE and slid a vertex 0.4427); canonical UNCHANGED 287C / 0W / 18E / 4EE / 0T (+3 U), zero category and zero detail moves
 
 Full measurement: `specs/yang_433_tangent_point_mesh_update.md`.

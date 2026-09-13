@@ -3,9 +3,13 @@
 Status: **MEASUREMENT + increment 1 landed** (2026-09-13). Corpus drivers:
 **C0058** (equal-R cylinders, coplanar axes at 30°, UNION — `s6-curved-degenerate-loop`)
 and **F0058** (equal-R perpendicular cylinders, CUT — `s4-shell-euler` χ=3 on a
-4-triangle edge). Both are cylinder×cylinder POINT tangency. `R0038` and `F0060`
-are the plane×cylinder LINE-tangency siblings (not measured here); `C0065` and
-`R0050` are the torus arms (`specs/yang_452_local_refinement.md` §6).
+4-triangle edge). Both are cylinder×cylinder POINT tangency. The LINE-tangency siblings
+are NOT the same class and are routed separately (ledger 2026-09-13 addendum):
+`R0038`'s remedy is already banked (`YANG_N2_RECDT_ENABLE`, task #168) and
+`F0060`'s mesh DOES meet its tangent generator — its worklist is a ULP weld
+(six coincident vertices ≤ 3.673940e-17 apart at the generator point), a
+collinear-triangle drop, and a pinch-EDGE split. `C0065` and `R0050` are the
+torus arms (`specs/yang_452_local_refinement.md` §6).
 
 This spec supersedes `specs/kv9_f1_tangency_inout_labels.md` §2c.5a, whose named
 next increment — "junction-aware boundary-walk continuation" — **is not the
