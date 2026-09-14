@@ -63,7 +63,8 @@ COPY --chown=$USERNAME:$USERNAME claude-remote/entrypoint.sh /home/$USERNAME/ent
 COPY --chown=$USERNAME:$USERNAME claude-remote/setup-keyboard.sh /home/$USERNAME/setup-keyboard.sh
 COPY --chown=$USERNAME:$USERNAME claude-remote/keyboard-bar.html /home/$USERNAME/keyboard-bar.html
 COPY --chown=$USERNAME:$USERNAME claude-remote/ws-proxy.html /home/$USERNAME/ws-proxy.html
-RUN chmod +x /home/$USERNAME/entrypoint.sh /home/$USERNAME/setup-keyboard.sh
+COPY --chown=$USERNAME:$USERNAME claude-remote/host-copy.sh /home/$USERNAME/host-copy.sh
+RUN chmod +x /home/$USERNAME/entrypoint.sh /home/$USERNAME/setup-keyboard.sh /home/$USERNAME/host-copy.sh
 
 USER $USERNAME
 WORKDIR /home/$USERNAME

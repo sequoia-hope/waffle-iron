@@ -7,7 +7,12 @@ services:
     ports:
       - "${TAILSCALE_IP:?Set TAILSCALE_IP in .env}:8082:7681"
       - "${TAILSCALE_IP:?Set TAILSCALE_IP in .env}:8083:5173"
+      # Loopback too: the agent-link relay only pairs with an https or loopback app URL
+      - "127.0.0.1:8083:5173"
       - "${TAILSCALE_IP:?Set TAILSCALE_IP in .env}:8085:8085"
+    extra_hosts:
+      # Stable name for the host, so MCP servers can be launched there over SSH
+      - "host.docker.internal:host-gateway"
     volumes:
       # Mount this repo as the workspace
       - .:/home/claude/workspace
