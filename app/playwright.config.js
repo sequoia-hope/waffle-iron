@@ -1,5 +1,9 @@
 import { defineConfig } from '@playwright/test';
 
+// PW_BASE_URL points the suite at a dev server other than the default one
+// (e.g. a git worktree's own `npm run dev`); unset, behavior is unchanged.
+const baseURL = process.env.PW_BASE_URL || 'http://localhost:5173';
+
 export default defineConfig({
 	testDir: './tests',
 	timeout: 60000,
@@ -7,7 +11,7 @@ export default defineConfig({
 	workers: parseInt(process.env.PW_WORKERS || '4', 10),
 	outputDir: './test-results',
 	use: {
-		baseURL: 'http://localhost:5173',
+		baseURL,
 		headless: true,
 		viewport: { width: 1280, height: 720 },
 		screenshot: 'only-on-failure',
@@ -59,7 +63,7 @@ export default defineConfig({
 	],
 	webServer: {
 		command: 'npm run dev',
-		port: 5173,
+		url: baseURL,
 		reuseExistingServer: true,
 		timeout: 30000,
 	},
