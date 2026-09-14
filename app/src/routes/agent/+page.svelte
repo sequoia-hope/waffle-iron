@@ -12,8 +12,10 @@
 	import { connectWithCode } from '$lib/agent/link.js';
 
 	const params = $page.url.searchParams;
-	const relay = params.get('relay') ?? '';
-	const code = params.get('code') ?? '';
+	// Neither value can contain whitespace, but a link wrapped while being copied
+	// to another device arrives with spaces inside (seen on iOS: `1%20%20%200000`).
+	const relay = (params.get('relay') ?? '').replace(/\s+/g, '');
+	const code = (params.get('code') ?? '').replace(/\s+/g, '');
 	const agentName = params.get('name') || 'An unnamed agent';
 
 	function relayIsValid(value) {
