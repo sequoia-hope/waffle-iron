@@ -18,10 +18,18 @@ connection path; ICR-1…ICR-4 merged.
   the feature's provenance record orphaned (STEP import → undo kept an
   `Import` record in the file). Tests: `feature-engine/tests/provenance_commands.rs`,
   `wasm-bridge/tests/feature_provenance.rs`.
-- [ ] **ICR-2** typed errors: `EngineToUi::Error.kind`,
-  `ModelUpdated.feature_errors`. Known limit: yang STOPs reach the engine as
-  `KernelError::Other` / `BooleanFailed` strings, so a typed `KernelStop`
-  needs a kernel-v2 mapping change — record, do not parse messages.
+- [x] **ICR-2** typed errors (2026-09-14): `feature_engine::types::ErrorKind`
+  + `FeatureError`; `Engine::feature_errors` is built from the same sources
+  in the same order as `Engine::errors` (parameter errors ⇒ `Expression`,
+  context errors ⇒ `Context`, rebuild errors ⇒ `ErrorKind::from(&EngineError)`).
+  New `EngineError::SourceUnavailable` (same message text as the
+  `RebuildFailed` it replaces). Bridge: `ModelUpdated.feature_errors`,
+  `EngineToUi::Error.kind` (engine errors only; bridge-level failures leave
+  it absent). Tests: `feature-engine/tests/typed_errors.rs`,
+  `wasm-bridge/tests/typed_errors.rs`. **Known limit (open):** yang STOPs
+  reach the engine as `KernelError::BooleanFailed` / `Other`, so they are
+  `KernelFailure{kernel}` — a distinct `KernelStop` kind needs kernel-v2 to
+  map STOPs to their own `KernelError` variant. Not done by parsing messages.
 - [ ] **ICR-1** exact measurement: `KernelIntrospect::solid_volume` /
   `solid_surface_area`; bridge `MeasureBody` → `BodyMeasured`.
 - [ ] **ICR-3** face listing: bridge `ListFaces` → `FacesListed`, refs equal to

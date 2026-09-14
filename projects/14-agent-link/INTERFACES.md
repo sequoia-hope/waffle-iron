@@ -23,6 +23,6 @@
 | ICR | Owner | Change | Status |
 |---|---|---|---|
 | ICR-4 | feature-engine, wasm-bridge | `provenance` on `AddFeature`/`EditFeature`/`FinishSketch`; `ModelUpdated.feature_id` | landed 2026-09-14 |
-| ICR-2 | wasm-bridge, feature-engine | `EngineToUi::Error.kind`; `ModelUpdated.feature_errors` | open |
+| ICR-2 | wasm-bridge, feature-engine | `EngineToUi::Error.kind`; `ModelUpdated.feature_errors` | landed 2026-09-14 (`KernelStop` kind still needs a kernel-v2 variant) |
 | ICR-1 | waffle-types, kernel-v2, wasm-bridge | `KernelIntrospect::solid_volume`/`solid_surface_area`; `MeasureBody` | open |
 | ICR-3 | wasm-bridge | `ListFaces` → `FacesListed` | open |

@@ -559,6 +559,14 @@ breaking bridge change (A2.4). Each lands in its owning sub-project first.
   kind, message}]` beside the existing string fields. `kind` mirrors
   `EngineError`, `KernelError::NotSupported` and the yang STOP variants. The
   app's toasts can adopt `kind` independently.
+  **LANDED 2026-09-14** as `feature_engine::types::ErrorKind` /
+  `FeatureError`. `Error.kind` is set for engine errors only; bridge-level
+  failures leave it absent. One gap remains: kernel-v2 reports yang STOPs as
+  `KernelError::BooleanFailed` / `Other`, so they arrive as
+  `KernelFailure{kernel}`. The `KernelStop` code of §6.1 therefore needs a
+  kernel-v2 change that maps STOPs to a variant of their own; until then the
+  agent host reports them as `FeatureRebuildFailed`. Import sources gained a
+  typed `EngineError::SourceUnavailable` with an unchanged message.
 - **ICR-3 — face listing** (`wasm-bridge`). `UiToEngine::ListFaces{body_id,
   filter}` → `FacesListed{[{geom_ref, signature}]}`, deterministically
   ordered. The refs are the ones viewport face ranges carry, so a picked ref
