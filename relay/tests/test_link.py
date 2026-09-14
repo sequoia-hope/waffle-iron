@@ -227,6 +227,36 @@ async def test_o17_page_drop_mid_call_is_page_disconnected(env: Env) -> None:
     assert err.value.details == {"state_unknown": True}
 
 
+async def test_a18_cancelled_call_sends_cancel_frame_with_its_id(env: Env) -> None:
+    # A18: the MCP request is cancelled (the SDK cancels the handler task); the
+    # page is told which call, so it can undo the step once it completes.
+    page, _ = await pair(env)
+    call = asyncio.create_task(env.link.call("feature_add", {"operation": {}}))
+    sent = await page.recv_type("call")
+    call.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await call
+    cancel = await page.recv_type("cancel")
+    assert cancel == {"type": "cancel", "id": sent["id"]}
+    # A late result for the cancelled call is ignored, and the link stays usable.
+    await page.send({"type": "result", "id": sent["id"], "content": [], "isError": False})
+    later = asyncio.create_task(env.link.call("model_summary", {}))
+    second = await page.recv_type("call")
+    await page.send({"type": "result", "id": second["id"], "content": [], "isError": False})
+    assert (await later)["id"] == second["id"]
+    await page.close()
+
+
+async def test_paused_status_reaches_waffle_status(env: Env) -> None:
+    page, _ = await pair(env)
+    await page.send({"type": "status", "state": "paused", "document_name": "Bracket"})
+    await wait_until(lambda: env.link.status().get("state") == "paused")
+    assert env.link.status() == {"state": "paused", "document_name": "Bracket"}
+    await page.send({"type": "status", "state": "ready", "document_name": "Bracket"})
+    await wait_until(lambda: env.link.status().get("state") == "ready")
+    await page.close()
+
+
 async def test_call_unpaired_is_not_paired(env: Env) -> None:
     with pytest.raises(LinkError) as err:
         await env.link.call("model_summary", {})

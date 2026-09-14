@@ -2,10 +2,11 @@
 
 Spec: `specs/waffle_mcp_server.md` (§8 phases, §9 ICRs, §10 decisions).
 
-## Phase 0 — Spike + ICRs (IN PROGRESS, started 2026-09-14)
+## Phase 0 — Spike + ICRs (DONE 2026-09-14, except the manual O23 cells)
 
 Exit: O23 browser matrix recorded in the spec; go/no-go note on the default
-connection path; ICR-1…ICR-4 merged.
+connection path; ICR-1…ICR-4 merged. All met except the headed Chrome, Edge
+and Safari O23 cells, which need a desktop browser (see below).
 
 ### ICRs (Rust, owning crates)
 - [x] **ICR-4** provenance + feature id on feature commands (2026-09-14):
@@ -240,10 +241,10 @@ Exit (spec §8): O1–O20 green (O4 `NotSupported` row after ICR-2);
     structural order and dropping timestamps and `preview_mesh`. 15/15.
 
 ### Open
-- [ ] O13–O20 are relay-harness oracles and green in pytest. Add pytest
-  coverage for the Phase 1 frames: a `status` busy reason, and a relay
-  `cancel` frame sent when the MCP request is cancelled. Both are exercised
-  end to end in the GUI (O8, A18).
+- [x] Relay pytest for the Phase 1 frames (2026-09-14). The `status` busy
+  reason was already covered. Added: a `paused` status, and A18, where a
+  cancelled call sends `cancel{id}` to the page, a late result for it is
+  ignored, and the link stays usable. Relay suite 73/73.
 - [ ] Phase 1 exit re-run of `./scripts/test.sh gui-full`. Baseline here: 44
   pre-existing failures (memory) + `planetary-gear` extrude. An accidental
   near-full run on 2026-09-14 (1156 tests) gave 45 failed / 1111 passed,
