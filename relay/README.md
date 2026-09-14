@@ -1,0 +1,46 @@
+# waffle-mcp-relay
+
+The local relay of the Waffle Iron agent link (`specs/waffle_mcp_server.md`).
+It is an MCP server on stdio for a local agent, and a WebSocket server for
+exactly one paired Waffle Iron browser tab. It holds no modeling logic: every
+page tool call is forwarded to the page, which runs it against its own engine.
+
+Phase 0 (spike): connection tools `waffle_connect` / `waffle_status` and one
+page tool, `model_summary`.
+
+## Running
+
+The relay has no default port. Pass one explicitly, set `$PORT`, or (on a
+machine with the `proj` port registry) let `proj port` resolve it:
+
+```
+uvx waffle-mcp-relay==<version> --port <your port>
+```
+
+Development against the local dev server:
+
+```
+uv run --project relay waffle-mcp-relay --port <port> \
+  --app-url http://localhost:<dev port>/ --allow-origin http://localhost:<dev port>
+```
+
+## Runtime dependencies and licences
+
+Only two runtime dependencies (spec §7), both checked 2026-09-14 from the
+installed distributions' licence files:
+
+- `mcp` (MCP Python SDK, 2.2.0 locked) — MIT
+- `websockets` (17.1 locked) — BSD-3-Clause
+
+## Development
+
+```
+cd relay
+uv sync
+uv run pytest
+uv run ruff check && uv run ruff format --check
+```
+
+The bundled tool manifest `src/waffle_mcp_relay/agent-tools.manifest.json` is
+generated from `app/src/lib/agent/tools/` by `node app/scripts/gen-agent-manifest.mjs`;
+a test fails if the committed copy is stale.

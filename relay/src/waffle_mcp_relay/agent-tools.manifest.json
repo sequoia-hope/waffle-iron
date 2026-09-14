@@ -1,0 +1,173 @@
+{
+  "manifest_hash": "13ffffccc8efcaf65c7217696afc7c2aa3a1860893998c09aa2c193002546696",
+  "protocol": "waffle-agent-link/1",
+  "tools": [
+    {
+      "annotations": {
+        "readOnlyHint": true,
+        "title": "Model summary"
+      },
+      "description": "Summarize the Part open in the paired Waffle Iron tab: features in tree order (id, name, kind, suppressed, provenance, rebuild error), the rollback index, bodies, rebuild errors and warnings, and design parameters. Parameter expressions and values are mm-space; everything else carries no lengths. Reads page state only; changes nothing.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "model_summary",
+      "outputSchema": {
+        "properties": {
+          "bodies": {
+            "items": {
+              "properties": {
+                "body_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "feature_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "body_id",
+                "name",
+                "feature_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "document_name": {
+            "type": "string"
+          },
+          "errors": {
+            "description": "Rebuild errors, in tree order, verbatim from the engine.",
+            "items": {
+              "properties": {
+                "feature_id": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "feature_id",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "features": {
+            "items": {
+              "properties": {
+                "error": {
+                  "description": "Rebuild error message; absent when the feature built.",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "Feature id (lowercase hyphenated UUID).",
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "Operation variant, e.g. \"Sketch\", \"Extrude\", \"Revolve\", \"BooleanCombine\".",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "provenance": {
+                  "description": "Who created the feature: {\"type\":\"User\"} | {\"type\":\"Agent\",\"name\"} | {\"type\":\"Import\",\"source_id\"} | {\"type\":\"Derived\",\"source_id\",\"rule\"}.",
+                  "properties": {
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                "suppressed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind",
+                "suppressed",
+                "provenance"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "parameters": {
+            "items": {
+              "properties": {
+                "error": {
+                  "type": "string"
+                },
+                "expression": {
+                  "description": "mm-space expression.",
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "value_mm": {
+                  "description": "Evaluated value, mm-space.",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "expression",
+                "value_mm"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "rollback_index": {
+            "description": "Index of the last active feature; features after it are rolled back. null when every feature is active.",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "warnings": {
+            "description": "Non-fatal rebuild warnings, verbatim from the engine.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "document_name",
+          "features",
+          "rollback_index",
+          "bodies",
+          "errors",
+          "warnings",
+          "parameters"
+        ],
+        "type": "object"
+      }
+    }
+  ]
+}
