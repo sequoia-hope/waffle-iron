@@ -38,10 +38,13 @@ class RelayConfig:
     agent_name: str | None
     open_browser: bool
     ssl_context: ssl.SSLContext | None
+    public_url: str | None = None
 
     @property
     def relay_url(self) -> str:
         """The WebSocket address the page connects to, as carried in the pairing link."""
+        if self.public_url is not None:
+            return self.public_url
         scheme = "wss" if self.ssl_context is not None else "ws"
         host = f"[{self.bind}]" if ":" in self.bind else self.bind
         return f"{scheme}://{host}:{self.port}"
@@ -56,6 +59,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bind", default="127.0.0.1", help="listen address (default 127.0.0.1)")
     p.add_argument("--tls-cert", help="PEM certificate (required for a non-loopback --bind)")
     p.add_argument("--tls-key", help="PEM private key (required for a non-loopback --bind)")
+    p.add_argument(
+        "--public-url",
+        help="wss:// address advertised in the pairing link when a TLS proxy "
+        "(e.g. `tailscale serve`) fronts the loopback relay",
+    )
     p.add_argument("--app-url", default=HOSTED_APP_URL, help="Waffle Iron app base URL")
     p.add_argument(
         "--allow-origin",
@@ -169,6 +177,24 @@ def normalize_origin(origin: str) -> str:
     return _origin_from_parts(parts.scheme, parts.hostname, port)
 
 
+def normalize_public_url(url: str) -> str:
+    """A proxy-fronted relay address: wss only, since the proxy terminates TLS."""
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        raise ConfigError("invalid public url") from None
+    if (
+        parts.scheme != "wss"
+        or not parts.hostname
+        or parts.query
+        or parts.fragment
+        or parts.username
+    ):
+        raise ConfigError("invalid public url")
+    return _origin_from_parts("wss", parts.hostname, port) + (parts.path or "/")
+
+
 def valid_agent_name(name: str) -> bool:
     return 1 <= len(name) <= 128 and not any(unicodedata.category(c) == "Cc" for c in name)
 
@@ -203,6 +229,7 @@ def build_config(
         raise ConfigError("non-loopback bind requires TLS")
     ssl_context = _tls_context(args.tls_cert, args.tls_key)
 
+    public_url = None if args.public_url is None else normalize_public_url(args.public_url)
     app_url = normalize_app_url(args.app_url)
     if args.allow_origin:
         origins = tuple(dict.fromkeys(normalize_origin(o) for o in args.allow_origin))
@@ -220,4 +247,5 @@ def build_config(
         agent_name=args.agent_name,
         open_browser=args.open,
         ssl_context=ssl_context,
+        public_url=public_url,
     )

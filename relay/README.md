@@ -24,6 +24,17 @@ uv run --project relay waffle-mcp-relay --port <port> \
   --app-url http://localhost:<dev port>/ --allow-origin http://localhost:<dev port>
 ```
 
+From another device on a tailnet, keep the relay on loopback and let
+`tailscale serve` terminate TLS for both the app and the relay:
+
+```
+tailscale serve --bg --https=<https port> http://127.0.0.1:<dev port>
+tailscale serve --bg --https=<https port> --set-path /relay http://127.0.0.1:<port>
+uv run --project relay waffle-mcp-relay --port <port> \
+  --app-url https://<host>.ts.net:<https port>/ \
+  --public-url wss://<host>.ts.net:<https port>/relay
+```
+
 ## Runtime dependencies and licences
 
 Three runtime dependencies (spec §7), checked 2026-09-14 from the installed

@@ -19,7 +19,8 @@
 	function relayIsValid(value) {
 		try {
 			const url = new URL(value);
-			return (url.protocol === 'ws:' || url.protocol === 'wss:') && url.pathname === '/' && !url.search;
+			// A path is allowed: a TLS proxy (e.g. `tailscale serve`) may mount the relay under one.
+			return (url.protocol === 'ws:' || url.protocol === 'wss:') && !url.search && !url.hash;
 		} catch {
 			return false;
 		}

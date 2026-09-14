@@ -169,6 +169,39 @@ def test_invalid_origin(origin: str) -> None:
         build_config(["--port", "20012", "--allow-origin", origin], {}, lambda: None)
 
 
+def test_public_url_replaces_advertised_relay_address() -> None:
+    config = build_config(
+        [
+            "--port",
+            "20014",
+            "--public-url",
+            "wss://Host.example:10000/relay",
+            "--app-url",
+            "https://host.example:10000/",
+        ],
+        {},
+        lambda: None,
+    )
+    assert config.bind == "127.0.0.1"
+    assert config.relay_url == "wss://host.example:10000/relay"
+    assert config.allow_origins == ("https://host.example:10000",)
+
+
+def test_public_url_without_path_gets_root() -> None:
+    config = build_config(
+        ["--port", "20015", "--public-url", "wss://host.example"], {}, lambda: None
+    )
+    assert config.relay_url == "wss://host.example/"
+
+
+@pytest.mark.parametrize(
+    "url", ["ws://host.example/", "https://host.example/", "wss://h/?q=1", "wss://h/#f", "x"]
+)
+def test_invalid_public_url(url: str) -> None:
+    with pytest.raises(ConfigError, match="^invalid public url$"):
+        build_config(["--port", "20016", "--public-url", url], {}, lambda: None)
+
+
 @pytest.mark.parametrize("name", ["", "x" * 129, "bad\nname"])
 def test_invalid_agent_name(name: str) -> None:
     with pytest.raises(ConfigError, match="^invalid agent name$"):

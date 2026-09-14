@@ -83,6 +83,7 @@ is not exposed.
 | port resolution | — | `--port`, then `$PORT`, then `proj port` | — | none resolves ⇒ exit 2 `no port: pass --port, set $PORT, or register with proj`. **No literal default, no self-picked free port.** |
 | `--bind <addr>` | IP | `127.0.0.1` | loopback, or a non-loopback IP **with** TLS | non-loopback without `--tls-cert`/`--tls-key` ⇒ exit 2 `non-loopback bind requires TLS` |
 | `--tls-cert`, `--tls-key` | paths | none | readable PEM pair | exit 2 `cannot read TLS material` |
+| `--public-url <url>` | wss URL | none (the link carries `ws(s)://bind:port`) | `wss://host[:port][/path]`, no query or fragment; for a TLS proxy (e.g. `tailscale serve`) fronting a loopback relay | exit 2 `invalid public url` |
 | `--app-url <url>` | https URL, or `http://localhost…` | `https://sequoia-hope.github.io/waffle-iron/` (the deployed app, `deploy.yml`) | absolute URL | exit 2 `invalid app url` |
 | `--allow-origin <origin>` | repeatable | the origin of `--app-url` | exact origins, no wildcards | exit 2 `invalid origin` |
 | `--agent-name <s>` | string | MCP `initialize.clientInfo.name`, else `"mcp-client"` | 1–128 chars, no control chars | exit 2 |
@@ -102,7 +103,7 @@ match; the dev port comes from the registry as for any project.
 
 | Item | Value |
 |---|---|
-| Pairing link | `<app-url>agent?relay=<ws(s)://bind:port>&code=<pairing code>&name=<agent name>` |
+| Pairing link | `<app-url>agent?relay=<--public-url, else ws(s)://bind:port>&code=<pairing code>&name=<agent name>` |
 | Pairing code | 32 random bytes, base64url; **single use**; expires **300 s** after `waffle_connect` |
 | Consent | the `/agent` route shows agent name, relay address and the document that will be controlled. The connection opens **only on a user click** (this is also the user gesture a browser local-network permission prompt needs). |
 | Session token | 32 random bytes, issued on successful pairing, kept in the page's `sessionStorage`; lets **the same browser tab** reconnect after a reload without re-consent, for **120 s** after disconnect |
@@ -518,7 +519,8 @@ When the socket fails, the `/agent` route shows the class it can detect (a
 permission denial, or a generic failure) and the documented fallbacks:
 1. Run the app from the dev server on `localhost`.
 2. Run the relay with `--bind` + TLS on a host name the browser trusts (e.g.
-   a Tailscale `*.ts.net` certificate).
+   a Tailscale `*.ts.net` certificate), or keep it on loopback behind a TLS
+   proxy and advertise the proxy with `--public-url`.
 
 Fallback 2 is also the configuration for **agent and browser on different
 machines**, such as this repo's Docker + Tailscale dev container with the
