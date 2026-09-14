@@ -4,13 +4,16 @@
  * button and the tab bar (I1, I2).
  */
 import {
+	addTab,
 	cancelPendingAutoSave,
 	getDocumentInfo,
 	getDocumentTabs,
 	getSources,
 	hasPendingAutoSave,
 	isDocumentReadOnly,
+	moveTab,
 	openDocumentRecord,
+	renameTab,
 	saveDocumentOrThrow,
 	switchTab
 } from '$lib/engine/store.svelte.js';
@@ -46,6 +49,18 @@ function providerFor(id) {
 
 /** @param {any} err */
 const reasonOf = (err) => String(err?.message ?? err);
+
+/** @param {string} tab_id */
+function requireTab(tab_id) {
+	const tab = getDocumentTabs().find((t) => t.id === tab_id);
+	if (!tab) throw fail('TabNotFound', `The document has no tab with id ${tab_id}.`, { tab_id });
+	return tab;
+}
+
+/** G5 for the tab-list edits: a linked read-only document's tabs are not the agent's to change. */
+function requireEditable() {
+	if (isDocumentReadOnly()) throw fail('DocumentReadOnly', READ_ONLY_MESSAGE, {});
+}
 
 /**
  * S3: leaving a document whose latest changes are not stored yet.
@@ -153,13 +168,34 @@ export const DOCUMENT_COMMANDS = {
 	},
 
 	async tab_switch({ tab_id }) {
-		const tab = getDocumentTabs().find((t) => t.id === tab_id);
-		if (!tab) throw fail('TabNotFound', `The document has no tab with id ${tab_id}.`, { tab_id });
+		const tab = requireTab(tab_id);
 		const kind = tab.kind?.type ?? 'Part';
 		if (kind !== 'Part') {
 			throw fail('TabKindNotSupported', `Tab ${tab.name} is a ${kind} tab; agents work on Part tabs.`, { kind });
 		}
 		await switchTab(tab_id);
+		return toolOk(documentInfo());
+	},
+
+	async tab_add({ kind = 'Part', name, activate = true }) {
+		requireEditable();
+		const id = addTab(kind);
+		if (name) renameTab(id, name);
+		if (activate) await switchTab(id);
+		return toolOk({ tab_id: id, ...documentInfo() });
+	},
+
+	async tab_move({ tab_id, index }) {
+		requireEditable();
+		requireTab(tab_id);
+		moveTab(tab_id, index);
+		return toolOk(documentInfo());
+	},
+
+	async tab_rename({ tab_id, name }) {
+		requireEditable();
+		requireTab(tab_id);
+		renameTab(tab_id, name);
 		return toolOk(documentInfo());
 	}
 };

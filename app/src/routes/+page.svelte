@@ -17,7 +17,7 @@
 	import ToastContainer from '$lib/ui/ToastContainer.svelte';
 	import {
 		getMobileLayout, setMobileLayout, getMobileActivePanel, toggleMobilePanel,
-		getDocumentTabs, getActiveTabId, switchTab, addTab, closeTab, renameTab,
+		getDocumentTabs, getActiveTabId, switchTab, addTab, closeTab, renameTab, moveTab,
 		saveToStorage, loadPendingDocument
 	} from '$lib/engine/store.svelte.js';
 	import TestCaseBrowser from '$lib/ui/TestCaseBrowser.svelte';
@@ -118,6 +118,7 @@
 			onclose={(id) => closeTab(id)}
 			onadd={(kind) => { const id = addTab(kind); switchTab(id); }}
 			onrename={(id, name) => renameTab(id, name)}
+			onmove={(id, index) => moveTab(id, index)}
 		/>
 	</div>
 	<div class="viewport-area">
@@ -158,6 +159,7 @@
 			onclose={(id) => closeTab(id)}
 			onadd={(kind) => { const id = addTab(kind); switchTab(id); }}
 			onrename={(id, name) => renameTab(id, name)}
+			onmove={(id, index) => moveTab(id, index)}
 		/>
 	</div>
 	<div class="left-panel">

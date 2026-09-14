@@ -23,6 +23,9 @@ import {
 	documentOpenTool,
 	documentSaveTool,
 	storageListTool,
+	tabAddTool,
+	tabMoveTool,
+	tabRenameTool,
 	tabSwitchTool
 } from './documents.js';
 import {
@@ -34,6 +37,7 @@ import {
 	sketchRegionsTool
 } from './inspection.js';
 import { modelSummaryTool } from './model_summary.js';
+import { viewportCaptureTool, viewportViewTool } from './viewport.js';
 
 /** Tool definitions, in manifest order. */
 export const TOOLS = [
@@ -43,6 +47,9 @@ export const TOOLS = [
 	documentNewTool,
 	documentSaveTool,
 	tabSwitchTool,
+	tabAddTool,
+	tabMoveTool,
+	tabRenameTool,
 	modelSummaryTool,
 	featureGetTool,
 	selectionGetTool,
@@ -50,6 +57,8 @@ export const TOOLS = [
 	faceListTool,
 	sketchRegionsTool,
 	expressionEvaluateTool,
+	viewportViewTool,
+	viewportCaptureTool,
 	sketchCreateTool,
 	featureAddTool,
 	featureEditTool,

@@ -5,11 +5,17 @@
 		onswitch,
 		onclose,
 		onadd,
-		onrename
+		onrename,
+		onmove
 	} = $props();
 
 	let editingId = $state(null);
 	let editValue = $state('');
+
+	// Drag-to-reorder: the tab being dragged and the gap it would drop into
+	// (0 = before the first tab, tabs.length = after the last).
+	let dragId = $state(null);
+	let dropGap = $state(null);
 
 	function handleDoubleClick(tab) {
 		editingId = tab.id;
@@ -27,17 +33,59 @@
 		if (e.key === 'Enter') commitRename();
 		else if (e.key === 'Escape') editingId = null;
 	}
+
+	function handleDragStart(e, tab) {
+		if (editingId || !onmove) {
+			e.preventDefault();
+			return;
+		}
+		dragId = tab.id;
+		e.dataTransfer.effectAllowed = 'move';
+		e.dataTransfer.setData('text/plain', tab.id);
+	}
+
+	function handleDragOver(e, index) {
+		if (dragId === null) return;
+		e.preventDefault();
+		e.dataTransfer.dropEffect = 'move';
+		const rect = e.currentTarget.getBoundingClientRect();
+		dropGap = e.clientX < rect.left + rect.width / 2 ? index : index + 1;
+	}
+
+	function handleDrop(e) {
+		e.preventDefault();
+		const from = tabs.findIndex((t) => t.id === dragId);
+		if (from !== -1 && dropGap !== null) {
+			// Removing the tab first shifts every gap after it left by one.
+			const to = dropGap > from ? dropGap - 1 : dropGap;
+			if (to !== from) onmove?.(dragId, to);
+		}
+		endDrag();
+	}
+
+	function endDrag() {
+		dragId = null;
+		dropGap = null;
+	}
 </script>
 
 <div class="tab-bar" data-testid="tab-bar">
 	<div class="tab-list">
-		{#each tabs as tab (tab.id)}
+		{#each tabs as tab, i (tab.id)}
 			<button
 				class="tab"
 				class:active={tab.id === activeTabId}
+				class:dragging={tab.id === dragId}
+				class:drop-before={dragId !== null && dropGap === i}
+				class:drop-after={dragId !== null && dropGap === i + 1 && i === tabs.length - 1}
 				data-testid="tab-{tab.id}"
+				draggable={editingId !== tab.id}
 				onclick={() => onswitch?.(tab.id)}
 				ondblclick={() => handleDoubleClick(tab)}
+				ondragstart={(e) => handleDragStart(e, tab)}
+				ondragover={(e) => handleDragOver(e, i)}
+				ondrop={handleDrop}
+				ondragend={endDrag}
 			>
 				{#if editingId === tab.id}
 					<input
@@ -111,6 +159,18 @@
 		background: var(--bg-primary, #1e1e2e);
 		color: var(--text-primary, #cdd6f4);
 		border-bottom: 2px solid var(--accent, #0078d4);
+	}
+
+	.tab.dragging {
+		opacity: 0.5;
+	}
+
+	.tab.drop-before {
+		box-shadow: inset 2px 0 0 var(--accent, #0078d4);
+	}
+
+	.tab.drop-after {
+		box-shadow: inset -2px 0 0 var(--accent, #0078d4);
 	}
 
 	.tab-name {

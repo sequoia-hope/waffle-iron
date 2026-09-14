@@ -172,6 +172,9 @@ agent renames with `feature_rename`. ICR-5 (§9) would add the field.
 | `document_new` | command | `name ("Untitled")`, `discard_unsaved (false)` | `DocumentInfo` (the Home screen's `newDocumentRecord`, stored in the active provider, then opened) |
 | `document_save` | command | — | `{provider, id, saved_at}` via `saveDocumentOrThrow`, the core `saveToStorage` shares |
 | `tab_switch` | command | `tab_id` | `DocumentInfo` (Part tabs in Phase 1) |
+| `tab_add` | command | `kind ("Part" \| "Assembly", "Part")`, `name?`, `activate (true)` | `{tab_id}` + `DocumentInfo` (the tab bar's + buttons, `addTab`) |
+| `tab_move` | command | `tab_id`, `index` (0 = first; past the end = last) | `DocumentInfo` (the tab bar's drag-to-reorder, `moveTab`) |
+| `tab_rename` | command | `tab_id`, `name` | `DocumentInfo` (`renameTab`) |
 
 **Inspection**
 
@@ -184,7 +187,8 @@ agent renames with `feature_rename`. ICR-5 (§9) would add the field.
 | `face_list` | query | `body_id`, `filter?: TopoQuery` | `[{geom_ref, signature}]` in deterministic order |
 | `sketch_regions` | query | `feature_id` | closed regions `{profile_entity_ids, area_m2}` |
 | `expression_evaluate` | query | `expression` (mm-space) | `{value_mm}`, or `{value_mm: null, error}` for an expression that does not evaluate (a result, not `isError`) |
-| `viewport_capture` | query | `max_edge_px (1024)` | PNG image content of the current view; the camera is not moved |
+| `viewport_view` | query (camera only) | `view? (front \| back \| top \| bottom \| left \| right \| iso)`, `fit (true)` | `{view, fitted, camera: {projection, position, target, up}}`; the View Cube's snap and the F key's Fit All, answered by `CameraControls` through the synchronous `waffle-agent-view` event. Model and undo history unchanged |
+| `viewport_capture` | query | `max_edge_px (1024)` | PNG image content of the current view, composited over `--viewport-bg` (`AgentCapture.svelte`, `waffle-agent-capture`); the camera is not moved |
 
 **Authoring**
 
@@ -467,7 +471,7 @@ Tool results with `isError: true`:
 | `DocumentNotFound` | S4 |
 | `ProviderNotFound` | `storage_list` / `document_open` naming a storage provider this tab has not connected |
 | `StorageFailed` | a provider's list/get failed or the engine did not load the record (`provider`, `reason` verbatim) |
-| `TabNotFound` | `tab_switch` to an id the document does not have |
+| `TabNotFound` | `tab_switch`, `tab_move` or `tab_rename` naming an id the document does not have |
 | `Internal` | the executor detects a broken invariant (rollback not byte-exact; `ModelDelta` inconsistent). The agent session is then **paused** automatically, and the bar tells the user why. |
 
 ### 6.2 Structured-error gap

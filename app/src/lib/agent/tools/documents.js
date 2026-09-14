@@ -164,3 +164,56 @@ export const tabSwitchTool = {
 	outputSchema: documentInfoSchema,
 	annotations: { title: 'Switch tab', readOnlyHint: false, destructiveHint: false, idempotentHint: true }
 };
+
+const tabId = { type: 'string', description: 'Tab id from document_info.tabs.' };
+
+export const tabAddTool = {
+	name: 'tab_add',
+	description:
+		'Add a tab to the open document, as the tab bar\'s + buttons do: an empty Part (default) or Assembly, named ' +
+		'"Part N" / "Assembly N" unless name is given. activate (default true) makes it the active tab; agent edits ' +
+		'work on Part tabs. Returns the new tab_id with the document info.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			kind: { type: 'string', enum: ['Part', 'Assembly'], default: 'Part' },
+			name: { type: 'string', minLength: 1 },
+			activate: { type: 'boolean', default: true }
+		},
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: { tab_id: { type: 'string' }, ...documentInfoSchema.properties },
+		required: ['tab_id', ...documentInfoSchema.required]
+	},
+	annotations: { title: 'Add tab', readOnlyHint: false, destructiveHint: false, openWorldHint: false }
+};
+
+export const tabMoveTool = {
+	name: 'tab_move',
+	description:
+		'Move a tab to a new position in the tab bar (0 = first), as dragging it does. An index past the end moves it ' +
+		'last. The order is saved with the document.',
+	inputSchema: {
+		type: 'object',
+		properties: { tab_id: tabId, index: { type: 'integer', minimum: 0 } },
+		required: ['tab_id', 'index'],
+		additionalProperties: false
+	},
+	outputSchema: documentInfoSchema,
+	annotations: { title: 'Move tab', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+};
+
+export const tabRenameTool = {
+	name: 'tab_rename',
+	description: 'Rename a tab of the open document, as double-clicking its name does.',
+	inputSchema: {
+		type: 'object',
+		properties: { tab_id: tabId, name: { type: 'string', minLength: 1 } },
+		required: ['tab_id', 'name'],
+		additionalProperties: false
+	},
+	outputSchema: documentInfoSchema,
+	annotations: { title: 'Rename tab', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+};

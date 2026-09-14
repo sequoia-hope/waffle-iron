@@ -675,7 +675,18 @@
 	 * the bounding box for small geometry.
 	 */
 	function fitAll() {
-		if (!cameraRef || !scene) return;
+		if (!cameraRef) return;
+		const box = fitBox();
+		// If neither exists, keep the default camera — don't fit to datum planes
+		if (box) fitToBox(box);
+	}
+
+	/**
+	 * The box Fit All frames: the visible model, else the sketches, else null.
+	 * @returns {THREE.Box3 | null}
+	 */
+	function fitBox() {
+		if (!scene) return null;
 
 		const modelBox = new THREE.Box3();
 		const sketchBox = new THREE.Box3();
@@ -690,12 +701,9 @@
 			}
 		});
 
-		if (!modelBox.isEmpty()) {
-			fitToBox(modelBox);
-		} else if (!sketchBox.isEmpty()) {
-			fitToBox(sketchBox);
-		}
-		// If neither exists, keep the default camera — don't fit to datum planes
+		if (!modelBox.isEmpty()) return modelBox;
+		if (!sketchBox.isEmpty()) return sketchBox;
+		return null;
 	}
 
 	/**
@@ -911,6 +919,37 @@
 			fitAll();
 		}
 
+		/**
+		 * Agent `viewport_view` (specs/waffle_mcp_server.md §2.5): snap and/or fit,
+		 * then write the resulting camera into the event detail — dispatch is
+		 * synchronous, so the tool reads it back as soon as dispatchEvent returns.
+		 * @param {CustomEvent} e
+		 */
+		function onAgentView(e) {
+			if (!cameraRef) return;
+			const { view, fit } = e.detail;
+			// fitToBox measures its view direction from the box center, not from
+			// the orbit target, so a part far from the target would skew the
+			// requested view. Move the target (and the camera with it) onto that
+			// center first; the snap and the fit then keep the direction.
+			const box = fit ? fitBox() : null;
+			if (box && controlsRef) {
+				const shift = box.getCenter(new THREE.Vector3()).sub(controlsRef.target);
+				cameraRef.position.add(shift);
+				controlsRef.target.add(shift);
+				controlsRef.update();
+			}
+			if (view) snapToView(view);
+			if (fit) fitAll();
+			const target = controlsRef ? controlsRef.target : new THREE.Vector3();
+			e.detail.camera = {
+				projection: isOrtho() ? 'orthographic' : 'perspective',
+				position: cameraRef.position.toArray(),
+				target: target.toArray(),
+				up: cameraRef.up.toArray()
+			};
+		}
+
 		/** @param {CustomEvent} e */
 		function onProjectionChanged(e) {
 			handleProjectionChanged();
@@ -959,6 +998,7 @@
 		window.addEventListener('waffle-align-to-plane', /** @type {EventListener} */ (onAlignToPlane));
 		window.addEventListener('waffle-zoom-to-face', /** @type {EventListener} */ (onZoomToFace));
 		window.addEventListener('waffle-fit-all', onFitAll);
+		window.addEventListener('waffle-agent-view', /** @type {EventListener} */ (onAgentView));
 		window.addEventListener('waffle-camera-projection-changed', /** @type {EventListener} */ (onProjectionChanged));
 
 		/** @param {CustomEvent} e */
@@ -988,6 +1028,7 @@
 			window.removeEventListener('waffle-align-to-plane', /** @type {EventListener} */ (onAlignToPlane));
 			window.removeEventListener('waffle-zoom-to-face', /** @type {EventListener} */ (onZoomToFace));
 			window.removeEventListener('waffle-fit-all', onFitAll);
+			window.removeEventListener('waffle-agent-view', /** @type {EventListener} */ (onAgentView));
 			window.removeEventListener('waffle-camera-projection-changed', /** @type {EventListener} */ (onProjectionChanged));
 			window.removeEventListener('waffle-viewcube-orbit', /** @type {EventListener} */ (onViewcubeOrbit));
 		};

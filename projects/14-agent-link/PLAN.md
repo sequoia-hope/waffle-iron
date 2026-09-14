@@ -272,6 +272,37 @@ redo-stack entry left by a rollback.
   into a solid" times out identically on the pre-session sources
   (1d9c0b39, verified with `git stash -u`).
 
+## Phase 2 — Collaboration (IN PROGRESS)
+
+- [x] **Tab tools** (2026-09-14): `tab_add`, `tab_move`, `tab_rename`
+  (`$lib/agent/documents.js`, document-command path). Store `moveTab` (clamped,
+  autosaved); `addTab` now schedules an autosave like close/rename/move did
+  (an added tab was otherwise only stored by a later change). The tab bar
+  gained drag-to-reorder (`TabBar.svelte` `onmove`).
+- [x] **`viewport_view`** (2026-09-14): standard-view snap and/or Fit All,
+  answered by `CameraControls` on the synchronous `waffle-agent-view` event,
+  which writes the camera back into the event detail. A page query (camera
+  only, no lock). Unmounted or backgrounded viewport ⇒ `ViewportUnavailable`.
+- [x] **`viewport_capture`** (2026-09-14): `AgentCapture.svelte` renders one
+  frame and reads the canvas in the same task (no `preserveDrawingBuffer`),
+  composited over `--viewport-bg` (the WebGL canvas is transparent), scaled
+  down to `max_edge_px`; MCP `image` content + `{mime_type, width, height}`.
+- Tests: `agent-tabs-viewport.spec.js` (tab tools + save/reopen, drag reorder,
+  fit oracle on a 1 m cube, PNG decode/size/non-blank, Q4 hidden).
+- Finding (pre-existing, NOT fixed here): `CameraControls.fitToBox` takes its
+  view direction as `camera − box center`, not `camera − orbit target`, so
+  snap-and-fit (View Cube, F) skews the view whenever the part is off the
+  target (measured: iso snap + fit on a 1 m cube at z 0..1 looked along
+  (0.06, 0.06, −0.99)). `viewport_view` recenters the target on the fit box
+  first, so the agent path keeps the direction. A global fix was tried and
+  reverted: it changes the post-extrude auto-fit framing, and the selection
+  specs' face-centroid clicks (`helpers/geometry.js createExtrudedBox`) then
+  land within edge-pick range, so CadModel's I3 edge-over-face deferral
+  selects nothing (bisected 11 failures in box-select/edge-pick/select-other
+  to that one line). Fixing it needs those specs' click points reworked.
+- [ ] `export_step` / `export_stl`, `import_step`, Assembly tabs read-only,
+  parameters as MCP resources.
+
 ## Blockers
 
 - Environment: the workspace disk is at ~100% (16 GB free on 2026-09-14);

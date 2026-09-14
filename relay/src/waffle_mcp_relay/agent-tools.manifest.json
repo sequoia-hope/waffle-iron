@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "581bc5867f6f290fc46154e5931bce774bde8507c70832b0642505b4838fd8a0",
+  "manifest_hash": "7c5c372f3f1956fbc5bb8a93d1d2cf82bbe29b9e1e078de02b39795b348d0a76",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -505,6 +505,412 @@
         "type": "object"
       },
       "name": "tab_switch",
+      "outputSchema": {
+        "properties": {
+          "active_tab": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document_id": {
+            "description": "The document's own identity (v4 document.id).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "read_only": {
+            "description": "Linked read-only copy: edits and saves are refused.",
+            "type": "boolean"
+          },
+          "sources": {
+            "items": {
+              "properties": {
+                "available": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "storage_id": {
+            "description": "The storage record id (pass to document_open).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "storage_provider": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "label"
+            ],
+            "type": "object"
+          },
+          "tabs": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "unsaved": {
+            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document_id",
+          "storage_id",
+          "name",
+          "storage_provider",
+          "tabs",
+          "active_tab",
+          "read_only",
+          "sources",
+          "unsaved"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Add tab"
+      },
+      "description": "Add a tab to the open document, as the tab bar's + buttons do: an empty Part (default) or Assembly, named \"Part N\" / \"Assembly N\" unless name is given. activate (default true) makes it the active tab; agent edits work on Part tabs. Returns the new tab_id with the document info.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "activate": {
+            "default": true,
+            "type": "boolean"
+          },
+          "kind": {
+            "default": "Part",
+            "enum": [
+              "Part",
+              "Assembly"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "tab_add",
+      "outputSchema": {
+        "properties": {
+          "active_tab": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document_id": {
+            "description": "The document's own identity (v4 document.id).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "read_only": {
+            "description": "Linked read-only copy: edits and saves are refused.",
+            "type": "boolean"
+          },
+          "sources": {
+            "items": {
+              "properties": {
+                "available": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "storage_id": {
+            "description": "The storage record id (pass to document_open).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "storage_provider": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "label"
+            ],
+            "type": "object"
+          },
+          "tab_id": {
+            "type": "string"
+          },
+          "tabs": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "unsaved": {
+            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "tab_id",
+          "document_id",
+          "storage_id",
+          "name",
+          "storage_provider",
+          "tabs",
+          "active_tab",
+          "read_only",
+          "sources",
+          "unsaved"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Move tab"
+      },
+      "description": "Move a tab to a new position in the tab bar (0 = first), as dragging it does. An index past the end moves it last. The order is saved with the document.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "index": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tab_id": {
+            "description": "Tab id from document_info.tabs.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tab_id",
+          "index"
+        ],
+        "type": "object"
+      },
+      "name": "tab_move",
+      "outputSchema": {
+        "properties": {
+          "active_tab": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document_id": {
+            "description": "The document's own identity (v4 document.id).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "read_only": {
+            "description": "Linked read-only copy: edits and saves are refused.",
+            "type": "boolean"
+          },
+          "sources": {
+            "items": {
+              "properties": {
+                "available": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "storage_id": {
+            "description": "The storage record id (pass to document_open).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "storage_provider": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "label"
+            ],
+            "type": "object"
+          },
+          "tabs": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "unsaved": {
+            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document_id",
+          "storage_id",
+          "name",
+          "storage_provider",
+          "tabs",
+          "active_tab",
+          "read_only",
+          "sources",
+          "unsaved"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Rename tab"
+      },
+      "description": "Rename a tab of the open document, as double-clicking its name does.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "tab_id": {
+            "description": "Tab id from document_info.tabs.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tab_id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "tab_rename",
       "outputSchema": {
         "properties": {
           "active_tab": {
@@ -1312,6 +1718,145 @@
         "required": [
           "expression",
           "value_mm"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Set view"
+      },
+      "description": "Point the user's 3D view: snap to a standard view and/or fit everything in view, as the View Cube and the F key do. Only the camera moves; the model and the undo history are unchanged. Returns the resulting camera (world meters). Refused with ViewportUnavailable while the viewport is hidden.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "fit": {
+            "default": true,
+            "description": "Frame all visible bodies (or, with none, the sketches) after snapping.",
+            "type": "boolean"
+          },
+          "view": {
+            "description": "Standard view to snap to; omit to keep the current direction.",
+            "enum": [
+              "front",
+              "back",
+              "top",
+              "bottom",
+              "left",
+              "right",
+              "iso"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "viewport_view",
+      "outputSchema": {
+        "properties": {
+          "camera": {
+            "properties": {
+              "position": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "projection": {
+                "enum": [
+                  "perspective",
+                  "orthographic"
+                ],
+                "type": "string"
+              },
+              "target": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              "up": {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              }
+            },
+            "required": [
+              "projection",
+              "position",
+              "target",
+              "up"
+            ],
+            "type": "object"
+          },
+          "fitted": {
+            "type": "boolean"
+          },
+          "view": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "view",
+          "fitted",
+          "camera"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true,
+        "title": "Capture viewport"
+      },
+      "description": "A PNG image of the user's 3D view as it is now. The camera is not moved: call viewport_view first to frame the model. Refused with ViewportUnavailable while the viewport is hidden.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "max_edge_px": {
+            "default": 1024,
+            "description": "Longest image edge in pixels; the view is scaled down (never up) to fit.",
+            "maximum": 4096,
+            "minimum": 64,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "viewport_capture",
+      "outputSchema": {
+        "properties": {
+          "height": {
+            "type": "integer"
+          },
+          "mime_type": {
+            "enum": [
+              "image/png"
+            ],
+            "type": "string"
+          },
+          "width": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mime_type",
+          "width",
+          "height"
         ],
         "type": "object"
       }

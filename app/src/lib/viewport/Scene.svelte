@@ -16,6 +16,7 @@
 	import DimensionLabels from '$lib/sketch/DimensionLabels.svelte';
 	import GhostPreview from './GhostPreview.svelte';
 	import ConnectorFrames from './ConnectorFrames.svelte';
+	import AgentCapture from './AgentCapture.svelte';
 
 	// Enable raycaster-based interactivity for all child meshes
 	interactivity();
@@ -46,3 +47,4 @@
 <InactiveSketchRenderer />
 <SketchInteraction />
 <DimensionLabels />
+<AgentCapture />

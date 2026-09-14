@@ -1024,6 +1024,7 @@ export async function initEngine() {
 			getAssembly: () => { const a = getAssembly(); return a ? JSON.parse(JSON.stringify(a)) : null; },
 			getAssemblyStatus: () => assemblyStatus ? JSON.parse(JSON.stringify(assemblyStatus)) : null,
 			addTab: (kind) => addTab(kind),
+			moveTab: (tabId, index) => moveTab(tabId, index),
 			switchTab: (id) => switchTab(id),
 			refreshAssembly: () => refreshAssembly(),
 			// In-context editing (v4 Phase 3d-4)
@@ -6478,6 +6479,7 @@ export function addTab(kind = 'Part') {
 			name: `Assembly ${n}`,
 			kind: { type: 'Assembly', assembly: { instances: [], connectors: [], mates: [] } }
 		}];
+		scheduleAutoSave();
 		return id;
 	}
 	const name = `Part ${documentTabs.filter(t => t.kind?.type !== 'Assembly').length + 1}`;
@@ -6486,6 +6488,7 @@ export function addTab(kind = 'Part') {
 		name,
 		kind: { type: 'Part', features: { features: [], active_index: null } }
 	}];
+	scheduleAutoSave();
 	return id;
 }
 
@@ -6520,6 +6523,26 @@ export function renameTab(tabId, name) {
 		t.id === tabId ? { ...t, name } : t
 	);
 	scheduleAutoSave();
+}
+
+/**
+ * Move a tab to `index` in the tab order, clamped to the ends. The order is
+ * the document's `tabs` array, so it is saved with the document.
+ * @param {string} tabId
+ * @param {number} index
+ * @returns {boolean} whether the order changed
+ */
+export function moveTab(tabId, index) {
+	const from = documentTabs.findIndex(t => t.id === tabId);
+	if (from === -1) return false;
+	const to = Math.max(0, Math.min(documentTabs.length - 1, Math.trunc(index)));
+	if (to === from) return false;
+	const next = [...documentTabs];
+	const [tab] = next.splice(from, 1);
+	next.splice(to, 0, tab);
+	documentTabs = next;
+	scheduleAutoSave();
+	return true;
 }
 
 /**
