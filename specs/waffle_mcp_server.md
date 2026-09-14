@@ -475,8 +475,10 @@ browser policy. Known classes (to be confirmed by O23, not assumed):
 
 So on Chromium the hosted path depends on the user granting Chrome's
 local-network-access permission, and a denial is the normal failure mode.
+Firefox (headed, user-reported 2026-09-14): pairing and `model_summary`
+work end to end; the origin used and prompt behavior were not recorded.
 Still unmeasured: headed Chrome (whether the prompt appears for a WebSocket
-opened from the Allow click), Edge, Firefox and Safari.
+opened from the Allow click), Edge and Safari.
 
 When the socket fails, the `/agent` route shows the class it can detect (a
 permission denial, or a generic failure) and the documented fallbacks:

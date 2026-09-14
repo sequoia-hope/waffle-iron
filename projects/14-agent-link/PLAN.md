@@ -74,7 +74,10 @@ connection path; ICR-1…ICR-4 merged.
 - [ ] `tools/list_changed` under the SDK's newest protocol revision is dropped
   unless the client subscribes; check the clients we support.
 - [ ] O23 browser matrix: headed Chrome (does the local-network prompt appear
-  for a WebSocket opened from the Allow click?), Edge, Firefox, Safari — manual.
+  for a WebSocket opened from the Allow click?), Edge, Safari — manual.
+  - [x] Firefox (headed, user-reported 2026-09-14): pairing and
+    `model_summary` work end to end. Not recorded: the page origin (hosted
+    default vs dev server) and whether any prompt appeared.
   - [x] Chromium (headless Playwright chromium-1228), page `http://localhost`
     dev origin (5174 worktree, 5173 main) → `ws://127.0.0.1`: socket opened,
     `welcome` received (2026-09-14).
