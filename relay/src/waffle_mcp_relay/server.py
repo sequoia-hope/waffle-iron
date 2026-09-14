@@ -258,7 +258,10 @@ async def run_relay(config: RelayConfig) -> None:
 
     await link.start(config.bind, config.port)
     log.info(
-        "listening on %s (allowed origins: %s)", config.relay_url, ", ".join(config.allow_origins)
+        "listening on %s, advertised as %s (allowed origins: %s)",
+        config.listen_address,
+        config.relay_url,
+        ", ".join(config.allow_origins),
     )
     try:
         async with stdio_server() as (read_stream, write_stream):

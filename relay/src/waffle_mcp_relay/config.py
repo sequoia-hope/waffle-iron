@@ -45,6 +45,11 @@ class RelayConfig:
         """The WebSocket address the page connects to, as carried in the pairing link."""
         if self.public_url is not None:
             return self.public_url
+        return self.listen_address
+
+    @property
+    def listen_address(self) -> str:
+        """The socket the relay itself binds, whatever the pairing link advertises."""
         scheme = "wss" if self.ssl_context is not None else "ws"
         host = f"[{self.bind}]" if ":" in self.bind else self.bind
         return f"{scheme}://{host}:{self.port}"

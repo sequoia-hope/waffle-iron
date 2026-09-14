@@ -184,6 +184,7 @@ def test_public_url_replaces_advertised_relay_address() -> None:
     )
     assert config.bind == "127.0.0.1"
     assert config.relay_url == "wss://host.example:10000/relay"
+    assert config.listen_address == "ws://127.0.0.1:20014"
     assert config.allow_origins == ("https://host.example:10000",)
 
 

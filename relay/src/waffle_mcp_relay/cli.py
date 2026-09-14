@@ -29,7 +29,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         asyncio.run(run_relay(config))
     except OSError as err:
-        print(f"cannot listen on {config.relay_url}: {err}", file=sys.stderr)
+        print(f"cannot listen on {config.listen_address}: {err}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         return 130
