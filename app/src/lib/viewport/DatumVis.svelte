@@ -129,14 +129,30 @@
 		}
 	});
 
+	/**
+	 * Model geometry outranks construction planes for picking. CadModel stops a
+	 * pointer event only when its face is the NEARER hit, but a 200 mm plane
+	 * often lies across or in front of a part along the ray (measured: the agent
+	 * O12 click on a 20×10×5 mm box selected the Top plane), so a plane that
+	 * finds a body anywhere among the event's intersections lets the event
+	 * through instead of claiming it. CadModel meshes carry
+	 * `userData.waffleType === 'model'`.
+	 * @param {any} event - Threlte pointer event
+	 */
+	function rayHitsModel(event) {
+		return (event?.intersections ?? []).some((hit) => hit.object?.userData?.waffleType === 'model');
+	}
+
 	// Event handlers
 	function handleClick(ref, event) {
+		if (rayHitsModel(event)) return;
 		event.stopPropagation();
 		const additive = event.nativeEvent?.shiftKey ?? false;
 		selectRef(ref, additive);
 	}
 
 	function handlePointerEnter(ref, event) {
+		if (rayHitsModel(event)) return;
 		if (event) event.stopPropagation();
 		setHoveredRef(ref);
 	}
