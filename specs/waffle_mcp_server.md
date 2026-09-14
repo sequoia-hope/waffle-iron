@@ -200,13 +200,14 @@ agent renames with `feature_rename`. ICR-5 (§9) would add the field.
 | `feature_delete` / `feature_suppress` / `feature_reorder` / `feature_rename` / `body_rename` / `rollback_set` | command | as the bridge messages | `ModelDelta` |
 | `parameters_set` | command | complete parameter table | `ModelDelta` + per-parameter errors |
 | `undo` / `redo` | command | — | `ModelDelta` |
+| `import_step` | command | `file_name`, `step_text`, `on_error` | `{feature_id}` + `ModelDelta`. Sends `ImportStep` (the engine records `Import` provenance) through the command path, so it is one undo step with A2 rollback; unlike `importStepFromText` it opens no placement dialog |
 
 **Export**
 
 | Tool | Kind | Inputs (defaults) | Result |
 |---|---|---|---|
-| `export_step` | query (no model change) | `deliver: "agent" \| "download" ("agent")` | `agent`: embedded resource `model/step` + `warnings[]`; `download`: the browser's normal download |
-| `export_stl` | query | `body_id?`, `deliver ("agent")` | as above, `model/stl` |
+| `export_step` | query (no model change; engine lock) | `deliver: "agent" \| "download" ("agent")` | `{deliver, file_name, mime_type, bytes, warnings[]}`; `agent` adds an embedded text resource `model/step` (`waffle://export/<file>`); `download`: the browser's normal download (`triggerStepDownload`) |
+| `export_stl` | query | `body_id?`, `deliver ("agent")` | as above, `model/stl` as a base64 blob resource (`ExportBodyStl` for one body, `ExportStl` merged) |
 
 ### 2.6 Measurement method
 

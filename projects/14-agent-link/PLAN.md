@@ -300,8 +300,16 @@ redo-stack entry left by a rollback.
   land within edge-pick range, so CadModel's I3 edge-over-face deferral
   selects nothing (bisected 11 failures in box-select/edge-pick/select-other
   to that one line). Fixing it needs those specs' click points reworked.
-- [ ] `export_step` / `export_stl`, `import_step`, Assembly tabs read-only,
-  parameters as MCP resources.
+- [x] **`export_step` / `export_stl`** (2026-09-14): engine-locked queries
+  (`$lib/agent/export.js`); Q5 `NothingToExport` from the body list (the
+  bridge's `NoMeshData` never reaches them), Q6 `PayloadTooLarge` > 16 MiB for
+  `deliver: "agent"`, Q7 warnings verbatim. `agent` embeds a text (STEP) or
+  base64 blob (STL) resource; `download` reuses the store's download helpers
+  (`triggerStepDownload` extracted from `exportStep`).
+- [x] **`import_step`** (2026-09-14): a command sending `ImportStep` through
+  `applyStep` (one undo step, rollback, engine-recorded `Import` provenance);
+  no placement dialog. O21 round trip in `agent-export-import.spec.js`.
+- [ ] Assembly tabs read-only, parameters as MCP resources.
 
 ## Blockers
 

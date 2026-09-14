@@ -25,6 +25,7 @@ import {
 import { COMMANDS, snapshotNow } from './commands.js';
 import { sameModel } from './delta.js';
 import { DOCUMENT_COMMANDS, DOCUMENT_QUERIES } from './documents.js';
+import { EXPORT_QUERIES } from './export.js';
 import { QUERIES } from './queries.js';
 import { ToolFailure, toolError } from './results.js';
 import { TOOL_NAMES } from './tools/index.js';
@@ -172,7 +173,9 @@ async function runDocumentCommand(tool, run, args, ctx) {
  */
 export async function executeTool(tool, args, ctx) {
 	const known = TOOL_NAMES.has(tool);
-	const query = known ? (QUERIES[tool] ?? DOCUMENT_QUERIES[tool] ?? VIEWPORT_QUERIES[tool]) : undefined;
+	const query = known
+		? (QUERIES[tool] ?? DOCUMENT_QUERIES[tool] ?? VIEWPORT_QUERIES[tool] ?? EXPORT_QUERIES[tool])
+		: undefined;
 	const command = known ? COMMANDS[tool] : undefined;
 	const documentCommand = known ? DOCUMENT_COMMANDS[tool] : undefined;
 	if (!query && !command && !documentCommand) {

@@ -242,6 +242,17 @@ export const COMMANDS = {
 		return toolOk({ ...out, ...delta });
 	},
 
+	async import_step(args, env) {
+		// The engine records Import provenance itself; unlike importStepFromText
+		// this opens no placement dialog (the identity placement stands).
+		const { delta, featureId } = await applyStep(
+			env,
+			{ type: 'ImportStep', file_name: args.file_name, data: args.step_text },
+			{ onError: args.on_error ?? 'rollback', fallback: 'FeatureRebuildFailed' }
+		);
+		return toolOk({ feature_id: featureId, ...delta });
+	},
+
 	async feature_add(args, env) {
 		checkOperation(args.operation);
 		const { delta, featureId } = await applyStep(

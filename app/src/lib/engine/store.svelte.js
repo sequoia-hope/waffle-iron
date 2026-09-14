@@ -7455,7 +7455,7 @@ export async function saveProject() {
  * @param {string} stlBase64
  * @param {string} filename - without extension
  */
-function triggerStlDownload(stlBase64, filename) {
+export function triggerStlDownload(stlBase64, filename) {
 	if (typeof document === 'undefined') return;
 	const binary = atob(stlBase64);
 	const bytes = new Uint8Array(binary.length);
@@ -7522,20 +7522,26 @@ export async function exportStep() {
 		log('warn', `STEP export: ${w}`);
 		showToast('warning', `STEP export: ${w}`);
 	}
-
-	if (typeof document !== 'undefined') {
-		const blob = new Blob([response.step_data], { type: 'application/step' });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = `${projectName}.step`;
-		document.body.appendChild(a);
-		a.click();
-		document.body.removeChild(a);
-		URL.revokeObjectURL(url);
-	}
-
+	triggerStepDownload(response.step_data, `${projectName}.step`);
 	return true;
+}
+
+/**
+ * Trigger a browser download of STEP text as `fileName`.
+ * @param {string} stepData
+ * @param {string} fileName - with extension
+ */
+export function triggerStepDownload(stepData, fileName) {
+	if (typeof document === 'undefined') return;
+	const blob = new Blob([stepData], { type: 'application/step' });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = fileName;
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
 }
 
 /**

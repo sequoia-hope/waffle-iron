@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "7c5c372f3f1956fbc5bb8a93d1d2cf82bbe29b9e1e078de02b39795b348d0a76",
+  "manifest_hash": "279ff79546ff42a02fef1620a6a7ddd5a67dfcdc49dfbd1b59de780b0d22dee3",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -11956,6 +11956,256 @@
           "bodies_added",
           "bodies_removed",
           "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Import STEP"
+      },
+      "description": "Import STEP (ISO 10303-21) text as a new imported-body feature at the identity placement (one undo step, Import provenance), as the Import menu does but without its placement dialog. A step that fails to build is rolled back by default.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "file_name": {
+            "description": "Name recorded on the feature, e.g. \"bracket.step\".",
+            "minLength": 1,
+            "type": "string"
+          },
+          "on_error": {
+            "default": "rollback",
+            "description": "What to do when the step makes a feature fail to rebuild. \"rollback\" (default) undoes the step and returns an error; \"keep\" leaves it in place and reports kept_with_error with the failing features.",
+            "enum": [
+              "rollback",
+              "keep"
+            ],
+            "type": "string"
+          },
+          "step_text": {
+            "description": "The STEP file contents.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_name",
+          "step_text"
+        ],
+        "type": "object"
+      },
+      "name": "import_step",
+      "outputSchema": {
+        "properties": {
+          "bodies_added": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "bodies_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "errors": {
+            "description": "Every current rebuild error in tree order, verbatim from the engine; kind is the typed class when known.",
+            "items": {
+              "properties": {
+                "feature_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "Engine ErrorKind, e.g. {\"type\":\"NotSupported\",\"operation\":\"…\"}.",
+                  "type": "object"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "feature_id",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "feature_id": {
+            "type": "string"
+          },
+          "features_added": {
+            "description": "Feature ids added, in tree order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_changed": {
+            "description": "Feature ids whose definition or provenance changed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "features_removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kept_with_error": {
+            "description": "Present and true when on_error was \"keep\" and the step left features failing.",
+            "type": "boolean"
+          },
+          "order_changed": {
+            "description": "The relative order of surviving features changed.",
+            "type": "boolean"
+          },
+          "warnings": {
+            "description": "Rebuild warnings, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "features_added",
+          "features_changed",
+          "features_removed",
+          "bodies_added",
+          "bodies_removed",
+          "errors",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Export STEP"
+      },
+      "description": "Export the whole model (every live body of the open Part) as an analytic STEP AP214 file. Anything the exporter leaves out is listed verbatim in warnings. Refused with NothingToExport when there are no bodies, and with PayloadTooLarge above 16 MiB for deliver \"agent\" (use \"download\").",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "deliver": {
+            "default": "agent",
+            "description": "\"agent\": the file comes back in this result as an embedded resource. \"download\": the browser downloads it for the user, as the Export menu does, and the result only describes it.",
+            "enum": [
+              "agent",
+              "download"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "export_step",
+      "outputSchema": {
+        "properties": {
+          "bytes": {
+            "description": "Size of the exported file.",
+            "type": "integer"
+          },
+          "deliver": {
+            "enum": [
+              "agent",
+              "download"
+            ],
+            "type": "string"
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "warnings": {
+            "description": "What the exporter left out, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "deliver",
+          "file_name",
+          "mime_type",
+          "bytes",
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Export STL"
+      },
+      "description": "Export the render mesh as a binary STL: one body (body_id from model_summary) or, without body_id, every body merged. Refused with NothingToExport, BodyNotFound, or PayloadTooLarge above 16 MiB for deliver \"agent\".",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body_id": {
+            "description": "Body id from model_summary.bodies; omit for all bodies.",
+            "type": "string"
+          },
+          "deliver": {
+            "default": "agent",
+            "description": "\"agent\": the file comes back in this result as an embedded resource. \"download\": the browser downloads it for the user, as the Export menu does, and the result only describes it.",
+            "enum": [
+              "agent",
+              "download"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "export_stl",
+      "outputSchema": {
+        "properties": {
+          "bytes": {
+            "description": "Size of the exported file.",
+            "type": "integer"
+          },
+          "deliver": {
+            "enum": [
+              "agent",
+              "download"
+            ],
+            "type": "string"
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "warnings": {
+            "description": "What the exporter left out, verbatim.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "deliver",
+          "file_name",
+          "mime_type",
+          "bytes",
           "warnings"
         ],
         "type": "object"

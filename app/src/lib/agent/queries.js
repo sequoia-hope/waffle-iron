@@ -52,7 +52,7 @@ function bodyForRef(ref) {
  * @param {string} expected - the EngineToUi `type` a successful answer has
  * @param {(m: object) => Promise<any>} send
  */
-async function ask(message, expected, send) {
+export async function ask(message, expected, send) {
 	let response;
 	try {
 		response = await send(message);
