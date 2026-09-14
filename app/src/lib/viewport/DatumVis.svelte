@@ -15,8 +15,32 @@
 	} from '$lib/engine/store.svelte.js';
 	import { getAllPlanes, makePlaneRef, resolvePlane, PLANE_HALF_SIZE } from '$lib/engine/planes.js';
 	import { AXIS_COLORS } from '$lib/config.js';
+	import { getTheme } from '$lib/ui/theme.svelte.js';
+	import { getColorVersion } from '$lib/ui/settings.svelte.js';
 
 	let inSketchMode = $derived(!!getSketchMode()?.active);
+
+	// Plane visibility against the viewport ground: the fill is a faint veil
+	// that never hides the model, the border carries the contrast.
+	const FILL_OPACITY = 0.07;
+	const HOVER_OPACITY = 0.18;
+	const SELECTED_OPACITY = 0.32;
+	const BORDER_OPACITY = 0.6;
+
+	/**
+	 * Resolve a CSS custom property on <html> to a hex color, falling back to
+	 * `fallbackHex` when the var is unset or we're off-DOM (SSR). Mirrors the
+	 * helper in EdgeOverlay.svelte.
+	 * @param {string | undefined} name
+	 * @param {number} fallbackHex
+	 */
+	function cssHex(name, fallbackHex) {
+		if (name && typeof document !== 'undefined') {
+			const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+			if (v) return new THREE.Color(v).getHex();
+		}
+		return fallbackHex;
+	}
 
 	// --- Data-driven plane rendering ---
 
@@ -43,48 +67,59 @@
 		return features.slice(0, ai + 1);
 	});
 
-	// Reactive plane data: built-in + user planes
-	let planeData = $derived(getAllPlanes(activeFeatures).map((plane) => {
-		let resolved;
-		try {
-			resolved = resolvePlane(plane.definition, features, computeFacePlane);
-		} catch {
-			resolved = { origin: [0, 0, 0], normal: [0, 0, 1] };
-		}
-		return {
-			plane,
-			ref: makePlaneRef(plane.id),
-			position: resolved.origin,
-			rotation: computeRotation(resolved.normal),
-			fillMaterial: new THREE.MeshBasicMaterial({
-				color: plane.color,
-				transparent: true,
-				opacity: 0.02,
-				side: THREE.DoubleSide,
-				depthWrite: false
-			}),
-			borderMaterial: new THREE.LineBasicMaterial({
-				color: plane.borderColor,
-				transparent: true,
-				opacity: 0.08
-			}),
-		};
-	}));
+	// Reactive plane data: built-in + user planes. Reading getTheme() and
+	// getColorVersion() rebuilds the materials on a theme switch or a per-token
+	// override (built-in plane colors are theme tokens, see app.css).
+	let planeData = $derived.by(() => {
+		void getTheme(); void getColorVersion();
+		return getAllPlanes(activeFeatures).map((plane) => {
+			let resolved;
+			try {
+				resolved = resolvePlane(plane.definition, features, computeFacePlane);
+			} catch {
+				resolved = { origin: [0, 0, 0], normal: [0, 0, 1] };
+			}
+			// A themed plane shows one hue in every state; the opacity says hover/selected.
+			const base = cssHex(plane.colorToken, plane.color);
+			const colors = plane.colorToken
+				? { base, hover: base, selected: base, border: base }
+				: { base, hover: plane.hoverColor, selected: plane.selectedColor, border: plane.borderColor };
+			return {
+				plane,
+				colors,
+				ref: makePlaneRef(plane.id),
+				position: resolved.origin,
+				rotation: computeRotation(resolved.normal),
+				fillMaterial: new THREE.MeshBasicMaterial({
+					color: colors.base,
+					transparent: true,
+					opacity: FILL_OPACITY,
+					side: THREE.DoubleSide,
+					depthWrite: false
+				}),
+				borderMaterial: new THREE.LineBasicMaterial({
+					color: colors.border,
+					transparent: true,
+					opacity: BORDER_OPACITY
+				}),
+			};
+		});
+	});
 
 	/**
 	 * Get opacity and color for a datum plane based on hover/selection state.
 	 */
-	function getPlaneStyle(ref, plane) {
+	function getPlaneStyle(ref, colors) {
 		const selected = getSelectedRefs().some((r) => geomRefEquals(r, ref));
 		const hovered = geomRefEquals(getHoveredRef(), ref);
 
-		if (selected) return { opacity: 0.25, color: plane.selectedColor };
-		if (hovered) return { opacity: 0.15, color: plane.hoverColor };
-		return { opacity: 0.02, color: plane.color };
+		if (selected) return { opacity: SELECTED_OPACITY, color: colors.selected };
+		if (hovered) return { opacity: HOVER_OPACITY, color: colors.hover };
+		return { opacity: FILL_OPACITY, color: colors.base };
 	}
 
 	// Reactive style derivations
-	let styles = $derived(planeData.map((d) => getPlaneStyle(d.ref, d.plane)));
+	let styles = $derived(planeData.map((d) => getPlaneStyle(d.ref, d.colors)));
 
 	// Update materials reactively
 	$effect(() => {
@@ -130,7 +165,7 @@
 
 	// --- Origin Triad (scaled to match plane size) ---
 
-	const axisLength = 0.02;
+	const axisLength = PLANE_HALF_SIZE * 0.6;
 
 	function buildAxisLine(dir, length) {
 		const pts = new Float32Array([0, 0, 0, dir[0] * length, dir[1] * length, dir[2] * length]);
@@ -148,7 +183,7 @@
 	const zAxisMaterial = new THREE.LineBasicMaterial({ color: AXIS_COLORS.z });
 
 	// Arrowhead cones (scaled proportionally)
-	const coneGeo = new THREE.ConeGeometry(0.0005, 0.0018, 8);
+	const coneGeo = new THREE.ConeGeometry(axisLength * 0.025, axisLength * 0.09, 8);
 
 	const xConeMaterial = new THREE.MeshBasicMaterial({ color: AXIS_COLORS.x });
 	const yConeMaterial = new THREE.MeshBasicMaterial({ color: AXIS_COLORS.y });

@@ -145,7 +145,8 @@
 	let wasSketchActive = false;
 
 	// Ortho frustum state
-	let frustumHalf = $state(0.03);
+	// Default framing shows the 200 mm datum planes (planes.js PLANE_HALF_SIZE) with margin.
+	let frustumHalf = $state(0.2);
 	let aspect = $state(1);
 
 	// Saved camera state for projection switches
@@ -204,7 +205,7 @@
 	 */
 	function updateOrthoFrustum() {
 		if (!cameraRef || !isOrtho()) return;
-		if (!Number.isFinite(frustumHalf) || frustumHalf <= 0) frustumHalf = 0.03;
+		if (!Number.isFinite(frustumHalf) || frustumHalf <= 0) frustumHalf = 0.2;
 		if (!Number.isFinite(aspect) || aspect <= 0) return;
 		const cam = /** @type {THREE.OrthographicCamera} */ (cameraRef);
 		cam.left = -frustumHalf * aspect;
@@ -274,7 +275,7 @@
 
 			// Now apply the frustum scale change
 			frustumHalf = Math.max(0.0001, Math.min(maxDistance * 2, frustumHalf / zoomFactor));
-			if (!Number.isFinite(frustumHalf)) frustumHalf = 0.03;
+			if (!Number.isFinite(frustumHalf)) frustumHalf = 0.2;
 			updateOrthoFrustum();
 
 			if (hitPlane && Number.isFinite(_planeIntersect.x) && Number.isFinite(_planeIntersect.y) && Number.isFinite(_planeIntersect.z)) {
@@ -1157,7 +1158,7 @@
 {#if projection === 'perspective'}
 	<T.PerspectiveCamera
 		makeDefault
-		position={[0.03, 0.03, 0.03]}
+		position={[0.3, 0.3, 0.3]}
 		fov={50}
 		near={1e-4}
 		far={1e7}
@@ -1176,7 +1177,7 @@
 {:else}
 	<T.OrthographicCamera
 		makeDefault
-		position={[0.03, 0.03, 0.03]}
+		position={[0.3, 0.3, 0.3]}
 		near={-1e7}
 		far={1e7}
 		left={-frustumHalf * aspect}

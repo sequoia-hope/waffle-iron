@@ -54,6 +54,9 @@ export const COLOR_TOKENS = [
 		{ id: '--model-color', label: 'Model faces' },
 		{ id: '--model-edge-color', label: 'Model edges' },
 		{ id: '--model-vertex-color', label: 'Model vertices' },
+		{ id: '--datum-plane-front', label: 'Front plane' },
+		{ id: '--datum-plane-top', label: 'Top plane' },
+		{ id: '--datum-plane-right', label: 'Right plane' },
 	] },
 	{ group: 'Sketch', tokens: [
 		{ id: '--sketch-default', label: 'Entities (under-constrained)' },

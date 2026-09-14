@@ -13,8 +13,8 @@ export const FRONT_PLANE_ID = '00000000-0000-0000-0000-000000000001';
 export const TOP_PLANE_ID = '00000000-0000-0000-0000-000000000002';
 export const RIGHT_PLANE_ID = '00000000-0000-0000-0000-000000000003';
 
-/** Half-size for plane geometry (0.036x0.036 total, in meters). */
-export const PLANE_HALF_SIZE = 0.018;
+/** Half-size for plane geometry (a 200 mm square, in meters). */
+export const PLANE_HALF_SIZE = 0.1;
 
 /**
  * @typedef {{ method: 'point-normal', origin: [number,number,number], normal: [number,number,number] }} PointNormalDef
@@ -29,6 +29,7 @@ export const PLANE_HALF_SIZE = 0.018;
  * @property {string} id - Stable UUID
  * @property {string} name - Display name (e.g. "Front")
  * @property {PlaneDefinition} definition
+ * @property {string} [colorToken] - Theme token (app.css) that overrides `color` when set
  * @property {number} color - Base hex color
  * @property {number} hoverColor - Hover hex color
  * @property {number} selectedColor - Selected hex color
@@ -42,6 +43,7 @@ export const BUILTIN_PLANES = [
 		id: FRONT_PLANE_ID,
 		name: 'Front',
 		definition: { method: 'point-normal', origin: [0, 0, 0], normal: [0, 0, 1] },
+		colorToken: '--datum-plane-front',
 		color: 0x4444aa,
 		hoverColor: 0x6666dd,
 		selectedColor: 0x8888ff,
@@ -52,6 +54,7 @@ export const BUILTIN_PLANES = [
 		id: TOP_PLANE_ID,
 		name: 'Top',
 		definition: { method: 'point-normal', origin: [0, 0, 0], normal: [0, 1, 0] },
+		colorToken: '--datum-plane-top',
 		color: 0x44aa44,
 		hoverColor: 0x66dd66,
 		selectedColor: 0x88ff88,
@@ -62,6 +65,7 @@ export const BUILTIN_PLANES = [
 		id: RIGHT_PLANE_ID,
 		name: 'Right',
 		definition: { method: 'point-normal', origin: [0, 0, 0], normal: [1, 0, 0] },
+		colorToken: '--datum-plane-right',
 		color: 0xaa4444,
 		hoverColor: 0xdd6666,
 		selectedColor: 0xff8888,
