@@ -22,9 +22,18 @@ export const SETTINGS_DEFAULTS = Object.freeze({
 	extrudeAutoSelectRegion: false,
 	/** The FIRST driving dimension on a sketch scales the whole sketch to it. */
 	sketchScaleOnFirstDimension: true,
+	/**
+	 * What a reload does with this tab's last work: 'auto' reopens it,
+	 * 'ask' offers it, 'never' starts empty (RESTORE_ON_RELOAD).
+	 */
+	restoreOnReload: 'auto',
 	/** Inline CSS-token overrides: { '--accent': '#rrggbb', ... }. */
 	colors: {},
 });
+
+/** Valid values of each string-enum setting. */
+export const RESTORE_ON_RELOAD = Object.freeze(['auto', 'ask', 'never']);
+const ENUMS = { restoreOnReload: RESTORE_ON_RELOAD };
 
 /**
  * Every customizable color token, grouped for the settings UI. `id` is the
@@ -106,7 +115,9 @@ function normalize(raw) {
 	if (raw && typeof raw === 'object') {
 		for (const k of Object.keys(SETTINGS_DEFAULTS)) {
 			if (k === 'colors') continue;
-			if (k in raw && typeof raw[k] === typeof SETTINGS_DEFAULTS[k]) s[k] = raw[k];
+			if (!(k in raw) || typeof raw[k] !== typeof SETTINGS_DEFAULTS[k]) continue;
+			if (k in ENUMS && !ENUMS[k].includes(raw[k])) continue;
+			s[k] = raw[k];
 		}
 		s.colors = sanitizeColors(raw.colors);
 	}

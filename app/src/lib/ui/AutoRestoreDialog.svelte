@@ -32,11 +32,13 @@
 	<div class="overlay" data-testid="auto-restore-dialog">
 		<div class="dialog">
 			<div class="dialog-header">
-				<span class="dialog-title">Restore Unsaved Work?</span>
+				<span class="dialog-title">Reopen Your Last Work?</span>
 			</div>
 			<div class="dialog-body">
-				<p class="message">You have unsaved work from {formatTimeAgo(state.timestamp)}.</p>
-				<p class="hint">Would you like to restore it?</p>
+				<p class="message">
+					{state.name ? `“${state.name}”, last changed` : 'Last changed'} {formatTimeAgo(state.timestamp)}.
+				</p>
+				<p class="hint">Discard starts an empty document; the stored document is kept.</p>
 			</div>
 			<div class="dialog-footer">
 				<button class="btn btn-cancel" data-testid="auto-restore-discard" onclick={handleDiscard}>Discard</button>

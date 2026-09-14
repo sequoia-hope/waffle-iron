@@ -21,6 +21,7 @@ import { computeConstraintBadges } from '$lib/sketch/constraintBadges.js';
 import { stepConstraintModal, modalInstruction, isModalConstraint } from '$lib/sketch/constraintModalEngine.js';
 import { classifyDimension } from '$lib/sketch/dimensionHeuristic.js';
 import { getSetting, getSettings, updateSettings } from '$lib/ui/settings.svelte.js';
+import { deleteDraft, getDraft, listDrafts, pruneDrafts, putDraft, tabKey } from '$lib/storage/drafts.js';
 import { findConnectedChain, orderChain } from '$lib/sketch/chain.js';
 import { resolveChainSegments, offsetChainSegments } from '$lib/sketch/offset.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
@@ -494,8 +495,32 @@ let nextGearId = $state(1);
 /** @type {number | null} */
 let autoSaveTimer = null;
 
-/** @type {{ available: boolean, timestamp: number } | null} */
+/**
+ * What a reload can bring back (`findStartupRestore`), while it is offered or
+ * being reopened.
+ * @type {{ available: boolean, timestamp: number, source: 'legacy' | 'draft' | 'indexeddb', docId?: string, draftKey?: string, name?: string } | null}
+ */
 let autoRestoreState = $state(null);
+
+/** Resolves once startup has reopened, offered-and-answered, or skipped a restore. */
+let settleStartupRestore = () => {};
+const startupRestoreSettled = new Promise((resolve) => {
+	settleStartupRestore = () => resolve(undefined);
+});
+
+/**
+ * Resolves when this tab's startup restore is settled: reopened (policy
+ * `auto`), answered in the dialog (`ask`), or nothing to restore. The agent
+ * link resumes only after it, so a resumed agent never edits the blank
+ * bootstrap document of a tab that is about to reopen its work.
+ * @returns {Promise<void>}
+ */
+export function whenStartupRestoreSettled() {
+	return startupRestoreSettled;
+}
+
+/** Autosave on hide/unload is installed once per page. */
+let autosaveLifecycleInstalled = false;
 
 /** @type {EngineBridge | null} */
 let bridge = null;
@@ -915,30 +940,14 @@ export async function initEngine() {
 		const handoffPending =
 			typeof sessionStorage !== 'undefined' && !!sessionStorage.getItem('waffle-active-doc');
 
-		// Check for auto-save data (legacy localStorage)
-		if (!handoffPending && typeof localStorage !== 'undefined') {
-			const saved = localStorage.getItem(AUTOSAVE_KEY);
-			const savedTime = localStorage.getItem(AUTOSAVE_TIME_KEY);
-			if (saved && savedTime) {
-				autoRestoreState = { available: true, timestamp: parseInt(savedTime, 10) };
-			}
+		// What a reload may bring back, per the restoreOnReload setting: reopened
+		// at the end of startup (`auto`) or offered in AutoRestoreDialog (`ask`).
+		const restorePolicy = getSetting('restoreOnReload');
+		if (!handoffPending && restorePolicy !== 'never') {
+			autoRestoreState = await findStartupRestore();
 		}
-
-		// If no localStorage restore found, check IndexedDB for most recently modified doc
-		if (!handoffPending && !autoRestoreState) {
-			try {
-				const { getStore } = await import('$lib/storage/index.js');
-				const local = getStore();
-				const docs = await local.list();
-				if (docs.length > 0) {
-					// docs are sorted by modified desc — first is most recent
-					const newest = docs[0];
-					autoRestoreState = { available: true, timestamp: newest.modified, source: 'indexeddb', docId: newest.id };
-				}
-			} catch {
-				// IndexedDB not available or empty — no restore
-			}
-		}
+		pruneDrafts().catch(() => {});
+		installAutosaveLifecycle();
 
 		// Ensure activeDocId is set so saveToProvider() works on direct `/`
 		// navigation. v4 P2-5: the storage record is keyed by the document's
@@ -957,7 +966,16 @@ export async function initEngine() {
 			documentTabs = [{ id: tabId, name: 'Part 1', kind: { type: 'Part', features: { features: [], active_index: null } } }];
 			activeTabId = tabId;
 		}
+
+		if (autoRestoreState && restorePolicy === 'auto') {
+			if (await restoreAutoSave()) {
+				showToast('info', `Reopened your last work: ${documentName}`);
+			}
+		} else if (!autoRestoreState) {
+			settleStartupRestore();
+		}
 	} catch (err) {
+		settleStartupRestore();
 		lastError = /** @type {Error} */ (err).message;
 		statusMessage = `Failed to load engine: ${lastError}`;
 		log('error', `Engine init failed: ${lastError}`);
@@ -2092,6 +2110,8 @@ export function exitSketchMode() {
 	resetSketchState();
 	sketchMode = { active: false, origin: [0, 0, 0], normal: [0, 0, 1] };
 	restoreEditRollback();
+	// The draft still holds the session; a cancelled sketch must not come back on reload.
+	scheduleAutoSave();
 }
 
 // -- Feature selection --
@@ -6111,6 +6131,7 @@ export async function openDocumentRecord(docId, json, link = null) {
 	// The opened document is the one asked for; drop any restore offer the
 	// bootstrap raced ahead with.
 	autoRestoreState = null;
+	settleStartupRestore();
 	initDocumentState(docId, parsed, link);
 	// Load the document into the engine — ALWAYS, even when the active tab
 	// is empty: the engine owns the document's `sources` table (v4 §2.3),
@@ -6902,48 +6923,110 @@ export function toggleOriginTriad() {
 
 export function getAutoRestoreState() { return autoRestoreState; }
 
-export async function restoreAutoSave() {
-	// Restore from IndexedDB if that was the source
-	if (autoRestoreState?.source === 'indexeddb' && autoRestoreState?.docId) {
-		try {
-			const { getStore } = await import('$lib/storage/index.js');
-			const local = getStore();
-			const doc = await local.get(autoRestoreState.docId);
-			if (doc?.json) {
-				// The whole record — tabs, identity, name — not just the active
-				// tab's tree: a bare loadProject left the bootstrap's one-tab
-				// state and a fresh document.id in place, and the next autosave
-				// wrote that over the stored document.
-				await openDocumentRecord(doc.id, doc.json, doc.link ?? null);
-				return true;
-			}
-		} catch {
-			// fall through
+/**
+ * What a reload may bring back, best first: the legacy localStorage autosave;
+ * this tab's own draft; else the newer of the newest draft (any tab) and the
+ * newest stored local document.
+ */
+async function findStartupRestore() {
+	if (typeof localStorage !== 'undefined') {
+		const saved = localStorage.getItem(AUTOSAVE_KEY);
+		const savedTime = localStorage.getItem(AUTOSAVE_TIME_KEY);
+		if (saved && savedTime) {
+			return { available: true, timestamp: parseInt(savedTime, 10), source: /** @type {const} */ ('legacy') };
 		}
-		autoRestoreState = null;
-		return false;
 	}
-	// Legacy localStorage restore
-	if (typeof localStorage === 'undefined') return false;
-	const saved = localStorage.getItem(AUTOSAVE_KEY);
-	if (!saved) return false;
-	const savedName = localStorage.getItem(AUTOSAVE_NAME_KEY);
-	if (savedName) projectName = savedName;
-	await loadProject(saved);
-	autoRestoreState = null;
-	return true;
+	/** @param {import('$lib/storage/drafts.js').Draft} d */
+	const draftOffer = (d) => ({
+		available: true,
+		timestamp: d.modified,
+		source: /** @type {const} */ ('draft'),
+		docId: d.docId,
+		draftKey: d.tabKey,
+		name: d.name
+	});
+	let best = null;
+	try {
+		const key = tabKey();
+		const own = key ? await getDraft(key) : null;
+		if (own) return draftOffer(own);
+		const [newestDraft] = await listDrafts();
+		if (newestDraft) best = draftOffer(newestDraft);
+	} catch {
+		// drafts unavailable
+	}
+	try {
+		const { getStore } = await import('$lib/storage/index.js');
+		const [newest] = await getStore().list();
+		if (newest && (!best || newest.modified > best.timestamp)) {
+			best = { available: true, timestamp: newest.modified, source: /** @type {const} */ ('indexeddb'), docId: newest.id, name: newest.name };
+		}
+	} catch {
+		// IndexedDB not available
+	}
+	return best;
+}
+
+export async function restoreAutoSave() {
+	const offer = autoRestoreState;
+	try {
+		if (offer?.source === 'draft' && offer.draftKey) {
+			const draft = await getDraft(offer.draftKey);
+			if (!draft?.json) return false;
+			await openDocumentRecord(draft.docId, draft.json);
+			await restoreSketchSession(draft.sketch);
+			// A draft can be newer than the provider's copy (flushed on hide, or
+			// the provider was unreachable): store it again.
+			scheduleAutoSave();
+			return true;
+		}
+		if (offer?.source === 'indexeddb' && offer.docId) {
+			const { getStore } = await import('$lib/storage/index.js');
+			const doc = await getStore().get(offer.docId);
+			if (!doc?.json) return false;
+			// The whole record — tabs, identity, name — not just the active
+			// tab's tree: a bare loadProject left the bootstrap's one-tab
+			// state and a fresh document.id in place, and the next autosave
+			// wrote that over the stored document.
+			await openDocumentRecord(doc.id, doc.json, doc.link ?? null);
+			return true;
+		}
+		// Legacy localStorage restore
+		if (typeof localStorage === 'undefined') return false;
+		const saved = localStorage.getItem(AUTOSAVE_KEY);
+		if (!saved) return false;
+		const savedName = localStorage.getItem(AUTOSAVE_NAME_KEY);
+		if (savedName) projectName = savedName;
+		await loadProject(saved);
+		return true;
+	} catch (err) {
+		log('error', `Restore failed: ${err?.message || err}`);
+		return false;
+	} finally {
+		autoRestoreState = null;
+		settleStartupRestore();
+	}
 }
 
 export async function discardAutoSave() {
-	// An IndexedDB offer points at a stored DOCUMENT (autosave writes the
-	// record itself), so Discard only dismisses the offer. Only the legacy
-	// localStorage blob is a scratch copy that may be dropped.
+	const offer = autoRestoreState;
+	// A document offer points at the stored DOCUMENT (autosave writes the
+	// record itself), so Discard only dismisses it. A draft is a copy: this
+	// tab's own is dropped; another live tab's is left alone.
+	if (offer?.source === 'draft' && offer.draftKey && offer.draftKey === tabKey()) {
+		try {
+			await deleteDraft(offer.draftKey);
+		} catch {
+			// drafts unavailable
+		}
+	}
 	if (typeof localStorage !== 'undefined') {
 		localStorage.removeItem(AUTOSAVE_KEY);
 		localStorage.removeItem(AUTOSAVE_TIME_KEY);
 		localStorage.removeItem(AUTOSAVE_NAME_KEY);
 	}
 	autoRestoreState = null;
+	settleStartupRestore();
 }
 
 /**
@@ -7001,53 +7084,135 @@ function scheduleAutoSave() {
 	// A linked document is read-only: never write it back to storage (the
 	// linked record must keep the bytes fetched at `resolved.commit`).
 	if (documentLink?.readOnly) return;
-	autoSaveTimer = setTimeout(async () => {
+	autoSaveTimer = setTimeout(() => {
 		autoSaveTimer = null;
-		try {
-			await saveToProvider();
-		} catch (err) {
-			// If remote provider fails, fall back to local IndexedDB
-			console.warn('Auto-save to provider failed, falling back to local:', err.message || err);
-			try {
-				const { getStore } = await import('$lib/storage/index.js');
-				const local = getStore();
-				if (activeDocId) {
-					const jsonData = await buildDocumentJson();
-					if (jsonData) {
-						const existing = await local.get(activeDocId);
-						await local.put({
-							id: activeDocId,
-							json: jsonData,
-							created: existing?.created || Date.now(),
-							modified: Date.now()
-						});
-					}
-				}
-			} catch {
-				console.warn('Local fallback auto-save also failed');
-			}
-		}
+		autosaveNow();
 	}, AUTOSAVE_DELAY_MS);
 }
 
 /**
- * Save current document state to the active storage provider.
- * Builds full v3 JSON including all tabs.
+ * Run a pending autosave now instead of after its delay. Called when the tab
+ * is hidden or unloaded: iOS may kill a backgrounded tab without another
+ * event, so this is the last reliable moment to store the latest edit.
  */
-async function saveToProvider() {
-	if (!activeDocId) return false;
-	const jsonData = await buildDocumentJson();
-	if (!jsonData) return false;
+export function flushAutoSave() {
+	// An open sketch changes without scheduling an autosave (a drag, a
+	// solve), so its session is stored on every hide.
+	if (!autoSaveTimer && !sketchMode.active) return;
+	if (autoSaveTimer) clearTimeout(autoSaveTimer);
+	autoSaveTimer = null;
+	autosaveNow();
+}
 
-	const { getActiveProvider } = await import('$lib/storage/index.js');
-	const store = getActiveProvider();
-	const existing = await store.get(activeDocId);
+/**
+ * The open sketch session as plain data, for this tab's draft: what
+ * `enterSketchEditMode` would load, plus the unfinished edits. Null when no
+ * sketch is open.
+ */
+function sketchSessionSnapshot() {
+	if (!sketchMode.active) return null;
+	return JSON.parse(JSON.stringify({
+		tabId: activeTabId,
+		editingFeatureId: editingSketchFeatureId,
+		origin: sketchMode.origin,
+		normal: sketchMode.normal,
+		entities: sketchEntities,
+		// Transient drag pins belong to a pointer gesture, not the sketch.
+		constraints: sketchConstraints.filter((c) => !c._isDrag),
+		projectedBindings,
+		positions: [...sketchPositions].map(([id, p]) => [id, p.x, p.y])
+	}));
+}
+
+/**
+ * Re-enter a sketch session saved by `sketchSessionSnapshot`, after its
+ * document was reopened: the same entry path the user took (edit of an
+ * existing sketch feature, else a new sketch on the plane), then the
+ * unfinished geometry, re-synced to the engine by one solve.
+ * @param {any} session
+ */
+async function restoreSketchSession(session) {
+	if (!session || session.tabId !== activeTabId) return;
+	const editing = session.editingFeatureId
+		&& featureTree.features.some((f) => f.id === session.editingFeatureId);
+	if (editing) await enterSketchEditMode(session.editingFeatureId);
+	else await enterSketchMode(session.origin, session.normal);
+	if (!sketchMode.active) return;
+
+	sketchEntities = session.entities ?? [];
+	sketchConstraints = session.constraints ?? [];
+	projectedBindings = session.projectedBindings ?? [];
+	sketchPositions = new Map((session.positions ?? []).map(([id, x, y]) => [id, { x, y }]));
+	nextEntityId = sketchEntities.reduce((max, e) => Math.max(max, e.id), 0) + 1;
+	await rebuildGearsFromEntities();
+	reExtractProfiles();
+	// SolveSketch replaces the engine's sketch state with these lists.
+	triggerSolve();
+}
+
+function installAutosaveLifecycle() {
+	if (autosaveLifecycleInstalled || typeof document === 'undefined') return;
+	autosaveLifecycleInstalled = true;
+	document.addEventListener('visibilitychange', () => {
+		if (document.visibilityState === 'hidden') flushAutoSave();
+	});
+	window.addEventListener('pagehide', () => flushAutoSave());
+}
+
+/** Compose the document once; store it as this tab's draft and in the active provider. */
+async function autosaveNow() {
+	if (!activeDocId) return;
+	const docId = activeDocId;
+	const jsonData = await buildDocumentJson();
+	if (!jsonData) return;
+	await saveDraft(docId, jsonData);
+	try {
+		const { getActiveProvider } = await import('$lib/storage/index.js');
+		await putRecord(getActiveProvider(), docId, jsonData);
+	} catch (err) {
+		// If remote provider fails, fall back to local IndexedDB
+		console.warn('Auto-save to provider failed, falling back to local:', err.message || err);
+		try {
+			const { getStore } = await import('$lib/storage/index.js');
+			await putRecord(getStore(), docId, jsonData);
+		} catch {
+			console.warn('Local fallback auto-save also failed');
+		}
+	}
+}
+
+/** This tab's draft (`$lib/storage/drafts.js`); a failure never blocks the real save. */
+async function saveDraft(docId, jsonData) {
+	try {
+		await putDraft({ docId, name: documentName, json: jsonData, sketch: sketchSessionSnapshot() });
+	} catch (err) {
+		console.warn('Draft save failed:', err?.message || err);
+	}
+}
+
+/** Create or update storage record `docId`, keeping its `created` time. */
+async function putRecord(store, docId, jsonData) {
+	const existing = await store.get(docId);
 	await store.put({
-		id: activeDocId,
+		id: docId,
 		json: jsonData,
 		created: existing?.created || Date.now(),
 		modified: Date.now()
 	});
+}
+
+/**
+ * Save current document state to the active storage provider (and this tab's draft).
+ * Builds full v3 JSON including all tabs.
+ */
+async function saveToProvider() {
+	if (!activeDocId) return false;
+	const docId = activeDocId;
+	const jsonData = await buildDocumentJson();
+	if (!jsonData) return false;
+	await saveDraft(docId, jsonData);
+	const { getActiveProvider } = await import('$lib/storage/index.js');
+	await putRecord(getActiveProvider(), docId, jsonData);
 	return true;
 }
 

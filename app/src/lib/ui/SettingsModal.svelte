@@ -150,6 +150,22 @@
 						<span class="row-desc">Pre-selects a region of the most recent sketch. Off by default: the dialog opens in pick mode and waits for you to click the region to extrude.</span>
 					</span>
 				</label>
+				<label class="row">
+					<span class="row-text">
+						<span class="row-label">On reload</span>
+						<span class="row-desc">What a reloaded tab — or one the browser discarded in the background — does with its last work. Work is kept as a draft in this browser after every change and whenever the tab is hidden.</span>
+					</span>
+					<select
+						class="row-select"
+						data-testid="setting-restore-on-reload"
+						value={settings.restoreOnReload}
+						onchange={(e) => updateSettings({ restoreOnReload: e.currentTarget.value })}
+					>
+						<option value="auto">Reopen automatically</option>
+						<option value="ask">Ask</option>
+						<option value="never">Start empty</option>
+					</select>
+				</label>
 
 			{:else if section === 'sketch'}
 				<h2>Sketch</h2>
@@ -337,6 +353,16 @@
 	.row-text { display: flex; flex-direction: column; gap: 3px; }
 	.row-label { font-size: 13px; }
 	.row-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
+	.row-select {
+		margin-left: auto;
+		flex-shrink: 0;
+		background: var(--bg-tertiary);
+		color: var(--text-primary);
+		border: 1px solid var(--border-color);
+		border-radius: 3px;
+		padding: 3px 6px;
+		font-size: 12px;
+	}
 	.hint { font-size: 12px; color: var(--text-secondary); margin: 0 0 8px; }
 
 	.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
