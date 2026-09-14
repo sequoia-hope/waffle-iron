@@ -11,7 +11,7 @@ Components:
 | Component | Location (proposed) | Language |
 |---|---|---|
 | **Agent host**: tool registry, executor, consent + activity UI | `app/src/lib/agent/`, route `app/src/routes/agent/` | JS / Svelte (runs in the page) |
-| **Relay**: MCP server on stdio ↔ WebSocket to the paired page | `packages/waffle-mcp-relay/` (npm, run via `npx`) | Node ≥ 18 |
+| **Relay**: MCP server on stdio ↔ WebSocket to the paired page | `relay/` (a `pyproject.toml` package published to PyPI as `waffle-mcp-relay`, run via `uvx`) | Python ≥ 3.12 |
 | **Bridge ICRs**: typed errors, measurement, face listing, provenance | `wasm-bridge`, `waffle-types`, `kernel-v2`, `feature-engine` | Rust |
 
 Depends on `specs/waffle_v4_document_model.md` goal 5. That supplies the JSON
@@ -30,7 +30,7 @@ with Ctrl+Z, and can pause or disconnect the agent at any moment.
 
 User-visible behavior:
 
-1. The user adds the relay to their MCP client config (`npx waffle-mcp-relay
+1. The user adds the relay to their MCP client config (`uvx waffle-mcp-relay
    --port …`). The agent calls `waffle_connect`, which returns a **pairing
    link**. Opening it in the browser shows a consent screen naming the agent
    ("Allow *Claude Code* to edit documents in this tab?"). After **Allow**,
@@ -87,11 +87,13 @@ is not exposed.
 | `--allow-origin <origin>` | repeatable | the origin of `--app-url` | exact origins, no wildcards | exit 2 `invalid origin` |
 | `--agent-name <s>` | string | MCP `initialize.clientInfo.name`, else `"mcp-client"` | 1–128 chars, no control chars | exit 2 |
 | `--open` | flag | off | — | `waffle_connect` also opens the pairing link with the OS URL handler |
-| MCP protocol revision | — | newest revision the MCP TypeScript SDK supports | negotiated in `initialize` | per MCP lifecycle |
+| MCP protocol revision | — | newest revision the MCP Python SDK (`mcp`) supports | negotiated in `initialize` | per MCP lifecycle |
 
 End users pick their own port and put it in their MCP client config
-(`"args": ["waffle-mcp-relay", "--port", "<their port>"]`); docs show the
-flag, never a suggested number. The hosted app URL is a product constant,
+(`"command": "uvx", "args": ["waffle-mcp-relay==<version>", "--port",
+"<their port>"]`); docs show the flag, never a suggested number, and always a
+pinned version (an unpinned `uvx` fetches the newest release on every client
+start, so one bad publish would reach every user at once). The hosted app URL is a product constant,
 not a port. The dev server is used
 by passing `--app-url http://localhost:<dev port>/` and `--allow-origin` to
 match; the dev port comes from the registry as for any project.
@@ -366,8 +368,9 @@ Provenance on edit: `feature_edit` of a `User` feature sets `Agent{name}`
 ## 5. Oracles
 
 **Harnesses.**
-- (a) `packages/waffle-mcp-relay/test/`: Node test runner, a fake MCP client on
-  stdio and a fake page WebSocket client. No browser.
+- (a) `relay/tests/`: pytest (asyncio), with a fake MCP client on stdio and a
+  fake page WebSocket client. No browser. Added to `./scripts/test.sh` beside
+  the GUI tiers.
 - (b) `app/tests/gui/agent-*.spec.js`: Playwright spawns the **real relay** and
   drives it as an MCP client over stdio; the real page pairs by clicking Allow.
   The relay's port comes from `$PORT` set by the test runner (registry
@@ -486,8 +489,10 @@ returns `EngineCrashed` and pauses the session.
   `isError`, annotations), `tools/list_changed`, progress, cancellation,
   stdio transport, embedded resources and image content. Pin the revision at
   implementation time, verified against the published spec.
-- **MCP TypeScript SDK** (`@modelcontextprotocol/sdk`) for the relay; `ws`
-  for the WebSocket server. Both need a licence check in the first commit.
+- **MCP Python SDK** (`mcp`) for the relay's stdio server; **`websockets`**
+  (asyncio) for the WebSocket server, using its handshake `origins=`
+  allow-list for I8 and the standard library `ssl` module for the TLS bind.
+  Runtime dependencies are limited to these two packages. Both need a licence check in the first commit.
 - **RFC 6455** (WebSocket), §10.2 origin considerations, and the
   **cross-site WebSocket hijacking** attack class. Any web page can attempt a
   connection to a loopback port, which is why I8 needs origin checking plus a
@@ -535,7 +540,7 @@ always labelled, and never asserted as exact by any oracle.
 | **0 — Spike + ICRs** | Minimal relay + `/agent` route + one tool (`model_summary`); run O23 and record the matrix here; land ICR-1…ICR-4 with their own tests | matrix recorded; a go/no-go note on the default connection path; ICRs merged |
 | **1 — Live authoring** | Pairing, consent, agent bar (Pause/Disconnect), engine lock + busy gates, executor with rollback and provenance, tools of §2.5 except `viewport_capture` and export; agent badge in the feature tree | O1–O20 green (O4 `NotSupported` row after ICR-2); `sketch-drawing-regression.spec.js` still green (the lock touches sketch paths) |
 | **2 — Collaboration** | `viewport_capture`, `export_*`, `import_step` (STEP text from the agent → `importStepFromText`, `Import` provenance), Assembly tabs read-only (`OpenAssembly` status), parameters as MCP resources with subscriptions | O21–O22 green |
-| **3 — Headless and remote** | `--headless-app`: the relay launches the app in a headless browser for CI/batch agents, using the same tools and the same page code; TLS bind hardening for the cross-machine case; WebMCP exposure of the same registry if browsers ship it | its own oracle addendum |
+| **3 — Headless and remote** | `--headless-app`: the relay launches the app in a headless browser (Playwright for Python) for CI/batch agents, using the same tools and the same page code; TLS bind hardening for the cross-machine case; WebMCP exposure of the same registry if browsers ship it | its own oracle addendum |
 
 ---
 
@@ -583,11 +588,27 @@ Resolved 2026-09-14:
   pairing link carries the chosen port, so the page never guesses it.
 - **Default `on_error`: `rollback`.** A failed agent step is undone by
   default. `keep` stays available per call.
+- **Relay language: Python**, distributed with `uvx` and a pinned version.
+  The relay holds no modeling logic, so the choice does not touch the design:
+  the page speaks `waffle-agent-link/1` to whatever holds the socket,
+  authoritative argument validation happens in the page, and the manifest is
+  plain JSON. The alternatives and why they lost:
+  - *Node* (`npx`): reference MCP SDK and the app's existing tooling, but it
+    needs a Node bump in the dev container (18.20.8, end of life).
+  - *Rust* (native binaries): fits the repo's gates and ships a
+    build-time-fixed binary, but needs per-platform releases and OS code
+    signing.
+  - *Rust compiled to WASM*: the relay must listen on TCP, which a browser
+    cannot do. Node's WASI has no sockets, and a Wasmtime requirement is a
+    rarer install than `uv`.
+
+  Python's costs, accepted:
+  - a third ecosystem in CI (ruff lint + format check, pytest, PyPI
+    publishing from CI with trusted publishing, never from a laptop);
+  - `uv` added to the dev container, which has Python 3.12.3 but no `pip`
+    or `uv`.
 
 Still open:
 
-1. **Relay language.** Node (npx distribution, the official TS SDK, and no
-   engine code needed) is chosen over a Rust binary. Revisit if a no-Node
-   install matters.
-2. **Package and sub-project names.** `waffle-mcp-relay`, `packages/`,
+1. **Package and sub-project names.** `waffle-mcp-relay`, `relay/`,
    `projects/14-agent-link/` are placeholders.
