@@ -1355,6 +1355,11 @@ export function getFeatureErrors() {
 	return featureErrors;
 }
 
+/** Non-fatal warnings carried by the latest rebuild, verbatim, in engine order. */
+export function getRebuildWarnings() {
+	return [...lastRebuildWarnings];
+}
+
 export function getRebuildTime() {
 	return rebuildTime;
 }

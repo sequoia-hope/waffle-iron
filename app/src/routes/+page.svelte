@@ -4,6 +4,7 @@
 	import { base } from '$app/paths';
 	import Toolbar from '$lib/ui/Toolbar.svelte';
 	import LinkedDocBanner from '$lib/ui/LinkedDocBanner.svelte';
+	import AgentBar from '$lib/agent/AgentBar.svelte';
 	import ContextBanner from '$lib/ui/ContextBanner.svelte';
 	import ImportLinkDialog from '$lib/ui/ImportLinkDialog.svelte';
 	import AssemblyPanel from '$lib/ui/AssemblyPanel.svelte';
@@ -107,6 +108,7 @@
 		<Toolbar />
 	</div>
 	<div class="tabbar-area">
+		<AgentBar />
 		<LinkedDocBanner />
 		<ContextBanner />
 		<TabBar
@@ -146,6 +148,7 @@
 		<Toolbar />
 	</div>
 	<div class="tabbar-area">
+		<AgentBar />
 		<LinkedDocBanner />
 		<ContextBanner />
 		<TabBar
