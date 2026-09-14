@@ -6,17 +6,22 @@
 # come from the host's `tailscale serve` config, which must mount the app at
 # `/` and the relay at `/relay` on one HTTPS port (see relay/README.md).
 #
-# Usage: scripts/add-waffle-mcp.sh [--scope local|user|project] [--dry-run]
+# Usage: scripts/add-waffle-mcp.sh [--scope local|user|project] [--persistent-link] [--dry-run]
+#   --persistent-link  development: the pairing link is reusable and never
+#                      expires (its code lives on the host in
+#                      ~/.local/state/waffle-mcp-relay/link-<port>.code)
 # Env:   WAFFLE_HOST_SSH  ssh target (default: sequoia@<default gateway>)
 set -euo pipefail
 
 scope=local
 dry_run=0
+persistent=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --scope) scope="$2"; shift 2 ;;
+    --persistent-link) persistent=1; shift ;;
     --dry-run) dry_run=1; shift ;;
-    *) echo "usage: $0 [--scope local|user|project] [--dry-run]" >&2; exit 2 ;;
+    *) echo "usage: $0 [--scope local|user|project] [--persistent-link] [--dry-run]" >&2; exit 2 ;;
   esac
 done
 
@@ -54,6 +59,9 @@ args=(
   --allow-origin "http://localhost:$app_port"
   --public-url "wss://$public/relay"
 )
+if [[ $persistent == 1 ]]; then
+  args+=(--persistent-link)
+fi
 
 if [[ $dry_run == 1 ]]; then
   printf '%q ' claude mcp add -s "$scope" waffle-iron -- ssh "${args[@]}"; echo
