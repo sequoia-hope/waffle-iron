@@ -88,6 +88,8 @@ is not exposed.
 | `--allow-origin <origin>` | repeatable | the origin of `--app-url` | exact origins, no wildcards | exit 2 `invalid origin` |
 | `--agent-name <s>` | string | MCP `initialize.clientInfo.name`, else `"mcp-client"` | 1–128 chars, no control chars | exit 2 |
 | `--open` | flag | off | — | `waffle_connect` also opens the pairing link with the OS URL handler |
+| `--resume-window <s>` | integer seconds | `1800` | 0–604800 | exit 2 `invalid resume window` |
+| `--persistent-link [FILE]` | flag, optional path | off; FILE defaults to `$XDG_STATE_HOME` (else `~/.local/state`)`/waffle-mcp-relay/link-<port>.code` | a file holding one 43-char base64url code, or absent (created, mode 0600) | exit 2 `invalid persistent link file` / `cannot use persistent link file`. **Development only** (P17, P18). |
 | MCP protocol revision | — | newest revision the MCP Python SDK (`mcp`) supports | negotiated in `initialize` | per MCP lifecycle |
 
 End users pick their own port and put it in their MCP client config
@@ -104,9 +106,10 @@ match; the dev port comes from the registry as for any project.
 | Item | Value |
 |---|---|
 | Pairing link | `<app-url>agent?relay=<--public-url, else ws(s)://bind:port>&code=<pairing code>&name=<agent name>` |
-| Pairing code | 32 random bytes, base64url; **single use**; expires **300 s** after `waffle_connect` |
+| Pairing code | 32 random bytes, base64url; **single use**; expires **300 s** after `waffle_connect`. With `--persistent-link`: the code kept in the link file, **reusable, no expiry** (P17) |
 | Consent | the `/agent` route shows agent name, relay address and the document that will be controlled. The connection opens **only on a user click** (this is also the user gesture a browser local-network permission prompt needs). |
-| Session token | 32 random bytes, issued on successful pairing, kept in the page's `sessionStorage`; lets **the same browser tab** reconnect after a reload without re-consent, for **120 s** after disconnect |
+| Session token | 32 random bytes, issued on successful pairing, kept in the page's `sessionStorage`; lets **the same browser tab** reconnect without re-consent — after a reload, a lost socket, or the OS suspending or discarding a backgrounded tab — for **`--resume-window` (1800 s)** after disconnect. The window is long because a mobile browser suspends a background tab for as long as the user is in another app. |
+| Page reconnect | the page retries a lost session itself: at once when the tab becomes visible (`visibilitychange`, `pageshow`) or the network returns (`online`), else with backoff 1, 2, 4 … 30 s while visible; never while hidden. A visible tab whose socket looks open probes it with `ping` (no `pong` in 5 s ⇒ lost). A reloaded tab resumes only after its startup restore settles (the draft is reopened first), and says `reloaded: true`. |
 | Paired pages | at most **one**. A second pairing attempt is refused while one is live (§3 P6). `waffle_connect` called again revokes the live session and issues a new code. |
 | Link protocol | `waffle-agent-link/1` (JSON text frames, §2.3), versioned per A2.4 |
 | Heartbeat | relay `ping` every 15 s; no `pong` within 30 s ⇒ disconnected |
@@ -115,7 +118,7 @@ match; the dev port comes from the registry as for any project.
 
 | Direction | Frame | Fields |
 |---|---|---|
-| page → relay | `hello` | `protocol: "waffle-agent-link/1"`, `code` or `session`, `app_build` (`__BUILD_INFO__`), `manifest_hash` |
+| page → relay | `hello` | `protocol: "waffle-agent-link/1"`, `code` or `session`, `app_build` (`__BUILD_INFO__`), `manifest_hash`, `reloaded?: bool` (a session resumed by a freshly loaded page, P7) |
 | relay → page | `welcome` | `session`, `agent_name`, `protocol`, `manifest_required: bool` (true when `hello.manifest_hash` differs from the bundled manifest) |
 | page → relay | `manifest` | `tools` — sent only after `manifest_required`; adopted only if its hash equals `hello.manifest_hash` |
 | relay → page | `call` | `id`, `tool`, `arguments`, `progress: bool` |
@@ -160,8 +163,8 @@ agent renames with `feature_rename`. ICR-5 (§9) would add the field.
 
 | Tool | Kind | Inputs | Result |
 |---|---|---|---|
-| `waffle_connect` | command | — | `{pairing_url, expires_at}`; revokes any live session |
-| `waffle_status` | query | — | `{state: "unpaired" \| "awaiting_consent" \| "ready" \| "paused" \| "busy", busy_reason?, app_build?, document_name?}` |
+| `waffle_connect` | command | — | `{pairing_url, expires_at}` (`expires_at: null` for a persistent link); revokes any live or away session |
+| `waffle_status` | query | — | `{state: "unpaired" \| "awaiting_consent" \| "page_away" \| "ready" \| "paused" \| "busy", busy_reason?, app_build?, document_name?}`; `page_away` = a session that can still resume (P16) |
 
 **Documents and storage**
 
@@ -264,8 +267,8 @@ exact.
 | P4 | handshake `Origin` not in the allow list | HTTP 403 on upgrade; nothing else read; logged to stderr |
 | P5 | code wrong, reused or expired | `bye{reason:"invalid_code"}`, close; the page shows "link expired, ask the agent to reconnect" |
 | P6 | second page tries to pair while a session is live | `bye{reason:"already_paired"}` |
-| P7 | same tab reloads within 120 s, `hello{session}` | resumes without consent; in-flight calls from before the reload already returned `PageDisconnected` (P9) |
-| P8 | a session presented after 120 s, or after a revoke | `bye{reason:"session_expired"}`. The relay cannot tell a reload from another tab holding the same token (a duplicated tab copies `sessionStorage`). Within 120 s the session resumes; while a page is live, a second presenter gets `already_paired` (P6). |
+| P7 | same tab reconnects within the resume window, `hello{session}` (lost socket, suspended or discarded tab, reload) | resumes without consent; in-flight calls from before the drop already returned `PageDisconnected` (P9). With `hello.reloaded`, the next page tool result gets a trailing text note that the tab reloaded and reopened its draft (call `model_summary`) |
+| P8 | a session presented after the resume window, or after a revoke | `bye{reason:"session_expired"}`. The relay cannot tell a reload from another tab holding the same token (a duplicated tab copies `sessionStorage`). Within the window the session resumes; while a page is live, a second presenter gets `already_paired` (P6). |
 | P8a | first frame is not `hello`, or no frame within 10 s | WebSocket close 1008, no `bye` (no §3.1 reason applies) |
 | P9 | page disconnects (close, crash, network) with calls in flight | each in-flight call returns `isError`, `PageDisconnected`; the model state after the call is **unknown** and the error says so (the agent must `model_summary`) |
 | P10 | browser blocks the socket (local-network permission denied, mixed content, Safari policy) | the page's `/agent` route shows the browser's error class and the documented fallback (§6.3); relay stays `awaiting_consent` |
@@ -274,6 +277,9 @@ exact.
 | P13 | protocol version in `hello` ≠ relay's | `bye{reason:"protocol_mismatch", supported}`; page shows update guidance |
 | P14 | manifest hash mismatch | relay adopts the page manifest, emits `tools/list_changed` (§2.4) |
 | P15 | any page tool called while `unpaired` | `isError`, `NotPaired` with the hint to call `waffle_connect` |
+| P16 | any page tool called while `page_away` | waits up to **10 s** for the page to resume, then runs; else `isError`, `PageAway`: ask the user to return to the tab, and do **not** call `waffle_connect` (it would revoke the session) |
+| P17 | `--persistent-link`: `waffle_connect`, or the page presents the persistent code | the same link every time, `expires_at: null`; the code admits a page (after the consent click, I7) any number of times. The relay logs the link to stderr at startup. |
+| P18 | `--persistent-link`: the code is presented while another page is live | the new page is admitted; the old page gets `bye{reason:"revoked"}` and its session ends (the one-page rule holds) |
 
 ### 3.2 Page state gates (every mutating tool)
 
@@ -449,6 +455,7 @@ Tool results with `isError: true`:
 |---|---|
 | `NotPaired` | P15 |
 | `PageDisconnected` | P9 (`details.state_unknown`) |
+| `PageAway` | P16 (the session can still resume; do not re-pair) |
 | `ToolUnavailable` | §2.4 |
 | `UserBusy` | G2, G3 (`reason`) |
 | `AgentPaused` | G4 |

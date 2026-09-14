@@ -2,8 +2,8 @@
 	/**
 	 * "Agent connected" bar (specs/waffle_mcp_server.md §1, G4, P12, I12): the
 	 * running tool, Pause/Resume and Disconnect. Also reports the page state to
-	 * the relay (`status` frames) and resumes a reloaded tab's own consented
-	 * session (P7) — never a new pairing.
+	 * the relay (`status` frames), resumes a reloaded tab's own consented session
+	 * (P7) — never a new pairing — and shows a lost session reconnecting by itself.
 	 */
 	import { onMount } from 'svelte';
 	import { getAgentActivity, getDocumentName, getUserBusyReason } from '$lib/engine/store.svelte.js';
@@ -15,6 +15,11 @@
 		sendAgentStatus,
 		setAgentPaused
 	} from './link.js';
+
+	const LOST_MESSAGES = {
+		session_expired: 'The agent session expired. Ask the agent to reconnect.',
+		revoked: 'The agent started a new pairing, which replaced this tab. Use the newest link.'
+	};
 
 	onMount(() => {
 		resumeAgentLink();
@@ -51,9 +56,14 @@
 		{/if}
 		<button class="bar-btn" data-testid="agent-disconnect" onclick={disconnectAgentLink}>Disconnect</button>
 	</div>
+{:else if $agentLink.state === 'reconnecting'}
+	<div class="agent-bar lost" data-testid="agent-bar-reconnecting" role="status">
+		<span class="label">Reconnecting to {$agentLink.agentName ?? 'the agent'}…</span>
+		<button class="bar-btn" data-testid="agent-disconnect" onclick={disconnectAgentLink}>Disconnect</button>
+	</div>
 {:else if $agentLink.state === 'disconnected' && $agentLink.reason !== 'user_disconnected'}
 	<div class="agent-bar lost" data-testid="agent-bar-lost" role="status">
-		<span class="label">Agent link closed ({$agentLink.reason}). Ask the agent to reconnect.</span>
+		<span class="label">{LOST_MESSAGES[$agentLink.reason] ?? `Agent link closed (${$agentLink.reason}). Ask the agent to reconnect.`}</span>
 	</div>
 {/if}
 

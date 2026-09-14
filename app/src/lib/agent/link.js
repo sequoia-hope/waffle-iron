@@ -5,11 +5,16 @@
  * survives SvelteKit navigation from `/agent` to the editor.
  *
  * Consent (I7): a socket is opened only by `connectWithCode` (called from the
- * Allow click on `/agent`) or by `resumeAgentLink`, which needs a session token
- * that only a consented pairing in THIS tab can have written to sessionStorage.
+ * Allow click on `/agent`) or by a resume, which needs a session token that
+ * only a consented pairing in THIS tab can have written to sessionStorage.
+ *
+ * Reconnect (§2.2, P7): a lost session is resumed by the page itself — at once
+ * when the tab becomes visible or the network returns, else with backoff while
+ * visible. A mobile browser suspends a background tab, so its socket dies
+ * while the user is in another app; nothing retries while hidden.
  */
 import { get, writable } from 'svelte/store';
-import { getDocumentName } from '$lib/engine/store.svelte.js';
+import { getDocumentName, whenStartupRestoreSettled } from '$lib/engine/store.svelte.js';
 import { executeCall, toolError } from './executor.js';
 import { TOOLS } from './tools/index.js';
 import { LINK_PROTOCOL, canonicalJson, toManifestTool, webSha256Hex } from './tools/manifest.js';
@@ -26,9 +31,14 @@ const TERMINAL_BYE = new Set([
 	'protocol_mismatch'
 ]);
 
+const RECONNECT_FIRST_MS = 1000;
+const RECONNECT_MAX_MS = 30000;
+/** A visible tab's socket that looks open must answer a `ping` within this. */
+const PROBE_TIMEOUT_MS = 5000;
+
 /**
  * @typedef {{
- *   state: 'idle' | 'connecting' | 'connected' | 'disconnected' | 'failed',
+ *   state: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'failed',
  *   agentName: string | null,
  *   relay: string | null,
  *   reason: string | null,
@@ -77,6 +87,15 @@ const cancelledCalls = new Set();
 
 /** Last status frame sent on the current socket, to send only changes. */
 let lastStatusKey = '';
+
+/** @type {ReturnType<typeof setTimeout> | null} */
+let reconnectTimer = null;
+let reconnectDelayMs = RECONNECT_FIRST_MS;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let probeTimer = null;
+let lifecycleInstalled = false;
+/** The page-load resume ran (it is the only one that says `reloaded`). */
+let loadResumeStarted = false;
 
 function manifestHash() {
 	if (!manifestHashPromise) {
@@ -194,18 +213,27 @@ async function handleCall(ws, frame) {
 	send(ws, result);
 }
 
+function clearTimers() {
+	if (reconnectTimer) clearTimeout(reconnectTimer);
+	if (probeTimer) clearTimeout(probeTimer);
+	reconnectTimer = null;
+	probeTimer = null;
+}
+
 /**
  * Open the socket and say hello. Resolves with the `welcome` frame.
- * @param {{ relay: string, code?: string, session?: string, agentName: string }} opts
+ * `phase: 'reconnecting'` resumes a stored session: a failure that is not a
+ * terminal `bye` keeps retrying instead of failing.
+ * @param {{ relay: string, code?: string, session?: string, agentName: string, reloaded?: boolean, phase?: 'connecting' | 'reconnecting' }} opts
  * @returns {Promise<any>}
  */
-function open({ relay, code, session, agentName }) {
+function open({ relay, code, session, agentName, reloaded = false, phase = 'connecting' }) {
 	if (socket) {
 		socket.onclose = null;
 		socket.close(1000);
 		socket = null;
 	}
-	agentLink.set({ state: 'connecting', agentName, relay, reason: null, errorClass: null });
+	agentLink.set({ state: phase, agentName, relay, reason: null, errorClass: null });
 
 	return new Promise((resolve, reject) => {
 		/** @type {WebSocket} */
@@ -228,6 +256,7 @@ function open({ relay, code, session, agentName }) {
 				type: 'hello',
 				protocol: LINK_PROTOCOL,
 				...(code ? { code } : { session }),
+				...(reloaded ? { reloaded: true } : {}),
 				app_build: typeof __BUILD_INFO__ !== 'undefined' ? __BUILD_INFO__ : null,
 				manifest_hash: hash
 			});
@@ -243,6 +272,7 @@ function open({ relay, code, session, agentName }) {
 			switch (frame?.type) {
 				case 'welcome': {
 					welcomed = true;
+					reconnectDelayMs = RECONNECT_FIRST_MS;
 					const name = frame.agent_name || agentName;
 					writeStored({ relay, session: frame.session, agentName: name });
 					agentLink.set({ state: 'connected', agentName: name, relay, reason: null, errorClass: null });
@@ -255,6 +285,10 @@ function open({ relay, code, session, agentName }) {
 				}
 				case 'ping':
 					send(ws, { type: 'pong' });
+					break;
+				case 'pong':
+					if (probeTimer) clearTimeout(probeTimer);
+					probeTimer = null;
 					break;
 				case 'call':
 					if (welcomed) handleCall(ws, frame);
@@ -273,8 +307,17 @@ function open({ relay, code, session, agentName }) {
 
 		ws.onclose = async () => {
 			if (socket === ws) socket = null;
+			const terminal = byeReason !== null && TERMINAL_BYE.has(byeReason);
 			if (!welcomed) {
-				if (byeReason) {
+				if (phase === 'reconnecting' && !terminal) {
+					// The relay is unreachable for now (network, relay restarting): keep trying.
+					agentLink.update((s) => ({ ...s, state: 'reconnecting', reason: byeReason ?? 'connection_lost' }));
+					scheduleReconnect();
+					reject(new AgentLinkFailure('network_error', 'the WebSocket did not open'));
+				} else if (phase === 'reconnecting') {
+					agentLink.set({ state: 'disconnected', agentName, relay, reason: byeReason, errorClass: 'bye' });
+					reject(new AgentLinkFailure('bye', `relay refused the session: ${byeReason}`, byeReason));
+				} else if (byeReason) {
 					agentLink.set({ state: 'failed', agentName, relay, reason: byeReason, errorClass: 'bye' });
 					reject(new AgentLinkFailure('bye', `relay refused the link: ${byeReason}`, byeReason));
 				} else {
@@ -284,9 +327,97 @@ function open({ relay, code, session, agentName }) {
 				}
 				return;
 			}
-			agentLink.update((s) => ({ ...s, state: 'disconnected', reason: byeReason ?? 'connection_lost' }));
+			if (terminal) {
+				agentLink.update((s) => ({ ...s, state: 'disconnected', reason: byeReason }));
+				return;
+			}
+			agentLink.update((s) => ({ ...s, state: 'reconnecting', reason: byeReason ?? 'connection_lost' }));
+			scheduleReconnect();
 		};
 	});
+}
+
+/** Retry the stored session after the current backoff, if the tab is visible. */
+function scheduleReconnect() {
+	if (reconnectTimer) clearTimeout(reconnectTimer);
+	reconnectTimer = null;
+	if (!readStored()?.session) {
+		agentLink.update((s) => ({ ...s, state: 'disconnected' }));
+		return;
+	}
+	// A hidden tab is suspended or about to be; `visibilitychange` retries it.
+	if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+	const delay = reconnectDelayMs;
+	reconnectDelayMs = Math.min(reconnectDelayMs * 2, RECONNECT_MAX_MS);
+	reconnectTimer = setTimeout(() => {
+		reconnectTimer = null;
+		reconnectNow();
+	}, delay);
+}
+
+function reconnectNow() {
+	if (socket) return;
+	const stored = readStored();
+	if (!stored?.relay || !stored?.session) return;
+	if (reconnectTimer) clearTimeout(reconnectTimer);
+	reconnectTimer = null;
+	open({ relay: stored.relay, session: stored.session, agentName: stored.agentName, phase: 'reconnecting' }).catch(() => {
+		// Reflected in `agentLink`; a non-terminal failure already scheduled the next try.
+	});
+}
+
+/**
+ * A socket that looks open after the tab was frozen may be long dead (the
+ * relay dropped it on heartbeat, the TCP close never arrived): ask for a pong.
+ */
+function probeSocket() {
+	const ws = socket;
+	if (!ws || ws.readyState !== WebSocket.OPEN || probeTimer) return;
+	send(ws, { type: 'ping' });
+	probeTimer = setTimeout(() => {
+		probeTimer = null;
+		if (socket === ws) dropSocket(ws, 'probe_timeout');
+	}, PROBE_TIMEOUT_MS);
+}
+
+/**
+ * Treat `ws` as lost now and resume at once; its close event may never come.
+ * @param {WebSocket} ws @param {string} reason
+ */
+function dropSocket(ws, reason) {
+	ws.onclose = null;
+	ws.onmessage = null;
+	try {
+		ws.close(4000, reason);
+	} catch {
+		/* already closed */
+	}
+	if (socket === ws) socket = null;
+	agentLink.update((s) => ({ ...s, state: 'reconnecting', reason: 'connection_lost' }));
+	reconnectDelayMs = RECONNECT_FIRST_MS;
+	reconnectNow();
+}
+
+function installLifecycle() {
+	if (lifecycleInstalled || typeof document === 'undefined') return;
+	lifecycleInstalled = true;
+	const wake = () => {
+		if (document.visibilityState !== 'visible') return;
+		const { state } = get(agentLink);
+		if (state === 'reconnecting') {
+			reconnectDelayMs = RECONNECT_FIRST_MS;
+			reconnectNow();
+		} else if (state === 'connected') {
+			probeSocket();
+		}
+	};
+	document.addEventListener('visibilitychange', wake);
+	window.addEventListener('pageshow', wake);
+	window.addEventListener('online', wake);
+	// Test hook (agent-reconnect.spec.js): close the socket as a network drop would.
+	window.__waffleAgentLink = {
+		dropConnection: () => socket?.close(4001, 'test_drop')
+	};
 }
 
 /**
@@ -294,19 +425,29 @@ function open({ relay, code, session, agentName }) {
  * @param {{ relay: string, code: string, agentName: string }} opts
  */
 export function connectWithCode({ relay, code, agentName }) {
+	installLifecycle();
+	clearTimers();
+	reconnectDelayMs = RECONNECT_FIRST_MS;
 	setAgentPaused(false);
 	return open({ relay, code, agentName });
 }
 
 /**
- * Same-tab resume after a reload (P7): reconnects only if this tab holds a
- * session from an earlier consented pairing. No-op otherwise.
+ * Resume after a page load (P7): reconnects only if this tab holds a session
+ * from an earlier consented pairing, once the tab's startup restore settled,
+ * so the agent never lands on the blank bootstrap document of a tab that is
+ * reopening its work. No-op otherwise, and after the first call.
  */
-export function resumeAgentLink() {
-	if (socket) return;
+export async function resumeAgentLink() {
+	installLifecycle();
+	if (socket || loadResumeStarted) return;
 	const stored = readStored();
 	if (!stored?.relay || !stored?.session) return;
-	open({ relay: stored.relay, session: stored.session, agentName: stored.agentName }).catch(() => {
+	loadResumeStarted = true;
+	agentLink.set({ state: 'reconnecting', agentName: stored.agentName, relay: stored.relay, reason: null, errorClass: null });
+	await whenStartupRestoreSettled();
+	if (socket || !readStored()?.session) return;
+	open({ relay: stored.relay, session: stored.session, agentName: stored.agentName, reloaded: true, phase: 'reconnecting' }).catch(() => {
 		// The failure is already reflected in `agentLink` (and a terminal bye cleared storage).
 	});
 }
@@ -315,6 +456,7 @@ export function resumeAgentLink() {
 export function disconnectAgentLink() {
 	const ws = socket;
 	writeStored(null);
+	clearTimers();
 	socket = null;
 	if (ws) {
 		ws.onclose = null;
