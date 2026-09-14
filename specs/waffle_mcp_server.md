@@ -465,6 +465,19 @@ browser policy. Known classes (to be confirmed by O23, not assumed):
   potentially trustworthy in Chromium and Firefox; Safari has historically
   been stricter.
 
+**Measured 2026-09-14 (headless Chromium, Playwright chromium-1228):**
+
+| Page origin | Permission | Result |
+|---|---|---|
+| `http://localhost` (dev server) | default | socket opens, `welcome` received |
+| `https://sequoia-hope.github.io` (hosted) | default | blocked: `net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS` |
+| `https://sequoia-hope.github.io` (hosted) | `local-network-access` granted | socket opens, `welcome` received, relay `ready` |
+
+So on Chromium the hosted path depends on the user granting Chrome's
+local-network-access permission, and a denial is the normal failure mode.
+Still unmeasured: headed Chrome (whether the prompt appears for a WebSocket
+opened from the Allow click), Edge, Firefox and Safari.
+
 When the socket fails, the `/agent` route shows the class it can detect (a
 permission denial, or a generic failure) and the documented fallbacks:
 1. Run the app from the dev server on `localhost`.
@@ -579,6 +592,12 @@ breaking bridge change (A2.4). Each lands in its owning sub-project first.
   filter}` → `FacesListed{[{geom_ref, signature}]}`, deterministically
   ordered. The refs are the ones viewport face ranges carry, so a picked ref
   and a listed ref are interchangeable.
+  **LANDED 2026-09-14.** The viewport and `ListFaces` share one builder,
+  `wasm_bridge::face_refs::face_geom_refs`. The listing is ordered by
+  canonical `GeomRef` JSON; `tie_break` is ignored. One inherited limitation:
+  a roleless face on a non-ghost body (an imported STEP body) carries the
+  viewport's index-only fallback ref, which may resolve to the wrong face.
+  That is a picking defect shared with the viewport, tracked in the plan.
 - **ICR-4 — provenance and ids on feature commands** (`wasm-bridge`).
   `AddFeature`, `EditFeature` and `FinishSketch` gain `provenance:
   Option<Provenance>`, recorded through `FeatureEngine::set_provenance`

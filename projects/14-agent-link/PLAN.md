@@ -39,8 +39,21 @@ connection path; ICR-1…ICR-4 merged.
   never tessellates. Measured: the 20×10×5 mm box is exact to 1e-15 and the
   r5 h10 cylinder is exact to 1e-15. Tests: `kernel-v2/tests/icr1_solid_measure.rs`,
   `wasm-bridge/tests/measure_body.rs`, mock default in `waffle-types` `mock.rs`.
-- [ ] **ICR-3** face listing: bridge `ListFaces` → `FacesListed`, refs equal to
-  viewport face-range refs, deterministic order.
+- [x] **ICR-3** face listing (2026-09-14): bridge `ListFaces{body_id, filter}` →
+  `FacesListed{faces: [ListedFace{geom_ref, signature}]}`, ordered by
+  canonical `GeomRef` JSON. The refs come from `wasm_bridge::face_refs::
+  face_geom_refs`, which the viewport's `wasm_api::build_face_entries` now
+  also uses, so a listed ref equals a picked ref by construction. The filter
+  is `feature_engine::resolve::passes_all_filters` (made public); `tie_break`
+  is ignored. Test `wasm-bridge/tests/list_faces.rs`: every listed ref
+  resolves (`resolve_face_plane`) to a plane whose normal matches its
+  signature.
+  **Known limitation (open, inherited):** a roleless face on a non-ghost
+  body (an imported STEP body) gets the viewport's index-only `Signature`
+  fallback. Per the existing comment in `face_refs`, `signature_similarity`
+  ignores `adjacency_hash`, so that ref may resolve to an arbitrary face.
+  It is the same ref the viewport hands out today; fixing it is a
+  viewport-picking change, not ICR-3.
 
 ### Spike (relay + page)
 - [x] `relay/` Python package `waffle-mcp-relay` (2026-09-14): CLI port
@@ -60,11 +73,28 @@ connection path; ICR-1…ICR-4 merged.
   `EngineNotReady` meanwhile).
 - [ ] `tools/list_changed` under the SDK's newest protocol revision is dropped
   unless the client subscribes; check the clients we support.
-- [ ] O23 browser matrix: Edge, Firefox, Safari manual; hosted https origin
-  after deploy.
-  - [x] Chromium (headless Playwright), page `http://localhost` dev origin →
-    `ws://127.0.0.1`: socket opened and `welcome` received (2026-09-14).
-    Headless, so a permission prompt could not be observed.
+- [ ] O23 browser matrix: headed Chrome (does the local-network prompt appear
+  for a WebSocket opened from the Allow click?), Edge, Firefox, Safari — manual.
+  - [x] Chromium (headless Playwright chromium-1228), page `http://localhost`
+    dev origin (5174 worktree, 5173 main) → `ws://127.0.0.1`: socket opened,
+    `welcome` received (2026-09-14).
+  - [x] Chromium (headless), page **hosted** `https://sequoia-hope.github.io/waffle-iron/agent`
+    → `ws://127.0.0.1`, default permissions: **BLOCKED**,
+    `net::ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS` (2026-09-14).
+  - [x] Same, with the context permission `local-network-access` granted:
+    socket opened, `welcome` received, relay `waffle_status` = `ready`
+    (2026-09-14). (`loopback-network` and `local-network` are unknown
+    permission names in this Playwright.) Probe script: `o23-hosted.mjs`
+    pattern, reusing `app/tests/gui/helpers/mcp-relay.js`.
+  - **Go/no-go (Chromium): GO**, conditional on the user granting the
+    local-network-access permission. A denial is the expected failure mode,
+    so the consent route must handle it.
+
+## Phase 1 — carried from Phase 0 findings
+- [ ] `/agent` route: detect a local-network-access denial and show how to
+  grant it. A failing `WebSocket` exposes no error detail to page JS;
+  investigate whether `navigator.permissions.query` answers for this
+  permission, and fall back to the §6.3 guidance.
 
 ## Phase 1 — Live authoring
 Not started. See spec §8.
