@@ -1270,6 +1270,7 @@ export async function initEngine() {
 			getProjectName: () => getProjectName(),
 			setProjectName: (name) => setProjectName(name),
 			getAutoRestoreState: () => getAutoRestoreState(),
+			getDocumentInfo: () => JSON.parse(JSON.stringify(getDocumentInfo())),
 			restoreAutoSave: () => restoreAutoSave(),
 			discardAutoSave: () => discardAutoSave(),
 			getSectionState: () => ({ ...sectionState, plane: sectionState.plane ? { origin: [...sectionState.plane.origin], normal: [...sectionState.plane.normal] } : null }),
@@ -6909,9 +6910,11 @@ export async function restoreAutoSave() {
 			const local = getStore();
 			const doc = await local.get(autoRestoreState.docId);
 			if (doc?.json) {
-				activeDocId = autoRestoreState.docId;
-				await loadProject(doc.json);
-				autoRestoreState = null;
+				// The whole record — tabs, identity, name — not just the active
+				// tab's tree: a bare loadProject left the bootstrap's one-tab
+				// state and a fresh document.id in place, and the next autosave
+				// wrote that over the stored document.
+				await openDocumentRecord(doc.id, doc.json, doc.link ?? null);
 				return true;
 			}
 		} catch {
@@ -6932,16 +6935,9 @@ export async function restoreAutoSave() {
 }
 
 export async function discardAutoSave() {
-	// Clear IndexedDB restore doc if that was the source
-	if (autoRestoreState?.source === 'indexeddb' && autoRestoreState?.docId) {
-		try {
-			const { getStore } = await import('$lib/storage/index.js');
-			const local = getStore();
-			await local.delete(autoRestoreState.docId);
-		} catch {
-			// ignore cleanup errors
-		}
-	}
+	// An IndexedDB offer points at a stored DOCUMENT (autosave writes the
+	// record itself), so Discard only dismisses the offer. Only the legacy
+	// localStorage blob is a scratch copy that may be dropped.
 	if (typeof localStorage !== 'undefined') {
 		localStorage.removeItem(AUTOSAVE_KEY);
 		localStorage.removeItem(AUTOSAVE_TIME_KEY);
