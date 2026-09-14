@@ -123,7 +123,7 @@ and Safari O23 cells, which need a desktop browser (see below).
   §6.3 fallbacks. Not covered by a GUI test: the dev-server origin is
   loopback, so neither class occurs there.
 
-## Phase 1 — Live authoring (IN PROGRESS, started 2026-09-14)
+## Phase 1 — Live authoring (DONE 2026-09-14)
 
 Exit (spec §8): O1–O20 green (O4 `NotSupported` row after ICR-2);
 `sketch-drawing-regression.spec.js` still green.
@@ -245,11 +245,23 @@ Exit (spec §8): O1–O20 green (O4 `NotSupported` row after ICR-2);
   reason was already covered. Added: a `paused` status, and A18, where a
   cancelled call sends `cancel{id}` to the page, a late result for it is
   ignored, and the link stays usable. Relay suite 73/73.
-- [ ] Phase 1 exit re-run of `./scripts/test.sh gui-full`. Baseline here: 44
-  pre-existing failures (memory) + `planetary-gear` extrude. An accidental
-  near-full run on 2026-09-14 (1156 tests) gave 45 failed / 1111 passed,
-  before the autosave fix. Its visible failures were viewport/camera specs,
-  but the full list was truncated and not compared against the baseline.
+- [x] Phase 1 exit run of the full GUI suite (2026-09-14, after all Phase 1
+  commits): 1115 passed / 44 failed / 16 skipped. Every failure is
+  pre-existing:
+  - 23 screenshot-baseline tests (21 suite + 2 infra);
+  - 10 viewport-advanced/keyboard/pan tests and orbit-past-poles;
+  - pipeline save/load;
+  - sketch-constraint-operations dimension tool, sketch-polyline snap reuse,
+    sketch-snap-click bug and regression #7, and 3 snap-click-quadrant tests;
+  - user-repro-drag-explosion;
+  - planetary-gear extrude (verified on 1d9c0b39).
+
+  No agent, document, sketch-drawing, undo or feature-tree spec failed;
+  `sketch-drawing-regression.spec.js` passed.
+
+**Phase 1 status: DONE** except the manual O23 cells carried from Phase 0.
+Open follow-ups: ICR-5 (names on creation), the ~160 KB `tools/list`, and the
+redo-stack entry left by a rollback.
 - Finding (2026-09-14): F0064 (the spec's coplanar `NotSupported` example)
   builds with no feature errors in the app. The O4 `NotSupported` row uses
   kernel-v2's arc-profile wall instead.
