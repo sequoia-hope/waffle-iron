@@ -12,6 +12,7 @@ use crate::messages::{
     AssemblyStatus, ConnectorFrameInfo, ContextInstanceInfo, ContextStatus, EngineToUi,
     SourceStatus, UiToEngine,
 };
+use crate::messages::{MeasureMethod, Measured};
 
 /// Dispatch a UI message to the engine and return a response.
 ///
@@ -664,6 +665,8 @@ fn handle_message(
             }
         }
 
+        UiToEngine::MeasureBody { body_id } => measure_body(state, kb, &body_id),
+
         UiToEngine::ExportBodyStl { body_id } => {
             // Single body, identified by its persistent (feature_id, OutputKey).
             match find_body_mesh(state, &body_id) {
@@ -676,6 +679,111 @@ fn handle_message(
             }
         }
     }
+}
+
+/// A live body output by its persistent id (`FeatureTree::body_id`).
+fn find_body<'a>(state: &'a EngineState, body_id: &str) -> Option<&'a modeling_ops::BodyOutput> {
+    state.engine.tree.features.iter().find_map(|feature| {
+        state
+            .engine
+            .feature_results
+            .get(&feature.id)?
+            .outputs
+            .iter()
+            .find(|(key, _)| {
+                feature_engine::types::FeatureTree::body_id(feature.id, key) == body_id
+            })
+            .map(|(_, body)| body)
+    })
+}
+
+/// `MeasureBody` (ICR-1): exact volume and area from the kernel when it can
+/// integrate the B-Rep; otherwise the render mesh's, labelled `Mesh` with the
+/// kernel's reason. Never an unlabelled approximation.
+fn measure_body(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    body_id: &str,
+) -> Result<EngineToUi, BridgeError> {
+    // Natively nothing tessellates between messages (the WASM entry point
+    // does); the pass only fills missing meshes, so it is cheap when present.
+    crate::tessellation_runner::tessellate_engine(&mut state.engine, kb);
+    let state = &*state;
+    let body = find_body(state, body_id).ok_or_else(|| BridgeError::InvalidRequest {
+        reason: format!("no live body {body_id}"),
+    })?;
+    let mesh = body.mesh.as_ref().ok_or(BridgeError::NoMeshData)?;
+    let introspect = kb.as_introspect();
+
+    let measured =
+        |exact: Result<f64, waffle_types::kernel::KernelError>, from_mesh: f64| match exact {
+            Ok(value) => Measured {
+                value,
+                method: MeasureMethod::Exact,
+                exact_unavailable: None,
+            },
+            Err(e) => Measured {
+                value: from_mesh,
+                method: MeasureMethod::Mesh,
+                exact_unavailable: Some(e.to_string()),
+            },
+        };
+    let (mesh_volume, mesh_area) = mesh_volume_and_area(mesh);
+    let volume_m3 = measured(introspect.solid_volume(&body.handle), mesh_volume);
+    let surface_area_m2 = measured(introspect.solid_surface_area(&body.handle), mesh_area);
+
+    let mut bbox_min = [f64::INFINITY; 3];
+    let mut bbox_max = [f64::NEG_INFINITY; 3];
+    for p in mesh.vertices.chunks_exact(3) {
+        for axis in 0..3 {
+            bbox_min[axis] = bbox_min[axis].min(p[axis] as f64);
+            bbox_max[axis] = bbox_max[axis].max(p[axis] as f64);
+        }
+    }
+
+    let edges = introspect.list_edges(&body.handle);
+    let closed = !edges.is_empty() && edges.iter().all(|&e| introspect.edge_faces(e).len() == 2);
+    Ok(EngineToUi::BodyMeasured {
+        body_id: body_id.to_string(),
+        volume_m3,
+        surface_area_m2,
+        bbox_min,
+        bbox_max,
+        face_count: introspect.list_faces(&body.handle).len(),
+        edge_count: edges.len(),
+        vertex_count: introspect.list_vertices(&body.handle).len(),
+        closed,
+    })
+}
+
+/// Signed volume and area of a triangle mesh (outward winding ⇒ positive).
+fn mesh_volume_and_area(mesh: &RenderMesh) -> (f64, f64) {
+    let p = |i: u32| {
+        let i = i as usize * 3;
+        [
+            mesh.vertices[i] as f64,
+            mesh.vertices[i + 1] as f64,
+            mesh.vertices[i + 2] as f64,
+        ]
+    };
+    let (mut volume, mut area) = (0.0, 0.0);
+    for t in mesh.indices.chunks_exact(3) {
+        let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
+        volume += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+            + a[2] * (b[0] * c[1] - b[1] * c[0]))
+            / 6.0;
+        let (u, v) = (
+            [b[0] - a[0], b[1] - a[1], b[2] - a[2]],
+            [c[0] - a[0], c[1] - a[1], c[2] - a[2]],
+        );
+        let n = [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ];
+        area += 0.5 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    }
+    (volume, area)
 }
 
 /// Find a single body's cached mesh by its persistent id

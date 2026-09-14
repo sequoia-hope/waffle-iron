@@ -1331,6 +1331,36 @@ fn unit_array(v: crate::arena::UnitVector3) -> [f64; 3] {
 }
 
 impl KernelIntrospect for KernelV2Adapter {
+    /// ICR-1: the exact-rational B-Rep volume (`geom::signed_volume`). An
+    /// imported STEP body is mesh-backed and has no exact integral; a curved
+    /// configuration outside `signed_volume`'s validated vocabulary errors.
+    /// Both are errors, never approximations.
+    fn solid_volume(&self, solid: &KernelSolidHandle) -> Result<f64, KernelError> {
+        if self.imported_slot_of(solid).is_some() {
+            return Err(KernelError::NotSupported {
+                operation: "exact volume of an imported (mesh-backed) body".to_string(),
+            });
+        }
+        let sid = self.solid_of(solid)?;
+        crate::geom::signed_volume(&self.arena, sid).map_err(|e| KernelError::Other {
+            message: format!("exact volume unavailable: {e:?}"),
+        })
+    }
+
+    /// ICR-1: the exact-rational B-Rep surface area
+    /// (`introspect::surface_area`); same contract as `solid_volume`.
+    fn solid_surface_area(&self, solid: &KernelSolidHandle) -> Result<f64, KernelError> {
+        if self.imported_slot_of(solid).is_some() {
+            return Err(KernelError::NotSupported {
+                operation: "exact surface area of an imported (mesh-backed) body".to_string(),
+            });
+        }
+        let sid = self.solid_of(solid)?;
+        crate::introspect::surface_area(&self.arena, sid).map_err(|e| KernelError::Other {
+            message: format!("exact surface area unavailable: {e:?}"),
+        })
+    }
+
     fn list_faces(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
         if let Some(slot) = self.imported_slot_of(solid) {
             return (0..self.imported[slot].faces.len())

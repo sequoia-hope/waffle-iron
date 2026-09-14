@@ -289,6 +289,28 @@ pub trait KernelIntrospect {
         kind: TopoKind,
     ) -> Vec<(KernelId, TopoSignature)>;
 
+    /// The solid's volume in m³, integrated exactly from its B-Rep
+    /// (`specs/waffle_mcp_server.md` ICR-1). A kernel that cannot integrate a
+    /// solid answers an error, never an approximation: a consumer that falls
+    /// back to a tessellation must label that number itself. The default is
+    /// `NotSupported`, so this is additive for every implementor.
+    fn solid_volume(&self, _solid: &KernelSolidHandle) -> Result<f64, crate::kernel::KernelError> {
+        Err(crate::kernel::KernelError::NotSupported {
+            operation: "exact solid volume".to_string(),
+        })
+    }
+
+    /// The solid's total surface area in m², exactly from its B-Rep. Same
+    /// contract as [`Self::solid_volume`].
+    fn solid_surface_area(
+        &self,
+        _solid: &KernelSolidHandle,
+    ) -> Result<f64, crate::kernel::KernelError> {
+        Err(crate::kernel::KernelError::NotSupported {
+            operation: "exact solid surface area".to_string(),
+        })
+    }
+
     /// The entity's analytic axis, when its geometry has one: a cylindrical,
     /// conical, toroidal or spherical FACE, or a circular/elliptical EDGE.
     ///

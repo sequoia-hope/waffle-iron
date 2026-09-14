@@ -1596,6 +1596,46 @@ mod tests {
     use super::*;
     use crate::kernel::units::{TAU_TESS_GRID_FACTOR, TAU_TESS_GRID_MIN};
 
+    /// ICR-1 trait default: a kernel without exact integration says so with a
+    /// typed `NotSupported`, never a guessed number.
+    #[test]
+    fn exact_measurement_is_not_supported_by_the_mock() {
+        let mut kernel = MockKernel::new();
+        let positions: std::collections::HashMap<u32, (f64, f64)> = [
+            (1, (0.0, 0.0)),
+            (2, (1.0, 0.0)),
+            (3, (1.0, 1.0)),
+            (4, (0.0, 1.0)),
+        ]
+        .into_iter()
+        .collect();
+        let faces = kernel
+            .make_faces_from_profiles(
+                &[crate::ClosedProfile {
+                    entity_ids: vec![1, 2, 3, 4],
+                    is_outer: true,
+                    vertex_ids: vec![],
+                    circle: None,
+                    spline_segments: vec![],
+                    arc_segments: vec![],
+                }],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                &positions,
+            )
+            .unwrap();
+        let solid = kernel.extrude_face(faces[0], [0.0, 0.0, 1.0], 1.0).unwrap();
+        assert!(matches!(
+            kernel.solid_volume(&solid),
+            Err(KernelError::NotSupported { .. })
+        ));
+        assert!(matches!(
+            kernel.solid_surface_area(&solid),
+            Err(KernelError::NotSupported { .. })
+        ));
+    }
+
     #[test]
     fn test_make_faces_and_extrude_produces_box_topology() {
         let mut kernel = MockKernel::new();

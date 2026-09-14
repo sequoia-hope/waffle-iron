@@ -307,6 +307,13 @@ pub enum UiToEngine {
         file_name: String,
         data: String,
     },
+    /// A body's volume, surface area, bounding box and topology counts
+    /// (`specs/waffle_mcp_server.md` ICR-1). Volume and area are exact from
+    /// the B-Rep when the kernel can integrate the body, otherwise from the
+    /// render mesh — the answer always says which. Query: no rebuild.
+    MeasureBody {
+        body_id: String,
+    },
     ExportStep,
     ExportStl,
     /// Export a single body to STL. `body_id` is the persistent body identity
@@ -378,6 +385,28 @@ pub enum UiToEngine {
     },
 }
 
+/// How a [`Measured`] quantity was obtained.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MeasureMethod {
+    /// Integrated exactly from the B-Rep by the kernel.
+    Exact,
+    /// Computed from the render mesh — chordal on curved faces, so curved
+    /// volumes come out low. Never to be presented as exact.
+    Mesh,
+}
+
+/// One measured quantity with its provenance (ICR-1, spec §2.6).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Measured {
+    pub value: f64,
+    pub method: MeasureMethod,
+    /// Why the exact value was unavailable, verbatim from the kernel, when
+    /// `method` is `Mesh`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exact_unavailable: Option<String>,
+}
+
 /// Messages from the engine (WASM Worker) to the UI (JavaScript main thread).
 #[allow(clippy::large_enum_variant)] // see `UiToEngine`
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -437,6 +466,21 @@ pub enum EngineToUi {
         /// bridge-level failures such as a message sent in the wrong state.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         kind: Option<feature_engine::types::ErrorKind>,
+    },
+
+    /// Answer to `MeasureBody` (ICR-1). Lengths in meters. The bounding box
+    /// is taken from the render mesh (chord-inscribed on curved faces).
+    BodyMeasured {
+        body_id: String,
+        volume_m3: Measured,
+        surface_area_m2: Measured,
+        bbox_min: [f64; 3],
+        bbox_max: [f64; 3],
+        face_count: usize,
+        edge_count: usize,
+        vertex_count: usize,
+        /// Every edge bounds exactly two faces.
+        closed: bool,
     },
 
     /// Save project is ready.
