@@ -864,6 +864,141 @@ pub enum EngineError {
 
     #[error("nothing to redo")]
     NothingToRedo,
+
+    /// An import's source has no content in this session (v4 §2.3). Typed
+    /// for hosts (ICR-2); the message is the same text `RebuildFailed`
+    /// carried before, so existing readers see no change.
+    #[error("rebuild failed at feature {feature_name}: {reason}")]
+    SourceUnavailable {
+        feature_name: String,
+        source_id: Option<Uuid>,
+        reason: String,
+    },
+}
+
+/// The class of a feature error — the machine-readable half that hosts
+/// branch on (`specs/waffle_mcp_server.md` ICR-2, A6.2). The human text
+/// stays in [`FeatureError::message`]; nothing should parse it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ErrorKind {
+    FeatureNotFound {
+        id: Uuid,
+    },
+    SketchNotFound {
+        id: Uuid,
+    },
+    ProfileOutOfRange {
+        index: usize,
+        count: usize,
+    },
+    UnsupportedOperation {
+        type_tag: String,
+    },
+    ProfileNotFound {
+        entity_ids: Vec<u32>,
+        count: usize,
+    },
+    ProfileAmbiguous {
+        entity_ids: Vec<u32>,
+        matches: usize,
+    },
+    ResolutionFailed,
+    SourceUnavailable {
+        source_id: Option<Uuid>,
+    },
+    /// A kernel capability boundary (`KernelError::NotSupported`): a roadmap
+    /// item, never something to retry with different parameters.
+    NotSupported {
+        operation: String,
+    },
+    BooleanEmptyResult,
+    /// Any other kernel failure; `kernel` names the `KernelError` variant.
+    /// Yang STOPs arrive here today (as `BooleanFailed` / `Other`): giving
+    /// them a kind of their own needs kernel-v2 to map them to a variant.
+    KernelFailure {
+        kernel: String,
+    },
+    NoProfiles,
+    InvalidParameter,
+    RebuildFailed,
+    NothingToUndo,
+    NothingToRedo,
+    /// A design-parameter or driving-expression evaluation failure.
+    Expression,
+    /// A scoped reference could not be resolved through the assembly context.
+    Context,
+}
+
+impl From<&waffle_types::kernel::KernelError> for ErrorKind {
+    fn from(e: &waffle_types::kernel::KernelError) -> Self {
+        use waffle_types::kernel::KernelError as K;
+        let kernel = |name: &str| ErrorKind::KernelFailure {
+            kernel: name.to_string(),
+        };
+        match e {
+            K::NotSupported { operation } => ErrorKind::NotSupported {
+                operation: operation.clone(),
+            },
+            K::BooleanEmptyResult => ErrorKind::BooleanEmptyResult,
+            K::BooleanFailed { .. } => kernel("BooleanFailed"),
+            K::FilletFailed { .. } => kernel("FilletFailed"),
+            K::ShellFailed { .. } => kernel("ShellFailed"),
+            K::TessellationFailed { .. } => kernel("TessellationFailed"),
+            K::EntityNotFound { .. } => kernel("EntityNotFound"),
+            K::Other { .. } => kernel("Other"),
+        }
+    }
+}
+
+impl From<&EngineError> for ErrorKind {
+    fn from(e: &EngineError) -> Self {
+        match e {
+            EngineError::FeatureNotFound { id } => ErrorKind::FeatureNotFound { id: *id },
+            EngineError::SketchNotFound { id } => ErrorKind::SketchNotFound { id: *id },
+            EngineError::ProfileOutOfRange { index, count } => ErrorKind::ProfileOutOfRange {
+                index: *index,
+                count: *count,
+            },
+            EngineError::UnsupportedOperation { type_tag } => ErrorKind::UnsupportedOperation {
+                type_tag: type_tag.clone(),
+            },
+            EngineError::ProfileNotFound { entity_ids, count } => ErrorKind::ProfileNotFound {
+                entity_ids: entity_ids.clone(),
+                count: *count,
+            },
+            EngineError::ProfileAmbiguous {
+                entity_ids,
+                matches,
+            } => ErrorKind::ProfileAmbiguous {
+                entity_ids: entity_ids.clone(),
+                matches: *matches,
+            },
+            EngineError::ResolutionFailed { .. } => ErrorKind::ResolutionFailed,
+            EngineError::KernelError(k) => k.into(),
+            EngineError::OpError(op) => match op {
+                modeling_ops::OpError::Kernel(k) => k.into(),
+                modeling_ops::OpError::NoProfiles => ErrorKind::NoProfiles,
+                modeling_ops::OpError::InvalidParameter { .. } => ErrorKind::InvalidParameter,
+            },
+            EngineError::RebuildFailed { .. } => ErrorKind::RebuildFailed,
+            EngineError::NothingToUndo => ErrorKind::NothingToUndo,
+            EngineError::NothingToRedo => ErrorKind::NothingToRedo,
+            EngineError::SourceUnavailable { source_id, .. } => ErrorKind::SourceUnavailable {
+                source_id: *source_id,
+            },
+        }
+    }
+}
+
+/// One feature's error, typed (ICR-2). [`crate::Engine::feature_errors`]
+/// holds exactly the errors of [`crate::Engine::errors`], in the same order,
+/// with the same messages.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeatureError {
+    pub feature_id: Uuid,
+    pub kind: ErrorKind,
+    pub message: String,
 }
 
 #[cfg(test)]

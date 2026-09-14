@@ -68,6 +68,7 @@ pub fn process_message(json_input: &str) -> String {
             Ok(msg) => msg,
             Err(e) => {
                 return EngineToUi::Error {
+                    kind: None,
                     message: format!("Failed to parse message: {}", e),
                     feature_id: None,
                 };

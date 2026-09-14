@@ -396,6 +396,10 @@ pub enum EngineToUi {
         /// Errors from features that failed during rebuild (feature_id, message).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         errors: Vec<(Uuid, String)>,
+        /// `errors`, typed (`specs/waffle_mcp_server.md` ICR-2): the same
+        /// entries in the same order, each with a `kind` to branch on.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        feature_errors: Vec<feature_engine::types::FeatureError>,
         /// Non-fatal warnings from rebuild (e.g., auto-union fallback).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         warnings: Vec<String>,
@@ -429,6 +433,10 @@ pub enum EngineToUi {
     Error {
         message: String,
         feature_id: Option<Uuid>,
+        /// The failure's class when it is an engine error (ICR-2); absent for
+        /// bridge-level failures such as a message sent in the wrong state.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<feature_engine::types::ErrorKind>,
     },
 
     /// Save project is ready.

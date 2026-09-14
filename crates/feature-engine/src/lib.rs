@@ -20,7 +20,9 @@ use uuid::Uuid;
 use modeling_ops::{KernelBundle, OpResult};
 
 use crate::sources::SourceStore;
-use crate::types::{EngineError, Feature, FeatureTree, Operation, Provenance};
+use crate::types::{
+    EngineError, ErrorKind, Feature, FeatureError, FeatureTree, Operation, Provenance,
+};
 use crate::undo::{Command, UndoStack};
 use waffle_types::{Anchor, OutputKey};
 
@@ -37,6 +39,9 @@ pub struct Engine {
     pub warnings: Vec<String>,
     /// Errors from the last rebuild.
     pub errors: Vec<(Uuid, String)>,
+    /// The same errors, typed (`specs/waffle_mcp_server.md` ICR-2):
+    /// `feature_errors[i]` describes `errors[i]`.
+    pub feature_errors: Vec<FeatureError>,
     /// Feature IDs consumed by a later boolean (should not be rendered).
     pub consumed_features: std::collections::HashSet<Uuid>,
     /// KV13 F6: persistent-id → the feature that INTRODUCED it (recomputed each
@@ -68,6 +73,7 @@ impl Engine {
             feature_results: HashMap::new(),
             warnings: Vec::new(),
             errors: Vec::new(),
+            feature_errors: Vec::new(),
             consumed_features: std::collections::HashSet::new(),
             pid_to_feature: HashMap::new(),
             inherited_body_names: HashMap::new(),
@@ -638,6 +644,22 @@ impl Engine {
         self.warnings.extend(context_outcome.warnings);
         // Parameter/expression errors surface ahead of rebuild errors — a bad
         // expression is usually the CAUSE of the downstream failures.
+        // The typed list is built from the same sources in the same order
+        // (ICR-2), so `feature_errors[i]` describes `errors[i]`.
+        let typed = |errors: &[(Uuid, String)], kind: ErrorKind| {
+            errors
+                .iter()
+                .map(|(id, message)| FeatureError {
+                    feature_id: *id,
+                    kind: kind.clone(),
+                    message: message.clone(),
+                })
+                .collect::<Vec<_>>()
+        };
+        self.feature_errors = typed(&param_outcome.errors, ErrorKind::Expression);
+        self.feature_errors
+            .extend(typed(&context_outcome.errors, ErrorKind::Context));
+        self.feature_errors.extend(state.feature_errors);
         self.errors = param_outcome.errors;
         self.errors.extend(context_outcome.errors);
         self.errors.extend(state.errors);

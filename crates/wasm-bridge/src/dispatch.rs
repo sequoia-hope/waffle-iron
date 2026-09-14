@@ -22,6 +22,10 @@ pub fn dispatch(state: &mut EngineState, msg: UiToEngine, kb: &mut dyn KernelBun
     match handle_message(state, msg, kb) {
         Ok(response) => response,
         Err(e) => EngineToUi::Error {
+            kind: match &e {
+                BridgeError::Engine(err) => Some(err.into()),
+                _ => None,
+            },
             message: e.to_string(),
             feature_id: None,
         },
@@ -855,6 +859,7 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
         meshes: Vec::new(),
         edges: Vec::new(),
         errors: state.engine.errors.clone(),
+        feature_errors: state.engine.feature_errors.clone(),
         warnings: state.engine.warnings.clone(),
         preview_mesh,
         sources: source_statuses(state),

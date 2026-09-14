@@ -164,6 +164,7 @@ fn serde_roundtrip_select_entity() {
 #[test]
 fn serde_roundtrip_engine_error() {
     let msg = EngineToUi::Error {
+        kind: None,
         message: "something went wrong".to_string(),
         feature_id: Some(Uuid::new_v4()),
     };
@@ -176,6 +177,7 @@ fn serde_roundtrip_engine_error() {
 fn serde_roundtrip_model_updated() {
     let msg = EngineToUi::ModelUpdated {
         feature_id: None,
+        feature_errors: Vec::new(),
         feature_tree: FeatureTree::new(),
         meshes: Vec::new(),
         edges: Vec::new(),
@@ -1450,6 +1452,7 @@ fn serde_roundtrip_export_ready() {
 fn serde_roundtrip_model_updated_with_errors() {
     let msg = EngineToUi::ModelUpdated {
         feature_id: None,
+        feature_errors: Vec::new(),
         feature_tree: FeatureTree::new(),
         meshes: Vec::new(),
         edges: Vec::new(),
@@ -1475,6 +1478,7 @@ fn serde_roundtrip_model_updated_with_errors() {
 fn serde_model_updated_empty_errors_skipped() {
     let msg = EngineToUi::ModelUpdated {
         feature_id: None,
+        feature_errors: Vec::new(),
         feature_tree: FeatureTree::new(),
         meshes: Vec::new(),
         edges: Vec::new(),

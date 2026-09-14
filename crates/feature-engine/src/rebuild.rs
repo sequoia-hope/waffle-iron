@@ -103,6 +103,8 @@ pub struct RebuildState {
     pub warnings: Vec<String>,
     /// Features that failed to rebuild, with error messages.
     pub errors: Vec<(Uuid, String)>,
+    /// The same errors, typed (ICR-2), in the same order.
+    pub feature_errors: Vec<crate::types::FeatureError>,
     /// Feature IDs whose solid was consumed by a later boolean union.
     /// These features should not be rendered (their geometry is merged into the consuming feature).
     pub consumed_features: std::collections::HashSet<Uuid>,
@@ -131,6 +133,7 @@ pub fn rebuild(
         feature_results: HashMap::new(),
         warnings: Vec::new(),
         errors: Vec::new(),
+        feature_errors: Vec::new(),
         consumed_features: std::collections::HashSet::new(),
         pid_to_feature: HashMap::new(),
     };
@@ -221,7 +224,13 @@ pub fn rebuild(
                 state.feature_results.insert(feature.id, result);
             }
             Err(e) => {
-                state.errors.push((feature.id, e.to_string()));
+                let message = e.to_string();
+                state.feature_errors.push(crate::types::FeatureError {
+                    feature_id: feature.id,
+                    kind: (&e).into(),
+                    message: message.clone(),
+                });
+                state.errors.push((feature.id, message));
                 // Continue rebuilding remaining features
             }
         }
@@ -362,7 +371,13 @@ fn execute_feature(
                 feature_name: feature.name.clone(),
                 reason,
             };
-            let step_text = resolve_import_text(params, sources).map_err(fail)?;
+            let step_text = resolve_import_text(params, sources).map_err(|reason| {
+                EngineError::SourceUnavailable {
+                    feature_name: feature.name.clone(),
+                    source_id: params.source_id,
+                    reason,
+                }
+            })?;
             let parsed = step_import::parse_step_cached(&step_text, &params.file_name)
                 .map_err(|e| fail(e.to_string()))?;
             let mut data = (*parsed).clone();
