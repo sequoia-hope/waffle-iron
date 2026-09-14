@@ -8,7 +8,7 @@
  * Allow click on `/agent`) or by `resumeAgentLink`, which needs a session token
  * that only a consented pairing in THIS tab can have written to sessionStorage.
  */
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import { getDocumentName } from '$lib/engine/store.svelte.js';
 import { executeCall, toolError } from './executor.js';
 import { TOOLS } from './tools/index.js';
@@ -45,10 +45,17 @@ export const agentLink = writable({
 	errorClass: null
 });
 
+/**
+ * Pause state (§1, G4, I12). `reason` is set when the page paused the session
+ * itself (a broken invariant or an engine crash), null for the user's Pause.
+ * @type {import('svelte/store').Writable<{ paused: boolean, reason: string | null }>}
+ */
+export const agentPause = writable({ paused: false, reason: null });
+
 /** A failed pairing attempt: either the relay said `bye`, or the socket never opened. */
 export class AgentLinkFailure extends Error {
 	/**
-	 * @param {'bye' | 'permission_denied' | 'security_error' | 'network_error'} kind
+	 * @param {'bye' | 'permission_denied' | 'permission_blocked' | 'security_error' | 'network_error'} kind
 	 * @param {string} message
 	 * @param {string | null} [reason]
 	 */
@@ -64,6 +71,12 @@ let socket = null;
 
 /** @type {Promise<string | null> | null} */
 let manifestHashPromise = null;
+
+/** Ids of calls the relay cancelled (A18). */
+const cancelledCalls = new Set();
+
+/** Last status frame sent on the current socket, to send only changes. */
+let lastStatusKey = '';
 
 function manifestHash() {
 	if (!manifestHashPromise) {
@@ -96,33 +109,87 @@ function writeStored(value) {
 
 /**
  * Best-effort classification of a socket that never opened. Browsers expose no
- * reason on a failed WebSocket, so the only detectable class is an explicit
- * local-network permission denial (Chromium's Local Network Access).
+ * reason on a failed WebSocket; Chromium's Local Network Access permission is
+ * the one class the page can read (spec §6.3: `navigator.permissions.query`
+ * answers `prompt` / `granted` / `denied` for `local-network-access`).
+ * @param {string} relay
  */
-async function classifyFailure() {
+async function classifyFailure(relay) {
 	try {
 		const status = await navigator.permissions.query(
 			/** @type {PermissionDescriptor} */ ({ name: 'local-network-access' })
 		);
 		if (status.state === 'denied') return 'permission_denied';
+		// Not yet granted: from a public origin the browser blocks the loopback
+		// socket until the user allows local network access (a headless or
+		// dismissed prompt leaves the state at `prompt`).
+		if (status.state === 'prompt' && isPublicPage() && isLocalRelay(relay)) return 'permission_blocked';
 	} catch {
 		/* permission name unknown to this browser */
 	}
 	return 'network_error';
 }
 
-/** @param {object} frame */
+function isPublicPage() {
+	const host = location.hostname;
+	return !(host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost'));
+}
+
+/** @param {string} relay */
+function isLocalRelay(relay) {
+	try {
+		const host = new URL(relay).hostname;
+		return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || /^(10|192\.168|172\.(1[6-9]|2\d|3[01]))\./.test(host);
+	} catch {
+		return false;
+	}
+}
+
+/** @param {WebSocket} ws @param {object} frame */
 function send(ws, frame) {
 	if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
 }
 
+/**
+ * Pause (or resume) the agent (§1, G4). A pause stops the NEXT command from
+ * being admitted; a running call completes or rolls back first (I12).
+ * @param {boolean} paused
+ * @param {string | null} [reason] - why the page paused the session itself
+ */
+export function setAgentPaused(paused, reason = null) {
+	agentPause.set({ paused, reason: paused ? reason : null });
+}
+
+/**
+ * Report the page state to the relay (`status` frame, §2.3) when it changed.
+ * @param {{ state: 'ready' | 'paused' | 'busy', reason?: string | null, document_name?: string }} status
+ */
+export function sendAgentStatus(status) {
+	const ws = socket;
+	if (!ws || ws.readyState !== WebSocket.OPEN) return;
+	const frame = { type: 'status', state: status.state, document_name: status.document_name ?? getDocumentName() };
+	if (status.state === 'busy' && status.reason) frame.reason = status.reason;
+	const key = JSON.stringify(frame);
+	if (key === lastStatusKey) return;
+	lastStatusKey = key;
+	send(ws, frame);
+}
+
 /** @param {WebSocket} ws @param {any} frame */
 async function handleCall(ws, frame) {
+	const ctx = {
+		agentName: get(agentLink).agentName ?? 'agent',
+		isPaused: () => get(agentPause).paused,
+		pause: (/** @type {string} */ reason) => setAgentPaused(true, reason),
+		isCancelled: () => cancelledCalls.has(frame.id)
+	};
 	let result;
 	try {
-		result = await executeCall(frame);
+		result = await executeCall(frame, ctx);
 	} catch (err) {
 		result = { type: 'result', id: frame.id, ...toolError('Internal', String(err?.message ?? err)) };
+	} finally {
+		cancelledCalls.delete(frame.id);
 	}
 	send(ws, result);
 }
@@ -180,7 +247,9 @@ function open({ relay, code, session, agentName }) {
 					writeStored({ relay, session: frame.session, agentName: name });
 					agentLink.set({ state: 'connected', agentName: name, relay, reason: null, errorClass: null });
 					if (frame.manifest_required) send(ws, { type: 'manifest', tools: TOOLS.map(toManifestTool) });
-					send(ws, { type: 'status', state: 'ready', document_name: getDocumentName() });
+					lastStatusKey = '';
+					const { paused } = get(agentPause);
+					sendAgentStatus({ state: paused ? 'paused' : 'ready' });
 					resolve(frame);
 					break;
 				}
@@ -190,12 +259,15 @@ function open({ relay, code, session, agentName }) {
 				case 'call':
 					if (welcomed) handleCall(ws, frame);
 					break;
+				case 'cancel':
+					cancelledCalls.add(String(frame.id));
+					break;
 				case 'bye':
 					byeReason = String(frame.reason ?? 'unknown');
 					if (TERMINAL_BYE.has(byeReason)) writeStored(null);
 					break;
 				default:
-					break; // `cancel`: Phase 0 page tools are synchronous queries.
+					break;
 			}
 		};
 
@@ -206,7 +278,7 @@ function open({ relay, code, session, agentName }) {
 					agentLink.set({ state: 'failed', agentName, relay, reason: byeReason, errorClass: 'bye' });
 					reject(new AgentLinkFailure('bye', `relay refused the link: ${byeReason}`, byeReason));
 				} else {
-					const errorClass = await classifyFailure();
+					const errorClass = await classifyFailure(relay);
 					agentLink.set({ state: 'failed', agentName, relay, reason: null, errorClass });
 					reject(new AgentLinkFailure(/** @type {any} */ (errorClass), 'the WebSocket did not open'));
 				}
@@ -222,6 +294,7 @@ function open({ relay, code, session, agentName }) {
  * @param {{ relay: string, code: string, agentName: string }} opts
  */
 export function connectWithCode({ relay, code, agentName }) {
+	setAgentPaused(false);
 	return open({ relay, code, agentName });
 }
 
@@ -248,5 +321,6 @@ export function disconnectAgentLink() {
 		send(ws, { type: 'bye', reason: 'user_disconnected' });
 		ws.close(1000, 'user_disconnected');
 	}
+	setAgentPaused(false);
 	agentLink.update((s) => ({ ...s, state: 'idle', reason: 'user_disconnected' }));
 }

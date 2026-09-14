@@ -91,11 +91,31 @@
 					{:else}
 						<p class="error">
 							Could not reach the relay ({failure.kind === 'permission_denied'
-								? 'local network access was denied by the browser'
-								: failure.kind === 'security_error'
-									? 'the browser blocked the address'
-									: 'the connection failed or was blocked'}).
+								? 'local network access is blocked for this site'
+								: failure.kind === 'permission_blocked'
+									? 'this browser needs your permission to reach the local network'
+									: failure.kind === 'security_error'
+										? 'the browser blocked the address'
+										: 'the connection failed or was blocked'}).
 						</p>
+						{#if failure.kind === 'permission_denied' || failure.kind === 'permission_blocked'}
+							<div class="hint" data-testid="agent-consent-lna-help">
+								<p>
+									The relay runs on this computer, and this browser only lets a website reach it after you allow
+									<strong>local network access</strong> for the site.
+								</p>
+								<ol>
+									{#if failure.kind === 'permission_denied'}
+										<li>Click the site controls icon at the left of the address bar and open <em>Site settings</em>.</li>
+										<li>Set <em>Local network access</em> to <em>Allow</em>.</li>
+									{:else}
+										<li>Click <em>Allow</em> again; when the browser asks to let this site access devices on your local network, choose <em>Allow</em>.</li>
+										<li>If no prompt appears, open the site controls at the left of the address bar and allow <em>Local network access</em>.</li>
+									{/if}
+									<li>Return here and click <em>Allow</em> again.</li>
+								</ol>
+							</div>
+						{/if}
 						<p class="hint">Fallbacks:</p>
 						<ol class="hint">
 							<li>Run Waffle Iron from the dev server on <code>localhost</code>.</li>

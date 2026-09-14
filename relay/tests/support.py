@@ -19,6 +19,7 @@ from waffle_mcp_relay import PROTOCOL
 
 RELAY_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = RELAY_DIR.parent
+STDOUT_LINE_LIMIT = 16 * 1024 * 1024
 APP_ORIGIN = "https://app.example"
 APP_URL = f"{APP_ORIGIN}/"
 
@@ -85,6 +86,9 @@ class StdioRelay:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env if env is not None else relay_env(),
+            # One JSON-RPC message is one stdout line; tools/list embeds the engine
+            # schemas (~160 KB), past asyncio's 64 KB default line limit.
+            limit=STDOUT_LINE_LIMIT,
         )
         relay = cls(proc)
         relay._tasks.append(asyncio.create_task(relay._read_stdout()))

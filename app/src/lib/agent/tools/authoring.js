@@ -1,0 +1,258 @@
+/**
+ * Authoring agent tools (specs/waffle_mcp_server.md §2.5 Authoring). Definitions
+ * only; implementations are in `../commands.js`. Every command is one undo step
+ * for the user (I5) unless its description says otherwise.
+ */
+import { UNITS_NOTE, commandOutputSchema, onErrorSchema, uuid } from './common.js';
+import { defsFor, engineRef } from './engineSchemas.js';
+
+const vec3 = (description) => ({ type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3, description });
+
+const edit = (title, extra = {}) => ({ title, readOnlyHint: false, destructiveHint: false, openWorldHint: false, ...extra });
+
+export const sketchCreateTool = {
+	name: 'sketch_create',
+	description:
+		'Create a sketch in one call: the entities and constraints are solved by the page and committed as a ' +
+		'Sketch feature (one undo step). Sketch coordinates (Point x, y; Circle radius) are meters in the ' +
+		'plane. plane is either a face or datum GeomRef (from selection_get or face_list) or an explicit ' +
+		'{origin, normal} in world meters; with origin+normal the in-plane axes are chosen by the engine, so ' +
+		'read the result back rather than assuming +x/+y. Entity ids are unsigned integers unique within the ' +
+		'sketch; Lines/Arcs/Circles name Point ids. An over-constrained or failed solve is rolled back by ' +
+		'default (SketchSolveFailed). regions lists the closed loops: pass a region\'s profile_entity_ids to ' +
+		'an Extrude/Revolve. ' +
+		UNITS_NOTE,
+	inputSchema: {
+		type: 'object',
+		properties: {
+			plane: {
+				anyOf: [
+					engineRef('GeomRef'),
+					{
+						type: 'object',
+						properties: { origin: vec3('World point on the plane (m).'), normal: vec3('Plane normal.') },
+						required: ['origin', 'normal'],
+						additionalProperties: false
+					}
+				]
+			},
+			entities: { type: 'array', items: engineRef('SketchEntity'), minItems: 1 },
+			constraints: { type: 'array', items: engineRef('SketchConstraint'), default: [] },
+			on_error: onErrorSchema
+		},
+		required: ['plane', 'entities'],
+		additionalProperties: false,
+		$defs: defsFor('GeomRef', 'SketchEntity', 'SketchConstraint')
+	},
+	outputSchema: commandOutputSchema({
+		feature_id: { type: 'string' },
+		solve_status: { type: 'string', description: 'FullyConstrained | UnderConstrained | OverConstrained | SolveFailed' },
+		dof: { type: ['integer', 'null'] },
+		regions: {
+			type: 'array',
+			items: {
+				type: 'object',
+				properties: {
+					profile_entity_ids: { type: ['array', 'null'], items: { type: 'integer' } },
+					area_m2: { type: 'number' }
+				}
+			}
+		}
+	}),
+	annotations: edit('Create sketch')
+};
+
+const operationNote =
+	'operation is an Operation: {"type":"Extrude","params":{…}}, Revolve, BooleanCombine, DatumPlane or a ' +
+	'full Sketch. Address a sketch loop with params.sketch_id = the Sketch feature id and ' +
+	'params.profile_entity_ids = the loop\'s entity ids (from sketch_create or sketch_regions); profile_index ' +
+	'is then ignored but still required (use 0). Fillet, Chamfer and Shell are refused (Deferred); STEP ' +
+	'imports are not authored here. A step whose feature or any downstream feature newly fails to rebuild is ' +
+	'rolled back by default; kernel capability limits (NotSupported) are reported verbatim — do not retry ' +
+	'them with altered parameters. ';
+
+export const featureAddTool = {
+	name: 'feature_add',
+	description: `Add a feature at the end of the feature tree (one undo step). ${operationNote}${UNITS_NOTE}`,
+	inputSchema: {
+		type: 'object',
+		properties: { operation: engineRef('Operation'), on_error: onErrorSchema },
+		required: ['operation'],
+		additionalProperties: false,
+		$defs: defsFor('Operation')
+	},
+	outputSchema: commandOutputSchema({ feature_id: { type: 'string' } }),
+	annotations: edit('Add feature')
+};
+
+export const featureEditTool = {
+	name: 'feature_edit',
+	description:
+		'Replace a feature\'s operation (same type; read it with feature_get first) and rebuild (one undo step). ' +
+		'The feature becomes agent-authored. Imported and derived features cannot be edited. ' +
+		operationNote +
+		UNITS_NOTE,
+	inputSchema: {
+		type: 'object',
+		properties: {
+			feature_id: uuid('Feature to edit.'),
+			operation: engineRef('Operation'),
+			on_error: onErrorSchema
+		},
+		required: ['feature_id', 'operation'],
+		additionalProperties: false,
+		$defs: defsFor('Operation')
+	},
+	outputSchema: commandOutputSchema(),
+	annotations: edit('Edit feature')
+};
+
+export const featureDeleteTool = {
+	name: 'feature_delete',
+	description:
+		'Delete a feature (one undo step). Features that depended on it may start failing; their errors are ' +
+		'listed in errors and the delete is not rolled back.',
+	inputSchema: {
+		type: 'object',
+		properties: { feature_id: uuid('Feature to delete.') },
+		required: ['feature_id'],
+		additionalProperties: false
+	},
+	outputSchema: commandOutputSchema(),
+	annotations: edit('Delete feature', { destructiveHint: true })
+};
+
+export const featureSuppressTool = {
+	name: 'feature_suppress',
+	description: 'Suppress (skip in the rebuild) or unsuppress a feature (one undo step).',
+	inputSchema: {
+		type: 'object',
+		properties: { feature_id: uuid('Feature to (un)suppress.'), suppressed: { type: 'boolean' } },
+		required: ['feature_id', 'suppressed'],
+		additionalProperties: false
+	},
+	outputSchema: commandOutputSchema(),
+	annotations: edit('Suppress feature', { idempotentHint: true })
+};
+
+export const featureReorderTool = {
+	name: 'feature_reorder',
+	description: 'Move a feature to a new zero-based position in the tree and rebuild (one undo step).',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			feature_id: uuid('Feature to move.'),
+			new_position: { type: 'integer', minimum: 0, description: 'Zero-based index in the tree.' }
+		},
+		required: ['feature_id', 'new_position'],
+		additionalProperties: false
+	},
+	outputSchema: commandOutputSchema(),
+	annotations: edit('Reorder feature')
+};
+
+export const featureRenameTool = {
+	name: 'feature_rename',
+	description: 'Rename a feature (one undo step).',
+	inputSchema: {
+		type: 'object',
+		properties: { feature_id: uuid('Feature to rename.'), new_name: { type: 'string', minLength: 1 } },
+		required: ['feature_id', 'new_name'],
+		additionalProperties: false
+	},
+	outputSchema: commandOutputSchema(),
+	annotations: edit('Rename feature', { idempotentHint: true })
+};
+
+export const bodyRenameTool = {
+	name: 'body_rename',
+	description: 'Set a body\'s display name; an empty new_name reverts to the derived name (one undo step).',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			body_id: { type: 'string', description: 'Body id from model_summary.bodies.' },
+			new_name: { type: 'string' }
+		},
+		required: ['body_id', 'new_name'],
+		additionalProperties: false
+	},
+	outputSchema: commandOutputSchema(),
+	annotations: edit('Rename body', { idempotentHint: true })
+};
+
+export const rollbackSetTool = {
+	name: 'rollback_set',
+	description:
+		'Set the rollback bar: features after index are rolled back (not built); null makes every feature ' +
+		'active. Not an undo step: undo does not move the rollback bar.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			index: { type: ['integer', 'null'], minimum: 0, description: 'Index of the last active feature, or null.' }
+		},
+		required: ['index'],
+		additionalProperties: false
+	},
+	outputSchema: commandOutputSchema(),
+	annotations: edit('Set rollback', { idempotentHint: true })
+};
+
+export const parametersSetTool = {
+	name: 'parameters_set',
+	description:
+		'Replace the design-parameter table with the COMPLETE list (omitted parameters are removed) and rebuild ' +
+		'(one undo step). Expressions are mm-space and may reference other parameters by name. Keep a ' +
+		'parameter\'s id to preserve it; omit id for a new one. A failing expression is reported per ' +
+		'parameter, not rolled back.',
+	inputSchema: {
+		type: 'object',
+		properties: {
+			parameters: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						id: uuid('Existing parameter id (from model_summary); omit for a new parameter.'),
+						name: { type: 'string', pattern: '^[A-Za-z_][A-Za-z0-9_]*$' },
+						expression: { type: 'string', minLength: 1 }
+					},
+					required: ['name', 'expression'],
+					additionalProperties: false
+				}
+			}
+		},
+		required: ['parameters'],
+		additionalProperties: false
+	},
+	outputSchema: commandOutputSchema({
+		parameters: {
+			type: 'array',
+			items: {
+				type: 'object',
+				properties: {
+					id: { type: 'string' },
+					name: { type: 'string' },
+					value_mm: { type: ['number', 'null'] },
+					error: { type: 'string' }
+				}
+			}
+		}
+	}),
+	annotations: edit('Set parameters')
+};
+
+export const undoTool = {
+	name: 'undo',
+	description: 'Undo the last feature-level step in the document (yours or the user\'s).',
+	inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+	outputSchema: commandOutputSchema(),
+	annotations: edit('Undo')
+};
+
+export const redoTool = {
+	name: 'redo',
+	description: 'Redo the last undone feature-level step.',
+	inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+	outputSchema: commandOutputSchema(),
+	annotations: edit('Redo')
+};

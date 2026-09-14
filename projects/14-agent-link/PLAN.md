@@ -113,13 +113,118 @@ connection path; ICR-1…ICR-4 merged.
     so the consent route must handle it.
 
 ## Phase 1 — carried from Phase 0 findings
-- [ ] `/agent` route: detect a local-network-access denial and show how to
-  grant it. A failing `WebSocket` exposes no error detail to page JS;
-  investigate whether `navigator.permissions.query` answers for this
-  permission, and fall back to the §6.3 guidance.
+- [x] `/agent` route detects a local-network block (2026-09-14). Measured:
+  Chromium 149 answers `navigator.permissions.query({name:
+  "local-network-access"})` (`prompt` by default, `granted` after a grant).
+  A failed socket is classified `permission_denied` (state `denied`) or
+  `permission_blocked` (state `prompt`, public page, loopback/private relay),
+  and the consent card shows how to allow local network access, above the
+  §6.3 fallbacks. Not covered by a GUI test: the dev-server origin is
+  loopback, so neither class occurs there.
 
-## Phase 1 — Live authoring
-Not started. See spec §8.
+## Phase 1 — Live authoring (IN PROGRESS, started 2026-09-14)
+
+Exit (spec §8): O1–O20 green (O4 `NotSupported` row after ICR-2);
+`sketch-drawing-regression.spec.js` still green.
+
+### Landed
+- [x] **Store layer** (`a01e06d5`). The bridge send gate makes every
+  user-originated send hold the FIFO engine lock from send to response;
+  hover/select stay ungated. `sendAgentMessage` is the non-swallowing entry
+  point. `getUserBusyReason` covers sketch mode, feature dialogs and edit
+  context. While `setAgentActivity` is set, the toolbar, shortcuts and tree
+  refuse modeling with "Agent is working" (G8). `bridge.recordSends` tags
+  each send with its origin (O7). Finish Sketch's profile conversion moved
+  verbatim to `$lib/sketch/finishProfiles.js` (byte-identical on six
+  sketches).
+- [x] **Executor + 19 page tools** (spec §2.5 minus documents/storage,
+  viewport_capture, export): `model_summary`, `feature_get`,
+  `selection_get`, `body_measure`, `face_list`, `sketch_regions`,
+  `expression_evaluate`, `sketch_create`, `feature_add`, `feature_edit`,
+  `feature_delete`, `feature_suppress`, `feature_reorder`,
+  `feature_rename`, `body_rename`, `rollback_set`, `parameters_set`,
+  `undo`, `redo`.
+  - `$lib/agent/executor.js`: gates G3–G7, lock wait G2 (10 s; another call
+    of the same agent just queues), activity, cancellation (A18: undo the
+    finished step).
+  - `commands.js`: `applyStep` does the rollback and verifies it byte-exact
+    on the canonical feature tree; a mismatch is `Internal` and pauses the
+    session. It also sets `kept_with_error`, adds agent provenance and
+    toasts once per step.
+  - `queries.js`: the engine queries (`body_measure`, `face_list`,
+    `sketch_regions`, `expression_evaluate`) take the lock too.
+  - `delta.js`: the ModelDelta, plus `order_changed`.
+  - `sketchInput.js`: the A13 id checks.
+- [x] **Tool schemas**: engine types are `#/$defs/<Name>` refs with each
+  tool's `$defs` generated from `docs/schema/waffle-v5.schema.json` into
+  `tools/engineSchemas.generated.js` (`gen-agent-manifest.mjs` regenerates
+  both it and the relay manifest; `--stdout` fails on a stale file). O19:
+  pytest `test_o19_…` (value-equal to the golden) + `agent-executor-pure`.
+- [x] **Link/bar**: Pause/Resume (the page's own pause carries a reason),
+  running-tool label, `status` frames (`ready`/`paused`/`busy{reason}`),
+  `cancel` frames.
+- [x] Tests: `agent-authoring.spec.js` has 12 tests:
+  - O1 exact 20×10×5 mm box.
+  - O2 exact cylinder.
+  - O4: no-loop profile, edit breaking a downstream extrude, over-constrained
+    sketch, and a typed `NotSupported` (arc profile committed without its
+    `vertex_ids` polygon).
+  - O5 keep; O6 real Ctrl+Z; O10 provenance + badge.
+  - O7 no user send between the agent's sends, and nothing queued (G8).
+  - O8 busy gates: sketch mode entered by real clicks, the extrude dialog,
+    Pause.
+  - O9 pause mid-call, Disconnect ≤ 1 s; O11 deferred.
+  - O12 real face click → `selection_get` → `sketch_create`, normal ± 1e-9.
+  - G2 a 25 s user `LoadProject` makes the call `UserBusy{rebuilding}` after
+    10 s.
+  - A18 cancel undoes the finished step.
+  - A7/A13/A14/A16 refusals.
+
+  The slow call is a 21-tooth gear extrude (~2 s here).
+  `agent-executor-pure.spec.js` has 15 tests; the relay suite 71.
+  29/29 across the three agent specs.
+- [x] `sketch_create` regions come from the committed feature through
+  `sketchRegionsRequest`, so gear sketches report theirs. Before, raw Gear
+  entities gave `[]`; found by the probe.
+
+### Decisions and findings (recorded in the spec)
+- The viewport's datum-plane refs (`anchor: {type: "DatumPlane"}`) are not
+  golden `GeomRef`s. `selection_get` returns a datum plane's
+  `{origin, normal}`, which `sketch_create` accepts.
+- No `name` argument on `sketch_create`/`feature_add`: `AddFeature` and
+  `FinishSketch` carry no name, and a follow-up `RenameFeature` would make
+  the call two undo steps (I5). **ICR-5 (proposed):** `name:
+  Option<String>` on `AddFeature`/`FinishSketch`.
+- Rollback is an engine `Undo`, so the rolled-back step sits on the redo
+  stack (a user Ctrl+Shift+Z re-applies it). I3 holds for the document and
+  the undo depth, not the redo stack. Discarding it needs an engine
+  "drop redo" message (not proposed yet).
+- `expression_evaluate` returns `{value_mm: null, error}` for a failing
+  expression instead of an `isError` result; the closed code set has no
+  expression code.
+- `tools/list` is ~160 KB of compact JSON (`feature_add` and
+  `feature_edit` each embed the ~54 KB Operation closure). Correct but
+  expensive for agent context. Open: a shared schema resource, or schema
+  pruning that O19 can still pin.
+- A query that sends a bridge message takes the lock (I6 covers agent
+  messages during a user action); the spec's exception list named only
+  `body_measure`/`face_list`.
+
+### Open
+- [ ] O3 parity: 15 scripted sequences via the agent vs the same messages
+  through the store entry point in a fresh page, canonical bytes equal.
+- [ ] G5 read-only document and G7 Assembly tab rows of O8.
+- [ ] O13–O20 are relay-harness oracles and green in pytest. Recheck them
+  against Phase 1 frames: `status` busy reason, `cancel`.
+- Finding (2026-09-14): F0064 (the spec's coplanar `NotSupported` example)
+  builds with no feature errors in the app. The O4 `NotSupported` row uses
+  kernel-v2's arc-profile wall instead.
+- [ ] Documents and storage tools: `document_info`, `storage_list`,
+  `document_open`, `document_new`, `document_save`, `tab_switch`.
+- [ ] Rerun `sketch-drawing-regression.spec.js` at the phase exit.
+- Not caused by this work: `planetary-gear.spec.js` "created stage extrudes
+  into a solid" times out identically on the pre-session sources
+  (1d9c0b39, verified with `git stash -u`).
 
 ## Blockers
 

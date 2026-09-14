@@ -1,11 +1,11 @@
 # Waffle Iron MCP — Live-App Agent Link
 
-Status: **DRAFT 2026-09-13 (rev 2: live-app design)** — spec phase (FIP §3).
-Nothing implemented. Rev 1 (a headless native Rust server editing files
+Status: **rev 2 (live-app design)** — Phase 0 complete; Phase 1 in progress
+(2026-09-14, `projects/14-agent-link/PLAN.md`). Rev 1 (a headless native Rust server editing files
 under a root folder) is superseded. Why: an agent editing files the user
 never sees is a dev/CI tool, not a product feature. §7 keeps the reasoning.
 
-Sub-project: proposed `projects/14-agent-link/` (dossier not yet created).
+Sub-project: `projects/14-agent-link/`.
 Components:
 
 | Component | Location (proposed) | Language |
@@ -147,8 +147,13 @@ package bundles the manifest of the app version it was published with.
 
 `on_error` ∈ `"rollback"` (default) | `"keep"`, on `sketch_create`,
 `feature_add` and `feature_edit`. A command's result carries a `ModelDelta`:
-`{features_added[], features_changed[], features_removed[], bodies_added[],
-bodies_removed[], errors[], warnings[]}`.
+`{features_added[], features_changed[], features_removed[], order_changed,
+bodies_added[], bodies_removed[], errors[], warnings[]}`. A pure reorder changes
+no feature record, so it is reported by `order_changed`.
+
+No command takes a feature `name`: `AddFeature` and `FinishSketch` carry none,
+and a follow-up `RenameFeature` would make the call two undo steps (I5). The
+agent renames with `feature_rename`. ICR-5 (§9) would add the field.
 
 **Connection** (answered by the relay itself; always available)
 
@@ -174,19 +179,19 @@ bodies_removed[], errors[], warnings[]}`.
 |---|---|---|---|
 | `model_summary` | query | — | features in tree order `{id,name,kind,suppressed,provenance,error?}`, rollback index, bodies `{body_id,name,feature_id}`, `errors[]`, `warnings[]`, parameters with values |
 | `feature_get` | query | `feature_id` | `Operation` JSON, provenance, error |
-| `selection_get` | query | — | the user's current selection: `[{geom_ref, kind, body_id, signature?}]`, plus the selected feature id |
+| `selection_get` | query | — | the user's current selection: `[{geom_ref, kind, body_id, signature?, plane?}]`, plus the selected feature id. The viewport's datum-plane refs are not document `GeomRef`s, so a selected datum plane has `kind: "DatumPlane"` and `plane: {origin, normal}`, which `sketch_create` takes |
 | `body_measure` | query | `body_id` | `{volume_m3, surface_area_m2, bbox_min, bbox_max, face_count, edge_count, vertex_count, closed, method}` (§2.6) |
 | `face_list` | query | `body_id`, `filter?: TopoQuery` | `[{geom_ref, signature}]` in deterministic order |
 | `sketch_regions` | query | `feature_id` | closed regions `{profile_entity_ids, area_m2}` |
-| `expression_evaluate` | query | `expression` (mm-space) | `{value_mm}` or error |
+| `expression_evaluate` | query | `expression` (mm-space) | `{value_mm}`, or `{value_mm: null, error}` for an expression that does not evaluate (a result, not `isError`) |
 | `viewport_capture` | query | `max_edge_px (1024)` | PNG image content of the current view; the camera is not moved |
 
 **Authoring**
 
 | Tool | Kind | Inputs (defaults) | Result |
 |---|---|---|---|
-| `sketch_create` | command | `plane: GeomRef \| {origin, normal}`, `entities`, `constraints ([])`, `name?`, `on_error` | `{feature_id, solve_status, dof, regions[]}` + `ModelDelta` |
-| `feature_add` | command | `operation`, `name?`, `on_error` | `{feature_id}` + `ModelDelta` |
+| `sketch_create` | command | `plane: GeomRef \| {origin, normal}`, `entities`, `constraints ([])`, `on_error` | `{feature_id, solve_status, dof, regions[]}` + `ModelDelta` |
+| `feature_add` | command | `operation`, `on_error` | `{feature_id}` + `ModelDelta` |
 | `feature_edit` | command | `feature_id`, `operation`, `on_error` | `ModelDelta` |
 | `feature_delete` / `feature_suppress` / `feature_reorder` / `feature_rename` / `body_rename` / `rollback_set` | command | as the bridge messages | `ModelDelta` |
 | `parameters_set` | command | complete parameter table | `ModelDelta` + per-parameter errors |
@@ -272,9 +277,12 @@ exact.
 | G7 | active tab is not a Part (Phase 1) | `TabKindNotSupported{kind}` |
 | G8 | user presses a modeling shortcut during an agent call | ignored with a status-bar hint "Agent is working"; nothing queued |
 
-Queries run in G1–G8 except G6, and do not take the lock. They read store
-state, not the worker, except `body_measure`/`face_list`, which send queries
-under the lock and are refused in G2 after the same 10 s.
+Queries run in G1–G8 except G6. Those that read store state do not take the
+lock. Those that send a bridge message (`body_measure`, `face_list`,
+`sketch_regions`, `expression_evaluate`) run under the lock, because I6 also
+forbids agent messages during a user action, and are refused in G2 after the
+same 10 s. Another call of the same agent holding the lock is not a G2 case:
+the call queues behind it.
 
 ### 3.3 Authoring
 
@@ -301,6 +309,11 @@ under the lock and are refused in G2 after the same 10 s.
 
 Provenance on edit: `feature_edit` of a `User` feature sets `Agent{name}`
 (last author).
+
+Rollback (A2, A4, A18) is an engine `Undo`, so the undone step moves to the
+redo stack: a user's redo re-applies it. I3 covers the document and the undo
+depth, not the redo stack; dropping the redo entry would need an engine message
+of its own.
 
 ### 3.4 Queries, storage, export
 
@@ -341,6 +354,8 @@ Provenance on edit: `feature_edit` of a `User` feature sets `Agent{name}`
   restores the post-call document. This includes `sketch_create`.
 - **I6 — No interleaving.** Between the first and last bridge message of an
   agent call, no bridge message originating from a user action is sent.
+  Pointer feedback (`HoverEntity`, `SelectEntity`) is exempt: it touches no
+  model state, and FIFO pairing keeps its answers apart.
   Conversely, while a user action holds the lock, no agent message is sent.
 - **I7 — Consent.** No agent frame is processed by a page until a user click
   on that tab's consent screen, or a same-tab session resume within 120 s
@@ -386,7 +401,7 @@ Provenance on edit: `feature_edit` of a `User` feature sets `Agent{name}`
 | O1 Box volume | A1, A10, Q2 | b | `sketch_create` 20×10 mm rectangle on XY → `feature_add` Extrude `profile_entity_ids`, depth 0.005 | exact: `volume_m3 = 1.0e-6 ± 1e-15`; bbox sorted extents `[0.005, 0.01, 0.02] ± 1e-7` with z ∈ `[0, 0.005]` (a plane given only by origin + normal leaves the in-plane axes to the engine: measured 2026-09-14, sketch u → world −y; whether the built-in XY datum maps u → +x is unverified, so O1 asserts extents, not coordinates); 6/12/8 faces/edges/vertices; `closed`; `__waffle.getMeshBoundingBox()` agrees ± 1e-6 |
 | O2 Method honesty | Q2 | b | cylinder r=5 mm h=10 mm | exact: `|V−πr²h| ≤ 1e-12`; mesh: `method="mesh"` and `V < πr²h` |
 | O3 Parity | I1 | b | 15 scripted sequences via agent vs the same messages via the store entry point in a fresh page | canonical bytes equal |
-| O4 Rollback | A2, A4, A11, I3 | b | `profile_entity_ids` naming no loop; an edit breaking a downstream extrude; F0064 coplanar pair (`NotSupported`, M8; asserted after ICR-2); over-constrained sketch | pre/post `buildDocumentJson()` canonical-equal; undo depth equal; one toast |
+| O4 Rollback | A2, A4, A11, I3 | b | `profile_entity_ids` naming no loop; an edit breaking a downstream extrude; a typed `NotSupported`: an arc-segment profile committed without its `vertex_ids` polygon (kernel-v2's wall; F0064 builds without errors in the app, measured 2026-09-14); over-constrained sketch | pre/post `buildDocumentJson()` canonical-equal; undo depth equal; one toast |
 | O5 Keep | A3, A12 | b | same, `on_error:"keep"` | feature present, `kept_with_error`, id in `errors`, `isError=false` |
 | O6 Undo granularity | I5 | b | after `sketch_create` + `feature_add`, press **Ctrl+Z** with a real keyboard event | document equals post-sketch bytes; again ⇒ pre-call bytes |
 | O7 No interleaving | I6, G2, G8 | b | spy wraps `EngineBridge.send`, tagging origin; during an F0065-class slow boolean agent call, click Extrude and press shortcuts | spy log contains no user-tagged send between the agent call's first and last send |
@@ -620,6 +635,11 @@ breaking bridge change (A2.4). Each lands in its owning sub-project first.
   defect: undoing an add left the feature's provenance record orphaned, so a
   STEP import followed by undo kept an `Import` record in the saved file,
   which would have broken I3.
+
+- **ICR-5 — feature names on creation** (`wasm-bridge`), proposed
+  2026-09-14. `AddFeature` and `FinishSketch` gain `name: Option<String>`,
+  set inside the same undo step, so `sketch_create`/`feature_add` can take a
+  `name` without becoming two undo steps (I5).
 
 Store-side changes (sub-project `08-ui-chrome` / `05-sketch-ui`, not bridge
 ICRs):

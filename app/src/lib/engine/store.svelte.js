@@ -711,6 +711,9 @@ export async function initEngine() {
 	});
 
 	bridge.on('sketchSolved', (msg) => {
+		// sketch_create solves through the same bridge; that result belongs to the
+		// agent call, not to the user's (inactive) sketch state.
+		if (agentActivity) return;
 		// The Rust engine sends { solved: { positions, profiles, status: SolveStatus } }
 		// where SolveStatus is { type: 'FullyConstrained' } | { type: 'UnderConstrained', dof }
 		// | { type: 'OverConstrained', conflicts } | { type: 'SolveFailed', reason }.
@@ -1904,6 +1907,25 @@ function collectSamePlaneSketchPoints(origin, normal, excludeFeatureId) {
 }
 
 /**
+ * The `BeginSketch` plane reference for a sketch started on `faceGeomRef`.
+ * A face of ANOTHER instance (in-context editing, v4 §2.8) is recorded as the
+ * sketch's plane reference so the engine re-derives the plane from that
+ * instance on rebuild. A local face, a datum or no face keeps the historical
+ * placeholder anchor (the sketch's origin/normal snapshot is authoritative).
+ * Shared by Sketch mode and the agent link's `sketch_create`.
+ * @param {any} [faceGeomRef]
+ */
+export function beginSketchPlaneRef(faceGeomRef = null) {
+	if (faceGeomRef?.scope) return JSON.parse(JSON.stringify(faceGeomRef));
+	return {
+		kind: { type: 'Face' },
+		anchor: { type: 'Datum', datum_id: generateUUID() },
+		selector: { type: 'Role', role: { type: 'EndCapPositive' }, index: 0 },
+		policy: { type: 'BestEffort' },
+	};
+}
+
+/**
  * Enter sketch mode on a plane.
  * @param {[number, number, number]} origin - plane origin
  * @param {[number, number, number]} normal - plane normal
@@ -1915,19 +1937,7 @@ export async function enterSketchMode(origin = [0, 0, 0], normal = [0, 0, 1], fa
 
 	// Notify the engine about the new sketch session
 	if (bridge && engineReady) {
-		const datumId = generateUUID();
-		// A face of ANOTHER instance (in-context editing, v4 §2.8) is recorded
-		// as the sketch's plane reference so the engine re-derives the plane
-		// from that instance on rebuild. A local face keeps the historical
-		// placeholder anchor (the snapshot origin/normal are authoritative).
-		const plane = faceGeomRef?.scope
-			? JSON.parse(JSON.stringify(faceGeomRef))
-			: {
-				kind: { type: 'Face' },
-				anchor: { type: 'Datum', datum_id: datumId },
-				selector: { type: 'Role', role: { type: 'EndCapPositive' }, index: 0 },
-				policy: { type: 'BestEffort' },
-			};
+		const plane = beginSketchPlaneRef(faceGeomRef);
 		try {
 			await bridge.send({
 				type: 'BeginSketch',
@@ -3148,6 +3158,11 @@ async function expandGearForDisplay(gearId, gearParams) {
 // `${featureId}:${entityId}`, so completed gear sketches render their teeth.
 let inactiveGearDisplay = $state(new Map());
 
+/** Per-gear id range of an inactive sketch's gear expansion, distinct from the active `gearDisplay` range. */
+function inactiveGearIdBase(entityId) {
+	return 50_000_000 + entityId * 100_000;
+}
+
 /** @returns {Map<string, object>} */
 export function getInactiveGearDisplay() { return inactiveGearDisplay; }
 
@@ -3169,8 +3184,7 @@ export async function ensureInactiveGearsExpanded(specs, send = (message) => bri
 		if (next.has(key)) continue;
 		const p = JSON.parse(JSON.stringify(params));
 		const response = await send({ type: 'GenerateGearProfile', params: p });
-		// Per-gear id range, distinct from the active `gearDisplay` range.
-		next.set(key, remapGearResponse(response, 50_000_000 + entityId * 100_000));
+		next.set(key, remapGearResponse(response, inactiveGearIdBase(entityId)));
 		changed = true;
 	}
 	if (changed) inactiveGearDisplay = next;
@@ -3847,6 +3861,63 @@ export function clearExtrudeTargets() {
  */
 let sketchRegions = $state(new Map());
 
+/**
+ * ComputeRegions inputs for one completed sketch feature: gear entities replaced
+ * by their primitive expansion (`gears`, keyed `${featureId}:${entityId}`) and
+ * point positions from the solver. Shared by the region cache and the agent link.
+ * @param {any} feature
+ * @param {Map<string, any>} gears
+ */
+function regionInputs(feature, gears) {
+	const sketch = feature.operation.sketch;
+	// Solver output is the authoritative coordinate source (A2.1/A5.2): the
+	// engine computes geometry truth, the UI must derive from it. Raw drawn
+	// `e.x/e.y` is pre-solve scratch — feeding it to the arrangement produces
+	// geometrically wrong regions (e.g. constraint-centered nested squares
+	// appear off-center/wrong-size). Fall back to raw only when a point has
+	// no solved entry yet (freshly drawn, pre-solve). Gear-expanded points
+	// are deterministic from gear params and carry their own final coords.
+	const solved = sketch.solved_positions || {};
+	const entities = [];
+	const solved_positions = {};
+	for (const e of (sketch.entities || [])) {
+		if (e.type === 'Gear') {
+			// Substitute the gear's cached primitive expansion (teeth + points).
+			const exp = gears.get(`${feature.id}:${e.id}`);
+			if (exp) {
+				for (const ge of exp.entities) {
+					entities.push(ge);
+					if (ge.type === 'Point' && ge.id != null) solved_positions[ge.id] = [ge.x, ge.y];
+				}
+			}
+		} else {
+			entities.push(e);
+			if (e.type === 'Point' && e.id != null) {
+				const sp = solved[e.id];
+				solved_positions[e.id] = sp ? [sp[0], sp[1]] : [e.x, e.y];
+			}
+		}
+	}
+	return { entities, solved_positions };
+}
+
+/**
+ * The ComputeRegions message for one completed sketch, expanding its gears with
+ * `send` (the agent link passes its own sender: it holds the engine lock).
+ * @param {any} feature
+ * @param {(message: object) => Promise<any>} send
+ */
+export async function sketchRegionsRequest(feature, send) {
+	const gears = new Map();
+	for (const e of feature.operation?.sketch?.entities || []) {
+		if (e.type !== 'Gear') continue;
+		const response = await send({ type: 'GenerateGearProfile', params: JSON.parse(JSON.stringify(e.params)) });
+		gears.set(`${feature.id}:${e.id}`, remapGearResponse(response, inactiveGearIdBase(e.id)));
+	}
+	const { entities, solved_positions } = regionInputs(feature, gears);
+	return { type: 'ComputeRegions', entities: JSON.parse(JSON.stringify(entities)), solved_positions };
+}
+
 /** @param {string} featureId @returns {Array<object> | null} */
 export function getSketchRegions(featureId) {
 	return sketchRegions.get(featureId) ?? null;
@@ -3877,35 +3948,7 @@ export async function computeAllSketchRegions() {
 	const next = new Map();
 	for (const feature of tree.features) {
 		if (feature.operation?.type !== 'Sketch') continue;
-		const sketch = feature.operation.sketch;
-		// Solver output is the authoritative coordinate source (A2.1/A5.2): the
-		// engine computes geometry truth, the UI must derive from it. Raw drawn
-		// `e.x/e.y` is pre-solve scratch — feeding it to the arrangement produces
-		// geometrically wrong regions (e.g. constraint-centered nested squares
-		// appear off-center/wrong-size). Fall back to raw only when a point has
-		// no solved entry yet (freshly drawn, pre-solve). Gear-expanded points
-		// are deterministic from gear params and carry their own final coords.
-		const solved = sketch.solved_positions || {};
-		const entities = [];
-		const solved_positions = {};
-		for (const e of (sketch.entities || [])) {
-			if (e.type === 'Gear') {
-				// Substitute the gear's cached primitive expansion (teeth + points).
-				const exp = gears.get(`${feature.id}:${e.id}`);
-				if (exp) {
-					for (const ge of exp.entities) {
-						entities.push(ge);
-						if (ge.type === 'Point' && ge.id != null) solved_positions[ge.id] = [ge.x, ge.y];
-					}
-				}
-			} else {
-				entities.push(e);
-				if (e.type === 'Point' && e.id != null) {
-					const sp = solved[e.id];
-					solved_positions[e.id] = sp ? [sp[0], sp[1]] : [e.x, e.y];
-				}
-			}
-		}
+		const { entities, solved_positions } = regionInputs(feature, gears);
 		try {
 			const response = await bridge.send({
 				type: 'ComputeRegions',

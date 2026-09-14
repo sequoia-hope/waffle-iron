@@ -42,6 +42,23 @@ export async function relayTestPort() {
 	});
 }
 
+/**
+ * Pair `page` with `relay` the way a user does: `waffle_connect`, open the
+ * pairing link, click Allow, land in the editor with the agent bar, engine ready.
+ * @param {import('@playwright/test').Page} page
+ * @param {McpRelay} relay
+ * @param {string} agentName - the clientInfo name the relay was initialized with
+ */
+export async function pairAgent(page, relay, agentName) {
+	const connect = await relay.callTool('waffle_connect');
+	if (connect.isError) throw new Error(`waffle_connect failed: ${JSON.stringify(connect)}`);
+	await page.goto(connect.structuredContent.pairing_url);
+	await page.getByTestId('agent-consent-allow').click();
+	await page.waitForURL((url) => url.pathname === '/', { timeout: 30000 });
+	await page.getByTestId('agent-bar-label').filter({ hasText: agentName }).waitFor({ timeout: 30000 });
+	await page.waitForFunction(() => window.__waffle?.getState()?.engineReady === true, null, { timeout: 30000 });
+}
+
 export class McpRelay {
 	/**
 	 * @param {{ port: number, appUrl: string, allowOrigin: string, extraArgs?: string[] }} opts
@@ -121,6 +138,23 @@ export class McpRelay {
 		});
 	}
 
+	/**
+	 * Start a request without waiting: its JSON-RPC id (for `cancel`) and the
+	 * response promise. A cancelled request never gets a response, so the
+	 * promise rejects at `timeoutMs`; callers that cancel should `.catch()` it.
+	 * @param {string} method @param {object} [params]
+	 */
+	start(method, params, timeoutMs = 30000) {
+		const id = this._nextId + 1;
+		return { id, response: this.request(method, params, timeoutMs) };
+	}
+
+	/** MCP `notifications/cancelled` for an in-flight request. @param {number} requestId */
+	cancel(requestId, reason = 'cancelled by test') {
+		const msg = { jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId, reason } };
+		this.proc.stdin.write(`${JSON.stringify(msg)}\n`);
+	}
+
 	async initialize(clientName) {
 		const response = await this.request('initialize', {
 			protocolVersion: '2025-11-25',
@@ -132,8 +166,8 @@ export class McpRelay {
 	}
 
 	/** @returns {Promise<any>} the CallToolResult */
-	async callTool(name, args = {}) {
-		const response = await this.request('tools/call', { name, arguments: args });
+	async callTool(name, args = {}, timeoutMs = 30000) {
+		const response = await this.request('tools/call', { name, arguments: args }, timeoutMs);
 		if (!response.result) throw new Error(`tools/call ${name} failed: ${JSON.stringify(response)}`);
 		return response.result;
 	}
