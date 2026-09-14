@@ -362,6 +362,23 @@ fn execute_feature(
             })
         }
 
+        Operation::MateConnector { params } => {
+            // No geometry of its own: the rebuild only proves the frame
+            // derives (loud here, so the feature is marked failed). The frame
+            // itself is read after the rebuild (`Engine::connectors`).
+            crate::connector::part_connector_frame(params, feature_results, kb.as_introspect())?;
+            Ok(OpResult {
+                outputs: Vec::new(),
+                provenance: modeling_ops::Provenance {
+                    created: Vec::new(),
+                    deleted: Vec::new(),
+                    modified: Vec::new(),
+                    role_assignments: Vec::new(),
+                },
+                diagnostics: modeling_ops::Diagnostics::default(),
+            })
+        }
+
         Operation::ImportedBody { params } => {
             // STEP import (task #138, docs/step_import_roadmap.md §3): decode
             // the embedded payload, parse (process-wide cache makes transform
@@ -1242,10 +1259,12 @@ fn find_most_recent_solid_outputs(
         if feature.suppressed || already_consumed.contains(&feature.id) {
             continue;
         }
-        // Skip sketch and datum plane features (they produce no solid)
+        // Skip sketch, datum plane and connector features (they produce no solid)
         if matches!(
             &feature.operation,
-            Operation::Sketch { .. } | Operation::DatumPlane { .. }
+            Operation::Sketch { .. }
+                | Operation::DatumPlane { .. }
+                | Operation::MateConnector { .. }
         ) {
             continue;
         }
@@ -1300,7 +1319,9 @@ fn find_most_recent_consumed(
         }
         if matches!(
             &f.operation,
-            Operation::Sketch { .. } | Operation::DatumPlane { .. }
+            Operation::Sketch { .. }
+                | Operation::DatumPlane { .. }
+                | Operation::MateConnector { .. }
         ) {
             continue;
         }
@@ -1769,7 +1790,9 @@ fn resolve_share_a_face(
                 }
                 if matches!(
                     f.operation,
-                    Operation::Sketch { .. } | Operation::DatumPlane { .. }
+                    Operation::Sketch { .. }
+                        | Operation::DatumPlane { .. }
+                        | Operation::MateConnector { .. }
                 ) {
                     continue;
                 }

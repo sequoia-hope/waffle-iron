@@ -63,8 +63,13 @@ export const sketchCreateTool = {
 };
 
 const operationNote =
-	'operation is an Operation: {"type":"Extrude","params":{…}}, Revolve, BooleanCombine, DatumPlane or a ' +
-	'full Sketch. Address a sketch loop with params.sketch_id = the Sketch feature id and ' +
+	'operation is an Operation: {"type":"Extrude","params":{…}}, Revolve, BooleanCombine, DatumPlane, MateConnector ' +
+	'or a full Sketch. A MateConnector is a named frame on the part that assemblies mate its instances by ' +
+	'(model_summary lists the evaluated ones): params {name, geom_ref?: a Face or Edge GeomRef (face_list, ' +
+	'selection_get), frame?: {origin, z_axis, x_axis} in part coordinates when there is no geom_ref, anchor?: ' +
+	'"middle"|"positive_end"|"negative_end" along a cylindrical/conical/toroidal face\'s axis, flip_z?, ' +
+	'rotation_deg?, offset_m?: [x, y, z] along its own axes}; a pick with no frame (a vertex, a freeform face) ' +
+	'fails the feature. Address a sketch loop with params.sketch_id = the Sketch feature id and ' +
 	'params.profile_entity_ids = the loop\'s entity ids (from sketch_create or sketch_regions); profile_index ' +
 	'is then ignored but still required (use 0). Fillet, Chamfer and Shell are refused (Deferred); STEP ' +
 	'imports are not authored here. A step whose feature or any downstream feature newly fails to rebuild is ' +

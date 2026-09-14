@@ -264,6 +264,11 @@ pub enum Operation {
     ImportedBody {
         params: ImportedBodyParams,
     },
+    /// A named mate connector on the part (`specs/part_mate_connectors.md`):
+    /// a frame an assembly's mates can use on every instance of this part.
+    MateConnector {
+        params: MateConnectorParams,
+    },
     /// A well-formed `{"type": …}` operation this build does not know — one
     /// from a newer build. Kept verbatim, re-emitted on save, and its rebuild
     /// is a loud `EngineError::UnsupportedOperation`; so adding an operation
@@ -290,6 +295,7 @@ enum KnownOperation {
     BooleanCombine { params: BooleanParams },
     DatumPlane { params: DatumPlaneParams },
     ImportedBody { params: ImportedBodyParams },
+    MateConnector { params: MateConnectorParams },
 }
 
 /// The operation `type` tags this build can rebuild.
@@ -303,6 +309,7 @@ pub const OPERATION_TAGS: &[&str] = &[
     "BooleanCombine",
     "DatumPlane",
     "ImportedBody",
+    "MateConnector",
 ];
 
 impl From<KnownOperation> for Operation {
@@ -317,6 +324,7 @@ impl From<KnownOperation> for Operation {
             KnownOperation::BooleanCombine { params } => Operation::BooleanCombine { params },
             KnownOperation::DatumPlane { params } => Operation::DatumPlane { params },
             KnownOperation::ImportedBody { params } => Operation::ImportedBody { params },
+            KnownOperation::MateConnector { params } => Operation::MateConnector { params },
         }
     }
 }
@@ -349,6 +357,7 @@ impl Operation {
             Operation::BooleanCombine { .. } => "BooleanCombine",
             Operation::DatumPlane { .. } => "DatumPlane",
             Operation::ImportedBody { .. } => "ImportedBody",
+            Operation::MateConnector { .. } => "MateConnector",
             Operation::Unknown(v) => crate::opaque::type_tag(v),
         }
     }
@@ -811,6 +820,46 @@ pub enum PlaneDefinition {
 pub struct DatumPlaneParams {
     pub name: String,
     pub definition: PlaneDefinition,
+}
+
+/// Parameters for a part mate connector (`specs/part_mate_connectors.md`).
+///
+/// The frame is derived exactly as an assembly connector's is
+/// ([`crate::connector::resolve_connector_frame`]): from `geom_ref` (a face
+/// or an edge of this part) when present, else `frame` as given, in the
+/// part's coordinates. The same adjustments then apply in the same order
+/// (`flip_z`, `rotation_deg`, `offset_m`; `anchor` on a rotational face).
+/// The connector's NAME is its feature's name; `name` is only the name the
+/// feature is created with.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct MateConnectorParams {
+    /// The feature's name at creation (default "Mate connector").
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    /// The face or edge the frame is derived from. Absent ⇒ `frame`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geom_ref: Option<GeomRef>,
+    /// The frame when there is no `geom_ref` (meters, part coordinates;
+    /// default: the part origin, z up). With a `geom_ref`, a non-zero
+    /// `x_axis` is the secondary direction.
+    #[serde(default)]
+    pub frame: crate::assembly::Frame,
+    /// Where on a cylindrical/conical/toroidal face's axis the frame sits.
+    #[serde(
+        default,
+        skip_serializing_if = "crate::assembly::AxialAnchor::is_middle"
+    )]
+    pub anchor: crate::assembly::AxialAnchor,
+    /// Reverse z (a 180° turn about x). Applied first.
+    #[serde(default, skip_serializing_if = "crate::assembly::is_false")]
+    pub flip_z: bool,
+    /// Turn about z in degrees, after the flip.
+    #[serde(default, skip_serializing_if = "crate::assembly::is_zero")]
+    pub rotation_deg: f64,
+    /// Move along the frame's own axes after the turn, meters `[x, y, z]`.
+    #[serde(default, skip_serializing_if = "crate::assembly::is_zero3")]
+    pub offset_m: [f64; 3],
 }
 
 /// Errors from the feature engine.

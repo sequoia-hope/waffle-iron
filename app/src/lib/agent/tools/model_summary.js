@@ -30,12 +30,34 @@ export const modelSummaryTool = {
 	description:
 		'Summarize the Part open in the paired Waffle Iron tab: features in tree order ' +
 		'(id, name, kind, suppressed, provenance, rebuild error), the rollback index, bodies, ' +
-		'rebuild errors and warnings, and design parameters. Parameter expressions and values ' +
-		'are mm-space; everything else carries no lengths. Reads page state only; changes nothing.',
+		'rebuild errors and warnings, design parameters, and the part\'s named mate connectors. Parameter ' +
+		'expressions and values are mm-space; connector origins are meters in part coordinates; nothing else ' +
+		'carries lengths. Reads page state only; changes nothing.',
 	inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 	outputSchema: {
 		type: 'object',
 		properties: {
+			connectors: {
+				type: 'array',
+				description:
+					'Named mate connectors (MateConnector features that built), in tree order: the frame an assembly ' +
+					'mate uses on every instance of this part.',
+				items: {
+					type: 'object',
+					properties: {
+						feature_id: { type: 'string' },
+						name: { type: 'string' },
+						kind: {
+							type: ['string', 'null'],
+							description: 'What the frame was derived from ("planar face", "cylindrical face", …); null for an explicit frame.'
+						},
+						origin_m: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+						z_axis: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+						x_axis: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 }
+					},
+					required: ['feature_id', 'name', 'kind', 'origin_m', 'z_axis', 'x_axis']
+				}
+			},
 			document_name: { type: 'string' },
 			features: { type: 'array', items: featureSchema },
 			rollback_index: {
@@ -84,7 +106,7 @@ export const modelSummaryTool = {
 				}
 			}
 		},
-		required: ['document_name', 'features', 'rollback_index', 'bodies', 'errors', 'warnings', 'parameters']
+		required: ['document_name', 'features', 'rollback_index', 'bodies', 'errors', 'warnings', 'parameters', 'connectors']
 	},
 	annotations: { title: 'Model summary', readOnlyHint: true }
 };

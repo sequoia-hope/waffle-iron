@@ -26,6 +26,7 @@
 		getSelectedInstancePath,
 		getSelectedRefs,
 		getAssemblyConnectorFrames,
+		getAssemblyPartConnectors,
 		getConnectorRefusal,
 		getSources,
 		getSourceTabs,
@@ -76,6 +77,22 @@
 		return by;
 	});
 	let refusal = $derived(getConnectorRefusal());
+	/**
+	 * The named connectors of the instances' parts (`specs/part_mate_connectors.md`)
+	 * that no assembly connector uses yet: each can be taken as a connector,
+	 * or picked straight into a new mate.
+	 */
+	let unusedPartConnectors = $derived(
+		getAssemblyPartConnectors().filter(
+			(pc) =>
+				!(asm?.connectors ?? []).some(
+					(c) => c.part_connector === pc.feature_id && (c.instance_path ?? []).join() === pc.instance_path.join()
+				)
+		)
+	);
+	function partConnectorLabel(pc) {
+		return `${pathLabel(pc.instance_path)} › ${pc.name}`;
+	}
 	/** A connector on a rotational face has an axial extent to anchor along. */
 	function hasAxialExtent(kind) {
 		return /cylindrical|conical|toroidal|axial/.test(kind ?? '');
@@ -174,9 +191,28 @@
 		await run(() => updateConnector(c.id, { offsetMm }));
 	}
 
+	async function handleUsePartConnector(pc) {
+		await run(() => addConnector({ instancePath: pc.instance_path, partConnector: pc.feature_id }));
+	}
+
+	/** A mate pick: an assembly connector id, or `pc:<i>` for an unused part connector. */
+	function pickedPartConnector(value) {
+		return value.startsWith('pc:') ? unusedPartConnectors[Number(value.slice(3))] ?? null : null;
+	}
+
 	async function handleAddMate() {
 		if (!mateA || !mateB || mateA === mateB) return;
-		await run(() => addMate({ a: mateA, b: mateB, kind: mateKind, flip: mateFlip, rotationDeg: Number(mateRotation) || 0 }));
+		// Resolve both picks before creating anything: taking the first part
+		// connector changes which ones are still unused.
+		const picks = [mateA, mateB].map((v) => ({ id: v, pc: pickedPartConnector(v) }));
+		await run(async () => {
+			const ids = [];
+			for (const p of picks) {
+				ids.push(p.pc ? await addConnector({ instancePath: p.pc.instance_path, partConnector: p.pc.feature_id }) : p.id);
+			}
+			if (!ids[0] || !ids[1]) return;
+			await addMate({ a: ids[0], b: ids[1], kind: mateKind, flip: mateFlip, rotationDeg: Number(mateRotation) || 0 });
+		});
 		mateA = '';
 		mateB = '';
 	}
@@ -260,7 +296,7 @@
 						<button class="act" title="Remove connector" data-testid="asm-connector-remove-{i}" disabled={busy} onclick={() => run(() => removeConnector(c.id))}>×</button>
 					</div>
 					<div class="row-sub">
-						{#if hasAxialExtent(derivedKinds[c.id])}
+						{#if !c.part_connector && hasAxialExtent(derivedKinds[c.id])}
 							<select
 								data-testid="asm-connector-anchor-{i}"
 								title="Where on the axis the frame sits: the middle of the face, or the end its z axis points toward (+z) or away from (−z)"
@@ -279,6 +315,15 @@
 							{/each}
 							<span class="unit">mm</span>
 						</span>
+					</div>
+				</div>
+			{/each}
+			{#each unusedPartConnectors as pc, i (pc.instance_path.join() + pc.feature_id)}
+				<div class="row part-connector" data-testid="asm-part-connector-{i}">
+					<div class="row-main">
+						<span class="name-static" title="A named mate connector of the part">{partConnectorLabel(pc)}</span>
+						<span class="meta">part · {pc.kind ?? 'explicit frame'}</span>
+						<button class="act" title="Use this part connector in the assembly" data-testid="asm-part-connector-use-{i}" disabled={busy} onclick={() => handleUsePartConnector(pc)}>use</button>
 					</div>
 				</div>
 			{/each}
@@ -323,16 +368,23 @@
 					{/if}
 				</div>
 			{/each}
-			{#if (asm.connectors?.length ?? 0) >= 2}
+			{#if (asm.connectors?.length ?? 0) + unusedPartConnectors.length >= 2}
 				<div class="row add mate-add">
-					<select data-testid="asm-mate-a" bind:value={mateA}>
-						<option value="">connector A</option>
-						{#each asm.connectors as c}<option value={c.id}>{c.name}</option>{/each}
-					</select>
-					<select data-testid="asm-mate-b" bind:value={mateB}>
-						<option value="">connector B</option>
-						{#each asm.connectors as c}<option value={c.id}>{c.name}</option>{/each}
-					</select>
+					{#each [['asm-mate-a', 'connector A'], ['asm-mate-b', 'connector B']] as [testid, placeholder], side}
+						<select
+							data-testid={testid}
+							value={side === 0 ? mateA : mateB}
+							onchange={(e) => (side === 0 ? (mateA = e.currentTarget.value) : (mateB = e.currentTarget.value))}
+						>
+							<option value="">{placeholder}</option>
+							{#each asm.connectors ?? [] as c}<option value={c.id}>{c.name}</option>{/each}
+							{#if unusedPartConnectors.length}
+								<optgroup label="Part connectors">
+									{#each unusedPartConnectors as pc, i}<option value="pc:{i}">{partConnectorLabel(pc)}</option>{/each}
+								</optgroup>
+							{/if}
+						</select>
+					{/each}
 					<select data-testid="asm-mate-new-kind" bind:value={mateKind} title="Mate kind">
 						{#each MATE_KINDS as k}<option value={k}>{k}</option>{/each}
 					</select>

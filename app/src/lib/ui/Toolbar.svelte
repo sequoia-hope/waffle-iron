@@ -23,6 +23,7 @@
 		showShellDialog,
 		showBooleanDialog,
 		showDatumPlaneDialog,
+		showMateConnectorDialog,
 		importStep,
 		showImportLinkDialog,
 		saveProject,
@@ -172,6 +173,7 @@
 		{ id: 'shell', label: 'Shell', shortcut: '' },
 		{ id: 'boolean', label: 'Boolean', shortcut: '' },
 		{ id: 'datum-plane', label: 'Plane', shortcut: '' },
+		{ id: 'mate-connector', label: 'Connector', shortcut: '' },
 		{ id: 'import-step', label: 'Import', shortcut: '' },
 		{ id: 'import-link', label: 'Link STEP', shortcut: '' },
 	];
@@ -245,6 +247,10 @@
 		}
 		if (toolId === 'datum-plane' && !inSketch) {
 			showDatumPlaneDialog();
+			return;
+		}
+		if (toolId === 'mate-connector' && !inSketch) {
+			showMateConnectorDialog();
 			return;
 		}
 		if (toolId === 'import-step' && !inSketch) {

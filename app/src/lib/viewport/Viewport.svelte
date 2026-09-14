@@ -12,6 +12,7 @@
 	import FilletDialog from '$lib/ui/FilletDialog.svelte';
 	import ShellDialog from '$lib/ui/ShellDialog.svelte';
 	import BooleanDialog from '$lib/ui/BooleanDialog.svelte';
+	import MateConnectorDialog from '$lib/ui/MateConnectorDialog.svelte';
 	import AutoRestoreDialog from '$lib/ui/AutoRestoreDialog.svelte';
 	import SketchPlanePrompt from '$lib/ui/SketchPlanePrompt.svelte';
 	import GearDialog from '$lib/ui/GearDialog.svelte';
@@ -110,6 +111,7 @@
 	<FilletDialog />
 	<ShellDialog />
 	<BooleanDialog />
+	<MateConnectorDialog />
 	<AutoRestoreDialog />
 	<SketchPlanePrompt />
 	<GearDialog />

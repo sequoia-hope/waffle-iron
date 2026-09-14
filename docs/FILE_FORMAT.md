@@ -252,7 +252,7 @@ instances, connectors and mates are preserved (flattened `extra`).
 | Field | Type | Req/default | Notes |
 |---|---|---|---|
 | `instances` | Instance[] | default `[]` | `{id (UUID), name, source: {source_id?, tab_id}, transform: {translation_m: [3], rotation_quat: [4]} (default identity), fixed (default false, omitted), suppressed (default false, omitted), external_key?, parameter_overrides? ({name → number}, reserved)}`. `source` names a Part **or Assembly** tab (a sub-assembly, 3d-2) of this document (`source_id` absent) or of a linked `.waffle` source (§5.5). `fixed` grounds the instance; with none marked, the first non-suppressed instance is grounded. |
-| `connectors` | MateConnector[] | default `[]`, omitted when empty | `{id, name, instance_path: [UUID, …] (the top-level instance, then members through sub-assemblies — 3d-2), geom_ref? (a face or an EDGE of the PART, §8), frame: {origin, z_axis (default +z), x_axis (default: chosen deterministically)}}`. With `geom_ref`, the frame is derived from the current geometry at evaluation by `feature_engine::connector` (`specs/assembly_connector_frame_resolver.md`): a planar face gives its centroid + outward normal; a cylindrical, conical or toroidal face gives its axis, at the middle of that face's axial extent (so a bore's connector sits at mid-depth); a spherical face gives its centre; a circular or elliptical edge gives its centre, z out of its one planar neighbour face when it has one; a straight edge gives its midpoint along the edge. `frame.x_axis` is the secondary direction when set. Anything else is a loud error (never a substituted frame). Without `geom_ref`, `frame` is the frame. Coordinates are the part's own. **Adjustments** (`specs/assembly_connector_adjustments.md`, additive, each omitted at its default): `anchor` (`"middle"` \| `"positive_end"` \| `"negative_end"` — where on a cylindrical/conical/toroidal face's axis the frame sits: the middle of the face's extent or the end its z points toward/away from, named by the FINAL z; ignored by other picks), `flip_z` (reverse z: a 180° turn about x), `rotation_deg` (turn about z, after the flip), `offset_m` (`[x, y, z]` along the connector's OWN axes, after the turn). |
+| `connectors` | MateConnector[] | default `[]`, omitted when empty | `{id, name, instance_path: [UUID, …] (the top-level instance, then members through sub-assemblies — 3d-2), geom_ref? (a face or an EDGE of the PART, §8), frame: {origin, z_axis (default +z), x_axis (default: chosen deterministically)}}`. With `geom_ref`, the frame is derived from the current geometry at evaluation by `feature_engine::connector` (`specs/assembly_connector_frame_resolver.md`): a planar face gives its centroid + outward normal; a cylindrical, conical or toroidal face gives its axis, at the middle of that face's axial extent (so a bore's connector sits at mid-depth); a spherical face gives its centre; a circular or elliptical edge gives its centre, z out of its one planar neighbour face when it has one; a straight edge gives its midpoint along the edge. `frame.x_axis` is the secondary direction when set. Anything else is a loud error (never a substituted frame). Without `geom_ref`, `frame` is the frame. Coordinates are the part's own. **Adjustments** (`specs/assembly_connector_adjustments.md`, additive, each omitted at its default): `anchor` (`"middle"` \| `"positive_end"` \| `"negative_end"` — where on a cylindrical/conical/toroidal face's axis the frame sits: the middle of the face's extent or the end its z points toward/away from, named by the FINAL z; ignored by other picks), `flip_z` (reverse z: a 180° turn about x), `rotation_deg` (turn about z, after the flip), `offset_m` (`[x, y, z]` along the connector's OWN axes, after the turn). **`part_connector`** (UUID, additive, omitted when absent; `specs/part_mate_connectors.md`): the id of a `MateConnector` feature of the instance's part (§7.8) — the frame is that connector's as the part evaluates it, taking precedence over `geom_ref` and `frame`; this connector's adjustments still apply on top. A part without that working connector is a loud evaluation error (the explicit `frame` is used meanwhile). |
 | `mates` | Mate[] | default `[]`, omitted when empty | `{id, name, kind, connectors: [a, b], suppressed}`. `kind` is tagged `type`; `flip` (default false) on every kind makes b's z axis oppose a's instead of aligning (two outward face normals "facing"). `Fastened {flip, rotation_deg}` — frames coincident after `rotation_deg` about z, solved exactly by composition. Solved numerically (Phase 3d, `feature_engine::assembly_solver`: damped Gauss-Newton over the free instances' poses from their current placements, so the free degrees of freedom keep their current values): `Revolute {flip}` (origins coincide, z axes parallel; rotation about z free), `Slider {flip}` (frames aligned, b's origin on a's z axis; travel along z free), `Cylindrical {flip}` (z axes parallel, b's origin on a's z axis), `Planar {flip}` (z axes parallel, b's origin in a's xy plane), `Ball` (origins coincide). A mate the solver cannot satisfy within tolerance is a loud error (over-constrained or conflicting). Any other `type` is preserved opaquely and reported. |
 | `placements` | {UUID → Transform} | default `{}`, omitted when empty | **Derived hints**: the solved placement of every non-suppressed instance, recomputed on every evaluation by `feature_engine::assembly::solve_fastened` (rigid-transform composition from the grounded instances through the mates; an over-constrained mate is a loud error; an instance no mate reaches keeps its own `transform`, with a warning). Persisted so a reader without the engine can position instances; never authoritative. |
 
@@ -340,7 +340,8 @@ bridge actually sends and JS actually stores into the file) — a drift hazard
 ## 7. Operations
 
 `operation` is internally tagged with `type` ∈ `Sketch`, `Extrude`, `Revolve`,
-`Fillet`, `Chamfer`, `Shell`, `BooleanCombine`, `DatumPlane`, `ImportedBody`.
+`Fillet`, `Chamfer`, `Shell`, `BooleanCombine`, `DatumPlane`, `ImportedBody`,
+`MateConnector`.
 Parameter payloads sit under `sketch` (for `Sketch`) or `params` (all others).
 
 **Unknown kinds (v4 Phase 1b, 2026-09-08).** A well-formed `{"type": …}`
@@ -447,6 +448,21 @@ Rust persisted enum and never appears in files.)
 The import replays on every rebuild (a process-wide parse cache makes transform
 edits cheap). This is the one place the format deliberately embeds bulk payload
 data; observed cost ≈ 430 KB blob for a small STEP part.
+
+### 7.8 `MateConnector` — `MateConnectorParams` (types.rs, 2026-09-14)
+
+A named frame on the part that an assembly's connectors reference
+(`part_connector`, §5.6; `specs/part_mate_connectors.md`). No geometry of its
+own; the rebuild derives the frame and fails the feature loudly when it
+cannot. The connector's name is the FEATURE's name. A new operation kind, so
+no reader-floor bump (older readers keep it as `Unknown`).
+
+| Field | Type | Req/default | Notes |
+|---|---|---|---|
+| `name` | string | default `""`, omitted when empty | The feature's name at creation (empty ⇒ "Mate connector"). |
+| `geom_ref` | GeomRef \| absent | opt | A face or an edge of this part; derived exactly as an assembly connector's `geom_ref` (§5.6). |
+| `frame` | `{origin, z_axis, x_axis}` | default origin, +z | The frame when there is no `geom_ref` (meters, part coordinates); with one, a non-zero `x_axis` is the secondary direction. |
+| `anchor`, `flip_z`, `rotation_deg`, `offset_m` | as §5.6 | defaults omitted | The same adjustments, same order. |
 
 ---
 

@@ -85,6 +85,27 @@ export const ENGINE_DEFS = {
     ],
     "type": "object"
   },
+  "AxialAnchor": {
+    "description": "Where along a rotational face's axis a derived connector sits\n(`crate::connector`, `specs/assembly_connector_adjustments.md`): the\nmiddle of the face's axial extent (the default — what a Revolute or\nCylindrical mate wants) or one of its ends. The ends are named by the\nconnector's FINAL z (after `flip_z`), so they always read against the\ntriad the viewport draws: \"+z end\" is wherever the blue arrow points.\nIgnored by every other pick (a planar face, a sphere, an edge, an\nexplicit frame).",
+    "oneOf": [
+      {
+        "enum": [
+          "middle"
+        ],
+        "type": "string"
+      },
+      {
+        "const": "positive_end",
+        "description": "The end of the face's extent that z points toward.",
+        "type": "string"
+      },
+      {
+        "const": "negative_end",
+        "description": "The end of the face's extent that z points away from.",
+        "type": "string"
+      }
+    ]
+  },
   "BooleanOp": {
     "description": "Boolean operation type.",
     "oneOf": [
@@ -660,6 +681,54 @@ export const ENGINE_DEFS = {
       }
     ]
   },
+  "Frame": {
+    "description": "A coordinate frame on part geometry: origin, primary (z) axis and\nsecondary (x) axis, in the PART's coordinates. `x_axis` is orthogonalized\nagainst `z_axis`; a zero `x_axis` means \"any perpendicular\" (chosen\ndeterministically).",
+    "properties": {
+      "origin": {
+        "default": [
+          0,
+          0,
+          0
+        ],
+        "items": {
+          "format": "double",
+          "type": "number"
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": "array"
+      },
+      "x_axis": {
+        "default": [
+          0,
+          0,
+          0
+        ],
+        "items": {
+          "format": "double",
+          "type": "number"
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": "array"
+      },
+      "z_axis": {
+        "default": [
+          0,
+          0,
+          1
+        ],
+        "items": {
+          "format": "double",
+          "type": "number"
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": "array"
+      }
+    },
+    "type": "object"
+  },
   "GearParams": {
     "description": "Parameters for generating an involute gear profile.",
     "properties": {
@@ -821,6 +890,71 @@ export const ENGINE_DEFS = {
     ],
     "type": "object"
   },
+  "MateConnectorParams": {
+    "description": "Parameters for a part mate connector (`specs/part_mate_connectors.md`).\n\nThe frame is derived exactly as an assembly connector's is\n([`crate::connector::resolve_connector_frame`]): from `geom_ref` (a face\nor an edge of this part) when present, else `frame` as given, in the\npart's coordinates. The same adjustments then apply in the same order\n(`flip_z`, `rotation_deg`, `offset_m`; `anchor` on a rotational face).\nThe connector's NAME is its feature's name; `name` is only the name the\nfeature is created with.",
+    "properties": {
+      "anchor": {
+        "$ref": "#/$defs/AxialAnchor",
+        "description": "Where on a cylindrical/conical/toroidal face's axis the frame sits."
+      },
+      "flip_z": {
+        "description": "Reverse z (a 180° turn about x). Applied first.",
+        "type": "boolean"
+      },
+      "frame": {
+        "$ref": "#/$defs/Frame",
+        "default": {
+          "origin": [
+            0,
+            0,
+            0
+          ],
+          "x_axis": [
+            0,
+            0,
+            0
+          ],
+          "z_axis": [
+            0,
+            0,
+            1
+          ]
+        },
+        "description": "The frame when there is no `geom_ref` (meters, part coordinates;\ndefault: the part origin, z up). With a `geom_ref`, a non-zero\n`x_axis` is the secondary direction."
+      },
+      "geom_ref": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/GeomRef"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "The face or edge the frame is derived from. Absent ⇒ `frame`."
+      },
+      "name": {
+        "description": "The feature's name at creation (default \"Mate connector\").",
+        "type": "string"
+      },
+      "offset_m": {
+        "description": "Move along the frame's own axes after the turn, meters `[x, y, z]`.",
+        "items": {
+          "format": "double",
+          "type": "number"
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": "array"
+      },
+      "rotation_deg": {
+        "description": "Turn about z in degrees, after the flip.",
+        "format": "double",
+        "type": "number"
+      }
+    },
+    "type": "object"
+  },
   "Operation": {
     "description": "A parametric modeling operation with its parameters. Any other well-formed object with a string `type` (an operation kind from a newer build) is preserved verbatim, re-emitted on save, and fails its rebuild loudly.",
     "oneOf": [
@@ -969,6 +1103,22 @@ export const ENGINE_DEFS = {
         "type": "object"
       },
       {
+        "properties": {
+          "params": {
+            "$ref": "#/$defs/MateConnectorParams"
+          },
+          "type": {
+            "const": "MateConnector",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "params"
+        ],
+        "type": "object"
+      },
+      {
         "description": "Unknown operation kind (opaque, preserved; rebuild fails loudly).",
         "properties": {
           "type": {
@@ -982,7 +1132,8 @@ export const ENGINE_DEFS = {
                 "Shell",
                 "BooleanCombine",
                 "DatumPlane",
-                "ImportedBody"
+                "ImportedBody",
+                "MateConnector"
               ]
             },
             "type": "string"

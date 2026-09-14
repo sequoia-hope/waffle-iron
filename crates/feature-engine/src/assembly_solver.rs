@@ -363,6 +363,7 @@ mod tests {
             name: "c".into(),
             instance_path: vec![i],
             geom_ref: None,
+            part_connector: None,
             frame,
             anchor: AxialAnchor::Middle,
             flip_z: false,

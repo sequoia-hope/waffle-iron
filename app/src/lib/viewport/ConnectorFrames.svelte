@@ -2,19 +2,21 @@
 	/**
 	 * Mate-connector triads (`specs/assembly_connector_frame_resolver.md` §2.5).
 	 *
-	 * Every connector of the open Assembly tab, drawn where the engine put it:
-	 * a short R/G/B triad at the frame's origin, with z (the mate axis) longer
-	 * than x and y. Until this existed a connector was invisible — neither its
-	 * position nor which way its z pointed could be checked, and `flip` was a
-	 * checkbox toggled blind.
+	 * Every connector of the open Assembly tab — or, in a Part, every named
+	 * mate connector of the part (`specs/part_mate_connectors.md`) — drawn
+	 * where the engine put it: a short R/G/B triad at the frame's origin, with
+	 * z (the mate axis) longer than x and y. Until this existed a connector was
+	 * invisible — neither its position nor which way its z pointed could be
+	 * checked, and `flip` was a checkbox toggled blind.
 	 *
-	 * The frames arrive in WORLD coordinates (`ModelUpdated.assembly.connectors`),
-	 * so the geometry is built from raw points and the object carries no
-	 * transform — no quaternion prop, which Threlte v8 silently ignores.
+	 * The frames arrive evaluated (`ModelUpdated.assembly.connectors` in world
+	 * coordinates, `ModelUpdated.connectors` in the part's), so the geometry is
+	 * built from raw points and the object carries no transform — no
+	 * quaternion prop, which Threlte v8 silently ignores.
 	 */
 	import { T } from '@threlte/core';
 	import * as THREE from 'three';
-	import { getAssemblyConnectorFrames } from '$lib/engine/store.svelte.js';
+	import { getAssemblyConnectorFrames, getPartConnectorFrames } from '$lib/engine/store.svelte.js';
 	import { AXIS_COLORS } from '$lib/config.js';
 
 	/** Axis lengths in meters. z is the mate axis, so it reads longest. */
@@ -23,7 +25,9 @@
 	const AXIS_COLOR = { x_axis: AXIS_COLORS.x, y_axis: AXIS_COLORS.y, z_axis: AXIS_COLORS.z };
 	const AXES = ['x_axis', 'y_axis', 'z_axis'];
 
-	let frames = $derived(getAssemblyConnectorFrames());
+	// An open assembly reports no part connectors of its own (its live part
+	// tree is empty), so the two lists never show the same frame twice.
+	let frames = $derived([...getAssemblyConnectorFrames(), ...getPartConnectorFrames()]);
 
 	/** One LineSegments geometry per axis: a segment per connector. */
 	function axisGeometry(list, axis) {

@@ -57,6 +57,7 @@ fn connector(name: &str, inst: Uuid, geom_ref: Option<GeomRef>, frame: Frame) ->
         name: name.into(),
         instance_path: vec![inst],
         geom_ref,
+        part_connector: None,
         frame,
         anchor: AxialAnchor::Middle,
         flip_z: false,
@@ -1352,4 +1353,178 @@ fn connector_adjustments_move_the_frame_in_its_own_axes() {
         "offset along the turned x, got {:?}",
         t.origin
     );
+}
+
+// ── part mate connectors (specs/part_mate_connectors.md) ────────────────────
+
+/// The imported cube's +z face, by signature.
+fn cube_face(import_id: Uuid, kind: TopoKind, normal: [f64; 3]) -> GeomRef {
+    GeomRef {
+        kind,
+        anchor: Anchor::FeatureOutput {
+            feature_id: import_id,
+            output_key: OutputKey::Main,
+        },
+        selector: Selector::Signature {
+            signature: waffle_types::TopoSignature {
+                surface_type: Some("planar".into()),
+                normal: Some(normal),
+                ..waffle_types::TopoSignature::empty()
+            },
+        },
+        policy: ResolvePolicy::BestEffort,
+        scope: None,
+    }
+}
+
+/// A named connector authored in the PART is reported by the part's
+/// `ModelUpdated`, carried into every instance of the part, and usable by an
+/// assembly connector (`part_connector`) in a mate.
+#[test]
+fn a_part_mate_connector_is_evaluated_in_the_part_and_mates_its_instances() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let part = cube_part(&mut state, &mut kernel);
+    let import_id = part.features[0].id;
+
+    let r = dispatch(
+        &mut state,
+        UiToEngine::AddFeature {
+            operation: Operation::MateConnector {
+                params: MateConnectorParams {
+                    name: "Top".into(),
+                    geom_ref: Some(cube_face(import_id, TopoKind::Face, [0.0, 0.0, 1.0])),
+                    ..Default::default()
+                },
+            },
+            provenance: None,
+        },
+        &mut kernel,
+    );
+    let EngineToUi::ModelUpdated {
+        feature_id,
+        feature_tree,
+        errors,
+        connectors,
+        ..
+    } = r
+    else {
+        panic!("{r:?}")
+    };
+    assert!(errors.is_empty(), "{errors:?}");
+    let top_id = feature_id.expect("the new feature's id");
+    let added = feature_tree.find_feature(top_id).expect("in the tree");
+    assert_eq!(added.name, "Top", "created with its params name");
+    assert_eq!(connectors.len(), 1, "{connectors:?}");
+    let c = &connectors[0];
+    assert_eq!((c.feature_id, c.name.as_str()), (top_id, "Top"));
+    assert_eq!(c.kind.as_deref(), Some("planar face"));
+    assert!((c.origin[2] - 0.01).abs() < 1e-6, "on the top face: {c:?}");
+    assert!((c.z_axis[2] - 1.0).abs() < 1e-9, "{c:?}");
+    assert!(state
+        .engine
+        .tree
+        .features
+        .iter()
+        .all(|f| f.id != Uuid::nil()));
+
+    let parts: HashMap<String, FeatureTree> =
+        HashMap::from([("part".to_string(), state.engine.tree.clone())]);
+    let a = instance("A", "part", Transform::identity(), true);
+    let b = instance("B", "part", Transform::identity(), false);
+    let (ida, idb) = (a.id, b.id);
+    let mut ca = connector("A › Top", ida, None, Frame::default());
+    ca.part_connector = Some(top_id);
+    let cb = connector(
+        "B bottom",
+        idb,
+        None,
+        Frame::on_plane([0.005, 0.005, 0.0], [0.0, 0.0, -1.0]),
+    );
+    let mut dangling = connector("gone", idb, None, Frame::default());
+    dangling.part_connector = Some(Uuid::new_v4());
+    let (cida, cidb) = (ca.id, cb.id);
+    let tree = AssemblyTree {
+        instances: vec![a, b],
+        connectors: vec![ca, cb, dangling],
+        mates: vec![fastened(cida, cidb, true)],
+        ..Default::default()
+    };
+    let status = open(&mut state, &mut kernel, &tree, &parts);
+
+    // B stacked on A's part connector.
+    let tb = status.placements[&idb];
+    assert!((tb.translation_m[2] - 0.01).abs() < 1e-6, "{tb:?}");
+    let frame = status.connectors.iter().find(|f| f.id == cida).unwrap();
+    assert_eq!(frame.kind.as_deref(), Some("part connector · planar face"));
+    assert!((frame.origin[2] - 0.01).abs() < 1e-6, "{frame:?}");
+
+    // Every instance of the part offers the connector, placed in the world.
+    assert_eq!(
+        status.part_connectors.len(),
+        2,
+        "{:?}",
+        status.part_connectors
+    );
+    let on_b = status
+        .part_connectors
+        .iter()
+        .find(|p| p.instance_path == vec![idb])
+        .expect("B's copy");
+    assert_eq!((on_b.feature_id, on_b.name.as_str()), (top_id, "Top"));
+    assert!(
+        (on_b.origin[2] - 0.02).abs() < 1e-6,
+        "B's top face: {on_b:?}"
+    );
+
+    // A reference to a connector the part does not have is loud.
+    assert!(
+        status
+            .errors
+            .iter()
+            .any(|e| e.contains("`gone`") && e.contains("no working mate connector")),
+        "{:?}",
+        status.errors
+    );
+    let _ = ida;
+}
+
+/// A pick with no frame fails the feature loudly and reports no connector.
+#[test]
+fn a_part_mate_connector_on_a_vertex_fails_its_feature() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let part = cube_part(&mut state, &mut kernel);
+    let import_id = part.features[0].id;
+    let r = dispatch(
+        &mut state,
+        UiToEngine::AddFeature {
+            operation: Operation::MateConnector {
+                params: MateConnectorParams {
+                    geom_ref: Some(cube_face(import_id, TopoKind::Vertex, [0.0, 0.0, 1.0])),
+                    ..Default::default()
+                },
+            },
+            provenance: None,
+        },
+        &mut kernel,
+    );
+    let EngineToUi::ModelUpdated {
+        feature_id,
+        feature_tree,
+        errors,
+        connectors,
+        ..
+    } = r
+    else {
+        panic!("{r:?}")
+    };
+    let id = feature_id.expect("added even though it fails");
+    assert_eq!(
+        feature_tree.find_feature(id).unwrap().name,
+        "Mate connector",
+        "the default name"
+    );
+    assert!(errors.iter().any(|(fid, _)| *fid == id), "{errors:?}");
+    assert!(connectors.is_empty(), "{connectors:?}");
 }

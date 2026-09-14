@@ -10,7 +10,7 @@ use waffle_types::OutputKey;
 use crate::engine_state::{BridgeError, EngineState};
 use crate::messages::{
     AssemblyStatus, ConnectorFrameInfo, ContextInstanceInfo, ContextStatus, EngineToUi,
-    SourceStatus, UiToEngine,
+    PartConnectorInfo, SourceStatus, UiToEngine,
 };
 use crate::messages::{ListedFace, MeasureMethod, Measured};
 
@@ -1044,17 +1044,33 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
                         .get(&c.id)?
                         .transformed(&v.placement(c.top_instance_id()?));
                     let (x_axis, y_axis, z_axis) = world.basis().ok()?;
+                    let derived = v.connector_geometry.get(&c.id).map(|k| k.label());
                     Some(ConnectorFrameInfo {
                         id: c.id,
-                        kind: v
-                            .connector_geometry
-                            .get(&c.id)
-                            .map(|k| k.label().to_string()),
+                        kind: match (c.part_connector, derived) {
+                            (Some(_), Some(label)) => Some(format!("part connector · {label}")),
+                            (Some(_), None) => Some("part connector".to_string()),
+                            (None, label) => label.map(str::to_string),
+                        },
                         origin: world.origin,
                         x_axis,
                         y_axis,
                         z_axis,
                     })
+                })
+                .collect(),
+            part_connectors: v
+                .leaves
+                .iter()
+                .flat_map(|leaf| {
+                    v.parts[leaf.part]
+                        .1
+                        .connectors
+                        .iter()
+                        .filter_map(|pc| {
+                            PartConnectorInfo::new(pc, leaf.path.clone(), &leaf.transform)
+                        })
+                        .collect::<Vec<_>>()
                 })
                 .collect(),
         }),
@@ -1080,6 +1096,18 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
             errors: cv.view.errors.clone(),
             warnings: cv.view.warnings.clone(),
         }),
+        connectors: state
+            .engine
+            .connectors
+            .iter()
+            .filter_map(|pc| {
+                PartConnectorInfo::new(
+                    pc,
+                    Vec::new(),
+                    &feature_engine::assembly::Transform::identity(),
+                )
+            })
+            .collect(),
     }
 }
 
@@ -1204,6 +1232,10 @@ fn operation_name(op: &Operation) -> String {
         Operation::BooleanCombine { .. } => "Boolean Combine".to_string(),
         Operation::DatumPlane { params } => params.name.clone(),
         Operation::ImportedBody { params } => format!("Import {}", params.file_name),
+        Operation::MateConnector { params } if !params.name.trim().is_empty() => {
+            params.name.trim().to_string()
+        }
+        Operation::MateConnector { .. } => "Mate connector".to_string(),
         Operation::Unknown(_) => op.type_tag().to_string(),
     }
 }

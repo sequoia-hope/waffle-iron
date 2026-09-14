@@ -331,8 +331,34 @@ fn evaluate_tree(
                 }
             }
         };
-        let base = match (&c.geom_ref, part_idx) {
-            (Some(geom_ref), Some(idx)) => {
+        let base = match (c.part_connector, &c.geom_ref, part_idx) {
+            // A named connector of the part: its frame as the part evaluated
+            // it (already derived and adjusted in part coordinates).
+            (Some(pc), _, Some(idx)) => {
+                match ctx.parts[idx]
+                    .1
+                    .connectors
+                    .iter()
+                    .find(|p| p.feature_id == pc)
+                {
+                    Some(p) => {
+                        if let Some(kind) = p.geometry {
+                            geometry.insert(c.id, kind);
+                        }
+                        p.frame
+                    }
+                    None => {
+                        ctx.errors.push(format!(
+                            "connector `{}` ({}): the part has no working mate connector {pc} \
+                             (deleted, suppressed, rolled back or failed to rebuild); using its \
+                             explicit frame",
+                            c.name, c.id
+                        ));
+                        c.frame
+                    }
+                }
+            }
+            (None, Some(geom_ref), Some(idx)) => {
                 match resolve_connector_frame(
                     geom_ref,
                     &ctx.parts[idx].1.feature_results,

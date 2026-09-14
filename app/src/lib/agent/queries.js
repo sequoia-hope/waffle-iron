@@ -12,6 +12,7 @@ import {
 	getFeatureErrors,
 	getFeatureTree,
 	getMeshes,
+	getPartConnectorFrames,
 	getRebuildWarnings,
 	getSelectedFeatureId,
 	getSelectedRefs,
@@ -80,7 +81,8 @@ export const QUERIES = {
 					featureTree: plain(getFeatureTree()),
 					featureErrors: new Map(getFeatureErrors()),
 					bodies: getBodies(),
-					warnings: getRebuildWarnings()
+					warnings: getRebuildWarnings(),
+					connectors: plain(getPartConnectorFrames())
 				})
 			)
 	},

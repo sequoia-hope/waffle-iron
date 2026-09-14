@@ -6,6 +6,7 @@
  */
 
 import { base } from '$app/paths';
+import * as THREE from 'three';
 import { INFERENCE_SOURCES_MAX } from '$lib/config.js';
 import { EngineBridge } from './bridge.js';
 import { log, getLogs, exportLogs, clearLogs } from './logger.js';
@@ -34,6 +35,50 @@ import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, del
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** @param {unknown} s */
 function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
+
+/**
+ * A point well inside a face's triangles `[start, end)` of an indexed mesh:
+ * the area-weighted centroid when it lies on one of the face's triangles
+ * (any convex face), else the centroid of the largest triangle. The first
+ * triangle's centroid sits a third of the way in from an edge, close enough
+ * to be an edge pick once the camera frames the part.
+ * @param {ArrayLike<number>} vertices
+ * @param {ArrayLike<number>} indices
+ * @param {number} start
+ * @param {number} end
+ * @returns {[number, number, number]}
+ */
+function faceInteriorPoint(vertices, indices, start, end) {
+	const p = (/** @type {number} */ i) => [vertices[i * 3], vertices[i * 3 + 1], vertices[i * 3 + 2]];
+	const sub = (/** @type {number[]} */ a, /** @type {number[]} */ b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+	const cross = (/** @type {number[]} */ a, /** @type {number[]} */ b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+	const dot = (/** @type {number[]} */ a, /** @type {number[]} */ b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+	const tris = [];
+	const sum = [0, 0, 0];
+	let total = 0;
+	for (let k = start; k + 3 <= end && k + 2 < indices.length; k += 3) {
+		const a = p(indices[k]), b = p(indices[k + 1]), c = p(indices[k + 2]);
+		const n = cross(sub(b, a), sub(c, a));
+		const area = Math.sqrt(dot(n, n)) / 2;
+		const centroid = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3];
+		tris.push({ a, b, c, n, area, centroid });
+		for (let j = 0; j < 3; j++) sum[j] += centroid[j] * area;
+		total += area;
+	}
+	if (!tris.length) return [0, 0, 0];
+	const largest = tris.reduce((m, t) => (t.area > m.area ? t : m));
+	if (total <= 0) return /** @type {[number, number, number]} */ (largest.centroid);
+	const g = [sum[0] / total, sum[1] / total, sum[2] / total];
+	// On a triangle: close to its plane and on the inner side of all three edges.
+	const onTriangle = (/** @type {any} */ t) => {
+		const nn = dot(t.n, t.n);
+		if (nn === 0) return false;
+		const scale = Math.max(Math.sqrt(t.area), 1e-12);
+		if (Math.abs(dot(sub(g, t.a), t.n)) / Math.sqrt(nn) > scale * 1e-3) return false;
+		return [[t.a, t.b], [t.b, t.c], [t.c, t.a]].every(([u, w]) => dot(cross(sub(w, u), sub(g, u)), t.n) >= 0);
+	};
+	return /** @type {[number, number, number]} */ (tris.some(onTriangle) ? g : largest.centroid);
+}
 
 function generateUUID() {
 	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -213,6 +258,10 @@ let shellDialogState = $state(null);
 
 /** @type {{ bodies: Array<{ featureId: string, name: string }>, operation: string } | null} */
 let booleanDialogState = $state(null);
+/** Part mate connector dialog (`specs/part_mate_connectors.md`); null when closed. */
+let mateConnectorDialogState = $state(null);
+/** The open part's named mate connectors as evaluated (`ModelUpdated.connectors`). */
+let partConnectors = $state([]);
 
 // -- Test case browser state --
 
@@ -606,6 +655,7 @@ export function getUserBusyReason() {
 		extrudeDialogState ||
 		revolveDialogState ||
 		booleanDialogState ||
+		mateConnectorDialogState ||
 		chamferDialogState ||
 		filletDialogState ||
 		shellDialogState ||
@@ -675,7 +725,8 @@ export async function initEngine() {
 		// Assembly evaluation (v4 Phase 3b): solved placements are derived
 		// hints written back into the tab so they are saved with it.
 		// Empty arrays are omitted on the wire; give the UI a stable shape.
-		assemblyStatus = msg.assembly ? { errors: [], warnings: [], parts: [], connectors: [], ...msg.assembly } : null;
+		assemblyStatus = msg.assembly ? { errors: [], warnings: [], parts: [], connectors: [], part_connectors: [], ...msg.assembly } : null;
+		partConnectors = msg.connectors ?? [];
 		// In-context editing (v4 Phase 3d-4): present while a Part is open in
 		// an assembly's context; the engine drops it on any tab switch.
 		editContext = msg.context ? { instances: [], errors: [], warnings: [], ...msg.context } : null;
@@ -1044,6 +1095,12 @@ export async function initEngine() {
 			updateInstance: (id, patch) => updateInstance(id, patch),
 			removeInstance: (id) => removeInstance(id),
 			addConnector: (opts) => addConnector(opts),
+			getPartConnectors: () => JSON.parse(JSON.stringify(getPartConnectorFrames())),
+			getAssemblyPartConnectors: () => JSON.parse(JSON.stringify(getAssemblyPartConnectors())),
+			showMateConnectorDialog: (featureId) => showMateConnectorDialog(featureId ?? null),
+			hideMateConnectorDialog: () => hideMateConnectorDialog(),
+			getMateConnectorDialogState: () => (mateConnectorDialogState ? JSON.parse(JSON.stringify(mateConnectorDialogState)) : null),
+			applyMateConnector: (choice) => applyMateConnector(choice),
 			updateConnector: (id, patch) => updateConnector(id, patch),
 			removeConnector: (id) => removeConnector(id),
 			probeConnectorRef: (path, ref) => probeConnectorRef(path, ref),
@@ -1180,24 +1237,34 @@ export async function initEngine() {
 				const canvas = document.querySelector('canvas');
 				if (!cam || !canvas) return [];
 				const rect = canvas.getBoundingClientRect();
+				// Visible = the point is the FIRST model surface along its camera
+				// ray. Without this a hidden face's point was reported too, and a
+				// click on it lands on whatever face happens to cover it.
+				const modelObjects = [];
+				let root = cam;
+				while (root.parent) root = root.parent;
+				root.traverse((obj) => {
+					if (obj.visible && obj.userData?.waffleType === 'model') modelObjects.push(obj);
+				});
+				const raycaster = new THREE.Raycaster();
 				const results = [];
 				for (const mesh of meshes) {
 					if (!mesh.faceRanges) continue;
 					for (const range of mesh.faceRanges) {
 						if (!range.geom_ref) continue;
-						const i0 = mesh.indices[range.start_index];
-						const i1 = mesh.indices[range.start_index + 1];
-						const i2 = mesh.indices[range.start_index + 2];
-						const cx = (mesh.vertices[i0*3] + mesh.vertices[i1*3] + mesh.vertices[i2*3]) / 3;
-						const cy = (mesh.vertices[i0*3+1] + mesh.vertices[i1*3+1] + mesh.vertices[i2*3+1]) / 3;
-						const cz = (mesh.vertices[i0*3+2] + mesh.vertices[i1*3+2] + mesh.vertices[i2*3+2]) / 3;
-						const v = cam.position.clone().set(cx, cy, cz).project(cam);
+						const point = new THREE.Vector3(...faceInteriorPoint(mesh.vertices, mesh.indices, range.start_index, range.end_index));
+						const v = point.clone().project(cam);
+						if (v.z > 1) continue; // behind the camera
+						raycaster.setFromCamera(new THREE.Vector2(v.x, v.y), cam);
+						const hit = raycaster.intersectObjects(modelObjects, true)[0];
+						const reach = raycaster.ray.origin.distanceTo(point);
+						if (modelObjects.length && (!hit || hit.distance < reach - Math.max(1e-9, reach * 1e-4))) continue;
 						const screenX = (v.x * 0.5 + 0.5) * rect.width + rect.left;
 						const screenY = (-v.y * 0.5 + 0.5) * rect.height + rect.top;
-						results.push({ geomRef: range.geom_ref, screenX, screenY, behindCamera: v.z > 1 });
+						results.push({ geomRef: range.geom_ref, screenX, screenY, behindCamera: false });
 					}
 				}
-				return results.filter(r => !r.behindCamera);
+				return results;
 			},
 			isProjectToolActive: () => isProjectToolActive(),
 			getProjectName: () => getProjectName(),
@@ -4914,6 +4981,97 @@ export function hideBooleanDialog() {
 	booleanDialogState = null;
 }
 
+// -- Part mate connector dialog (specs/part_mate_connectors.md) --
+
+export function getMateConnectorDialogState() { return mateConnectorDialogState; }
+
+/**
+ * Open the part mate connector dialog: to edit `featureId`'s connector, or
+ * to add one on the selected face or edge (nothing selected ⇒ the part
+ * origin, z up).
+ * @param {string | null} [featureId]
+ */
+export function showMateConnectorDialog(featureId = null) {
+	if (sketchMode.active) return;
+	const feature = featureId ? featureTree?.features?.find(f => f.id === featureId) : null;
+	if (featureId && feature?.operation?.type !== 'MateConnector') return;
+	const p = feature?.operation?.params ?? {};
+	const pick = feature ? null : getSelectedRefs().find(r => r?.kind?.type === 'Face' || r?.kind?.type === 'Edge');
+	log('ui', 'Show mate connector dialog', { featureId });
+	mateConnectorDialogState = {
+		editingFeatureId: feature?.id ?? null,
+		name: feature?.name ?? '',
+		geomRef: JSON.parse(JSON.stringify((feature ? p.geom_ref : pick) ?? null)),
+		frame: p.frame ? JSON.parse(JSON.stringify(p.frame)) : null,
+		anchor: p.anchor ?? 'middle',
+		flipZ: !!p.flip_z,
+		rotationDeg: p.rotation_deg ?? 0,
+		offsetMm: [0, 1, 2].map(k => Math.round((p.offset_m?.[k] ?? 0) * 1e6) / 1e3)
+	};
+}
+
+export function hideMateConnectorDialog() {
+	mateConnectorDialogState = null;
+}
+
+/**
+ * A dialog choice as a `MateConnector` operation: lengths in meters, every
+ * adjustment at its default omitted (the engine's own wire form).
+ */
+export function mateConnectorOperation({ name = '', geomRef = null, frame = null, anchor = 'middle', flipZ = false, rotationDeg = 0, offsetMm = [0, 0, 0] } = {}) {
+	/** @type {Record<string, any>} */
+	const params = {};
+	if (String(name ?? '').trim()) params.name = String(name).trim();
+	if (geomRef) params.geom_ref = JSON.parse(JSON.stringify(geomRef));
+	params.frame = frame ? JSON.parse(JSON.stringify(frame)) : { origin: [0, 0, 0], z_axis: [0, 0, 1], x_axis: [0, 0, 0] };
+	if (CONNECTOR_ANCHORS.includes(anchor) && anchor !== 'middle') params.anchor = anchor;
+	if (flipZ) params.flip_z = true;
+	const r = Number(rotationDeg) || 0;
+	if (r) params.rotation_deg = r;
+	const o = [0, 1, 2].map(k => (Number(offsetMm?.[k]) || 0) / 1000);
+	if (o.some(v => v !== 0)) params.offset_m = o;
+	return { type: 'MateConnector', params };
+}
+
+/**
+ * Add (or, with the dialog editing one, replace) the part mate connector a
+ * choice describes. A pick the engine cannot derive a frame from fails the
+ * feature — loud, in the tree and a toast — and the dialog stays open on
+ * that feature so the pick can be changed.
+ * @returns {Promise<string | null>} the feature id
+ */
+export async function applyMateConnector(choice = {}) {
+	if (!bridge || !engineReady) return null;
+	const editing = mateConnectorDialogState?.editingFeatureId ?? null;
+	const operation = mateConnectorOperation(choice);
+	log('action', editing ? 'Edit mate connector' : 'Add mate connector', { name: operation.params.name });
+	const before = new Set((featureTree?.features ?? []).map(f => f.id));
+	try {
+		if (editing) {
+			await sendRebuild({ type: 'EditFeature', feature_id: editing, operation });
+			const name = operation.params.name;
+			const current = featureTree?.features?.find(f => f.id === editing);
+			if (name && current && current.name !== name) await renameFeature(editing, name);
+		} else {
+			await sendRebuild({ type: 'AddFeature', operation });
+		}
+	} catch (err) {
+		const msg = err?.message || String(err);
+		log('error', `Mate connector failed: ${msg}`);
+		showToast('error', `Mate connector failed: ${msg}`);
+		return null;
+	}
+	const id = editing ?? (featureTree?.features ?? []).find(f => !before.has(f.id))?.id ?? null;
+	const error = id ? featureErrors.get(id) : null;
+	if (error) {
+		showToast('error', `Cannot put a mate connector here — ${error}`);
+		if (mateConnectorDialogState) mateConnectorDialogState = { ...mateConnectorDialogState, editingFeatureId: id };
+		return id;
+	}
+	mateConnectorDialogState = null;
+	return id;
+}
+
 /**
  * Apply a boolean combine operation from the dialog.
  * @param {string} operation - 'Union', 'Subtract', or 'Intersect'
@@ -6032,6 +6190,24 @@ export function getAssemblyConnectorFrames() {
 }
 
 /**
+ * The open Part's named mate connectors (`MateConnector` features) as the
+ * engine evaluated them: `{feature_id, name, kind?, origin, x_axis, y_axis,
+ * z_axis}` in part coordinates. Empty while an assembly is open.
+ */
+export function getPartConnectorFrames() {
+	return partConnectors;
+}
+
+/**
+ * In an open assembly, every rendered part instance's named connectors (each
+ * with its `instance_path`, in world coordinates) — what an assembly
+ * connector can be made from (`addConnector({ partConnector })`).
+ */
+export function getAssemblyPartConnectors() {
+	return assemblyStatus?.part_connectors ?? [];
+}
+
+/**
  * Can this pick carry a mate connector? Asks the engine (which answers from
  * the already-evaluated assembly, no rebuild) BEFORE one is created — see
  * `specs/assembly_connector_frame_resolver.md` §2.4. Returns
@@ -6318,18 +6494,20 @@ export async function removeInstance(instanceId) {
 }
 
 /**
- * Add a mate connector on an instance: from a face of the part (`geomRef`,
- * the face's persistent reference in the PART's feature space — the frame
- * is derived from the geometry at evaluation) or an explicit `frame`.
+ * Add a mate connector on an instance: one of the part's named connectors
+ * (`partConnector`, the id of its `MateConnector` feature — already judged
+ * by the part's rebuild), a face or edge of the part (`geomRef`, in the
+ * PART's feature space — the frame is derived from the geometry at
+ * evaluation), or an explicit `frame`.
  * @returns {Promise<string|null>} the connector id
  */
-export async function addConnector({ instanceId = null, instancePath = null, geomRef = null, frame = null, name }) {
+export async function addConnector({ instanceId = null, instancePath = null, geomRef = null, partConnector = null, frame = null, name }) {
 	const path = instancePath?.length ? [...instancePath] : [instanceId];
 	// Judge the pick BEFORE minting a connector: a reference the engine cannot
 	// derive a frame from used to be accepted here and silently fall back to a
 	// default frame at solve time, placing the part against geometry the user
 	// never picked (`specs/assembly_connector_frame_resolver.md` §1).
-	if (geomRef) {
+	if (geomRef && !partConnector) {
 		const probe = await probeConnectorRef(path, geomRef);
 		if (!probe.ok) {
 			const reason = probe.reason || 'this geometry cannot define a connector frame';
@@ -6344,11 +6522,17 @@ export async function addConnector({ instanceId = null, instancePath = null, geo
 		const id = generateUUID();
 		asm.connectors = asm.connectors ?? [];
 		const inst = asm.instances.find(i => i.id === path[0]);
+		const owner = `${inst?.name ?? 'Instance'}${path.length > 1 ? ' › member' : ''}`;
+		const named = partConnector
+			? getAssemblyPartConnectors().find(p => p.feature_id === partConnector && p.instance_path.join() === path.join())
+			: null;
 		asm.connectors.push({
 			id,
-			name: name || `${inst?.name ?? 'Instance'}${path.length > 1 ? ' › member' : ''} connector ${asm.connectors.length + 1}`,
+			name: name || (named ? `${owner} › ${named.name}` : `${owner} connector ${asm.connectors.length + 1}`),
 			instance_path: path,
-			...(geomRef ? { geom_ref: JSON.parse(JSON.stringify(geomRef)) } : {}),
+			...(partConnector
+				? { part_connector: partConnector }
+				: geomRef ? { geom_ref: JSON.parse(JSON.stringify(geomRef)) } : {}),
 			frame: frame ? JSON.parse(JSON.stringify(frame)) : { origin: [0, 0, 0], z_axis: [0, 0, 1], x_axis: [0, 0, 0] }
 		});
 		return id;
@@ -7208,6 +7392,7 @@ export function showEditFeatureDialog(featureId) {
 	if (opType === 'Extrude') showExtrudeDialogForEdit(featureId);
 	else if (opType === 'Revolve') showRevolveDialogForEdit(featureId);
 	else if (opType === 'ImportedBody') showImportDialogForEdit(featureId);
+	else if (opType === 'MateConnector') showMateConnectorDialog(featureId);
 }
 
 /**

@@ -155,6 +155,7 @@ impl ModelBuilder {
                 Operation::BooleanCombine { .. } => "Boolean",
                 Operation::DatumPlane { .. } => "DatumPlane",
                 Operation::ImportedBody { .. } => "ImportedBody",
+                Operation::MateConnector { .. } => "MateConnector",
                 Operation::Unknown(_) => "Unknown",
             };
 
@@ -338,6 +339,21 @@ fn describe_operation(op: &Operation) -> String {
         }
         Operation::DatumPlane { params } => {
             format!("Params: name={}", params.name)
+        }
+        Operation::MateConnector { params } => {
+            format!(
+                "Params: on {}, flip_z={}, rotation={:.1}deg, offset=({:.3},{:.3},{:.3})m",
+                if params.geom_ref.is_some() {
+                    "geometry"
+                } else {
+                    "explicit frame"
+                },
+                params.flip_z,
+                params.rotation_deg,
+                params.offset_m[0],
+                params.offset_m[1],
+                params.offset_m[2],
+            )
         }
         Operation::ImportedBody { params } => {
             format!(

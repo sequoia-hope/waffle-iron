@@ -390,6 +390,23 @@ impl Frame {
     }
 }
 
+/// A connector's adjustments applied to a frame, in this order: `flip_z`,
+/// then `rotation_deg` about z, then `offset` along the resulting axes —
+/// every step in the frame's own coordinates. Shared by assembly connectors
+/// ([`MateConnector::adjusted`]) and part connectors
+/// ([`crate::connector::part_connector_frame`]). Errors when z is degenerate.
+pub fn adjust_frame(
+    frame: Frame,
+    flip_z: bool,
+    rotation_deg: f64,
+    offset: [f64; 3],
+) -> Result<Frame, String> {
+    let frame = if flip_z { frame.flipped() } else { frame };
+    frame
+        .rotated_about_z(rotation_deg)?
+        .offset_along_axes(offset)
+}
+
 // -------------------------------------------------------------------- model
 
 /// Which part an instance is of: a Part tab of this document
@@ -430,11 +447,11 @@ pub struct Instance {
     pub extra: Map<String, Value>,
 }
 
-fn is_false(b: &bool) -> bool {
+pub(crate) fn is_false(b: &bool) -> bool {
     !*b
 }
 
-fn is_zero3(v: &[f64; 3]) -> bool {
+pub(crate) fn is_zero3(v: &[f64; 3]) -> bool {
     *v == [0.0; 3]
 }
 
@@ -468,7 +485,7 @@ impl AxialAnchor {
         }
     }
 
-    fn is_middle(&self) -> bool {
+    pub(crate) fn is_middle(&self) -> bool {
         *self == AxialAnchor::Middle
     }
 }
@@ -496,6 +513,13 @@ pub struct MateConnector {
     pub instance_path: Vec<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geom_ref: Option<GeomRef>,
+    /// A named mate connector of the instance's PART (the id of its
+    /// `MateConnector` feature, `specs/part_mate_connectors.md`): the frame
+    /// is that connector's, as the part evaluates it. Takes precedence over
+    /// `geom_ref` and `frame`; this connector's own adjustments still apply
+    /// on top. A part connector that is gone or failed is a loud error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part_connector: Option<Uuid>,
     #[serde(default)]
     pub frame: Frame,
     /// Where on a rotational face's axis the derived frame sits (default:
@@ -535,10 +559,7 @@ impl MateConnector {
     /// reads against the triad the viewport draws. Errors when the frame's z
     /// is degenerate (the caller reports it; nothing is substituted).
     pub fn adjusted(&self, frame: Frame) -> Result<Frame, String> {
-        let frame = if self.flip_z { frame.flipped() } else { frame };
-        frame
-            .rotated_about_z(self.rotation_deg)?
-            .offset_along_axes(self.offset_m)
+        adjust_frame(frame, self.flip_z, self.rotation_deg, self.offset_m)
     }
 
     /// The owning instance when the connector is on a direct part instance
@@ -603,7 +624,7 @@ pub enum MateKind {
     Unknown(Value),
 }
 
-fn is_zero(v: &f64) -> bool {
+pub(crate) fn is_zero(v: &f64) -> bool {
     *v == 0.0
 }
 
@@ -1093,6 +1114,7 @@ mod tests {
             name: name.into(),
             instance_path: vec![inst_id],
             geom_ref: None,
+            part_connector: None,
             frame: Frame::default(),
             anchor: AxialAnchor::Middle,
             flip_z: false,

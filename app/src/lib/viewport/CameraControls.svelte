@@ -172,7 +172,7 @@
 	const MIN_DISTANCE = 0.00005;
 
 	/** Maximum camera distance (dynamically updated by updateClippingPlanes) */
-	let maxDistance = 2;
+	let maxDistance = $state(2);
 
 	// --- Cached scene AABB for clipping plane updates ---
 	let cachedSceneBox = new THREE.Box3();
@@ -577,6 +577,9 @@
 		if (forceRefresh) cachedMeshCount = -1;
 		if (!refreshSceneAABB()) return;
 		maxDistance = Math.max(cachedSceneSphere.radius * 20, 2);
+		// The prop reaches the controls on the next flush; a caller that runs
+		// controls.update() right after (fitToBox) needs the new clamp now.
+		if (controlsRef) controlsRef.maxDistance = maxDistance;
 
 		if (isOrtho()) {
 			// In sketch mode, skip tight near/far — use the wide template defaults
@@ -638,28 +641,33 @@
 		const size = box.getSize(new THREE.Vector3());
 		const maxDim = Math.max(size.x, size.y, size.z);
 
+		// Keep the current view direction (camera → orbit target) and the
+		// current up: a fit only recenters and zooms. Measuring the direction
+		// from the box center instead skewed every snap-and-fit whenever the
+		// part was off the target (iso + fit on a box at z 0..1 looked along
+		// (0.06, 0.06, −0.99)), and forcing up to +Y rolled a Top/Bottom view.
+		const direction = cameraRef.getWorldDirection(new THREE.Vector3()).negate();
+		const up = cameraRef.up.clone();
+
+		let distance;
 		if (isOrtho()) {
 			frustumHalf = maxDim * 1.5 / 2;
 			updateOrthoFrustum();
-
-			const direction = new THREE.Vector3()
-				.subVectors(cameraRef.position, center)
-				.normalize();
-			cameraRef.position.copy(center).addScaledVector(direction, maxDim * 2);
-			cameraRef.up.set(0, 1, 0);
-			cameraRef.lookAt(center);
+			// Outside the box (its half-diagonal is < maxDim), so picking and
+			// occlusion rays start in front of the part, not inside it.
+			distance = maxDim * 2;
 		} else {
 			const fov = /** @type {THREE.PerspectiveCamera} */ (cameraRef).fov * (Math.PI / 180);
-			let distance = maxDim / (2 * Math.tan(fov / 2));
-			distance *= 1.5;
-
-			const direction = new THREE.Vector3()
-				.subVectors(cameraRef.position, center)
-				.normalize();
-			cameraRef.position.copy(center).addScaledVector(direction, distance);
-			cameraRef.up.set(0, 1, 0);
-			cameraRef.lookAt(center);
+			distance = (maxDim / (2 * Math.tan(fov / 2))) * 1.5;
 		}
+		// The orbit clamp must admit the fit distance, or controls.update() below
+		// pulls the camera back in: a perspective fit could not frame a part
+		// larger than the clamp, and an ortho camera sat inside the part.
+		maxDistance = Math.max(maxDistance, distance * 1.01);
+		if (controlsRef) controlsRef.maxDistance = maxDistance;
+		cameraRef.position.copy(center).addScaledVector(direction, distance);
+		cameraRef.up.copy(up);
+		cameraRef.lookAt(center);
 
 		if (controlsRef) {
 			controlsRef.target.copy(center);
@@ -928,17 +936,6 @@
 		function onAgentView(e) {
 			if (!cameraRef) return;
 			const { view, fit } = e.detail;
-			// fitToBox measures its view direction from the box center, not from
-			// the orbit target, so a part far from the target would skew the
-			// requested view. Move the target (and the camera with it) onto that
-			// center first; the snap and the fit then keep the direction.
-			const box = fit ? fitBox() : null;
-			if (box && controlsRef) {
-				const shift = box.getCenter(new THREE.Vector3()).sub(controlsRef.target);
-				cameraRef.position.add(shift);
-				controlsRef.target.add(shift);
-				controlsRef.update();
-			}
 			if (view) snapToView(view);
 			if (fit) fitAll();
 			const target = controlsRef ? controlsRef.target : new THREE.Vector3();

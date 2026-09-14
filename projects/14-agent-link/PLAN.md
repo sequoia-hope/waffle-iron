@@ -289,17 +289,35 @@ redo-stack entry left by a rollback.
   down to `max_edge_px`; MCP `image` content + `{mime_type, width, height}`.
 - Tests: `agent-tabs-viewport.spec.js` (tab tools + save/reopen, drag reorder,
   fit oracle on a 1 m cube, PNG decode/size/non-blank, Q4 hidden).
-- Finding (pre-existing, NOT fixed here): `CameraControls.fitToBox` takes its
-  view direction as `camera − box center`, not `camera − orbit target`, so
-  snap-and-fit (View Cube, F) skews the view whenever the part is off the
-  target (measured: iso snap + fit on a 1 m cube at z 0..1 looked along
-  (0.06, 0.06, −0.99)). `viewport_view` recenters the target on the fit box
-  first, so the agent path keeps the direction. A global fix was tried and
-  reverted: it changes the post-extrude auto-fit framing, and the selection
-  specs' face-centroid clicks (`helpers/geometry.js createExtrudedBox`) then
-  land within edge-pick range, so CadModel's I3 edge-over-face deferral
-  selects nothing (bisected 11 failures in box-select/edge-pick/select-other
-  to that one line). Fixing it needs those specs' click points reworked.
+- [x] **Fit All fixed (2026-09-14)**, found while building `viewport_view`.
+  Two defects:
+  - `CameraControls.fitToBox` took its view direction as `camera − box center`
+    instead of the current view direction. Snap-and-fit (View Cube, F)
+    therefore skewed the view whenever the part was off the target: iso + fit
+    on a 1 m cube at z 0..1 looked along (0.06, 0.06, −0.99).
+  - `maxDistance` was a plain `let`, never `$state`, so the orbit controls kept
+    their initial clamp of 2 forever. Every fit that needed more distance was
+    pulled back in: a perspective fit could not frame a part larger than about
+    1 m, and an ortho camera ended up inside the part.
+
+  The fit now keeps the view direction and up vector and widens the clamp
+  before `controls.update()`. The `viewport_view` recenter workaround is gone.
+
+  The selection specs that blocked the first attempt failed for real reasons:
+  - With the camera inside the 60-unit test box, a hidden back edge projects
+    through each visible face's centre in an exact iso view, and its
+    occlusion ray started inside the part, so hover deferred to it.
+  - `projectFaceCentroids` reported the FIRST triangle's centroid of every
+    face, hidden faces included. It now returns an interior point of each face
+    that a camera ray actually reaches first.
+
+  The 7 zoom/orbit failures in `viewport-advanced`/`viewport-pan` are
+  pre-existing (a stash baseline of the same two files fails the same 7).
+- [x] **Part mate connectors over MCP (2026-09-14)**, `specs/part_mate_connectors.md`.
+  `MateConnector` is authorable through `feature_add`/`feature_edit`, and the
+  operation note documents its params. `model_summary` returns `connectors`
+  (`feature_id, name, kind, origin_m, z_axis, x_axis`). The manifest was
+  regenerated.
 - [x] **`export_step` / `export_stl`** (2026-09-14): engine-locked queries
   (`$lib/agent/export.js`); Q5 `NothingToExport` from the body list (the
   bridge's `NoMeshData` never reaches them), Q6 `PayloadTooLarge` > 16 MiB for

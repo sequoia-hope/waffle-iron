@@ -61,6 +61,10 @@ pub struct Engine {
     /// in context, dropped on tab switch. Scoped `GeomRef`s resolve through it;
     /// see [`context::EditContext`].
     pub context: Option<context::EditContext>,
+    /// The part's named mate connectors (`MateConnector` features) as the
+    /// last rebuild evaluated them, in part coordinates. Recomputed every
+    /// rebuild; what an assembly's connectors on this part draw on.
+    pub connectors: Vec<connector::PartConnector>,
     /// Undo/redo history.
     undo_stack: UndoStack,
 }
@@ -79,6 +83,7 @@ impl Engine {
             inherited_body_names: HashMap::new(),
             sources: SourceStore::new(),
             context: None,
+            connectors: Vec::new(),
             undo_stack: UndoStack::new(),
         }
     }
@@ -683,6 +688,8 @@ impl Engine {
         for (pid, fid) in state.pid_to_feature {
             self.pid_to_feature.entry(pid).or_insert(fid);
         }
+        self.connectors =
+            connector::part_connectors(&self.tree, &self.feature_results, kb.as_introspect());
         self.recompute_body_name_inheritance();
     }
 

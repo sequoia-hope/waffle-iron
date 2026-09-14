@@ -1410,6 +1410,14 @@
           "minItems": 3,
           "type": "array"
         },
+        "part_connector": {
+          "description": "A named mate connector of the instance's PART (the id of its\n`MateConnector` feature, `specs/part_mate_connectors.md`): the frame\nis that connector's, as the part evaluates it. Takes precedence over\n`geom_ref` and `frame`; this connector's own adjustments still apply\non top. A part connector that is gone or failed is a loud error.",
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "rotation_deg": {
           "description": "Turn about the frame's z, in degrees, after `flip_z`. What this moves\nis the secondary (x) axis — a Fastened mate's in-plane alignment.",
           "format": "double",
@@ -1421,6 +1429,71 @@
         "name",
         "instance_path"
       ],
+      "type": "object"
+    },
+    "MateConnectorParams": {
+      "description": "Parameters for a part mate connector (`specs/part_mate_connectors.md`).\n\nThe frame is derived exactly as an assembly connector's is\n([`crate::connector::resolve_connector_frame`]): from `geom_ref` (a face\nor an edge of this part) when present, else `frame` as given, in the\npart's coordinates. The same adjustments then apply in the same order\n(`flip_z`, `rotation_deg`, `offset_m`; `anchor` on a rotational face).\nThe connector's NAME is its feature's name; `name` is only the name the\nfeature is created with.",
+      "properties": {
+        "anchor": {
+          "$ref": "#/$defs/AxialAnchor",
+          "description": "Where on a cylindrical/conical/toroidal face's axis the frame sits."
+        },
+        "flip_z": {
+          "description": "Reverse z (a 180° turn about x). Applied first.",
+          "type": "boolean"
+        },
+        "frame": {
+          "$ref": "#/$defs/Frame",
+          "default": {
+            "origin": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "x_axis": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "z_axis": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "description": "The frame when there is no `geom_ref` (meters, part coordinates;\ndefault: the part origin, z up). With a `geom_ref`, a non-zero\n`x_axis` is the secondary direction."
+        },
+        "geom_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GeomRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The face or edge the frame is derived from. Absent ⇒ `frame`."
+        },
+        "name": {
+          "description": "The feature's name at creation (default \"Mate connector\").",
+          "type": "string"
+        },
+        "offset_m": {
+          "description": "Move along the frame's own axes after the turn, meters `[x, y, z]`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "rotation_deg": {
+          "description": "Turn about z in degrees, after the flip.",
+          "format": "double",
+          "type": "number"
+        }
+      },
       "type": "object"
     },
     "MateKind": {
@@ -1695,6 +1768,22 @@
           "type": "object"
         },
         {
+          "properties": {
+            "params": {
+              "$ref": "#/$defs/MateConnectorParams"
+            },
+            "type": {
+              "const": "MateConnector",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
           "description": "Unknown operation kind (opaque, preserved; rebuild fails loudly).",
           "properties": {
             "type": {
@@ -1708,7 +1797,8 @@
                   "Shell",
                   "BooleanCombine",
                   "DatumPlane",
-                  "ImportedBody"
+                  "ImportedBody",
+                  "MateConnector"
                 ]
               },
               "type": "string"

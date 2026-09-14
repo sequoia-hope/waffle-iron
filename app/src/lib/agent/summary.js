@@ -11,9 +11,10 @@
  *   featureErrors: Map<string, string>,
  *   bodies: Array<{ bodyId: string | null, featureId: string, name: string }>,
  *   warnings: Iterable<string>,
+ *   connectors?: Array<{ feature_id: string, name: string, kind?: string, origin: number[], z_axis: number[], x_axis: number[] }>,
  * }} state
  */
-export function summarizeModel({ documentName, featureTree, featureErrors, bodies, warnings }) {
+export function summarizeModel({ documentName, featureTree, featureErrors, bodies, warnings, connectors = [] }) {
 	const features = featureTree?.features ?? [];
 	const provenance = featureTree?.provenance ?? {};
 	const inTree = new Set();
@@ -58,6 +59,16 @@ export function summarizeModel({ documentName, featureTree, featureErrors, bodie
 			};
 			if (p.error) row.error = p.error;
 			return row;
-		})
+		}),
+		// Named mate connectors as the engine evaluated them (part coordinates,
+		// meters); a connector whose feature failed is in `errors`, not here.
+		connectors: connectors.map((c) => ({
+			feature_id: c.feature_id,
+			name: c.name,
+			kind: c.kind ?? null,
+			origin_m: [...c.origin],
+			z_axis: [...c.z_axis],
+			x_axis: [...c.x_axis]
+		}))
 	};
 }

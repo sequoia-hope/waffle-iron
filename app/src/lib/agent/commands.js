@@ -31,7 +31,7 @@ import { sketchInputProblem } from './sketchInput.js';
 /** Fillet, chamfer and shell are deferred project-wide (A5, I11). */
 const DEFERRED = new Set(['Fillet', 'Chamfer', 'Shell']);
 /** Operation kinds an agent may author through feature_add / feature_edit. */
-const AUTHORABLE = new Set(['Sketch', 'Extrude', 'Revolve', 'BooleanCombine', 'DatumPlane']);
+const AUTHORABLE = new Set(['Sketch', 'Extrude', 'Revolve', 'BooleanCombine', 'DatumPlane', 'MateConnector']);
 
 export function snapshotNow() {
 	return takeSnapshot({ featureTree: getFeatureTree(), featureErrors: getFeatureErrors(), bodies: getBodies() });

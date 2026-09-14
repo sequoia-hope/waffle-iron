@@ -187,6 +187,7 @@ fn serde_roundtrip_model_updated() {
         sources: Vec::new(),
         assembly: None,
         context: None,
+        connectors: Vec::new(),
     };
     let json = serde_json::to_string(&msg).unwrap();
     let deserialized: EngineToUi = serde_json::from_str(&json).unwrap();
@@ -1462,6 +1463,7 @@ fn serde_roundtrip_model_updated_with_errors() {
         sources: Vec::new(),
         assembly: None,
         context: None,
+        connectors: Vec::new(),
     };
     let json = serde_json::to_string(&msg).unwrap();
     assert!(json.contains("rebuild failed"));
@@ -1488,6 +1490,7 @@ fn serde_model_updated_empty_errors_skipped() {
         sources: Vec::new(),
         assembly: None,
         context: None,
+        connectors: Vec::new(),
     };
     let json = serde_json::to_string(&msg).unwrap();
     // skip_serializing_if = "Vec::is_empty" should omit the errors field

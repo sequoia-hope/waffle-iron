@@ -46,9 +46,81 @@ use waffle_types::kernel::units::TAU_WORK;
 use waffle_types::kernel::{AxisKind, EntityAxis, KernelId, KernelIntrospect};
 use waffle_types::{GeomRef, TopoKind};
 
-use crate::assembly::{AxialAnchor, Frame};
+use crate::assembly::{adjust_frame, AxialAnchor, Frame};
 use crate::resolve::resolve_with_fallback;
-use crate::types::EngineError;
+use crate::types::{EngineError, FeatureTree, MateConnectorParams, Operation};
+
+/// A part's named mate connector (a `MateConnector` feature) as evaluated:
+/// the frame in the PART's coordinates with every adjustment applied.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartConnector {
+    pub feature_id: Uuid,
+    /// The feature's name — the connector's name.
+    pub name: String,
+    pub frame: Frame,
+    /// What the frame was derived from; `None` for an explicit frame.
+    pub geometry: Option<ConnectorGeometry>,
+}
+
+/// A part mate connector's frame (`specs/part_mate_connectors.md`): derived
+/// from `geom_ref` exactly as an assembly connector's is (or `frame` as
+/// given), then flipped, turned and offset. Loud on a pick with no frame and
+/// on a degenerate z — never a default frame in their place.
+pub fn part_connector_frame(
+    params: &MateConnectorParams,
+    feature_results: &HashMap<Uuid, OpResult>,
+    introspect: &dyn KernelIntrospect,
+) -> Result<(Frame, Option<ConnectorGeometry>), EngineError> {
+    // The anchor's ends are named against the FINAL z (see `AxialAnchor`).
+    let anchor = if params.flip_z {
+        params.anchor.mirrored()
+    } else {
+        params.anchor
+    };
+    let (base, geometry) = match &params.geom_ref {
+        Some(geom_ref) => {
+            let (mut frame, kind) =
+                resolve_connector_frame(geom_ref, feature_results, introspect, anchor)?;
+            if params.frame.x_axis != [0.0; 3] {
+                frame.x_axis = params.frame.x_axis;
+            }
+            (frame, Some(kind))
+        }
+        None => (params.frame, None),
+    };
+    let frame = adjust_frame(base, params.flip_z, params.rotation_deg, params.offset_m)
+        .and_then(|f| f.basis().map(|_| f))
+        .map_err(|e| EngineError::ResolutionFailed {
+            reason: format!("the mate connector's frame is degenerate: {e}"),
+        })?;
+    Ok((frame, geometry))
+}
+
+/// Every mate connector of a part that rebuilt: active, not suppressed, and
+/// with a result (a failed connector is already in the rebuild's errors).
+pub fn part_connectors(
+    tree: &FeatureTree,
+    feature_results: &HashMap<Uuid, OpResult>,
+    introspect: &dyn KernelIntrospect,
+) -> Vec<PartConnector> {
+    tree.active_features()
+        .iter()
+        .filter(|f| !f.suppressed && feature_results.contains_key(&f.id))
+        .filter_map(|f| {
+            let Operation::MateConnector { params } = &f.operation else {
+                return None;
+            };
+            let (frame, geometry) =
+                part_connector_frame(params, feature_results, introspect).ok()?;
+            Some(PartConnector {
+                feature_id: f.id,
+                name: f.name.clone(),
+                frame,
+                geometry,
+            })
+        })
+        .collect()
+}
 
 /// What a connector's frame was derived from — reported so the UI can label
 /// a connector by its source and a diagnostic can name it.

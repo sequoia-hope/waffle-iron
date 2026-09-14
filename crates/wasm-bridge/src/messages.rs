@@ -463,6 +463,10 @@ pub enum EngineToUi {
         /// (`OpenPartInContext`, Phase 3d-4).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         context: Option<ContextStatus>,
+        /// The open part's named mate connectors (its `MateConnector`
+        /// features), in the part's coordinates, for the viewport to draw.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        connectors: Vec<PartConnectorInfo>,
     },
 
     /// Sketch constraint solver completed.
@@ -609,6 +613,54 @@ pub struct AssemblyStatus {
     /// viewport can draw it and the panel can label it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub connectors: Vec<ConnectorFrameInfo>,
+    /// The named mate connectors of every rendered part instance (each
+    /// part's `MateConnector` features), in WORLD coordinates — what an
+    /// assembly connector can be made from (`part_connector`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub part_connectors: Vec<PartConnectorInfo>,
+}
+
+/// One named mate connector of a part (`specs/part_mate_connectors.md`), as
+/// evaluated: an orthonormal basis at a point, in world coordinates.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartConnectorInfo {
+    /// The `MateConnector` feature's id.
+    pub feature_id: Uuid,
+    /// The feature's name.
+    pub name: String,
+    /// The part instance it is on, in an assembly; empty for the open part.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub instance_path: Vec<Uuid>,
+    /// What the frame was derived from (`"planar face"`, …); absent for an
+    /// explicit frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    pub origin: [f64; 3],
+    pub x_axis: [f64; 3],
+    pub y_axis: [f64; 3],
+    pub z_axis: [f64; 3],
+}
+
+impl PartConnectorInfo {
+    /// A part connector placed by `placement` (identity for the open part).
+    pub fn new(
+        connector: &feature_engine::connector::PartConnector,
+        instance_path: Vec<Uuid>,
+        placement: &feature_engine::assembly::Transform,
+    ) -> Option<Self> {
+        let world = connector.frame.transformed(placement);
+        let (x_axis, y_axis, z_axis) = world.basis().ok()?;
+        Some(PartConnectorInfo {
+            feature_id: connector.feature_id,
+            name: connector.name.clone(),
+            instance_path,
+            kind: connector.geometry.map(|k| k.label().to_string()),
+            origin: world.origin,
+            x_axis,
+            y_axis,
+            z_axis,
+        })
+    }
 }
 
 /// One connector's evaluated frame for the UI: an orthonormal basis at a

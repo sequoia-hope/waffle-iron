@@ -483,6 +483,7 @@ fn adjusted_connector(
         name: "c".into(),
         instance_path: vec![Uuid::from_u128(0x1)],
         geom_ref: None,
+        part_connector: None,
         frame,
         anchor,
         flip_z,
@@ -730,4 +731,105 @@ fn adjustments_are_additive_on_the_wire() {
     assert!(!old.flip_z);
     assert_eq!(old.rotation_deg, 0.0);
     assert_eq!(old.offset_m, [0.0; 3]);
+}
+
+// ── part mate connectors (specs/part_mate_connectors.md) ────────────────────
+
+use feature_engine::connector::part_connector_frame;
+use feature_engine::types::{MateConnectorParams, Operation};
+
+/// A part connector's frame is derived exactly as an assembly connector's is,
+/// and its own adjustments apply in the same order (flip, turn, offset along
+/// the FINAL axes).
+#[test]
+fn a_part_connector_derives_like_an_assembly_connector_then_adjusts() {
+    let (fid, res) = results();
+    let params = MateConnectorParams {
+        geom_ref: Some(geom_ref(fid, TopoKind::Face, TOP_FACE)),
+        flip_z: true,
+        offset_m: [0.0, 0.0, 0.001],
+        ..Default::default()
+    };
+    let (frame, kind) = part_connector_frame(&params, &res, &Fixture).expect("resolves");
+    assert_eq!(kind, Some(ConnectorGeometry::PlanarFace));
+    assert!(near(frame.z_axis, [0.0, 0.0, -1.0]), "flipped: {frame:?}");
+    assert!(
+        near(frame.origin, [0.0, 0.0, PLATE_TOP - 0.001]),
+        "1 mm along the flipped z, into the plate: {:?}",
+        frame.origin
+    );
+
+    // An anchor names its end against the final z: flipped, "+z end" of the
+    // hole is the bottom rim.
+    let params = MateConnectorParams {
+        geom_ref: Some(geom_ref(fid, TopoKind::Face, HOLE_FACE)),
+        anchor: AxialAnchor::PositiveEnd,
+        flip_z: true,
+        ..Default::default()
+    };
+    let (frame, kind) = part_connector_frame(&params, &res, &Fixture).expect("resolves");
+    assert_eq!(
+        kind,
+        Some(ConnectorGeometry::AxialFace(AxisKind::Cylindrical))
+    );
+    assert!(
+        near(frame.origin, [HOLE_X, HOLE_Y, 0.0]),
+        "{:?}",
+        frame.origin
+    );
+    assert!(near(frame.z_axis, [0.0, 0.0, -1.0]));
+
+    // No reference: the explicit frame, adjusted.
+    let params = MateConnectorParams {
+        frame: Frame::on_plane([0.001, 0.0, 0.0], [1.0, 0.0, 0.0]),
+        offset_m: [0.0, 0.0, 0.002],
+        ..Default::default()
+    };
+    let (frame, kind) = part_connector_frame(&params, &res, &Fixture).expect("explicit");
+    assert_eq!(kind, None);
+    assert!(near(frame.origin, [0.003, 0.0, 0.0]), "{:?}", frame.origin);
+}
+
+/// What cannot define a frame is loud — never the default frame in its place.
+#[test]
+fn a_part_connector_without_a_frame_is_loud() {
+    let (fid, res) = results();
+    let freeform = MateConnectorParams {
+        geom_ref: Some(geom_ref(fid, TopoKind::Face, FREEFORM_FACE)),
+        ..Default::default()
+    };
+    assert!(part_connector_frame(&freeform, &res, &Fixture).is_err());
+
+    let degenerate = MateConnectorParams {
+        frame: Frame {
+            origin: [0.0; 3],
+            z_axis: [0.0; 3],
+            x_axis: [0.0; 3],
+        },
+        ..Default::default()
+    };
+    let err = part_connector_frame(&degenerate, &res, &Fixture).expect_err("zero z");
+    assert!(err.to_string().contains("degenerate"), "{err}");
+}
+
+/// The operation's wire form: adjustments at their defaults are omitted, and
+/// a minimal `{"name"}` parses.
+#[test]
+fn the_mate_connector_operation_is_additive_on_the_wire() {
+    let op: Operation = serde_json::from_value(json!({
+        "type": "MateConnector",
+        "params": { "name": "Pin" }
+    }))
+    .expect("parses");
+    let Operation::MateConnector { params } = &op else {
+        panic!("{op:?}")
+    };
+    assert_eq!(params.name, "Pin");
+    assert!(params.geom_ref.is_none() && !params.flip_z);
+    let back = serde_json::to_value(&op).unwrap();
+    let p = back["params"].as_object().unwrap();
+    for key in ["geom_ref", "anchor", "flip_z", "rotation_deg", "offset_m"] {
+        assert!(!p.contains_key(key), "{key} omitted at its default: {back}");
+    }
+    assert_eq!(op.type_tag(), "MateConnector");
 }
