@@ -10,15 +10,22 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import os
+import re
 import shutil
 import ssl
 import subprocess
 import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlsplit
 
+from waffle_mcp_relay.pairing import SESSION_RESUME_S, new_token
+
 NO_PORT_MESSAGE = "no port: pass --port, set $PORT, or register with proj"
+MAX_RESUME_WINDOW_S = 7 * 24 * 3600
+PERSISTENT_CODE_RE = re.compile(r"[A-Za-z0-9_-]{43}")
 HOSTED_APP_URL = "https://sequoia-hope.github.io/waffle-iron/"
 FALLBACK_AGENT_NAME = "mcp-client"
 LOOPBACK_HTTP_HOSTS = ("localhost", "127.0.0.1", "::1")
@@ -39,6 +46,9 @@ class RelayConfig:
     open_browser: bool
     ssl_context: ssl.SSLContext | None
     public_url: str | None = None
+    resume_window_s: float = SESSION_RESUME_S
+    persistent_code: str | None = None
+    persistent_link_file: str | None = None
 
     @property
     def relay_url(self) -> str:
@@ -78,7 +88,62 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--agent-name", help="agent name shown on the consent screen")
     p.add_argument("--open", action="store_true", help="open the pairing link with the OS")
+    p.add_argument(
+        "--resume-window",
+        help=f"seconds a disconnected tab may resume its session without a new pairing "
+        f"(default {int(SESSION_RESUME_S)})",
+    )
+    p.add_argument(
+        "--persistent-link",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="FILE",
+        help="development: a reusable pairing link that never expires (still asks for "
+        "consent); its code is kept in FILE, default "
+        "$XDG_STATE_HOME/waffle-mcp-relay/link-<port>.code",
+    )
     return p
+
+
+def parse_resume_window(text: str) -> float:
+    try:
+        seconds = int(str(text).strip(), 10)
+    except ValueError:
+        raise ConfigError("invalid resume window") from None
+    if not 0 <= seconds <= MAX_RESUME_WINDOW_S:
+        raise ConfigError("invalid resume window")
+    return float(seconds)
+
+
+def default_persistent_link_file(env: Mapping[str, str], port: int) -> Path:
+    state = env.get("XDG_STATE_HOME") or str(
+        Path(env.get("HOME") or Path.home()) / ".local" / "state"
+    )
+    return Path(state) / "waffle-mcp-relay" / f"link-{port}.code"
+
+
+def load_persistent_code(path: Path) -> str:
+    """The persistent pairing code kept in `path`, created (mode 0600) on first use."""
+    try:
+        text = path.read_text(encoding="ascii").strip()
+    except FileNotFoundError:
+        text = None
+    except (OSError, UnicodeDecodeError):
+        raise ConfigError("cannot use persistent link file") from None
+    if text is not None:
+        if not PERSISTENT_CODE_RE.fullmatch(text):
+            raise ConfigError("invalid persistent link file")
+        return text
+    code = new_token()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="ascii") as f:
+            f.write(code + "\n")
+    except OSError:
+        raise ConfigError("cannot use persistent link file") from None
+    return code
 
 
 def parse_port(text: str) -> int:
@@ -244,6 +309,19 @@ def build_config(
     if args.agent_name is not None and not valid_agent_name(args.agent_name):
         raise ConfigError("invalid agent name")
 
+    resume_window_s = (
+        SESSION_RESUME_S if args.resume_window is None else parse_resume_window(args.resume_window)
+    )
+    persistent_code = persistent_link_file = None
+    if args.persistent_link is not None:
+        link_file = (
+            Path(args.persistent_link)
+            if args.persistent_link
+            else default_persistent_link_file(env, port)
+        )
+        persistent_code = load_persistent_code(link_file)
+        persistent_link_file = str(link_file)
+
     return RelayConfig(
         port=port,
         bind=str(bind_ip),
@@ -253,4 +331,7 @@ def build_config(
         open_browser=args.open,
         ssl_context=ssl_context,
         public_url=public_url,
+        resume_window_s=resume_window_s,
+        persistent_code=persistent_code,
+        persistent_link_file=persistent_link_file,
     )

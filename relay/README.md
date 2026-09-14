@@ -35,6 +35,22 @@ uv run --project relay waffle-mcp-relay --port <port> \
   --public-url wss://<host>.ts.net:<https port>/relay
 ```
 
+### Reconnecting and development links
+
+A paired tab that loses its socket (a reload, a network drop, a phone
+suspending a background tab) resumes the same session by itself for
+`--resume-window` seconds (default 1800) — no new pairing link. Meanwhile
+`waffle_status` is `page_away`, and a tool call waits up to 10 s for the tab
+before returning `PageAway`.
+
+For development, `--persistent-link [FILE]` makes the pairing link reusable
+and non-expiring, so it can be bookmarked: the code is kept in FILE (default
+`$XDG_STATE_HOME/waffle-mcp-relay/link-<port>.code`, mode 0600) and survives
+relay restarts, and the relay logs the link to stderr when it starts. Opening
+it still asks for consent, and it takes over from a tab that is already
+connected. Anyone who has the link and can reach the relay from an allowed
+origin can pair, so keep it private; delete the file to rotate the code.
+
 ## Runtime dependencies and licences
 
 Three runtime dependencies (spec §7), checked 2026-09-14 from the installed

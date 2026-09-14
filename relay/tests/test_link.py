@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 from support import APP_ORIGIN, FakeClock, FakePage, allocate_test_port, wait_until
@@ -25,9 +26,9 @@ class Env:
     tools_changed: list[int]
 
 
-async def make_env(**link_kwargs: float) -> Env:
+async def make_env(pairing_kwargs: dict[str, Any] | None = None, **link_kwargs: float) -> Env:
     clock = FakeClock()
-    pairing = Pairing(clock)
+    pairing = Pairing(clock, **(pairing_kwargs or {}))
     changed: list[int] = []
 
     async def on_changed() -> None:
@@ -328,5 +329,97 @@ async def test_heartbeat_keeps_answering_page() -> None:
             await page.send({"type": "pong"})
         assert e.pairing.page_connected
         await page.close()
+    finally:
+        await e.link.close()
+
+
+# -- page away, reload, persistent link (P16-P18) ------------------------------
+
+
+async def answer_call(page: FakePage, structured: dict[str, Any]) -> dict[str, Any]:
+    call = await page.recv_type("call")
+    await page.send(
+        {
+            "type": "result",
+            "id": call["id"],
+            "isError": False,
+            "content": [{"type": "text", "text": "{}"}],
+            "structuredContent": structured,
+        }
+    )
+    return call
+
+
+async def test_p16_call_while_page_away_waits_for_the_resume() -> None:
+    e = await make_env(away_wait=5.0)
+    try:
+        page, welcome = await pair(e)
+        await page.close()
+        await wait_until(lambda: e.link.status() == {"state": "page_away"})
+        pending = asyncio.create_task(e.link.call("model_summary", {}))
+        await asyncio.sleep(0.2)
+        assert not pending.done()
+
+        again = await FakePage.connect(e.url)
+        await again.hello(session=welcome["session"])
+        await again.recv_type("welcome")
+        await answer_call(again, {"ok": True})
+        result = await pending
+        assert result["structuredContent"] == {"ok": True}
+        assert [c["text"] for c in result["content"]] == ["{}"]  # no reload note
+        await again.close()
+    finally:
+        await e.link.close()
+
+
+async def test_p16_call_while_page_away_times_out_as_page_away() -> None:
+    e = await make_env(away_wait=0.1)
+    try:
+        page, _ = await pair(e)
+        await page.close()
+        await wait_until(lambda: not e.pairing.page_connected)
+        with pytest.raises(LinkError) as err:
+            await e.link.call("model_summary", {})
+        assert err.value.code == "PageAway"
+        assert "waffle_connect" in err.value.message
+    finally:
+        await e.link.close()
+
+
+async def test_p7_reloaded_resume_notes_only_the_next_result(env: Env) -> None:
+    page, welcome = await pair(env)
+    await page.close()
+    await wait_until(lambda: not env.pairing.page_connected)
+    again = await FakePage.connect(env.url)
+    await again.hello(session=welcome["session"], reloaded=True)
+    await again.recv_type("welcome")
+
+    pending = asyncio.create_task(env.link.call("model_summary", {}))
+    await answer_call(again, {})
+    texts = [c["text"] for c in (await pending)["content"]]
+    assert texts[0] == "{}" and len(texts) == 2 and "reloaded" in texts[1]
+
+    pending = asyncio.create_task(env.link.call("model_summary", {}))
+    await answer_call(again, {})
+    assert [c["text"] for c in (await pending)["content"]] == ["{}"]
+    await again.close()
+
+
+async def test_p18_persistent_link_replaces_the_live_page() -> None:
+    code = "p" * 43
+    e = await make_env(pairing_kwargs={"persistent_code": code})
+    try:
+        first = await FakePage.connect(e.url)
+        await first.hello(code=code)
+        await first.recv_type("welcome")
+        second = await FakePage.connect(e.url)
+        await second.hello(code=code)
+        await second.recv_type("welcome")
+        await expect_bye(first, "revoked")
+
+        pending = asyncio.create_task(e.link.call("model_summary", {}))
+        await answer_call(second, {"page": 2})
+        assert (await pending)["structuredContent"] == {"page": 2}
+        await second.close()
     finally:
         await e.link.close()

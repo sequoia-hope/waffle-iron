@@ -43,14 +43,19 @@ RELAY_TOOLS: list[dict[str, Any]] = [
         "description": (
             "Start pairing with a Waffle Iron browser tab. Returns a pairing link; the user "
             "opens it in the browser and clicks Allow. The link is single use and expires "
-            "after 300 s. Calling this again revokes any live connection."
+            "after 300 s (a relay started with --persistent-link returns a reusable link "
+            "that does not expire). Calling this again revokes any live connection, so do "
+            "not call it when waffle_status is page_away: that tab resumes by itself."
         ),
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         "outputSchema": {
             "type": "object",
             "properties": {
                 "pairing_url": {"type": "string"},
-                "expires_at": {"type": "string", "description": "RFC 3339 UTC"},
+                "expires_at": {
+                    "type": ["string", "null"],
+                    "description": "RFC 3339 UTC; null for a persistent link",
+                },
             },
             "required": ["pairing_url", "expires_at"],
         },
@@ -58,14 +63,25 @@ RELAY_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "waffle_status",
-        "description": "Connection state of the relay and the paired Waffle Iron tab.",
+        "description": (
+            "Connection state of the relay and the paired Waffle Iron tab. page_away: the "
+            "tab disconnected (backgrounded, reloading, network) and can still resume its "
+            "session without a new pairing."
+        ),
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         "outputSchema": {
             "type": "object",
             "properties": {
                 "state": {
                     "type": "string",
-                    "enum": ["unpaired", "awaiting_consent", "ready", "paused", "busy"],
+                    "enum": [
+                        "unpaired",
+                        "awaiting_consent",
+                        "page_away",
+                        "ready",
+                        "paused",
+                        "busy",
+                    ],
                 },
                 "busy_reason": {"type": "string"},
                 "app_build": {},
@@ -226,24 +242,30 @@ class RelayApp:
                 "Internal", "the page returned a malformed result frame", {"reason": str(err)}
             )
 
-    async def _connect(self) -> types.CallToolResult:
-        code, expires_at = await self._link.new_pairing()
+    def pairing_url(self, code: str) -> str:
         query = urlencode(
             {"relay": self._config.relay_url, "code": code, "name": self.agent_name()}
         )
-        url = f"{self._config.app_url}agent?{query}"
-        expires = epoch_to_iso(expires_at)
+        return f"{self._config.app_url}agent?{query}"
+
+    async def _connect(self) -> types.CallToolResult:
+        code, expires_at = await self._link.new_pairing()
+        url = self.pairing_url(code)
+        expires = None if expires_at is None else epoch_to_iso(expires_at)
         if self._config.open_browser:
             await asyncio.to_thread(webbrowser.open, url)
+        lifetime = (
+            "reusable, does not expire" if expires is None else f"single use, expires {expires}"
+        )
         text = (
             "Ask the user to open this link in the browser where Waffle Iron runs and click "
-            f"Allow (single use, expires {expires}):\n{url}"
+            f"Allow ({lifetime}):\n{url}"
         )
         return ok_result({"pairing_url": url, "expires_at": expires}, text)
 
 
 async def run_relay(config: RelayConfig) -> None:
-    pairing = Pairing()
+    pairing = Pairing(resume_s=config.resume_window_s, persistent_code=config.persistent_code)
     app_ref: list[RelayApp] = []
     link = LinkServer(
         pairing=pairing,
@@ -263,6 +285,12 @@ async def run_relay(config: RelayConfig) -> None:
         config.relay_url,
         ", ".join(config.allow_origins),
     )
+    if config.persistent_code is not None:
+        log.info(
+            "persistent pairing link (reusable; code kept in %s): %s",
+            config.persistent_link_file,
+            app.pairing_url(config.persistent_code),
+        )
     try:
         async with stdio_server() as (read_stream, write_stream):
             await app.server.run(

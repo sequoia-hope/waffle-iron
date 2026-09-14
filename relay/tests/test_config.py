@@ -207,3 +207,49 @@ def test_invalid_public_url(url: str) -> None:
 def test_invalid_agent_name(name: str) -> None:
     with pytest.raises(ConfigError, match="^invalid agent name$"):
         build_config(["--port", "20013", "--agent-name", name], {}, lambda: None)
+
+
+# -- session resume window and persistent link (P16-P18) ----------------------
+
+
+def test_resume_window_default_and_flag() -> None:
+    assert build_config(["--port", "20017"], {}, lambda: None).resume_window_s == 1800.0
+    config = build_config(["--port", "20017", "--resume-window", "90"], {}, lambda: None)
+    assert config.resume_window_s == 90.0
+
+
+@pytest.mark.parametrize("value", ["-1", "x", "1.5", str(7 * 24 * 3600 + 1)])
+def test_invalid_resume_window(value: str) -> None:
+    with pytest.raises(ConfigError, match="^invalid resume window$"):
+        build_config(["--port", "20018", "--resume-window", value], {}, lambda: None)
+
+
+def test_no_persistent_link_by_default() -> None:
+    config = build_config(["--port", "20022"], {}, lambda: None)
+    assert config.persistent_code is None and config.persistent_link_file is None
+
+
+def test_persistent_link_default_file_is_created_private_and_reused(tmp_path: Path) -> None:
+    env = {"XDG_STATE_HOME": str(tmp_path / "state")}
+    first = build_config(["--port", "20019", "--persistent-link"], env, lambda: None)
+    path = tmp_path / "state" / "waffle-mcp-relay" / "link-20019.code"
+    assert first.persistent_link_file == str(path)
+    assert first.persistent_code is not None
+    assert path.read_text() == first.persistent_code + "\n"
+    assert path.stat().st_mode & 0o777 == 0o600
+    again = build_config(["--port", "20019", "--persistent-link"], env, lambda: None)
+    assert again.persistent_code == first.persistent_code
+
+
+def test_persistent_link_explicit_file(tmp_path: Path) -> None:
+    path = tmp_path / "dev.code"
+    path.write_text("A" * 43 + "\n")
+    config = build_config(["--port", "20020", "--persistent-link", str(path)], {}, lambda: None)
+    assert config.persistent_code == "A" * 43
+
+
+def test_invalid_persistent_link_file(tmp_path: Path) -> None:
+    path = tmp_path / "dev.code"
+    path.write_text("too-short\n")
+    with pytest.raises(ConfigError, match="^invalid persistent link file$"):
+        build_config(["--port", "20021", "--persistent-link", str(path)], {}, lambda: None)

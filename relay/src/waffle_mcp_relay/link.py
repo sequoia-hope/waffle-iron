@@ -33,6 +33,7 @@ log = logging.getLogger("waffle_mcp_relay.link")
 PING_INTERVAL_S = 15.0
 PONG_TIMEOUT_S = 30.0
 HELLO_TIMEOUT_S = 10.0
+AWAY_WAIT_S = 10.0
 MAX_FRAME_BYTES = 32 * 1024 * 1024
 
 NOT_PAIRED_MESSAGE = (
@@ -42,6 +43,15 @@ NOT_PAIRED_MESSAGE = (
 PAGE_DISCONNECTED_MESSAGE = (
     "The page disconnected while the call was in flight. The model state after "
     "the call is unknown; call model_summary before continuing."
+)
+PAGE_AWAY_MESSAGE = (
+    "The Waffle Iron tab is in the background or reconnecting; it resumes the session "
+    "by itself when the user returns to it. Ask the user to bring the tab to the front, "
+    "then retry. Do not call waffle_connect: that revokes the session."
+)
+RELOADED_NOTE = (
+    "Note: the Waffle Iron tab reloaded since the previous call and reopened its last "
+    "work from the browser's draft. Call model_summary before relying on earlier state."
 )
 
 
@@ -94,6 +104,7 @@ class LinkServer:
         ping_interval: float = PING_INTERVAL_S,
         pong_timeout: float = PONG_TIMEOUT_S,
         hello_timeout: float = HELLO_TIMEOUT_S,
+        away_wait: float = AWAY_WAIT_S,
     ) -> None:
         self._pairing = pairing
         self._origins = frozenset(allow_origins)
@@ -104,8 +115,13 @@ class LinkServer:
         self._ping_interval = ping_interval
         self._pong_timeout = pong_timeout
         self._hello_timeout = hello_timeout
+        self._away_wait = away_wait
         self._server: Server | None = None
         self._page: PageConnection | None = None
+        # Set while a page is admitted: a call made while the page is away waits on it (P16).
+        self._page_arrived = asyncio.Event()
+        # The page resumed after a reload: the next page result carries RELOADED_NOTE.
+        self._reload_note_pending = False
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -150,8 +166,8 @@ class LinkServer:
 
     # -- commands ----------------------------------------------------------
 
-    async def new_pairing(self) -> tuple[str, float]:
-        """Issue a fresh code; a live page is sent `bye{revoked}` and closed (P11)."""
+    async def new_pairing(self) -> tuple[str, float | None]:
+        """Issue a code (fresh, or the persistent one); a live page is sent `bye{revoked}` (P11)."""
         old = self._page
         code, expires_at = self._pairing.issue_code()
         if old is not None:
@@ -163,7 +179,15 @@ class LinkServer:
     async def call(self, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Forward a page tool call; returns the page's `result` frame."""
         page = self._page
+        if page is None and self._pairing.state() == "page_away":
+            page = await self._wait_for_page()
         if page is None:
+            if self._pairing.state() == "page_away":
+                raise LinkError(
+                    "PageAway",
+                    PAGE_AWAY_MESSAGE,
+                    {"hint": "ask the user to return to the Waffle Iron tab, then retry"},
+                )
             raise LinkError("NotPaired", NOT_PAIRED_MESSAGE, {"hint": "call waffle_connect"})
         call_id = uuid.uuid4().hex
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
@@ -183,7 +207,7 @@ class LinkServer:
                 "PageDisconnected", PAGE_DISCONNECTED_MESSAGE, {"state_unknown": True}
             ) from None
         try:
-            return await future
+            result = await future
         except asyncio.CancelledError:
             page.pending.pop(call_id, None)
             try:
@@ -191,6 +215,21 @@ class LinkServer:
             except ConnectionClosed:
                 pass
             raise
+        if self._reload_note_pending:
+            self._reload_note_pending = False
+            content = result.get("content")
+            note = {"type": "text", "text": RELOADED_NOTE}
+            result = {**result, "content": [*(content if isinstance(content, list) else []), note]}
+        return result
+
+    async def _wait_for_page(self) -> PageConnection | None:
+        """Wait up to `away_wait` for an away page to resume its session (P16)."""
+        if self._away_wait > 0:
+            try:
+                await asyncio.wait_for(self._page_arrived.wait(), self._away_wait)
+            except TimeoutError:
+                pass
+        return self._page
 
     # -- handshake ---------------------------------------------------------
 
@@ -245,7 +284,15 @@ class LinkServer:
             hello_manifest_hash=page_hash if isinstance(page_hash, str) else None,
             app_build=hello.get("app_build"),
         )
+        replaced = self._page if admission.replaced else None
         self._page = page
+        self._page_arrived.set()
+        if replaced is not None and replaced is not page:
+            # P18: a persistent link opened in another tab takes over after its consent click.
+            replaced.revoked = True
+            await self._bye(replaced.ws, "revoked")
+        # A reloaded page reopened its work from a draft (P7); a fresh pairing needs no note.
+        self._reload_note_pending = admission.resumed and hello.get("reloaded") is True
         welcome: dict[str, Any] = {
             "type": "welcome",
             "session": admission.session,
@@ -254,7 +301,10 @@ class LinkServer:
         }
         if page.hello_manifest_hash is not None and page.hello_manifest_hash != self._manifest.hash:
             welcome["manifest_required"] = True
-        log.info("page %s", "resumed" if admission.resumed else "paired")
+        log.info(
+            "page %s",
+            "resumed" if admission.resumed else "replaced" if replaced is not None else "paired",
+        )
         try:
             await ws.send(json.dumps(welcome))
             await self._serve_page(page)
@@ -263,6 +313,7 @@ class LinkServer:
         finally:
             if self._page is page:
                 self._page = None
+                self._page_arrived.clear()
             self._pairing.page_disconnected(page.session, revoke=page.revoked)
             for future in page.pending.values():
                 if not future.done():
