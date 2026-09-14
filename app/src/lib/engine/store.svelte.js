@@ -11,6 +11,7 @@ import { EngineBridge } from './bridge.js';
 import { log, getLogs, exportLogs, clearLogs } from './logger.js';
 import { showToast, getToasts, dismissToast, dismissAllToasts, initLoggerToasts } from '$lib/ui/toast.svelte.js';
 import { extractProfiles } from '$lib/sketch/profiles.js';
+import { buildFinishProfiles } from '$lib/sketch/finishProfiles.js';
 import { sampleBSpline } from '$lib/sketch/bspline.js';
 import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates } from '$lib/sketch/sketchToolState.svelte.js';
 import { resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog, getOffsetToolState as _getOffsetToolState } from '$lib/sketch/tools.js';
@@ -453,6 +454,155 @@ let bridge = null;
 /** Get the engine bridge instance (or null if not initialized). */
 export function getBridge() { return bridge; }
 
+// -- Engine lock (agent link: specs/waffle_mcp_server.md §2.7, I6) --
+// The bridge pairs responses FIFO, which keeps each MESSAGE safe; the lock
+// keeps whole agent CALLS safe. Every user-originated send (all but pointer
+// hover/select) holds the lock from send to response through the bridge's
+// send gate. The agent executor holds it for its whole call and posts
+// ungated (`sendAgentMessage`). Waiters are served FIFO.
+
+/** Tail of the FIFO lock queue: resolves when the last queued holder releases. */
+let engineLockTail = Promise.resolve();
+/** @type {'user' | 'agent' | null} */
+let engineLockHolder = $state(null);
+
+/** A lock acquisition that gave up waiting (spec G2). `holder` is who held it then. */
+export class EngineLockTimeout extends Error {
+	/** @param {'user' | 'agent' | null} holder */
+	constructor(holder) {
+		super(`the engine lock is held by ${holder ?? 'a queued action'}`);
+		this.holder = holder;
+	}
+}
+
+/** Who holds the engine lock right now. */
+export function getEngineLockHolder() {
+	return engineLockHolder;
+}
+
+/**
+ * @param {'user' | 'agent'} origin
+ * @param {number | undefined} timeoutMs - give up (reject EngineLockTimeout) after this long
+ * @returns {Promise<() => void>} the release function
+ */
+function acquireEngineLock(origin, timeoutMs) {
+	/** @type {() => void} */
+	let release = () => {};
+	const released = new Promise((r) => (release = r));
+	const prev = engineLockTail;
+	engineLockTail = prev.then(() => released);
+	return new Promise((resolve, reject) => {
+		let settled = false;
+		const timer =
+			timeoutMs != null
+				? setTimeout(() => {
+						if (settled) return;
+						settled = true;
+						reject(new EngineLockTimeout(engineLockHolder));
+					}, timeoutMs)
+				: null;
+		prev.then(() => {
+			if (settled) {
+				release(); // abandoned slot: pass the lock straight on
+				return;
+			}
+			settled = true;
+			if (timer) clearTimeout(timer);
+			engineLockHolder = origin;
+			resolve(() => {
+				engineLockHolder = null;
+				release();
+			});
+		});
+	});
+}
+
+/**
+ * Run `fn` holding the engine lock.
+ * @template T
+ * @param {'user' | 'agent'} origin
+ * @param {() => Promise<T>} fn
+ * @param {{ timeoutMs?: number }} [opts]
+ * @returns {Promise<T>}
+ */
+export async function withEngineLock(origin, fn, opts = {}) {
+	const unlock = await acquireEngineLock(origin, opts.timeoutMs);
+	try {
+		return await fn();
+	} finally {
+		unlock();
+	}
+}
+
+/** Status-bar hint shown when the user tries a modeling command during an agent call (G8). */
+export const AGENT_WORKING_HINT = 'Agent is working';
+
+/**
+ * The running agent-link call, or null. While set, modeling commands in the UI
+ * are refused with AGENT_WORKING_HINT, and per-feature rebuild-error toasts are
+ * left to the executor (one toast per agent step, spec A2/A3).
+ * @type {{ tool: string, agentName: string } | null}
+ */
+let agentActivity = $state(null);
+export function getAgentActivity() {
+	return agentActivity;
+}
+/** @param {{ tool: string, agentName: string } | null} activity */
+export function setAgentActivity(activity) {
+	agentActivity = activity;
+}
+
+/**
+ * Why a user interaction currently blocks agent EDITS (spec §2.7 busy states,
+ * G3), or null. Agent queries stay allowed.
+ * @returns {'sketch_mode' | 'feature_dialog' | 'edit_context' | null}
+ */
+export function getUserBusyReason() {
+	if (sketchMode.active) return 'sketch_mode';
+	if (editContext) return 'edit_context';
+	if (
+		extrudeDialogState ||
+		revolveDialogState ||
+		booleanDialogState ||
+		chamferDialogState ||
+		filletDialogState ||
+		shellDialogState ||
+		importDialogState ||
+		sketchPlaneDialogVisible ||
+		sketchPlaneSelectionMode
+	) {
+		return 'feature_dialog';
+	}
+	return null;
+}
+
+/**
+ * The agent link's engine entry point (spec §2.7). Unlike the store's user
+ * actions it swallows nothing: it resolves with the EngineToUi response (after
+ * the store's own handlers updated tree, meshes, autosave) and rejects with the
+ * bridge's typed Error (`kind`, `needsRestart`). The caller must hold the engine
+ * lock as 'agent'.
+ * @param {object} message - UiToEngine message (plain data)
+ * @param {{ rebuild?: boolean }} [opts] - `rebuild` shows the rebuild spinner
+ * @returns {Promise<any>}
+ */
+export async function sendAgentMessage(message, { rebuild = false } = {}) {
+	if (!bridge) throw new Error('Engine not initialized');
+	if (engineLockHolder !== 'agent') {
+		throw new Error('sendAgentMessage needs the engine lock held by the agent');
+	}
+	if (!rebuild) return bridge.sendUngated(message);
+	rebuilding = true;
+	const t0 = performance.now();
+	try {
+		const result = await bridge.sendUngated(message);
+		rebuildTime = performance.now() - t0;
+		return result;
+	} finally {
+		rebuilding = false;
+	}
+}
+
 /** The worker trapped and could not restart (`needsRestart`); only a reload recovers. */
 let engineCrashed = $state(false);
 
@@ -468,6 +618,7 @@ export async function initEngine() {
 	if (bridge) return;
 
 	bridge = new EngineBridge();
+	bridge.setSendGate((message, post) => withEngineLock('user', post));
 
 	bridge.on('modelUpdated', (msg) => {
 		if (msg.feature_tree) {
@@ -533,8 +684,13 @@ export async function initEngine() {
 			for (const [featureId, errorMsg] of msg.errors) {
 				newErrors.set(featureId, errorMsg);
 				if (prevErrors.get(featureId) !== errorMsg) {
-					log('error', `Feature ${featureId} failed: ${errorMsg}`);
-					showToast('error', `Feature failed: ${errorMsg}`);
+					if (agentActivity) {
+						// The agent executor toasts its step once (rolled back / kept, spec A2/A3).
+						log('engine', `Feature ${featureId} failed during agent call: ${errorMsg}`);
+					} else {
+						log('error', `Feature ${featureId} failed: ${errorMsg}`);
+						showToast('error', `Feature failed: ${errorMsg}`);
+					}
 				}
 			}
 		}
@@ -548,7 +704,7 @@ export async function initEngine() {
 		for (const warning of warnings) {
 			if (!lastRebuildWarnings.has(warning)) {
 				log('warning', warning);
-				showToast('warning', warning);
+				showToast('warning', agentActivity ? `${agentActivity.agentName}: ${warning}` : warning);
 			}
 		}
 		lastRebuildWarnings = warnings;
@@ -1233,6 +1389,13 @@ export async function initEngine() {
 			}),
 			// Test/debug: the exact document JSON the save paths write.
 			buildDocumentJson: () => buildDocumentJson(),
+			// Agent link oracles (spec §5): every bridge send with its origin (O7),
+			// the lock holder, the busy reason (G3) and the running agent call.
+			recordEngineSends: (on) => bridge.recordSends(on),
+			getEngineSendLog: () => bridge.getSendLog(),
+			getEngineLockHolder: () => engineLockHolder,
+			getUserBusyReason: () => getUserBusyReason(),
+			getAgentActivity: () => (agentActivity ? { ...agentActivity } : null),
 			forkLinkedDocument: () => forkLinkedDocument(),
 		};
 	}
@@ -2992,8 +3155,10 @@ export function getInactiveGearDisplay() { return inactiveGearDisplay; }
  * Ensure every gear in the given inactive sketches is expanded into
  * `inactiveGearDisplay`, and drop entries no longer present. Idempotent.
  * @param {Array<{ key: string, entityId: number, params: object }>} specs
+ * @param {(message: object) => Promise<any>} [send] - the agent link passes its
+ *   own sender, because it already holds the engine lock
  */
-export async function ensureInactiveGearsExpanded(specs) {
+export async function ensureInactiveGearsExpanded(specs, send = (message) => bridge.send(message)) {
 	const wanted = new Set(specs.map(s => s.key));
 	let changed = false;
 	const next = new Map(inactiveGearDisplay);
@@ -3003,7 +3168,7 @@ export async function ensureInactiveGearsExpanded(specs) {
 	for (const { key, entityId, params } of specs) {
 		if (next.has(key)) continue;
 		const p = JSON.parse(JSON.stringify(params));
-		const response = await bridge.send({ type: 'GenerateGearProfile', params: p });
+		const response = await send({ type: 'GenerateGearProfile', params: p });
 		// Per-gear id range, distinct from the active `gearDisplay` range.
 		next.set(key, remapGearResponse(response, 50_000_000 + entityId * 100_000));
 		changed = true;
@@ -4838,179 +5003,11 @@ export function computeFaceBounds(geomRef) {
 export async function finishSketch() {
 	if (!bridge || !engineReady) return;
 
-	// Serialize positions map to plain object with string keys
-	const posObj = {};
-	for (const [id, pos] of sketchPositions) {
-		posObj[id] = [pos.x, pos.y];
-	}
-
-	// Convert extractedProfiles to the ClosedProfile format.
-	// The profile extraction stores line/arc/spline entity IDs, but the kernel expects
-	// point IDs (looked up in solved_positions). Convert by chaining entity endpoints.
-
-	// Helper: get the two connection-point IDs (start, end) for any edge entity.
-	function entityEndpoints(entity) {
-		if (entity.type === 'Line' || entity.type === 'Arc') {
-			return [entity.start_id, entity.end_id];
-		}
-		if (entity.type === 'Spline' && entity.point_ids?.length >= 2) {
-			return [entity.point_ids[0], entity.point_ids[entity.point_ids.length - 1]];
-		}
-		return [undefined, undefined];
-	}
-
-	// Helper: get the start point ID for an entity (1 point per entity).
-	// Each entity contributes exactly 1 point to the polygon; the end point
-	// is the next entity's start. Spline curve geometry is communicated
-	// via spline_segments (not by dumping all interior control points).
-	function entityStartPoint(entity, forward) {
-		if (entity.type === 'Line' || entity.type === 'Arc') {
-			return forward ? entity.start_id : entity.end_id;
-		}
-		if (entity.type === 'Spline' && entity.point_ids?.length >= 2) {
-			return forward ? entity.point_ids[0] : entity.point_ids[entity.point_ids.length - 1];
-		}
-		return undefined;
-	}
-
-// Synthetic point ID counter for arc samples (high value to avoid collision with real IDs)
-	let nextSynthId = 900000;
-
-	const profiles = extractedProfilesState.map((p) => {
-		const pointIds = [];
-		const arcSegments = [];
-		const edgeEntities = [...p.entityIds].map(id => sketchEntities.find(e => e.id === id)).filter(Boolean);
-
-		// Standalone circles: pass as tagged circle profile for true NURBS cylinder extrusion
-		if (edgeEntities.length === 1 && edgeEntities[0].type === 'Circle') {
-			const circle = edgeEntities[0];
-			const center = sketchPositions.get(circle.center_id);
-			if (center) {
-				return {
-					entity_ids: [circle.id],
-					is_outer: p.isOuter,
-					circle: { center_u: center.x, center_v: center.y, radius: circle.radius }
-				};
-			}
-			return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
-		}
-
-		if (edgeEntities.length === 0) return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
-
-		// Chain entities into a dense polygon. Splines contribute ALL their sample
-		// points; arcs are sampled into intermediate points. This preserves involute
-		// curve geometry for gear profiles (and any other curved profiles).
-		const [firstStart, firstEnd] = entityEndpoints(edgeEntities[0]);
-		if (firstStart == null) return { entity_ids: [...p.entityIds], is_outer: p.isOuter };
-
-		// Helper: add all points for an entity (dense sampling) in the given direction.
-		// Adds all points EXCEPT the last one (next entity's start handles it).
-		function addEntityPoints(entity, forward) {
-			if (entity.type === 'Spline' && entity.point_ids?.length >= 2) {
-				// Spline: add ALL sample points (involute curves have 12+ points)
-				const pts = forward ? entity.point_ids : [...entity.point_ids].reverse();
-				for (const pid of pts.slice(0, -1)) {
-					pointIds.push(pid);
-				}
-			} else if (entity.type === 'Arc') {
-				// Arc: sample the curve into intermediate points
-				const sId = forward ? entity.start_id : entity.end_id;
-				const eId = forward ? entity.end_id : entity.start_id;
-				const center = sketchPositions.get(entity.center_id);
-				const sPos = sketchPositions.get(sId);
-				const ePos = sketchPositions.get(eId);
-				if (center && sPos && ePos) {
-					const radius = Math.hypot(sPos.x - center.x, sPos.y - center.y);
-					let startAngle = Math.atan2(sPos.y - center.y, sPos.x - center.x);
-					let endAngle = Math.atan2(ePos.y - center.y, ePos.x - center.x);
-					// Arc entities are CCW start→end. A forward traversal samples
-					// CCW; a REVERSED traversal walks the same physical arc
-					// clockwise, so angles must DECREASE — forcing CCW here used
-					// to sample the complement arc (wrong side of the circle).
-					if (forward) {
-						if (endAngle <= startAngle) endAngle += Math.PI * 2;
-					} else if (endAngle >= startAngle) {
-						endAngle -= Math.PI * 2;
-					}
-
-					const arcStartIdx = pointIds.length;
-					pointIds.push(sId); // start point
-					const ARC_SAMPLES = 16;
-					for (let s = 1; s < ARC_SAMPLES; s++) {
-						const t = s / ARC_SAMPLES;
-						const angle = startAngle + t * (endAngle - startAngle);
-						const synthId = nextSynthId++;
-						posObj[synthId] = [
-							center.x + Math.cos(angle) * radius,
-							center.y + Math.sin(angle) * radius
-						];
-						pointIds.push(synthId);
-					}
-					// The arc's true end vertex is the NEXT entity's start point —
-					// pointIds.length is the index it will occupy (wrapped to 0
-					// after the loop when this arc closes the profile). Pointing
-					// at the last interior sample instead cut every arc to
-					// (N-1)/N of its sweep and left a chord-sliver line: an
-					// extruded 90° fillet was really an 84.4° arc + sliver.
-					arcSegments.push({
-						start_vertex_index: arcStartIdx,
-						end_vertex_index: pointIds.length,
-						center_u: center.x,
-						center_v: center.y,
-						radius: radius,
-					});
-					// Don't push end point — next entity's start handles it
-				} else {
-					// Fallback: just add start point
-					pointIds.push(sId);
-				}
-			} else {
-				// Line or unknown: single start point
-				const pt = entityStartPoint(entity, forward);
-				if (pt != null) pointIds.push(pt);
-			}
-		}
-
-		// First entity: derive its traversal direction from connectivity with
-		// the second entity — the profile walk can enter it either way. Always
-		// assuming forward pushed the shared vertex twice (the kernel rejects
-		// the loop with ProfileRepeatedVertex) and misdirected the whole chain.
-		// A 2-entity loop (bigon) connects at both ends; keep forward for it.
-		let firstForward = true;
-		if (edgeEntities.length > 2) {
-			const [s2, e2] = entityEndpoints(edgeEntities[1]);
-			const endConnects = firstEnd === s2 || firstEnd === e2;
-			const startConnects = firstStart === s2 || firstStart === e2;
-			if (!endConnects && startConnects) firstForward = false;
-		}
-		addEntityPoints(edgeEntities[0], firstForward);
-		let prevEnd = firstForward ? firstEnd : firstStart;
-
-		for (let i = 1; i < edgeEntities.length; i++) {
-			const entity = edgeEntities[i];
-			const [nextStart, nextEnd] = entityEndpoints(entity);
-			if (nextStart == null) continue;
-
-			const forward = nextStart === prevEnd;
-			const connected = forward || nextEnd === prevEnd;
-			const dir = connected ? forward : true;
-
-			addEntityPoints(entity, dir);
-			prevEnd = connected ? (forward ? nextEnd : nextStart) : nextEnd;
-		}
-
-		// An arc that closes the profile ends on vertex 0 (the kernel's
-		// reconstruction treats index runs cyclically).
-		for (const seg of arcSegments) {
-			if (seg.end_vertex_index >= pointIds.length) seg.end_vertex_index = 0;
-		}
-
-		const result = { entity_ids: [...p.entityIds], is_outer: p.isOuter, vertex_ids: pointIds };
-		if (arcSegments.length > 0) {
-			result.arc_segments = arcSegments;
-		}
-		return result;
-	});
+	const { profiles, solvedPositions: posObj } = buildFinishProfiles(
+		extractedProfilesState,
+		sketchEntities,
+		sketchPositions
+	);
 
 	const profileCount = profiles.length;
 

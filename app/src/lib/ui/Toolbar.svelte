@@ -53,7 +53,10 @@
 		flipSection,
 		setSectionOffset,
 		clearSection,
-		openConstraintModal
+		openConstraintModal,
+		getAgentActivity,
+		setToolHint,
+		AGENT_WORKING_HINT
 	} from '$lib/engine/store.svelte.js';
 	import { isModalConstraint } from '$lib/sketch/constraintModalEngine.js';
 	import SettingsModal from './SettingsModal.svelte';
@@ -65,6 +68,8 @@
 	import { onMount, flushSync } from 'svelte';
 
 	let ready = $derived(isEngineReady());
+	// An agent-link call is running: modeling commands are refused, not queued (spec G8).
+	let agentBusy = $derived(getAgentActivity() !== null);
 	let tool = $derived(getActiveTool());
 	let inSketch = $derived(getSketchMode()?.active ?? false);
 	let planeSelecting = $derived(getSketchPlaneSelectionMode());
@@ -190,6 +195,10 @@
 	];
 
 	async function handleToolClick(toolId) {
+		if (agentBusy) {
+			setToolHint(AGENT_WORKING_HINT);
+			return;
+		}
 		console.log('[waffle-toolbar] handleToolClick:', toolId, { ready, inSketch });
 		if (toolId === 'sketch') {
 			if (inSketch) {
@@ -363,6 +372,14 @@
 		function onKeyDown(e) {
 			if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 			if (!ready) return;
+			if (agentBusy && !((e.ctrlKey || e.metaKey) && e.key === 's')) {
+				// G8: shortcuts other than Save are ignored (nothing queued) while an agent call runs.
+				if (e.ctrlKey || e.metaKey || e.key.length === 1 || e.key === 'Delete' || e.key === 'Backspace') {
+					e.preventDefault();
+					setToolHint(AGENT_WORKING_HINT);
+				}
+				return;
+			}
 
 			if (e.ctrlKey || e.metaKey) {
 				if (e.key === 's') { e.preventDefault(); saveToStorage(); return; }
@@ -668,7 +685,7 @@
 							<button
 								class="toolbar-btn"
 								class:active={tool === t.id}
-								disabled={!ready}
+								disabled={!ready || agentBusy}
 								title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
 								data-testid="toolbar-btn-{t.id}"
 								onclick={async () => { await handleToolClick(t.id); showModelingTools = false; }}
@@ -684,7 +701,7 @@
 					<button
 						class="toolbar-btn"
 						class:active={tool === t.id}
-						disabled={!ready}
+						disabled={!ready || agentBusy}
 						title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
 						data-testid="toolbar-btn-{t.id}"
 						onclick={async () => { await handleToolClick(t.id); }}
@@ -749,8 +766,8 @@
 
 	<div class="toolbar-sep"></div>
 	<div class="toolbar-group">
-		<button class="toolbar-btn" data-testid="toolbar-btn-undo" disabled={!ready} title="Undo (Ctrl+Z)" onclick={undo}>Undo</button>
-		<button class="toolbar-btn" data-testid="toolbar-btn-redo" disabled={!ready} title="Redo (Ctrl+Shift+Z)" onclick={redo}>Redo</button>
+		<button class="toolbar-btn" data-testid="toolbar-btn-undo" disabled={!ready || agentBusy} title="Undo (Ctrl+Z)" onclick={undo}>Undo</button>
+		<button class="toolbar-btn" data-testid="toolbar-btn-redo" disabled={!ready || agentBusy} title="Redo (Ctrl+Shift+Z)" onclick={redo}>Redo</button>
 	</div>
 	{#if isMobile}
 		<!-- Mobile: collapse file/export/test actions into overflow menu -->
@@ -775,7 +792,7 @@
 						onclick={async () => { closeOverflow(); await saveProject(); }}>
 						Export .waffle
 					</button>
-					<button class="overflow-item" disabled={!ready}
+					<button class="overflow-item" disabled={!ready || agentBusy}
 						data-testid="toolbar-btn-open"
 						onclick={() => { closeOverflow(); loadProject(); }}>Open</button>
 					<button class="overflow-item" disabled={!ready || exportingStl}
@@ -829,7 +846,7 @@
 				onclick={async () => { saving = true; try { await saveToStorage(); } finally { saving = false; } }}>
 				{saving ? 'Saving...' : 'Save'}
 			</button>
-			<button class="toolbar-btn" disabled={!ready} title="Open (Ctrl+O)"
+			<button class="toolbar-btn" disabled={!ready || agentBusy} title="Open (Ctrl+O)"
 				data-testid="toolbar-btn-open"
 				onclick={() => loadProject()}>Open</button>
 			<button class="toolbar-btn" disabled={!ready} title="Download a .waffle file (Save persists to the browser)"

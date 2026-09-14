@@ -45,7 +45,10 @@
 		packAllSources,
 		pinSource,
 		updateSourceToTip,
-		fetchSource
+		fetchSource,
+		getAgentActivity,
+		setToolHint,
+		AGENT_WORKING_HINT
 	} from '$lib/engine/store.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
 	import { describeLocator } from '$lib/storage/git/locator.js';
@@ -58,6 +61,15 @@
 	let featureErrors = $derived(getFeatureErrors());
 	let bodies = $derived(getBodies());
 	let selectedBodyId = $derived(getSelectedBodyId());
+	// An agent-link call is running: tree edits are refused, not queued (spec G8).
+	let agentBusy = $derived(getAgentActivity() !== null);
+
+	/** True (and shows the status hint) when an agent call blocks a tree edit. */
+	function blockedByAgent() {
+		if (!agentBusy) return false;
+		setToolHint(AGENT_WORKING_HINT);
+		return true;
+	}
 
 	/** @type {{ x: number, y: number, featureId: string, featureName: string, suppressed: boolean, isSketch: boolean, operationType: string | null } | null} */
 	let contextMenu = $state(null);
@@ -108,6 +120,10 @@
 	async function commitVariableEdit() {
 		const edit = editingVariable;
 		if (!edit) return;
+		if (blockedByAgent()) {
+			editingVariable = null;
+			return;
+		}
 		editingVariable = null;
 		const name = edit.name.trim();
 		const expression = edit.expression.trim();
@@ -130,6 +146,7 @@
 
 	async function deleteVariable(e, param) {
 		e.stopPropagation();
+		if (blockedByAgent()) return;
 		await setParameters(parameters.filter((p) => p.id !== param.id).map((p) => ({ ...p })));
 	}
 
@@ -180,6 +197,7 @@
 	}
 
 	async function withBusy(id, fn) {
+		if (blockedByAgent()) return;
 		sourceBusy = id;
 		try {
 			await fn();
@@ -222,11 +240,16 @@
 	}
 
 	function handleBodyDblClick(body) {
+		if (blockedByAgent()) return;
 		bodyRenaming = { bodyId: body.bodyId, value: body.name };
 	}
 
 	function commitBodyRename() {
 		if (!bodyRenaming) return;
+		if (blockedByAgent()) {
+			bodyRenaming = null;
+			return;
+		}
 		// Empty/whitespace clears the override (engine reverts to derived name).
 		renameBody(bodyRenaming.bodyId, bodyRenaming.value.trim());
 		bodyRenaming = null;
@@ -261,6 +284,7 @@
 	}
 
 	function handleDblClick(feature) {
+		if (blockedByAgent()) return;
 		const opType = feature.operation?.type;
 		if (opType === 'Sketch') {
 			enterSketchEditMode(feature.id);
@@ -282,6 +306,7 @@
 
 	function handleContextMenu(e, feature) {
 		e.preventDefault();
+		if (blockedByAgent()) return;
 		originContextMenu = null;
 		const pos = clampMenuPosition(e.clientX, e.clientY);
 		contextMenu = {
@@ -304,6 +329,10 @@
 	function handleRename(e) {
 		if (!renaming) return;
 		if (e.key === 'Enter') {
+			if (blockedByAgent()) {
+				renaming = null;
+				return;
+			}
 			const trimmed = renaming.value.trim();
 			if (trimmed) {
 				renameFeature(renaming.featureId, trimmed);
@@ -316,6 +345,10 @@
 
 	function handleRenameBlur() {
 		if (!renaming) return;
+		if (blockedByAgent()) {
+			renaming = null;
+			return;
+		}
 		const trimmed = renaming.value.trim();
 		if (trimmed) {
 			renameFeature(renaming.featureId, trimmed);
@@ -327,12 +360,14 @@
 		if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 		if (renaming) return;
 		if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+			if (blockedByAgent()) return;
 			deleteFeature(selectedId);
 			selectFeature(null);
 		}
 	}
 
 	function handleDelete() {
+		if (blockedByAgent()) return closeContextMenu();
 		if (contextMenu) {
 			deleteFeature(contextMenu.featureId);
 			if (selectedId === contextMenu.featureId) selectFeature(null);
@@ -341,6 +376,7 @@
 	}
 
 	function handleSuppress() {
+		if (blockedByAgent()) return closeContextMenu();
 		if (contextMenu) {
 			suppressFeature(contextMenu.featureId, !contextMenu.suppressed);
 			closeContextMenu();
@@ -348,6 +384,7 @@
 	}
 
 	function handleEditSketch() {
+		if (blockedByAgent()) return closeContextMenu();
 		if (contextMenu && contextMenu.isSketch) {
 			enterSketchEditMode(contextMenu.featureId);
 			closeContextMenu();
@@ -355,6 +392,7 @@
 	}
 
 	function handleEditFeature() {
+		if (blockedByAgent()) return closeContextMenu();
 		if (contextMenu) {
 			showEditFeatureDialog(contextMenu.featureId);
 			closeContextMenu();
@@ -438,6 +476,10 @@
 	// -- Drag and drop --
 
 	function handleDragStart(e, feature) {
+		if (blockedByAgent()) {
+			e.preventDefault();
+			return;
+		}
 		dragFeatureId = feature.id;
 		e.dataTransfer.effectAllowed = 'move';
 		e.dataTransfer.setData('text/plain', feature.id);
@@ -455,7 +497,7 @@
 
 	function handleDrop(e, targetIndex) {
 		e.preventDefault();
-		if (dragFeatureId) {
+		if (dragFeatureId && !blockedByAgent()) {
 			reorderFeature(dragFeatureId, targetIndex);
 		}
 		dragFeatureId = null;
@@ -471,6 +513,10 @@
 	let rollbackValue = $derived(tree.active_index ?? tree.features.length);
 
 	function handleRollback(e) {
+		if (blockedByAgent()) {
+			e.target.value = String(rollbackValue);
+			return;
+		}
 		const val = parseInt(e.target.value);
 		const index = val >= tree.features.length ? null : val;
 		setRollbackIndex(index);
@@ -669,6 +715,13 @@
 						/>
 					{:else}
 						<span class="tree-label">{feature.name}</span>
+					{/if}
+					{#if tree.provenance?.[feature.id]?.origin?.type === 'Agent'}
+						<span
+							class="agent-badge"
+							data-testid="agent-badge-{i}"
+							title="Last authored by agent {tree.provenance[feature.id].origin.name}"
+						>agent</span>
 					{/if}
 					{#if faceFeatureId === feature.id}
 						<span class="face-source-badge" title="The selected face was created by this feature">◀ face</span>
@@ -1276,6 +1329,25 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+
+	.agent-badge {
+
+		font-size: 9px;
+
+		padding: 0 4px;
+
+		border-radius: 6px;
+
+		border: 1px solid var(--accent, #89b4fa);
+
+		color: var(--accent, #89b4fa);
+
+		line-height: 14px;
+
+		flex-shrink: 0;
+
+	}
+
 
 	.suppress-indicator {
 		margin-left: auto;

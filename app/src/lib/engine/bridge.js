@@ -7,6 +7,13 @@
 
 import { log } from './logger.js';
 
+/**
+ * Pointer feedback the engine answers without touching the model. These never
+ * take the engine lock (specs/waffle_mcp_server.md §2.7: selection and hover
+ * stay live during an agent call); FIFO response pairing keeps them safe.
+ */
+const UNGATED_TYPES = new Set(['HoverEntity', 'SelectEntity']);
+
 export class EngineBridge {
 	constructor() {
 		/** @type {Worker | null} */
@@ -23,6 +30,14 @@ export class EngineBridge {
 		this._onHoverChanged = null;
 		/** @type {Function | null} */
 		this._onError = null;
+		/**
+		 * Wraps every gated send: `(message, post) => Promise<response>`. The
+		 * store installs the engine lock here.
+		 * @type {((message: object, post: () => Promise<object>) => Promise<object>) | null}
+		 */
+		this._sendGate = null;
+		/** @type {Array<{type: string, origin: 'user' | 'agent' | 'pointer', t: number}> | null} */
+		this._sendLog = null;
 	}
 
 	/**
@@ -64,11 +79,56 @@ export class EngineBridge {
 	}
 
 	/**
-	 * Send a UiToEngine command and get the response.
+	 * Install the send gate (the store's engine lock). Hover/select bypass it.
+	 * @param {((message: object, post: () => Promise<object>) => Promise<object>) | null} gate
+	 */
+	setSendGate(gate) {
+		this._sendGate = gate;
+	}
+
+	/**
+	 * Send a UiToEngine command and get the response. Goes through the send
+	 * gate, so a user-originated message waits while an agent call holds the
+	 * engine lock.
 	 * @param {object} message - UiToEngine message (must have a `type` field)
 	 * @returns {Promise<object>} EngineToUi response
 	 */
 	send(message) {
+		if (UNGATED_TYPES.has(message.type)) return this._post(message, 'pointer');
+		if (this._sendGate) return this._sendGate(message, () => this._post(message, 'user'));
+		return this._post(message, 'user');
+	}
+
+	/**
+	 * Agent-link path: post without the gate. The caller must already hold the
+	 * engine lock (store `sendAgentMessage`).
+	 * @param {object} message
+	 * @returns {Promise<object>}
+	 */
+	sendUngated(message) {
+		return this._post(message, 'agent');
+	}
+
+	/**
+	 * Start (true, clearing the log) or stop (false) recording every send with
+	 * its origin — the agent-link no-interleaving oracle (spec O7).
+	 * @param {boolean} on
+	 */
+	recordSends(on) {
+		this._sendLog = on ? [] : null;
+	}
+
+	/** @returns {Array<{type: string, origin: 'user' | 'agent' | 'pointer', t: number}>} */
+	getSendLog() {
+		return this._sendLog ? [...this._sendLog] : [];
+	}
+
+	/**
+	 * @param {object} message
+	 * @param {'user' | 'agent' | 'pointer'} origin
+	 * @returns {Promise<object>}
+	 */
+	_post(message, origin) {
 		return new Promise((resolve, reject) => {
 			if (!this._worker) {
 				reject(new Error('Bridge not initialized. Call init() first.'));
@@ -80,6 +140,7 @@ export class EngineBridge {
 			try {
 				this._worker.postMessage(message);
 				this._pendingCallbacks.push({ resolve, reject });
+				if (this._sendLog) this._sendLog.push({ type: message.type, origin, t: performance.now() });
 			} catch (err) {
 				log('error', `postMessage failed: ${err}`);
 				reject(err);
@@ -175,7 +236,15 @@ export class EngineBridge {
 
 		if (pending) {
 			if (msg.type === 'Error') {
-				pending.reject(new Error(msg.message));
+				// Typed error fields (ICR-2): `kind` is the engine's ErrorKind when
+				// the failure is an engine error; absent for bridge-level failures.
+				const err = /** @type {Error & {kind: object | null, featureId: string | null, needsRestart: boolean}} */ (
+					new Error(msg.message)
+				);
+				err.kind = msg.kind ?? null;
+				err.featureId = msg.feature_id ?? null;
+				err.needsRestart = msg.needsRestart === true;
+				pending.reject(err);
 			} else {
 				pending.resolve(msg);
 			}
