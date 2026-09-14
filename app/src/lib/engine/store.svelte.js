@@ -534,6 +534,47 @@ export async function withEngineLock(origin, fn, opts = {}) {
 	}
 }
 
+const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+
+/**
+ * O3 parity oracle (specs/waffle_mcp_server.md §5): replay agent bridge
+ * messages recorded in another page through the agent entry point, under the
+ * agent lock. Feature ids the recording page's engine minted are mapped to the
+ * ids this engine mints, in answer order (also inside body ids such as
+ * `{feature_id}/Main`). A rejection is replayed as a rejection. Test-only,
+ * exposed on `__waffle`.
+ * @param {Array<{ message: object, response?: { type: string, feature_id: string | null } }>} entries
+ */
+async function replayEngineMessages(entries) {
+	await withEngineLock('agent', async () => {
+		/** @type {Map<string, string>} */
+		const ids = new Map();
+		const remap = (v) =>
+			typeof v === 'string'
+				? v.replace(UUID_PATTERN, (u) => ids.get(u) ?? u)
+				: Array.isArray(v)
+					? v.map(remap)
+					: v && typeof v === 'object'
+						? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, remap(x)]))
+						: v;
+		agentActivity = { tool: 'replay', agentName: 'replay', quietErrors: true };
+		try {
+			for (const entry of entries) {
+				let response = null;
+				try {
+					response = await sendAgentMessage(remap(entry.message), { rebuild: true });
+				} catch {
+					// The recording page's engine rejected the same message.
+				}
+				const recorded = entry.response?.feature_id;
+				if (recorded && response?.feature_id) ids.set(recorded, response.feature_id);
+			}
+		} finally {
+			agentActivity = null;
+		}
+	});
+}
+
 /** Status-bar hint shown when the user tries a modeling command during an agent call (G8). */
 export const AGENT_WORKING_HINT = 'Agent is working';
 
@@ -541,13 +582,14 @@ export const AGENT_WORKING_HINT = 'Agent is working';
  * The running agent-link call, or null. While set, modeling commands in the UI
  * are refused with AGENT_WORKING_HINT, and per-feature rebuild-error toasts are
  * left to the executor (one toast per agent step, spec A2/A3).
- * @type {{ tool: string, agentName: string } | null}
+ * `quietErrors` is set by authoring calls, which toast their own step.
+ * @type {{ tool: string, agentName: string, quietErrors?: boolean } | null}
  */
 let agentActivity = $state(null);
 export function getAgentActivity() {
 	return agentActivity;
 }
-/** @param {{ tool: string, agentName: string } | null} activity */
+/** @param {{ tool: string, agentName: string, quietErrors?: boolean } | null} activity */
 export function setAgentActivity(activity) {
 	agentActivity = activity;
 }
@@ -684,7 +726,7 @@ export async function initEngine() {
 			for (const [featureId, errorMsg] of msg.errors) {
 				newErrors.set(featureId, errorMsg);
 				if (prevErrors.get(featureId) !== errorMsg) {
-					if (agentActivity) {
+					if (agentActivity?.quietErrors) {
 						// The agent executor toasts its step once (rolled back / kept, spec A2/A3).
 						log('engine', `Feature ${featureId} failed during agent call: ${errorMsg}`);
 					} else {
@@ -1394,7 +1436,8 @@ export async function initEngine() {
 			buildDocumentJson: () => buildDocumentJson(),
 			// Agent link oracles (spec §5): every bridge send with its origin (O7),
 			// the lock holder, the busy reason (G3) and the running agent call.
-			recordEngineSends: (on) => bridge.recordSends(on),
+			recordEngineSends: (on, opts) => bridge.recordSends(on, opts),
+			replayEngineMessages: (entries) => replayEngineMessages(entries),
 			getEngineSendLog: () => bridge.getSendLog(),
 			getEngineLockHolder: () => engineLockHolder,
 			getUserBusyReason: () => getUserBusyReason(),
@@ -5837,6 +5880,18 @@ export function getActiveTabId() { return activeTabId; }
 export function getDocumentLink() { return documentLink; }
 /** True when the open document came from a share link and must not be saved over. */
 export function isDocumentReadOnly() { return documentLink?.readOnly === true; }
+
+/** The open document's identity, tabs and read-only state (agent link `document_info`). */
+export function getDocumentInfo() {
+	return {
+		documentId,
+		storageId: activeDocId,
+		name: documentName,
+		tabs: documentTabs.map((t) => ({ id: t.id, name: t.name, kind: t.kind?.type ?? 'Part' })),
+		activeTab: activeTabId,
+		readOnly: documentLink?.readOnly === true
+	};
+}
 export function getDocumentTabs() { return documentTabs; }
 export function getDocumentName() { return documentName; }
 export function setDocumentName(name) { documentName = name; projectName = name; }
@@ -5872,22 +5927,45 @@ export async function loadPendingDocument() {
 	}
 
 	try {
-		const parsed = JSON.parse(pendingJson);
-		// The handoff is the document the user asked for; drop any restore
-		// offer the bootstrap raced ahead with.
-		autoRestoreState = null;
-		initDocumentState(pendingDocId, parsed, link);
-		// Load the document into the engine — ALWAYS, even when the active tab
-		// is empty: the engine owns the document's `sources` table (v4 §2.3),
-		// which an empty tab can still belong to, and the Rust loader is the
-		// one place migrations run.
-		await loadProject(pendingJson, { silent: true });
-		log('system', `Loaded document ${pendingDocId}`);
-		await resolveDocumentSources();
-		if (activeAssemblyTab()) await refreshAssembly();
+		await openDocumentRecord(pendingDocId, pendingJson, link);
 	} catch (err) {
 		log('error', `Failed to load pending document: ${err}`);
 	}
+}
+
+/**
+ * Open a stored document record in this tab: adopt its metadata and tabs, load
+ * it into the engine, resolve its sources and evaluate an active assembly.
+ * Shared by the `/doc/[id]` handoff and the agent link's document_open /
+ * document_new.
+ * @param {string} docId - the storage record id
+ * @param {string} json - the record's `.waffle` text
+ * @param {any} [link] - share-link provenance (read-only linked copies)
+ * @throws when the engine does not load the file
+ */
+export async function openDocumentRecord(docId, json, link = null) {
+	// A pending autosave belongs to the PREVIOUS document; firing after the
+	// engine swaps trees would capture mixed state.
+	cancelPendingAutoSave();
+	const parsed = JSON.parse(json);
+	// The opened document is the one asked for; drop any restore offer the
+	// bootstrap raced ahead with.
+	autoRestoreState = null;
+	initDocumentState(docId, parsed, link);
+	// Load the document into the engine — ALWAYS, even when the active tab
+	// is empty: the engine owns the document's `sources` table (v4 §2.3),
+	// which an empty tab can still belong to, and the Rust loader is the
+	// one place migrations run.
+	if (!(await loadProject(json, { silent: true }))) {
+		throw new Error('the engine did not load the document (not ready, or saved by a newer version)');
+	}
+	// The load's own ModelUpdated scheduled an autosave of what was just read
+	// from storage; nothing is unsaved yet (agent link S3 reads the timer).
+	// Source resolution below may still schedule a real one.
+	cancelPendingAutoSave();
+	log('system', `Loaded document ${docId}`);
+	await resolveDocumentSources();
+	if (activeAssemblyTab()) await refreshAssembly();
 }
 
 /**
@@ -6754,9 +6832,9 @@ function scheduleAutoSave() {
  * Builds full v3 JSON including all tabs.
  */
 async function saveToProvider() {
-	if (!activeDocId) return;
+	if (!activeDocId) return false;
 	const jsonData = await buildDocumentJson();
-	if (!jsonData) return;
+	if (!jsonData) return false;
 
 	const { getActiveProvider } = await import('$lib/storage/index.js');
 	const store = getActiveProvider();
@@ -6767,6 +6845,39 @@ async function saveToProvider() {
 		created: existing?.created || Date.now(),
 		modified: Date.now()
 	});
+	return true;
+}
+
+/** Whether an edit is waiting for its autosave (the last few seconds are not stored yet). */
+export function hasPendingAutoSave() {
+	return autoSaveTimer != null;
+}
+
+/** Drop a pending autosave (its changes are discarded or superseded). */
+export function cancelPendingAutoSave() {
+	if (autoSaveTimer) {
+		clearTimeout(autoSaveTimer);
+		autoSaveTimer = null;
+	}
+}
+
+/**
+ * Save the open document to the active storage provider now, throwing instead
+ * of toasting (Ctrl+S and the agent link's document_save). A pending autosave
+ * is superseded.
+ * @returns {Promise<{ provider: string, id: string, saved_at: string }>}
+ */
+export async function saveDocumentOrThrow() {
+	if (documentLink?.readOnly) {
+		throw Object.assign(new Error('This document is linked read-only — fork it to edit'), { readOnly: true });
+	}
+	if (!activeDocId) throw new Error('no storage record is open in this tab');
+	cancelPendingAutoSave();
+	if (!(await saveToProvider())) {
+		throw new Error('the engine did not compose the document for saving');
+	}
+	const { getActiveProvider } = await import('$lib/storage/index.js');
+	return { provider: getActiveProvider().id, id: activeDocId, saved_at: new Date().toISOString() };
 }
 
 /**
@@ -6783,7 +6894,7 @@ export async function saveToStorage() {
 		return !!(await saveProject());
 	}
 	try {
-		await saveToProvider();
+		await saveDocumentOrThrow();
 		showToast('success', 'Saved');
 		log('action', 'Document saved');
 		return true;

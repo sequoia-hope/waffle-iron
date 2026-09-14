@@ -18,6 +18,14 @@ import {
 	undoTool
 } from './authoring.js';
 import {
+	documentInfoTool,
+	documentNewTool,
+	documentOpenTool,
+	documentSaveTool,
+	storageListTool,
+	tabSwitchTool
+} from './documents.js';
+import {
 	bodyMeasureTool,
 	expressionEvaluateTool,
 	faceListTool,
@@ -29,6 +37,12 @@ import { modelSummaryTool } from './model_summary.js';
 
 /** Tool definitions, in manifest order. */
 export const TOOLS = [
+	documentInfoTool,
+	storageListTool,
+	documentOpenTool,
+	documentNewTool,
+	documentSaveTool,
+	tabSwitchTool,
 	modelSummaryTool,
 	featureGetTool,
 	selectionGetTool,

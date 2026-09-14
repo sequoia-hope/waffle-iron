@@ -24,6 +24,7 @@ import {
 } from '$lib/engine/store.svelte.js';
 import { COMMANDS, snapshotNow } from './commands.js';
 import { sameModel } from './delta.js';
+import { DOCUMENT_COMMANDS, DOCUMENT_QUERIES } from './documents.js';
 import { QUERIES } from './queries.js';
 import { ToolFailure, toolError } from './results.js';
 import { TOOL_NAMES } from './tools/index.js';
@@ -74,7 +75,20 @@ async function withAgentLock(fn) {
 }
 
 /**
- * The first page state gate that refuses a command (§3.2), or null.
+ * G4 and G3: the gates every mutating tool passes, or null.
+ * @param {CallContext} ctx
+ */
+function pausedOrBusy(ctx) {
+	if (ctx.isPaused()) {
+		return new ToolFailure('AgentPaused', 'The user paused the agent in Waffle Iron. Wait until they resume it.', {});
+	}
+	const busy = getUserBusyReason();
+	if (busy) return new ToolFailure('UserBusy', BUSY_MESSAGES[busy], { reason: busy });
+	return null;
+}
+
+/**
+ * The first page state gate that refuses an authoring command (§3.2), or null.
  * @param {CallContext} ctx
  */
 function commandRefusal(ctx) {
@@ -108,7 +122,7 @@ async function runCommand(tool, command, args, ctx) {
 		const late = commandRefusal(ctx);
 		if (late) throw late;
 		const before = snapshotNow();
-		setAgentActivity({ tool, agentName: ctx.agentName });
+		setAgentActivity({ tool, agentName: ctx.agentName, quietErrors: true });
 		try {
 			const result = await command(args, { agentName: ctx.agentName, pause: ctx.pause });
 			if (ctx.isCancelled() && !NOT_UNDOABLE.has(tool) && !sameModel(before, snapshotNow())) {
@@ -126,6 +140,29 @@ async function runCommand(tool, command, args, ctx) {
 }
 
 /**
+ * Document-level tools (open, new, save, tab switch) run the store's own
+ * multi-message flows, which send through the gated user path; they cannot
+ * hold the agent lock for the whole call, because each of their sends waits for
+ * it. The agent activity still refuses the modeling UI meanwhile (G8), and G3
+ * and G4 apply.
+ * @param {string} tool
+ * @param {(args: any, ctx: CallContext) => Promise<object>} run
+ * @param {Record<string, unknown>} args
+ * @param {CallContext} ctx
+ */
+async function runDocumentCommand(tool, run, args, ctx) {
+	const refusal = pausedOrBusy(ctx);
+	if (refusal) throw refusal;
+	setAgentActivity({ tool, agentName: ctx.agentName, quietErrors: false });
+	try {
+		return await run(args, ctx);
+	} finally {
+		setAgentActivity(null);
+		if (getToolHint() === AGENT_WORKING_HINT) setToolHint(null);
+	}
+}
+
+/**
  * Run one tool call.
  * @param {string} tool
  * @param {Record<string, unknown>} args
@@ -133,9 +170,11 @@ async function runCommand(tool, command, args, ctx) {
  * @returns {Promise<{content: object[], structuredContent: object, isError: boolean}>}
  */
 export async function executeTool(tool, args, ctx) {
-	const query = TOOL_NAMES.has(tool) ? QUERIES[tool] : undefined;
-	const command = TOOL_NAMES.has(tool) ? COMMANDS[tool] : undefined;
-	if (!query && !command) {
+	const known = TOOL_NAMES.has(tool);
+	const query = known ? (QUERIES[tool] ?? DOCUMENT_QUERIES[tool]) : undefined;
+	const command = known ? COMMANDS[tool] : undefined;
+	const documentCommand = known ? DOCUMENT_COMMANDS[tool] : undefined;
+	if (!query && !command && !documentCommand) {
 		return toolError('ToolUnavailable', `This page has no tool named "${tool}".`, { tool });
 	}
 	// G6: nothing runs while the engine is not ready or has crashed.
@@ -154,6 +193,7 @@ export async function executeTool(tool, args, ctx) {
 			const env = { send: (message) => sendAgentMessage(message) };
 			return query.engine ? await withAgentLock(() => query.run(args, env)) : await query.run(args, env);
 		}
+		if (documentCommand) return await runDocumentCommand(tool, documentCommand, args, ctx);
 		return await runCommand(tool, /** @type {any} */ (command), args, ctx);
 	} catch (err) {
 		if (err instanceof ToolFailure) return toolError(err.code, err.detail, err.details);

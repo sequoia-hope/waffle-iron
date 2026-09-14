@@ -18,7 +18,7 @@ export class EngineBridge {
 	constructor() {
 		/** @type {Worker | null} */
 		this._worker = null;
-		/** @type {Array<{resolve: Function, reject: Function}>} */
+		/** @type {Array<{resolve: Function, reject: Function, entry?: object | null}>} */
 		this._pendingCallbacks = [];
 		/** @type {Function | null} */
 		this._onModelUpdated = null;
@@ -36,8 +36,11 @@ export class EngineBridge {
 		 * @type {((message: object, post: () => Promise<object>) => Promise<object>) | null}
 		 */
 		this._sendGate = null;
-		/** @type {Array<{type: string, origin: 'user' | 'agent' | 'pointer', t: number}> | null} */
+		/**
+		 * @type {Array<{type: string, origin: 'user' | 'agent' | 'pointer', t: number, message?: object, response?: {type: string, feature_id: string | null}}> | null}
+		 */
 		this._sendLog = null;
+		this._logPayloads = false;
 	}
 
 	/**
@@ -111,16 +114,19 @@ export class EngineBridge {
 
 	/**
 	 * Start (true, clearing the log) or stop (false) recording every send with
-	 * its origin — the agent-link no-interleaving oracle (spec O7).
+	 * its origin — the agent-link oracles: no interleaving (O7) and, with
+	 * `payloads`, each message and its answer's type and feature id (O3 parity).
 	 * @param {boolean} on
+	 * @param {{ payloads?: boolean }} [opts]
 	 */
-	recordSends(on) {
+	recordSends(on, { payloads = false } = {}) {
 		this._sendLog = on ? [] : null;
+		this._logPayloads = on && payloads;
 	}
 
-	/** @returns {Array<{type: string, origin: 'user' | 'agent' | 'pointer', t: number}>} */
+	/** @returns {Array<{type: string, origin: 'user' | 'agent' | 'pointer', t: number, message?: object, response?: object}>} */
 	getSendLog() {
-		return this._sendLog ? [...this._sendLog] : [];
+		return this._sendLog ? this._sendLog.map((entry) => ({ ...entry })) : [];
 	}
 
 	/**
@@ -139,8 +145,14 @@ export class EngineBridge {
 
 			try {
 				this._worker.postMessage(message);
-				this._pendingCallbacks.push({ resolve, reject });
-				if (this._sendLog) this._sendLog.push({ type: message.type, origin, t: performance.now() });
+				/** @type {any} */
+				let entry = null;
+				if (this._sendLog) {
+					entry = { type: message.type, origin, t: performance.now() };
+					if (this._logPayloads) entry.message = JSON.parse(JSON.stringify(message));
+					this._sendLog.push(entry);
+				}
+				this._pendingCallbacks.push({ resolve, reject, entry });
 			} catch (err) {
 				log('error', `postMessage failed: ${err}`);
 				reject(err);
@@ -189,6 +201,7 @@ export class EngineBridge {
 	_handleMessage(event) {
 		const msg = event.data;
 		const pending = this._pendingCallbacks.shift();
+		if (pending?.entry) pending.entry.response = { type: msg.type, feature_id: msg.feature_id ?? null };
 
 		// Build summary data for the log entry
 		const summary = { type: msg.type };

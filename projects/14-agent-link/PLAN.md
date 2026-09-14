@@ -210,12 +210,45 @@ Exit (spec §8): O1–O20 green (O4 `NotSupported` row after ICR-2);
   messages during a user action); the spec's exception list named only
   `body_measure`/`face_list`.
 
+- [x] **Documents and storage** (2026-09-14): `document_info`,
+  `storage_list`, `document_open`, `document_new`, `document_save`,
+  `tab_switch` (`$lib/agent/documents.js`).
+  - They call the app's own flows, shared by refactor: `openDocumentRecord`
+    (also the `/doc/[id]` handoff), `saveDocumentOrThrow` (also Ctrl+S),
+    and `newDocumentRecord` (also Home → New).
+  - They set the agent activity and pass G3/G4 without the whole-call lock,
+    because their nested gated sends would wait on it.
+  - S3 "unsaved" means an autosave is still pending.
+  - Two app fixes on the way:
+    - Opening a record cancels the previous document's pending autosave
+      (it could otherwise save mixed state into the new record).
+    - Save no longer toasts "Saved" when the engine refused to compose the
+      document.
+  - Found by the test: the load's own ModelUpdated scheduled an autosave, so
+    a just-opened document read as unsaved; `openDocumentRecord` now drops
+    that one.
+  - Spec codes added: `ProviderNotFound`, `StorageFailed`, `TabNotFound`.
+  - `agent-documents.spec.js` (4): new/save/list/reopen with exact volume,
+    S3 accept/decline via the confirm dialog, `tab_switch` + G7 Assembly
+    tab, G5/S2 linked read-only record.
+- [x] **O3 parity** (2026-09-14), `agent-parity.spec.js`: 15 sequences.
+  - Each sequence is recorded through the real relay with
+    `recordEngineSends(true, {payloads: true})`, then replayed in a fresh
+    unpaired page by `__waffle.replayEngineMessages`, which maps feature ids
+    by answer order.
+  - The two saved documents compare equal after renaming UUIDs in
+    structural order and dropping timestamps and `preview_mesh`. 15/15.
+
 ### Open
-- [ ] O3 parity: 15 scripted sequences via the agent vs the same messages
-  through the store entry point in a fresh page, canonical bytes equal.
-- [ ] G5 read-only document and G7 Assembly tab rows of O8.
-- [ ] O13–O20 are relay-harness oracles and green in pytest. Recheck them
-  against Phase 1 frames: `status` busy reason, `cancel`.
+- [ ] O13–O20 are relay-harness oracles and green in pytest. Add pytest
+  coverage for the Phase 1 frames: a `status` busy reason, and a relay
+  `cancel` frame sent when the MCP request is cancelled. Both are exercised
+  end to end in the GUI (O8, A18).
+- [ ] Phase 1 exit re-run of `./scripts/test.sh gui-full`. Baseline here: 44
+  pre-existing failures (memory) + `planetary-gear` extrude. An accidental
+  near-full run on 2026-09-14 (1156 tests) gave 45 failed / 1111 passed,
+  before the autosave fix. Its visible failures were viewport/camera specs,
+  but the full list was truncated and not compared against the baseline.
 - Finding (2026-09-14): F0064 (the spec's coplanar `NotSupported` example)
   builds with no feature errors in the app. The O4 `NotSupported` row uses
   kernel-v2's arc-profile wall instead.

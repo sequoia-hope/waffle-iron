@@ -21,8 +21,11 @@
       `feature_delete`, `feature_suppress`, `feature_reorder`,
       `feature_rename`, `body_rename`, `rollback_set`, `parameters_set`,
       `undo`, `redo`.
-  - Still to come: documents/storage (Phase 1), `viewport_capture` and export
-    (Phase 2).
+    - documents and storage: `document_info`, `storage_list` (queries);
+      `document_open`, `document_new`, `document_save`, `tab_switch`
+      (commands, run through the store's own flows without the whole-call
+      lock).
+  - Still to come: `viewport_capture` and export (Phase 2).
 - **`waffle-agent-link/1`** WebSocket frames between relay and page: spec §2.3.
 - **Tool manifest** `agent-tools.manifest.json`, generated from
   `app/src/lib/agent/tools/`, bundled by the relay. Engine-type inputs are
@@ -33,8 +36,11 @@
   - agent entry point: `sendAgentMessage`;
   - page state: `getUserBusyReason`, `getAgentActivity`/`setAgentActivity`,
     `isEngineCrashed`;
-  - shared with the app: `beginSketchPlaneRef`, `sketchRegionsRequest`, and
-    `$lib/sketch/finishProfiles.js` `buildFinishProfiles`;
+  - shared with the app: `beginSketchPlaneRef`, `sketchRegionsRequest`,
+    `openDocumentRecord`, `saveDocumentOrThrow`, `getDocumentInfo`,
+    `hasPendingAutoSave`/`cancelPendingAutoSave`,
+    `$lib/sketch/finishProfiles.js` `buildFinishProfiles`, and
+    `$lib/storage/newDocument.js` `newDocumentRecord`;
   - test oracles: `__waffle.recordEngineSends` / `getEngineSendLog`.
 
 ## Interface change requests (owned by other sub-projects)

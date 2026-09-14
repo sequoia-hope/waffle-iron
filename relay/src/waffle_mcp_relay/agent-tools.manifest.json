@@ -1,7 +1,615 @@
 {
-  "manifest_hash": "39da9a930d67df1b4dec5258b26d9cf1d36eafd7770626b37935f64f4f2e0dfe",
+  "manifest_hash": "581bc5867f6f290fc46154e5931bce774bde8507c70832b0642505b4838fd8a0",
   "protocol": "waffle-agent-link/1",
   "tools": [
+    {
+      "annotations": {
+        "readOnlyHint": true,
+        "title": "Document info"
+      },
+      "description": "The document open in the tab: identity, name, storage provider, tabs (id, name, kind), active tab, whether it is a linked read-only copy, its sources with availability, and whether changes are still waiting for autosave.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "document_info",
+      "outputSchema": {
+        "properties": {
+          "active_tab": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document_id": {
+            "description": "The document's own identity (v4 document.id).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "read_only": {
+            "description": "Linked read-only copy: edits and saves are refused.",
+            "type": "boolean"
+          },
+          "sources": {
+            "items": {
+              "properties": {
+                "available": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "storage_id": {
+            "description": "The storage record id (pass to document_open).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "storage_provider": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "label"
+            ],
+            "type": "object"
+          },
+          "tabs": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "unsaved": {
+            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document_id",
+          "storage_id",
+          "name",
+          "storage_provider",
+          "tabs",
+          "active_tab",
+          "read_only",
+          "sources",
+          "unsaved"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "readOnlyHint": true,
+        "title": "List stored documents"
+      },
+      "description": "The documents in a storage provider, newest first.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "description": "Storage provider id (\"local\" = this browser, or a connected git provider); default: the active one.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "storage_list",
+      "outputSchema": {
+        "properties": {
+          "documents": {
+            "items": {
+              "properties": {
+                "created": {
+                  "description": "Unix ms.",
+                  "type": "number"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "linked": {
+                  "type": "boolean"
+                },
+                "modified": {
+                  "description": "Unix ms.",
+                  "type": "number"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "tab_count": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "provider": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "documents"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Open document"
+      },
+      "description": "Open a stored document in the tab, as opening it from the Home screen does. Refused with UnsavedChanges while the current document has changes waiting for autosave (call document_save first).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "discard_unsaved": {
+            "default": false,
+            "description": "Leave the current document even though its latest changes are not stored yet. The user is still asked to confirm in the page; declining returns UserDeclined.",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Storage record id from storage_list.",
+            "type": "string"
+          },
+          "provider": {
+            "description": "Storage provider id (\"local\" = this browser, or a connected git provider); default: the active one.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "name": "document_open",
+      "outputSchema": {
+        "properties": {
+          "active_tab": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document_id": {
+            "description": "The document's own identity (v4 document.id).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "read_only": {
+            "description": "Linked read-only copy: edits and saves are refused.",
+            "type": "boolean"
+          },
+          "sources": {
+            "items": {
+              "properties": {
+                "available": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "storage_id": {
+            "description": "The storage record id (pass to document_open).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "storage_provider": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "label"
+            ],
+            "type": "object"
+          },
+          "tabs": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "unsaved": {
+            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document_id",
+          "storage_id",
+          "name",
+          "storage_provider",
+          "tabs",
+          "active_tab",
+          "read_only",
+          "sources",
+          "unsaved"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "New document"
+      },
+      "description": "Create an empty document (one Part tab) in the active storage provider and open it. Refused with UnsavedChanges while the current document has changes waiting for autosave.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "discard_unsaved": {
+            "default": false,
+            "description": "Leave the current document even though its latest changes are not stored yet. The user is still asked to confirm in the page; declining returns UserDeclined.",
+            "type": "boolean"
+          },
+          "name": {
+            "default": "Untitled",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "document_new",
+      "outputSchema": {
+        "properties": {
+          "active_tab": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document_id": {
+            "description": "The document's own identity (v4 document.id).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "read_only": {
+            "description": "Linked read-only copy: edits and saves are refused.",
+            "type": "boolean"
+          },
+          "sources": {
+            "items": {
+              "properties": {
+                "available": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "storage_id": {
+            "description": "The storage record id (pass to document_open).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "storage_provider": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "label"
+            ],
+            "type": "object"
+          },
+          "tabs": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "unsaved": {
+            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document_id",
+          "storage_id",
+          "name",
+          "storage_provider",
+          "tabs",
+          "active_tab",
+          "read_only",
+          "sources",
+          "unsaved"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Save document"
+      },
+      "description": "Save the open document to its storage provider now, exactly as the Save button does. A provider failure (git authentication, a conflict) is returned verbatim as SaveFailed.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "document_save",
+      "outputSchema": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "saved_at": {
+            "description": "RFC 3339.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "id",
+          "saved_at"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "readOnlyHint": false,
+        "title": "Switch tab"
+      },
+      "description": "Make another Part tab of the document active (Assembly tabs are not supported yet).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "tab_id": {
+            "description": "Tab id from document_info.tabs.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tab_id"
+        ],
+        "type": "object"
+      },
+      "name": "tab_switch",
+      "outputSchema": {
+        "properties": {
+          "active_tab": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document_id": {
+            "description": "The document's own identity (v4 document.id).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "read_only": {
+            "description": "Linked read-only copy: edits and saves are refused.",
+            "type": "boolean"
+          },
+          "sources": {
+            "items": {
+              "properties": {
+                "available": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "storage_id": {
+            "description": "The storage record id (pass to document_open).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "storage_provider": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "label"
+            ],
+            "type": "object"
+          },
+          "tabs": {
+            "items": {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "unsaved": {
+            "description": "Changes from the last few seconds are still waiting for autosave.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document_id",
+          "storage_id",
+          "name",
+          "storage_provider",
+          "tabs",
+          "active_tab",
+          "read_only",
+          "sources",
+          "unsaved"
+        ],
+        "type": "object"
+      }
+    },
     {
       "annotations": {
         "readOnlyHint": true,

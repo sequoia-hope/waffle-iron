@@ -167,10 +167,10 @@ agent renames with `feature_rename`. ICR-5 (§9) would add the field.
 | Tool | Kind | Inputs (defaults) | Result |
 |---|---|---|---|
 | `document_info` | query | — | `document.id`, name, storage provider, tabs `{id,name,kind}`, active tab, read-only flag, sources with availability, unsaved flag |
-| `storage_list` | query | `provider? (active)` | `DocumentSummary[]` (`storage/types.js`) |
-| `document_open` | command | `provider?`, `id` | `DocumentInfo` (same path as opening from the Home screen) |
-| `document_new` | command | `name ("Untitled")` | `DocumentInfo` |
-| `document_save` | command | — | `{provider, id, saved_at}` via `saveToStorage` |
+| `storage_list` | query | `provider? (active)` | `{provider, documents: [{id, name, created, modified, tab_count, linked}]}` from `DocumentSummary` (`storage/types.js`) |
+| `document_open` | command | `provider?`, `id`, `discard_unsaved (false)` | `DocumentInfo` (`openDocumentRecord`, the path the Home screen's `/doc/[id]` handoff takes) |
+| `document_new` | command | `name ("Untitled")`, `discard_unsaved (false)` | `DocumentInfo` (the Home screen's `newDocumentRecord`, stored in the active provider, then opened) |
+| `document_save` | command | — | `{provider, id, saved_at}` via `saveDocumentOrThrow`, the core `saveToStorage` shares |
 | `tab_switch` | command | `tab_id` | `DocumentInfo` (Part tabs in Phase 1) |
 
 **Inspection**
@@ -227,6 +227,11 @@ exact.
   `engine_crashed`.
 - **Paused**: the user pressed Pause. Mutating tools are refused with
   `AgentPaused`; queries allowed.
+- **Document tools** (`document_open`, `document_new`, `document_save`,
+  `tab_switch`) run the store's own multi-message flows, which send through the
+  gated user path. They set the agent activity (UI refused, G8) and pass G3/G4,
+  but do not hold the lock for the whole call: a nested gated send would wait
+  on the call's own lock.
 - **During an agent call** the page disables modeling commands (toolbar,
   feature tree edits, keyboard shortcuts that mutate) and shows the running
   tool name in the agent bar. Selection, hover and camera stay live.
@@ -328,7 +333,7 @@ of its own.
 | Q7 | `export_step` omits content | exported; `warnings` verbatim |
 | S1 | `document_save`, editable document | `saveToStorage` path; provider error (git auth, conflict) returned as `SaveFailed{provider, reason}` verbatim |
 | S2 | `document_save`, linked read-only | `DocumentReadOnly` |
-| S3 | `document_open` / `document_new` with unsaved changes | `UnsavedChanges` unless `discard_unsaved: true`; with the flag, the user still sees the page's normal confirm prompt, and declining returns `UserDeclined` |
+| S3 | `document_open` / `document_new` with unsaved changes | `UnsavedChanges` unless `discard_unsaved: true`; with the flag, the user still sees the page's normal confirm prompt, and declining returns `UserDeclined`. The app autosaves 3 s after each change, so "unsaved" means an autosave is still pending; `document_save` supersedes it |
 | S4 | `document_open`, id not in provider | `DocumentNotFound` |
 
 ---
@@ -460,6 +465,9 @@ Tool results with `isError: true`:
 | `SaveFailed` | S1 |
 | `UnsavedChanges` / `UserDeclined` | S3 |
 | `DocumentNotFound` | S4 |
+| `ProviderNotFound` | `storage_list` / `document_open` naming a storage provider this tab has not connected |
+| `StorageFailed` | a provider's list/get failed or the engine did not load the record (`provider`, `reason` verbatim) |
+| `TabNotFound` | `tab_switch` to an id the document does not have |
 | `Internal` | the executor detects a broken invariant (rollback not byte-exact; `ModelDelta` inconsistent). The agent session is then **paused** automatically, and the bar tells the user why. |
 
 ### 6.2 Structured-error gap
