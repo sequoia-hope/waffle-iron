@@ -739,6 +739,7 @@ name = "waffle-mcp-relay"
 version = "0.0.1"
 source = { editable = "." }
 dependencies = [
+    { name = "jsonschema" },
     { name = "mcp" },
     { name = "websockets" },
 ]
@@ -752,6 +753,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "jsonschema", specifier = ">=4.20" },
     { name = "mcp", specifier = ">=1.20" },
     { name = "websockets", specifier = ">=15" },
 ]

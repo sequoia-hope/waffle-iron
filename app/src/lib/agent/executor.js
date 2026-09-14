@@ -11,6 +11,7 @@ import {
 	getFeatureErrors,
 	getFeatureTree,
 	getRebuildWarnings,
+	isEngineCrashed,
 	isEngineReady
 } from '$lib/engine/store.svelte.js';
 import { summarizeModel } from './summary.js';
@@ -73,9 +74,14 @@ export async function executeTool(tool, _args) {
 	if (!impl) {
 		return toolError('ToolUnavailable', `This page has no tool named "${tool}".`, { tool });
 	}
-	// G6: queries are refused only while the engine is not ready. The store does
-	// not yet distinguish a crashed worker from one still loading (§3.2 G6
-	// EngineCrashed needs a store getter; Phase 1).
+	// G6: queries are refused only while the engine is not ready or has crashed.
+	if (isEngineCrashed()) {
+		return toolError(
+			'EngineCrashed',
+			'The Waffle Iron engine crashed in this tab and could not restart. Ask the user to reload the page.',
+			{}
+		);
+	}
 	if (!isEngineReady()) {
 		return toolError('EngineNotReady', 'The Waffle Iron engine is not ready in this tab.', {});
 	}

@@ -26,11 +26,13 @@ uv run --project relay waffle-mcp-relay --port <port> \
 
 ## Runtime dependencies and licences
 
-Only two runtime dependencies (spec §7), both checked 2026-09-14 from the
-installed distributions' licence files:
+Three runtime dependencies (spec §7), checked 2026-09-14 from the installed
+distributions' licence files:
 
 - `mcp` (MCP Python SDK, 2.2.0 locked) — MIT
 - `websockets` (17.1 locked) — BSD-3-Clause
+- `jsonschema` (4.26.0 locked; already required by `mcp`) — MIT. Validates
+  `tools/call` arguments against each tool's `inputSchema`.
 
 ## Development
 
@@ -40,6 +42,8 @@ uv sync
 uv run pytest
 uv run ruff check && uv run ruff format --check
 ```
+
+or, from the repository root, `./scripts/test.sh relay`.
 
 The bundled tool manifest `src/waffle_mcp_relay/agent-tools.manifest.json` is
 generated from `app/src/lib/agent/tools/` by `node app/scripts/gen-agent-manifest.mjs`;

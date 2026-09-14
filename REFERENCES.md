@@ -38,6 +38,7 @@ Find references by topic. Numbers refer to reference entries below.
 **Intersection curves** → #1 Ch.5–6, #3 (FF interference), #13 (algebraic curves on quadrics), #25 (topology-guaranteed tracing), #27 (comprehensive survey)
 **Levenberg-Marquardt / damped least-squares** → #43 (Moré 1978 original), #44 (Nocedal-Wright ch. 4 & 10), #45 (MINPACK reference impl, public domain), #46 (rust-cv crate, MIT, MINPACK port)
 **Feature modelling** → #33 Ch.9 (facesets, frames, design-by-features, recognition, verification)
+**Agent link / MCP** → #53 (MCP spec), #54 (Python SDK), #55 (websockets), #56 (RFC 6455 origin), #57 (Secure Contexts, Local Network Access), #58 (JSON Schema validation)
 **Gluing / face joining** → #33 §6.4 (identical topology), #33 §6.13 (non-matching faces via local boolean)
 **Manifoldness** → #6 (topology-first guarantees), #16 (Euler ops preserve), #17 (regularization)
 **Mesh arrangements** → #8 (Zhou), #9 (Cherchi 2020 arrangement), #10 (Levy), #12 (Barki), #38 (Cherchi 2022 — speedups + ray-cast in/out)
@@ -1271,6 +1272,75 @@ f64 lattice). The fused-emission repair is a cluster-limited snap-round —
 only f64-degenerate complexes are merged; everything representable is
 untouched. Cite #52 for the finite-precision-output problem statement and
 the merge-sub-resolution-structure approach.
+
+## Agent Link (MCP) References
+
+Sub-project 14 (`specs/waffle_mcp_server.md`): a local MCP client works in the
+user's open Waffle Iron tab through the `waffle-mcp-relay` relay.
+
+### 53. Model Context Protocol — Specification
+
+**Access**: https://modelcontextprotocol.io/specification (versioned by
+revision date; the relay negotiates the newest revision its SDK supports).
+
+**Relevance**: The agent-facing contract: lifecycle and `initialize`, tools
+(`inputSchema`, `outputSchema`, `structuredContent`, `isError`, annotations),
+`notifications/tools/list_changed`, cancellation, progress, and the stdio
+transport. Revision 2026-07-28 moved change notifications onto
+`subscriptions/listen` streams; handshake revisions (≤ 2025-11-25) send them
+on the session. Cite #53 for any tool-result shape or notification rule.
+
+### 54. MCP Python SDK (`mcp`)
+
+**Access**: https://github.com/modelcontextprotocol/python-sdk (PyPI `mcp`;
+2.2.0 locked in `relay/uv.lock`). Licence MIT.
+
+**Relevance**: The relay's stdio server (`mcp.server.lowlevel.Server`), its
+`ListenHandler` / `InMemorySubscriptionBus` for 2026-07-28 listen streams,
+and the protocol-version eras (`mcp_types.version`). Cite #54 for how the
+relay's notifications reach each client era.
+
+### 55. `websockets` (Python)
+
+**Access**: https://websockets.readthedocs.io (PyPI `websockets`; 17.1
+locked). Licence BSD-3-Clause.
+
+**Relevance**: The relay's WebSocket server: the handshake hook that refuses a
+disallowed `Origin` with HTTP 403 before any frame is read (spec I8, P4), frame
+size limits, and TLS through the standard library `ssl` module.
+
+### 56. Fette & Melnikov — "The WebSocket Protocol", RFC 6455 (2011)
+
+**Access**: https://www.rfc-editor.org/rfc/rfc6455
+
+**Relevance**: §10.2 (origin considerations) and the cross-site WebSocket
+hijacking attack class: any web page may try to open a socket to a loopback
+port, so the relay needs an Origin allow-list, a single-use pairing code, and
+user consent in the page (spec I7, I8).
+
+### 57. W3C Secure Contexts; WICG Local Network Access
+
+**Access**: https://www.w3.org/TR/secure-contexts/ and
+https://wicg.github.io/local-network-access/ (successor of Private Network
+Access).
+
+**Relevance**: Whether a public https page may open `ws://127.0.0.1`.
+Loopback is "potentially trustworthy" (no mixed-content block), but Chromium's
+Local Network Access gates the request on a `local-network-access`
+permission. Measured 2026-09-14 (Chromium 149, spec §6.3): the hosted origin is
+blocked until the permission is granted, and `navigator.permissions.query`
+answers for that name (`prompt` / `granted`). The spec records measurements,
+not assumptions — browser behavior changes between releases.
+
+### 58. JSON Schema 2020-12; python-jsonschema
+
+**Access**: https://json-schema.org/draft/2020-12 and
+https://python-jsonschema.readthedocs.io (PyPI `jsonschema`, 4.26.0 locked).
+Licence MIT.
+
+**Relevance**: Tool `inputSchema`s are 2020-12 schemas. The relay validates
+`tools/call` arguments with `Draft202012Validator` and answers a failure with
+JSON-RPC `-32602` carrying the JSON pointer of the bad value (spec §6.1).
 
 ## How to Reference During Development
 

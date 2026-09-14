@@ -2,7 +2,9 @@
 
 `waffle_connect` and `waffle_status` are answered here. Every other tool is a
 page tool and is forwarded as a `call` frame; the page's `result` frame is
-returned as the MCP result. The relay holds no modeling logic (I1).
+returned as the MCP result. The relay holds no modeling logic (I1): it only
+checks a call's `arguments` against the tool's `inputSchema` (§6.1 protocol
+errors) before forwarding.
 """
 
 from __future__ import annotations
@@ -15,18 +17,22 @@ from typing import Any
 from urllib.parse import urlencode
 
 import mcp_types as types
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import best_match
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import NotificationOptions, Server
 from mcp.server.session import ServerSession
 from mcp.server.stdio import stdio_server
+from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler
 from mcp.shared.exceptions import MCPError
+from mcp.shared.subscriptions import ToolsListChanged
 from mcp_types import INVALID_PARAMS
 from pydantic import ValidationError
 
 from waffle_mcp_relay import __version__
 from waffle_mcp_relay.config import FALLBACK_AGENT_NAME, RelayConfig, valid_agent_name
 from waffle_mcp_relay.link import LinkError, LinkServer, epoch_to_iso
-from waffle_mcp_relay.manifest import load_bundled
+from waffle_mcp_relay.manifest import canonical_json, load_bundled
 from waffle_mcp_relay.pairing import Pairing
 
 log = logging.getLogger("waffle_mcp_relay")
@@ -91,17 +97,57 @@ def ok_result(structured: dict[str, Any], text: str | None = None) -> types.Call
     )
 
 
+def _pointer(path: Any) -> str:
+    """RFC 6901 JSON pointer for a jsonschema error path, rooted at `/arguments`."""
+    parts = [str(p).replace("~", "~0").replace("/", "~1") for p in path]
+    return "/arguments" + "".join(f"/{p}" for p in parts)
+
+
+class ArgumentValidator:
+    """Checks `tools/call` arguments against the tool's `inputSchema` (spec §6.1).
+
+    A failure is a JSON-RPC `-32602` protocol error whose `data` is the JSON
+    pointer of the offending value; the call is never forwarded. Validators are
+    cached by the canonical schema text, so an adopted manifest (§2.4) that
+    changes a schema gets a fresh validator.
+    """
+
+    def __init__(self) -> None:
+        self._cache: dict[str, Draft202012Validator] = {}
+
+    def check(self, tool: dict[str, Any], arguments: dict[str, Any]) -> None:
+        schema = tool.get("inputSchema") or {}
+        key = canonical_json(schema)
+        validator = self._cache.get(key)
+        if validator is None:
+            validator = Draft202012Validator(schema)
+            self._cache[key] = validator
+        error = best_match(validator.iter_errors(arguments))
+        if error is not None:
+            raise MCPError(
+                code=INVALID_PARAMS,
+                message=f"Invalid arguments for {tool['name']}: {error.message}",
+                data=_pointer(error.absolute_path),
+            )
+
+
 class RelayApp:
     def __init__(self, config: RelayConfig, link: LinkServer) -> None:
         self._config = config
         self._link = link
         self._session: ServerSession | None = None
         self._client_name: str | None = None
+        self._validator = ArgumentValidator()
+        # 2026-07-28-era clients receive change notifications only on a
+        # `subscriptions/listen` stream they open; handshake-era clients get
+        # them directly on the session (see `notify_tools_changed`).
+        self.subscription_bus = InMemorySubscriptionBus()
         self.server: Server[Any] = Server(
             "waffle-mcp-relay",
             version=__version__,
             on_list_tools=self._list_tools,
             on_call_tool=self._call_tool,
+            on_subscriptions_listen=ListenHandler(self.subscription_bus),
         )
 
     # -- identity ----------------------------------------------------------
@@ -121,6 +167,13 @@ class RelayApp:
             self._client_name = name
 
     async def notify_tools_changed(self) -> None:
+        """`notifications/tools/list_changed` for both protocol eras (spec §2.4, P14).
+
+        Listen streams get it from the bus. The session copy reaches
+        handshake-era clients; the SDK drops it on a 2026-07-28 connection,
+        where it would be an unrequested notification.
+        """
+        await self.subscription_bus.publish(ToolsListChanged())
         if self._session is not None:
             await self._session.send_tool_list_changed()
 
@@ -129,6 +182,9 @@ class RelayApp:
     def _all_tools(self) -> list[dict[str, Any]]:
         page_tools = [t for t in self._link.manifest.tools if t["name"] not in RELAY_TOOL_NAMES]
         return RELAY_TOOLS + page_tools
+
+    def _tool(self, name: str) -> dict[str, Any] | None:
+        return next((t for t in self._all_tools() if t["name"] == name), None)
 
     async def _list_tools(
         self, ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
@@ -144,12 +200,14 @@ class RelayApp:
         self._remember(ctx)
         name = params.name
         arguments = params.arguments or {}
+        tool = self._tool(name)
+        if tool is None:
+            raise MCPError(code=INVALID_PARAMS, message=f"Unknown tool: {name}", data="/name")
+        self._validator.check(tool, arguments)
         if name == "waffle_connect":
             return await self._connect()
         if name == "waffle_status":
             return ok_result(self._link.status())
-        if name not in self._link.manifest.names:
-            raise MCPError(code=INVALID_PARAMS, message=f"Unknown tool: {name}", data="/name")
         try:
             frame = await self._link.call(name, arguments)
         except LinkError as err:

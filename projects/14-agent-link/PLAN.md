@@ -65,16 +65,35 @@ connection path; ICR-1…ICR-4 merged.
   `model_summary`, agent bar with Disconnect, manifest generator. GUI spec
   `agent-link.spec.js`: pairing + `model_summary` vs `__waffle`, and O14 (no
   socket without consent).
-- [ ] Relay tier in `./scripts/test.sh`; `REFERENCES.md` entries (the licence
-  check is in `relay/README.md`: `mcp` MIT, `websockets` BSD-3-Clause).
-- [ ] Relay-side validation of tool arguments against `inputSchema` (today:
-  unknown tool and malformed calls ⇒ -32602 only).
-- [ ] `EngineCrashed` needs a store getter for the crash state (queries report
-  `EngineNotReady` meanwhile).
-- [ ] `tools/list_changed` under the SDK's newest protocol revision is dropped
-  unless the client subscribes; check the clients we support.
+- [x] Relay tier (2026-09-14): `./scripts/test.sh relay` (pytest + ruff check +
+  ruff format --check; part of `all-fast` and `all`), documented in
+  `docs/TESTING.md`. `REFERENCES.md` #53–#58.
+- [x] Relay-side argument validation (2026-09-14): `server.ArgumentValidator`
+  checks `tools/call` arguments against the tool's `inputSchema`
+  (`Draft202012Validator`) before forwarding; a failure is `-32602` with the
+  JSON pointer in `data` (`/arguments/...`) and no frame reaches the page. A
+  manifest whose `inputSchema` is not a valid schema is refused at adoption.
+  `jsonschema` became a direct dependency (it was already installed as a
+  dependency of `mcp`; MIT). Tests: `tests/test_arguments.py`, O20 in
+  `tests/test_stdio.py`.
+- [x] `EngineCrashed` (2026-09-14): store `isEngineCrashed()` is set when the
+  worker reports `needsRestart`; the executor answers `EngineCrashed` before
+  `EngineNotReady`.
+- [x] `tools/list_changed` for both protocol eras (2026-09-14). Measured in the
+  SDK source (`mcp` 2.2.0, `mcp/server/connection.py` `NotifyOnlyOutbound`):
+  on a 2026-07-28 connection a session-level `list_changed` is dropped; such
+  clients get it only on a `subscriptions/listen` stream. The relay now serves
+  `subscriptions/listen` (`ListenHandler` over an `InMemorySubscriptionBus`)
+  and publishes `ToolsListChanged` there as well as on the session. Handshake
+  clients (≤ 2025-11-25, which the GUI helper and the pytest client use) keep
+  receiving it directly (O18). Tested: bus publication and the advertised
+  capability in both eras. Not tested: an end-to-end 2026-07-28 stdio client
+  (no such client in the test harness). Which revision a given client
+  (Claude Code, Claude Desktop) negotiates was not measured.
 - [ ] O23 browser matrix: headed Chrome (does the local-network prompt appear
-  for a WebSocket opened from the Allow click?), Edge, Safari — manual.
+  for a WebSocket opened from the Allow click?), Edge, Safari — manual, and
+  not runnable in this container (only headless Playwright Chromium is
+  installed). Needs the user on a desktop browser.
   - [x] Firefox (headed, user-reported 2026-09-14): pairing and
     `model_summary` work end to end. Not recorded: the page origin (hosted
     default vs dev server) and whether any prompt appeared.

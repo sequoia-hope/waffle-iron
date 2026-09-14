@@ -140,6 +140,16 @@ async def test_o20_full_session_protocol_hygiene(relay: tuple[StdioRelay, int]) 
     assert malformed2["error"]["code"] == -32602
     unknown_tool = await proc.request("tools/call", {"name": "no_such_tool", "arguments": {}})
     assert unknown_tool["error"]["code"] == -32602
+    # §6.1: arguments failing the tool's inputSchema never reach the page.
+    frames_before = len(page.frames)
+    bad_args = await proc.request("tools/call", {"name": "model_summary", "arguments": {"x": 1}})
+    assert bad_args["error"]["code"] == -32602
+    assert bad_args["error"]["data"] == "/arguments"
+    bad_relay_args = await proc.request(
+        "tools/call", {"name": "waffle_status", "arguments": {"verbose": True}}
+    )
+    assert bad_relay_args["error"]["code"] == -32602
+    assert len(page.frames) == frames_before
 
     # O17 end to end: the page drops during a forwarded call.
     pending = asyncio.create_task(proc.call_tool("model_summary"))

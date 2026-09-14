@@ -66,6 +66,16 @@ Everything in GUI Fast, plus heavy workflow and infrastructure specs:
 - Infrastructure and dev tooling specs
 - Advanced scenario tests
 
+### Agent-link Relay (`relay`)
+
+The Python relay of the agent link (`relay/`, `specs/waffle_mcp_server.md` §5
+harness a): `uv run pytest`, then `uv run ruff check` and
+`uv run ruff format --check`. It needs `uv` and `node` (one test regenerates
+the tool manifest from `app/src/lib/agent/tools/` and diffs it against the
+relay's committed copy). Runs standalone and as part of `all-fast` and `all`.
+The page side of the link is covered by `app/tests/gui/agent-*.spec.js`,
+which spawn the real relay.
+
 ## Running Tests
 
 ```bash
@@ -75,7 +85,8 @@ Everything in GUI Fast, plus heavy workflow and infrastructure specs:
 ./scripts/test.sh full       # All Rust tests incl. parity (~27min)
 ./scripts/test.sh gui-fast   # Quick GUI smoke tests
 ./scripts/test.sh gui-full   # All GUI tests
-./scripts/test.sh all-fast   # Rust fast + GUI fast
+./scripts/test.sh relay      # Agent-link relay: pytest + ruff
+./scripts/test.sh all-fast   # Rust fast + GUI fast + relay
 ./scripts/test.sh all        # Everything
 ./scripts/test.sh assay      # Corpus replay + proptest assays
 ./scripts/test.sh profile    # Run timing profiler

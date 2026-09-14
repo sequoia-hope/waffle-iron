@@ -14,6 +14,9 @@ from dataclasses import dataclass
 from importlib import resources
 from typing import Any
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
+
 MANIFEST_FILE = "agent-tools.manifest.json"
 
 
@@ -41,8 +44,13 @@ def validate_tools(tools: object) -> list[dict[str, Any]]:
             raise ManifestError("each tool needs a name")
         if name in names:
             raise ManifestError(f"duplicate tool {name}")
-        if not isinstance(tool.get("inputSchema"), dict):
+        schema = tool.get("inputSchema")
+        if not isinstance(schema, dict):
             raise ManifestError(f"tool {name} needs an inputSchema object")
+        try:
+            Draft202012Validator.check_schema(schema)
+        except SchemaError as err:
+            raise ManifestError(f"tool {name} has an invalid inputSchema: {err.message}") from None
         names.add(name)
     return tools
 

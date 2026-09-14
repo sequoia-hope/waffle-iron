@@ -475,6 +475,12 @@ browser policy. Known classes (to be confirmed by O23, not assumed):
 
 So on Chromium the hosted path depends on the user granting Chrome's
 local-network-access permission, and a denial is the normal failure mode.
+The page can read the permission: `navigator.permissions.query({name:
+"local-network-access"})` answers `prompt` by default and `granted` after a
+grant (Chromium 149, both headless; the names `local-network` and
+`loopback-network` answer identically). A failed socket carries no reason,
+so this query is how the `/agent` route tells a local-network block from a
+generic failure.
 Firefox (headed, user-reported 2026-09-14): pairing and `model_summary`
 work end to end; the origin used and prompt behavior were not recorded.
 Still unmeasured: headed Chrome (whether the prompt appears for a WebSocket
@@ -511,7 +517,9 @@ returns `EngineCrashed` and pauses the session.
 - **MCP Python SDK** (`mcp`) for the relay's stdio server; **`websockets`**
   (asyncio) for the WebSocket server, using its handshake `origins=`
   allow-list for I8 and the standard library `ssl` module for the TLS bind.
-  Runtime dependencies are limited to these two packages. Both need a licence check in the first commit.
+  Runtime dependencies are limited to these two plus **`jsonschema`** (MIT),
+  which `mcp` already requires; the relay imports it directly to validate
+  `tools/call` arguments (§6.1). Licences are checked in `relay/README.md`.
 - **RFC 6455** (WebSocket), §10.2 origin considerations, and the
   **cross-site WebSocket hijacking** attack class. Any web page can attempt a
   connection to a loopback port, which is why I8 needs origin checking plus a
@@ -650,6 +658,11 @@ Resolved 2026-09-14:
     publishing from CI with trusted publishing, never from a laptop);
   - `uv` added to the dev container, which has Python 3.12.3 but no `pip`
     or `uv`.
+
+- **`tools/list_changed` on 2026-07-28 clients.** The MCP Python SDK drops a
+  session-level change notification on a 2026-07-28 connection; those clients
+  receive it only on a `subscriptions/listen` stream. The relay serves
+  `subscriptions/listen` and publishes on both paths (Phase 0, 2026-09-14).
 
 Still open:
 

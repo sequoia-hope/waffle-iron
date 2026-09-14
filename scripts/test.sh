@@ -465,6 +465,41 @@ run_gui_full() {
 }
 
 # ---------------------------------------------------------------------------
+# Tier: Agent-link relay (specs/waffle_mcp_server.md §5 harness a)
+# The Python relay's pytest suite plus its ruff lint and format gates. Needs
+# `uv` (the relay is a uv project) and `node` (one test regenerates the tool
+# manifest from app/src/lib/agent/tools/ and diffs it against the committed copy).
+# ---------------------------------------------------------------------------
+run_relay() {
+  header "Agent-link Relay (pytest + ruff)"
+  local start rc=0
+  start=$(timer_start)
+
+  local uv_bin
+  uv_bin="$(command -v uv || true)"
+  if [[ -z "$uv_bin" && -x "$HOME/.local/bin/uv" ]]; then
+    uv_bin="$HOME/.local/bin/uv"
+  fi
+  if [[ -z "$uv_bin" ]]; then
+    fail "relay: uv not found (install uv: https://docs.astral.sh/uv/)"
+    return
+  fi
+
+  (cd "$ROOT_DIR/relay" \
+    && "$uv_bin" run pytest \
+    && "$uv_bin" run ruff check \
+    && "$uv_bin" run ruff format --check) || rc=$?
+
+  local elapsed
+  elapsed=$(timer_elapsed "$start")
+  if [[ $rc -eq 0 ]]; then
+    pass "relay (${elapsed}s)"
+  else
+    fail "relay (${elapsed}s)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Tier: Assay Quick (proptest with small case count, <30s)
 # ---------------------------------------------------------------------------
 run_assay_quick() {
@@ -563,8 +598,9 @@ print_help() {
   echo -e "  ${GREEN}parity${NC}       Ignored sidecar reference oracles (~20s, needs sidecars)"
   echo -e "  ${GREEN}gui-fast${NC}     GUI fast tier         (~260 tests, 35 spec files)"
   echo -e "  ${GREEN}gui-full${NC}     GUI full tier         (~425 tests, all spec files)"
-  echo -e "  ${GREEN}all-fast${NC}     fast + gui-fast"
-  echo -e "  ${GREEN}all${NC}          full + gui-full"
+  echo -e "  ${GREEN}relay${NC}        Agent-link relay      (pytest + ruff, needs uv and node)"
+  echo -e "  ${GREEN}all-fast${NC}     fast + gui-fast + relay"
+  echo -e "  ${GREEN}all${NC}          full + gui-full + relay"
   echo -e "  ${GREEN}assay-quick${NC}  Assay proptest        (5 cases, <30s)"
   echo -e "  ${GREEN}assay${NC}        Assay proptest        (default cases, ~3min)"
   echo -e "  ${GREEN}assay-deep${NC}   Assay proptest        (100 cases, nightly)"
@@ -618,13 +654,18 @@ main() {
     gui-full)
       run_gui_full
       ;;
+    relay)
+      run_relay
+      ;;
     all-fast)
       run_rust_fast
       run_gui_fast
+      run_relay
       ;;
     all)
       run_rust_full
       run_gui_full
+      run_relay
       ;;
     assay-quick)
       run_assay_quick

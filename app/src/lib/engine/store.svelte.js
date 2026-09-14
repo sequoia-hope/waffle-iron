@@ -453,6 +453,14 @@ let bridge = null;
 /** Get the engine bridge instance (or null if not initialized). */
 export function getBridge() { return bridge; }
 
+/** The worker trapped and could not restart (`needsRestart`); only a reload recovers. */
+let engineCrashed = $state(false);
+
+/** True once the engine worker has crashed beyond auto-restart (agent link G6 `EngineCrashed`). */
+export function isEngineCrashed() {
+	return engineCrashed;
+}
+
 /**
  * Initialize the engine bridge and WASM worker.
  */
@@ -633,6 +641,7 @@ export async function initEngine() {
 		statusMessage = `Error: ${msg.message}`;
 		if (msg.needsRestart) {
 			engineReady = false;
+			engineCrashed = true;
 			statusMessage = 'Engine crashed — restart failed. Reload the page.';
 		}
 	});
