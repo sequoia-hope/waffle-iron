@@ -115,12 +115,13 @@ match; the dev port comes from the registry as for any project.
 | Direction | Frame | Fields |
 |---|---|---|
 | page → relay | `hello` | `protocol: "waffle-agent-link/1"`, `code` or `session`, `app_build` (`__BUILD_INFO__`), `manifest_hash` |
-| relay → page | `welcome` | `session`, `agent_name`, `protocol` |
+| relay → page | `welcome` | `session`, `agent_name`, `protocol`, `manifest_required: bool` (true when `hello.manifest_hash` differs from the bundled manifest) |
+| page → relay | `manifest` | `tools` — sent only after `manifest_required`; adopted only if its hash equals `hello.manifest_hash` |
 | relay → page | `call` | `id`, `tool`, `arguments`, `progress: bool` |
 | page → relay | `progress` | `id`, `message`, `elapsed_ms` |
 | page → relay | `result` | `id`, `content[]`, `structuredContent`, `isError` |
 | relay → page | `cancel` | `id` |
-| page → relay | `status` | `state`: `ready` \| `paused` \| `busy{reason}` |
+| page → relay | `status` | `state`: `ready` \| `paused` \| `busy{reason}`, `document_name?` |
 | both | `ping` / `pong` | — |
 | either | `bye` | `reason` |
 
@@ -248,7 +249,8 @@ exact.
 | P5 | code wrong, reused or expired | `bye{reason:"invalid_code"}`, close; the page shows "link expired, ask the agent to reconnect" |
 | P6 | second page tries to pair while a session is live | `bye{reason:"already_paired"}` |
 | P7 | same tab reloads within 120 s, `hello{session}` | resumes without consent; in-flight calls from before the reload already returned `PageDisconnected` (P9) |
-| P8 | reload after 120 s, or a different tab presents the session | `bye{reason:"session_expired"}` |
+| P8 | a session presented after 120 s, or after a revoke | `bye{reason:"session_expired"}`. The relay cannot tell a reload from another tab holding the same token (a duplicated tab copies `sessionStorage`). Within 120 s the session resumes; while a page is live, a second presenter gets `already_paired` (P6). |
+| P8a | first frame is not `hello`, or no frame within 10 s | WebSocket close 1008, no `bye` (no §3.1 reason applies) |
 | P9 | page disconnects (close, crash, network) with calls in flight | each in-flight call returns `isError`, `PageDisconnected`; the model state after the call is **unknown** and the error says so (the agent must `model_summary`) |
 | P10 | browser blocks the socket (local-network permission denied, mixed content, Safari policy) | the page's `/agent` route shows the browser's error class and the documented fallback (§6.3); relay stays `awaiting_consent` |
 | P11 | `waffle_connect` while a session is live | `bye{reason:"revoked"}` to the page; new code |
@@ -373,13 +375,15 @@ Provenance on edit: `feature_edit` of a `User` feature sets `Agent{name}`
   the GUI tiers.
 - (b) `app/tests/gui/agent-*.spec.js`: Playwright spawns the **real relay** and
   drives it as an MCP client over stdio; the real page pairs by clicking Allow.
-  The relay's port comes from `$PORT` set by the test runner (registry
-  resolution, §2.1).
+  The relay's port comes from `$AGENT_RELAY_PORT` when set (not `$PORT`,
+  which may already belong to the dev server). Otherwise the test fixture
+  asks the OS for a free port and passes it explicitly with `--port`. This is
+  a fixture allocation; the relay itself never picks a port.
 - (c) A manual browser matrix, recorded in the spec at Phase 0.
 
 | Oracle | Branches | Harness | Mechanism | Bound |
 |---|---|---|---|---|
-| O1 Box volume | A1, A10, Q2 | b | `sketch_create` 20×10 mm rectangle on XY → `feature_add` Extrude `profile_entity_ids`, depth 0.005 | exact: `volume_m3 = 1.0e-6 ± 1e-15`; bbox `[0,0,0]–[0.02,0.01,0.005] ± 1e-7`; 6/12/8 faces/edges/vertices; `closed`; `__waffle.getMeshBoundingBox()` agrees ± 1e-6 |
+| O1 Box volume | A1, A10, Q2 | b | `sketch_create` 20×10 mm rectangle on XY → `feature_add` Extrude `profile_entity_ids`, depth 0.005 | exact: `volume_m3 = 1.0e-6 ± 1e-15`; bbox sorted extents `[0.005, 0.01, 0.02] ± 1e-7` with z ∈ `[0, 0.005]` (a plane given only by origin + normal leaves the in-plane axes to the engine: measured 2026-09-14, sketch u → world −y; whether the built-in XY datum maps u → +x is unverified, so O1 asserts extents, not coordinates); 6/12/8 faces/edges/vertices; `closed`; `__waffle.getMeshBoundingBox()` agrees ± 1e-6 |
 | O2 Method honesty | Q2 | b | cylinder r=5 mm h=10 mm | exact: `|V−πr²h| ≤ 1e-12`; mesh: `method="mesh"` and `V < πr²h` |
 | O3 Parity | I1 | b | 15 scripted sequences via agent vs the same messages via the store entry point in a fresh page | canonical bytes equal |
 | O4 Rollback | A2, A4, A11, I3 | b | `profile_entity_ids` naming no loop; an edit breaking a downstream extrude; F0064 coplanar pair (`NotSupported`, M8; asserted after ICR-2); over-constrained sketch | pre/post `buildDocumentJson()` canonical-equal; undo depth equal; one toast |
@@ -554,6 +558,10 @@ breaking bridge change (A2.4). Each lands in its owning sub-project first.
   in kernel-v2 by the existing `geom::signed_volume` /
   `introspect::surface_area`. Add query `UiToEngine::MeasureBody{body_id}` →
   `EngineToUi::BodyMeasured{…}`.
+  **LANDED 2026-09-14.** Each quantity is a
+  `Measured{value, method: exact|mesh, exact_unavailable}`, so §2.6's `method`
+  comes from the bridge per quantity. The bounding box is from the render
+  mesh.
 - **ICR-2 — typed errors** (`wasm-bridge`, `feature-engine`). Add
   `EngineToUi::Error.kind` and `ModelUpdated.feature_errors: [{feature_id,
   kind, message}]` beside the existing string fields. `kind` mirrors

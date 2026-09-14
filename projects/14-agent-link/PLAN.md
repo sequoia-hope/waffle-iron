@@ -30,20 +30,41 @@ connection path; ICR-1…ICR-4 merged.
   reach the engine as `KernelError::BooleanFailed` / `Other`, so they are
   `KernelFailure{kernel}` — a distinct `KernelStop` kind needs kernel-v2 to
   map STOPs to their own `KernelError` variant. Not done by parsing messages.
-- [ ] **ICR-1** exact measurement: `KernelIntrospect::solid_volume` /
-  `solid_surface_area`; bridge `MeasureBody` → `BodyMeasured`.
+- [x] **ICR-1** exact measurement (2026-09-14): `KernelIntrospect::solid_volume`
+  / `solid_surface_area` (default `NotSupported`; kernel-v2 via
+  `geom::signed_volume` / `introspect::surface_area`, imported bodies
+  `NotSupported`). Bridge `MeasureBody` → `BodyMeasured{volume_m3,
+  surface_area_m2: Measured{value, method, exact_unavailable}, bbox (mesh),
+  counts, closed}`; it fills missing meshes first, because native dispatch
+  never tessellates. Measured: the 20×10×5 mm box is exact to 1e-15 and the
+  r5 h10 cylinder is exact to 1e-15. Tests: `kernel-v2/tests/icr1_solid_measure.rs`,
+  `wasm-bridge/tests/measure_body.rs`, mock default in `waffle-types` `mock.rs`.
 - [ ] **ICR-3** face listing: bridge `ListFaces` → `FacesListed`, refs equal to
   viewport face-range refs, deterministic order.
 
 ### Spike (relay + page)
-- [ ] `relay/` Python package `waffle-mcp-relay`: CLI port resolution, bind,
-  origins, pairing codes, sessions, heartbeat, frames; MCP tools
-  `waffle_connect`, `waffle_status`, `model_summary`; pytest O13, O15–O17, O20.
-- [ ] App: `/agent` consent route, link singleton, executor with
-  `model_summary`, agent bar with Disconnect; manifest generator; GUI spec
-  (pairing + `model_summary` vs `__waffle`; O14 no socket without consent).
-- [ ] O23 browser matrix: Chromium automated (localhost dev origin; hosted
-  https origin after deploy); Edge, Firefox, Safari manual.
+- [x] `relay/` Python package `waffle-mcp-relay` (2026-09-14): CLI port
+  resolution, bind, origins, pairing codes, sessions, heartbeat, frames; MCP
+  tools `waffle_connect`, `waffle_status`, `model_summary`. pytest: 61 tests
+  covering O13, O15–O18 and O20, plus a manifest-equals-generation test; ruff
+  clean. Locked `mcp` 2.2.0.
+- [x] App (2026-09-14): `/agent` consent route, link singleton, executor with
+  `model_summary`, agent bar with Disconnect, manifest generator. GUI spec
+  `agent-link.spec.js`: pairing + `model_summary` vs `__waffle`, and O14 (no
+  socket without consent).
+- [ ] Relay tier in `./scripts/test.sh`; `REFERENCES.md` entries (the licence
+  check is in `relay/README.md`: `mcp` MIT, `websockets` BSD-3-Clause).
+- [ ] Relay-side validation of tool arguments against `inputSchema` (today:
+  unknown tool and malformed calls ⇒ -32602 only).
+- [ ] `EngineCrashed` needs a store getter for the crash state (queries report
+  `EngineNotReady` meanwhile).
+- [ ] `tools/list_changed` under the SDK's newest protocol revision is dropped
+  unless the client subscribes; check the clients we support.
+- [ ] O23 browser matrix: Edge, Firefox, Safari manual; hosted https origin
+  after deploy.
+  - [x] Chromium (headless Playwright), page `http://localhost` dev origin →
+    `ws://127.0.0.1`: socket opened and `welcome` received (2026-09-14).
+    Headless, so a permission prompt could not be observed.
 
 ## Phase 1 — Live authoring
 Not started. See spec §8.
