@@ -81,6 +81,7 @@ fn circle_sketch(
     let response = dispatch(
         state,
         UiToEngine::FinishSketch {
+            provenance: None,
             solved_positions,
             solved_profiles: vec![ClosedProfile {
                 entity_ids: vec![2],
@@ -173,6 +174,7 @@ fn cut_sketched_on_a_cylinder_cap_auto_targets_the_cylinder() {
     dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: extrude(base, 0.010, CombineMode::Add),
         },
         &mut kernel,
@@ -192,6 +194,7 @@ fn cut_sketched_on_a_cylinder_cap_auto_targets_the_cylinder() {
     let response = dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: extrude(recess, 0.004, CombineMode::Cut),
         },
         &mut kernel,

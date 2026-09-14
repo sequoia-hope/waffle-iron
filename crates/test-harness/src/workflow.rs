@@ -124,6 +124,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::FinishSketch {
+                provenance: None,
                 solved_positions: positions,
                 solved_profiles: profiles,
                 plane_origin: origin,
@@ -167,6 +168,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::FinishSketch {
+                provenance: None,
                 solved_positions: positions,
                 solved_profiles: profiles,
                 plane_origin: origin,
@@ -212,6 +214,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::FinishSketch {
+                provenance: None,
                 solved_positions: positions,
                 solved_profiles: profiles,
                 plane_origin: origin,
@@ -291,6 +294,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::FinishSketch {
+                provenance: None,
                 solved_positions: positions,
                 solved_profiles: profiles,
                 plane_origin: origin,
@@ -417,6 +421,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::FinishSketch {
+                provenance: None,
                 solved_positions: positions,
                 solved_profiles: profiles,
                 plane_origin: origin,
@@ -446,6 +451,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
                         combine: None,
@@ -486,6 +492,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
                         combine: None,
@@ -549,6 +556,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
                         combine: None,
@@ -590,6 +598,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
                         combine: None,
@@ -633,6 +642,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Extrude { params: p },
             },
             self.kernel.as_mut(),
@@ -654,6 +664,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
                         combine: None,
@@ -694,6 +705,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
                         combine: None,
@@ -736,6 +748,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
                         combine: None,
@@ -777,6 +790,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
                         combine: None,
@@ -818,6 +832,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
                         combine: None,
@@ -860,6 +875,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
                         combine: None,
@@ -902,6 +918,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Revolve {
                     params: RevolveParams {
                         combine: None,
@@ -932,6 +949,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Fillet {
                     params: FilletParams {
                         edges: vec![edge_ref_best_effort(target_id)],
@@ -958,6 +976,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Chamfer {
                     params: ChamferParams {
                         edges: vec![edge_ref_best_effort(target_id)],
@@ -984,6 +1003,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Shell {
                     params: ShellParams {
                         faces_to_remove: vec![face_ref(target_id, Role::EndCapPositive, 0)],
@@ -1031,6 +1051,7 @@ impl ModelBuilder {
         let response = wasm_bridge::dispatch(
             &mut self.state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::BooleanCombine {
                     params: BooleanParams {
                         body_a: body_ref(a_id),

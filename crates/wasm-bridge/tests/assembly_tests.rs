@@ -653,6 +653,7 @@ fn open_part_in_context_snapshots_the_other_instances_and_scoped_planes_follow_t
     let r = dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: sketch_on(cube_top_face(import_id, Some(scope.clone()))),
         },
         &mut kernel,
@@ -668,6 +669,7 @@ fn open_part_in_context_snapshots_the_other_instances_and_scoped_planes_follow_t
     let r = dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: Operation::Extrude {
                 params: ExtrudeParams {
                     combine: None,
@@ -830,6 +832,7 @@ fn open_part_in_context_refuses_what_it_cannot_edit() {
     dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: sketch_on(cube_top_face(
                 import_id,
                 Some(waffle_types::RefScope::in_assembly(
@@ -853,6 +856,7 @@ fn open_part_in_context_refuses_what_it_cannot_edit() {
     dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: sketch_on(cube_top_face(
                 import_id,
                 Some(waffle_types::RefScope::in_assembly("asm", vec![ida])),
@@ -929,6 +933,7 @@ fn circle_extrude(
     let r_sketch = dispatch(
         state,
         UiToEngine::FinishSketch {
+            provenance: None,
             solved_positions: HashMap::from([(1, (0.0, 0.0))]),
             solved_profiles: vec![waffle_types::ClosedProfile {
                 entity_ids: vec![2],
@@ -957,6 +962,7 @@ fn circle_extrude(
     dispatch(
         state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: Operation::Extrude {
                 params: ExtrudeParams {
                     sketch_id,

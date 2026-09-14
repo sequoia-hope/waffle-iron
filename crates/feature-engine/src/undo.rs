@@ -8,6 +8,10 @@ pub enum Command {
     AddFeature {
         feature: Box<Feature>,
         position: usize,
+        /// The provenance recorded with the add (`specs/waffle_mcp_server.md`
+        /// ICR-4): undo removes it with the feature, redo restores it, so one
+        /// undo leaves no orphan record in the file.
+        provenance: Option<Provenance>,
     },
     RemoveFeature {
         feature: Box<Feature>,
@@ -22,6 +26,9 @@ pub enum Command {
         feature_id: Uuid,
         old_operation: Box<Operation>,
         new_operation: Box<Operation>,
+        /// `(previous record, new record)` when the edit also set provenance
+        /// (ICR-4); `None` leaves the record untouched in both directions.
+        provenance: Option<(Option<Provenance>, Provenance)>,
     },
     ReorderFeature {
         feature_id: Uuid,

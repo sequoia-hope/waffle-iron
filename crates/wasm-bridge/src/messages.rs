@@ -103,17 +103,28 @@ pub enum UiToEngine {
         /// ordinary sketches. See specs/projected_sketch_geometry.md.
         #[serde(default)]
         projected: Vec<ProjectedEntity>,
+        /// Provenance for the committed sketch, recorded in the same undo
+        /// step (`specs/waffle_mcp_server.md` ICR-4). The app sends none.
+        #[serde(default)]
+        provenance: Option<feature_engine::types::Provenance>,
     },
 
     // -- Feature operations --
     /// Add a new feature to the feature tree.
     AddFeature {
         operation: Operation,
+        /// Provenance recorded in the same undo step (ICR-4).
+        #[serde(default)]
+        provenance: Option<feature_engine::types::Provenance>,
     },
     /// Edit an existing feature's parameters.
     EditFeature {
         feature_id: Uuid,
         operation: Operation,
+        /// Replaces the feature's provenance in the same undo step (ICR-4);
+        /// absent leaves the record untouched.
+        #[serde(default)]
+        provenance: Option<feature_engine::types::Provenance>,
     },
     /// Delete a feature from the tree.
     DeleteFeature {
@@ -374,6 +385,11 @@ pub enum UiToEngine {
 pub enum EngineToUi {
     /// The model has been rebuilt.
     ModelUpdated {
+        /// The feature the command created or edited (`AddFeature`,
+        /// `EditFeature`, `FinishSketch`, `ImportStep`; ICR-4), so a host
+        /// learns the id without diffing trees. Absent for every other command.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        feature_id: Option<Uuid>,
         feature_tree: FeatureTree,
         meshes: Vec<RenderMesh>,
         edges: Vec<EdgeRenderData>,

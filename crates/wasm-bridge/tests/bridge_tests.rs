@@ -116,6 +116,7 @@ fn make_geom_ref() -> GeomRef {
 #[test]
 fn serde_roundtrip_add_feature() {
     let msg = UiToEngine::AddFeature {
+        provenance: None,
         operation: make_sketch_op(),
     };
     let json = serde_json::to_string(&msg).unwrap();
@@ -128,6 +129,7 @@ fn serde_roundtrip_add_feature() {
 #[test]
 fn serde_roundtrip_edit_feature() {
     let msg = UiToEngine::EditFeature {
+        provenance: None,
         feature_id: Uuid::new_v4(),
         operation: make_extrude_op(Uuid::new_v4()),
     };
@@ -173,6 +175,7 @@ fn serde_roundtrip_engine_error() {
 #[test]
 fn serde_roundtrip_model_updated() {
     let msg = EngineToUi::ModelUpdated {
+        feature_id: None,
         feature_tree: FeatureTree::new(),
         meshes: Vec::new(),
         edges: Vec::new(),
@@ -224,6 +227,7 @@ fn dispatch_add_feature_returns_model_updated() {
     let mut kernel = MockKernel::new();
 
     let msg = UiToEngine::AddFeature {
+        provenance: None,
         operation: make_sketch_op(),
     };
     let response = wasm_bridge::dispatch(&mut state, msg, &mut kernel);
@@ -439,7 +443,10 @@ fn dispatch_undo_redo_cycle() {
     let op = make_sketch_operation();
     let response = wasm_bridge::dispatch(
         &mut state,
-        UiToEngine::AddFeature { operation: op },
+        UiToEngine::AddFeature {
+            provenance: None,
+            operation: op,
+        },
         &mut kernel,
     );
     assert!(matches!(response, EngineToUi::ModelUpdated { .. }));
@@ -467,7 +474,10 @@ fn dispatch_save_produces_json() {
     let op = make_sketch_operation();
     wasm_bridge::dispatch(
         &mut state,
-        UiToEngine::AddFeature { operation: op },
+        UiToEngine::AddFeature {
+            provenance: None,
+            operation: op,
+        },
         &mut kernel,
     );
 
@@ -491,7 +501,10 @@ fn dispatch_load_restores_tree() {
     let op = make_sketch_operation();
     wasm_bridge::dispatch(
         &mut state,
-        UiToEngine::AddFeature { operation: op },
+        UiToEngine::AddFeature {
+            provenance: None,
+            operation: op,
+        },
         &mut kernel,
     );
 
@@ -659,6 +672,7 @@ fn dispatch_full_sketch_workflow() {
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::FinishSketch {
+            provenance: None,
             solved_positions: std::collections::HashMap::new(),
             solved_profiles: Vec::new(),
             plane_origin: [0.0, 0.0, 0.0],
@@ -748,6 +762,7 @@ fn dispatch_sketch_then_extrude_produces_solid() {
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::FinishSketch {
+            provenance: None,
             solved_positions,
             solved_profiles,
             plane_origin: [0.0, 0.0, 0.0],
@@ -770,6 +785,7 @@ fn dispatch_sketch_then_extrude_produces_solid() {
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: make_extrude_op(sketch_id),
         },
         &mut kernel,
@@ -986,6 +1002,7 @@ fn dispatch_export_step_with_solid_reaches_kernel() {
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::FinishSketch {
+            provenance: None,
             solved_positions,
             solved_profiles: vec![waffle_types::ClosedProfile {
                 entity_ids: vec![1, 2, 3, 4],
@@ -1010,6 +1027,7 @@ fn dispatch_export_step_with_solid_reaches_kernel() {
     wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: Operation::Extrude {
                 params: ExtrudeParams {
                     combine: None,
@@ -1182,6 +1200,7 @@ fn serde_roundtrip_finish_sketch() {
     positions.insert(1, (0.0, 0.0));
     positions.insert(2, (10.0, 5.0));
     let msg = UiToEngine::FinishSketch {
+        provenance: None,
         solved_positions: positions.clone(),
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![1, 2, 3],
@@ -1430,6 +1449,7 @@ fn serde_roundtrip_export_ready() {
 #[test]
 fn serde_roundtrip_model_updated_with_errors() {
     let msg = EngineToUi::ModelUpdated {
+        feature_id: None,
         feature_tree: FeatureTree::new(),
         meshes: Vec::new(),
         edges: Vec::new(),
@@ -1454,6 +1474,7 @@ fn serde_roundtrip_model_updated_with_errors() {
 #[test]
 fn serde_model_updated_empty_errors_skipped() {
     let msg = EngineToUi::ModelUpdated {
+        feature_id: None,
         feature_tree: FeatureTree::new(),
         meshes: Vec::new(),
         edges: Vec::new(),
@@ -1503,7 +1524,10 @@ fn dispatch_set_rollback_index() {
     let op = make_sketch_operation();
     wasm_bridge::dispatch(
         &mut state,
-        UiToEngine::AddFeature { operation: op },
+        UiToEngine::AddFeature {
+            provenance: None,
+            operation: op,
+        },
         &mut kernel,
     );
 
@@ -1567,6 +1591,7 @@ fn dispatch_edit_nonexistent_feature_returns_error() {
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::EditFeature {
+            provenance: None,
             feature_id: Uuid::new_v4(),
             operation: make_sketch_operation(),
         },
@@ -1683,6 +1708,7 @@ fn finish_sketch_persists_projected_bindings() {
     let resp = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::FinishSketch {
+            provenance: None,
             solved_positions: std::collections::HashMap::new(),
             solved_profiles: vec![],
             plane_origin: [0.0, 0.0, 0.0],

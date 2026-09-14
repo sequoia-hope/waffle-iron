@@ -85,6 +85,7 @@ fn datum_rect_sketch(
     dispatch(
         state,
         UiToEngine::FinishSketch {
+            provenance: None,
             solved_positions: positions,
             solved_profiles: profiles,
             plane_origin: origin,
@@ -110,6 +111,7 @@ fn add_extrude(
     dispatch(
         state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: Operation::Extrude {
                 params: ExtrudeParams {
                     combine,

@@ -91,6 +91,7 @@ fn create_rect_sketch(
     let response = wasm_bridge::dispatch(
         state,
         UiToEngine::FinishSketch {
+            provenance: None,
             solved_positions,
             solved_profiles,
             plane_origin,
@@ -119,6 +120,7 @@ fn add_extrude(
     let response = wasm_bridge::dispatch(
         state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: Operation::Extrude {
                 params: ExtrudeParams {
                     combine: None,
@@ -162,6 +164,7 @@ fn add_extrude_no_merge(
     let response = wasm_bridge::dispatch(
         state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: Operation::Extrude {
                 params: ExtrudeParams {
                     combine: None,
@@ -326,6 +329,7 @@ fn sketch_revolve_produces_mesh() {
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: Operation::Revolve {
                 params: RevolveParams {
                     combine: None,
@@ -414,6 +418,7 @@ fn extrude_then_fillet_increases_face_count() {
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: Operation::Fillet {
                 params: FilletParams {
                     edges: vec![GeomRef {
@@ -692,6 +697,7 @@ fn extrude_nonexistent_sketch_has_rebuild_error() {
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: Operation::Extrude {
                 params: ExtrudeParams {
                     combine: None,
@@ -751,6 +757,7 @@ fn extrude_profile_index_out_of_range_has_rebuild_error() {
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: Operation::Extrude {
                 params: ExtrudeParams {
                     combine: None,
@@ -805,6 +812,7 @@ fn finish_sketch_without_begin_returns_error() {
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::FinishSketch {
+            provenance: None,
             solved_positions: HashMap::new(),
             solved_profiles: Vec::new(),
             plane_origin: [0.0, 0.0, 0.0],
@@ -1011,6 +1019,7 @@ fn extrude_sketch_with_no_profiles_returns_error() {
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::FinishSketch {
+            provenance: None,
             solved_positions: HashMap::new(),
             solved_profiles: Vec::new(), // No profiles!
             plane_origin: [0.0, 0.0, 0.0],
@@ -1030,6 +1039,7 @@ fn extrude_sketch_with_no_profiles_returns_error() {
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: Operation::Extrude {
                 params: ExtrudeParams {
                     combine: None,
@@ -1301,6 +1311,7 @@ fn revolve_face_ids_in_role_assignments() {
     let response = wasm_bridge::dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: Operation::Revolve {
                 params: RevolveParams {
                     combine: None,
@@ -1524,7 +1535,10 @@ fn extrude_combine_survives_json_boundary() {
             depth_expr: None,
         },
     };
-    let msg = UiToEngine::AddFeature { operation: op };
+    let msg = UiToEngine::AddFeature {
+        provenance: None,
+        operation: op,
+    };
     let json = serde_json::to_string(&msg).expect("serialize");
     assert!(
         json.contains("\"combine\""),
@@ -1534,6 +1548,7 @@ fn extrude_combine_survives_json_boundary() {
     let back: UiToEngine = serde_json::from_str(&json).expect("deserialize");
     match back {
         UiToEngine::AddFeature {
+            provenance: None,
             operation: Operation::Extrude { params },
         } => {
             assert_eq!(params.combine, Some(CombineMode::Cut));
@@ -1556,6 +1571,7 @@ fn extrude_combine_cut_drives_dispatch_and_consumes_target() {
         let resp = dispatch(
             &mut state,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
                         combine: Some(CombineMode::NewBody),
@@ -1591,6 +1607,7 @@ fn extrude_combine_cut_drives_dispatch_and_consumes_target() {
     dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: Operation::Extrude {
                 params: ExtrudeParams {
                     combine: Some(CombineMode::Cut),

@@ -78,6 +78,7 @@ fn handle_message(
             entities,
             constraints,
             projected,
+            provenance,
         } => {
             let sketch = state.finish_sketch(
                 solved_positions,
@@ -89,17 +90,21 @@ fn handle_message(
                 projected,
             )?;
             let op = Operation::Sketch { sketch };
-            let result = state.engine.add_feature("Sketch".to_string(), op, kb);
-            result?;
-            Ok(model_updated_response(state))
+            let id = state.engine.add_feature_with_provenance(
+                "Sketch".to_string(),
+                op,
+                provenance,
+                kb,
+            )?;
+            Ok(model_updated_for(state, id))
         }
 
         UiToEngine::ImportStep { file_name, data } => {
             // v4: the STEP text becomes a packed `Embedded` source; the
             // feature names it by id and carries Import provenance.
             let entry = SourceEntry::embedded(file_name.clone(), SourceKind::Step, &data);
-            add_import_feature(state, kb, entry, &file_name, &data)?;
-            Ok(model_updated_response(state))
+            let id = add_import_feature(state, kb, entry, &file_name, &data)?;
+            Ok(model_updated_for(state, id))
         }
 
         UiToEngine::ImportStepFromLocator {
@@ -197,20 +202,26 @@ fn handle_message(
         }
 
         // -- Feature operations --
-        UiToEngine::AddFeature { operation } => {
+        UiToEngine::AddFeature {
+            operation,
+            provenance,
+        } => {
             let name = operation_name(&operation);
-            let result = state.engine.add_feature(name, operation, kb);
-            result?;
-            Ok(model_updated_response(state))
+            let id = state
+                .engine
+                .add_feature_with_provenance(name, operation, provenance, kb)?;
+            Ok(model_updated_for(state, id))
         }
 
         UiToEngine::EditFeature {
             feature_id,
             operation,
+            provenance,
         } => {
-            let result = state.engine.edit_feature(feature_id, operation, kb);
-            result?;
-            Ok(model_updated_response(state))
+            state
+                .engine
+                .edit_feature_with_provenance(feature_id, operation, provenance, kb)?;
+            Ok(model_updated_for(state, feature_id))
         }
 
         UiToEngine::DeleteFeature { feature_id } => {
@@ -734,16 +745,18 @@ fn add_import_feature(
     state.sources.push(entry);
     let params = ImportedBodyParams::from_source(file_name, source_id);
     let op = Operation::ImportedBody { params };
-    let id = state
-        .engine
-        .add_feature(format!("Import {file_name}"), op, kb)?;
-    let _ = state.engine.set_provenance(
-        id,
-        Some(Provenance {
-            origin: ProvenanceOrigin::Import { source_id },
-            at: Some(chrono::Utc::now().to_rfc3339()),
-        }),
-    );
+    // Recorded inside the add's undo step (ICR-4): undoing the import must
+    // not leave an orphan `Import` record in the file.
+    let provenance = Provenance {
+        origin: ProvenanceOrigin::Import { source_id },
+        at: Some(chrono::Utc::now().to_rfc3339()),
+    };
+    let id = state.engine.add_feature_with_provenance(
+        format!("Import {file_name}"),
+        op,
+        Some(provenance),
+        kb,
+    )?;
     Ok(id)
 }
 
@@ -808,6 +821,15 @@ fn verified(doc: &WaffleDocument) -> Result<String, BridgeError> {
     })
 }
 
+/// `ModelUpdated` naming the feature the command created or edited (ICR-4).
+fn model_updated_for(state: &EngineState, id: uuid::Uuid) -> EngineToUi {
+    let mut response = model_updated_response(state);
+    if let EngineToUi::ModelUpdated { feature_id, .. } = &mut response {
+        *feature_id = Some(id);
+    }
+    response
+}
+
 fn model_updated_response(state: &EngineState) -> EngineToUi {
     // Generate preview mesh from the last active mesh (if any)
     let preview_mesh = find_last_mesh(state).and_then(|mesh| {
@@ -828,6 +850,7 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
     });
 
     EngineToUi::ModelUpdated {
+        feature_id: None,
         feature_tree: state.engine.tree.clone(),
         meshes: Vec::new(),
         edges: Vec::new(),

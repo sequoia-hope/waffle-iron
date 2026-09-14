@@ -335,6 +335,7 @@ fn square_sketch(
     let response = dispatch(
         state,
         UiToEngine::FinishSketch {
+            provenance: None,
             solved_positions,
             solved_profiles: vec![ClosedProfile {
                 entity_ids: vec![1, 2, 3, 4],
@@ -397,6 +398,7 @@ fn export_step_message_writes_every_live_body_and_warns_about_imported_ones() {
     dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: new_body_extrude(s1, 0.01),
         },
         &mut kernel,
@@ -405,6 +407,7 @@ fn export_step_message_writes_every_live_body_and_warns_about_imported_ones() {
     dispatch(
         &mut state,
         UiToEngine::AddFeature {
+            provenance: None,
             operation: new_body_extrude(s2, 0.01),
         },
         &mut kernel,
@@ -461,6 +464,7 @@ fn export_step_with_an_open_assembly_places_every_instance() {
         dispatch(
             &mut scratch,
             UiToEngine::AddFeature {
+                provenance: None,
                 operation: new_body_extrude(s, 0.01),
             },
             &mut kernel,

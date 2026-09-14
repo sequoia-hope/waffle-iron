@@ -111,11 +111,28 @@ impl Engine {
         operation: Operation,
         kb: &mut dyn KernelBundle,
     ) -> Result<Uuid, EngineError> {
+        self.add_feature_with_provenance(name, operation, None, kb)
+    }
+
+    /// Add a feature with its provenance record in the SAME undo step
+    /// (`specs/waffle_mcp_server.md` ICR-4): undo removes the record with the
+    /// feature and redo restores both, so an agent's call undoes exactly.
+    pub fn add_feature_with_provenance(
+        &mut self,
+        name: String,
+        operation: Operation,
+        provenance: Option<Provenance>,
+        kb: &mut dyn KernelBundle,
+    ) -> Result<Uuid, EngineError> {
         let id = self.tree.add_feature(name, operation);
         let position = self.tree.feature_index(id).unwrap_or(0);
         let feature = Box::new(self.tree.find_feature(id).unwrap().clone());
-        self.undo_stack
-            .push(Command::AddFeature { feature, position });
+        self.tree.restore_provenance(id, provenance.clone());
+        self.undo_stack.push(Command::AddFeature {
+            feature,
+            position,
+            provenance,
+        });
         self.rebuild(kb, position);
         Ok(id)
     }
@@ -154,6 +171,18 @@ impl Engine {
         operation: Operation,
         kb: &mut dyn KernelBundle,
     ) -> Result<(), EngineError> {
+        self.edit_feature_with_provenance(id, operation, None, kb)
+    }
+
+    /// Edit a feature and, when `provenance` is given, replace its provenance
+    /// record in the same undo step (ICR-4). `None` leaves the record as is.
+    pub fn edit_feature_with_provenance(
+        &mut self,
+        id: Uuid,
+        operation: Operation,
+        provenance: Option<Provenance>,
+        kb: &mut dyn KernelBundle,
+    ) -> Result<(), EngineError> {
         let pos = self
             .tree
             .feature_index(id)
@@ -165,11 +194,16 @@ impl Engine {
             .ok_or(EngineError::FeatureNotFound { id })?;
         let old_operation = feature.operation.clone();
         feature.operation = operation.clone();
+        let provenance = provenance.map(|new| {
+            let old = self.tree.set_provenance(id, Some(new.clone()));
+            (old, new)
+        });
 
         self.undo_stack.push(Command::EditFeature {
             feature_id: id,
             old_operation: Box::new(old_operation),
             new_operation: Box::new(operation),
+            provenance,
         });
 
         self.rebuild(kb, pos);
@@ -401,6 +435,9 @@ impl Engine {
                 let pos = self.tree.feature_index(feature.id).unwrap_or(0);
                 let _ = self.tree.remove_feature(feature.id);
                 self.feature_results.remove(&feature.id);
+                // GC the record with the feature — including one set outside
+                // the command, which would otherwise be orphaned (ICR-4).
+                let _ = self.tree.take_provenance(feature.id);
                 pos.min(self.tree.features.len().saturating_sub(1))
             }
             Command::RemoveFeature {
@@ -425,11 +462,15 @@ impl Engine {
             Command::EditFeature {
                 feature_id,
                 old_operation,
+                provenance,
                 ..
             } => {
                 let pos = self.tree.feature_index(*feature_id).unwrap_or(0);
                 if let Some(f) = self.tree.find_feature_mut(*feature_id) {
                     f.operation = (**old_operation).clone();
+                }
+                if let Some((old, _)) = provenance {
+                    self.tree.set_provenance(*feature_id, old.clone());
                 }
                 pos
             }
@@ -475,8 +516,13 @@ impl Engine {
     /// Apply a command forward (for redo). Returns the rebuild-from index.
     fn apply_forward(&mut self, cmd: &Command) -> usize {
         match cmd {
-            Command::AddFeature { feature, position } => {
+            Command::AddFeature {
+                feature,
+                position,
+                provenance,
+            } => {
                 self.tree.features.insert(*position, (**feature).clone());
+                self.tree.restore_provenance(feature.id, provenance.clone());
                 if let Some(ref mut idx) = self.tree.active_index {
                     if *position <= *idx {
                         *idx += 1;
@@ -497,11 +543,15 @@ impl Engine {
             Command::EditFeature {
                 feature_id,
                 new_operation,
+                provenance,
                 ..
             } => {
                 let pos = self.tree.feature_index(*feature_id).unwrap_or(0);
                 if let Some(f) = self.tree.find_feature_mut(*feature_id) {
                     f.operation = (**new_operation).clone();
+                }
+                if let Some((_, new)) = provenance {
+                    self.tree.set_provenance(*feature_id, Some(new.clone()));
                 }
                 pos
             }
