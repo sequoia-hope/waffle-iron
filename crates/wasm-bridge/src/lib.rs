@@ -1,6 +1,7 @@
 pub mod assembly_view;
 pub mod dispatch;
 pub mod engine_state;
+pub mod face_refs;
 pub mod messages;
 pub mod stl_export;
 pub mod tessellation_runner;

@@ -12,7 +12,7 @@ use crate::messages::{
     AssemblyStatus, ConnectorFrameInfo, ContextInstanceInfo, ContextStatus, EngineToUi,
     SourceStatus, UiToEngine,
 };
-use crate::messages::{MeasureMethod, Measured};
+use crate::messages::{ListedFace, MeasureMethod, Measured};
 
 /// Dispatch a UI message to the engine and return a response.
 ///
@@ -666,6 +666,9 @@ fn handle_message(
         }
 
         UiToEngine::MeasureBody { body_id } => measure_body(state, kb, &body_id),
+        UiToEngine::ListFaces { body_id, filter } => {
+            list_faces(state, kb, &body_id, filter.as_ref())
+        }
 
         UiToEngine::ExportBodyStl { body_id } => {
             // Single body, identified by its persistent (feature_id, OutputKey).
@@ -679,6 +682,59 @@ fn handle_message(
             }
         }
     }
+}
+
+/// `ListFaces` (ICR-3): every face of a body as the viewport's `GeomRef` (the
+/// shared `face_refs` builder) with its signature, filtered by the `TopoQuery`
+/// filter rules and ordered by canonical ref JSON so the listing is
+/// deterministic (I14).
+fn list_faces(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    body_id: &str,
+    filter: Option<&waffle_types::TopoQuery>,
+) -> Result<EngineToUi, BridgeError> {
+    crate::tessellation_runner::tessellate_engine(&mut state.engine, kb);
+    let engine = &state.engine;
+    let (feature_id, key, result, body) = engine
+        .tree
+        .features
+        .iter()
+        .find_map(|f| {
+            let result = engine.feature_results.get(&f.id)?;
+            result
+                .outputs
+                .iter()
+                .find(|(key, _)| feature_engine::types::FeatureTree::body_id(f.id, key) == body_id)
+                .map(|(key, body)| (f.id, key, result, body))
+        })
+        .ok_or_else(|| BridgeError::InvalidRequest {
+            reason: format!("no live body {body_id}"),
+        })?;
+    let mesh = body.mesh.as_ref().ok_or(BridgeError::NoMeshData)?;
+    let introspect = kb.as_introspect();
+    let mut faces: Vec<ListedFace> = crate::face_refs::face_geom_refs(
+        feature_id,
+        key,
+        mesh,
+        &result.provenance.role_assignments,
+        introspect,
+        false,
+    )
+    .into_iter()
+    .map(|(face, geom_ref)| ListedFace {
+        geom_ref,
+        signature: introspect.compute_signature(face, waffle_types::TopoKind::Face),
+    })
+    .filter(|f| {
+        filter.is_none_or(|q| feature_engine::resolve::passes_all_filters(&f.signature, &q.filters))
+    })
+    .collect();
+    faces.sort_by_cached_key(|f| serde_json::to_string(&f.geom_ref).unwrap_or_default());
+    Ok(EngineToUi::FacesListed {
+        body_id: body_id.to_string(),
+        faces,
+    })
 }
 
 /// A live body output by its persistent id (`FeatureTree::body_id`).

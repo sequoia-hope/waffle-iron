@@ -315,8 +315,9 @@ fn resolve_by_query(
     })
 }
 
-/// Check if a signature passes all query filters.
-fn passes_all_filters(sig: &TopoSignature, filters: &[Filter]) -> bool {
+/// Check if a signature passes all query filters. Public for the bridge's
+/// `ListFaces` query (agent-link ICR-3), which filters with the same rules.
+pub fn passes_all_filters(sig: &TopoSignature, filters: &[Filter]) -> bool {
     for filter in filters {
         match filter {
             Filter::SurfaceType { surface_type } => match &sig.surface_type {

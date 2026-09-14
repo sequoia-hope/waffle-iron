@@ -334,78 +334,20 @@ fn build_face_entries(
     // engine re-derives on rebuild.
     ghost: Option<&Ghost>,
 ) -> Vec<serde_json::Value> {
-    // Lookup from KernelId → Role from provenance.
-    let role_map: std::collections::HashMap<_, _> = role_assignments.iter().cloned().collect();
+    // The refs come from the builder `ListFaces` shares (ICR-3). A ghost's
+    // roleless faces carry their fingerprint in the PART's own frame (that is
+    // what the part's provenance records).
+    let refs = crate::face_refs::face_geom_refs(
+        feature_id,
+        output_key,
+        mesh,
+        role_assignments,
+        introspect,
+        ghost.is_some(),
+    );
 
     let mut entries = Vec::new();
-    for (face_idx, range) in mesh.face_ranges.iter().enumerate() {
-        let geom_ref = if let Some(role) = role_map.get(&range.face_id) {
-            // Role-based selector — stable across rebuilds
-            GeomRef {
-                kind: TopoKind::Face,
-                anchor: Anchor::FeatureOutput {
-                    feature_id,
-                    output_key: output_key.clone(),
-                },
-                selector: Selector::Role {
-                    role: role.clone(),
-                    index: 0,
-                },
-                policy: ResolvePolicy::BestEffort,
-                scope: None,
-            }
-        } else if ghost.is_some() {
-            // A ghost face without a role (an imported body) must be
-            // RESOLVABLE against the owning part's created-entity signatures
-            // — `signature_similarity` ignores `adjacency_hash`, so the
-            // index-only fallback below would match an arbitrary face. Carry
-            // the face's geometric fingerprint in the PART's own frame (that
-            // is what the part's provenance records).
-            let sig = introspect.compute_signature(range.face_id, TopoKind::Face);
-            GeomRef {
-                kind: TopoKind::Face,
-                anchor: Anchor::FeatureOutput {
-                    feature_id,
-                    output_key: output_key.clone(),
-                },
-                selector: Selector::Signature {
-                    signature: TopoSignature {
-                        surface_type: sig.surface_type.clone(),
-                        area: sig.area,
-                        centroid: sig.centroid,
-                        normal: sig.normal,
-                        bbox: None,
-                        adjacency_hash: None,
-                        length: None,
-                    },
-                },
-                policy: ResolvePolicy::BestEffort,
-                scope: None,
-            }
-        } else {
-            // Signature-based fallback using face index
-            GeomRef {
-                kind: TopoKind::Face,
-                anchor: Anchor::FeatureOutput {
-                    feature_id,
-                    output_key: output_key.clone(),
-                },
-                selector: Selector::Signature {
-                    signature: TopoSignature {
-                        surface_type: None,
-                        area: None,
-                        centroid: None,
-                        normal: None,
-                        bbox: None,
-                        adjacency_hash: Some(face_idx as u64),
-                        length: None,
-                    },
-                },
-                policy: ResolvePolicy::BestEffort,
-                scope: None,
-            }
-        };
-
+    for (range, (_, geom_ref)) in mesh.face_ranges.iter().zip(refs) {
         // KV13 F6b: the feature that INTRODUCED this face's geometry (through
         // chained booleans) — the original extrude/revolve, not the last
         // boolean. `null` when unresolved (e.g. carried before a rebuild point).

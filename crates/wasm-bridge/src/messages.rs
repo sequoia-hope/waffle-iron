@@ -314,6 +314,15 @@ pub enum UiToEngine {
     MeasureBody {
         body_id: String,
     },
+    /// Every face of a body as the `GeomRef` the viewport's face ranges carry,
+    /// with its signature (`specs/waffle_mcp_server.md` ICR-3). `filter` uses
+    /// the `TopoQuery` filter rules (`tie_break` is ignored: a listing returns
+    /// every match). Query: no rebuild.
+    ListFaces {
+        body_id: String,
+        #[serde(default)]
+        filter: Option<waffle_types::TopoQuery>,
+    },
     ExportStep,
     ExportStl,
     /// Export a single body to STL. `body_id` is the persistent body identity
@@ -383,6 +392,13 @@ pub enum UiToEngine {
         #[serde(default)]
         chord_tolerance: Option<f64>,
     },
+}
+
+/// One face of a `FacesListed` answer (ICR-3).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListedFace {
+    pub geom_ref: waffle_types::GeomRef,
+    pub signature: waffle_types::TopoSignature,
 }
 
 /// How a [`Measured`] quantity was obtained.
@@ -466,6 +482,12 @@ pub enum EngineToUi {
         /// bridge-level failures such as a message sent in the wrong state.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         kind: Option<feature_engine::types::ErrorKind>,
+    },
+
+    /// Answer to `ListFaces` (ICR-3): ordered by canonical `GeomRef` JSON.
+    FacesListed {
+        body_id: String,
+        faces: Vec<ListedFace>,
     },
 
     /// Answer to `MeasureBody` (ICR-1). Lengths in meters. The bounding box
