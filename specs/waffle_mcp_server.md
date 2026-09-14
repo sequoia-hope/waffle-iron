@@ -569,6 +569,12 @@ breaking bridge change (A2.4). Each lands in its owning sub-project first.
   inside the same undo step (I4 with I5). The response carries the new
   `feature_id`. Today only `add_import_feature` records provenance, and
   `AddFeature` returns no id.
+  **LANDED 2026-09-14.** `Engine::add_feature_with_provenance` /
+  `edit_feature_with_provenance`; the undo `Command`s carry the record, and
+  `ModelUpdated.feature_id` is also set by `ImportStep`. It fixed a latent
+  defect: undoing an add left the feature's provenance record orphaned, so a
+  STEP import followed by undo kept an `Import` record in the saved file,
+  which would have broken I3.
 
 Store-side changes (sub-project `08-ui-chrome` / `05-sketch-ui`, not bridge
 ICRs):
