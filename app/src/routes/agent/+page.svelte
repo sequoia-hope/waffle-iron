@@ -67,6 +67,8 @@
 		{#if linkError}
 			<h1>Invalid agent link</h1>
 			<p class="error" data-testid="agent-link-invalid">{linkError}</p>
+			<!-- The address as received: links get cut or rewritten on the way to another device. -->
+			<p class="hint">Address received: <code data-testid="agent-link-received">{$page.url.href}</code></p>
 			<a class="link" href="{base}/">Open Waffle Iron</a>
 		{:else if status === 'denied'}
 			<h1>Not connected</h1>
