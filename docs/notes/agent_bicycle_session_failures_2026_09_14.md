@@ -12,6 +12,7 @@
 | F10 | FIXED (re-scoped) | Root cause: `openDocumentRecord` settled the startup restore BEFORE `loadProject`, so the link resumed and read the blank bootstrap tree for the whole rebuild. Now it settles in a `finally` after the load, and `executeTool` refuses every call with `UserBusy {reason: 'loading' \| 'restoring'}` via `getDocumentLoadBusyReason()` (`app/src/lib/engine/store.svelte.js`, `app/src/lib/agent/executor.js`) | `app/tests/gui/agent-document-load-gate.spec.js` (verified RED with the gate disabled); agent-link / reconnect / documents / authoring specs still pass (23) |
 | F7 | FIXED | `feature-engine/src/rebuild.rs` `Changed` + skip decision in `rebuild()`: a feature re-executes only if it changed, names (by any UUID in its definition) a feature that re-executed, finds an input by tree position (legacy most-recent / share-a-face targets, through-all, projected sketches, context-scoped refs) after one, or has no cached result or error; everything else keeps its result, mesh and error. Callers pass what changed (`lib.rs` `changed_feature`/`changed_by`; the parameter and context passes report changed feature ids). Reorder and full rebuilds still re-execute everything | `feature-engine/tests/incremental_rebuild.rs` (8 tests; the unrelated-edit, parameter and rename-undo cases verified RED first), `test-harness/tests/incremental_rebuild_kv2.rs` (kernel-v2: a box notching an annulus tube, V_cut/V_tube = 5/6; the kept Cut keeps its handle and 76,930-triangle mesh, and a later re-execution against the same arena matches a from-scratch rebuild. Debug build: adding the Cut 15.1 s; editing an unrelated upstream sketch 20 ms, versus 15.2 s with the change stashed, where the test is RED) |
 | F4 | OPEN — not reproduced | None. Three candidate causes measured in the real app and ruled out (see F4 "Investigation") | — |
+| F11 | FIXED | `kernel-v2/src/recover.rs` pass 2: the two feet of one canonical seam share one azimuth (a reused foot fixes its minted twin's; a non-ruling reused pair takes the arc fallback). Before, a foot reused at the outer wall's azimuth and one minted at the coaxial bore's put the seam 4.2e-12 off its ruling | `test-harness/tests/f11_disjoint_cut_thin_tube.rs` (r 14 mm disjoint Cut RED before, in debug and release; r 15 mm and notch controls green) |
 | F5, F6, F8 | OPEN | — | — |
 
 Failures hit while an agent built a bicycle frame and fork over the agent link
@@ -402,8 +403,87 @@ DISJOINT from the tube) → Cut, depth 0.10, `targets: [tube/Main]`.
 **Verified:** the same error (same face ids) with the F7 change stashed, and on
 `rebuild_from_scratch`, so it is not an incremental-rebuild artifact. With
 r_inner = 0.015 the same disjoint Cut succeeds.
-**Not yet verified:** whether a non-disjoint cut fails the same way, and which
-face is off-surface.
+
+**Status: FIXED (2026-09-15).**
+
+What was measured:
+- **Reproduces in release too:** `test-harness/tests/f11_disjoint_cut_thin_tube.rs`.
+  Notch Cuts through the same r 14 mm tube pass; only the disjoint Cut failed.
+- **The failing check** (`KV2_OFFSURF_PROBE`): `cyl-seam-not-ruling` on the tube's
+  OUTER wall (r 15.9 mm). The seam is 4.16e-12 off its axis ruling, against a
+  1e-12 band.
+- **Yang's output is exact** (`KV2_OUT_VERT_PROBE`): the top seam vertex v32 and
+  the bottom vertex v9 at 97.605633749° have bit-identical x/y. v9 is on no edge,
+  though: the two outer rims are split at different azimuths.
+
+Cause, in kernel-v2's `recover.rs` pass 2 (typed rims → canonical
+`[rim, seam, rim, seam]` lateral), which picks each seam foot per rim against a
+shared `theta_ref`:
+- `theta_ref` came from the coaxial BORE lateral, anchored first, at
+  97.605633764°.
+- The top rim reused v32, which is within the ~1e-9 `BAND` of it.
+- The bottom rim had no vertex there, so it MINTED a foot at the bore's azimuth.
+- The two ends of one seam were therefore 2.6e-10 rad apart, which at r 15.9 mm
+  is 4.2e-12 m.
+
+Fix: both feet of a seam share one azimuth.
+- A reused foot fixes the azimuth its minted twin takes.
+- Two reused feet that are not a ruling within the validator's own bound
+  (`SEAM_RULING_TOLERANCE` = `CURVED_SURFACE_DEBUG_TOLERANCE`) take the existing
+  arc fallback.
+- No vertex moves and no tolerance changed.
+
+The seam can still sit up to `BAND` in azimuth from the coaxial reference, so the
+C0117 phase lock (`s434_typed_rim_seam_mint`) holds.
+
+Verification:
+- **`s434_typed_rim_seam_mint`:** 5/5 in release.
+- **`test.sh rewrite`:** kernel-v2, yang-rs, ssi-rs and cad-primitives are green.
+  cherchi-rs is red ONLY on its FFI/sidecar parity tests: this host has no
+  `/home/claude/cherchi2022` clone, so the tests hit a no-op stub and
+  `BinaryNotFound`. cherchi-rs does not depend on kernel-v2.
+- **Release assay:** 289C / 0W / 16E / 4EE / 0T + 3 UNSUPPORTED against the
+  committed 290C baseline (`b9785bf6`, 2026-09-13). The two cases that differ are
+  unchanged by this fix. Single-case A/B with HEAD's `recover.rs` versus F11
+  gives identical verdicts and details:
+  - R0081 is ERROR with `LocalRefinementRequired` at vertex 1350 either way.
+  - R0085 is ERROR with `RelocationCrossedCarrierVertex` at vertex 368 either way.
+  - F11 is corpus-neutral. See "R0081 regression" below.
+
+---
+
+## R0081 regression — CORRECT → ERROR since the 2026-09-13 corpus baseline (found while verifying F11)
+
+**Severity:** medium. It is a corpus regression the CI smoke gate does not pin, so
+CI stays green.
+
+**Observed:**
+- **R0081:** `Revolve 3: Auto-union failed … Stage-4 relocation region around vertex
+  1350 is invalid: LocalRefinementRequired`. It was "all checks passed" in the
+  committed `results.json` (`b9785bf6`).
+- **R0085:** its ERROR detail changed too, from two failures (Revolve 2 at vertex 386,
+  Revolve 3 non-2-manifold) to one (Revolve 2 at vertex 368).
+
+**Verified:**
+- Deterministic in `single_case` (124 s).
+- Independent of F11 (A/B above).
+
+**Suspects:** commits touching the engine/kernel path after `b9785bf6`: `cf9b799f`,
+`bd026d4a`, `49321a98`, `5765514a`, `133db189`, `579f831e` (F1/F3/F9: unit sketch
+normals reach the revolve frame too), `df592579` (F7), `b4be84db`.
+
+**Bisect:**
+- **`798967fc`** (the last commit before today's engine fixes): R0081
+  SUPPORTED_CORRECT in `single_case` (192 s).
+- **Remaining candidates:** `579f831e` (F1/F3/F9) and `df592579` (F7). `b4be84db`
+  only recomputes the thumbnail preview after tessellation and changes page code
+  the assay does not run.
+- **`579f831e`** (F1/F3/F9): R0081 ERROR, identical detail (`LocalRefinementRequired`
+  at vertex 1350) → **first bad commit**.
+
+R0081 (a gear extrude, a rectangle cut, a gear revolve; no multi-output Cut, so
+F9 is not involved) points at F1 (unit-normal frames) or F3 (arc-loop outlines by
+curve sampling). Narrowing it is in progress.
 
 ---
 

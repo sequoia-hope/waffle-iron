@@ -56,6 +56,11 @@ const MAX_ARC_PIECE_SWEEP: f64 = 2.6;
 /// [`cad_primitives::TAU_EVAL`] rounding tier, F8).
 const BAND: f64 = cad_primitives::TAU_EVAL;
 
+/// Largest radial offset (meters) between the two feet of one canonical seam:
+/// the validator's own `cyl-seam-not-ruling` bound, so a recovered seam is a
+/// ruling by the same standard `validate_solid` applies to it.
+const SEAM_RULING_TOLERANCE: f64 = crate::validate::CURVED_SURFACE_DEBUG_TOLERANCE;
+
 fn sub(a: Point3, b: Point3) -> [f64; 3] {
     let (a, b) = (a.as_array(), b.as_array());
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
@@ -898,34 +903,50 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
                 }
             };
             // Per rim: preset anchor, else an existing vertex within the
-            // band of theta_ref (nearest, ties by index), else mint.
-            let foot = |chain_id: usize,
-                        center: Point3,
-                        r_rim: f64,
-                        preset: Option<u32>,
-                        minted: &mut Vec<BRepVertex>|
-             -> u32 {
-                if let Some(v) = preset {
-                    return v;
-                }
-                let mut best: Option<(f64, u32)> = None;
-                for &v in &chains[chain_id].verts {
-                    let t = az_in(point_any(v, minted), center, e1, e2);
-                    let d = daz_of(t, theta_ref);
-                    let better = match best {
-                        None => true,
-                        Some((bd, bv)) => d < bd || (d == bd && v < bv),
-                    };
-                    if better {
-                        best = Some((d, v));
+            // band of theta_ref (nearest, ties by index), else none (mint).
+            let existing_foot =
+                |chain_id: usize, center: Point3, r_rim: f64, preset: Option<u32>| -> Option<u32> {
+                    if preset.is_some() {
+                        return preset;
                     }
-                }
-                if let Some((d, v)) = best {
-                    if d * r_rim <= band {
-                        return v;
+                    let mut best: Option<(f64, u32)> = None;
+                    for &v in &chains[chain_id].verts {
+                        let t = az_in(point_any(v, &minted), center, e1, e2);
+                        let d = daz_of(t, theta_ref);
+                        let better = match best {
+                            None => true,
+                            Some((bd, bv)) => d < bd || (d == bd && v < bv),
+                        };
+                        if better {
+                            best = Some((d, v));
+                        }
                     }
+                    best.and_then(|(d, v)| (d * r_rim <= band).then_some(v))
+                };
+            let ex_a = existing_foot(cand.ca, cand.cca, cand.ra, pre_a);
+            let ex_b = existing_foot(cand.cb, cand.ccb, cand.rb, pre_b);
+            // The two feet are the ends of ONE seam ruling, so they must share
+            // an azimuth EXACTLY, not merely within `band` of theta_ref (F11:
+            // a reused top foot at the outer wall's own azimuth and a bottom
+            // foot minted at the coaxial bore's azimuth, 2.6e-10 rad apart,
+            // gave a seam 4.2e-12 off its ruling and a rejected output). A
+            // reused foot therefore fixes the azimuth for a minted twin; two
+            // reused feet that are not a ruling take the arc fallback.
+            let theta_seam = match (ex_a, ex_b) {
+                (Some(a0), Some(b0)) => {
+                    let ta = az_in(point_any(a0, &minted), cand.cca, e1, e2);
+                    let tb = az_in(point_any(b0, &minted), cand.ccb, e1, e2);
+                    if daz_of(ta, tb) * cand.radius > SEAM_RULING_TOLERANCE {
+                        continue;
+                    }
+                    ta
                 }
-                let (st, ct) = theta_ref.sin_cos();
+                (Some(a0), None) => az_in(point_any(a0, &minted), cand.cca, e1, e2),
+                (None, Some(b0)) => az_in(point_any(b0, &minted), cand.ccb, e1, e2),
+                (None, None) => theta_ref,
+            };
+            let mut mint = |center: Point3, r_rim: f64| -> u32 {
+                let (st, ct) = theta_seam.sin_cos();
                 let c = center.as_array();
                 let p = Point3::new(
                     c[0] + r_rim * (ct * e1[0] + st * e2[0]),
@@ -936,8 +957,8 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
                 minted.push(BRepVertex { point: p });
                 new_v
             };
-            let va = foot(cand.ca, cand.cca, cand.ra, pre_a, &mut minted);
-            let vb = foot(cand.cb, cand.ccb, cand.rb, pre_b, &mut minted);
+            let va = ex_a.unwrap_or_else(|| mint(cand.cca, cand.ra));
+            let vb = ex_b.unwrap_or_else(|| mint(cand.ccb, cand.rb));
             chains[cand.ca].anchor = Some(va);
             chains[cand.cb].anchor = Some(vb);
             lateral_pairs.insert(cand.fi, ((cand.ca, va), (cand.cb, vb)));
