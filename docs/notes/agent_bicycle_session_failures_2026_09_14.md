@@ -188,10 +188,19 @@ Test: `test-harness/tests/preview_mesh_kv2.rs`. It asserts the dispatch
 response has no preview (the bug), and that a 200-gon prism's preview is
 decimated below its render mesh after attaching.
 
-Measured on the real document (headless, 24 cores): `LoadProject` 204 s, 910/910
-calls `ok`, main-thread stalls 1.5 s at load completion and 1.1 s at autosave. Still
-far below the 30 s heartbeat, so this fix is NOT claimed to fix F4. It removes a
-10 MB clone per autosave, which matters most on a slow or memory-limited device.
+Measured on the real document (headless, 24 cores), same probe before and after:
+
+| | before (`1fb31cf0`) | after (`b4be84db`) |
+|---|---|---|
+| saved document | 23.8 MB | 420 KB (`buildDocumentJson` 11 ms) |
+| preview triangles | 179,997 (the full body) | 1,277 (vertex clustering; 500 is its target, not a hard cap) |
+| `LoadProject` | 204 s | 218 s |
+| link calls during the load | 910/910 `ok` | 975/975 `ok` |
+| main-thread stalls > 500 ms | 1.5 s at load completion, 1.1 s at autosave | none during the load (one 554 ms at page setup) |
+
+Both runs are far below the 30 s heartbeat, so this fix is NOT claimed to fix
+F4. It removes a 10 MB clone per autosave and ~23 MB per stored copy (record plus
+draft), which matters most on a slow or memory-limited device.
 
 Still open:
 - **What makes "Bike frame" 28 MB.** The probe's 6-tube document is 76 KB, so the
