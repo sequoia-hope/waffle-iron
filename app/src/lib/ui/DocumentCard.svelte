@@ -3,7 +3,7 @@
 	import { timeago } from '$lib/utils/timeago.js';
 	import ThumbnailViewport from './ThumbnailViewport.svelte';
 
-	let { doc, index = 0, onclick, onrename, ondelete, onshare = null } = $props();
+	let { doc, index = 0, onclick, onrename, ondelete, onshare = null, onexport = null } = $props();
 
 	const scale = spring(0.96, { stiffness: 0.12, damping: 0.7 });
 
@@ -78,6 +78,9 @@
 		<button class="ctx-item" data-testid="doc-ctx-rename" onclick={startRename}>Rename</button>
 		{#if onshare}
 			<button class="ctx-item" data-testid="doc-ctx-share" onclick={() => { showMenu = false; onshare?.(doc); }}>Copy share link</button>
+		{/if}
+		{#if onexport}
+			<button class="ctx-item" data-testid="doc-ctx-export" onclick={() => { showMenu = false; onexport?.(doc); }}>Export .waffle</button>
 		{/if}
 		<button class="ctx-item ctx-delete" data-testid="doc-ctx-delete" onclick={handleDelete}>Delete</button>
 	</div>

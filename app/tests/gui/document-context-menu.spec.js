@@ -37,6 +37,26 @@ rawTest.describe('Document context menu', () => {
     await expect(page.locator('.card-name')).toContainText('New Name');
   });
 
+  rawTest('export via context menu downloads the stored .waffle verbatim', async ({ page }) => {
+    const doc = makeTestDocument({ id: 'exp00001', name: 'Export Me' });
+    await page.goto('/home');
+    await seedDocument(page, doc);
+    await page.goto('/home');
+    await expect(page.locator('[data-testid="document-card"]')).toBeVisible({ timeout: 10000 });
+
+    await page.locator('[data-testid="document-card"]').first().click({ button: 'right' });
+    const downloadPromise = page.waitForEvent('download');
+    await page.locator('[data-testid="doc-ctx-export"]').click();
+    const download = await downloadPromise;
+
+    expect(download.suggestedFilename()).toBe('Export Me.waffle');
+    const fs = await import('node:fs/promises');
+    const text = await fs.readFile(await download.path(), 'utf8');
+    // Byte-for-byte the stored record — the document was never opened.
+    expect(text).toBe(doc.json);
+    await expect(page).toHaveURL(/\/home$/);
+  });
+
   rawTest('delete via context menu removes card', async ({ page }) => {
     const doc = makeTestDocument({ id: 'del00001', name: 'Delete Me' });
     await page.goto('/home');

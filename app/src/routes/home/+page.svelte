@@ -73,6 +73,25 @@
 		} catch { /* ignore */ }
 	}
 
+	/**
+	 * Download the stored record's `.waffle` text exactly as stored, without
+	 * opening the document: no engine load, no rebuild, no autosave can touch
+	 * it first. Also the way to get a document out that no longer opens.
+	 */
+	async function handleExport(doc) {
+		const stored = await getActiveProvider().get(doc.id);
+		if (!stored?.json) return;
+		const blob = new Blob([stored.json], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `${doc.name || 'document'}.waffle`;
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+		URL.revokeObjectURL(url);
+	}
+
 	async function handleDelete(doc) {
 		if (!confirm(`Delete "${doc.name}"? This cannot be undone.`)) return;
 		const provider = getActiveProvider();
@@ -96,7 +115,7 @@
 			<p>Loading documents...</p>
 		</div>
 	{:else}
-		<DocumentGrid {documents} onselect={handleSelect} onrename={handleRename} ondelete={handleDelete} onshare={canShare ? handleShare : null} />
+		<DocumentGrid {documents} onselect={handleSelect} onrename={handleRename} ondelete={handleDelete} onshare={canShare ? handleShare : null} onexport={handleExport} />
 	{/if}
 </div>
 
