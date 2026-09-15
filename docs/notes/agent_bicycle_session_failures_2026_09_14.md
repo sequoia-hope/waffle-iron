@@ -1,5 +1,17 @@
 # Agent-link bicycle session — failure log (2026-09-14)
 
+## Fix status (2026-09-15)
+
+| # | Status | Fix | Regression test |
+|---|---|---|---|
+| F1 | FIXED | `feature-engine/src/rebuild.rs` `unit_normal()`: every kernel frame, face and default extrude direction is built from the unit normal; stored sketch data is untouched, so old documents are repaired too | `test-harness/tests/sketch_plane_normal_precision.rs::region_annulus_on_rounded_normal_is_a_valid_boolean_operand` (before the fix the tube failed at extrude with `VertexOffSurface` when region vertices are exact on the circle; in-session, with 6-7-decimal vertices, it built and the boolean rejected it) |
+| F2 | FIXED | same as F1 | `…::circle_profile_extrude_on_rounded_normal_builds` |
+| F3 | FIXED | `waffle-types/src/regions.rs` `profile_outline`: loops containing arcs/splines are outlined by sampling their entities (`chain_polylines`); `vertex_ids` turned arcs into chords | `regions::tests::arc_line_stadium_region_carries_profile_entity_ids` |
+| F9 | FIXED (custody) | `rebuild.rs` `carry_untargeted_siblings()`: untargeted outputs of a partly-targeted feature are carried unchanged as extra `Body{n}` outputs with a warning | `feature-engine/tests/combine_sibling_outputs.rs` |
+| F9b | FIXED | `feature-engine/src/lib.rs` `inherit_source_body_id()`: an explicit combine's `Main` inherits the name of the first resolved target's OWN output (not that feature's `Main`), and carried siblings inherit from the body they carry; `rebuild.rs` `untargeted_sibling_sources()` is the single ordered source for both the carried bodies and their names | `combine_sibling_outputs.rs::names_follow_the_targeted_body_and_the_carried_sibling` (RED showed `Some("Top tube")` for the down tube, the exact in-app symptom) |
+| F10 | FIXED (re-scoped) | Root cause: `openDocumentRecord` settled the startup restore BEFORE `loadProject`, so the link resumed and read the blank bootstrap tree for the whole rebuild. Now it settles in a `finally` after the load, and `executeTool` refuses every call with `UserBusy {reason: 'loading' \| 'restoring'}` via `getDocumentLoadBusyReason()` (`app/src/lib/engine/store.svelte.js`, `app/src/lib/agent/executor.js`) | `app/tests/gui/agent-document-load-gate.spec.js` (verified RED with the gate disabled); agent-link / reconnect / documents / authoring specs still pass (23) |
+| F4, F5, F6, F7, F8 | OPEN | — | — |
+
 Failures hit while an agent built a bicycle frame and fork over the agent link
 (MCP) in the "Bike frame" document (browser-local). Each entry is written so a
 test case can be built from it: minimal repro, observed vs expected, evidence,
@@ -242,9 +254,22 @@ ALL outputs of A in B (the tool-disjoint one should pass through unchanged).
 
 ---
 
-## F10 — Tab reload during a long rebuild → draft restore → model EMPTY and autosaved
+## F10 — Tab reload during a long rebuild → agent link reports an EMPTY model
 
-**Severity:** critical — likely loss of the whole document (stored copy AND draft).
+> **CORRECTION (2026-09-15):** the user exported the stored "Bike frame" record from
+> the Home view (new ⋯ → Export .waffle): it is **28 MB**, so the 00:14:10 autosave
+> did NOT write an empty tree. The data-loss hypothesis below is refuted as stated.
+> What remains verified: after the draft restore, `model_summary` returned
+> `features: []` for minutes. `summarizeModel` (`app/src/lib/agent/summary.js`) reads
+> the page's `featureTree` store, which is empty until the restore rebuild's
+> `ModelUpdated` arrives, while `SaveDocument` substitutes the engine's own tree
+> (`dispatch.rs:323`), which was already loaded. **Real defect:** during a
+> restore or rebuild the agent link answers with an empty model instead of
+> `UserBusy`, and an agent can act on that (e.g. save, re-author). Severity: high for
+> agents, not data loss. The autosave-during-restore race is still a
+> plausible hazard, but it is unobserved; do not "fix" it without a repro (P9).
+
+**Original severity estimate (superseded):** critical — likely loss of the whole document (stored copy AND draft).
 
 **Sequence (UTC, 2026-09-14/15):**
 1. Last explicit `document_save`: 23:21:46. After it, ~10 successful Cut features.
