@@ -11,6 +11,7 @@ import {
 	AGENT_WORKING_HINT,
 	EngineLockTimeout,
 	getActiveTabId,
+	getDocumentLoadBusyReason,
 	getDocumentTabs,
 	getToolHint,
 	getUserBusyReason,
@@ -43,6 +44,11 @@ const BUSY_MESSAGES = {
 	sketch_mode: 'The user is editing a sketch in Waffle Iron. Wait until they finish.',
 	feature_dialog: 'The user has a feature dialog open in Waffle Iron. Wait until they close it.',
 	edit_context: 'The user is editing a part in an assembly context. Wait until they leave it.'
+};
+
+const LOAD_MESSAGES = {
+	restoring: 'Waffle Iron is reopening the last work in this tab. Try again shortly.',
+	loading: 'Waffle Iron is still loading the document (a heavy model can take minutes to rebuild). Try again shortly.'
 };
 
 /**
@@ -192,6 +198,13 @@ export async function executeTool(tool, args, ctx) {
 	if (!isEngineReady()) {
 		return toolError('EngineNotReady', 'The Waffle Iron engine is not ready in this tab.', {});
 	}
+	// Until the open document is fully loaded the store describes the wrong
+	// model (an empty tree, for minutes on a heavy document): refuse, never
+	// answer from it (failure log F10).
+	const loading = getDocumentLoadBusyReason();
+	if (loading) {
+		return toolError('UserBusy', LOAD_MESSAGES[loading], { reason: loading });
+	}
 	try {
 		if (query) {
 			const env = { send: (message) => sendAgentMessage(message) };
@@ -203,6 +216,12 @@ export async function executeTool(tool, args, ctx) {
 		if (err instanceof ToolFailure) return toolError(err.code, err.detail, err.details);
 		return toolError('Internal', `${tool} failed in the page: ${err?.message ?? String(err)}`, {});
 	}
+}
+
+// Test hook (agent-document-load-gate.spec.js): run a tool in this page's own
+// executor, without a relay.
+if (typeof window !== 'undefined') {
+	window.__waffleAgentExecutor = { executeTool };
 }
 
 /**

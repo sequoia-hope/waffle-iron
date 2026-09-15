@@ -504,9 +504,30 @@ let autoRestoreState = $state(null);
 
 /** Resolves once startup has reopened, offered-and-answered, or skipped a restore. */
 let settleStartupRestore = () => {};
+let startupRestorePending = true;
 const startupRestoreSettled = new Promise((resolve) => {
-	settleStartupRestore = () => resolve(undefined);
+	settleStartupRestore = () => {
+		startupRestorePending = false;
+		resolve(undefined);
+	};
 });
+
+/** True while `openDocumentRecord` is loading a document into the engine. */
+let documentLoadPending = false;
+
+/**
+ * Why the model cannot be read or edited yet, or null: `'restoring'` until this
+ * tab's startup restore is settled, `'loading'` while a document is still
+ * loading into the engine (a multi-boolean document rebuilds for minutes).
+ * Meanwhile the store's feature tree is the blank bootstrap or the previous
+ * document, so anything reading it would describe the wrong model (failure log F10).
+ * @returns {'restoring' | 'loading' | null}
+ */
+export function getDocumentLoadBusyReason() {
+	if (documentLoadPending) return 'loading';
+	if (startupRestorePending) return 'restoring';
+	return null;
+}
 
 /**
  * Resolves when this tab's startup restore is settled: reopened (policy
@@ -1083,6 +1104,10 @@ export async function initEngine() {
 			// sets the revolve dialog's axis as a viewport pick would.
 			setRevolveAxis: (origin, direction, label) => setRevolveAxis(origin, direction, label),
 			loadProject: (jsonData) => loadProject(jsonData),
+			// Agent-link load gate (agent-document-load-gate.spec.js, failure log F10).
+			buildDocumentJson: () => buildDocumentJson(),
+			openDocumentRecord: (docId, json) => openDocumentRecord(docId, json),
+			getDocumentLoadBusyReason: () => getDocumentLoadBusyReason(),
 			// Test SETUP: real file pickers can't be driven from Playwright.
 			importStepFromText: (fileName, text) => importStepFromText(fileName, text),
 			importStepFromLink: (url) => importStepFromLink(url),
@@ -6131,22 +6156,32 @@ export async function openDocumentRecord(docId, json, link = null) {
 	// The opened document is the one asked for; drop any restore offer the
 	// bootstrap raced ahead with.
 	autoRestoreState = null;
-	settleStartupRestore();
-	initDocumentState(docId, parsed, link);
-	// Load the document into the engine — ALWAYS, even when the active tab
-	// is empty: the engine owns the document's `sources` table (v4 §2.3),
-	// which an empty tab can still belong to, and the Rust loader is the
-	// one place migrations run.
-	if (!(await loadProject(json, { silent: true }))) {
-		throw new Error('the engine did not load the document (not ready, or saved by a newer version)');
+	// Set before the first await: a call arriving during the load is refused,
+	// not answered from the half-swapped store.
+	documentLoadPending = true;
+	try {
+		initDocumentState(docId, parsed, link);
+		// Load the document into the engine — ALWAYS, even when the active tab
+		// is empty: the engine owns the document's `sources` table (v4 §2.3),
+		// which an empty tab can still belong to, and the Rust loader is the
+		// one place migrations run.
+		if (!(await loadProject(json, { silent: true }))) {
+			throw new Error('the engine did not load the document (not ready, or saved by a newer version)');
+		}
+		// The load's own ModelUpdated scheduled an autosave of what was just read
+		// from storage; nothing is unsaved yet (agent link S3 reads the timer).
+		// Source resolution below may still schedule a real one.
+		cancelPendingAutoSave();
+		log('system', `Loaded document ${docId}`);
+		await resolveDocumentSources();
+		if (activeAssemblyTab()) await refreshAssembly();
+	} finally {
+		documentLoadPending = false;
+		// Settled only once the document is in the engine: the agent link
+		// resumes on it, and resuming earlier let calls read the blank
+		// bootstrap tree for the whole rebuild (failure log F10).
+		settleStartupRestore();
 	}
-	// The load's own ModelUpdated scheduled an autosave of what was just read
-	// from storage; nothing is unsaved yet (agent link S3 reads the timer).
-	// Source resolution below may still schedule a real one.
-	cancelPendingAutoSave();
-	log('system', `Loaded document ${docId}`);
-	await resolveDocumentSources();
-	if (activeAssemblyTab()) await refreshAssembly();
 }
 
 /**
