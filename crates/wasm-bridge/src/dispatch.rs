@@ -998,9 +998,9 @@ fn model_updated_for(state: &EngineState, id: uuid::Uuid) -> EngineToUi {
     response
 }
 
-fn model_updated_response(state: &EngineState) -> EngineToUi {
-    // Generate preview mesh from the last active mesh (if any)
-    let preview_mesh = find_last_mesh(state).and_then(|mesh| {
+/// The document thumbnail: the last active mesh, decimated.
+fn preview_mesh(state: &EngineState) -> Option<feature_engine::preview_mesh::PreviewMesh> {
+    find_last_mesh(state).and_then(|mesh| {
         if mesh.vertices.is_empty() || mesh.indices.is_empty() {
             return None;
         }
@@ -1015,7 +1015,25 @@ fn model_updated_response(state: &EngineState) -> EngineToUi {
         } else {
             Some(decimated)
         }
-    });
+    })
+}
+
+/// Recompute a `ModelUpdated`'s preview once the post-dispatch tessellation
+/// has meshed its bodies. Built inside `dispatch`, the preview is taken before
+/// any new body has a mesh: after a load or full rebuild it came back `None`,
+/// and the page then stored the whole last mesh as the thumbnail (a 180k
+/// triangle, 10 MB preview in a 44-feature document).
+pub fn attach_preview_mesh(state: &EngineState, response: &mut EngineToUi) {
+    if let EngineToUi::ModelUpdated {
+        preview_mesh: slot, ..
+    } = response
+    {
+        *slot = preview_mesh(state);
+    }
+}
+
+fn model_updated_response(state: &EngineState) -> EngineToUi {
+    let preview_mesh = preview_mesh(state);
 
     EngineToUi::ModelUpdated {
         feature_id: None,

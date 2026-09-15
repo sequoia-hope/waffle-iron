@@ -785,27 +785,12 @@ export async function initEngine() {
 		lastError = null;
 		statusMessage = `Model updated (${meshes.length} ${meshes.length === 1 ? 'body' : 'bodies'})`;
 
-		// Generate preview mesh from the last mesh for thumbnail/save.
-		// Prefer Rust-side preview_mesh if available, otherwise build from JS meshes.
+		// The thumbnail saved with the tab is the engine's decimated preview.
+		// Never the full render mesh: copied into this $state tab, it was
+		// serialized into every autosave (a 10 MB preview in a 44-feature document).
 		if (activeTabId) {
 			const tab = documentTabs.find(t => t.id === activeTabId);
-			if (tab) {
-				if (msg.preview_mesh) {
-					tab.kind.preview_mesh = msg.preview_mesh;
-				} else if (meshes.length > 0) {
-					// Build preview from the last JS-side mesh (typed arrays)
-					const last = meshes[meshes.length - 1];
-					if (last.vertices?.length > 0 && last.indices?.length > 0) {
-						tab.kind.preview_mesh = {
-							vertices: Array.from(last.vertices),
-							normals: Array.from(last.normals || []),
-							indices: Array.from(last.indices)
-						};
-					}
-				} else {
-					tab.kind.preview_mesh = null;
-				}
-			}
+			if (tab) tab.kind.preview_mesh = msg.preview_mesh ?? null;
 		}
 
 		scheduleAutoSave();

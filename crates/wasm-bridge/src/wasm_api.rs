@@ -77,13 +77,14 @@ pub fn process_message(json_input: &str) -> String {
 
         let msg_type = format!("{:?}", std::mem::discriminant(&msg));
         let t0 = js_sys::Date::now();
-        let response = dispatch::dispatch(&mut engine.state, msg, &mut engine.kernel);
+        let mut response = dispatch::dispatch(&mut engine.state, msg, &mut engine.kernel);
         let dispatch_ms = js_sys::Date::now() - t0;
 
         // After dispatch, tessellate any solids that don't have mesh data yet
         if matches!(response, EngineToUi::ModelUpdated { .. }) {
             let t1 = js_sys::Date::now();
             tessellate_missing_meshes(&mut engine.state, &mut engine.kernel);
+            dispatch::attach_preview_mesh(&engine.state, &mut response);
             let tess_ms = js_sys::Date::now() - t1;
             if dispatch_ms + tess_ms > 100.0 {
                 web_sys::console::log_1(

@@ -163,8 +163,35 @@ gaps and long tasks, in a scratch probe that was not committed:
 Ruled out:
 - (a) A burst of concurrent calls.
 - (b) A long worker rebuild starving the pong.
-- (c) The tab `preview_mesh` explaining the 28 MB document: the engine decimates
-  it to 500 triangles (`crates/wasm-bridge/src/dispatch.rs:1003`).
+- ~~(c) The tab `preview_mesh` explaining the 28 MB document~~ **WRONG, corrected
+  below.**
+
+**The document size — found and fixed (2026-09-15).** The user's export
+(`Bike frame.waffle.json`, 23.8 MB) is almost all thumbnail:
+- The tab `preview_mesh` is 10.4 MB of compact JSON: 180k triangles, the full
+  render mesh of the last body.
+- The 44 features take 97 KB.
+
+Cause:
+- `dispatch` builds `ModelUpdated`, including its decimated preview, BEFORE
+  `wasm_api::process_message` tessellates new bodies. After a load or full
+  rebuild, no feature has a mesh yet, so the preview was `None`.
+- The page then fell back to `Array.from` of the whole last mesh into its `$state`
+  tab (`store.svelte.js`).
+- Every autosave deep-cloned and serialized that copy on the main thread.
+
+Fix:
+- `dispatch::attach_preview_mesh` recomputes the preview after tessellation.
+- The page stores only the engine's preview, never the render mesh.
+
+Test: `test-harness/tests/preview_mesh_kv2.rs`. It asserts the dispatch
+response has no preview (the bug), and that a 200-gon prism's preview is
+decimated below its render mesh after attaching.
+
+Measured on the real document (headless, 24 cores): `LoadProject` 204 s, 910/910
+calls `ok`, main-thread stalls 1.5 s at load completion and 1.1 s at autosave. Still
+far below the 30 s heartbeat, so this fix is NOT claimed to fix F4. It removes a
+10 MB clone per autosave, which matters most on a slow or memory-limited device.
 
 Still open:
 - **What makes "Bike frame" 28 MB.** The probe's 6-tube document is 76 KB, so the
