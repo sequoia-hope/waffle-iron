@@ -13,6 +13,7 @@
 | F7 | FIXED | `feature-engine/src/rebuild.rs` `Changed` + skip decision in `rebuild()`: a feature re-executes only if it changed, names (by any UUID in its definition) a feature that re-executed, finds an input by tree position (legacy most-recent / share-a-face targets, through-all, projected sketches, context-scoped refs) after one, or has no cached result or error; everything else keeps its result, mesh and error. Callers pass what changed (`lib.rs` `changed_feature`/`changed_by`; the parameter and context passes report changed feature ids). Reorder and full rebuilds still re-execute everything | `feature-engine/tests/incremental_rebuild.rs` (8 tests; the unrelated-edit, parameter and rename-undo cases verified RED first), `test-harness/tests/incremental_rebuild_kv2.rs` (kernel-v2: a box notching an annulus tube, V_cut/V_tube = 5/6; the kept Cut keeps its handle and 76,930-triangle mesh, and a later re-execution against the same arena matches a from-scratch rebuild. Debug build: adding the Cut 15.1 s; editing an unrelated upstream sketch 20 ms, versus 15.2 s with the change stashed, where the test is RED) |
 | F4 | OPEN — not reproduced | None. Three candidate causes measured in the real app and ruled out (see F4 "Investigation") | — |
 | F11 | FIXED | `kernel-v2/src/recover.rs` pass 2: the two feet of one canonical seam share one azimuth (a reused foot fixes its minted twin's; a non-ruling reused pair takes the arc fallback). Before, a foot reused at the outer wall's azimuth and one minted at the coaxial bore's put the seam 4.2e-12 off its ruling | `test-harness/tests/f11_disjoint_cut_thin_tube.rs` (r 14 mm disjoint Cut RED before, in debug and release; r 15 mm and notch controls green) |
+| R0081 regression | FIXED (knife-edge latent stays OPEN) | Bisected to F1 (`579f831e`): renormalizing a sketch normal already unit to rounding (|n| − 1 = −1.1e-16) moved R0081's tilted frames one ulp and its chained revolve union stopped at Stage-4 `LocalRefinementRequired`. `feature-engine/src/rebuild.rs` `unit_normal` now keeps such normals bit-identical (≤ 4·EPSILON) | `rebuild::tests::unit_normal_keeps_a_normal_that_is_unit_to_rounding`, `unit_normal_normalizes_a_six_decimal_normal`; R0081 SUPPORTED_CORRECT and R0085 back to baseline detail in `single_case` |
 | F5, F6, F8 | OPEN | — | — |
 
 Failures hit while an agent built a bicycle frame and fork over the agent link
@@ -483,7 +484,45 @@ normals reach the revolve frame too), `df592579` (F7), `b4be84db`.
 
 R0081 (a gear extrude, a rectangle cut, a gear revolve; no multi-output Cut, so
 F9 is not involved) points at F1 (unit-normal frames) or F3 (arc-loop outlines by
-curve sampling). Narrowing it is in progress.
+curve sampling). Its sketches are two single `Gear` entities and one 4-line
+rectangle, none of which takes F3's arc-loop outline path.
+
+**Cause: F1, confirmed by A/B.** At `579f831e` with only `unit_normal` made an
+identity, R0081 is SUPPORTED_CORRECT again (190 s).
+
+What F1 changed here:
+- R0081's shared tilted sketch normal has |n| − 1 = −1.1e-16.
+- `unit_normal` rewrote all three components by 1 ulp, so every frame on the
+  plane moved by one ulp.
+
+Scope across the corpus:
+- 67 of 312 cases carry such a normal. All are within 1 f64 EPSILON of unit
+  length, and every one is bit-stable under a second normalization.
+- The F1 defect class (a 6-decimal vector) is 3×10⁹ EPSILON off.
+
+**Fix (2026-09-15):** `feature-engine/src/rebuild.rs` `unit_normal` returns a normal
+BIT-IDENTICAL when ||n| − 1| ≤ `UNIT_TO_ROUNDING` (4·EPSILON), and normalizes it
+otherwise.
+- This is not a kernel acceptance band. It stops F1 from touching normals that
+  are already unit to f64 rounding, where renormalizing only re-rounds them.
+  Existing documents reach the kernel exactly as before F1.
+- **Unit tests:** `rebuild::tests::unit_normal_keeps_a_normal_that_is_unit_to_rounding`
+  (R0081's normal, bit-identical) and
+  `unit_normal_normalizes_a_six_decimal_normal`.
+- **F1's regression tests** (`sketch_plane_normal_precision`) stay green.
+- **Single cases with the fix:**
+  - R0081: SUPPORTED_CORRECT (188 s).
+  - R0085: back to its committed two-failure detail (Revolve 2 at vertex 386,
+    plus Revolve 3).
+
+- **Full release assay with the fix (and F11):** 290C / 0W / 15E / 4EE / 0T +
+  3 UNSUPPORTED, identical case-for-case to the committed baseline (0 differing
+  cases).
+
+**Latent kernel knife-edge (OPEN):** R0081's chained revolve union stops at Stage-4
+`LocalRefinementRequired` when its sketch frame moves by ONE ulp. That is the
+relocation-wall class of `docs/yang_tail_triage.md`. This fix restores the input
+bits; it does not remove the sensitivity.
 
 ---
 

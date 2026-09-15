@@ -2357,13 +2357,25 @@ fn find_datum_plane_data(
 /// default extrude direction is built from the unit vector. An un-normalized
 /// normal scaled circle frames by |n|: whole-circle extrudes were rejected and
 /// region extrudes built off-circle edges (docs/notes/agent_bicycle_session_failures_2026_09_14.md F1/F2).
+///
+/// A normal that is already unit to f64 rounding is returned BIT-IDENTICAL.
+/// Dividing it by a length of 1 ± 1 ulp only re-rounds it: the result is no
+/// more unit, but every frame on a tilted plane moves by one ulp. That was
+/// enough to flip the chained revolve union of assay R0081 from CORRECT to a
+/// Stage-4 `LocalRefinementRequired` stop. The corpus normals are within
+/// 1 EPSILON of unit (67 of 312 cases carry one that renormalizing would
+/// change); the F1 defect class is a 6-decimal vector, 3×10⁹ EPSILON off.
 fn unit_normal(n: [f64; 3]) -> [f64; 3] {
     let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-    if len < TAU_WORK {
+    if len < TAU_WORK || (len - 1.0).abs() <= UNIT_TO_ROUNDING {
         return n;
     }
     [n[0] / len, n[1] / len, n[2] / len]
 }
+
+/// `unit_normal` leaves a normal whose length is this close to 1 untouched: a
+/// few ulps, the rounding of a vector that was normalized once in f64.
+const UNIT_TO_ROUNDING: f64 = 4.0 * f64::EPSILON;
 
 /// Compute a tangent X axis from a plane normal.
 /// Must match the JS formula in `sketchCoords.js:buildSketchPlane()`:
@@ -2433,6 +2445,35 @@ mod tests {
 
     fn length(v: [f64; 3]) -> f64 {
         (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+    }
+
+    /// A normal already unit to f64 rounding (assay R0081's sketch plane,
+    /// |n| − 1 = −1.1e-16) must reach the kernel bit-identical: renormalizing
+    /// it shifted every tilted frame by one ulp and flipped R0081 to ERROR.
+    #[test]
+    fn unit_normal_keeps_a_normal_that_is_unit_to_rounding() {
+        let n = [
+            -0.7519142519864097,
+            0.47533675347182963,
+            -0.4568149827431001,
+        ];
+        assert!(
+            (length(n) - 1.0).abs() > 0.0,
+            "fixture must not be exactly unit"
+        );
+        let u = unit_normal(n);
+        for k in 0..3 {
+            assert_eq!(u[k].to_bits(), n[k].to_bits(), "component {k} changed");
+        }
+    }
+
+    /// The F1 defect class, a 6-decimal rounding of a unit vector, is still
+    /// normalized.
+    #[test]
+    fn unit_normal_normalizes_a_six_decimal_normal() {
+        let n = [0.718286, 0.0, 0.695747];
+        assert!((length(n) - 1.0).abs() > 1e-7);
+        assert!((length(unit_normal(n)) - 1.0).abs() <= 2.0 * f64::EPSILON);
     }
 
     // -- Branch table tests: one per row --
