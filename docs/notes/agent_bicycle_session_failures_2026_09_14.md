@@ -10,7 +10,8 @@
 | F9 | FIXED (custody) | `rebuild.rs` `carry_untargeted_siblings()`: untargeted outputs of a partly-targeted feature are carried unchanged as extra `Body{n}` outputs with a warning | `feature-engine/tests/combine_sibling_outputs.rs` |
 | F9b | FIXED | `feature-engine/src/lib.rs` `inherit_source_body_id()`: an explicit combine's `Main` inherits the name of the first resolved target's OWN output (not that feature's `Main`), and carried siblings inherit from the body they carry; `rebuild.rs` `untargeted_sibling_sources()` is the single ordered source for both the carried bodies and their names | `combine_sibling_outputs.rs::names_follow_the_targeted_body_and_the_carried_sibling` (RED showed `Some("Top tube")` for the down tube, the exact in-app symptom) |
 | F10 | FIXED (re-scoped) | Root cause: `openDocumentRecord` settled the startup restore BEFORE `loadProject`, so the link resumed and read the blank bootstrap tree for the whole rebuild. Now it settles in a `finally` after the load, and `executeTool` refuses every call with `UserBusy {reason: 'loading' \| 'restoring'}` via `getDocumentLoadBusyReason()` (`app/src/lib/engine/store.svelte.js`, `app/src/lib/agent/executor.js`) | `app/tests/gui/agent-document-load-gate.spec.js` (verified RED with the gate disabled); agent-link / reconnect / documents / authoring specs still pass (23) |
-| F4, F5, F6, F7, F8 | OPEN | — | — |
+| F7 | FIXED | `feature-engine/src/rebuild.rs` `Changed` + skip decision in `rebuild()`: a feature re-executes only if it changed, names (by any UUID in its definition) a feature that re-executed, finds an input by tree position (legacy most-recent / share-a-face targets, through-all, projected sketches, context-scoped refs) after one, or has no cached result or error; everything else keeps its result, mesh and error. Callers pass what changed (`lib.rs` `changed_feature`/`changed_by`; the parameter and context passes report changed feature ids). Reorder and full rebuilds still re-execute everything | `feature-engine/tests/incremental_rebuild.rs` (8 tests; the unrelated-edit, parameter and rename-undo cases verified RED first), `test-harness/tests/incremental_rebuild_kv2.rs` (kernel-v2: a box notching an annulus tube, V_cut/V_tube = 5/6; the kept Cut keeps its handle and 76,930-triangle mesh, and a later re-execution against the same arena matches a from-scratch rebuild. Debug build: adding the Cut 15.1 s; editing an unrelated upstream sketch 20 ms, versus 15.2 s with the change stashed, where the test is RED) |
+| F4, F5, F6, F8 | OPEN | — | — |
 
 Failures hit while an agent built a bicycle frame and fork over the agent link
 (MCP) in the "Bike frame" document (browser-local). Each entry is written so a
@@ -306,6 +307,25 @@ FULLY rebuilt model succeeds (or keep N prior drafts).
 fire the autosave timer, assert the stored record and draft are unchanged. GUI
 test — kill the page mid-rebuild of a multi-boolean document, reload, assert
 the feature count survives.
+
+---
+
+## F11 — A box Cut that does not touch a thin-wall tube fails with `VertexOffSurface` (found while testing F7)
+
+**Severity:** unknown (kernel-v2 input; not seen in the app yet).
+
+**Repro (kernel-v2 through `wasm_bridge::dispatch`, debug build):** sketch on
+z = 0 with concentric circles r = 0.0159 and r = 0.014 → NewBody extrude of the
+annulus region, depth 0.3 (a tube on the Z axis). Tool sketch at z = 0.10,
+`rect_profile(0.10, −0.05, 0.20, 0.10)` (x ∈ [0.10, 0.30], so the box is
+DISJOINT from the tube) → Cut, depth 0.10, `targets: [tube/Main]`.
+→ `boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(78) }`.
+
+**Verified:** the same error (same face ids) with the F7 change stashed, and on
+`rebuild_from_scratch`, so it is not an incremental-rebuild artifact. With
+r_inner = 0.015 the same disjoint Cut succeeds.
+**Not yet verified:** whether a non-disjoint cut fails the same way, and which
+face is off-surface.
 
 ---
 

@@ -44,6 +44,9 @@ pub struct Engine {
     pub feature_errors: Vec<FeatureError>,
     /// Feature IDs consumed by a later boolean (should not be rendered).
     pub consumed_features: std::collections::HashSet<Uuid>,
+    /// The last rebuild's feature errors (not expression or context errors): a
+    /// failed feature the next rebuild does not re-execute reports these again.
+    rebuild_errors: Vec<FeatureError>,
     /// KV13 F6: persistent-id → the feature that INTRODUCED it (recomputed each
     /// rebuild). The basis for resolving a face's *creating* feature through
     /// chained booleans — see [`Engine::created_by_feature`].
@@ -79,6 +82,7 @@ impl Engine {
             errors: Vec::new(),
             feature_errors: Vec::new(),
             consumed_features: std::collections::HashSet::new(),
+            rebuild_errors: Vec::new(),
             pid_to_feature: HashMap::new(),
             inherited_body_names: HashMap::new(),
             sources: SourceStore::new(),
@@ -144,7 +148,7 @@ impl Engine {
             position,
             provenance,
         });
-        self.rebuild(kb, position);
+        self.rebuild(kb, position, changed_feature(id));
         Ok(id)
     }
 
@@ -171,7 +175,11 @@ impl Engine {
             removed_body_names,
             removed_provenance,
         });
-        self.rebuild(kb, pos.min(self.tree.features.len().saturating_sub(1)));
+        self.rebuild(
+            kb,
+            pos.min(self.tree.features.len().saturating_sub(1)),
+            changed_feature(id),
+        );
         Ok(())
     }
 
@@ -217,7 +225,7 @@ impl Engine {
             provenance,
         });
 
-        self.rebuild(kb, pos);
+        self.rebuild(kb, pos, changed_feature(id));
         Ok(())
     }
 
@@ -239,7 +247,7 @@ impl Engine {
             old_suppressed,
             new_suppressed: suppressed,
         });
-        self.rebuild(kb, pos);
+        self.rebuild(kb, pos, changed_feature(id));
         Ok(())
     }
 
@@ -261,7 +269,11 @@ impl Engine {
             old_position,
             new_position: actual_new_position,
         });
-        self.rebuild(kb, old_position.min(actual_new_position));
+        self.rebuild(
+            kb,
+            old_position.min(actual_new_position),
+            rebuild::Changed::All,
+        );
         Ok(())
     }
 
@@ -449,15 +461,19 @@ impl Engine {
             old,
             new: self.tree.parameters.clone(),
         });
-        // Rebuild from 0: any feature may consume any parameter, and the
-        // apply pass inside rebuild() refreshes every expression.
-        self.rebuild(kb, 0);
+        // Rebuild from 0: any feature may consume any parameter. The apply
+        // pass inside rebuild() refreshes every expression and reports the
+        // features whose values changed; only those (and their dependents)
+        // re-execute.
+        self.rebuild(kb, 0, nothing_changed());
     }
 
     /// Set rollback index and rebuild. Not undoable.
     pub fn set_rollback(&mut self, index: Option<usize>, kb: &mut dyn KernelBundle) {
         self.tree.set_rollback(index);
-        self.rebuild(kb, 0);
+        // No definition changed: features that became active have no result
+        // and execute; the rest keep theirs.
+        self.rebuild(kb, 0, nothing_changed());
     }
 
     /// Undo the last command.
@@ -466,9 +482,10 @@ impl Engine {
             .undo_stack
             .pop_undo()
             .ok_or(EngineError::NothingToUndo)?;
+        let changed = changed_by(&cmd);
         let rebuild_from = self.apply_inverse(&cmd);
         self.undo_stack.push_redo(cmd);
-        self.rebuild(kb, rebuild_from);
+        self.rebuild(kb, rebuild_from, changed);
         Ok(())
     }
 
@@ -478,9 +495,10 @@ impl Engine {
             .undo_stack
             .pop_redo()
             .ok_or(EngineError::NothingToRedo)?;
+        let changed = changed_by(&cmd);
         let rebuild_from = self.apply_forward(&cmd);
         self.undo_stack.push_undo_only(cmd);
-        self.rebuild(kb, rebuild_from);
+        self.rebuild(kb, rebuild_from, changed);
         Ok(())
     }
 
@@ -650,8 +668,14 @@ impl Engine {
         }
     }
 
-    /// Rebuild the feature tree from the given index.
-    fn rebuild(&mut self, kb: &mut dyn KernelBundle, from_index: usize) {
+    /// Rebuild the feature tree from the given index, re-executing only what
+    /// `changed` reaches (see [`rebuild::Changed`]).
+    fn rebuild(
+        &mut self,
+        kb: &mut dyn KernelBundle,
+        from_index: usize,
+        mut changed: rebuild::Changed,
+    ) {
         // Design-parameter pass FIRST: refresh every expression-driven
         // measurement (and re-solve affected sketches) so the rebuild below
         // executes against current values. If an expression changed a feature
@@ -668,15 +692,15 @@ impl Engine {
         let from_index = context_outcome
             .first_changed
             .map_or(from_index, |c| c.min(from_index));
-
-        // Clear results from the rebuild point onward (active features)
-        let active = self.tree.active_features();
-        for feature in active.iter().skip(from_index) {
-            self.feature_results.remove(&feature.id);
+        if let rebuild::Changed::Features(ids) = &mut changed {
+            ids.extend(param_outcome.changed.iter().copied());
+            ids.extend(context_outcome.changed.iter().copied());
         }
 
-        // Clear results for inactive features (beyond rollback)
-        let active_len = active.len();
+        // Clear results for inactive features (beyond rollback). Active
+        // features' results go to the rebuild, which keeps the ones it does
+        // not re-execute.
+        let active_len = self.tree.active_features().len();
         for feature in self.tree.features.iter().skip(active_len) {
             self.feature_results.remove(&feature.id);
         }
@@ -685,11 +709,14 @@ impl Engine {
             &self.tree,
             kb,
             from_index,
+            &changed,
             &self.feature_results,
+            &self.rebuild_errors,
             &self.sources,
             self.context.as_ref(),
         );
-        self.feature_results.extend(state.feature_results);
+        self.feature_results = state.feature_results;
+        self.rebuild_errors = state.feature_errors.clone();
         self.warnings = state.warnings;
         self.warnings.extend(context_outcome.warnings);
         // Parameter/expression errors surface ahead of rebuild errors — a bad
@@ -714,14 +741,14 @@ impl Engine {
         self.errors.extend(context_outcome.errors);
         self.errors.extend(state.errors);
         self.consumed_features = state.consumed_features;
-        // KV13 F6: accumulate the pid→feature map. A full rebuild (from 0)
-        // re-executes and re-captures every feature, so clear first; an
-        // incremental rebuild (from_index > 0) carries earlier features forward
-        // WITHOUT re-executing them, so their captures (from a prior rebuild)
-        // must be retained — their kernel geometry, and thus pids, persist
-        // unchanged in the same arena. Sound because arena pids are never
-        // reused: a pid always maps to its creating feature.
-        if from_index == 0 {
+        // KV13 F6: accumulate the pid→feature map. A full rebuild (from 0, all
+        // changed) re-executes and re-captures every feature, so clear first;
+        // any other rebuild carries features forward WITHOUT re-executing
+        // them, so their captures (from a prior rebuild) must be retained —
+        // their kernel geometry, and thus pids, persist unchanged in the same
+        // arena. Sound because arena pids are never reused: a pid always maps
+        // to its creating feature.
+        if from_index == 0 && matches!(changed, rebuild::Changed::All) {
             self.pid_to_feature.clear();
         }
         // First-claimant-wins (NOT `extend`, which would OVERWRITE): an
@@ -741,7 +768,8 @@ impl Engine {
     /// Full rebuild from scratch (clears all results first).
     pub fn rebuild_from_scratch(&mut self, kb: &mut dyn KernelBundle) {
         self.feature_results.clear();
-        self.rebuild(kb, 0);
+        self.rebuild_errors.clear();
+        self.rebuild(kb, 0, rebuild::Changed::All);
     }
 
     /// Get the OpResult for a feature.
@@ -757,6 +785,33 @@ impl Engine {
     /// Whether redo is available.
     pub fn can_redo(&self) -> bool {
         self.undo_stack.can_redo()
+    }
+}
+
+/// One feature changed.
+fn changed_feature(id: Uuid) -> rebuild::Changed {
+    rebuild::Changed::Features(std::collections::HashSet::from([id]))
+}
+
+/// No feature definition changed (the parameter and context passes may still
+/// report some).
+fn nothing_changed() -> rebuild::Changed {
+    rebuild::Changed::Features(std::collections::HashSet::new())
+}
+
+/// What undoing or redoing a command changes.
+fn changed_by(cmd: &Command) -> rebuild::Changed {
+    match cmd {
+        Command::AddFeature { feature, .. } | Command::RemoveFeature { feature, .. } => {
+            changed_feature(feature.id)
+        }
+        Command::EditFeature { feature_id, .. } | Command::SuppressFeature { feature_id, .. } => {
+            changed_feature(*feature_id)
+        }
+        Command::ReorderFeature { .. } => rebuild::Changed::All,
+        Command::RenameFeature { .. }
+        | Command::RenameBody { .. }
+        | Command::SetParameters { .. } => nothing_changed(),
     }
 }
 

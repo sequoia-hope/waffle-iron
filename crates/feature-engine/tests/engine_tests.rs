@@ -3902,7 +3902,9 @@ fn rebuild_carries_forward_existing_results() {
         &engine.tree,
         &mut kernel,
         2,
+        &feature_engine::rebuild::Changed::All,
         &existing,
+        &[],
         &engine.sources,
         None,
     );

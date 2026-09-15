@@ -295,6 +295,9 @@ pub struct ContextPassOutcome {
     /// Index of the earliest feature whose geometry changed, so an
     /// incremental rebuild widens to include it.
     pub first_changed: Option<usize>,
+    /// Every sketch whose plane moved (the rebuild re-executes them and what
+    /// depends on them).
+    pub changed: Vec<Uuid>,
     pub warnings: Vec<String>,
     pub errors: Vec<(Uuid, String)>,
 }
@@ -337,6 +340,7 @@ pub fn apply_context(
                     sketch.plane_origin = plane.origin;
                     sketch.plane_normal = plane.normal;
                     out.first_changed = Some(out.first_changed.map_or(idx, |c| c.min(idx)));
+                    out.changed.push(fid);
                 }
             }
             Err(e) => out.errors.push((

@@ -31,6 +31,9 @@ pub struct ParamOutcome {
     /// Lowest feature index whose effective values changed (rebuild must
     /// start at or before it). `None` = nothing changed.
     pub first_changed: Option<usize>,
+    /// Every feature whose effective values changed: the rebuild re-executes
+    /// these and what depends on them.
+    pub changed: Vec<Uuid>,
     /// Loud errors: parameter-table errors carry the parameter's id;
     /// feature-expression errors carry the feature's id.
     pub errors: Vec<(Uuid, String)>,
@@ -169,6 +172,7 @@ pub fn apply_parameters(tree: &mut FeatureTree) -> ParamOutcome {
         };
         if changed {
             outcome.first_changed = Some(outcome.first_changed.map_or(idx, |c| c.min(idx)));
+            outcome.changed.push(feature.id);
         }
         for e in errs {
             outcome

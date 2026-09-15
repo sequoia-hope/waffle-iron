@@ -119,14 +119,36 @@ pub struct RebuildState {
     pub pid_to_feature: HashMap<u64, Uuid>,
 }
 
+/// What changed since the last rebuild, which decides what a rebuild
+/// re-executes (docs/notes/agent_bicycle_session_failures_2026_09_14.md F7:
+/// re-executing every later feature made each edit re-run every boolean).
+#[derive(Debug, Clone)]
+pub enum Changed {
+    /// Every feature from the rebuild point re-executes (reorder, full rebuild).
+    All,
+    /// These features changed (edited, added, deleted, (un)suppressed, or a
+    /// parameter or context value they use). A feature re-executes only if it
+    /// is one of them, names a feature that re-executed, or finds an input by
+    /// tree position after one; every other feature keeps its last result.
+    Features(std::collections::HashSet<Uuid>),
+}
+
 /// Rebuild the feature tree from scratch (or from a change point).
 ///
 /// Replays features in order, resolving GeomRefs and executing operations.
+/// Features before `from_index`, and later features `changed` does not reach,
+/// keep their entry in `existing_results` (or re-report their entry in
+/// `previous_errors`, the last rebuild's errors).
+// Eight inputs: the tree, the kernel, what changed, the last rebuild's
+// outcome, and the document/assembly environment the operations read.
+#[allow(clippy::too_many_arguments)]
 pub fn rebuild(
     tree: &FeatureTree,
     kb: &mut dyn KernelBundle,
     from_index: usize,
+    changed: &Changed,
     existing_results: &HashMap<Uuid, OpResult>,
+    previous_errors: &[crate::types::FeatureError],
     sources: &SourceStore,
     context: Option<&EditContext>,
 ) -> RebuildState {
@@ -139,23 +161,61 @@ pub fn rebuild(
         pid_to_feature: HashMap::new(),
     };
 
-    // Carry forward results from features before the rebuild point
-    for (id, result) in existing_results {
-        state.feature_results.insert(*id, result.clone());
-    }
-
     let active = tree.active_features();
+
+    // Features whose output may differ from `existing_results`: the changed
+    // ones, then every feature this pass executes. `position_moved` is set once
+    // one of them has been passed, so position-dependent features re-execute.
+    let (mut reran, mut position_moved) = match changed {
+        Changed::All => (std::collections::HashSet::new(), true),
+        Changed::Features(ids) => (
+            ids.clone(),
+            // A changed feature no longer in the active tree was deleted, from
+            // at or before the rebuild point.
+            ids.iter().any(|id| !active.iter().any(|f| f.id == *id)),
+        ),
+    };
 
     for (i, feature) in active.iter().enumerate() {
         if feature.suppressed {
+            if i >= from_index && reran.contains(&feature.id) {
+                position_moved = true;
+            }
             continue;
         }
 
-        if i < from_index {
-            // Feature before the rebuild point — not re-executed, but we must
-            // re-compute its consumption tracking from its carried-forward result.
-            // Without this, incremental rebuilds lose consumption relationships
-            // established by earlier features (e.g., e1 consumed by e2's union).
+        let execute = i >= from_index
+            && match changed {
+                Changed::All => true,
+                Changed::Features(_) => {
+                    reran.contains(&feature.id)
+                        || !(existing_results.contains_key(&feature.id)
+                            || previous_errors.iter().any(|e| e.feature_id == feature.id))
+                        || {
+                            let (ids, scoped) = scan_references(feature);
+                            (position_moved && (scoped || depends_on_tree_position(feature, tree)))
+                                || ids.iter().any(|id| reran.contains(id))
+                        }
+                }
+            };
+
+        if !execute {
+            // Not re-executed: its inputs are unchanged, so its last result (or
+            // its last failure) stands. Consumption tracking is still
+            // recomputed from the carried result; without it a rebuild loses
+            // consumption established by earlier features (e.g., e1 consumed by
+            // e2's union).
+            let Some(result) = existing_results.get(&feature.id) else {
+                if let Some(error) = previous_errors.iter().find(|e| e.feature_id == feature.id) {
+                    state.errors.push((feature.id, error.message.clone()));
+                    state.feature_errors.push(error.clone());
+                }
+                continue;
+            };
+            for w in &result.diagnostics.warnings {
+                state.warnings.push(format!("{}: {}", feature.name, w));
+            }
+            state.feature_results.insert(feature.id, result.clone());
             let consumed_ids = find_consumed_feature_ids(
                 feature,
                 &state.feature_results,
@@ -179,6 +239,9 @@ pub fn rebuild(
             }
             continue;
         }
+
+        reran.insert(feature.id);
+        position_moved = true;
 
         // Resolve any GeomRef references before executing the feature
         resolve_feature_refs(feature, &state.feature_results, &mut state.warnings);
@@ -238,6 +301,76 @@ pub fn rebuild(
     }
 
     state
+}
+
+/// Every UUID a feature's definition names (its sketch, targets, datum planes,
+/// GeomRef anchors), and whether any reference is scoped to an assembly
+/// context. Read off the serialized form so that a new reference field cannot
+/// be missed; a string that only looks like a UUID costs a needless
+/// re-execution, never a stale result.
+fn scan_references(feature: &Feature) -> (Vec<Uuid>, bool) {
+    fn walk(value: &serde_json::Value, ids: &mut Vec<Uuid>, scoped: &mut bool) {
+        match value {
+            serde_json::Value::String(s) => {
+                if let Ok(id) = Uuid::parse_str(s) {
+                    ids.push(id);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    walk(item, ids, scoped);
+                }
+            }
+            serde_json::Value::Object(map) => {
+                if map.get("scope").is_some_and(|s| !s.is_null()) {
+                    *scoped = true;
+                }
+                for item in map.values() {
+                    walk(item, ids, scoped);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut ids = Vec::new();
+    let mut scoped = false;
+    let operation = serde_json::to_value(&feature.operation);
+    let references = serde_json::to_value(&feature.references);
+    match (operation, references) {
+        (Ok(operation), Ok(references)) => {
+            walk(&operation, &mut ids, &mut scoped);
+            walk(&references, &mut ids, &mut scoped);
+        }
+        // Unreadable: assume it depends on everything.
+        _ => scoped = true,
+    }
+    (ids, scoped)
+}
+
+/// Whether a feature finds an input by tree position rather than by id, so a
+/// feature re-executed before it can change what it builds: legacy
+/// most-recent-solid and share-a-face targets, through-all depths (measured
+/// against the most recent solid), and sketches with projected points (their
+/// sources are read when the extrude or revolve runs).
+fn depends_on_tree_position(feature: &Feature, tree: &FeatureTree) -> bool {
+    let (eff, sketch_id, through_all) = match &feature.operation {
+        Operation::Extrude { params } => (
+            normalize_extrude_combine(params),
+            params.sketch_id,
+            matches!(params.depth_mode, DepthMode::ThroughAll)
+                || matches!(params.second_direction, Some(SecondDirection::ThroughAll)),
+        ),
+        Operation::Revolve { params } => (
+            crate::types::normalize_revolve_combine(params),
+            params.sketch_id,
+            false,
+        ),
+        _ => return false,
+    };
+    let positional_targets = !matches!(eff.mode, CombineMode::NewBody)
+        && !matches!(eff.targets, TargetStrategy::Explicit(_));
+    let projected = find_sketch_in_tree(sketch_id, tree).is_ok_and(|s| !s.projected.is_empty());
+    positional_targets || through_all || projected
 }
 
 /// KV13 F6: record each FACE a feature created → the feature, keyed by the
@@ -2739,7 +2872,16 @@ mod tests {
         let (tree, extrude_id) = make_sketch_extrude_tree(sketch);
         let mut kb = waffle_types::kernel::MockKernel::new();
         let existing = HashMap::new();
-        let state = rebuild(&tree, &mut kb, 0, &existing, &SourceStore::new(), None);
+        let state = rebuild(
+            &tree,
+            &mut kb,
+            0,
+            &Changed::All,
+            &existing,
+            &[],
+            &SourceStore::new(),
+            None,
+        );
         (tree, extrude_id, state)
     }
 
@@ -2761,7 +2903,16 @@ mod tests {
         // Build the kernel fresh and re-resolve so we hold a live introspect.
         let mut kb = waffle_types::kernel::MockKernel::new();
         let existing = HashMap::new();
-        let state = rebuild(&tree, &mut kb, 0, &existing, &SourceStore::new(), None);
+        let state = rebuild(
+            &tree,
+            &mut kb,
+            0,
+            &Changed::All,
+            &existing,
+            &[],
+            &SourceStore::new(),
+            None,
+        );
         let extrude_result = state
             .feature_results
             .get(&extrude_id)
@@ -2886,7 +3037,16 @@ mod tests {
         // Re-run on a fresh kernel so the handle is live in `kb`.
         let mut kb = waffle_types::kernel::MockKernel::new();
         let existing = HashMap::new();
-        let state = rebuild(&_tree, &mut kb, 0, &existing, &SourceStore::new(), None);
+        let state = rebuild(
+            &_tree,
+            &mut kb,
+            0,
+            &Changed::All,
+            &existing,
+            &[],
+            &SourceStore::new(),
+            None,
+        );
         let handle = state
             .feature_results
             .get(&extrude_id)
@@ -3136,7 +3296,16 @@ mod tests {
 
         let mut kb = waffle_types::kernel::MockKernel::new();
         let existing = HashMap::new();
-        let state = rebuild(&tree, &mut kb, 0, &existing, &SourceStore::new(), None);
+        let state = rebuild(
+            &tree,
+            &mut kb,
+            0,
+            &Changed::All,
+            &existing,
+            &[],
+            &SourceStore::new(),
+            None,
+        );
 
         // The extrude should succeed — profiles should have been recomputed from entities.
         // Currently this fails because solved_profiles is empty after deserialization.
@@ -3219,7 +3388,16 @@ mod tests {
 
         let mut kb = waffle_types::kernel::MockKernel::new();
         let existing = HashMap::new();
-        let state = rebuild(&tree, &mut kb, 0, &existing, &SourceStore::new(), None);
+        let state = rebuild(
+            &tree,
+            &mut kb,
+            0,
+            &Changed::All,
+            &existing,
+            &[],
+            &SourceStore::new(),
+            None,
+        );
 
         // The extrude should succeed — profiles should have been recomputed.
         // Currently this fails because solved_profiles is empty after deserialization.
@@ -3260,7 +3438,16 @@ mod tests {
 
         let mut kb = waffle_types::kernel::MockKernel::new();
         let existing = HashMap::new();
-        let state = rebuild(&tree, &mut kb, 0, &existing, &SourceStore::new(), None);
+        let state = rebuild(
+            &tree,
+            &mut kb,
+            0,
+            &Changed::All,
+            &existing,
+            &[],
+            &SourceStore::new(),
+            None,
+        );
 
         // Gear sketches should work because expand_gears() populates profiles.
         let extrude_failed = state.errors.iter().any(|(id, _)| *id == extrude_id);
