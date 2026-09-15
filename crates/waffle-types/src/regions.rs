@@ -977,32 +977,59 @@ fn profile_outline(
         }
         return pts;
     }
-    if !profile.vertex_ids.is_empty() {
+    // `vertex_ids` are the loop's NAMED points: an arc between two of them is a
+    // chord there, so a loop with curves must be walked entity by entity.
+    let has_curve = profile.entity_ids.iter().any(|eid| {
+        entities.iter().any(|e| {
+            e.id() == *eid && matches!(e, SketchEntity::Arc { .. } | SketchEntity::Spline { .. })
+        })
+    });
+    if !profile.vertex_ids.is_empty() && !has_curve {
         return profile
             .vertex_ids
             .iter()
             .filter_map(|id| positions.get(id).copied())
             .collect();
     }
-    // Fallback: use the start point of each line/arc entity in order.
-    let mut pts = Vec::new();
-    for eid in &profile.entity_ids {
-        for e in entities {
-            if e.id() != *eid {
-                continue;
-            }
-            let start = match e {
-                SketchEntity::Line { start_id, .. } | SketchEntity::Arc { start_id, .. } => {
-                    Some(*start_id)
-                }
-                _ => None,
-            };
-            if let Some(sid) = start {
-                if let Some(p) = positions.get(&sid) {
-                    pts.push(*p);
-                }
-            }
+    // Fallback: walk the loop's entities, sampling each curve. An arc's start
+    // point alone understates a rounded loop (a stadium's outline became its
+    // corners — failure log F3), so arcs contribute their samples, each entity
+    // oriented to continue from the previous one.
+    let polylines: Vec<Vec<(f64, f64)>> = profile
+        .entity_ids
+        .iter()
+        .filter_map(|eid| entities.iter().find(|e| e.id() == *eid))
+        .filter_map(|e| tessellate_entity(e, positions, DEFAULT_CHORD_TOLERANCE))
+        .map(|pl| pl.into_iter().map(|p| (p[0], p[1])).collect::<Vec<_>>())
+        .filter(|pl| pl.len() >= 2)
+        .collect();
+    chain_polylines(polylines)
+}
+
+/// Join per-entity polylines of one closed loop head to tail, reversing any
+/// entity whose far end is the one that meets the chain.
+fn chain_polylines(mut lines: Vec<Vec<(f64, f64)>>) -> Vec<(f64, f64)> {
+    let dist = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).hypot(a.1 - b.1);
+    if lines.len() > 1 {
+        // Orient the first entity so its END meets the second.
+        let next = &lines[1];
+        let gap = |p| dist(p, next[0]).min(dist(p, next[next.len() - 1]));
+        if gap(lines[0][0]) < gap(lines[0][lines[0].len() - 1]) {
+            lines[0].reverse();
         }
+    }
+    let mut pts: Vec<(f64, f64)> = Vec::new();
+    for mut pl in lines {
+        if let Some(&last) = pts.last() {
+            if dist(last, pl[pl.len() - 1]) < dist(last, pl[0]) {
+                pl.reverse();
+            }
+            pl.remove(0); // the point shared with the previous entity
+        }
+        pts.extend(pl);
+    }
+    if pts.len() > 1 && dist(pts[0], pts[pts.len() - 1]) < 1e-12 {
+        pts.pop();
     }
     pts
 }
@@ -1022,6 +1049,67 @@ mod tests {
             radius,
             construction: false,
         }
+    }
+
+    /// Agent-link failure F3 (docs/notes/agent_bicycle_session_failures_2026_09_14.md):
+    /// a closed loop of arcs and lines, with positions for its named points only
+    /// (no arc sample ids), must be recognized as the whole-entity profile it is.
+    /// The outline fallback used arc START points only, so a stadium's outline
+    /// was its six corners — 24 % short of the region area, never matched.
+    #[test]
+    fn arc_line_stadium_region_carries_profile_entity_ids() {
+        let positions = pos(&[
+            (0, 0.04, 0.0),
+            (1, -0.04, 0.0),
+            (2, 0.04, -0.016),
+            (3, 0.04, 0.016),
+            (4, -0.04, 0.016),
+            (5, -0.04, -0.016),
+        ]);
+        let entities = vec![
+            SketchEntity::Arc {
+                id: 6,
+                center_id: 0,
+                start_id: 2,
+                end_id: 3,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 7,
+                start_id: 3,
+                end_id: 4,
+                construction: false,
+            },
+            SketchEntity::Arc {
+                id: 8,
+                center_id: 1,
+                start_id: 4,
+                end_id: 5,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 9,
+                start_id: 5,
+                end_id: 2,
+                construction: false,
+            },
+        ];
+
+        let regions = compute_regions(&entities, &positions, DEFAULT_CHORD_TOLERANCE);
+        assert_eq!(regions.len(), 1, "one closed stadium region");
+        let expected_area = 0.08 * 0.032 + std::f64::consts::PI * 0.016 * 0.016;
+        assert!(
+            (regions[0].area - expected_area).abs() / expected_area < 1e-2,
+            "area {} vs {}",
+            regions[0].area,
+            expected_area
+        );
+        let mut ids = regions[0]
+            .profile_entity_ids
+            .clone()
+            .expect("the stadium is one whole-entity loop");
+        ids.sort_unstable();
+        assert_eq!(ids, vec![6, 7, 8, 9]);
     }
 
     /// Is the point inside outer and outside every hole?

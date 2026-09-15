@@ -348,6 +348,54 @@ impl Engine {
         }
     }
 
+    /// The body one output of `feature` inherits its custom name from, as
+    /// `(source_feature_id, source_body_id)`.
+    ///
+    /// For an explicit-target combine: siblings it carries unchanged (its
+    /// trailing outputs, `rebuild::untargeted_sibling_sources`) inherit from the
+    /// body they carry, and `Main` from the first resolved target's OWN output —
+    /// not that feature's `Main`, which gave the result of cutting a down tube
+    /// the top tube's name (docs/notes/agent_bicycle_session_failures_2026_09_14.md F9b).
+    /// Otherwise only `Main` inherits, from `consume_target_body_id`.
+    fn inherit_source_body_id(
+        &self,
+        feature: &Feature,
+        result: &OpResult,
+        key: &OutputKey,
+    ) -> Option<(Uuid, String)> {
+        let explicit = match &feature.operation {
+            Operation::Extrude { params } => Some(types::normalize_extrude_combine(params)),
+            Operation::Revolve { params } => Some(types::normalize_revolve_combine(params)),
+            _ => None,
+        }
+        .filter(|eff| {
+            !matches!(eff.mode, types::CombineMode::NewBody)
+                && matches!(eff.targets, types::TargetStrategy::Explicit(_))
+        });
+        let Some(eff) = explicit else {
+            return if *key == OutputKey::Main {
+                self.consume_target_body_id(feature)
+            } else {
+                None
+            };
+        };
+
+        let siblings = rebuild::untargeted_sibling_sources(&eff, &self.feature_results);
+        let n = result.outputs.len();
+        if let Some(pos) = result.outputs.iter().position(|(k, _)| k == key) {
+            let first_carried = n.saturating_sub(siblings.len());
+            if !siblings.is_empty() && pos >= first_carried {
+                let (fid, source_key) = &siblings[pos - first_carried];
+                return Some((*fid, FeatureTree::body_id(*fid, source_key)));
+            }
+        }
+        if *key == OutputKey::Main {
+            return rebuild::first_resolved_explicit_target(&eff, &self.feature_results)
+                .map(|(fid, target_key)| (fid, FeatureTree::body_id(fid, &target_key)));
+        }
+        None
+    }
+
     /// Recompute the transient body-name inheritance map. When a feature's Main
     /// result consumes a target body that carries a CUSTOM name (an explicit
     /// override, or itself inherited from one), the result inherits it — unless
@@ -366,15 +414,12 @@ impl Engine {
             for (key, _body) in &result.outputs {
                 let body_id = FeatureTree::body_id(feature.id, key);
                 let explicit = self.tree.body_names.get(&body_id).cloned();
-                let inherited_name = if *key == OutputKey::Main {
-                    self.consume_target_body_id(feature)
-                        // Only inherit when the target was actually consumed —
-                        // a failed union leaves both bodies separate (no theft).
-                        .filter(|(tfid, _)| self.consumed_features.contains(tfid))
-                        .and_then(|(_, tid)| custom.get(&tid).cloned())
-                } else {
-                    None
-                };
+                let inherited_name = self
+                    .inherit_source_body_id(feature, result, key)
+                    // Only inherit when the target was actually consumed —
+                    // a failed union leaves both bodies separate (no theft).
+                    .filter(|(tfid, _)| self.consumed_features.contains(tfid))
+                    .and_then(|(_, tid)| custom.get(&tid).cloned());
 
                 // The body's resolved custom name (if any) propagates downstream.
                 if let Some(name) = explicit.clone().or_else(|| inherited_name.clone()) {

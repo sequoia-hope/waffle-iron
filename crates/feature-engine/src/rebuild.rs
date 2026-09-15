@@ -37,7 +37,8 @@ pub(crate) fn reproject_sketch(
     if sketch.projected.is_empty() {
         return;
     }
-    let basis = SketchPlaneBasis::from_origin_normal(sketch.plane_origin, sketch.plane_normal);
+    let basis =
+        SketchPlaneBasis::from_origin_normal(sketch.plane_origin, unit_normal(sketch.plane_normal));
 
     // Resolve all bindings first, then apply (avoids overlapping borrows). A
     // source scoped to another instance (in-context) resolves through the
@@ -435,7 +436,7 @@ fn execute_feature(
                 &mut warnings_regions,
             );
 
-            let direction = params.direction.unwrap_or(sketch.plane_normal);
+            let direction = params.direction.unwrap_or(unit_normal(sketch.plane_normal));
 
             let profile_index = resolve_profile_index(
                 sketch,
@@ -655,7 +656,7 @@ fn execute_feature(
                 (false, None) => (direction, primary_depth, sketch.plane_origin),
             };
 
-            let x_axis = tangent_x_from_normal(sketch.plane_normal);
+            let x_axis = tangent_x_from_normal(unit_normal(sketch.plane_normal));
 
             // Multi-region selection: the user picked ≥2 sketch regions to extrude
             // as ONE body. Union their 2D footprints FIRST (sketch plane), so
@@ -673,8 +674,12 @@ fn execute_feature(
                 }
                 let mut acc: Option<OpResult> = None;
                 for region in &merged {
-                    let fid =
-                        kb.make_face_from_region(region, face_origin, sketch.plane_normal, x_axis)?;
+                    let fid = kb.make_face_from_region(
+                        region,
+                        face_origin,
+                        unit_normal(sketch.plane_normal),
+                        x_axis,
+                    )?;
                     let res = execute_extrude(kb, fid, extrude_direction, extrude_depth, None)?;
                     acc = Some(match acc {
                         None => res,
@@ -704,12 +709,17 @@ fn execute_feature(
                 // denotes — build its face directly. Otherwise use the profile list
                 // (the analytical path: Profile::circle / exact loops).
                 let face_id = if let Some(region) = &resolved_region {
-                    kb.make_face_from_region(region, face_origin, sketch.plane_normal, x_axis)?
+                    kb.make_face_from_region(
+                        region,
+                        face_origin,
+                        unit_normal(sketch.plane_normal),
+                        x_axis,
+                    )?
                 } else {
                     let face_ids = kb.make_faces_from_profiles(
                         &sketch.solved_profiles,
                         face_origin,
-                        sketch.plane_normal,
+                        unit_normal(sketch.plane_normal),
                         x_axis,
                         &sketch.solved_positions,
                     )?;
@@ -732,6 +742,7 @@ fn execute_feature(
             // targets. See specs/optional_booleans_multibody_extrude.md §4.
             let mut result =
                 dispatch_combine(kb, &eff, &combine_targets, extrude_result, "extrude")?;
+            carry_untargeted_siblings(&mut result, &eff, feature_results);
             result.diagnostics.warnings.extend(combine_warnings);
             Ok(result)
         }
@@ -762,11 +773,11 @@ fn execute_feature(
                 params.profile_entity_ids.as_deref(),
             )?;
 
-            let x_axis = tangent_x_from_normal(sketch.plane_normal);
+            let x_axis = tangent_x_from_normal(unit_normal(sketch.plane_normal));
             let face_ids = kb.make_faces_from_profiles(
                 &sketch.solved_profiles,
                 sketch.plane_origin,
-                sketch.plane_normal,
+                unit_normal(sketch.plane_normal),
                 x_axis,
                 &sketch.solved_positions,
             )?;
@@ -818,6 +829,7 @@ fn execute_feature(
             };
             let mut result =
                 dispatch_combine(kb, &eff, &combine_targets, revolve_result, "revolve")?;
+            carry_untargeted_siblings(&mut result, &eff, feature_results);
             result.diagnostics.warnings.extend(combine_warnings);
             Ok(result)
         }
@@ -1612,6 +1624,99 @@ fn dispatch_combine(
     }
 }
 
+/// The explicit targets of a combine that RESOLVE, as `(feature_id, output_key)`,
+/// in target order. Empty for NewBody and for non-explicit target strategies.
+fn resolved_explicit_targets(
+    eff: &crate::types::EffectiveCombine,
+    feature_results: &HashMap<Uuid, OpResult>,
+) -> Vec<(Uuid, OutputKey)> {
+    if matches!(eff.mode, CombineMode::NewBody) {
+        return Vec::new();
+    }
+    let TargetStrategy::Explicit(list) = &eff.targets else {
+        return Vec::new();
+    };
+    list.iter()
+        .filter(|gr| find_solid_handle(gr, feature_results).is_ok())
+        .filter_map(|gr| match &gr.anchor {
+            waffle_types::Anchor::FeatureOutput {
+                feature_id,
+                output_key,
+            } => Some((*feature_id, output_key.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The first resolved explicit target (what an explicit combine's `Main`
+/// output descends from, for name inheritance — failure log F9b).
+pub(crate) fn first_resolved_explicit_target(
+    eff: &crate::types::EffectiveCombine,
+    feature_results: &HashMap<Uuid, OpResult>,
+) -> Option<(Uuid, OutputKey)> {
+    resolved_explicit_targets(eff, feature_results)
+        .into_iter()
+        .next()
+}
+
+/// The outputs an explicit combine carries unchanged, as `(feature_id,
+/// output_key)` in the order `carry_untargeted_siblings` appends them: for each
+/// targeted feature (first-target order), its Main/Body outputs that no resolved
+/// target names. The single source for both the carried bodies and their
+/// inherited names.
+pub(crate) fn untargeted_sibling_sources(
+    eff: &crate::types::EffectiveCombine,
+    feature_results: &HashMap<Uuid, OpResult>,
+) -> Vec<(Uuid, OutputKey)> {
+    let targeted = resolved_explicit_targets(eff, feature_results);
+    let mut seen = std::collections::HashSet::new();
+    let mut siblings = Vec::new();
+    for (fid, _) in &targeted {
+        if !seen.insert(*fid) {
+            continue;
+        }
+        let Some(source) = feature_results.get(fid) else {
+            continue;
+        };
+        for (key, _) in &source.outputs {
+            if !matches!(key, OutputKey::Main | OutputKey::Body { .. }) {
+                continue;
+            }
+            if targeted.iter().any(|(f, k)| f == fid && k == key) {
+                continue;
+            }
+            siblings.push((*fid, key.clone()));
+        }
+    }
+    siblings
+}
+
+/// Explicit targets that name only SOME outputs of a multi-output feature consume
+/// that whole feature (consumption is tracked per feature), which silently
+/// dropped the untargeted outputs (docs/notes/agent_bicycle_session_failures_2026_09_14.md F9).
+/// Carry them unchanged as extra outputs of the consuming feature, with a
+/// warning — the custody rule the legacy most-recent path already follows.
+fn carry_untargeted_siblings(
+    result: &mut OpResult,
+    eff: &crate::types::EffectiveCombine,
+    feature_results: &HashMap<Uuid, OpResult>,
+) {
+    for (fid, key) in untargeted_sibling_sources(eff, feature_results) {
+        let Some(body) = feature_results
+            .get(&fid)
+            .and_then(|r| r.outputs.iter().find(|(k, _)| *k == key))
+            .map(|(_, b)| b.clone())
+        else {
+            continue;
+        };
+        let index = result.outputs.len();
+        result.outputs.push((OutputKey::Body { index }, body));
+        result.diagnostics.warnings.push(format!(
+            "output {key:?} of feature {fid} was not targeted; kept unchanged as a separate body"
+        ));
+    }
+}
+
 /// The solved profile an extrude/revolve addresses (v4 §2.9,
 /// `specs/waffle_v4_document_model.md`): by entity-id set when
 /// `profile_entity_ids` is present — order-insensitive, exactly one loop
@@ -1775,7 +1880,7 @@ fn resolve_share_a_face(
         if profile_pts.len() >= 3 {
             let profile_hull = crate::share_a_face::convex_hull_2d(&profile_pts);
             let s_o = sketch.plane_origin;
-            let s_n = sketch.plane_normal;
+            let s_n = unit_normal(sketch.plane_normal);
             let x_axis = tangent_x_from_normal(s_n);
             let y_axis = [
                 s_n[1] * x_axis[2] - s_n[2] * x_axis[1],
@@ -2112,6 +2217,19 @@ fn find_datum_plane_data(
     Err(EngineError::ResolutionFailed {
         reason: format!("Datum plane {} not found", datum_id),
     })
+}
+
+/// A sketch's plane normal at unit length. Stored normals are kept verbatim (an
+/// agent or an old file may carry a 6-decimal vector); every kernel frame and
+/// default extrude direction is built from the unit vector. An un-normalized
+/// normal scaled circle frames by |n|: whole-circle extrudes were rejected and
+/// region extrudes built off-circle edges (docs/notes/agent_bicycle_session_failures_2026_09_14.md F1/F2).
+fn unit_normal(n: [f64; 3]) -> [f64; 3] {
+    let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    if len < TAU_WORK {
+        return n;
+    }
+    [n[0] / len, n[1] / len, n[2] / len]
 }
 
 /// Compute a tangent X axis from a plane normal.
