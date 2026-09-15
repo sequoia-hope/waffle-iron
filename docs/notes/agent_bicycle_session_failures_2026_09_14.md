@@ -1,0 +1,297 @@
+# Agent-link bicycle session — failure log (2026-09-14)
+
+Failures hit while an agent built a bicycle frame and fork over the agent link
+(MCP) in the "Bike frame" document (browser-local). Each entry is written so a
+test case can be built from it: minimal repro, observed vs expected, evidence,
+and what is and is not yet verified. Status: **OPEN** unless marked otherwise.
+
+Conventions: world Z up, +X forward; units meters; all calls are agent-link MCP
+tools unless stated.
+
+---
+
+## F1 — Sketch plane normal is stored un-normalized; region-path extrude then builds off-circle arc edges that the boolean rejects
+
+**Severity:** high — silently produces bodies that look and measure fine but
+can never be a boolean operand. Every cut against the frame tubes failed.
+
+**Repro (minimal):**
+1. `sketch_create` with `plane: {origin: [0,0,0], normal: [0.718286, 0, 0.695747]}`
+   (|n| = 1 − 5×10⁻⁷, a 6-decimal rounding of a unit vector), entities: a point
+   and two concentric circles r = 0.0159 and r = 0.015.
+2. `feature_add` Extrude of the annulus sub-region (explicit `region` with arc
+   `outer_edges`/`hole_edges`, `boundary_entity_ids: [1,2]`), `combine: NewBody`.
+   → succeeds; `body_measure` volume is exact (π(R²−r²)·L).
+3. `feature_add` Extrude `combine: Cut` with `targets: [that body]` using any
+   tool that intersects it.
+   → `FeatureRebuildFailed: … yang-rs rejected the converted input B-Rep:
+   malformed B-Rep topology: circle edge 0: endpoint vertex 0 is not on the circle
+   (radial 0.011100004621446195 vs radius 0.0111 …)`.
+
+**Observed:** the radial error ratio equals the normal's length error
+(e.g. 0.022000006910 / 0.022 = 1 + 3.14×10⁻⁷ for normal
+(−0.292372, 0, 0.956305), |n| − 1 = 3.2×10⁻⁷). Supplying full-precision region
+vertices did not change the error at all (identical digits), because
+`resolve_extrude_regions` (`crates/feature-engine/src/rebuild.rs:1679`)
+re-derives the region from the sketch whenever `boundary_entity_ids` is set.
+
+**Expected:** either `sketch_create` / Sketch deserialization normalizes
+`plane_normal`, or the plane frame used to embed region arcs normalizes its
+basis; a body that extrudes successfully must be a valid boolean operand.
+
+**Verified:** the error, the ratio match, and that precise vertices do not help.
+**CONFIRMED (fix-by-input):** after `feature_edit` of the tool sketch
+(`1a066c29…`) and the down-tube sketch (`8c2b7db8…`) to full-precision unit
+normals (e.g. (−0.29237190652740075, 0, 0.9563046942651346)), the identical
+head-tube Cut (symmetric 0.2 per side, targets top tube + down tube) succeeded:
+`bodies_added: [6ef34640…/Main, 6ef34640…/Body:1]`. The top tube's sketch
+normal was exactly (1, 0, 0) all along, and it was never the rejected operand.
+**Not yet located:** the exact site where the un-normalized normal scales the
+arc embedding.
+
+**Test-case idea:** feature-engine rebuild test — sketch with a normal of length
+1 ± 1e-6, annulus region extrude, then a Cut targeting it; assert the cut
+succeeds (or that sketch creation rejects/normalizes the normal loudly).
+
+---
+
+## F2 — Whole-circle profile extrude rejects a 6-decimal normal (`ProfileCircleFrameNotOrthonormal`)
+
+**Severity:** medium (loud, but an agent supplying rounded normals hits it).
+
+**Repro:** a sketch whose `plane_normal` is (−0.292372, 0, 0.956305)
+(session-1 sketch `1a066c29…`, one circle r = 0.022); `feature_add` Extrude with
+`profile_entity_ids: [1]`, `symmetric: true`, `combine: Cut`, explicit targets.
+→ `FeatureRebuildFailed: kernel error: kernel-v2 circle profile rejected:
+ProfileCircleFrameNotOrthonormal`.
+
+**Cause (code-read, not yet test-confirmed):** `CIRCLE_FRAME_ORTHONORMALITY_TOLERANCE
+= 1e-9` (`crates/kernel-v2/src/profile.rs:101`, rejection at `:340`); the frame
+is built from the stored normal without normalization, so a 3×10⁻⁷ length error
+fails. Same root as F1 (un-normalized normal), different symptom: this path is
+loud, F1's region path is silent until a boolean.
+
+**Expected:** normalize once at the sketch-plane boundary; the kernel tolerance
+is correct for its contract ("sketch planes supply normalized bases") — the
+engine is not honoring that contract.
+
+---
+
+## F3 — Closed arc+line loop reported with `profile_entity_ids: null`
+
+**Severity:** low (workaround: explicit region).
+
+**Repro:** `sketch_create` on any plane with six pinned points and
+Arc(center 0, 2→3), Line(3→4), Arc(center 1, 4→5), Line(5→2) (a stadium,
+centers (±0.04, 0), r = 0.016). → result `regions: [{profile_entity_ids: null,
+area_m2: 0.0033632}]`, although `solved_profiles` contains a single outer
+profile with `entity_ids: [6,7,8,9]`.
+
+**Expected:** a region equal to one whole closed loop carries its
+`profile_entity_ids` (as polygons made only of Lines do — the dropout plates in
+the same session got `[11..21]`).
+
+---
+
+## F4 — `PageDisconnected` mid-call during a burst of reads
+
+**Repro context:** a single response issued 4 `feature_edit` (Sketch) + 8
+`feature_get` + 1 Bash in parallel; the 8th `feature_get` returned
+`PageDisconnected: The page disconnected while the call was in flight`.
+`waffle_status` immediately after: `ready`, `app_build 2026-09-14 54b43f86`,
+document name now "Bike frame" (was "Untitled" at session start — possibly a
+user rename; not confirmed). `model_summary` showed no lost state.
+
+**Not verified:** whether the burst caused the disconnect (tab backgrounded /
+reloaded vs relay load). Worth a relay test that fires ~13 concurrent calls.
+
+**Second occurrence (during heavy booleans):** 4 parallel `feature_add` Cuts
+(seat-tube tool → 3 targets, BB tool → 4 targets, two plate slot cuts → 1 target
+each), issued while the tree already held one 2-target cylinder Cut and every
+rebuild took > 2 min. Three calls returned `PageDisconnected`, the fourth
+`PageAway`. Whether any cut was committed is unknown until `model_summary`.
+Suspects: main-thread WASM rebuild starving the page's socket keep-alive, or a
+tab crash / OOM from the boolean. Needs a browser-console capture on repro.
+
+**Third occurrence (tab RELOAD, draft restore):** with ~8 cylinder Cuts in the
+tree (each rebuild minutes long), a batch of `body_measure` ×2 +
+`body_rename` ×2 + one plate-slot `feature_add` Cut (right dropout → chainstay R,
+seatstay R) ran. The measures and the first rename returned. The second rename
+got `PageDisconnected`; the Cut got `UserBusy: Waffle Iron is rebuilding a change
+the user made … the Waffle Iron tab reloaded since the previous call and
+reopened its last work from the browser's draft`. So the tab reloaded (crash,
+OOM or mobile tab kill) and the draft-restore rebuild is the "user change". The
+growing boolean count per rebuild makes a WASM memory ceiling the lead suspect;
+measure heap per rebuild on repro.
+
+---
+
+## F5 — First `viewport_capture` after `parameters_set` + `viewport_view(iso)` was blank
+
+**Repro context:** `viewport_view {view: "iso"}` → `parameters_set` (adds 7
+parameters, no geometry change) and `viewport_capture` issued in the same
+parallel batch → an 800×1024 image of the background only, with a single
+bright pixel at the center. The next capture (after another `viewport_view`) was
+normal. Not reproduced; likely the capture raced the rebuild re-render.
+
+---
+
+## F7 — After one Cut exists, every edit anywhere takes > 120 s
+
+**Observed:** once the head-tube Cut (two cylinder×cylinder subtracts) was in
+the tree, three `feature_edit`s of *Sketch* features that sit upstream in the
+tree but feed only unrelated NewBody extrudes each ran past the MCP 120 s
+foreground limit (moved to background; completed ~2+ minutes later). Before the
+Cut, the same kind of edit returned in well under a second.
+
+**Suspected:** full-tree rebuild on every edit (no dependency pruning), so each
+edit re-runs every boolean, serialized behind the page lock.
+**Not measured yet:** the single-boolean wall time for this Cut; whether the
+rebuild re-runs booleans whose inputs did not change.
+**Test idea:** feature-engine rebuild test counting kernel boolean invocations
+when an unrelated upstream sketch is edited (expect 0 re-runs, or a documented
+cache).
+
+---
+
+## F8 — Seat-tube cope fails: `TessellationFailed … patch triangle collapsed at render precision`
+
+**Severity:** high — blocks the seat cluster copes (kernel capability tail, not an input error).
+
+**Repro (model state):** tree as of the head-tube Cut (`6ef34640…`), then
+`feature_add` Extrude `combine: Cut` from sketch `1fc98604…` (origin 0, unit
+normal along seat-tube axis (−0.2840149556049158, 0, 0.958819850124484), one
+circle r = 0.0143 via explicit precise arc region), depth 0.6 one-sided,
+targets `[6ef34640…/Main (top tube, already coped at the head tube),
+e097249f…/Main (seatstay L), 35a47515…/Main (seatstay R)]`.
+→ after > 120 s: `FeatureRebuildFailed: operation error: kernel error: boolean
+operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face:
+FaceId(194), reason: "patch triangle collapsed at render precision" }`.
+
+**Geometry of the targets (for a harness fixture):**
+- Top tube: annulus R 12.7 / r 11.8 mm along +X from (−0.150531, 0, 0.508175),
+  starting ON the seat-tube axis (end cap disc fully inside the tool cylinder).
+- Seatstays: annulus R 8 / r 7.2 mm from (−0.390633, ±0.069372, 0.090859) along
+  (0.5338869746515809, ∓0.1371549934880182, 0.8343579603855193), length
+  0.465689 — end centerline at (−0.142008, ±0.0055, 0.47941), i.e. 5.5 mm off the
+  tool axis; the end cap lies inside the r 14.3 tool with ≈ 0.8 mm margin.
+- Tool: solid cylinder r 14.3 mm, axis through the origin along the seat-tube
+  direction, axial range 0 … 0.6 m.
+
+**Bisection:** results below as each single-target cut is tried.
+- Target `[top tube 6ef34640…/Main]` alone → **fails identically**
+  (`TessellationFailed { face: FaceId(218), reason: "patch triangle collapsed at
+  render precision" }`, > 120 s). The top tube is the output of a previous Cut
+  (it carries a degree-4 cope patch at its front end, 0.54 m away from this cut),
+  so candidates: chained boolean re-entry of a cope-patch body, or the
+  cylinder×annulus cut at the seat tube itself.
+- Target `[seatstay L e097249f…/Main]` alone (a fresh, never-cut NewBody) →
+  **fails differently, fast:** `BooleanFailed("yang-rs: Stage-4 relocation region
+  around vertex 32 is invalid: LocalRefinementRequired")` — the documented
+  Stage-4 relocation-wall ERROR tail (`docs/yang_tail_triage.md`). Geometry: the
+  stay (R 8 mm) is coped by a r 14.3 mm cylinder whose axis passes 5.5 mm from
+  the stay's end centerline at ≈ 49° to the stay axis; the stay's bore
+  (r 7.2 mm) also intersects the tool, giving two nested degree-4 cope curves
+  ~0.8 mm apart.
+- So the seat-cluster copes are blocked by kernel capability for BOTH target
+  kinds (fresh stay: Stage-4 LRR; previously-coped top tube: tessellation
+  collapse). Not worked around; recorded as-is.
+
+---
+
+## F9 — Cutting ONE output of a multi-body Cut feature silently deletes its sibling outputs
+
+**Severity:** critical — silent loss of an unrelated body; no error, no warning.
+
+**Repro (model state):**
+1. Cut feature A (`6ef34640…`): head-tube tool, `targets: [top tube, down tube]`
+   → outputs `A/Main` (top tube) and `A/Body:1` (down tube). Both measured fine.
+2. `feature_add` Cut feature B (`dd3f32d6…`): BB-shell tool (solid r 20 mm along
+   Y, symmetric 45 mm), `targets: [FeatureOutput{A, Body{index:1}}]` only.
+   The tool does not come near `A/Main` (top tube is ~0.5 m away).
+3. Result: `bodies_removed: [A/Main, A/Body:1]`, `bodies_added: [B/Main]`,
+   `errors: []`, `warnings: []`.
+4. `model_summary`: no top-tube body anywhere. `B/Main` measures as the coped
+   **down tube** (bbox y ±0.0159, max x 0.4246) but carries the display name
+   "Top tube" (A/Main's name was transferred to B/Main).
+
+**Expected:** only `A/Body:1` is consumed; `A/Main` stays live (or is re-emitted
+as a leftover of B) with its name; the body-name map follows the consumed body,
+not output slot `Main`.
+
+**Two bugs visible:** (a) sibling outputs of the anchoring feature are consumed
+though not targeted; (b) the display name follows the `Main` slot rather than the
+body identity.
+
+**Root cause (code-read):** consumption is tracked per FEATURE, not per output:
+`RebuildState::consumed_features: HashSet<Uuid>` ("Feature IDs whose solid was
+consumed", `crates/feature-engine/src/rebuild.rs:108-110`), filled from
+`find_consumed_feature_ids` (`:1108`) and inserted at `:174`/`:217`. Consuming
+`A/Body:1` therefore marks all of A consumed, and `A/Main` stops being a live
+body. The Cut dispatch itself (`dispatch_combine`, `:1549+`) only produces one
+result per *target*, so the untargeted sibling has nowhere to go. Fix shape:
+key consumption by `(feature_id, OutputKey)`; carry the display-name map by body
+identity.
+
+**Test:** feature-engine rebuild test — two-target Cut A; Cut B targeting only
+`A/Body{1}` with a tool disjoint from `A/Main`; assert `A/Main` is still in the
+live body list with its name.
+
+**Recovery used:** `feature_delete` B (restores A's outputs). Workaround: target
+ALL outputs of A in B (the tool-disjoint one should pass through unchanged).
+
+---
+
+## F10 — Tab reload during a long rebuild → draft restore → model EMPTY and autosaved
+
+**Severity:** critical — likely loss of the whole document (stored copy AND draft).
+
+**Sequence (UTC, 2026-09-14/15):**
+1. Last explicit `document_save`: 23:21:46. After it, ~10 successful Cut features.
+2. ~00:13: tab reloads mid-call (see F4, third occurrence); `feature_add` returns
+   `UserBusy … tab reloaded … reopened its last work from the browser's draft`.
+3. `waffle_status`: `ready`, document "Bike frame". `document_info`:
+   `unsaved: false`, one Part tab. `model_summary` (three times over ~2 min):
+   `features: []`, `bodies: []`, `parameters: []`.
+4. `storage_list`: the stored record `0bbcd408…` has `modified` = 00:14:10.501 —
+   written AFTER the reload.
+
+**Code path:** `restoreAutoSave` (draft branch, `app/src/lib/engine/store.svelte.js:6973-6981`)
+opens the draft, then calls `scheduleAutoSave()` unconditionally. `autosaveNow`
+(`:7163`) → `buildDocumentJson` (`:6819`), which composes via the engine
+(`bridge.send({type: 'SaveDocument'…})`), then writes BOTH `saveDraft` (the same
+per-tab draft record it restored from) and `putRecord` (the stored document).
+If the engine tree is empty or incomplete when the timer fires (restore rebuild
+still running, or it failed or crashed), both copies are overwritten with that
+state. **Confirmed in the bridge:** `UiToEngine::SaveDocument`
+(`crates/wasm-bridge/src/dispatch.rs:311-323`) replaces the active Part tab's
+`features` with `state.engine.tree.clone()` whatever the UI's tab snapshot
+holds, so an empty engine tree is saved as an empty document. Nothing checks "the document shrank from N features to 0".
+
+**Not yet verified:** the stored bytes themselves (reading them means
+`document_open`, deferred to avoid a further overwrite); whether the restore
+rebuild failed or was still running.
+
+**Expected / fix shape:** never autosave while a restore or rebuild is pending;
+refuse, or keep a backup, when a save would drop all features of a previously
+non-empty document; keep the draft being restored from until a save of a
+FULLY rebuilt model succeeds (or keep N prior drafts).
+
+**Test ideas:** store test — restore a draft whose rebuild is slow or fails,
+fire the autosave timer, assert the stored record and draft are unchanged. GUI
+test — kill the page mid-rebuild of a multi-boolean document, reload, assert
+the feature count survives.
+
+---
+
+## F6 — View names assume Y-up; results for the same view name differed
+
+**Observed:** for this Z-up model, `viewport_view {view: "top"}` gives the side
+profile (camera +Y, `up: [0,0,-1]`, image upside down) and `"front"` looks
+straight down. `"right"` (camera at +X, `up: [0,1,0]`) once produced a side
+profile image and later, with more bodies present, a top-down-looking image —
+not explained; cameras recorded: first `position [1.4268, ~0, 0.2605]`,
+second `position [1.7837, 5.4e-6, 0.2605]`.
+
+**Possible test:** a Z-up fixture part; assert each named view's camera
+direction and image orientation.
